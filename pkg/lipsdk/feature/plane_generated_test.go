@@ -82,31 +82,23 @@ func TestGeneratedCode_NoForbiddenPatterns(t *testing.T) {
 	require.NoError(t, err)
 	content := string(contentBytes)
 
-	// Across the entire file, reflect, unsafe, and range loops are strictly forbidden
+	// Across the entire file, reflect, unsafe, range loops, any, type assertions, and maps are strictly forbidden
 	assert.False(t, strings.Contains(content, "reflect"), "plane_generated.go must not contain reflect")
 	assert.False(t, strings.Contains(content, "unsafe"), "plane_generated.go must not contain unsafe")
 	assert.False(t, strings.Contains(content, "range "), "plane_generated.go must not contain range loops for dispatch")
 
-	// Struct storage and init() closures (request path) must not contain any, type assertions, or maps
-	// Exclude contributeCandidateMapTo which is specifically for test/map-backed candidate fallback
-	sections := strings.Split(content, "func contributeCandidateMapTo(")
-	require.Len(t, sections, 2)
-	initParts := strings.Split(sections[1], "\nfunc init() {\n")
-	require.Len(t, initParts, 2)
-	requestPathCode := sections[0] + "\nfunc init() {\n" + initParts[1]
-
-	forbiddenOnRequestPath := []struct {
+	forbiddenPatterns := []struct {
 		pattern string
 		reason  string
 	}{
-		{"any", "forbidden runtime discovery/untyped any in generated request dispatch"},
-		{".(", "forbidden type assertion in generated request dispatch"},
-		{"map[", "forbidden map lookup in generated request dispatch"},
+		{"any", "forbidden runtime discovery/untyped any in generated code"},
+		{".(", "forbidden type assertion in generated code"},
+		{"map[", "forbidden map lookup in generated code"},
 	}
 
-	for _, tc := range forbiddenOnRequestPath {
-		assert.False(t, strings.Contains(requestPathCode, tc.pattern),
-			"request path generated code must not contain %q: %s", tc.pattern, tc.reason)
+	for _, tc := range forbiddenPatterns {
+		assert.False(t, strings.Contains(content, tc.pattern),
+			"generated code must not contain %q: %s", tc.pattern, tc.reason)
 	}
 }
 

@@ -10,10 +10,6 @@ func emitProjectDiagnostics(buf *bytes.Buffer, planes []planeInfo) {
 	buf.WriteString("func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {\n")
 	buf.WriteString("\tif in.IsZero() {\n\t\treturn nil\n\t}\n")
 	buf.WriteString("\tgf := in.frozen\n")
-	buf.WriteString("\tif gf == nil && (in.values != nil || in.identities != nil) {\n")
-	buf.WriteString("\t\tcset := in.ToContributions()\n")
-	buf.WriteString("\t\tgf = cset.Freeze().frozen\n")
-	buf.WriteString("\t}\n")
 	buf.WriteString("\tif gf == nil {\n\t\treturn nil\n\t}\n")
 	buf.WriteString("\tvar projections []DiagnosticPlaneProjection\n\n")
 

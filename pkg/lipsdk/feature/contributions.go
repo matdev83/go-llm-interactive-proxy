@@ -3,45 +3,30 @@ package feature
 import (
 	"fmt"
 	"maps"
-	"reflect"
 )
 
 // ContributionSet accumulates typed, validated plane contributions during feature plugin construction.
 // It is mutable during assembly and converted to an immutable [FrozenPlaneSet] via [ContributionSet.Freeze].
 type ContributionSet struct {
-	// TEST-ONLY: map-backed storage is test-only interim for planes without production generated bindings.
-	// Task 2.3 replaces with typed struct + ordinal dispatch (zero maps, zero reflection).
-	values     map[string]any
-	identities map[string]string
-	pluginIDs  map[string]string
-	generated  *generatedContributions
+	pluginIDs map[string]string
+	generated *generatedContributions
 }
 
 // NewContributionSet creates a new empty, mutable [ContributionSet].
 func NewContributionSet() *ContributionSet {
 	return &ContributionSet{
-		values:     make(map[string]any),
-		identities: make(map[string]string),
-		pluginIDs:  make(map[string]string),
-		generated:  newGeneratedContributions(),
+		pluginIDs: make(map[string]string),
+		generated: newGeneratedContributions(),
 	}
 }
 
 // Has reports whether a contribution for planeID exists in the set.
 func (s *ContributionSet) Has(planeID string) bool {
-	if s == nil {
+	if s == nil || s.pluginIDs == nil {
 		return false
 	}
-	if s.pluginIDs != nil {
-		if _, ok := s.pluginIDs[planeID]; ok {
-			return true
-		}
-	}
-	if s.values != nil {
-		_, ok := s.values[planeID]
-		return ok
-	}
-	return false
+	_, ok := s.pluginIDs[planeID]
+	return ok
 }
 
 // Clone returns a deep copy of the ContributionSet.
@@ -49,23 +34,18 @@ func (s *ContributionSet) Clone() *ContributionSet {
 	if s == nil {
 		return nil
 	}
-	valuesCopy := make(map[string]any, len(s.values))
-	for k, v := range s.values {
-		valuesCopy[k] = cloneAny(v)
-	}
-	identitiesCopy := make(map[string]string, len(s.identities))
-	maps.Copy(identitiesCopy, s.identities)
 	pluginIDsCopy := make(map[string]string, len(s.pluginIDs))
 	maps.Copy(pluginIDsCopy, s.pluginIDs)
 	var genCopy *generatedContributions
 	if s.generated != nil {
 		genCopy = s.generated.clone()
+		if onCloneGenerated != nil {
+			onCloneGenerated(s.generated, genCopy)
+		}
 	}
 	return &ContributionSet{
-		values:     valuesCopy,
-		identities: identitiesCopy,
-		pluginIDs:  pluginIDsCopy,
-		generated:  genCopy,
+		pluginIDs: pluginIDsCopy,
+		generated: genCopy,
 	}
 }
 
@@ -76,22 +56,28 @@ func (s *ContributionSet) Freeze() FrozenPlaneSet {
 	if s == nil {
 		return FrozenPlaneSet{}
 	}
-	valuesCopy := make(map[string]any, len(s.values))
-	for k, v := range s.values {
-		valuesCopy[k] = cloneAny(v)
+	var pluginIDsCopy map[string]string
+	if s.pluginIDs != nil {
+		pluginIDsCopy = make(map[string]string, len(s.pluginIDs))
+		maps.Copy(pluginIDsCopy, s.pluginIDs)
 	}
-	identitiesCopy := make(map[string]string, len(s.identities))
-	maps.Copy(identitiesCopy, s.identities)
 	var genFrozen *generatedFrozen
 	if s.generated != nil {
 		genFrozen = s.generated.freeze()
+		if onFreezeGenerated != nil {
+			onFreezeGenerated(s.generated, genFrozen)
+		}
 	}
 	return FrozenPlaneSet{
-		values:     valuesCopy,
-		identities: identitiesCopy,
-		frozen:     genFrozen,
+		pluginIDs: pluginIDsCopy,
+		frozen:    genFrozen,
 	}
 }
+
+var (
+	onFreezeGenerated func(*generatedContributions, *generatedFrozen)
+	onCloneGenerated  func(src, dst *generatedContributions)
+)
 
 // ContributeSource adds a typed contribution from an explicit source (e.g. [SourceFeature], [SourceHost],
 // [SourceGenerationBinder]) to the [ContributionSet]. If any validation or combination fails, the set is
@@ -100,21 +86,24 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	if s == nil {
 		return fmt.Errorf("feature: nil ContributionSet")
 	}
+
+	gp := p.generated.policy
+	if p.generated.contribute == nil || p.generated.get == nil || gp == nil || gp.planeID != p.ID {
+		return &AttributedError{
+			PluginID: contributorID,
+			PlaneID:  p.ID,
+			Err:      ErrUngeneratedPlane,
+		}
+	}
+
 	if contributorID == "" {
 		return &AttributedError{
 			PlaneID: p.ID,
 			Err:     fmt.Errorf("%w: plugin ID must not be empty", ErrInvalidContribution),
 		}
 	}
-	if err := p.ValidateDeclaration(); err != nil {
-		return &AttributedError{
-			PluginID: contributorID,
-			PlaneID:  p.ID,
-			Err:      err,
-		}
-	}
 
-	rule := p.Rules.RuleFor(source)
+	rule := gp.rules.RuleFor(source)
 	if rule == CombUnsupported {
 		return &AttributedError{
 			PluginID: contributorID,
@@ -125,15 +114,15 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 
 	// 1. Apply NilPolicy before Validate and Combine.
 	isNil := false
-	if p.IsNil != nil {
-		isNil = p.IsNil(v)
+	if gp.isNil != nil {
+		isNil = gp.isNil(v)
 	} else {
 		var anyVal any = v
 		isNil = (anyVal == nil)
 	}
 
 	if isNil {
-		switch p.NilPolicy {
+		switch gp.nilPolicy {
 		case NilReject:
 			return &AttributedError{
 				PluginID: contributorID,
@@ -149,8 +138,8 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	}
 
 	// 2. Validate incoming contribution.
-	if p.Validate != nil {
-		if err := p.Validate(v); err != nil {
+	if gp.validate != nil {
+		if err := gp.validate(v); err != nil {
 			return &AttributedError{
 				PluginID: contributorID,
 				PlaneID:  p.ID,
@@ -162,10 +151,10 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	// 3. Identity extraction and validation (if plane requires it or declares an identity extractor).
 	var incomingID string
 	var hasID bool
-	if p.Identity != nil {
-		if rule == CombExclusive || rule == CombReplaceByIdentity || p.generated.contribute == nil || s.generated == nil {
-			incomingID, hasID = p.Identity(v)
-			if (rule == CombExclusive || rule == CombReplaceByIdentity) && (!hasID || incomingID == "") {
+	if gp.identity != nil {
+		if rule == CombExclusive || rule == CombReplaceByIdentity {
+			incomingID, hasID = gp.identity(v)
+			if !hasID || incomingID == "" {
 				if rule == CombExclusive {
 					return &AttributedError{
 						PluginID: contributorID,
@@ -179,18 +168,34 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 					Err:      fmt.Errorf("%w: failed to extract identity from replace_by_identity contribution", ErrInvalidContribution),
 				}
 			}
+			if gp.validateIdentity != nil && hasID && incomingID != "" {
+				if err := gp.validateIdentity(incomingID); err != nil {
+					return &AttributedError{
+						PluginID: contributorID,
+						PlaneID:  p.ID,
+						Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+					}
+				}
+			}
 		}
 	}
 
 	// 4. Exclusive conflict check.
 	if rule == CombExclusive {
-		if existingID, occupied := s.identities[p.ID]; occupied {
-			return makeExclusiveConflictError(contributorID, p.ID, p.ExclusiveConflictError, existingID, incomingID)
+		if _, occupied := s.pluginIDs[p.ID]; occupied {
+			var existingID string
+			if p.generated.identity != nil {
+				frozen := s.Freeze()
+				if frozen.frozen != nil {
+					existingID, _ = p.generated.identity(frozen.frozen)
+				}
+			}
+			return makeExclusiveConflictError(contributorID, p.ID, gp.exclusiveConflictError, existingID, incomingID)
 		}
 	}
 
 	// 5. Generated storage path: pure storage, closures are NOT responsible for identity validation or conflict checks.
-	if p.generated.contribute != nil && s.generated != nil {
+	if s.generated != nil {
 		if err := p.generated.contribute(s.generated, source, contributorID, v); err != nil {
 			return &AttributedError{
 				PluginID: contributorID,
@@ -198,70 +203,10 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 			}
 		}
-		if hasID && incomingID != "" {
-			s.identities[p.ID] = incomingID
-		}
 		s.pluginIDs[p.ID] = contributorID
 		return nil
 	}
 
-	// 6. Test-only map-backed storage path (Combine): replaced by generated typed storage in task 2.3.
-	// TEST-ONLY: replaced by generated typed storage in task 2.3; no production plane will use this path.
-	incoming := cloneValue(v)
-
-	if rule == CombExclusive {
-		var zero P
-		combined, err := p.Combine(source, zero, incoming)
-		if err != nil {
-			return &AttributedError{
-				PluginID: contributorID,
-				PlaneID:  p.ID,
-				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-			}
-		}
-
-		s.values[p.ID] = cloneValue(combined)
-		s.identities[p.ID] = incomingID
-		s.pluginIDs[p.ID] = contributorID
-		return nil
-	}
-
-	var current P
-	if existingVal, exists := s.values[p.ID]; exists {
-		if typed, ok := existingVal.(P); ok {
-			current = typed
-		}
-	}
-
-	// Defensive copy of current before invoking Combine to ensure fail-before-mutate:
-	// a fallible combiner mutating current on failure cannot corrupt the stored candidate value.
-	currentCopy := cloneValue(current)
-	combined, err := p.Combine(source, currentCopy, incoming)
-	if err != nil {
-		return &AttributedError{
-			PluginID: contributorID,
-			PlaneID:  p.ID,
-			Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-		}
-	}
-
-	clonedCombined := cloneValue(combined)
-	if anyVal := any(v); anyVal != nil {
-		rv := reflect.ValueOf(anyVal)
-		if rv.Kind() == reflect.Slice && !rv.IsNil() {
-			if anyComb := any(clonedCombined); anyComb == nil || isReflectNil(reflect.ValueOf(anyComb)) {
-				if typedEmpty, ok := reflect.MakeSlice(rv.Type(), 0, 0).Interface().(P); ok {
-					clonedCombined = cloneValue(typedEmpty)
-				}
-			}
-		}
-	}
-
-	s.values[p.ID] = clonedCombined
-	s.pluginIDs[p.ID] = contributorID
-	if hasID && incomingID != "" {
-		s.identities[p.ID] = incomingID
-	}
 	return nil
 }
 
@@ -276,65 +221,4 @@ func Contribute[P any](s *ContributionSet, p Plane[P], pluginID string, v P) err
 // ContributeCandidate contributes candidate planes under SourceFeature.
 func (s *ContributionSet) ContributeCandidate(cand FrozenPlaneSet) error {
 	return cand.ContributeCandidateTo(s, SourceFeature, "candidate")
-}
-
-func cloneValue[T any](v T) T {
-	var anyVal any = v
-	if anyVal == nil {
-		return v
-	}
-	cloned := cloneAny(anyVal)
-	if typed, ok := cloned.(T); ok {
-		return typed
-	}
-	return v
-}
-
-func cloneAny(v any) any {
-	if v == nil {
-		return nil
-	}
-	val := reflect.ValueOf(v)
-	switch val.Kind() {
-	case reflect.Slice:
-		if val.IsNil() {
-			return v
-		}
-		l := val.Len()
-		c := val.Cap()
-		out := reflect.MakeSlice(val.Type(), l, c)
-		reflect.Copy(out, val)
-		return out.Interface()
-	case reflect.Map:
-		if val.IsNil() {
-			return v
-		}
-		out := reflect.MakeMapWithSize(val.Type(), val.Len())
-		iter := val.MapRange()
-		for iter.Next() {
-			out.SetMapIndex(iter.Key(), iter.Value())
-		}
-		return out.Interface()
-	default:
-		return v
-	}
-}
-
-func isReflectNil(v reflect.Value) bool {
-	if !v.IsValid() {
-		return true
-	}
-	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Interface, reflect.Slice, reflect.UnsafePointer:
-		return v.IsNil()
-	default:
-		return false
-	}
-}
-
-func isNilValue(v any) bool {
-	if v == nil {
-		return true
-	}
-	return isReflectNil(reflect.ValueOf(v))
 }

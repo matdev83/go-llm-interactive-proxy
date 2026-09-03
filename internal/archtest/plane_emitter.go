@@ -269,6 +269,9 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 				fmt.Fprintf(&buf, "\t\tif err := %s.generated.contribute(gc, source, contributorID, gf.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", p.varName, p.fieldName)
 			}
 		} else if p.typeExpr == "int" {
+			fmt.Fprintf(&buf, "\tif gf.%s < 0 {\n", p.fieldName)
+			fmt.Fprintf(&buf, "\t\treturn &AttributedError{\n\t\t\tPluginID: contributorID,\n\t\t\tPlaneID:  %s.ID,\n\t\t\tErr:      fmt.Errorf(\"%%w: must be >= 0, got %%d\", ErrInvalidContribution, gf.%s),\n\t\t}\n", p.varName, p.fieldName)
+			buf.WriteString("\t}\n")
 			fmt.Fprintf(&buf, "\tif gf.%s > 0 {\n", p.fieldName)
 			fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
 			fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
@@ -396,9 +399,6 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	buf.WriteString("\treturn \"\", false\n")
 	buf.WriteString("}\n\n")
 
-	// 8. map replay functions
-	emitMapReplayFunctions(&buf, planes)
-
 	// 9. init() binding closures
 	buf.WriteString("func init() {\n")
 	for _, p := range planes {
@@ -464,6 +464,19 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 			fmt.Fprintf(&buf, "\t\t\treturn gf.%sID, gf.%sHasID\n", p.fieldName, p.fieldName)
 			buf.WriteString("\t\t},\n")
 		}
+
+		// policy
+		fmt.Fprintf(&buf, "\t\tpolicy: &generatedPolicy[%s]{\n", p.typeExpr)
+		fmt.Fprintf(&buf, "\t\t\tplaneID: %s.ID,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\trules: %s.Rules,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tnilPolicy: %s.NilPolicy,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tisNil: %s.IsNil,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tvalidate: %s.Validate,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tvalidateIdentity: %s.ValidateIdentity,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tcombine: %s.Combine,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tidentity: %s.Identity,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\texclusiveConflictError: %s.ExclusiveConflictError,\n", p.varName)
+		buf.WriteString("\t\t},\n")
 
 		buf.WriteString("\t}\n")
 	}

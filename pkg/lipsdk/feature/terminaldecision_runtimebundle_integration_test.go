@@ -47,17 +47,9 @@ func TestTerminalDecisionMapBackedCandidate_CompileGenerationSuccessAndIsolation
 
 	candProvider := &integrationTDProvider{id: "cand-term-provider"}
 
-	candidateMap := map[string]any{
-		feature.PlaneTerminalDecisionProvider.ID: terminaldecision.Provider(candProvider),
-	}
-	candidateIdentities := map[string]string{
-		feature.PlaneTerminalDecisionProvider.ID: "cand-term-provider",
-	}
-
-	candidateFrozen := feature.NewFrozenPlaneSetFromMapForTest(candidateMap, candidateIdentities)
-
-	// Immediately mutate original candidate map to prove defensive copy
-	candidateMap[feature.PlaneTerminalDecisionProvider.ID] = &integrationTDProvider{id: "mutated-provider"}
+	csCand := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(csCand, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(candProvider)))
+	candidateFrozen := csCand.Freeze()
 
 	reg := pluginreg.NewRegistry()
 
@@ -147,13 +139,9 @@ func TestTerminalDecisionMapBackedCandidate_CompileGenerationConflictWithBase(t 
 	require.True(t, ok)
 	assert.Equal(t, "base-term-provider", gbBase.TerminalDecisionProvider().ID())
 
-	candidateMap := map[string]any{
-		feature.PlaneTerminalDecisionProvider.ID: terminaldecision.Provider(candProvider),
-	}
-	candidateIdentities := map[string]string{
-		feature.PlaneTerminalDecisionProvider.ID: "cand-term-provider",
-	}
-	candFrozen := feature.NewFrozenPlaneSetFromMapForTest(candidateMap, candidateIdentities)
+	csCand := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(csCand, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(candProvider)))
+	candFrozen := csCand.Freeze()
 
 	_, err = runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process: ps,
@@ -222,10 +210,8 @@ func TestTerminalDecisionMalformedMapCandidate_CompileGenerationAttributed(t *te
 	require.NotNil(t, genBaseline)
 	t.Cleanup(func() { _ = genBaseline.Close() })
 
-	malformedMap := map[string]any{
-		feature.PlaneTerminalDecisionProvider.ID: "wrong dynamic type",
-	}
-	malformedFrozen := feature.NewFrozenPlaneSetFromMapForTest(malformedMap, nil)
+	candProvider := &integrationTDProvider{id: "cand-term-provider"}
+	malformedFrozen := feature.NewMalformedGeneratedFrozenTerminalDecisionMissingIdentityForTest(candProvider)
 
 	_, err = runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process: ps,

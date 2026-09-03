@@ -97,16 +97,13 @@ func TestLocalTurnMapBackedCandidate_CompileGenerationOrderAndIsolation(t *testi
 	candZ := &integrationLTHandler{id: "cand-z", order: 20, claim: true, recorder: recorder}
 
 	candidateSlice := []localturn.Handler{candZ, candA}
-	candidateMap := map[string]any{
-		feature.PlaneLocalTurnHandlers.ID: candidateSlice,
-	}
+	candCs := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candCs, feature.PlaneLocalTurnHandlers, "cand-plugin", candidateSlice))
+	candidateFrozen := candCs.Freeze()
 
-	candidateFrozen := feature.NewFrozenPlaneSetFromMapForTest(candidateMap, nil)
-
-	// Immediately mutate original source slice and source map to prove defensive copy
+	// Immediately mutate original source slice to prove defensive copy
 	candidateSlice[0] = &integrationLTHandler{id: "mutated-z", order: 99}
 	candidateSlice[1] = &integrationLTHandler{id: "mutated-a", order: 99}
-	candidateMap[feature.PlaneLocalTurnHandlers.ID] = []localturn.Handler{&integrationLTHandler{id: "replaced", order: 1}}
 
 	reg := pluginreg.NewRegistry()
 	require.NoError(t, reg.RegisterFeature("feature-lt", func(n yaml.Node) (feature.FeatureBundle, error) {
@@ -235,10 +232,7 @@ func TestLocalTurnMalformedMapCandidate_CompileGenerationAttributedAndPriorGener
 	assert.Equal(t, int64(0), base.MatchCount())
 	assert.Equal(t, int64(0), base.HandleCount())
 
-	malformedMap := map[string]any{
-		feature.PlaneLocalTurnHandlers.ID: "wrong dynamic type",
-	}
-	malformedFrozen := feature.NewFrozenPlaneSetFromMapForTest(malformedMap, nil)
+	malformedFrozen := feature.NewMalformedGeneratedFrozenLocalTurnCandidateForTest([]localturn.Handler{nil}, nil)
 
 	_, err = runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process: ps,

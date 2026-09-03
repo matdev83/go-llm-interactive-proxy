@@ -125,9 +125,10 @@ func TestStandardCandidatePlanes_CanonicalDeclaration(t *testing.T) {
 	assert.Equal(t, expected, feature.StandardCandidatePlanes)
 }
 
-// TestStandardCandidatePlanes_GeneratedMapDispatchCurrency verifies that the generated
-// map candidate dispatch logic in plane_generated.go contains branches exactly matching StandardCandidatePlanes.
-func TestStandardCandidatePlanes_GeneratedMapDispatchCurrency(t *testing.T) {
+// TestStandardCandidatePlanes_GeneratedDispatchCurrency verifies that the generated
+// candidate dispatch logic in plane_generated.go contains branches exactly matching StandardCandidatePlanes
+// and that the removed contributeCandidateMapTo helper is absent.
+func TestStandardCandidatePlanes_GeneratedDispatchCurrency(t *testing.T) {
 	t.Parallel()
 	repoRoot := findRepoRoot(t)
 	genPath := filepath.Join(repoRoot, "pkg", "lipsdk", "feature", "plane_generated.go")
@@ -135,11 +136,14 @@ func TestStandardCandidatePlanes_GeneratedMapDispatchCurrency(t *testing.T) {
 	require.NoError(t, err)
 	genContent := string(genContentBytes)
 
-	sections := strings.Split(genContent, "func contributeCandidateMapTo(")
-	require.Len(t, sections, 2, "plane_generated.go must contain contributeCandidateMapTo")
-	mapMethodBody := strings.Split(sections[1], "\nfunc init() {\n")[0]
+	assert.False(t, strings.Contains(genContent, "func contributeCandidateMapTo("),
+		"plane_generated.go must not contain contributeCandidateMapTo")
 
-	// Map candidate branches must exactly match StandardCandidatePlanes
+	sections := strings.Split(genContent, "func (gf *generatedFrozen) contributeCandidateTo(")
+	require.Len(t, sections, 2, "plane_generated.go must contain contributeCandidateTo")
+	methodBody := strings.Split(sections[1], "\nfunc (gf *generatedFrozen)")[0]
+
+	// Candidate branches must exactly match StandardCandidatePlanes
 	for _, candID := range feature.StandardCandidatePlanes {
 		// Convert snake_case ID to PascalCase plane var name e.g. request_transforms -> PlaneRequestTransforms.ID
 		parts := strings.Split(candID, "_")
@@ -149,8 +153,8 @@ func TestStandardCandidatePlanes_GeneratedMapDispatchCurrency(t *testing.T) {
 			}
 		}
 		varRef := "Plane" + strings.Join(parts, "") + ".ID"
-		assert.True(t, strings.Contains(mapMethodBody, varRef),
-			"contributeCandidateMapTo must check candidate plane %s (%q)", varRef, candID)
+		assert.True(t, strings.Contains(methodBody, varRef),
+			"contributeCandidateTo must check candidate plane %s (%q)", varRef, candID)
 	}
 }
 

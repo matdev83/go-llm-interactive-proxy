@@ -1,7 +1,8 @@
 package feature
 
 import (
-	"maps"
+	"reflect"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
@@ -10,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -19,7 +21,60 @@ type GeneratedContributionsForTest = generatedContributions
 // GeneratedFrozenForTest is a type alias to the internal generatedFrozen type for testing.
 type GeneratedFrozenForTest = generatedFrozen
 
-// BindGeneratedAccessForTest attaches generated access closures to a Plane[T] for testing.
+var (
+	testStorageMu      sync.Mutex
+	testContribStorage = make(map[*generatedContributions]map[string]any)
+	testFrozenStorage  = make(map[*generatedFrozen]map[string]any)
+)
+
+func init() {
+	onFreezeGenerated = func(gc *generatedContributions, gf *generatedFrozen) {
+		testStorageMu.Lock()
+		defer testStorageMu.Unlock()
+		if m, ok := testContribStorage[gc]; ok {
+			mCopy := make(map[string]any, len(m))
+			for k, v := range m {
+				mCopy[k] = cloneValue(v)
+			}
+			testFrozenStorage[gf] = mCopy
+		}
+	}
+	onCloneGenerated = func(src, dst *generatedContributions) {
+		testStorageMu.Lock()
+		defer testStorageMu.Unlock()
+		if m, ok := testContribStorage[src]; ok {
+			mCopy := make(map[string]any, len(m))
+			for k, v := range m {
+				mCopy[k] = cloneValue(v)
+			}
+			testContribStorage[dst] = mCopy
+		}
+	}
+	onThawGenerated = func(gf *generatedFrozen, gc *generatedContributions) {
+		testStorageMu.Lock()
+		defer testStorageMu.Unlock()
+		if m, ok := testFrozenStorage[gf]; ok {
+			mCopy := make(map[string]any, len(m))
+			for k, v := range m {
+				mCopy[k] = cloneValue(v)
+			}
+			testContribStorage[gc] = mCopy
+		}
+	}
+	onCloneFrozen = func(src, dst *generatedFrozen) {
+		testStorageMu.Lock()
+		defer testStorageMu.Unlock()
+		if m, ok := testFrozenStorage[src]; ok {
+			mCopy := make(map[string]any, len(m))
+			for k, v := range m {
+				mCopy[k] = cloneValue(v)
+			}
+			testFrozenStorage[dst] = mCopy
+		}
+	}
+}
+
+// BindGeneratedAccessForTest attaches generated access closures and canonical policy to a Plane[T] for testing.
 func BindGeneratedAccessForTest[T any](
 	p Plane[T],
 	contribute func(*generatedContributions, SourceKind, string, T) error,
@@ -30,8 +85,87 @@ func BindGeneratedAccessForTest[T any](
 		contribute: contribute,
 		get:        get,
 		identity:   identity,
+		policy: &generatedPolicy[T]{
+			planeID:                p.ID,
+			rules:                  p.Rules,
+			nilPolicy:              p.NilPolicy,
+			isNil:                  p.IsNil,
+			validate:               p.Validate,
+			validateIdentity:       p.ValidateIdentity,
+			combine:                p.Combine,
+			identity:               p.Identity,
+			exclusiveConflictError: p.ExclusiveConflictError,
+		},
 	}
 	return p
+}
+
+// BindGeneratedTestPlane attaches canonical policy and test eligibility/storage to a Plane[T] for testing.
+func BindGeneratedTestPlane[T any](p Plane[T]) Plane[T] {
+	return BindGeneratedAccessForTest(
+		p,
+		func(gc *generatedContributions, source SourceKind, pluginID string, v T) error {
+			testStorageMu.Lock()
+			defer testStorageMu.Unlock()
+			m := testContribStorage[gc]
+			if m == nil {
+				m = make(map[string]any)
+				testContribStorage[gc] = m
+			}
+			var current T
+			if curVal, ok := m[p.ID]; ok {
+				if typed, ok := curVal.(T); ok {
+					current = typed
+				}
+			}
+			currentCopy := cloneValue(current)
+			incoming := cloneValue(v)
+			combined, err := p.Combine(source, currentCopy, incoming)
+			if err != nil {
+				return err
+			}
+			if anyVal := any(v); anyVal != nil {
+				rv := reflect.ValueOf(anyVal)
+				if rv.Kind() == reflect.Slice && !rv.IsNil() {
+					if anyComb := any(combined); anyComb == nil || isReflectNil(reflect.ValueOf(anyComb)) {
+						if typedEmpty, ok := reflect.MakeSlice(rv.Type(), 0, 0).Interface().(T); ok {
+							combined = typedEmpty
+						}
+					}
+				}
+			}
+			m[p.ID] = cloneValue(combined)
+			return nil
+		},
+		func(gf *generatedFrozen) T {
+			testStorageMu.Lock()
+			defer testStorageMu.Unlock()
+			if m, ok := testFrozenStorage[gf]; ok {
+				if val, ok := m[p.ID]; ok {
+					if typed, ok := val.(T); ok {
+						return cloneValue(typed)
+					}
+				}
+			}
+			var zero T
+			return zero
+		},
+		func(gf *generatedFrozen) (string, bool) {
+			if p.Identity == nil {
+				return "", false
+			}
+			testStorageMu.Lock()
+			defer testStorageMu.Unlock()
+			if m, ok := testFrozenStorage[gf]; ok {
+				if val, ok := m[p.ID]; ok {
+					if typed, ok := val.(T); ok {
+						return p.Identity(typed)
+					}
+				}
+			}
+			return "", false
+		},
+	)
 }
 
 // NewContributionSetWithGeneratedForTest creates a ContributionSet wrapping a generatedContributions pointer for testing.
@@ -239,25 +373,71 @@ func NewMalformedGeneratedFrozenCompactionPreserversForTest(
 	}
 }
 
-// NewFrozenPlaneSetFromMapForTest creates a map-backed FrozenPlaneSet for testing,
-// defensively cloning the input maps to ensure frozen immutability.
-func NewFrozenPlaneSetFromMapForTest(values map[string]any, identities map[string]string) FrozenPlaneSet {
-	var valuesCopy map[string]any
-	if values != nil {
-		valuesCopy = make(map[string]any, len(values))
-		for k, v := range values {
-			valuesCopy[k] = cloneAny(v)
-		}
-	}
-	var identitiesCopy map[string]string
-	if identities != nil {
-		identitiesCopy = make(map[string]string, len(identities))
-		maps.Copy(identitiesCopy, identities)
+// NewMalformedGeneratedFrozenToolCallFinalizationCandidateForTest constructs a test-only generated FrozenPlaneSet
+// with finalizers and max args bytes.
+func NewMalformedGeneratedFrozenToolCallFinalizationCandidateForTest(
+	finalizers []toolcall.Finalizer,
+	maxArgs int,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		toolCallFinalizers:               cloneSlice(finalizers),
+		toolCallFinalizationMaxArgsBytes: maxArgs,
 	}
 	return FrozenPlaneSet{
-		values:     valuesCopy,
-		identities: identitiesCopy,
-		frozen:     nil,
+		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenToolCallFinalizationMaxArgsBytesForTest constructs a test-only generated FrozenPlaneSet
+// with specific tool call finalization max args bytes.
+func NewMalformedGeneratedFrozenToolCallFinalizationMaxArgsBytesForTest(maxArgs int) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		toolCallFinalizationMaxArgsBytes: maxArgs,
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+func cloneValue[T any](v T) T {
+	var anyVal any = v
+	if anyVal == nil {
+		return v
+	}
+	cloned := cloneAny(anyVal)
+	if typed, ok := cloned.(T); ok {
+		return typed
+	}
+	return v
+}
+
+func cloneAny(v any) any {
+	if v == nil {
+		return nil
+	}
+	val := reflect.ValueOf(v)
+	switch val.Kind() {
+	case reflect.Slice:
+		if val.IsNil() {
+			return v
+		}
+		l := val.Len()
+		c := val.Cap()
+		out := reflect.MakeSlice(val.Type(), l, c)
+		reflect.Copy(out, val)
+		return out.Interface()
+	case reflect.Map:
+		if val.IsNil() {
+			return v
+		}
+		out := reflect.MakeMapWithSize(val.Type(), val.Len())
+		iter := val.MapRange()
+		for iter.Next() {
+			out.SetMapIndex(iter.Key(), iter.Value())
+		}
+		return out.Interface()
+	default:
+		return v
 	}
 }
 

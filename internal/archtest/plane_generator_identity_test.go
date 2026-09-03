@@ -73,15 +73,13 @@ var StandardPlanes = []any{PlaneSyntheticReplace}
 	assert.Contains(t, code, "gc.syntheticReplaceID = gf.syntheticReplaceID")
 	assert.Contains(t, code, "gc.syntheticReplaceHasID = gf.syntheticReplaceHasID")
 
-	// 7. Verify validateAllPlanesMap validates cached identity without replaying
-	assert.Contains(t, code, "PlaneSyntheticReplace.ValidateIdentity(id)")
-
-	// 8. Verify replayAllPlanesMapTo sets destination cached identity properly
-	assert.Contains(t, code, "dst.generated.syntheticReplaceID = finalID")
-	assert.Contains(t, code, "dst.identities[PlaneSyntheticReplace.ID] = finalID")
-
-	// 9. Verify hasIdentityReplayRule and mapHasIdentityReplayRule are generated
+	// 7. Verify hasIdentityReplayRule is generated
 	assert.Contains(t, code, "func (gf *generatedFrozen) hasIdentityReplayRule(")
 	assert.Contains(t, code, "PlaneSyntheticReplace.Rules.RuleFor(source) == rule")
-	assert.Contains(t, code, "func mapHasIdentityReplayRule(")
+
+	// 8. Verify map-backed replay/validation helpers are NOT generated
+	assert.NotContains(t, code, "validateAllPlanesMap")
+	assert.NotContains(t, code, "replayAllPlanesMapTo")
+	assert.NotContains(t, code, "mapHasIdentityReplayRule")
+	assert.NotContains(t, code, "contributeCandidateMapTo")
 }

@@ -3,7 +3,7 @@
 > Execute in order unless a task is marked `(P)`. This is a release-bounded migration, not permission for a general core cleanup. Every production change starts with characterization/RED coverage. Preserve current `main` behavior unless the requirements explicitly change the v1 dynamic-plane compatibility contract.
 
 - [ ] 1. Freeze the corrected baseline and characterize the release-bound ownership seams
-- [ ] 1.1 Capture the exact post-extension-correction baseline
+- [x] 1.1 Capture the exact post-extension-correction baseline
   - Record the implementation base SHA, current standard plane count/IDs, generated-output check result, current `internal/core` non-test line count, current `internal/infra/runtimebundle` tree line count, and current direct-import census for `internal/plugins/features/*` from core/runtimebundle/standardplugins.
   - Record current package/file inventories for `internal/core/toolcallrepair`, `internal/core/secretguard`, `internal/core/compactiondetect`, `internal/plugins/features/toolcallrepair`, and `internal/plugins/features/secretguard` so mechanical moves cannot silently omit production or tests.
   - Capture the fresh extension-plane seam baseline on one named measurement host using the exact command `go test -run '^$' -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem -count=10 ./internal/core/extensions/...`. Record OS, CPU, Go version, `GOMAXPROCS`, power/performance mode if known, command, base SHA, and the unedited raw output. Do not reuse the older Wave-0 numbers when a newer corrected baseline exists.
@@ -13,7 +13,7 @@
   - _Boundary: Verification / architecture baseline_
   - _Validation: `go run ./scripts/generate-feature-planes.go -check`; `make arch-report`; exact 10-sample benchmark command above_
 
-- [ ] 1.2 (P) Characterize closed-plane compatibility and mutation boundaries
+- [x] 1.2 (P) Characterize closed-plane compatibility and mutation boundaries
   - Add tests using a test-local arbitrary unbound `Plane[[]T]` that currently enters fallback storage; characterize contribute, Get, Freeze, Clone, ToContributions, request freeze/materialization, `FrozenPlaneSet.Validate`, `FeatureBundle.Validate`, ordinary replay, candidate replay, explicit-empty slice, and fail-before-mutate behavior before changing the contract.
   - Add adversarial copies of a canonical standard plane: one with its ID changed and one retaining the same ID while deliberately changing exported policy fields such as source rules, nil policy, validator, identity extractor and combiner. The final contract must reject the changed-ID copy and must not let the same-ID copy alter canonical generated behavior.
   - Inventory every existing raw local plane used by SDK tests to exercise combiner/source/identity behavior, including `TestContribute_FailBeforeMutate_TableDriven` and `TestContribute_InterfaceValuedPlane_NonSliceCombinerReturn`; mark those tests for generated test binding rather than unbound rejection.
@@ -23,7 +23,7 @@
   - _Boundary: Public Feature SDK_
   - _Validation: `go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle`_
 
-- [ ] 1.3 (P) Characterize tool-call-repair ownership and behavior before move
+- [x] 1.3 (P) Characterize tool-call-repair ownership and behavior before move
   - Run/capture the complete current `internal/core/toolcallrepair` test/fuzz/benchmark inventory and standard feature factory tests; identify all non-test imports of the core package.
   - Add or strengthen one standard factory integration test proving the YAML config maps to finalizer ID/order/max-args/schema limits/on-unrepairable behavior and both contributed tool planes.
   - Add a disabled/absent-feature control proving no repair finalizer is created.
@@ -32,7 +32,7 @@
   - _Boundary: Tool-call Repair Feature_
   - _Validation: `go test -count=1 ./internal/core/toolcallrepair ./internal/plugins/features/toolcallrepair ./internal/standardplugins -run 'Tool.*Repair|tool.*repair|Finalizer'`_
 
-- [ ] 1.4 (P) Characterize secret-guard source, matcher, audit, and security invariants
+- [x] 1.4 (P) Characterize secret-guard source, matcher, audit, and security invariants
   - Pin single-user catalog discovery, include/exclude behavior, known-prefix behavior, min-secret length, matcher options, entry/category inventory, and matcher resolver results.
   - Pin multi-user **zero environment calls** with a panic/counting environment fake; pin disabled **zero environment calls** separately.
   - Pin runtime composition: feature uniqueness, access mode, action, audit policy, observer chaining/default slog observer, catalog inventory, redaction, typed-nil behavior, and failure text/classification currently relied on by tests.
@@ -41,7 +41,7 @@
   - _Boundary: Secret Guard Feature / Composition_
   - _Validation: `go test -count=1 ./internal/core/secretguard ./internal/plugins/features/secretguard ./internal/infra/runtimebundle -run 'Secret|secret|Matcher|Catalog'`_
 
-- [ ] 1.5 (P) Characterize compaction detector port semantics and lifetime
+- [x] 1.5 (P) Characterize compaction detector port semantics and lifetime
   - Enumerate the exact detector methods called by core runtime (`RequestOpened`, `PreviewResponse`, `ResponseReleased`) and assert that inputs/outputs can be represented with existing `lipapi` and `pkg/lipsdk/compaction` contracts.
   - Add fake-detector runtime tests for nil/no-op, request-open ordering, pure preview-before-preserver, response-release commit-after-preserver, panic isolation, and exact correlation fields.
   - Prove the current concrete detector has no `Close`, goroutine, external I/O, or generation-owned resource; if this premise is false, stop implementation and repair the spec before moving it.
@@ -51,7 +51,7 @@
   - _Validation: `go test -count=1 ./internal/core/compactiondetect ./internal/core/runtime -run 'Compaction|compaction'`_
 
 - [ ] 2. Implement the selected #554 contract on generated standard planes only
-- [ ] 2.1 Add `ErrUngeneratedPlane` and canonical generated policy metadata
+- [x] 2.1 Add `ErrUngeneratedPlane` and canonical generated policy metadata
   - Add exactly one errors.Is-compatible public SDK sentinel named `ErrUngeneratedPlane`. Use this identifier in production, tests, docs and the external fixture; do not add an alias/second unsupported-plane sentinel.
   - Extend the generated access binding with deterministic unexported canonical metadata/closures sufficient both to prove the plane is generated and to make production policy authoritative: exact manifest ID plus the source rules, nil handling, validation, identity/conflict and combination behavior currently read from exported `Plane[T]` fields.
   - Validate generated eligibility and exact canonical ID **before** `ValidateDeclaration`, nil policy, source-rule selection, validator, combine, identity extraction, or candidate mutation. After that check, production contribution policy must be read from generated canonical metadata/closures rather than caller-mutable exported fields on `p`.
@@ -64,7 +64,7 @@
   - _Boundary: Public Feature SDK / Generated Binding_
   - _Validation: `go test -count=1 ./pkg/lipsdk/feature`_
 
-- [ ] 2.2 Remove arbitrary value/identity storage from `ContributionSet` and migrate behavior tests
+- [x] 2.2 Remove arbitrary value/identity storage from `ContributionSet` and migrate behavior tests
   - Delete `values map[string]any` and arbitrary-plane identity fallback from production contribution state; retain only generated typed storage and metadata demonstrably required by generated attribution/diagnostics.
   - Delete reflection-based arbitrary value clone/combine logic from the production contribution path; do not replace it with another erased container.
   - Rework `ContributeSource` so standard-plane source rules, nil policy, validation, identity/conflict handling and combination are driven by the generated canonical policy from 2.1. Do not fall back to mutable exported descriptor policy after eligibility succeeds.
@@ -76,7 +76,7 @@
   - _Boundary: Public Feature SDK / Candidate State / Test Fixtures_
   - _Validation: `go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle`_
 
-- [ ] 2.3 Remove arbitrary fallback from freeze, validation and replay paths
+- [x] 2.3 Remove arbitrary fallback from freeze, validation and replay paths
   - Delete arbitrary values/identity maps and map-backed Get/Clone/ToContributions/Validate/Replay/CandidateReplay branches from `FrozenPlaneSet`.
   - Modify the plane generator/emitter to stop generating map replay/validation/candidate helper functions; regenerate `plane_generated.go` instead of editing it.
   - Ensure ordinary `Get` on an ungenerated plane returns its zero value because no valid set can contain such a value; it must not search dynamic storage.
@@ -88,7 +88,7 @@
   - _Boundary: Public Feature SDK / Generator / Bundle Validation_
   - _Validation: `go run ./scripts/generate-feature-planes.go && go run ./scripts/generate-feature-planes.go -check && go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle ./internal/archtest`_
 
-- [ ] 2.4 Tighten closed-plane architecture and public-contract tests
+- [x] 2.4 Tighten closed-plane architecture and public-contract tests
   - Add architecture checks that reject reintroduction of arbitrary plane `map[string]any`/reflection contribution, freeze, request-freeze, validation or replay storage while allowing unrelated legitimate maps/reflection outside this contract.
   - Convert disposable dynamic-plane tests that were only scaffolding for consolidation into declaration-validation or generated-fixture tests; do not weaken real standard-plane coverage.
   - Add external-package tests using `errors.Is(err, feature.ErrUngeneratedPlane)` and confirm the `FeatureBundle` schema version/standard plane IDs did not change.

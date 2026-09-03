@@ -329,7 +329,7 @@ func TestNilPolicy_String(t *testing.T) {
 func TestContribute_NilPolicy_Reject(t *testing.T) {
 	t.Parallel()
 
-	rejectPlane := feature.Plane[dummyHandler]{
+	rejectPlane := feature.BindGeneratedTestPlane(feature.Plane[dummyHandler]{
 		ID:           "test.reject_nil_interface",
 		Multiplicity: feature.MultOrdered,
 		NilPolicy:    feature.NilReject,
@@ -339,7 +339,7 @@ func TestContribute_NilPolicy_Reject(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc dummyHandler) (dummyHandler, error) {
 			return inc, nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 
@@ -359,7 +359,7 @@ func TestContribute_NilPolicy_Reject(t *testing.T) {
 	assert.False(t, s.Has("test.reject_nil_interface"))
 
 	// Contributing a typed nil using IsNil detector is also rejected
-	rejectPlaneWithIsNil := feature.Plane[*testDummyHandler]{
+	rejectPlaneWithIsNil := feature.BindGeneratedTestPlane(feature.Plane[*testDummyHandler]{
 		ID:           "test.reject_typed_nil",
 		Multiplicity: feature.MultOrdered,
 		NilPolicy:    feature.NilReject,
@@ -372,7 +372,7 @@ func TestContribute_NilPolicy_Reject(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc *testDummyHandler) (*testDummyHandler, error) {
 			return inc, nil
 		},
-	}
+	})
 
 	var typedNil *testDummyHandler = nil
 	err = feature.Contribute(s, rejectPlaneWithIsNil, "plugin-2", typedNil)
@@ -384,7 +384,7 @@ func TestContribute_NilPolicy_Reject(t *testing.T) {
 func TestContribute_NilPolicy_Skip(t *testing.T) {
 	t.Parallel()
 
-	skipPlane := feature.Plane[dummyHandler]{
+	skipPlane := feature.BindGeneratedTestPlane(feature.Plane[dummyHandler]{
 		ID:           "test.skip_nil_interface",
 		Multiplicity: feature.MultOrdered,
 		NilPolicy:    feature.NilSkip,
@@ -394,7 +394,7 @@ func TestContribute_NilPolicy_Skip(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc dummyHandler) (dummyHandler, error) {
 			return inc, nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 
@@ -420,7 +420,7 @@ func TestContribute_NilPolicy_AppliedBeforeValidation(t *testing.T) {
 	t.Parallel()
 
 	validateCalled := false
-	skipPlane := feature.Plane[dummyHandler]{
+	skipPlane := feature.BindGeneratedTestPlane(feature.Plane[dummyHandler]{
 		ID:           "test.nil_before_validate",
 		Multiplicity: feature.MultOrdered,
 		NilPolicy:    feature.NilSkip,
@@ -437,7 +437,7 @@ func TestContribute_NilPolicy_AppliedBeforeValidation(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc dummyHandler) (dummyHandler, error) {
 			return inc, nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 	var nilHandler dummyHandler = nil
@@ -451,7 +451,7 @@ func TestContribute_NilPolicy_AppliedBeforeValidation(t *testing.T) {
 func TestDiagnosticsDescriptor_MaterializeAndPrivileges(t *testing.T) {
 	t.Parallel()
 
-	plane := feature.Plane[[]string]{
+	plane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.diag_exec",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -481,7 +481,7 @@ func TestDiagnosticsDescriptor_MaterializeAndPrivileges(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 	err := feature.Contribute(s, plane, "plugin-test", []string{"hook-alpha", "hook-beta"})
@@ -504,7 +504,7 @@ func TestContribute_NilPolicy_InterfaceTypedNil(t *testing.T) {
 	t.Parallel()
 
 	// Case 1: Plane without IsNil callback cannot detect typed-nil pointer inside interface value
-	planeWithoutIsNil := feature.Plane[dummyHandler]{
+	planeWithoutIsNil := feature.BindGeneratedTestPlane(feature.Plane[dummyHandler]{
 		ID:           "test.nil_no_callback",
 		Multiplicity: feature.MultOrdered,
 		NilPolicy:    feature.NilReject,
@@ -524,7 +524,7 @@ func TestContribute_NilPolicy_InterfaceTypedNil(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc dummyHandler) (dummyHandler, error) {
 			return inc, nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 
@@ -544,7 +544,7 @@ func TestContribute_NilPolicy_InterfaceTypedNil(t *testing.T) {
 	assert.Contains(t, err.Error(), "validate caught boxed typed nil")
 
 	// Case 2: Plane with IsNil callback properly detects boxed typed-nil interface values
-	planeWithIsNil := feature.Plane[dummyHandler]{
+	planeWithIsNil := feature.BindGeneratedTestPlane(feature.Plane[dummyHandler]{
 		ID:           "test.nil_with_callback",
 		Multiplicity: feature.MultOrdered,
 		NilPolicy:    feature.NilReject,
@@ -566,7 +566,7 @@ func TestContribute_NilPolicy_InterfaceTypedNil(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc dummyHandler) (dummyHandler, error) {
 			return inc, nil
 		},
-	}
+	})
 
 	s2 := feature.NewContributionSet()
 	err = feature.Contribute(s2, planeWithIsNil, "plugin-3", typedNil)
@@ -576,7 +576,7 @@ func TestContribute_NilPolicy_InterfaceTypedNil(t *testing.T) {
 	assert.False(t, s2.Has("test.nil_with_callback"))
 
 	// Case 3: Plane with IsNil and NilSkip skips typed-nil silently
-	planeWithSkip := feature.Plane[dummyHandler]{
+	planeWithSkip := feature.BindGeneratedTestPlane(feature.Plane[dummyHandler]{
 		ID:           "test.nil_skip_with_callback",
 		Multiplicity: feature.MultOrdered,
 		NilPolicy:    feature.NilSkip,
@@ -595,7 +595,7 @@ func TestContribute_NilPolicy_InterfaceTypedNil(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc dummyHandler) (dummyHandler, error) {
 			return inc, nil
 		},
-	}
+	})
 
 	s3 := feature.NewContributionSet()
 	err = feature.Contribute(s3, planeWithSkip, "plugin-4", typedNil)
