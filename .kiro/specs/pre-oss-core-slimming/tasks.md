@@ -178,7 +178,7 @@
   - _Boundary: Core Runtime Consumer Port_
   - _Validation: `go test -count=1 ./internal/core/runtime -run 'Compaction|compaction'`_
 
-- [ ] 5.2 Move detector implementation to `internal/infra/compactiondetect`
+- [x] 5.2 Move detector implementation to `internal/infra/compactiondetect`
   - Move detector state, heuristic/rule recognition, fingerprint/content-free helpers, preview logic, and tests/benchmarks from `internal/core/compactiondetect` to the infra implementation package.
   - Adapt public method metadata parameters to the consumer port using `compaction.PreservationMeta` directly or a private translation inside the implementation; do not export a second correlation contract.
   - Preserve bounds, lock scope, lazy sweep, no-background-worker behavior, panic safety at caller, and emitted event bytes/fields.

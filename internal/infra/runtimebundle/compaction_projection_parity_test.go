@@ -8,12 +8,12 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	featurecompaction "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"

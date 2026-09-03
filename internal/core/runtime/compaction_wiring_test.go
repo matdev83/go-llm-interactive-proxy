@@ -12,7 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -23,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 )

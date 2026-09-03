@@ -10,7 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/stretchr/testify/assert"
@@ -18,7 +19,7 @@ import (
 )
 
 // TestCharacterize_CompactionDetect_MechanicalSourceAndLifecycleInvariants mechanically
-// inspects all production source files in internal/core/compactiondetect to prove:
+// inspects all production source files in internal/infra/compactiondetect to prove:
 // 1. Zero `go ` statements (no background goroutines spawned).
 // 2. Zero `Close` methods or implementations of io.Closer.
 // 3. Strictly whitelisted imports (crypto/sha256, encoding/binary, encoding/hex, strings, sync, time, lipapi, compaction).
@@ -114,42 +115,20 @@ func TestCharacterize_CompactionDetect_MechanicalSourceAndLifecycleInvariants(t 
 func TestCharacterize_CompactionDetect_ContractRepresentability(t *testing.T) {
 	t.Parallel()
 
-	// Verify correlation metadata field parity
-	reqMeta := compactiondetect.RequestMeta{
-		TraceID:    "trace-1",
-		ALegID:     "aleg-1",
-		BLegID:     "bleg-1",
-		AttemptSeq: 1,
-		SessionID:  "sess-1",
-	}
-
-	respMeta := compactiondetect.ResponseMeta{
-		TraceID:    "trace-1",
-		ALegID:     "aleg-1",
-		BLegID:     "bleg-1",
-		AttemptSeq: 1,
-		SessionID:  "sess-1",
-	}
-
+	// Verify correlation metadata maps directly to lipsdk/compaction PreservationMeta
 	presMeta := compaction.PreservationMeta{
-		TraceID:    reqMeta.TraceID,
-		ALegID:     reqMeta.ALegID,
-		BLegID:     reqMeta.BLegID,
-		AttemptSeq: reqMeta.AttemptSeq,
-		SessionID:  reqMeta.SessionID,
+		TraceID:    "trace-1",
+		ALegID:     "aleg-1",
+		BLegID:     "bleg-1",
+		AttemptSeq: 1,
+		SessionID:  "sess-1",
 	}
 
-	assert.Equal(t, reqMeta.TraceID, presMeta.TraceID)
-	assert.Equal(t, reqMeta.ALegID, presMeta.ALegID)
-	assert.Equal(t, reqMeta.BLegID, presMeta.BLegID)
-	assert.Equal(t, reqMeta.AttemptSeq, presMeta.AttemptSeq)
-	assert.Equal(t, reqMeta.SessionID, presMeta.SessionID)
-
-	assert.Equal(t, respMeta.TraceID, presMeta.TraceID)
-	assert.Equal(t, respMeta.ALegID, presMeta.ALegID)
-	assert.Equal(t, respMeta.BLegID, presMeta.BLegID)
-	assert.Equal(t, respMeta.AttemptSeq, presMeta.AttemptSeq)
-	assert.Equal(t, respMeta.SessionID, presMeta.SessionID)
+	assert.Equal(t, "trace-1", presMeta.TraceID)
+	assert.Equal(t, "aleg-1", presMeta.ALegID)
+	assert.Equal(t, "bleg-1", presMeta.BLegID)
+	assert.Equal(t, 1, presMeta.AttemptSeq)
+	assert.Equal(t, "sess-1", presMeta.SessionID)
 }
 
 // TestCharacterize_CompactionDetect_NilAndBlankSafety proves that nil *Detector receivers
@@ -161,7 +140,7 @@ func TestCharacterize_CompactionDetect_NilAndBlankSafety(t *testing.T) {
 		t.Parallel()
 		var d *compactiondetect.Detector
 
-		meta := compactiondetect.RequestMeta{
+		meta := compaction.PreservationMeta{
 			TraceID: "t-1",
 			ALegID:  "a-1",
 		}
@@ -179,7 +158,7 @@ func TestCharacterize_CompactionDetect_NilAndBlankSafety(t *testing.T) {
 		d := compactiondetect.New(compactiondetect.Config{})
 
 		for _, blankALeg := range []string{"", "   ", "\t\n"} {
-			meta := compactiondetect.RequestMeta{
+			meta := compaction.PreservationMeta{
 				TraceID: "t-1",
 				ALegID:  blankALeg,
 			}
@@ -192,4 +171,15 @@ func TestCharacterize_CompactionDetect_NilAndBlankSafety(t *testing.T) {
 			assert.Nil(t, d.ResponseReleased(meta, ev), "blank ALegID ResponseReleased must return nil")
 		}
 	})
+}
+
+// TestCharacterize_CompactionDetect_SatisfiesRuntimeConsumerPort asserts at compile time
+// and runtime that *compactiondetect.Detector implements the repository-internal
+// runtime.CompactionDetector port.
+func TestCharacterize_CompactionDetect_SatisfiesRuntimeConsumerPort(t *testing.T) {
+	t.Parallel()
+	var _ runtime.CompactionDetector = (*compactiondetect.Detector)(nil)
+	d := compactiondetect.New(compactiondetect.Config{})
+	var port runtime.CompactionDetector = d
+	require.NotNil(t, port)
 }

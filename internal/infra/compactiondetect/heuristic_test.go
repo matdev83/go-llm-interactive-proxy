@@ -137,10 +137,10 @@ func TestHeuristic_otherALegNeverMatches(t *testing.T) {
 	prev := itemCall(bigText(40000), "tail-one", "tail-two")
 	cur := itemCall(bigText(6000), "tail-one", "tail-two")
 
-	if evs := d.RequestOpened(RequestMeta{TraceID: "a1", ALegID: "leg-a", BLegID: "b", AttemptSeq: 1}, prev); len(evs) != 0 {
+	if evs := d.RequestOpened(compaction.PreservationMeta{TraceID: "a1", ALegID: "leg-a", BLegID: "b", AttemptSeq: 1}, prev); len(evs) != 0 {
 		t.Fatalf("setup emitted: %+v", evs)
 	}
-	evs := d.RequestOpened(RequestMeta{TraceID: "b1", ALegID: "leg-b", BLegID: "b", AttemptSeq: 1}, cur)
+	evs := d.RequestOpened(compaction.PreservationMeta{TraceID: "b1", ALegID: "leg-b", BLegID: "b", AttemptSeq: 1}, cur)
 	if len(evs) != 0 {
 		t.Fatalf("cross-leg heuristic emitted: %+v", evs)
 	}
