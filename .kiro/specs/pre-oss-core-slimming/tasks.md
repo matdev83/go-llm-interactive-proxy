@@ -276,7 +276,7 @@
   - _Validation: `make docs-check`; `go test -count=1 ./pkg/lipsdk/feature`_
 
 - [ ] 8. Prove release-safe behavior and hand off full closure
-- [ ] 8.1 Run migrated-feature and generation/reload regression gates
+- [x] 8.1 Run migrated-feature and generation/reload regression gates
   - Run focused SDK/featurebundle/toolrepair/secretguard/compaction/reasoningcompose/runtimebundle/core-runtime suites from a clean tree.
   - Re-run the complete #554 contract suite: unbound rejection, changed-ID rejection, same-ID mutation integrity, contribution/freeze/request-freeze/bundle-validation/ordinary-replay/candidate-replay paths, and external-module classification.
   - Run feature enable/disable/removal reload tests proving old requests stay pinned and new requests receive the new/no-feature surface.
