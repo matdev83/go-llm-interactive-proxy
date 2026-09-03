@@ -11,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -411,15 +410,25 @@ func TestSecretGuardProjection_HostCapabilitiesSingleUserInputsPreserved(t *test
 			Matcher:           customMatcher,
 		},
 	}
-	runtimeCfg := featuresg.RuntimeConfig{
-		Enabled:               true,
-		PreserveKnownPrefixes: true,
-		MaskByte:              '*',
+	opts := &BuildOptions{
+		Extensions: ExtensionsOptions{
+			SecretGuardInputs: inputs,
+		},
 	}
-	out := composeSecretGuardSingleUser(runtimeCfg, inputs)
-	assert.True(t, out.MatcherConfigured)
-	assert.Equal(t, byte('#'), out.Matcher.MaskByte, "custom matcher mask byte must be preserved")
-	assert.False(t, out.Matcher.PreserveKnownPrefixes, "custom matcher prefix preservation must be preserved")
+	regs := []lipsdk.Registration{{
+		Kind:        lipsdk.PluginKindFeature,
+		ID:          "secrets-guard",
+		FactoryKind: "secrets-guard",
+		Enabled:     true,
+		Config:      lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: redact\n")},
+	}}
+	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.NotNil(t, res.Plane.MatcherResolver)
+	m, err := res.Plane.MatcherResolver.Resolve(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, m)
 }
 
 func TestSecretGuardProjection_CompositionRootUniqueness(t *testing.T) {

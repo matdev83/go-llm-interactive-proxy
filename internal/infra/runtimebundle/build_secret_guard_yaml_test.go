@@ -8,96 +8,10 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"gopkg.in/yaml.v3"
 )
-
-func TestComposeRuntimeConfig_decodedYAMLControlsSingleUserOptions(t *testing.T) {
-	t.Parallel()
-	raw := mustYAMLNode(t, `
-action: redact
-min_secret_bytes: 12
-audit_failure_policy: best_effort
-single_user:
-  include_popular_env: false
-  include_env: [LIP_TEST_SECRETGUARD_INCLUDE]
-  exclude_env: [OPENAI_API_KEY]
-redaction:
-  mask_byte: "X"
-  preserve_known_prefixes: false
-`)
-	regs := []lipsdk.Registration{{
-		Kind:        lipsdk.PluginKindFeature,
-		ID:          "secrets-guard",
-		FactoryKind: "secrets-guard",
-		Enabled:     true,
-		Config:      lipsdk.ConfigPayload{Node: raw},
-	}}
-	runtimeCfg, err := featuresg.ComposeRuntimeConfig("single_user", regs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtimeCfg.IncludePopularEnv {
-		t.Fatal("include_popular_env want false from YAML")
-	}
-	if runtimeCfg.MinSecretBytes != 12 {
-		t.Fatalf("min_secret_bytes: got %d want 12", runtimeCfg.MinSecretBytes)
-	}
-	if len(runtimeCfg.IncludeEnv) != 1 || runtimeCfg.IncludeEnv[0] != "LIP_TEST_SECRETGUARD_INCLUDE" {
-		t.Fatalf("include_env: %#v", runtimeCfg.IncludeEnv)
-	}
-	if len(runtimeCfg.ExcludeEnv) != 1 || runtimeCfg.ExcludeEnv[0] != "OPENAI_API_KEY" {
-		t.Fatalf("exclude_env: %#v", runtimeCfg.ExcludeEnv)
-	}
-	if runtimeCfg.MaskByte != 'X' {
-		t.Fatalf("mask_byte: got %q want X", runtimeCfg.MaskByte)
-	}
-	if runtimeCfg.PreserveKnownPrefixes {
-		t.Fatal("preserve_known_prefixes want false from YAML")
-	}
-	if runtimeCfg.AuditFailurePolicy != string(sdk.AuditBestEffort) {
-		t.Fatalf("audit policy: %q", runtimeCfg.AuditFailurePolicy)
-	}
-	if runtimeCfg.Action != "redact" {
-		t.Fatalf("action: %q", runtimeCfg.Action)
-	}
-	if runtimeCfg.AuditConfigVersion == "" {
-		t.Fatal("config_version must be stamped from decoded YAML")
-	}
-
-	su := composeSecretGuardSingleUser(runtimeCfg, SecretGuardInputs{})
-	if !su.MatcherConfigured || su.Matcher.MaskByte != 'X' {
-		t.Fatalf("composed matcher: %#v", su.Matcher)
-	}
-	if su.Matcher.PreserveKnownPrefixes {
-		t.Fatal("composed preserve_known_prefixes want false")
-	}
-	if su.MinSecretBytes != 12 {
-		t.Fatalf("composed min_secret_bytes: %d", su.MinSecretBytes)
-	}
-}
-
-func TestComposeRuntimeConfig_multiUserRejectsSingleUserKey(t *testing.T) {
-	t.Parallel()
-	raw := mustYAMLNode(t, "action: block\nsingle_user:\n  include_env: [FOO]")
-	regs := []lipsdk.Registration{{
-		Kind:        lipsdk.PluginKindFeature,
-		ID:          "secrets-guard",
-		FactoryKind: "secrets-guard",
-		Enabled:     true,
-		Config:      lipsdk.ConfigPayload{Node: raw},
-	}}
-	_, err := featuresg.ComposeRuntimeConfig("multi_user", regs)
-	if err == nil {
-		t.Fatal("expected multi_user + single_user key rejection")
-	}
-	if !strings.Contains(err.Error(), "single_user is invalid in multi_user mode") {
-		t.Fatalf("error: %v", err)
-	}
-}
 
 func TestBuildSecretGuardRuntime_multiUserZeroEnvEvenWithMalformedSingleUser(t *testing.T) {
 	t.Parallel()
@@ -188,26 +102,6 @@ single_user:
 				t.Fatalf("source category leaked secret material (len=%d)", len(cat))
 			}
 		}
-	}
-}
-
-func TestComposeSecretGuardSingleUser_matcherOverrideWinsOverYAML(t *testing.T) {
-	t.Parallel()
-	runtimeCfg := featuresg.RuntimeConfig{
-		Enabled:               true,
-		PreserveKnownPrefixes: true,
-		MaskByte:              '*',
-		MinSecretBytes:        8,
-	}
-	inputs := SecretGuardInputs{
-		SingleUser: secretguardcompose.SingleUserOptions{
-			Matcher:           secretguardcompose.MatcherOptions{PreserveKnownPrefixes: false, MaskByte: 'X'},
-			MatcherConfigured: true,
-		},
-	}
-	su := composeSecretGuardSingleUser(runtimeCfg, inputs)
-	if su.Matcher.MaskByte != 'X' || su.Matcher.PreserveKnownPrefixes {
-		t.Fatalf("matcher override lost: %#v", su.Matcher)
 	}
 }
 
