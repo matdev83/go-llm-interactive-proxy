@@ -106,11 +106,6 @@ func validateSHAIdentity(root, content string) error {
 		return fmt.Errorf("resolve git HEAD: %w", err)
 	}
 
-	baselineSHA, err := resolveGitBaselineSHA(root)
-	if err != nil {
-		return fmt.Errorf("resolve git baseline: %w", err)
-	}
-
 	var identityErrs []string
 	if err := checkGitCommitObject(root, implSHA); err != nil {
 		identityErrs = append(identityErrs, fmt.Sprintf("Implementation SHA %q is not an existing commit object", implSHA))
@@ -118,8 +113,14 @@ func validateSHAIdentity(root, content string) error {
 		identityErrs = append(identityErrs, fmt.Sprintf("Implementation SHA %q is not an ancestor of git HEAD %q", implSHA, headSHA))
 	}
 
-	if !strings.EqualFold(baseSHA, baselineSHA) {
-		identityErrs = append(identityErrs, fmt.Sprintf("Merged-Main Baseline SHA %q does not match git baseline (main or origin/main) %q", baseSHA, baselineSHA))
+	// Baseline must be an existing mainline commit and an ancestor of HEAD.
+	// Equality with the current main tip is NOT required: pinning equality
+	// would invalidate the artifact on every future main commit (treadmill),
+	// while ancestry keeps the recorded base verifiable forever.
+	if err := checkGitCommitObject(root, baseSHA); err != nil {
+		identityErrs = append(identityErrs, fmt.Sprintf("Merged-Main Baseline SHA %q is not an existing commit object (baseline must name a mainline commit)", baseSHA))
+	} else if err := checkGitIsAncestor(root, baseSHA, "HEAD"); err != nil {
+		identityErrs = append(identityErrs, fmt.Sprintf("Merged-Main Baseline SHA %q is not an ancestor of git HEAD %q (baseline is not a mainline base)", baseSHA, headSHA))
 	}
 
 	if len(identityErrs) > 0 {
@@ -912,6 +913,16 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidTableCellCount(t *test
 	}
 }
 
+// metadataFieldLine renders the exact artifact line for a metadata field so
+// tamper tests target one field even when Implementation and Baseline SHAs
+// are identical (both pinned to merged main).
+// metadataFieldLine renders the exact artifact line for a metadata field so
+// tamper tests target one field even when Implementation and Baseline SHAs
+// are identical (both pinned to merged main).
+func metadataFieldLine(field, sha string) string {
+	return "- **" + field + "**: `" + sha + "`"
+}
+
 // mustLiveInventorySHAs derives the Implementation and Baseline SHAs recorded in
 // the live artifact so tamper tests track inventory updates instead of pinning
 // stale literal SHAs.
@@ -951,7 +962,7 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidMetadata(t *testing.T)
 
 	t.Run("InvalidImplementationSHA", func(t *testing.T) {
 		t.Parallel()
-		tampered := strings.Replace(validContent, implSHA, "not-a-valid-40-char-hex-sha", 1)
+		tampered := strings.Replace(validContent, metadataFieldLine("Implementation SHA", implSHA), metadataFieldLine("Implementation SHA", "not-a-valid-40-char-hex-sha"), 1)
 		err := validateResidualOwnershipInventoryContent(tampered)
 		if err == nil || !strings.Contains(err.Error(), "Implementation SHA") {
 			t.Fatalf("expected invalid Implementation SHA error, got %v", err)
@@ -960,7 +971,7 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidMetadata(t *testing.T)
 
 	t.Run("InvalidBaselineSHA", func(t *testing.T) {
 		t.Parallel()
-		tampered := strings.Replace(validContent, baseSHA, "shortsha", 1)
+		tampered := strings.Replace(validContent, metadataFieldLine("Merged-Main Baseline SHA", baseSHA), metadataFieldLine("Merged-Main Baseline SHA", "shortsha"), 1)
 		err := validateResidualOwnershipInventoryContent(tampered)
 		if err == nil || !strings.Contains(err.Error(), "Merged-Main Baseline SHA") {
 			t.Fatalf("expected invalid Merged-Main Baseline SHA error, got %v", err)
@@ -978,7 +989,7 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidMetadata(t *testing.T)
 
 	t.Run("TrailingGarbageImplementationSHA", func(t *testing.T) {
 		t.Parallel()
-		tampered := strings.Replace(validContent, implSHA+"`", implSHA+"` -- bypass attempt", 1)
+		tampered := strings.Replace(validContent, metadataFieldLine("Implementation SHA", implSHA), metadataFieldLine("Implementation SHA", implSHA)+" -- bypass attempt", 1)
 		err := validateResidualOwnershipInventoryContent(tampered)
 		if err == nil || (!strings.Contains(err.Error(), "Implementation SHA") && !strings.Contains(err.Error(), "trailing garbage")) {
 			t.Fatalf("expected trailing garbage error for Implementation SHA, got %v", err)
@@ -987,7 +998,7 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidMetadata(t *testing.T)
 
 	t.Run("TrailingGarbageBaselineSHA", func(t *testing.T) {
 		t.Parallel()
-		tampered := strings.Replace(validContent, baseSHA+"`", baseSHA+"` trailing bypass", 1)
+		tampered := strings.Replace(validContent, metadataFieldLine("Merged-Main Baseline SHA", baseSHA), metadataFieldLine("Merged-Main Baseline SHA", baseSHA)+" trailing bypass", 1)
 		err := validateResidualOwnershipInventoryContent(tampered)
 		if err == nil || (!strings.Contains(err.Error(), "Merged-Main Baseline SHA") && !strings.Contains(err.Error(), "trailing garbage")) {
 			t.Fatalf("expected trailing garbage error for Merged-Main Baseline SHA, got %v", err)
@@ -1254,8 +1265,8 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 
 		tampered := strings.Replace(
 			validContent,
-			implSHA,
-			notAncestorSHA,
+			metadataFieldLine("Implementation SHA", implSHA),
+			metadataFieldLine("Implementation SHA", notAncestorSHA),
 			1,
 		)
 		err = validateSHAIdentity(root, tampered)
@@ -1268,8 +1279,8 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 		t.Parallel()
 		tampered := strings.Replace(
 			validContent,
-			implSHA,
-			"0000000000000000000000000000000000000000",
+			metadataFieldLine("Implementation SHA", implSHA),
+			metadataFieldLine("Implementation SHA", "0000000000000000000000000000000000000000"),
 			1,
 		)
 		err := validateSHAIdentity(root, tampered)
@@ -1288,8 +1299,8 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 			if len(parentSHA) == 40 {
 				tampered := strings.Replace(
 					validContent,
-					implSHA,
-					parentSHA,
+					metadataFieldLine("Implementation SHA", implSHA),
+					metadataFieldLine("Implementation SHA", parentSHA),
 					1,
 				)
 				if err := validateSHAIdentity(root, tampered); err != nil {
@@ -1304,8 +1315,8 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 		// Replace baseline SHA with non-baseline SHA
 		tampered := strings.Replace(
 			validContent,
-			baseSHA,
-			"0000000000000000000000000000000000000000",
+			metadataFieldLine("Merged-Main Baseline SHA", baseSHA),
+			metadataFieldLine("Merged-Main Baseline SHA", "0000000000000000000000000000000000000000"),
 			1,
 		)
 		err := validateSHAIdentity(root, tampered)
@@ -1431,8 +1442,8 @@ func TestResidualOwnershipInventoryContract_RejectsDivergedBaseline(t *testing.T
 
 	// 2. If metadata specifies origin/main SHA (commit B) when main and origin/main diverge, validateSHAIdentity must reject it
 	liveImplSHA, liveBaseSHA := mustLiveInventorySHAs(t, validContent)
-	tampered := strings.Replace(validContent, liveBaseSHA, commitB, 1)
-	tampered = strings.Replace(tampered, liveImplSHA, commitA, 1)
+	tampered := strings.Replace(validContent, metadataFieldLine("Merged-Main Baseline SHA", liveBaseSHA), metadataFieldLine("Merged-Main Baseline SHA", commitB), 1)
+	tampered = strings.Replace(tampered, metadataFieldLine("Implementation SHA", liveImplSHA), metadataFieldLine("Implementation SHA", commitA), 1)
 
 	err = validateSHAIdentity(repo, tampered)
 	if err == nil {
@@ -1443,8 +1454,8 @@ func TestResidualOwnershipInventoryContract_RejectsDivergedBaseline(t *testing.T
 	}
 
 	// 3. When metadata specifies local main SHA (commit A), validateSHAIdentity accepts it
-	correctContent := strings.Replace(validContent, liveBaseSHA, commitA, 1)
-	correctContent = strings.Replace(correctContent, liveImplSHA, commitA, 1)
+	correctContent := strings.Replace(validContent, metadataFieldLine("Merged-Main Baseline SHA", liveBaseSHA), metadataFieldLine("Merged-Main Baseline SHA", commitA), 1)
+	correctContent = strings.Replace(correctContent, metadataFieldLine("Implementation SHA", liveImplSHA), metadataFieldLine("Implementation SHA", commitA), 1)
 	if err := validateSHAIdentity(repo, correctContent); err != nil {
 		t.Fatalf("expected validateSHAIdentity to accept local main baseline: %v", err)
 	}
