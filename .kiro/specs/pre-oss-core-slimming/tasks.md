@@ -302,7 +302,7 @@
   - _Boundary: Performance / Concurrency Verification_
   - _Validation: exact 10-sample benchmark command + comparison rules above; exact Linux race command above_
 
-- [ ] 8.3 Produce and validate the residual ownership inventory for the full-closure SDD
+- [x] 8.3 Produce and validate the residual ownership inventory for the full-closure SDD
   - Create exactly `.kiro/specs/pre-oss-core-slimming/residual-ownership-inventory.md`. This is the durable implementation handoff consumed by the second full-closure SDD; do not leave the inventory only in a PR comment or chat transcript.
   - The artifact must contain: implementation/merged-main SHA and inventory date; classification vocabulary; a table with columns `Responsibility`, `Current owner/package`, `Production consumers`, `Classification`, `Why retained/deferred`, `Full-closure action`; summary counts by classification; and an explicit statement that no deferred finding exists only in transient session history.
   - Classify each finding as kernel invariant, generic extension mechanism, concrete optional feature policy, feature-specific infrastructure/composition, or mixed/needs split. Include current owner, concrete production consumers, why it was not moved in this pre-OSS spec, and the intended full-closure action.
