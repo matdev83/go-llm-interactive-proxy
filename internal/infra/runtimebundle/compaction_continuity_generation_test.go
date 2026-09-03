@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
+	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	featurecompaction "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"gopkg.in/yaml.v3"
