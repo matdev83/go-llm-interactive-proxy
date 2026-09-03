@@ -4,8 +4,8 @@
 
 - **Specification**: `pre-oss-core-slimming`
 - **Inventory Date**: `2026-09-03`
-- **Implementation SHA**: `d2a5b53933d12dc66e03e51914166a5b5fe4520c`
-- **Merged-Main Baseline SHA**: `19cdabcb6f469df0783400c8d13f6670a7818e48`
+- **Implementation SHA**: `a8c18f35436afcb18570a38d5e6c05d06fe4fccc`
+- **Merged-Main Baseline SHA**: `a8c18f35436afcb18570a38d5e6c05d06fe4fccc`
 - **Target Full-Closure SDD**: `.kiro/specs/core-feature-ownership-full-closure/`
 
 ## Classification Vocabulary
