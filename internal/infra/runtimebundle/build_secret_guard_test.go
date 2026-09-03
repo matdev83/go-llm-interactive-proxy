@@ -10,7 +10,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -183,36 +182,6 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 	}
 	if res.Inventory == nil || res.Inventory.SecretGuardCatalogEntryCount == 0 {
 		t.Fatalf("expected inventory metadata from returned composition result: %#v", res.Inventory)
-	}
-}
-
-func TestSecretsGuardFeatureEnabled_fromRegistration(t *testing.T) {
-	t.Parallel()
-	regs := []lipsdk.Registration{{
-		Kind:        lipsdk.PluginKindFeature,
-		ID:          "secrets-guard",
-		FactoryKind: "secrets-guard",
-		Enabled:     true,
-	}}
-	matches, err := featuresg.EnabledRegistrations(regs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(matches) != 1 {
-		t.Fatalf("matches=%+v", matches)
-	}
-	regs = []lipsdk.Registration{{
-		Kind:        lipsdk.PluginKindFeature,
-		ID:          "secrets-guard",
-		FactoryKind: "other-feature",
-		Enabled:     true,
-	}}
-	matches, err = featuresg.EnabledRegistrations(regs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(matches) != 0 {
-		t.Fatalf("unrelated factory must not match secrets-guard, got %+v", matches)
 	}
 }
 

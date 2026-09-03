@@ -12,7 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -523,84 +522,6 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		res3, err := buildSecretGuardRuntime(&config.Config{}, log, optsDisabled, nil)
 		require.NoError(t, err)
 		assert.Nil(t, res3.Plane.DecisionObserver)
-	})
-}
-
-// TestSecretGuard_SingleUserInputsAndMatcherPreservation pins how SecretGuardInputs
-// merges with YAML runtime config in composeSecretGuardSingleUser:
-// - Feature disabled: inputs.SingleUser returned directly.
-// - Feature enabled: YAML config values override catalog options (IncludePopularEnv, IncludeEnv, ExcludeEnv, MinSecretBytes).
-// - Feature enabled + MatcherConfigured=true: inputs.SingleUser.Matcher is PRESERVED.
-// - Feature enabled + MatcherConfigured=false: YAML stamps matcher options.
-func TestSecretGuard_SingleUserInputsAndMatcherPreservation(t *testing.T) {
-	t.Parallel()
-
-	t.Run("feature_disabled_preserves_inputs_directly", func(t *testing.T) {
-		t.Parallel()
-		inputs := SecretGuardInputs{
-			SingleUser: coresg.SingleUserOptions{
-				IncludePopularEnv: true,
-				IncludeEnv:        []string{"INPUT_A", "INPUT_B"},
-				ExcludeEnv:        []string{"EXCLUDE_A"},
-				MinSecretBytes:    12,
-			},
-		}
-		runtimeCfg := featuresg.RuntimeConfig{Enabled: false}
-		out := composeSecretGuardSingleUser(runtimeCfg, inputs)
-		assert.True(t, out.IncludePopularEnv)
-		assert.Equal(t, []string{"INPUT_A", "INPUT_B"}, out.IncludeEnv)
-		assert.Equal(t, []string{"EXCLUDE_A"}, out.ExcludeEnv)
-		assert.Equal(t, 12, out.MinSecretBytes)
-	})
-
-	t.Run("feature_enabled_yaml_overrides_catalog_options", func(t *testing.T) {
-		t.Parallel()
-		inputs := SecretGuardInputs{
-			SingleUser: coresg.SingleUserOptions{
-				IncludePopularEnv: false,
-				IncludeEnv:        []string{"INPUT_A"},
-				ExcludeEnv:        []string{"EXCLUDE_A"},
-				MinSecretBytes:    8,
-			},
-		}
-		runtimeCfg := featuresg.RuntimeConfig{
-			Enabled:           true,
-			IncludePopularEnv: true,
-			IncludeEnv:        []string{"YAML_A", "YAML_B"},
-			ExcludeEnv:        []string{"YAML_EXCLUDE"},
-			MinSecretBytes:    16,
-			MaskByte:          '*',
-		}
-		out := composeSecretGuardSingleUser(runtimeCfg, inputs)
-		assert.True(t, out.IncludePopularEnv)
-		assert.Equal(t, []string{"YAML_A", "YAML_B"}, out.IncludeEnv)
-		assert.Equal(t, []string{"YAML_EXCLUDE"}, out.ExcludeEnv)
-		assert.Equal(t, 16, out.MinSecretBytes)
-		assert.True(t, out.MatcherConfigured)
-		assert.Equal(t, byte('*'), out.Matcher.MaskByte)
-	})
-
-	t.Run("feature_enabled_matcher_override_preserved_when_configured", func(t *testing.T) {
-		t.Parallel()
-		customMatcher := coresg.MatcherOptions{
-			PreserveKnownPrefixes: false,
-			MaskByte:              '#',
-		}
-		inputs := SecretGuardInputs{
-			SingleUser: coresg.SingleUserOptions{
-				MatcherConfigured: true,
-				Matcher:           customMatcher,
-			},
-		}
-		runtimeCfg := featuresg.RuntimeConfig{
-			Enabled:               true,
-			PreserveKnownPrefixes: true,
-			MaskByte:              '*',
-		}
-		out := composeSecretGuardSingleUser(runtimeCfg, inputs)
-		assert.True(t, out.MatcherConfigured)
-		assert.Equal(t, byte('#'), out.Matcher.MaskByte, "custom matcher mask byte must be preserved")
-		assert.False(t, out.Matcher.PreserveKnownPrefixes, "custom matcher prefix preservation must be preserved")
 	})
 }
 

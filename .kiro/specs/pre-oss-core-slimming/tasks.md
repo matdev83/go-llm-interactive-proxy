@@ -211,7 +211,7 @@
   - _Boundary: Reasoning Composition Adapter_
   - _Validation: `go test -count=1 ./internal/infra/reasoningcompose ./internal/infra/runtimebundle ./internal/plugins/features/reasoningpreservation ./pkg/lipruntime -run 'Reasoning|reasoning|Compression|compression'`_
 
-- [ ] 6.2 Converge runtimebundle secret-guard delegation onto `secretguardcompose`
+- [x] 6.2 Converge runtimebundle secret-guard delegation onto `secretguardcompose`
   - Remove any residual feature/config/engine-specific helper from `runtimebundle` after Task 4.2; retain only extraction of effective config/access mode/host options/frozen planes and one adapter call.
   - Ensure runtimebundle does not reconstruct secret-guard config-to-engine policy, matcher settings, or audit chaining after the move.
   - Preserve candidate overlay/reload behavior and generic `ExtensionsOptions` shape through adapter-owned aliases/types as needed.
