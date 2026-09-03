@@ -912,6 +912,25 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidTableCellCount(t *test
 	}
 }
 
+// mustLiveInventorySHAs derives the Implementation and Baseline SHAs recorded in
+// the live artifact so tamper tests track inventory updates instead of pinning
+// stale literal SHAs.
+func mustLiveInventorySHAs(t *testing.T, content string) (implSHA, baseSHA string) {
+	t.Helper()
+	meta := extractSection(content, "## Baseline & Implementation Metadata")
+	if meta == "" {
+		meta = content
+	}
+	var err error
+	if implSHA, err = parseMetadataField(meta, "Implementation SHA"); err != nil {
+		t.Fatalf("parse live Implementation SHA: %v", err)
+	}
+	if baseSHA, err = parseMetadataField(meta, "Merged-Main Baseline SHA"); err != nil {
+		t.Fatalf("parse live Merged-Main Baseline SHA: %v", err)
+	}
+	return implSHA, baseSHA
+}
+
 func TestResidualOwnershipInventoryContract_RejectsInvalidMetadata(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -919,6 +938,7 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidMetadata(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	implSHA, baseSHA := mustLiveInventorySHAs(t, validContent)
 
 	t.Run("InvalidDate", func(t *testing.T) {
 		t.Parallel()
@@ -931,7 +951,7 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidMetadata(t *testing.T)
 
 	t.Run("InvalidImplementationSHA", func(t *testing.T) {
 		t.Parallel()
-		tampered := strings.Replace(validContent, "edf37d2d977a36499f3a4d313e7f7660ec4d22ca", "not-a-valid-40-char-hex-sha", 1)
+		tampered := strings.Replace(validContent, implSHA, "not-a-valid-40-char-hex-sha", 1)
 		err := validateResidualOwnershipInventoryContent(tampered)
 		if err == nil || !strings.Contains(err.Error(), "Implementation SHA") {
 			t.Fatalf("expected invalid Implementation SHA error, got %v", err)
@@ -940,7 +960,7 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidMetadata(t *testing.T)
 
 	t.Run("InvalidBaselineSHA", func(t *testing.T) {
 		t.Parallel()
-		tampered := strings.Replace(validContent, "ae69b2f9aa63ed48f677e81f5520a26a8eb4e9d6", "shortsha", 1)
+		tampered := strings.Replace(validContent, baseSHA, "shortsha", 1)
 		err := validateResidualOwnershipInventoryContent(tampered)
 		if err == nil || !strings.Contains(err.Error(), "Merged-Main Baseline SHA") {
 			t.Fatalf("expected invalid Merged-Main Baseline SHA error, got %v", err)
@@ -958,7 +978,7 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidMetadata(t *testing.T)
 
 	t.Run("TrailingGarbageImplementationSHA", func(t *testing.T) {
 		t.Parallel()
-		tampered := strings.Replace(validContent, "edf37d2d977a36499f3a4d313e7f7660ec4d22ca`", "edf37d2d977a36499f3a4d313e7f7660ec4d22ca` -- bypass attempt", 1)
+		tampered := strings.Replace(validContent, implSHA+"`", implSHA+"` -- bypass attempt", 1)
 		err := validateResidualOwnershipInventoryContent(tampered)
 		if err == nil || (!strings.Contains(err.Error(), "Implementation SHA") && !strings.Contains(err.Error(), "trailing garbage")) {
 			t.Fatalf("expected trailing garbage error for Implementation SHA, got %v", err)
@@ -967,7 +987,7 @@ func TestResidualOwnershipInventoryContract_RejectsInvalidMetadata(t *testing.T)
 
 	t.Run("TrailingGarbageBaselineSHA", func(t *testing.T) {
 		t.Parallel()
-		tampered := strings.Replace(validContent, "ae69b2f9aa63ed48f677e81f5520a26a8eb4e9d6`", "ae69b2f9aa63ed48f677e81f5520a26a8eb4e9d6` trailing bypass", 1)
+		tampered := strings.Replace(validContent, baseSHA+"`", baseSHA+"` trailing bypass", 1)
 		err := validateResidualOwnershipInventoryContent(tampered)
 		if err == nil || (!strings.Contains(err.Error(), "Merged-Main Baseline SHA") && !strings.Contains(err.Error(), "trailing garbage")) {
 			t.Fatalf("expected trailing garbage error for Merged-Main Baseline SHA, got %v", err)
@@ -1209,6 +1229,7 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	implSHA, baseSHA := mustLiveInventorySHAs(t, validContent)
 
 	t.Run("ValidIdentity", func(t *testing.T) {
 		t.Parallel()
@@ -1233,7 +1254,7 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 
 		tampered := strings.Replace(
 			validContent,
-			"edf37d2d977a36499f3a4d313e7f7660ec4d22ca",
+			implSHA,
 			notAncestorSHA,
 			1,
 		)
@@ -1247,7 +1268,7 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 		t.Parallel()
 		tampered := strings.Replace(
 			validContent,
-			"edf37d2d977a36499f3a4d313e7f7660ec4d22ca",
+			implSHA,
 			"0000000000000000000000000000000000000000",
 			1,
 		)
@@ -1267,7 +1288,7 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 			if len(parentSHA) == 40 {
 				tampered := strings.Replace(
 					validContent,
-					"edf37d2d977a36499f3a4d313e7f7660ec4d22ca",
+					implSHA,
 					parentSHA,
 					1,
 				)
@@ -1283,7 +1304,7 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 		// Replace baseline SHA with non-baseline SHA
 		tampered := strings.Replace(
 			validContent,
-			"ae69b2f9aa63ed48f677e81f5520a26a8eb4e9d6",
+			baseSHA,
 			"0000000000000000000000000000000000000000",
 			1,
 		)
@@ -1301,10 +1322,11 @@ func TestResidualOwnershipInventoryContract_RejectsMetadataOutsideSection(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	implSHA, baseSHA := mustLiveInventorySHAs(t, validContent)
 
 	t.Run("FieldAfterMetadataSection", func(t *testing.T) {
 		t.Parallel()
-		tampered := validContent + "\n- **Implementation SHA**: `edf37d2d977a36499f3a4d313e7f7660ec4d22ca`\n"
+		tampered := validContent + "\n- **Implementation SHA**: `" + implSHA + "`\n"
 		err := validateResidualOwnershipInventoryContent(tampered)
 		if err == nil || !strings.Contains(err.Error(), "outside ## Baseline & Implementation Metadata") {
 			t.Fatalf("expected metadata outside section error, got %v", err)
@@ -1325,7 +1347,7 @@ func TestResidualOwnershipInventoryContract_RejectsMetadataOutsideSection(t *tes
 		tampered := strings.Replace(
 			validContent,
 			"## Classification Vocabulary\n",
-			"## Classification Vocabulary\n\n- **Merged-Main Baseline SHA**: `ae69b2f9aa63ed48f677e81f5520a26a8eb4e9d6`\n",
+			"## Classification Vocabulary\n\n- **Merged-Main Baseline SHA**: `"+baseSHA+"`\n",
 			1,
 		)
 		err := validateResidualOwnershipInventoryContent(tampered)
@@ -1408,8 +1430,9 @@ func TestResidualOwnershipInventoryContract_RejectsDivergedBaseline(t *testing.T
 	}
 
 	// 2. If metadata specifies origin/main SHA (commit B) when main and origin/main diverge, validateSHAIdentity must reject it
-	tampered := strings.Replace(validContent, "ae69b2f9aa63ed48f677e81f5520a26a8eb4e9d6", commitB, 1)
-	tampered = strings.Replace(tampered, "edf37d2d977a36499f3a4d313e7f7660ec4d22ca", commitA, 1)
+	liveImplSHA, liveBaseSHA := mustLiveInventorySHAs(t, validContent)
+	tampered := strings.Replace(validContent, liveBaseSHA, commitB, 1)
+	tampered = strings.Replace(tampered, liveImplSHA, commitA, 1)
 
 	err = validateSHAIdentity(repo, tampered)
 	if err == nil {
@@ -1420,8 +1443,8 @@ func TestResidualOwnershipInventoryContract_RejectsDivergedBaseline(t *testing.T
 	}
 
 	// 3. When metadata specifies local main SHA (commit A), validateSHAIdentity accepts it
-	correctContent := strings.Replace(validContent, "ae69b2f9aa63ed48f677e81f5520a26a8eb4e9d6", commitA, 1)
-	correctContent = strings.Replace(correctContent, "edf37d2d977a36499f3a4d313e7f7660ec4d22ca", commitA, 1)
+	correctContent := strings.Replace(validContent, liveBaseSHA, commitA, 1)
+	correctContent = strings.Replace(correctContent, liveImplSHA, commitA, 1)
 	if err := validateSHAIdentity(repo, correctContent); err != nil {
 		t.Fatalf("expected validateSHAIdentity to accept local main baseline: %v", err)
 	}
