@@ -100,6 +100,18 @@ func BindGeneratedAccessForTest[T any](
 	return p
 }
 
+// SetCanonicalValidateIdentityForTest temporarily overrides validateIdentity on a plane's canonical policy.
+func SetCanonicalValidateIdentityForTest[T any](p Plane[T], fn func(string) error) func() {
+	if p.generated.policy == nil {
+		return func() {}
+	}
+	orig := p.generated.policy.validateIdentity
+	p.generated.policy.validateIdentity = fn
+	return func() {
+		p.generated.policy.validateIdentity = orig
+	}
+}
+
 // BindGeneratedTestPlane attaches canonical policy and test eligibility/storage to a Plane[T] for testing.
 func BindGeneratedTestPlane[T any](p Plane[T]) Plane[T] {
 	return BindGeneratedAccessForTest(

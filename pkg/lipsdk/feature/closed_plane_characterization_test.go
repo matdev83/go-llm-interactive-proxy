@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -367,11 +368,23 @@ func TestClosedPlane_OrdinaryReplay_FailBeforeMutate(t *testing.T) {
 	assert.Equal(t, "src-hook-1", gotHooks[0].ID())
 	assert.Equal(t, "src-hook-2", gotHooks[1].ID())
 
-	// 2. ReplaySourceTo into dst under SourceHost using standard plane
+	// 2. ReplaySourceTo into dst under SourceHost:
+	// PlaneSubmitHooks rejects SourceHost with ErrUnsupportedSource before mutation.
+	dstHostRejected := feature.NewContributionSet()
+	err = frozenSrc.ReplaySourceTo(dstHostRejected, feature.SourceHost, "host-replay")
+	require.ErrorIs(t, err, feature.ErrUnsupportedSource)
+	assert.Empty(t, feature.Get(dstHostRejected.Freeze(), feature.PlaneSubmitHooks))
+
+	// ReplaySourceTo under SourceHost succeeds on planes that support SourceHost (e.g. PlaneTrafficObservers).
+	csHostSupported := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(csHostSupported, feature.PlaneTrafficObservers, "plugin-traffic", []traffic.Observer{
+		traffic.NoopObserver{},
+	}))
+	frozenTraffic := csHostSupported.Freeze()
 	dstHost := feature.NewContributionSet()
-	err = frozenSrc.ReplaySourceTo(dstHost, feature.SourceFeature, "host-replay")
+	err = frozenTraffic.ReplaySourceTo(dstHost, feature.SourceHost, "host-replay")
 	require.NoError(t, err)
-	assert.Len(t, feature.Get(dstHost.Freeze(), feature.PlaneSubmitHooks), 2)
+	assert.Len(t, feature.Get(dstHost.Freeze(), feature.PlaneTrafficObservers), 1)
 
 	// 3. Fail-before-mutate on replay conflict: destination must remain atomically unmodified
 	dstAtomic := feature.NewContributionSet()

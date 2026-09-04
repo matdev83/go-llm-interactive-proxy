@@ -47,7 +47,7 @@ func materializeRequestSlice[T any](
 // For planes bound to generated storage, Get dispatches directly with zero map lookups,
 // zero reflection, and zero type assertions.
 func Get[P any](s FrozenPlaneSet, p Plane[P]) P {
-	if p.generated.get != nil && s.frozen != nil {
+	if p.generated.get != nil && s.frozen != nil && p.generated.policy != nil && p.generated.policy.planeID == p.ID {
 		return p.generated.get(s.frozen)
 	}
 	var zero P
@@ -82,7 +82,7 @@ func FreezeRequestPlanes(in FrozenPlaneSet) FrozenPlaneSet {
 // FrozenIdentity reads validated cached identity metadata and does not invoke live identity methods.
 // For planes bound to generated storage, FrozenIdentity dispatches directly with zero map lookups.
 func FrozenIdentity[P any](s FrozenPlaneSet, p Plane[P]) (string, bool) {
-	if p.generated.identity != nil && s.frozen != nil {
+	if p.generated.identity != nil && s.frozen != nil && p.generated.policy != nil && p.generated.policy.planeID == p.ID {
 		return p.generated.identity(s.frozen)
 	}
 	return "", false
@@ -127,6 +127,12 @@ func ContributionSetFromFrozen(s FrozenPlaneSet) *ContributionSet {
 func (s FrozenPlaneSet) ContributeCandidateTo(dst *ContributionSet, source SourceKind, contributorID string) error {
 	if s.IsZero() || dst == nil || s.frozen == nil {
 		return nil
+	}
+	if contributorID == "" {
+		contributorID = "candidate"
+	}
+	if err := s.frozen.checkCandidateSourceAdmission(source, contributorID); err != nil {
+		return err
 	}
 	staged := dst.Clone()
 	if staged.generated != nil {
@@ -200,6 +206,9 @@ func (s FrozenPlaneSet) ReplaySourceTo(dst *ContributionSet, source SourceKind, 
 				PlaneID:  planeID,
 				Err:      fmt.Errorf("%w: source %s requires identity-aware binder operation", ErrUnsupportedReplaySource, source),
 			}
+		}
+		if err := s.frozen.checkSourceAdmission(source, contributorID); err != nil {
+			return err
 		}
 	}
 	if err := s.validateStored(); err != nil {

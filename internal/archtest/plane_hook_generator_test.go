@@ -143,35 +143,33 @@ func hookGenExtractReturnHookConfigLit(t *testing.T, fn *ast.FuncDecl) *ast.Comp
 func hookGenAssertHookConfigLiteral(t *testing.T, comp *ast.CompositeLit, expectedOrder []hookGenExpectedKV) {
 	t.Helper()
 	require.NotNil(t, comp)
-	expectedTotal := len(expectedOrder) + 1
-	require.Equal(t, expectedTotal, len(comp.Elts), "literal element count mismatch")
-
+	require.Equal(t, len(expectedOrder)+1, len(comp.Elts), "literal element count mismatch")
 	seenKeys := make(map[string]bool, len(comp.Elts))
 	for i, exp := range expectedOrder {
 		elt := comp.Elts[i]
 		kv, ok := elt.(*ast.KeyValueExpr)
 		require.True(t, ok, "element at index %d must be KeyValueExpr", i)
-
 		keyIdent, ok := kv.Key.(*ast.Ident)
 		require.True(t, ok, "key at index %d must be Ident", i)
 		assert.False(t, seenKeys[keyIdent.Name], "duplicate key %s at index %d", keyIdent.Name, i)
 		seenKeys[keyIdent.Name] = true
 		assert.Equal(t, exp.Key, keyIdent.Name, "key mismatch at index %d", i)
-
 		call, ok := kv.Value.(*ast.CallExpr)
 		require.True(t, ok, "field %s value must be CallExpr", keyIdent.Name)
-		fnIdent, ok := call.Fun.(*ast.Ident)
+		sel, ok := call.Fun.(*ast.SelectorExpr)
 		require.True(t, ok)
-		assert.Equal(t, "Get", fnIdent.Name)
-		require.Len(t, call.Args, 2)
-		arg0Ident, ok := call.Args[0].(*ast.Ident)
+		assert.Equal(t, "get", sel.Sel.Name)
+		accessIdent, ok := sel.X.(*ast.Ident)
 		require.True(t, ok)
-		assert.Equal(t, "frozen", arg0Ident.Name)
-		arg1Ident, ok := call.Args[1].(*ast.Ident)
+		assert.Equal(t, "canonical"+exp.PlaneVar+"Access", accessIdent.Name)
+		require.Len(t, call.Args, 1)
+		argSel, ok := call.Args[0].(*ast.SelectorExpr)
 		require.True(t, ok)
-		assert.Equal(t, exp.PlaneVar, arg1Ident.Name)
+		assert.Equal(t, "frozen", argSel.Sel.Name)
+		xIdent, ok := argSel.X.(*ast.Ident)
+		require.True(t, ok, "call argument selector X must be an Ident")
+		assert.Equal(t, "frozen", xIdent.Name)
 	}
-
 	lastIdx := len(expectedOrder)
 	lastKV, ok := comp.Elts[lastIdx].(*ast.KeyValueExpr)
 	require.True(t, ok)

@@ -83,23 +83,28 @@ var (
 // ContributeSource adds a typed contribution from an explicit source (e.g. [SourceFeature], [SourceHost],
 // [SourceGenerationBinder]) to the [ContributionSet]. If any validation or combination fails, the set is
 // left unmodified (fail-before-mutate) and an [AttributedError] attributing the contributor ID and plane ID is returned.
-func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, contributorID string, v P) error {
+func contributePolicy[P any](
+	s *ContributionSet,
+	gp *generatedPolicy[P],
+	contribute func(*generatedContributions, SourceKind, string, P) error,
+	getIdentity func(*generatedFrozen) (string, bool),
+	source SourceKind,
+	contributorID string,
+	v P,
+) error {
 	if s == nil {
 		return fmt.Errorf("feature: nil ContributionSet")
 	}
-
-	gp := p.generated.policy
-	if p.generated.contribute == nil || p.generated.get == nil || gp == nil || gp.planeID != p.ID {
+	if gp == nil || contribute == nil {
 		return &AttributedError{
 			PluginID: contributorID,
-			PlaneID:  p.ID,
 			Err:      ErrUngeneratedPlane,
 		}
 	}
 
 	if contributorID == "" {
 		return &AttributedError{
-			PlaneID: p.ID,
+			PlaneID: gp.planeID,
 			Err:     fmt.Errorf("%w: plugin ID must not be empty", ErrInvalidContribution),
 		}
 	}
@@ -108,8 +113,8 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	if rule == CombUnsupported {
 		return &AttributedError{
 			PluginID: contributorID,
-			PlaneID:  p.ID,
-			Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, p.ID),
+			PlaneID:  gp.planeID,
+			Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, gp.planeID),
 		}
 	}
 
@@ -127,8 +132,8 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 		case NilReject:
 			return &AttributedError{
 				PluginID: contributorID,
-				PlaneID:  p.ID,
-				Err:      fmt.Errorf("%w: nil contribution rejected by policy on plane %q", ErrNilContribution, p.ID),
+				PlaneID:  gp.planeID,
+				Err:      fmt.Errorf("%w: nil contribution rejected by policy on plane %q", ErrNilContribution, gp.planeID),
 			}
 		case NilSkip:
 			// Omit consistently from combination and diagnostics (leave set untouched)
@@ -143,7 +148,7 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 		if err := gp.validate(v); err != nil {
 			return &AttributedError{
 				PluginID: contributorID,
-				PlaneID:  p.ID,
+				PlaneID:  gp.planeID,
 				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 			}
 		}
@@ -159,13 +164,13 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 				if rule == CombExclusive {
 					return &AttributedError{
 						PluginID: contributorID,
-						PlaneID:  p.ID,
+						PlaneID:  gp.planeID,
 						Err:      fmt.Errorf("%w: failed to extract identity from exclusive contribution", ErrInvalidContribution),
 					}
 				}
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  p.ID,
+					PlaneID:  gp.planeID,
 					Err:      fmt.Errorf("%w: failed to extract identity from replace_by_identity contribution", ErrInvalidContribution),
 				}
 			}
@@ -173,7 +178,7 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 				if err := gp.validateIdentity(incomingID); err != nil {
 					return &AttributedError{
 						PluginID: contributorID,
-						PlaneID:  p.ID,
+						PlaneID:  gp.planeID,
 						Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 					}
 				}
@@ -183,32 +188,52 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 
 	// 4. Exclusive conflict check.
 	if rule == CombExclusive {
-		if _, occupied := s.pluginIDs[p.ID]; occupied {
+		if _, occupied := s.pluginIDs[gp.planeID]; occupied {
 			var existingID string
-			if p.generated.identity != nil {
+			if getIdentity != nil {
 				frozen := s.Freeze()
 				if frozen.frozen != nil {
-					existingID, _ = p.generated.identity(frozen.frozen)
+					existingID, _ = getIdentity(frozen.frozen)
 				}
 			}
-			return makeExclusiveConflictError(contributorID, p.ID, gp.exclusiveConflictError, existingID, incomingID)
+			return makeExclusiveConflictError(contributorID, gp.planeID, gp.exclusiveConflictError, existingID, incomingID)
 		}
 	}
 
 	// 5. Generated storage path: pure storage, closures are NOT responsible for identity validation or conflict checks.
 	if s.generated != nil {
-		if err := p.generated.contribute(s.generated, source, contributorID, v); err != nil {
+		if err := contribute(s.generated, source, contributorID, v); err != nil {
 			return &AttributedError{
 				PluginID: contributorID,
-				PlaneID:  p.ID,
+				PlaneID:  gp.planeID,
 				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 			}
 		}
-		s.pluginIDs[p.ID] = contributorID
+		s.pluginIDs[gp.planeID] = contributorID
 		return nil
 	}
 
 	return nil
+}
+
+// ContributeSource adds a typed contribution from an explicit source (e.g. [SourceFeature], [SourceHost],
+// [SourceGenerationBinder]) to the [ContributionSet]. If any validation or combination fails, the set is
+// left unmodified (fail-before-mutate) and an [AttributedError] attributing the contributor ID and plane ID is returned.
+func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, contributorID string, v P) error {
+	if s == nil {
+		return fmt.Errorf("feature: nil ContributionSet")
+	}
+
+	gp := p.generated.policy
+	if p.generated.contribute == nil || p.generated.get == nil || gp == nil || gp.planeID != p.ID {
+		return &AttributedError{
+			PluginID: contributorID,
+			PlaneID:  p.ID,
+			Err:      ErrUngeneratedPlane,
+		}
+	}
+
+	return contributePolicy(s, gp, p.generated.contribute, p.generated.identity, source, contributorID, v)
 }
 
 // Contribute adds a typed contribution from a feature plugin under [SourceFeature] to the [ContributionSet].

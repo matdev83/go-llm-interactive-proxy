@@ -37,7 +37,7 @@ func emitHookConfig(buf *bytes.Buffer, planes []planeInfo) {
 	fmt.Fprintf(buf, "func ProjectHookConfig(frozen FrozenPlaneSet, policy %s.ToolReactorErrorPolicy) HookConfig {\n", hookPkg)
 	buf.WriteString("\treturn HookConfig{\n")
 	for _, p := range hookPlanes {
-		fmt.Fprintf(buf, "\t\t%s: Get(frozen, %s),\n", p.hookTarget, p.varName)
+		fmt.Fprintf(buf, "\t\t%s: %s.get(frozen.frozen),\n", p.hookTarget, canonicalAccessVar(p))
 	}
 	buf.WriteString("\t\tToolReactorErrorPolicy: policy,\n")
 	buf.WriteString("\t}\n")

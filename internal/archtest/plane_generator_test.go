@@ -169,8 +169,9 @@ var StandardPlanes = []any{PlaneSyntheticSlice}
 	require.NoError(t, err)
 	generatedCode := string(generatedBytes)
 
-	assert.Contains(t, generatedCode, "materializeRequestSlice(gf.syntheticSlice, PlaneSyntheticSlice.RequestMaterializer)")
-	assert.NotContains(t, generatedCode, "cloneSlice(PlaneSyntheticSlice.RequestMaterializer(gf.syntheticSlice))")
+	assert.Contains(t, generatedCode, "materializeRequestSlice(gf.syntheticSlice, canonicalPlaneSyntheticSlicePolicy.requestMaterializer)")
+	assert.NotContains(t, generatedCode, "cloneSlice(canonicalPlaneSyntheticSlicePolicy.requestMaterializer(gf.syntheticSlice))")
+	assert.NotContains(t, generatedCode, "canonicalPlaneSyntheticSlicePolicy.requestMaterializer(gf.syntheticSlice)")
 	assert.NotContains(t, generatedCode, "PlaneSyntheticSlice.RequestMaterializer(gf.syntheticSlice)")
 }
 
@@ -211,11 +212,13 @@ var StandardPlanes = []any{PlaneDisposableProbe, PlaneNonDiag}
 	code := string(generatedBytes)
 
 	assert.Contains(t, code, "func ProjectDiagnostics(")
-	assert.Contains(t, code, "PlaneDisposableProbe.MaterializeOccupants(")
-	assert.Contains(t, code, "PlaneDisposableProbe.ProjectPrivileges(")
-	assert.Contains(t, code, "PlaneDisposableProbe.Diagnostics.Order")
-	assert.Contains(t, code, "PlaneDisposableProbe.Diagnostics.CoalesceGroup")
-	assert.NotContains(t, code, "PlaneNonDiag.MaterializeOccupants(")
+	assert.Contains(t, code, "canonicalPlaneDisposableProbePolicy.materializeOccupants(")
+	assert.Contains(t, code, "canonicalPlaneDisposableProbePolicy.projectPrivileges(")
+	assert.Contains(t, code, "canonicalPlaneDisposableProbePolicy.diagOrder")
+	assert.Contains(t, code, "canonicalPlaneDisposableProbePolicy.diagCoalesceGroup")
+	assert.NotContains(t, code, "canonicalPlaneNonDiagPolicy.materializeOccupants(")
+	assert.NotContains(t, code, "PlaneDisposableProbe.MaterializeOccupants(")
+	assert.NotContains(t, code, "PlaneDisposableProbe.ProjectPrivileges(")
 
 	root := repoRoot(t)
 	diagPath := filepath.Join(root, "internal", "core", "diag", "inventory_extensions.go")

@@ -56,7 +56,7 @@ var StandardPlanes = []any{PlaneSyntheticReplace}
 	assert.Contains(t, code, "gc.syntheticReplaceHasID = gf.syntheticReplaceHasID")
 
 	// 3. Verify contribute closure extracts identity
-	assert.Contains(t, code, "id, hasID := PlaneSyntheticReplace.Identity(gc.syntheticReplace)")
+	assert.Contains(t, code, "id, hasID := canonicalPlaneSyntheticReplacePolicy.identity(gc.syntheticReplace)")
 	assert.Contains(t, code, "gc.syntheticReplaceID = id")
 	assert.Contains(t, code, "gc.syntheticReplaceHasID = hasID")
 
@@ -66,16 +66,16 @@ var StandardPlanes = []any{PlaneSyntheticReplace}
 	// 5. Verify validate checks structural metadata and calls ValidateIdentity
 	assert.Contains(t, code, "malformed metadata without value")
 	assert.Contains(t, code, "missing cached identity")
-	assert.Contains(t, code, "PlaneSyntheticReplace.ValidateIdentity(gf.syntheticReplaceID)")
+	assert.Contains(t, code, "canonicalPlaneSyntheticReplacePolicy.validateIdentity(gf.syntheticReplaceID)")
 
 	// 6. Verify replayAllPlanesTo combines slices directly and preserves cached IDs without calling live Identity
-	assert.Contains(t, code, "combined, err := PlaneSyntheticReplace.Combine(source, current, incoming)")
+	assert.Contains(t, code, "combined, err := canonicalPlaneSyntheticReplacePolicy.combine(source, current, incoming)")
 	assert.Contains(t, code, "gc.syntheticReplaceID = gf.syntheticReplaceID")
 	assert.Contains(t, code, "gc.syntheticReplaceHasID = gf.syntheticReplaceHasID")
 
 	// 7. Verify hasIdentityReplayRule is generated
 	assert.Contains(t, code, "func (gf *generatedFrozen) hasIdentityReplayRule(")
-	assert.Contains(t, code, "PlaneSyntheticReplace.Rules.RuleFor(source) == rule")
+	assert.Contains(t, code, "canonicalPlaneSyntheticReplacePolicy.rules.RuleFor(source) == rule")
 
 	// 8. Verify map-backed replay/validation helpers are NOT generated
 	assert.NotContains(t, code, "validateAllPlanesMap")

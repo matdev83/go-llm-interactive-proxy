@@ -6,6 +6,14 @@ import (
 	"strings"
 )
 
+func canonicalPolicyVar(p planeInfo) string {
+	return fmt.Sprintf("canonical%sPolicy", p.varName)
+}
+
+func canonicalAccessVar(p planeInfo) string {
+	return fmt.Sprintf("canonical%sAccess", p.varName)
+}
+
 func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error) {
 	var buf bytes.Buffer
 
@@ -109,11 +117,12 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	buf.WriteString("\tif gf == nil {\n\t\treturn nil\n\t}\n")
 	buf.WriteString("\tnext := &generatedFrozen{\n")
 	for _, p := range planes {
+		policyVar := canonicalPolicyVar(p)
 		if p.hasRequestMaterializer {
 			if strings.HasPrefix(p.typeExpr, "[]") {
-				fmt.Fprintf(&buf, "\t\t%s: materializeRequestSlice(gf.%s, %s.RequestMaterializer),\n", p.fieldName, p.fieldName, p.varName)
+				fmt.Fprintf(&buf, "\t\t%s: materializeRequestSlice(gf.%s, %s.requestMaterializer),\n", p.fieldName, p.fieldName, policyVar)
 			} else {
-				fmt.Fprintf(&buf, "\t\t%s: %s.RequestMaterializer(gf.%s),\n", p.fieldName, p.varName, p.fieldName)
+				fmt.Fprintf(&buf, "\t\t%s: %s.requestMaterializer(gf.%s),\n", p.fieldName, policyVar, p.fieldName)
 			}
 		} else if strings.HasPrefix(p.typeExpr, "[]") {
 			fmt.Fprintf(&buf, "\t\t%s: cloneSlice(gf.%s),\n", p.fieldName, p.fieldName)
@@ -152,71 +161,72 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	buf.WriteString("func (gf *generatedFrozen) validate() error {\n")
 	buf.WriteString("\tif gf == nil {\n\t\treturn nil\n\t}\n")
 	for _, p := range planes {
+		policyVar := canonicalPolicyVar(p)
 		if strings.HasPrefix(p.typeExpr, "[]") {
 			if p.hasIdentity {
 				fmt.Fprintf(&buf, "\tif gf.%s == nil {\n", p.fieldName)
 				fmt.Fprintf(&buf, "\t\tif gf.%sHasID || gf.%sID != \"\" {\n", p.fieldName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\treturn newPlaneValidationError(%s.ID, errors.New(\"malformed metadata without value\"))\n", p.varName)
+				fmt.Fprintf(&buf, "\t\t\treturn newPlaneValidationError(%s.planeID, errors.New(\"malformed metadata without value\"))\n", policyVar)
 				fmt.Fprintf(&buf, "\t\t}\n")
 				fmt.Fprintf(&buf, "\t} else {\n")
-				fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.ID, err)\n", p.varName)
+				fmt.Fprintf(&buf, "\t\tif %s.validate != nil {\n", policyVar)
+				fmt.Fprintf(&buf, "\t\t\tif err := %s.validate(gf.%s); err != nil {\n", policyVar, p.fieldName)
+				fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.planeID, err)\n", policyVar)
 				fmt.Fprintf(&buf, "\t\t\t}\n")
 				fmt.Fprintf(&buf, "\t\t}\n")
 				fmt.Fprintf(&buf, "\t\tif !gf.%sHasID {\n", p.fieldName)
 				fmt.Fprintf(&buf, "\t\t\tif gf.%sID != \"\" || len(gf.%s) > 0 {\n", p.fieldName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.ID, errors.New(\"missing cached identity\"))\n", p.varName)
+				fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.planeID, errors.New(\"missing cached identity\"))\n", policyVar)
 				fmt.Fprintf(&buf, "\t\t\t}\n")
 				fmt.Fprintf(&buf, "\t\t} else {\n")
 				fmt.Fprintf(&buf, "\t\t\tif gf.%sID == \"\" {\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.ID, errors.New(\"missing cached identity\"))\n", p.varName)
+				fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.planeID, errors.New(\"missing cached identity\"))\n", policyVar)
 				fmt.Fprintf(&buf, "\t\t\t}\n")
 				if p.hasValidateIdentity {
-					fmt.Fprintf(&buf, "\t\t\tif err := %s.ValidateIdentity(gf.%sID); err != nil {\n", p.varName, p.fieldName)
-					fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.ID, err)\n", p.varName)
+					fmt.Fprintf(&buf, "\t\t\tif err := %s.validateIdentity(gf.%sID); err != nil {\n", policyVar, p.fieldName)
+					fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.planeID, err)\n", policyVar)
 					fmt.Fprintf(&buf, "\t\t\t}\n")
 				}
 				fmt.Fprintf(&buf, "\t\t}\n")
 				fmt.Fprintf(&buf, "\t}\n")
 			} else {
 				fmt.Fprintf(&buf, "\tif gf.%s != nil {\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.ID, err)\n", p.varName)
+				fmt.Fprintf(&buf, "\t\tif %s.validate != nil {\n", policyVar)
+				fmt.Fprintf(&buf, "\t\t\tif err := %s.validate(gf.%s); err != nil {\n", policyVar, p.fieldName)
+				fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.planeID, err)\n", policyVar)
 				fmt.Fprintf(&buf, "\t\t\t}\n")
 				fmt.Fprintf(&buf, "\t\t}\n")
 				fmt.Fprintf(&buf, "\t}\n")
 			}
 		} else if p.typeExpr == "int" {
 			fmt.Fprintf(&buf, "\tif gf.%s < 0 {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\treturn newPlaneValidationError(%s.ID, fmt.Errorf(\"must be >= 0, got %%d\", gf.%s))\n", p.varName, p.fieldName)
+			fmt.Fprintf(&buf, "\t\treturn newPlaneValidationError(%s.planeID, fmt.Errorf(\"must be >= 0, got %%d\", gf.%s))\n", policyVar, p.fieldName)
 			fmt.Fprintf(&buf, "\t}\n")
-			fmt.Fprintf(&buf, "\tif gf.%s > 0 && %s.Validate != nil {\n", p.fieldName, p.varName)
-			fmt.Fprintf(&buf, "\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\treturn newPlaneValidationError(%s.ID, err)\n", p.varName)
+			fmt.Fprintf(&buf, "\tif gf.%s > 0 && %s.validate != nil {\n", p.fieldName, policyVar)
+			fmt.Fprintf(&buf, "\t\tif err := %s.validate(gf.%s); err != nil {\n", policyVar, p.fieldName)
+			fmt.Fprintf(&buf, "\t\t\treturn newPlaneValidationError(%s.planeID, err)\n", policyVar)
 			fmt.Fprintf(&buf, "\t\t}\n")
 			fmt.Fprintf(&buf, "\t}\n")
 		} else if p.isExclusive {
 			fmt.Fprintf(&buf, "\tif gf.%s == nil {\n", p.fieldName)
 			fmt.Fprintf(&buf, "\t\tif gf.%sHasID || gf.%sID != \"\" {\n", p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\treturn newPlaneValidationError(%s.ID, errors.New(\"malformed metadata without value\"))\n", p.varName)
+			fmt.Fprintf(&buf, "\t\t\treturn newPlaneValidationError(%s.planeID, errors.New(\"malformed metadata without value\"))\n", policyVar)
 			fmt.Fprintf(&buf, "\t\t}\n")
 			fmt.Fprintf(&buf, "\t} else {\n")
 			fmt.Fprintf(&buf, "\t\tif !gf.%sHasID || gf.%sID == \"\" {\n", p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\treturn newPlaneValidationError(%s.ID, errors.New(\"missing cached identity\"))\n", p.varName)
+			fmt.Fprintf(&buf, "\t\t\treturn newPlaneValidationError(%s.planeID, errors.New(\"missing cached identity\"))\n", policyVar)
 			fmt.Fprintf(&buf, "\t\t}\n")
 			if p.hasValidateIdentity {
-				fmt.Fprintf(&buf, "\t\tif err := %s.ValidateIdentity(gf.%sID); err != nil {\n", p.varName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\treturn newPlaneValidationError(%s.ID, err)\n", p.varName)
+				fmt.Fprintf(&buf, "\t\tif err := %s.validateIdentity(gf.%sID); err != nil {\n", policyVar, p.fieldName)
+				fmt.Fprintf(&buf, "\t\t\treturn newPlaneValidationError(%s.planeID, err)\n", policyVar)
 				fmt.Fprintf(&buf, "\t\t}\n")
 			}
 			fmt.Fprintf(&buf, "\t}\n")
 		} else {
 			fmt.Fprintf(&buf, "\tif gf.%s != nil {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.ID, err)\n", p.varName)
+			fmt.Fprintf(&buf, "\t\tif %s.validate != nil {\n", policyVar)
+			fmt.Fprintf(&buf, "\t\t\tif err := %s.validate(gf.%s); err != nil {\n", policyVar, p.fieldName)
+			fmt.Fprintf(&buf, "\t\t\t\treturn newPlaneValidationError(%s.planeID, err)\n", policyVar)
 			fmt.Fprintf(&buf, "\t\t\t}\n")
 			fmt.Fprintf(&buf, "\t\t}\n")
 			fmt.Fprintf(&buf, "\t}\n")
@@ -224,158 +234,16 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	}
 	buf.WriteString("\treturn nil\n")
 	buf.WriteString("}\n\n")
+
+	// 6b. checkSourceAdmission and checkCandidateSourceAdmission methods on generatedFrozen
+	emitCheckSourceAdmission(&buf, planes)
+	emitCheckCandidateSourceAdmission(&buf, planes)
 
 	// 7. contributeCandidateTo method on generatedFrozen
-	buf.WriteString("func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, source SourceKind, contributorID string) error {\n")
-	buf.WriteString("\tif gf == nil || gc == nil {\n\t\treturn nil\n\t}\n")
-	for _, p := range planes {
-		if !p.candidate {
-			continue
-		}
-		if strings.HasPrefix(p.typeExpr, "[]") {
-			if p.hasIdentity {
-				fmt.Fprintf(&buf, "\tif gf.%s == nil {\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\tif gf.%sHasID || gf.%sID != \"\" {\n", p.fieldName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\treturn &AttributedError{\n\t\t\t\tPluginID: contributorID,\n\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\tErr:      fmt.Errorf(\"%%w: malformed metadata without value\", ErrInvalidContribution),\n\t\t\t}\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t}\n")
-				fmt.Fprintf(&buf, "\t} else {\n")
-				fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\t\treturn &AttributedError{\n\t\t\t\t\tPluginID: contributorID,\n\t\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\t\tErr:      fmt.Errorf(\"%%w: %%w\", ErrInvalidContribution, err),\n\t\t\t\t}\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t\t}\n")
-				fmt.Fprintf(&buf, "\t\t}\n")
-				fmt.Fprintf(&buf, "\t\tif !gf.%sHasID {\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\tif gf.%sID != \"\" || len(gf.%s) > 0 {\n", p.fieldName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\t\treturn &AttributedError{\n\t\t\t\t\tPluginID: contributorID,\n\t\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\t\tErr:      fmt.Errorf(\"%%w: missing cached identity\", ErrInvalidContribution),\n\t\t\t\t}\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t\t}\n")
-				fmt.Fprintf(&buf, "\t\t} else {\n")
-				fmt.Fprintf(&buf, "\t\t\tif gf.%sID == \"\" {\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\t\treturn &AttributedError{\n\t\t\t\t\tPluginID: contributorID,\n\t\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\t\tErr:      fmt.Errorf(\"%%w: missing cached identity\", ErrInvalidContribution),\n\t\t\t\t}\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t\t}\n")
-				if p.hasValidateIdentity {
-					fmt.Fprintf(&buf, "\t\t\tif err := %s.ValidateIdentity(gf.%sID); err != nil {\n", p.varName, p.fieldName)
-					fmt.Fprintf(&buf, "\t\t\t\treturn &AttributedError{\n\t\t\t\t\tPluginID: contributorID,\n\t\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\t\tErr:      fmt.Errorf(\"%%w: %%w\", ErrInvalidContribution, err),\n\t\t\t\t}\n", p.varName)
-					fmt.Fprintf(&buf, "\t\t\t}\n")
-				}
-				fmt.Fprintf(&buf, "\t\t}\n")
-				fmt.Fprintf(&buf, "\t\tif err := %s.generated.contribute(gc, source, contributorID, gf.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", p.varName, p.fieldName)
-			} else {
-				fmt.Fprintf(&buf, "\tif gf.%s != nil {\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\t\treturn &AttributedError{\n\t\t\t\t\tPluginID: contributorID,\n\t\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\t\tErr:      fmt.Errorf(\"%%w: %%w\", ErrInvalidContribution, err),\n\t\t\t\t}\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t\t}\n")
-				fmt.Fprintf(&buf, "\t\t}\n")
-				fmt.Fprintf(&buf, "\t\tif err := %s.generated.contribute(gc, source, contributorID, gf.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", p.varName, p.fieldName)
-			}
-		} else if p.typeExpr == "int" {
-			fmt.Fprintf(&buf, "\tif gf.%s < 0 {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\treturn &AttributedError{\n\t\t\tPluginID: contributorID,\n\t\t\tPlaneID:  %s.ID,\n\t\t\tErr:      fmt.Errorf(\"%%w: must be >= 0, got %%d\", ErrInvalidContribution, gf.%s),\n\t\t}\n", p.varName, p.fieldName)
-			buf.WriteString("\t}\n")
-			fmt.Fprintf(&buf, "\tif gf.%s > 0 {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\t\treturn &AttributedError{\n\t\t\t\t\tPluginID: contributorID,\n\t\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\t\tErr:      fmt.Errorf(\"%%w: %%w\", ErrInvalidContribution, err),\n\t\t\t\t}\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t\t}\n")
-			fmt.Fprintf(&buf, "\t\t}\n")
-			fmt.Fprintf(&buf, "\t\tif err := %s.generated.contribute(gc, source, contributorID, gf.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", p.varName, p.fieldName)
-		} else if p.isExclusive {
-			fmt.Fprintf(&buf, "\tif gf.%s != nil {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\tif !gf.%sHasID || gf.%sID == \"\" {\n", p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\treturn &AttributedError{\n\t\t\t\tPluginID: contributorID,\n\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\tErr:      fmt.Errorf(\"%%w: frozen exclusive identity is missing\", ErrInvalidContribution),\n\t\t\t}\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t}\n")
-			fmt.Fprintf(&buf, "\t\tif gc.%sHasID {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\treturn makeExclusiveConflictError(contributorID, %s.ID, %s.ExclusiveConflictError, gc.%sID, gf.%sID)\n", p.varName, p.varName, p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t}\n")
-			fmt.Fprintf(&buf, "\t\tgc.%s = gf.%s\n", p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\tgc.%sID = gf.%sID\n", p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\tgc.%sHasID = true\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t}\n")
-		} else {
-			fmt.Fprintf(&buf, "\tif gf.%s != nil {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\t\treturn &AttributedError{\n\t\t\t\t\tPluginID: contributorID,\n\t\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\t\tErr:      fmt.Errorf(\"%%w: %%w\", ErrInvalidContribution, err),\n\t\t\t\t}\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t\t}\n")
-			fmt.Fprintf(&buf, "\t\t}\n")
-			fmt.Fprintf(&buf, "\t\tif err := %s.generated.contribute(gc, source, contributorID, gf.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", p.varName, p.fieldName)
-		}
-	}
-	buf.WriteString("\treturn nil\n")
-	buf.WriteString("}\n\n")
+	emitContributeCandidateTo(&buf, planes)
 
 	// 7b. replayAllPlanesTo method on generatedFrozen
-	buf.WriteString("func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source SourceKind, contributorID string) error {\n")
-	buf.WriteString("\tif gf == nil || gc == nil {\n\t\treturn nil\n\t}\n")
-	for _, p := range planes {
-		if strings.HasPrefix(p.typeExpr, "[]") {
-			if p.hasIdentity {
-				fmt.Fprintf(&buf, "\tif gf.%s != nil {\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\thadDestinationValue := len(gc.%s) > 0\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\texistingID := gc.%sID\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\texistingHasID := gc.%sHasID\n\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\tincoming := cloneSlice(gf.%s)\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\tcurrent := cloneSlice(gc.%s)\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\tcombined, err := %s.Combine(source, current, incoming)\n", p.varName)
-				buf.WriteString("\t\tif err != nil {\n")
-				fmt.Fprintf(&buf, "\t\t\treturn &AttributedError{\n\t\t\t\tPluginID: contributorID,\n\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\tErr:      fmt.Errorf(\"%%w: %%w\", ErrInvalidContribution, err),\n\t\t\t}\n", p.varName)
-				buf.WriteString("\t\t}\n")
-				fmt.Fprintf(&buf, "\t\tif (gf.%s != nil || gc.%s != nil) && combined == nil {\n", p.fieldName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\tcombined = make(%s, 0)\n", p.typeExpr)
-				buf.WriteString("\t\t}\n")
-				fmt.Fprintf(&buf, "\t\tgc.%s = cloneSlice(combined)\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\tif len(gc.%s) == 0 {\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\tgc.%sID = \"\"\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\tgc.%sHasID = false\n", p.fieldName)
-				buf.WriteString("\t\t} else if hadDestinationValue {\n")
-				fmt.Fprintf(&buf, "\t\t\tgc.%sID = existingID\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\tgc.%sHasID = existingHasID\n", p.fieldName)
-				buf.WriteString("\t\t} else {\n")
-				fmt.Fprintf(&buf, "\t\t\tgc.%sID = gf.%sID\n", p.fieldName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\tgc.%sHasID = gf.%sHasID\n", p.fieldName, p.fieldName)
-				buf.WriteString("\t\t}\n")
-				buf.WriteString("\t}\n")
-			} else {
-				fmt.Fprintf(&buf, "\tif gf.%s != nil {\n", p.fieldName)
-				fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-				fmt.Fprintf(&buf, "\t\t\t\treturn &AttributedError{\n\t\t\t\t\tPluginID: contributorID,\n\t\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\t\tErr:      fmt.Errorf(\"%%w: %%w\", ErrInvalidContribution, err),\n\t\t\t\t}\n", p.varName)
-				fmt.Fprintf(&buf, "\t\t\t}\n")
-				fmt.Fprintf(&buf, "\t\t}\n")
-				fmt.Fprintf(&buf, "\t\tif err := %s.generated.contribute(gc, source, contributorID, gf.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", p.varName, p.fieldName)
-			}
-		} else if p.typeExpr == "int" {
-			fmt.Fprintf(&buf, "\tif gf.%s > 0 {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\t\treturn &AttributedError{\n\t\t\t\t\tPluginID: contributorID,\n\t\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\t\tErr:      fmt.Errorf(\"%%w: %%w\", ErrInvalidContribution, err),\n\t\t\t\t}\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t\t}\n")
-			fmt.Fprintf(&buf, "\t\t}\n")
-			fmt.Fprintf(&buf, "\t\tif err := %s.generated.contribute(gc, source, contributorID, gf.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", p.varName, p.fieldName)
-		} else if p.isExclusive {
-			fmt.Fprintf(&buf, "\tif gf.%s != nil {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\tif !gf.%sHasID || gf.%sID == \"\" {\n", p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\treturn &AttributedError{\n\t\t\t\tPluginID: contributorID,\n\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\tErr:      fmt.Errorf(\"%%w: frozen exclusive identity is missing\", ErrInvalidContribution),\n\t\t\t}\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t}\n")
-			fmt.Fprintf(&buf, "\t\tif gc.%sHasID {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\treturn makeExclusiveConflictError(contributorID, %s.ID, %s.ExclusiveConflictError, gc.%sID, gf.%sID)\n", p.varName, p.varName, p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t}\n")
-			fmt.Fprintf(&buf, "\t\tgc.%s = gf.%s\n", p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\tgc.%sID = gf.%sID\n", p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\tgc.%sHasID = true\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t}\n")
-		} else {
-			fmt.Fprintf(&buf, "\tif gf.%s != nil {\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\t\treturn &AttributedError{\n\t\t\t\t\tPluginID: contributorID,\n\t\t\t\t\tPlaneID:  %s.ID,\n\t\t\t\t\tErr:      fmt.Errorf(\"%%w: %%w\", ErrInvalidContribution, err),\n\t\t\t\t}\n", p.varName)
-			fmt.Fprintf(&buf, "\t\t\t}\n")
-			fmt.Fprintf(&buf, "\t\t}\n")
-			fmt.Fprintf(&buf, "\t\tif err := %s.generated.contribute(gc, source, contributorID, gf.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", p.varName, p.fieldName)
-		}
-	}
-	buf.WriteString("\treturn nil\n")
-	buf.WriteString("}\n\n")
+	emitReplayAllPlanesTo(&buf, planes)
 
 	// 7c. hasIdentityReplayRule method on generatedFrozen
 	buf.WriteString("// hasIdentityReplayRule reports whether gf contains a present identity-bearing plane\n")
@@ -386,30 +254,64 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 		if !p.hasIdentity {
 			continue
 		}
-		fmt.Fprintf(&buf, "\tif %s.Rules.RuleFor(source) == rule {\n", p.varName)
+		policyVar := canonicalPolicyVar(p)
+		fmt.Fprintf(&buf, "\tif %s.rules.RuleFor(source) == rule {\n", policyVar)
 		if strings.HasPrefix(p.typeExpr, "[]") {
-			fmt.Fprintf(&buf, "\t\tif len(gf.%s) > 0 {\n\t\t\treturn %s.ID, true\n\t\t}\n", p.fieldName, p.varName)
+			fmt.Fprintf(&buf, "\t\tif len(gf.%s) > 0 {\n\t\t\treturn %s.planeID, true\n\t\t}\n", p.fieldName, policyVar)
 		} else if p.typeExpr == "int" {
-			fmt.Fprintf(&buf, "\t\tif gf.%s > 0 {\n\t\t\treturn %s.ID, true\n\t\t}\n", p.fieldName, p.varName)
+			fmt.Fprintf(&buf, "\t\tif gf.%s > 0 {\n\t\t\treturn %s.planeID, true\n\t\t}\n", p.fieldName, policyVar)
 		} else {
-			fmt.Fprintf(&buf, "\t\tif !isNilValue(gf.%s) {\n\t\t\treturn %s.ID, true\n\t\t}\n", p.fieldName, p.varName)
+			fmt.Fprintf(&buf, "\t\tif !isNilValue(gf.%s) {\n\t\t\treturn %s.planeID, true\n\t\t}\n", p.fieldName, policyVar)
 		}
 		buf.WriteString("\t}\n")
 	}
 	buf.WriteString("\treturn \"\", false\n")
 	buf.WriteString("}\n\n")
 
+	// 8b. canonical policy and access declarations
+	buf.WriteString("// Canonical plane policies and access handles captured once at package init.\n")
+	buf.WriteString("var (\n")
+	for _, p := range planes {
+		fmt.Fprintf(&buf, "\t%s *generatedPolicy[%s]\n", canonicalPolicyVar(p), p.typeExpr)
+		fmt.Fprintf(&buf, "\t%s generatedAccess[%s]\n", canonicalAccessVar(p), p.typeExpr)
+	}
+	buf.WriteString(")\n\n")
+
 	// 9. init() binding closures
 	buf.WriteString("func init() {\n")
 	for _, p := range planes {
-		fmt.Fprintf(&buf, "\t%s.generated = generatedAccess[%s]{\n", p.varName, p.typeExpr)
+		policyVar := canonicalPolicyVar(p)
+		accessVar := canonicalAccessVar(p)
 
-		// contribute closure
+		// 1. Capture canonical policy first before any closures
+		fmt.Fprintf(&buf, "\t%s = &generatedPolicy[%s]{\n", policyVar, p.typeExpr)
+		fmt.Fprintf(&buf, "\t\tplaneID:                %s.ID,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\trules:                  %s.Rules,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tnilPolicy:              %s.NilPolicy,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tisNil:                  %s.IsNil,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tvalidate:               %s.Validate,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tvalidateIdentity:       %s.ValidateIdentity,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tcombine:                %s.Combine,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tidentity:               %s.Identity,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\texclusiveConflictError: %s.ExclusiveConflictError,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\trequestMaterializer:    %s.RequestMaterializer,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\trequestBorrow:          %s.RequestBorrow,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\thookTarget:             %s.HookTarget,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tdiagStageID:            %s.Diagnostics.StageID,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tdiagCoalesceGroup:      %s.Diagnostics.CoalesceGroup,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tdiagOrder:              %s.Diagnostics.Order,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tdiagMaterialize:        %s.Diagnostics.Materialize,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tdiagPrivileges:         %s.Diagnostics.Privileges,\n", p.varName)
+		buf.WriteString("\t}\n")
+
+		// 2. Access closure definition using canonicalPolicyVar
+		fmt.Fprintf(&buf, "\t%s = generatedAccess[%s]{\n", accessVar, p.typeExpr)
+		fmt.Fprintf(&buf, "\t\tpolicy: %s,\n", policyVar)
 		fmt.Fprintf(&buf, "\t\tcontribute: func(gc *generatedContributions, source SourceKind, pluginID string, v %s) error {\n", p.typeExpr)
 		if strings.HasPrefix(p.typeExpr, "[]") {
-			fmt.Fprintf(&buf, "\t\t\tincoming := cloneSlice(v)\n")
+			buf.WriteString("\t\t\tincoming := cloneSlice(v)\n")
 			fmt.Fprintf(&buf, "\t\t\tcurrent := cloneSlice(gc.%s)\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\tcombined, err := %s.Combine(source, current, incoming)\n", p.varName)
+			fmt.Fprintf(&buf, "\t\t\tcombined, err := %s.combine(source, current, incoming)\n", policyVar)
 			buf.WriteString("\t\t\tif err != nil {\n")
 			buf.WriteString("\t\t\t\treturn err\n")
 			buf.WriteString("\t\t\t}\n")
@@ -418,18 +320,18 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 			buf.WriteString("\t\t\t}\n")
 			fmt.Fprintf(&buf, "\t\t\tgc.%s = cloneSlice(combined)\n", p.fieldName)
 			if p.hasIdentity {
-				fmt.Fprintf(&buf, "\t\t\tid, hasID := %s.Identity(gc.%s)\n", p.varName, p.fieldName)
+				fmt.Fprintf(&buf, "\t\t\tid, hasID := %s.identity(gc.%s)\n", policyVar, p.fieldName)
 				fmt.Fprintf(&buf, "\t\t\tgc.%sID = id\n", p.fieldName)
 				fmt.Fprintf(&buf, "\t\t\tgc.%sHasID = hasID\n", p.fieldName)
 			}
 		} else {
-			fmt.Fprintf(&buf, "\t\t\tcombined, err := %s.Combine(source, gc.%s, v)\n", p.varName, p.fieldName)
+			fmt.Fprintf(&buf, "\t\t\tcombined, err := %s.combine(source, gc.%s, v)\n", policyVar, p.fieldName)
 			buf.WriteString("\t\t\tif err != nil {\n")
 			buf.WriteString("\t\t\t\treturn err\n")
 			buf.WriteString("\t\t\t}\n")
 			fmt.Fprintf(&buf, "\t\t\tgc.%s = combined\n", p.fieldName)
 			if p.hasIdentity {
-				fmt.Fprintf(&buf, "\t\t\tid, hasID := %s.Identity(gc.%s)\n", p.varName, p.fieldName)
+				fmt.Fprintf(&buf, "\t\t\tid, hasID := %s.identity(gc.%s)\n", policyVar, p.fieldName)
 				fmt.Fprintf(&buf, "\t\t\tgc.%sID = id\n", p.fieldName)
 				fmt.Fprintf(&buf, "\t\t\tgc.%sHasID = hasID\n", p.fieldName)
 			}
@@ -465,20 +367,8 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 			buf.WriteString("\t\t},\n")
 		}
 
-		// policy
-		fmt.Fprintf(&buf, "\t\tpolicy: &generatedPolicy[%s]{\n", p.typeExpr)
-		fmt.Fprintf(&buf, "\t\t\tplaneID: %s.ID,\n", p.varName)
-		fmt.Fprintf(&buf, "\t\t\trules: %s.Rules,\n", p.varName)
-		fmt.Fprintf(&buf, "\t\t\tnilPolicy: %s.NilPolicy,\n", p.varName)
-		fmt.Fprintf(&buf, "\t\t\tisNil: %s.IsNil,\n", p.varName)
-		fmt.Fprintf(&buf, "\t\t\tvalidate: %s.Validate,\n", p.varName)
-		fmt.Fprintf(&buf, "\t\t\tvalidateIdentity: %s.ValidateIdentity,\n", p.varName)
-		fmt.Fprintf(&buf, "\t\t\tcombine: %s.Combine,\n", p.varName)
-		fmt.Fprintf(&buf, "\t\t\tidentity: %s.Identity,\n", p.varName)
-		fmt.Fprintf(&buf, "\t\t\texclusiveConflictError: %s.ExclusiveConflictError,\n", p.varName)
-		buf.WriteString("\t\t},\n")
-
 		buf.WriteString("\t}\n")
+		fmt.Fprintf(&buf, "\t%s.generated = %s\n\n", p.varName, accessVar)
 	}
 	buf.WriteString("}\n\n")
 
