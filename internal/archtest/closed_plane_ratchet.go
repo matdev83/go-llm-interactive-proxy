@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	RuleClosedPlaneNoArbitraryValueMaps = "closed_plane_no_arbitrary_value_maps"
-	RuleClosedPlaneNoReflectionFallback = "closed_plane_no_reflection_fallback"
-	RuleClosedPlaneNoMapReplayHelpers   = "closed_plane_no_map_replay_helpers"
-	RuleClosedPlaneTypedStorageOnly     = "closed_plane_typed_storage_only"
+	RuleClosedPlaneNoArbitraryValueMaps   = "closed_plane_no_arbitrary_value_maps"
+	RuleClosedPlaneNoReflectionFallback   = "closed_plane_no_reflection_fallback"
+	RuleClosedPlaneNoMapReplayHelpers     = "closed_plane_no_map_replay_helpers"
+	RuleClosedPlaneTypedStorageOnly       = "closed_plane_typed_storage_only"
+	RuleClosedPlaneNoGlobalPlaneSelectors = "closed_plane_no_global_plane_selectors"
 )
 
 // ScanClosedPlaneViolations walks production Go files to verify that arbitrary-plane map/reflection
@@ -109,11 +110,11 @@ func ScanFileClosedPlaneViolations(relPath string, fset *token.FileSet, f *ast.F
 				if !ok {
 					return true
 				}
-				sel, ok := call.Fun.(*ast.SelectorExpr)
+				sel, ok := unwrapParen(call.Fun).(*ast.SelectorExpr)
 				if !ok {
 					return true
 				}
-				pkgIdent, ok := sel.X.(*ast.Ident)
+				pkgIdent, ok := unwrapParen(sel.X).(*ast.Ident)
 				if !ok || pkgIdent.Name != "reflect" {
 					return true
 				}
@@ -168,7 +169,8 @@ func ScanFileClosedPlaneViolations(relPath string, fset *token.FileSet, f *ast.F
 					}
 				}
 			case *ast.RangeStmt:
-				if !isAllowedPluginIDsRangeExpr(node.X) && isMapRangeTarget(node.X, localMapVars, typeDefs) {
+				rangeX := unwrapParen(node.X)
+				if !isAllowedPluginIDsRangeExpr(rangeX) && isMapRangeTarget(rangeX, localMapVars, typeDefs) {
 					findings = append(findings, RuleFinding{
 						Rule:   RuleClosedPlaneNoMapReplayHelpers,
 						Path:   fmt.Sprintf("%s:%d", normalizedRel, fset.Position(node.Pos()).Line),
@@ -186,6 +188,11 @@ func ScanFileClosedPlaneViolations(relPath string, fset *token.FileSet, f *ast.F
 		})
 		return true
 	})
+
+	// 4. Reject PlaneX policy selectors and aliases outside narrow canonical initialization (narrowly for plane_generated.go)
+	if isGeneratedPlanesFile(normalizedRel) {
+		findings = append(findings, checkPlaneGeneratedSelectors(fset, normalizedRel, f)...)
+	}
 
 	return findings
 }
@@ -395,11 +402,16 @@ func isMapRangeTarget(expr ast.Expr, localMapVars map[string]bool, typeDefs map[
 }
 
 func extractCalledIdent(fun ast.Expr) string {
+	fun = unwrapParen(fun)
 	switch x := fun.(type) {
 	case *ast.Ident:
 		return x.Name
 	case *ast.SelectorExpr:
 		return x.Sel.Name
+	case *ast.IndexExpr:
+		return extractCalledIdent(x.X)
+	case *ast.IndexListExpr:
+		return extractCalledIdent(x.X)
 	default:
 		return ""
 	}

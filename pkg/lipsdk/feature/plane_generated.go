@@ -237,32 +237,32 @@ func (gf *generatedFrozen) freezeRequest() *generatedFrozen {
 		requestPartHooks:                 cloneSlice(gf.requestPartHooks),
 		responsePartHooks:                cloneSlice(gf.responsePartHooks),
 		toolReactors:                     cloneSlice(gf.toolReactors),
-		sessionOpeners:                   materializeRequestSlice(gf.sessionOpeners, PlaneSessionOpeners.RequestMaterializer),
+		sessionOpeners:                   materializeRequestSlice(gf.sessionOpeners, canonicalPlaneSessionOpenersPolicy.requestMaterializer),
 		workspaceResolvers:               cloneSlice(gf.workspaceResolvers),
 		toolCatalogFilters:               cloneSlice(gf.toolCatalogFilters),
-		toolCallPolicies:                 materializeRequestSlice(gf.toolCallPolicies, PlaneToolCallPolicies.RequestMaterializer),
-		toolCallFinalizers:               materializeRequestSlice(gf.toolCallFinalizers, PlaneToolCallFinalizers.RequestMaterializer),
+		toolCallPolicies:                 materializeRequestSlice(gf.toolCallPolicies, canonicalPlaneToolCallPoliciesPolicy.requestMaterializer),
+		toolCallFinalizers:               materializeRequestSlice(gf.toolCallFinalizers, canonicalPlaneToolCallFinalizersPolicy.requestMaterializer),
 		toolCallFinalizationMaxArgsBytes: gf.toolCallFinalizationMaxArgsBytes,
 		requestTransforms:                cloneSlice(gf.requestTransforms),
-		preRequestHandlers:               materializeRequestSlice(gf.preRequestHandlers, PlanePreRequestHandlers.RequestMaterializer),
+		preRequestHandlers:               materializeRequestSlice(gf.preRequestHandlers, canonicalPlanePreRequestHandlersPolicy.requestMaterializer),
 		routeHintProviders:               cloneSlice(gf.routeHintProviders),
 		completionGates:                  cloneSlice(gf.completionGates),
-		attemptTransforms:                materializeRequestSlice(gf.attemptTransforms, PlaneAttemptTransforms.RequestMaterializer),
+		attemptTransforms:                materializeRequestSlice(gf.attemptTransforms, canonicalPlaneAttemptTransformsPolicy.requestMaterializer),
 		attemptTransformsID:              gf.attemptTransformsID,
 		attemptTransformsHasID:           gf.attemptTransformsHasID,
-		streamObserverFactories:          materializeRequestSlice(gf.streamObserverFactories, PlaneStreamObserverFactories.RequestMaterializer),
+		streamObserverFactories:          materializeRequestSlice(gf.streamObserverFactories, canonicalPlaneStreamObserverFactoriesPolicy.requestMaterializer),
 		streamObserverFactoriesID:        gf.streamObserverFactoriesID,
 		streamObserverFactoriesHasID:     gf.streamObserverFactoriesHasID,
 		trafficObservers:                 cloneSlice(gf.trafficObservers),
 		usageObservers:                   cloneSlice(gf.usageObservers),
 		rawCaptureSinks:                  cloneSlice(gf.rawCaptureSinks),
-		trafficRedactors:                 materializeRequestSlice(gf.trafficRedactors, PlaneTrafficRedactors.RequestMaterializer),
+		trafficRedactors:                 materializeRequestSlice(gf.trafficRedactors, canonicalPlaneTrafficRedactorsPolicy.requestMaterializer),
 		compactionObservers:              cloneSlice(gf.compactionObservers),
 		compactionPreservers:             cloneSlice(gf.compactionPreservers),
 		compactionPreserversID:           gf.compactionPreserversID,
 		compactionPreserversHasID:        gf.compactionPreserversHasID,
-		secretGuards:                     materializeRequestSlice(gf.secretGuards, PlaneSecretGuards.RequestMaterializer),
-		localTurnHandlers:                materializeRequestSlice(gf.localTurnHandlers, PlaneLocalTurnHandlers.RequestMaterializer),
+		secretGuards:                     materializeRequestSlice(gf.secretGuards, canonicalPlaneSecretGuardsPolicy.requestMaterializer),
+		localTurnHandlers:                materializeRequestSlice(gf.localTurnHandlers, canonicalPlaneLocalTurnHandlersPolicy.requestMaterializer),
 		terminalDecisionProvider:         gf.terminalDecisionProvider,
 		terminalDecisionProviderID:       gf.terminalDecisionProviderID,
 		terminalDecisionProviderHasID:    gf.terminalDecisionProviderHasID,
@@ -317,232 +317,617 @@ func (gf *generatedFrozen) validate() error {
 		return nil
 	}
 	if gf.submitHooks != nil {
-		if PlaneSubmitHooks.Validate != nil {
-			if err := PlaneSubmitHooks.Validate(gf.submitHooks); err != nil {
-				return newPlaneValidationError(PlaneSubmitHooks.ID, err)
+		if canonicalPlaneSubmitHooksPolicy.validate != nil {
+			if err := canonicalPlaneSubmitHooksPolicy.validate(gf.submitHooks); err != nil {
+				return newPlaneValidationError(canonicalPlaneSubmitHooksPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.requestPartHooks != nil {
-		if PlaneRequestPartHooks.Validate != nil {
-			if err := PlaneRequestPartHooks.Validate(gf.requestPartHooks); err != nil {
-				return newPlaneValidationError(PlaneRequestPartHooks.ID, err)
+		if canonicalPlaneRequestPartHooksPolicy.validate != nil {
+			if err := canonicalPlaneRequestPartHooksPolicy.validate(gf.requestPartHooks); err != nil {
+				return newPlaneValidationError(canonicalPlaneRequestPartHooksPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.responsePartHooks != nil {
-		if PlaneResponsePartHooks.Validate != nil {
-			if err := PlaneResponsePartHooks.Validate(gf.responsePartHooks); err != nil {
-				return newPlaneValidationError(PlaneResponsePartHooks.ID, err)
+		if canonicalPlaneResponsePartHooksPolicy.validate != nil {
+			if err := canonicalPlaneResponsePartHooksPolicy.validate(gf.responsePartHooks); err != nil {
+				return newPlaneValidationError(canonicalPlaneResponsePartHooksPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.toolReactors != nil {
-		if PlaneToolReactors.Validate != nil {
-			if err := PlaneToolReactors.Validate(gf.toolReactors); err != nil {
-				return newPlaneValidationError(PlaneToolReactors.ID, err)
+		if canonicalPlaneToolReactorsPolicy.validate != nil {
+			if err := canonicalPlaneToolReactorsPolicy.validate(gf.toolReactors); err != nil {
+				return newPlaneValidationError(canonicalPlaneToolReactorsPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.sessionOpeners != nil {
-		if PlaneSessionOpeners.Validate != nil {
-			if err := PlaneSessionOpeners.Validate(gf.sessionOpeners); err != nil {
-				return newPlaneValidationError(PlaneSessionOpeners.ID, err)
+		if canonicalPlaneSessionOpenersPolicy.validate != nil {
+			if err := canonicalPlaneSessionOpenersPolicy.validate(gf.sessionOpeners); err != nil {
+				return newPlaneValidationError(canonicalPlaneSessionOpenersPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.workspaceResolvers != nil {
-		if PlaneWorkspaceResolvers.Validate != nil {
-			if err := PlaneWorkspaceResolvers.Validate(gf.workspaceResolvers); err != nil {
-				return newPlaneValidationError(PlaneWorkspaceResolvers.ID, err)
+		if canonicalPlaneWorkspaceResolversPolicy.validate != nil {
+			if err := canonicalPlaneWorkspaceResolversPolicy.validate(gf.workspaceResolvers); err != nil {
+				return newPlaneValidationError(canonicalPlaneWorkspaceResolversPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.toolCatalogFilters != nil {
-		if PlaneToolCatalogFilters.Validate != nil {
-			if err := PlaneToolCatalogFilters.Validate(gf.toolCatalogFilters); err != nil {
-				return newPlaneValidationError(PlaneToolCatalogFilters.ID, err)
+		if canonicalPlaneToolCatalogFiltersPolicy.validate != nil {
+			if err := canonicalPlaneToolCatalogFiltersPolicy.validate(gf.toolCatalogFilters); err != nil {
+				return newPlaneValidationError(canonicalPlaneToolCatalogFiltersPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.toolCallPolicies != nil {
-		if PlaneToolCallPolicies.Validate != nil {
-			if err := PlaneToolCallPolicies.Validate(gf.toolCallPolicies); err != nil {
-				return newPlaneValidationError(PlaneToolCallPolicies.ID, err)
+		if canonicalPlaneToolCallPoliciesPolicy.validate != nil {
+			if err := canonicalPlaneToolCallPoliciesPolicy.validate(gf.toolCallPolicies); err != nil {
+				return newPlaneValidationError(canonicalPlaneToolCallPoliciesPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.toolCallFinalizers != nil {
-		if PlaneToolCallFinalizers.Validate != nil {
-			if err := PlaneToolCallFinalizers.Validate(gf.toolCallFinalizers); err != nil {
-				return newPlaneValidationError(PlaneToolCallFinalizers.ID, err)
+		if canonicalPlaneToolCallFinalizersPolicy.validate != nil {
+			if err := canonicalPlaneToolCallFinalizersPolicy.validate(gf.toolCallFinalizers); err != nil {
+				return newPlaneValidationError(canonicalPlaneToolCallFinalizersPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.toolCallFinalizationMaxArgsBytes < 0 {
-		return newPlaneValidationError(PlaneToolCallFinalizationMaxArgsBytes.ID, fmt.Errorf("must be >= 0, got %d", gf.toolCallFinalizationMaxArgsBytes))
+		return newPlaneValidationError(canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.planeID, fmt.Errorf("must be >= 0, got %d", gf.toolCallFinalizationMaxArgsBytes))
 	}
-	if gf.toolCallFinalizationMaxArgsBytes > 0 && PlaneToolCallFinalizationMaxArgsBytes.Validate != nil {
-		if err := PlaneToolCallFinalizationMaxArgsBytes.Validate(gf.toolCallFinalizationMaxArgsBytes); err != nil {
-			return newPlaneValidationError(PlaneToolCallFinalizationMaxArgsBytes.ID, err)
+	if gf.toolCallFinalizationMaxArgsBytes > 0 && canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.validate != nil {
+		if err := canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.validate(gf.toolCallFinalizationMaxArgsBytes); err != nil {
+			return newPlaneValidationError(canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.planeID, err)
 		}
 	}
 	if gf.requestTransforms != nil {
-		if PlaneRequestTransforms.Validate != nil {
-			if err := PlaneRequestTransforms.Validate(gf.requestTransforms); err != nil {
-				return newPlaneValidationError(PlaneRequestTransforms.ID, err)
+		if canonicalPlaneRequestTransformsPolicy.validate != nil {
+			if err := canonicalPlaneRequestTransformsPolicy.validate(gf.requestTransforms); err != nil {
+				return newPlaneValidationError(canonicalPlaneRequestTransformsPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.preRequestHandlers != nil {
-		if PlanePreRequestHandlers.Validate != nil {
-			if err := PlanePreRequestHandlers.Validate(gf.preRequestHandlers); err != nil {
-				return newPlaneValidationError(PlanePreRequestHandlers.ID, err)
+		if canonicalPlanePreRequestHandlersPolicy.validate != nil {
+			if err := canonicalPlanePreRequestHandlersPolicy.validate(gf.preRequestHandlers); err != nil {
+				return newPlaneValidationError(canonicalPlanePreRequestHandlersPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.routeHintProviders != nil {
-		if PlaneRouteHintProviders.Validate != nil {
-			if err := PlaneRouteHintProviders.Validate(gf.routeHintProviders); err != nil {
-				return newPlaneValidationError(PlaneRouteHintProviders.ID, err)
+		if canonicalPlaneRouteHintProvidersPolicy.validate != nil {
+			if err := canonicalPlaneRouteHintProvidersPolicy.validate(gf.routeHintProviders); err != nil {
+				return newPlaneValidationError(canonicalPlaneRouteHintProvidersPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.completionGates != nil {
-		if PlaneCompletionGates.Validate != nil {
-			if err := PlaneCompletionGates.Validate(gf.completionGates); err != nil {
-				return newPlaneValidationError(PlaneCompletionGates.ID, err)
+		if canonicalPlaneCompletionGatesPolicy.validate != nil {
+			if err := canonicalPlaneCompletionGatesPolicy.validate(gf.completionGates); err != nil {
+				return newPlaneValidationError(canonicalPlaneCompletionGatesPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.attemptTransforms == nil {
 		if gf.attemptTransformsHasID || gf.attemptTransformsID != "" {
-			return newPlaneValidationError(PlaneAttemptTransforms.ID, errors.New("malformed metadata without value"))
+			return newPlaneValidationError(canonicalPlaneAttemptTransformsPolicy.planeID, errors.New("malformed metadata without value"))
 		}
 	} else {
-		if PlaneAttemptTransforms.Validate != nil {
-			if err := PlaneAttemptTransforms.Validate(gf.attemptTransforms); err != nil {
-				return newPlaneValidationError(PlaneAttemptTransforms.ID, err)
+		if canonicalPlaneAttemptTransformsPolicy.validate != nil {
+			if err := canonicalPlaneAttemptTransformsPolicy.validate(gf.attemptTransforms); err != nil {
+				return newPlaneValidationError(canonicalPlaneAttemptTransformsPolicy.planeID, err)
 			}
 		}
 		if !gf.attemptTransformsHasID {
 			if gf.attemptTransformsID != "" || len(gf.attemptTransforms) > 0 {
-				return newPlaneValidationError(PlaneAttemptTransforms.ID, errors.New("missing cached identity"))
+				return newPlaneValidationError(canonicalPlaneAttemptTransformsPolicy.planeID, errors.New("missing cached identity"))
 			}
 		} else {
 			if gf.attemptTransformsID == "" {
-				return newPlaneValidationError(PlaneAttemptTransforms.ID, errors.New("missing cached identity"))
+				return newPlaneValidationError(canonicalPlaneAttemptTransformsPolicy.planeID, errors.New("missing cached identity"))
 			}
-			if err := PlaneAttemptTransforms.ValidateIdentity(gf.attemptTransformsID); err != nil {
-				return newPlaneValidationError(PlaneAttemptTransforms.ID, err)
+			if err := canonicalPlaneAttemptTransformsPolicy.validateIdentity(gf.attemptTransformsID); err != nil {
+				return newPlaneValidationError(canonicalPlaneAttemptTransformsPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.streamObserverFactories == nil {
 		if gf.streamObserverFactoriesHasID || gf.streamObserverFactoriesID != "" {
-			return newPlaneValidationError(PlaneStreamObserverFactories.ID, errors.New("malformed metadata without value"))
+			return newPlaneValidationError(canonicalPlaneStreamObserverFactoriesPolicy.planeID, errors.New("malformed metadata without value"))
 		}
 	} else {
-		if PlaneStreamObserverFactories.Validate != nil {
-			if err := PlaneStreamObserverFactories.Validate(gf.streamObserverFactories); err != nil {
-				return newPlaneValidationError(PlaneStreamObserverFactories.ID, err)
+		if canonicalPlaneStreamObserverFactoriesPolicy.validate != nil {
+			if err := canonicalPlaneStreamObserverFactoriesPolicy.validate(gf.streamObserverFactories); err != nil {
+				return newPlaneValidationError(canonicalPlaneStreamObserverFactoriesPolicy.planeID, err)
 			}
 		}
 		if !gf.streamObserverFactoriesHasID {
 			if gf.streamObserverFactoriesID != "" || len(gf.streamObserverFactories) > 0 {
-				return newPlaneValidationError(PlaneStreamObserverFactories.ID, errors.New("missing cached identity"))
+				return newPlaneValidationError(canonicalPlaneStreamObserverFactoriesPolicy.planeID, errors.New("missing cached identity"))
 			}
 		} else {
 			if gf.streamObserverFactoriesID == "" {
-				return newPlaneValidationError(PlaneStreamObserverFactories.ID, errors.New("missing cached identity"))
+				return newPlaneValidationError(canonicalPlaneStreamObserverFactoriesPolicy.planeID, errors.New("missing cached identity"))
 			}
-			if err := PlaneStreamObserverFactories.ValidateIdentity(gf.streamObserverFactoriesID); err != nil {
-				return newPlaneValidationError(PlaneStreamObserverFactories.ID, err)
+			if err := canonicalPlaneStreamObserverFactoriesPolicy.validateIdentity(gf.streamObserverFactoriesID); err != nil {
+				return newPlaneValidationError(canonicalPlaneStreamObserverFactoriesPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.trafficObservers != nil {
-		if PlaneTrafficObservers.Validate != nil {
-			if err := PlaneTrafficObservers.Validate(gf.trafficObservers); err != nil {
-				return newPlaneValidationError(PlaneTrafficObservers.ID, err)
+		if canonicalPlaneTrafficObserversPolicy.validate != nil {
+			if err := canonicalPlaneTrafficObserversPolicy.validate(gf.trafficObservers); err != nil {
+				return newPlaneValidationError(canonicalPlaneTrafficObserversPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.usageObservers != nil {
-		if PlaneUsageObservers.Validate != nil {
-			if err := PlaneUsageObservers.Validate(gf.usageObservers); err != nil {
-				return newPlaneValidationError(PlaneUsageObservers.ID, err)
+		if canonicalPlaneUsageObserversPolicy.validate != nil {
+			if err := canonicalPlaneUsageObserversPolicy.validate(gf.usageObservers); err != nil {
+				return newPlaneValidationError(canonicalPlaneUsageObserversPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.rawCaptureSinks != nil {
-		if PlaneRawCaptureSinks.Validate != nil {
-			if err := PlaneRawCaptureSinks.Validate(gf.rawCaptureSinks); err != nil {
-				return newPlaneValidationError(PlaneRawCaptureSinks.ID, err)
+		if canonicalPlaneRawCaptureSinksPolicy.validate != nil {
+			if err := canonicalPlaneRawCaptureSinksPolicy.validate(gf.rawCaptureSinks); err != nil {
+				return newPlaneValidationError(canonicalPlaneRawCaptureSinksPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.trafficRedactors != nil {
-		if PlaneTrafficRedactors.Validate != nil {
-			if err := PlaneTrafficRedactors.Validate(gf.trafficRedactors); err != nil {
-				return newPlaneValidationError(PlaneTrafficRedactors.ID, err)
+		if canonicalPlaneTrafficRedactorsPolicy.validate != nil {
+			if err := canonicalPlaneTrafficRedactorsPolicy.validate(gf.trafficRedactors); err != nil {
+				return newPlaneValidationError(canonicalPlaneTrafficRedactorsPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.compactionObservers != nil {
-		if PlaneCompactionObservers.Validate != nil {
-			if err := PlaneCompactionObservers.Validate(gf.compactionObservers); err != nil {
-				return newPlaneValidationError(PlaneCompactionObservers.ID, err)
+		if canonicalPlaneCompactionObserversPolicy.validate != nil {
+			if err := canonicalPlaneCompactionObserversPolicy.validate(gf.compactionObservers); err != nil {
+				return newPlaneValidationError(canonicalPlaneCompactionObserversPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.compactionPreservers == nil {
 		if gf.compactionPreserversHasID || gf.compactionPreserversID != "" {
-			return newPlaneValidationError(PlaneCompactionPreservers.ID, errors.New("malformed metadata without value"))
+			return newPlaneValidationError(canonicalPlaneCompactionPreserversPolicy.planeID, errors.New("malformed metadata without value"))
 		}
 	} else {
-		if PlaneCompactionPreservers.Validate != nil {
-			if err := PlaneCompactionPreservers.Validate(gf.compactionPreservers); err != nil {
-				return newPlaneValidationError(PlaneCompactionPreservers.ID, err)
+		if canonicalPlaneCompactionPreserversPolicy.validate != nil {
+			if err := canonicalPlaneCompactionPreserversPolicy.validate(gf.compactionPreservers); err != nil {
+				return newPlaneValidationError(canonicalPlaneCompactionPreserversPolicy.planeID, err)
 			}
 		}
 		if !gf.compactionPreserversHasID {
 			if gf.compactionPreserversID != "" || len(gf.compactionPreservers) > 0 {
-				return newPlaneValidationError(PlaneCompactionPreservers.ID, errors.New("missing cached identity"))
+				return newPlaneValidationError(canonicalPlaneCompactionPreserversPolicy.planeID, errors.New("missing cached identity"))
 			}
 		} else {
 			if gf.compactionPreserversID == "" {
-				return newPlaneValidationError(PlaneCompactionPreservers.ID, errors.New("missing cached identity"))
+				return newPlaneValidationError(canonicalPlaneCompactionPreserversPolicy.planeID, errors.New("missing cached identity"))
 			}
-			if err := PlaneCompactionPreservers.ValidateIdentity(gf.compactionPreserversID); err != nil {
-				return newPlaneValidationError(PlaneCompactionPreservers.ID, err)
+			if err := canonicalPlaneCompactionPreserversPolicy.validateIdentity(gf.compactionPreserversID); err != nil {
+				return newPlaneValidationError(canonicalPlaneCompactionPreserversPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.secretGuards != nil {
-		if PlaneSecretGuards.Validate != nil {
-			if err := PlaneSecretGuards.Validate(gf.secretGuards); err != nil {
-				return newPlaneValidationError(PlaneSecretGuards.ID, err)
+		if canonicalPlaneSecretGuardsPolicy.validate != nil {
+			if err := canonicalPlaneSecretGuardsPolicy.validate(gf.secretGuards); err != nil {
+				return newPlaneValidationError(canonicalPlaneSecretGuardsPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.localTurnHandlers != nil {
-		if PlaneLocalTurnHandlers.Validate != nil {
-			if err := PlaneLocalTurnHandlers.Validate(gf.localTurnHandlers); err != nil {
-				return newPlaneValidationError(PlaneLocalTurnHandlers.ID, err)
+		if canonicalPlaneLocalTurnHandlersPolicy.validate != nil {
+			if err := canonicalPlaneLocalTurnHandlersPolicy.validate(gf.localTurnHandlers); err != nil {
+				return newPlaneValidationError(canonicalPlaneLocalTurnHandlersPolicy.planeID, err)
 			}
 		}
 	}
 	if gf.terminalDecisionProvider == nil {
 		if gf.terminalDecisionProviderHasID || gf.terminalDecisionProviderID != "" {
-			return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, errors.New("malformed metadata without value"))
+			return newPlaneValidationError(canonicalPlaneTerminalDecisionProviderPolicy.planeID, errors.New("malformed metadata without value"))
 		}
 	} else {
 		if !gf.terminalDecisionProviderHasID || gf.terminalDecisionProviderID == "" {
-			return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, errors.New("missing cached identity"))
+			return newPlaneValidationError(canonicalPlaneTerminalDecisionProviderPolicy.planeID, errors.New("missing cached identity"))
 		}
-		if err := PlaneTerminalDecisionProvider.ValidateIdentity(gf.terminalDecisionProviderID); err != nil {
-			return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, err)
+		if err := canonicalPlaneTerminalDecisionProviderPolicy.validateIdentity(gf.terminalDecisionProviderID); err != nil {
+			return newPlaneValidationError(canonicalPlaneTerminalDecisionProviderPolicy.planeID, err)
+		}
+	}
+	return nil
+}
+
+// checkSourceAdmission checks whether all present planes in gf support source.
+func (gf *generatedFrozen) checkSourceAdmission(source SourceKind, contributorID string) error {
+	if gf == nil {
+		return nil
+	}
+	if gf.submitHooks != nil {
+		if canonicalPlaneSubmitHooksPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSubmitHooksPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneSubmitHooksPolicy.planeID),
+			}
+		}
+	}
+	if gf.requestPartHooks != nil {
+		if canonicalPlaneRequestPartHooksPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneRequestPartHooksPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneRequestPartHooksPolicy.planeID),
+			}
+		}
+	}
+	if gf.responsePartHooks != nil {
+		if canonicalPlaneResponsePartHooksPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneResponsePartHooksPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneResponsePartHooksPolicy.planeID),
+			}
+		}
+	}
+	if gf.toolReactors != nil {
+		if canonicalPlaneToolReactorsPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneToolReactorsPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneToolReactorsPolicy.planeID),
+			}
+		}
+	}
+	if gf.sessionOpeners != nil {
+		if canonicalPlaneSessionOpenersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSessionOpenersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneSessionOpenersPolicy.planeID),
+			}
+		}
+	}
+	if gf.workspaceResolvers != nil {
+		if canonicalPlaneWorkspaceResolversPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneWorkspaceResolversPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneWorkspaceResolversPolicy.planeID),
+			}
+		}
+	}
+	if gf.toolCatalogFilters != nil {
+		if canonicalPlaneToolCatalogFiltersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneToolCatalogFiltersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneToolCatalogFiltersPolicy.planeID),
+			}
+		}
+	}
+	if gf.toolCallPolicies != nil {
+		if canonicalPlaneToolCallPoliciesPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneToolCallPoliciesPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneToolCallPoliciesPolicy.planeID),
+			}
+		}
+	}
+	if gf.toolCallFinalizers != nil {
+		if canonicalPlaneToolCallFinalizersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneToolCallFinalizersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneToolCallFinalizersPolicy.planeID),
+			}
+		}
+	}
+	if gf.toolCallFinalizationMaxArgsBytes > 0 {
+		if canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.planeID),
+			}
+		}
+	}
+	if gf.requestTransforms != nil {
+		if canonicalPlaneRequestTransformsPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneRequestTransformsPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneRequestTransformsPolicy.planeID),
+			}
+		}
+	}
+	if gf.preRequestHandlers != nil {
+		if canonicalPlanePreRequestHandlersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlanePreRequestHandlersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlanePreRequestHandlersPolicy.planeID),
+			}
+		}
+	}
+	if gf.routeHintProviders != nil {
+		if canonicalPlaneRouteHintProvidersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneRouteHintProvidersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneRouteHintProvidersPolicy.planeID),
+			}
+		}
+	}
+	if gf.completionGates != nil {
+		if canonicalPlaneCompletionGatesPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneCompletionGatesPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneCompletionGatesPolicy.planeID),
+			}
+		}
+	}
+	if gf.attemptTransforms != nil {
+		if canonicalPlaneAttemptTransformsPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneAttemptTransformsPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneAttemptTransformsPolicy.planeID),
+			}
+		}
+	}
+	if gf.streamObserverFactories != nil {
+		if canonicalPlaneStreamObserverFactoriesPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneStreamObserverFactoriesPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneStreamObserverFactoriesPolicy.planeID),
+			}
+		}
+	}
+	if gf.trafficObservers != nil {
+		if canonicalPlaneTrafficObserversPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneTrafficObserversPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneTrafficObserversPolicy.planeID),
+			}
+		}
+	}
+	if gf.usageObservers != nil {
+		if canonicalPlaneUsageObserversPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneUsageObserversPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneUsageObserversPolicy.planeID),
+			}
+		}
+	}
+	if gf.rawCaptureSinks != nil {
+		if canonicalPlaneRawCaptureSinksPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneRawCaptureSinksPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneRawCaptureSinksPolicy.planeID),
+			}
+		}
+	}
+	if gf.trafficRedactors != nil {
+		if canonicalPlaneTrafficRedactorsPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneTrafficRedactorsPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneTrafficRedactorsPolicy.planeID),
+			}
+		}
+	}
+	if gf.compactionObservers != nil {
+		if canonicalPlaneCompactionObserversPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneCompactionObserversPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneCompactionObserversPolicy.planeID),
+			}
+		}
+	}
+	if gf.compactionPreservers != nil {
+		if canonicalPlaneCompactionPreserversPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneCompactionPreserversPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneCompactionPreserversPolicy.planeID),
+			}
+		}
+	}
+	if gf.secretGuards != nil {
+		if canonicalPlaneSecretGuardsPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSecretGuardsPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneSecretGuardsPolicy.planeID),
+			}
+		}
+	}
+	if gf.localTurnHandlers != nil {
+		if canonicalPlaneLocalTurnHandlersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneLocalTurnHandlersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneLocalTurnHandlersPolicy.planeID),
+			}
+		}
+	}
+	if gf.terminalDecisionProvider != nil {
+		if canonicalPlaneTerminalDecisionProviderPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneTerminalDecisionProviderPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneTerminalDecisionProviderPolicy.planeID),
+			}
+		}
+	}
+	return nil
+}
+
+// checkCandidateSourceAdmission checks whether all present candidate planes in gf support source.
+func (gf *generatedFrozen) checkCandidateSourceAdmission(source SourceKind, contributorID string) error {
+	if gf == nil {
+		return nil
+	}
+	if gf.sessionOpeners != nil {
+		if canonicalPlaneSessionOpenersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSessionOpenersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneSessionOpenersPolicy.planeID),
+			}
+		}
+	}
+	if gf.workspaceResolvers != nil {
+		if canonicalPlaneWorkspaceResolversPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneWorkspaceResolversPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneWorkspaceResolversPolicy.planeID),
+			}
+		}
+	}
+	if gf.toolCatalogFilters != nil {
+		if canonicalPlaneToolCatalogFiltersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneToolCatalogFiltersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneToolCatalogFiltersPolicy.planeID),
+			}
+		}
+	}
+	if gf.toolCallPolicies != nil {
+		if canonicalPlaneToolCallPoliciesPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneToolCallPoliciesPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneToolCallPoliciesPolicy.planeID),
+			}
+		}
+	}
+	if gf.toolCallFinalizers != nil {
+		if canonicalPlaneToolCallFinalizersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneToolCallFinalizersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneToolCallFinalizersPolicy.planeID),
+			}
+		}
+	}
+	if gf.toolCallFinalizationMaxArgsBytes > 0 {
+		if canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.planeID),
+			}
+		}
+	}
+	if gf.requestTransforms != nil {
+		if canonicalPlaneRequestTransformsPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneRequestTransformsPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneRequestTransformsPolicy.planeID),
+			}
+		}
+	}
+	if gf.preRequestHandlers != nil {
+		if canonicalPlanePreRequestHandlersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlanePreRequestHandlersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlanePreRequestHandlersPolicy.planeID),
+			}
+		}
+	}
+	if gf.routeHintProviders != nil {
+		if canonicalPlaneRouteHintProvidersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneRouteHintProvidersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneRouteHintProvidersPolicy.planeID),
+			}
+		}
+	}
+	if gf.completionGates != nil {
+		if canonicalPlaneCompletionGatesPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneCompletionGatesPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneCompletionGatesPolicy.planeID),
+			}
+		}
+	}
+	if gf.attemptTransforms != nil {
+		if canonicalPlaneAttemptTransformsPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneAttemptTransformsPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneAttemptTransformsPolicy.planeID),
+			}
+		}
+	}
+	if gf.compactionObservers != nil {
+		if canonicalPlaneCompactionObserversPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneCompactionObserversPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneCompactionObserversPolicy.planeID),
+			}
+		}
+	}
+	if gf.compactionPreservers != nil {
+		if canonicalPlaneCompactionPreserversPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneCompactionPreserversPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneCompactionPreserversPolicy.planeID),
+			}
+		}
+	}
+	if gf.secretGuards != nil {
+		if canonicalPlaneSecretGuardsPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSecretGuardsPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneSecretGuardsPolicy.planeID),
+			}
+		}
+	}
+	if gf.localTurnHandlers != nil {
+		if canonicalPlaneLocalTurnHandlersPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneLocalTurnHandlersPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneLocalTurnHandlersPolicy.planeID),
+			}
+		}
+	}
+	if gf.terminalDecisionProvider != nil {
+		if canonicalPlaneTerminalDecisionProviderPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneTerminalDecisionProviderPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneTerminalDecisionProviderPolicy.planeID),
+			}
 		}
 	}
 	return nil
@@ -552,150 +937,153 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 	if gf == nil || gc == nil {
 		return nil
 	}
+	if err := gf.checkCandidateSourceAdmission(source, contributorID); err != nil {
+		return err
+	}
 	if gf.sessionOpeners != nil {
-		if PlaneSessionOpeners.Validate != nil {
-			if err := PlaneSessionOpeners.Validate(gf.sessionOpeners); err != nil {
+		if canonicalPlaneSessionOpenersPolicy.validate != nil {
+			if err := canonicalPlaneSessionOpenersPolicy.validate(gf.sessionOpeners); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneSessionOpeners.ID,
+					PlaneID:  canonicalPlaneSessionOpenersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneSessionOpeners.generated.contribute(gc, source, contributorID, gf.sessionOpeners); err != nil {
+		if err := canonicalPlaneSessionOpenersAccess.contribute(gc, source, contributorID, gf.sessionOpeners); err != nil {
 			return err
 		}
 	}
 	if gf.workspaceResolvers != nil {
-		if PlaneWorkspaceResolvers.Validate != nil {
-			if err := PlaneWorkspaceResolvers.Validate(gf.workspaceResolvers); err != nil {
+		if canonicalPlaneWorkspaceResolversPolicy.validate != nil {
+			if err := canonicalPlaneWorkspaceResolversPolicy.validate(gf.workspaceResolvers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneWorkspaceResolvers.ID,
+					PlaneID:  canonicalPlaneWorkspaceResolversPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneWorkspaceResolvers.generated.contribute(gc, source, contributorID, gf.workspaceResolvers); err != nil {
+		if err := canonicalPlaneWorkspaceResolversAccess.contribute(gc, source, contributorID, gf.workspaceResolvers); err != nil {
 			return err
 		}
 	}
 	if gf.toolCatalogFilters != nil {
-		if PlaneToolCatalogFilters.Validate != nil {
-			if err := PlaneToolCatalogFilters.Validate(gf.toolCatalogFilters); err != nil {
+		if canonicalPlaneToolCatalogFiltersPolicy.validate != nil {
+			if err := canonicalPlaneToolCatalogFiltersPolicy.validate(gf.toolCatalogFilters); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneToolCatalogFilters.ID,
+					PlaneID:  canonicalPlaneToolCatalogFiltersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneToolCatalogFilters.generated.contribute(gc, source, contributorID, gf.toolCatalogFilters); err != nil {
+		if err := canonicalPlaneToolCatalogFiltersAccess.contribute(gc, source, contributorID, gf.toolCatalogFilters); err != nil {
 			return err
 		}
 	}
 	if gf.toolCallPolicies != nil {
-		if PlaneToolCallPolicies.Validate != nil {
-			if err := PlaneToolCallPolicies.Validate(gf.toolCallPolicies); err != nil {
+		if canonicalPlaneToolCallPoliciesPolicy.validate != nil {
+			if err := canonicalPlaneToolCallPoliciesPolicy.validate(gf.toolCallPolicies); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneToolCallPolicies.ID,
+					PlaneID:  canonicalPlaneToolCallPoliciesPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneToolCallPolicies.generated.contribute(gc, source, contributorID, gf.toolCallPolicies); err != nil {
+		if err := canonicalPlaneToolCallPoliciesAccess.contribute(gc, source, contributorID, gf.toolCallPolicies); err != nil {
 			return err
 		}
 	}
 	if gf.toolCallFinalizers != nil {
-		if PlaneToolCallFinalizers.Validate != nil {
-			if err := PlaneToolCallFinalizers.Validate(gf.toolCallFinalizers); err != nil {
+		if canonicalPlaneToolCallFinalizersPolicy.validate != nil {
+			if err := canonicalPlaneToolCallFinalizersPolicy.validate(gf.toolCallFinalizers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneToolCallFinalizers.ID,
+					PlaneID:  canonicalPlaneToolCallFinalizersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneToolCallFinalizers.generated.contribute(gc, source, contributorID, gf.toolCallFinalizers); err != nil {
+		if err := canonicalPlaneToolCallFinalizersAccess.contribute(gc, source, contributorID, gf.toolCallFinalizers); err != nil {
 			return err
 		}
 	}
 	if gf.toolCallFinalizationMaxArgsBytes < 0 {
 		return &AttributedError{
 			PluginID: contributorID,
-			PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+			PlaneID:  canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.planeID,
 			Err:      fmt.Errorf("%w: must be >= 0, got %d", ErrInvalidContribution, gf.toolCallFinalizationMaxArgsBytes),
 		}
 	}
 	if gf.toolCallFinalizationMaxArgsBytes > 0 {
-		if PlaneToolCallFinalizationMaxArgsBytes.Validate != nil {
-			if err := PlaneToolCallFinalizationMaxArgsBytes.Validate(gf.toolCallFinalizationMaxArgsBytes); err != nil {
+		if canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.validate != nil {
+			if err := canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.validate(gf.toolCallFinalizationMaxArgsBytes); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+					PlaneID:  canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneToolCallFinalizationMaxArgsBytes.generated.contribute(gc, source, contributorID, gf.toolCallFinalizationMaxArgsBytes); err != nil {
+		if err := canonicalPlaneToolCallFinalizationMaxArgsBytesAccess.contribute(gc, source, contributorID, gf.toolCallFinalizationMaxArgsBytes); err != nil {
 			return err
 		}
 	}
 	if gf.requestTransforms != nil {
-		if PlaneRequestTransforms.Validate != nil {
-			if err := PlaneRequestTransforms.Validate(gf.requestTransforms); err != nil {
+		if canonicalPlaneRequestTransformsPolicy.validate != nil {
+			if err := canonicalPlaneRequestTransformsPolicy.validate(gf.requestTransforms); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneRequestTransforms.ID,
+					PlaneID:  canonicalPlaneRequestTransformsPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneRequestTransforms.generated.contribute(gc, source, contributorID, gf.requestTransforms); err != nil {
+		if err := canonicalPlaneRequestTransformsAccess.contribute(gc, source, contributorID, gf.requestTransforms); err != nil {
 			return err
 		}
 	}
 	if gf.preRequestHandlers != nil {
-		if PlanePreRequestHandlers.Validate != nil {
-			if err := PlanePreRequestHandlers.Validate(gf.preRequestHandlers); err != nil {
+		if canonicalPlanePreRequestHandlersPolicy.validate != nil {
+			if err := canonicalPlanePreRequestHandlersPolicy.validate(gf.preRequestHandlers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlanePreRequestHandlers.ID,
+					PlaneID:  canonicalPlanePreRequestHandlersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlanePreRequestHandlers.generated.contribute(gc, source, contributorID, gf.preRequestHandlers); err != nil {
+		if err := canonicalPlanePreRequestHandlersAccess.contribute(gc, source, contributorID, gf.preRequestHandlers); err != nil {
 			return err
 		}
 	}
 	if gf.routeHintProviders != nil {
-		if PlaneRouteHintProviders.Validate != nil {
-			if err := PlaneRouteHintProviders.Validate(gf.routeHintProviders); err != nil {
+		if canonicalPlaneRouteHintProvidersPolicy.validate != nil {
+			if err := canonicalPlaneRouteHintProvidersPolicy.validate(gf.routeHintProviders); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneRouteHintProviders.ID,
+					PlaneID:  canonicalPlaneRouteHintProvidersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneRouteHintProviders.generated.contribute(gc, source, contributorID, gf.routeHintProviders); err != nil {
+		if err := canonicalPlaneRouteHintProvidersAccess.contribute(gc, source, contributorID, gf.routeHintProviders); err != nil {
 			return err
 		}
 	}
 	if gf.completionGates != nil {
-		if PlaneCompletionGates.Validate != nil {
-			if err := PlaneCompletionGates.Validate(gf.completionGates); err != nil {
+		if canonicalPlaneCompletionGatesPolicy.validate != nil {
+			if err := canonicalPlaneCompletionGatesPolicy.validate(gf.completionGates); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneCompletionGates.ID,
+					PlaneID:  canonicalPlaneCompletionGatesPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneCompletionGates.generated.contribute(gc, source, contributorID, gf.completionGates); err != nil {
+		if err := canonicalPlaneCompletionGatesAccess.contribute(gc, source, contributorID, gf.completionGates); err != nil {
 			return err
 		}
 	}
@@ -703,16 +1091,16 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 		if gf.attemptTransformsHasID || gf.attemptTransformsID != "" {
 			return &AttributedError{
 				PluginID: contributorID,
-				PlaneID:  PlaneAttemptTransforms.ID,
+				PlaneID:  canonicalPlaneAttemptTransformsPolicy.planeID,
 				Err:      fmt.Errorf("%w: malformed metadata without value", ErrInvalidContribution),
 			}
 		}
 	} else {
-		if PlaneAttemptTransforms.Validate != nil {
-			if err := PlaneAttemptTransforms.Validate(gf.attemptTransforms); err != nil {
+		if canonicalPlaneAttemptTransformsPolicy.validate != nil {
+			if err := canonicalPlaneAttemptTransformsPolicy.validate(gf.attemptTransforms); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneAttemptTransforms.ID,
+					PlaneID:  canonicalPlaneAttemptTransformsPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
@@ -721,7 +1109,7 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 			if gf.attemptTransformsID != "" || len(gf.attemptTransforms) > 0 {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneAttemptTransforms.ID,
+					PlaneID:  canonicalPlaneAttemptTransformsPolicy.planeID,
 					Err:      fmt.Errorf("%w: missing cached identity", ErrInvalidContribution),
 				}
 			}
@@ -729,33 +1117,58 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 			if gf.attemptTransformsID == "" {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneAttemptTransforms.ID,
+					PlaneID:  canonicalPlaneAttemptTransformsPolicy.planeID,
 					Err:      fmt.Errorf("%w: missing cached identity", ErrInvalidContribution),
 				}
 			}
-			if err := PlaneAttemptTransforms.ValidateIdentity(gf.attemptTransformsID); err != nil {
+			if err := canonicalPlaneAttemptTransformsPolicy.validateIdentity(gf.attemptTransformsID); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneAttemptTransforms.ID,
+					PlaneID:  canonicalPlaneAttemptTransformsPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneAttemptTransforms.generated.contribute(gc, source, contributorID, gf.attemptTransforms); err != nil {
-			return err
+		hadDestinationValue := len(gc.attemptTransforms) > 0
+		existingID := gc.attemptTransformsID
+		existingHasID := gc.attemptTransformsHasID
+
+		incoming := cloneSlice(gf.attemptTransforms)
+		current := cloneSlice(gc.attemptTransforms)
+		combined, err := canonicalPlaneAttemptTransformsPolicy.combine(source, current, incoming)
+		if err != nil {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneAttemptTransformsPolicy.planeID,
+				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+			}
+		}
+		if (gf.attemptTransforms != nil || gc.attemptTransforms != nil) && combined == nil {
+			combined = make([]request.AttemptTransform, 0)
+		}
+		gc.attemptTransforms = cloneSlice(combined)
+		if len(gc.attemptTransforms) == 0 {
+			gc.attemptTransformsID = ""
+			gc.attemptTransformsHasID = false
+		} else if hadDestinationValue {
+			gc.attemptTransformsID = existingID
+			gc.attemptTransformsHasID = existingHasID
+		} else {
+			gc.attemptTransformsID = gf.attemptTransformsID
+			gc.attemptTransformsHasID = gf.attemptTransformsHasID
 		}
 	}
 	if gf.compactionObservers != nil {
-		if PlaneCompactionObservers.Validate != nil {
-			if err := PlaneCompactionObservers.Validate(gf.compactionObservers); err != nil {
+		if canonicalPlaneCompactionObserversPolicy.validate != nil {
+			if err := canonicalPlaneCompactionObserversPolicy.validate(gf.compactionObservers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneCompactionObservers.ID,
+					PlaneID:  canonicalPlaneCompactionObserversPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneCompactionObservers.generated.contribute(gc, source, contributorID, gf.compactionObservers); err != nil {
+		if err := canonicalPlaneCompactionObserversAccess.contribute(gc, source, contributorID, gf.compactionObservers); err != nil {
 			return err
 		}
 	}
@@ -763,16 +1176,16 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 		if gf.compactionPreserversHasID || gf.compactionPreserversID != "" {
 			return &AttributedError{
 				PluginID: contributorID,
-				PlaneID:  PlaneCompactionPreservers.ID,
+				PlaneID:  canonicalPlaneCompactionPreserversPolicy.planeID,
 				Err:      fmt.Errorf("%w: malformed metadata without value", ErrInvalidContribution),
 			}
 		}
 	} else {
-		if PlaneCompactionPreservers.Validate != nil {
-			if err := PlaneCompactionPreservers.Validate(gf.compactionPreservers); err != nil {
+		if canonicalPlaneCompactionPreserversPolicy.validate != nil {
+			if err := canonicalPlaneCompactionPreserversPolicy.validate(gf.compactionPreservers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneCompactionPreservers.ID,
+					PlaneID:  canonicalPlaneCompactionPreserversPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
@@ -781,7 +1194,7 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 			if gf.compactionPreserversID != "" || len(gf.compactionPreservers) > 0 {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneCompactionPreservers.ID,
+					PlaneID:  canonicalPlaneCompactionPreserversPolicy.planeID,
 					Err:      fmt.Errorf("%w: missing cached identity", ErrInvalidContribution),
 				}
 			}
@@ -789,47 +1202,72 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 			if gf.compactionPreserversID == "" {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneCompactionPreservers.ID,
+					PlaneID:  canonicalPlaneCompactionPreserversPolicy.planeID,
 					Err:      fmt.Errorf("%w: missing cached identity", ErrInvalidContribution),
 				}
 			}
-			if err := PlaneCompactionPreservers.ValidateIdentity(gf.compactionPreserversID); err != nil {
+			if err := canonicalPlaneCompactionPreserversPolicy.validateIdentity(gf.compactionPreserversID); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneCompactionPreservers.ID,
+					PlaneID:  canonicalPlaneCompactionPreserversPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneCompactionPreservers.generated.contribute(gc, source, contributorID, gf.compactionPreservers); err != nil {
-			return err
+		hadDestinationValue := len(gc.compactionPreservers) > 0
+		existingID := gc.compactionPreserversID
+		existingHasID := gc.compactionPreserversHasID
+
+		incoming := cloneSlice(gf.compactionPreservers)
+		current := cloneSlice(gc.compactionPreservers)
+		combined, err := canonicalPlaneCompactionPreserversPolicy.combine(source, current, incoming)
+		if err != nil {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneCompactionPreserversPolicy.planeID,
+				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+			}
+		}
+		if (gf.compactionPreservers != nil || gc.compactionPreservers != nil) && combined == nil {
+			combined = make([]compaction.Preserver, 0)
+		}
+		gc.compactionPreservers = cloneSlice(combined)
+		if len(gc.compactionPreservers) == 0 {
+			gc.compactionPreserversID = ""
+			gc.compactionPreserversHasID = false
+		} else if hadDestinationValue {
+			gc.compactionPreserversID = existingID
+			gc.compactionPreserversHasID = existingHasID
+		} else {
+			gc.compactionPreserversID = gf.compactionPreserversID
+			gc.compactionPreserversHasID = gf.compactionPreserversHasID
 		}
 	}
 	if gf.secretGuards != nil {
-		if PlaneSecretGuards.Validate != nil {
-			if err := PlaneSecretGuards.Validate(gf.secretGuards); err != nil {
+		if canonicalPlaneSecretGuardsPolicy.validate != nil {
+			if err := canonicalPlaneSecretGuardsPolicy.validate(gf.secretGuards); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneSecretGuards.ID,
+					PlaneID:  canonicalPlaneSecretGuardsPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneSecretGuards.generated.contribute(gc, source, contributorID, gf.secretGuards); err != nil {
+		if err := canonicalPlaneSecretGuardsAccess.contribute(gc, source, contributorID, gf.secretGuards); err != nil {
 			return err
 		}
 	}
 	if gf.localTurnHandlers != nil {
-		if PlaneLocalTurnHandlers.Validate != nil {
-			if err := PlaneLocalTurnHandlers.Validate(gf.localTurnHandlers); err != nil {
+		if canonicalPlaneLocalTurnHandlersPolicy.validate != nil {
+			if err := canonicalPlaneLocalTurnHandlersPolicy.validate(gf.localTurnHandlers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneLocalTurnHandlers.ID,
+					PlaneID:  canonicalPlaneLocalTurnHandlersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneLocalTurnHandlers.generated.contribute(gc, source, contributorID, gf.localTurnHandlers); err != nil {
+		if err := canonicalPlaneLocalTurnHandlersAccess.contribute(gc, source, contributorID, gf.localTurnHandlers); err != nil {
 			return err
 		}
 	}
@@ -837,12 +1275,12 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 		if !gf.terminalDecisionProviderHasID || gf.terminalDecisionProviderID == "" {
 			return &AttributedError{
 				PluginID: contributorID,
-				PlaneID:  PlaneTerminalDecisionProvider.ID,
+				PlaneID:  canonicalPlaneTerminalDecisionProviderPolicy.planeID,
 				Err:      fmt.Errorf("%w: frozen exclusive identity is missing", ErrInvalidContribution),
 			}
 		}
 		if gc.terminalDecisionProviderHasID {
-			return makeExclusiveConflictError(contributorID, PlaneTerminalDecisionProvider.ID, PlaneTerminalDecisionProvider.ExclusiveConflictError, gc.terminalDecisionProviderID, gf.terminalDecisionProviderID)
+			return makeExclusiveConflictError(contributorID, canonicalPlaneTerminalDecisionProviderPolicy.planeID, canonicalPlaneTerminalDecisionProviderPolicy.exclusiveConflictError, gc.terminalDecisionProviderID, gf.terminalDecisionProviderID)
 		}
 		gc.terminalDecisionProvider = gf.terminalDecisionProvider
 		gc.terminalDecisionProviderID = gf.terminalDecisionProviderID
@@ -855,199 +1293,202 @@ func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source 
 	if gf == nil || gc == nil {
 		return nil
 	}
+	if err := gf.checkSourceAdmission(source, contributorID); err != nil {
+		return err
+	}
 	if gf.submitHooks != nil {
-		if PlaneSubmitHooks.Validate != nil {
-			if err := PlaneSubmitHooks.Validate(gf.submitHooks); err != nil {
+		if canonicalPlaneSubmitHooksPolicy.validate != nil {
+			if err := canonicalPlaneSubmitHooksPolicy.validate(gf.submitHooks); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneSubmitHooks.ID,
+					PlaneID:  canonicalPlaneSubmitHooksPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneSubmitHooks.generated.contribute(gc, source, contributorID, gf.submitHooks); err != nil {
+		if err := canonicalPlaneSubmitHooksAccess.contribute(gc, source, contributorID, gf.submitHooks); err != nil {
 			return err
 		}
 	}
 	if gf.requestPartHooks != nil {
-		if PlaneRequestPartHooks.Validate != nil {
-			if err := PlaneRequestPartHooks.Validate(gf.requestPartHooks); err != nil {
+		if canonicalPlaneRequestPartHooksPolicy.validate != nil {
+			if err := canonicalPlaneRequestPartHooksPolicy.validate(gf.requestPartHooks); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneRequestPartHooks.ID,
+					PlaneID:  canonicalPlaneRequestPartHooksPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneRequestPartHooks.generated.contribute(gc, source, contributorID, gf.requestPartHooks); err != nil {
+		if err := canonicalPlaneRequestPartHooksAccess.contribute(gc, source, contributorID, gf.requestPartHooks); err != nil {
 			return err
 		}
 	}
 	if gf.responsePartHooks != nil {
-		if PlaneResponsePartHooks.Validate != nil {
-			if err := PlaneResponsePartHooks.Validate(gf.responsePartHooks); err != nil {
+		if canonicalPlaneResponsePartHooksPolicy.validate != nil {
+			if err := canonicalPlaneResponsePartHooksPolicy.validate(gf.responsePartHooks); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneResponsePartHooks.ID,
+					PlaneID:  canonicalPlaneResponsePartHooksPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneResponsePartHooks.generated.contribute(gc, source, contributorID, gf.responsePartHooks); err != nil {
+		if err := canonicalPlaneResponsePartHooksAccess.contribute(gc, source, contributorID, gf.responsePartHooks); err != nil {
 			return err
 		}
 	}
 	if gf.toolReactors != nil {
-		if PlaneToolReactors.Validate != nil {
-			if err := PlaneToolReactors.Validate(gf.toolReactors); err != nil {
+		if canonicalPlaneToolReactorsPolicy.validate != nil {
+			if err := canonicalPlaneToolReactorsPolicy.validate(gf.toolReactors); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneToolReactors.ID,
+					PlaneID:  canonicalPlaneToolReactorsPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneToolReactors.generated.contribute(gc, source, contributorID, gf.toolReactors); err != nil {
+		if err := canonicalPlaneToolReactorsAccess.contribute(gc, source, contributorID, gf.toolReactors); err != nil {
 			return err
 		}
 	}
 	if gf.sessionOpeners != nil {
-		if PlaneSessionOpeners.Validate != nil {
-			if err := PlaneSessionOpeners.Validate(gf.sessionOpeners); err != nil {
+		if canonicalPlaneSessionOpenersPolicy.validate != nil {
+			if err := canonicalPlaneSessionOpenersPolicy.validate(gf.sessionOpeners); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneSessionOpeners.ID,
+					PlaneID:  canonicalPlaneSessionOpenersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneSessionOpeners.generated.contribute(gc, source, contributorID, gf.sessionOpeners); err != nil {
+		if err := canonicalPlaneSessionOpenersAccess.contribute(gc, source, contributorID, gf.sessionOpeners); err != nil {
 			return err
 		}
 	}
 	if gf.workspaceResolvers != nil {
-		if PlaneWorkspaceResolvers.Validate != nil {
-			if err := PlaneWorkspaceResolvers.Validate(gf.workspaceResolvers); err != nil {
+		if canonicalPlaneWorkspaceResolversPolicy.validate != nil {
+			if err := canonicalPlaneWorkspaceResolversPolicy.validate(gf.workspaceResolvers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneWorkspaceResolvers.ID,
+					PlaneID:  canonicalPlaneWorkspaceResolversPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneWorkspaceResolvers.generated.contribute(gc, source, contributorID, gf.workspaceResolvers); err != nil {
+		if err := canonicalPlaneWorkspaceResolversAccess.contribute(gc, source, contributorID, gf.workspaceResolvers); err != nil {
 			return err
 		}
 	}
 	if gf.toolCatalogFilters != nil {
-		if PlaneToolCatalogFilters.Validate != nil {
-			if err := PlaneToolCatalogFilters.Validate(gf.toolCatalogFilters); err != nil {
+		if canonicalPlaneToolCatalogFiltersPolicy.validate != nil {
+			if err := canonicalPlaneToolCatalogFiltersPolicy.validate(gf.toolCatalogFilters); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneToolCatalogFilters.ID,
+					PlaneID:  canonicalPlaneToolCatalogFiltersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneToolCatalogFilters.generated.contribute(gc, source, contributorID, gf.toolCatalogFilters); err != nil {
+		if err := canonicalPlaneToolCatalogFiltersAccess.contribute(gc, source, contributorID, gf.toolCatalogFilters); err != nil {
 			return err
 		}
 	}
 	if gf.toolCallPolicies != nil {
-		if PlaneToolCallPolicies.Validate != nil {
-			if err := PlaneToolCallPolicies.Validate(gf.toolCallPolicies); err != nil {
+		if canonicalPlaneToolCallPoliciesPolicy.validate != nil {
+			if err := canonicalPlaneToolCallPoliciesPolicy.validate(gf.toolCallPolicies); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneToolCallPolicies.ID,
+					PlaneID:  canonicalPlaneToolCallPoliciesPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneToolCallPolicies.generated.contribute(gc, source, contributorID, gf.toolCallPolicies); err != nil {
+		if err := canonicalPlaneToolCallPoliciesAccess.contribute(gc, source, contributorID, gf.toolCallPolicies); err != nil {
 			return err
 		}
 	}
 	if gf.toolCallFinalizers != nil {
-		if PlaneToolCallFinalizers.Validate != nil {
-			if err := PlaneToolCallFinalizers.Validate(gf.toolCallFinalizers); err != nil {
+		if canonicalPlaneToolCallFinalizersPolicy.validate != nil {
+			if err := canonicalPlaneToolCallFinalizersPolicy.validate(gf.toolCallFinalizers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneToolCallFinalizers.ID,
+					PlaneID:  canonicalPlaneToolCallFinalizersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneToolCallFinalizers.generated.contribute(gc, source, contributorID, gf.toolCallFinalizers); err != nil {
+		if err := canonicalPlaneToolCallFinalizersAccess.contribute(gc, source, contributorID, gf.toolCallFinalizers); err != nil {
 			return err
 		}
 	}
 	if gf.toolCallFinalizationMaxArgsBytes > 0 {
-		if PlaneToolCallFinalizationMaxArgsBytes.Validate != nil {
-			if err := PlaneToolCallFinalizationMaxArgsBytes.Validate(gf.toolCallFinalizationMaxArgsBytes); err != nil {
+		if canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.validate != nil {
+			if err := canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.validate(gf.toolCallFinalizationMaxArgsBytes); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+					PlaneID:  canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneToolCallFinalizationMaxArgsBytes.generated.contribute(gc, source, contributorID, gf.toolCallFinalizationMaxArgsBytes); err != nil {
+		if err := canonicalPlaneToolCallFinalizationMaxArgsBytesAccess.contribute(gc, source, contributorID, gf.toolCallFinalizationMaxArgsBytes); err != nil {
 			return err
 		}
 	}
 	if gf.requestTransforms != nil {
-		if PlaneRequestTransforms.Validate != nil {
-			if err := PlaneRequestTransforms.Validate(gf.requestTransforms); err != nil {
+		if canonicalPlaneRequestTransformsPolicy.validate != nil {
+			if err := canonicalPlaneRequestTransformsPolicy.validate(gf.requestTransforms); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneRequestTransforms.ID,
+					PlaneID:  canonicalPlaneRequestTransformsPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneRequestTransforms.generated.contribute(gc, source, contributorID, gf.requestTransforms); err != nil {
+		if err := canonicalPlaneRequestTransformsAccess.contribute(gc, source, contributorID, gf.requestTransforms); err != nil {
 			return err
 		}
 	}
 	if gf.preRequestHandlers != nil {
-		if PlanePreRequestHandlers.Validate != nil {
-			if err := PlanePreRequestHandlers.Validate(gf.preRequestHandlers); err != nil {
+		if canonicalPlanePreRequestHandlersPolicy.validate != nil {
+			if err := canonicalPlanePreRequestHandlersPolicy.validate(gf.preRequestHandlers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlanePreRequestHandlers.ID,
+					PlaneID:  canonicalPlanePreRequestHandlersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlanePreRequestHandlers.generated.contribute(gc, source, contributorID, gf.preRequestHandlers); err != nil {
+		if err := canonicalPlanePreRequestHandlersAccess.contribute(gc, source, contributorID, gf.preRequestHandlers); err != nil {
 			return err
 		}
 	}
 	if gf.routeHintProviders != nil {
-		if PlaneRouteHintProviders.Validate != nil {
-			if err := PlaneRouteHintProviders.Validate(gf.routeHintProviders); err != nil {
+		if canonicalPlaneRouteHintProvidersPolicy.validate != nil {
+			if err := canonicalPlaneRouteHintProvidersPolicy.validate(gf.routeHintProviders); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneRouteHintProviders.ID,
+					PlaneID:  canonicalPlaneRouteHintProvidersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneRouteHintProviders.generated.contribute(gc, source, contributorID, gf.routeHintProviders); err != nil {
+		if err := canonicalPlaneRouteHintProvidersAccess.contribute(gc, source, contributorID, gf.routeHintProviders); err != nil {
 			return err
 		}
 	}
 	if gf.completionGates != nil {
-		if PlaneCompletionGates.Validate != nil {
-			if err := PlaneCompletionGates.Validate(gf.completionGates); err != nil {
+		if canonicalPlaneCompletionGatesPolicy.validate != nil {
+			if err := canonicalPlaneCompletionGatesPolicy.validate(gf.completionGates); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneCompletionGates.ID,
+					PlaneID:  canonicalPlaneCompletionGatesPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneCompletionGates.generated.contribute(gc, source, contributorID, gf.completionGates); err != nil {
+		if err := canonicalPlaneCompletionGatesAccess.contribute(gc, source, contributorID, gf.completionGates); err != nil {
 			return err
 		}
 	}
@@ -1058,11 +1499,11 @@ func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source 
 
 		incoming := cloneSlice(gf.attemptTransforms)
 		current := cloneSlice(gc.attemptTransforms)
-		combined, err := PlaneAttemptTransforms.Combine(source, current, incoming)
+		combined, err := canonicalPlaneAttemptTransformsPolicy.combine(source, current, incoming)
 		if err != nil {
 			return &AttributedError{
 				PluginID: contributorID,
-				PlaneID:  PlaneAttemptTransforms.ID,
+				PlaneID:  canonicalPlaneAttemptTransformsPolicy.planeID,
 				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 			}
 		}
@@ -1088,11 +1529,11 @@ func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source 
 
 		incoming := cloneSlice(gf.streamObserverFactories)
 		current := cloneSlice(gc.streamObserverFactories)
-		combined, err := PlaneStreamObserverFactories.Combine(source, current, incoming)
+		combined, err := canonicalPlaneStreamObserverFactoriesPolicy.combine(source, current, incoming)
 		if err != nil {
 			return &AttributedError{
 				PluginID: contributorID,
-				PlaneID:  PlaneStreamObserverFactories.ID,
+				PlaneID:  canonicalPlaneStreamObserverFactoriesPolicy.planeID,
 				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 			}
 		}
@@ -1112,72 +1553,72 @@ func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source 
 		}
 	}
 	if gf.trafficObservers != nil {
-		if PlaneTrafficObservers.Validate != nil {
-			if err := PlaneTrafficObservers.Validate(gf.trafficObservers); err != nil {
+		if canonicalPlaneTrafficObserversPolicy.validate != nil {
+			if err := canonicalPlaneTrafficObserversPolicy.validate(gf.trafficObservers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneTrafficObservers.ID,
+					PlaneID:  canonicalPlaneTrafficObserversPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneTrafficObservers.generated.contribute(gc, source, contributorID, gf.trafficObservers); err != nil {
+		if err := canonicalPlaneTrafficObserversAccess.contribute(gc, source, contributorID, gf.trafficObservers); err != nil {
 			return err
 		}
 	}
 	if gf.usageObservers != nil {
-		if PlaneUsageObservers.Validate != nil {
-			if err := PlaneUsageObservers.Validate(gf.usageObservers); err != nil {
+		if canonicalPlaneUsageObserversPolicy.validate != nil {
+			if err := canonicalPlaneUsageObserversPolicy.validate(gf.usageObservers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneUsageObservers.ID,
+					PlaneID:  canonicalPlaneUsageObserversPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneUsageObservers.generated.contribute(gc, source, contributorID, gf.usageObservers); err != nil {
+		if err := canonicalPlaneUsageObserversAccess.contribute(gc, source, contributorID, gf.usageObservers); err != nil {
 			return err
 		}
 	}
 	if gf.rawCaptureSinks != nil {
-		if PlaneRawCaptureSinks.Validate != nil {
-			if err := PlaneRawCaptureSinks.Validate(gf.rawCaptureSinks); err != nil {
+		if canonicalPlaneRawCaptureSinksPolicy.validate != nil {
+			if err := canonicalPlaneRawCaptureSinksPolicy.validate(gf.rawCaptureSinks); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneRawCaptureSinks.ID,
+					PlaneID:  canonicalPlaneRawCaptureSinksPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneRawCaptureSinks.generated.contribute(gc, source, contributorID, gf.rawCaptureSinks); err != nil {
+		if err := canonicalPlaneRawCaptureSinksAccess.contribute(gc, source, contributorID, gf.rawCaptureSinks); err != nil {
 			return err
 		}
 	}
 	if gf.trafficRedactors != nil {
-		if PlaneTrafficRedactors.Validate != nil {
-			if err := PlaneTrafficRedactors.Validate(gf.trafficRedactors); err != nil {
+		if canonicalPlaneTrafficRedactorsPolicy.validate != nil {
+			if err := canonicalPlaneTrafficRedactorsPolicy.validate(gf.trafficRedactors); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneTrafficRedactors.ID,
+					PlaneID:  canonicalPlaneTrafficRedactorsPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneTrafficRedactors.generated.contribute(gc, source, contributorID, gf.trafficRedactors); err != nil {
+		if err := canonicalPlaneTrafficRedactorsAccess.contribute(gc, source, contributorID, gf.trafficRedactors); err != nil {
 			return err
 		}
 	}
 	if gf.compactionObservers != nil {
-		if PlaneCompactionObservers.Validate != nil {
-			if err := PlaneCompactionObservers.Validate(gf.compactionObservers); err != nil {
+		if canonicalPlaneCompactionObserversPolicy.validate != nil {
+			if err := canonicalPlaneCompactionObserversPolicy.validate(gf.compactionObservers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneCompactionObservers.ID,
+					PlaneID:  canonicalPlaneCompactionObserversPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneCompactionObservers.generated.contribute(gc, source, contributorID, gf.compactionObservers); err != nil {
+		if err := canonicalPlaneCompactionObserversAccess.contribute(gc, source, contributorID, gf.compactionObservers); err != nil {
 			return err
 		}
 	}
@@ -1188,11 +1629,11 @@ func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source 
 
 		incoming := cloneSlice(gf.compactionPreservers)
 		current := cloneSlice(gc.compactionPreservers)
-		combined, err := PlaneCompactionPreservers.Combine(source, current, incoming)
+		combined, err := canonicalPlaneCompactionPreserversPolicy.combine(source, current, incoming)
 		if err != nil {
 			return &AttributedError{
 				PluginID: contributorID,
-				PlaneID:  PlaneCompactionPreservers.ID,
+				PlaneID:  canonicalPlaneCompactionPreserversPolicy.planeID,
 				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 			}
 		}
@@ -1212,30 +1653,30 @@ func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source 
 		}
 	}
 	if gf.secretGuards != nil {
-		if PlaneSecretGuards.Validate != nil {
-			if err := PlaneSecretGuards.Validate(gf.secretGuards); err != nil {
+		if canonicalPlaneSecretGuardsPolicy.validate != nil {
+			if err := canonicalPlaneSecretGuardsPolicy.validate(gf.secretGuards); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneSecretGuards.ID,
+					PlaneID:  canonicalPlaneSecretGuardsPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneSecretGuards.generated.contribute(gc, source, contributorID, gf.secretGuards); err != nil {
+		if err := canonicalPlaneSecretGuardsAccess.contribute(gc, source, contributorID, gf.secretGuards); err != nil {
 			return err
 		}
 	}
 	if gf.localTurnHandlers != nil {
-		if PlaneLocalTurnHandlers.Validate != nil {
-			if err := PlaneLocalTurnHandlers.Validate(gf.localTurnHandlers); err != nil {
+		if canonicalPlaneLocalTurnHandlersPolicy.validate != nil {
+			if err := canonicalPlaneLocalTurnHandlersPolicy.validate(gf.localTurnHandlers); err != nil {
 				return &AttributedError{
 					PluginID: contributorID,
-					PlaneID:  PlaneLocalTurnHandlers.ID,
+					PlaneID:  canonicalPlaneLocalTurnHandlersPolicy.planeID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
 		}
-		if err := PlaneLocalTurnHandlers.generated.contribute(gc, source, contributorID, gf.localTurnHandlers); err != nil {
+		if err := canonicalPlaneLocalTurnHandlersAccess.contribute(gc, source, contributorID, gf.localTurnHandlers); err != nil {
 			return err
 		}
 	}
@@ -1243,12 +1684,12 @@ func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source 
 		if !gf.terminalDecisionProviderHasID || gf.terminalDecisionProviderID == "" {
 			return &AttributedError{
 				PluginID: contributorID,
-				PlaneID:  PlaneTerminalDecisionProvider.ID,
+				PlaneID:  canonicalPlaneTerminalDecisionProviderPolicy.planeID,
 				Err:      fmt.Errorf("%w: frozen exclusive identity is missing", ErrInvalidContribution),
 			}
 		}
 		if gc.terminalDecisionProviderHasID {
-			return makeExclusiveConflictError(contributorID, PlaneTerminalDecisionProvider.ID, PlaneTerminalDecisionProvider.ExclusiveConflictError, gc.terminalDecisionProviderID, gf.terminalDecisionProviderID)
+			return makeExclusiveConflictError(contributorID, canonicalPlaneTerminalDecisionProviderPolicy.planeID, canonicalPlaneTerminalDecisionProviderPolicy.exclusiveConflictError, gc.terminalDecisionProviderID, gf.terminalDecisionProviderID)
 		}
 		gc.terminalDecisionProvider = gf.terminalDecisionProvider
 		gc.terminalDecisionProviderID = gf.terminalDecisionProviderID
@@ -1263,35 +1704,109 @@ func (gf *generatedFrozen) hasIdentityReplayRule(source SourceKind, rule Combina
 	if gf == nil {
 		return "", false
 	}
-	if PlaneAttemptTransforms.Rules.RuleFor(source) == rule {
+	if canonicalPlaneAttemptTransformsPolicy.rules.RuleFor(source) == rule {
 		if len(gf.attemptTransforms) > 0 {
-			return PlaneAttemptTransforms.ID, true
+			return canonicalPlaneAttemptTransformsPolicy.planeID, true
 		}
 	}
-	if PlaneStreamObserverFactories.Rules.RuleFor(source) == rule {
+	if canonicalPlaneStreamObserverFactoriesPolicy.rules.RuleFor(source) == rule {
 		if len(gf.streamObserverFactories) > 0 {
-			return PlaneStreamObserverFactories.ID, true
+			return canonicalPlaneStreamObserverFactoriesPolicy.planeID, true
 		}
 	}
-	if PlaneCompactionPreservers.Rules.RuleFor(source) == rule {
+	if canonicalPlaneCompactionPreserversPolicy.rules.RuleFor(source) == rule {
 		if len(gf.compactionPreservers) > 0 {
-			return PlaneCompactionPreservers.ID, true
+			return canonicalPlaneCompactionPreserversPolicy.planeID, true
 		}
 	}
-	if PlaneTerminalDecisionProvider.Rules.RuleFor(source) == rule {
+	if canonicalPlaneTerminalDecisionProviderPolicy.rules.RuleFor(source) == rule {
 		if !isNilValue(gf.terminalDecisionProvider) {
-			return PlaneTerminalDecisionProvider.ID, true
+			return canonicalPlaneTerminalDecisionProviderPolicy.planeID, true
 		}
 	}
 	return "", false
 }
 
+// Canonical plane policies and access handles captured once at package init.
+var (
+	canonicalPlaneSubmitHooksPolicy                      *generatedPolicy[[]hooks.SubmitHook]
+	canonicalPlaneSubmitHooksAccess                      generatedAccess[[]hooks.SubmitHook]
+	canonicalPlaneRequestPartHooksPolicy                 *generatedPolicy[[]hooks.RequestPartHook]
+	canonicalPlaneRequestPartHooksAccess                 generatedAccess[[]hooks.RequestPartHook]
+	canonicalPlaneResponsePartHooksPolicy                *generatedPolicy[[]hooks.ResponsePartHook]
+	canonicalPlaneResponsePartHooksAccess                generatedAccess[[]hooks.ResponsePartHook]
+	canonicalPlaneToolReactorsPolicy                     *generatedPolicy[[]hooks.ToolReactor]
+	canonicalPlaneToolReactorsAccess                     generatedAccess[[]hooks.ToolReactor]
+	canonicalPlaneSessionOpenersPolicy                   *generatedPolicy[[]session.Opener]
+	canonicalPlaneSessionOpenersAccess                   generatedAccess[[]session.Opener]
+	canonicalPlaneWorkspaceResolversPolicy               *generatedPolicy[[]workspace.Resolver]
+	canonicalPlaneWorkspaceResolversAccess               generatedAccess[[]workspace.Resolver]
+	canonicalPlaneToolCatalogFiltersPolicy               *generatedPolicy[[]toolcatalog.Filter]
+	canonicalPlaneToolCatalogFiltersAccess               generatedAccess[[]toolcatalog.Filter]
+	canonicalPlaneToolCallPoliciesPolicy                 *generatedPolicy[[]toolpolicy.Policy]
+	canonicalPlaneToolCallPoliciesAccess                 generatedAccess[[]toolpolicy.Policy]
+	canonicalPlaneToolCallFinalizersPolicy               *generatedPolicy[[]toolcall.Finalizer]
+	canonicalPlaneToolCallFinalizersAccess               generatedAccess[[]toolcall.Finalizer]
+	canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy *generatedPolicy[int]
+	canonicalPlaneToolCallFinalizationMaxArgsBytesAccess generatedAccess[int]
+	canonicalPlaneRequestTransformsPolicy                *generatedPolicy[[]request.Transform]
+	canonicalPlaneRequestTransformsAccess                generatedAccess[[]request.Transform]
+	canonicalPlanePreRequestHandlersPolicy               *generatedPolicy[[]prerequest.Handler]
+	canonicalPlanePreRequestHandlersAccess               generatedAccess[[]prerequest.Handler]
+	canonicalPlaneRouteHintProvidersPolicy               *generatedPolicy[[]routehint.Provider]
+	canonicalPlaneRouteHintProvidersAccess               generatedAccess[[]routehint.Provider]
+	canonicalPlaneCompletionGatesPolicy                  *generatedPolicy[[]completion.Gate]
+	canonicalPlaneCompletionGatesAccess                  generatedAccess[[]completion.Gate]
+	canonicalPlaneAttemptTransformsPolicy                *generatedPolicy[[]request.AttemptTransform]
+	canonicalPlaneAttemptTransformsAccess                generatedAccess[[]request.AttemptTransform]
+	canonicalPlaneStreamObserverFactoriesPolicy          *generatedPolicy[[]response.StreamObserverFactory]
+	canonicalPlaneStreamObserverFactoriesAccess          generatedAccess[[]response.StreamObserverFactory]
+	canonicalPlaneTrafficObserversPolicy                 *generatedPolicy[[]traffic.Observer]
+	canonicalPlaneTrafficObserversAccess                 generatedAccess[[]traffic.Observer]
+	canonicalPlaneUsageObserversPolicy                   *generatedPolicy[[]usage.Observer]
+	canonicalPlaneUsageObserversAccess                   generatedAccess[[]usage.Observer]
+	canonicalPlaneRawCaptureSinksPolicy                  *generatedPolicy[[]traffic.RawCaptureSink]
+	canonicalPlaneRawCaptureSinksAccess                  generatedAccess[[]traffic.RawCaptureSink]
+	canonicalPlaneTrafficRedactorsPolicy                 *generatedPolicy[[]traffic.Redactor]
+	canonicalPlaneTrafficRedactorsAccess                 generatedAccess[[]traffic.Redactor]
+	canonicalPlaneCompactionObserversPolicy              *generatedPolicy[[]compaction.Observer]
+	canonicalPlaneCompactionObserversAccess              generatedAccess[[]compaction.Observer]
+	canonicalPlaneCompactionPreserversPolicy             *generatedPolicy[[]compaction.Preserver]
+	canonicalPlaneCompactionPreserversAccess             generatedAccess[[]compaction.Preserver]
+	canonicalPlaneSecretGuardsPolicy                     *generatedPolicy[[]secretguard.Guard]
+	canonicalPlaneSecretGuardsAccess                     generatedAccess[[]secretguard.Guard]
+	canonicalPlaneLocalTurnHandlersPolicy                *generatedPolicy[[]localturn.Handler]
+	canonicalPlaneLocalTurnHandlersAccess                generatedAccess[[]localturn.Handler]
+	canonicalPlaneTerminalDecisionProviderPolicy         *generatedPolicy[terminaldecision.Provider]
+	canonicalPlaneTerminalDecisionProviderAccess         generatedAccess[terminaldecision.Provider]
+)
+
 func init() {
-	PlaneSubmitHooks.generated = generatedAccess[[]hooks.SubmitHook]{
+	canonicalPlaneSubmitHooksPolicy = &generatedPolicy[[]hooks.SubmitHook]{
+		planeID:                PlaneSubmitHooks.ID,
+		rules:                  PlaneSubmitHooks.Rules,
+		nilPolicy:              PlaneSubmitHooks.NilPolicy,
+		isNil:                  PlaneSubmitHooks.IsNil,
+		validate:               PlaneSubmitHooks.Validate,
+		validateIdentity:       PlaneSubmitHooks.ValidateIdentity,
+		combine:                PlaneSubmitHooks.Combine,
+		identity:               PlaneSubmitHooks.Identity,
+		exclusiveConflictError: PlaneSubmitHooks.ExclusiveConflictError,
+		requestMaterializer:    PlaneSubmitHooks.RequestMaterializer,
+		requestBorrow:          PlaneSubmitHooks.RequestBorrow,
+		hookTarget:             PlaneSubmitHooks.HookTarget,
+		diagStageID:            PlaneSubmitHooks.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneSubmitHooks.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneSubmitHooks.Diagnostics.Order,
+		diagMaterialize:        PlaneSubmitHooks.Diagnostics.Materialize,
+		diagPrivileges:         PlaneSubmitHooks.Diagnostics.Privileges,
+	}
+	canonicalPlaneSubmitHooksAccess = generatedAccess[[]hooks.SubmitHook]{
+		policy: canonicalPlaneSubmitHooksPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []hooks.SubmitHook) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.submitHooks)
-			combined, err := PlaneSubmitHooks.Combine(source, current, incoming)
+			combined, err := canonicalPlaneSubmitHooksPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1307,23 +1822,34 @@ func init() {
 			}
 			return cloneSlice(gf.submitHooks)
 		},
-		policy: &generatedPolicy[[]hooks.SubmitHook]{
-			planeID:                PlaneSubmitHooks.ID,
-			rules:                  PlaneSubmitHooks.Rules,
-			nilPolicy:              PlaneSubmitHooks.NilPolicy,
-			isNil:                  PlaneSubmitHooks.IsNil,
-			validate:               PlaneSubmitHooks.Validate,
-			validateIdentity:       PlaneSubmitHooks.ValidateIdentity,
-			combine:                PlaneSubmitHooks.Combine,
-			identity:               PlaneSubmitHooks.Identity,
-			exclusiveConflictError: PlaneSubmitHooks.ExclusiveConflictError,
-		},
 	}
-	PlaneRequestPartHooks.generated = generatedAccess[[]hooks.RequestPartHook]{
+	PlaneSubmitHooks.generated = canonicalPlaneSubmitHooksAccess
+
+	canonicalPlaneRequestPartHooksPolicy = &generatedPolicy[[]hooks.RequestPartHook]{
+		planeID:                PlaneRequestPartHooks.ID,
+		rules:                  PlaneRequestPartHooks.Rules,
+		nilPolicy:              PlaneRequestPartHooks.NilPolicy,
+		isNil:                  PlaneRequestPartHooks.IsNil,
+		validate:               PlaneRequestPartHooks.Validate,
+		validateIdentity:       PlaneRequestPartHooks.ValidateIdentity,
+		combine:                PlaneRequestPartHooks.Combine,
+		identity:               PlaneRequestPartHooks.Identity,
+		exclusiveConflictError: PlaneRequestPartHooks.ExclusiveConflictError,
+		requestMaterializer:    PlaneRequestPartHooks.RequestMaterializer,
+		requestBorrow:          PlaneRequestPartHooks.RequestBorrow,
+		hookTarget:             PlaneRequestPartHooks.HookTarget,
+		diagStageID:            PlaneRequestPartHooks.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneRequestPartHooks.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneRequestPartHooks.Diagnostics.Order,
+		diagMaterialize:        PlaneRequestPartHooks.Diagnostics.Materialize,
+		diagPrivileges:         PlaneRequestPartHooks.Diagnostics.Privileges,
+	}
+	canonicalPlaneRequestPartHooksAccess = generatedAccess[[]hooks.RequestPartHook]{
+		policy: canonicalPlaneRequestPartHooksPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []hooks.RequestPartHook) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.requestPartHooks)
-			combined, err := PlaneRequestPartHooks.Combine(source, current, incoming)
+			combined, err := canonicalPlaneRequestPartHooksPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1339,23 +1865,34 @@ func init() {
 			}
 			return cloneSlice(gf.requestPartHooks)
 		},
-		policy: &generatedPolicy[[]hooks.RequestPartHook]{
-			planeID:                PlaneRequestPartHooks.ID,
-			rules:                  PlaneRequestPartHooks.Rules,
-			nilPolicy:              PlaneRequestPartHooks.NilPolicy,
-			isNil:                  PlaneRequestPartHooks.IsNil,
-			validate:               PlaneRequestPartHooks.Validate,
-			validateIdentity:       PlaneRequestPartHooks.ValidateIdentity,
-			combine:                PlaneRequestPartHooks.Combine,
-			identity:               PlaneRequestPartHooks.Identity,
-			exclusiveConflictError: PlaneRequestPartHooks.ExclusiveConflictError,
-		},
 	}
-	PlaneResponsePartHooks.generated = generatedAccess[[]hooks.ResponsePartHook]{
+	PlaneRequestPartHooks.generated = canonicalPlaneRequestPartHooksAccess
+
+	canonicalPlaneResponsePartHooksPolicy = &generatedPolicy[[]hooks.ResponsePartHook]{
+		planeID:                PlaneResponsePartHooks.ID,
+		rules:                  PlaneResponsePartHooks.Rules,
+		nilPolicy:              PlaneResponsePartHooks.NilPolicy,
+		isNil:                  PlaneResponsePartHooks.IsNil,
+		validate:               PlaneResponsePartHooks.Validate,
+		validateIdentity:       PlaneResponsePartHooks.ValidateIdentity,
+		combine:                PlaneResponsePartHooks.Combine,
+		identity:               PlaneResponsePartHooks.Identity,
+		exclusiveConflictError: PlaneResponsePartHooks.ExclusiveConflictError,
+		requestMaterializer:    PlaneResponsePartHooks.RequestMaterializer,
+		requestBorrow:          PlaneResponsePartHooks.RequestBorrow,
+		hookTarget:             PlaneResponsePartHooks.HookTarget,
+		diagStageID:            PlaneResponsePartHooks.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneResponsePartHooks.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneResponsePartHooks.Diagnostics.Order,
+		diagMaterialize:        PlaneResponsePartHooks.Diagnostics.Materialize,
+		diagPrivileges:         PlaneResponsePartHooks.Diagnostics.Privileges,
+	}
+	canonicalPlaneResponsePartHooksAccess = generatedAccess[[]hooks.ResponsePartHook]{
+		policy: canonicalPlaneResponsePartHooksPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []hooks.ResponsePartHook) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.responsePartHooks)
-			combined, err := PlaneResponsePartHooks.Combine(source, current, incoming)
+			combined, err := canonicalPlaneResponsePartHooksPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1371,23 +1908,34 @@ func init() {
 			}
 			return cloneSlice(gf.responsePartHooks)
 		},
-		policy: &generatedPolicy[[]hooks.ResponsePartHook]{
-			planeID:                PlaneResponsePartHooks.ID,
-			rules:                  PlaneResponsePartHooks.Rules,
-			nilPolicy:              PlaneResponsePartHooks.NilPolicy,
-			isNil:                  PlaneResponsePartHooks.IsNil,
-			validate:               PlaneResponsePartHooks.Validate,
-			validateIdentity:       PlaneResponsePartHooks.ValidateIdentity,
-			combine:                PlaneResponsePartHooks.Combine,
-			identity:               PlaneResponsePartHooks.Identity,
-			exclusiveConflictError: PlaneResponsePartHooks.ExclusiveConflictError,
-		},
 	}
-	PlaneToolReactors.generated = generatedAccess[[]hooks.ToolReactor]{
+	PlaneResponsePartHooks.generated = canonicalPlaneResponsePartHooksAccess
+
+	canonicalPlaneToolReactorsPolicy = &generatedPolicy[[]hooks.ToolReactor]{
+		planeID:                PlaneToolReactors.ID,
+		rules:                  PlaneToolReactors.Rules,
+		nilPolicy:              PlaneToolReactors.NilPolicy,
+		isNil:                  PlaneToolReactors.IsNil,
+		validate:               PlaneToolReactors.Validate,
+		validateIdentity:       PlaneToolReactors.ValidateIdentity,
+		combine:                PlaneToolReactors.Combine,
+		identity:               PlaneToolReactors.Identity,
+		exclusiveConflictError: PlaneToolReactors.ExclusiveConflictError,
+		requestMaterializer:    PlaneToolReactors.RequestMaterializer,
+		requestBorrow:          PlaneToolReactors.RequestBorrow,
+		hookTarget:             PlaneToolReactors.HookTarget,
+		diagStageID:            PlaneToolReactors.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneToolReactors.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneToolReactors.Diagnostics.Order,
+		diagMaterialize:        PlaneToolReactors.Diagnostics.Materialize,
+		diagPrivileges:         PlaneToolReactors.Diagnostics.Privileges,
+	}
+	canonicalPlaneToolReactorsAccess = generatedAccess[[]hooks.ToolReactor]{
+		policy: canonicalPlaneToolReactorsPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []hooks.ToolReactor) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.toolReactors)
-			combined, err := PlaneToolReactors.Combine(source, current, incoming)
+			combined, err := canonicalPlaneToolReactorsPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1403,23 +1951,34 @@ func init() {
 			}
 			return cloneSlice(gf.toolReactors)
 		},
-		policy: &generatedPolicy[[]hooks.ToolReactor]{
-			planeID:                PlaneToolReactors.ID,
-			rules:                  PlaneToolReactors.Rules,
-			nilPolicy:              PlaneToolReactors.NilPolicy,
-			isNil:                  PlaneToolReactors.IsNil,
-			validate:               PlaneToolReactors.Validate,
-			validateIdentity:       PlaneToolReactors.ValidateIdentity,
-			combine:                PlaneToolReactors.Combine,
-			identity:               PlaneToolReactors.Identity,
-			exclusiveConflictError: PlaneToolReactors.ExclusiveConflictError,
-		},
 	}
-	PlaneSessionOpeners.generated = generatedAccess[[]session.Opener]{
+	PlaneToolReactors.generated = canonicalPlaneToolReactorsAccess
+
+	canonicalPlaneSessionOpenersPolicy = &generatedPolicy[[]session.Opener]{
+		planeID:                PlaneSessionOpeners.ID,
+		rules:                  PlaneSessionOpeners.Rules,
+		nilPolicy:              PlaneSessionOpeners.NilPolicy,
+		isNil:                  PlaneSessionOpeners.IsNil,
+		validate:               PlaneSessionOpeners.Validate,
+		validateIdentity:       PlaneSessionOpeners.ValidateIdentity,
+		combine:                PlaneSessionOpeners.Combine,
+		identity:               PlaneSessionOpeners.Identity,
+		exclusiveConflictError: PlaneSessionOpeners.ExclusiveConflictError,
+		requestMaterializer:    PlaneSessionOpeners.RequestMaterializer,
+		requestBorrow:          PlaneSessionOpeners.RequestBorrow,
+		hookTarget:             PlaneSessionOpeners.HookTarget,
+		diagStageID:            PlaneSessionOpeners.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneSessionOpeners.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneSessionOpeners.Diagnostics.Order,
+		diagMaterialize:        PlaneSessionOpeners.Diagnostics.Materialize,
+		diagPrivileges:         PlaneSessionOpeners.Diagnostics.Privileges,
+	}
+	canonicalPlaneSessionOpenersAccess = generatedAccess[[]session.Opener]{
+		policy: canonicalPlaneSessionOpenersPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []session.Opener) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.sessionOpeners)
-			combined, err := PlaneSessionOpeners.Combine(source, current, incoming)
+			combined, err := canonicalPlaneSessionOpenersPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1435,23 +1994,34 @@ func init() {
 			}
 			return cloneSlice(gf.sessionOpeners)
 		},
-		policy: &generatedPolicy[[]session.Opener]{
-			planeID:                PlaneSessionOpeners.ID,
-			rules:                  PlaneSessionOpeners.Rules,
-			nilPolicy:              PlaneSessionOpeners.NilPolicy,
-			isNil:                  PlaneSessionOpeners.IsNil,
-			validate:               PlaneSessionOpeners.Validate,
-			validateIdentity:       PlaneSessionOpeners.ValidateIdentity,
-			combine:                PlaneSessionOpeners.Combine,
-			identity:               PlaneSessionOpeners.Identity,
-			exclusiveConflictError: PlaneSessionOpeners.ExclusiveConflictError,
-		},
 	}
-	PlaneWorkspaceResolvers.generated = generatedAccess[[]workspace.Resolver]{
+	PlaneSessionOpeners.generated = canonicalPlaneSessionOpenersAccess
+
+	canonicalPlaneWorkspaceResolversPolicy = &generatedPolicy[[]workspace.Resolver]{
+		planeID:                PlaneWorkspaceResolvers.ID,
+		rules:                  PlaneWorkspaceResolvers.Rules,
+		nilPolicy:              PlaneWorkspaceResolvers.NilPolicy,
+		isNil:                  PlaneWorkspaceResolvers.IsNil,
+		validate:               PlaneWorkspaceResolvers.Validate,
+		validateIdentity:       PlaneWorkspaceResolvers.ValidateIdentity,
+		combine:                PlaneWorkspaceResolvers.Combine,
+		identity:               PlaneWorkspaceResolvers.Identity,
+		exclusiveConflictError: PlaneWorkspaceResolvers.ExclusiveConflictError,
+		requestMaterializer:    PlaneWorkspaceResolvers.RequestMaterializer,
+		requestBorrow:          PlaneWorkspaceResolvers.RequestBorrow,
+		hookTarget:             PlaneWorkspaceResolvers.HookTarget,
+		diagStageID:            PlaneWorkspaceResolvers.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneWorkspaceResolvers.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneWorkspaceResolvers.Diagnostics.Order,
+		diagMaterialize:        PlaneWorkspaceResolvers.Diagnostics.Materialize,
+		diagPrivileges:         PlaneWorkspaceResolvers.Diagnostics.Privileges,
+	}
+	canonicalPlaneWorkspaceResolversAccess = generatedAccess[[]workspace.Resolver]{
+		policy: canonicalPlaneWorkspaceResolversPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []workspace.Resolver) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.workspaceResolvers)
-			combined, err := PlaneWorkspaceResolvers.Combine(source, current, incoming)
+			combined, err := canonicalPlaneWorkspaceResolversPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1467,23 +2037,34 @@ func init() {
 			}
 			return cloneSlice(gf.workspaceResolvers)
 		},
-		policy: &generatedPolicy[[]workspace.Resolver]{
-			planeID:                PlaneWorkspaceResolvers.ID,
-			rules:                  PlaneWorkspaceResolvers.Rules,
-			nilPolicy:              PlaneWorkspaceResolvers.NilPolicy,
-			isNil:                  PlaneWorkspaceResolvers.IsNil,
-			validate:               PlaneWorkspaceResolvers.Validate,
-			validateIdentity:       PlaneWorkspaceResolvers.ValidateIdentity,
-			combine:                PlaneWorkspaceResolvers.Combine,
-			identity:               PlaneWorkspaceResolvers.Identity,
-			exclusiveConflictError: PlaneWorkspaceResolvers.ExclusiveConflictError,
-		},
 	}
-	PlaneToolCatalogFilters.generated = generatedAccess[[]toolcatalog.Filter]{
+	PlaneWorkspaceResolvers.generated = canonicalPlaneWorkspaceResolversAccess
+
+	canonicalPlaneToolCatalogFiltersPolicy = &generatedPolicy[[]toolcatalog.Filter]{
+		planeID:                PlaneToolCatalogFilters.ID,
+		rules:                  PlaneToolCatalogFilters.Rules,
+		nilPolicy:              PlaneToolCatalogFilters.NilPolicy,
+		isNil:                  PlaneToolCatalogFilters.IsNil,
+		validate:               PlaneToolCatalogFilters.Validate,
+		validateIdentity:       PlaneToolCatalogFilters.ValidateIdentity,
+		combine:                PlaneToolCatalogFilters.Combine,
+		identity:               PlaneToolCatalogFilters.Identity,
+		exclusiveConflictError: PlaneToolCatalogFilters.ExclusiveConflictError,
+		requestMaterializer:    PlaneToolCatalogFilters.RequestMaterializer,
+		requestBorrow:          PlaneToolCatalogFilters.RequestBorrow,
+		hookTarget:             PlaneToolCatalogFilters.HookTarget,
+		diagStageID:            PlaneToolCatalogFilters.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneToolCatalogFilters.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneToolCatalogFilters.Diagnostics.Order,
+		diagMaterialize:        PlaneToolCatalogFilters.Diagnostics.Materialize,
+		diagPrivileges:         PlaneToolCatalogFilters.Diagnostics.Privileges,
+	}
+	canonicalPlaneToolCatalogFiltersAccess = generatedAccess[[]toolcatalog.Filter]{
+		policy: canonicalPlaneToolCatalogFiltersPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []toolcatalog.Filter) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.toolCatalogFilters)
-			combined, err := PlaneToolCatalogFilters.Combine(source, current, incoming)
+			combined, err := canonicalPlaneToolCatalogFiltersPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1499,23 +2080,34 @@ func init() {
 			}
 			return cloneSlice(gf.toolCatalogFilters)
 		},
-		policy: &generatedPolicy[[]toolcatalog.Filter]{
-			planeID:                PlaneToolCatalogFilters.ID,
-			rules:                  PlaneToolCatalogFilters.Rules,
-			nilPolicy:              PlaneToolCatalogFilters.NilPolicy,
-			isNil:                  PlaneToolCatalogFilters.IsNil,
-			validate:               PlaneToolCatalogFilters.Validate,
-			validateIdentity:       PlaneToolCatalogFilters.ValidateIdentity,
-			combine:                PlaneToolCatalogFilters.Combine,
-			identity:               PlaneToolCatalogFilters.Identity,
-			exclusiveConflictError: PlaneToolCatalogFilters.ExclusiveConflictError,
-		},
 	}
-	PlaneToolCallPolicies.generated = generatedAccess[[]toolpolicy.Policy]{
+	PlaneToolCatalogFilters.generated = canonicalPlaneToolCatalogFiltersAccess
+
+	canonicalPlaneToolCallPoliciesPolicy = &generatedPolicy[[]toolpolicy.Policy]{
+		planeID:                PlaneToolCallPolicies.ID,
+		rules:                  PlaneToolCallPolicies.Rules,
+		nilPolicy:              PlaneToolCallPolicies.NilPolicy,
+		isNil:                  PlaneToolCallPolicies.IsNil,
+		validate:               PlaneToolCallPolicies.Validate,
+		validateIdentity:       PlaneToolCallPolicies.ValidateIdentity,
+		combine:                PlaneToolCallPolicies.Combine,
+		identity:               PlaneToolCallPolicies.Identity,
+		exclusiveConflictError: PlaneToolCallPolicies.ExclusiveConflictError,
+		requestMaterializer:    PlaneToolCallPolicies.RequestMaterializer,
+		requestBorrow:          PlaneToolCallPolicies.RequestBorrow,
+		hookTarget:             PlaneToolCallPolicies.HookTarget,
+		diagStageID:            PlaneToolCallPolicies.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneToolCallPolicies.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneToolCallPolicies.Diagnostics.Order,
+		diagMaterialize:        PlaneToolCallPolicies.Diagnostics.Materialize,
+		diagPrivileges:         PlaneToolCallPolicies.Diagnostics.Privileges,
+	}
+	canonicalPlaneToolCallPoliciesAccess = generatedAccess[[]toolpolicy.Policy]{
+		policy: canonicalPlaneToolCallPoliciesPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []toolpolicy.Policy) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.toolCallPolicies)
-			combined, err := PlaneToolCallPolicies.Combine(source, current, incoming)
+			combined, err := canonicalPlaneToolCallPoliciesPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1531,23 +2123,34 @@ func init() {
 			}
 			return cloneSlice(gf.toolCallPolicies)
 		},
-		policy: &generatedPolicy[[]toolpolicy.Policy]{
-			planeID:                PlaneToolCallPolicies.ID,
-			rules:                  PlaneToolCallPolicies.Rules,
-			nilPolicy:              PlaneToolCallPolicies.NilPolicy,
-			isNil:                  PlaneToolCallPolicies.IsNil,
-			validate:               PlaneToolCallPolicies.Validate,
-			validateIdentity:       PlaneToolCallPolicies.ValidateIdentity,
-			combine:                PlaneToolCallPolicies.Combine,
-			identity:               PlaneToolCallPolicies.Identity,
-			exclusiveConflictError: PlaneToolCallPolicies.ExclusiveConflictError,
-		},
 	}
-	PlaneToolCallFinalizers.generated = generatedAccess[[]toolcall.Finalizer]{
+	PlaneToolCallPolicies.generated = canonicalPlaneToolCallPoliciesAccess
+
+	canonicalPlaneToolCallFinalizersPolicy = &generatedPolicy[[]toolcall.Finalizer]{
+		planeID:                PlaneToolCallFinalizers.ID,
+		rules:                  PlaneToolCallFinalizers.Rules,
+		nilPolicy:              PlaneToolCallFinalizers.NilPolicy,
+		isNil:                  PlaneToolCallFinalizers.IsNil,
+		validate:               PlaneToolCallFinalizers.Validate,
+		validateIdentity:       PlaneToolCallFinalizers.ValidateIdentity,
+		combine:                PlaneToolCallFinalizers.Combine,
+		identity:               PlaneToolCallFinalizers.Identity,
+		exclusiveConflictError: PlaneToolCallFinalizers.ExclusiveConflictError,
+		requestMaterializer:    PlaneToolCallFinalizers.RequestMaterializer,
+		requestBorrow:          PlaneToolCallFinalizers.RequestBorrow,
+		hookTarget:             PlaneToolCallFinalizers.HookTarget,
+		diagStageID:            PlaneToolCallFinalizers.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneToolCallFinalizers.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneToolCallFinalizers.Diagnostics.Order,
+		diagMaterialize:        PlaneToolCallFinalizers.Diagnostics.Materialize,
+		diagPrivileges:         PlaneToolCallFinalizers.Diagnostics.Privileges,
+	}
+	canonicalPlaneToolCallFinalizersAccess = generatedAccess[[]toolcall.Finalizer]{
+		policy: canonicalPlaneToolCallFinalizersPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []toolcall.Finalizer) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.toolCallFinalizers)
-			combined, err := PlaneToolCallFinalizers.Combine(source, current, incoming)
+			combined, err := canonicalPlaneToolCallFinalizersPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1563,21 +2166,32 @@ func init() {
 			}
 			return cloneSlice(gf.toolCallFinalizers)
 		},
-		policy: &generatedPolicy[[]toolcall.Finalizer]{
-			planeID:                PlaneToolCallFinalizers.ID,
-			rules:                  PlaneToolCallFinalizers.Rules,
-			nilPolicy:              PlaneToolCallFinalizers.NilPolicy,
-			isNil:                  PlaneToolCallFinalizers.IsNil,
-			validate:               PlaneToolCallFinalizers.Validate,
-			validateIdentity:       PlaneToolCallFinalizers.ValidateIdentity,
-			combine:                PlaneToolCallFinalizers.Combine,
-			identity:               PlaneToolCallFinalizers.Identity,
-			exclusiveConflictError: PlaneToolCallFinalizers.ExclusiveConflictError,
-		},
 	}
-	PlaneToolCallFinalizationMaxArgsBytes.generated = generatedAccess[int]{
+	PlaneToolCallFinalizers.generated = canonicalPlaneToolCallFinalizersAccess
+
+	canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy = &generatedPolicy[int]{
+		planeID:                PlaneToolCallFinalizationMaxArgsBytes.ID,
+		rules:                  PlaneToolCallFinalizationMaxArgsBytes.Rules,
+		nilPolicy:              PlaneToolCallFinalizationMaxArgsBytes.NilPolicy,
+		isNil:                  PlaneToolCallFinalizationMaxArgsBytes.IsNil,
+		validate:               PlaneToolCallFinalizationMaxArgsBytes.Validate,
+		validateIdentity:       PlaneToolCallFinalizationMaxArgsBytes.ValidateIdentity,
+		combine:                PlaneToolCallFinalizationMaxArgsBytes.Combine,
+		identity:               PlaneToolCallFinalizationMaxArgsBytes.Identity,
+		exclusiveConflictError: PlaneToolCallFinalizationMaxArgsBytes.ExclusiveConflictError,
+		requestMaterializer:    PlaneToolCallFinalizationMaxArgsBytes.RequestMaterializer,
+		requestBorrow:          PlaneToolCallFinalizationMaxArgsBytes.RequestBorrow,
+		hookTarget:             PlaneToolCallFinalizationMaxArgsBytes.HookTarget,
+		diagStageID:            PlaneToolCallFinalizationMaxArgsBytes.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneToolCallFinalizationMaxArgsBytes.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneToolCallFinalizationMaxArgsBytes.Diagnostics.Order,
+		diagMaterialize:        PlaneToolCallFinalizationMaxArgsBytes.Diagnostics.Materialize,
+		diagPrivileges:         PlaneToolCallFinalizationMaxArgsBytes.Diagnostics.Privileges,
+	}
+	canonicalPlaneToolCallFinalizationMaxArgsBytesAccess = generatedAccess[int]{
+		policy: canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v int) error {
-			combined, err := PlaneToolCallFinalizationMaxArgsBytes.Combine(source, gc.toolCallFinalizationMaxArgsBytes, v)
+			combined, err := canonicalPlaneToolCallFinalizationMaxArgsBytesPolicy.combine(source, gc.toolCallFinalizationMaxArgsBytes, v)
 			if err != nil {
 				return err
 			}
@@ -1590,23 +2204,34 @@ func init() {
 			}
 			return gf.toolCallFinalizationMaxArgsBytes
 		},
-		policy: &generatedPolicy[int]{
-			planeID:                PlaneToolCallFinalizationMaxArgsBytes.ID,
-			rules:                  PlaneToolCallFinalizationMaxArgsBytes.Rules,
-			nilPolicy:              PlaneToolCallFinalizationMaxArgsBytes.NilPolicy,
-			isNil:                  PlaneToolCallFinalizationMaxArgsBytes.IsNil,
-			validate:               PlaneToolCallFinalizationMaxArgsBytes.Validate,
-			validateIdentity:       PlaneToolCallFinalizationMaxArgsBytes.ValidateIdentity,
-			combine:                PlaneToolCallFinalizationMaxArgsBytes.Combine,
-			identity:               PlaneToolCallFinalizationMaxArgsBytes.Identity,
-			exclusiveConflictError: PlaneToolCallFinalizationMaxArgsBytes.ExclusiveConflictError,
-		},
 	}
-	PlaneRequestTransforms.generated = generatedAccess[[]request.Transform]{
+	PlaneToolCallFinalizationMaxArgsBytes.generated = canonicalPlaneToolCallFinalizationMaxArgsBytesAccess
+
+	canonicalPlaneRequestTransformsPolicy = &generatedPolicy[[]request.Transform]{
+		planeID:                PlaneRequestTransforms.ID,
+		rules:                  PlaneRequestTransforms.Rules,
+		nilPolicy:              PlaneRequestTransforms.NilPolicy,
+		isNil:                  PlaneRequestTransforms.IsNil,
+		validate:               PlaneRequestTransforms.Validate,
+		validateIdentity:       PlaneRequestTransforms.ValidateIdentity,
+		combine:                PlaneRequestTransforms.Combine,
+		identity:               PlaneRequestTransforms.Identity,
+		exclusiveConflictError: PlaneRequestTransforms.ExclusiveConflictError,
+		requestMaterializer:    PlaneRequestTransforms.RequestMaterializer,
+		requestBorrow:          PlaneRequestTransforms.RequestBorrow,
+		hookTarget:             PlaneRequestTransforms.HookTarget,
+		diagStageID:            PlaneRequestTransforms.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneRequestTransforms.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneRequestTransforms.Diagnostics.Order,
+		diagMaterialize:        PlaneRequestTransforms.Diagnostics.Materialize,
+		diagPrivileges:         PlaneRequestTransforms.Diagnostics.Privileges,
+	}
+	canonicalPlaneRequestTransformsAccess = generatedAccess[[]request.Transform]{
+		policy: canonicalPlaneRequestTransformsPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []request.Transform) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.requestTransforms)
-			combined, err := PlaneRequestTransforms.Combine(source, current, incoming)
+			combined, err := canonicalPlaneRequestTransformsPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1622,23 +2247,34 @@ func init() {
 			}
 			return cloneSlice(gf.requestTransforms)
 		},
-		policy: &generatedPolicy[[]request.Transform]{
-			planeID:                PlaneRequestTransforms.ID,
-			rules:                  PlaneRequestTransforms.Rules,
-			nilPolicy:              PlaneRequestTransforms.NilPolicy,
-			isNil:                  PlaneRequestTransforms.IsNil,
-			validate:               PlaneRequestTransforms.Validate,
-			validateIdentity:       PlaneRequestTransforms.ValidateIdentity,
-			combine:                PlaneRequestTransforms.Combine,
-			identity:               PlaneRequestTransforms.Identity,
-			exclusiveConflictError: PlaneRequestTransforms.ExclusiveConflictError,
-		},
 	}
-	PlanePreRequestHandlers.generated = generatedAccess[[]prerequest.Handler]{
+	PlaneRequestTransforms.generated = canonicalPlaneRequestTransformsAccess
+
+	canonicalPlanePreRequestHandlersPolicy = &generatedPolicy[[]prerequest.Handler]{
+		planeID:                PlanePreRequestHandlers.ID,
+		rules:                  PlanePreRequestHandlers.Rules,
+		nilPolicy:              PlanePreRequestHandlers.NilPolicy,
+		isNil:                  PlanePreRequestHandlers.IsNil,
+		validate:               PlanePreRequestHandlers.Validate,
+		validateIdentity:       PlanePreRequestHandlers.ValidateIdentity,
+		combine:                PlanePreRequestHandlers.Combine,
+		identity:               PlanePreRequestHandlers.Identity,
+		exclusiveConflictError: PlanePreRequestHandlers.ExclusiveConflictError,
+		requestMaterializer:    PlanePreRequestHandlers.RequestMaterializer,
+		requestBorrow:          PlanePreRequestHandlers.RequestBorrow,
+		hookTarget:             PlanePreRequestHandlers.HookTarget,
+		diagStageID:            PlanePreRequestHandlers.Diagnostics.StageID,
+		diagCoalesceGroup:      PlanePreRequestHandlers.Diagnostics.CoalesceGroup,
+		diagOrder:              PlanePreRequestHandlers.Diagnostics.Order,
+		diagMaterialize:        PlanePreRequestHandlers.Diagnostics.Materialize,
+		diagPrivileges:         PlanePreRequestHandlers.Diagnostics.Privileges,
+	}
+	canonicalPlanePreRequestHandlersAccess = generatedAccess[[]prerequest.Handler]{
+		policy: canonicalPlanePreRequestHandlersPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []prerequest.Handler) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.preRequestHandlers)
-			combined, err := PlanePreRequestHandlers.Combine(source, current, incoming)
+			combined, err := canonicalPlanePreRequestHandlersPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1654,23 +2290,34 @@ func init() {
 			}
 			return cloneSlice(gf.preRequestHandlers)
 		},
-		policy: &generatedPolicy[[]prerequest.Handler]{
-			planeID:                PlanePreRequestHandlers.ID,
-			rules:                  PlanePreRequestHandlers.Rules,
-			nilPolicy:              PlanePreRequestHandlers.NilPolicy,
-			isNil:                  PlanePreRequestHandlers.IsNil,
-			validate:               PlanePreRequestHandlers.Validate,
-			validateIdentity:       PlanePreRequestHandlers.ValidateIdentity,
-			combine:                PlanePreRequestHandlers.Combine,
-			identity:               PlanePreRequestHandlers.Identity,
-			exclusiveConflictError: PlanePreRequestHandlers.ExclusiveConflictError,
-		},
 	}
-	PlaneRouteHintProviders.generated = generatedAccess[[]routehint.Provider]{
+	PlanePreRequestHandlers.generated = canonicalPlanePreRequestHandlersAccess
+
+	canonicalPlaneRouteHintProvidersPolicy = &generatedPolicy[[]routehint.Provider]{
+		planeID:                PlaneRouteHintProviders.ID,
+		rules:                  PlaneRouteHintProviders.Rules,
+		nilPolicy:              PlaneRouteHintProviders.NilPolicy,
+		isNil:                  PlaneRouteHintProviders.IsNil,
+		validate:               PlaneRouteHintProviders.Validate,
+		validateIdentity:       PlaneRouteHintProviders.ValidateIdentity,
+		combine:                PlaneRouteHintProviders.Combine,
+		identity:               PlaneRouteHintProviders.Identity,
+		exclusiveConflictError: PlaneRouteHintProviders.ExclusiveConflictError,
+		requestMaterializer:    PlaneRouteHintProviders.RequestMaterializer,
+		requestBorrow:          PlaneRouteHintProviders.RequestBorrow,
+		hookTarget:             PlaneRouteHintProviders.HookTarget,
+		diagStageID:            PlaneRouteHintProviders.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneRouteHintProviders.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneRouteHintProviders.Diagnostics.Order,
+		diagMaterialize:        PlaneRouteHintProviders.Diagnostics.Materialize,
+		diagPrivileges:         PlaneRouteHintProviders.Diagnostics.Privileges,
+	}
+	canonicalPlaneRouteHintProvidersAccess = generatedAccess[[]routehint.Provider]{
+		policy: canonicalPlaneRouteHintProvidersPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []routehint.Provider) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.routeHintProviders)
-			combined, err := PlaneRouteHintProviders.Combine(source, current, incoming)
+			combined, err := canonicalPlaneRouteHintProvidersPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1686,23 +2333,34 @@ func init() {
 			}
 			return cloneSlice(gf.routeHintProviders)
 		},
-		policy: &generatedPolicy[[]routehint.Provider]{
-			planeID:                PlaneRouteHintProviders.ID,
-			rules:                  PlaneRouteHintProviders.Rules,
-			nilPolicy:              PlaneRouteHintProviders.NilPolicy,
-			isNil:                  PlaneRouteHintProviders.IsNil,
-			validate:               PlaneRouteHintProviders.Validate,
-			validateIdentity:       PlaneRouteHintProviders.ValidateIdentity,
-			combine:                PlaneRouteHintProviders.Combine,
-			identity:               PlaneRouteHintProviders.Identity,
-			exclusiveConflictError: PlaneRouteHintProviders.ExclusiveConflictError,
-		},
 	}
-	PlaneCompletionGates.generated = generatedAccess[[]completion.Gate]{
+	PlaneRouteHintProviders.generated = canonicalPlaneRouteHintProvidersAccess
+
+	canonicalPlaneCompletionGatesPolicy = &generatedPolicy[[]completion.Gate]{
+		planeID:                PlaneCompletionGates.ID,
+		rules:                  PlaneCompletionGates.Rules,
+		nilPolicy:              PlaneCompletionGates.NilPolicy,
+		isNil:                  PlaneCompletionGates.IsNil,
+		validate:               PlaneCompletionGates.Validate,
+		validateIdentity:       PlaneCompletionGates.ValidateIdentity,
+		combine:                PlaneCompletionGates.Combine,
+		identity:               PlaneCompletionGates.Identity,
+		exclusiveConflictError: PlaneCompletionGates.ExclusiveConflictError,
+		requestMaterializer:    PlaneCompletionGates.RequestMaterializer,
+		requestBorrow:          PlaneCompletionGates.RequestBorrow,
+		hookTarget:             PlaneCompletionGates.HookTarget,
+		diagStageID:            PlaneCompletionGates.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneCompletionGates.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneCompletionGates.Diagnostics.Order,
+		diagMaterialize:        PlaneCompletionGates.Diagnostics.Materialize,
+		diagPrivileges:         PlaneCompletionGates.Diagnostics.Privileges,
+	}
+	canonicalPlaneCompletionGatesAccess = generatedAccess[[]completion.Gate]{
+		policy: canonicalPlaneCompletionGatesPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []completion.Gate) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.completionGates)
-			combined, err := PlaneCompletionGates.Combine(source, current, incoming)
+			combined, err := canonicalPlaneCompletionGatesPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1718,23 +2376,34 @@ func init() {
 			}
 			return cloneSlice(gf.completionGates)
 		},
-		policy: &generatedPolicy[[]completion.Gate]{
-			planeID:                PlaneCompletionGates.ID,
-			rules:                  PlaneCompletionGates.Rules,
-			nilPolicy:              PlaneCompletionGates.NilPolicy,
-			isNil:                  PlaneCompletionGates.IsNil,
-			validate:               PlaneCompletionGates.Validate,
-			validateIdentity:       PlaneCompletionGates.ValidateIdentity,
-			combine:                PlaneCompletionGates.Combine,
-			identity:               PlaneCompletionGates.Identity,
-			exclusiveConflictError: PlaneCompletionGates.ExclusiveConflictError,
-		},
 	}
-	PlaneAttemptTransforms.generated = generatedAccess[[]request.AttemptTransform]{
+	PlaneCompletionGates.generated = canonicalPlaneCompletionGatesAccess
+
+	canonicalPlaneAttemptTransformsPolicy = &generatedPolicy[[]request.AttemptTransform]{
+		planeID:                PlaneAttemptTransforms.ID,
+		rules:                  PlaneAttemptTransforms.Rules,
+		nilPolicy:              PlaneAttemptTransforms.NilPolicy,
+		isNil:                  PlaneAttemptTransforms.IsNil,
+		validate:               PlaneAttemptTransforms.Validate,
+		validateIdentity:       PlaneAttemptTransforms.ValidateIdentity,
+		combine:                PlaneAttemptTransforms.Combine,
+		identity:               PlaneAttemptTransforms.Identity,
+		exclusiveConflictError: PlaneAttemptTransforms.ExclusiveConflictError,
+		requestMaterializer:    PlaneAttemptTransforms.RequestMaterializer,
+		requestBorrow:          PlaneAttemptTransforms.RequestBorrow,
+		hookTarget:             PlaneAttemptTransforms.HookTarget,
+		diagStageID:            PlaneAttemptTransforms.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneAttemptTransforms.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneAttemptTransforms.Diagnostics.Order,
+		diagMaterialize:        PlaneAttemptTransforms.Diagnostics.Materialize,
+		diagPrivileges:         PlaneAttemptTransforms.Diagnostics.Privileges,
+	}
+	canonicalPlaneAttemptTransformsAccess = generatedAccess[[]request.AttemptTransform]{
+		policy: canonicalPlaneAttemptTransformsPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []request.AttemptTransform) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.attemptTransforms)
-			combined, err := PlaneAttemptTransforms.Combine(source, current, incoming)
+			combined, err := canonicalPlaneAttemptTransformsPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1742,7 +2411,7 @@ func init() {
 				combined = make([]request.AttemptTransform, 0)
 			}
 			gc.attemptTransforms = cloneSlice(combined)
-			id, hasID := PlaneAttemptTransforms.Identity(gc.attemptTransforms)
+			id, hasID := canonicalPlaneAttemptTransformsPolicy.identity(gc.attemptTransforms)
 			gc.attemptTransformsID = id
 			gc.attemptTransformsHasID = hasID
 			return nil
@@ -1759,23 +2428,34 @@ func init() {
 			}
 			return gf.attemptTransformsID, gf.attemptTransformsHasID
 		},
-		policy: &generatedPolicy[[]request.AttemptTransform]{
-			planeID:                PlaneAttemptTransforms.ID,
-			rules:                  PlaneAttemptTransforms.Rules,
-			nilPolicy:              PlaneAttemptTransforms.NilPolicy,
-			isNil:                  PlaneAttemptTransforms.IsNil,
-			validate:               PlaneAttemptTransforms.Validate,
-			validateIdentity:       PlaneAttemptTransforms.ValidateIdentity,
-			combine:                PlaneAttemptTransforms.Combine,
-			identity:               PlaneAttemptTransforms.Identity,
-			exclusiveConflictError: PlaneAttemptTransforms.ExclusiveConflictError,
-		},
 	}
-	PlaneStreamObserverFactories.generated = generatedAccess[[]response.StreamObserverFactory]{
+	PlaneAttemptTransforms.generated = canonicalPlaneAttemptTransformsAccess
+
+	canonicalPlaneStreamObserverFactoriesPolicy = &generatedPolicy[[]response.StreamObserverFactory]{
+		planeID:                PlaneStreamObserverFactories.ID,
+		rules:                  PlaneStreamObserverFactories.Rules,
+		nilPolicy:              PlaneStreamObserverFactories.NilPolicy,
+		isNil:                  PlaneStreamObserverFactories.IsNil,
+		validate:               PlaneStreamObserverFactories.Validate,
+		validateIdentity:       PlaneStreamObserverFactories.ValidateIdentity,
+		combine:                PlaneStreamObserverFactories.Combine,
+		identity:               PlaneStreamObserverFactories.Identity,
+		exclusiveConflictError: PlaneStreamObserverFactories.ExclusiveConflictError,
+		requestMaterializer:    PlaneStreamObserverFactories.RequestMaterializer,
+		requestBorrow:          PlaneStreamObserverFactories.RequestBorrow,
+		hookTarget:             PlaneStreamObserverFactories.HookTarget,
+		diagStageID:            PlaneStreamObserverFactories.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneStreamObserverFactories.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneStreamObserverFactories.Diagnostics.Order,
+		diagMaterialize:        PlaneStreamObserverFactories.Diagnostics.Materialize,
+		diagPrivileges:         PlaneStreamObserverFactories.Diagnostics.Privileges,
+	}
+	canonicalPlaneStreamObserverFactoriesAccess = generatedAccess[[]response.StreamObserverFactory]{
+		policy: canonicalPlaneStreamObserverFactoriesPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []response.StreamObserverFactory) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.streamObserverFactories)
-			combined, err := PlaneStreamObserverFactories.Combine(source, current, incoming)
+			combined, err := canonicalPlaneStreamObserverFactoriesPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1783,7 +2463,7 @@ func init() {
 				combined = make([]response.StreamObserverFactory, 0)
 			}
 			gc.streamObserverFactories = cloneSlice(combined)
-			id, hasID := PlaneStreamObserverFactories.Identity(gc.streamObserverFactories)
+			id, hasID := canonicalPlaneStreamObserverFactoriesPolicy.identity(gc.streamObserverFactories)
 			gc.streamObserverFactoriesID = id
 			gc.streamObserverFactoriesHasID = hasID
 			return nil
@@ -1800,23 +2480,34 @@ func init() {
 			}
 			return gf.streamObserverFactoriesID, gf.streamObserverFactoriesHasID
 		},
-		policy: &generatedPolicy[[]response.StreamObserverFactory]{
-			planeID:                PlaneStreamObserverFactories.ID,
-			rules:                  PlaneStreamObserverFactories.Rules,
-			nilPolicy:              PlaneStreamObserverFactories.NilPolicy,
-			isNil:                  PlaneStreamObserverFactories.IsNil,
-			validate:               PlaneStreamObserverFactories.Validate,
-			validateIdentity:       PlaneStreamObserverFactories.ValidateIdentity,
-			combine:                PlaneStreamObserverFactories.Combine,
-			identity:               PlaneStreamObserverFactories.Identity,
-			exclusiveConflictError: PlaneStreamObserverFactories.ExclusiveConflictError,
-		},
 	}
-	PlaneTrafficObservers.generated = generatedAccess[[]traffic.Observer]{
+	PlaneStreamObserverFactories.generated = canonicalPlaneStreamObserverFactoriesAccess
+
+	canonicalPlaneTrafficObserversPolicy = &generatedPolicy[[]traffic.Observer]{
+		planeID:                PlaneTrafficObservers.ID,
+		rules:                  PlaneTrafficObservers.Rules,
+		nilPolicy:              PlaneTrafficObservers.NilPolicy,
+		isNil:                  PlaneTrafficObservers.IsNil,
+		validate:               PlaneTrafficObservers.Validate,
+		validateIdentity:       PlaneTrafficObservers.ValidateIdentity,
+		combine:                PlaneTrafficObservers.Combine,
+		identity:               PlaneTrafficObservers.Identity,
+		exclusiveConflictError: PlaneTrafficObservers.ExclusiveConflictError,
+		requestMaterializer:    PlaneTrafficObservers.RequestMaterializer,
+		requestBorrow:          PlaneTrafficObservers.RequestBorrow,
+		hookTarget:             PlaneTrafficObservers.HookTarget,
+		diagStageID:            PlaneTrafficObservers.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneTrafficObservers.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneTrafficObservers.Diagnostics.Order,
+		diagMaterialize:        PlaneTrafficObservers.Diagnostics.Materialize,
+		diagPrivileges:         PlaneTrafficObservers.Diagnostics.Privileges,
+	}
+	canonicalPlaneTrafficObserversAccess = generatedAccess[[]traffic.Observer]{
+		policy: canonicalPlaneTrafficObserversPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []traffic.Observer) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.trafficObservers)
-			combined, err := PlaneTrafficObservers.Combine(source, current, incoming)
+			combined, err := canonicalPlaneTrafficObserversPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1832,23 +2523,34 @@ func init() {
 			}
 			return cloneSlice(gf.trafficObservers)
 		},
-		policy: &generatedPolicy[[]traffic.Observer]{
-			planeID:                PlaneTrafficObservers.ID,
-			rules:                  PlaneTrafficObservers.Rules,
-			nilPolicy:              PlaneTrafficObservers.NilPolicy,
-			isNil:                  PlaneTrafficObservers.IsNil,
-			validate:               PlaneTrafficObservers.Validate,
-			validateIdentity:       PlaneTrafficObservers.ValidateIdentity,
-			combine:                PlaneTrafficObservers.Combine,
-			identity:               PlaneTrafficObservers.Identity,
-			exclusiveConflictError: PlaneTrafficObservers.ExclusiveConflictError,
-		},
 	}
-	PlaneUsageObservers.generated = generatedAccess[[]usage.Observer]{
+	PlaneTrafficObservers.generated = canonicalPlaneTrafficObserversAccess
+
+	canonicalPlaneUsageObserversPolicy = &generatedPolicy[[]usage.Observer]{
+		planeID:                PlaneUsageObservers.ID,
+		rules:                  PlaneUsageObservers.Rules,
+		nilPolicy:              PlaneUsageObservers.NilPolicy,
+		isNil:                  PlaneUsageObservers.IsNil,
+		validate:               PlaneUsageObservers.Validate,
+		validateIdentity:       PlaneUsageObservers.ValidateIdentity,
+		combine:                PlaneUsageObservers.Combine,
+		identity:               PlaneUsageObservers.Identity,
+		exclusiveConflictError: PlaneUsageObservers.ExclusiveConflictError,
+		requestMaterializer:    PlaneUsageObservers.RequestMaterializer,
+		requestBorrow:          PlaneUsageObservers.RequestBorrow,
+		hookTarget:             PlaneUsageObservers.HookTarget,
+		diagStageID:            PlaneUsageObservers.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneUsageObservers.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneUsageObservers.Diagnostics.Order,
+		diagMaterialize:        PlaneUsageObservers.Diagnostics.Materialize,
+		diagPrivileges:         PlaneUsageObservers.Diagnostics.Privileges,
+	}
+	canonicalPlaneUsageObserversAccess = generatedAccess[[]usage.Observer]{
+		policy: canonicalPlaneUsageObserversPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []usage.Observer) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.usageObservers)
-			combined, err := PlaneUsageObservers.Combine(source, current, incoming)
+			combined, err := canonicalPlaneUsageObserversPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1864,23 +2566,34 @@ func init() {
 			}
 			return cloneSlice(gf.usageObservers)
 		},
-		policy: &generatedPolicy[[]usage.Observer]{
-			planeID:                PlaneUsageObservers.ID,
-			rules:                  PlaneUsageObservers.Rules,
-			nilPolicy:              PlaneUsageObservers.NilPolicy,
-			isNil:                  PlaneUsageObservers.IsNil,
-			validate:               PlaneUsageObservers.Validate,
-			validateIdentity:       PlaneUsageObservers.ValidateIdentity,
-			combine:                PlaneUsageObservers.Combine,
-			identity:               PlaneUsageObservers.Identity,
-			exclusiveConflictError: PlaneUsageObservers.ExclusiveConflictError,
-		},
 	}
-	PlaneRawCaptureSinks.generated = generatedAccess[[]traffic.RawCaptureSink]{
+	PlaneUsageObservers.generated = canonicalPlaneUsageObserversAccess
+
+	canonicalPlaneRawCaptureSinksPolicy = &generatedPolicy[[]traffic.RawCaptureSink]{
+		planeID:                PlaneRawCaptureSinks.ID,
+		rules:                  PlaneRawCaptureSinks.Rules,
+		nilPolicy:              PlaneRawCaptureSinks.NilPolicy,
+		isNil:                  PlaneRawCaptureSinks.IsNil,
+		validate:               PlaneRawCaptureSinks.Validate,
+		validateIdentity:       PlaneRawCaptureSinks.ValidateIdentity,
+		combine:                PlaneRawCaptureSinks.Combine,
+		identity:               PlaneRawCaptureSinks.Identity,
+		exclusiveConflictError: PlaneRawCaptureSinks.ExclusiveConflictError,
+		requestMaterializer:    PlaneRawCaptureSinks.RequestMaterializer,
+		requestBorrow:          PlaneRawCaptureSinks.RequestBorrow,
+		hookTarget:             PlaneRawCaptureSinks.HookTarget,
+		diagStageID:            PlaneRawCaptureSinks.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneRawCaptureSinks.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneRawCaptureSinks.Diagnostics.Order,
+		diagMaterialize:        PlaneRawCaptureSinks.Diagnostics.Materialize,
+		diagPrivileges:         PlaneRawCaptureSinks.Diagnostics.Privileges,
+	}
+	canonicalPlaneRawCaptureSinksAccess = generatedAccess[[]traffic.RawCaptureSink]{
+		policy: canonicalPlaneRawCaptureSinksPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []traffic.RawCaptureSink) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.rawCaptureSinks)
-			combined, err := PlaneRawCaptureSinks.Combine(source, current, incoming)
+			combined, err := canonicalPlaneRawCaptureSinksPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1896,23 +2609,34 @@ func init() {
 			}
 			return cloneSlice(gf.rawCaptureSinks)
 		},
-		policy: &generatedPolicy[[]traffic.RawCaptureSink]{
-			planeID:                PlaneRawCaptureSinks.ID,
-			rules:                  PlaneRawCaptureSinks.Rules,
-			nilPolicy:              PlaneRawCaptureSinks.NilPolicy,
-			isNil:                  PlaneRawCaptureSinks.IsNil,
-			validate:               PlaneRawCaptureSinks.Validate,
-			validateIdentity:       PlaneRawCaptureSinks.ValidateIdentity,
-			combine:                PlaneRawCaptureSinks.Combine,
-			identity:               PlaneRawCaptureSinks.Identity,
-			exclusiveConflictError: PlaneRawCaptureSinks.ExclusiveConflictError,
-		},
 	}
-	PlaneTrafficRedactors.generated = generatedAccess[[]traffic.Redactor]{
+	PlaneRawCaptureSinks.generated = canonicalPlaneRawCaptureSinksAccess
+
+	canonicalPlaneTrafficRedactorsPolicy = &generatedPolicy[[]traffic.Redactor]{
+		planeID:                PlaneTrafficRedactors.ID,
+		rules:                  PlaneTrafficRedactors.Rules,
+		nilPolicy:              PlaneTrafficRedactors.NilPolicy,
+		isNil:                  PlaneTrafficRedactors.IsNil,
+		validate:               PlaneTrafficRedactors.Validate,
+		validateIdentity:       PlaneTrafficRedactors.ValidateIdentity,
+		combine:                PlaneTrafficRedactors.Combine,
+		identity:               PlaneTrafficRedactors.Identity,
+		exclusiveConflictError: PlaneTrafficRedactors.ExclusiveConflictError,
+		requestMaterializer:    PlaneTrafficRedactors.RequestMaterializer,
+		requestBorrow:          PlaneTrafficRedactors.RequestBorrow,
+		hookTarget:             PlaneTrafficRedactors.HookTarget,
+		diagStageID:            PlaneTrafficRedactors.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneTrafficRedactors.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneTrafficRedactors.Diagnostics.Order,
+		diagMaterialize:        PlaneTrafficRedactors.Diagnostics.Materialize,
+		diagPrivileges:         PlaneTrafficRedactors.Diagnostics.Privileges,
+	}
+	canonicalPlaneTrafficRedactorsAccess = generatedAccess[[]traffic.Redactor]{
+		policy: canonicalPlaneTrafficRedactorsPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []traffic.Redactor) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.trafficRedactors)
-			combined, err := PlaneTrafficRedactors.Combine(source, current, incoming)
+			combined, err := canonicalPlaneTrafficRedactorsPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1928,23 +2652,34 @@ func init() {
 			}
 			return cloneSlice(gf.trafficRedactors)
 		},
-		policy: &generatedPolicy[[]traffic.Redactor]{
-			planeID:                PlaneTrafficRedactors.ID,
-			rules:                  PlaneTrafficRedactors.Rules,
-			nilPolicy:              PlaneTrafficRedactors.NilPolicy,
-			isNil:                  PlaneTrafficRedactors.IsNil,
-			validate:               PlaneTrafficRedactors.Validate,
-			validateIdentity:       PlaneTrafficRedactors.ValidateIdentity,
-			combine:                PlaneTrafficRedactors.Combine,
-			identity:               PlaneTrafficRedactors.Identity,
-			exclusiveConflictError: PlaneTrafficRedactors.ExclusiveConflictError,
-		},
 	}
-	PlaneCompactionObservers.generated = generatedAccess[[]compaction.Observer]{
+	PlaneTrafficRedactors.generated = canonicalPlaneTrafficRedactorsAccess
+
+	canonicalPlaneCompactionObserversPolicy = &generatedPolicy[[]compaction.Observer]{
+		planeID:                PlaneCompactionObservers.ID,
+		rules:                  PlaneCompactionObservers.Rules,
+		nilPolicy:              PlaneCompactionObservers.NilPolicy,
+		isNil:                  PlaneCompactionObservers.IsNil,
+		validate:               PlaneCompactionObservers.Validate,
+		validateIdentity:       PlaneCompactionObservers.ValidateIdentity,
+		combine:                PlaneCompactionObservers.Combine,
+		identity:               PlaneCompactionObservers.Identity,
+		exclusiveConflictError: PlaneCompactionObservers.ExclusiveConflictError,
+		requestMaterializer:    PlaneCompactionObservers.RequestMaterializer,
+		requestBorrow:          PlaneCompactionObservers.RequestBorrow,
+		hookTarget:             PlaneCompactionObservers.HookTarget,
+		diagStageID:            PlaneCompactionObservers.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneCompactionObservers.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneCompactionObservers.Diagnostics.Order,
+		diagMaterialize:        PlaneCompactionObservers.Diagnostics.Materialize,
+		diagPrivileges:         PlaneCompactionObservers.Diagnostics.Privileges,
+	}
+	canonicalPlaneCompactionObserversAccess = generatedAccess[[]compaction.Observer]{
+		policy: canonicalPlaneCompactionObserversPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []compaction.Observer) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.compactionObservers)
-			combined, err := PlaneCompactionObservers.Combine(source, current, incoming)
+			combined, err := canonicalPlaneCompactionObserversPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1960,23 +2695,34 @@ func init() {
 			}
 			return cloneSlice(gf.compactionObservers)
 		},
-		policy: &generatedPolicy[[]compaction.Observer]{
-			planeID:                PlaneCompactionObservers.ID,
-			rules:                  PlaneCompactionObservers.Rules,
-			nilPolicy:              PlaneCompactionObservers.NilPolicy,
-			isNil:                  PlaneCompactionObservers.IsNil,
-			validate:               PlaneCompactionObservers.Validate,
-			validateIdentity:       PlaneCompactionObservers.ValidateIdentity,
-			combine:                PlaneCompactionObservers.Combine,
-			identity:               PlaneCompactionObservers.Identity,
-			exclusiveConflictError: PlaneCompactionObservers.ExclusiveConflictError,
-		},
 	}
-	PlaneCompactionPreservers.generated = generatedAccess[[]compaction.Preserver]{
+	PlaneCompactionObservers.generated = canonicalPlaneCompactionObserversAccess
+
+	canonicalPlaneCompactionPreserversPolicy = &generatedPolicy[[]compaction.Preserver]{
+		planeID:                PlaneCompactionPreservers.ID,
+		rules:                  PlaneCompactionPreservers.Rules,
+		nilPolicy:              PlaneCompactionPreservers.NilPolicy,
+		isNil:                  PlaneCompactionPreservers.IsNil,
+		validate:               PlaneCompactionPreservers.Validate,
+		validateIdentity:       PlaneCompactionPreservers.ValidateIdentity,
+		combine:                PlaneCompactionPreservers.Combine,
+		identity:               PlaneCompactionPreservers.Identity,
+		exclusiveConflictError: PlaneCompactionPreservers.ExclusiveConflictError,
+		requestMaterializer:    PlaneCompactionPreservers.RequestMaterializer,
+		requestBorrow:          PlaneCompactionPreservers.RequestBorrow,
+		hookTarget:             PlaneCompactionPreservers.HookTarget,
+		diagStageID:            PlaneCompactionPreservers.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneCompactionPreservers.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneCompactionPreservers.Diagnostics.Order,
+		diagMaterialize:        PlaneCompactionPreservers.Diagnostics.Materialize,
+		diagPrivileges:         PlaneCompactionPreservers.Diagnostics.Privileges,
+	}
+	canonicalPlaneCompactionPreserversAccess = generatedAccess[[]compaction.Preserver]{
+		policy: canonicalPlaneCompactionPreserversPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []compaction.Preserver) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.compactionPreservers)
-			combined, err := PlaneCompactionPreservers.Combine(source, current, incoming)
+			combined, err := canonicalPlaneCompactionPreserversPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -1984,7 +2730,7 @@ func init() {
 				combined = make([]compaction.Preserver, 0)
 			}
 			gc.compactionPreservers = cloneSlice(combined)
-			id, hasID := PlaneCompactionPreservers.Identity(gc.compactionPreservers)
+			id, hasID := canonicalPlaneCompactionPreserversPolicy.identity(gc.compactionPreservers)
 			gc.compactionPreserversID = id
 			gc.compactionPreserversHasID = hasID
 			return nil
@@ -2001,23 +2747,34 @@ func init() {
 			}
 			return gf.compactionPreserversID, gf.compactionPreserversHasID
 		},
-		policy: &generatedPolicy[[]compaction.Preserver]{
-			planeID:                PlaneCompactionPreservers.ID,
-			rules:                  PlaneCompactionPreservers.Rules,
-			nilPolicy:              PlaneCompactionPreservers.NilPolicy,
-			isNil:                  PlaneCompactionPreservers.IsNil,
-			validate:               PlaneCompactionPreservers.Validate,
-			validateIdentity:       PlaneCompactionPreservers.ValidateIdentity,
-			combine:                PlaneCompactionPreservers.Combine,
-			identity:               PlaneCompactionPreservers.Identity,
-			exclusiveConflictError: PlaneCompactionPreservers.ExclusiveConflictError,
-		},
 	}
-	PlaneSecretGuards.generated = generatedAccess[[]secretguard.Guard]{
+	PlaneCompactionPreservers.generated = canonicalPlaneCompactionPreserversAccess
+
+	canonicalPlaneSecretGuardsPolicy = &generatedPolicy[[]secretguard.Guard]{
+		planeID:                PlaneSecretGuards.ID,
+		rules:                  PlaneSecretGuards.Rules,
+		nilPolicy:              PlaneSecretGuards.NilPolicy,
+		isNil:                  PlaneSecretGuards.IsNil,
+		validate:               PlaneSecretGuards.Validate,
+		validateIdentity:       PlaneSecretGuards.ValidateIdentity,
+		combine:                PlaneSecretGuards.Combine,
+		identity:               PlaneSecretGuards.Identity,
+		exclusiveConflictError: PlaneSecretGuards.ExclusiveConflictError,
+		requestMaterializer:    PlaneSecretGuards.RequestMaterializer,
+		requestBorrow:          PlaneSecretGuards.RequestBorrow,
+		hookTarget:             PlaneSecretGuards.HookTarget,
+		diagStageID:            PlaneSecretGuards.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneSecretGuards.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneSecretGuards.Diagnostics.Order,
+		diagMaterialize:        PlaneSecretGuards.Diagnostics.Materialize,
+		diagPrivileges:         PlaneSecretGuards.Diagnostics.Privileges,
+	}
+	canonicalPlaneSecretGuardsAccess = generatedAccess[[]secretguard.Guard]{
+		policy: canonicalPlaneSecretGuardsPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []secretguard.Guard) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.secretGuards)
-			combined, err := PlaneSecretGuards.Combine(source, current, incoming)
+			combined, err := canonicalPlaneSecretGuardsPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -2033,23 +2790,34 @@ func init() {
 			}
 			return cloneSlice(gf.secretGuards)
 		},
-		policy: &generatedPolicy[[]secretguard.Guard]{
-			planeID:                PlaneSecretGuards.ID,
-			rules:                  PlaneSecretGuards.Rules,
-			nilPolicy:              PlaneSecretGuards.NilPolicy,
-			isNil:                  PlaneSecretGuards.IsNil,
-			validate:               PlaneSecretGuards.Validate,
-			validateIdentity:       PlaneSecretGuards.ValidateIdentity,
-			combine:                PlaneSecretGuards.Combine,
-			identity:               PlaneSecretGuards.Identity,
-			exclusiveConflictError: PlaneSecretGuards.ExclusiveConflictError,
-		},
 	}
-	PlaneLocalTurnHandlers.generated = generatedAccess[[]localturn.Handler]{
+	PlaneSecretGuards.generated = canonicalPlaneSecretGuardsAccess
+
+	canonicalPlaneLocalTurnHandlersPolicy = &generatedPolicy[[]localturn.Handler]{
+		planeID:                PlaneLocalTurnHandlers.ID,
+		rules:                  PlaneLocalTurnHandlers.Rules,
+		nilPolicy:              PlaneLocalTurnHandlers.NilPolicy,
+		isNil:                  PlaneLocalTurnHandlers.IsNil,
+		validate:               PlaneLocalTurnHandlers.Validate,
+		validateIdentity:       PlaneLocalTurnHandlers.ValidateIdentity,
+		combine:                PlaneLocalTurnHandlers.Combine,
+		identity:               PlaneLocalTurnHandlers.Identity,
+		exclusiveConflictError: PlaneLocalTurnHandlers.ExclusiveConflictError,
+		requestMaterializer:    PlaneLocalTurnHandlers.RequestMaterializer,
+		requestBorrow:          PlaneLocalTurnHandlers.RequestBorrow,
+		hookTarget:             PlaneLocalTurnHandlers.HookTarget,
+		diagStageID:            PlaneLocalTurnHandlers.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneLocalTurnHandlers.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneLocalTurnHandlers.Diagnostics.Order,
+		diagMaterialize:        PlaneLocalTurnHandlers.Diagnostics.Materialize,
+		diagPrivileges:         PlaneLocalTurnHandlers.Diagnostics.Privileges,
+	}
+	canonicalPlaneLocalTurnHandlersAccess = generatedAccess[[]localturn.Handler]{
+		policy: canonicalPlaneLocalTurnHandlersPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []localturn.Handler) error {
 			incoming := cloneSlice(v)
 			current := cloneSlice(gc.localTurnHandlers)
-			combined, err := PlaneLocalTurnHandlers.Combine(source, current, incoming)
+			combined, err := canonicalPlaneLocalTurnHandlersPolicy.combine(source, current, incoming)
 			if err != nil {
 				return err
 			}
@@ -2065,26 +2833,37 @@ func init() {
 			}
 			return cloneSlice(gf.localTurnHandlers)
 		},
-		policy: &generatedPolicy[[]localturn.Handler]{
-			planeID:                PlaneLocalTurnHandlers.ID,
-			rules:                  PlaneLocalTurnHandlers.Rules,
-			nilPolicy:              PlaneLocalTurnHandlers.NilPolicy,
-			isNil:                  PlaneLocalTurnHandlers.IsNil,
-			validate:               PlaneLocalTurnHandlers.Validate,
-			validateIdentity:       PlaneLocalTurnHandlers.ValidateIdentity,
-			combine:                PlaneLocalTurnHandlers.Combine,
-			identity:               PlaneLocalTurnHandlers.Identity,
-			exclusiveConflictError: PlaneLocalTurnHandlers.ExclusiveConflictError,
-		},
 	}
-	PlaneTerminalDecisionProvider.generated = generatedAccess[terminaldecision.Provider]{
+	PlaneLocalTurnHandlers.generated = canonicalPlaneLocalTurnHandlersAccess
+
+	canonicalPlaneTerminalDecisionProviderPolicy = &generatedPolicy[terminaldecision.Provider]{
+		planeID:                PlaneTerminalDecisionProvider.ID,
+		rules:                  PlaneTerminalDecisionProvider.Rules,
+		nilPolicy:              PlaneTerminalDecisionProvider.NilPolicy,
+		isNil:                  PlaneTerminalDecisionProvider.IsNil,
+		validate:               PlaneTerminalDecisionProvider.Validate,
+		validateIdentity:       PlaneTerminalDecisionProvider.ValidateIdentity,
+		combine:                PlaneTerminalDecisionProvider.Combine,
+		identity:               PlaneTerminalDecisionProvider.Identity,
+		exclusiveConflictError: PlaneTerminalDecisionProvider.ExclusiveConflictError,
+		requestMaterializer:    PlaneTerminalDecisionProvider.RequestMaterializer,
+		requestBorrow:          PlaneTerminalDecisionProvider.RequestBorrow,
+		hookTarget:             PlaneTerminalDecisionProvider.HookTarget,
+		diagStageID:            PlaneTerminalDecisionProvider.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneTerminalDecisionProvider.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneTerminalDecisionProvider.Diagnostics.Order,
+		diagMaterialize:        PlaneTerminalDecisionProvider.Diagnostics.Materialize,
+		diagPrivileges:         PlaneTerminalDecisionProvider.Diagnostics.Privileges,
+	}
+	canonicalPlaneTerminalDecisionProviderAccess = generatedAccess[terminaldecision.Provider]{
+		policy: canonicalPlaneTerminalDecisionProviderPolicy,
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v terminaldecision.Provider) error {
-			combined, err := PlaneTerminalDecisionProvider.Combine(source, gc.terminalDecisionProvider, v)
+			combined, err := canonicalPlaneTerminalDecisionProviderPolicy.combine(source, gc.terminalDecisionProvider, v)
 			if err != nil {
 				return err
 			}
 			gc.terminalDecisionProvider = combined
-			id, hasID := PlaneTerminalDecisionProvider.Identity(gc.terminalDecisionProvider)
+			id, hasID := canonicalPlaneTerminalDecisionProviderPolicy.identity(gc.terminalDecisionProvider)
 			gc.terminalDecisionProviderID = id
 			gc.terminalDecisionProviderHasID = hasID
 			return nil
@@ -2101,18 +2880,9 @@ func init() {
 			}
 			return gf.terminalDecisionProviderID, gf.terminalDecisionProviderHasID
 		},
-		policy: &generatedPolicy[terminaldecision.Provider]{
-			planeID:                PlaneTerminalDecisionProvider.ID,
-			rules:                  PlaneTerminalDecisionProvider.Rules,
-			nilPolicy:              PlaneTerminalDecisionProvider.NilPolicy,
-			isNil:                  PlaneTerminalDecisionProvider.IsNil,
-			validate:               PlaneTerminalDecisionProvider.Validate,
-			validateIdentity:       PlaneTerminalDecisionProvider.ValidateIdentity,
-			combine:                PlaneTerminalDecisionProvider.Combine,
-			identity:               PlaneTerminalDecisionProvider.Identity,
-			exclusiveConflictError: PlaneTerminalDecisionProvider.ExclusiveConflictError,
-		},
 	}
+	PlaneTerminalDecisionProvider.generated = canonicalPlaneTerminalDecisionProviderAccess
+
 }
 
 // HookConfig contains the projected hook slices and error policy for core execution.
@@ -2127,10 +2897,10 @@ type HookConfig struct {
 // ProjectHookConfig projects a FrozenPlaneSet into typed HookConfig.
 func ProjectHookConfig(frozen FrozenPlaneSet, policy hooks.ToolReactorErrorPolicy) HookConfig {
 	return HookConfig{
-		SubmitHooks:            Get(frozen, PlaneSubmitHooks),
-		RequestPartHooks:       Get(frozen, PlaneRequestPartHooks),
-		ResponsePartHooks:      Get(frozen, PlaneResponsePartHooks),
-		ToolReactors:           Get(frozen, PlaneToolReactors),
+		SubmitHooks:            canonicalPlaneSubmitHooksAccess.get(frozen.frozen),
+		RequestPartHooks:       canonicalPlaneRequestPartHooksAccess.get(frozen.frozen),
+		ResponsePartHooks:      canonicalPlaneResponsePartHooksAccess.get(frozen.frozen),
+		ToolReactors:           canonicalPlaneToolReactorsAccess.get(frozen.frozen),
 		ToolReactorErrorPolicy: policy,
 	}
 }
@@ -2184,32 +2954,32 @@ func (v RequestExecutionView) LocalTurnHandlers() []localturn.Handler {
 
 // BindAttemptTransforms replaces AttemptTransforms under SourceGenerationBinder semantics.
 func (s *ContributionSet) BindAttemptTransforms(contributorID string, v []request.AttemptTransform) error {
-	return ContributeSource(s, PlaneAttemptTransforms, SourceGenerationBinder, contributorID, v)
+	return contributePolicy(s, canonicalPlaneAttemptTransformsPolicy, canonicalPlaneAttemptTransformsAccess.contribute, canonicalPlaneAttemptTransformsAccess.identity, SourceGenerationBinder, contributorID, v)
 }
 
 // ReplaceAttemptTransforms replaces AttemptTransforms under SourceGenerationBinder semantics.
 func (s *ContributionSet) ReplaceAttemptTransforms(contributorID string, v []request.AttemptTransform) error {
-	return ContributeSource(s, PlaneAttemptTransforms, SourceGenerationBinder, contributorID, v)
+	return contributePolicy(s, canonicalPlaneAttemptTransformsPolicy, canonicalPlaneAttemptTransformsAccess.contribute, canonicalPlaneAttemptTransformsAccess.identity, SourceGenerationBinder, contributorID, v)
 }
 
 // BindStreamObserverFactories replaces StreamObserverFactories under SourceGenerationBinder semantics.
 func (s *ContributionSet) BindStreamObserverFactories(contributorID string, v []response.StreamObserverFactory) error {
-	return ContributeSource(s, PlaneStreamObserverFactories, SourceGenerationBinder, contributorID, v)
+	return contributePolicy(s, canonicalPlaneStreamObserverFactoriesPolicy, canonicalPlaneStreamObserverFactoriesAccess.contribute, canonicalPlaneStreamObserverFactoriesAccess.identity, SourceGenerationBinder, contributorID, v)
 }
 
 // ReplaceStreamObserverFactories replaces StreamObserverFactories under SourceGenerationBinder semantics.
 func (s *ContributionSet) ReplaceStreamObserverFactories(contributorID string, v []response.StreamObserverFactory) error {
-	return ContributeSource(s, PlaneStreamObserverFactories, SourceGenerationBinder, contributorID, v)
+	return contributePolicy(s, canonicalPlaneStreamObserverFactoriesPolicy, canonicalPlaneStreamObserverFactoriesAccess.contribute, canonicalPlaneStreamObserverFactoriesAccess.identity, SourceGenerationBinder, contributorID, v)
 }
 
 // BindCompactionPreservers replaces CompactionPreservers under SourceGenerationBinder semantics.
 func (s *ContributionSet) BindCompactionPreservers(contributorID string, v []compaction.Preserver) error {
-	return ContributeSource(s, PlaneCompactionPreservers, SourceGenerationBinder, contributorID, v)
+	return contributePolicy(s, canonicalPlaneCompactionPreserversPolicy, canonicalPlaneCompactionPreserversAccess.contribute, canonicalPlaneCompactionPreserversAccess.identity, SourceGenerationBinder, contributorID, v)
 }
 
 // ReplaceCompactionPreservers replaces CompactionPreservers under SourceGenerationBinder semantics.
 func (s *ContributionSet) ReplaceCompactionPreservers(contributorID string, v []compaction.Preserver) error {
-	return ContributeSource(s, PlaneCompactionPreservers, SourceGenerationBinder, contributorID, v)
+	return contributePolicy(s, canonicalPlaneCompactionPreserversPolicy, canonicalPlaneCompactionPreserversAccess.contribute, canonicalPlaneCompactionPreserversAccess.identity, SourceGenerationBinder, contributorID, v)
 }
 
 // ProjectDiagnostics projects diagnostic occupants and privileges from a frozen plane set.
@@ -2226,8 +2996,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneSubmitHooks
 	{
 		val := gf.submitHooks
-		occ := PlaneSubmitHooks.MaterializeOccupants(val)
-		priv := PlaneSubmitHooks.ProjectPrivileges(val)
+		occ := canonicalPlaneSubmitHooksPolicy.materializeOccupants(val)
+		priv := canonicalPlaneSubmitHooksPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2250,10 +3020,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneSubmitHooks.ID,
-				StageID:       PlaneSubmitHooks.Diagnostics.StageID,
-				CoalesceGroup: PlaneSubmitHooks.Diagnostics.CoalesceGroup,
-				Order:         PlaneSubmitHooks.Diagnostics.Order,
+				PlaneID:       canonicalPlaneSubmitHooksPolicy.planeID,
+				StageID:       canonicalPlaneSubmitHooksPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneSubmitHooksPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneSubmitHooksPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2263,8 +3033,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneRequestPartHooks
 	{
 		val := gf.requestPartHooks
-		occ := PlaneRequestPartHooks.MaterializeOccupants(val)
-		priv := PlaneRequestPartHooks.ProjectPrivileges(val)
+		occ := canonicalPlaneRequestPartHooksPolicy.materializeOccupants(val)
+		priv := canonicalPlaneRequestPartHooksPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2287,10 +3057,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneRequestPartHooks.ID,
-				StageID:       PlaneRequestPartHooks.Diagnostics.StageID,
-				CoalesceGroup: PlaneRequestPartHooks.Diagnostics.CoalesceGroup,
-				Order:         PlaneRequestPartHooks.Diagnostics.Order,
+				PlaneID:       canonicalPlaneRequestPartHooksPolicy.planeID,
+				StageID:       canonicalPlaneRequestPartHooksPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneRequestPartHooksPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneRequestPartHooksPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2300,8 +3070,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneResponsePartHooks
 	{
 		val := gf.responsePartHooks
-		occ := PlaneResponsePartHooks.MaterializeOccupants(val)
-		priv := PlaneResponsePartHooks.ProjectPrivileges(val)
+		occ := canonicalPlaneResponsePartHooksPolicy.materializeOccupants(val)
+		priv := canonicalPlaneResponsePartHooksPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2324,10 +3094,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneResponsePartHooks.ID,
-				StageID:       PlaneResponsePartHooks.Diagnostics.StageID,
-				CoalesceGroup: PlaneResponsePartHooks.Diagnostics.CoalesceGroup,
-				Order:         PlaneResponsePartHooks.Diagnostics.Order,
+				PlaneID:       canonicalPlaneResponsePartHooksPolicy.planeID,
+				StageID:       canonicalPlaneResponsePartHooksPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneResponsePartHooksPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneResponsePartHooksPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2337,8 +3107,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneToolReactors
 	{
 		val := gf.toolReactors
-		occ := PlaneToolReactors.MaterializeOccupants(val)
-		priv := PlaneToolReactors.ProjectPrivileges(val)
+		occ := canonicalPlaneToolReactorsPolicy.materializeOccupants(val)
+		priv := canonicalPlaneToolReactorsPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2361,10 +3131,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneToolReactors.ID,
-				StageID:       PlaneToolReactors.Diagnostics.StageID,
-				CoalesceGroup: PlaneToolReactors.Diagnostics.CoalesceGroup,
-				Order:         PlaneToolReactors.Diagnostics.Order,
+				PlaneID:       canonicalPlaneToolReactorsPolicy.planeID,
+				StageID:       canonicalPlaneToolReactorsPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneToolReactorsPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneToolReactorsPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2374,8 +3144,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneSessionOpeners
 	{
 		val := gf.sessionOpeners
-		occ := PlaneSessionOpeners.MaterializeOccupants(val)
-		priv := PlaneSessionOpeners.ProjectPrivileges(val)
+		occ := canonicalPlaneSessionOpenersPolicy.materializeOccupants(val)
+		priv := canonicalPlaneSessionOpenersPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2398,10 +3168,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneSessionOpeners.ID,
-				StageID:       PlaneSessionOpeners.Diagnostics.StageID,
-				CoalesceGroup: PlaneSessionOpeners.Diagnostics.CoalesceGroup,
-				Order:         PlaneSessionOpeners.Diagnostics.Order,
+				PlaneID:       canonicalPlaneSessionOpenersPolicy.planeID,
+				StageID:       canonicalPlaneSessionOpenersPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneSessionOpenersPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneSessionOpenersPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2411,8 +3181,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneWorkspaceResolvers
 	{
 		val := gf.workspaceResolvers
-		occ := PlaneWorkspaceResolvers.MaterializeOccupants(val)
-		priv := PlaneWorkspaceResolvers.ProjectPrivileges(val)
+		occ := canonicalPlaneWorkspaceResolversPolicy.materializeOccupants(val)
+		priv := canonicalPlaneWorkspaceResolversPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2435,10 +3205,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneWorkspaceResolvers.ID,
-				StageID:       PlaneWorkspaceResolvers.Diagnostics.StageID,
-				CoalesceGroup: PlaneWorkspaceResolvers.Diagnostics.CoalesceGroup,
-				Order:         PlaneWorkspaceResolvers.Diagnostics.Order,
+				PlaneID:       canonicalPlaneWorkspaceResolversPolicy.planeID,
+				StageID:       canonicalPlaneWorkspaceResolversPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneWorkspaceResolversPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneWorkspaceResolversPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2448,8 +3218,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneToolCatalogFilters
 	{
 		val := gf.toolCatalogFilters
-		occ := PlaneToolCatalogFilters.MaterializeOccupants(val)
-		priv := PlaneToolCatalogFilters.ProjectPrivileges(val)
+		occ := canonicalPlaneToolCatalogFiltersPolicy.materializeOccupants(val)
+		priv := canonicalPlaneToolCatalogFiltersPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2472,10 +3242,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneToolCatalogFilters.ID,
-				StageID:       PlaneToolCatalogFilters.Diagnostics.StageID,
-				CoalesceGroup: PlaneToolCatalogFilters.Diagnostics.CoalesceGroup,
-				Order:         PlaneToolCatalogFilters.Diagnostics.Order,
+				PlaneID:       canonicalPlaneToolCatalogFiltersPolicy.planeID,
+				StageID:       canonicalPlaneToolCatalogFiltersPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneToolCatalogFiltersPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneToolCatalogFiltersPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2485,8 +3255,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneToolCallPolicies
 	{
 		val := gf.toolCallPolicies
-		occ := PlaneToolCallPolicies.MaterializeOccupants(val)
-		priv := PlaneToolCallPolicies.ProjectPrivileges(val)
+		occ := canonicalPlaneToolCallPoliciesPolicy.materializeOccupants(val)
+		priv := canonicalPlaneToolCallPoliciesPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2509,10 +3279,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneToolCallPolicies.ID,
-				StageID:       PlaneToolCallPolicies.Diagnostics.StageID,
-				CoalesceGroup: PlaneToolCallPolicies.Diagnostics.CoalesceGroup,
-				Order:         PlaneToolCallPolicies.Diagnostics.Order,
+				PlaneID:       canonicalPlaneToolCallPoliciesPolicy.planeID,
+				StageID:       canonicalPlaneToolCallPoliciesPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneToolCallPoliciesPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneToolCallPoliciesPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2522,8 +3292,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneToolCallFinalizers
 	{
 		val := gf.toolCallFinalizers
-		occ := PlaneToolCallFinalizers.MaterializeOccupants(val)
-		priv := PlaneToolCallFinalizers.ProjectPrivileges(val)
+		occ := canonicalPlaneToolCallFinalizersPolicy.materializeOccupants(val)
+		priv := canonicalPlaneToolCallFinalizersPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2546,10 +3316,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneToolCallFinalizers.ID,
-				StageID:       PlaneToolCallFinalizers.Diagnostics.StageID,
-				CoalesceGroup: PlaneToolCallFinalizers.Diagnostics.CoalesceGroup,
-				Order:         PlaneToolCallFinalizers.Diagnostics.Order,
+				PlaneID:       canonicalPlaneToolCallFinalizersPolicy.planeID,
+				StageID:       canonicalPlaneToolCallFinalizersPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneToolCallFinalizersPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneToolCallFinalizersPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2559,8 +3329,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneRequestTransforms
 	{
 		val := gf.requestTransforms
-		occ := PlaneRequestTransforms.MaterializeOccupants(val)
-		priv := PlaneRequestTransforms.ProjectPrivileges(val)
+		occ := canonicalPlaneRequestTransformsPolicy.materializeOccupants(val)
+		priv := canonicalPlaneRequestTransformsPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2583,10 +3353,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneRequestTransforms.ID,
-				StageID:       PlaneRequestTransforms.Diagnostics.StageID,
-				CoalesceGroup: PlaneRequestTransforms.Diagnostics.CoalesceGroup,
-				Order:         PlaneRequestTransforms.Diagnostics.Order,
+				PlaneID:       canonicalPlaneRequestTransformsPolicy.planeID,
+				StageID:       canonicalPlaneRequestTransformsPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneRequestTransformsPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneRequestTransformsPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2596,8 +3366,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlanePreRequestHandlers
 	{
 		val := gf.preRequestHandlers
-		occ := PlanePreRequestHandlers.MaterializeOccupants(val)
-		priv := PlanePreRequestHandlers.ProjectPrivileges(val)
+		occ := canonicalPlanePreRequestHandlersPolicy.materializeOccupants(val)
+		priv := canonicalPlanePreRequestHandlersPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2620,10 +3390,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlanePreRequestHandlers.ID,
-				StageID:       PlanePreRequestHandlers.Diagnostics.StageID,
-				CoalesceGroup: PlanePreRequestHandlers.Diagnostics.CoalesceGroup,
-				Order:         PlanePreRequestHandlers.Diagnostics.Order,
+				PlaneID:       canonicalPlanePreRequestHandlersPolicy.planeID,
+				StageID:       canonicalPlanePreRequestHandlersPolicy.diagStageID,
+				CoalesceGroup: canonicalPlanePreRequestHandlersPolicy.diagCoalesceGroup,
+				Order:         canonicalPlanePreRequestHandlersPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2633,8 +3403,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneRouteHintProviders
 	{
 		val := gf.routeHintProviders
-		occ := PlaneRouteHintProviders.MaterializeOccupants(val)
-		priv := PlaneRouteHintProviders.ProjectPrivileges(val)
+		occ := canonicalPlaneRouteHintProvidersPolicy.materializeOccupants(val)
+		priv := canonicalPlaneRouteHintProvidersPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2657,10 +3427,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneRouteHintProviders.ID,
-				StageID:       PlaneRouteHintProviders.Diagnostics.StageID,
-				CoalesceGroup: PlaneRouteHintProviders.Diagnostics.CoalesceGroup,
-				Order:         PlaneRouteHintProviders.Diagnostics.Order,
+				PlaneID:       canonicalPlaneRouteHintProvidersPolicy.planeID,
+				StageID:       canonicalPlaneRouteHintProvidersPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneRouteHintProvidersPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneRouteHintProvidersPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2670,8 +3440,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneCompletionGates
 	{
 		val := gf.completionGates
-		occ := PlaneCompletionGates.MaterializeOccupants(val)
-		priv := PlaneCompletionGates.ProjectPrivileges(val)
+		occ := canonicalPlaneCompletionGatesPolicy.materializeOccupants(val)
+		priv := canonicalPlaneCompletionGatesPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2694,10 +3464,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneCompletionGates.ID,
-				StageID:       PlaneCompletionGates.Diagnostics.StageID,
-				CoalesceGroup: PlaneCompletionGates.Diagnostics.CoalesceGroup,
-				Order:         PlaneCompletionGates.Diagnostics.Order,
+				PlaneID:       canonicalPlaneCompletionGatesPolicy.planeID,
+				StageID:       canonicalPlaneCompletionGatesPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneCompletionGatesPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneCompletionGatesPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2707,8 +3477,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneAttemptTransforms
 	{
 		val := gf.attemptTransforms
-		occ := PlaneAttemptTransforms.MaterializeOccupants(val)
-		priv := PlaneAttemptTransforms.ProjectPrivileges(val)
+		occ := canonicalPlaneAttemptTransformsPolicy.materializeOccupants(val)
+		priv := canonicalPlaneAttemptTransformsPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2731,10 +3501,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneAttemptTransforms.ID,
-				StageID:       PlaneAttemptTransforms.Diagnostics.StageID,
-				CoalesceGroup: PlaneAttemptTransforms.Diagnostics.CoalesceGroup,
-				Order:         PlaneAttemptTransforms.Diagnostics.Order,
+				PlaneID:       canonicalPlaneAttemptTransformsPolicy.planeID,
+				StageID:       canonicalPlaneAttemptTransformsPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneAttemptTransformsPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneAttemptTransformsPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2744,8 +3514,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneStreamObserverFactories
 	{
 		val := gf.streamObserverFactories
-		occ := PlaneStreamObserverFactories.MaterializeOccupants(val)
-		priv := PlaneStreamObserverFactories.ProjectPrivileges(val)
+		occ := canonicalPlaneStreamObserverFactoriesPolicy.materializeOccupants(val)
+		priv := canonicalPlaneStreamObserverFactoriesPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2768,10 +3538,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneStreamObserverFactories.ID,
-				StageID:       PlaneStreamObserverFactories.Diagnostics.StageID,
-				CoalesceGroup: PlaneStreamObserverFactories.Diagnostics.CoalesceGroup,
-				Order:         PlaneStreamObserverFactories.Diagnostics.Order,
+				PlaneID:       canonicalPlaneStreamObserverFactoriesPolicy.planeID,
+				StageID:       canonicalPlaneStreamObserverFactoriesPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneStreamObserverFactoriesPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneStreamObserverFactoriesPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2781,8 +3551,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneTrafficObservers
 	{
 		val := gf.trafficObservers
-		occ := PlaneTrafficObservers.MaterializeOccupants(val)
-		priv := PlaneTrafficObservers.ProjectPrivileges(val)
+		occ := canonicalPlaneTrafficObserversPolicy.materializeOccupants(val)
+		priv := canonicalPlaneTrafficObserversPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2805,10 +3575,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneTrafficObservers.ID,
-				StageID:       PlaneTrafficObservers.Diagnostics.StageID,
-				CoalesceGroup: PlaneTrafficObservers.Diagnostics.CoalesceGroup,
-				Order:         PlaneTrafficObservers.Diagnostics.Order,
+				PlaneID:       canonicalPlaneTrafficObserversPolicy.planeID,
+				StageID:       canonicalPlaneTrafficObserversPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneTrafficObserversPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneTrafficObserversPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2818,8 +3588,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneUsageObservers
 	{
 		val := gf.usageObservers
-		occ := PlaneUsageObservers.MaterializeOccupants(val)
-		priv := PlaneUsageObservers.ProjectPrivileges(val)
+		occ := canonicalPlaneUsageObserversPolicy.materializeOccupants(val)
+		priv := canonicalPlaneUsageObserversPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2842,10 +3612,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneUsageObservers.ID,
-				StageID:       PlaneUsageObservers.Diagnostics.StageID,
-				CoalesceGroup: PlaneUsageObservers.Diagnostics.CoalesceGroup,
-				Order:         PlaneUsageObservers.Diagnostics.Order,
+				PlaneID:       canonicalPlaneUsageObserversPolicy.planeID,
+				StageID:       canonicalPlaneUsageObserversPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneUsageObserversPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneUsageObserversPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2855,8 +3625,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneRawCaptureSinks
 	{
 		val := gf.rawCaptureSinks
-		occ := PlaneRawCaptureSinks.MaterializeOccupants(val)
-		priv := PlaneRawCaptureSinks.ProjectPrivileges(val)
+		occ := canonicalPlaneRawCaptureSinksPolicy.materializeOccupants(val)
+		priv := canonicalPlaneRawCaptureSinksPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2879,10 +3649,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneRawCaptureSinks.ID,
-				StageID:       PlaneRawCaptureSinks.Diagnostics.StageID,
-				CoalesceGroup: PlaneRawCaptureSinks.Diagnostics.CoalesceGroup,
-				Order:         PlaneRawCaptureSinks.Diagnostics.Order,
+				PlaneID:       canonicalPlaneRawCaptureSinksPolicy.planeID,
+				StageID:       canonicalPlaneRawCaptureSinksPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneRawCaptureSinksPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneRawCaptureSinksPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2892,8 +3662,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneTrafficRedactors
 	{
 		val := gf.trafficRedactors
-		occ := PlaneTrafficRedactors.MaterializeOccupants(val)
-		priv := PlaneTrafficRedactors.ProjectPrivileges(val)
+		occ := canonicalPlaneTrafficRedactorsPolicy.materializeOccupants(val)
+		priv := canonicalPlaneTrafficRedactorsPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2916,10 +3686,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneTrafficRedactors.ID,
-				StageID:       PlaneTrafficRedactors.Diagnostics.StageID,
-				CoalesceGroup: PlaneTrafficRedactors.Diagnostics.CoalesceGroup,
-				Order:         PlaneTrafficRedactors.Diagnostics.Order,
+				PlaneID:       canonicalPlaneTrafficRedactorsPolicy.planeID,
+				StageID:       canonicalPlaneTrafficRedactorsPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneTrafficRedactorsPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneTrafficRedactorsPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2929,8 +3699,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneSecretGuards
 	{
 		val := gf.secretGuards
-		occ := PlaneSecretGuards.MaterializeOccupants(val)
-		priv := PlaneSecretGuards.ProjectPrivileges(val)
+		occ := canonicalPlaneSecretGuardsPolicy.materializeOccupants(val)
+		priv := canonicalPlaneSecretGuardsPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2953,10 +3723,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneSecretGuards.ID,
-				StageID:       PlaneSecretGuards.Diagnostics.StageID,
-				CoalesceGroup: PlaneSecretGuards.Diagnostics.CoalesceGroup,
-				Order:         PlaneSecretGuards.Diagnostics.Order,
+				PlaneID:       canonicalPlaneSecretGuardsPolicy.planeID,
+				StageID:       canonicalPlaneSecretGuardsPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneSecretGuardsPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneSecretGuardsPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
@@ -2966,8 +3736,8 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 	// Project PlaneLocalTurnHandlers
 	{
 		val := gf.localTurnHandlers
-		occ := PlaneLocalTurnHandlers.MaterializeOccupants(val)
-		priv := PlaneLocalTurnHandlers.ProjectPrivileges(val)
+		occ := canonicalPlaneLocalTurnHandlersPolicy.materializeOccupants(val)
+		priv := canonicalPlaneLocalTurnHandlersPolicy.projectPrivileges(val)
 		if len(occ) > 0 || len(priv.Flags) > 0 {
 			var occCopy []DiagnosticOccupant
 			if len(occ) > 0 {
@@ -2990,10 +3760,10 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				privCopy = append([]string(nil), priv.Flags...)
 			}
 			projections = append(projections, DiagnosticPlaneProjection{
-				PlaneID:       PlaneLocalTurnHandlers.ID,
-				StageID:       PlaneLocalTurnHandlers.Diagnostics.StageID,
-				CoalesceGroup: PlaneLocalTurnHandlers.Diagnostics.CoalesceGroup,
-				Order:         PlaneLocalTurnHandlers.Diagnostics.Order,
+				PlaneID:       canonicalPlaneLocalTurnHandlersPolicy.planeID,
+				StageID:       canonicalPlaneLocalTurnHandlersPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneLocalTurnHandlersPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneLocalTurnHandlersPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})

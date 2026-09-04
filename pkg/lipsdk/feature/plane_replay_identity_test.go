@@ -443,13 +443,16 @@ func TestOrderedIdentityPlanes_ValidatorInvocationProof(t *testing.T) { //nolint
 	t.Run("PlaneAttemptTransforms", func(t *testing.T) { //nolint:paralleltest // mutates package-level plane ValidateIdentity globals
 		origValidator := feature.PlaneAttemptTransforms.ValidateIdentity
 		validatorCalls := 0
-		feature.PlaneAttemptTransforms.ValidateIdentity = func(id string) error {
+		validateFn := func(id string) error {
 			validatorCalls++
 			require.Equal(t, wantID, id)
 			return errValidator
 		}
+		feature.PlaneAttemptTransforms.ValidateIdentity = validateFn
+		restoreCanonical := feature.SetCanonicalValidateIdentityForTest(feature.PlaneAttemptTransforms, validateFn)
 		t.Cleanup(func() {
 			feature.PlaneAttemptTransforms.ValidateIdentity = origValidator
+			restoreCanonical()
 		})
 
 		calls := 0
@@ -486,13 +489,16 @@ func TestOrderedIdentityPlanes_ValidatorInvocationProof(t *testing.T) { //nolint
 	t.Run("PlaneStreamObserverFactories", func(t *testing.T) { //nolint:paralleltest // mutates package-level plane ValidateIdentity globals
 		origValidator := feature.PlaneStreamObserverFactories.ValidateIdentity
 		validatorCalls := 0
-		feature.PlaneStreamObserverFactories.ValidateIdentity = func(id string) error {
+		validateFn := func(id string) error {
 			validatorCalls++
 			require.Equal(t, wantID, id)
 			return errValidator
 		}
+		feature.PlaneStreamObserverFactories.ValidateIdentity = validateFn
+		restoreCanonical := feature.SetCanonicalValidateIdentityForTest(feature.PlaneStreamObserverFactories, validateFn)
 		t.Cleanup(func() {
 			feature.PlaneStreamObserverFactories.ValidateIdentity = origValidator
+			restoreCanonical()
 		})
 
 		calls := 0
@@ -526,13 +532,16 @@ func TestOrderedIdentityPlanes_ValidatorInvocationProof(t *testing.T) { //nolint
 	t.Run("PlaneCompactionPreservers", func(t *testing.T) { //nolint:paralleltest // mutates package-level plane ValidateIdentity globals
 		origValidator := feature.PlaneCompactionPreservers.ValidateIdentity
 		validatorCalls := 0
-		feature.PlaneCompactionPreservers.ValidateIdentity = func(id string) error {
+		validateFn := func(id string) error {
 			validatorCalls++
 			require.Equal(t, wantID, id)
 			return errValidator
 		}
+		feature.PlaneCompactionPreservers.ValidateIdentity = validateFn
+		restoreCanonical := feature.SetCanonicalValidateIdentityForTest(feature.PlaneCompactionPreservers, validateFn)
 		t.Cleanup(func() {
 			feature.PlaneCompactionPreservers.ValidateIdentity = origValidator
+			restoreCanonical()
 		})
 
 		calls := 0
@@ -704,5 +713,206 @@ func TestOrderedIdentityPlanes_GenerationBinderReplayRejected(t *testing.T) {
 		err := frozen.ReplaySourceTo(dst, feature.SourceGenerationBinder, "binder-contributor")
 		// Should NOT be ErrUnsupportedReplaySource
 		assert.False(t, errors.Is(err, feature.ErrUnsupportedReplaySource))
+	})
+}
+
+func TestOrderedIdentityPlanes_CandidateReplay_ZeroLiveIDCalls_Generated(t *testing.T) {
+	t.Parallel()
+
+	t.Run("PlaneAttemptTransforms_EmptyDestination", func(t *testing.T) {
+		t.Parallel()
+		calls := 0
+		xform := callCountingAttemptTransform{id: "cand-at-1", calls: &calls}
+
+		candCS := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candCS, feature.PlaneAttemptTransforms, "plugin-cand", []request.AttemptTransform{xform}))
+		assert.Equal(t, 1, calls, "after candidate contribution")
+
+		candFrozen := candCS.Freeze()
+		assert.Equal(t, 1, calls, "after candidate freeze")
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate"))
+		assert.Equal(t, 1, calls, "candidate replay into empty destination must not invoke live ID()")
+
+		dstFrozen := dst.Freeze()
+		assert.Equal(t, 1, calls, "after destination freeze")
+
+		id, ok := feature.FrozenIdentity(dstFrozen, feature.PlaneAttemptTransforms)
+		assert.True(t, ok)
+		assert.Equal(t, "cand-at-1", id)
+		assert.Equal(t, 1, calls, "after destination FrozenIdentity")
+	})
+
+	t.Run("PlaneAttemptTransforms_NonEmptyDestination", func(t *testing.T) {
+		t.Parallel()
+		dstCalls := 0
+		dstXform := callCountingAttemptTransform{id: "dst-at-1", calls: &dstCalls}
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneAttemptTransforms, "plugin-dst", []request.AttemptTransform{dstXform}))
+		assert.Equal(t, 1, dstCalls)
+
+		candCalls := 0
+		candXform := callCountingAttemptTransform{id: "cand-at-2", calls: &candCalls}
+		candCS := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candCS, feature.PlaneAttemptTransforms, "plugin-cand", []request.AttemptTransform{candXform}))
+		assert.Equal(t, 1, candCalls)
+
+		candFrozen := candCS.Freeze()
+		assert.Equal(t, 1, candCalls)
+
+		require.NoError(t, candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate"))
+		assert.Equal(t, 1, dstCalls, "destination ID() must not be called during candidate replay")
+		assert.Equal(t, 1, candCalls, "candidate ID() must not be called during candidate replay")
+
+		dstFrozen := dst.Freeze()
+		assert.Equal(t, 1, dstCalls)
+		assert.Equal(t, 1, candCalls)
+
+		retained := feature.Get(dstFrozen, feature.PlaneAttemptTransforms)
+		require.Len(t, retained, 2)
+		assert.Equal(t, "dst-at-1", retained[0].ID())
+		assert.Equal(t, "cand-at-2", retained[1].ID())
+
+		id, ok := feature.FrozenIdentity(dstFrozen, feature.PlaneAttemptTransforms)
+		assert.True(t, ok)
+		assert.Equal(t, "dst-at-1", id)
+	})
+
+	t.Run("PlaneStreamObserverFactories_CandidateReplayIgnored_ZeroLiveIDCalls", func(t *testing.T) {
+		t.Parallel()
+		calls := 0
+		sof := callCountingStreamObserverFactory{id: "cand-sof-1", calls: &calls}
+
+		candCS := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candCS, feature.PlaneStreamObserverFactories, "plugin-cand", []response.StreamObserverFactory{sof}))
+		assert.Equal(t, 1, calls)
+
+		candFrozen := candCS.Freeze()
+		assert.Equal(t, 1, calls)
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate"))
+		assert.Equal(t, 1, calls, "candidate replay must not invoke live ID()")
+
+		dstFrozen := dst.Freeze()
+		assert.Equal(t, 1, calls)
+		assert.Empty(t, feature.Get(dstFrozen, feature.PlaneStreamObserverFactories))
+	})
+
+	t.Run("PlaneCompactionPreservers_EmptyDestination", func(t *testing.T) {
+		t.Parallel()
+		calls := 0
+		cp := callCountingCompactionPreserver{stubPreserver: stubPreserver{id: "cand-cp-1"}, calls: &calls}
+
+		candCS := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candCS, feature.PlaneCompactionPreservers, "plugin-cand", []compaction.Preserver{cp}))
+		assert.Equal(t, 1, calls)
+
+		candFrozen := candCS.Freeze()
+		assert.Equal(t, 1, calls)
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate"))
+		assert.Equal(t, 1, calls, "candidate replay into empty destination must not invoke live ID()")
+
+		dstFrozen := dst.Freeze()
+		assert.Equal(t, 1, calls)
+
+		id, ok := feature.FrozenIdentity(dstFrozen, feature.PlaneCompactionPreservers)
+		assert.True(t, ok)
+		assert.Equal(t, "cand-cp-1", id)
+		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("PlaneCompactionPreservers_NonEmptyDestination", func(t *testing.T) {
+		t.Parallel()
+		dstCalls := 0
+		dstCP := callCountingCompactionPreserver{stubPreserver: stubPreserver{id: "dst-cp-1"}, calls: &dstCalls}
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneCompactionPreservers, "plugin-dst", []compaction.Preserver{dstCP}))
+		assert.Equal(t, 1, dstCalls)
+
+		candCalls := 0
+		candCP := callCountingCompactionPreserver{stubPreserver: stubPreserver{id: "cand-cp-2"}, calls: &candCalls}
+		candCS := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candCS, feature.PlaneCompactionPreservers, "plugin-cand", []compaction.Preserver{candCP}))
+		assert.Equal(t, 1, candCalls)
+
+		candFrozen := candCS.Freeze()
+		assert.Equal(t, 1, candCalls)
+
+		require.NoError(t, candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate"))
+		assert.Equal(t, 1, dstCalls, "destination ID() must not be called during candidate replay")
+		assert.Equal(t, 1, candCalls, "candidate ID() must not be called during candidate replay")
+
+		dstFrozen := dst.Freeze()
+		assert.Equal(t, 1, dstCalls)
+		assert.Equal(t, 1, candCalls)
+
+		retained := feature.Get(dstFrozen, feature.PlaneCompactionPreservers)
+		require.Len(t, retained, 2)
+		assert.Equal(t, "dst-cp-1", retained[0].ID())
+		assert.Equal(t, "cand-cp-2", retained[1].ID())
+
+		id, ok := feature.FrozenIdentity(dstFrozen, feature.PlaneCompactionPreservers)
+		assert.True(t, ok)
+		assert.Equal(t, "dst-cp-1", id)
+	})
+}
+
+func TestReplay_SourceAdmission_FailBeforeMutate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ReplaySourceTo_UnsupportedSource_RejectsBeforeMutatingDestination", func(t *testing.T) {
+		t.Parallel()
+
+		src := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(src, feature.PlaneSubmitHooks, "plugin-src", []hooks.SubmitHook{
+			dummySubmitHook{id: "hook-src", ord: 1},
+		}))
+		frozenSrc := src.Freeze()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneSubmitHooks, "plugin-dst", []hooks.SubmitHook{
+			dummySubmitHook{id: "hook-dst", ord: 10},
+		}))
+
+		err := frozenSrc.ReplaySourceTo(dst, feature.SourceHost, "host-replayer")
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, feature.ErrUnsupportedSource), "must satisfy errors.Is(err, ErrUnsupportedSource)")
+
+		var attrErr *feature.AttributedError
+		require.True(t, errors.As(err, &attrErr), "must be *AttributedError")
+		assert.Equal(t, "host-replayer", attrErr.PluginID)
+		assert.Equal(t, feature.PlaneSubmitHooks.ID, attrErr.PlaneID)
+
+		// Destination must remain unchanged (fail-before-mutate)
+		retained := feature.Get(dst.Freeze(), feature.PlaneSubmitHooks)
+		require.Len(t, retained, 1)
+		assert.Equal(t, "hook-dst", retained[0].ID())
+	})
+
+	t.Run("ContributeCandidateTo_UnsupportedSource_RejectsBeforeMutatingDestination", func(t *testing.T) {
+		t.Parallel()
+
+		src := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(src, feature.PlaneToolCallFinalizationMaxArgsBytes, "plugin-cand", 1024))
+		frozenCand := src.Freeze()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizationMaxArgsBytes, "plugin-dst", 512))
+
+		err := frozenCand.ContributeCandidateTo(dst, feature.SourceHost, "candidate-actor")
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, feature.ErrUnsupportedSource))
+
+		var attrErr *feature.AttributedError
+		require.True(t, errors.As(err, &attrErr))
+		assert.Equal(t, "candidate-actor", attrErr.PluginID)
+		assert.Equal(t, feature.PlaneToolCallFinalizationMaxArgsBytes.ID, attrErr.PlaneID)
+
+		// Destination must remain unchanged (fail-before-mutate)
+		assert.Equal(t, 512, feature.Get(dst.Freeze(), feature.PlaneToolCallFinalizationMaxArgsBytes))
 	})
 }

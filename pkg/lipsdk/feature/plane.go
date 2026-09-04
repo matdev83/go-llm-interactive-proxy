@@ -191,6 +191,28 @@ type generatedPolicy[T any] struct {
 	combine                func(SourceKind, T, T) (T, error)
 	identity               func(T) (string, bool)
 	exclusiveConflictError error
+	requestMaterializer    func(T) T
+	requestBorrow          bool
+	hookTarget             HookTarget
+	diagStageID            string
+	diagCoalesceGroup      string
+	diagOrder              int
+	diagMaterialize        func(T) []DiagnosticOccupant
+	diagPrivileges         func(T) PrivilegeProjection
+}
+
+func (gp *generatedPolicy[T]) materializeOccupants(v T) []DiagnosticOccupant {
+	if gp == nil || gp.diagMaterialize == nil {
+		return nil
+	}
+	return gp.diagMaterialize(v)
+}
+
+func (gp *generatedPolicy[T]) projectPrivileges(v T) PrivilegeProjection {
+	if gp == nil || gp.diagPrivileges == nil {
+		return PrivilegeProjection{}
+	}
+	return gp.diagPrivileges(v)
 }
 
 type generatedAccess[T any] struct {

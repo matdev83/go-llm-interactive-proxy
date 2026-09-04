@@ -152,7 +152,7 @@ func TestStandardCandidatePlanes_GeneratedDispatchCurrency(t *testing.T) {
 				parts[i] = strings.ToUpper(part[:1]) + part[1:]
 			}
 		}
-		varRef := "Plane" + strings.Join(parts, "") + ".ID"
+		varRef := "canonicalPlane" + strings.Join(parts, "") + "Policy.planeID"
 		assert.True(t, strings.Contains(methodBody, varRef),
 			"contributeCandidateTo must check candidate plane %s (%q)", varRef, candID)
 	}
