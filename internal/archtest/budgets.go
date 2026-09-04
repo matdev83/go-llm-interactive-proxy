@@ -123,8 +123,8 @@ var LineBudgets = []LineBudget{
 	// aleg-cancellation-bleg-termination-hardening: single-use B-leg launch permit, concurrent bounded A-leg cancel fan-out, truthful physical CancelResult propagation, bounded attempt-owned sideband evidence accumulator, terminal stream drain, exactly-once terminal B-leg billing precedence, and bounded cancellation telemetry; measured 92771, bump to 92796 with 25 headroom.
 	// database-dialect-parity-enforcement: stable parity normalization across core components; measured 95020, bump to 95045 with 25 headroom.
 	// extension-plane-local-terminal: frozen identity accessor and turn-terminal carrier; measured 95070, bump to 95095 with 25 headroom.
-	// pre-oss-core-slimming: moved tool-call repair, secret-guard source/matcher, and concrete compaction detector out of core; measured 89845, ratchet downward to 89870 with 25 headroom.
-	{Dir: "internal/core", Max: 89870},
+	// pre-oss-core-slimming race remediation: measured 89936 after synchronizing attempt accounting, sideband teardown, and terminal provider identity; retain 25 lines of headroom.
+	{Dir: "internal/core", Max: 89961},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12566},

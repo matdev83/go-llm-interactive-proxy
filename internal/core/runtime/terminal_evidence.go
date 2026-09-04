@@ -140,7 +140,7 @@ func (a *attemptSession) terminalEvidence() attemptTerminalEvidence {
 	if a == nil {
 		return attemptTerminalEvidence{}
 	}
-	return attemptTerminalEvidence{bleg: a.bleg, candidate: a.cand, startedAt: a.accounting.requestStartedAt, accounting: a.accounting.snapshot()}
+	return attemptTerminalEvidence{bleg: a.bleg, candidate: a.cand, startedAt: a.accountingStartedAt(), accounting: a.accountingSnapshot()}
 }
 
 func (p *responsePipeline) terminalEvidenceSnapshot() responseTerminalSnapshot {

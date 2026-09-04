@@ -188,7 +188,7 @@ func continuationTransactionWithOverlay(ctx context.Context, t *turnTerminal, s 
 		RecordReason:  continuationPendingReason,
 		TraceID:       b1.traceID,
 		ALegID:        b1.bleg.ALegID,
-		StartedAt:     b1.accounting.requestStartedAt,
+		StartedAt:     b1.accountingStartedAt(),
 	})
 	if !settled.Result.Won || settled.Result.Err != nil || !continuationSettlementSucceeded(b1) {
 		return true, errors.New("continuation: prior attempt settlement unavailable")

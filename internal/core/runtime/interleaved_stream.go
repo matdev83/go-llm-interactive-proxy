@@ -190,7 +190,7 @@ func (s *interleavedContinuationStream) recordVisibleOutput(ev lipapi.Event) {
 		return
 	}
 	s.thinker.terminal.markOutputCommittedForAttempt(ev, s.thinker.attempt.snapshot(), s.thinker.recovery)
-	s.thinker.attempt.require().accounting.observeClientEvent(s.thinker.responsePipeline.nowTime(), ev)
+	s.thinker.attempt.require().observeAccountingClientEvent(s.thinker.responsePipeline.nowTime(), ev)
 	if s.thinker.recovery != nil && s.thinker.recovery.recoverPolicy != nil {
 		s.thinker.recovery.recoverPolicy.ObserveClientEvent(ev, s.thinker.responsePipeline.nowTime())
 	}

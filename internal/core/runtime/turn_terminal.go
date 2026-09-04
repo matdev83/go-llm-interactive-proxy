@@ -304,6 +304,15 @@ func (t *turnTerminal) markFinished() bool {
 	return t != nil && t.completion.CompareAndSwap(false, true)
 }
 
+func (t *turnTerminal) terminalDecisionProviderIdentity() (string, bool) {
+	if t == nil {
+		return "", false
+	}
+	t.terminalDecisionMu.Lock()
+	defer t.terminalDecisionMu.Unlock()
+	return t.terminalDecisionProviderID, t.terminalDecisionProviderHasID
+}
+
 // finishResponse applies the request-terminal finished transition and clears
 // attempt-local response assembly state at the same ownership boundary.
 func (t *turnTerminal) finishResponse(response *responsePipeline, attempt *attemptSession) bool {
@@ -357,9 +366,14 @@ func (t *turnTerminal) terminalizeTurnWithDecision(ctx context.Context, provider
 	if t == nil || t.request == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
-	if provider != nil && !t.terminalDecisionProviderHasID {
-		t.terminalDecisionProviderID = provider.ID()
-		t.terminalDecisionProviderHasID = true
+	if provider != nil {
+		providerID := provider.ID()
+		t.terminalDecisionMu.Lock()
+		if !t.terminalDecisionProviderHasID {
+			t.terminalDecisionProviderID = providerID
+			t.terminalDecisionProviderHasID = true
+		}
+		t.terminalDecisionMu.Unlock()
 	}
 	snapshot := coreterm.NewAccumulatorSnapshot(nil, input.Candidate.OutputCommitted)
 	evidence := attemptEvidence{
@@ -533,7 +547,7 @@ func decisionLegOutcome(cmd sdkterminal.Command) billing.LegOutcome {
 func (t *turnTerminal) makeBaseEvidence(request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, snapshot *coreterm.AccumulatorSnapshot) attemptEvidence {
 	var started time.Time
 	if attempt != nil {
-		started = attempt.accounting.requestStartedAt
+		started = attempt.accountingStartedAt()
 	}
 	return attemptEvidence{
 		Usage:          p.operatorUsageForFinalize(),
@@ -736,7 +750,7 @@ func (t *turnTerminal) emitSynthesizedUsage(ctx context.Context, ev lipapi.Event
 	if t == nil || p == nil || attempt == nil {
 		return lipapi.Event{}, nil
 	}
-	attempt.accounting.observeClientEvent(p.nowTime(), ev)
+	attempt.observeAccountingClientEvent(p.nowTime(), ev)
 	pm := sdk.PartMeta{TraceID: request.traceID, ALegID: request.aLegID, BLegID: attempt.bleg.BLegID, AttemptSeq: attempt.bleg.Seq, BackendID: strings.TrimSpace(attempt.cand.Primary.Backend)}
 	out, recording, err := p.observeSynthesizedUsage(ctx, ev, request, attempt, pm, t.committed())
 	if err != nil {

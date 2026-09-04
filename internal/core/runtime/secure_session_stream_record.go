@@ -127,7 +127,7 @@ func buildStreamEventRecordInputEvidence(evidence responseRequestEvidence, attem
 		}
 	}
 	if ev.Kind == lipapi.EventResponseFinished {
-		acct := attempt.accounting.snapshot()
+		acct := attempt.accountingSnapshot()
 		in.RequestStartedAt = acct.RequestStartedAt
 		in.FirstRemoteEventAt = acct.FirstRemoteEventAt
 		in.FirstMeaningfulTokenAt = acct.FirstMeaningfulTokenAt

@@ -251,8 +251,8 @@ func (p *responsePipeline) clearToolClassification() {
 }
 
 func clearAttemptToolState(p *responsePipeline, attempt *attemptSession) {
-	if attempt != nil && attempt.toolFinal != nil {
-		attempt.toolFinal.clear()
+	if attempt != nil {
+		attempt.discardSidebandState()
 	}
 	if p != nil {
 		p.clearToolClassification()

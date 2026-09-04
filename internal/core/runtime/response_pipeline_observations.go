@@ -63,18 +63,18 @@ func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnF
 		return prepared
 	}
 	at := p.nowTime()
-	attempt.accounting.observeBackendEvent(at, ev)
+	attempt.observeAccountingBackendEvent(at, ev)
 	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !attempt.rememberUsageEvidenceOnce(ev) {
 		prepared.swallowed = true
 		return prepared
 	}
-	attempt.accounting.observeUsage(ev)
+	attempt.observeAccountingUsage(ev)
 	prepared.partMeta, _ = facts.hookMeta(attempt.bleg, attempt.cand)
 	p.emitTraffic(ctx, attempt, sdktraffic.LegBTP, ev, prepared.partMeta)
 	p.emitUsage(ctx, facts, attempt, ev)
-	if attempt.toolFinal != nil && attempt.toolFinal.enabled() {
+	if toolFinal := attempt.toolCallAssembler(); toolFinal != nil && toolFinal.enabled() {
 		meta := toolcall.Meta{TraceID: facts.traceID, ALegID: facts.aLegID, BLegID: attempt.bleg.BLegID, AttemptSeq: attempt.bleg.Seq}
-		held, err := attempt.toolFinal.ingest(ctx, ev, meta)
+		held, err := toolFinal.ingest(ctx, ev, meta)
 		if err != nil {
 			p.clearToolClassification()
 			prepared.err = err
@@ -370,7 +370,7 @@ func (p *responsePipeline) consumeBackendUsageEvidenceForAttempt(ctx context.Con
 			continue
 		}
 		p.rememberInternalUsage(ev)
-		attempt.accounting.observeUsage(ev)
+		attempt.observeAccountingUsage(ev)
 		p.emitUsage(ctx, facts, attempt, ev)
 	}
 }

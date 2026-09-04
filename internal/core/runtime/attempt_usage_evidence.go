@@ -46,7 +46,7 @@ func (a *attemptSession) recordUsageEvidence(ev lipapi.Event) {
 	if !a.rememberUsageEvidenceOnce(ev) {
 		return
 	}
-	a.accounting.observeUsage(ev)
+	a.observeAccountingUsage(ev)
 }
 
 func (a *attemptSession) aggregatedUsageEvidence() lipapi.Event {
@@ -77,7 +77,7 @@ func (a *attemptSession) drainStreamUsageEvidence(inner lipapi.ManagedEventStrea
 				continue
 			}
 			if a.rememberUsageEvidenceOnce(ev) {
-				a.accounting.observeUsage(ev)
+				a.observeAccountingUsage(ev)
 			}
 		}
 		return nil

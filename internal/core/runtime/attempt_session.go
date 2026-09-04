@@ -78,6 +78,8 @@ type attemptSession struct {
 	forceClose         chan struct{}
 	usageMu            sync.Mutex
 	billingMu          sync.Mutex
+	accountingMu       sync.Mutex
+	sidebandMu         sync.Mutex
 
 	internalUsageKeys  map[string]struct{}
 	accumulatedUsage   []lipapi.Event
@@ -128,6 +130,80 @@ func (a *attemptSession) claimBillingLegRecord() bool {
 	}
 	a.billingLegRecorded = true
 	return true
+}
+
+func (a *attemptSession) accountingStartedAt() time.Time {
+	if a == nil {
+		return time.Time{}
+	}
+	a.accountingMu.Lock()
+	defer a.accountingMu.Unlock()
+	return a.accounting.requestStartedAt
+}
+
+func (a *attemptSession) accountingSnapshot() attemptAccountingSnapshot {
+	if a == nil {
+		return attemptAccountingSnapshot{}
+	}
+	a.accountingMu.Lock()
+	defer a.accountingMu.Unlock()
+	return a.accounting.snapshot()
+}
+
+func (a *attemptSession) observeAccountingBackendEvent(at time.Time, ev lipapi.Event) {
+	if a == nil {
+		return
+	}
+	a.accountingMu.Lock()
+	a.accounting.observeBackendEvent(at, ev)
+	a.accountingMu.Unlock()
+}
+
+func (a *attemptSession) observeAccountingClientEvent(at time.Time, ev lipapi.Event) {
+	if a == nil {
+		return
+	}
+	a.accountingMu.Lock()
+	a.accounting.observeClientEvent(at, ev)
+	a.accountingMu.Unlock()
+}
+
+func (a *attemptSession) observeAccountingUsage(ev lipapi.Event) {
+	if a == nil {
+		return
+	}
+	a.accountingMu.Lock()
+	a.accounting.observeUsage(ev)
+	a.accountingMu.Unlock()
+}
+
+func (a *attemptSession) toolCallAssembler() *toolCallAssembler {
+	if a == nil {
+		return nil
+	}
+	a.sidebandMu.Lock()
+	defer a.sidebandMu.Unlock()
+	return a.toolFinal
+}
+
+func (a *attemptSession) promptCacheSideband() (promptcache.ObservationSource, promptcache.Controller) {
+	if a == nil {
+		return nil, nil
+	}
+	a.sidebandMu.Lock()
+	defer a.sidebandMu.Unlock()
+	return a.promptCacheSource, a.promptCacheController
+}
+
+func (a *attemptSession) discardSidebandState() {
+	if a == nil {
+		return
+	}
+	a.sidebandMu.Lock()
+	a.toolFinal = nil
+	a.promptCacheSource = nil
+	a.promptCacheController = nil
+	a.sidebandMu.Unlock()
 }
 
 type attemptSessionInput struct {
@@ -303,7 +379,7 @@ func (a *attemptSession) terminalizeForCancel(ctx context.Context, cause lipapi.
 		BillingReason: detail,
 		TraceID:       a.traceID,
 		ALegID:        a.bleg.ALegID,
-		StartedAt:     a.accounting.requestStartedAt,
+		StartedAt:     a.accountingStartedAt(),
 	})
 }
 
@@ -340,7 +416,7 @@ func (a *attemptSession) terminalizeForClose(cmd sdkterminal.Command, relKind au
 		BillingReason: "aleg close",
 		TraceID:       a.traceID,
 		ALegID:        a.bleg.ALegID,
-		StartedAt:     a.accounting.requestStartedAt,
+		StartedAt:     a.accountingStartedAt(),
 	})
 }
 
@@ -1046,7 +1122,7 @@ func (r *readyAttempt) DisposeWithEvidence(ctx context.Context, intent attemptTe
 					evidence.ALegID = sess.bleg.ALegID
 				}
 				if evidence.StartedAt.IsZero() {
-					evidence.StartedAt = sess.accounting.requestStartedAt
+					evidence.StartedAt = sess.accountingStartedAt()
 				}
 				sess.TerminalizeAttempt(ctx, intent, evidence)
 			}
@@ -1076,7 +1152,7 @@ func (r *readyAttempt) DisposeWithEvidence(ctx context.Context, intent attemptTe
 			evidence.ALegID = sess.bleg.ALegID
 		}
 		if evidence.StartedAt.IsZero() {
-			evidence.StartedAt = sess.accounting.requestStartedAt
+			evidence.StartedAt = sess.accountingStartedAt()
 		}
 		sess.TerminalizeAttempt(ctx, intent, evidence)
 	}
@@ -1131,7 +1207,7 @@ func (r *readyAttempt) Dispose(ctx context.Context, err error) {
 					RecordReason: err.Error(),
 					TraceID:      sess.traceID,
 					ALegID:       sess.bleg.ALegID,
-					StartedAt:    sess.accounting.requestStartedAt,
+					StartedAt:    sess.accountingStartedAt(),
 				}
 				sess.TerminalizeAttempt(ctx, IntentPreReturnAbort, evidence)
 			}
@@ -1169,7 +1245,7 @@ func (r *readyAttempt) Dispose(ctx context.Context, err error) {
 			RecordReason: err.Error(),
 			TraceID:      sess.traceID,
 			ALegID:       sess.bleg.ALegID,
-			StartedAt:    sess.accounting.requestStartedAt,
+			StartedAt:    sess.accountingStartedAt(),
 		}
 		sess.TerminalizeAttempt(ctx, IntentPreReturnAbort, evidence)
 	}
@@ -1260,7 +1336,7 @@ func (a *attemptSession) makeSwallowedEvidence(facts recvTurnFacts, p *responseP
 		Snapshot:       snapshot,
 		RecordReason:   reason,
 		Err:            err,
-		StartedAt:      a.accounting.requestStartedAt,
+		StartedAt:      a.accountingStartedAt(),
 		StreamFallback: fallback,
 		BillingState:   tFacts.billingState,
 		BillingCallID:  tFacts.billingCallID,
@@ -1530,7 +1606,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 			runGuarded("append billing leg", &errorsList, func() {
 				started := evidence.StartedAt
 				if started.IsZero() {
-					started = a.accounting.requestStartedAt
+					started = a.accountingStartedAt()
 				}
 				var nowFn func() time.Time
 				if a.now != nil {
@@ -1677,11 +1753,9 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 			})
 		}
 
-		// 10. Discard attempt-local state.
-		a.accounting = attemptAccountingTracker{}
-		a.toolFinal = nil
-		a.promptCacheSource = nil
-		a.promptCacheController = nil
+		// Detach sideband state without mutating an assembler that a concurrent
+		// Recv may already have snapshotted.
+		a.discardSidebandState()
 
 		if evidence.Err != nil && intent == IntentSurfacedFailure {
 			errorsList = append(errorsList, evidence.Err)

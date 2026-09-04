@@ -45,10 +45,11 @@ func (p *responsePipeline) commitSuccessfulTurn(facts recvTurnFacts, attempt *at
 		return
 	}
 	p.keepwarmArmOnce.Do(func() {
-		if attempt.promptCacheSource == nil || attempt.promptCacheController == nil {
+		source, controller := attempt.promptCacheSideband()
+		if source == nil || controller == nil {
 			return
 		}
-		observations := attempt.promptCacheSource.DrainPromptCacheObservations()
+		observations := source.DrainPromptCacheObservations()
 		if len(observations) == 0 {
 			return
 		}
@@ -60,7 +61,7 @@ func (p *responsePipeline) commitSuccessfulTurn(facts recvTurnFacts, attempt *at
 			Observations:        observations,
 			BackendInstanceID:   attempt.cand.Primary.Backend,
 			CanonicalModelID:    attempt.cand.Primary.Model,
-			Controller:          attempt.promptCacheController,
+			Controller:          controller,
 		})
 	})
 }

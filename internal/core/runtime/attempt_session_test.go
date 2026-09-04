@@ -404,8 +404,6 @@ func testInstallSlot(slot *attemptSlot, s *attemptSession) {
 	}
 	slot.mu.Lock()
 	old := slot.current
-	slot.current = s
-	slot.mu.Unlock()
 	if s != nil && old != nil {
 		if s.billingEnabled == nil {
 			s.billingEnabled = old.billingEnabled
@@ -441,6 +439,8 @@ func testInstallSlot(slot *attemptSlot, s *attemptSession) {
 			s.aScope = old.aScope
 		}
 	}
+	slot.current = s
+	slot.mu.Unlock()
 }
 
 // testReadySession returns the underlying session for test assertions.
