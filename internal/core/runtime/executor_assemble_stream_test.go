@@ -23,13 +23,14 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	progress := newRecoveryController(recoveryControllerInput{
-		budget: &attemptBudget{max: 3},
-		sel:    sel,
-	})
-	plan := &routePlanState{
-		routeFacts: routeFacts{sel: sel},
-		progress:   progress,
+	newPlan := func() *routePlanState {
+		return &routePlanState{
+			routeFacts: routeFacts{sel: sel},
+			progress: newRecoveryController(recoveryControllerInput{
+				budget: &attemptBudget{max: 3},
+				sel:    sel,
+			}),
+		}
 	}
 	newPrep := func() *preparedRequest {
 		call := &lipapi.Call{
@@ -82,7 +83,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		t.Parallel()
 		localPrep := newPrep()
 		ex := TestExecutor()
-		got, err := ex.assembleExecutorStream(context.Background(), localPrep, plan, out)
+		got, err := ex.assembleExecutorStream(context.Background(), localPrep, newPlan(), out)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -105,7 +106,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 			inner: stream,
 			cand:  thinkerCand,
 		}, pendingSelectionEffects{})
-		got, err := ex.assembleExecutorStream(context.Background(), localPrep, plan, hiddenOut)
+		got, err := ex.assembleExecutorStream(context.Background(), localPrep, newPlan(), hiddenOut)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -125,7 +126,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 			inner: stream,
 			cand:  thinkerCand,
 		}, pendingSelectionEffects{})
-		got, err := ex.assembleExecutorStream(context.Background(), localPrep, plan, visibleOut)
+		got, err := ex.assembleExecutorStream(context.Background(), localPrep, newPlan(), visibleOut)
 		if err != nil {
 			t.Fatal(err)
 		}
