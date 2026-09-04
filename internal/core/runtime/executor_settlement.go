@@ -123,7 +123,7 @@ func (t *turnTerminal) finalizeBillingAfterCancel(ctx context.Context, attempt *
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingFinalizeTimeout)
 	defer cancel()
-	attempt.accounting.observeUsage(ev)
+	attempt.observeAccountingUsage(ev)
 	p.rememberClientEvent(ev)
 	recording := p.recordClientFacingTerminal(persistCtx, request, attempt, ev, t.committed())
 	if recording.err != nil && p.log != nil {
@@ -238,7 +238,7 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 		ALegID:         request.aLegID,
 		Snapshot:       &snapshot,
 		RecordOutcome:  lipapi.AttemptSuccess,
-		StartedAt:      attempt.accounting.requestStartedAt,
+		StartedAt:      attempt.accountingStartedAt(),
 		StreamFallback: p.billingEvidenceFallback(),
 		BillingState:   request.billingState,
 		BillingCallID:  request.billingCallID,

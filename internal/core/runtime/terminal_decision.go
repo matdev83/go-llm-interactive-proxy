@@ -61,7 +61,8 @@ func (t *turnTerminal) sharedTerminalDecision(ctx context.Context, provider term
 		}
 		t.terminalDecisionMu.Unlock()
 		cancel()
-		return evaluateTerminalDecisionWithFrozenIdentity(ctx, provider, t.terminalDecisionProviderID, t.terminalDecisionProviderHasID, input, t.log)
+		providerID, providerHasID := t.terminalDecisionProviderIdentity()
+		return evaluateTerminalDecisionWithFrozenIdentity(ctx, provider, providerID, providerHasID, input, t.log)
 	}
 	key := terminalDecisionKey{
 		cause:               input.Candidate.Cause,
@@ -116,7 +117,8 @@ func (t *turnTerminal) sharedTerminalDecision(ctx context.Context, provider term
 		t.terminalDecisionFlight = flight
 		t.terminalDecisionMu.Unlock()
 
-		outcome := evaluateTerminalDecisionWithFrozenIdentity(sharedCtx, provider, t.terminalDecisionProviderID, t.terminalDecisionProviderHasID, input, t.log)
+		providerID, providerHasID := t.terminalDecisionProviderIdentity()
+		outcome := evaluateTerminalDecisionWithFrozenIdentity(sharedCtx, provider, providerID, providerHasID, input, t.log)
 		cancel()
 		t.terminalDecisionMu.Lock()
 		flight.outcome = outcome

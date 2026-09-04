@@ -103,7 +103,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 				terminal.finishResponseAtBoundary(p, attempt, false)
 			}
-			attempt.accounting.observeClientEvent(p.nowTime(), ev)
+			attempt.observeAccountingClientEvent(p.nowTime(), ev)
 			if recovery != nil && recovery.recoverPolicy != nil {
 				recovery.recoverPolicy.ObserveClientEvent(ev, p.nowTime())
 			}
@@ -129,7 +129,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			return out, false, nil
 		}
-		attempt.accounting.observeClientEvent(p.nowTime(), ev)
+		attempt.observeAccountingClientEvent(p.nowTime(), ev)
 		if recovery != nil && recovery.recoverPolicy != nil {
 			recovery.recoverPolicy.ObserveClientEvent(ev, p.nowTime())
 		}
@@ -413,8 +413,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		// receive or terminal decision; never carry the retired B-leg identity
 		// into the replacement.
 		attempt = slot.require()
-		if attempt.toolFinal != nil {
-			if ev, ok := attempt.toolFinal.popDrain(); ok {
+		if toolFinal := attempt.toolCallAssembler(); toolFinal != nil {
+			if ev, ok := toolFinal.popDrain(); ok {
 				out, cont, err := dispatchClientFacingEvent(ev, recvEventPreparation{event: ev})
 				if cont {
 					continue
@@ -465,7 +465,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 				terminal.finishResponseAtBoundary(p, attempt, false)
 			}
-			attempt.accounting.observeClientEvent(p.nowTime(), ev)
+			attempt.observeAccountingClientEvent(p.nowTime(), ev)
 			pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
 			out, recording, emitErr := p.observeClientFacing(ctx, ev, responseEventInput{
 				facts: facts, attempt: attempt, recovery: recovery,
