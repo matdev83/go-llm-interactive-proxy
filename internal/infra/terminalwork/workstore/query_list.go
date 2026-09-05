@@ -1,7 +1,6 @@
 package workstore
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -27,7 +26,7 @@ func buildListQuery(storeID string, q Query, limit, offset int) (string, []any) 
 			placeholders = append(placeholders, "?")
 			args = append(args, string(st))
 		}
-		where = append(where, fmt.Sprintf("state IN (%s)", strings.Join(placeholders, ",")))
+		where = append(where, "state IN ("+strings.Join(placeholders, ",")+")")
 	}
 	if provider := strings.TrimSpace(q.ProviderID); provider != "" {
 		where = append(where, "provider_id = ?")
@@ -63,12 +62,7 @@ func buildListQuery(storeID string, q Query, limit, offset int) (string, []any) 
 		args = append(args, q.UpdatedBefore.UTC().UnixNano())
 	}
 
-	query := fmt.Sprintf(`
-SELECT * FROM economic_terminal_work
-WHERE %s
-ORDER BY created_at_unix ASC, work_id ASC
-LIMIT ? OFFSET ?
-`, strings.Join(where, " AND "))
+	query := "SELECT * FROM economic_terminal_work WHERE " + strings.Join(where, " AND ") + " ORDER BY created_at_unix ASC, work_id ASC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 	return query, args
 }
