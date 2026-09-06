@@ -490,7 +490,7 @@ func (s *DurableStore) claimDueSQLite(ctx context.Context, cmd ClaimDueCommand, 
 		where = append(where, "kind = ?")
 		args = append(args, string(cmd.Kind))
 	}
-	query := fmt.Sprintf(`SELECT * FROM economic_terminal_work WHERE %s ORDER BY created_at_unix ASC, work_id ASC`, strings.Join(where, " AND "))
+	query := "SELECT * FROM economic_terminal_work WHERE " + strings.Join(where, " AND ") + " ORDER BY created_at_unix ASC, work_id ASC"
 	var candidates []workRow
 	if err := tx.NewRaw(query, args...).Scan(ctx, &candidates); err != nil {
 		return nil, err
