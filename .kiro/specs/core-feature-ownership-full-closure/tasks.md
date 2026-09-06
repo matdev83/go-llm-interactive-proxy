@@ -56,7 +56,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Validation: focused predecessor architecture tests; `make arch-report`; `git grep` checks from predecessor closeout_
 
 - [ ] 1. Freeze the post-first ownership and behavior baseline
-- [ ] 1.1 Generate the authoritative production ownership census
+- [x] 1.1 Generate the authoritative production ownership census
   - Recursively enumerate production Go packages/files under `internal/core`, `internal/infra/*compose`, `internal/standardplugins`, `internal/pluginreg`, `internal/featurebundle`, `internal/infra/runtimebundle`, `pkg/lipruntime`, and one-feature support packages outside `internal/plugins/features`.
   - Start from predecessor Task 8.3 inventory; refresh it against current `main` and record exact consumers/importers for every residual row.
   - Classify each row using the six categories in Requirement 1 and the Core Admission Test in `design.md`.
@@ -69,7 +69,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 0.1_
   - _Validation: `go list -deps`/repository import scan; `make arch-report`; inventory self-check test if project has a machine-readable manifest_
 
-- [ ] 1.2 Add behavior/lifetime characterization before movement
+- [x] 1.2 Add behavior/lifetime characterization before movement
   - Pin compaction-continuity parent isolation, revision/CAS, job/injection stale-result behavior and reload concurrency.
   - Pin conversation projection/reassertion, never-backend exclusion, anchor fallback/fail-closed, persistence parity and no-plaintext diagnostics.
   - Pin interleaved hidden/visible stream behavior, thinker cycle, memo injection budget, cancellation and visible-output commitment.
@@ -83,7 +83,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 1.1_
   - _Validation: focused package tests under race where state is concurrent; process ownership count tests_
 
-- [ ] 1.3 Capture structural and performance baselines
+- [x] 1.3 Capture structural and performance baselines
   - Record current non-test LOC for `internal/core`, `internal/infra/runtimebundle`, `internal/standardplugins`, and the planned `featurehost` tree (0 before creation).
   - Record current per-feature fields in `ProcessServices`, executor build/config inputs and `pkg/lipruntime.Options`.
   - Capture predecessor extension/request-snapshot allocation benchmarks and focused conversation projection/keep-warm benchmarks if present.
