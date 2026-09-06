@@ -2,7 +2,7 @@
 
 > Execute in order unless a task is marked `(P)`. This is a release-bounded migration, not permission for a general core cleanup. Every production change starts with characterization/RED coverage. Preserve current `main` behavior unless the requirements explicitly change the v1 dynamic-plane compatibility contract.
 
-- [ ] 1. Freeze the corrected baseline and characterize the release-bound ownership seams
+- [x] 1. Freeze the corrected baseline and characterize the release-bound ownership seams
 - [x] 1.1 Capture the exact post-extension-correction baseline
   - Record the implementation base SHA, current standard plane count/IDs, generated-output check result, current `internal/core` non-test line count, current `internal/infra/runtimebundle` tree line count, and current direct-import census for `internal/plugins/features/*` from core/runtimebundle/standardplugins.
   - Record current package/file inventories for `internal/core/toolcallrepair`, `internal/core/secretguard`, `internal/core/compactiondetect`, `internal/plugins/features/toolcallrepair`, and `internal/plugins/features/secretguard` so mechanical moves cannot silently omit production or tests.
@@ -50,13 +50,13 @@
   - _Boundary: Core Runtime Detector Port / Process Ownership_
   - _Validation: `go test -count=1 ./internal/core/compactiondetect ./internal/core/runtime -run 'Compaction|compaction'`_
 
-- [ ] 2. Implement the selected #554 contract on generated standard planes only
+- [x] 2. Implement the selected #554 contract on generated standard planes only
 - [x] 2.1 Add `ErrUngeneratedPlane` and canonical generated policy metadata
   - Add exactly one errors.Is-compatible public SDK sentinel named `ErrUngeneratedPlane`. Use this identifier in production, tests, docs and the external fixture; do not add an alias/second unsupported-plane sentinel.
   - Extend the generated access binding with deterministic unexported canonical metadata/closures sufficient both to prove the plane is generated and to make production policy authoritative: exact manifest ID plus the source rules, nil handling, validation, identity/conflict and combination behavior currently read from exported `Plane[T]` fields.
   - Validate generated eligibility and exact canonical ID **before** `ValidateDeclaration`, nil policy, source-rule selection, validator, combine, identity extraction, or candidate mutation. After that check, production contribution policy must be read from generated canonical metadata/closures rather than caller-mutable exported fields on `p`.
   - A wholly arbitrary unbound plane and a changed-ID copy must return attributed `ErrUngeneratedPlane`. A same-ID copy with mutated exported policy must either execute the unchanged canonical generated policy or be deterministically rejected by a generated integrity mechanism; it must never redefine the plane.
-  - Do not use reflection, a runtime map of plane IDs, function-pointer comparison, pointer identity, `init()`, mutable registration, or a service registry to decide support/integrity.
+  - Do not use reflection, a runtime map of plane IDs, function-pointer comparison, pointer identity, mutable registration, or a service registry to decide support/integrity. `init()` must not be used for dynamic registration, support discovery, mutable runtime registration, or integrity lookup. A deterministic generated package-initialization step that snapshots the closed manifest's canonical policy into private typed generated metadata (as implemented in `plane_generated.go`) is permitted.
   - Extend `BindGeneratedAccessForTest` or add an equivalent `_test.go`-only helper so behavior-oriented local test planes can attach isolated canonical generated policy/storage without exposing dynamic binding to external production callers.
   - Done means the RED tests from 1.2 fail/behave exactly as selected and standard generated planes still pass all current declaration/contribution semantics.
   - _Depends: 1.2_
@@ -100,7 +100,7 @@
   - _Boundary: SDK Contract / Architecture Gates_
   - _Validation: `go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle ./internal/archtest`_
 
-- [ ] 3. Move tool-call repair implementation into the feature
+- [x] 3. Move tool-call repair implementation into the feature
 - [x] 3.1 Move the deterministic repair engine under `internal/plugins/features/toolcallrepair/repair`
   - Move the complete production implementation from `internal/core/toolcallrepair` (engine, schema/compiler/cache, catalog index, JSON completion/tail repair, finalizer, diagnostics/reason codes/helpers) into the feature-local `repair` subpackage.
   - Move the corresponding unit, fuzz, benchmark, contract, and regression tests with the implementation; preserve test names/assertions where practical so coverage is visibly continuous.
@@ -132,7 +132,7 @@
   - _Boundary: Architecture Ownership_
   - _Validation: `go test -count=1 ./internal/archtest ./internal/core/runtime ./internal/plugins/features/toolcallrepair/... ./internal/standardplugins`_
 
-- [ ] 4. Move secret-guard matching/source implementation into the feature
+- [x] 4. Move secret-guard matching/source implementation into the feature
 - [x] 4.1 Introduce feature-local source/matcher engine contracts without core imports
   - Create `internal/plugins/features/secretguard/engine` and move the concrete catalog, Aho-Corasick matcher, known-prefix, environment inventory, matcher resolver, and source-policy implementation from `internal/core/secretguard`.
   - Replace the `internal/core/accessmode.Mode` dependency with a closed feature-local mode value; preserve single-user/multi-user semantics exactly.
@@ -166,7 +166,7 @@
   - _Boundary: Secret Guard Ownership / Security_
   - _Validation: `go test -count=1 ./internal/plugins/features/secretguard/... ./internal/infra/secretguardcompose ./internal/infra/runtimebundle ./internal/core/runtime ./internal/archtest`_
 
-- [ ] 5. Invert and relocate the concrete compaction detector
+- [x] 5. Invert and relocate the concrete compaction detector
 - [x] 5.1 Define the smallest core runtime consumer port
   - Add one repository-internal detector interface at the core runtime consumer boundary with exactly the three operations characterized in 1.5; use existing `lipapi.Call`, `lipapi.Event`, `compaction.PreservationMeta`, `compaction.Event`, and `compaction.ResponsePreview` types.
   - Change `runtime.CompactionRuntime.Detector`, response-pipeline detector storage, and safe panic wrappers to the interface; preserve nil behavior.
@@ -199,7 +199,7 @@
   - _Boundary: ProcessServices / Architecture Ownership_
   - _Validation: `go test -count=1 ./internal/infra/runtimebundle ./internal/core/runtime ./internal/infra/compactiondetect ./internal/archtest`; Linux: `go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/infra/runtimebundle`_
 
-- [ ] 6. Remove direct concrete-feature knowledge from generic runtimebundle
+- [x] 6. Remove direct concrete-feature knowledge from generic runtimebundle
 - [x] 6.1 Move reasoning-compression options and generation binding to `internal/infra/reasoningcompose`
   - Move the concrete reasoning-preservation config scan, prerequisite validation, egress policy lookup/selection, matcher/sanitizer requirement, service construction, bundle reconstruction, attempt-transform binder, and stream-observer binder out of runtimebundle.
   - Move `ReasoningCompressionOptions` to the adapter; preserve a type alias/translation at runtimebundle only if needed for internal/public `pkg/lipruntime` source compatibility, but the runtimebundle alias/file must not import the concrete feature package.
@@ -231,7 +231,7 @@
   - _Boundary: Architecture Gates / Runtime Composition_
   - _Validation: `go test -count=1 ./internal/archtest ./internal/infra/runtimebundle`_
 
-- [ ] 7. Certify OSS authoring and permanent simplification ratchets
+- [x] 7. Certify OSS authoring and permanent simplification ratchets
 - [x] 7.1 Add recursive core/feature ownership architecture rules
   - Reuse existing import-rule/source-scan infrastructure to enforce core -> no concrete features, runtimebundle -> no concrete features, and the three retired core package absences.
   - Add recursive feature-tree checks for toolcallrepair and secretguard rather than checking only the root package's direct imports.
@@ -275,7 +275,7 @@
   - _Boundary: SDK / Documentation_
   - _Validation: `make docs-check`; `go test -count=1 ./pkg/lipsdk/feature`_
 
-- [ ] 8. Prove release-safe behavior and hand off full closure
+- [x] 8. Prove release-safe behavior and hand off full closure
 - [x] 8.1 Run migrated-feature and generation/reload regression gates
   - Run focused SDK/featurebundle/toolrepair/secretguard/compaction/reasoningcompose/runtimebundle/core-runtime suites from a clean tree.
   - Re-run the complete #554 contract suite: unbound rejection, changed-ID rejection, same-ID mutation integrity, contribution/freeze/request-freeze/bundle-validation/ordinary-replay/candidate-replay paths, and external-module classification.
@@ -314,7 +314,7 @@
   - _Boundary: Full-closure Handoff / Kiro Evidence_
   - _Validation: `go test -count=1 ./tools/kiro/speccheck`; verify `.kiro/specs/pre-oss-core-slimming/residual-ownership-inventory.md` exists before archive/move_
 
-- [ ] 8.4 Run final repository gates, close #554 only after proof, and certify merged main
+- [x] 8.4 Run final repository gates, close #554 only after proof, and certify merged main
   - On the final implementation commit run generated-plane check, `make quality-checks`, `make test`, `make qa`, deterministic `make arch-report`, docs checks, the exact external fixture command `(cd testdata/external_feature_sdk && GOWORK=off go mod tidy -diff && GOWORK=off go test ./...)`, `go test -count=1 ./tools/kiro/speccheck`, and `go run ./cmd/lipstd --help`.
   - Require successful **Linux** execution of `go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/core/extensions ./internal/infra/runtimebundle ./internal/plugins/features/secretguard/...`. This is a separate release gate; `make quality-checks`/`make qa` do not substitute for it unless a future canonical target demonstrably runs that exact scope.
   - Obtain an independent architecture/code review focused on closed-plane canonical policy and all #554 paths, feature ownership, secret security, detector lifetime/dependency direction, runtimebundle import boundary, immutable generations, benchmark/race evidence, and accidental scope expansion.
@@ -340,3 +340,14 @@
 - Preserve exact process/generation owners: `ProcessServices`, `ResourceLedger`, `runtimehost.Manager`, request/attempt owners. This spec adds no new lifetime manager.
 - Treat the first client-visible content event as irreversible; no part of this cleanup changes retry/failover semantics.
 - Do not close #554 when the spec merges. Close it only after Task 8.4 production/merged-main proof.
+
+## Completion Status
+
+- [x] All implementation tasks (1.1–8.4) are checked complete on the final certified baseline.
+- [x] Final certified merged-main SHA: `d784a8344888dd9de2141a13d4bf723125d4b08c` (PR #591, `fix(feature): make generated plane policy canonical`).
+- [x] Generator output deterministic: `go run ./scripts/generate-feature-planes.go -check` passes on the final baseline.
+- [x] Canonical generated policy authoritative across contribution, request freeze/materialization, validation, ordinary/candidate replay, identity replay rules, generation binders, diagnostics, and hook projection; changed-ID `Get` returns zero and changed-ID `FrozenIdentity` returns `("", false)`; isolated global-descriptor mutation regression green.
+- [x] Exact Linux race gate green on the final SHA: workflow run `33891386913` (`go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/core/extensions ./internal/infra/runtimebundle ./internal/plugins/features/secretguard/...`).
+- [x] External SDK fixture green on the final baseline (`testdata/external_feature_sdk`, `GOWORK=off`).
+- [x] Independent GO review recorded in `final-closeout-evidence.md`; no must-fix finding remains.
+- [x] Residual ownership inventory retained with the archived spec; all 10 deferred findings assigned to `core-feature-ownership-full-closure` (#572); no #572 implementation work included.

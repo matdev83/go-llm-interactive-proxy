@@ -6,6 +6,8 @@
 - **Inventory Date**: `2026-09-03`
 - **Implementation SHA**: `a8c18f35436afcb18570a38d5e6c05d06fe4fccc`
 - **Merged-Main Baseline SHA**: `a8c18f35436afcb18570a38d5e6c05d06fe4fccc`
+- **Final Predecessor-Certified SHA**: `d784a8344888dd9de2141a13d4bf723125d4b08c` (PR #591 merge; canonical-policy correction certified with exact Linux race run `33891386913`)
+- **Provenance Note**: the `a8c18f...` SHAs above record the original Task 8.3 inventory provenance (PR #581 merge commit) and are retained unchanged. The final predecessor-certified baseline for `core-feature-ownership-full-closure` Task 0 is `d784a834...`. All 10 deferred findings below were re-verified unchanged against the final baseline.
 - **Target Full-Closure SDD**: `.kiro/specs/core-feature-ownership-full-closure/`
 
 ## Classification Vocabulary
