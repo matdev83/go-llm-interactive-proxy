@@ -191,6 +191,20 @@ func TestReasoningPreservation_TypedNilPolicyResolverFailsClosed(t *testing.T) {
 	}
 }
 
+// lookupReasoningMatcherResolver is a test-only seam mirroring the facade's
+// production-precedence merge for the MatcherResolver field: production wins
+// when non-nil, otherwise testing. Production code never merges reasoning
+// policy; only featurehost.CompileGeneration does (Task 2.4).
+func lookupReasoningMatcherResolver(ps *ProcessServices) sdk.MatcherResolver {
+	if ps == nil || ps.opts == nil {
+		return nil
+	}
+	if !isNilReasoningCapability(ps.opts.Production.ReasoningCompression.MatcherResolver) {
+		return ps.opts.Production.ReasoningCompression.MatcherResolver
+	}
+	return ps.opts.Testing.ReasoningCompression.MatcherResolver
+}
+
 func TestReasoningPreservation_NilMatcherFailsClosed(t *testing.T) {
 	t.Parallel()
 	// Use stub that returns nil matcher
