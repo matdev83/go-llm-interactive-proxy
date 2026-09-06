@@ -6,7 +6,7 @@ This plan is written for an instruction-following implementation agent. **Do not
 
 ### Hard prerequisite
 
-Do **not** execute production tasks merely because this SDD or PR #557 is merged. Start only after the implementation of `.kiro/specs/pre-oss-core-slimming/` is merged/certified and its Task 8.3 residual ownership inventory is present on `main`.
+Do **not** execute production tasks merely because this SDD or PR #557 is merged. Start only after the implementation of `.kiro/specs/archive/pre-oss-core-slimming/` is merged/certified and its Task 8.3 residual ownership inventory is present on `main`.
 
 ### Permanent rules for every task
 
@@ -46,7 +46,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 - [ ] 0. Verify the predecessor implementation is actually complete
 - [ ] 0.1 Gate execution on the implemented `pre-oss-core-slimming` SDD
-  - Read the archived/completed predecessor spec and its closeout evidence on the **current implementation branch/main**, not only PR #557 text.
+  - Read the archived/completed predecessor spec (`.kiro/specs/archive/pre-oss-core-slimming/`) and its closeout evidence on the **current implementation branch/main**, not only PR #557 text.
   - Locate the predecessor Task 8.3 residual ownership inventory and record its path and exact baseline SHA in this SDD's implementation tracker/PR description.
   - Assert the predecessor's required end-state before changing production code: generated-only standard planes; retired `internal/core/toolcallrepair`, `internal/core/secretguard`, and concrete detector package absent as specified by the final predecessor; zero `runtimebundle -> internal/plugins/features/*` production imports; external feature fixture present; predecessor core budget ratchet active.
   - Add no compatibility workaround if any assertion fails. STOP and finish/fix the predecessor instead.
