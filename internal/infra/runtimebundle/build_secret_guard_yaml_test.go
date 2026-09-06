@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"gopkg.in/yaml.v3"
@@ -20,7 +20,7 @@ func TestBuildSecretGuardRuntime_multiUserZeroEnvEvenWithMalformedSingleUser(t *
 	opts := &BuildOptions{Extensions: ExtensionsOptions{
 		SecretGuardEnvironment: env,
 		SecretGuardInputs: SecretGuardInputs{
-			SingleUser: secretguardcompose.SingleUserOptions{
+			SingleUser: featurehost.SingleUserOptions{
 				IncludePopularEnv: true,
 				IncludeEnv:        []string{"OPENAI_API_KEY"},
 				MinSecretBytes:    8,
@@ -35,7 +35,7 @@ func TestBuildSecretGuardRuntime_multiUserZeroEnvEvenWithMalformedSingleUser(t *
 		Config:      lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: block\n")},
 	}}
 	cfg := &config.Config{Access: config.AccessConfig{Mode: "multi_user"}}
-	if _, err := buildSecretGuardRuntime(cfg, nilDiscardLogger(), opts, regs); err != nil {
+	if _, err := testBuildSecretGuardRuntime(cfg, nilDiscardLogger(), opts, regs); err != nil {
 		t.Fatal(err)
 	}
 	if env.calls != 0 {
@@ -68,7 +68,7 @@ single_user:
 	opts := &BuildOptions{Extensions: ExtensionsOptions{
 		SecretGuardEnvironment: env,
 	}}
-	rt, err := buildSecretGuardRuntime(&config.Config{}, nilDiscardLogger(), opts, regs)
+	rt, err := testBuildSecretGuardRuntime(&config.Config{}, nilDiscardLogger(), opts, regs)
 	if err != nil {
 		t.Fatal(err)
 	}

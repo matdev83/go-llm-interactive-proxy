@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	sdksg "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -136,12 +136,12 @@ func TestMergeCandidateBuildOptions_ProcessNilOverlayNonNil_IsolationAndCloning(
 			SecretGuardEnvironment: env,
 			SecretDecisionObserver: obs,
 			SecretGuardInputs: SecretGuardInputs{
-				SingleUser: coresg.SingleUserOptions{
+				SingleUser: featurehost.SingleUserOptions{
 					IncludePopularEnv: true,
 					IncludeEnv:        []string{"INC_A", "INC_B"},
 					ExcludeEnv:        []string{"EXC_A", "EXC_B"},
 					MinSecretBytes:    16,
-					Matcher:           coresg.MatcherOptions{PreserveKnownPrefixes: true, MaskByte: '*'},
+					Matcher:           featurehost.MatcherOptions{PreserveKnownPrefixes: true, MaskByte: '*'},
 					MatcherConfigured: true,
 				},
 			},
@@ -215,7 +215,7 @@ func TestMergeCandidateBuildOptions_TwoWaySliceMutationIsolation_WithProcessAndO
 			FeatureLifecycles: []lipplugin.Lifecycle{procLC},
 			Extensions: ExtensionsOptions{
 				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: coresg.SingleUserOptions{
+					SingleUser: featurehost.SingleUserOptions{
 						IncludeEnv: []string{"PROC_INC"},
 						ExcludeEnv: []string{"PROC_EXC"},
 					},
@@ -228,7 +228,7 @@ func TestMergeCandidateBuildOptions_TwoWaySliceMutationIsolation_WithProcessAndO
 			FeatureLifecycles:       []lipplugin.Lifecycle{candLC},
 			Extensions: ExtensionsOptions{
 				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: coresg.SingleUserOptions{
+					SingleUser: featurehost.SingleUserOptions{
 						IncludeEnv: []string{"CAND_INC"},
 						ExcludeEnv: []string{"CAND_EXC"},
 					},
@@ -268,7 +268,7 @@ func TestMergeCandidateBuildOptions_TwoWaySliceMutationIsolation_WithProcessAndO
 		process := &BuildOptions{
 			Extensions: ExtensionsOptions{
 				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: coresg.SingleUserOptions{
+					SingleUser: featurehost.SingleUserOptions{
 						IncludeEnv: nil,
 						ExcludeEnv: []string{},
 					},
@@ -279,7 +279,7 @@ func TestMergeCandidateBuildOptions_TwoWaySliceMutationIsolation_WithProcessAndO
 			ReplaceCandidateSurface: true,
 			Extensions: ExtensionsOptions{
 				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: coresg.SingleUserOptions{
+					SingleUser: featurehost.SingleUserOptions{
 						IncludeEnv: []string{},
 						ExcludeEnv: nil,
 					},

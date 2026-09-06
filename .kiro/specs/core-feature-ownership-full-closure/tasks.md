@@ -96,7 +96,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 2. Establish the standard-distribution featurehost composition boundary
-- [ ] 2.1 Add the small `internal/standardplugins/featurehost` process facade
+- [x] 2.1 Add the small `internal/standardplugins/featurehost` process facade
   - Create the package structure from `design.md`; keep `runtime.go`, `process.go`, `generation.go`, `inputs.go` small and move concrete feature integration to per-feature files/subpackages.
   - `ProcessInput` may contain only generic process capabilities required by the standard feature set. It must not accept `*runtimebundle.BuildOptions`, `*runtimebundle.ProcessServices`, full backend maps, database pool registries, or an `any` services map.
   - Implement `NewProcess` with fail-before-escape ownership: every successfully constructed owned feature resource is recorded before later construction can fail; failure unwinds in reverse order.
@@ -108,7 +108,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 1.2, 1.3_
   - _Validation: `go test -race ./internal/standardplugins/featurehost/...`_
 
-- [ ] 2.2 Add generation composition and fixed core-port output
+- [x] 2.2 Add generation composition and fixed core-port output
   - Add `GenerationInput`/`GenerationOutput` per design using ordinary `FeatureBundle`/`FrozenPlaneSet`, lifecycles and only the minimal fixed consumer-owned core interfaces required by Tasks 3–7.
   - Do not add a generic service map or `Resolve/Get` API. Do not expose featurehost to request code.
   - Generation output must be immutable/defensively copied where current contracts require it.
@@ -120,7 +120,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 2.1_
   - _Validation: featurehost tests; existing generation pin/reload tests; ownership-counting tests_
 
-- [ ] 2.3 Integrate one featurehost handle into `ProcessServices` with an explicit interim ownership map
+- [x] 2.3 Integrate one featurehost handle into `ProcessServices` with an explicit interim ownership map
   - Add exactly one `StandardFeatures *featurehost.Runtime` (final spelling may follow repository style) to `ProcessServices`.
   - Before wiring it, materialize the Task 1.1 per-resource transition table in the implementation evidence/test fixture with: resource/class, current constructor, current lifecycle/close registration, current physical owner, featurehost transfer task, and whether the resource is closable.
   - Construct featurehost after the generic dependencies it borrows are ready and before any generation that consumes it can be published.
@@ -135,7 +135,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 2.2_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/standardplugins/featurehost/...`; process shutdown + ownership-counting tests_
 
-- [ ] 2.4 Route simple predecessor compose adapters through featurehost
+- [x] 2.4 Route simple predecessor compose adapters through featurehost
   - Move/call the predecessor-created reasoning and secretguard generation composition through featurehost; retain ordinary extension planes as their execution output.
   - These are generation-composition adapters: do not create a new process resource or process closer merely because invocation moves under featurehost. Any feature lifecycle remains on the existing `ResourceLedger` path.
   - Do not change feature behavior or public host API in this task.

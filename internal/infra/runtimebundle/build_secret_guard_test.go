@@ -81,7 +81,7 @@ func TestBuildSecretGuardRuntime_doesNotMutateBuildOptions(t *testing.T) {
 	}
 	before := opts.Extensions
 
-	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
+	res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestBuildSecretGuardRuntime_injectedGuardsSkipEnvironmentButWireAudit(t *te
 		},
 	}
 
-	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
+	res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 		Config:      lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: redact\naudit_failure_policy: best_effort\n")},
 	}}
 
-	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+	res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestBuildSecretGuardRuntime_multiUserEnabledSkipsEnvironment(t *testing.T) 
 		Config:      lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: block\n")},
 	}}
 	cfg := &config.Config{Access: config.AccessConfig{Mode: "multi_user"}}
-	res, err := buildSecretGuardRuntime(cfg, slog.Default(), opts, regs)
+	res, err := testBuildSecretGuardRuntime(cfg, slog.Default(), opts, regs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestBuildSecretGuardRuntime_rejectsMultipleEnabledBeforeEnv(t *testing.T) {
 		{Kind: lipsdk.PluginKindFeature, ID: "sg-a", FactoryKind: "secrets-guard", Enabled: true, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: log\n")}},
 		{Kind: lipsdk.PluginKindFeature, ID: "sg-b", FactoryKind: "secrets-guard", Enabled: true, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: redact\n")}},
 	}
-	_, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+	_, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 	if err == nil {
 		t.Fatal("expected duplicate enabled secrets-guard registrations to fail")
 	}
@@ -256,7 +256,7 @@ func TestBuildSecretGuardRuntime_typedNilObserverFallsBackToSlog(t *testing.T) {
 		},
 	}
 
-	res, err := buildSecretGuardRuntime(&config.Config{}, log, opts, nil)
+	res, err := testBuildSecretGuardRuntime(&config.Config{}, log, opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
@@ -66,9 +67,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err != nil {
 		return nil, err
 	}
-	if err := validateReasoningPreservationCompressionGeneration(ps, regs, boundClient, boundPoller); err != nil {
-		return nil, err
-	}
 	var host featurebundle.HostContributions
 	if ps.opts != nil {
 		host = featurebundle.HostContributions{TrafficObservers: slices.Clone(ps.opts.Production.TrafficObservers), UsageObservers: slices.Clone(ps.opts.Production.UsageObservers)}
@@ -87,26 +85,48 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if genMerged, err = bindCompactionContinuity(genMerged, ps, regs); err != nil {
 		return nil, err
 	}
-	if genMerged, err = bindReasoningPreservationCompression(genMerged, ps, regs, boundClient, boundPoller); err != nil {
+	accessMode, err := frozen.EffectiveAccessMode()
+	if err != nil {
 		return nil, err
 	}
-	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	lifecycles := append([]lipplugin.Lifecycle(nil), genMerged.Lifecycles...)
 	ext := extensionsFromProcessOptions(ps.opts)
 	if in.CandidateOpts != nil {
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
 		overlayExtensions(&ext, in.CandidateOpts.Extensions)
 	}
+	featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
+		Registrations:     regs,
+		MergeSurface:      genMerged,
+		Planes:            genMerged.Frozen,
+		Lifecycles:        lifecycles,
+		BackgroundClient:  boundClient,
+		BackgroundPoller:  boundPoller,
+		ReasoningProdOpts: reasoningCompressionProductionOptions(ps),
+		ReasoningTestOpts: reasoningCompressionTestingOptions(ps),
+		AccessMode:        accessMode,
+		SecretEnv:         ext.SecretGuardEnvironment,
+		SecretInputs:      ext.SecretGuardInputs,
+		DecisionObserver:  ext.SecretDecisionObserver,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if ps.StandardFeatures != nil {
+		ext.SecretGuard = &featOut.SecretGuard
+		ext.SecretGuardInventory = featOut.SecretGuardInventory
+	}
+	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	bus := in.Bus
 	if bus == nil {
-		bus = hooks.New(lipfeature.ProjectHookConfig(genMerged.Frozen, toolReactorErrorPolicy))
+		bus = hooks.New(lipfeature.ProjectHookConfig(featOut.Planes, toolReactorErrorPolicy))
 	}
 	cand, err := compileCandidate(ctx, GenerationCompileInput{
 		Process: ps, Bus: bus, Candidate: frozen,
 		CandidateOpts: &BuildOptions{
-			FeatureLifecycles:       lifecycles,
+			FeatureLifecycles:       featOut.Lifecycles,
 			Extensions:              ext,
-			FeaturePlanes:           genMerged.Frozen,
+			FeaturePlanes:           featOut.Planes,
 			ReplaceCandidateSurface: true,
 		},
 		LiveFactoryKinds: in.LiveFactoryKinds,
@@ -193,11 +213,14 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		backendIDs:        backendIDsOf(cand.execution.executor),
 		ledger:            ledger,
 		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
-		frozen:            genMerged.Frozen,
-		readiness:         cand.operations.readinessReport,
-		keepwarm:          keepwarmManager,
-		keepwarmRegistry:  cand.process.keepwarmRegistry,
-		keepwarmID:        keepwarmID,
+		// Publish the facade-composed planes as the generation's canonical
+		// frozen surface (Task 2.4, Requirement 8.3): facade-added/replaced
+		// planes must be visible to request-time bundle readers.
+		frozen:           featOut.Planes,
+		readiness:        cand.operations.readinessReport,
+		keepwarm:         keepwarmManager,
+		keepwarmRegistry: cand.process.keepwarmRegistry,
+		keepwarmID:       keepwarmID,
 	})
 	return bundle, nil
 }
@@ -326,6 +349,12 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	}
 	if src.SecretDecisionObserver != nil {
 		dst.SecretDecisionObserver = src.SecretDecisionObserver
+	}
+	if src.SecretGuard != nil {
+		dst.SecretGuard = src.SecretGuard
+	}
+	if src.SecretGuardInventory != nil {
+		dst.SecretGuardInventory = src.SecretGuardInventory
 	}
 }
 

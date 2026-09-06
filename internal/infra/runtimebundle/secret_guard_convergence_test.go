@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
@@ -85,7 +85,7 @@ func TestRuntimeBundle_SecretGuardCandidateOverlayAndReload(t *testing.T) {
 	baseEnv := &convergenceDummyEnv{}
 	baseObs := convergenceDummyObserver{}
 	baseInputs := SecretGuardInputs{
-		SingleUser: secretguardcompose.SingleUserOptions{
+		SingleUser: featurehost.SingleUserOptions{
 			MinSecretBytes: 10,
 		},
 	}
@@ -102,7 +102,7 @@ func TestRuntimeBundle_SecretGuardCandidateOverlayAndReload(t *testing.T) {
 		SecretGuardEnvironment: candEnv,
 		SecretDecisionObserver: candObs,
 		SecretGuardInputs: SecretGuardInputs{
-			SingleUser: secretguardcompose.SingleUserOptions{
+			SingleUser: featurehost.SingleUserOptions{
 				MinSecretBytes: 20,
 			},
 		},

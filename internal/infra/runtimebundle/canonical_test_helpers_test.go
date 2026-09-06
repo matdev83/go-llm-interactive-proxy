@@ -11,9 +11,39 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
+
+func compileCandidateWithFeatures(ctx context.Context, ps *runtimebundle.ProcessServices, cfg *config.Config, opts *runtimebundle.BuildOptions) (*runtimebundle.CandidateHTTPCompile, error) {
+	candOpts := &runtimebundle.BuildOptions{}
+	if opts != nil {
+		*candOpts = *opts
+	}
+	if ps.StandardFeatures != nil && cfg != nil {
+		accessMode, _ := cfg.EffectiveAccessMode()
+		featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
+			Registrations:    config.RegistrationsFromConfig(cfg),
+			AccessMode:       accessMode,
+			SecretEnv:        candOpts.Extensions.SecretGuardEnvironment,
+			SecretInputs:     candOpts.Extensions.SecretGuardInputs,
+			DecisionObserver: candOpts.Extensions.SecretDecisionObserver,
+		})
+		if err != nil {
+			return nil, err
+		}
+		candOpts.Extensions.SecretGuard = &featOut.SecretGuard
+		candOpts.Extensions.SecretGuardInventory = featOut.SecretGuardInventory
+		candOpts.FeaturePlanes = featOut.Planes
+		candOpts.FeatureLifecycles = featOut.Lifecycles
+	}
+	return runtimebundle.CompileCandidate(ctx, runtimebundle.GenerationCompileInput{
+		Process:       ps,
+		Bus:           hooks.New(hooks.Config{}),
+		CandidateOpts: candOpts,
+	})
+}
 
 // processAndCandidateErr is like mustProcessAndCandidate but returns compile/process
 // errors for negative tests. Non-nil ProcessServices/CandidateRuntime are registered
@@ -35,10 +65,7 @@ func processAndCandidateErr(t *testing.T, cfg *config.Config, opts *runtimebundl
 	if err != nil {
 		return nil, nil, err
 	}
-	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps,
-		Bus:     hooks.New(hooks.Config{}),
-	})
+	cand, err := compileCandidateWithFeatures(context.Background(), ps, cfg, opts)
 	if err != nil {
 		// Close process immediately on compile failure so process-owned closers
 		// are not left solely to deferred cleanup.
@@ -98,10 +125,7 @@ func mustProcessAndCandidateLog(t *testing.T, cfg *config.Config, opts *runtimeb
 	if err != nil {
 		t.Fatalf("NewProcessServices: %v", err)
 	}
-	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps,
-		Bus:     hooks.New(hooks.Config{}),
-	})
+	cand, err := compileCandidateWithFeatures(context.Background(), ps, cfg, opts)
 	if err != nil {
 		_ = ps.Close()
 		t.Fatalf("CompileCandidate: %v", err)

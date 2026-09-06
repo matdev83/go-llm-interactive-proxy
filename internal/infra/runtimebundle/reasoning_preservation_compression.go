@@ -4,43 +4,28 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/reasoningcompose"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
-	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
-func validateReasoningPreservationCompressionGeneration(ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) error {
-	opts := resolveReasoningCompressionOptions(ps)
-	return reasoningcompose.Validate(reasoningcompose.GenerationInput{
-		Registrations: regs,
-		Client:        client,
-		Poller:        poller,
-		Options:       opts,
-	})
-}
-
-func bindReasoningPreservationCompression(genMerged featurebundle.GeneratedMergeSurface, ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) (featurebundle.GeneratedMergeSurface, error) {
-	opts := resolveReasoningCompressionOptions(ps)
-	return reasoningcompose.Bind(genMerged, reasoningcompose.GenerationInput{
-		Registrations: regs,
-		Client:        client,
-		Poller:        poller,
-		Options:       opts,
-	})
-}
-
-func resolveReasoningCompressionOptions(ps *ProcessServices) reasoningcompose.Options {
+// reasoningCompressionProductionOptions returns the raw production reasoning
+// options source. The facade merges production/testing internally; generic
+// runtimebundle never merges or interprets reasoning policy (Task 2.4).
+func reasoningCompressionProductionOptions(ps *ProcessServices) featurehost.ReasoningCompressionOptions {
 	if ps == nil || ps.opts == nil {
-		return reasoningcompose.Options{}
+		return featurehost.ReasoningCompressionOptions{}
 	}
-	return reasoningcompose.ComposeOptions(ps.opts.Production.ReasoningCompression, ps.opts.Testing.ReasoningCompression)
+	return ps.opts.Production.ReasoningCompression
 }
 
-func lookupReasoningMatcherResolver(ps *ProcessServices) sdk.MatcherResolver {
-	return resolveReasoningCompressionOptions(ps).MatcherResolver
+// reasoningCompressionTestingOptions returns the raw testing reasoning
+// options source. See reasoningCompressionProductionOptions.
+func reasoningCompressionTestingOptions(ps *ProcessServices) featurehost.ReasoningCompressionOptions {
+	if ps == nil || ps.opts == nil {
+		return featurehost.ReasoningCompressionOptions{}
+	}
+	return ps.opts.Testing.ReasoningCompression
 }
 
 func isNilReasoningCapability(v any) bool {

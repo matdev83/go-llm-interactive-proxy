@@ -10,7 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -117,7 +117,7 @@ func TestSecretGuardProjection_ParityWithFrozenAndRegistrationOrder(t *testing.T
 	opts := &BuildOptions{
 		FeaturePlanes: gen.Frozen,
 	}
-	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
+	res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -192,7 +192,7 @@ func TestSecretGuardProjection_NilAndEmptySlicePreservation(t *testing.T) {
 		opts := &BuildOptions{
 			FeaturePlanes: frozen,
 		}
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		require.Len(t, res.Plane.Guards, 4)
@@ -296,7 +296,7 @@ func TestSecretGuardProjection_HostCapabilitiesEnvironmentPreserved(t *testing.T
 			Config:      lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: redact\n")},
 		}}
 
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		assert.Greater(t, env.lookups+env.snapshots, 0)
@@ -323,7 +323,7 @@ func TestSecretGuardProjection_HostCapabilitiesEnvironmentPreserved(t *testing.T
 			Enabled:     false,
 		}}
 
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		assert.Equal(t, 0, env.calls)
@@ -346,7 +346,7 @@ func TestSecretGuardProjection_HostCapabilitiesEnvironmentPreserved(t *testing.T
 		}}
 		cfg := &config.Config{Access: config.AccessConfig{Mode: "multi_user"}}
 
-		res, err := buildSecretGuardRuntime(cfg, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(cfg, slog.Default(), opts, regs)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		assert.Equal(t, 0, env.calls)
@@ -371,7 +371,7 @@ func TestSecretGuardProjection_HostCapabilitiesObserverFallbackAndChaining(t *te
 			SecretDecisionObserver: customObs,
 		},
 	}
-	res1, err := buildSecretGuardRuntime(&config.Config{}, log, opts1, nil)
+	res1, err := testBuildSecretGuardRuntime(&config.Config{}, log, opts1, nil)
 	require.NoError(t, err)
 	require.NotNil(t, res1.Plane.DecisionObserver)
 	err = res1.Plane.DecisionObserver.OnSecretDecision(context.Background(), sdksg.DecisionEvent{EventID: "ev-1"})
@@ -388,7 +388,7 @@ func TestSecretGuardProjection_HostCapabilitiesObserverFallbackAndChaining(t *te
 			SecretDecisionObserver: typedNilObs,
 		},
 	}
-	res2, err := buildSecretGuardRuntime(&config.Config{}, log, opts2, nil)
+	res2, err := testBuildSecretGuardRuntime(&config.Config{}, log, opts2, nil)
 	require.NoError(t, err)
 	require.NotNil(t, res2.Plane.DecisionObserver)
 	logBuf.Reset()
@@ -400,12 +400,12 @@ func TestSecretGuardProjection_HostCapabilitiesObserverFallbackAndChaining(t *te
 func TestSecretGuardProjection_HostCapabilitiesSingleUserInputsPreserved(t *testing.T) {
 	t.Parallel()
 
-	customMatcher := coresg.MatcherOptions{
+	customMatcher := featurehost.MatcherOptions{
 		PreserveKnownPrefixes: false,
 		MaskByte:              '#',
 	}
 	inputs := SecretGuardInputs{
-		SingleUser: coresg.SingleUserOptions{
+		SingleUser: featurehost.SingleUserOptions{
 			MatcherConfigured: true,
 			Matcher:           customMatcher,
 		},
@@ -422,7 +422,7 @@ func TestSecretGuardProjection_HostCapabilitiesSingleUserInputsPreserved(t *test
 		Enabled:     true,
 		Config:      lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: redact\n")},
 	}}
-	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+	res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	require.NotNil(t, res.Plane.MatcherResolver)
@@ -446,7 +446,7 @@ func TestSecretGuardProjection_CompositionRootUniqueness(t *testing.T) {
 			{Kind: lipsdk.PluginKindFeature, ID: "sg-2", FactoryKind: "secrets-guard", Enabled: true, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: redact\n")}},
 		}
 
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 		require.Error(t, err)
 		assert.Nil(t, res)
 		assert.Equal(t, "runtimebundle: multiple enabled secrets-guard registrations", err.Error())
@@ -471,7 +471,7 @@ func TestSecretGuardProjection_CompositionRootUniqueness(t *testing.T) {
 					{Kind: lipsdk.PluginKindFeature, ID: "sg-a", FactoryKind: tc.k1, Enabled: true, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: log\n")}},
 					{Kind: lipsdk.PluginKindFeature, ID: "sg-b", FactoryKind: tc.k2, Enabled: true, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: log\n")}},
 				}
-				_, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+				_, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 				require.Error(t, err)
 				assert.Equal(t, "runtimebundle: multiple enabled secrets-guard registrations", err.Error())
 			})
@@ -485,7 +485,7 @@ func TestSecretGuardProjection_CompositionRootUniqueness(t *testing.T) {
 			{Kind: lipsdk.PluginKindFeature, ID: "sg-disabled", FactoryKind: "secrets-guard", Enabled: false, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: log\n")}},
 			{Kind: lipsdk.PluginKindFeature, ID: "sg-enabled", FactoryKind: "secrets-guard", Enabled: true, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: block\n")}},
 		}
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		assert.Equal(t, "block", res.Inventory.SecretGuardAction)
@@ -497,7 +497,7 @@ func TestSecretGuardProjection_CompositionRootUniqueness(t *testing.T) {
 		regs := []lipsdk.Registration{
 			{Kind: lipsdk.PluginKindFeature, ID: "sg-disabled", FactoryKind: "secrets-guard", Enabled: false},
 		}
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		assert.Empty(t, res.Plane.Guards)

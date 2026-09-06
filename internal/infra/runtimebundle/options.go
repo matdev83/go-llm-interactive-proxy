@@ -9,13 +9,14 @@ import (
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -126,14 +127,16 @@ type AuthOptions struct {
 
 // ExtensionsOptions carries the feature-bundle extension surfaces merged into the runtime snapshot (task 5.1).
 // SecretGuardInputs carries single-user catalog / matcher composition overrides.
-type SecretGuardInputs = secretguardcompose.SecretGuardInputs
+type SecretGuardInputs = featurehost.SecretGuardInputs
 
 type ExtensionsOptions struct {
 	// SecretGuardInputs carries supported composition seams for the guard
 	// matcher/source configuration.
 	SecretGuardInputs      SecretGuardInputs
-	SecretGuardEnvironment secretguardcompose.Environment
+	SecretGuardEnvironment featurehost.SecretGuardEnvironment
 	SecretDecisionObserver sdk.Observer
+	SecretGuard            *extensions.SecretGuardPlane
+	SecretGuardInventory   *diag.InventoryExtras
 }
 
 // PolicyOptions carries policy-decision observer and budget configuration.

@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
@@ -25,6 +26,54 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
+
+func validateReasoningPreservationCompressionGeneration(ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) error {
+	fh, err := reasoningTestFeatureHost(ps)
+	if err != nil {
+		return err
+	}
+	_, err = fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+		Registrations:     regs,
+		BackgroundClient:  client,
+		BackgroundPoller:  poller,
+		ReasoningProdOpts: reasoningCompressionProductionOptions(ps),
+		ReasoningTestOpts: reasoningCompressionTestingOptions(ps),
+	})
+	return err
+}
+
+func bindReasoningPreservationCompression(genMerged featurebundle.GeneratedMergeSurface, ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) (featurebundle.GeneratedMergeSurface, error) {
+	fh, err := reasoningTestFeatureHost(ps)
+	if err != nil {
+		return featurebundle.GeneratedMergeSurface{}, err
+	}
+	out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+		Registrations:     regs,
+		MergeSurface:      genMerged,
+		Planes:            genMerged.Frozen,
+		Lifecycles:        genMerged.Lifecycles,
+		BackgroundClient:  client,
+		BackgroundPoller:  poller,
+		ReasoningProdOpts: reasoningCompressionProductionOptions(ps),
+		ReasoningTestOpts: reasoningCompressionTestingOptions(ps),
+	})
+	if err != nil {
+		return featurebundle.GeneratedMergeSurface{}, err
+	}
+	return featurebundle.GeneratedMergeSurface{Frozen: out.Planes, Lifecycles: out.Lifecycles}, nil
+}
+
+// reasoningTestFeatureHost returns the process StandardFeatures handle when
+// present, or a test-owned facade built through the production NewProcess
+// constructor otherwise. There is no test-only facade constructor.
+func reasoningTestFeatureHost(ps *ProcessServices) (*featurehost.Runtime, error) {
+	if ps != nil && ps.StandardFeatures != nil {
+		return ps.StandardFeatures, nil
+	}
+	return featurehost.NewProcess(context.Background(), featurehost.ProcessInput{
+		Logger: slog.Default(),
+	})
+}
 
 // --- Characterization stubs for reasoning binder ---
 

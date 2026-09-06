@@ -560,7 +560,7 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		opts := &BuildOptions{
 			FeaturePlanes: frozen,
 		}
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		// Composition preserves defensive copy with nil elements without invoking methods

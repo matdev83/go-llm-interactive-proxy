@@ -8,8 +8,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -89,7 +89,7 @@ func TestBuild_secretGuardBlock_noSyntheticSecretLeakageInLogsOrErrors(t *testin
 				"OPENAI_API_KEY": secret,
 			}},
 			SecretGuardInputs: runtimebundle.SecretGuardInputs{
-				SingleUser: coresg.SingleUserOptions{MinSecretBytes: 8},
+				SingleUser: featurehost.SingleUserOptions{MinSecretBytes: 8},
 			},
 		},
 	}, log)

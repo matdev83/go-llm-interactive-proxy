@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -243,12 +243,12 @@ func TestOverlayExtensions_OmittedFieldsBehavior(t *testing.T) {
 		t.Parallel()
 		dst := &ExtensionsOptions{
 			SecretGuardInputs: SecretGuardInputs{
-				SingleUser: coresg.SingleUserOptions{MinSecretBytes: 10},
+				SingleUser: featurehost.SingleUserOptions{MinSecretBytes: 10},
 			},
 		}
 		src := ExtensionsOptions{
 			SecretGuardInputs: SecretGuardInputs{
-				SingleUser: coresg.SingleUserOptions{MinSecretBytes: 20},
+				SingleUser: featurehost.SingleUserOptions{MinSecretBytes: 20},
 			},
 		}
 		overlayExtensions(dst, src)

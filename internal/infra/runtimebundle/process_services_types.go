@@ -28,6 +28,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/geoip"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -35,7 +36,6 @@ import (
 )
 
 // ProcessTracing holds process-owned tracing shutdown and outbound-propagation state.
-// Constructed once at process startup (typically via tracing.Init in bootstrap).
 type ProcessTracing struct {
 	Shutdown func(context.Context) error
 	Active   bool
@@ -81,6 +81,9 @@ type ProcessServices struct {
 	// BranchCoordinator is process-owned and survives immutable generation reload.
 	BranchCoordinator    *compactioncontinuity.BranchCoordinator
 	CompactionParentPort *compactioncompose.CompactionContinuityParentPort
+
+	// StandardFeatures owns the single standard-distribution feature host handle (Task 2.3).
+	StandardFeatures *featurehost.Runtime
 
 	// Internal handles required by candidate compilation (non-API).
 	persistence       *persistenceRuntime

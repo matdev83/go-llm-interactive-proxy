@@ -37,7 +37,7 @@ func (e *countingSecretGuardEnv) Snapshot() []string {
 // Inspect invariant: prepareInspect (shared by [InspectRoutes]/[InspectInventory])
 // builds no ProcessServices and accepts no secret-guard environment seam at
 // all, so it structurally cannot consult it (unlike BuildHost, which threads
-// an explicit coresg.Environment into publishInitialGeneration).
+// an explicit featurehost.SecretGuardEnvironment into publishInitialGeneration).
 func TestInspect_DoesNotRequestSecretGuardEnvironment(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml")
 	in := InspectInput{

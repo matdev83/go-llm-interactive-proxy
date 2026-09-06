@@ -1,0 +1,231 @@
+package featurehost_test
+
+import (
+	"context"
+	"log/slog"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+	"gopkg.in/yaml.v3"
+)
+
+func mustYAMLNode(t *testing.T, s string) yaml.Node {
+	t.Helper()
+	var n yaml.Node
+	if err := yaml.Unmarshal([]byte(s), &n); err != nil {
+		t.Fatalf("yaml.Unmarshal: %v", err)
+	}
+	if len(n.Content) > 0 {
+		return *n.Content[0]
+	}
+	return n
+}
+
+type dummyLifecycle struct {
+	id string
+}
+
+func (d *dummyLifecycle) Start(context.Context) error { return nil }
+func (d *dummyLifecycle) Stop(context.Context) error  { return nil }
+
+func lifecycleID(lc lipplugin.Lifecycle) string {
+	if d, ok := lc.(*dummyLifecycle); ok && d != nil {
+		return d.id
+	}
+	return ""
+}
+
+func TestCompileGeneration_OverlappingGenerations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	sched := newTestScheduler(t)
+	t.Cleanup(func() { _ = sched.Close() })
+
+	rt, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{
+		Logger:         slog.Default(),
+		ExtensionState: state.NewMem(nil),
+		BackgroundAux:  sched,
+	})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	t.Cleanup(func() { _ = rt.Close() })
+
+	gen1In := featurehost.GenerationInput{
+		Lifecycles: []lipplugin.Lifecycle{&dummyLifecycle{id: "gen1-lc"}},
+	}
+	gen1Out, err := rt.CompileGeneration(ctx, gen1In)
+	if err != nil {
+		t.Fatalf("CompileGeneration #1: %v", err)
+	}
+	if len(gen1Out.Lifecycles) != 1 || lifecycleID(gen1Out.Lifecycles[0]) != "gen1-lc" {
+		t.Fatalf("expected gen1 lifecycle, got %v", gen1Out.Lifecycles)
+	}
+
+	// Overlapping generation 2 while generation 1 is active
+	gen2In := featurehost.GenerationInput{
+		Lifecycles: []lipplugin.Lifecycle{&dummyLifecycle{id: "gen2-lc"}},
+	}
+	gen2Out, err := rt.CompileGeneration(ctx, gen2In)
+	if err != nil {
+		t.Fatalf("CompileGeneration #2: %v", err)
+	}
+	if len(gen2Out.Lifecycles) != 1 || lifecycleID(gen2Out.Lifecycles[0]) != "gen2-lc" {
+		t.Fatalf("expected gen2 lifecycle, got %v", gen2Out.Lifecycles)
+	}
+
+	// Generation 1 output remains unaffected
+	if len(gen1Out.Lifecycles) != 1 || lifecycleID(gen1Out.Lifecycles[0]) != "gen1-lc" {
+		t.Fatalf("gen1 was mutated by gen2 compile: %v", gen1Out.Lifecycles)
+	}
+}
+
+func TestCompileGeneration_CandidateFailure_LastGoodIsolation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	sched := newTestScheduler(t)
+	t.Cleanup(func() { _ = sched.Close() })
+
+	rt, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{
+		Logger:         slog.Default(),
+		ExtensionState: state.NewMem(nil),
+		BackgroundAux:  sched,
+	})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	t.Cleanup(func() { _ = rt.Close() })
+
+	// Compile generation 1 (last-good)
+	gen1In := featurehost.GenerationInput{
+		Lifecycles: []lipplugin.Lifecycle{&dummyLifecycle{id: "last-good"}},
+	}
+	gen1Out, err := rt.CompileGeneration(ctx, gen1In)
+	if err != nil {
+		t.Fatalf("CompileGeneration #1: %v", err)
+	}
+
+	// Compile candidate with real invalid feature entry
+	invalidRegs := []lipsdk.Registration{{
+		Kind:        lipsdk.PluginKindFeature,
+		ID:          "secrets-guard",
+		Enabled:     true,
+		Config:      lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: totally-invalid-action\n")},
+	}}
+	failIn := featurehost.GenerationInput{
+		Registrations: invalidRegs,
+	}
+	_, err = rt.CompileGeneration(ctx, failIn)
+	if err == nil {
+		t.Fatal("expected candidate compile error for invalid feature registration, got nil")
+	}
+
+	// Assert last-good generation is intact
+	if len(gen1Out.Lifecycles) != 1 || lifecycleID(gen1Out.Lifecycles[0]) != "last-good" {
+		t.Fatalf("last-good generation corrupted by failed compile: %v", gen1Out.Lifecycles)
+	}
+
+	// Successfully compile candidate 3
+	gen3In := featurehost.GenerationInput{
+		Lifecycles: []lipplugin.Lifecycle{&dummyLifecycle{id: "gen3-lc"}},
+	}
+	gen3Out, err := rt.CompileGeneration(ctx, gen3In)
+	if err != nil {
+		t.Fatalf("CompileGeneration #3 after failure: %v", err)
+	}
+	if len(gen3Out.Lifecycles) != 1 || lifecycleID(gen3Out.Lifecycles[0]) != "gen3-lc" {
+		t.Fatalf("expected gen3 lifecycle, got %v", gen3Out.Lifecycles)
+	}
+}
+
+func TestCompileGeneration_ZeroProcessResourceConstruction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	sched := newTestScheduler(t)
+	t.Cleanup(func() { _ = sched.Close() })
+
+	rt, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{
+		Logger:         slog.Default(),
+		ExtensionState: state.NewMem(nil),
+		BackgroundAux:  sched,
+	})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	t.Cleanup(func() { _ = rt.Close() })
+
+	// Compile generation multiple times
+	for range 3 {
+		out, err := rt.CompileGeneration(ctx, featurehost.GenerationInput{})
+		if err != nil {
+			t.Fatalf("CompileGeneration: %v", err)
+		}
+		// CorePorts in Task 2.2 must NOT construct new process resources
+		if out.CorePorts.CompactionDetector != nil {
+			t.Fatal("CompileGeneration unexpectedly constructed CompactionDetector")
+		}
+	}
+}
+
+func TestCompileGeneration_NoGenericServiceMapOrResolveAPI(t *testing.T) {
+	t.Parallel()
+
+	rtType := reflect.TypeOf((*featurehost.Runtime)(nil))
+	for i := 0; i < rtType.NumMethod(); i++ {
+		name := rtType.Method(i).Name
+		forbidden := []string{"Resolve", "Get", "Lookup", "Service", "Services", "GetService"}
+		for _, f := range forbidden {
+			if strings.EqualFold(name, f) {
+				t.Fatalf("featurehost.Runtime must not expose generic service map / lookup API: %s", name)
+			}
+		}
+	}
+}
+
+func TestCompileGeneration_DefensiveCopying(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rt, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{
+		Logger: slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	t.Cleanup(func() { _ = rt.Close() })
+
+	origLC := &dummyLifecycle{id: "orig"}
+	lcs := []lipplugin.Lifecycle{origLC}
+	out, err := rt.CompileGeneration(ctx, featurehost.GenerationInput{
+		Lifecycles: lcs,
+	})
+	if err != nil {
+		t.Fatalf("CompileGeneration: %v", err)
+	}
+
+	// Mutate input slice; output must not change
+	lcs[0] = &dummyLifecycle{id: "mutated"}
+	if lifecycleID(out.Lifecycles[0]) != "orig" {
+		t.Fatal("CompileGeneration did not defensively copy Lifecycles from input")
+	}
+
+	// Mutate output slice; subsequent reads of fresh compile must not change
+	out.Lifecycles[0] = &dummyLifecycle{id: "mutated-out"}
+	out2, err := rt.CompileGeneration(ctx, featurehost.GenerationInput{
+		Lifecycles: []lipplugin.Lifecycle{&dummyLifecycle{id: "fresh"}},
+	})
+	if err != nil {
+		t.Fatalf("CompileGeneration #2: %v", err)
+	}
+	if lifecycleID(out2.Lifecycles[0]) != "fresh" {
+		t.Fatalf("expected fresh, got %s", lifecycleID(out2.Lifecycles[0]))
+	}
+}

@@ -204,7 +204,8 @@ var (
 	AllowedObserverProjections = map[string]bool{
 		"internal/infra/runtimebundle.buildRuntimeSnapshot":    true,
 		"internal/infra/runtimebundle.buildExecutorRuntime":    true,
-		"internal/infra/runtimebundle.buildSecretGuardRuntime": true,
+		"internal/infra/runtimebundle.buildSecretGuardRuntime":             true,
+		"internal/standardplugins/featurehost.(*Runtime).CompileGeneration": true,
 		"internal/infra/compactioncompose.BindFeatureSurface":  true,
 		"internal/infra/reasoningcompose.Bind":                 true,
 		"internal/featurebundle.FreezeBundle":                  true,

@@ -16,9 +16,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testBackgroundProcessRunner struct{}
@@ -37,6 +42,7 @@ type ProcessFeatureSnapshot struct {
 	BranchCoordinator      *compactioncontinuity.BranchCoordinator
 	CompactionParentPort   *compactioncompose.CompactionContinuityParentPort
 	BackgroundAux          *BackgroundAuxScheduler
+	StandardFeatures       *featurehost.Runtime
 }
 
 // CaptureProcessFeatureSnapshot extracts the current process feature resources from ProcessServices.
@@ -52,6 +58,7 @@ func CaptureProcessFeatureSnapshot(ps *ProcessServices) ProcessFeatureSnapshot {
 		BranchCoordinator:      ps.BranchCoordinator,
 		CompactionParentPort:   ps.CompactionParentPort,
 		BackgroundAux:          ps.BackgroundAux,
+		StandardFeatures:       ps.StandardFeatures,
 	}
 }
 
@@ -79,6 +86,9 @@ func (s ProcessFeatureSnapshot) AssertAllPresent(t *testing.T) {
 	if s.BackgroundAux == nil {
 		t.Fatal("expected non-nil BackgroundAux on ProcessServices")
 	}
+	if s.StandardFeatures == nil {
+		t.Fatal("expected non-nil StandardFeatures on ProcessServices")
+	}
 }
 
 // AssertIdentical asserts that two snapshots refer to the exact same physical instances.
@@ -105,6 +115,9 @@ func (s ProcessFeatureSnapshot) AssertIdentical(t *testing.T, other ProcessFeatu
 	if s.BackgroundAux != other.BackgroundAux {
 		t.Fatalf("%s: BackgroundAux instance changed: %p vs %p", stage, s.BackgroundAux, other.BackgroundAux)
 	}
+	if s.StandardFeatures != other.StandardFeatures {
+		t.Fatalf("%s: StandardFeatures instance changed: %p vs %p", stage, s.StandardFeatures, other.StandardFeatures)
+	}
 }
 
 // AssertDistinctOwnedResources asserts that all six feature-owned process resources have distinct
@@ -128,6 +141,9 @@ func (s ProcessFeatureSnapshot) AssertDistinctOwnedResources(t *testing.T, other
 	}
 	if s.CompactionParentPort == other.CompactionParentPort {
 		t.Fatalf("CompactionParentPort pointer identical across distinct ProcessServices builds: %p", s.CompactionParentPort)
+	}
+	if s.StandardFeatures == other.StandardFeatures {
+		t.Fatalf("StandardFeatures pointer identical across distinct ProcessServices builds: %p", s.StandardFeatures)
 	}
 }
 
@@ -398,11 +414,17 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 
 	// 3. Process Shutdown:
 	// (c) Exactly one physical close per closable resource at ps.Close.
+	if ps.StandardFeatures.Closed() {
+		t.Fatal("StandardFeatures closed prematurely before ps.Close")
+	}
 	if err := ps.Close(); err != nil {
 		t.Fatalf("ProcessServices.Close: %v", err)
 	}
 	if !ps.Closed() {
 		t.Fatal("ProcessServices.Closed() returned false after Close")
+	}
+	if !ps.StandardFeatures.Closed() {
+		t.Fatal("StandardFeatures not closed after ps.Close")
 	}
 
 	// Assert exactly one physical close per closable resource.
@@ -537,6 +559,181 @@ func TestProcessFeatureResources_DistinctProcessInstances(t *testing.T) {
 	// Also verify default-constructed BackgroundAux instances are distinct.
 	if snap1.BackgroundAux == snap2.BackgroundAux {
 		t.Fatalf("BackgroundAux pointer identical across distinct ProcessServices builds: %p", snap1.BackgroundAux)
+	}
+}
+
+// TestProcessFeatureResources_RealCompilerCandidateIsolation verifies requirement I4:
+// Real integrated compiler candidate failure leaves last-good published generation untouched,
+// keeps process snapshot identical, and observes zero duplicate process-resource construction.
+func TestProcessFeatureResources_RealCompilerCandidateIsolation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	log := testkit.DiscardLogger()
+
+	reg := pluginreg.NewRegistry()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatalf("InstallStandardBundleOn: %v", err)
+	}
+	var auxConstructionCount atomic.Int32
+	scheduler, err := auxreq.NewBackgroundScheduler(ctx, func() auxreq.ExecutorRunner {
+		return testBackgroundProcessRunner{}
+	}, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 2})
+	if err != nil {
+		t.Fatalf("NewBackgroundScheduler: %v", err)
+	}
+	auxConstructionCount.Add(1)
+	ps, err := NewProcessServices(ctx, ProcessServicesInput{
+		Cfg:           testProcessServicesOwnershipConfig(),
+		Log:           log,
+		Opts:          &BuildOptions{PluginRegistry: reg},
+		BackgroundAux: scheduler,
+	})
+	if err != nil {
+		_ = scheduler.Close()
+		t.Fatalf("NewProcessServices: %v", err)
+	}
+	defer func() { _ = ps.Close() }()
+
+	initialSnap := CaptureProcessFeatureSnapshot(ps)
+	initialSnap.AssertAllPresent(t)
+
+	initialAuxCount := auxConstructionCount.Load()
+	initialClosersCount := len(ps.closers)
+	initialFeatureClosersCount := ps.StandardFeatures.ClosersCount()
+
+	// 1. Compile valid Generation 1 via real CompileGeneration with secrets-guard configured.
+	validCandidate := testProcessServicesOwnershipConfig()
+	validCandidate.Plugins.Features = []config.PluginConfig{
+		{
+			ID:      "secrets-guard",
+			Enabled: true,
+			Config:  mustYAMLNode(t, "action: block\npatterns: [\"secret\"]\n"),
+		},
+	}
+	// Bus: nil forces compileGeneration to build the hook bus FROM featOut.Planes rather than supplying one around it.
+	gen1, err := CompileGeneration(ctx, GenerationCompileInput{
+		Process:   ps,
+		Candidate: validCandidate,
+		Compose:   stubHandlerComposer,
+	})
+	if err != nil {
+		t.Fatalf("CompileGeneration #1: %v", err)
+	}
+	defer func() { _ = gen1.Close() }()
+
+	b1 := gen1.(*GenerationBundle)
+	snap1 := b1.execution.executor.RuntimeSnapshot
+	require.NotNil(t, snap1, "expected non-nil RuntimeSnapshot on compiled Generation 1")
+
+	// Verify facade-composed output reflected on candidate runtime:
+	// SecretGuardPlane has MatcherResolver and DecisionObserver produced by the real facade.
+	sgPlane := snap1.SecretGuardPlane()
+	require.NotNil(t, sgPlane.MatcherResolver, "expected non-nil MatcherResolver from facade secret-guard composition")
+	require.NotNil(t, sgPlane.DecisionObserver, "expected non-nil DecisionObserver from facade secret-guard composition")
+	assert.Len(t, snap1.SecretGuards(), 1, "expected 1 secret guard from facade featOut.Planes in candidate snapshot")
+	assert.Len(t, lipfeature.Get(b1.operations.Frozen, lipfeature.PlaneSecretGuards), 1, "expected 1 secret guard on generation bundle")
+
+	// Prove facade consumption sensitivity: neutralizing the facade (StandardFeatures == nil)
+	// produces a candidate where facade-composed secret-guard plane (MatcherResolver/DecisionObserver) is absent,
+	// even when the candidate configuration still has secrets-guard configured.
+	origStandardFeatures := ps.StandardFeatures
+	ps.StandardFeatures = nil
+	genNeutral, err := CompileGeneration(ctx, GenerationCompileInput{
+		Process:   ps,
+		Candidate: validCandidate,
+		Compose:   stubHandlerComposer,
+	})
+	ps.StandardFeatures = origStandardFeatures
+	if err != nil {
+		t.Fatalf("CompileGeneration neutral: %v", err)
+	}
+	defer func() { _ = genNeutral.Close() }()
+	bNeutral := genNeutral.(*GenerationBundle)
+	snapNeutral := bNeutral.execution.executor.RuntimeSnapshot
+	require.NotNil(t, snapNeutral, "expected non-nil RuntimeSnapshot on neutral Generation")
+	neutralPlane := snapNeutral.SecretGuardPlane()
+	if neutralPlane.MatcherResolver != nil {
+		t.Fatal("expected nil MatcherResolver when facade output is neutralized (StandardFeatures == nil)")
+	}
+	if neutralPlane.DecisionObserver != nil {
+		t.Fatal("expected nil DecisionObserver when facade output is neutralized (StandardFeatures == nil)")
+	}
+
+	snapAfterGen1 := CaptureProcessFeatureSnapshot(ps)
+	initialSnap.AssertIdentical(t, snapAfterGen1, "after real generation 1 compile")
+
+	if got := auxConstructionCount.Load(); got != initialAuxCount {
+		t.Fatalf("BackgroundAux count changed after Gen 1: got %d want %d", got, initialAuxCount)
+	}
+	if got := len(ps.closers); got != initialClosersCount {
+		t.Fatalf("closers count changed after Gen 1: got %d want %d", got, initialClosersCount)
+	}
+	if got := ps.StandardFeatures.ClosersCount(); got != initialFeatureClosersCount {
+		t.Fatalf("featurehost closers changed after Gen 1: got %d want %d", got, initialFeatureClosersCount)
+	}
+
+	// 2. Compile overlapping Candidate Generation 2 with real invalid feature entry (invalid secrets-guard action).
+	invalidCandidate := testProcessServicesOwnershipConfig()
+	invalidCandidate.Plugins.Features = []config.PluginConfig{
+		{
+			ID:      "secrets-guard",
+			Enabled: true,
+			Config:  mustYAMLNode(t, "action: invalid-action\n"),
+		},
+	}
+
+	// Bus: nil forces hook bus to be built from featOut.Planes; compilation must fail inside the facade call.
+	cand2, err2 := CompileGeneration(ctx, GenerationCompileInput{
+		Process:   ps,
+		Candidate: invalidCandidate,
+		Compose:   stubHandlerComposer,
+	})
+
+	// Verify Candidate 2 compilation failed with real feature composition error.
+	if err2 == nil {
+		t.Fatal("expected candidate compile error for invalid feature registration, got nil")
+	}
+	if cand2 != nil {
+		t.Fatal("expected nil candidate on compilation failure")
+	}
+
+	// Assert published Generation 1 remains untouched and intact.
+	if err := gen1.Quiesce(ctx); err != nil {
+		t.Fatalf("published Generation 1 Quiesce failed after Candidate failure: %v", err)
+	}
+
+	// Assert process snapshot after failed compile is IDENTICAL to initial snapshot.
+	snapAfterFail := CaptureProcessFeatureSnapshot(ps)
+	initialSnap.AssertIdentical(t, snapAfterFail, "after failed candidate compile")
+
+	// Assert zero duplicate process-resource construction observed via counters.
+	if got := auxConstructionCount.Load(); got != initialAuxCount {
+		t.Fatalf("BackgroundAux count changed after failed candidate: got %d want %d", got, initialAuxCount)
+	}
+	if got := len(ps.closers); got != initialClosersCount {
+		t.Fatalf("closers count changed after failed candidate: got %d want %d", got, initialClosersCount)
+	}
+	if got := ps.StandardFeatures.ClosersCount(); got != initialFeatureClosersCount {
+		t.Fatalf("featurehost closers changed after failed candidate: got %d want %d", got, initialFeatureClosersCount)
+	}
+
+	// Close published Generation 1.
+	if err := gen1.Close(); err != nil {
+		t.Fatalf("published Generation 1 Close: %v", err)
+	}
+	snapAfterGen1Close := CaptureProcessFeatureSnapshot(ps)
+	initialSnap.AssertIdentical(t, snapAfterGen1Close, "after published gen 1 close")
+
+	// Process shutdown: exactly one close.
+	if err := ps.Close(); err != nil {
+		t.Fatalf("ps.Close: %v", err)
+	}
+	if !ps.Closed() {
+		t.Fatal("expected ps.Closed() == true")
+	}
+	if !ps.StandardFeatures.Closed() {
+		t.Fatal("expected ps.StandardFeatures.Closed() == true")
 	}
 }
 

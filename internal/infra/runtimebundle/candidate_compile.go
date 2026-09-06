@@ -12,12 +12,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
 
@@ -133,13 +133,12 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if err != nil {
 		return nil, fail(err)
 	}
-	var regs []lipsdk.Registration
-	if cfg != nil {
-		regs = config.RegistrationsFromConfig(cfg)
-	}
-	sg, err := buildSecretGuardRuntime(cfg, log, opts, regs)
-	if err != nil {
-		return nil, fail(err)
+	var sg *secretGuardRuntime
+	if opts.Extensions.SecretGuard != nil {
+		sg = &secretGuardRuntime{
+			Plane:     *opts.Extensions.SecretGuard,
+			Inventory: opts.Extensions.SecretGuardInventory,
+		}
 	}
 	obs := buildGenerationObservability(bctx, ps.Metrics)
 	model, err := buildModelRuntime(bctx, obs.Upstream)
@@ -247,7 +246,12 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			keepwarmAccounting:      execRun.Production.KeepwarmAccounting,
 			tokenAccountingAdmin:    execRun.TokenAccountingAdmin,
 			readinessReport:         execRun.ReadinessReport,
-			secretGuardInventory:    sg.Inventory,
+			secretGuardInventory: func() *diag.InventoryExtras {
+				if sg != nil {
+					return sg.Inventory
+				}
+				return nil
+			}(),
 			terminalProcessor:       ps.TerminalWorkProcessor,
 			terminalRegistry:        ps.TerminalWorkRegistry,
 			terminalQueries:         ps.TerminalWorkQueries,

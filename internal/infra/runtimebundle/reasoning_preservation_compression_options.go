@@ -1,11 +1,9 @@
 package runtimebundle
 
 import (
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/reasoningcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 )
 
-// ReasoningCompressionOptions holds trusted reasoning semantic compression
-// composition seams. Production and testing share the same shape; the
-// dedicated file keeps ProductionOptions/TestingOptions compact and preserves
-// the reasoning_preservation_compression overlay.
-type ReasoningCompressionOptions = reasoningcompose.Options
+// ReasoningCompressionOptions carries trusted host-provided egress policy and
+// MatcherResolver bindings for reasoning preservation/compression (task 6.2).
+type ReasoningCompressionOptions = featurehost.ReasoningCompressionOptions

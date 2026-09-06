@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -165,12 +165,12 @@ func TestExtensionsFromProcessOptions_DefensiveCopyAndNilSemantics(t *testing.T)
 		env := stubProjEnv{val: "env-val"}
 		obs := stubProjObs{val: "obs-val"}
 		srcInputs := SecretGuardInputs{
-			SingleUser: coresg.SingleUserOptions{
+			SingleUser: featurehost.SingleUserOptions{
 				IncludePopularEnv: true,
 				IncludeEnv:        []string{"ENV_A", "ENV_B"},
 				ExcludeEnv:        []string{"ENV_C", "ENV_D"},
 				MinSecretBytes:    16,
-				Matcher:           coresg.MatcherOptions{PreserveKnownPrefixes: true, MaskByte: '#'},
+				Matcher:           featurehost.MatcherOptions{PreserveKnownPrefixes: true, MaskByte: '#'},
 				MatcherConfigured: true,
 			},
 		}
@@ -212,7 +212,7 @@ func TestExtensionsFromProcessOptions_DefensiveCopyAndNilSemantics(t *testing.T)
 		opts := &BuildOptions{
 			Extensions: ExtensionsOptions{
 				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: coresg.SingleUserOptions{
+					SingleUser: featurehost.SingleUserOptions{
 						IncludeEnv: nil,
 						ExcludeEnv: nil,
 					},
@@ -231,7 +231,7 @@ func TestExtensionsFromProcessOptions_DefensiveCopyAndNilSemantics(t *testing.T)
 		opts := &BuildOptions{
 			Extensions: ExtensionsOptions{
 				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: coresg.SingleUserOptions{
+					SingleUser: featurehost.SingleUserOptions{
 						IncludeEnv: []string{},
 						ExcludeEnv: []string{},
 					},
