@@ -771,10 +771,10 @@ func TestResidualOwnershipInventoryContract_AcceptsArchivedLocation(t *testing.T
 	}
 
 	root := repoRoot(t)
-	realActive := filepath.Join(root, ".kiro", "specs", "pre-oss-core-slimming", "residual-ownership-inventory.md")
+	realActive := filepath.Join(root, ".kiro", "specs", "archive", "pre-oss-core-slimming", "residual-ownership-inventory.md")
 	data, err := os.ReadFile(realActive)
 	if err != nil {
-		t.Fatalf("read real active inventory: %v", err)
+		t.Fatalf("read real archived inventory: %v", err)
 	}
 
 	archivedFile := filepath.Join(archivedDir, "residual-ownership-inventory.md")
