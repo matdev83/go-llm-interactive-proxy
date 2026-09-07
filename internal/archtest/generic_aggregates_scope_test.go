@@ -246,6 +246,10 @@ func (s *archPkgScope) forbiddenPkgInType(expr ast.Expr, file *archPkgFile) (str
 			visit(t.Value)
 		case *ast.ChanType:
 			visit(t.Value)
+		case *ast.Ellipsis:
+			visit(t.Elt)
+		case *ast.ParenExpr:
+			visit(t.X)
 		case *ast.StructType:
 			if t.Fields != nil {
 				for _, f := range t.Fields.List {

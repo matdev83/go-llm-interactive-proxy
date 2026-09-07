@@ -2,6 +2,8 @@ package archtest
 
 import (
 	"go/ast"
+	"strings"
+	"testing"
 )
 
 // Alias/defined-container resolution for the generic-aggregates ratchet.
@@ -58,6 +60,10 @@ func (s *archPkgScope) forbiddenInDeclExpr(e ast.Expr, file *archPkgFile, visiti
 		return s.forbiddenInDeclExpr(t.Value, file, visiting)
 	case *ast.ChanType:
 		return s.forbiddenInDeclExpr(t.Value, file, visiting)
+	case *ast.Ellipsis:
+		return s.forbiddenInDeclExpr(t.Elt, file, visiting)
+	case *ast.ParenExpr:
+		return s.forbiddenInDeclExpr(t.X, file, visiting)
 	case *ast.StructType:
 		if t.Fields != nil {
 			for _, f := range t.Fields.List {
@@ -160,5 +166,118 @@ func (s *archPkgScope) resolveArchFullName(name, shape string, visiting map[stri
 		default:
 			return "", "", "", false
 		}
+	}
+}
+
+// TestGenericAggregates_R3aVariadicParenForms closes the Ellipsis/ParenExpr
+// bypass: variadic func aliases/chains and paren-wrapped map values hiding a
+// forbidden package must be flagged, in both alias and defined-type forms.
+// Neutral variadic/paren shapes with no forbidden package stay silent.
+func TestGenericAggregates_R3aVariadicParenForms(t *testing.T) {
+	t.Parallel()
+	keepwarmImport := `"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"`
+	positive := []struct {
+		name    string
+		sources map[string]string
+		target  string
+	}{
+		{
+			name: "alias func variadic chain",
+			sources: map[string]string{"synthetic.go": `package fixture
+import ` + keepwarmImport + `
+type Callback = func(...*keepwarm.Manager)
+type CallbackChain = Callback
+type VariadicAliasAggregate struct {
+	Handler CallbackChain
+}
+`},
+			target: "VariadicAliasAggregate",
+		},
+		{
+			name: "defined func variadic chain",
+			sources: map[string]string{"synthetic.go": `package fixture
+import ` + keepwarmImport + `
+type CallbackDef func(...*keepwarm.Manager)
+type CallbackDefChain CallbackDef
+type VariadicDefinedAggregate struct {
+	Handler CallbackDefChain
+}
+`},
+			target: "VariadicDefinedAggregate",
+		},
+		{
+			name: "alias paren-wrapped map value chain",
+			sources: map[string]string{"synthetic.go": `package fixture
+import ` + keepwarmImport + `
+type ManagerBagParen = map[string](*keepwarm.Manager)
+type ManagerBagParenChain = ManagerBagParen
+type ParenAliasAggregate struct {
+	Managers ManagerBagParenChain
+}
+`},
+			target: "ParenAliasAggregate",
+		},
+		{
+			name: "defined paren-wrapped map value chain",
+			sources: map[string]string{"synthetic.go": `package fixture
+import ` + keepwarmImport + `
+type ManagerBagParenDef map[string](*keepwarm.Manager)
+type ManagerBagParenDefChain ManagerBagParenDef
+type ParenDefinedAggregate struct {
+	Managers ManagerBagParenDefChain
+}
+`},
+			target: "ParenDefinedAggregate",
+		},
+	}
+	for _, tc := range positive {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			scope := archParseSources(t, tc.sources)
+			got := scope.scan(tc.target, nil)
+			if len(got) == 0 {
+				t.Fatalf("expected at least 1 violation for %s, got zero", tc.target)
+			}
+		})
+	}
+
+	neutral := []struct {
+		name    string
+		sources map[string]string
+		target  string
+	}{
+		{
+			name: "neutral variadic func",
+			sources: map[string]string{"synthetic.go": `package fixture
+type NeutralCallback = func(...int)
+type NeutralCallbackChain = NeutralCallback
+type NeutralVariadicAggregate struct {
+	Handler NeutralCallbackChain
+}
+`},
+			target: "NeutralVariadicAggregate",
+		},
+		{
+			name: "neutral paren-wrapped types",
+			sources: map[string]string{"synthetic.go": `package fixture
+type NeutralBag = map[string](*int)
+type NeutralBagChain = NeutralBag
+type NeutralParenAggregate struct {
+	Managers NeutralBagChain
+	Single (int)
+}
+`},
+			target: "NeutralParenAggregate",
+		},
+	}
+	for _, tc := range neutral {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			scope := archParseSources(t, tc.sources)
+			got := scope.scan(tc.target, nil)
+			if len(got) != 0 {
+				t.Fatalf("expected zero violations, got %d:\n%s", len(got), strings.Join(got, "\n"))
+			}
+		})
 	}
 }
