@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -78,6 +78,7 @@ func interleavedSecureExecutor(t *testing.T, backends map[string]execbackend.Bac
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = interleavedthinking.NewMemoStore(4096)
+	wireInterleavedTestSteering(ex)
 	return ex, st
 }
 
@@ -357,6 +358,7 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = memoStore
+	cv := wireInterleavedTestSteering(ex)
 
 	first := interleavedBaseCall(oldSelector)
 	firstStream, err := ex.Execute(context.Background(), first)
@@ -398,7 +400,8 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve memo anchor: %v", err)
 	}
-	if _, err := st.ConversationViewStore().PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
+	_ = cv.CreateALeg(context.Background(), aLegID)
+	if _, err := cv.PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
 		OverlayID: "interleaved-thinking-memo",
 		Message: conversationview.StoredMessageV1{
 			Role: lipapi.RoleUser,

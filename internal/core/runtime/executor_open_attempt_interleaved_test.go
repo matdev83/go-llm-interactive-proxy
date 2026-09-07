@@ -11,7 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -206,6 +206,7 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	}
 	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
 	ex.MemoStore = memoStore
+	cv := wireInterleavedTestSteering(ex)
 
 	// Seed an A-leg via a valid selector whose executor branch is reachable first.
 	first := interleavedBaseCall("[thinker]other-be:m^exec-be:m")
@@ -256,7 +257,8 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve memo anchor: %v", err)
 	}
-	if _, err := st.ConversationViewStore().PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
+	_ = cv.CreateALeg(context.Background(), aLegID)
+	if _, err := cv.PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
 		OverlayID: "interleaved-thinking-memo",
 		Message: conversationview.StoredMessageV1{
 			Role: lipapi.RoleUser,
@@ -271,7 +273,7 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed memo steering overlay: %v", err)
 	}
-	seededSnapshot, err := st.ConversationViewStore().Snapshot(context.Background(), aLegID)
+	seededSnapshot, err := cv.Snapshot(context.Background(), aLegID)
 	if err != nil {
 		t.Fatalf("snapshot seeded memo steering overlay: %v", err)
 	}
@@ -465,6 +467,7 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 	}
 	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
 	ex.MemoStore = memoStore
+	cv := wireInterleavedTestSteering(ex)
 
 	call := interleavedBaseCall("ok:m")
 	firstStream, err := ex.Execute(context.Background(), call)
@@ -496,7 +499,8 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve memo anchor: %v", err)
 	}
-	if _, err := st.ConversationViewStore().PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
+	_ = cv.CreateALeg(context.Background(), aLegID)
+	if _, err := cv.PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
 		OverlayID: "interleaved-thinking-memo",
 		Message: conversationview.StoredMessageV1{
 			Role: lipapi.RoleUser,

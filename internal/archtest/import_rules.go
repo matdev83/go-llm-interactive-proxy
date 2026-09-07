@@ -278,6 +278,16 @@ var ForbiddenImports = []ForbiddenImportRule{
 		Reason:        "internal/core/compactioncontinuity has been retired; use internal/plugins/features/compactioncontinuity/state",
 	},
 	{
+		SourcePattern: "*",
+		TargetPattern: "/internal/core/conversationview",
+		Reason:        "internal/core/conversationview has been retired; use internal/core/conversationprojection and internal/infra/conversationview",
+	},
+	{
+		SourcePattern: "internal/core/conversationprojection",
+		TargetPattern: "/internal/infra",
+		Reason:        "conversationprojection core must not depend on infra",
+	},
+	{
 		SourcePattern: "internal/plugins/features/secretguard",
 		TargetPattern: "/internal/core",
 		Reason:        "secretguard feature tree must not depend on internal/core (use pkg/lipsdk contracts)",

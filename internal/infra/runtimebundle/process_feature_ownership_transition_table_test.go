@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -101,6 +102,17 @@ var ProcessFeatureTransitionTable = []ProcessFeatureTransitionRow{
 		InterimOwnershipRule:  "Featurehost is sole owner; ProcessServices retains zero fields or duplicate constructors.",
 	},
 	{
+		ResourceName:          "ConversationStore",
+		ConcreteType:          "conversationview.Store",
+		CurrentConstructor:    "featurehost.NewProcess(ctx, in) called at featurehost/process.go:85",
+		CurrentFieldHolder:    "featurehost.Runtime.conversationStore",
+		CloseRegistrationSite: "Non-closable (no cleanup registered)",
+		Closable:              false,
+		BorrowedDeps:          "None (pure reference store or bun persistence)",
+		TransferTask:          "Task 4.3",
+		InterimOwnershipRule:  "Featurehost is sole owner; ProcessServices retains zero fields or duplicate constructors.",
+	},
+	{
 		ResourceName:          "BackgroundAux",
 		ConcreteType:          "*auxreq.BackgroundScheduler",
 		CurrentConstructor:    "compactioncompose.NewProductionBackgroundScheduler(ctx, in.Cfg) called at background_aux_lifecycle.go:23",
@@ -171,6 +183,9 @@ func ValidateProcessFeatureOwnership(ps *ProcessServices) error {
 	if ps.StandardFeatures.CompactionDetector() == nil {
 		return fmt.Errorf("%w: transferred resource CompactionDetector is missing from featurehost", ErrDualConstructorWiring)
 	}
+	if ps.StandardFeatures.ConversationStore() == nil {
+		return fmt.Errorf("%w: transferred resource ConversationStore is missing from featurehost", ErrDualConstructorWiring)
+	}
 
 	// 3. Inspect real typed featurehost Runtime state per transition table.
 	// Prior to Task 7.3, featurehost must NOT own TerminalDecisionPolicy and
@@ -189,6 +204,7 @@ func _driftCompilationGuard() {
 
 	var sf *featurehost.Runtime
 	var _ runtime.CompactionDetector = sf.CompactionDetector()
+	var _ conversationview.Store = sf.ConversationStore()
 
 	var (
 		_ func(int) (*keepwarm.PolicyStore, error)                                      = keepwarm.NewPolicyStore
@@ -256,6 +272,14 @@ func TestProcessFeatureOwnership_TransitionTableIntegrity(t *testing.T) {
 			closable:     false,
 			transferTask: "Task 3.3",
 			callSite:     "featurehost/process.go:67",
+			closeSite:    "Non-closable",
+		},
+		"ConversationStore": {
+			fieldName:    "ConversationStore",
+			fhField:      "conversationStore",
+			closable:     false,
+			transferTask: "Task 4.3",
+			callSite:     "featurehost/process.go:85",
 			closeSite:    "Non-closable",
 		},
 		"BackgroundAux": {

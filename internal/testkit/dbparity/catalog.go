@@ -162,15 +162,17 @@ func DefaultCatalog() Catalog {
 				ID: "continuity",
 				SourceRoots: []string{
 					"internal/core/continuity/bunstore",
+					"internal/infra/conversationview",
 				},
 				TestPackages: []string{
 					"internal/core/continuity/bunstore",
+					"internal/infra/conversationview",
 				},
 				StoreContracts: []string{
 					"internal/core/b2bua.ALegRetirementObserver",
 					"internal/core/b2bua.InterleavedStateStore",
 					"internal/core/b2bua.Store",
-					"internal/core/conversationview.Store",
+					"internal/infra/conversationview.Store",
 					"internal/core/routeoverride.Store",
 				},
 				MigrationRoots: []string{
@@ -185,7 +187,7 @@ func DefaultCatalog() Catalog {
 					{
 						ID:       "conversation-view-snapshot-mutations",
 						Class:    Common,
-						Evidence: "internal/core/continuity/bunstore/conversationview_test.go",
+						Evidence: "internal/infra/conversationview/bun_store_test.go",
 					},
 					{
 						ID:       "route-override-persistence",

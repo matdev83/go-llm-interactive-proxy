@@ -6,8 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/sdkadapter"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -47,17 +46,16 @@ func (e *Executor) publishMemoSteeringOverlay(
 	ctx context.Context,
 	aLegID string,
 	ingress lipapi.Call,
-	snap conversationview.Snapshot,
+	snap conversationprojection.Snapshot,
 	memo string,
 ) error {
 	if e == nil || ctx == nil {
 		return errors.New("executor: invalid memo steering publish arguments")
 	}
-	store := e.conversationViewSteeringStore()
-	if store == nil {
+	if e.SteeringWriterFactory == nil {
 		return errors.New("executor: conversation-view steering capability unavailable")
 	}
-	writer, err := sdkadapter.NewWriter(store, aLegID, func(_ context.Context) (lipapi.Call, conversationview.Snapshot, error) {
+	writer, err := e.SteeringWriterFactory(ctx, aLegID, func(_ context.Context) (lipapi.Call, conversationprojection.Snapshot, error) {
 		return ingress, snap, nil
 	})
 	if err != nil {
@@ -84,12 +82,15 @@ func (e *Executor) deactivateMemoSteeringOverlay(ctx context.Context, aLegID str
 	if e == nil || ctx == nil || aLegID == "" {
 		return nil
 	}
-	store := e.conversationViewSteeringStore()
-	if store == nil {
+	if e.SteeringWriterFactory == nil {
 		return errors.New("executor: conversation-view steering capability unavailable")
 	}
-	_, err := store.DeactivateSteering(ctx, aLegID, interleavedMemoOverlayID)
-	if err != nil && !errors.Is(err, conversationview.ErrOverlayNotFound) && !errors.Is(err, conversationview.ErrALegNotFound) {
+	writer, err := e.SteeringWriterFactory(ctx, aLegID, nil)
+	if err != nil {
+		return err
+	}
+	_, err = writer.Deactivate(ctx, steering.OverlayID(interleavedMemoOverlayID))
+	if err != nil && !errors.Is(err, conversationprojection.ErrOverlayNotFound) && !errors.Is(err, conversationprojection.ErrALegNotFound) {
 		e.logMemoSteeringDeactivateFailed(ctx, aLegID, err)
 		return err
 	}
@@ -152,12 +153,12 @@ func (e *Executor) refreshMemoSteeringFacts(
 	if len(ingress.Items) == 0 && len(ingress.Messages) == 0 {
 		ingress = memoProjectionBaseline(facts)
 	}
-	projected, ev, err := conversationview.Project(ingress, snap)
+	projected, ev, err := conversationprojection.Project(ingress, snap)
 	if err != nil {
 		e.logMemoSteeringRefreshFailure(ctx, facts.traceID, "projection", err)
 		return facts, false
 	}
-	filtered, err := conversationview.FilterNeverBackend(ingress, snap)
+	filtered, err := conversationprojection.FilterNeverBackend(ingress, snap)
 	if err != nil {
 		e.logMemoSteeringRefreshFailure(ctx, facts.traceID, "filter", err)
 		return facts, false
@@ -214,8 +215,8 @@ func (e *Executor) memoStateVisibleToClient(ctx context.Context, aLegID string, 
 // stripMemoSteeringOverlay returns a copy of snap without the memo steering
 // overlay so the immediate visible-mode continuation does not duplicate
 // reasoning the client already saw.
-func stripMemoSteeringOverlay(snap conversationview.Snapshot) conversationview.Snapshot {
-	kept := make([]conversationview.SteeringOverlay, 0, len(snap.Steering))
+func stripMemoSteeringOverlay(snap conversationprojection.Snapshot) conversationprojection.Snapshot {
+	kept := make([]conversationprojection.Overlay, 0, len(snap.Steering))
 	for _, ov := range snap.Steering {
 		if ov.OverlayID == interleavedMemoOverlayID {
 			continue

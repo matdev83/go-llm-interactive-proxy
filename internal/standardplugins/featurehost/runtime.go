@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
@@ -28,6 +29,7 @@ type Runtime struct {
 	compactionDetector   runtime.CompactionDetector
 	branchCoordinator    *state.BranchCoordinator
 	compactionParentPort *compaction.ParentPort
+	conversationStore    conversationview.Store
 	closers              []func() error
 	closeOnce            sync.Once
 	closeErr             error

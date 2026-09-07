@@ -320,6 +320,7 @@ var RetiredPackageDirs = []string{
 	"internal/core/secretguard",
 	"internal/core/compactiondetect",
 	"internal/core/compactioncontinuity",
+	"internal/core/conversationview",
 }
 
 // ScanFileRetiredPackage checks if a repo-relative file path belongs to a retired package.

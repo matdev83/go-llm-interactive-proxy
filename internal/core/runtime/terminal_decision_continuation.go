@@ -5,8 +5,7 @@ import (
 	"errors"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/sdkadapter"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -53,15 +52,14 @@ func continuationTransactionWithOverlay(ctx context.Context, t *turnTerminal, s 
 	}
 
 	aLegID := s.facts.aLegID
-	steeringStore := t.steeringStore
-	if steeringStore == nil {
+	if t.steeringWriterFactory == nil {
 		return false, failure("steering unavailable", nil)
 	}
 	if s.recovery == nil || s.recovery.opener == nil {
 		return false, failure("continuation admission unavailable", nil)
 	}
 
-	resolver := func(rctx context.Context) (lipapi.Call, conversationview.Snapshot, error) {
+	resolver := func(rctx context.Context) (lipapi.Call, conversationprojection.Snapshot, error) {
 		snap := s.facts.conversationSnapshot
 		if snap.StateRevision == 0 && t.conversationReader != nil {
 			if current, err := t.conversationReader.Snapshot(rctx, aLegID); err == nil {
@@ -74,7 +72,7 @@ func continuationTransactionWithOverlay(ctx context.Context, t *turnTerminal, s 
 		}
 		return ingress, snap, nil
 	}
-	writer, err := sdkadapter.NewWriterWithObserver(steeringStore, aLegID, resolver, t.conversationObserver)
+	writer, err := t.steeringWriterFactory(ctx, aLegID, resolver)
 	if err != nil {
 		return false, failure("steering unavailable", err)
 	}
@@ -94,11 +92,6 @@ func continuationTransactionWithOverlay(ctx context.Context, t *turnTerminal, s 
 
 	reader := t.conversationReader
 	if reader == nil {
-		if candidate, ok := conversationview.AsReader(steeringStore); ok {
-			reader = candidate
-		}
-	}
-	if reader == nil {
 		return false, failure("conversation reader unavailable", nil)
 	}
 	snapN1, err := reader.Snapshot(ctx, aLegID)
@@ -109,14 +102,14 @@ func continuationTransactionWithOverlay(ctx context.Context, t *turnTerminal, s 
 	if len(ingress.Items) == 0 && len(ingress.Messages) == 0 {
 		ingress = s.facts.baseline
 	}
-	projectedBaseline, projection, err := conversationview.Project(ingress, snapN1)
+	projectedBaseline, projection, err := conversationprojection.Project(ingress, snapN1)
 	if err != nil {
 		if observer := t.conversationObserver; observer != nil {
-			conversationview.SafeObserver(observer).OnProjectionFailure(conversationview.StageEarly)
+			safeObserver{obs: observer}.OnProjectionFailure(conversationprojection.StageEarly)
 		}
 		return false, failure("conversation materialization failed", err)
 	}
-	filteredBaseline, err := conversationview.FilterNeverBackend(ingress, snapN1)
+	filteredBaseline, err := conversationprojection.FilterNeverBackend(ingress, snapN1)
 	if err != nil {
 		return false, failure("conversation materialization failed", err)
 	}
@@ -255,15 +248,16 @@ func continuationPrePublicationFailureWithOverlay(ctx context.Context, t *turnTe
 }
 
 func deactivateContinuationOverlay(ctx context.Context, t *turnTerminal, aLegID string) error {
-	if t == nil || t.steeringStore == nil || aLegID == "" {
+	if t == nil || t.steeringWriterFactory == nil || aLegID == "" {
 		return nil
 	}
 	deactCtx, cancel := cleanupContext(ctx, defaultAuthorityCleanupTimeout)
 	defer cancel()
-	_, err := t.steeringStore.DeactivateSteering(deactCtx, aLegID, continuationOverlayID)
-	if errors.Is(err, conversationview.ErrOverlayNotFound) || errors.Is(err, conversationview.ErrALegNotFound) {
-		return nil
+	writer, err := t.steeringWriterFactory(deactCtx, aLegID, nil)
+	if err != nil {
+		return err
 	}
+	_, err = writer.Deactivate(deactCtx, steering.OverlayID(continuationOverlayID))
 	return err
 }
 

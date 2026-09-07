@@ -95,6 +95,7 @@ func TestExecutor_HiddenInterleavedContinuation_EmitsExecutorOnlyAndStoresMemo(t
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = memoStore
+	wireInterleavedTestSteering(ex)
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := interleavedBaseCall(selector)
@@ -198,6 +199,7 @@ func interleavedVisibleExecutor(t *testing.T, backends map[string]execbackend.Ba
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = memoStore
+	wireInterleavedTestSteering(ex)
 	return ex, st
 }
 
@@ -431,6 +433,7 @@ func interleavedExecutor(t *testing.T, backends map[string]execbackend.Backend) 
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = memoStore
+	wireInterleavedTestSteering(ex)
 	return ex, st
 }
 

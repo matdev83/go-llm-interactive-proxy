@@ -13,7 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -605,15 +605,15 @@ func (e *Executor) openAttemptTx(
 	// Task 4.1: final conversation-view reassertion at shared candidate-open choke point.
 	// Uses frozen snapshot/provenance/filteredBaseline (no store read) to remove reintroduced never_backend and
 	// rebuild steering exactly once at frozen placement, handling late transforms based on projected baseline.
-	var reassertProvenance []conversationview.OverlayProvenance
+	var reassertProvenance []conversationprojection.OverlayProvenance
 	if len(tx.reqFacts.conversationSnapshot.NeverBackend) > 0 || len(tx.reqFacts.conversationSnapshot.Steering) > 0 || len(tx.reqFacts.conversationProvenance) > 0 {
-		reasserted, reEv, rerr := conversationview.Reassert(openCall, tx.reqFacts.conversationSnapshot, tx.reqFacts.conversationProvenance, tx.reqFacts.conversationFilteredBaseline)
+		reasserted, reEv, rerr := conversationprojection.Reassert(openCall, tx.reqFacts.conversationSnapshot, tx.reqFacts.conversationProvenance, tx.reqFacts.conversationFilteredBaseline)
 		if rerr != nil {
 			if obs := e.conversationViewObserver(); obs != nil {
-				safe := conversationview.SafeObserver(obs)
-				safe.OnProjectionFailure(conversationview.StageFinal)
-				if errors.Is(rerr, conversationview.ErrAnchorMissing) || errors.Is(rerr, conversationview.ErrAnchorNotFound) {
-					safe.OnAnchorFailure(conversationview.AnchorFailClosed)
+				safe := safeObserver{obs: obs}
+				safe.OnProjectionFailure(conversationprojection.StageFinal)
+				if errors.Is(rerr, conversationprojection.ErrAnchorMissing) || errors.Is(rerr, conversationprojection.ErrAnchorNotFound) {
+					safe.OnAnchorFailure(conversationprojection.AnchorFailClosed)
 				}
 			}
 			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
@@ -626,12 +626,12 @@ func (e *Executor) openAttemptTx(
 			reassertProvenance = tx.reqFacts.conversationProvenance
 		}
 		if obs := e.conversationViewObserver(); obs != nil {
-			safe := conversationview.SafeObserver(obs)
-			summary := conversationview.NewProjectionSummary(tx.reqFacts.conversationSnapshot, reEv)
-			safe.OnProjection(conversationview.StageFinal, summary)
+			safe := safeObserver{obs: obs}
+			summary := conversationprojection.NewProjectionSummary(tx.reqFacts.conversationSnapshot, reEv)
+			safe.OnProjection(conversationprojection.StageFinal, summary)
 			if reEv != nil {
 				for range reEv.Fallbacks {
-					safe.OnAnchorFallback(conversationview.StageFinal, conversationview.AnchorStablePrefixFallback)
+					safe.OnAnchorFallback(conversationprojection.StageFinal, conversationprojection.AnchorStablePrefixFallback)
 				}
 			}
 		}
@@ -720,9 +720,9 @@ func (e *Executor) openAttemptTx(
 		if len(provForVerify) == 0 {
 			provForVerify = tx.reqFacts.conversationProvenance
 		}
-		if verr := conversationview.VerifyAdaptationPreservesProjection(openCall, adaptedCall, tx.reqFacts.conversationSnapshot, provForVerify); verr != nil {
+		if verr := conversationprojection.VerifyAdaptationPreservesProjection(openCall, adaptedCall, tx.reqFacts.conversationSnapshot, provForVerify); verr != nil {
 			if obs := e.conversationViewObserver(); obs != nil {
-				conversationview.SafeObserver(obs).OnProjectionFailure(conversationview.StageFinal)
+				safeObserver{obs: obs}.OnProjectionFailure(conversationprojection.StageFinal)
 			}
 			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 			return fmt.Errorf("executor: conversation view adaptation integrity: %w", verr)

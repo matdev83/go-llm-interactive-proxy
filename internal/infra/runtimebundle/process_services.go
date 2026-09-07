@@ -240,7 +240,11 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	if ps.StandardFeatures, err = featurehost.NewProcess(parent, featurehost.ProcessInput{
-		Logger: in.Log, ExtensionState: ps.ExtensionState, BackgroundAux: ps.BackgroundAux,
+		Logger:          in.Log,
+		ExtensionState:  ps.ExtensionState,
+		BackgroundAux:   ps.BackgroundAux,
+		ContinuityStore: ps.Continuity,
+		BunDB:           borrowContinuityDB(ps.Continuity),
 	}); err != nil {
 		return fail(fmt.Errorf("runtimebundle: standard features host: %w", err))
 	}

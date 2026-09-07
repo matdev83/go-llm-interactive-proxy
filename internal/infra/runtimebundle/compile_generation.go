@@ -193,7 +193,14 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	cand.execution.executor.Keepwarm = keepwarm.NewOrchestrator(keepwarmManager, cand.process.keepwarmPolicy)
 	if retired, ok := cand.execution.executor.Store.(b2bua.ALegRetirementObserver); ok {
-		retired.SetALegRetirementObserver(cand.execution.executor.Keepwarm.EndSession)
+		retired.SetALegRetirementObserver(func(aLegID string) {
+			if cand.execution.executor.Keepwarm != nil {
+				cand.execution.executor.Keepwarm.EndSession(aLegID)
+			}
+			if deleter, ok := cand.execution.executor.ConversationViewTagger.(interface{ DeleteALeg(context.Context, string) error }); ok {
+				_ = deleter.DeleteALeg(context.Background(), aLegID)
+			}
+		})
 	}
 	bundle := newGenerationBundle(generationBundleInput{
 		handler:           handler,

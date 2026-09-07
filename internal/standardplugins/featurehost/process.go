@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
+	"github.com/uptrace/bun"
 )
 
 // constructionStep represents a staged feature construction action during NewProcess.
@@ -79,6 +82,49 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 		return rollback(fmt.Errorf("featurehost: parent port: %w", err))
 	}
 	r.compactionParentPort = port
+
+	// Conversation view process ownership (Task 4.3): store.
+	bunDB := in.BunDB
+	if bunDB == nil && in.ContinuityStore != nil {
+		for s := any(in.ContinuityStore); s != nil; {
+			if provider, ok := s.(interface{ DB() *bun.DB }); ok {
+				bunDB = provider.DB()
+				break
+			}
+			if u, ok := s.(interface{ Unwrap() any }); ok {
+				s = u.Unwrap()
+			} else {
+				break
+			}
+		}
+	}
+	if bunDB != nil {
+		if err := conversationview.EnsureSchema(ctx, bunDB); err != nil {
+			return rollback(fmt.Errorf("featurehost: conversationview ensure schema: %w", err))
+		}
+		r.conversationStore = wrapConversationStore(conversationview.NewBunStore(bunDB))
+	} else {
+		r.conversationStore = newConversationStore()
+	}
+	if in.ContinuityStore != nil {
+		for s := any(in.ContinuityStore); s != nil; {
+			if retired, ok := s.(b2bua.ALegRetirementObserver); ok {
+				if deleter, ok := r.conversationStore.(interface {
+					DeleteALeg(context.Context, string) error
+				}); ok {
+					retired.SetALegRetirementObserver(func(aLegID string) {
+						_ = deleter.DeleteALeg(context.Background(), aLegID)
+					})
+				}
+				break
+			}
+			if u, ok := s.(interface{ Unwrap() any }); ok {
+				s = u.Unwrap()
+			} else {
+				break
+			}
+		}
+	}
 
 	return r, nil
 }

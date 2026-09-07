@@ -53,6 +53,11 @@ func TestRetiredPackages_RenamedOrNestedBypassRejected(t *testing.T) {
 		{"internal/core/compactioncontinuity/renamed_coordinator.go", true},
 		{"internal/core/compactioncontinuity/nested/sub/bypass.go", true},
 		{"internal/plugins/features/compactioncontinuity/state/branch_coordinator.go", false},
+		{"internal/core/conversationview/store.go", true},
+		{"internal/core/conversationview/renamed_store.go", true},
+		{"internal/core/conversationview/nested/sub/bypass.go", true},
+		{"internal/infra/conversationview/store.go", false},
+		{"internal/core/conversationprojection/projection.go", false},
 	}
 	for _, tc := range cases {
 		f := ScanFileRetiredPackage(tc.rel)
@@ -330,6 +335,63 @@ func TestForbiddenImports_CompactionContinuityRenamedOrNestedBypassRejected(t *t
 			name:       "plugins features compactioncontinuity state allowed",
 			relPath:    "internal/standardplugins/featurehost/process.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state",
+			wantForbid: false,
+		},
+	}
+	for _, tc := range adversarialImports {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := fmt.Sprintf("package dummy\nimport _ %q\n", tc.importPath)
+			findings, err := ScanFileForbiddenImports(tc.relPath, tc.relPath, []byte(src))
+			if err != nil {
+				t.Fatalf("ScanFileForbiddenImports error: %v", err)
+			}
+			if tc.wantForbid && len(findings) == 0 {
+				t.Errorf("%s: expected forbidden import finding for %s importing %s, got none", tc.name, tc.relPath, tc.importPath)
+			}
+			if !tc.wantForbid && len(findings) > 0 {
+				t.Errorf("%s: unexpected forbidden import finding for %s importing %s: %v", tc.name, tc.relPath, tc.importPath, findings)
+			}
+		})
+	}
+}
+
+func TestForbiddenImports_ConversationViewRenamedOrNestedBypassRejected(t *testing.T) {
+	t.Parallel()
+	adversarialImports := []struct {
+		name       string
+		relPath    string
+		importPath string
+		wantForbid bool
+	}{
+		{
+			name:       "core runtime imports retired conversationview",
+			relPath:    "internal/core/runtime/renamed_cv.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview",
+			wantForbid: true,
+		},
+		{
+			name:       "nested core imports retired nested conversationview",
+			relPath:    "internal/core/runtime/nested/deep.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/nested",
+			wantForbid: true,
+		},
+		{
+			name:       "conversationprojection core imports infra forbidden",
+			relPath:    "internal/core/conversationprojection/projection.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview",
+			wantForbid: true,
+		},
+		{
+			name:       "infra conversationview allowed",
+			relPath:    "internal/standardplugins/featurehost/conversation.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview",
+			wantForbid: false,
+		},
+		{
+			name:       "core conversationprojection allowed",
+			relPath:    "internal/core/runtime/conversation_view.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection",
 			wantForbid: false,
 		},
 	}

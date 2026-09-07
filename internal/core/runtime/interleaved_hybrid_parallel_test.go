@@ -154,6 +154,7 @@ func hybridParallelExecutor(t *testing.T, backends map[string]execbackend.Backen
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = interleavedthinking.NewMemoStore(4096)
+	wireInterleavedTestSteering(ex)
 	return ex, st
 }
 
@@ -449,6 +450,7 @@ func TestParallelRace_CommitMemoInjectionFailureCleansUpStreams(t *testing.T) {
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = memoStore
+	wireInterleavedTestSteering(ex)
 	selector := "[thinker]thinker-be:m^fast-exec:m!slow-exec:m"
 
 	first := seedThinkerFirstCall(t, st, selector)

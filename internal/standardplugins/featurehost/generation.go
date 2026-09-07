@@ -115,6 +115,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		SecretGuardInventory: sgOut.Inventory,
 		CorePorts: CorePorts{
 			CompactionDetector: r.compactionDetector,
+			ConversationReader: r.ConversationReader(),
 		},
 	}
 

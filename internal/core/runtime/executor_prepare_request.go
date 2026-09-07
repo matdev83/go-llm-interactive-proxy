@@ -9,7 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -44,8 +44,8 @@ type preparedRequest struct {
 	// Task 3.2: frozen snapshot taken once after authoritative A-leg resolution,
 	// carried through every B-leg attempt; projection evidence is bounded
 	// content-free (counts/revisions/placement, no plaintext).
-	conversationSnapshot         conversationview.Snapshot
-	conversationEvidence         *conversationview.ProjectionEvidence
+	conversationSnapshot         conversationprojection.Snapshot
+	conversationEvidence         *conversationprojection.ProjectionEvidence
 	conversationSummary          conversationProjectionSummary
 	conversationFilteredBaseline *lipapi.Call
 	// Task 3.3: generic two-phase local-turn stage. When isLocal true,
@@ -65,7 +65,7 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 		prep.recvTurnFacts.billingCallState = prep.billingCallState
 	}
 	if prep.aLegID == "" && prep.identity != nil {
-		var prov []conversationview.OverlayProvenance
+		var prov []conversationprojection.OverlayProvenance
 		if prep.conversationEvidence != nil {
 			prov = prep.conversationEvidence.Provenance
 		} else if prep.identity != nil && prep.identity.conversationEvidence != nil {
@@ -253,7 +253,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	boundCat, boundCatOK := modelcatalog.BoundViewFromContext(prepCtx)
 	nativeResolver, _ := routing.NativeModelResolverFromContext(prepCtx)
 	modelViewID, modelViewIDOK := modelview.FromContext(prepCtx)
-	var prov []conversationview.OverlayProvenance
+	var prov []conversationprojection.OverlayProvenance
 	if pr.conversationEvidence != nil {
 		prov = pr.conversationEvidence.Provenance
 	} else if ibt.conversationEvidence != nil {
@@ -327,8 +327,8 @@ type identityBoundTurn struct {
 	secureTurnOK bool
 	preSession   session.SessionView
 	// Task 3.2 frozen view carried from 3.1 seam.
-	conversationSnapshot         conversationview.Snapshot
-	conversationEvidence         *conversationview.ProjectionEvidence
+	conversationSnapshot         conversationprojection.Snapshot
+	conversationEvidence         *conversationprojection.ProjectionEvidence
 	conversationSummary          conversationProjectionSummary
 	conversationFilteredBaseline *lipapi.Call
 	convSnapshotSet              bool

@@ -5,6 +5,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -14,15 +16,18 @@ import (
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
+	"github.com/uptrace/bun"
 )
 
 // ProcessInput contains only generic process capabilities required by the standard feature set.
 // It MUST NOT accept *runtimebundle.BuildOptions, *ProcessServices, full backend maps,
 // database pool registries, or an any services map (Requirement 8.4, Task 2.1).
 type ProcessInput struct {
-	Logger         *slog.Logger
-	ExtensionState lipstate.Store
-	BackgroundAux  *auxreq.BackgroundScheduler
+	Logger          *slog.Logger
+	ExtensionState  lipstate.Store
+	BackgroundAux   *auxreq.BackgroundScheduler
+	ContinuityStore b2bua.Store
+	BunDB           *bun.DB
 	// buildSteps carries staged construction actions for package-local tests
 	// only. It is unexported so no external caller (including generic
 	// runtimebundle) can inject constructors or closers (Tasks 2.1/2.3).
@@ -33,6 +38,7 @@ type ProcessInput struct {
 // It is a fixed internal adapter, NOT a service map (design §7, Requirement 8.3).
 type CorePorts struct {
 	CompactionDetector runtime.CompactionDetector
+	ConversationReader conversationprojection.Reader
 }
 
 // GenerationInput carries inputs for featurehost generation composition.

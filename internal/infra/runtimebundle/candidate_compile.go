@@ -12,7 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
@@ -184,6 +183,8 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		CompactionScheduler:    ps.BackgroundAux,
 		GenerationRunner:       in.GenerationRunner,
 		TerminalDecisionPolicy: ps.TerminalDecisionPolicy,
+		ConversationReader:     ps.StandardFeatures.ConversationReader(),
+		ConversationStore:      ps.StandardFeatures.ConversationStore(),
 	})
 	if err != nil {
 		return nil, fail(err)
@@ -204,10 +205,6 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		return nil, fail(err)
 	}
 	exec = execRun.Exec
-	var twReady func(context.Context) error
-	if ps.terminalWorkRT != nil {
-		twReady = ps.terminalWorkRT.checkReady
-	}
 	var billingProvisioner billing.AccountProvisioner
 	var billingExposureRecovery billing.ExposureRecovery
 	if billingCompositionConfigured(execRun.Production) {
@@ -246,12 +243,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			keepwarmAccounting:      execRun.Production.KeepwarmAccounting,
 			tokenAccountingAdmin:    execRun.TokenAccountingAdmin,
 			readinessReport:         execRun.ReadinessReport,
-			secretGuardInventory: func() *diag.InventoryExtras {
-				if sg != nil {
-					return sg.Inventory
-				}
-				return nil
-			}(),
+			secretGuardInventory:    opts.Extensions.SecretGuardInventory,
 			terminalProcessor:       ps.TerminalWorkProcessor,
 			terminalRegistry:        ps.TerminalWorkRegistry,
 			terminalQueries:         ps.TerminalWorkQueries,
@@ -276,8 +268,13 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			secureSessions:         ps.SecureSessions,
 			terminalDecisionPolicy: ps.TerminalDecisionPolicy,
 		},
-		ledger:            ledger,
-		terminalWorkReady: twReady,
-		terminalWorkRT:    ps.terminalWorkRT,
+		ledger: ledger,
+		terminalWorkReady: func() func(context.Context) error {
+			if ps.terminalWorkRT != nil {
+				return ps.terminalWorkRT.checkReady
+			}
+			return nil
+		}(),
+		terminalWorkRT: ps.terminalWorkRT,
 	}, nil
 }

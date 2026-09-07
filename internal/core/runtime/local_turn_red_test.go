@@ -15,11 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
@@ -29,8 +30,8 @@ import (
 
 type fakeTagger struct {
 	mu        sync.Mutex
-	calls     [][]conversationview.TagRequest
-	store     map[conversationview.MessageIdentity]conversationview.Tag
+	calls     [][]TagRequest
+	store     map[conversationprojection.MessageIdentity]conversationprojection.Tag
 	rev       uint64
 	nextErr   error
 	failOn    int // call index to fail (1-based)
@@ -38,52 +39,50 @@ type fakeTagger struct {
 }
 
 func newFakeTagger() *fakeTagger {
-	return &fakeTagger{store: make(map[conversationview.MessageIdentity]conversationview.Tag), rev: 1}
+	return &fakeTagger{store: make(map[conversationprojection.MessageIdentity]conversationprojection.Tag), rev: 1}
 }
 
-func (f *fakeTagger) Snapshot(ctx context.Context, aLegID string) (conversationview.Snapshot, error) {
+func (f *fakeTagger) Snapshot(ctx context.Context, aLegID string) (conversationprojection.Snapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var tags []conversationview.Tag
+	var tags []conversationprojection.Tag
 	for _, t := range f.store {
 		tags = append(tags, t)
 	}
-	return conversationview.Snapshot{StateRevision: f.rev, NeverBackend: tags}, nil
+	return conversationprojection.Snapshot{StateRevision: f.rev, NeverBackend: tags}, nil
 }
 
-func (f *fakeTagger) TagNeverBackend(ctx context.Context, aLegID string, tags []conversationview.TagRequest) (conversationview.TagResult, error) {
+func (f *fakeTagger) TagNeverBackend(ctx context.Context, aLegID string, tags []TagRequest) (TagResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.callCount++
 	if f.failOn != 0 && f.callCount == f.failOn {
-		return conversationview.TagResult{}, f.nextErr
+		return TagResult{}, f.nextErr
 	}
 	if f.nextErr != nil && f.failOn == 0 {
-		return conversationview.TagResult{}, f.nextErr
+		return TagResult{}, f.nextErr
 	}
 	// deep copy calls
-	cp := make([]conversationview.TagRequest, len(tags))
+	cp := make([]TagRequest, len(tags))
 	copy(cp, tags)
 	f.calls = append(f.calls, cp)
-	for _, r := range tags {
-		if _, ok := f.store[r.Identity]; !ok {
-			f.store[r.Identity] = conversationview.Tag{Identity: r.Identity, Reason: r.Reason, CreatedAt: time.Unix(1000, 0)}
-		}
+	for _, req := range tags {
+		f.store[req.Identity] = conversationprojection.Tag{Identity: req.Identity, Reason: req.Reason}
 	}
 	f.rev++
-	var out []conversationview.Tag
+	allTags := make([]conversationprojection.Tag, 0, len(f.store))
 	for _, t := range f.store {
-		out = append(out, t)
+		allTags = append(allTags, t)
 	}
-	return conversationview.TagResult{StateRevision: f.rev, Tags: out}, nil
+	return TagResult{StateRevision: f.rev, Tags: allTags}, nil
 }
 
-func (f *fakeTagger) Calls() [][]conversationview.TagRequest {
+func (f *fakeTagger) Calls() [][]TagRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	cp := make([][]conversationview.TagRequest, len(f.calls))
+	cp := make([][]TagRequest, len(f.calls))
 	for i, v := range f.calls {
-		inner := make([]conversationview.TagRequest, len(v))
+		inner := make([]TagRequest, len(v))
 		copy(inner, v)
 		cp[i] = inner
 	}
@@ -661,7 +660,7 @@ func TestLocalTurn_SourceTagsRemainAuthoritativeAfterHandlerFailure_RealStore(t 
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-			cvStore := st.ConversationViewStore()
+			cvStore := &autoRegisteringCVStore{ReferenceStore: conversationview.NewReferenceStore()}
 			capturing := &capturingTagger{inner: cvStore}
 			var backendOpens atomic.Int32
 			h := &fakeHandler{
@@ -676,8 +675,7 @@ func TestLocalTurn_SourceTagsRemainAuthoritativeAfterHandlerFailure_RealStore(t 
 			ex.Store = st
 			ex.Bus = hooks.New(hooks.Config{})
 			ex.ConversationViewTagger = capturing
-			// Reader left nil => executor resolves via AsReader(Store) to same MemoryStore, proving real store path.
-			ex.ConversationViewReader = nil
+			ex.ConversationViewReader = cvStore
 			ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 				FeaturePlanes: freezeBundle(testFeatureBundle{
 					LocalTurnHandlers: []localturn.Handler{h},
@@ -695,7 +693,7 @@ func TestLocalTurn_SourceTagsRemainAuthoritativeAfterHandlerFailure_RealStore(t 
 			}
 			// Prepare call with known source identity.
 			srcMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello source")}}
-			srcID, err := conversationview.MessageIdentityOf(srcMsg)
+			srcID, err := conversationprojection.MessageIdentityOf(srcMsg)
 			require.NoError(t, err)
 			call := &lipapi.Call{
 				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
@@ -728,14 +726,14 @@ func TestLocalTurn_SourceTagsRemainAuthoritativeAfterHandlerFailure_RealStore(t 
 			for _, tag := range snap.NeverBackend {
 				if tag.Identity == srcID {
 					found = true
-					assert.Equal(t, conversationview.ReasonCode("test_reason"), tag.Reason)
+					assert.Equal(t, conversationprojection.ReasonCode("test_reason"), tag.Reason)
 					break
 				}
 			}
 			require.True(t, found, "real store snapshot must contain authoritative source tag %s", srcID)
 			// Ensure no reply tag present (only source).
 			require.Len(t, snap.NeverBackend, 1, "only source tag should be present after handle failure")
-			// Also verify via executor's reader path (AsReader) yields same authoritative snapshot.
+			// Also verify via executor's reader path yields same authoritative snapshot.
 			readerSnap, err := conversationViewSnapshotForTest(context.Background(), ex, aLegID)
 			require.NoError(t, err)
 			assert.Equal(t, snap.StateRevision, readerSnap.StateRevision)
@@ -743,16 +741,38 @@ func TestLocalTurn_SourceTagsRemainAuthoritativeAfterHandlerFailure_RealStore(t 
 	}
 }
 
+type autoRegisteringCVStore struct {
+	*conversationview.ReferenceStore
+}
+
+func (a *autoRegisteringCVStore) Snapshot(ctx context.Context, aLegID string) (conversationprojection.Snapshot, error) {
+	_ = a.CreateALeg(ctx, aLegID)
+	return a.ReferenceStore.Snapshot(ctx, aLegID)
+}
+
+func (a *autoRegisteringCVStore) TagNeverBackend(ctx context.Context, aLegID string, reqs []TagRequest) (TagResult, error) {
+	_ = a.CreateALeg(ctx, aLegID)
+	cvReqs := make([]conversationview.TagRequest, len(reqs))
+	for i, r := range reqs {
+		cvReqs[i] = conversationview.TagRequest{Identity: r.Identity, Reason: conversationview.ReasonCode(r.Reason)}
+	}
+	res, err := a.ReferenceStore.TagNeverBackend(ctx, aLegID, cvReqs)
+	if err != nil {
+		return TagResult{}, err
+	}
+	return TagResult{StateRevision: res.StateRevision, Tags: res.Tags}, nil
+}
+
 // Helper to expose AsReader for test without widening API.
 
 type capturingTagger struct {
-	inner      conversationview.Tagger
+	inner      ConversationViewTagger
 	mu         sync.Mutex
 	aLegIDs    []string
-	identities []conversationview.MessageIdentity
+	identities []conversationprojection.MessageIdentity
 }
 
-func (c *capturingTagger) TagNeverBackend(ctx context.Context, aLegID string, reqs []conversationview.TagRequest) (conversationview.TagResult, error) {
+func (c *capturingTagger) TagNeverBackend(ctx context.Context, aLegID string, reqs []TagRequest) (TagResult, error) {
 	c.mu.Lock()
 	c.aLegIDs = append(c.aLegIDs, aLegID)
 	for _, r := range reqs {
@@ -762,12 +782,12 @@ func (c *capturingTagger) TagNeverBackend(ctx context.Context, aLegID string, re
 	return c.inner.TagNeverBackend(ctx, aLegID, reqs)
 }
 
-// Expose snapshot via AsReader for verification convenience.
-func conversationViewSnapshotForTest(ctx context.Context, e *Executor, aLegID string) (conversationview.Snapshot, error) {
-	if r, ok := conversationview.AsReader(e.Store); ok {
-		return r.Snapshot(ctx, aLegID)
+// Expose snapshot via reader for verification convenience.
+func conversationViewSnapshotForTest(ctx context.Context, e *Executor, aLegID string) (conversationprojection.Snapshot, error) {
+	if e.ConversationViewReader != nil {
+		return e.ConversationViewReader.Snapshot(ctx, aLegID)
 	}
-	return conversationview.Snapshot{}, fmt.Errorf("no reader")
+	return conversationprojection.Snapshot{}, fmt.Errorf("no reader")
 }
 
 type blockingStore struct {

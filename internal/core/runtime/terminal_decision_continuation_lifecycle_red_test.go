@@ -155,7 +155,7 @@ func TestContinuationTransactionSourceUsesCanonicalWriterAndNoDirectCallAppend(t
 	if src == "" {
 		t.Fatal("missing Task 4.2 runContinuationTransaction implementation")
 	}
-	if !strings.Contains(src, "sdkadapter.NewWriter") && !strings.Contains(src, "NewWriterWithObserver") {
+	if !strings.Contains(src, "sdkadapter.NewWriter") && !strings.Contains(src, "NewWriterWithObserver") && !strings.Contains(src, "steeringWriterFactory") {
 		t.Fatal("continuation transaction does not use the canonical steering writer")
 	}
 	for _, forbidden := range []string{

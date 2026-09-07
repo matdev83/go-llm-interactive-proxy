@@ -1,9 +1,37 @@
 package metrics
 
 import (
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"fmt"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// CacheDiscontinuityKind is the bounded cache-discontinuity operation recorded for steering mutations.
+type CacheDiscontinuityKind string
+
+const (
+	CacheDiscontinuityNone       CacheDiscontinuityKind = "none"
+	CacheDiscontinuityCreate     CacheDiscontinuityKind = "create"
+	CacheDiscontinuityReplace    CacheDiscontinuityKind = "replace"
+	CacheDiscontinuityMove       CacheDiscontinuityKind = "move"
+	CacheDiscontinuityDeactivate CacheDiscontinuityKind = "deactivate"
+)
+
+func (k CacheDiscontinuityKind) Validate() error {
+	switch k {
+	case CacheDiscontinuityNone, CacheDiscontinuityCreate, CacheDiscontinuityReplace, CacheDiscontinuityMove, CacheDiscontinuityDeactivate:
+		return nil
+	default:
+		return fmt.Errorf("unknown cache discontinuity kind %q", k)
+	}
+}
+
+// ConversationViewObserver is the narrow diagnostics observer interface for conversation-view metrics.
+type ConversationViewObserver interface {
+	conversationprojection.Observer
+	OnSteeringMutation(kind CacheDiscontinuityKind, placement conversationprojection.PlacementKind)
+}
 
 // ConversationViewProm holds Prometheus collectors for bounded conversation-view diagnostics.
 // All labels are bounded enums (operation, placement, policy, stage), never OverlayID/ALegID/digest/plaintext.
@@ -23,16 +51,16 @@ func RegisterConversationViewProm(reg prometheus.Registerer) *ConversationViewPr
 		filtered: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
-				Name:      "conversation_view_filtered_messages_total",
-				Help:      "Messages filtered as never_backend (bounded stage label only).",
+				Name:      "conversation_view_filtered_tags_total",
+				Help:      "Tags filtered by never_backend (bounded stage).",
 			},
 			[]string{"stage"},
 		),
 		injected: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
-				Name:      "conversation_view_steering_injections_total",
-				Help:      "Steering injections by placement (bounded placement label).",
+				Name:      "conversation_view_injected_overlays_total",
+				Help:      "Steering overlays injected by placement class (bounded).",
 			},
 			[]string{"placement"},
 		),
@@ -40,23 +68,23 @@ func RegisterConversationViewProm(reg prometheus.Registerer) *ConversationViewPr
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Name:      "conversation_view_steering_mutations_total",
-				Help:      "Steering mutations by operation and placement (bounded operation, placement).",
+				Help:      "Steering mutations by operation and placement (bounded).",
 			},
 			[]string{"operation", "placement"},
 		),
 		anchorFallback: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
-				Name:      "conversation_view_anchor_fallback_total",
-				Help:      "Anchor fallback occurrences by stage and policy (bounded stage, policy).",
+				Name:      "conversation_view_anchor_fallbacks_total",
+				Help:      "Anchor missing fallbacks by stage and policy (bounded).",
 			},
 			[]string{"stage", "policy"},
 		),
 		anchorFailure: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
-				Name:      "conversation_view_anchor_failure_total",
-				Help:      "Anchor failure occurrences by policy (bounded policy).",
+				Name:      "conversation_view_anchor_failures_total",
+				Help:      "Anchor failures by policy (bounded policy).",
 			},
 			[]string{"policy"},
 		),
@@ -85,35 +113,35 @@ type conversationViewSink struct {
 	p *ConversationViewProm
 }
 
-// NewConversationViewSink adapts ConversationViewProm to conversationview.Observer.
-func NewConversationViewSink(p *ConversationViewProm) conversationview.Observer {
+// NewConversationViewSink adapts ConversationViewProm to ConversationViewObserver.
+func NewConversationViewSink(p *ConversationViewProm) ConversationViewObserver {
 	if p == nil {
 		return nil
 	}
 	return &conversationViewSink{p: p}
 }
 
-func sanitizePlacement(k conversationview.PlacementKind) string {
+func sanitizePlacement(k conversationprojection.PlacementKind) string {
 	switch k {
-	case conversationview.PlacementStablePrefix, conversationview.PlacementAfterMessage:
+	case conversationprojection.PlacementStablePrefix, conversationprojection.PlacementAfterMessage:
 		return string(k)
 	default:
 		return "unknown"
 	}
 }
 
-func sanitizeOperation(k conversationview.CacheDiscontinuityKind) string {
+func sanitizeOperation(k CacheDiscontinuityKind) string {
 	switch k {
-	case conversationview.CacheDiscontinuityCreate, conversationview.CacheDiscontinuityReplace, conversationview.CacheDiscontinuityMove, conversationview.CacheDiscontinuityDeactivate:
+	case CacheDiscontinuityCreate, CacheDiscontinuityReplace, CacheDiscontinuityMove, CacheDiscontinuityDeactivate:
 		return string(k)
 	default:
 		return "unknown"
 	}
 }
 
-func sanitizePolicy(p conversationview.AnchorMissingPolicy) string {
+func sanitizePolicy(p conversationprojection.AnchorMissingPolicy) string {
 	switch p {
-	case conversationview.AnchorStablePrefixFallback, conversationview.AnchorFailClosed:
+	case conversationprojection.AnchorStablePrefixFallback, conversationprojection.AnchorFailClosed:
 		return string(p)
 	default:
 		return "unknown"
@@ -122,14 +150,14 @@ func sanitizePolicy(p conversationview.AnchorMissingPolicy) string {
 
 func sanitizeStage(s string) string {
 	switch s {
-	case conversationview.StageEarly, conversationview.StageFinal, conversationview.StageSDKResolve:
+	case conversationprojection.StageEarly, conversationprojection.StageFinal, conversationprojection.StageSDKResolve:
 		return s
 	default:
 		return "unknown"
 	}
 }
 
-func (s *conversationViewSink) OnProjection(stage string, summary conversationview.ProjectionSummary) {
+func (s *conversationViewSink) OnProjection(stage string, summary conversationprojection.ProjectionSummary) {
 	if s == nil || s.p == nil {
 		return
 	}
@@ -138,10 +166,10 @@ func (s *conversationViewSink) OnProjection(stage string, summary conversationvi
 		s.p.filtered.WithLabelValues(st).Add(float64(summary.FilteredCount))
 	}
 	if summary.StablePrefixCount > 0 {
-		s.p.injected.WithLabelValues(string(conversationview.PlacementStablePrefix)).Add(float64(summary.StablePrefixCount))
+		s.p.injected.WithLabelValues(string(conversationprojection.PlacementStablePrefix)).Add(float64(summary.StablePrefixCount))
 	}
 	if summary.AfterMessageCount > 0 {
-		s.p.injected.WithLabelValues(string(conversationview.PlacementAfterMessage)).Add(float64(summary.AfterMessageCount))
+		s.p.injected.WithLabelValues(string(conversationprojection.PlacementAfterMessage)).Add(float64(summary.AfterMessageCount))
 	}
 }
 
@@ -152,26 +180,25 @@ func (s *conversationViewSink) OnProjectionFailure(stage string) {
 	s.p.projectionFail.WithLabelValues(sanitizeStage(stage)).Inc()
 }
 
-func (s *conversationViewSink) OnAnchorFallback(stage string, policy conversationview.AnchorMissingPolicy) {
+func (s *conversationViewSink) OnAnchorFallback(stage string, policy conversationprojection.AnchorMissingPolicy) {
 	if s == nil || s.p == nil {
 		return
 	}
 	s.p.anchorFallback.WithLabelValues(sanitizeStage(stage), sanitizePolicy(policy)).Inc()
 }
 
-func (s *conversationViewSink) OnAnchorFailure(policy conversationview.AnchorMissingPolicy) {
+func (s *conversationViewSink) OnAnchorFailure(policy conversationprojection.AnchorMissingPolicy) {
 	if s == nil || s.p == nil {
 		return
 	}
 	s.p.anchorFailure.WithLabelValues(sanitizePolicy(policy)).Inc()
 }
 
-func (s *conversationViewSink) OnSteeringMutation(kind conversationview.CacheDiscontinuityKind, placement conversationview.PlacementKind) {
+func (s *conversationViewSink) OnSteeringMutation(kind CacheDiscontinuityKind, placement conversationprojection.PlacementKind) {
 	if s == nil || s.p == nil {
 		return
 	}
 	op := sanitizeOperation(kind)
 	pl := sanitizePlacement(placement)
 	s.p.mutations.WithLabelValues(op, pl).Inc()
-	s.p.discontinuity.WithLabelValues(op, pl).Inc()
 }

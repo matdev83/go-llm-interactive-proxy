@@ -3,7 +3,7 @@ package metrics
 import (
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
@@ -16,17 +16,17 @@ func TestConversationViewProm_BoundedLabels(t *testing.T) {
 		t.Fatal("sink nil")
 	}
 	// Exercise all bounded label combinations.
-	sink.OnProjection(conversationview.StageEarly, conversationview.ProjectionSummary{FilteredCount: 2, StablePrefixCount: 1, AfterMessageCount: 1})
-	sink.OnProjection(conversationview.StageFinal, conversationview.ProjectionSummary{FilteredCount: 1})
-	sink.OnSteeringMutation(conversationview.CacheDiscontinuityCreate, conversationview.PlacementStablePrefix)
-	sink.OnSteeringMutation(conversationview.CacheDiscontinuityReplace, conversationview.PlacementAfterMessage)
-	sink.OnSteeringMutation(conversationview.CacheDiscontinuityMove, conversationview.PlacementStablePrefix)
-	sink.OnSteeringMutation(conversationview.CacheDiscontinuityDeactivate, conversationview.PlacementAfterMessage)
-	sink.OnAnchorFallback(conversationview.StageEarly, conversationview.AnchorStablePrefixFallback)
-	sink.OnAnchorFallback(conversationview.StageFinal, conversationview.AnchorStablePrefixFallback)
-	sink.OnAnchorFailure(conversationview.AnchorFailClosed)
-	sink.OnProjectionFailure(conversationview.StageEarly)
-	sink.OnProjectionFailure(conversationview.StageFinal)
+	sink.OnProjection(conversationprojection.StageEarly, conversationprojection.ProjectionSummary{FilteredCount: 2, StablePrefixCount: 1, AfterMessageCount: 1})
+	sink.OnProjection(conversationprojection.StageFinal, conversationprojection.ProjectionSummary{FilteredCount: 1})
+	sink.OnSteeringMutation(CacheDiscontinuityCreate, conversationprojection.PlacementStablePrefix)
+	sink.OnSteeringMutation(CacheDiscontinuityReplace, conversationprojection.PlacementAfterMessage)
+	sink.OnSteeringMutation(CacheDiscontinuityMove, conversationprojection.PlacementStablePrefix)
+	sink.OnSteeringMutation(CacheDiscontinuityDeactivate, conversationprojection.PlacementAfterMessage)
+	sink.OnAnchorFallback(conversationprojection.StageEarly, conversationprojection.AnchorStablePrefixFallback)
+	sink.OnAnchorFallback(conversationprojection.StageFinal, conversationprojection.AnchorStablePrefixFallback)
+	sink.OnAnchorFailure(conversationprojection.AnchorFailClosed)
+	sink.OnProjectionFailure(conversationprojection.StageEarly)
+	sink.OnProjectionFailure(conversationprojection.StageFinal)
 
 	mfs, err := reg.Gather()
 	if err != nil {

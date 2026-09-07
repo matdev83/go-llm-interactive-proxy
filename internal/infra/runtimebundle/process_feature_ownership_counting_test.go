@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
@@ -40,6 +41,7 @@ type ProcessFeatureSnapshot struct {
 	KeepwarmRegistry       *keepwarm.ManagerRegistry
 	TerminalDecisionPolicy *terminaldecisionpolicy.Store
 	CompactionDetector     runtime.CompactionDetector
+	ConversationStore      conversationview.Store
 	BackgroundAux          *BackgroundAuxScheduler
 	StandardFeatures       *featurehost.Runtime
 }
@@ -50,16 +52,19 @@ func CaptureProcessFeatureSnapshot(ps *ProcessServices) ProcessFeatureSnapshot {
 		return ProcessFeatureSnapshot{}
 	}
 	var (
-		detector runtime.CompactionDetector
+		detector  runtime.CompactionDetector
+		convStore conversationview.Store
 	)
 	if ps.StandardFeatures != nil {
 		detector = ps.StandardFeatures.CompactionDetector()
+		convStore = ps.StandardFeatures.ConversationStore()
 	}
 	return ProcessFeatureSnapshot{
 		KeepwarmPolicy:         ps.KeepwarmPolicy,
 		KeepwarmRegistry:       ps.KeepwarmRegistry,
 		TerminalDecisionPolicy: ps.TerminalDecisionPolicy,
 		CompactionDetector:     detector,
+		ConversationStore:      convStore,
 		BackgroundAux:          ps.BackgroundAux,
 		StandardFeatures:       ps.StandardFeatures,
 	}
@@ -79,6 +84,9 @@ func (s ProcessFeatureSnapshot) AssertAllPresent(t *testing.T) {
 	}
 	if s.CompactionDetector == nil {
 		t.Fatal("expected non-nil CompactionDetector on StandardFeatures")
+	}
+	if s.ConversationStore == nil {
+		t.Fatal("expected non-nil ConversationStore on StandardFeatures")
 	}
 	if s.BackgroundAux == nil {
 		t.Fatal("expected non-nil BackgroundAux on ProcessServices")
@@ -103,6 +111,9 @@ func (s ProcessFeatureSnapshot) AssertIdentical(t *testing.T, other ProcessFeatu
 	if s.CompactionDetector != other.CompactionDetector {
 		t.Fatalf("%s: CompactionDetector instance changed: %p vs %p", stage, s.CompactionDetector, other.CompactionDetector)
 	}
+	if s.ConversationStore != other.ConversationStore {
+		t.Fatalf("%s: ConversationStore instance changed: %p vs %p", stage, s.ConversationStore, other.ConversationStore)
+	}
 	if s.BackgroundAux != other.BackgroundAux {
 		t.Fatalf("%s: BackgroundAux instance changed: %p vs %p", stage, s.BackgroundAux, other.BackgroundAux)
 	}
@@ -111,7 +122,7 @@ func (s ProcessFeatureSnapshot) AssertIdentical(t *testing.T, other ProcessFeatu
 	}
 }
 
-// AssertDistinctOwnedResources asserts that all six feature-owned process resources have distinct
+// AssertDistinctOwnedResources asserts that all feature-owned process resources have distinct
 // physical pointers across two separate ProcessServices builds (proving constructors run once per process).
 func (s ProcessFeatureSnapshot) AssertDistinctOwnedResources(t *testing.T, other ProcessFeatureSnapshot) {
 	t.Helper()
@@ -126,6 +137,9 @@ func (s ProcessFeatureSnapshot) AssertDistinctOwnedResources(t *testing.T, other
 	}
 	if s.CompactionDetector == other.CompactionDetector {
 		t.Fatalf("CompactionDetector pointer identical across distinct ProcessServices builds: %p", s.CompactionDetector)
+	}
+	if s.ConversationStore == other.ConversationStore {
+		t.Fatalf("ConversationStore pointer identical across distinct ProcessServices builds: %p", s.ConversationStore)
 	}
 	if s.StandardFeatures == other.StandardFeatures {
 		t.Fatalf("StandardFeatures pointer identical across distinct ProcessServices builds: %p", s.StandardFeatures)

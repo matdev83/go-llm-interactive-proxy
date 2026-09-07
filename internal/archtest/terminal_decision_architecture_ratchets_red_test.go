@@ -119,7 +119,7 @@ func TestTask81ContinuationDoesNotOwnHiddenContent(t *testing.T) {
 	root := repoRoot(t)
 	path := filepath.Join(root, "internal", "core", "runtime", "terminal_decision_continuation.go")
 	src := string(readTask81File(t, path))
-	if !strings.Contains(src, "sdkadapter.NewWriter") {
+	if !strings.Contains(src, "steeringWriterFactory") {
 		t.Fatalf("continuation transaction must use the canonical SDK writer: %s", path)
 	}
 	for _, forbidden := range []string{
@@ -211,7 +211,7 @@ func TestTask81TerminalDecisionPolicyLookupStopsAtAdmission(t *testing.T) {
 func TestTask81DiagnosticsHaveBoundedDimensions(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	path := filepath.Join(root, "internal", "core", "conversationview", "observer.go")
+	path := filepath.Join(root, "internal", "core", "conversationprojection", "snapshot.go")
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if err != nil {

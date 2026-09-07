@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -317,7 +317,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		ibt.conversationEvidence = projEv
 		ibt.conversationSummary = newConversationProjectionSummary(snapView, projEv)
 		ibt.convSnapshotSet = true
-		if filtered, ferr := conversationview.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
+		if filtered, ferr := conversationprojection.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
 			ibt.conversationFilteredBaseline = &filtered
 		} else {
 			// Filter should not fail if Project succeeded; treat as fail-closed

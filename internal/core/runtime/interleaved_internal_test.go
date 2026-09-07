@@ -8,8 +8,22 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview/sdkadapter"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 )
+
+func wireTestSteering(ex *Executor, cv conversationview.Store) {
+	ex.ConversationViewReader = cv
+	ex.SteeringWriterFactory = func(ctx context.Context, aLegID string, resolver SteeringWriterResolver) (steering.Writer, error) {
+		var trajResolver sdkadapter.TrajectoryResolver
+		if resolver != nil {
+			trajResolver = sdkadapter.TrajectoryResolver(resolver)
+		}
+		return sdkadapter.NewWriter(cv, aLegID, trajResolver)
+	}
+}
 
 type failPutMemoStore struct {
 	inner interleavedthinking.MemoStore
@@ -116,11 +130,14 @@ func TestPersistCapturedMemo_ReplacesMemoAndDeletesPrevious(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cv := conversationview.NewReferenceStore()
+	_ = cv.CreateALeg(ctx, aLeg.ALegID)
 	memoStore := interleavedthinking.NewMemoStore(4096)
 	ex := TestExecutor()
 	ex.Store = st
 	ex.MemoStore = memoStore
 	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
+	wireTestSteering(ex, cv)
 	scope := interleavedthinking.Scope(aLeg.ALegID)
 	state := interleavedstate.State{}
 
@@ -173,11 +190,14 @@ func TestPersistCapturedMemo_RollbackOnPersistFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cv := conversationview.NewReferenceStore()
+	_ = cv.CreateALeg(ctx, aLeg.ALegID)
 	memoStore := interleavedthinking.NewMemoStore(4096)
 	ex := TestExecutor()
 	ex.Store = st
 	ex.MemoStore = memoStore
 	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
+	wireTestSteering(ex, cv)
 	scope := interleavedthinking.Scope(aLeg.ALegID)
 	oldRef, err := memoStore.Put(ctx, scope, interleavedthinking.MemoState{Memo: "keep-me"})
 	if err != nil {
@@ -215,6 +235,8 @@ func TestPersistCapturedMemo_RestoresPreviousOverlayWhenMemoPutFails(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	cv := conversationview.NewReferenceStore()
+	_ = cv.CreateALeg(ctx, aLeg.ALegID)
 	inner := interleavedthinking.NewMemoStore(4096)
 	scope := interleavedthinking.Scope(aLeg.ALegID)
 	oldRef, err := inner.Put(ctx, scope, interleavedthinking.MemoState{Memo: "old memo"})
@@ -224,6 +246,7 @@ func TestPersistCapturedMemo_RestoresPreviousOverlayWhenMemoPutFails(t *testing.
 	ex := TestExecutor()
 	ex.Store = st
 	ex.MemoStore = &failPutMemoStore{inner: inner, err: errors.New("put failed")}
+	wireTestSteering(ex, cv)
 	src := capturedMemoSource{Ingress: lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("plan")}}}}}
 	if err := ex.publishMemoSteeringOverlay(ctx, aLeg.ALegID, src.Ingress, src.Snapshot, "old memo"); err != nil {
 		t.Fatal(err)
@@ -236,7 +259,7 @@ func TestPersistCapturedMemo_RestoresPreviousOverlayWhenMemoPutFails(t *testing.
 	if got.MemoRef == nil || !got.MemoRef.Equal(oldRef) {
 		t.Fatalf("memo ref changed after failed replacement: %+v", got.MemoRef)
 	}
-	snap, err := st.ConversationViewStore().Snapshot(ctx, aLeg.ALegID)
+	snap, err := cv.Snapshot(ctx, aLeg.ALegID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,10 +279,13 @@ func TestCommitMemoInjection_DeactivatesExhaustedOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cv := conversationview.NewReferenceStore()
+	_ = cv.CreateALeg(ctx, aLeg.ALegID)
 	memoStore := interleavedthinking.NewMemoStore(4096)
 	ex := TestExecutor()
 	ex.Store = st
 	ex.MemoStore = memoStore
+	wireTestSteering(ex, cv)
 
 	state, err := ex.persistCapturedMemo(ctx, aLeg.ALegID, interleavedstate.State{}, interleavedthinking.MemoState{
 		Memo:                  "one use",
@@ -274,7 +300,7 @@ func TestCommitMemoInjection_DeactivatesExhaustedOverlay(t *testing.T) {
 	if state.MemoRef == nil {
 		t.Fatal("expected memo ref after capture")
 	}
-	before, err := st.ConversationViewStore().Snapshot(ctx, aLeg.ALegID)
+	before, err := cv.Snapshot(ctx, aLeg.ALegID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +326,7 @@ func TestCommitMemoInjection_DeactivatesExhaustedOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snap, err := st.ConversationViewStore().Snapshot(ctx, aLeg.ALegID)
+	snap, err := cv.Snapshot(ctx, aLeg.ALegID)
 	if err != nil {
 		t.Fatal(err)
 	}

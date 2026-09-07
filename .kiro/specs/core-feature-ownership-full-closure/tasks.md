@@ -186,7 +186,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 4. Split conversation projection kernel from steering/state services
-- [ ] 4.1 Extract the pure kernel package without changing behavior
+- [x] 4.1 Extract the pure kernel package without changing behavior
   - Create `internal/core/conversationprojection` (or final reviewed spelling) containing only semantic identity, exclusion filtering, pure projection/reassertion, anchors/provenance and immutable projection DTOs required by core.
   - Move tests that prove these pure invariants with it.
   - No store, writer, DB adapter, config default, metrics implementation or SDK command handler may enter this package.
@@ -196,7 +196,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 3.3_
   - _Validation: focused projection tests/benchmarks; allocation comparison to Task 1.3_
 
-- [ ] 4.2 Move steering/nonforwardable mutable services and persistence outside core
+- [x] 4.2 Move steering/nonforwardable mutable services and persistence outside core
   - Move steering CRUD/state, placement/missing-anchor policy, writer/registrar services, persistence/store contracts/adapters and feature-specific diagnostics to `internal/infra/conversationview/...` as designed.
   - Preserve persisted schema/table compatibility unless an existing migration mechanism explicitly requires a schema move.
   - Keep `pkg/lipsdk/steering`, `nonforwardable`, `localturn` contracts stable; adapters translate to outside-core services.
@@ -206,7 +206,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 4.1_
   - _Validation: memory/SQLite/Postgres store contract tests; SDK adapter tests; projection integration tests_
 
-- [ ] 4.3 Atomically move construction to featurehost and remove the mixed old core package
+- [x] 4.3 Atomically move construction to featurehost and remove the mixed old core package
   - Featurehost constructs the conversation-view state/services and supplies the narrow snapshot/services consumed by core.
   - In the same integration change, remove any legacy process-level constructor/close registration for the transferred service while preserving generic DB pool ownership as borrowed; update the Task 2.3 transition table and ownership-counting test.
   - Delete old `internal/core/conversationview` once all admitted kernel files live in `conversationprojection` and non-kernel files are outside core.

@@ -4,6 +4,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	corecp "github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
@@ -28,12 +30,16 @@ import (
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview/sdkadapter"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 )
 
 // executorRuntime holds the assembled executor and the values [Build] needs from
@@ -78,6 +84,8 @@ type executorBuildInput struct {
 	CompactionScheduler    *auxreq.BackgroundScheduler
 	GenerationRunner       *compactioncompose.GenerationExecutorRunner
 	TerminalDecisionPolicy *terminaldecisionpolicy.Store
+	ConversationReader     conversationprojection.Reader
+	ConversationStore      conversationview.Store
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -235,16 +243,28 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	if in.CompactionScheduler != nil {
 		compactionBackground = in.CompactionScheduler.BindRunner(genRunner)
 	}
-
+	var convObs conversationview.Observer
+	if in.Observability != nil && in.Observability.Bundle != nil && in.Observability.Bundle.ConversationViewObserver() != nil {
+		convObs = metricsObserverAdapter{inner: in.Observability.Bundle.ConversationViewObserver()}
+	}
+	convStore := in.ConversationStore
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
-			Store:                in.Persistence.Store,
-			Backends:             in.Model.Backends,
-			ALegLifecycle:        aLeg,
-			Rand:                 routing.NewSeededRng(seed),
-			Now:                  in.NowFn,
-			MaxPendingWireEvents: cfg.Server.EffectiveMaxPendingWireEvents(),
-			StreamRecovery:       streamRecovery,
+			Store:                  in.Persistence.Store,
+			Backends:               in.Model.Backends,
+			ALegLifecycle:          aLeg,
+			Rand:                   routing.NewSeededRng(seed),
+			Now:                    in.NowFn,
+			MaxPendingWireEvents:   cfg.Server.EffectiveMaxPendingWireEvents(),
+			StreamRecovery:         streamRecovery,
+			ConversationViewReader: in.ConversationReader,
+			ConversationViewTagger: newConversationViewTaggerAdapter(convStore),
+			SteeringWriterFactory: func(ctx context.Context, aLegID string, resolver runtime.SteeringWriterResolver) (steering.Writer, error) {
+				if convStore == nil {
+					return nil, errors.New("runtimebundle: conversation store unavailable")
+				}
+				return sdkadapter.NewWriterWithObserver(convStore, aLegID, sdkadapter.TrajectoryResolver(resolver), convObs)
+			},
 		},
 		Billing: runtime.BillingRuntime{
 			BillingCreditGate:        prod.BillingCreditGate,
@@ -446,4 +466,58 @@ func resolveRouting(cfg *config.Config, wireModel config.WireModelForBackend) (s
 		return "", "", nil, err
 	}
 	return effectiveRoute, defBE, aliasResolver, nil
+}
+
+type conversationViewTaggerAdapter struct{ store conversationview.Store }
+
+func newConversationViewTaggerAdapter(s conversationview.Store) runtime.ConversationViewTagger {
+	if s == nil {
+		return nil
+	}
+	return &conversationViewTaggerAdapter{store: s}
+}
+
+func (a *conversationViewTaggerAdapter) TagNeverBackend(ctx context.Context, aLegID string, tags []runtime.TagRequest) (runtime.TagResult, error) {
+	if a == nil || a.store == nil {
+		return runtime.TagResult{}, errors.New("runtimebundle: conversation store unavailable")
+	}
+	cvTags := make([]conversationview.TagRequest, len(tags))
+	for i, t := range tags {
+		cvTags[i] = conversationview.TagRequest{Identity: t.Identity, Reason: t.Reason}
+	}
+	res, err := a.store.TagNeverBackend(ctx, aLegID, cvTags)
+	if err != nil {
+		return runtime.TagResult{}, err
+	}
+	return runtime.TagResult{StateRevision: res.StateRevision, Tags: res.Tags}, nil
+}
+
+func (a *conversationViewTaggerAdapter) DeleteALeg(ctx context.Context, aLegID string) error {
+	if a == nil || a.store == nil {
+		return nil
+	}
+	if d, ok := a.store.(interface {
+		DeleteALeg(context.Context, string) error
+	}); ok {
+		return d.DeleteALeg(ctx, aLegID)
+	}
+	return nil
+}
+
+type metricsObserverAdapter struct {
+	inner metrics.ConversationViewObserver
+}
+
+func (a metricsObserverAdapter) OnProjection(s string, sum conversationprojection.ProjectionSummary) {
+	a.inner.OnProjection(s, sum)
+}
+func (a metricsObserverAdapter) OnProjectionFailure(s string) { a.inner.OnProjectionFailure(s) }
+func (a metricsObserverAdapter) OnAnchorFallback(s string, p conversationprojection.AnchorMissingPolicy) {
+	a.inner.OnAnchorFallback(s, p)
+}
+func (a metricsObserverAdapter) OnAnchorFailure(p conversationprojection.AnchorMissingPolicy) {
+	a.inner.OnAnchorFailure(p)
+}
+func (a metricsObserverAdapter) OnSteeringMutation(k conversationview.CacheDiscontinuityKind, p conversationprojection.PlacementKind) {
+	a.inner.OnSteeringMutation(metrics.CacheDiscontinuityKind(k), p)
 }

@@ -79,6 +79,7 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = memoStore
+	wireInterleavedTestSteering(ex)
 
 	first := interleavedBaseCall(selector)
 	firstStream, err := ex.Execute(context.Background(), first)
@@ -302,6 +303,7 @@ func TestExecutor_VisibleInterleavedEndToEnd(t *testing.T) {
 	}
 	ex.MemoStore = memoStore
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
+	wireInterleavedTestSteering(ex)
 
 	first := interleavedBaseCall(selector)
 	firstStream, err := ex.Execute(context.Background(), first)
@@ -528,6 +530,7 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = memoStore
+	wireInterleavedTestSteering(ex)
 
 	collectTurn := func(origin, prev, call *lipapi.Call) {
 		t.Helper()

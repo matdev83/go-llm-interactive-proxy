@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -165,7 +165,7 @@ func (e *Executor) newThinkerRecorder(c routing.AttemptCandidate, call lipapi.Ca
 type capturedMemoSource struct {
 	TraceID  string
 	Ingress  lipapi.Call
-	Snapshot conversationview.Snapshot
+	Snapshot conversationprojection.Snapshot
 }
 
 func (e *Executor) persistCapturedMemo(

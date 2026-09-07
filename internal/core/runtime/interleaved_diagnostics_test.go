@@ -55,6 +55,7 @@ func TestExecutor_InterleavedDiagnostics_HiddenFlowObservesTransitionsWithoutMem
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = memoStore
+	wireInterleavedTestSteering(ex)
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := interleavedBaseCall(selector)
@@ -149,6 +150,7 @@ func TestExecutor_InterleavedDiagnostics_ExpiredMemoEmitsExpiredWithoutBody(t *t
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = memoStore
+	wireInterleavedTestSteering(ex)
 
 	first := interleavedBaseCall("[thinker]exec-be:m^exec-be:m")
 	firstStream, err := ex.Execute(context.Background(), first)
