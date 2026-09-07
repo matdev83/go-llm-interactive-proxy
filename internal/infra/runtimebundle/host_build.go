@@ -228,7 +228,7 @@ func defaultHostBuildOps() hostBuildOps {
 
 func buildProcessServicesOp(ctx context.Context, in processBuildInput) (*ProcessServices, error) {
 	prod := in.Production
-	if in.SecretEnv != nil {
+	if in.SecretEnv != nil && !hasSecretGuardHostRegistration(prod.FeatureHostRegistrations) {
 		prod.FeatureHostRegistrations = append(slices.Clone(prod.FeatureHostRegistrations),
 			(&secretguardhost.Binding{Environment: in.SecretEnv}).Registration(),
 		)

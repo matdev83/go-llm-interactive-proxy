@@ -21,9 +21,12 @@ type boundHostFeatures struct {
 }
 
 // SecretGuardHostBinding carries bound secret guard host options from registration.
+// Present reports whether a secret-guard binding was supplied. Composition selects
+// bound inputs by presence, never by enumerating individual option fields.
 type SecretGuardHostBinding struct {
 	Environment SecretGuardEnvironment
 	Inputs      SecretGuardInputs
+	Present     bool
 }
 
 // bindHostRegistrations indexes and validates startup-only host registrations.
@@ -79,6 +82,7 @@ func adaptSecretGuardHostBinding(b *secretguardhost.Binding) SecretGuardHostBind
 	}
 	out := SecretGuardHostBinding{
 		Environment: b.Environment,
+		Present:     true,
 	}
 	out.Inputs.SingleUser = SingleUserOptions{
 		IncludePopularEnv: b.SingleUser.IncludePopularEnv,

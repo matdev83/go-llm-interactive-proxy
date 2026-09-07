@@ -26,11 +26,15 @@ type SecretGuardRuntime struct {
 
 // SecretGuardBuildInput contains inputs for building the secret guard runtime.
 type SecretGuardBuildInput struct {
-	AccessMode       accessmode.Mode
-	Registrations    []lipsdk.Registration
-	Guards           []sdk.Guard
-	Environment      SecretGuardEnvironment
-	Inputs           SecretGuardInputs
+	AccessMode    accessmode.Mode
+	Registrations []lipsdk.Registration
+	Guards        []sdk.Guard
+	Environment   SecretGuardEnvironment
+	Inputs        SecretGuardInputs
+	// HostInputs carries the bound secret-guard host inputs when a host binding
+	// was supplied (nil when absent). Composition overlays explicitly-set host
+	// fields onto YAML-decoded options.
+	HostInputs       *SecretGuardInputs
 	DecisionObserver SecretDecisionObserver
 	Logger           *slog.Logger
 }
@@ -48,6 +52,7 @@ func buildSecretGuardRuntime(in SecretGuardBuildInput) (*SecretGuardRuntime, err
 		Guards:           in.Guards,
 		Environment:      in.Environment,
 		Inputs:           in.Inputs,
+		HostInputs:       in.HostInputs,
 		DecisionObserver: in.DecisionObserver,
 		Logger:           in.Logger,
 	})

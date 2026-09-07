@@ -102,30 +102,30 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		outLifecycles = slices.Clone(in.Lifecycles)
 	}
 
-	// 4. Secret Guard composition
+	// 4. Secret Guard composition. Bound host inputs are selected by binding
+	// presence: a supplied secret-guard binding (generation-bound, else
+	// process-bound) is preferred wholesale; legacy inputs apply only when no
+	// binding is present. The host pointer lets composition overlay
+	// explicitly-set host fields onto YAML-decoded options.
 	guards := lipfeature.Get[[]sdk.Guard](outPlanes, lipfeature.PlaneSecretGuards)
 	sgEnv := in.SecretEnv
 	sgInputs := in.SecretInputs
+	var sgHostInputs *SecretGuardInputs
 	if len(in.HostRegistrations) > 0 {
 		if genBound.secretGuard.Environment != nil {
 			sgEnv = genBound.secretGuard.Environment
 		}
-		if genBound.secretGuard.Inputs.SingleUser.IncludePopularEnv ||
-			len(genBound.secretGuard.Inputs.SingleUser.IncludeEnv) > 0 ||
-			len(genBound.secretGuard.Inputs.SingleUser.ExcludeEnv) > 0 ||
-			genBound.secretGuard.Inputs.SingleUser.MatcherConfigured {
+		if genBound.secretGuard.Present {
 			sgInputs = genBound.secretGuard.Inputs
+			sgHostInputs = &sgInputs
 		}
 	} else if r != nil {
 		if sgEnv == nil && r.boundSecretGuard.Environment != nil {
 			sgEnv = r.boundSecretGuard.Environment
 		}
-		if !sgInputs.SingleUser.MatcherConfigured && r.boundSecretGuard.Inputs.SingleUser.MatcherConfigured {
+		if r.boundSecretGuard.Present {
 			sgInputs = r.boundSecretGuard.Inputs
-		} else if r.boundSecretGuard.Inputs.SingleUser.IncludePopularEnv ||
-			len(r.boundSecretGuard.Inputs.SingleUser.IncludeEnv) > 0 ||
-			len(r.boundSecretGuard.Inputs.SingleUser.ExcludeEnv) > 0 {
-			sgInputs = r.boundSecretGuard.Inputs
+			sgHostInputs = &sgInputs
 		}
 	}
 	sgOut, err := buildSecretGuardRuntime(SecretGuardBuildInput{
@@ -134,6 +134,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		Guards:           guards,
 		Environment:      sgEnv,
 		Inputs:           sgInputs,
+		HostInputs:       sgHostInputs,
 		DecisionObserver: in.DecisionObserver,
 		Logger:           r.logger,
 	})

@@ -30,13 +30,17 @@ type SecretGuardInputs struct {
 // Input specifies explicit composition inputs for secret-guard runtime assembly.
 // It avoids passing BuildOptions, ProcessServices, full config, or registry bags.
 type Input struct {
-	AccessMode       accessmode.Mode
-	Registrations    []lipsdk.Registration
-	RuntimeConfig    *featsecretguard.RuntimeConfig
-	Guards           []sdk.Guard
-	Environment      Environment
-	Inputs           SecretGuardInputs
-	SingleUser       SingleUserOptions
+	AccessMode    accessmode.Mode
+	Registrations []lipsdk.Registration
+	RuntimeConfig *featsecretguard.RuntimeConfig
+	Guards        []sdk.Guard
+	Environment   Environment
+	Inputs        SecretGuardInputs
+	SingleUser    SingleUserOptions
+	// HostInputs carries bound secret-guard host inputs when a host binding was
+	// supplied (nil when absent). Explicitly-set host fields take precedence
+	// over YAML-decoded catalog options.
+	HostInputs       *SecretGuardInputs
 	DecisionObserver sdk.Observer
 	Logger           *slog.Logger
 }
@@ -87,6 +91,9 @@ func Compose(in Input) (*Output, error) {
 		inputs = in.SingleUser
 	} else if in.SingleUser.IncludePopularEnv || len(in.SingleUser.IncludeEnv) > 0 || len(in.SingleUser.ExcludeEnv) > 0 || in.SingleUser.MinSecretBytes > 0 {
 		inputs = in.SingleUser
+	}
+	if in.HostInputs != nil {
+		runtimeCfg = applySecretGuardHostOverride(runtimeCfg, in.HostInputs.SingleUser)
 	}
 	singleUser := composeSingleUser(runtimeCfg, inputs)
 
@@ -148,6 +155,32 @@ func Compose(in Input) (*Output, error) {
 // ComposeSingleUser merges YAML runtime config onto single-user options.
 func ComposeSingleUser(runtimeCfg featsecretguard.RuntimeConfig, inputs SingleUserOptions) SingleUserOptions {
 	return composeSingleUser(runtimeCfg, inputs)
+}
+
+// applySecretGuardHostOverride overlays explicitly host-supplied catalog fields
+// onto the YAML-decoded runtime config. Only explicitly set host fields win:
+// MinSecretBytes above zero, non-empty include/exclude lists, a true
+// IncludePopularEnv, and a configured matcher. A present-but-empty host binding
+// (such as the default env-only binding) changes nothing, so YAML composition
+// is undisturbed unless the host explicitly set a field.
+func applySecretGuardHostOverride(runtimeCfg featsecretguard.RuntimeConfig, host SingleUserOptions) featsecretguard.RuntimeConfig {
+	if host.MinSecretBytes > 0 {
+		runtimeCfg.MinSecretBytes = host.MinSecretBytes
+	}
+	if len(host.IncludeEnv) > 0 {
+		runtimeCfg.IncludeEnv = append([]string(nil), host.IncludeEnv...)
+	}
+	if len(host.ExcludeEnv) > 0 {
+		runtimeCfg.ExcludeEnv = append([]string(nil), host.ExcludeEnv...)
+	}
+	if host.IncludePopularEnv {
+		runtimeCfg.IncludePopularEnv = true
+	}
+	if host.MatcherConfigured {
+		runtimeCfg.PreserveKnownPrefixes = host.Matcher.PreserveKnownPrefixes
+		runtimeCfg.MaskByte = host.Matcher.MaskByte
+	}
+	return runtimeCfg
 }
 
 // composeSingleUser merges YAML runtime config onto composition-seam inputs.
