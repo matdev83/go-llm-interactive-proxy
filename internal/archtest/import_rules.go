@@ -375,6 +375,11 @@ var ForbiddenImports = []ForbiddenImportRule{
 	{SourcePattern: "internal/plugins/features/keepwarm", TargetPattern: "/internal/stdhttp", Reason: "keepwarm feature tree must not depend on stdhttp"},
 	{SourcePattern: "internal/plugins/features/keepwarm", TargetPattern: "/internal/pluginreg", Reason: "keepwarm feature tree must not depend on pluginreg"},
 	{SourcePattern: "*", TargetPattern: "/internal/core/terminaldecisionpolicy", Reason: "internal/core/terminaldecisionpolicy has been retired; use internal/standardplugins/featurehost/sessionpolicy"},
+	{SourcePattern: "*", TargetPattern: "/internal/reasoningreplay", Reason: "internal/reasoningreplay has been retired; use internal/plugins/features/reasoningpreservation/reasoningreplay"},
+	{SourcePattern: "*", TargetPattern: "/internal/infra/compactioncompose", Reason: "internal/infra/compactioncompose has been retired; use internal/standardplugins/featurehost/compaction and internal/infra/auxiliary"},
+	{SourcePattern: "*", TargetPattern: "/internal/infra/reasoningcompose", Reason: "internal/infra/reasoningcompose has been retired; use internal/standardplugins/featurehost/reasoning"},
+	{SourcePattern: "*", TargetPattern: "/internal/infra/secretguardcompose", Reason: "internal/infra/secretguardcompose has been retired; use internal/standardplugins/featurehost/secretguard"},
+	{SourcePattern: "*", TargetPattern: "/internal/infra/secretaudit", Reason: "internal/infra/secretaudit has been retired; use internal/standardplugins/featurehost/secretguard"},
 }
 
 // fileScopedImportRule restricts specific production files.

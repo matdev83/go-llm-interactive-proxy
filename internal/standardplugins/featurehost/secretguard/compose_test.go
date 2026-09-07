@@ -1,4 +1,4 @@
-package secretguardcompose_test
+package secretguard_test
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
+	sgcompose "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -92,7 +92,7 @@ func TestSecretGuardCompose_UnknownAccessModeFailsClosed(t *testing.T) {
 	for _, mode := range unknownModes {
 		t.Run(string(mode), func(t *testing.T) {
 			t.Parallel()
-			_, err := secretguardcompose.Compose(secretguardcompose.Input{
+			_, err := sgcompose.Compose(sgcompose.Input{
 				AccessMode: mode,
 				Logger:     discardLogger(),
 			})
@@ -118,7 +118,7 @@ func TestSecretGuardCompose_MultiUserZeroEnvironmentCalls(t *testing.T) {
 		Config:      lipsdk.ConfigPayload{Node: raw},
 	}}
 
-	out, err := secretguardcompose.Compose(secretguardcompose.Input{
+	out, err := sgcompose.Compose(sgcompose.Input{
 		AccessMode:    accessmode.ModeMultiUser,
 		Registrations: regs,
 		Environment:   env,
@@ -138,7 +138,7 @@ func TestSecretGuardCompose_MultiUserZeroEnvironmentCalls(t *testing.T) {
 func TestSecretGuardCompose_DisabledZeroEnvironmentCalls(t *testing.T) {
 	t.Parallel()
 	env := &panicEnv{}
-	out, err := secretguardcompose.Compose(secretguardcompose.Input{
+	out, err := sgcompose.Compose(sgcompose.Input{
 		AccessMode:  accessmode.ModeSingleUser,
 		Environment: env,
 		Logger:      discardLogger(),
@@ -175,7 +175,7 @@ single_user:
 		Config:      lipsdk.ConfigPayload{Node: raw},
 	}}
 
-	out, err := secretguardcompose.Compose(secretguardcompose.Input{
+	out, err := sgcompose.Compose(sgcompose.Input{
 		AccessMode:    accessmode.ModeSingleUser,
 		Registrations: regs,
 		Environment:   env,
@@ -217,7 +217,7 @@ func TestSecretGuardCompose_NilLoggerFailsClosedWhenAuditRequired(t *testing.T) 
 			Config:      lipsdk.ConfigPayload{Node: raw},
 		}}
 
-		_, err := secretguardcompose.Compose(secretguardcompose.Input{
+		_, err := sgcompose.Compose(sgcompose.Input{
 			AccessMode:    accessmode.ModeSingleUser,
 			Registrations: regs,
 			Logger:        nil,
@@ -232,7 +232,7 @@ func TestSecretGuardCompose_NilLoggerFailsClosedWhenAuditRequired(t *testing.T) 
 
 	t.Run("injected_guards", func(t *testing.T) {
 		t.Parallel()
-		_, err := secretguardcompose.Compose(secretguardcompose.Input{
+		_, err := sgcompose.Compose(sgcompose.Input{
 			AccessMode: accessmode.ModeSingleUser,
 			Guards:     []sdk.Guard{stubGuard{id: "custom"}},
 			Logger:     nil,
@@ -249,7 +249,7 @@ func TestSecretGuardCompose_NilLoggerFailsClosedWhenAuditRequired(t *testing.T) 
 func TestSecretGuardCompose_InjectedGuardsWithExplicitObserverAndNilLoggerSucceeds(t *testing.T) {
 	t.Parallel()
 	obs := &customObserver{}
-	out, err := secretguardcompose.Compose(secretguardcompose.Input{
+	out, err := sgcompose.Compose(sgcompose.Input{
 		AccessMode:       accessmode.ModeSingleUser,
 		Guards:           []sdk.Guard{stubGuard{id: "custom"}},
 		DecisionObserver: obs,
@@ -271,13 +271,13 @@ func TestSecretGuardCompose_SingleUserHostOverrides(t *testing.T) {
 		MaskByte:              '*',
 		MinSecretBytes:        8,
 	}
-	inputs := secretguardcompose.SecretGuardInputs{
-		SingleUser: secretguardcompose.SingleUserOptions{
-			Matcher:           secretguardcompose.MatcherOptions{PreserveKnownPrefixes: false, MaskByte: 'X'},
+	inputs := sgcompose.SecretGuardInputs{
+		SingleUser: sgcompose.SingleUserOptions{
+			Matcher:           sgcompose.MatcherOptions{PreserveKnownPrefixes: false, MaskByte: 'X'},
 			MatcherConfigured: true,
 		},
 	}
-	out, err := secretguardcompose.Compose(secretguardcompose.Input{
+	out, err := sgcompose.Compose(sgcompose.Input{
 		AccessMode:    accessmode.ModeSingleUser,
 		RuntimeConfig: &runtimeCfg,
 		Inputs:        inputs,
@@ -307,7 +307,7 @@ func TestSecretGuardCompose_ValidateRegistrations_RejectsDuplicates(t *testing.T
 			Enabled:     true,
 		},
 	}
-	err := secretguardcompose.ValidateRegistrations(regs)
+	err := sgcompose.ValidateRegistrations(regs)
 	if err == nil {
 		t.Fatal("expected error on duplicate enabled secrets-guard, got nil")
 	}
@@ -324,7 +324,7 @@ func TestSecretGuardCompose_EnabledRegistrations(t *testing.T) {
 		FactoryKind: "secrets-guard",
 		Enabled:     true,
 	}}
-	matches, err := secretguardcompose.EnabledRegistrations(regs)
+	matches, err := sgcompose.EnabledRegistrations(regs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestSecretGuardCompose_EnabledRegistrations(t *testing.T) {
 		FactoryKind: "other-feature",
 		Enabled:     true,
 	}}
-	matches, err = secretguardcompose.EnabledRegistrations(regs)
+	matches, err = sgcompose.EnabledRegistrations(regs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,14 +351,14 @@ func TestSecretGuardCompose_ComposeSingleUser_PreservationRules(t *testing.T) {
 
 	t.Run("feature_disabled_preserves_inputs_directly", func(t *testing.T) {
 		t.Parallel()
-		inputs := secretguardcompose.SingleUserOptions{
+		inputs := sgcompose.SingleUserOptions{
 			IncludePopularEnv: true,
 			IncludeEnv:        []string{"INPUT_A", "INPUT_B"},
 			ExcludeEnv:        []string{"EXCLUDE_A"},
 			MinSecretBytes:    12,
 		}
 		runtimeCfg := secretguard.RuntimeConfig{Enabled: false}
-		out := secretguardcompose.ComposeSingleUser(runtimeCfg, inputs)
+		out := sgcompose.ComposeSingleUser(runtimeCfg, inputs)
 		if !out.IncludePopularEnv {
 			t.Fatal("IncludePopularEnv want true")
 		}
@@ -375,7 +375,7 @@ func TestSecretGuardCompose_ComposeSingleUser_PreservationRules(t *testing.T) {
 
 	t.Run("feature_enabled_yaml_overrides_catalog_options", func(t *testing.T) {
 		t.Parallel()
-		inputs := secretguardcompose.SingleUserOptions{
+		inputs := sgcompose.SingleUserOptions{
 			IncludePopularEnv: false,
 			IncludeEnv:        []string{"INPUT_A"},
 			ExcludeEnv:        []string{"EXCLUDE_A"},
@@ -389,7 +389,7 @@ func TestSecretGuardCompose_ComposeSingleUser_PreservationRules(t *testing.T) {
 			MinSecretBytes:    16,
 			MaskByte:          '*',
 		}
-		out := secretguardcompose.ComposeSingleUser(runtimeCfg, inputs)
+		out := sgcompose.ComposeSingleUser(runtimeCfg, inputs)
 		if !out.IncludePopularEnv {
 			t.Fatal("IncludePopularEnv want true")
 		}
@@ -412,11 +412,11 @@ func TestSecretGuardCompose_ComposeSingleUser_PreservationRules(t *testing.T) {
 
 	t.Run("feature_enabled_matcher_override_preserved_when_configured", func(t *testing.T) {
 		t.Parallel()
-		customMatcher := secretguardcompose.MatcherOptions{
+		customMatcher := sgcompose.MatcherOptions{
 			PreserveKnownPrefixes: false,
 			MaskByte:              '#',
 		}
-		inputs := secretguardcompose.SingleUserOptions{
+		inputs := sgcompose.SingleUserOptions{
 			MatcherConfigured: true,
 			Matcher:           customMatcher,
 		}
@@ -425,7 +425,7 @@ func TestSecretGuardCompose_ComposeSingleUser_PreservationRules(t *testing.T) {
 			PreserveKnownPrefixes: true,
 			MaskByte:              '*',
 		}
-		out := secretguardcompose.ComposeSingleUser(runtimeCfg, inputs)
+		out := sgcompose.ComposeSingleUser(runtimeCfg, inputs)
 		if !out.MatcherConfigured {
 			t.Fatal("MatcherConfigured want true")
 		}
@@ -462,7 +462,7 @@ redaction:
 		if err != nil {
 			t.Fatal(err)
 		}
-		su := secretguardcompose.ComposeSingleUser(runtimeCfg, secretguardcompose.SingleUserOptions{})
+		su := sgcompose.ComposeSingleUser(runtimeCfg, sgcompose.SingleUserOptions{})
 		if !su.MatcherConfigured || su.Matcher.MaskByte != 'X' {
 			t.Fatalf("composed matcher: %#v", su.Matcher)
 		}
@@ -485,7 +485,7 @@ func TestSecretGuardCompose_MultiUserRejectsSingleUserKey(t *testing.T) {
 		Enabled:     true,
 		Config:      lipsdk.ConfigPayload{Node: raw},
 	}}
-	_, err := secretguardcompose.Compose(secretguardcompose.Input{
+	_, err := sgcompose.Compose(sgcompose.Input{
 		AccessMode:    accessmode.ModeMultiUser,
 		Registrations: regs,
 		Logger:        discardLogger(),

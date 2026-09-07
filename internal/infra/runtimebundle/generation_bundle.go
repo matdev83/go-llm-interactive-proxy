@@ -56,12 +56,12 @@ type generationOperations struct {
 }
 
 type GenerationBundle struct {
-	keepwarmQuiesce  func(context.Context) error
-	execution        generationExecution
-	publication      generationHTTPPublication
-	models           generationModelViews
-	operations       generationOperations
-	ledger           *ResourceLedger
+	keepwarmQuiesce func(context.Context) error
+	execution       generationExecution
+	publication     generationHTTPPublication
+	models          generationModelViews
+	operations      generationOperations
+	ledger          *ResourceLedger
 }
 
 var (
@@ -259,7 +259,7 @@ func backendIDsOf(exec *runtime.Executor) []string {
 
 func newGenerationBundle(in generationBundleInput) *GenerationBundle {
 	return &GenerationBundle{
-		keepwarmQuiesce:  in.keepwarmQuiesce,
+		keepwarmQuiesce: in.keepwarmQuiesce,
 		execution: generationExecution{
 			executor:   in.executor,
 			backendIDs: append([]string(nil), in.backendIDs...),

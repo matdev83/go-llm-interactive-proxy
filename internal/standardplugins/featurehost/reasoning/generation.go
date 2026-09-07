@@ -1,4 +1,4 @@
-package reasoningcompose
+package reasoning
 
 import (
 	"fmt"

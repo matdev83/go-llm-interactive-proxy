@@ -1,4 +1,4 @@
-package compactioncompose
+package auxiliary
 
 import (
 	"context"

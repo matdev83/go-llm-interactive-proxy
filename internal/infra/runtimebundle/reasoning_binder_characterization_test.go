@@ -8,16 +8,17 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	sdkauxiliary "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/reasoninghost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -27,35 +28,49 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func validateReasoningPreservationCompressionGeneration(ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) error {
+func validateReasoningPreservationCompressionGeneration(ps *ProcessServices, regs []lipsdk.Registration, client sdkauxiliary.BackgroundClient, poller sdkauxiliary.BackgroundPoller) error {
 	fh, err := reasoningTestFeatureHost(ps)
 	if err != nil {
 		return err
 	}
+	var hostRegs []featurehost.Registration
+	if ps != nil && ps.opts != nil {
+		if len(ps.opts.Production.FeatureHostRegistrations) > 0 {
+			hostRegs = ps.opts.Production.FeatureHostRegistrations
+		} else if len(ps.opts.Testing.FeatureHostRegistrations) > 0 {
+			hostRegs = ps.opts.Testing.FeatureHostRegistrations
+		}
+	}
 	_, err = fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
 		Registrations:     regs,
+		HostRegistrations: hostRegs,
 		BackgroundClient:  client,
 		BackgroundPoller:  poller,
-		ReasoningProdOpts: reasoningCompressionProductionOptions(ps),
-		ReasoningTestOpts: reasoningCompressionTestingOptions(ps),
 	})
 	return err
 }
 
-func bindReasoningPreservationCompression(genMerged featurebundle.GeneratedMergeSurface, ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) (featurebundle.GeneratedMergeSurface, error) {
+func bindReasoningPreservationCompression(genMerged featurebundle.GeneratedMergeSurface, ps *ProcessServices, regs []lipsdk.Registration, client sdkauxiliary.BackgroundClient, poller sdkauxiliary.BackgroundPoller) (featurebundle.GeneratedMergeSurface, error) {
 	fh, err := reasoningTestFeatureHost(ps)
 	if err != nil {
 		return featurebundle.GeneratedMergeSurface{}, err
 	}
+	var hostRegs []featurehost.Registration
+	if ps != nil && ps.opts != nil {
+		if len(ps.opts.Production.FeatureHostRegistrations) > 0 {
+			hostRegs = ps.opts.Production.FeatureHostRegistrations
+		} else if len(ps.opts.Testing.FeatureHostRegistrations) > 0 {
+			hostRegs = ps.opts.Testing.FeatureHostRegistrations
+		}
+	}
 	out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
 		Registrations:     regs,
+		HostRegistrations: hostRegs,
 		MergeSurface:      genMerged,
 		Planes:            genMerged.Frozen,
 		Lifecycles:        genMerged.Lifecycles,
 		BackgroundClient:  client,
 		BackgroundPoller:  poller,
-		ReasoningProdOpts: reasoningCompressionProductionOptions(ps),
-		ReasoningTestOpts: reasoningCompressionTestingOptions(ps),
 	})
 	if err != nil {
 		return featurebundle.GeneratedMergeSurface{}, err
@@ -104,8 +119,8 @@ func (charTerminalProvider) Decide(context.Context, terminaldecision.Input) (ter
 
 type charEgressPolicy struct{ version string }
 
-func (p charEgressPolicy) Decide(context.Context, reasoningpreservation.CompressionEgressInput) (reasoningpreservation.CompressionEgressDecision, error) {
-	return reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: p.version}, nil
+func (p charEgressPolicy) Decide(context.Context, reasoninghost.EgressInput) (reasoninghost.EgressDecision, error) {
+	return reasoninghost.EgressDecision{Action: reasoninghost.EgressAllow, PolicyVersion: p.version}, nil
 }
 
 type charMatcherResolver struct{}
@@ -126,7 +141,7 @@ func (charMatcher) RedactString(_ context.Context, s string) (string, []sdk.Find
 	return s, nil, nil
 }
 
-func setupReasoningTestServices(t *testing.T, egressRef string) (*ProcessServices, lipsdk.Registration, auxiliary.BackgroundClient, auxiliary.BackgroundPoller) {
+func setupReasoningTestServices(t *testing.T, egressRef string) (*ProcessServices, lipsdk.Registration, sdkauxiliary.BackgroundClient, sdkauxiliary.BackgroundPoller) {
 	t.Helper()
 	reg := pluginreg.NewRegistry()
 	require.NoError(t, standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}))
@@ -147,11 +162,13 @@ func setupReasoningTestServices(t *testing.T, egressRef string) (*ProcessService
 	t.Cleanup(func() { _ = scheduler.Close() })
 
 	prod := ProductionOptions{
-		ReasoningCompression: ReasoningCompressionOptions{
-			EgressPolicies: map[string]reasoningpreservation.EgressPolicy{
-				egressRef: charEgressPolicy{version: "v1"},
-			},
-			MatcherResolver: charMatcherResolver{},
+		FeatureHostRegistrations: []featurehost.Registration{
+			(&reasoninghost.Binding{
+				EgressPolicies: map[string]reasoninghost.EgressPolicy{
+					egressRef: charEgressPolicy{version: "v1"},
+				},
+				MatcherResolver: charMatcherResolver{},
+			}).Registration(),
 		},
 	}
 	opts := &BuildOptions{PluginRegistry: reg, Production: prod}
@@ -179,9 +196,9 @@ func setupReasoningTestServices(t *testing.T, egressRef string) (*ProcessService
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ps.Close() })
 
-	genRunner := compactioncompose.NewGenerationExecutorRunner()
+	genRunner := auxiliary.NewGenerationExecutorRunner()
 	bound := scheduler.BindRunner(genRunner)
-	bPoller, ok := bound.(auxiliary.BackgroundPoller)
+	bPoller, ok := bound.(sdkauxiliary.BackgroundPoller)
 	require.True(t, ok, "bound client must implement BackgroundPoller")
 
 	return ps, pluginReg, bound, bPoller
@@ -434,9 +451,11 @@ func TestReasoningCompression_FailBeforeMutate_CandidateUnmodified(t *testing.T)
 		psNoResolver := &ProcessServices{
 			opts: &BuildOptions{
 				Production: ProductionOptions{
-					ReasoningCompression: ReasoningCompressionOptions{
-						EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"ref-fail-mutate": charEgressPolicy{}},
-						MatcherResolver: nil,
+					FeatureHostRegistrations: []featurehost.Registration{
+						(&reasoninghost.Binding{
+							EgressPolicies:  map[string]reasoninghost.EgressPolicy{"ref-fail-mutate": charEgressPolicy{}},
+							MatcherResolver: nil,
+						}).Registration(),
 					},
 				},
 			},

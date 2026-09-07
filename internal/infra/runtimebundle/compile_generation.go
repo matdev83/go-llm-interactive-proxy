@@ -60,7 +60,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		return nil, err
 	}
 	regs := freezeRegistrations(config.RegistrationsFromConfig(frozen))
-	genRunner, boundClient, boundPoller, err := newReasoningCompressionGenerationRunner(ps)
+	genRunner, boundClient, boundPoller, err := newGenerationAuxiliaryRunner(ps)
 	if err != nil {
 		return nil, err
 	}
@@ -95,14 +95,18 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	var kwAccounting billing.ProviderMaintenanceUsageObserver
 	if ps.opts != nil {
-		kwAccounting = ps.opts.Production.KeepwarmAccounting
+		kwAccounting = ps.opts.Production.MaintenanceAccounting
 	}
-	if in.CandidateOpts != nil && in.CandidateOpts.Production.KeepwarmAccounting != nil {
-		kwAccounting = in.CandidateOpts.Production.KeepwarmAccounting
+	if in.CandidateOpts != nil && in.CandidateOpts.Production.MaintenanceAccounting != nil {
+		kwAccounting = in.CandidateOpts.Production.MaintenanceAccounting
 	}
 	var genHostRegs []sdkfeaturehost.Registration
 	if in.CandidateOpts != nil && len(in.CandidateOpts.Production.FeatureHostRegistrations) > 0 {
 		genHostRegs = in.CandidateOpts.Production.FeatureHostRegistrations
+	} else if ps.opts != nil && len(ps.opts.Production.FeatureHostRegistrations) > 0 {
+		genHostRegs = ps.opts.Production.FeatureHostRegistrations
+	} else if ps.opts != nil && len(ps.opts.Testing.FeatureHostRegistrations) > 0 {
+		genHostRegs = ps.opts.Testing.FeatureHostRegistrations
 	}
 	featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
 		Registrations:      regs,
@@ -112,8 +116,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		Lifecycles:         lifecycles,
 		BackgroundClient:   boundClient,
 		BackgroundPoller:   boundPoller,
-		ReasoningProdOpts:  reasoningCompressionProductionOptions(ps),
-		ReasoningTestOpts:  reasoningCompressionTestingOptions(ps),
 		AccessMode:         accessMode,
 		ConfigInterleaved:  frozen.Interleaved,
 		ConfigDir:          frozen.ConfigDir,
@@ -210,7 +212,9 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 			if cand.execution.executor.PromptCacheMaintenance != nil {
 				cand.execution.executor.PromptCacheMaintenance.EndSession(aLegID)
 			}
-			if deleter, ok := cand.execution.executor.ConversationViewTagger.(interface{ DeleteALeg(context.Context, string) error }); ok {
+			if deleter, ok := cand.execution.executor.ConversationViewTagger.(interface {
+				DeleteALeg(context.Context, string) error
+			}); ok {
 				_ = deleter.DeleteALeg(context.Background(), aLegID)
 			}
 		})

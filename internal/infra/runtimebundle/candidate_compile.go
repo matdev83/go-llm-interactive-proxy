@@ -15,7 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
@@ -28,7 +28,7 @@ type GenerationCompileInput struct {
 	Compose          HandlerComposer
 	LiveFactoryKinds map[string]int
 	FaultInject      CandidateFaultInject
-	GenerationRunner *compactioncompose.GenerationExecutorRunner
+	GenerationRunner *auxiliary.GenerationExecutorRunner
 }
 
 func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidateAssembly, error) {
@@ -162,30 +162,30 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		return nil, fail(err)
 	}
 	execRun, err := buildExecutorRuntime(executorBuildInput{
-		Bctx:                   bctx,
-		Ledger:                 ledger,
-		NowFn:                  nowFn,
-		Ext:                    ext,
-		Model:                  model,
-		Persistence:            ps.persistence,
-		Security:               sec,
-		Observability:          &obs,
-		ControlPlane:           ps.controlPlane,
-		UsageAuthority:         ps.UsageAuthority,
-		Concurrency:            ps.concurrencyRT,
-		SnapshotGeneration:     ps.SnapshotGeneration,
-		TerminalWork:           ps.terminalWorkRT,
-		SharedMutable:          ps.sharedMutable,
-		AccountingStores:       ps.accountingStores,
-		Metering:               ps.meteringRT,
-		BackendIdentities:      backendIDs,
-		CompactionDetector:     ps.StandardFeatures.CompactionDetector(),
-		CompactionScheduler:    ps.BackgroundAux,
-		GenerationRunner:       in.GenerationRunner,
-		TerminalPolicyReader:   opts.CorePorts.TerminalPolicyReader,
-		ConversationReader:     ps.StandardFeatures.ConversationReader(),
-		ConversationStore:      ps.StandardFeatures.ConversationStore(),
-		InterleavedProcessor:   opts.CorePorts.InterleavedProcessor,
+		Bctx:                 bctx,
+		Ledger:               ledger,
+		NowFn:                nowFn,
+		Ext:                  ext,
+		Model:                model,
+		Persistence:          ps.persistence,
+		Security:             sec,
+		Observability:        &obs,
+		ControlPlane:         ps.controlPlane,
+		UsageAuthority:       ps.UsageAuthority,
+		Concurrency:          ps.concurrencyRT,
+		SnapshotGeneration:   ps.SnapshotGeneration,
+		TerminalWork:         ps.terminalWorkRT,
+		SharedMutable:        ps.sharedMutable,
+		AccountingStores:     ps.accountingStores,
+		Metering:             ps.meteringRT,
+		BackendIdentities:    backendIDs,
+		CompactionDetector:   ps.StandardFeatures.CompactionDetector(),
+		BackgroundScheduler:  ps.BackgroundAux,
+		GenerationRunner:     in.GenerationRunner,
+		TerminalPolicyReader: opts.CorePorts.TerminalPolicyReader,
+		ConversationReader:   ps.StandardFeatures.ConversationReader(),
+		ConversationStore:    ps.StandardFeatures.ConversationStore(),
+		InterleavedProcessor: opts.CorePorts.InterleavedProcessor,
 	})
 	if err != nil {
 		return nil, fail(err)
@@ -241,7 +241,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			billingReportsPath:      execRun.Production.BillingReportsPath,
 			billingProvisioner:      billingProvisioner,
 			billingExposureRecovery: billingExposureRecovery,
-			keepwarmAccounting:      execRun.Production.KeepwarmAccounting,
+			keepwarmAccounting:      execRun.Production.MaintenanceAccounting,
 			tokenAccountingAdmin:    execRun.TokenAccountingAdmin,
 			readinessReport:         execRun.ReadinessReport,
 			secretGuardInventory:    opts.Extensions.SecretGuardInventory,
@@ -251,21 +251,21 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			terminalMetrics:         ps.TerminalWorkMetrics,
 		},
 		process: candidateProcessRefs{
-			store:                  ps.Continuity,
-			pluginRegistry:         ps.FactoryCatalog,
-			databasePools:          ps.DatabasePools,
-			metrics:                ps.Metrics,
-			controlPlaneQueries:    ps.controlPlane.queriesHandle(),
-			controlPlaneStatus:     ps.controlPlane.statusHandle(),
-			controlPlaneRetention:  ps.controlPlane.retentionHandle(),
-			usageAuthority:         ps.UsageAuthority,
-			concurrencyAuthority:   ps.Concurrency,
-			snapshotGeneration:     ps.SnapshotGeneration,
-			snapshotController:     ps.SnapshotController,
-			meteringQuerier:        ps.MeteringQuerier,
-			standardFeatures:       ps.StandardFeatures,
-			geoip:                  ps.GeoIP,
-			secureSessions:         ps.SecureSessions,
+			store:                 ps.Continuity,
+			pluginRegistry:        ps.FactoryCatalog,
+			databasePools:         ps.DatabasePools,
+			metrics:               ps.Metrics,
+			controlPlaneQueries:   ps.controlPlane.queriesHandle(),
+			controlPlaneStatus:    ps.controlPlane.statusHandle(),
+			controlPlaneRetention: ps.controlPlane.retentionHandle(),
+			usageAuthority:        ps.UsageAuthority,
+			concurrencyAuthority:  ps.Concurrency,
+			snapshotGeneration:    ps.SnapshotGeneration,
+			snapshotController:    ps.SnapshotController,
+			meteringQuerier:       ps.MeteringQuerier,
+			standardFeatures:      ps.StandardFeatures,
+			geoip:                 ps.GeoIP,
+			secureSessions:        ps.SecureSessions,
 		},
 		ledger: ledger,
 		terminalWorkReady: func() func(context.Context) error {

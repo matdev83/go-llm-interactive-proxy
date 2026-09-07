@@ -98,7 +98,7 @@ func bindHost(configPath string, in bindHostInput) (*Host, error) {
 		merged := fixed
 		return config.LoadEffective(ctx, raw, config.LoadEffectiveOptions{
 			ConfigDir: filepath.Dir(src.AbsolutePath()), FixedStreamRecovery: &merged,
-			NormalizeYAML: legacyfeatureconfig.NormalizeYAML,
+			NormalizeYAML:  legacyfeatureconfig.NormalizeYAML,
 			InjectFeatures: injectStandardBootstrapFeatures, ExtraValidate: extraBootstrapValidate,
 		})
 	})

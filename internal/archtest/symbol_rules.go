@@ -331,6 +331,11 @@ var RetiredPackageDirs = []string{
 	"internal/core/interleavedthinking",
 	"internal/core/keepwarm",
 	"internal/core/terminaldecisionpolicy",
+	"internal/reasoningreplay",
+	"internal/infra/reasoningcompose",
+	"internal/infra/secretguardcompose",
+	"internal/infra/secretaudit",
+	"internal/infra/compactioncompose",
 }
 
 // ScanFileRetiredPackage checks if a repo-relative file path belongs to a retired package.

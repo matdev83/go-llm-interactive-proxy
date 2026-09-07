@@ -12,7 +12,9 @@ import (
 	featurecompaction "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/reasoninghost"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -89,11 +91,13 @@ func TestCompileGeneration_BinderFailuresFailClosed(t *testing.T) {
 		require.NoError(t, config.Validate(cfg))
 
 		prod := ProductionOptions{
-			ReasoningCompression: ReasoningCompressionOptions{
-				EgressPolicies: map[string]reasoningpreservation.EgressPolicy{
-					"egress-ref": charEgressPolicy{version: "v1"},
-				},
-				MatcherResolver: charMatcherResolver{},
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&reasoninghost.Binding{
+					EgressPolicies: map[string]reasoninghost.EgressPolicy{
+						"egress-ref": charEgressPolicy{version: "v1"},
+					},
+					MatcherResolver: charMatcherResolver{},
+				}).Registration(),
 			},
 		}
 
@@ -141,11 +145,13 @@ func TestCompileGeneration_BinderFailuresFailClosed(t *testing.T) {
 		t.Cleanup(func() { _ = scheduler.Close() })
 
 		prod := ProductionOptions{
-			ReasoningCompression: ReasoningCompressionOptions{
-				EgressPolicies: map[string]reasoningpreservation.EgressPolicy{
-					"egress-ref": charEgressPolicy{version: "v1"},
-				},
-				MatcherResolver: charMatcherResolver{},
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&reasoninghost.Binding{
+					EgressPolicies: map[string]reasoninghost.EgressPolicy{
+						"egress-ref": charEgressPolicy{version: "v1"},
+					},
+					MatcherResolver: charMatcherResolver{},
+				}).Registration(),
 			},
 		}
 		opts := &BuildOptions{PluginRegistry: reg, Production: prod}

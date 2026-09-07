@@ -64,7 +64,7 @@ type ProcessServices struct {
 	TerminalWorkRegistry  *terminalworkapp.Registry
 	TerminalWorkQueries   *terminalworkapp.QueryService
 	TerminalWorkMetrics   *terminalworkapp.MetricsObserver
-	BackgroundAux *BackgroundAuxScheduler
+	BackgroundAux         *BackgroundAuxScheduler
 
 	// StandardFeatures owns the single standard-distribution feature host handle (Task 2.3).
 	StandardFeatures *featurehost.Runtime

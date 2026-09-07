@@ -201,4 +201,3 @@ type Observer interface {
 	OnAnchorFallback(stage Stage, policy AnchorMissingPolicy)
 	OnAnchorFailure(policy AnchorMissingPolicy)
 }
-

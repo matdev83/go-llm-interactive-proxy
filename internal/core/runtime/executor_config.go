@@ -112,7 +112,7 @@ func (r TagRequest) Validate() error {
 
 // TagResult is returned from a successful TagNeverBackend call.
 type TagResult struct {
-	StateRevision uint64                      `json:"state_revision"`
+	StateRevision uint64                       `json:"state_revision"`
 	Tags          []conversationprojection.Tag `json:"tags"`
 }
 

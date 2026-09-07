@@ -21,6 +21,9 @@ import (
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
 
+// Registration aliases the SDK host registration type for convenient consumption.
+type Registration = sdkfeaturehost.Registration
+
 // Runtime is the standard-distribution feature host process facade.
 // It owns only migrated process feature resources and disposes them
 // in reverse acquisition order upon Close. Borrowed resources (BackgroundAux,

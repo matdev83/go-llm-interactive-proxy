@@ -6,16 +6,16 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
-// Re-exported types from secretguardcompose so runtimebundle does not import dedicated compose package.
-type SecretGuardInputs = secretguardcompose.SecretGuardInputs
-type SecretGuardEnvironment = secretguardcompose.Environment
-type SingleUserOptions = secretguardcompose.SingleUserOptions
-type MatcherOptions = secretguardcompose.MatcherOptions
+// Re-exported types from secretguard so runtimebundle does not import dedicated compose package.
+type SecretGuardInputs = secretguard.SecretGuardInputs
+type SecretGuardEnvironment = secretguard.Environment
+type SingleUserOptions = secretguard.SingleUserOptions
+type MatcherOptions = secretguard.MatcherOptions
 type SecretDecisionObserver = sdk.Observer
 
 // SecretGuardRuntime contains the compiled secret guard plane and inventory extras.
@@ -37,12 +37,12 @@ type SecretGuardBuildInput struct {
 
 // ValidateSecretGuardRegistrations validates registration requirements for secret guard.
 func ValidateSecretGuardRegistrations(regs []lipsdk.Registration) error {
-	return secretguardcompose.ValidateRegistrations(regs)
+	return secretguard.ValidateRegistrations(regs)
 }
 
 // buildSecretGuardRuntime composes the secret guard extension plane and diagnostics inventory.
 func buildSecretGuardRuntime(in SecretGuardBuildInput) (*SecretGuardRuntime, error) {
-	out, err := secretguardcompose.Compose(secretguardcompose.Input{
+	out, err := secretguard.Compose(secretguard.Input{
 		AccessMode:       in.AccessMode,
 		Registrations:    in.Registrations,
 		Guards:           in.Guards,

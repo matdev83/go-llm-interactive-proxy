@@ -1,4 +1,4 @@
-package secretaudit_test
+package secretguard_test
 
 import (
 	"bytes"
@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretaudit"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
 func TestNewSlogObserver_nilLogger(t *testing.T) {
 	t.Parallel()
-	if _, err := secretaudit.NewSlogObserver(nil); err == nil {
+	if _, err := secretguard.NewSlogObserver(nil); err == nil {
 		t.Fatal("expected error for nil logger")
 	}
 }
@@ -24,24 +24,24 @@ func TestSlogObserver_decisionEvent_noSyntheticSecretValues(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	obs, err := secretaudit.NewSlogObserver(log)
+	obs, err := secretguard.NewSlogObserver(log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ev := secretguard.DecisionEvent{
+	ev := sdk.DecisionEvent{
 		Timestamp: time.Unix(10, 0).UTC(),
 		EventID:   "evt-1",
 		TraceID:   "tr-1",
-		Findings: []secretguard.Finding{{
+		Findings: []sdk.Finding{{
 			SecretRefName:   "OPENAI_API_KEY",
 			Aliases:         []string{"OPENAI_API_KEY_2"},
-			SourceCategory:  secretguard.SourceCategoryProxyEnv,
+			SourceCategory:  sdk.SourceCategoryProxyEnv,
 			Location:        "messages[0].parts[0].text",
 			OccurrenceCount: 1,
 		}},
 		Action:            "block",
-		Outcome:           secretguard.OutcomeBlock,
-		QuarantineResult:  secretguard.QuarantineResultCommitted,
+		Outcome:           sdk.OutcomeBlock,
+		QuarantineResult:  sdk.QuarantineResultCommitted,
 		BackendDispatched: false,
 		GuardID:           "secrets-guard",
 	}
@@ -75,30 +75,30 @@ func TestSlogObserver_decisionEvent_uniqueTopLevelFindingsKeys(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	obs, err := secretaudit.NewSlogObserver(log)
+	obs, err := secretguard.NewSlogObserver(log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ev := secretguard.DecisionEvent{
+	ev := sdk.DecisionEvent{
 		Timestamp: time.Unix(10, 0).UTC(),
 		EventID:   "evt-2",
-		Findings: []secretguard.Finding{
+		Findings: []sdk.Finding{
 			{
 				SecretRefName:   "OPENAI_API_KEY",
 				Aliases:         []string{"OPENAI_API_KEY_2"},
-				SourceCategory:  secretguard.SourceCategoryProxyEnv,
+				SourceCategory:  sdk.SourceCategoryProxyEnv,
 				Location:        "messages[0].parts[0].text",
 				OccurrenceCount: 2,
 			},
 			{
 				SecretRefName:   "SLACK_BOT_TOKEN",
-				SourceCategory:  secretguard.SourceCategoryPopularEnv,
+				SourceCategory:  sdk.SourceCategoryPopularEnv,
 				Location:        "tools[0].description",
 				OccurrenceCount: 1,
 			},
 		},
 		Action:            "redact",
-		Outcome:           secretguard.OutcomeRedacted,
+		Outcome:           sdk.OutcomeRedacted,
 		BackendDispatched: false,
 		GuardID:           "secrets-guard",
 	}

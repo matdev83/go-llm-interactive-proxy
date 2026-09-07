@@ -44,13 +44,13 @@ type parallelLeg struct {
 	delay            time.Duration
 	startedAt        time.Time
 	recvErr          error
-	observedUsage atomic.Value // lipapi.Event
-	interleaved   interleavedstate.State
-	turn          InterleavedTurn
-	tx            *attemptTx
-	ready         *readyAttempt
-	managedByMain bool
-	mainDone      bool
+	observedUsage    atomic.Value // lipapi.Event
+	interleaved      interleavedstate.State
+	turn             InterleavedTurn
+	tx               *attemptTx
+	ready            *readyAttempt
+	managedByMain    bool
+	mainDone         bool
 }
 
 func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg, legs []*parallelLeg) error {

@@ -189,7 +189,9 @@ func (e *Executor) memoStateVisibleToClient(ctx context.Context, aLegID string, 
 	if e == nil || e.Processor == nil || aLegID == "" {
 		return false
 	}
-	if v, ok := e.Processor.(interface{ IsMemoVisibleToClient(context.Context, string) bool }); ok {
+	if v, ok := e.Processor.(interface {
+		IsMemoVisibleToClient(context.Context, string) bool
+	}); ok {
 		return v.IsMemoVisibleToClient(ctx, aLegID)
 	}
 	return false

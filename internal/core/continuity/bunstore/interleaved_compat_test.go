@@ -233,5 +233,3 @@ func TestStore_InterleavedState_DurableMemoPreservationRoundTrip(t *testing.T) {
 		t.Fatalf("raw DB memo_ref mismatch: got %s, want %s", string(directDTO.MemoRef), `{"key":"memo-99","version":4}`)
 	}
 }
-
-

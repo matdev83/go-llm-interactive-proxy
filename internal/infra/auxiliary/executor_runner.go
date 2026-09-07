@@ -1,4 +1,4 @@
-package compactioncompose
+package auxiliary
 
 import (
 	"context"
@@ -16,7 +16,7 @@ func NewGenerationExecutorRunner() *GenerationExecutorRunner    { return &Genera
 func (r *GenerationExecutorRunner) Bind(exec *runtime.Executor) { r.exec = exec }
 func (r *GenerationExecutorRunner) Execute(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) {
 	if r == nil || r.exec == nil {
-		return nil, errors.New("compactioncompose: generation executor is not bound")
+		return nil, errors.New("auxiliary: generation executor is not bound")
 	}
 	return r.exec.Execute(ctx, call)
 }

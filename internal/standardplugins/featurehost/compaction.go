@@ -64,4 +64,3 @@ func (r *Runtime) bindCompactionContinuity(genMerged featurebundle.GeneratedMerg
 	}
 	return staged, nil
 }
-

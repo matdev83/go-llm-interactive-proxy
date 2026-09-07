@@ -179,4 +179,3 @@ func maintenanceQuantity(value *int64) billing.Quantity {
 	}
 	return billing.Quantity{Value: *value, Present: true}
 }
-

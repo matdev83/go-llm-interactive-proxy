@@ -393,7 +393,6 @@ func TestForbiddenImports_InterleavedThinkingTreeAdversarialBypassRejected(t *te
 	}
 }
 
-
 // TestProductionFeatureTreesHaveZeroForbiddenImports scans the live production trees
 // of toolcallrepair, secretguard, compactioncontinuity, interleavedthinking, and keepwarm and asserts zero forbidden imports.
 func TestProductionFeatureTreesHaveZeroForbiddenImports(t *testing.T) {

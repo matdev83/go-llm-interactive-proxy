@@ -1,4 +1,4 @@
-﻿package interleavedthinking
+package interleavedthinking
 
 import (
 	"os"

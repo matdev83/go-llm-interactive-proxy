@@ -421,8 +421,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 10. Consolidate residual feature-only support and compose packages
-- [ ] 10.1 Re-run consumer analysis after all known migrations
+- [x] 10. Consolidate residual feature-only support and compose packages
+- [x] 10.1 Re-run consumer analysis after all known migrations
   - Refresh Task 1.1 census for predecessor reasoning/secretguard compose packages, remaining `compactioncompose`, `internal/reasoningreplay`, and every feature-specific infra/support row.
   - For each package record non-test production consumers and classify using Requirement 11.
   - Explicitly verify that every process resource from the Task 2.3 transition table is now either featurehost-owned or intentionally generic/borrowed; no `legacy`, `unassigned`, or dual-owner row may leave this task.
@@ -433,7 +433,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 9.4_
   - _Validation: import graph scan / `go list`; updated ownership + transition manifest; ownership-counting tests_
 
-- [ ] 10.2 Move one-feature support code under feature owners
+- [x] 10.2 Move one-feature support code under feature owners
   - Move reasoning replay/compression helpers and any equivalent one-feature algorithm identified by 10.1 beneath the owning feature package.
   - Update tests/imports mechanically; preserve public SDK separation.
   - Delete obsolete top-level helper packages and add absence ratchets where their return would recreate ambiguous ownership.
@@ -442,7 +442,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 10.1_
   - _Validation: affected feature tests; archtest_
 
-- [ ] 10.3 Fold feature-specific compose adapters under featurehost where appropriate
+- [x] 10.3 Fold feature-specific compose adapters under featurehost where appropriate
   - Move reasoning/secretguard/compaction adapter code that is solely standard-feature composition into featurehost children/details.
   - Keep only genuinely generic shared auxiliary scheduling/executor-runner infrastructure outside featurehost when two independent consumers are proven.
   - Generic runtimebundle may call only the featurehost facade, never child adapters.
@@ -452,7 +452,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 10.2_
   - _Validation: import graph; featurehost tests; `git grep` for direct runtimebundle adapter calls_
 
-- [ ] 10.4 Remove all per-feature fields from generic process/executor composition
+- [x] 10.4 Remove all per-feature fields from generic process/executor composition
   - Audit `ProcessServices`, `ProcessServicesInput`, `executorBuildInput`, `ExecutorConfig` groups, runtimebundle options and runtimehost handoff.
   - Remove any remaining field typed/named for a concrete optional standard feature, except the single `StandardFeatures` handle and minimal fixed consumer interfaces explicitly approved in design.
   - Ordinary extension behavior remains in `FrozenPlaneSet`/request snapshot, not dedicated executor fields.

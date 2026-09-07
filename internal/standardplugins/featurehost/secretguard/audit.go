@@ -1,4 +1,4 @@
-package secretaudit
+package secretguard
 
 import (
 	"context"
@@ -6,15 +6,15 @@ import (
 	"log/slog"
 	"slices"
 
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
 const msgSecretGuardDecision = "lip.secret_guard.decision"
 
-// NewSlogObserver returns a secretguard.Observer that writes secret-safe decision
+// NewSlogObserver returns a sdk.Observer that writes secret-safe decision
 // events to log. log must be non-nil. Finding values are never logged — only
 // counts, the first secret ref name, and source categories.
-func NewSlogObserver(log *slog.Logger) (secretguard.Observer, error) {
+func NewSlogObserver(log *slog.Logger) (sdk.Observer, error) {
 	if log == nil {
 		return nil, fmt.Errorf("secretaudit: nil logger")
 	}
@@ -25,7 +25,7 @@ type slogObserver struct {
 	log *slog.Logger
 }
 
-func (o slogObserver) OnSecretDecision(ctx context.Context, ev secretguard.DecisionEvent) error {
+func (o slogObserver) OnSecretDecision(ctx context.Context, ev sdk.DecisionEvent) error {
 	if o.log == nil {
 		return nil
 	}
@@ -70,7 +70,7 @@ type safeFinding struct {
 	OccurrenceCount int      `json:"occurrence_count"`
 }
 
-func safeFindings(findings []secretguard.Finding) []safeFinding {
+func safeFindings(findings []sdk.Finding) []safeFinding {
 	if len(findings) == 0 {
 		return nil
 	}
@@ -87,7 +87,7 @@ func safeFindings(findings []secretguard.Finding) []safeFinding {
 	return out
 }
 
-func findingSummaryAttr(findings []secretguard.Finding) slog.Attr {
+func findingSummaryAttr(findings []sdk.Finding) slog.Attr {
 	count := len(findings)
 	firstRef := ""
 	categories := make([]string, 0, count)
@@ -116,4 +116,4 @@ func findingSummaryAttr(findings []secretguard.Finding) slog.Attr {
 }
 
 // Ensure interface satisfaction at compile time.
-var _ secretguard.Observer = slogObserver{}
+var _ sdk.Observer = slogObserver{}

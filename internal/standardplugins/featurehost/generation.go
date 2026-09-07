@@ -7,9 +7,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/reasoningcompose"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/reasoning"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -73,7 +72,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	} else if len(r.boundReasoning.EgressPolicies) > 0 || r.boundReasoning.MatcherResolver != nil {
 		reasoningOpts = composeReasoningOptions(reasoningOpts, r.boundReasoning)
 	}
-	if err := reasoningcompose.Validate(reasoningcompose.GenerationInput{
+	if err := reasoning.Validate(reasoning.GenerationInput{
 		Registrations: in.Registrations,
 		Client:        in.BackgroundClient,
 		Poller:        in.BackgroundPoller,
@@ -82,7 +81,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		return GenerationOutput{}, fmt.Errorf("featurehost: reasoning validation: %w", err)
 	}
 
-	staged, err := reasoningcompose.Bind(surface, reasoningcompose.GenerationInput{
+	staged, err := reasoning.Bind(surface, reasoning.GenerationInput{
 		Registrations: in.Registrations,
 		Client:        in.BackgroundClient,
 		Poller:        in.BackgroundPoller,
@@ -103,7 +102,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 
 	// 4. Secret Guard composition
 	guards := lipfeature.Get[[]sdk.Guard](outPlanes, lipfeature.PlaneSecretGuards)
-	sgOut, err := secretguardcompose.Compose(secretguardcompose.Input{
+	sgOut, err := buildSecretGuardRuntime(SecretGuardBuildInput{
 		AccessMode:       in.AccessMode,
 		Registrations:    in.Registrations,
 		Guards:           guards,
@@ -186,11 +185,11 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		KeepwarmManager:      kwMgr,
 		KeepwarmQuiesce:      kwQuiesce,
 		CorePorts: CorePorts{
-			CompactionDetector:      r.compactionDetector,
-			ConversationReader:      r.ConversationReader(),
-			InterleavedProcessor:    interleavedProc,
-			PromptCacheMaintenance:  kwMaint,
-			TerminalPolicyReader:    r.TerminalPolicyReader(),
+			CompactionDetector:     r.compactionDetector,
+			ConversationReader:     r.ConversationReader(),
+			InterleavedProcessor:   interleavedProc,
+			PromptCacheMaintenance: kwMaint,
+			TerminalPolicyReader:   r.TerminalPolicyReader(),
 		},
 	}
 

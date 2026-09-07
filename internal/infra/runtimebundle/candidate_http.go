@@ -21,11 +21,11 @@ import (
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	infraGeoIP "github.com/matdev83/go-llm-interactive-proxy/internal/infra/geoip"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -66,21 +66,21 @@ type candidateOperationsGroup struct {
 	terminalMetrics         *terminalworkapp.MetricsObserver
 }
 type candidateProcessRefs struct {
-	store                  b2bua.Store
-	pluginRegistry         *pluginreg.Registry
-	databasePools          *db.PoolRegistry
-	metrics                *metrics.Bundle
-	controlPlaneQueries    *controlplane.QueryService
-	controlPlaneStatus     *controlplane.Status
-	controlPlaneRetention  *controlplane.RetentionController
-	usageAuthority         *authorityapp.Service
-	concurrencyAuthority   *concurrencyapp.Service
-	snapshotGeneration     *snapshotgen.Publisher
-	snapshotController     *SnapshotController
-	meteringQuerier        metering.Querier
-	standardFeatures       *featurehost.Runtime
-	geoip                  *infraGeoIP.Service
-	secureSessions         ssessionapp.Store
+	store                 b2bua.Store
+	pluginRegistry        *pluginreg.Registry
+	databasePools         *db.PoolRegistry
+	metrics               *metrics.Bundle
+	controlPlaneQueries   *controlplane.QueryService
+	controlPlaneStatus    *controlplane.Status
+	controlPlaneRetention *controlplane.RetentionController
+	usageAuthority        *authorityapp.Service
+	concurrencyAuthority  *concurrencyapp.Service
+	snapshotGeneration    *snapshotgen.Publisher
+	snapshotController    *SnapshotController
+	meteringQuerier       metering.Querier
+	standardFeatures      *featurehost.Runtime
+	geoip                 *infraGeoIP.Service
+	secureSessions        ssessionapp.Store
 }
 type candidateAssembly struct {
 	execution                      candidateExecutionGroup

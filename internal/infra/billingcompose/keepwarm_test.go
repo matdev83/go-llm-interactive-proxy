@@ -6,106 +6,99 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingcompose"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
-func TestKeepwarmHooksDeliverProviderMaintenanceUsage(t *testing.T) {
+type mockMaintenanceStore struct {
+	billing.AuthoritativeBilling
+	appended []billing.ProviderMaintenanceUsage
+}
+
+func (m *mockMaintenanceStore) AppendProviderMaintenance(ctx context.Context, usage billing.ProviderMaintenanceUsage) error {
+	m.appended = append(m.appended, usage)
+	return nil
+}
+
+type nonMaintenanceStore struct {
+	billing.AuthoritativeBilling
+}
+
+func TestDurableMaintenanceObserver_AppendsUsage(t *testing.T) {
 	t.Parallel()
 
-	inputTokens := int64(11)
-	outputTokens := int64(7)
-	cacheReadTokens := int64(101)
-	cacheWriteTokens := int64(13)
-	reasoningTokens := int64(5)
-	totalTokens := int64(137)
-	observerCalls := 0
-	var observedContext context.Context
-	var observed billing.ProviderMaintenanceUsage
+	store := &mockMaintenanceStore{}
+	obs := billingcompose.NewDurableMaintenanceObserver(store)
 
-	hooks := billingcompose.KeepwarmHooks(billing.ProviderMaintenanceUsageObserverFunc(func(ctx context.Context, usage billing.ProviderMaintenanceUsage) error {
-		observerCalls++
-		observedContext = ctx
-		observed = usage
-		return nil
-	}))
-	if hooks.Accounting == nil {
-		t.Fatal("KeepwarmHooks did not install an accounting callback")
+	usage := billing.ProviderMaintenanceUsage{
+		OperationID: "op-1",
+		ALegID:      "aleg-1",
+		TargetID:    "target-1",
+		BackendID:   "backend-1",
+		ModelID:     "model-1",
+		RecordedAt:  time.Now().UTC(),
 	}
 
-	before := time.Now().UTC()
-	if err := hooks.Accounting(context.Background(), keepwarm.RenewalRecord{
-		OperationID: "keepwarm:1:2:3",
-		ALegID:      "a-leg-1",
-		TargetID:    promptcache.TargetID("target-1"),
-		BackendID:   "anthropic",
-		ModelID:     "claude-code",
-		Accounting: &promptcache.AccountingEvidence{
-			InputTokens:      &inputTokens,
-			OutputTokens:     &outputTokens,
-			CacheReadTokens:  &cacheReadTokens,
-			CacheWriteTokens: &cacheWriteTokens,
-			ReasoningTokens:  &reasoningTokens,
-			TotalTokens:      &totalTokens,
-			Presence: lipapi.UsagePresence{
-				InputTokens: true, OutputTokens: true, CacheReadTokens: true,
-				CacheWriteTokens: true, ReasoningTokens: true, TotalTokens: true,
-			},
-			Source:    promptcache.AccountingSourceProviderReported,
-			Authority: promptcache.AccountingAuthorityAuthoritative,
-			Plane:     promptcache.AccountingPlaneProviderBillable,
-			DedupeKey: "provider-call-1",
-		},
-	}); err != nil {
-		t.Fatalf("accounting callback: %v", err)
+	if err := obs.ObserveProviderMaintenance(context.Background(), usage); err != nil {
+		t.Fatalf("ObserveProviderMaintenance failed: %v", err)
 	}
-	after := time.Now().UTC()
 
-	if observerCalls != 1 {
-		t.Fatalf("observer calls = %d, want 1", observerCalls)
+	if len(store.appended) != 1 {
+		t.Fatalf("expected 1 appended usage, got %d", len(store.appended))
 	}
-	if observedContext == nil {
-		t.Fatal("observer received nil context")
-	}
-	if observed.OperationID != "keepwarm:1:2:3" || observed.ALegID != "a-leg-1" ||
-		observed.TargetID != "target-1" || observed.BackendID != "anthropic" || observed.ModelID != "claude-code" {
-		t.Fatalf("maintenance lineage = %+v", observed)
-	}
-	if observed.RecordedAt.Before(before) || observed.RecordedAt.After(after) || observed.RecordedAt.Location() != time.UTC {
-		t.Fatalf("RecordedAt = %v, want UTC timestamp during delivery", observed.RecordedAt)
-	}
-	got := observed.Evidence
-	if got.InputTokens != (billing.Quantity{Value: inputTokens, Present: true}) ||
-		got.OutputTokens != (billing.Quantity{Value: outputTokens, Present: true}) ||
-		got.CacheReadTokens != (billing.Quantity{Value: cacheReadTokens, Present: true}) ||
-		got.CacheWriteTokens != (billing.Quantity{Value: cacheWriteTokens, Present: true}) ||
-		got.ReasoningTokens != (billing.Quantity{Value: reasoningTokens, Present: true}) ||
-		got.TotalTokens != (billing.Quantity{Value: totalTokens, Present: true}) {
-		t.Fatalf("mapped token evidence = %+v", got)
-	}
-	if got.Cost.Present || got.Source != billing.EvidenceSourceProviderReported ||
-		got.Authority != billing.EvidenceAuthorityAuthoritative || got.DedupeKey != "keepwarm:1:2:3" {
-		t.Fatalf("mapped billing metadata = %+v", got)
+	if store.appended[0].OperationID != "op-1" {
+		t.Fatalf("expected OperationID op-1, got %s", store.appended[0].OperationID)
 	}
 }
 
-func TestKeepwarmHooksSkipRenewalsWithoutAccountingEvidence(t *testing.T) {
+func TestDurableMaintenanceObserver_NilStoreReturnsError(t *testing.T) {
 	t.Parallel()
 
-	var calls int
-	hooks := billingcompose.KeepwarmHooks(billing.ProviderMaintenanceUsageObserverFunc(func(context.Context, billing.ProviderMaintenanceUsage) error {
-		calls++
+	obs := billingcompose.NewDurableMaintenanceObserver(nil)
+	if err := obs.ObserveProviderMaintenance(context.Background(), billing.ProviderMaintenanceUsage{}); err == nil {
+		t.Fatal("expected error on nil store, got nil")
+	}
+
+	var nilObs *billingcompose.DurableMaintenanceObserver
+	if err := nilObs.ObserveProviderMaintenance(context.Background(), billing.ProviderMaintenanceUsage{}); err == nil {
+		t.Fatal("expected error on nil observer, got nil")
+	}
+}
+
+func TestComposeMaintenanceAccounting_InjectedPreserved(t *testing.T) {
+	t.Parallel()
+
+	injected := billing.ProviderMaintenanceUsageObserverFunc(func(context.Context, billing.ProviderMaintenanceUsage) error {
 		return nil
-	}))
-	if err := hooks.Accounting(context.Background(), keepwarm.RenewalRecord{OperationID: "without-evidence"}); err != nil {
-		t.Fatalf("accounting callback without evidence: %v", err)
+	})
+
+	got, err := billingcompose.ComposeMaintenanceAccounting(nil, injected)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if calls != 0 {
-		t.Fatalf("observer calls = %d, want 0", calls)
+	if got == nil {
+		t.Fatal("expected non-nil observer")
 	}
-	if hooksWithoutObserver := billingcompose.KeepwarmHooks(nil); hooksWithoutObserver.Accounting != nil {
-		t.Fatal("nil observer must not install an accounting callback")
+}
+
+func TestComposeMaintenanceAccounting_CreatesDurableObserver(t *testing.T) {
+	t.Parallel()
+
+	store := &mockMaintenanceStore{}
+	got, err := billingcompose.ComposeMaintenanceAccounting(store, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := got.(*billingcompose.DurableMaintenanceObserver); !ok {
+		t.Fatalf("expected *DurableMaintenanceObserver, got %T", got)
+	}
+}
+
+func TestComposeMaintenanceAccounting_RejectsNonMaintenanceStore(t *testing.T) {
+	t.Parallel()
+
+	store := &nonMaintenanceStore{}
+	_, err := billingcompose.ComposeMaintenanceAccounting(store, nil)
+	if err == nil {
+		t.Fatal("expected error for non-maintenance store, got nil")
 	}
 }

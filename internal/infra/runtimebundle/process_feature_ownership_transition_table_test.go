@@ -11,7 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	keepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
@@ -115,7 +115,7 @@ var ProcessFeatureTransitionTable = []ProcessFeatureTransitionRow{
 	{
 		ResourceName:          "BackgroundAux",
 		ConcreteType:          "*auxreq.BackgroundScheduler",
-		CurrentConstructor:    "compactioncompose.NewProductionBackgroundScheduler(ctx, in.Cfg) called at background_aux_lifecycle.go:23",
+		CurrentConstructor:    "auxiliary.NewProductionBackgroundScheduler(ctx, in.Cfg) called at background_aux_lifecycle.go:23",
 		CurrentFieldHolder:    "ProcessServices.BackgroundAux",
 		CloseRegistrationSite: "Closable: register(ps.BackgroundAux.Close) registered at background_aux_lifecycle.go:27",
 		Closable:              true,
@@ -190,7 +190,7 @@ func _driftCompilationGuard() {
 		_ func(int) (*keepwarm.PolicyStore, error)                                      = keepwarm.NewPolicyStore
 		_ func() *keepwarm.ManagerRegistry                                              = keepwarm.NewManagerRegistry
 		_ func(sessionpolicy.Config) *sessionpolicy.Store                               = sessionpolicy.NewStore
-		_ func(context.Context, *config.Config) *auxreq.BackgroundScheduler             = compactioncompose.NewProductionBackgroundScheduler
+		_ func(context.Context, *config.Config) *auxreq.BackgroundScheduler             = auxiliary.NewProductionBackgroundScheduler
 		_ func(context.Context, featurehost.ProcessInput) (*featurehost.Runtime, error) = featurehost.NewProcess
 	)
 }

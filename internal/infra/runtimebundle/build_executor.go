@@ -28,7 +28,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	infraaux "github.com/matdev83/go-llm-interactive-proxy/internal/infra/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview/sdkadapter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
@@ -79,13 +79,13 @@ type executorBuildInput struct {
 	BackendIdentities  map[string]BackendStateIdentity
 	// CompactionDetector is the process-owned detector shared by all
 	// generations. Nil disables compaction observation.
-	CompactionDetector     runtime.CompactionDetector
-	CompactionScheduler    *auxreq.BackgroundScheduler
-	GenerationRunner       *compactioncompose.GenerationExecutorRunner
-	TerminalPolicyReader   runtime.TerminalPolicyReader
-	ConversationReader     conversationprojection.Reader
-	ConversationStore      conversationview.Store
-	InterleavedProcessor   runtime.InterleavedProcessor
+	CompactionDetector   runtime.CompactionDetector
+	BackgroundScheduler  *auxreq.BackgroundScheduler
+	GenerationRunner     *infraaux.GenerationExecutorRunner
+	TerminalPolicyReader runtime.TerminalPolicyReader
+	ConversationReader   conversationprojection.Reader
+	ConversationStore    conversationview.Store
+	InterleavedProcessor runtime.InterleavedProcessor
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -235,11 +235,11 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	routingRT, catalogRuntime := attachModelCatalog(routingRT, in.Model.StartedCatalog, cfg)
 	genRunner := in.GenerationRunner
 	if genRunner == nil {
-		genRunner = compactioncompose.NewGenerationExecutorRunner()
+		genRunner = infraaux.NewGenerationExecutorRunner()
 	}
 	var compactionBackground auxiliary.BackgroundClient
-	if in.CompactionScheduler != nil {
-		compactionBackground = in.CompactionScheduler.BindRunner(genRunner)
+	if in.BackgroundScheduler != nil {
+		compactionBackground = in.BackgroundScheduler.BindRunner(genRunner)
 	}
 	var convObs conversationview.Observer
 	if in.Observability != nil && in.Observability.Bundle != nil && in.Observability.Bundle.ConversationViewObserver() != nil {

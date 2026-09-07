@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strings"
 
-	keepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/jsonbody"
+	keepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 )
 
 type Service interface {

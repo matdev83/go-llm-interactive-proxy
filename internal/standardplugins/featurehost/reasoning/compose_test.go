@@ -1,4 +1,4 @@
-package reasoningcompose_test
+package reasoning_test
 
 import (
 	"context"
@@ -6,9 +6,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/reasoningcompose"
+	infraaux "github.com/matdev83/go-llm-interactive-proxy/internal/infra/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/reasoning"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
@@ -128,7 +128,7 @@ func setupTestScheduler(t *testing.T) (auxiliary.BackgroundClient, auxiliary.Bac
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = scheduler.Close() })
 
-	genRunner := compactioncompose.NewGenerationExecutorRunner()
+	genRunner := infraaux.NewGenerationExecutorRunner()
 	bound := scheduler.BindRunner(genRunner)
 	poller, ok := bound.(auxiliary.BackgroundPoller)
 	require.True(t, ok)
@@ -142,21 +142,21 @@ func TestReasoningCompression_OptionsPrecedence(t *testing.T) {
 	testPolicy := testEgressPolicy{version: "test"}
 	sharedPolicy := testEgressPolicy{version: "prod-override"}
 
-	prod := reasoningcompose.Options{
+	prod := reasoning.Options{
 		EgressPolicies: map[string]reasoningpreservation.EgressPolicy{
 			"prod-only": prodPolicy,
 			"shared":    sharedPolicy,
 		},
 		MatcherResolver: testMatcherResolver{},
 	}
-	test := reasoningcompose.Options{
+	test := reasoning.Options{
 		EgressPolicies: map[string]reasoningpreservation.EgressPolicy{
 			"test-only": testPolicy,
 			"shared":    testPolicy,
 		},
 	}
 
-	merged := reasoningcompose.ComposeOptions(prod, test)
+	merged := reasoning.ComposeOptions(prod, test)
 	assert.Equal(t, 3, len(merged.EgressPolicies))
 	assert.Equal(t, prodPolicy, merged.EgressPolicies["prod-only"])
 	assert.Equal(t, testPolicy, merged.EgressPolicies["test-only"])
@@ -165,13 +165,13 @@ func TestReasoningCompression_OptionsPrecedence(t *testing.T) {
 
 	// Fallback to test matcher resolver when prod is nil capability
 	var nilResolver *typedNilResolver
-	prodWithNil := reasoningcompose.Options{
+	prodWithNil := reasoning.Options{
 		MatcherResolver: nilResolver,
 	}
-	testWithResolver := reasoningcompose.Options{
+	testWithResolver := reasoning.Options{
 		MatcherResolver: testMatcherResolver{},
 	}
-	mergedFallback := reasoningcompose.ComposeOptions(prodWithNil, testWithResolver)
+	mergedFallback := reasoning.ComposeOptions(prodWithNil, testWithResolver)
 	assert.NotNil(t, mergedFallback.MatcherResolver)
 }
 
@@ -190,16 +190,16 @@ func TestReasoningCompression_ValidatePrerequisites(t *testing.T) {
 
 	t.Run("fails when BackgroundAux is nil", func(t *testing.T) {
 		t.Parallel()
-		in := reasoningcompose.GenerationInput{
+		in := reasoning.GenerationInput{
 			Registrations: []lipsdk.Registration{reg},
 			Client:        nil,
 			Poller:        nil,
-			Options: reasoningcompose.Options{
+			Options: reasoning.Options{
 				EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"my-egress": testEgressPolicy{}},
 				MatcherResolver: testMatcherResolver{},
 			},
 		}
-		err := reasoningcompose.Validate(in)
+		err := reasoning.Validate(in)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "BackgroundAux")
 	})
@@ -209,32 +209,32 @@ func TestReasoningCompression_ValidatePrerequisites(t *testing.T) {
 		var nilClient *typedNilClient
 		var c auxiliary.BackgroundClient = nilClient
 		var p auxiliary.BackgroundPoller = nilClient
-		in := reasoningcompose.GenerationInput{
+		in := reasoning.GenerationInput{
 			Registrations: []lipsdk.Registration{reg},
 			Client:        c,
 			Poller:        p,
-			Options: reasoningcompose.Options{
+			Options: reasoning.Options{
 				EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"my-egress": testEgressPolicy{}},
 				MatcherResolver: testMatcherResolver{},
 			},
 		}
-		err := reasoningcompose.Validate(in)
+		err := reasoning.Validate(in)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "BackgroundAux")
 	})
 
 	t.Run("fails when egress policy is missing", func(t *testing.T) {
 		t.Parallel()
-		in := reasoningcompose.GenerationInput{
+		in := reasoning.GenerationInput{
 			Registrations: []lipsdk.Registration{reg},
 			Client:        client,
 			Poller:        poller,
-			Options: reasoningcompose.Options{
+			Options: reasoning.Options{
 				EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"other-egress": testEgressPolicy{}},
 				MatcherResolver: testMatcherResolver{},
 			},
 		}
-		err := reasoningcompose.Validate(in)
+		err := reasoning.Validate(in)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `trusted EgressPolicy for "my-egress"`)
 	})
@@ -242,16 +242,16 @@ func TestReasoningCompression_ValidatePrerequisites(t *testing.T) {
 	t.Run("fails when egress policy is typed nil", func(t *testing.T) {
 		t.Parallel()
 		var nilPolicy *typedNilEgress
-		in := reasoningcompose.GenerationInput{
+		in := reasoning.GenerationInput{
 			Registrations: []lipsdk.Registration{reg},
 			Client:        client,
 			Poller:        poller,
-			Options: reasoningcompose.Options{
+			Options: reasoning.Options{
 				EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"my-egress": nilPolicy},
 				MatcherResolver: testMatcherResolver{},
 			},
 		}
-		err := reasoningcompose.Validate(in)
+		err := reasoning.Validate(in)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `trusted EgressPolicy for "my-egress"`)
 	})
@@ -259,16 +259,16 @@ func TestReasoningCompression_ValidatePrerequisites(t *testing.T) {
 	t.Run("fails when MatcherResolver is nil or typed nil", func(t *testing.T) {
 		t.Parallel()
 		var nilResolver *typedNilResolver
-		in := reasoningcompose.GenerationInput{
+		in := reasoning.GenerationInput{
 			Registrations: []lipsdk.Registration{reg},
 			Client:        client,
 			Poller:        poller,
-			Options: reasoningcompose.Options{
+			Options: reasoning.Options{
 				EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"my-egress": testEgressPolicy{}},
 				MatcherResolver: nilResolver,
 			},
 		}
-		err := reasoningcompose.Validate(in)
+		err := reasoning.Validate(in)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "SecretGuard MatcherResolver")
 	})
@@ -283,10 +283,10 @@ func TestReasoningCompression_ValidatePrerequisites(t *testing.T) {
 			Enabled:     true,
 			Config:      lipsdk.ConfigPayload{Node: disabledNode},
 		}
-		in := reasoningcompose.GenerationInput{
+		in := reasoning.GenerationInput{
 			Registrations: []lipsdk.Registration{disabledReg},
 		}
-		require.NoError(t, reasoningcompose.Validate(in))
+		require.NoError(t, reasoning.Validate(in))
 	})
 }
 
@@ -302,7 +302,7 @@ func TestReasoningCompression_BindReplaceByIdentityAndIdempotence(t *testing.T) 
 		Enabled:     true,
 		Config:      lipsdk.ConfigPayload{Node: node},
 	}
-	opts := reasoningcompose.Options{
+	opts := reasoning.Options{
 		EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"my-egress": testEgressPolicy{version: "v1"}},
 		MatcherResolver: testMatcherResolver{},
 	}
@@ -312,14 +312,14 @@ func TestReasoningCompression_BindReplaceByIdentityAndIdempotence(t *testing.T) 
 		Frozen: cs.Freeze(),
 	}
 
-	in := reasoningcompose.GenerationInput{
+	in := reasoning.GenerationInput{
 		Registrations: []lipsdk.Registration{reg},
 		Client:        client,
 		Poller:        poller,
 		Options:       opts,
 	}
 
-	resGen1, err := reasoningcompose.Bind(initialGen, in)
+	resGen1, err := reasoning.Bind(initialGen, in)
 	require.NoError(t, err)
 
 	obs1 := lipfeature.Get(resGen1.Frozen, lipfeature.PlaneStreamObserverFactories)
@@ -330,7 +330,7 @@ func TestReasoningCompression_BindReplaceByIdentityAndIdempotence(t *testing.T) 
 	assert.Equal(t, reasoningpreservation.ID+"-transform", xforms1[0].ID())
 
 	// Idempotence: binding again should replace, not duplicate
-	resGen2, err := reasoningcompose.Bind(resGen1, in)
+	resGen2, err := reasoning.Bind(resGen1, in)
 	require.NoError(t, err)
 
 	obs2 := lipfeature.Get(resGen2.Frozen, lipfeature.PlaneStreamObserverFactories)
@@ -357,14 +357,14 @@ func TestReasoningCompression_BindFailBeforeMutate_CandidateUnmodified(t *testin
 		Frozen: cs.Freeze(),
 	}
 
-	in := reasoningcompose.GenerationInput{
+	in := reasoning.GenerationInput{
 		Registrations: []lipsdk.Registration{reg},
 		Client:        client,
 		Poller:        poller,
-		Options:       reasoningcompose.Options{}, // missing egress policy
+		Options:       reasoning.Options{}, // missing egress policy
 	}
 
-	resGen, err := reasoningcompose.Bind(candGen, in)
+	resGen, err := reasoning.Bind(candGen, in)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "trusted EgressPolicy")
 	assert.True(t, resGen.Frozen.IsZero(), "failed bind must return zero surface")
@@ -388,13 +388,13 @@ func TestReasoningCompression_BindDisabledNoOp(t *testing.T) {
 		Frozen: cs.Freeze(),
 	}
 
-	in := reasoningcompose.GenerationInput{
+	in := reasoning.GenerationInput{
 		Registrations: []lipsdk.Registration{reg},
 		Client:        client,
 		Poller:        poller,
 	}
 
-	resGen, err := reasoningcompose.Bind(candGen, in)
+	resGen, err := reasoning.Bind(candGen, in)
 	require.NoError(t, err)
 	assert.Equal(t, candGen, resGen)
 }

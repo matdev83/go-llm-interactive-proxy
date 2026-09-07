@@ -24,22 +24,22 @@ const (
 
 // Re-exported kernel types and DTOs.
 type (
-	Snapshot             = conversationprojection.Snapshot
-	Tag                  = conversationprojection.Tag
-	Overlay              = conversationprojection.Overlay
-	OverlayMessage       = conversationprojection.OverlayMessage
-	Placement            = conversationprojection.Placement
-	PlacementKind        = conversationprojection.PlacementKind
-	AnchorMissingPolicy  = conversationprojection.AnchorMissingPolicy
-	ReasonCode           = conversationprojection.ReasonCode
-	MessageIdentity      = conversationprojection.MessageIdentity
-	MessageAnchor        = conversationprojection.MessageAnchor
-	Reader               = conversationprojection.Reader
-	ProjectionEvidence   = conversationprojection.ProjectionEvidence
-	FallbackEvidence     = conversationprojection.FallbackEvidence
-	OverlayProvenance    = conversationprojection.OverlayProvenance
-	Stage                = conversationprojection.Stage
-	ProjectionSummary    = conversationprojection.ProjectionSummary
+	Snapshot            = conversationprojection.Snapshot
+	Tag                 = conversationprojection.Tag
+	Overlay             = conversationprojection.Overlay
+	OverlayMessage      = conversationprojection.OverlayMessage
+	Placement           = conversationprojection.Placement
+	PlacementKind       = conversationprojection.PlacementKind
+	AnchorMissingPolicy = conversationprojection.AnchorMissingPolicy
+	ReasonCode          = conversationprojection.ReasonCode
+	MessageIdentity     = conversationprojection.MessageIdentity
+	MessageAnchor       = conversationprojection.MessageAnchor
+	Reader              = conversationprojection.Reader
+	ProjectionEvidence  = conversationprojection.ProjectionEvidence
+	FallbackEvidence    = conversationprojection.FallbackEvidence
+	OverlayProvenance   = conversationprojection.OverlayProvenance
+	Stage               = conversationprojection.Stage
+	ProjectionSummary   = conversationprojection.ProjectionSummary
 )
 
 // TagRequest is one element of a TagNeverBackend batch.

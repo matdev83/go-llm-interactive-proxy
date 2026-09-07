@@ -1,4 +1,4 @@
-package secretguardcompose
+package secretguard
 
 import (
 	"fmt"
@@ -7,8 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretaudit"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
+	featsecretguard "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -33,7 +32,7 @@ type SecretGuardInputs struct {
 type Input struct {
 	AccessMode       accessmode.Mode
 	Registrations    []lipsdk.Registration
-	RuntimeConfig    *secretguard.RuntimeConfig
+	RuntimeConfig    *featsecretguard.RuntimeConfig
 	Guards           []sdk.Guard
 	Environment      Environment
 	Inputs           SecretGuardInputs
@@ -72,12 +71,12 @@ func Compose(in Input) (*Output, error) {
 		return nil, fmt.Errorf("secretguardcompose: unsupported access mode %q", in.AccessMode)
 	}
 
-	var runtimeCfg secretguard.RuntimeConfig
+	var runtimeCfg featsecretguard.RuntimeConfig
 	if in.RuntimeConfig != nil {
 		runtimeCfg = *in.RuntimeConfig
 	} else {
 		var err error
-		runtimeCfg, err = secretguard.ComposeRuntimeConfig(accessModeStr, in.Registrations)
+		runtimeCfg, err = featsecretguard.ComposeRuntimeConfig(accessModeStr, in.Registrations)
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +114,7 @@ func Compose(in Input) (*Output, error) {
 			if in.Logger == nil {
 				return nil, fmt.Errorf("runtimebundle: secrets-guard audit requires a non-nil logger")
 			}
-			slogObs, err := secretaudit.NewSlogObserver(in.Logger)
+			slogObs, err := NewSlogObserver(in.Logger)
 			if err != nil {
 				return nil, fmt.Errorf("runtimebundle: secret guard audit: %w", err)
 			}
@@ -147,7 +146,7 @@ func Compose(in Input) (*Output, error) {
 }
 
 // ComposeSingleUser merges YAML runtime config onto single-user options.
-func ComposeSingleUser(runtimeCfg secretguard.RuntimeConfig, inputs SingleUserOptions) SingleUserOptions {
+func ComposeSingleUser(runtimeCfg featsecretguard.RuntimeConfig, inputs SingleUserOptions) SingleUserOptions {
 	return composeSingleUser(runtimeCfg, inputs)
 }
 
@@ -155,7 +154,7 @@ func ComposeSingleUser(runtimeCfg secretguard.RuntimeConfig, inputs SingleUserOp
 // YAML wins for catalog fields when the feature is enabled. Matcher options from
 // inputs win when MatcherConfigured is already set (test/composition override);
 // otherwise YAML stamps matcher options.
-func composeSingleUser(runtimeCfg secretguard.RuntimeConfig, inputs SingleUserOptions) engine.SingleUserOptions {
+func composeSingleUser(runtimeCfg featsecretguard.RuntimeConfig, inputs SingleUserOptions) engine.SingleUserOptions {
 	out := inputs
 	out.IncludeEnv = append([]string(nil), out.IncludeEnv...)
 	out.ExcludeEnv = append([]string(nil), out.ExcludeEnv...)
@@ -183,7 +182,7 @@ func composeSingleUser(runtimeCfg secretguard.RuntimeConfig, inputs SingleUserOp
 
 // ValidateRegistrations validates feature registration uniqueness for secrets-guard.
 func ValidateRegistrations(regs []lipsdk.Registration) error {
-	_, err := secretguard.EnabledRegistrations(regs)
+	_, err := featsecretguard.EnabledRegistrations(regs)
 	if err != nil {
 		return fmt.Errorf("runtimebundle: secrets-guard composition: %w", err)
 	}
@@ -192,5 +191,5 @@ func ValidateRegistrations(regs []lipsdk.Registration) error {
 
 // EnabledRegistrations returns enabled secrets-guard feature registrations in config order.
 func EnabledRegistrations(regs []lipsdk.Registration) ([]lipsdk.Registration, error) {
-	return secretguard.EnabledRegistrations(regs)
+	return featsecretguard.EnabledRegistrations(regs)
 }

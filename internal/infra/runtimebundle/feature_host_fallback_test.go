@@ -84,5 +84,3 @@ func TestCompileCandidate_DirectCallerHasNoSecretGuardFallback(t *testing.T) {
 	// Assert secret guard is nil: direct CompileCandidate callers retain NO separate composition route.
 	assert.Nil(t, CandidateSecretGuardInventory(cand), "expected nil secret guard inventory when Extensions.SecretGuard is not injected")
 }
-
-

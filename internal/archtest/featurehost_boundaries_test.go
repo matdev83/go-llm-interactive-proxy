@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -194,21 +195,38 @@ func TestFeatureHost_NoConcreteFeatureAccessors(t *testing.T) {
 func TestFeatureHost_NoPackageLevelReasoningEntryPointsInRuntimeBundle(t *testing.T) {
 	t.Parallel()
 
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, filepath.Join("..", "infra", "runtimebundle", "reasoning_preservation_compression.go"), nil, 0)
-	if err != nil {
-		t.Fatalf("ParseFile failed: %v", err)
+	root := filepath.Join("..", "infra", "runtimebundle")
+	retiredFile := filepath.Join(root, "reasoning_preservation_compression.go")
+	if _, err := os.Stat(retiredFile); err == nil {
+		t.Fatalf("reasoning_preservation_compression.go must not exist; reasoning options have been removed from runtimebundle")
 	}
 
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Recv != nil {
-			continue
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		if fn.Name.Name == "validateReasoningPreservationCompressionGeneration" ||
-			fn.Name.Name == "bindReasoningPreservationCompression" {
-			t.Fatalf("runtimebundle prod code must not expose package-level reasoning entry point %s (R4)", fn.Name.Name)
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
 		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil {
+				continue
+			}
+			if fn.Name.Name == "validateReasoningPreservationCompressionGeneration" ||
+				fn.Name.Name == "bindReasoningPreservationCompression" {
+				t.Fatalf("runtimebundle file %s must not expose package-level reasoning entry point %s (R4)", path, fn.Name.Name)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -562,7 +562,6 @@ func (s *Store) SetInterleavedState(ctx context.Context, aLegID string, state in
 	})
 }
 
-
 // FetchInterleavedRow returns the compatibility DTO containing both core cycle state
 // and legacy memo_ref payload for an A-leg, preserving durable backward compatibility.
 func (s *Store) FetchInterleavedRow(ctx context.Context, aLegID string) (LegacyInterleavedStateRowDTO, error) {

@@ -932,7 +932,9 @@ func TestConversationView_ProjectionFailureFailClosed(t *testing.T) {
 
 func libReRouteIntent() lipapi.RouteIntent { return lipapi.RouteIntent{Selector: "openai:gpt-4"} }
 
-type staticReader struct{ snap conversationprojection.Snapshot }
+type staticReader struct {
+	snap conversationprojection.Snapshot
+}
 
 func (s *staticReader) Snapshot(ctx context.Context, aLegID string) (conversationprojection.Snapshot, error) {
 	return s.snap, nil

@@ -44,7 +44,7 @@ func TestRetiredPackages_RenamedOrNestedBypassRejected(t *testing.T) {
 		{"internal/core/secretguard/nested/sub/bypass.go", true},
 		{"internal/core/secretguard/engine/deep.go", true},
 		{"internal/plugins/features/secretguard/engine/catalog.go", false},
-		{"internal/infra/secretguardcompose/compose.go", false},
+		{"internal/standardplugins/featurehost/secretguard/compose.go", false},
 		{"internal/core/compactiondetect/detector.go", true},
 		{"internal/core/compactiondetect/renamed_detector.go", true},
 		{"internal/core/compactiondetect/nested/sub/bypass.go", true},
@@ -62,6 +62,11 @@ func TestRetiredPackages_RenamedOrNestedBypassRejected(t *testing.T) {
 		{"internal/core/terminaldecisionpolicy/renamed_store.go", true},
 		{"internal/core/terminaldecisionpolicy/nested/sub/bypass.go", true},
 		{"internal/standardplugins/featurehost/sessionpolicy/store.go", false},
+		{"internal/reasoningreplay/eligible.go", true},
+		{"internal/infra/reasoningcompose/generation.go", true},
+		{"internal/infra/secretguardcompose/compose.go", true},
+		{"internal/infra/secretaudit/logger.go", true},
+		{"internal/infra/compactioncompose/scheduler.go", true},
 	}
 	for _, tc := range cases {
 		f := ScanFileRetiredPackage(tc.rel)

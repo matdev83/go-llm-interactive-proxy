@@ -65,7 +65,7 @@ type BuildOptions struct {
 	// reuse startup-merged lifecycles/extensions. Legacy [CompileCandidate]
 	// callers leave this false (nil overlay fields mean "no override").
 	// CorePorts carries minimal fixed consumer-owned core interfaces compiled by featurehost.
-	CorePorts featurehost.CorePorts
+	CorePorts               featurehost.CorePorts
 	ReplaceCandidateSurface bool
 }
 
@@ -194,6 +194,4 @@ type TestingOptions struct {
 	SnapshotPublisherOverride *snapshotgen.Publisher
 	// FeatureHostRegistrations carries startup-only host-feature bindings for tests.
 	FeatureHostRegistrations []sdkfeaturehost.Registration
-	// ReasoningCompression mirrors Production.ReasoningCompression for tests.
-	ReasoningCompression ReasoningCompressionOptions
 }

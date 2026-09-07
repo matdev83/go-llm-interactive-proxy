@@ -20,9 +20,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
-	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	"github.com/uptrace/bun"
 )
 
@@ -45,11 +45,11 @@ type ProcessInput struct {
 // CorePorts carries minimal fixed consumer-owned core interfaces needed by Tasks 3-7.
 // It is a fixed internal adapter, NOT a service map (design §7, Requirement 8.3).
 type CorePorts struct {
-	CompactionDetector      runtime.CompactionDetector
-	ConversationReader      conversationprojection.Reader
-	InterleavedProcessor    runtime.InterleavedProcessor
-	PromptCacheMaintenance  runtime.PromptCacheMaintenance
-	TerminalPolicyReader    runtime.TerminalPolicyReader
+	CompactionDetector     runtime.CompactionDetector
+	ConversationReader     conversationprojection.Reader
+	InterleavedProcessor   runtime.InterleavedProcessor
+	PromptCacheMaintenance runtime.PromptCacheMaintenance
+	TerminalPolicyReader   runtime.TerminalPolicyReader
 }
 
 // GenerationInput carries inputs for featurehost generation composition.

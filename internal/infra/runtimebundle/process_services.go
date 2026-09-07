@@ -61,11 +61,11 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	ps := &ProcessServices{
-		Logger:                 in.Log,
-		FactoryCatalog:         in.Opts.PluginRegistry,
-		Tracing:                in.Tracing,
-		cfg:                    in.Cfg,
-		opts:                   in.Opts,
+		Logger:         in.Log,
+		FactoryCatalog: in.Opts.PluginRegistry,
+		Tracing:        in.Tracing,
+		cfg:            in.Cfg,
+		opts:           in.Opts,
 	}
 
 	register := func(c func() error) {
