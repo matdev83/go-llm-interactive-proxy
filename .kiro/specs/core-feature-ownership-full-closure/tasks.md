@@ -268,8 +268,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 6. Extract prompt-cache keep-warm policy from core
-- [ ] 6.1 Move keep-warm policy/scheduler/manager into a standard feature
+- [x] 6. Extract prompt-cache keep-warm policy from core
+- [x] 6.1 Move keep-warm policy/scheduler/manager into a standard feature
   - Create `internal/plugins/features/keepwarm` and move current config/policy/manager/registry/scheduler/lifecycle/accounting/admin/orchestrator logic mechanically with tests.
   - Preserve `pkg/lipsdk/promptcache` as provider-neutral observation/control contract; do not move scheduling policy into SDK.
   - Feature package must not import core/runtimebundle.
@@ -278,7 +278,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 5.4_
   - _Validation: moved keepwarm unit/race tests_
 
-- [ ] 6.2 Bind core lifecycle facts through `PromptCacheMaintenance`
+- [x] 6.2 Bind core lifecycle facts through `PromptCacheMaintenance`
   - Add the minimal runtime consumer interface from design for `BeginRealTurn`, `EndSession`, and committed successful turn facts actually required by current code.
   - Prefer featurehost/lifecycle ownership for `RunDue` and quiesce; add them to the core port only if current authoritative call point truly remains core after integration.
   - `PromptCacheCommittedTurn` must use canonical/SDK DTOs only.
@@ -288,7 +288,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 6.1_
   - _Validation: runtime committed-turn/session tests; keepwarm scheduler/quiesce tests_
 
-- [ ] 6.3 Atomically remove keep-warm fields/package from generic process/core
+- [x] 6.3 Atomically remove keep-warm fields/package from generic process/core
   - Enable featurehost ownership of keep-warm process/generation resources and in the same integration change remove their legacy process constructor/lifecycle registration and `KeepwarmPolicy`, `KeepwarmRegistry` and equivalent concrete fields from `ProcessServices`/executor config.
   - Update the Task 2.3 transition table and counted ownership test; require one construction and one physical close/quiesce sequence where applicable.
   - Delete `internal/core/keepwarm` and add resurrection/import ratchet.
