@@ -10,12 +10,12 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	keepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
@@ -38,24 +38,24 @@ var ProcessFeatureTransitionTable = []ProcessFeatureTransitionRow{
 	{
 		ResourceName:          "KeepwarmPolicy",
 		ConcreteType:          "*keepwarm.PolicyStore",
-		CurrentConstructor:    "keepwarm.NewPolicyStore(keepwarm.DefaultMaxPolicyEntries) called at process_services.go:64",
-		CurrentFieldHolder:    "ProcessServices.KeepwarmPolicy",
+		CurrentConstructor:    "keepwarm.NewPolicyStore(keepwarm.DefaultMaxPolicyEntries) called at featurehost/process.go:136",
+		CurrentFieldHolder:    "featurehost.Runtime.keepwarmPolicy",
 		CloseRegistrationSite: "Non-closable (no cleanup registered)",
 		Closable:              false,
 		BorrowedDeps:          "config.PromptCache, metrics sink",
 		TransferTask:          "Task 6.3",
-		InterimOwnershipRule:  "Legacy constructor and holder remain sole owner until Task 6.3; featurehost constructs 0 duplicate instances.",
+		InterimOwnershipRule:  "Featurehost is sole owner; ProcessServices retains zero fields or duplicate constructors.",
 	},
 	{
 		ResourceName:          "KeepwarmRegistry",
 		ConcreteType:          "*keepwarm.ManagerRegistry",
-		CurrentConstructor:    "keepwarm.NewManagerRegistry() called at process_services.go:74",
-		CurrentFieldHolder:    "ProcessServices.KeepwarmRegistry",
+		CurrentConstructor:    "keepwarm.NewManagerRegistry() called at featurehost/process.go:141",
+		CurrentFieldHolder:    "featurehost.Runtime.keepwarmRegistry",
 		CloseRegistrationSite: "Non-closable (no cleanup registered)",
 		Closable:              false,
 		BorrowedDeps:          "keepwarm.PolicyStore, scheduler goroutines, background ping worker",
 		TransferTask:          "Task 6.3",
-		InterimOwnershipRule:  "Legacy constructor and holder remain sole owner until Task 6.3; featurehost constructs 0 duplicate instances.",
+		InterimOwnershipRule:  "Featurehost is sole owner; ProcessServices retains zero fields or duplicate constructors.",
 	},
 	{
 		ResourceName:          "TerminalDecisionPolicy",
@@ -163,12 +163,6 @@ func ValidateProcessFeatureOwnership(ps *ProcessServices) error {
 
 	// 1. Verify legacy constructor presence for all untransferred rows.
 	// If a legacy constructor is deleted before its handoff task, this check fails.
-	if ps.KeepwarmPolicy == nil {
-		return fmt.Errorf("%w: legacy resource KeepwarmPolicy is missing from ProcessServices", ErrDualConstructorWiring)
-	}
-	if ps.KeepwarmRegistry == nil {
-		return fmt.Errorf("%w: legacy resource KeepwarmRegistry is missing from ProcessServices", ErrDualConstructorWiring)
-	}
 	if ps.TerminalDecisionPolicy == nil {
 		return fmt.Errorf("%w: legacy resource TerminalDecisionPolicy is missing from ProcessServices", ErrDualConstructorWiring)
 	}
@@ -186,6 +180,12 @@ func ValidateProcessFeatureOwnership(ps *ProcessServices) error {
 	if ps.StandardFeatures.ConversationStore() == nil {
 		return fmt.Errorf("%w: transferred resource ConversationStore is missing from featurehost", ErrDualConstructorWiring)
 	}
+	if ps.StandardFeatures.KeepwarmPolicy() == nil {
+		return fmt.Errorf("%w: transferred resource KeepwarmPolicy is missing from featurehost", ErrDualConstructorWiring)
+	}
+	if ps.StandardFeatures.KeepwarmRegistry() == nil {
+		return fmt.Errorf("%w: transferred resource KeepwarmRegistry is missing from featurehost", ErrDualConstructorWiring)
+	}
 
 	// 3. Inspect real typed featurehost Runtime state per transition table.
 	// Prior to Task 7.3, featurehost must NOT own TerminalDecisionPolicy and
@@ -197,14 +197,14 @@ func ValidateProcessFeatureOwnership(ps *ProcessServices) error {
 // Non-tautological compile-time drift checks: any field retype or rename breaks compilation.
 func _driftCompilationGuard() {
 	var ps *ProcessServices
-	var _ *keepwarm.PolicyStore = ps.KeepwarmPolicy
-	var _ *keepwarm.ManagerRegistry = ps.KeepwarmRegistry
 	var _ *terminaldecisionpolicy.Store = ps.TerminalDecisionPolicy
 	var _ *auxreq.BackgroundScheduler = ps.BackgroundAux
 
 	var sf *featurehost.Runtime
 	var _ runtime.CompactionDetector = sf.CompactionDetector()
 	var _ conversationview.Store = sf.ConversationStore()
+	var _ *keepwarm.PolicyStore = sf.KeepwarmPolicy()
+	var _ *keepwarm.ManagerRegistry = sf.KeepwarmRegistry()
 
 	var (
 		_ func(int) (*keepwarm.PolicyStore, error)                                      = keepwarm.NewPolicyStore
@@ -231,16 +231,18 @@ func TestProcessFeatureOwnership_TransitionTableIntegrity(t *testing.T) {
 	}{
 		"KeepwarmPolicy": {
 			fieldName:    "KeepwarmPolicy",
+			fhField:      "keepwarmPolicy",
 			closable:     false,
 			transferTask: "Task 6.3",
-			callSite:     "process_services.go:64",
+			callSite:     "featurehost/process.go:136",
 			closeSite:    "Non-closable",
 		},
 		"KeepwarmRegistry": {
 			fieldName:    "KeepwarmRegistry",
+			fhField:      "keepwarmRegistry",
 			closable:     false,
 			transferTask: "Task 6.3",
-			callSite:     "process_services.go:74",
+			callSite:     "featurehost/process.go:141",
 			closeSite:    "Non-closable",
 		},
 		"TerminalDecisionPolicy": {

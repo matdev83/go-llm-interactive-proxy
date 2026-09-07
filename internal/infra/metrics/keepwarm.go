@@ -3,15 +3,19 @@ package metrics
 import (
 	"sync"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+type KeepwarmManager interface {
+	Metrics() keepwarm.MetricsSnapshot
+}
 
 // KeepwarmProm exports only bounded keep-warm state and finite event labels.
 // It retains no provider handles, cache identities, prompts, or session IDs.
 type KeepwarmProm struct {
 	mu      sync.RWMutex
-	manager *keepwarm.Manager
+	manager KeepwarmManager
 
 	activeEpochs  *prometheus.Desc
 	activeTargets *prometheus.Desc
@@ -37,13 +41,17 @@ func RegisterKeepwarmProm(reg prometheus.Registerer) *KeepwarmProm {
 }
 
 // SetManager changes the generation whose state is exported.
-func (p *KeepwarmProm) SetManager(manager *keepwarm.Manager) {
+func (p *KeepwarmProm) SetManager(manager any) {
 	if p == nil {
 		return
 	}
 	p.mu.Lock()
-	p.manager = manager
-	p.mu.Unlock()
+	defer p.mu.Unlock()
+	if m, ok := manager.(KeepwarmManager); ok {
+		p.manager = m
+	} else {
+		p.manager = nil
+	}
 }
 
 func (p *KeepwarmProm) Describe(ch chan<- *prometheus.Desc) {

@@ -354,6 +354,21 @@ var ForbiddenImports = []ForbiddenImportRule{
 	},
 	{SourcePattern: "internal/plugins/features/interleavedthinking", TargetPattern: "/internal/stdhttp", Reason: "interleavedthinking feature tree must not depend on stdhttp"},
 	{SourcePattern: "internal/plugins/features/interleavedthinking", TargetPattern: "/internal/pluginreg", Reason: "interleavedthinking feature tree must not depend on pluginreg"},
+	{SourcePattern: "*", TargetPattern: "/internal/core/keepwarm", Reason: "internal/core/keepwarm has been retired; use internal/plugins/features/keepwarm"},
+	{SourcePattern: "internal/plugins/features/keepwarm", TargetPattern: "/internal/core", Reason: "keepwarm feature tree must not depend on internal/core (use pkg/lipsdk contracts)"},
+	{SourcePattern: "internal/plugins/features/keepwarm", TargetPattern: "/internal/infra/runtimebundle", Reason: "keepwarm feature tree must not depend on runtimebundle"},
+	{SourcePattern: "internal/plugins/features/keepwarm", TargetPattern: "/internal/plugins/frontends", Reason: "keepwarm feature tree must not depend on frontend plugins"},
+	{SourcePattern: "internal/plugins/features/keepwarm", TargetPattern: "/internal/plugins/backends", Reason: "keepwarm feature tree must not depend on backend plugins"},
+	{
+		SourcePattern: "internal/plugins/features/keepwarm",
+		TargetPattern: "/internal/plugins/features/",
+		Reason:        "keepwarm feature tree must not depend on other feature plugins",
+		ExceptPrefix: []string{
+			"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm",
+		},
+	},
+	{SourcePattern: "internal/plugins/features/keepwarm", TargetPattern: "/internal/stdhttp", Reason: "keepwarm feature tree must not depend on stdhttp"},
+	{SourcePattern: "internal/plugins/features/keepwarm", TargetPattern: "/internal/pluginreg", Reason: "keepwarm feature tree must not depend on pluginreg"},
 }
 
 // fileScopedImportRule restricts specific production files.

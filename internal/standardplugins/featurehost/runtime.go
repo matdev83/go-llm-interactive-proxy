@@ -7,13 +7,16 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
+	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
 
@@ -30,6 +33,8 @@ type Runtime struct {
 	branchCoordinator    *state.BranchCoordinator
 	compactionParentPort *compaction.ParentPort
 	conversationStore    conversationview.Store
+	keepwarmPolicy       *keepwarm.PolicyStore
+	keepwarmRegistry     *keepwarm.ManagerRegistry
 	closers              []func() error
 	closeOnce            sync.Once
 	closeErr             error
@@ -59,6 +64,31 @@ func (r *Runtime) TerminalDecisionPolicy() *terminaldecisionpolicy.Store {
 		return nil
 	}
 	return r.terminalPolicy
+}
+
+// KeepwarmPolicy returns the featurehost-owned keepwarm policy store, if owned.
+func (r *Runtime) KeepwarmPolicy() *keepwarm.PolicyStore {
+	if r == nil {
+		return nil
+	}
+	return r.keepwarmPolicy
+}
+
+// KeepwarmRegistry returns the featurehost-owned keepwarm manager registry, if owned.
+func (r *Runtime) KeepwarmRegistry() *keepwarm.ManagerRegistry {
+	if r == nil {
+		return nil
+	}
+	return r.keepwarmRegistry
+}
+
+// KeepwarmAdminService returns an admin-facing policy service adapter for the
+// process-owned keepwarm policy store and manager registry.
+func (r *Runtime) KeepwarmAdminService() adminkeepwarm.Service {
+	if r == nil || r.keepwarmPolicy == nil || r.keepwarmRegistry == nil {
+		return nil
+	}
+	return keepwarm.NewPolicyService(r.keepwarmPolicy, r.keepwarmRegistry, keepwarm.ClockFunc(func() time.Time { return time.Now().UTC() }))
 }
 
 // ClosersCount returns the number of closers registered on this Runtime.

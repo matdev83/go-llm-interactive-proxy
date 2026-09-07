@@ -68,6 +68,19 @@ func TestForbiddenImports_FeatureTreeRulesEnforced(t *testing.T) {
 				"/internal/pluginreg",
 			},
 		},
+		{
+			source:    "internal/plugins/features/keepwarm",
+			ownPrefix: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm",
+			expectRules: []string{
+				"/internal/core",
+				"/internal/infra/runtimebundle",
+				"/internal/plugins/frontends",
+				"/internal/plugins/backends",
+				"/internal/plugins/features/",
+				"/internal/stdhttp",
+				"/internal/pluginreg",
+			},
+		},
 	}
 
 	for _, ft := range featureTrees {
@@ -380,8 +393,9 @@ func TestForbiddenImports_InterleavedThinkingTreeAdversarialBypassRejected(t *te
 	}
 }
 
+
 // TestProductionFeatureTreesHaveZeroForbiddenImports scans the live production trees
-// of toolcallrepair, secretguard, compactioncontinuity, and interleavedthinking and asserts zero forbidden imports.
+// of toolcallrepair, secretguard, compactioncontinuity, interleavedthinking, and keepwarm and asserts zero forbidden imports.
 func TestProductionFeatureTreesHaveZeroForbiddenImports(t *testing.T) {
 	t.Parallel()
 
@@ -392,7 +406,8 @@ func TestProductionFeatureTreesHaveZeroForbiddenImports(t *testing.T) {
 		if !MatchPathPrefix(pkg, "internal/plugins/features/toolcallrepair") &&
 			!MatchPathPrefix(pkg, "internal/plugins/features/secretguard") &&
 			!MatchPathPrefix(pkg, "internal/plugins/features/compactioncontinuity") &&
-			!MatchPathPrefix(pkg, "internal/plugins/features/interleavedthinking") {
+			!MatchPathPrefix(pkg, "internal/plugins/features/interleavedthinking") &&
+			!MatchPathPrefix(pkg, "internal/plugins/features/keepwarm") {
 			return nil
 		}
 		findings, err := ScanFileForbiddenImports(rel, abs, src)

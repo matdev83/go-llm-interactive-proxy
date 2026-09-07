@@ -54,6 +54,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"codex-client-compat",
 		"compaction-continuity",
 		"interleaved-thinking",
+		"keepwarm",
 		"parts-noop",
 		"pre-request-policy",
 		"reasoning-output-preservation",

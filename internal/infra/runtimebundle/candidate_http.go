@@ -13,7 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -23,6 +22,7 @@ import (
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	infraGeoIP "github.com/matdev83/go-llm-interactive-proxy/internal/infra/geoip"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
@@ -79,8 +79,7 @@ type candidateProcessRefs struct {
 	snapshotGeneration     *snapshotgen.Publisher
 	snapshotController     *SnapshotController
 	meteringQuerier        metering.Querier
-	keepwarmPolicy         *keepwarm.PolicyStore
-	keepwarmRegistry       *keepwarm.ManagerRegistry
+	standardFeatures       *featurehost.Runtime
 	geoip                  *infraGeoIP.Service
 	secureSessions         ssessionapp.Store
 	terminalDecisionPolicy *terminaldecisionpolicy.Store

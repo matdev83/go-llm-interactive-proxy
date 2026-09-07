@@ -20,6 +20,7 @@ func TestProductionTreeRetiredCorePackagesAbsent(t *testing.T) {
 		"internal/core/secretguard",
 		"internal/core/compactiondetect",
 		"internal/core/interleavedthinking",
+		"internal/core/keepwarm",
 	}
 
 	var violations []string
@@ -87,6 +88,11 @@ func TestProductionTreeRetiredCorePackages_RenamedOrNestedResurrectionRejected(t
 			relPath:    "internal/core/interleavedthinking/memo.go",
 			wantReject: true,
 		},
+		{
+			name:       "keepwarm root file resurrection",
+			relPath:    "internal/core/keepwarm/manager.go",
+			wantReject: true,
+		},
 		// Renamed file resurrection
 		{
 			name:       "toolcallrepair renamed file resurrection",
@@ -106,6 +112,11 @@ func TestProductionTreeRetiredCorePackages_RenamedOrNestedResurrectionRejected(t
 		{
 			name:       "interleavedthinking renamed file resurrection",
 			relPath:    "internal/core/interleavedthinking/renamed_memo.go",
+			wantReject: true,
+		},
+		{
+			name:       "keepwarm renamed file resurrection",
+			relPath:    "internal/core/keepwarm/renamed_manager.go",
 			wantReject: true,
 		},
 		// Nested subpackage resurrection
@@ -147,6 +158,16 @@ func TestProductionTreeRetiredCorePackages_RenamedOrNestedResurrectionRejected(t
 		{
 			name:       "interleavedthinking deeply nested memo resurrection",
 			relPath:    "internal/core/interleavedthinking/deep/nested/memo.go",
+			wantReject: true,
+		},
+		{
+			name:       "keepwarm nested subpackage resurrection",
+			relPath:    "internal/core/keepwarm/nested/sub/bypass.go",
+			wantReject: true,
+		},
+		{
+			name:       "keepwarm deeply nested manager resurrection",
+			relPath:    "internal/core/keepwarm/deep/nested/manager.go",
 			wantReject: true,
 		},
 		// Legitimate packages (must NOT be rejected)
@@ -198,6 +219,11 @@ func TestProductionTreeRetiredCorePackages_RenamedOrNestedResurrectionRejected(t
 		{
 			name:       "featurehost interleaved dedicated adapter allowed",
 			relPath:    "internal/standardplugins/featurehost/interleaved.go",
+			wantReject: false,
+		},
+		{
+			name:       "keepwarm feature manager allowed",
+			relPath:    "internal/plugins/features/keepwarm/manager.go",
 			wantReject: false,
 		},
 		{
@@ -258,10 +284,16 @@ func TestProductionTreeRetiredCorePackages_AdversarialTreeResurrectionSelfTest(t
 		"internal/core/interleavedthinking/renamed_memo.go":      "package interleavedthinking\n",
 		"internal/core/interleavedthinking/nested/sub/bypass.go": "package bypass\n",
 		"internal/core/interleavedthinking/sub/deep/memo.go":     "package deep\n",
+		// Keepwarm resurrections
+		"internal/core/keepwarm/manager.go":            "package keepwarm\n",
+		"internal/core/keepwarm/renamed_manager.go":    "package keepwarm\n",
+		"internal/core/keepwarm/nested/sub/bypass.go":   "package bypass\n",
+		"internal/core/keepwarm/deep/nested/manager.go": "package deep\n",
 		// Legitimate packages (must NOT trigger findings)
 		"internal/plugins/features/toolcallrepair/bundle.go":         "package toolcallrepair\n",
 		"internal/plugins/features/secretguard/guard.go":             "package secretguard\n",
 		"internal/plugins/features/interleavedthinking/processor.go": "package interleavedthinking\n",
+		"internal/plugins/features/keepwarm/manager.go":              "package keepwarm\n",
 		"internal/infra/compactiondetect/detector.go":                "package compactiondetect\n",
 		"internal/infra/secretguardcompose/compose.go":               "package secretguardcompose\n",
 		"internal/standardplugins/featurehost/interleaved.go":        "package featurehost\n",
@@ -301,6 +333,10 @@ func TestProductionTreeRetiredCorePackages_AdversarialTreeResurrectionSelfTest(t
 		"internal/core/interleavedthinking/renamed_memo.go":      true,
 		"internal/core/interleavedthinking/nested/sub/bypass.go": true,
 		"internal/core/interleavedthinking/sub/deep/memo.go":     true,
+		"internal/core/keepwarm/manager.go":                      true,
+		"internal/core/keepwarm/renamed_manager.go":              true,
+		"internal/core/keepwarm/nested/sub/bypass.go":             true,
+		"internal/core/keepwarm/deep/nested/manager.go":           true,
 	}
 
 	detected := make(map[string]bool)
@@ -327,6 +363,7 @@ func TestProductionTreeRetiredCorePackages_AdversarialTreeResurrectionSelfTest(t
 		"internal/core/secretguard",
 		"internal/core/compactiondetect",
 		"internal/core/interleavedthinking",
+		"internal/core/keepwarm",
 	}
 	var walkViolations []string
 	err = WalkProductionGoFiles(tmp, func(rel, abs string, src []byte) error {

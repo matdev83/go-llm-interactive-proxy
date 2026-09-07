@@ -230,6 +230,38 @@ func TestInterleavedThinkingFeatureTreeBoundaries(t *testing.T) {
 	})
 }
 
+// TestKeepwarmFeatureTreeBoundaries enforces that the recursive keepwarm feature tree
+// depends only on canonical/SDK contracts, standard library, and feature-local code.
+func TestKeepwarmFeatureTreeBoundaries(t *testing.T) {
+	t.Parallel()
+	assertDepsExcludeForbidden(t, []string{"./internal/plugins/features/keepwarm/..."}, []forbiddenDep{
+		{
+			Substr: "/internal/core/",
+			ErrMsg: "keepwarm feature tree must not depend on internal/core",
+		},
+		{
+			Substr: "/internal/infra/runtimebundle",
+			ErrMsg: "keepwarm feature tree must not depend on runtimebundle",
+		},
+		{
+			Substr: "/internal/plugins/frontends/",
+			ErrMsg: "keepwarm feature tree must not depend on frontend plugins",
+		},
+		{
+			Substr: "/internal/plugins/backends/",
+			ErrMsg: "keepwarm feature tree must not depend on backend plugins",
+		},
+		{
+			Substr: "/internal/stdhttp",
+			ErrMsg: "keepwarm feature tree must not depend on stdhttp",
+		},
+		{
+			Substr: "/internal/pluginreg",
+			ErrMsg: "keepwarm feature tree must not depend on pluginreg",
+		},
+	})
+}
+
 // TestInternalCoreDoesNotDependOnStdhttpOrProtocolPlugins keeps orchestration free of the HTTP
 // server layer, official protocol plugins, and transport-labeled SDK paths (introduce-hexagonal
 // task 4.1). Principal context uses [github.com/.../pkg/lipsdk/execview] from core instead.

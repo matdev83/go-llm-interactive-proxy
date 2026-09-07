@@ -159,6 +159,11 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		interleavedProc = NewInterleavedProcessorAdapter(proc)
 	}
 
+	// 6. Keep-warm prompt-cache maintenance (Task 6.2/6.3)
+	kwMaint, kwMgr, kwQuiesce, err := r.compileKeepwarm(in)
+	if err != nil {
+		return GenerationOutput{}, err
+	}
 
 	out := GenerationOutput{
 		Bundle: lipfeature.FeatureBundle{
@@ -169,10 +174,13 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		Lifecycles:           outLifecycles,
 		SecretGuard:          sgOut.Plane,
 		SecretGuardInventory: sgOut.Inventory,
+		KeepwarmManager:      kwMgr,
+		KeepwarmQuiesce:      kwQuiesce,
 		CorePorts: CorePorts{
-			CompactionDetector:   r.compactionDetector,
-			ConversationReader:   r.ConversationReader(),
-			InterleavedProcessor: interleavedProc,
+			CompactionDetector:      r.compactionDetector,
+			ConversationReader:      r.ConversationReader(),
+			InterleavedProcessor:    interleavedProc,
+			PromptCacheMaintenance:  kwMaint,
 		},
 	}
 

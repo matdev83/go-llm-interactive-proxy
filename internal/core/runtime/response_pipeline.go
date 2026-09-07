@@ -13,7 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	secureapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
@@ -48,7 +47,7 @@ type responsePipeline struct {
 	compactionObservers      []compaction.Observer
 	compactionPreservers     []compaction.Preserver
 	compactionServices       compaction.Services
-	keepwarm                 *keepwarm.Orchestrator
+	promptCacheMaintenance   PromptCacheMaintenance
 	completionBufferLimits   completion.BufferLimits
 
 	customer    *customerEvidenceAccumulator
@@ -121,7 +120,7 @@ func newResponsePipelineForExecutor(executor *Executor, openMeta ...compaction.P
 		p.compactionServices.State = executor.RuntimeSnapshot.State()
 	}
 	p.compactionServices.BackgroundAux = executor.BackgroundAux
-	p.keepwarm = executor.Keepwarm
+	p.promptCacheMaintenance = executor.PromptCacheMaintenance
 	p.completionBufferLimits = executor.CompletionBufferLimits
 	return p
 }

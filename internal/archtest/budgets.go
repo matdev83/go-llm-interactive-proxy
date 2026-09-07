@@ -49,8 +49,8 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/plugins/protocols/openresponses/state_machine.go", Max: 708},
 	{Path: "internal/plugins/protocols/openresponses/state_machine_event_handlers.go", Max: 515},
 	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 383},
-	{Path: "internal/core/keepwarm/manager.go", Max: 450},
-	{Path: "internal/core/keepwarm/scheduler.go", Max: 450},
+	{Path: "internal/plugins/features/keepwarm/manager.go", Max: 450},
+	{Path: "internal/plugins/features/keepwarm/scheduler.go", Max: 450},
 }
 
 // PackageTreeBudget caps recursive non-test .go lines for a package tree.

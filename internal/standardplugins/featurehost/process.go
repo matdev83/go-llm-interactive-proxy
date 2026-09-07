@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 	"github.com/uptrace/bun"
 )
@@ -28,10 +29,12 @@ type constructionStep struct {
 // files may substitute counting delegates. They are unexported, so no external
 // caller can substitute factories (Tasks 2.1/2.3, Requirements 2.5/8.4).
 var (
-	newCompactionDetector   = compactiondetect.New
-	newBranchCoordinator    = state.NewBranchCoordinator
-	newCompactionParentPort = compaction.NewParentPort
-	newInterleavedProcessor = interleavedthinking.NewProcessor
+	newCompactionDetector      = compactiondetect.New
+	newBranchCoordinator       = state.NewBranchCoordinator
+	newCompactionParentPort    = compaction.NewParentPort
+	newInterleavedProcessor    = interleavedthinking.NewProcessor
+	newKeepwarmPolicyStore     = keepwarm.NewPolicyStore
+	newKeepwarmManagerRegistry = keepwarm.NewManagerRegistry
 )
 
 // NewProcess constructs the standard-distribution featurehost process facade.
@@ -127,6 +130,15 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 			}
 		}
 	}
+
+	// Keepwarm process ownership (Task 6.3): policy store and manager registry.
+	// Neither implements io.Closer; no closer registration required.
+	kwPolicy, err := newKeepwarmPolicyStore(keepwarm.DefaultMaxPolicyEntries)
+	if err != nil {
+		return rollback(fmt.Errorf("featurehost: keepwarm policy store: %w", err))
+	}
+	r.keepwarmPolicy = kwPolicy
+	r.keepwarmRegistry = newKeepwarmManagerRegistry()
 
 	return r, nil
 }

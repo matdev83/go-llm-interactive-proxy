@@ -10,7 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
+	keepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
@@ -54,14 +54,18 @@ func CaptureProcessFeatureSnapshot(ps *ProcessServices) ProcessFeatureSnapshot {
 	var (
 		detector  runtime.CompactionDetector
 		convStore conversationview.Store
+		kwPolicy  *keepwarm.PolicyStore
+		kwReg     *keepwarm.ManagerRegistry
 	)
 	if ps.StandardFeatures != nil {
 		detector = ps.StandardFeatures.CompactionDetector()
 		convStore = ps.StandardFeatures.ConversationStore()
+		kwPolicy = ps.StandardFeatures.KeepwarmPolicy()
+		kwReg = ps.StandardFeatures.KeepwarmRegistry()
 	}
 	return ProcessFeatureSnapshot{
-		KeepwarmPolicy:         ps.KeepwarmPolicy,
-		KeepwarmRegistry:       ps.KeepwarmRegistry,
+		KeepwarmPolicy:         kwPolicy,
+		KeepwarmRegistry:       kwReg,
 		TerminalDecisionPolicy: ps.TerminalDecisionPolicy,
 		CompactionDetector:     detector,
 		ConversationStore:      convStore,
@@ -74,10 +78,10 @@ func CaptureProcessFeatureSnapshot(ps *ProcessServices) ProcessFeatureSnapshot {
 func (s ProcessFeatureSnapshot) AssertAllPresent(t *testing.T) {
 	t.Helper()
 	if s.KeepwarmPolicy == nil {
-		t.Fatal("expected non-nil KeepwarmPolicy on ProcessServices")
+		t.Fatal("expected non-nil KeepwarmPolicy on StandardFeatures")
 	}
 	if s.KeepwarmRegistry == nil {
-		t.Fatal("expected non-nil KeepwarmRegistry on ProcessServices")
+		t.Fatal("expected non-nil KeepwarmRegistry on StandardFeatures")
 	}
 	if s.TerminalDecisionPolicy == nil {
 		t.Fatal("expected non-nil TerminalDecisionPolicy on ProcessServices")
@@ -221,11 +225,11 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 	}
 
 	// Assert explicitly non-closable resources do not implement io.Closer.
-	if _, ok := any(ps.KeepwarmPolicy).(io.Closer); ok {
+	if _, ok := any(ps.StandardFeatures.KeepwarmPolicy()).(io.Closer); ok {
 		_ = ps.Close()
 		t.Fatal("KeepwarmPolicy must be genuinely non-closable (implements io.Closer unexpectedly)")
 	}
-	if _, ok := any(ps.KeepwarmRegistry).(io.Closer); ok {
+	if _, ok := any(ps.StandardFeatures.KeepwarmRegistry()).(io.Closer); ok {
 		_ = ps.Close()
 		t.Fatal("KeepwarmRegistry must be genuinely non-closable (implements io.Closer unexpectedly)")
 	}

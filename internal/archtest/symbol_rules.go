@@ -143,6 +143,9 @@ var ForbiddenDeclarations = []ForbiddenDeclRule{
 	{Package: "internal/core/interleavedstate", Kind: SymbolType, Name: "MemoRef", Reason: "memo reference owned by interleavedthinking feature"},
 	{Package: "internal/core/config", Kind: SymbolConst, Name: "DefaultInterleavedInstructions", Reason: "prompt owned by interleavedthinking feature"},
 	{Package: "internal/core/config", Kind: SymbolFunc, Name: "ResolveInterleavedInstructions", Reason: "instruction loading owned by interleavedthinking feature"},
+	// Keepwarm prompt-cache maintenance core retirement (Task 6.3)
+	{Package: "internal/core/config", Kind: SymbolType, Name: "PromptCacheConfig", Reason: "prompt-cache keepwarm configuration owned by keepwarm feature"},
+	{Package: "internal/core/config", Kind: SymbolMethod, Receiver: "Config", Name: "EffectiveKeepwarm", Reason: "keepwarm configuration owned by keepwarm feature"},
 }
 
 // AbsentFiles must not exist in the production tree.
@@ -326,6 +329,7 @@ var RetiredPackageDirs = []string{
 	"internal/core/compactioncontinuity",
 	"internal/core/conversationview",
 	"internal/core/interleavedthinking",
+	"internal/core/keepwarm",
 }
 
 // ScanFileRetiredPackage checks if a repo-relative file path belongs to a retired package.

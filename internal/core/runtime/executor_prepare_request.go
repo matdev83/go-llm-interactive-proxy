@@ -232,8 +232,8 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		pr.billingCallID = "invalid"
 	}
 
-	if e.Keepwarm != nil {
-		e.Keepwarm.BeginRealTurn(pr.identity.aLeg.ALegID)
+	if e.PromptCacheMaintenance != nil {
+		e.PromptCacheMaintenance.BeginRealTurn(pr.identity.aLeg.ALegID)
 	}
 	if err := stampBillingCallID(pr); err != nil {
 		guard.Close()

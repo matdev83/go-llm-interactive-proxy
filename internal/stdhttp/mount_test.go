@@ -11,13 +11,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	keepwarmcore "github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	keepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
@@ -101,13 +101,13 @@ func TestKeepwarmAdminNotMountedWithoutDiagnosticsSecret(t *testing.T) {
 
 type keepwarmMountPolicyStub struct{ disabled bool }
 
-func (s *keepwarmMountPolicyStub) Disable(string) (keepwarmcore.SessionPolicy, error) {
+func (s *keepwarmMountPolicyStub) Disable(string) (keepwarm.SessionPolicy, error) {
 	s.disabled = true
-	return keepwarmcore.SessionPolicy{Disabled: true, Revision: 1}, nil
+	return keepwarm.SessionPolicy{Disabled: true, Revision: 1}, nil
 }
 func (s *keepwarmMountPolicyStub) Clear(string) error { s.disabled = false; return nil }
-func (s *keepwarmMountPolicyStub) Get(string) (keepwarmcore.SessionPolicy, bool) {
-	return keepwarmcore.SessionPolicy{Disabled: s.disabled}, s.disabled
+func (s *keepwarmMountPolicyStub) Get(string) (keepwarm.SessionPolicy, bool) {
+	return keepwarm.SessionPolicy{Disabled: s.disabled}, s.disabled
 }
 
 func TestTokenAccountingAdminMountedWithDiagnosticsSecret(t *testing.T) {

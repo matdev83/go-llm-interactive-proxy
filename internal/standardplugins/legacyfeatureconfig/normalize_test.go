@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/legacyfeatureconfig"
 	"gopkg.in/yaml.v3"
 )
@@ -330,5 +331,87 @@ interleaved: true
 				t.Fatalf("expected error message to indicate it must be a mapping, got: %v", err)
 			}
 		})
+	}
+}
+
+func TestNormalize_Keepwarm_Parity(t *testing.T) {
+	t.Parallel()
+
+	oldYAML := `
+prompt_cache:
+  keepwarm:
+    enabled: true
+    max_idle_duration: 2h
+    renew_timeout: 3s
+    max_refreshes_per_idle_epoch: 2
+`
+
+	newYAML := `
+plugins:
+  features:
+    - id: keepwarm
+      enabled: true
+      config:
+        enabled: true
+        max_idle_duration: 2h
+        renew_timeout: 3s
+        max_refreshes_per_idle_epoch: 2
+`
+
+	normalizedBytes, err := legacyfeatureconfig.NormalizeYAML([]byte(oldYAML))
+	if err != nil {
+		t.Fatalf("NormalizeYAML oldYAML: %v", err)
+	}
+
+	oldConfigNode := extractFeatureConfigNode(t, normalizedBytes, keepwarm.ID)
+	oldCfg, err := keepwarm.DecodeConfig(oldConfigNode)
+	if err != nil {
+		t.Fatalf("DecodeConfig old: %v", err)
+	}
+
+	newConfigNode := extractFeatureConfigNode(t, []byte(newYAML), keepwarm.ID)
+	newCfg, err := keepwarm.DecodeConfig(newConfigNode)
+	if err != nil {
+		t.Fatalf("DecodeConfig new: %v", err)
+	}
+
+	if !reflect.DeepEqual(oldCfg, newCfg) {
+		t.Fatalf("keepwarm parity mismatch:\n old: %+v\n new: %+v", oldCfg, newCfg)
+	}
+}
+
+func TestNormalize_Keepwarm_Conflict(t *testing.T) {
+	t.Parallel()
+
+	conflictYAML := `
+prompt_cache:
+  keepwarm:
+    enabled: true
+plugins:
+  features:
+    - id: keepwarm
+      enabled: true
+`
+	_, err := legacyfeatureconfig.NormalizeYAML([]byte(conflictYAML))
+	if err == nil {
+		t.Fatal("expected conflict error, got nil")
+	}
+	if !strings.Contains(err.Error(), "both legacy top-level") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+func TestNormalize_Keepwarm_Null(t *testing.T) {
+	t.Parallel()
+
+	nullYAML := `
+prompt_cache: null
+`
+	norm, err := legacyfeatureconfig.NormalizeYAML([]byte(nullYAML))
+	if err != nil {
+		t.Fatalf("NormalizeYAML: %v", err)
+	}
+	if strings.Contains(string(norm), "keepwarm") {
+		t.Fatalf("expected no keepwarm synthesized for null prompt_cache, got: %s", string(norm))
 	}
 }

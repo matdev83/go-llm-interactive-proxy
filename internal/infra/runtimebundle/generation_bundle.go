@@ -7,7 +7,6 @@ import (
 	"sort"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
@@ -57,9 +56,7 @@ type generationOperations struct {
 }
 
 type GenerationBundle struct {
-	keepwarm         *keepwarm.Manager
-	keepwarmRegistry *keepwarm.ManagerRegistry
-	keepwarmID       uint64
+	keepwarmQuiesce  func(context.Context) error
 	execution        generationExecution
 	publication      generationHTTPPublication
 	models           generationModelViews
@@ -224,13 +221,8 @@ func (b *GenerationBundle) Quiesce(ctx context.Context) error {
 		return nil
 	}
 	var err error
-	if b.keepwarmRegistry != nil && b.keepwarmID != 0 {
-		if unregErr := b.keepwarmRegistry.Unregister(b.keepwarmID); unregErr != nil && !errors.Is(unregErr, keepwarm.ErrManagerNotRegistered) {
-			err = unregErr
-		}
-	}
-	if b.keepwarm != nil {
-		err = errors.Join(err, b.keepwarm.Quiesce(ctx))
+	if b.keepwarmQuiesce != nil {
+		err = errors.Join(err, b.keepwarmQuiesce(ctx))
 	}
 	if b.ledger != nil {
 		err = errors.Join(err, b.ledger.Quiesce(ctx))
@@ -243,16 +235,9 @@ func (b *GenerationBundle) Close() error {
 		return nil
 	}
 	var err error
-	// Close is also used for unpublished/rollback generations, so it must
-	// perform the same registry detachment as Quiesce before stopping the
-	// manager. Otherwise the process-owned registry retains a retired manager.
-	if b.keepwarmRegistry != nil && b.keepwarmID != 0 {
-		if unregErr := b.keepwarmRegistry.Unregister(b.keepwarmID); unregErr != nil && !errors.Is(unregErr, keepwarm.ErrManagerNotRegistered) {
-			err = unregErr
-		}
-	}
-	if b.keepwarm != nil {
-		err = errors.Join(err, b.keepwarm.Quiesce(context.Background()))
+	// Close is also used for unpublished/rollback generations.
+	if b.keepwarmQuiesce != nil {
+		err = errors.Join(err, b.keepwarmQuiesce(context.Background()))
 	}
 	if b.ledger != nil {
 		err = errors.Join(err, b.ledger.Close(context.Background()))
@@ -274,9 +259,7 @@ func backendIDsOf(exec *runtime.Executor) []string {
 
 func newGenerationBundle(in generationBundleInput) *GenerationBundle {
 	return &GenerationBundle{
-		keepwarm:         in.keepwarm,
-		keepwarmRegistry: in.keepwarmRegistry,
-		keepwarmID:       in.keepwarmID,
+		keepwarmQuiesce:  in.keepwarmQuiesce,
 		execution: generationExecution{
 			executor:   in.executor,
 			backendIDs: append([]string(nil), in.backendIDs...),
@@ -315,7 +298,5 @@ type generationBundleInput struct {
 	terminalProviders *terminalworkapp.FrozenTerminalProviders
 	frozen            lipfeature.FrozenPlaneSet
 	readiness         controlplane.ReadinessReportReader
-	keepwarm          *keepwarm.Manager
-	keepwarmRegistry  *keepwarm.ManagerRegistry
-	keepwarmID        uint64
+	keepwarmQuiesce   func(context.Context) error
 }

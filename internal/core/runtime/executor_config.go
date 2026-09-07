@@ -20,7 +20,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
@@ -63,9 +62,8 @@ type CoreRuntime struct {
 	Now                  func() time.Time
 	MaxPendingWireEvents int
 	StreamRecovery       streamrecovery.Config
-	// Keepwarm is the generation-owned provider-neutral maintenance orchestrator.
-	// It is nil for test/minimal executors that do not compose the feature.
-	Keepwarm *keepwarm.Orchestrator
+	// PromptCacheMaintenance is the optional generation-owned provider-neutral maintenance port.
+	PromptCacheMaintenance PromptCacheMaintenance
 	// ConversationViewReader is an optional narrow snapshot port. When set,
 	// runtime preserves the single-snapshot per-turn invariant (task 3.2).
 	ConversationViewReader conversationprojection.Reader

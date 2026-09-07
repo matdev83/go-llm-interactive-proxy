@@ -4,10 +4,30 @@ import (
 	"context"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
+
+// PromptCacheCommittedTurn carries attempt-local prompt-cache observations and
+// committed tool evidence using canonical/SDK DTOs only (design §6, Requirement 6.3).
+type PromptCacheCommittedTurn struct {
+	ALegID              string
+	BLegID              string
+	CommittedSuccessful bool
+	ToolEvents          []lipapi.ToolEvent
+	Observations        []promptcache.Observation
+	BackendInstanceID   string
+	CanonicalModelID    string
+	Controller          promptcache.Controller
+}
+
+// PromptCacheMaintenance is the narrow core runtime consumer port for lifecycle
+// facts that only core authoritatively emits (Requirement 6.3, design §6).
+type PromptCacheMaintenance interface {
+	BeginRealTurn(aLegID string)
+	EndSession(aLegID string)
+	ArmCommittedTurn(turn PromptCacheCommittedTurn)
+}
 
 func promptCacheObservationSource(stream lipapi.ManagedEventStream) promptcache.ObservationSource {
 	source, _ := stream.(promptcache.ObservationSource)
@@ -41,7 +61,7 @@ func (c backendPromptCacheController) Release(ctx context.Context, req promptcac
 // this method snapshots attempt-local prompt-cache observations and logical
 // response tool evidence exactly once.
 func (p *responsePipeline) commitSuccessfulTurn(facts recvTurnFacts, attempt *attemptSession, committed bool) {
-	if p == nil || p.keepwarm == nil || attempt == nil {
+	if p == nil || p.promptCacheMaintenance == nil || attempt == nil {
 		return
 	}
 	p.keepwarmArmOnce.Do(func() {
@@ -53,7 +73,7 @@ func (p *responsePipeline) commitSuccessfulTurn(facts recvTurnFacts, attempt *at
 		if len(observations) == 0 {
 			return
 		}
-		p.keepwarm.ArmCommittedTurn(keepwarm.ArmInput{
+		p.promptCacheMaintenance.ArmCommittedTurn(PromptCacheCommittedTurn{
 			ALegID:              facts.aLegID,
 			BLegID:              attempt.bleg.BLegID,
 			CommittedSuccessful: committed,

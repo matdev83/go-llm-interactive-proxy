@@ -44,6 +44,7 @@ func TestForbiddenImports_RetiredCorePackagesRulesEnforced(t *testing.T) {
 		"/internal/core/compactioncontinuity",
 		"/internal/core/conversationview",
 		"/internal/core/interleavedthinking",
+		"/internal/core/keepwarm",
 	}
 
 	for _, target := range retiredTargets {
@@ -127,6 +128,12 @@ func TestForbiddenImports_CoreConcreteFeaturesRenamedOrNestedBypassRejected(t *t
 			wantForbid: true,
 		},
 		{
+			name:       "core runtime imports keepwarm",
+			relPath:    "internal/core/runtime/renamed.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm",
+			wantForbid: true,
+		},
+		{
 			name:       "core routing nested subpackage imports agentloopguard",
 			relPath:    "internal/core/routing/sub/bypass.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard",
@@ -178,6 +185,12 @@ func TestForbiddenImports_CoreConcreteFeaturesRenamedOrNestedBypassRejected(t *t
 			name:       "standardplugins distribution imports secretguard (allowed)",
 			relPath:    "internal/standardplugins/features_install.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard",
+			wantForbid: false,
+		},
+		{
+			name:       "standardplugins distribution imports keepwarm (allowed)",
+			relPath:    "internal/standardplugins/features_install.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm",
 			wantForbid: false,
 		},
 		{

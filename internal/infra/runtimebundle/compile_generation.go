@@ -14,7 +14,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -89,21 +88,34 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
 		overlayExtensions(&ext, in.CandidateOpts.Extensions)
 	}
+	nowFn := time.Now
+	if ps.opts != nil && ps.opts.Testing.Clock != nil {
+		nowFn = ps.opts.Testing.Clock
+	}
+	var kwAccounting billing.ProviderMaintenanceUsageObserver
+	if ps.opts != nil {
+		kwAccounting = ps.opts.Production.KeepwarmAccounting
+	}
+	if in.CandidateOpts != nil && in.CandidateOpts.Production.KeepwarmAccounting != nil {
+		kwAccounting = in.CandidateOpts.Production.KeepwarmAccounting
+	}
 	featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
-		Registrations:     regs,
-		MergeSurface:      genMerged,
-		Planes:            genMerged.Frozen,
-		Lifecycles:        lifecycles,
-		BackgroundClient:  boundClient,
-		BackgroundPoller:  boundPoller,
-		ReasoningProdOpts: reasoningCompressionProductionOptions(ps),
-		ReasoningTestOpts: reasoningCompressionTestingOptions(ps),
-		AccessMode:        accessMode,
-		ConfigInterleaved: frozen.Interleaved,
-		ConfigDir:         frozen.ConfigDir,
-		SecretEnv:         ext.SecretGuardEnvironment,
-		SecretInputs:      ext.SecretGuardInputs,
-		DecisionObserver:  ext.SecretDecisionObserver,
+		Registrations:      regs,
+		MergeSurface:       genMerged,
+		Planes:             genMerged.Frozen,
+		Lifecycles:         lifecycles,
+		BackgroundClient:   boundClient,
+		BackgroundPoller:   boundPoller,
+		ReasoningProdOpts:  reasoningCompressionProductionOptions(ps),
+		ReasoningTestOpts:  reasoningCompressionTestingOptions(ps),
+		AccessMode:         accessMode,
+		ConfigInterleaved:  frozen.Interleaved,
+		ConfigDir:          frozen.ConfigDir,
+		SecretEnv:          ext.SecretGuardEnvironment,
+		SecretInputs:       ext.SecretGuardInputs,
+		DecisionObserver:   ext.SecretDecisionObserver,
+		NowFn:              nowFn,
+		KeepwarmAccounting: kwAccounting,
 	})
 	if err != nil {
 		return nil, err
@@ -156,10 +168,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		cand.ledger.AddClose("openresponses-generation-lifecycle", PhaseQuiesce, func() error { genCancel(); return nil })
 	}
 	failWithGenCtx := func(err error) (GenerationRuntime, error) { genCancel(); return failBeforeTransfer(err) }
-	nowFn := time.Now
-	if ps.opts != nil && ps.opts.Testing.Clock != nil {
-		nowFn = ps.opts.Testing.Clock
-	}
 	adminHandler, err := bindGenerationRouteOverride(ps, frozen, cand.execution.executor, nowFn)
 	if err != nil {
 		return failWithGenCtx(err)
@@ -187,18 +195,14 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if ledger == nil {
 		return failWithGenCtx(fmt.Errorf("runtimebundle: candidate resource ledger unavailable for transfer"))
 	}
-	keepwarmManager, keepwarmID, err := buildKeepwarmGeneration(frozen, nowFn, cand.process.keepwarmRegistry, cand.process.keepwarmPolicy, cand.operations.keepwarmAccounting)
-	if err != nil {
-		return failWithGenCtx(err)
+	cand.execution.executor.PromptCacheMaintenance = featOut.CorePorts.PromptCacheMaintenance
+	if cand.process.metrics != nil && cand.process.metrics.Keepwarm != nil && featOut.KeepwarmManager != nil {
+		cand.process.metrics.Keepwarm.SetManager(featOut.KeepwarmManager)
 	}
-	if cand.process.metrics != nil && cand.process.metrics.Keepwarm != nil {
-		cand.process.metrics.Keepwarm.SetManager(keepwarmManager)
-	}
-	cand.execution.executor.Keepwarm = keepwarm.NewOrchestrator(keepwarmManager, cand.process.keepwarmPolicy)
 	if retired, ok := cand.execution.executor.Store.(b2bua.ALegRetirementObserver); ok {
 		retired.SetALegRetirementObserver(func(aLegID string) {
-			if cand.execution.executor.Keepwarm != nil {
-				cand.execution.executor.Keepwarm.EndSession(aLegID)
+			if cand.execution.executor.PromptCacheMaintenance != nil {
+				cand.execution.executor.PromptCacheMaintenance.EndSession(aLegID)
 			}
 			if deleter, ok := cand.execution.executor.ConversationViewTagger.(interface{ DeleteALeg(context.Context, string) error }); ok {
 				_ = deleter.DeleteALeg(context.Background(), aLegID)
@@ -220,11 +224,9 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		// Publish the facade-composed planes as the generation's canonical
 		// frozen surface (Task 2.4, Requirement 8.3): facade-added/replaced
 		// planes must be visible to request-time bundle readers.
-		frozen:           featOut.Planes,
-		readiness:        cand.operations.readinessReport,
-		keepwarm:         keepwarmManager,
-		keepwarmRegistry: cand.process.keepwarmRegistry,
-		keepwarmID:       keepwarmID,
+		frozen:          featOut.Planes,
+		readiness:       cand.operations.readinessReport,
+		keepwarmQuiesce: featOut.KeepwarmQuiesce,
 	})
 	return bundle, nil
 }

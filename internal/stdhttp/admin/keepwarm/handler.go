@@ -8,14 +8,14 @@ import (
 	"net/url"
 	"strings"
 
-	core "github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
+	keepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/jsonbody"
 )
 
 type Service interface {
-	Disable(string) (core.SessionPolicy, error)
+	Disable(string) (keepwarm.SessionPolicy, error)
 	Clear(string) error
-	Get(string) (core.SessionPolicy, bool)
+	Get(string) (keepwarm.SessionPolicy, bool)
 }
 
 type Options struct {
@@ -125,24 +125,24 @@ func decodeBounded(w http.ResponseWriter, r *http.Request, max int64) error {
 // authenticated admin route. It intentionally never reads a request body.
 func PathALegID(_ context.Context, r *http.Request) (string, error) {
 	if r == nil {
-		return "", core.ErrInvalidConfig
+		return "", keepwarm.ErrInvalidConfig
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) != 2 || (parts[0] != "disable" && parts[0] != "clear" && parts[0] != "state") {
-		return "", core.ErrInvalidConfig
+		return "", keepwarm.ErrInvalidConfig
 	}
 	id, err := url.PathUnescape(parts[1])
 	if err != nil || strings.TrimSpace(id) == "" || len(id) > 256 || strings.ContainsAny(id, "/\\") {
-		return "", core.ErrInvalidConfig
+		return "", keepwarm.ErrInvalidConfig
 	}
 	return strings.TrimSpace(id), nil
 }
 
 func writePolicyError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, core.ErrPolicyCapacity):
+	case errors.Is(err, keepwarm.ErrPolicyCapacity):
 		writeError(w, http.StatusConflict, "policy_capacity")
-	case errors.Is(err, core.ErrPolicyNotFound):
+	case errors.Is(err, keepwarm.ErrPolicyNotFound):
 		writeError(w, http.StatusNotFound, "policy_not_found")
 	default:
 		writeError(w, http.StatusServiceUnavailable, "policy_unavailable")

@@ -17,6 +17,9 @@ var (
 	ErrStale          = errors.New("keepwarm: stale renewal result")
 )
 
+// ID is the canonical feature identifier.
+const ID = "keepwarm"
+
 const (
 	DefaultMaxRefreshesPerIdleEpoch = 6
 	DefaultMaxIdleDuration          = time.Hour

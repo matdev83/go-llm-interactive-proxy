@@ -16,7 +16,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
@@ -64,7 +63,7 @@ func (s *recordingB2BuaStore) FetchALeg(ctx context.Context, id string) (b2bua.A
 	s.mu.Lock()
 	*s.events = append(*s.events, "FetchALeg")
 	s.mu.Unlock()
-	if s.executor != nil && s.executor.Keepwarm != nil {
+	if s.executor != nil && s.executor.PromptCacheMaintenance != nil {
 		ctl := &fixedResultController{}
 		now := time.Unix(2000, 0)
 		exp := now.Add(time.Hour)
@@ -81,15 +80,16 @@ func (s *recordingB2BuaStore) FetchALeg(ctx context.Context, id string) (b2bua.A
 				Handle:            promptcache.Handle("handle-1"),
 			},
 		}
-		_ = s.executor.Keepwarm.ArmCommittedTurn(keepwarm.CommittedTurn(
-			id,
-			"b-leg-1",
-			"backend-1",
-			"model-1",
-			[]lipapi.ToolEvent{{Kind: lipapi.ToolEventFinished, Category: lipapi.ToolCategoryOSCommand}},
-			obs,
-			ctl,
-		))
+		s.executor.PromptCacheMaintenance.ArmCommittedTurn(PromptCacheCommittedTurn{
+			ALegID:              id,
+			BLegID:              "b-leg-1",
+			BackendInstanceID:   "backend-1",
+			CanonicalModelID:    "model-1",
+			ToolEvents:          []lipapi.ToolEvent{{Kind: lipapi.ToolEventFinished, Category: lipapi.ToolCategoryOSCommand}},
+			Observations:        obs,
+			Controller:          ctl,
+			CommittedSuccessful: true,
+		})
 	}
 	return s.Store.FetchALeg(ctx, id)
 }
@@ -111,6 +111,21 @@ func (s *spyConcurrencyProvider) AdmitLease(ctx context.Context, in authority.Le
 		ExpiresAt:  time.Unix(2000000000, 0),
 	}, nil
 }
+
+type spyPromptCacheMaintenance struct {
+	mu     *sync.Mutex
+	events *[]string
+}
+
+func (s *spyPromptCacheMaintenance) BeginRealTurn(aLegID string) {
+	s.mu.Lock()
+	*s.events = append(*s.events, "Keepwarm.BeginRealTurn")
+	s.mu.Unlock()
+}
+
+func (s *spyPromptCacheMaintenance) EndSession(aLegID string) {}
+
+func (s *spyPromptCacheMaintenance) ArmCommittedTurn(turn PromptCacheCommittedTurn) {}
 
 type spySubmitHook struct {
 	mu     *sync.Mutex
@@ -175,27 +190,11 @@ func TestExecutor_PreparationOrderCharacterization(t *testing.T) {
 	}
 	ex.SecureSession = mgr
 
-	// Setup Keepwarm
-	kwHooks := keepwarm.Hooks{
-		Metric: func(name string) {
-			if name == "cancel_foreground" {
-				mu.Lock()
-				events = append(events, "Keepwarm.BeginRealTurn")
-				mu.Unlock()
-			}
-		},
+	// Setup PromptCacheMaintenance
+	ex.PromptCacheMaintenance = &spyPromptCacheMaintenance{
+		mu:     &mu,
+		events: &events,
 	}
-	cfg := keepwarm.DefaultConfig()
-	kwMgr, err := keepwarm.NewManager(cfg, keepwarm.ClockFunc(func() time.Time {
-		if ex.Now == nil {
-			return time.Now().UTC()
-		}
-		return ex.Now()
-	}), kwHooks)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ex.Keepwarm = keepwarm.NewOrchestrator(kwMgr)
 
 	// Hook submit hook
 	ex.Bus = hooks.New(hooks.Config{
@@ -274,9 +273,6 @@ func TestExecutor_PreparationOrderCharacterization(t *testing.T) {
 	}
 	defer func() {
 		closeFn()
-		if ex.Keepwarm != nil {
-			_ = ex.Keepwarm.Quiesce(ctx)
-		}
 	}()
 
 	// Ensure the A-leg ID matches

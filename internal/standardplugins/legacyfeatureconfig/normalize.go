@@ -7,14 +7,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// CanonicalID is the feature identifier in plugins.features.
+// CanonicalID is the feature identifier in plugins.features for interleaved-thinking.
 const CanonicalID = "interleaved-thinking"
 
+// KeepwarmCanonicalID is the feature identifier in plugins.features for keepwarm.
+const KeepwarmCanonicalID = "keepwarm"
+
 // NormalizeYAML takes raw YAML configuration bytes and normalizes any legacy
-// top-level 'interleaved:' configuration into a canonical 'plugins.features' entry.
+// top-level 'interleaved:' or 'prompt_cache:' configuration into canonical 'plugins.features' entries.
 // If both legacy and canonical entries exist, a deterministic conflict error is returned.
 func NormalizeYAML(raw []byte) ([]byte, error) {
-	if !bytes.Contains(raw, []byte("interleaved")) {
+	if !bytes.Contains(raw, []byte("interleaved")) && !bytes.Contains(raw, []byte("prompt_cache")) {
 		return raw, nil
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
@@ -30,16 +33,16 @@ func NormalizeYAML(raw []byte) ([]byte, error) {
 	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 		doc = doc.Content[0]
 	}
-	hasInterleaved := false
+	hasLegacy := false
 	if doc.Kind == yaml.MappingNode {
 		for i := 0; i < len(doc.Content); i += 2 {
-			if doc.Content[i].Value == "interleaved" {
-				hasInterleaved = true
+			if doc.Content[i].Value == "interleaved" || doc.Content[i].Value == "prompt_cache" {
+				hasLegacy = true
 				break
 			}
 		}
 	}
-	if !hasInterleaved {
+	if !hasLegacy {
 		return raw, nil
 	}
 	if err := NormalizeNode(&root); err != nil {
@@ -57,9 +60,29 @@ func NormalizeYAML(raw []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func nodeTag(node *yaml.Node) string {
+	if node == nil {
+		return "nil"
+	}
+	tag := node.Tag
+	if tag == "" {
+		switch node.Kind {
+		case yaml.ScalarNode:
+			tag = "scalar"
+		case yaml.SequenceNode:
+			tag = "sequence"
+		case yaml.MappingNode:
+			tag = "mapping"
+		default:
+			tag = fmt.Sprintf("kind %d", node.Kind)
+		}
+	}
+	return tag
+}
+
 // NormalizeNode mutates the given YAML root AST in-place, converting any legacy
-// top-level 'interleaved:' mapping into a canonical 'plugins.features' entry with
-// id 'interleaved-thinking'. If both are present, a conflict error is returned.
+// top-level 'interleaved:' or 'prompt_cache:' mapping into a canonical 'plugins.features' entry.
+// If both are present, a conflict error is returned.
 func NormalizeNode(root *yaml.Node) error {
 	if root == nil {
 		return nil
@@ -75,22 +98,13 @@ func NormalizeNode(root *yaml.Node) error {
 		return nil
 	}
 
-	interleavedIdx := -1
-	for i := 0; i < len(doc.Content); i += 2 {
-		if doc.Content[i].Value == "interleaved" {
-			interleavedIdx = i
-			break
-		}
-	}
-
-	pluginsIdx := -1
 	var pluginsNode *yaml.Node
 	var featuresNode *yaml.Node
 	hasCanonicalInterleaved := false
+	hasCanonicalKeepwarm := false
 
 	for i := 0; i < len(doc.Content); i += 2 {
 		if doc.Content[i].Value == "plugins" {
-			pluginsIdx = i
 			pluginsNode = doc.Content[i+1]
 			break
 		}
@@ -109,98 +123,155 @@ func NormalizeNode(root *yaml.Node) error {
 		for _, item := range featuresNode.Content {
 			if item.Kind == yaml.MappingNode {
 				for j := 0; j < len(item.Content); j += 2 {
-					if item.Content[j].Value == "id" && item.Content[j+1].Value == CanonicalID {
-						hasCanonicalInterleaved = true
-						break
+					if item.Content[j].Value == "id" {
+						if item.Content[j+1].Value == CanonicalID {
+							hasCanonicalInterleaved = true
+						} else if item.Content[j+1].Value == KeepwarmCanonicalID {
+							hasCanonicalKeepwarm = true
+						}
 					}
 				}
 			}
 		}
 	}
 
-	if interleavedIdx >= 0 {
-		interleavedVal := doc.Content[interleavedIdx+1]
-		if isNullNode(interleavedVal) {
-			// Null legacy node -> NO feature entry synthesized (absent stays absent; do not default enabled=true)
-			doc.Content = append(doc.Content[:interleavedIdx], doc.Content[interleavedIdx+2:]...)
-			return nil
-		}
-		if interleavedVal.Kind != yaml.MappingNode {
-			tag := interleavedVal.Tag
-			if tag == "" {
-				switch interleavedVal.Kind {
-				case yaml.ScalarNode:
-					tag = "scalar"
-				case yaml.SequenceNode:
-					tag = "sequence"
-				default:
-					tag = fmt.Sprintf("kind %d", interleavedVal.Kind)
-				}
+	ensureFeaturesNode := func() {
+		if pluginsNode == nil {
+			pluginsNode = &yaml.Node{
+				Kind:    yaml.MappingNode,
+				Tag:     "!!map",
+				Content: []*yaml.Node{},
 			}
-			return fmt.Errorf("legacyfeatureconfig: legacy top-level 'interleaved' must be a mapping, got %s", tag)
+			doc.Content = append(doc.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "plugins"},
+				pluginsNode,
+			)
+		}
+		if featuresNode == nil {
+			featuresNode = &yaml.Node{
+				Kind:    yaml.SequenceNode,
+				Tag:     "!!seq",
+				Content: []*yaml.Node{},
+			}
+			pluginsNode.Content = append(pluginsNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "features"},
+				featuresNode,
+			)
 		}
 	}
 
-	if interleavedIdx >= 0 && hasCanonicalInterleaved {
-		return fmt.Errorf("legacyfeatureconfig: both legacy top-level 'interleaved' and canonical 'plugins.features' entry for %q are configured", CanonicalID)
+	removeDocKey := func(key string) {
+		for i := 0; i < len(doc.Content); i += 2 {
+			if doc.Content[i].Value == key {
+				doc.Content = append(doc.Content[:i], doc.Content[i+2:]...)
+				break
+			}
+		}
 	}
 
-	if interleavedIdx < 0 {
-		return nil
-	}
-
-	interleavedVal := doc.Content[interleavedIdx+1]
-
-	enabledVal := "true"
-	for i := 0; i < len(interleavedVal.Content); i += 2 {
-		if interleavedVal.Content[i].Value == "enabled" {
-			enabledVal = interleavedVal.Content[i+1].Value
+	// 1. Process legacy 'interleaved'
+	interleavedIdx := -1
+	for i := 0; i < len(doc.Content); i += 2 {
+		if doc.Content[i].Value == "interleaved" {
+			interleavedIdx = i
 			break
 		}
 	}
 
-	canonicalEntry := &yaml.Node{
-		Kind: yaml.MappingNode,
-		Tag:  "!!map",
-		Content: []*yaml.Node{
-			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "id"},
-			{Kind: yaml.ScalarNode, Tag: "!!str", Value: CanonicalID},
-			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "enabled"},
-			{Kind: yaml.ScalarNode, Tag: "!!bool", Value: enabledVal},
-			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "config"},
-			interleavedVal,
-		},
-	}
-
-	if pluginsNode == nil {
-		pluginsNode = &yaml.Node{
-			Kind:    yaml.MappingNode,
-			Tag:     "!!map",
-			Content: []*yaml.Node{},
+	if interleavedIdx >= 0 {
+		interleavedVal := doc.Content[interleavedIdx+1]
+		if isNullNode(interleavedVal) {
+			removeDocKey("interleaved")
+		} else if interleavedVal.Kind != yaml.MappingNode {
+			return fmt.Errorf("legacyfeatureconfig: legacy top-level 'interleaved' must be a mapping, got %s", nodeTag(interleavedVal))
+		} else if hasCanonicalInterleaved {
+			return fmt.Errorf("legacyfeatureconfig: both legacy top-level 'interleaved' and canonical 'plugins.features' entry for %q are configured", CanonicalID)
+		} else {
+			enabledVal := "true"
+			for i := 0; i < len(interleavedVal.Content); i += 2 {
+				if interleavedVal.Content[i].Value == "enabled" {
+					enabledVal = interleavedVal.Content[i+1].Value
+					break
+				}
+			}
+			canonicalEntry := &yaml.Node{
+				Kind: yaml.MappingNode,
+				Tag:  "!!map",
+				Content: []*yaml.Node{
+					{Kind: yaml.ScalarNode, Tag: "!!str", Value: "id"},
+					{Kind: yaml.ScalarNode, Tag: "!!str", Value: CanonicalID},
+					{Kind: yaml.ScalarNode, Tag: "!!str", Value: "enabled"},
+					{Kind: yaml.ScalarNode, Tag: "!!bool", Value: enabledVal},
+					{Kind: yaml.ScalarNode, Tag: "!!str", Value: "config"},
+					interleavedVal,
+				},
+			}
+			ensureFeaturesNode()
+			featuresNode.Content = append(featuresNode.Content, canonicalEntry)
+			removeDocKey("interleaved")
 		}
-		doc.Content = append(doc.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "plugins"},
-			pluginsNode,
-		)
-		_ = pluginsIdx
 	}
 
-	if featuresNode == nil {
-		featuresNode = &yaml.Node{
-			Kind:    yaml.SequenceNode,
-			Tag:     "!!seq",
-			Content: []*yaml.Node{},
+	// 2. Process legacy 'prompt_cache'
+	promptCacheIdx := -1
+	for i := 0; i < len(doc.Content); i += 2 {
+		if doc.Content[i].Value == "prompt_cache" {
+			promptCacheIdx = i
+			break
 		}
-		pluginsNode.Content = append(pluginsNode.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "features"},
-			featuresNode,
-		)
 	}
 
-	featuresNode.Content = append(featuresNode.Content, canonicalEntry)
+	if promptCacheIdx >= 0 {
+		pcVal := doc.Content[promptCacheIdx+1]
+		if isNullNode(pcVal) {
+			removeDocKey("prompt_cache")
+		} else if pcVal.Kind != yaml.MappingNode {
+			return fmt.Errorf("legacyfeatureconfig: legacy top-level 'prompt_cache' must be a mapping, got %s", nodeTag(pcVal))
+		} else {
+			kwIdx := -1
+			for i := 0; i < len(pcVal.Content); i += 2 {
+				if pcVal.Content[i].Value == "keepwarm" {
+					kwIdx = i
+					break
+				}
+			}
+			if kwIdx >= 0 {
+				if hasCanonicalKeepwarm {
+					return fmt.Errorf("legacyfeatureconfig: both legacy top-level 'prompt_cache.keepwarm' and canonical 'plugins.features' entry for %q are configured", KeepwarmCanonicalID)
+				}
+				kwVal := pcVal.Content[kwIdx+1]
+				if isNullNode(kwVal) {
+					// Null keepwarm -> no entry synthesized
+				} else if kwVal.Kind != yaml.MappingNode {
+					return fmt.Errorf("legacyfeatureconfig: legacy 'prompt_cache.keepwarm' must be a mapping, got %s", nodeTag(kwVal))
+				} else {
+					enabledVal := "true"
+					for i := 0; i < len(kwVal.Content); i += 2 {
+						if kwVal.Content[i].Value == "enabled" {
+							enabledVal = kwVal.Content[i+1].Value
+							break
+						}
+					}
+					canonicalKW := &yaml.Node{
+						Kind: yaml.MappingNode,
+						Tag:  "!!map",
+						Content: []*yaml.Node{
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: "id"},
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: KeepwarmCanonicalID},
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: "enabled"},
+							{Kind: yaml.ScalarNode, Tag: "!!bool", Value: enabledVal},
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: "config"},
+							kwVal,
+						},
+					}
+					ensureFeaturesNode()
+					featuresNode.Content = append(featuresNode.Content, canonicalKW)
+				}
+			}
+			removeDocKey("prompt_cache")
+		}
+	}
 
-	// Remove legacy 'interleaved' key-value pair from top-level doc.Content
-	doc.Content = append(doc.Content[:interleavedIdx], doc.Content[interleavedIdx+2:]...)
 	return nil
 }
 

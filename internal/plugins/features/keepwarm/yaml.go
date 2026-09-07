@@ -85,3 +85,59 @@ func ConfigFromYAML(data []byte) (Config, error) {
 }
 
 func ParseYAML(data []byte) (Config, error) { return ConfigFromYAML(data) }
+
+// DecodeConfig unmarshals a YAML node directly into Config.
+func DecodeConfig(n yaml.Node) (Config, error) {
+	if n.Kind == 0 {
+		return DefaultConfig(), nil
+	}
+	var in yamlKeepwarm
+	if err := n.Decode(&in); err != nil {
+		return Config{}, fmt.Errorf("%w: decode keepwarm yaml: %v", ErrInvalidConfig, err)
+	}
+	cfg := DefaultConfig()
+	if in.Enabled != nil {
+		cfg.Enabled = *in.Enabled
+	}
+	if in.MaxRefreshesPerIdleEpoch != nil {
+		cfg.MaxRefreshesPerIdleEpoch = *in.MaxRefreshesPerIdleEpoch
+	}
+	if in.MaxActiveTargets != nil {
+		cfg.MaxActiveTargets = *in.MaxActiveTargets
+	}
+	if in.MaxConcurrentRenewals != nil {
+		cfg.MaxConcurrentRenewals = *in.MaxConcurrentRenewals
+	}
+	cfg.ContinueAfterColdRecreate = in.ContinueAfterColdRecreate
+	cfg.MaxColdRecreatesPerIdleEpoch = in.MaxColdRecreatesPerIdleEpoch
+	cfg.MaxProviderTokensPerIdleEpoch = in.MaxProviderTokensPerIdleEpoch
+	if in.MaxIdleDuration != "" {
+		d, err := time.ParseDuration(in.MaxIdleDuration)
+		if err != nil {
+			return Config{}, fmt.Errorf("%w: max_idle_duration: %v", ErrInvalidConfig, err)
+		}
+		cfg.MaxIdleDuration = d
+	}
+	if in.RenewTimeout != "" {
+		d, err := time.ParseDuration(in.RenewTimeout)
+		if err != nil {
+			return Config{}, fmt.Errorf("%w: renew_timeout: %v", ErrInvalidConfig, err)
+		}
+		cfg.RenewTimeout = d
+	}
+	for _, h := range in.HeuristicOverrides {
+		d, err := time.ParseDuration(h.Interval)
+		if err != nil {
+			return Config{}, fmt.Errorf("%w: heuristic interval: %v", ErrInvalidConfig, err)
+		}
+		cfg.HeuristicOverrides = append(cfg.HeuristicOverrides, HeuristicOverride{
+			BackendInstance: h.BackendInstance,
+			CanonicalModel:  h.CanonicalModel,
+			Interval:        d,
+		})
+	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
