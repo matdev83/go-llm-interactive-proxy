@@ -477,7 +477,7 @@ func (s *archPkgScope) scanWithRows(root string, rows map[string]map[string]stri
 				for _, ref := range namedArchRefs(field.Type) {
 					recurseNamed(ref)
 				}
-				s.scanNestedInline(qualName, field.Type, owner, make(map[string]bool), scanFields)
+				s.scanNestedInline(qualName, field.Type, owner, make(map[string]bool), scanFields, recurseNamed)
 			}
 		}
 	}
