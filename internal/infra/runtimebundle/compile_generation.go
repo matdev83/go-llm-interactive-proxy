@@ -119,8 +119,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		AccessMode:         accessMode,
 		ConfigInterleaved:  frozen.Interleaved,
 		ConfigDir:          frozen.ConfigDir,
-		SecretEnv:          ext.SecretGuardEnvironment,
-		SecretInputs:       ext.SecretGuardInputs,
 		DecisionObserver:   ext.SecretDecisionObserver,
 		NowFn:              nowFn,
 		KeepwarmAccounting: kwAccounting,
@@ -359,9 +357,6 @@ func extensionsFromProcessOptions(processOpts *BuildOptions) ExtensionsOptions {
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	if dst == nil {
 		return
-	}
-	if src.SecretGuardEnvironment != nil {
-		dst.SecretGuardEnvironment = src.SecretGuardEnvironment
 	}
 	if src.SecretDecisionObserver != nil {
 		dst.SecretDecisionObserver = src.SecretDecisionObserver

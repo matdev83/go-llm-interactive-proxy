@@ -72,6 +72,7 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 			return nil, err
 		}
 		r.boundReasoning = bound.reasoning
+		r.boundSecretGuard = bound.secretGuard
 		r.hostRegistrations = slices.Clone(in.HostRegistrations)
 	}
 

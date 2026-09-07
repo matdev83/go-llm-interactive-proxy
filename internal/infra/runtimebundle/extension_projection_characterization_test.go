@@ -5,8 +5,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -128,30 +129,34 @@ func TestExtensionsFromProcessOptions_preservesExactNilAndEmptyState(t *testing.
 	t.Run("nil_process_options_projects_all_zero_extensions", func(t *testing.T) {
 		t.Parallel()
 		ext := extensionsFromProcessOptions(nil)
-		assert.Nil(t, ext.SecretGuardEnvironment)
-		assert.Equal(t, SecretGuardInputs{}, ext.SecretGuardInputs)
+		assert.Nil(t, ext.SecretGuard)
+		assert.Nil(t, ext.SecretGuardInventory)
 		assert.Nil(t, ext.SecretDecisionObserver)
 	})
 
 	t.Run("empty_process_options_projects_all_zero_extensions", func(t *testing.T) {
 		t.Parallel()
 		ext := extensionsFromProcessOptions(&BuildOptions{})
-		assert.Nil(t, ext.SecretGuardEnvironment)
-		assert.Equal(t, SecretGuardInputs{}, ext.SecretGuardInputs)
+		assert.Nil(t, ext.SecretGuard)
+		assert.Nil(t, ext.SecretGuardInventory)
 		assert.Nil(t, ext.SecretDecisionObserver)
 	})
 
 	t.Run("populated_process_options_projects_equal_secret_options", func(t *testing.T) {
 		t.Parallel()
+		sgPlane := &extensions.SecretGuardPlane{AccessMode: "single_user"}
+		sgInv := &diag.InventoryExtras{SecretGuardCatalogEntryCount: 3}
+		obs := sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil })
 		opts := &BuildOptions{
 			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: stubProjEnv{val: "secret_env"},
-				SecretGuardInputs:      SecretGuardInputs{},
-				SecretDecisionObserver: sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil }),
+				SecretGuard:            sgPlane,
+				SecretGuardInventory:   sgInv,
+				SecretDecisionObserver: obs,
 			},
 		}
 		ext := extensionsFromProcessOptions(opts)
-		assert.NotNil(t, ext.SecretGuardEnvironment)
+		assert.Equal(t, sgPlane, ext.SecretGuard)
+		assert.Equal(t, sgInv, ext.SecretGuardInventory)
 		assert.NotNil(t, ext.SecretDecisionObserver)
 	})
 }
@@ -162,22 +167,13 @@ func TestExtensionsFromProcessOptions_DefensiveCopyAndNilSemantics(t *testing.T)
 	t.Run("all_fields_populated_exact_equality_interface_identity_and_isolation", func(t *testing.T) {
 		t.Parallel()
 
-		env := stubProjEnv{val: "env-val"}
 		obs := stubProjObs{val: "obs-val"}
-		srcInputs := SecretGuardInputs{
-			SingleUser: featurehost.SingleUserOptions{
-				IncludePopularEnv: true,
-				IncludeEnv:        []string{"ENV_A", "ENV_B"},
-				ExcludeEnv:        []string{"ENV_C", "ENV_D"},
-				MinSecretBytes:    16,
-				Matcher:           featurehost.MatcherOptions{PreserveKnownPrefixes: true, MaskByte: '#'},
-				MatcherConfigured: true,
-			},
-		}
+		sgPlane := &extensions.SecretGuardPlane{AccessMode: "single_user"}
+		sgInv := &diag.InventoryExtras{SecretGuardCatalogEntryCount: 5}
 		opts := &BuildOptions{
 			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: env,
-				SecretGuardInputs:      srcInputs,
+				SecretGuard:            sgPlane,
+				SecretGuardInventory:   sgInv,
 				SecretDecisionObserver: obs,
 			},
 		}
@@ -185,65 +181,12 @@ func TestExtensionsFromProcessOptions_DefensiveCopyAndNilSemantics(t *testing.T)
 		ext := extensionsFromProcessOptions(opts)
 
 		// Exact equality across all fields
-		assert.Equal(t, opts.Extensions.SecretGuardEnvironment, ext.SecretGuardEnvironment)
-		assert.Equal(t, opts.Extensions.SecretGuardInputs, ext.SecretGuardInputs)
+		assert.Equal(t, opts.Extensions.SecretGuard, ext.SecretGuard)
+		assert.Equal(t, opts.Extensions.SecretGuardInventory, ext.SecretGuardInventory)
 		assert.Equal(t, opts.Extensions.SecretDecisionObserver, ext.SecretDecisionObserver)
 
 		// Interface identity
-		assert.Equal(t, env, ext.SecretGuardEnvironment)
 		assert.Equal(t, obs, ext.SecretDecisionObserver)
-
-		// Mutate source arrays after projection -> projected arrays must remain unchanged
-		opts.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[0] = "MUTATED_SRC_A"
-		opts.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[0] = "MUTATED_SRC_C"
-		assert.Equal(t, "ENV_A", ext.SecretGuardInputs.SingleUser.IncludeEnv[0])
-		assert.Equal(t, "ENV_C", ext.SecretGuardInputs.SingleUser.ExcludeEnv[0])
-
-		// Mutate projected arrays -> source arrays must remain unchanged
-		ext.SecretGuardInputs.SingleUser.IncludeEnv[1] = "MUTATED_PROJ_B"
-		ext.SecretGuardInputs.SingleUser.ExcludeEnv[1] = "MUTATED_PROJ_D"
-		assert.Equal(t, "ENV_B", opts.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[1])
-		assert.Equal(t, "ENV_D", opts.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[1])
-	})
-
-	t.Run("nil_slices_stay_nil", func(t *testing.T) {
-		t.Parallel()
-
-		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: featurehost.SingleUserOptions{
-						IncludeEnv: nil,
-						ExcludeEnv: nil,
-					},
-				},
-			},
-		}
-
-		ext := extensionsFromProcessOptions(opts)
-		assert.Nil(t, ext.SecretGuardInputs.SingleUser.IncludeEnv)
-		assert.Nil(t, ext.SecretGuardInputs.SingleUser.ExcludeEnv)
-	})
-
-	t.Run("empty_non_nil_slices_stay_non_nil_empty", func(t *testing.T) {
-		t.Parallel()
-
-		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: featurehost.SingleUserOptions{
-						IncludeEnv: []string{},
-						ExcludeEnv: []string{},
-					},
-				},
-			},
-		}
-
-		ext := extensionsFromProcessOptions(opts)
-		assert.NotNil(t, ext.SecretGuardInputs.SingleUser.IncludeEnv)
-		assert.Empty(t, ext.SecretGuardInputs.SingleUser.IncludeEnv)
-		assert.NotNil(t, ext.SecretGuardInputs.SingleUser.ExcludeEnv)
-		assert.Empty(t, ext.SecretGuardInputs.SingleUser.ExcludeEnv)
 	})
 }
 
@@ -259,29 +202,27 @@ func TestOverlayExtensions_preservesSecretGuardBehavior(t *testing.T) {
 
 	t.Run("empty_src_does_not_mutate_dst", func(t *testing.T) {
 		t.Parallel()
+		sgPlane := &extensions.SecretGuardPlane{AccessMode: "single_user"}
+		obs := sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil })
 		dst := ExtensionsOptions{
-			SecretGuardEnvironment: stubProjEnv{val: "dst_env"},
-			SecretDecisionObserver: sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil }),
+			SecretGuard:            sgPlane,
+			SecretDecisionObserver: obs,
 		}
-		origEnv := dst.SecretGuardEnvironment
-		origObs := dst.SecretDecisionObserver
 		overlayExtensions(&dst, ExtensionsOptions{})
-		assert.NotNil(t, dst.SecretGuardEnvironment)
+		assert.Equal(t, sgPlane, dst.SecretGuard)
 		assert.NotNil(t, dst.SecretDecisionObserver)
-		_ = origEnv
-		_ = origObs
 	})
 
 	t.Run("populated_src_overrides_dst", func(t *testing.T) {
 		t.Parallel()
 		dst := ExtensionsOptions{}
-		newEnv := stubProjEnv{val: "new_env"}
+		newSG := &extensions.SecretGuardPlane{AccessMode: "multi_user"}
 		newObs := sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil })
 		overlayExtensions(&dst, ExtensionsOptions{
-			SecretGuardEnvironment: newEnv,
+			SecretGuard:            newSG,
 			SecretDecisionObserver: newObs,
 		})
-		assert.NotNil(t, dst.SecretGuardEnvironment)
+		assert.Equal(t, newSG, dst.SecretGuard)
 		assert.NotNil(t, dst.SecretDecisionObserver)
 	})
 }

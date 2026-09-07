@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdksg "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -284,8 +285,10 @@ func TestSecretGuardProjection_HostCapabilitiesEnvironmentPreserved(t *testing.T
 			},
 		}
 		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: env,
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: env}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{{
@@ -312,8 +315,10 @@ func TestSecretGuardProjection_HostCapabilitiesEnvironmentPreserved(t *testing.T
 		_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "p", []sdksg.Guard{parityTestSGGuard{id: "injected", ord: 1}})
 		opts := &BuildOptions{
 			FeaturePlanes: cs.Freeze(),
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: env,
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: env}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{{
@@ -333,8 +338,10 @@ func TestSecretGuardProjection_HostCapabilitiesEnvironmentPreserved(t *testing.T
 		t.Parallel()
 		env := &parityTestPanicEnv{}
 		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: env,
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: env}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{{
@@ -400,19 +407,19 @@ func TestSecretGuardProjection_HostCapabilitiesObserverFallbackAndChaining(t *te
 func TestSecretGuardProjection_HostCapabilitiesSingleUserInputsPreserved(t *testing.T) {
 	t.Parallel()
 
-	customMatcher := featurehost.MatcherOptions{
-		PreserveKnownPrefixes: false,
-		MaskByte:              '#',
-	}
-	inputs := SecretGuardInputs{
-		SingleUser: featurehost.SingleUserOptions{
-			MatcherConfigured: true,
-			Matcher:           customMatcher,
-		},
-	}
 	opts := &BuildOptions{
-		Extensions: ExtensionsOptions{
-			SecretGuardInputs: inputs,
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{
+					SingleUser: secretguardhost.SingleUserOptions{
+						MatcherConfigured: true,
+						Matcher: secretguardhost.MatcherOptions{
+							PreserveKnownPrefixes: false,
+							MaskByte:              '#',
+						},
+					},
+				}).Registration(),
+			},
 		},
 	}
 	regs := []lipsdk.Registration{{
@@ -437,8 +444,10 @@ func TestSecretGuardProjection_CompositionRootUniqueness(t *testing.T) {
 	t.Run("duplicate_enabled_registrations_exact_error", func(t *testing.T) {
 		t.Parallel()
 		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: &parityTestPanicEnv{},
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: &parityTestPanicEnv{}}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{

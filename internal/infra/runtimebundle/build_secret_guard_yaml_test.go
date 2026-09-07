@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,16 +18,20 @@ func TestBuildSecretGuardRuntime_multiUserZeroEnvEvenWithMalformedSingleUser(t *
 	t.Parallel()
 	// Composition security boundary: multi-user source construction must never call Environment.
 	env := &panicSGEnv{}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuardEnvironment: env,
-		SecretGuardInputs: SecretGuardInputs{
-			SingleUser: featurehost.SingleUserOptions{
-				IncludePopularEnv: true,
-				IncludeEnv:        []string{"OPENAI_API_KEY"},
-				MinSecretBytes:    8,
+	opts := &BuildOptions{
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{
+					Environment: env,
+					SingleUser: secretguardhost.SingleUserOptions{
+						IncludePopularEnv: true,
+						IncludeEnv:        []string{"OPENAI_API_KEY"},
+						MinSecretBytes:    8,
+					},
+				}).Registration(),
 			},
 		},
-	}}
+	}
 	regs := []lipsdk.Registration{{
 		Kind:        lipsdk.PluginKindFeature,
 		ID:          "secrets-guard",
@@ -65,9 +70,15 @@ single_user:
 		Enabled:     true,
 		Config:      lipsdk.ConfigPayload{Node: raw},
 	}}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuardEnvironment: env,
-	}}
+	opts := &BuildOptions{
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{
+					Environment: env,
+				}).Registration(),
+			},
+		},
+	}
 	rt, err := testBuildSecretGuardRuntime(&config.Config{}, nilDiscardLogger(), opts, regs)
 	if err != nil {
 		t.Fatal(err)

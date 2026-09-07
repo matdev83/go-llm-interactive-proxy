@@ -33,6 +33,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	dto "github.com/prometheus/client_model/go"
 	"gopkg.in/yaml.v3"
@@ -209,11 +210,13 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 		Opts: &runtimebundle.BuildOptions{
 			PluginRegistry: reg,
 			Extensions: runtimebundle.ExtensionsOptions{
-				SecretGuardEnvironment: secretEnv,
 				SecretDecisionObserver: decisionObs,
 			},
 			Production: runtimebundle.ProductionOptions{
 				TrafficObservers: []sdktraffic.Observer{&countingTrafficObs{n: &h.trafficCalls}},
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: secretEnv}).Registration(),
+				},
 			},
 		},
 		Tracing: runtimebundle.ProcessTracing{
@@ -236,13 +239,13 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 			t.Fatal(err)
 		}
 		featOut, err := ps.StandardFeatures.CompileGeneration(context.Background(), featurehost.GenerationInput{
-			Registrations:    config.RegistrationsFromConfig(cfg),
-			MergeSurface:     genMerged,
-			Planes:           genMerged.Frozen,
-			Lifecycles:       genMerged.Lifecycles,
-			AccessMode:       accessMode,
-			SecretEnv:        secretEnv,
-			DecisionObserver: decisionObs,
+			Registrations:     config.RegistrationsFromConfig(cfg),
+			HostRegistrations: []featurehost.Registration{(&secretguardhost.Binding{Environment: secretEnv}).Registration()},
+			MergeSurface:      genMerged,
+			Planes:            genMerged.Frozen,
+			Lifecycles:        genMerged.Lifecycles,
+			AccessMode:        accessMode,
+			DecisionObserver:  decisionObs,
 		})
 		if err != nil {
 			t.Fatal(err)

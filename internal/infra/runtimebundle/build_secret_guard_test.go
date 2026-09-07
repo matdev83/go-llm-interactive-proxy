@@ -10,11 +10,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,20 +75,21 @@ func (stubSecretGuard) Evaluate(context.Context, *lipapi.Call, sdk.Meta, sdk.Ser
 func TestBuildSecretGuardRuntime_doesNotMutateBuildOptions(t *testing.T) {
 	t.Parallel()
 	env := &panicSGEnv{}
+	binding := &secretguardhost.Binding{Environment: env}
 	opts := &BuildOptions{
 		FeaturePlanes: frozenSecretGuards(stubSecretGuard{id: "b", ord: 1}, stubSecretGuard{id: "a", ord: 1}),
-		Extensions: ExtensionsOptions{
-			SecretGuardEnvironment: env,
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{binding.Registration()},
 		},
 	}
-	before := opts.Extensions
+	before := opts.Production
 
 	res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(opts.Extensions, before) {
-		t.Fatalf("buildSecretGuardRuntime mutated BuildOptions.Extensions:\nbefore=%#v\nafter=%#v", before, opts.Extensions)
+	if !reflect.DeepEqual(opts.Production, before) {
+		t.Fatalf("buildSecretGuardRuntime mutated BuildOptions.Production:\nbefore=%#v\nafter=%#v", before, opts.Production)
 	}
 	if env.calls != 0 {
 		t.Fatalf("env calls=%d want 0", env.calls)
@@ -101,8 +104,10 @@ func TestBuildSecretGuardRuntime_injectedGuardsSkipEnvironmentButWireAudit(t *te
 	env := &panicSGEnv{}
 	opts := &BuildOptions{
 		FeaturePlanes: frozenSecretGuards(stubSecretGuard{id: "injected-without-feature"}),
-		Extensions: ExtensionsOptions{
-			SecretGuardEnvironment: env,
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{Environment: env}).Registration(),
+			},
 		},
 	}
 
@@ -133,8 +138,10 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 	}
 	opts := &BuildOptions{
 		FeaturePlanes: frozenSecretGuards(guards...),
-		Extensions: ExtensionsOptions{
-			SecretGuardEnvironment: env,
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{Environment: env}).Registration(),
+			},
 		},
 	}
 	regs := []lipsdk.Registration{{
@@ -188,9 +195,13 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 func TestBuildSecretGuardRuntime_multiUserEnabledSkipsEnvironment(t *testing.T) {
 	t.Parallel()
 	env := &panicSGEnv{}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuardEnvironment: env,
-	}}
+	opts := &BuildOptions{
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{Environment: env}).Registration(),
+			},
+		},
+	}
 	regs := []lipsdk.Registration{{
 		Kind:        lipsdk.PluginKindFeature,
 		ID:          "secrets-guard",
@@ -217,9 +228,13 @@ func TestBuildSecretGuardRuntime_multiUserEnabledSkipsEnvironment(t *testing.T) 
 func TestBuildSecretGuardRuntime_rejectsMultipleEnabledBeforeEnv(t *testing.T) {
 	t.Parallel()
 	env := &panicSGEnv{}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuardEnvironment: env,
-	}}
+	opts := &BuildOptions{
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{Environment: env}).Registration(),
+			},
+		},
+	}
 	regs := []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "sg-a", FactoryKind: "secrets-guard", Enabled: true, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: log\n")}},
 		{Kind: lipsdk.PluginKindFeature, ID: "sg-b", FactoryKind: "secrets-guard", Enabled: true, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: redact\n")}},

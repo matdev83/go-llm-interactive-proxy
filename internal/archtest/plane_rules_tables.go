@@ -87,8 +87,8 @@ var (
 	}
 
 	AllowedExtensionsOptionsFields = map[string]bool{
-		"SecretGuardInputs":      true,
-		"SecretGuardEnvironment": true,
+		"SecretGuard":            true,
+		"SecretGuardInventory":   true,
 		"SecretDecisionObserver": true,
 		"frozen":                 true,
 		"Frozen":                 true,

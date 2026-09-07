@@ -10,12 +10,20 @@ import (
 	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/reasoninghost"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 )
 
 // boundHostFeatures contains typed services and option models bound from
 // host-provided registrations at startup (Task 8.3, Requirements 8.1, 9.3-9.6).
 type boundHostFeatures struct {
-	reasoning ReasoningCompressionOptions
+	reasoning   ReasoningCompressionOptions
+	secretGuard SecretGuardHostBinding
+}
+
+// SecretGuardHostBinding carries bound secret guard host options from registration.
+type SecretGuardHostBinding struct {
+	Environment SecretGuardEnvironment
+	Inputs      SecretGuardInputs
 }
 
 // bindHostRegistrations indexes and validates startup-only host registrations.
@@ -31,6 +39,7 @@ func bindHostRegistrations(regs []sdkfeaturehost.Registration) (boundHostFeature
 	}
 
 	hasReasoning := false
+	hasSecretGuard := false
 	for _, reg := range regs {
 		switch b := reg.Binding.(type) {
 		case *reasoninghost.Binding:
@@ -43,6 +52,16 @@ func bindHostRegistrations(regs []sdkfeaturehost.Registration) (boundHostFeature
 			}
 			hasReasoning = true
 			out.reasoning = adaptReasoningHostBinding(b)
+		case *secretguardhost.Binding:
+			if hasSecretGuard {
+				return out, fmt.Errorf("featurehost: duplicate semantic binding for secret guard (ID %q)", b.HostBindingID())
+			}
+			id := strings.TrimSpace(b.HostBindingID())
+			if id != secretguardhost.BindingID && id != "secret_guard" {
+				return out, fmt.Errorf("featurehost: unknown binding ID %q for secret guard binding", id)
+			}
+			hasSecretGuard = true
+			out.secretGuard = adaptSecretGuardHostBinding(b)
 		default:
 			id := ""
 			if reg.Binding != nil {
@@ -52,6 +71,27 @@ func bindHostRegistrations(regs []sdkfeaturehost.Registration) (boundHostFeature
 		}
 	}
 	return out, nil
+}
+
+func adaptSecretGuardHostBinding(b *secretguardhost.Binding) SecretGuardHostBinding {
+	if b == nil {
+		return SecretGuardHostBinding{}
+	}
+	out := SecretGuardHostBinding{
+		Environment: b.Environment,
+	}
+	out.Inputs.SingleUser = SingleUserOptions{
+		IncludePopularEnv: b.SingleUser.IncludePopularEnv,
+		IncludeEnv:        append([]string(nil), b.SingleUser.IncludeEnv...),
+		ExcludeEnv:        append([]string(nil), b.SingleUser.ExcludeEnv...),
+		MinSecretBytes:    b.SingleUser.MinSecretBytes,
+		Matcher: MatcherOptions{
+			PreserveKnownPrefixes: b.SingleUser.Matcher.PreserveKnownPrefixes,
+			MaskByte:              b.SingleUser.Matcher.MaskByte,
+		},
+		MatcherConfigured: b.SingleUser.MatcherConfigured,
+	}
+	return out
 }
 
 // adaptReasoningHostBinding converts a public reasoninghost.Binding into the

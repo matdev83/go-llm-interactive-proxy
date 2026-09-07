@@ -41,6 +41,7 @@ type Runtime struct {
 	keepwarmRegistry     *keepwarm.ManagerRegistry
 	hostRegistrations    []sdkfeaturehost.Registration
 	boundReasoning       ReasoningCompressionOptions
+	boundSecretGuard     SecretGuardHostBinding
 	closers              []func() error
 	closeOnce            sync.Once
 	closeErr             error
@@ -53,6 +54,14 @@ func (r *Runtime) BoundReasoningOptions() ReasoningCompressionOptions {
 		return ReasoningCompressionOptions{}
 	}
 	return r.boundReasoning
+}
+
+// BoundSecretGuard returns the bound secret guard host options.
+func (r *Runtime) BoundSecretGuard() SecretGuardHostBinding {
+	if r == nil {
+		return SecretGuardHostBinding{}
+	}
+	return r.boundSecretGuard
 }
 
 func (r *Runtime) registerCloser(closer func() error) {

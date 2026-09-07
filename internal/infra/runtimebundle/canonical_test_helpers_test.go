@@ -23,13 +23,18 @@ func compileCandidateWithFeatures(ctx context.Context, ps *runtimebundle.Process
 	}
 	if ps.StandardFeatures != nil && cfg != nil {
 		accessMode, _ := cfg.EffectiveAccessMode()
+		var genHostRegs []featurehost.Registration
+		if len(candOpts.Production.FeatureHostRegistrations) > 0 {
+			genHostRegs = candOpts.Production.FeatureHostRegistrations
+		} else if len(candOpts.Testing.FeatureHostRegistrations) > 0 {
+			genHostRegs = candOpts.Testing.FeatureHostRegistrations
+		}
 		featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
 			Registrations:     config.RegistrationsFromConfig(cfg),
+			HostRegistrations: genHostRegs,
 			AccessMode:        accessMode,
 			ConfigInterleaved: cfg.Interleaved,
 			ConfigDir:         cfg.ConfigDir,
-			SecretEnv:         candOpts.Extensions.SecretGuardEnvironment,
-			SecretInputs:      candOpts.Extensions.SecretGuardInputs,
 			DecisionObserver:  candOpts.Extensions.SecretDecisionObserver,
 		})
 		if err != nil {

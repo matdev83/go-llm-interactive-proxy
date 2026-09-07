@@ -39,13 +39,19 @@ func testBuildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *Bui
 	} else {
 		fh = &featurehost.Runtime{}
 	}
+	var genHostRegs []featurehost.Registration
+	if opts.Production.FeatureHostRegistrations != nil {
+		genHostRegs = append(genHostRegs, opts.Production.FeatureHostRegistrations...)
+	}
+	if opts.Testing.FeatureHostRegistrations != nil {
+		genHostRegs = append(genHostRegs, opts.Testing.FeatureHostRegistrations...)
+	}
 	out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
-		Registrations:    regs,
-		Planes:           opts.FeaturePlanes,
-		AccessMode:       mode,
-		SecretEnv:        opts.Extensions.SecretGuardEnvironment,
-		SecretInputs:     opts.Extensions.SecretGuardInputs,
-		DecisionObserver: opts.Extensions.SecretDecisionObserver,
+		Registrations:     regs,
+		HostRegistrations: genHostRegs,
+		Planes:            opts.FeaturePlanes,
+		AccessMode:        mode,
+		DecisionObserver:  opts.Extensions.SecretDecisionObserver,
 	})
 	if err != nil {
 		if unwrapped := errors.Unwrap(err); unwrapped != nil {

@@ -14,6 +14,7 @@ import (
 	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/reasoninghost"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 )
 
 type unknownMockBinding struct{}
@@ -208,5 +209,49 @@ func TestBindings_ValidReasoningHostBinding_SucceedsAndMapsEgress(t *testing.T) 
 	}
 	if recPolicy.received == nil || recPolicy.received.Route != "route-A" {
 		t.Fatalf("expected host policy to receive route-A, got: %+v", recPolicy.received)
+	}
+}
+
+func TestBindings_SecretGuardHostBinding_BindsOptionsCorrectly(t *testing.T) {
+	t.Parallel()
+
+	sgBinding := &secretguardhost.Binding{
+		SingleUser: secretguardhost.SingleUserOptions{
+			IncludePopularEnv: true,
+			IncludeEnv:        []string{"TEST_SG_KEY"},
+			ExcludeEnv:        []string{"SECRET_IGNORE"},
+			MinSecretBytes:    12,
+			Matcher: secretguardhost.MatcherOptions{
+				PreserveKnownPrefixes: true,
+				MaskByte:              '#',
+			},
+			MatcherConfigured: true,
+		},
+	}
+
+	in := featurehost.ProcessInput{
+		Logger: slog.Default(),
+		HostRegistrations: []sdkfeaturehost.Registration{
+			sgBinding.Registration(),
+		},
+	}
+
+	rt, err := featurehost.NewProcess(context.Background(), in)
+	if err != nil {
+		t.Fatalf("NewProcess failed: %v", err)
+	}
+
+	boundSG := rt.BoundSecretGuard()
+	if !boundSG.Inputs.SingleUser.IncludePopularEnv {
+		t.Fatal("expected IncludePopularEnv to be true")
+	}
+	if len(boundSG.Inputs.SingleUser.IncludeEnv) != 1 || boundSG.Inputs.SingleUser.IncludeEnv[0] != "TEST_SG_KEY" {
+		t.Fatalf("unexpected IncludeEnv: %v", boundSG.Inputs.SingleUser.IncludeEnv)
+	}
+	if boundSG.Inputs.SingleUser.MinSecretBytes != 12 {
+		t.Fatalf("MinSecretBytes: got %d, want 12", boundSG.Inputs.SingleUser.MinSecretBytes)
+	}
+	if boundSG.Inputs.SingleUser.Matcher.MaskByte != '#' {
+		t.Fatalf("MaskByte: got %c, want #", boundSG.Inputs.SingleUser.Matcher.MaskByte)
 	}
 }

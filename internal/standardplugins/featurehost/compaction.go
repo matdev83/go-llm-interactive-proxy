@@ -3,11 +3,20 @@ package featurehost
 import (
 	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	featurecontinuity "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
+
+// CompactionSchedulerBounds translates compaction continuity feature config into
+// generic auxiliary scheduler bounds.
+func CompactionSchedulerBounds(cfg *config.Config) auxreq.SchedulerConfig {
+	return compaction.SchedulerBoundsFromConfig(cfg)
+}
 
 // validateCompactionPrerequisites gates only enabled official composition.
 func (r *Runtime) validateCompactionPrerequisites(regs []lipsdk.Registration) error {

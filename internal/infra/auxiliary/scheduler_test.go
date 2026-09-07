@@ -13,7 +13,7 @@ import (
 
 func TestProductionSchedulerClosesAtProcessBoundary(t *testing.T) {
 	t.Parallel()
-	scheduler := NewProductionBackgroundScheduler(context.Background(), nil)
+	scheduler := NewProductionBackgroundScheduler(context.Background(), auxreq.SchedulerConfig{})
 	if scheduler == nil {
 		t.Fatal("nil scheduler")
 	}

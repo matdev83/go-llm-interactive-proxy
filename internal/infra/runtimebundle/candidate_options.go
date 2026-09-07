@@ -67,21 +67,11 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 }
 
 func hasExtensionOverlay(e ExtensionsOptions) bool {
-	return e.SecretGuardEnvironment != nil ||
-		e.SecretDecisionObserver != nil
+	return e.SecretDecisionObserver != nil || e.SecretGuard != nil || e.SecretGuardInventory != nil
 }
 
 func cloneExtensionsOptions(in ExtensionsOptions) ExtensionsOptions {
-	out := in
-	out.SecretGuardInputs = cloneSecretGuardInputs(in.SecretGuardInputs)
-	return out
-}
-
-func cloneSecretGuardInputs(in SecretGuardInputs) SecretGuardInputs {
-	out := in
-	out.SingleUser.IncludeEnv = slices.Clone(in.SingleUser.IncludeEnv)
-	out.SingleUser.ExcludeEnv = slices.Clone(in.SingleUser.ExcludeEnv)
-	return out
+	return in
 }
 
 func prependGeneratedLifecycles(gen, overlay []lipplugin.Lifecycle) []lipplugin.Lifecycle {

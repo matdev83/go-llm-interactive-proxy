@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 )
 
 type BuildHostInput struct {
@@ -225,13 +227,19 @@ func defaultHostBuildOps() hostBuildOps {
 }
 
 func buildProcessServicesOp(ctx context.Context, in processBuildInput) (*ProcessServices, error) {
+	prod := in.Production
+	if in.SecretEnv != nil {
+		prod.FeatureHostRegistrations = append(slices.Clone(prod.FeatureHostRegistrations),
+			(&secretguardhost.Binding{Environment: in.SecretEnv}).Registration(),
+		)
+	}
 	return NewProcessServices(ctx, ProcessServicesInput{
 		Cfg: in.Cfg, Log: in.Logger,
 		Opts: &BuildOptions{
 			PluginRegistry: in.Registry,
 			Infra:          InfraOptions{OutboundTracing: in.Tracing.Active, ProcessTracing: in.Tracing},
-			Extensions:     ExtensionsOptions{SecretGuardEnvironment: in.SecretEnv},
-			Production:     in.Production,
+			Extensions:     ExtensionsOptions{},
+			Production:     prod,
 		},
 		Tracing:            in.Tracing,
 		PluginResourcePool: in.PluginResourcePool,

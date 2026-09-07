@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	"gopkg.in/yaml.v3"
 )
 
@@ -84,12 +85,14 @@ func TestBuild_secretGuardBlock_noSyntheticSecretLeakageInLogsOrErrors(t *testin
 	log := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	_, b := mustProcessAndCandidateLog(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		Extensions: runtimebundle.ExtensionsOptions{
-			SecretGuardEnvironment: &leakTestEnv{vals: map[string]string{
-				"OPENAI_API_KEY": secret,
-			}},
-			SecretGuardInputs: runtimebundle.SecretGuardInputs{
-				SingleUser: featurehost.SingleUserOptions{MinSecretBytes: 8},
+		Production: runtimebundle.ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{
+					Environment: &leakTestEnv{vals: map[string]string{
+						"OPENAI_API_KEY": secret,
+					}},
+					SingleUser: secretguardhost.SingleUserOptions{MinSecretBytes: 8},
+				}).Registration(),
 			},
 		},
 	}, log)

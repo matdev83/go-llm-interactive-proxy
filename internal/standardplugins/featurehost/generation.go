@@ -63,8 +63,10 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	// 3. Reasoning composition. The facade merges production/testing options
 	// internally so callers never interpret reasoning policy (Task 2.4).
 	reasoningOpts := composeReasoningOptions(in.ReasoningProdOpts, in.ReasoningTestOpts)
+	var genBound boundHostFeatures
 	if len(in.HostRegistrations) > 0 {
-		genBound, err := bindHostRegistrations(in.HostRegistrations)
+		var err error
+		genBound, err = bindHostRegistrations(in.HostRegistrations)
 		if err != nil {
 			return GenerationOutput{}, fmt.Errorf("featurehost: host registrations: %w", err)
 		}
@@ -102,12 +104,36 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 
 	// 4. Secret Guard composition
 	guards := lipfeature.Get[[]sdk.Guard](outPlanes, lipfeature.PlaneSecretGuards)
+	sgEnv := in.SecretEnv
+	sgInputs := in.SecretInputs
+	if len(in.HostRegistrations) > 0 {
+		if genBound.secretGuard.Environment != nil {
+			sgEnv = genBound.secretGuard.Environment
+		}
+		if genBound.secretGuard.Inputs.SingleUser.IncludePopularEnv ||
+			len(genBound.secretGuard.Inputs.SingleUser.IncludeEnv) > 0 ||
+			len(genBound.secretGuard.Inputs.SingleUser.ExcludeEnv) > 0 ||
+			genBound.secretGuard.Inputs.SingleUser.MatcherConfigured {
+			sgInputs = genBound.secretGuard.Inputs
+		}
+	} else if r != nil {
+		if sgEnv == nil && r.boundSecretGuard.Environment != nil {
+			sgEnv = r.boundSecretGuard.Environment
+		}
+		if !sgInputs.SingleUser.MatcherConfigured && r.boundSecretGuard.Inputs.SingleUser.MatcherConfigured {
+			sgInputs = r.boundSecretGuard.Inputs
+		} else if r.boundSecretGuard.Inputs.SingleUser.IncludePopularEnv ||
+			len(r.boundSecretGuard.Inputs.SingleUser.IncludeEnv) > 0 ||
+			len(r.boundSecretGuard.Inputs.SingleUser.ExcludeEnv) > 0 {
+			sgInputs = r.boundSecretGuard.Inputs
+		}
+	}
 	sgOut, err := buildSecretGuardRuntime(SecretGuardBuildInput{
 		AccessMode:       in.AccessMode,
 		Registrations:    in.Registrations,
 		Guards:           guards,
-		Environment:      in.SecretEnv,
-		Inputs:           in.SecretInputs,
+		Environment:      sgEnv,
+		Inputs:           sgInputs,
 		DecisionObserver: in.DecisionObserver,
 		Logger:           r.logger,
 	})

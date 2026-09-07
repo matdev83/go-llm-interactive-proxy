@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -19,9 +20,8 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 	root := repoRoot(t)
 
 	type targetStruct struct {
-		relFile    string
-		structName string
-		// allowedExceptions maps fieldName -> reason
+		relFile           string
+		structName        string
 		allowedExceptions map[string]string
 	}
 
@@ -30,7 +30,7 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 			relFile:    "internal/infra/runtimebundle/process_services_types.go",
 			structName: "ProcessServices",
 			allowedExceptions: map[string]string{
-				"StandardFeatures": "Design-approved single standard-feature-host handle (Req 8.2, 13.4)",
+				"StandardFeatures": "*featurehost.Runtime",
 			},
 		},
 		{
@@ -42,23 +42,32 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 			relFile:    "internal/infra/runtimebundle/build_executor.go",
 			structName: "executorBuildInput",
 			allowedExceptions: map[string]string{
-				"CompactionDetector":   "Design-approved narrow consumer port interface (Req 13.4)",
-				"TerminalPolicyReader": "Design-approved narrow consumer port interface (Req 13.4)",
-				"InterleavedProcessor": "Design-approved narrow consumer port interface (Req 13.4)",
+				"CompactionDetector":   "runtime.CompactionDetector",
+				"TerminalPolicyReader": "runtime.TerminalPolicyReader",
+				"InterleavedProcessor": "runtime.InterleavedProcessor",
 			},
 		},
 		{
 			relFile:    "internal/core/runtime/executor_config.go",
 			structName: "ExecutorConfig",
 			allowedExceptions: map[string]string{
-				"Interleaved": "Design-approved consumer port runtime group",
-				"Compaction":  "Design-approved consumer port runtime group",
+				"Interleaved":                "InterleavedRuntime",
+				"Compaction":                 "CompactionRuntime",
+				"Processor":                  "InterleavedProcessor",
+				"Detector":                   "CompactionDetector",
+				"SecretGuardDecisionMetrics": "extensions.SecretGuardDecisionMetrics",
+				"ConversationViewObserver":   "ConversationViewObserver",
+				"TerminalPolicyReader":       "TerminalPolicyReader",
 			},
 		},
 		{
-			relFile:           "internal/infra/runtimebundle/options.go",
-			structName:        "BuildOptions",
-			allowedExceptions: map[string]string{},
+			relFile:    "internal/infra/runtimebundle/options.go",
+			structName: "BuildOptions",
+			allowedExceptions: map[string]string{
+				"SecretGuard":            "*extensions.SecretGuardPlane",
+				"SecretGuardInventory":   "*diag.InventoryExtras",
+				"SecretDecisionObserver": "sdk.Observer",
+			},
 		},
 		{
 			relFile:           "internal/infra/runtimebundle/production_options.go",
@@ -74,11 +83,9 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 			relFile:    "internal/infra/runtimebundle/options.go",
 			structName: "ExtensionsOptions",
 			allowedExceptions: map[string]string{
-				"SecretGuard":            "Core extension plane (extensions.SecretGuardPlane)",
-				"SecretGuardInputs":      "Host capability input alias from featurehost",
-				"SecretGuardEnvironment": "Host capability input alias from featurehost",
-				"SecretDecisionObserver": "SDK observer contract",
-				"SecretGuardInventory":   "Diagnostics inventory extras",
+				"SecretGuard":            "*extensions.SecretGuardPlane",
+				"SecretGuardInventory":   "*diag.InventoryExtras",
+				"SecretDecisionObserver": "sdk.Observer",
 			},
 		},
 		{
@@ -86,18 +93,6 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 			structName:        "Generation",
 			allowedExceptions: map[string]string{},
 		},
-	}
-
-	// Forbidden per-feature substrings in field names or field types
-	forbiddenFeatureSubstrings := []string{
-		"Reasoning",
-		"Keepwarm",
-		"Compaction",
-		"compactioncompose",
-		"reasoningcompose",
-		"secretguardcompose",
-		"secretaudit",
-		"reasoningreplay",
 	}
 
 	var violations []string
@@ -110,56 +105,258 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 			t.Fatalf("ParseFile(%s): %v", tgt.relFile, err)
 		}
 
-		var structType *ast.StructType
-		ast.Inspect(node, func(n ast.Node) bool {
-			ts, ok := n.(*ast.TypeSpec)
-			if !ok {
-				return true
-			}
-			if ts.Name.Name == tgt.structName {
-				if st, ok := ts.Type.(*ast.StructType); ok {
-					structType = st
-					return false
-				}
-			}
-			return true
-		})
-
-		if structType == nil {
-			t.Fatalf("could not find struct %s in %s", tgt.structName, tgt.relFile)
-		}
-
-		for _, field := range structType.Fields.List {
-			for _, nameIdent := range field.Names {
-				fieldName := nameIdent.Name
-				if _, ok := tgt.allowedExceptions[fieldName]; ok {
-					continue
-				}
-
-				// Check field name
-				for _, sub := range forbiddenFeatureSubstrings {
-					if strings.Contains(fieldName, sub) {
-						violations = append(violations,
-							tgt.structName+"."+fieldName+": field name contains forbidden feature token '"+sub+"'")
-					}
-				}
-
-				// Check field type string
-				typeStr := aggregateFieldTypeToString(field.Type)
-				for _, sub := range forbiddenFeatureSubstrings {
-					if strings.Contains(typeStr, sub) {
-						violations = append(violations,
-							tgt.structName+"."+fieldName+" ("+typeStr+"): field type contains forbidden feature token '"+sub+"'")
-					}
-				}
-			}
-		}
+		structViolations := scanStructForFeatureFields(node, tgt.structName, tgt.allowedExceptions)
+		violations = append(violations, structViolations...)
 	}
 
 	if len(violations) > 0 {
 		t.Fatalf("generic aggregates contain forbidden per-feature fields (%d):\n%s",
 			len(violations), strings.Join(violations, "\n"))
 	}
+}
+
+func TestGenericAggregates_NegativeFixtures(t *testing.T) {
+	t.Parallel()
+	const fixtureSrc = `package fixture
+import (
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
+)
+
+type SyntheticViolationAggregate struct {
+	Policy *sessionpolicy.Store
+	Manager *keepwarm.Manager
+}
+
+type SyntheticEmbeddedAggregate struct {
+	*keepwarm.Manager
+}
+`
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, "synthetic.go", fixtureSrc, 0)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	violations := scanStructForFeatureFields(node, "SyntheticViolationAggregate", nil)
+	if len(violations) < 2 {
+		t.Fatalf("expected at least 2 violations for Policy *sessionpolicy.Store and Manager *keepwarm.Manager, got %d:\n%s",
+			len(violations), strings.Join(violations, "\n"))
+	}
+
+	embeddedViolations := scanStructForFeatureFields(node, "SyntheticEmbeddedAggregate", nil)
+	if len(embeddedViolations) < 1 {
+		t.Fatalf("expected at least 1 violation for embedded *keepwarm.Manager, got %d", len(embeddedViolations))
+	}
+}
+
+func scanStructForFeatureFields(node *ast.File, structName string, allowedExceptions map[string]string) []string {
+	// 1. Build package import map: localPkgName -> fullImportPath
+	importMap := make(map[string]string)
+	for _, imp := range node.Imports {
+		importPath := strings.Trim(imp.Path.Value, `"`)
+		localName := filepath.Base(importPath)
+		if imp.Name != nil {
+			localName = imp.Name.Name
+		}
+		importMap[localName] = importPath
+	}
+
+	// 2. Collect all struct types declared in this file for recursive inspection
+	fileStructs := make(map[string]*ast.StructType)
+	ast.Inspect(node, func(n ast.Node) bool {
+		ts, ok := n.(*ast.TypeSpec)
+		if !ok {
+			return true
+		}
+		if st, ok := ts.Type.(*ast.StructType); ok {
+			fileStructs[ts.Name.Name] = st
+		}
+		return true
+	})
+
+	rootST, exists := fileStructs[structName]
+	if !exists {
+		return nil
+	}
+
+	forbiddenFeatureTokens := []string{
+		"reasoning",
+		"keepwarm",
+		"compaction",
+		"secretguard",
+		"interleavedthinking",
+		"interleaved",
+		"sessionpolicy",
+	}
+
+	isForbiddenPkg := func(importPath string) bool {
+		if strings.HasPrefix(importPath, "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features") {
+			return true
+		}
+		if strings.HasPrefix(importPath, "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/") {
+			return true
+		}
+		if strings.Contains(importPath, "secretguardcompose") ||
+			strings.Contains(importPath, "compactioncompose") ||
+			strings.Contains(importPath, "reasoningcompose") ||
+			strings.Contains(importPath, "reasoningreplay") {
+			return true
+		}
+		return false
+	}
+
+	checkTypeForForbiddenPkg := func(expr ast.Expr) (string, bool) {
+		var forbiddenPkg string
+		var found bool
+		ast.Inspect(expr, func(n ast.Node) bool {
+			if found {
+				return false
+			}
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if ident, ok := sel.X.(*ast.Ident); ok {
+					if impPath, ok := importMap[ident.Name]; ok && isForbiddenPkg(impPath) {
+						forbiddenPkg = impPath
+						found = true
+						return false
+					}
+				}
+			}
+			return true
+		})
+		return forbiddenPkg, found
+	}
+
+	unwrapTypeName := func(expr ast.Expr) string {
+		curr := expr
+		for {
+			switch t := curr.(type) {
+			case *ast.StarExpr:
+				curr = t.X
+			case *ast.ArrayType:
+				curr = t.Elt
+			case *ast.Ident:
+				return t.Name
+			default:
+				return ""
+			}
+		}
+	}
+
+	var violations []string
+	visited := make(map[string]bool)
+
+	var scanStruct func(currName string, st *ast.StructType)
+	scanStruct = func(currName string, st *ast.StructType) {
+		if visited[currName] {
+			return
+		}
+		visited[currName] = true
+
+		for _, field := range st.Fields.List {
+			typeStr := aggregateFieldTypeToString(field.Type)
+			fieldNames := field.Names
+			isEmbedded := len(fieldNames) == 0
+
+			namesToCheck := make([]string, 0, len(fieldNames))
+			if isEmbedded {
+				derived := typeStr
+				if star, ok := field.Type.(*ast.StarExpr); ok {
+					derived = aggregateFieldTypeToString(star.X)
+				}
+				if sel, ok := field.Type.(*ast.SelectorExpr); ok {
+					derived = sel.Sel.Name
+				} else if star, ok := field.Type.(*ast.StarExpr); ok {
+					if sel, ok := star.X.(*ast.SelectorExpr); ok {
+						derived = sel.Sel.Name
+					}
+				}
+				namesToCheck = append(namesToCheck, derived)
+			} else {
+				for _, n := range fieldNames {
+					namesToCheck = append(namesToCheck, n.Name)
+				}
+			}
+
+			for _, fieldName := range namesToCheck {
+				qualName := currName + "." + fieldName
+
+				expectedType := ""
+				isAllowed := false
+				if exp, ok := allowedExceptions[qualName]; ok {
+					expectedType = exp
+					isAllowed = true
+				} else if exp, ok := allowedExceptions[fieldName]; ok {
+					expectedType = exp
+					isAllowed = true
+				}
+
+				if isAllowed {
+					if typeStr != expectedType {
+						violations = append(violations,
+							fmt.Sprintf("%s (%s): field type does not match approved type %q",
+								qualName, typeStr, expectedType))
+					}
+					innerType := unwrapTypeName(field.Type)
+					if nestedST, ok := fileStructs[innerType]; ok && !visited[innerType] {
+						scanStruct(innerType, nestedST)
+					}
+					continue
+				}
+
+				// Check 1: Does type reference a forbidden package?
+				if forbiddenPkg, found := checkTypeForForbiddenPkg(field.Type); found {
+					label := qualName
+					if isEmbedded {
+						label = fmt.Sprintf("%s.[embedded %s]", currName, typeStr)
+					}
+					violations = append(violations,
+						fmt.Sprintf("%s (%s): field type imports forbidden feature package %q",
+							label, typeStr, forbiddenPkg))
+					continue
+				}
+
+				// Check 2: Does field name contain a forbidden token (case-insensitive)?
+				lowerFieldName := strings.ToLower(fieldName)
+				for _, token := range forbiddenFeatureTokens {
+					if strings.Contains(lowerFieldName, token) {
+						label := qualName
+						if isEmbedded {
+							label = fmt.Sprintf("%s.[embedded %s]", currName, typeStr)
+						}
+						violations = append(violations,
+							fmt.Sprintf("%s: field name contains forbidden feature token %q",
+								label, token))
+						break
+					}
+				}
+
+				// Check 3: Does type string contain a forbidden token (case-insensitive)?
+				lowerTypeStr := strings.ToLower(typeStr)
+				for _, token := range forbiddenFeatureTokens {
+					if strings.Contains(lowerTypeStr, token) {
+						label := qualName
+						if isEmbedded {
+							label = fmt.Sprintf("%s.[embedded %s]", currName, typeStr)
+						}
+						violations = append(violations,
+							fmt.Sprintf("%s (%s): field type contains forbidden feature token %q",
+								label, typeStr, token))
+						break
+					}
+				}
+
+				// If the field type is a nested struct in the same file, recurse into it
+				innerType := unwrapTypeName(field.Type)
+				if nestedST, ok := fileStructs[innerType]; ok && !visited[innerType] {
+					scanStruct(innerType, nestedST)
+				}
+			}
+		}
+	}
+
+	scanStruct(structName, rootST)
+	return violations
 }
 
 func aggregateFieldTypeToString(expr ast.Expr) string {

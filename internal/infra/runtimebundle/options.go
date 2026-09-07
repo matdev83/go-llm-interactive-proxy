@@ -129,14 +129,7 @@ type AuthOptions struct {
 }
 
 // ExtensionsOptions carries the feature-bundle extension surfaces merged into the runtime snapshot (task 5.1).
-// SecretGuardInputs carries single-user catalog / matcher composition overrides.
-type SecretGuardInputs = featurehost.SecretGuardInputs
-
 type ExtensionsOptions struct {
-	// SecretGuardInputs carries supported composition seams for the guard
-	// matcher/source configuration.
-	SecretGuardInputs      SecretGuardInputs
-	SecretGuardEnvironment featurehost.SecretGuardEnvironment
 	SecretDecisionObserver sdk.Observer
 	SecretGuard            *extensions.SecretGuardPlane
 	SecretGuardInventory   *diag.InventoryExtras

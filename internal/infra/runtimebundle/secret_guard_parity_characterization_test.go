@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdksg "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -103,8 +104,10 @@ func TestSecretGuard_UniquenessCompositionRootAndCompileGeneration(t *testing.T)
 	t.Run("duplicate_enabled_registrations_exact_error", func(t *testing.T) {
 		t.Parallel()
 		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: &charSGPanicEnv{},
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: &charSGPanicEnv{}}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{
@@ -413,8 +416,10 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 			},
 		}
 		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: env,
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: env}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{{
@@ -439,8 +444,10 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		env := &charSGPanicEnv{}
 		opts := &BuildOptions{
 			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "injected", ord: 1}),
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: env,
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: env}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{{
@@ -460,8 +467,10 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		t.Parallel()
 		env := &charSGPanicEnv{}
 		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: env,
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: env}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{{
@@ -525,38 +534,30 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 	})
 }
 
-// TestSecretGuard_HostCapabilitiesOverlayPreservation pins the overlay semantics
-// documented in w0-overlay-decision-record.md (§2 rows 28-30 & §3.4):
-// - SecretGuardEnvironment: overwrite-if-non-nil (src != nil sets dst; src == nil preserves dst).
+// TestSecretGuard_HostCapabilitiesOverlayPreservation pins the overlay semantics:
+// - SecretGuard: overwrite-if-non-nil (src != nil sets dst; src == nil preserves dst).
 // - SecretDecisionObserver: overwrite-if-non-nil (src != nil sets dst; src == nil preserves dst).
-// - SecretGuardInputs: omitted from overlayExtensions (dst retains dst unchanged).
 func TestSecretGuard_HostCapabilitiesOverlayPreservation(t *testing.T) {
 	t.Parallel()
 
-	envDst := &charSGCountingEnv{vals: map[string]string{"A": "1"}}
-	envSrc := &charSGCountingEnv{vals: map[string]string{"B": "2"}}
+	sgDst := &extensions.SecretGuardPlane{AccessMode: "single_user"}
+	sgSrc := &extensions.SecretGuardPlane{AccessMode: "multi_user"}
 	obsDst := &charSGCustomObserver{}
 	obsSrc := &charSGCustomObserver{}
-	inputsDst := SecretGuardInputs{
-		SingleUser: featurehost.SingleUserOptions{MinSecretBytes: 10},
-	}
-	inputsSrc := SecretGuardInputs{
-		SingleUser: featurehost.SingleUserOptions{MinSecretBytes: 20},
-	}
 
-	t.Run("environment_overwrite_and_preserve", func(t *testing.T) {
+	t.Run("secret_guard_overwrite_and_preserve", func(t *testing.T) {
 		t.Parallel()
 		// Overwrite when src is non-nil
-		dst := ExtensionsOptions{SecretGuardEnvironment: envDst}
-		src := ExtensionsOptions{SecretGuardEnvironment: envSrc}
+		dst := ExtensionsOptions{SecretGuard: sgDst}
+		src := ExtensionsOptions{SecretGuard: sgSrc}
 		overlayExtensions(&dst, src)
-		assert.Equal(t, envSrc, dst.SecretGuardEnvironment)
+		assert.Equal(t, sgSrc, dst.SecretGuard)
 
 		// Preserve when src is nil
-		dst2 := ExtensionsOptions{SecretGuardEnvironment: envDst}
-		src2 := ExtensionsOptions{SecretGuardEnvironment: nil}
+		dst2 := ExtensionsOptions{SecretGuard: sgDst}
+		src2 := ExtensionsOptions{SecretGuard: nil}
 		overlayExtensions(&dst2, src2)
-		assert.Equal(t, envDst, dst2.SecretGuardEnvironment)
+		assert.Equal(t, sgDst, dst2.SecretGuard)
 	})
 
 	t.Run("observer_overwrite_and_preserve", func(t *testing.T) {
@@ -572,13 +573,5 @@ func TestSecretGuard_HostCapabilitiesOverlayPreservation(t *testing.T) {
 		src2 := ExtensionsOptions{SecretDecisionObserver: nil}
 		overlayExtensions(&dst2, src2)
 		assert.Equal(t, obsDst, dst2.SecretDecisionObserver)
-	})
-
-	t.Run("inputs_omitted_from_overlay", func(t *testing.T) {
-		t.Parallel()
-		dst := ExtensionsOptions{SecretGuardInputs: inputsDst}
-		src := ExtensionsOptions{SecretGuardInputs: inputsSrc}
-		overlayExtensions(&dst, src)
-		assert.Equal(t, 10, dst.SecretGuardInputs.SingleUser.MinSecretBytes, "SecretGuardInputs must be omitted from overlay")
 	})
 }
