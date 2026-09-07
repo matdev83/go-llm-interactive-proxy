@@ -477,10 +477,7 @@ func (s *archPkgScope) scanWithRows(root string, rows map[string]map[string]stri
 				for _, ref := range namedArchRefs(field.Type) {
 					recurseNamed(ref)
 				}
-				_, base := splitArchShape(field.Type)
-				if inline, ok := base.(*ast.StructType); ok {
-					scanFields(qualName, inline, owner)
-				}
+				s.scanNestedInline(qualName, field.Type, owner, make(map[string]bool), scanFields)
 			}
 		}
 	}

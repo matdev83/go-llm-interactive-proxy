@@ -378,3 +378,122 @@ func aggregateFieldListToString(fields *ast.FieldList) string {
 	}
 	return "(" + strings.Join(parts, ", ") + ")"
 }
+
+// scanNestedInline scans every anonymous *ast.StructType reached through a field
+// type's enclosing shapes (Index/IndexList args, ParenExpr, FuncType, Array/Star/
+// Chan/Ellipsis/Map, alias/defined chains with cycle protection). Declared structs
+// are skipped: the caller's named recursion already scans them.
+func (s *archPkgScope) scanNestedInline(prefix string, e ast.Expr, owner *archPkgFile, visiting map[string]bool, scan func(string, *ast.StructType, *archPkgFile)) {
+	switch t := e.(type) {
+	case *ast.StructType:
+		scan(prefix, t, owner)
+	case *ast.StarExpr:
+		s.scanNestedInline(prefix, t.X, owner, visiting, scan)
+	case *ast.ArrayType:
+		s.scanNestedInline(prefix, t.Elt, owner, visiting, scan)
+	case *ast.Ellipsis:
+		s.scanNestedInline(prefix, t.Elt, owner, visiting, scan)
+	case *ast.ChanType:
+		s.scanNestedInline(prefix, t.Value, owner, visiting, scan)
+	case *ast.ParenExpr:
+		s.scanNestedInline(prefix, t.X, owner, visiting, scan)
+	case *ast.MapType:
+		s.scanNestedInline(prefix, t.Key, owner, visiting, scan)
+		s.scanNestedInline(prefix, t.Value, owner, visiting, scan)
+	case *ast.FuncType:
+		if t.Params != nil {
+			for _, f := range t.Params.List {
+				s.scanNestedInline(prefix, f.Type, owner, visiting, scan)
+			}
+		}
+		if t.Results != nil {
+			for _, f := range t.Results.List {
+				s.scanNestedInline(prefix, f.Type, owner, visiting, scan)
+			}
+		}
+	case *ast.InterfaceType:
+		if t.Methods != nil {
+			for _, f := range t.Methods.List {
+				s.scanNestedInline(prefix, f.Type, owner, visiting, scan)
+			}
+		}
+	case *ast.IndexExpr:
+		s.scanNestedInline(prefix, t.X, owner, visiting, scan)
+		s.scanNestedInline(prefix, t.Index, owner, visiting, scan)
+	case *ast.IndexListExpr:
+		s.scanNestedInline(prefix, t.X, owner, visiting, scan)
+		for _, idx := range t.Indices {
+			s.scanNestedInline(prefix, idx, owner, visiting, scan)
+		}
+	case *ast.Ident:
+		if visiting[t.Name] {
+			return
+		}
+		if _, isStruct := s.structs[t.Name]; isStruct {
+			return
+		}
+		if under, ok := s.declared[t.Name]; ok {
+			visiting[t.Name] = true
+			s.scanNestedInline(prefix, under, s.declFile[t.Name], visiting, scan)
+		}
+	}
+}
+
+// TestGenericAggregates_R3cNestedInlineStructFieldNames closes the nested
+// inline-struct bypass: per-feature FIELD NAMES inside anonymous structs nested
+// in generic type arguments, func params, or parenthesized shapes must be
+// flagged, directly or through alias/defined chains. Neutral structs stay silent.
+func TestGenericAggregates_R3cNestedInlineStructFieldNames(t *testing.T) {
+	t.Parallel()
+	decls := "type Box[T any] struct{ Value T }\n"
+	src := func(body string) map[string]string {
+		return map[string]string{"synthetic.go": "package fixture\n" + decls + body}
+	}
+	cases := []struct {
+		name      string
+		body      string
+		target    string
+		wantCount int // minimum violations when positive, exact zero when neutral
+	}{
+		{"direct inline struct in generic arg",
+			"type DirectInlineAggregate struct {\n\tSlot Box[struct{ KeepwarmReplicaCount int }]\n}\n",
+			"DirectInlineAggregate", 1},
+		{"alias to inline struct in generic arg",
+			"type InlineAlias = struct{ KeepwarmReplicaCount int }\ntype InlineAliasChain = InlineAlias\ntype AliasInlineAggregate struct {\n\tSlot Box[InlineAliasChain]\n}\n",
+			"AliasInlineAggregate", 1},
+		{"alias chain to generic instantiation of inline struct",
+			"type WrappedInline = Box[struct{ KeepwarmReplicaCount int }]\ntype WrappedInlineChain = WrappedInline\ntype AliasWrappedAggregate struct {\n\tSlot WrappedInlineChain\n}\n",
+			"AliasWrappedAggregate", 1},
+		{"defined chain to generic instantiation of inline struct",
+			"type WrappedInlineDef Box[struct{ KeepwarmReplicaCount int }]\ntype WrappedInlineDefChain WrappedInlineDef\ntype DefinedWrappedAggregate struct {\n\tSlot WrappedInlineDefChain\n}\n",
+			"DefinedWrappedAggregate", 1},
+		{"func param inline struct",
+			"type FuncInlineAggregate struct {\n\tHandler func(struct{ KeepwarmReplicaCount int }) int\n}\n",
+			"FuncInlineAggregate", 1},
+		{"paren-wrapped inline struct in generic arg",
+			"type ParenInlineAggregate struct {\n\tSlot Box[(struct{ KeepwarmReplicaCount int })]\n}\n",
+			"ParenInlineAggregate", 1},
+		{"neutral inline struct in generic arg stays silent",
+			"type NeutralInlineAggregate struct {\n\tSlot Box[struct{ Count int }]\n}\n",
+			"NeutralInlineAggregate", 0},
+		{"neutral func param inline struct stays silent",
+			"type NeutralFuncInlineAggregate struct {\n\tHandler func(struct{ Count int }) int\n}\n",
+			"NeutralFuncInlineAggregate", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			scope := archParseSources(t, src(tc.body))
+			got := scope.scan(tc.target, nil)
+			if tc.wantCount == 0 {
+				if len(got) != 0 {
+					t.Fatalf("expected zero violations, got %d:\n%s", len(got), strings.Join(got, "\n"))
+				}
+				return
+			}
+			if len(got) < tc.wantCount {
+				t.Fatalf("expected at least %d violations for %s, got %d", tc.wantCount, tc.target, len(got))
+			}
+		})
+	}
+}

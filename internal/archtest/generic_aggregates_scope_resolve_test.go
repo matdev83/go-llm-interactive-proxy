@@ -24,7 +24,12 @@ import (
 //	StarExpr, ArrayType, MapType, ChanType, Ellipsis, ParenExpr: all four
 //	  recurse into the wrapped type.
 //	StructType: walkers visit fields; namedArchRefs nil (inline struct has no
-//	  name; caller recurses with field prefix); strings render "struct".
+//	  name); field-name scanning reaches anonymous structs explicitly via
+//	  scanNestedInline, which recurses through Index/IndexList type args,
+//	  ParenExpr, FuncType params/results, and Array/Star/Chan/Ellipsis/Map
+//	  shapes (resolving alias/defined chains with cycle protection) and scans
+//	  each anonymous StructType with the enclosing field prefix; strings
+//	  render "struct".
 //	FuncType, InterfaceType: walkers visit params/results/methods;
 //	  namedArchRefs collects member refs (audit fix: locals only reachable as
 //	  func params were previously never recursed into); strings render the
@@ -295,17 +300,28 @@ type NestedGenericAggregate struct {
 			target: "NestedGenericAggregate",
 		},
 		{
-			name: "local group reachable only as type argument",
+			name: "local group reachable only as generic type argument",
 			sources: map[string]string{"synthetic.go": `package fixture
 ` + decls + `type InnerGroup struct {
 	KeepwarmReplicaCount int
 }
 type NestOnlyGenericAggregate struct {
-	Slot    Box[InnerGroup]
-	Grouped (InnerGroup)
+	Slot Box[InnerGroup]
 }
 `},
 			target: "NestOnlyGenericAggregate",
+		},
+		{
+			name: "local group reachable only as parenthesized type",
+			sources: map[string]string{"synthetic.go": `package fixture
+` + decls + `type InnerGroup struct {
+	KeepwarmReplicaCount int
+}
+type NestOnlyParenAggregate struct {
+	Grouped (InnerGroup)
+}
+`},
+			target: "NestOnlyParenAggregate",
 		},
 		{
 			name: "local group reachable only as func param",
