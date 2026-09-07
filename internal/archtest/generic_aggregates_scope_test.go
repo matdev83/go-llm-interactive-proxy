@@ -31,6 +31,9 @@ type archPkgScope struct {
 	ownerOf  map[string]*archPkgFile
 	declared map[string]ast.Expr
 	declFile map[string]*archPkgFile
+	// aliasOf records whether declared[name] was an alias (type X = ...).
+	// Aliases are transparent identities; defined types are opaque.
+	aliasOf map[string]bool
 }
 
 // archForbiddenFeatureTokens flags per-feature names in generic aggregates.
@@ -79,6 +82,7 @@ func archScopeFromParsed(files map[string]*ast.File) *archPkgScope {
 		ownerOf:  make(map[string]*archPkgFile),
 		declared: make(map[string]ast.Expr),
 		declFile: make(map[string]*archPkgFile),
+		aliasOf:  make(map[string]bool),
 	}
 	for name, node := range files {
 		pf := &archPkgFile{name: name, file: node, imports: archFileImports(node)}
@@ -102,6 +106,7 @@ func archScopeFromParsed(files map[string]*ast.File) *archPkgScope {
 				if _, exists := scope.declared[ts.Name.Name]; !exists {
 					scope.declared[ts.Name.Name] = ts.Type
 					scope.declFile[ts.Name.Name] = pf
+					scope.aliasOf[ts.Name.Name] = ts.Assign.IsValid()
 				}
 			}
 		}
@@ -229,6 +234,8 @@ func (s *archPkgScope) forbiddenPkgInType(expr ast.Expr, file *archPkgFile) (str
 		case *ast.Ident:
 			if p, _, ok := s.resolveArchLocal(t.Name); ok && p != "" && archForbiddenPkg(p) {
 				bad, hit = p, true
+			} else if badDecl, hitDecl := s.forbiddenInDeclType(t.Name, make(map[string]bool)); hitDecl {
+				bad, hit = badDecl, true
 			}
 		case *ast.StarExpr:
 			visit(t.X)
@@ -287,38 +294,19 @@ func parseArchApprovedRef(expected string) (shape, path, name string) {
 	return shape, "", rest
 }
 
-// approvedExceptionMatches validates an exception claim by resolved
-// package+type identity. Textual spelling alone is insufficient, so a foreign
-// package imported under an approved local name is still rejected.
+// approvedExceptionMatches validates an exception claim by fully-resolved
+// package+type+shape identity: the composed pointer/array shape (outer field
+// shape plus shapes inside alias declarations) must equal the approved shape
+// exactly, and defined types are opaque — a defined type never matches the
+// approved reference it wraps. Textual spelling alone is insufficient, so a
+// foreign package imported under an approved local name is still rejected.
 func (s *archPkgScope) approvedExceptionMatches(expr ast.Expr, file *archPkgFile, expected string) bool {
 	expShape, expPath, expName := parseArchApprovedRef(expected)
-	actShape, base := splitArchShape(expr)
-	if actShape != expShape {
-		return false
-	}
-	if expPath == "" {
-		ident, ok := base.(*ast.Ident)
-		if !ok {
-			return false
-		}
-		p, n, ok := s.resolveArchLocal(ident.Name)
-		return ok && p == "" && n == expName
-	}
-	if sel, ok := base.(*ast.SelectorExpr); ok {
-		x, ok := sel.X.(*ast.Ident)
-		if !ok {
-			return false
-		}
-		actPath, ok := file.imports[x.Name]
-		return ok && actPath == expPath && sel.Sel.Name == expName
-	}
-	// An alias resolving to the approved reference is accepted.
-	ident, ok := base.(*ast.Ident)
+	actShape, actPath, actName, ok := s.resolveArchFullType(expr, file)
 	if !ok {
 		return false
 	}
-	actPath, actName, ok := s.resolveArchLocal(ident.Name)
-	return ok && actPath == expPath && actName == expName
+	return actShape == expShape && actPath == expPath && actName == expName
 }
 
 // namedArchRefs returns same-package candidate type names referenced by a

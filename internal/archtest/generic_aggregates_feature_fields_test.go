@@ -255,6 +255,60 @@ type AliasApprovedAggregate struct {
 			exceptions: map[string]string{"SecretGuard": realSGPlane},
 			wantCount:  0,
 		},
+		{
+			name: "alias to map with feature value hides forbidden package",
+			sources: map[string]string{"synthetic.go": `package fixture
+import "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
+type ManagerBag = map[string]*keepwarm.Manager
+type ManagerBagChain = ManagerBag
+type BagAliasAggregate struct {
+	Managers ManagerBagChain
+}
+`},
+			target:     "BagAliasAggregate",
+			exceptions: nil,
+			wantCount:  1,
+		},
+		{
+			name: "defined type to map with feature value hides forbidden package",
+			sources: map[string]string{"synthetic.go": `package fixture
+import "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
+type ManagerBagDef map[string]*keepwarm.Manager
+type ManagerBagDefChain ManagerBagDef
+type BagDefinedAggregate struct {
+	Managers ManagerBagDefChain
+}
+`},
+			target:     "BagDefinedAggregate",
+			exceptions: nil,
+			wantCount:  1,
+		},
+		{
+			name: "alias hiding pointer shape mismatches single-pointer exception",
+			sources: map[string]string{"synthetic.go": `package fixture
+import "github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+type PlanePtrAlias = *extensions.SecretGuardPlane
+type DoublePtrAggregate struct {
+	SecretGuard *PlanePtrAlias
+}
+`},
+			target:     "DoublePtrAggregate",
+			exceptions: map[string]string{"SecretGuard": realSGPlane},
+			wantCount:  1,
+		},
+		{
+			name: "defined type spoofing approved reference is rejected",
+			sources: map[string]string{"synthetic.go": `package fixture
+import "github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+type GuardDef extensions.SecretGuardPlane
+type SpoofDefinedAggregate struct {
+	SecretGuard *GuardDef
+}
+`},
+			target:     "SpoofDefinedAggregate",
+			exceptions: map[string]string{"SecretGuard": realSGPlane},
+			wantCount:  1,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
