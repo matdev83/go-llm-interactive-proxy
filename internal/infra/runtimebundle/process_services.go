@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
+	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 )
 
 // NewProcessServices constructs process-owned stores, pools, metrics, terminal-work,
@@ -228,12 +229,22 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		return fail(fmt.Errorf("runtimebundle: branch coordinator: %w", err))
 	}
 
+	var hostRegs []sdkfeaturehost.Registration
+	if in.Opts != nil {
+		if len(in.Opts.Production.FeatureHostRegistrations) > 0 {
+			hostRegs = append(hostRegs, in.Opts.Production.FeatureHostRegistrations...)
+		}
+		if len(in.Opts.Testing.FeatureHostRegistrations) > 0 {
+			hostRegs = append(hostRegs, in.Opts.Testing.FeatureHostRegistrations...)
+		}
+	}
 	if ps.StandardFeatures, err = featurehost.NewProcess(parent, featurehost.ProcessInput{
-		Logger:          in.Log,
-		ExtensionState:  ps.ExtensionState,
-		BackgroundAux:   ps.BackgroundAux,
-		ContinuityStore: ps.Continuity,
-		BunDB:           borrowContinuityDB(ps.Continuity),
+		Logger:            in.Log,
+		ExtensionState:    ps.ExtensionState,
+		BackgroundAux:     ps.BackgroundAux,
+		ContinuityStore:   ps.Continuity,
+		BunDB:             borrowContinuityDB(ps.Continuity),
+		HostRegistrations: hostRegs,
 	}); err != nil {
 		return fail(fmt.Errorf("runtimebundle: standard features host: %w", err))
 	}

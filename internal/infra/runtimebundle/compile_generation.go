@@ -24,6 +24,7 @@ import (
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -99,8 +100,13 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if in.CandidateOpts != nil && in.CandidateOpts.Production.KeepwarmAccounting != nil {
 		kwAccounting = in.CandidateOpts.Production.KeepwarmAccounting
 	}
+	var genHostRegs []sdkfeaturehost.Registration
+	if in.CandidateOpts != nil && len(in.CandidateOpts.Production.FeatureHostRegistrations) > 0 {
+		genHostRegs = in.CandidateOpts.Production.FeatureHostRegistrations
+	}
 	featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
 		Registrations:      regs,
+		HostRegistrations:  genHostRegs,
 		MergeSurface:       genMerged,
 		Planes:             genMerged.Frozen,
 		Lifecycles:         lifecycles,

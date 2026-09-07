@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -191,6 +192,8 @@ type TestingOptions struct {
 	// SnapshotPublisherOverride, when non-nil, replaces the Build-constructed
 	// policy/rating generation publisher (Phase 9.3). Tests only.
 	SnapshotPublisherOverride *snapshotgen.Publisher
+	// FeatureHostRegistrations carries startup-only host-feature bindings for tests.
+	FeatureHostRegistrations []sdkfeaturehost.Registration
 	// ReasoningCompression mirrors Production.ReasoningCompression for tests.
 	ReasoningCompression ReasoningCompressionOptions
 }

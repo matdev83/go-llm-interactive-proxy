@@ -340,8 +340,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 8. Replace feature-specific public host options with typed registrations
-- [ ] 8.1 Add startup-only `pkg/lipsdk/featurehost` registration envelope
+- [x] 8. Replace feature-specific public host options with typed registrations
+- [x] 8.1 Add startup-only `pkg/lipsdk/featurehost` registration envelope
   - Implement `Binding`, `Registration`, validation/identity bounds and duplicate detection from design.
   - No `any` payload, reflection, request-time lookup, resolver/service APIs or globals.
   - Standard SDK binding implementations must be nil-safe; add tests for nil, empty ID, duplicate ID, invalid binding, defensive slice handling and deterministic errors.
@@ -351,7 +351,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 7.3_
   - _Validation: `go test ./pkg/lipsdk/featurehost/...`; external compile fixture_
 
-- [ ] 8.2 Move reasoning host policy contract out of `pkg/lipruntime`
+- [x] 8.2 Move reasoning host policy contract out of `pkg/lipruntime`
   - Create `pkg/lipsdk/reasoninghost` (or reviewed equivalent) containing the current host-facing egress action/input/decision/policy and matcher binding semantics, without importing internal feature packages.
   - Add a typed host binding implementing the registration contract.
   - Move/adapt tests so the SDK contract is self-contained and typed-nil behavior remains safe.
@@ -360,7 +360,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 8.1_
   - _Validation: SDK tests; `go list` proving no internal imports_
 
-- [ ] 8.3 Teach standard featurehost to consume supported host bindings
+- [x] 8.3 Teach standard featurehost to consume supported host bindings
   - Generic runtime validates/forwards immutable registrations only.
   - Concrete binding type interpretation/type switches live only in `internal/standardplugins/featurehost/bindings.go`.
   - Bind reasoning host policy/matcher into predecessor reasoning composition without `pkg/lipruntime` or runtimebundle importing the feature.
@@ -371,7 +371,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 8.2_
   - _Validation: featurehost host-binding tests; reasoning integration tests_
 
-- [ ] 8.4 Collapse `pkg/lipruntime.Options` to one feature-host registration field
+- [x] 8.4 Collapse `pkg/lipruntime.Options` to one feature-host registration field
   - Add `FeatureHostRegistrations []featurehost.Registration`.
   - Delete `ReasoningCompressionOptions`, `adaptReasoningCompressionOptions`, concrete internal reasoning feature imports and the per-feature `ReasoningCompression` field by end of task.
   - If a public compatibility promise made after this SDD requires temporary source compatibility, implement a one-way deprecated adapter that produces the registration before build, errors on new+old conflict, and is explicitly marked for removal. Do not let standard featurehost inspect both paths.

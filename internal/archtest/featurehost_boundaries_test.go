@@ -211,3 +211,43 @@ func TestFeatureHost_NoPackageLevelReasoningEntryPointsInRuntimeBundle(t *testin
 		}
 	}
 }
+
+// TestFeatureHost_RegistrationCollectionsNotUsedInRequestHotPaths verifies that
+// request-time and runtime hot packages (internal/core/*, internal/stdhttp/*)
+// do not import or use pkg/lipsdk/featurehost registration collections (Task 8.1, Req 9.4).
+func TestFeatureHost_RegistrationCollectionsNotUsedInRequestHotPaths(t *testing.T) {
+	t.Parallel()
+
+	fset := token.NewFileSet()
+	roots := []string{
+		filepath.Join("..", "core"),
+		filepath.Join("..", "stdhttp"),
+	}
+
+	for _, root := range roots {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+
+			file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+			if err != nil {
+				return err
+			}
+
+			for _, imp := range file.Imports {
+				importPath := strings.Trim(imp.Path.Value, `"`)
+				if strings.Contains(importPath, "pkg/lipsdk/featurehost") {
+					t.Errorf("hot path file %s illegally imports registration collections from %s", path, importPath)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("WalkDir failed for root %s: %v", root, err)
+		}
+	}
+}

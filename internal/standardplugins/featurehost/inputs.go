@@ -22,6 +22,7 @@ import (
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
+	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	"github.com/uptrace/bun"
 )
 
@@ -29,11 +30,12 @@ import (
 // It MUST NOT accept *runtimebundle.BuildOptions, *ProcessServices, full backend maps,
 // database pool registries, or an any services map (Requirement 8.4, Task 2.1).
 type ProcessInput struct {
-	Logger          *slog.Logger
-	ExtensionState  lipstate.Store
-	BackgroundAux   *auxreq.BackgroundScheduler
-	ContinuityStore b2bua.Store
-	BunDB           *bun.DB
+	Logger            *slog.Logger
+	ExtensionState    lipstate.Store
+	BackgroundAux     *auxreq.BackgroundScheduler
+	ContinuityStore   b2bua.Store
+	BunDB             *bun.DB
+	HostRegistrations []sdkfeaturehost.Registration
 	// buildSteps carries staged construction actions for package-local tests
 	// only. It is unexported so no external caller (including generic
 	// runtimebundle) can inject constructors or closers (Tasks 2.1/2.3).
@@ -53,13 +55,14 @@ type CorePorts struct {
 // GenerationInput carries inputs for featurehost generation composition.
 // It deliberately does NOT accept *runtimebundle.BuildOptions or *runtimebundle.ProcessServices.
 type GenerationInput struct {
-	Registrations    []lipsdk.Registration
-	MergeSurface     featurebundle.GeneratedMergeSurface
-	Planes           lipfeature.FrozenPlaneSet
-	Lifecycles       []lipplugin.Lifecycle
-	CandidatePlanes  lipfeature.FrozenPlaneSet
-	BackgroundClient auxiliary.BackgroundClient
-	BackgroundPoller auxiliary.BackgroundPoller
+	Registrations     []lipsdk.Registration
+	HostRegistrations []sdkfeaturehost.Registration
+	MergeSurface      featurebundle.GeneratedMergeSurface
+	Planes            lipfeature.FrozenPlaneSet
+	Lifecycles        []lipplugin.Lifecycle
+	CandidatePlanes   lipfeature.FrozenPlaneSet
+	BackgroundClient  auxiliary.BackgroundClient
+	BackgroundPoller  auxiliary.BackgroundPoller
 	// ReasoningProdOpts/ReasoningTestOpts carry the raw production and testing
 	// reasoning option sources. The facade merges them internally (Task 2.4,
 	// Requirement 8.3); generic runtimebundle must never merge or interpret

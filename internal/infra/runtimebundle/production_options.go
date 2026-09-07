@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 )
 
 // ProductionOptions carries enterprise/production injection seams (reqs 12.1, 12.3, 12.4).
@@ -68,6 +69,9 @@ type ProductionOptions struct {
 	TerminalWorkPerProviderMax int
 	TerminalWorkTickInterval   time.Duration
 	TerminalWorkRenewInterval  time.Duration
+	// FeatureHostRegistrations carries startup-only host-feature bindings
+	// (Task 8.3/8.4, Requirements 9.3-9.6).
+	FeatureHostRegistrations []featurehost.Registration
 	// ReasoningCompression holds trusted allowlist and secret redaction
 	// composition for reasoning semantic compression. Nil or missing
 	// EgressPolicies entry fails closed at generation compile time.

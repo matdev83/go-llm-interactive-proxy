@@ -64,6 +64,15 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	// 3. Reasoning composition. The facade merges production/testing options
 	// internally so callers never interpret reasoning policy (Task 2.4).
 	reasoningOpts := composeReasoningOptions(in.ReasoningProdOpts, in.ReasoningTestOpts)
+	if len(in.HostRegistrations) > 0 {
+		genBound, err := bindHostRegistrations(in.HostRegistrations)
+		if err != nil {
+			return GenerationOutput{}, fmt.Errorf("featurehost: host registrations: %w", err)
+		}
+		reasoningOpts = composeReasoningOptions(reasoningOpts, genBound.reasoning)
+	} else if len(r.boundReasoning.EgressPolicies) > 0 || r.boundReasoning.MatcherResolver != nil {
+		reasoningOpts = composeReasoningOptions(reasoningOpts, r.boundReasoning)
+	}
 	if err := reasoningcompose.Validate(reasoningcompose.GenerationInput{
 		Registrations: in.Registrations,
 		Client:        in.BackgroundClient,

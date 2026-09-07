@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
+	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
 
@@ -35,10 +36,20 @@ type Runtime struct {
 	conversationStore    conversationview.Store
 	keepwarmPolicy       *keepwarm.PolicyStore
 	keepwarmRegistry     *keepwarm.ManagerRegistry
+	hostRegistrations    []sdkfeaturehost.Registration
+	boundReasoning       ReasoningCompressionOptions
 	closers              []func() error
 	closeOnce            sync.Once
 	closeErr             error
 	closed               atomic.Bool
+}
+
+// BoundReasoningOptions returns the bound reasoning compression options.
+func (r *Runtime) BoundReasoningOptions() ReasoningCompressionOptions {
+	if r == nil {
+		return ReasoningCompressionOptions{}
+	}
+	return r.boundReasoning
 }
 
 func (r *Runtime) registerCloser(closer func() error) {

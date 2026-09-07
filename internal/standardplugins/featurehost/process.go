@@ -66,6 +66,15 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 		return nil, err
 	}
 
+	if len(in.HostRegistrations) > 0 {
+		bound, err := bindHostRegistrations(in.HostRegistrations)
+		if err != nil {
+			return nil, err
+		}
+		r.boundReasoning = bound.reasoning
+		r.hostRegistrations = slices.Clone(in.HostRegistrations)
+	}
+
 	for _, step := range in.buildSteps {
 		if step.Construct != nil {
 			if err := step.Construct(r); err != nil {
