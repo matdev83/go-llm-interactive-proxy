@@ -68,6 +68,14 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// DB returns the underlying bun.DB handle.
+func (s *Store) DB() *bun.DB {
+	if s == nil {
+		return nil
+	}
+	return s.db
+}
+
 func (s *Store) ResolveALeg(ctx context.Context, continuityKey string) (b2bua.ALegRecord, error) {
 	if err := ctx.Err(); err != nil {
 		return b2bua.ALegRecord{}, err
