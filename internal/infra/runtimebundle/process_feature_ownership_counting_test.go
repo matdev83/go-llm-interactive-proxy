@@ -8,13 +8,11 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
@@ -32,15 +30,16 @@ func (testBackgroundProcessRunner) Execute(context.Context, *lipapi.Call) (lipap
 	return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
 }
 
-// ProcessFeatureSnapshot captures the unique pointers of all process-scoped feature resources.
-// This is the ownership-counting test seam for Phase 1 and later wave migrations.
+// ProcessFeatureSnapshot captures the unique pointers of process-scoped feature resources
+// observable from generic runtimebundle. Compaction coordinator/parent-port
+// live inside package featurehost and are proven there
+// (TestProcess_CompactionConstructionCounted); the detector remains observable
+// here through the public consumer port accessor.
 type ProcessFeatureSnapshot struct {
 	KeepwarmPolicy         *keepwarm.PolicyStore
 	KeepwarmRegistry       *keepwarm.ManagerRegistry
 	TerminalDecisionPolicy *terminaldecisionpolicy.Store
 	CompactionDetector     runtime.CompactionDetector
-	BranchCoordinator      *compactioncontinuity.BranchCoordinator
-	CompactionParentPort   *compactioncompose.CompactionContinuityParentPort
 	BackgroundAux          *BackgroundAuxScheduler
 	StandardFeatures       *featurehost.Runtime
 }
@@ -50,13 +49,17 @@ func CaptureProcessFeatureSnapshot(ps *ProcessServices) ProcessFeatureSnapshot {
 	if ps == nil {
 		return ProcessFeatureSnapshot{}
 	}
+	var (
+		detector runtime.CompactionDetector
+	)
+	if ps.StandardFeatures != nil {
+		detector = ps.StandardFeatures.CompactionDetector()
+	}
 	return ProcessFeatureSnapshot{
 		KeepwarmPolicy:         ps.KeepwarmPolicy,
 		KeepwarmRegistry:       ps.KeepwarmRegistry,
 		TerminalDecisionPolicy: ps.TerminalDecisionPolicy,
-		CompactionDetector:     ps.CompactionDetector,
-		BranchCoordinator:      ps.BranchCoordinator,
-		CompactionParentPort:   ps.CompactionParentPort,
+		CompactionDetector:     detector,
 		BackgroundAux:          ps.BackgroundAux,
 		StandardFeatures:       ps.StandardFeatures,
 	}
@@ -75,13 +78,7 @@ func (s ProcessFeatureSnapshot) AssertAllPresent(t *testing.T) {
 		t.Fatal("expected non-nil TerminalDecisionPolicy on ProcessServices")
 	}
 	if s.CompactionDetector == nil {
-		t.Fatal("expected non-nil CompactionDetector on ProcessServices")
-	}
-	if s.BranchCoordinator == nil {
-		t.Fatal("expected non-nil BranchCoordinator on ProcessServices")
-	}
-	if s.CompactionParentPort == nil {
-		t.Fatal("expected non-nil CompactionParentPort on ProcessServices")
+		t.Fatal("expected non-nil CompactionDetector on StandardFeatures")
 	}
 	if s.BackgroundAux == nil {
 		t.Fatal("expected non-nil BackgroundAux on ProcessServices")
@@ -105,12 +102,6 @@ func (s ProcessFeatureSnapshot) AssertIdentical(t *testing.T, other ProcessFeatu
 	}
 	if s.CompactionDetector != other.CompactionDetector {
 		t.Fatalf("%s: CompactionDetector instance changed: %p vs %p", stage, s.CompactionDetector, other.CompactionDetector)
-	}
-	if s.BranchCoordinator != other.BranchCoordinator {
-		t.Fatalf("%s: BranchCoordinator instance changed: %p vs %p", stage, s.BranchCoordinator, other.BranchCoordinator)
-	}
-	if s.CompactionParentPort != other.CompactionParentPort {
-		t.Fatalf("%s: CompactionParentPort instance changed: %p vs %p", stage, s.CompactionParentPort, other.CompactionParentPort)
 	}
 	if s.BackgroundAux != other.BackgroundAux {
 		t.Fatalf("%s: BackgroundAux instance changed: %p vs %p", stage, s.BackgroundAux, other.BackgroundAux)
@@ -136,17 +127,10 @@ func (s ProcessFeatureSnapshot) AssertDistinctOwnedResources(t *testing.T, other
 	if s.CompactionDetector == other.CompactionDetector {
 		t.Fatalf("CompactionDetector pointer identical across distinct ProcessServices builds: %p", s.CompactionDetector)
 	}
-	if s.BranchCoordinator == other.BranchCoordinator {
-		t.Fatalf("BranchCoordinator pointer identical across distinct ProcessServices builds: %p", s.BranchCoordinator)
-	}
-	if s.CompactionParentPort == other.CompactionParentPort {
-		t.Fatalf("CompactionParentPort pointer identical across distinct ProcessServices builds: %p", s.CompactionParentPort)
-	}
 	if s.StandardFeatures == other.StandardFeatures {
 		t.Fatalf("StandardFeatures pointer identical across distinct ProcessServices builds: %p", s.StandardFeatures)
 	}
 }
-
 
 func testProcessServicesOwnershipConfig() *config.Config {
 	return &config.Config{
@@ -166,11 +150,11 @@ func testProcessServicesOwnershipConfig() *config.Config {
 }
 
 // TestProcessFeatureResources_OwnershipCountingSeam satisfies Task 1.2 by verifying:
-// 1. (a) Exactly one construction of borrowed BackgroundAux (directly counted via factory seam)
-//    and presence of the six feature-owned resources constructed by NewProcessServices (design.md:232);
-// 2. (b) Zero duplicate constructions across two overlapping CompileCandidate compiles;
-// 3. (c) Exactly one physical close per closable resource at ps.Close, with second Close idempotent;
-// 4. Explicit verification of genuinely non-closable resources (no Close method or registration).
+//  1. (a) Exactly one construction of borrowed BackgroundAux (directly counted via factory seam)
+//     and presence of the six feature-owned resources constructed by NewProcessServices (design.md:232);
+//  2. (b) Zero duplicate constructions across two overlapping CompileCandidate compiles;
+//  3. (c) Exactly one physical close per closable resource at ps.Close, with second Close idempotent;
+//  4. Explicit verification of genuinely non-closable resources (no Close method or registration).
 func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 	t.Parallel()
 
@@ -222,7 +206,6 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 		t.Fatalf("BackgroundAux construction count = %d, want exactly 1", got)
 	}
 
-
 	// Assert explicitly non-closable resources do not implement io.Closer.
 	if _, ok := any(ps.KeepwarmPolicy).(io.Closer); ok {
 		_ = ps.Close()
@@ -232,17 +215,9 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 		_ = ps.Close()
 		t.Fatal("KeepwarmRegistry must be genuinely non-closable (implements io.Closer unexpectedly)")
 	}
-	if _, ok := any(ps.CompactionDetector).(io.Closer); ok {
+	if _, ok := any(ps.StandardFeatures.CompactionDetector()).(io.Closer); ok {
 		_ = ps.Close()
 		t.Fatal("CompactionDetector must be genuinely non-closable (implements io.Closer unexpectedly)")
-	}
-	if _, ok := any(ps.BranchCoordinator).(io.Closer); ok {
-		_ = ps.Close()
-		t.Fatal("BranchCoordinator must be genuinely non-closable (implements io.Closer unexpectedly)")
-	}
-	if _, ok := any(ps.CompactionParentPort).(io.Closer); ok {
-		_ = ps.Close()
-		t.Fatal("CompactionParentPort must be genuinely non-closable (implements io.Closer unexpectedly)")
 	}
 
 	// Wrap closers of actually-closable process resources with injectable counters
@@ -737,3 +712,92 @@ func TestProcessFeatureResources_RealCompilerCandidateIsolation(t *testing.T) {
 	}
 }
 
+// TestProcessFeatureResources_CompactionContinuityOverlappingGenerations verifies that compiling
+// multiple overlapping generations with compaction-continuity configured constructs ZERO
+// duplicate process resources: CompactionDetector, BranchCoordinator, and CompactionParentPort
+// remain identical across all generations, and candidate closure does not close process resources.
+func TestProcessFeatureResources_CompactionContinuityOverlappingGenerations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	log := testkit.DiscardLogger()
+	reg := pluginreg.NewRegistry()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatalf("InstallStandardBundleOn: %v", err)
+	}
+
+	scheduler, err := auxreq.NewBackgroundScheduler(ctx, func() auxreq.ExecutorRunner {
+		return testBackgroundProcessRunner{}
+	}, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 2})
+	if err != nil {
+		t.Fatalf("NewBackgroundScheduler: %v", err)
+	}
+
+	ps, err := NewProcessServices(ctx, ProcessServicesInput{
+		Cfg:           testProcessServicesOwnershipConfig(),
+		Log:           log,
+		Opts:          &BuildOptions{PluginRegistry: reg},
+		BackgroundAux: scheduler,
+	})
+	if err != nil {
+		_ = scheduler.Close()
+		t.Fatalf("NewProcessServices: %v", err)
+	}
+	defer func() { _ = ps.Close() }()
+
+	initialSnap := CaptureProcessFeatureSnapshot(ps)
+	initialSnap.AssertAllPresent(t)
+
+	candCfg := testProcessServicesOwnershipConfig()
+	candCfg.Plugins.Features = []config.PluginConfig{
+		{
+			ID:      "compaction-continuity",
+			Enabled: true,
+			Config:  mustYAMLNode(t, "extractor:\n  enabled: true\n  route: inherit\n"),
+		},
+	}
+
+	// 1. Compile Candidate Generation 1
+	c1, err := CompileCandidate(ctx, GenerationCompileInput{
+		Process:   ps,
+		Candidate: candCfg,
+		Bus:       hooks.New(hooks.Config{}),
+	})
+	if err != nil {
+		t.Fatalf("CompileCandidate #1: %v", err)
+	}
+
+	snapAfterGen1 := CaptureProcessFeatureSnapshot(ps)
+	initialSnap.AssertIdentical(t, snapAfterGen1, "after candidate #1 with compaction-continuity")
+
+	// 2. Compile overlapping Candidate Generation 2
+	c2, err := CompileCandidate(ctx, GenerationCompileInput{
+		Process:   ps,
+		Candidate: candCfg,
+		Bus:       hooks.New(hooks.Config{}),
+	})
+	if err != nil {
+		_ = c1.Close()
+		t.Fatalf("CompileCandidate #2: %v", err)
+	}
+
+	snapAfterGen2 := CaptureProcessFeatureSnapshot(ps)
+	initialSnap.AssertIdentical(t, snapAfterGen2, "after overlapping candidate #2 with compaction-continuity")
+
+	// 3. Close Candidate Generation 1
+	if err := c1.Close(); err != nil {
+		_ = c2.Close()
+		t.Fatalf("c1.Close: %v", err)
+	}
+
+	snapAfterC1Close := CaptureProcessFeatureSnapshot(ps)
+	initialSnap.AssertIdentical(t, snapAfterC1Close, "after c1 close")
+
+	// 4. Close Candidate Generation 2
+	if err := c2.Close(); err != nil {
+		t.Fatalf("c2.Close: %v", err)
+	}
+
+	snapAfterC2Close := CaptureProcessFeatureSnapshot(ps)
+	initialSnap.AssertIdentical(t, snapAfterC2Close, "after c2 close")
+}

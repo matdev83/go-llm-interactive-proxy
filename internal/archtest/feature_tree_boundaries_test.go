@@ -42,6 +42,19 @@ func TestForbiddenImports_FeatureTreeRulesEnforced(t *testing.T) {
 				"/internal/pluginreg",
 			},
 		},
+		{
+			source:    "internal/plugins/features/compactioncontinuity",
+			ownPrefix: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity",
+			expectRules: []string{
+				"/internal/core",
+				"/internal/infra/runtimebundle",
+				"/internal/plugins/frontends",
+				"/internal/plugins/backends",
+				"/internal/plugins/features/",
+				"/internal/stdhttp",
+				"/internal/pluginreg",
+			},
+		},
 	}
 
 	for _, ft := range featureTrees {
@@ -280,7 +293,8 @@ func TestProductionFeatureTreesHaveZeroForbiddenImports(t *testing.T) {
 	err := WalkProductionGoFiles(root, func(rel, abs string, src []byte) error {
 		pkg := PackageDirFromRel(rel)
 		if !MatchPathPrefix(pkg, "internal/plugins/features/toolcallrepair") &&
-			!MatchPathPrefix(pkg, "internal/plugins/features/secretguard") {
+			!MatchPathPrefix(pkg, "internal/plugins/features/secretguard") &&
+			!MatchPathPrefix(pkg, "internal/plugins/features/compactioncontinuity") {
 			return nil
 		}
 		findings, err := ScanFileForbiddenImports(rel, abs, src)

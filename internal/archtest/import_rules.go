@@ -194,81 +194,21 @@ var ForbiddenImports = []ForbiddenImportRule{
 		TargetPattern: "/internal/plugins/protocols/openresponses",
 		Reason:        "reference backend emulator must not import production OpenResponses codecs",
 	},
-	{
-		SourcePattern: "internal/refbackend/openresponses",
-		TargetPattern: "/internal/plugins/frontends/openresponses",
-		Reason:        "reference backend emulator must not import production OpenResponses frontend",
-	},
-	{
-		SourcePattern: "internal/refbackend/openresponses",
-		TargetPattern: "/internal/plugins/backends/openresponsescompat",
-		Reason:        "reference backend emulator must not import production OpenResponses backend",
-	},
-	{
-		SourcePattern: "internal/refbackend/openresponses",
-		TargetPattern: "/internal/refclient",
-		Reason:        "reference backend emulator wire code must not import reference client wire types",
-	},
-	{
-		SourcePattern: "internal/refbackend/openresponses",
-		TargetPattern: "/internal/testkit/conformance",
-		Reason:        "reference backend emulator must not import the conformance matrix",
-	},
-	{
-		SourcePattern: "internal/refbackend/openresponses",
-		TargetPattern: "/internal/testkit/openresponses",
-		Reason:        "reference backend emulator must not import testkit wire contracts",
-	},
-	{
-		SourcePattern: "internal/plugins/frontends/openresponses",
-		TargetPattern: "/internal/refbackend",
-		Reason:        "production frontend must not import reference backend emulators",
-	},
-	{
-		SourcePattern: "internal/plugins/backends/openresponsescompat",
-		TargetPattern: "/internal/refbackend",
-		Reason:        "production backend must not import reference backend emulators",
-	},
-	{
-		SourcePattern: "internal/testkit/openresponses",
-		TargetPattern: "/internal/plugins/protocols/openresponses",
-		Reason:        "testkit contracts must not import production OpenResponses codecs",
-	},
-	{
-		SourcePattern: "internal/plugins/backends/openresponsescompat",
-		TargetPattern: "github.com/openai/openai-go",
-		Reason:        "generic OpenResponses backend must not import provider SDKs",
-	},
-	{
-		SourcePattern: "internal/plugins/backends/openresponsescompat",
-		TargetPattern: "/connectors/",
-		Reason:        "generic OpenResponses backend must not import provider connectors",
-	},
-	{
-		SourcePattern: "internal/plugins/backends/openresponsescompat",
-		TargetPattern: "/connector-support/",
-		Reason:        "generic OpenResponses backend must not import provider connector support",
-	},
-	{
-		SourcePattern: "internal/plugins/frontends",
-		TargetPattern: "/internal/core/routeoverride",
-		Reason:        "frontend plugins must not import route-override state",
-	},
-	{
-		SourcePattern: "internal/plugins/backends",
-		TargetPattern: "/internal/core/routeoverride",
-		Reason:        "backend plugins must not import route-override state",
-	},
-	{
-		SourcePattern: "pkg/lipapi",
-		TargetPattern: "/internal/core/routeoverride",
-		Reason:        "canonical contracts must not import route-override state",
-	},
-	{
-		SourcePattern: "pkg/lipsdk",
-		TargetPattern: "/internal/core/routeoverride",
-		Reason:        "public SDK must not import route-override state",
-	},
+	{SourcePattern: "internal/refbackend/openresponses", TargetPattern: "/internal/plugins/frontends/openresponses", Reason: "reference backend emulator must not import production OpenResponses frontend"},
+	{SourcePattern: "internal/refbackend/openresponses", TargetPattern: "/internal/plugins/backends/openresponsescompat", Reason: "reference backend emulator must not import production OpenResponses backend"},
+	{SourcePattern: "internal/refbackend/openresponses", TargetPattern: "/internal/refclient", Reason: "reference backend emulator wire code must not import reference client wire types"},
+	{SourcePattern: "internal/refbackend/openresponses", TargetPattern: "/internal/testkit/conformance", Reason: "reference backend emulator must not import the conformance matrix"},
+	{SourcePattern: "internal/refbackend/openresponses", TargetPattern: "/internal/testkit/openresponses", Reason: "reference backend emulator must not import testkit wire contracts"},
+	{SourcePattern: "internal/plugins/frontends/openresponses", TargetPattern: "/internal/refbackend", Reason: "production frontend must not import reference backend emulators"},
+	{SourcePattern: "internal/plugins/backends/openresponsescompat", TargetPattern: "/internal/refbackend", Reason: "production backend must not import reference backend emulators"},
+	{SourcePattern: "internal/testkit/openresponses", TargetPattern: "/internal/plugins/protocols/openresponses", Reason: "testkit contracts must not import production OpenResponses codecs"},
+	{SourcePattern: "internal/plugins/backends/openresponsescompat", TargetPattern: "github.com/openai/openai-go", Reason: "generic OpenResponses backend must not import provider SDKs"},
+	{SourcePattern: "internal/plugins/backends/openresponsescompat", TargetPattern: "/connectors/", Reason: "generic OpenResponses backend must not import provider connectors"},
+	{SourcePattern: "internal/plugins/backends/openresponsescompat", TargetPattern: "/connector-support/", Reason: "generic OpenResponses backend must not import provider connector support"},
+	{SourcePattern: "internal/plugins/frontends", TargetPattern: "/internal/core/routeoverride", Reason: "frontend plugins must not import route-override state"},
+	{SourcePattern: "internal/plugins/backends", TargetPattern: "/internal/core/routeoverride", Reason: "backend plugins must not import route-override state"},
+	{SourcePattern: "pkg/lipapi", TargetPattern: "/internal/core/routeoverride", Reason: "canonical contracts must not import route-override state"},
+	{SourcePattern: "pkg/lipsdk", TargetPattern: "/internal/core/routeoverride", Reason: "public SDK must not import route-override state"},
 	{
 		SourcePattern: "internal/core",
 		TargetPattern: "/internal/plugins/features/",
@@ -333,6 +273,11 @@ var ForbiddenImports = []ForbiddenImportRule{
 		Reason:        "internal/core/compactiondetect has been retired; use internal/infra/compactiondetect",
 	},
 	{
+		SourcePattern: "*",
+		TargetPattern: "/internal/core/compactioncontinuity",
+		Reason:        "internal/core/compactioncontinuity has been retired; use internal/plugins/features/compactioncontinuity/state",
+	},
+	{
 		SourcePattern: "internal/plugins/features/secretguard",
 		TargetPattern: "/internal/core",
 		Reason:        "secretguard feature tree must not depend on internal/core (use pkg/lipsdk contracts)",
@@ -369,6 +314,44 @@ var ForbiddenImports = []ForbiddenImportRule{
 		SourcePattern: "internal/plugins/features/secretguard",
 		TargetPattern: "/internal/pluginreg",
 		Reason:        "secretguard feature tree must not depend on pluginreg",
+	},
+	{
+		SourcePattern: "internal/plugins/features/compactioncontinuity",
+		TargetPattern: "/internal/core",
+		Reason:        "compactioncontinuity feature tree must not depend on internal/core (use pkg/lipsdk contracts)",
+	},
+	{
+		SourcePattern: "internal/plugins/features/compactioncontinuity",
+		TargetPattern: "/internal/infra/runtimebundle",
+		Reason:        "compactioncontinuity feature tree must not depend on runtimebundle",
+	},
+	{
+		SourcePattern: "internal/plugins/features/compactioncontinuity",
+		TargetPattern: "/internal/plugins/frontends",
+		Reason:        "compactioncontinuity feature tree must not depend on frontend plugins",
+	},
+	{
+		SourcePattern: "internal/plugins/features/compactioncontinuity",
+		TargetPattern: "/internal/plugins/backends",
+		Reason:        "compactioncontinuity feature tree must not depend on backend plugins",
+	},
+	{
+		SourcePattern: "internal/plugins/features/compactioncontinuity",
+		TargetPattern: "/internal/plugins/features/",
+		Reason:        "compactioncontinuity feature tree must not depend on other feature plugins",
+		ExceptPrefix: []string{
+			"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity",
+		},
+	},
+	{
+		SourcePattern: "internal/plugins/features/compactioncontinuity",
+		TargetPattern: "/internal/stdhttp",
+		Reason:        "compactioncontinuity feature tree must not depend on stdhttp",
+	},
+	{
+		SourcePattern: "internal/plugins/features/compactioncontinuity",
+		TargetPattern: "/internal/pluginreg",
+		Reason:        "compactioncontinuity feature tree must not depend on pluginreg",
 	},
 }
 

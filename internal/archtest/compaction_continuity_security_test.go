@@ -35,7 +35,6 @@ func TestCompactionContinuitySecurity_NoProviderOrWireDependencies(t *testing.T)
 	assertDepsExcludeForbidden(t, []string{
 		"./internal/core/auxreq/...",
 		"./internal/infra/compactiondetect/...",
-		"./internal/core/compactioncontinuity/...",
 		"./internal/plugins/features/compactioncontinuity/...",
 	}, []forbiddenDep{
 		{Substr: "/internal/plugins/frontends/", ErrMsg: "compaction continuity must not import frontend DTOs"},

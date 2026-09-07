@@ -23,6 +23,9 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 
 	// When r is nil (StandardFeatures disabled), return disabled feature output.
 	if r == nil {
+		if err := r.validateCompactionPrerequisites(in.Registrations); err != nil {
+			return GenerationOutput{}, err
+		}
 		bundle := lipfeature.FeatureBundle{
 			PlaneSet:   in.Planes,
 			Lifecycles: slices.Clone(in.Lifecycles),
@@ -35,7 +38,27 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		}, nil
 	}
 
-	// 1. Reasoning composition. The facade merges production/testing options
+	// 1. Compaction continuity prerequisites validation.
+	if err := r.validateCompactionPrerequisites(in.Registrations); err != nil {
+		return GenerationOutput{}, err
+	}
+
+	surface := in.MergeSurface
+	if surface.Frozen.IsZero() && !in.Planes.IsZero() {
+		surface = featurebundle.GeneratedMergeSurface{
+			Frozen:     in.Planes,
+			Lifecycles: slices.Clone(in.Lifecycles),
+		}
+	}
+
+	// 2. Compaction continuity surface binding.
+	var err error
+	surface, err = r.bindCompactionContinuity(surface, in.Registrations)
+	if err != nil {
+		return GenerationOutput{}, err
+	}
+
+	// 3. Reasoning composition. The facade merges production/testing options
 	// internally so callers never interpret reasoning policy (Task 2.4).
 	reasoningOpts := composeReasoningOptions(in.ReasoningProdOpts, in.ReasoningTestOpts)
 	if err := reasoningcompose.Validate(reasoningcompose.GenerationInput{
@@ -45,14 +68,6 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		Options:       reasoningOpts,
 	}); err != nil {
 		return GenerationOutput{}, fmt.Errorf("featurehost: reasoning validation: %w", err)
-	}
-
-	surface := in.MergeSurface
-	if surface.Frozen.IsZero() && !in.Planes.IsZero() {
-		surface = featurebundle.GeneratedMergeSurface{
-			Frozen:     in.Planes,
-			Lifecycles: slices.Clone(in.Lifecycles),
-		}
 	}
 
 	staged, err := reasoningcompose.Bind(surface, reasoningcompose.GenerationInput{
@@ -74,7 +89,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		outLifecycles = slices.Clone(in.Lifecycles)
 	}
 
-	// 2. Secret Guard composition
+	// 4. Secret Guard composition
 	guards := lipfeature.Get[[]sdk.Guard](outPlanes, lipfeature.PlaneSecretGuards)
 	sgOut, err := secretguardcompose.Compose(secretguardcompose.Input{
 		AccessMode:       in.AccessMode,
@@ -98,7 +113,9 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		Lifecycles:           outLifecycles,
 		SecretGuard:          sgOut.Plane,
 		SecretGuardInventory: sgOut.Inventory,
-		CorePorts:            CorePorts{},
+		CorePorts: CorePorts{
+			CompactionDetector: r.compactionDetector,
+		},
 	}
 
 	return out, nil

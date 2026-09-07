@@ -180,7 +180,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		AccountingStores:       ps.accountingStores,
 		Metering:               ps.meteringRT,
 		BackendIdentities:      backendIDs,
-		CompactionDetector:     ps.CompactionDetector,
+		CompactionDetector:     ps.StandardFeatures.CompactionDetector(),
 		CompactionScheduler:    ps.BackgroundAux,
 		GenerationRunner:       in.GenerationRunner,
 		TerminalDecisionPolicy: ps.TerminalDecisionPolicy,

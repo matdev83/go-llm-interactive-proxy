@@ -5,6 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 )
 
 // constructionStep represents a staged feature construction action during NewProcess.
@@ -14,6 +18,16 @@ type constructionStep struct {
 	Name      string
 	Construct func(r *Runtime) error
 }
+
+// Package-local constructor seams for construction-counting tests.
+// These variables alias the production constructors; package-local _test.go
+// files may substitute counting delegates. They are unexported, so no external
+// caller can substitute factories (Tasks 2.1/2.3, Requirements 2.5/8.4).
+var (
+	newCompactionDetector   = compactiondetect.New
+	newBranchCoordinator    = state.NewBranchCoordinator
+	newCompactionParentPort = compaction.NewParentPort
+)
 
 // NewProcess constructs the standard-distribution featurehost process facade.
 // Every successfully constructed owned feature resource is recorded before later
@@ -50,8 +64,21 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 		}
 	}
 
-	// In Task 2.1, no legacy process feature resources are constructed yet.
-	// Explicit handoff happens atomically in Tasks 3-7/10.
+	// Compaction process ownership (Task 3.3): detector, coordinator, parent port.
+	// None of these resources implement io.Closer; no closer registration required.
+	r.compactionDetector = newCompactionDetector(compactiondetect.Config{})
+
+	coord, err := newBranchCoordinator(ctx, state.Config{Store: in.ExtensionState})
+	if err != nil {
+		return rollback(fmt.Errorf("featurehost: branch coordinator: %w", err))
+	}
+	r.branchCoordinator = coord
+
+	port, err := newCompactionParentPort(coord)
+	if err != nil {
+		return rollback(fmt.Errorf("featurehost: parent port: %w", err))
+	}
+	r.compactionParentPort = port
 
 	return r, nil
 }

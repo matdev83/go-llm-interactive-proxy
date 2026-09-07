@@ -150,6 +150,50 @@ func TestFeatureHost_NoPreHandoffFeatureConstruction(t *testing.T) {
 	}
 }
 
+// TestFeatureHost_NoConcreteFeatureAccessors verifies that featurehost does
+// not expose concrete coordinator/parent-port/detector accessors outside its
+// package: only the minimal detector consumer port in generation output and
+// the transition-guard observers belong to the public surface (Task 3.3).
+// Distinctness and counting checks live in package-local featurehost tests.
+func TestFeatureHost_NoConcreteFeatureAccessors(t *testing.T) {
+	t.Parallel()
+
+	forbidden := []string{"BranchCoordinator", "CompactionParentPort"}
+	fset := token.NewFileSet()
+	root := filepath.Join("..", "standardplugins", "featurehost")
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+
+		ast.Inspect(file, func(n ast.Node) bool {
+			fn, ok := n.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil {
+				return true
+			}
+			for _, name := range forbidden {
+				if fn.Name.Name == name {
+					t.Errorf("featurehost file %s must not expose concrete accessor %s", path, name)
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkDir failed: %v", err)
+	}
+}
+
 // TestFeatureHost_NoPackageLevelReasoningEntryPointsInRuntimeBundle verifies that runtimebundle prod
 // code does not expose separate validation/binding paths alongside Runtime.CompileGeneration (R4).
 func TestFeatureHost_NoPackageLevelReasoningEntryPointsInRuntimeBundle(t *testing.T) {

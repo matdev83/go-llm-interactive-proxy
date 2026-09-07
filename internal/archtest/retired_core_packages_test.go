@@ -165,8 +165,8 @@ func TestProductionTreeRetiredCorePackages_RenamedOrNestedResurrectionRejected(t
 			wantReject: false,
 		},
 		{
-			name:       "compactioncompose dedicated adapter allowed",
-			relPath:    "internal/infra/compactioncompose/parent_port.go",
+			name:       "featurehost compaction dedicated adapter allowed",
+			relPath:    "internal/standardplugins/featurehost/compaction/parent_port.go",
 			wantReject: false,
 		},
 		{

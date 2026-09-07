@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/resultmerge"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 )
 
@@ -15,17 +15,17 @@ var ErrInvalidCompactionContinuityResultAdapter = errors.New("compactioncompose:
 // CompactionContinuityResultAdapter binds one process-owned coordinator and
 // authoritative parent key without decoding a branch binding into a BranchKey.
 type CompactionContinuityResultAdapter struct {
-	coordinator *compactioncontinuity.BranchCoordinator
-	parentKey   compactioncontinuity.BranchKey
+	coordinator *state.BranchCoordinator
+	parentKey   state.BranchKey
 	binding     string
 }
 
 // NewCompactionContinuityResultAdapter binds result consumption to the process-owned coordinator and authoritative parentKey.
-func NewCompactionContinuityResultAdapter(coordinator *compactioncontinuity.BranchCoordinator, parentKey compactioncontinuity.BranchKey) (*CompactionContinuityResultAdapter, error) {
+func NewCompactionContinuityResultAdapter(coordinator *state.BranchCoordinator, parentKey state.BranchKey) (*CompactionContinuityResultAdapter, error) {
 	if coordinator == nil {
 		return nil, fmt.Errorf("%w: nil branch coordinator", ErrInvalidCompactionContinuityResultAdapter)
 	}
-	binding, err := compactioncontinuity.BranchBinding(parentKey)
+	binding, err := state.BranchBinding(parentKey)
 	if err != nil {
 		return nil, fmt.Errorf("%w: parent key: %w", ErrInvalidCompactionContinuityResultAdapter, err)
 	}
@@ -66,27 +66,27 @@ func (a *CompactionContinuityResultAdapter) CommitCapsuleForJob(ctx context.Cont
 
 func (a *CompactionContinuityResultAdapter) validateBinding(binding string) error {
 	if a == nil || a.coordinator == nil || binding != a.binding {
-		return compactioncontinuity.ErrBranchMismatch
+		return state.ErrBranchMismatch
 	}
 	return nil
 }
 
-func (a *CompactionContinuityResultAdapter) parentState(state compactioncontinuity.BranchState) (resultmerge.ParentState, error) {
-	if state.PendingJobBranchBinding != "" && state.PendingJobBranchBinding != a.binding {
-		return resultmerge.ParentState{}, compactioncontinuity.ErrBranchMismatch
+func (a *CompactionContinuityResultAdapter) parentState(st state.BranchState) (resultmerge.ParentState, error) {
+	if st.PendingJobBranchBinding != "" && st.PendingJobBranchBinding != a.binding {
+		return resultmerge.ParentState{}, state.ErrBranchMismatch
 	}
-	if state.PendingJobID != "" && state.PendingJobBranchBinding != a.binding {
-		return resultmerge.ParentState{}, compactioncontinuity.ErrBranchMismatch
+	if st.PendingJobID != "" && st.PendingJobBranchBinding != a.binding {
+		return resultmerge.ParentState{}, state.ErrBranchMismatch
 	}
 	return resultmerge.ParentState{
 		BranchBinding:            a.binding,
-		Revision:                 state.Revision,
-		CapsuleJSON:              append([]byte(nil), state.CapsuleJSON...),
-		CapsuleDigest:            state.CapsuleDigest,
-		SourceHighWatermark:      state.SourceHighWatermark,
-		PendingJobID:             state.PendingJobID,
-		PendingJobTargetRevision: state.PendingJobTargetRevision,
-		PendingJobBranchBinding:  state.PendingJobBranchBinding,
+		Revision:                 st.Revision,
+		CapsuleJSON:              append([]byte(nil), st.CapsuleJSON...),
+		CapsuleDigest:            st.CapsuleDigest,
+		SourceHighWatermark:      st.SourceHighWatermark,
+		PendingJobID:             st.PendingJobID,
+		PendingJobTargetRevision: st.PendingJobTargetRevision,
+		PendingJobBranchBinding:  st.PendingJobBranchBinding,
 	}, nil
 }
 

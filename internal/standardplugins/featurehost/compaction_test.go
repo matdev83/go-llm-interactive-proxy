@@ -1,4 +1,4 @@
-package compactioncompose
+package featurehost
 
 import (
 	"context"
@@ -6,11 +6,15 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	featurecontinuity "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
+	sdkcompaction "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -26,19 +30,19 @@ type charPreserver struct {
 }
 
 func (p charPreserver) ID() string { return p.id }
-func (charPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
+func (charPreserver) BeforeRequest(context.Context, *lipapi.Call, sdkcompaction.RequestPreview, sdkcompaction.PreservationMeta, sdkcompaction.Services) error {
 	return nil
 }
 
-func (charPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
+func (charPreserver) RequestOpened(context.Context, lipapi.Call, []sdkcompaction.Event, sdkcompaction.PreservationMeta, sdkcompaction.Services) error {
 	return nil
 }
 
-func (charPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
+func (charPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, sdkcompaction.ResponsePreview, sdkcompaction.PreservationMeta, sdkcompaction.Services) error {
 	return nil
 }
 
-func (p charPreserver) OnCompaction(context.Context, compaction.Event) error {
+func (p charPreserver) OnCompaction(context.Context, sdkcompaction.Event) error {
 	return nil
 }
 
@@ -75,19 +79,19 @@ func (p panickingPreserver) ID() string {
 	panic("panicking preserver")
 }
 
-func (panickingPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
+func (panickingPreserver) BeforeRequest(context.Context, *lipapi.Call, sdkcompaction.RequestPreview, sdkcompaction.PreservationMeta, sdkcompaction.Services) error {
 	return nil
 }
 
-func (panickingPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
+func (panickingPreserver) RequestOpened(context.Context, lipapi.Call, []sdkcompaction.Event, sdkcompaction.PreservationMeta, sdkcompaction.Services) error {
 	return nil
 }
 
-func (panickingPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
+func (panickingPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, sdkcompaction.ResponsePreview, sdkcompaction.PreservationMeta, sdkcompaction.Services) error {
 	return nil
 }
 
-func safePreserverID(p compaction.Preserver) (id string) {
+func safePreserverID(p sdkcompaction.Preserver) (id string) {
 	defer func() {
 		if recover() != nil {
 			id = ""
@@ -114,7 +118,7 @@ func validCompactionRegistration(t *testing.T) lipsdk.Registration {
 	}
 }
 
-func makeTestGenSurface(preservers []compaction.Preserver) featurebundle.GeneratedMergeSurface {
+func makeTestGenSurface(preservers []sdkcompaction.Preserver) featurebundle.GeneratedMergeSurface {
 	cs := lipfeature.NewContributionSet()
 	if preservers != nil {
 		_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "test-feat", preservers)
@@ -122,21 +126,51 @@ func makeTestGenSurface(preservers []compaction.Preserver) featurebundle.Generat
 	return featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
 }
 
-func TestBindFeatureSurface_PreserverReplacementOrder(t *testing.T) {
+type dummyRunner struct{}
+
+func (dummyRunner) Execute(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
+	return lipapi.NewFixedEventStream(nil), nil
+}
+
+func newTestScheduler(t *testing.T) *auxreq.BackgroundScheduler {
+	t.Helper()
+	s, err := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner {
+		return dummyRunner{}
+	}, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 2})
+	if err != nil {
+		t.Fatalf("NewBackgroundScheduler: %v", err)
+	}
+	return s
+}
+
+func newTestCompactionRuntime(t *testing.T) *Runtime {
+	t.Helper()
+	coord, err := state.NewBranchCoordinator(context.Background(), state.Config{})
+	require.NoError(t, err)
+	port, err := compaction.NewParentPort(coord)
+	require.NoError(t, err)
+	return &Runtime{
+		compactionDetector:   compactiondetect.New(compactiondetect.Config{}),
+		branchCoordinator:    coord,
+		compactionParentPort: port,
+	}
+}
+
+func TestBindCompactionContinuity_PreserverReplacementOrder(t *testing.T) {
 	t.Parallel()
-	port := newTestPort(t)
+	rt := newTestCompactionRuntime(t)
 	reg := validCompactionRegistration(t)
 
 	tests := []struct {
 		name         string
-		initial      []compaction.Preserver
+		initial      []sdkcompaction.Preserver
 		wantIDs      []string
 		wantCount    int
 		lastIsPlugin bool
 	}{
 		{
 			name: "official preserver in middle is replaced and moved to end",
-			initial: []compaction.Preserver{
+			initial: []sdkcompaction.Preserver{
 				charPreserver{id: "custom-a"},
 				charPreserver{id: featurecontinuity.ID},
 				charPreserver{id: "custom-b"},
@@ -147,7 +181,7 @@ func TestBindFeatureSurface_PreserverReplacementOrder(t *testing.T) {
 		},
 		{
 			name: "no prior official preserver appends official to end",
-			initial: []compaction.Preserver{
+			initial: []sdkcompaction.Preserver{
 				charPreserver{id: "custom-a"},
 				charPreserver{id: "custom-b"},
 			},
@@ -157,7 +191,7 @@ func TestBindFeatureSurface_PreserverReplacementOrder(t *testing.T) {
 		},
 		{
 			name: "only official preserver is replaced",
-			initial: []compaction.Preserver{
+			initial: []sdkcompaction.Preserver{
 				charPreserver{id: featurecontinuity.ID},
 			},
 			wantIDs:      []string{featurecontinuity.ID},
@@ -166,7 +200,7 @@ func TestBindFeatureSurface_PreserverReplacementOrder(t *testing.T) {
 		},
 		{
 			name: "multiple official preserver duplicates all stripped and replaced by single bound preserver at end",
-			initial: []compaction.Preserver{
+			initial: []sdkcompaction.Preserver{
 				charPreserver{id: featurecontinuity.ID},
 				charPreserver{id: "custom-a"},
 				charPreserver{id: featurecontinuity.ID},
@@ -190,7 +224,7 @@ func TestBindFeatureSurface_PreserverReplacementOrder(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			gen := makeTestGenSurface(tc.initial)
-			res, err := BindFeatureSurface(gen, port, []lipsdk.Registration{reg})
+			res, err := rt.bindCompactionContinuity(gen, []lipsdk.Registration{reg})
 			require.NoError(t, err)
 			preservers := lipfeature.Get(res.Frozen, lipfeature.PlaneCompactionPreservers)
 			require.Len(t, preservers, tc.wantCount)
@@ -211,19 +245,19 @@ func TestBindFeatureSurface_PreserverReplacementOrder(t *testing.T) {
 	}
 }
 
-func TestBindFeatureSurface_MultipleRegistrationsOrdering(t *testing.T) {
+func TestBindCompactionContinuity_MultipleRegistrationsOrdering(t *testing.T) {
 	t.Parallel()
-	port := newTestPort(t)
+	rt := newTestCompactionRuntime(t)
 	reg1 := validCompactionRegistration(t)
 	reg2 := validCompactionRegistration(t)
 
-	gen := makeTestGenSurface([]compaction.Preserver{
+	gen := makeTestGenSurface([]sdkcompaction.Preserver{
 		charPreserver{id: "custom-1"},
 		charPreserver{id: featurecontinuity.ID},
 		charPreserver{id: "custom-2"},
 	})
 
-	res, err := BindFeatureSurface(gen, port, []lipsdk.Registration{reg1, reg2})
+	res, err := rt.bindCompactionContinuity(gen, []lipsdk.Registration{reg1, reg2})
 	require.NoError(t, err)
 	preservers := lipfeature.Get(res.Frozen, lipfeature.PlaneCompactionPreservers)
 	require.Len(t, preservers, 3)
@@ -235,19 +269,19 @@ func TestBindFeatureSurface_MultipleRegistrationsOrdering(t *testing.T) {
 	assert.True(t, isPlugin)
 }
 
-func TestBindFeatureSurface_PanicSafetyDuringIdentityExtraction(t *testing.T) {
+func TestBindCompactionContinuity_PanicSafetyDuringIdentityExtraction(t *testing.T) {
 	t.Parallel()
-	port := newTestPort(t)
+	rt := newTestCompactionRuntime(t)
 	reg := validCompactionRegistration(t)
 
 	t.Run("panicking preserver with string is safely recovered and retained", func(t *testing.T) {
 		t.Parallel()
-		gen := makeTestGenSurface([]compaction.Preserver{
+		gen := makeTestGenSurface([]sdkcompaction.Preserver{
 			panickingPreserver{panicVal: "deliberate panic in ID()"},
 			charPreserver{id: featurecontinuity.ID},
 		})
 
-		res, err := BindFeatureSurface(gen, port, []lipsdk.Registration{reg})
+		res, err := rt.bindCompactionContinuity(gen, []lipsdk.Registration{reg})
 		require.NoError(t, err)
 		preservers := lipfeature.Get(res.Frozen, lipfeature.PlaneCompactionPreservers)
 		require.Len(t, preservers, 2)
@@ -257,13 +291,13 @@ func TestBindFeatureSurface_PanicSafetyDuringIdentityExtraction(t *testing.T) {
 
 	t.Run("panicking preserver with error is safely recovered and retained", func(t *testing.T) {
 		t.Parallel()
-		gen := makeTestGenSurface([]compaction.Preserver{
+		gen := makeTestGenSurface([]sdkcompaction.Preserver{
 			charPreserver{id: "custom-a"},
 			panickingPreserver{panicVal: errors.New("id extraction error panic")},
 			charPreserver{id: "custom-b"},
 		})
 
-		res, err := BindFeatureSurface(gen, port, []lipsdk.Registration{reg})
+		res, err := rt.bindCompactionContinuity(gen, []lipsdk.Registration{reg})
 		require.NoError(t, err)
 		preservers := lipfeature.Get(res.Frozen, lipfeature.PlaneCompactionPreservers)
 		require.Len(t, preservers, 4)
@@ -276,14 +310,13 @@ func TestBindFeatureSurface_PanicSafetyDuringIdentityExtraction(t *testing.T) {
 	t.Run("nil preserver interface value is safe and retained", func(t *testing.T) {
 		t.Parallel()
 		cs := lipfeature.NewContributionSet()
-		// Using ContributeSource with map path or direct preservers with nil
-		_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "feat", []compaction.Preserver{
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "feat", []sdkcompaction.Preserver{
 			charPreserver{id: "custom-1"},
 			charPreserver{id: featurecontinuity.ID},
 		})
 		gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
 
-		res, err := BindFeatureSurface(gen, port, []lipsdk.Registration{reg})
+		res, err := rt.bindCompactionContinuity(gen, []lipsdk.Registration{reg})
 		require.NoError(t, err)
 		preservers := lipfeature.Get(res.Frozen, lipfeature.PlaneCompactionPreservers)
 		require.Len(t, preservers, 2)
@@ -299,12 +332,12 @@ func TestBindFeatureSurface_PanicSafetyDuringIdentityExtraction(t *testing.T) {
 	})
 }
 
-func TestBindFeatureSurface_FailBeforeMutate_CandidateUnmodified(t *testing.T) {
+func TestBindCompactionContinuity_FailBeforeMutate_CandidateUnmodified(t *testing.T) {
 	t.Parallel()
-	port := newTestPort(t)
+	rt := newTestCompactionRuntime(t)
 	reg := validCompactionRegistration(t)
 
-	initialSurface := makeTestGenSurface([]compaction.Preserver{
+	initialSurface := makeTestGenSurface([]sdkcompaction.Preserver{
 		charPreserver{id: "preserved-preserver"},
 	})
 	snapshot := initialSurface
@@ -325,7 +358,7 @@ func TestBindFeatureSurface_FailBeforeMutate_CandidateUnmodified(t *testing.T) {
 			Config:      lipsdk.ConfigPayload{Node: badNode},
 		}
 
-		res, err := BindFeatureSurface(cand, port, []lipsdk.Registration{badReg})
+		res, err := rt.bindCompactionContinuity(cand, []lipsdk.Registration{badReg})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "compaction-continuity config")
 		assert.Equal(t, featurebundle.GeneratedMergeSurface{}, res)
@@ -348,29 +381,35 @@ func TestBindFeatureSurface_FailBeforeMutate_CandidateUnmodified(t *testing.T) {
 			Config:      lipsdk.ConfigPayload{Node: badNode},
 		}
 
-		res, err := BindFeatureSurface(cand, port, []lipsdk.Registration{badReg})
+		res, err := rt.bindCompactionContinuity(cand, []lipsdk.Registration{badReg})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "compaction-continuity config")
 		assert.Equal(t, featurebundle.GeneratedMergeSurface{}, res)
 		assert.Equal(t, snapshot, cand, "original candidate must remain byte-for-byte unmodified")
 	})
 
-	t.Run("ValidateFeaturePrerequisites fail-closed before binding", func(t *testing.T) {
+	t.Run("validateCompactionPrerequisites fail-closed before binding", func(t *testing.T) {
 		t.Parallel()
 		// Missing detector, coordinator, background
-		err := ValidateFeaturePrerequisites([]lipsdk.Registration{reg}, false, false, false)
+		emptyRT := &Runtime{}
+		err := emptyRT.validateCompactionPrerequisites([]lipsdk.Registration{reg})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "generation prerequisite")
 
 		// With all prerequisites satisfied
-		err = ValidateFeaturePrerequisites([]lipsdk.Registration{reg}, true, true, true)
+		validRT := &Runtime{
+			compactionDetector: compactiondetect.New(compactiondetect.Config{}),
+			branchCoordinator:  rt.branchCoordinator,
+			bgAux:              newTestScheduler(t),
+		}
+		err = validRT.validateCompactionPrerequisites([]lipsdk.Registration{reg})
 		require.NoError(t, err)
 	})
 }
 
-func TestBindFeatureSurface_MultiRegistrationTransaction_AllPlanesUntouched(t *testing.T) {
+func TestBindCompactionContinuity_MultiRegistrationTransaction_AllPlanesUntouched(t *testing.T) {
 	t.Parallel()
-	port := newTestPort(t)
+	rt := newTestCompactionRuntime(t)
 
 	// Valid registration (reg1)
 	reg1 := validCompactionRegistration(t)
@@ -387,11 +426,11 @@ func TestBindFeatureSurface_MultiRegistrationTransaction_AllPlanesUntouched(t *t
 	}
 
 	cs := lipfeature.NewContributionSet()
-	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "feat-pres", []compaction.Preserver{
+	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "feat-pres", []sdkcompaction.Preserver{
 		charPreserver{id: "orig-preserver-1"},
 		charPreserver{id: featurecontinuity.ID},
 	}))
-	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "feat-obs", []compaction.Observer{
+	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "feat-obs", []sdkcompaction.Observer{
 		charPreserver{id: "obs-1"},
 	}))
 	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "feat-hooks", []hooks.SubmitHook{
@@ -407,10 +446,10 @@ func TestBindFeatureSurface_MultiRegistrationTransaction_AllPlanesUntouched(t *t
 	}
 	snapshot := initialSurface
 
-	// Calling BindFeatureSurface with [reg1, reg2] where reg1 succeeds and reg2 fails config decode
-	res, err := BindFeatureSurface(initialSurface, port, []lipsdk.Registration{reg1, reg2})
+	// Calling bindCompactionContinuity with [reg1, reg2] where reg1 succeeds and reg2 fails config decode
+	res, err := rt.bindCompactionContinuity(initialSurface, []lipsdk.Registration{reg1, reg2})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "compactioncompose: compaction-continuity config")
+	assert.Contains(t, err.Error(), "featurehost: compaction-continuity config")
 	assert.Equal(t, featurebundle.GeneratedMergeSurface{}, res, "returned surface on error must be zero-value")
 
 	// Candidate and its frozen planes must remain 100% byte-for-byte untouched across ALL planes
@@ -436,24 +475,24 @@ func TestBindFeatureSurface_MultiRegistrationTransaction_AllPlanesUntouched(t *t
 	assert.Equal(t, "xform-1", xformGot[0].ID())
 }
 
-func TestBindFeatureSurface_Idempotence(t *testing.T) {
+func TestBindCompactionContinuity_Idempotence(t *testing.T) {
 	t.Parallel()
-	port := newTestPort(t)
+	rt := newTestCompactionRuntime(t)
 	reg := validCompactionRegistration(t)
 
-	initial := makeTestGenSurface([]compaction.Preserver{
+	initial := makeTestGenSurface([]sdkcompaction.Preserver{
 		charPreserver{id: "custom-a"},
 		charPreserver{id: featurecontinuity.ID},
 		charPreserver{id: "custom-b"},
 	})
 
-	res1, err := BindFeatureSurface(initial, port, []lipsdk.Registration{reg})
+	res1, err := rt.bindCompactionContinuity(initial, []lipsdk.Registration{reg})
 	require.NoError(t, err)
 
-	res2, err := BindFeatureSurface(res1, port, []lipsdk.Registration{reg})
+	res2, err := rt.bindCompactionContinuity(res1, []lipsdk.Registration{reg})
 	require.NoError(t, err)
 
-	res3, err := BindFeatureSurface(res2, port, []lipsdk.Registration{reg})
+	res3, err := rt.bindCompactionContinuity(res2, []lipsdk.Registration{reg})
 	require.NoError(t, err)
 
 	p1 := lipfeature.Get(res1.Frozen, lipfeature.PlaneCompactionPreservers)
@@ -470,12 +509,12 @@ func TestBindFeatureSurface_Idempotence(t *testing.T) {
 	}
 }
 
-func TestBindFeatureSurface_DisabledAndNonMatchingRegistrations(t *testing.T) {
+func TestBindCompactionContinuity_DisabledAndNonMatchingRegistrations(t *testing.T) {
 	t.Parallel()
-	port := newTestPort(t)
+	rt := newTestCompactionRuntime(t)
 	reg := validCompactionRegistration(t)
 
-	initial := makeTestGenSurface([]compaction.Preserver{
+	initial := makeTestGenSurface([]sdkcompaction.Preserver{
 		charPreserver{id: "custom-a"},
 		charPreserver{id: featurecontinuity.ID},
 	})
@@ -484,7 +523,7 @@ func TestBindFeatureSurface_DisabledAndNonMatchingRegistrations(t *testing.T) {
 		t.Parallel()
 		disabledReg := reg
 		disabledReg.Enabled = false
-		res, err := BindFeatureSurface(initial, port, []lipsdk.Registration{disabledReg})
+		res, err := rt.bindCompactionContinuity(initial, []lipsdk.Registration{disabledReg})
 		require.NoError(t, err)
 		assert.True(t, reflect.DeepEqual(initial, res), "disabled registration must return exact surface unmodified")
 	})
@@ -493,7 +532,7 @@ func TestBindFeatureSurface_DisabledAndNonMatchingRegistrations(t *testing.T) {
 		t.Parallel()
 		backendReg := reg
 		backendReg.Kind = lipsdk.PluginKindBackend
-		res, err := BindFeatureSurface(initial, port, []lipsdk.Registration{backendReg})
+		res, err := rt.bindCompactionContinuity(initial, []lipsdk.Registration{backendReg})
 		require.NoError(t, err)
 		assert.True(t, reflect.DeepEqual(initial, res), "backend registration must be ignored")
 	})
@@ -502,8 +541,32 @@ func TestBindFeatureSurface_DisabledAndNonMatchingRegistrations(t *testing.T) {
 		t.Parallel()
 		otherReg := reg
 		otherReg.FactoryKind = "other-feature"
-		res, err := BindFeatureSurface(initial, port, []lipsdk.Registration{otherReg})
+		res, err := rt.bindCompactionContinuity(initial, []lipsdk.Registration{otherReg})
 		require.NoError(t, err)
 		assert.True(t, reflect.DeepEqual(initial, res), "other feature registration must be ignored")
 	})
+}
+
+func TestBindCompactionContinuity_ZeroObserversComposesOfficialPreserver(t *testing.T) {
+	t.Parallel()
+	rt := newTestCompactionRuntime(t)
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte("extractor:\n  enabled: true\n  route: inherit\n"), &node); err != nil {
+		t.Fatal(err)
+	}
+	res, err := rt.bindCompactionContinuity(featurebundle.GeneratedMergeSurface{}, []lipsdk.Registration{{
+		ID:          featurecontinuity.ID,
+		FactoryKind: featurecontinuity.ID,
+		Kind:        lipsdk.PluginKindFeature,
+		Enabled:     true,
+		Config:      lipsdk.ConfigPayload{Node: node},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs := lipfeature.Get(res.Frozen, lipfeature.PlaneCompactionObservers)
+	pres := lipfeature.Get(res.Frozen, lipfeature.PlaneCompactionPreservers)
+	if len(obs) != 0 || len(pres) != 1 || pres[0].ID() != featurecontinuity.ID {
+		t.Fatalf("observers=%d preservers=%v", len(obs), pres)
+	}
 }

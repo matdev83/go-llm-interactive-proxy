@@ -7,10 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
-	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	featurecompaction "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
@@ -61,7 +58,7 @@ func TestCompileGeneration_BinderFailuresFailClosed(t *testing.T) {
 			Opts: &BuildOptions{PluginRegistry: reg},
 		})
 		require.NoError(t, err)
-		ps.BranchCoordinator = nil
+		ps.StandardFeatures = nil
 		t.Cleanup(func() { _ = ps.Close() })
 
 		gen, err := CompileGeneration(context.Background(), GenerationCompileInput{
@@ -143,12 +140,6 @@ func TestCompileGeneration_BinderFailuresFailClosed(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = scheduler.Close() })
 
-		coord, err := compactioncontinuity.NewBranchCoordinator(context.Background(), compactioncontinuity.Config{})
-		require.NoError(t, err)
-
-		parentPort, err := compactioncompose.NewCompactionContinuityParentPort(coord)
-		require.NoError(t, err)
-
 		prod := ProductionOptions{
 			ReasoningCompression: ReasoningCompressionOptions{
 				EgressPolicies: map[string]reasoningpreservation.EgressPolicy{
@@ -166,9 +157,6 @@ func TestCompileGeneration_BinderFailuresFailClosed(t *testing.T) {
 			BackgroundAux: scheduler,
 		})
 		require.NoError(t, err)
-		ps.CompactionDetector = compactiondetect.New(compactiondetect.Config{})
-		ps.BranchCoordinator = coord
-		ps.CompactionParentPort = parentPort
 		t.Cleanup(func() { _ = ps.Close() })
 
 		gen, err := CompileGeneration(context.Background(), GenerationCompileInput{

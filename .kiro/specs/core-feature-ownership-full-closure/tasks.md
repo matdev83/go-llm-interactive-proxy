@@ -150,7 +150,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 3. Make compaction-continuity domain/state feature-owned
-- [ ] 3.1 Move compaction-continuity domain files mechanically under the feature
+- [x] 3.1 Move compaction-continuity domain files mechanically under the feature
   - Move coordinator/types/capsule/jobs/injection/preview/state code and their focused tests from the post-first equivalent of `internal/core/compactioncontinuity` into `internal/plugins/features/compactioncontinuity/state` (or the smallest feature-local subpackage matching design).
   - First commit should be mechanical with minimal import/name edits; do not change algorithms, constants, persistence keys or error semantics.
   - Feature-local package may import `pkg/lipapi`, `pkg/lipsdk/*` and feature-local packages only; no core/runtimebundle imports.
@@ -159,7 +159,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 2.4_
   - _Validation: moved package tests including race/reload characterization_
 
-- [ ] 3.2 Rebuild authoritative parent binding as a featurehost adapter
+- [x] 3.2 Rebuild authoritative parent binding as a featurehost adapter
   - Move/refactor feature-specific pieces of `compactioncompose` parent-port logic into `internal/standardplugins/featurehost/compaction`.
   - Adapter converts already-authoritative core/session/principal facts into the feature's opaque branch binding and implements the existing feature `ParentPort` contract.
   - Do not expose B2BUA/secure-session mutable stores to the feature. Do not let feature state choose an A-leg/branch from child or untrusted request hints.
@@ -169,7 +169,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 3.1_
   - _Validation: compaction continuity security/parent-port tests; adversarial cross-session/A-leg tests_
 
-- [ ] 3.3 Atomically move compaction process ownership under featurehost and delete generic fields/package
+- [x] 3.3 Atomically move compaction process ownership under featurehost and delete generic fields/package
   - Featurehost constructs/retains the process-shared coordinator and parent adapter.
   - In the same integration change, remove/disable their legacy constructor and lifecycle/close registration before enabling the featurehost-owned path; update the Task 2.3 transition table from `legacy` to `featurehost`.
   - If the post-first concrete compaction detector/support is still represented by a per-feature `ProcessServices` field, classify it now: if it is part of the same compaction standard-feature process service, transfer its construction/ownership in this task; if Task 1.1 proves it is a distinct support responsibility, assign its atomic handoff to Task 10 and keep it explicitly legacy-owned until then. It may not remain unassigned through Task 10.4.

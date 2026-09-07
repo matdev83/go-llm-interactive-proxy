@@ -319,6 +319,7 @@ var RetiredPackageDirs = []string{
 	"internal/core/toolcallrepair",
 	"internal/core/secretguard",
 	"internal/core/compactiondetect",
+	"internal/core/compactioncontinuity",
 }
 
 // ScanFileRetiredPackage checks if a repo-relative file path belongs to a retired package.

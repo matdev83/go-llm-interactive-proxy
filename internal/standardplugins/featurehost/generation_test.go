@@ -114,10 +114,10 @@ func TestCompileGeneration_CandidateFailure_LastGoodIsolation(t *testing.T) {
 
 	// Compile candidate with real invalid feature entry
 	invalidRegs := []lipsdk.Registration{{
-		Kind:        lipsdk.PluginKindFeature,
-		ID:          "secrets-guard",
-		Enabled:     true,
-		Config:      lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: totally-invalid-action\n")},
+		Kind:    lipsdk.PluginKindFeature,
+		ID:      "secrets-guard",
+		Enabled: true,
+		Config:  lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: totally-invalid-action\n")},
 	}}
 	failIn := featurehost.GenerationInput{
 		Registrations: invalidRegs,
@@ -162,16 +162,76 @@ func TestCompileGeneration_ZeroProcessResourceConstruction(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = rt.Close() })
 
-	// Compile generation multiple times
+	detector := rt.CompactionDetector()
+	if detector == nil {
+		t.Fatal("expected non-nil CompactionDetector on Runtime")
+	}
+
+	// Compile generation multiple times: CorePorts must receive the process-owned
+	// detector and must NOT construct new process resources.
 	for range 3 {
 		out, err := rt.CompileGeneration(ctx, featurehost.GenerationInput{})
 		if err != nil {
 			t.Fatalf("CompileGeneration: %v", err)
 		}
-		// CorePorts in Task 2.2 must NOT construct new process resources
-		if out.CorePorts.CompactionDetector != nil {
-			t.Fatal("CompileGeneration unexpectedly constructed CompactionDetector")
+		if out.CorePorts.CompactionDetector != detector {
+			t.Fatal("CompileGeneration returned different CompactionDetector instance; must share process-owned detector")
 		}
+	}
+}
+
+func TestCompileGeneration_ZeroCompactionResourceConstruction_Overlapping(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	sched := newTestScheduler(t)
+	t.Cleanup(func() { _ = sched.Close() })
+
+	rt, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{
+		Logger:         slog.Default(),
+		ExtensionState: state.NewMem(nil),
+		BackgroundAux:  sched,
+	})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	t.Cleanup(func() { _ = rt.Close() })
+
+	var node yaml.Node
+	_ = yaml.Unmarshal([]byte("extractor:\n  enabled: true\n  route: inherit\n"), &node)
+	reg := lipsdk.Registration{
+		ID:          "compaction-continuity",
+		FactoryKind: "compaction-continuity",
+		Kind:        lipsdk.PluginKindFeature,
+		Enabled:     true,
+		Config:      lipsdk.ConfigPayload{Node: node},
+	}
+
+	genIn := featurehost.GenerationInput{
+		Registrations: []lipsdk.Registration{reg},
+	}
+
+	// Compile generation 1
+	gen1Out, err := rt.CompileGeneration(ctx, genIn)
+	if err != nil {
+		t.Fatalf("CompileGeneration #1: %v", err)
+	}
+
+	// Compile overlapping generation 2
+	gen2Out, err := rt.CompileGeneration(ctx, genIn)
+	if err != nil {
+		t.Fatalf("CompileGeneration #2: %v", err)
+	}
+
+	// Overlapping generations must observe the same process-owned detector
+	// through the public consumer port (per-generation reconstruction would
+	// surface here; coordinator/port identity is proven inside package
+	// featurehost via unexported fields).
+	if gen1Out.CorePorts.CompactionDetector == nil || gen2Out.CorePorts.CompactionDetector == nil {
+		t.Fatal("expected non-nil CompactionDetector in CorePorts")
+	}
+	if gen1Out.CorePorts.CompactionDetector != gen2Out.CorePorts.CompactionDetector {
+		t.Fatalf("overlapping gen1 vs gen2 detector changed: %p vs %p", gen1Out.CorePorts.CompactionDetector, gen2Out.CorePorts.CompactionDetector)
 	}
 }
 

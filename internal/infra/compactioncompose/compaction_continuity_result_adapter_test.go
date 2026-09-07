@@ -5,23 +5,23 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/resultmerge"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 )
 
 func TestCompactionContinuityResultAdapterUsesCapturedParentForValidateAndCommit(t *testing.T) {
 	t.Parallel()
 
-	coordinator, err := compactioncontinuity.NewBranchCoordinator(context.Background(), compactioncontinuity.Config{})
+	coordinator, err := state.NewBranchCoordinator(context.Background(), state.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	parent, err := compactioncontinuity.CaptureParentBranchKey("session-result-parent", "a-parent", "principal-1")
+	parent, err := state.CaptureParentBranchKey("session-result-parent", "a-parent", "principal-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := compactioncontinuity.NewBranchKey("session-result-parent", "a-child", "principal-1")
+	child, err := state.NewBranchKey("session-result-parent", "a-child", "principal-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,17 +76,17 @@ func TestCompactionContinuityResultAdapterUsesCapturedParentForValidateAndCommit
 		committed.PendingJobBranchBinding != "" {
 		t.Fatalf("translated committed state = %#v", committed)
 	}
-	if _, err := coordinator.ValidatePendingJob(context.Background(), parent, jobID); !errors.Is(err, compactioncontinuity.ErrPendingJobMismatch) {
+	if _, err := coordinator.ValidatePendingJob(context.Background(), parent, jobID); !errors.Is(err, state.ErrPendingJobMismatch) {
 		t.Fatalf("job-bound commit did not clear pending job: %v", err)
 	}
 
-	if _, err := adapter.ValidatePendingJob(context.Background(), child.Binding(), jobID); !errors.Is(err, compactioncontinuity.ErrBranchMismatch) {
+	if _, err := adapter.ValidatePendingJob(context.Background(), child.Binding(), jobID); !errors.Is(err, state.ErrBranchMismatch) {
 		t.Fatalf("child binding validation error = %v, want ErrBranchMismatch", err)
 	}
-	if _, err := adapter.CommitCapsuleForJob(context.Background(), parentBinding, jobID, child.Binding(), 1, []byte(`child`), [32]byte{3}, "source-child"); !errors.Is(err, compactioncontinuity.ErrBranchMismatch) {
+	if _, err := adapter.CommitCapsuleForJob(context.Background(), parentBinding, jobID, child.Binding(), 1, []byte(`child`), [32]byte{3}, "source-child"); !errors.Is(err, state.ErrBranchMismatch) {
 		t.Fatalf("child result binding commit error = %v, want ErrBranchMismatch", err)
 	}
-	if _, err := adapter.CommitCapsuleForJob(context.Background(), child.Binding(), jobID, parentBinding, 1, []byte(`child`), [32]byte{3}, "source-child"); !errors.Is(err, compactioncontinuity.ErrBranchMismatch) {
+	if _, err := adapter.CommitCapsuleForJob(context.Background(), child.Binding(), jobID, parentBinding, 1, []byte(`child`), [32]byte{3}, "source-child"); !errors.Is(err, state.ErrBranchMismatch) {
 		t.Fatalf("child parent binding commit error = %v, want ErrBranchMismatch", err)
 	}
 }
@@ -94,14 +94,14 @@ func TestCompactionContinuityResultAdapterUsesCapturedParentForValidateAndCommit
 func TestCompactionContinuityResultAdapterRejectsInvalidCapturedParent(t *testing.T) {
 	t.Parallel()
 
-	key, err := compactioncontinuity.NewBranchKey("session-result-invalid", "a-parent", "")
+	key, err := state.NewBranchKey("session-result-invalid", "a-parent", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := NewCompactionContinuityResultAdapter(nil, key); err == nil {
 		t.Fatal("nil coordinator must be rejected")
 	}
-	if _, err := NewCompactionContinuityResultAdapter(&compactioncontinuity.BranchCoordinator{}, compactioncontinuity.BranchKey{}); err == nil {
+	if _, err := NewCompactionContinuityResultAdapter(&state.BranchCoordinator{}, state.BranchKey{}); err == nil {
 		t.Fatal("invalid parent key must be rejected")
 	}
 }

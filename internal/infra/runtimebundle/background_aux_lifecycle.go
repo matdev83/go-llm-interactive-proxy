@@ -5,7 +5,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
-	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 )
 
 type BackgroundAuxScheduler = auxreq.BackgroundScheduler
@@ -26,5 +25,4 @@ func adoptBackgroundAuxAndDetector(ctx context.Context, in *ProcessServicesInput
 	if ps.BackgroundAux != nil {
 		register(ps.BackgroundAux.Close)
 	}
-	ps.CompactionDetector = compactiondetect.New(compactiondetect.Config{})
 }

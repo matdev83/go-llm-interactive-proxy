@@ -9,7 +9,10 @@ import (
 	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
 
@@ -18,20 +21,34 @@ import (
 // in reverse acquisition order upon Close. Borrowed resources (BackgroundAux,
 // DB pools, etc.) are never closed by Runtime (Requirement 8.5, design §7).
 type Runtime struct {
-	logger         *slog.Logger
-	extState       lipstate.Store
-	bgAux          *auxreq.BackgroundScheduler // borrowed, never closed
-	terminalPolicy *terminaldecisionpolicy.Store
-	closers        []func() error
-	closeOnce      sync.Once
-	closeErr       error
-	closed         atomic.Bool
+	logger               *slog.Logger
+	extState             lipstate.Store
+	bgAux                *auxreq.BackgroundScheduler // borrowed, never closed
+	terminalPolicy       *terminaldecisionpolicy.Store
+	compactionDetector   runtime.CompactionDetector
+	branchCoordinator    *state.BranchCoordinator
+	compactionParentPort *compaction.ParentPort
+	closers              []func() error
+	closeOnce            sync.Once
+	closeErr             error
+	closed               atomic.Bool
 }
 
 func (r *Runtime) registerCloser(closer func() error) {
 	if closer != nil {
 		r.closers = append(r.closers, closer)
 	}
+}
+
+// CompactionDetector returns the featurehost-owned compaction detector.
+// It is the single permitted detector observer: generic runtimebundle wires
+// it into candidate executors (candidate_compile.go), and the transition
+// guard observes it. Coordinator/parent-port have no such observer by design.
+func (r *Runtime) CompactionDetector() runtime.CompactionDetector {
+	if r == nil {
+		return nil
+	}
+	return r.compactionDetector
 }
 
 // TerminalDecisionPolicy returns the featurehost-owned terminal decision policy store, if owned.

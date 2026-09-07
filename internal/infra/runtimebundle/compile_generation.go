@@ -60,9 +60,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		return nil, err
 	}
 	regs := freezeRegistrations(config.RegistrationsFromConfig(frozen))
-	if err := validateCompactionContinuityGeneration(ps, regs); err != nil {
-		return nil, err
-	}
 	genRunner, boundClient, boundPoller, err := newReasoningCompressionGenerationRunner(ps)
 	if err != nil {
 		return nil, err
@@ -81,9 +78,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: candidate feature planes: %w", err)
 		}
-	}
-	if genMerged, err = bindCompactionContinuity(genMerged, ps, regs); err != nil {
-		return nil, err
 	}
 	accessMode, err := frozen.EffectiveAccessMode()
 	if err != nil {

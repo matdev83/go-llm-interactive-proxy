@@ -9,9 +9,15 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
+	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
+	compactionstate "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"gopkg.in/yaml.v3"
 )
 
 type dummyRunner struct{}
@@ -142,5 +148,106 @@ func TestProcess_DoesNotImplementIoCloserOnProcessInput(t *testing.T) {
 	in := featurehost.ProcessInput{}
 	if _, ok := any(in).(io.Closer); ok {
 		t.Fatal("ProcessInput must not implement io.Closer")
+	}
+}
+
+func TestCompaction_DirectConstructorCounting(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	coord1, err := compactionstate.NewBranchCoordinator(ctx, compactionstate.Config{})
+	if err != nil {
+		t.Fatalf("NewBranchCoordinator #1: %v", err)
+	}
+	coord2, err := compactionstate.NewBranchCoordinator(ctx, compactionstate.Config{})
+	if err != nil {
+		t.Fatalf("NewBranchCoordinator #2: %v", err)
+	}
+	if coord1 == coord2 {
+		t.Fatalf("state.NewBranchCoordinator returned identical pointer: %p", coord1)
+	}
+
+	port1, err := compaction.NewParentPort(coord1)
+	if err != nil {
+		t.Fatalf("NewParentPort #1: %v", err)
+	}
+	port2, err := compaction.NewParentPort(coord1)
+	if err != nil {
+		t.Fatalf("NewParentPort #2: %v", err)
+	}
+	if port1 == port2 {
+		t.Fatalf("compaction.NewParentPort returned identical pointer: %p", port1)
+	}
+
+	det1 := compactiondetect.New(compactiondetect.Config{})
+	det2 := compactiondetect.New(compactiondetect.Config{})
+	if det1 == det2 {
+		t.Fatalf("compactiondetect.New returned identical pointer: %p", det1)
+	}
+}
+
+func TestCompaction_ProcessLevelDistinctInstancesAcrossProcesses(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sched1 := newTestScheduler(t)
+	t.Cleanup(func() { _ = sched1.Close() })
+	sched2 := newTestScheduler(t)
+	t.Cleanup(func() { _ = sched2.Close() })
+
+	rt1, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{
+		Logger:         slog.Default(),
+		ExtensionState: state.NewMem(nil),
+		BackgroundAux:  sched1,
+	})
+	if err != nil {
+		t.Fatalf("NewProcess #1: %v", err)
+	}
+	t.Cleanup(func() { _ = rt1.Close() })
+
+	rt2, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{
+		Logger:         slog.Default(),
+		ExtensionState: state.NewMem(nil),
+		BackgroundAux:  sched2,
+	})
+	if err != nil {
+		t.Fatalf("NewProcess #2: %v", err)
+	}
+	t.Cleanup(func() { _ = rt2.Close() })
+
+	var node yaml.Node
+	_ = yaml.Unmarshal([]byte("extractor:\n  enabled: true\n  route: inherit\n"), &node)
+	reg := lipsdk.Registration{
+		ID:          "compaction-continuity",
+		FactoryKind: "compaction-continuity",
+		Kind:        lipsdk.PluginKindFeature,
+		Enabled:     true,
+		Config:      lipsdk.ConfigPayload{Node: node},
+	}
+	genIn := featurehost.GenerationInput{
+		Registrations: []lipsdk.Registration{reg},
+	}
+	out1, err := rt1.CompileGeneration(ctx, genIn)
+	if err != nil {
+		t.Fatalf("CompileGeneration #1: %v", err)
+	}
+	out2, err := rt2.CompileGeneration(ctx, genIn)
+	if err != nil {
+		t.Fatalf("CompileGeneration #2: %v", err)
+	}
+
+	if out1.CorePorts.CompactionDetector == nil || out2.CorePorts.CompactionDetector == nil {
+		t.Fatal("expected non-nil CompactionDetector in CorePorts")
+	}
+	if out1.CorePorts.CompactionDetector == out2.CorePorts.CompactionDetector {
+		t.Fatalf("CompactionDetector pointer identical across processes: %p", out1.CorePorts.CompactionDetector)
+	}
+
+	pres1 := lipfeature.Get(out1.Planes, lipfeature.PlaneCompactionPreservers)
+	pres2 := lipfeature.Get(out2.Planes, lipfeature.PlaneCompactionPreservers)
+	if len(pres1) == 0 || len(pres2) == 0 {
+		t.Fatal("expected bound compaction preservers in generation output")
+	}
+	if pres1[0] == pres2[0] {
+		t.Fatalf("bound compaction preserver identical across processes: %p", pres1[0])
 	}
 }

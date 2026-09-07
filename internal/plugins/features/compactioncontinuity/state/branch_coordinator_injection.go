@@ -1,4 +1,4 @@
-package compactioncontinuity
+package state
 
 import (
 	"context"

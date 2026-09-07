@@ -1,4 +1,4 @@
-package compactioncontinuity
+package state
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
@@ -470,10 +469,51 @@ func TestBranchCoordinator_SerializesConcurrentInjectionUpdates(t *testing.T) {
 	}
 }
 
+type memStore struct {
+	mu      sync.Mutex
+	entries map[string]any
+}
+
+func newMemStore() *memStore {
+	return &memStore{entries: make(map[string]any)}
+}
+
+func (m *memStore) Get(_ context.Context, _ lipstate.Scope, ns, key string, out any) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	val, ok := m.entries[ns+":"+key]
+	if !ok {
+		return false, nil
+	}
+	data, err := json.Marshal(val)
+	if err != nil {
+		return false, err
+	}
+	return true, json.Unmarshal(data, out)
+}
+
+func (m *memStore) Put(_ context.Context, _ lipstate.Scope, ns, key string, val any, _ time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries[ns+":"+key] = val
+	return nil
+}
+
+func (m *memStore) Delete(_ context.Context, _ lipstate.Scope, ns, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.entries, ns+":"+key)
+	return nil
+}
+
+func (m *memStore) InspectTTL(_ context.Context, _ lipstate.Scope, _, _ string) (time.Duration, bool, error) {
+	return 0, false, nil
+}
+
 func TestBranchCoordinator_UsesOpaqueProcessExtensionStateAcrossCoordinatorReload(t *testing.T) {
 	t.Parallel()
 
-	store := corestate.NewMem(nil)
+	store := newMemStore()
 	c1, err := NewBranchCoordinator(context.Background(), Config{Store: store})
 	if err != nil {
 		t.Fatal(err)

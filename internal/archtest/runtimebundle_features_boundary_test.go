@@ -109,8 +109,8 @@ func TestForbiddenImports_RuntimeBundleConcreteFeaturesRenamedOrNestedBypassReje
 			wantForbid: false,
 		},
 		{
-			name:       "compactioncompose dedicated adapter imports feature (allowed)",
-			relPath:    "internal/infra/compactioncompose/parent_port.go",
+			name:       "featurehost compaction dedicated adapter imports feature (allowed)",
+			relPath:    "internal/standardplugins/featurehost/compaction/parent_port.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity",
 			wantForbid: false,
 		},
