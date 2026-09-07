@@ -97,7 +97,7 @@ func archScopeFromParsed(files map[string]*ast.File) *archPkgScope {
 				if !ok {
 					continue
 				}
-				if st, ok := ts.Type.(*ast.StructType); ok {
+				if st, ok := unwrapArchParens(ts.Type).(*ast.StructType); ok {
 					if _, exists := scope.structs[ts.Name.Name]; !exists {
 						scope.structs[ts.Name.Name] = st
 						scope.ownerOf[ts.Name.Name] = pf
@@ -156,7 +156,7 @@ func scanStructForFeatureFields(node *ast.File, structName string, allowedExcept
 	return archScopeFromParsed(map[string]*ast.File{"synthetic.go": node}).scan(structName, allowedExceptions)
 }
 
-// splitArchShape unwraps pointer/array layers, returning the shape prefix.
+// splitArchShape unwraps pointer/array/paren layers, returning the shape prefix.
 func splitArchShape(expr ast.Expr) (string, ast.Expr) {
 	shape := ""
 	curr := expr
@@ -168,6 +168,8 @@ func splitArchShape(expr ast.Expr) (string, ast.Expr) {
 		case *ast.ArrayType:
 			shape += "[]"
 			curr = t.Elt
+		case *ast.ParenExpr:
+			curr = t.X
 		default:
 			return shape, curr
 		}

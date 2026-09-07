@@ -41,6 +41,14 @@ import (
 //	  aggregate code; BadExpr only arises from syntax errors. Array lengths
 //	  are deliberately not visited (an index length is never a type).
 
+// unwrapArchParens strips (possibly nested) ParenExpr wrappers.
+func unwrapArchParens(expr ast.Expr) ast.Expr {
+	for p, ok := expr.(*ast.ParenExpr); ok; p, ok = expr.(*ast.ParenExpr) {
+		expr = p.X
+	}
+	return expr
+}
+
 // forbiddenInDeclType reports whether the declaration of local type name
 // references a forbidden feature package, walking into container shapes and
 // following nested local declarations. visiting guards alias cycles.

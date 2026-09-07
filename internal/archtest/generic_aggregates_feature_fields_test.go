@@ -116,10 +116,12 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 	for _, tgt := range targets {
 		absPath := filepath.Join(root, filepath.FromSlash(tgt.relFile))
 		dir := filepath.Dir(absPath)
+		if _, ok := scopes[dir].structs[tgt.structName]; !ok {
+			t.Fatalf("generic aggregate target %q (%s) missing from parsed scope: scanner blind spot, refusing to pass", tgt.structName, tgt.relFile)
+		}
 		structViolations := scopes[dir].scanWithRows(tgt.structName, dirRows[dir])
 		violations = append(violations, structViolations...)
 	}
-
 	if len(violations) > 0 {
 		t.Fatalf("generic aggregates contain forbidden per-feature fields (%d):\n%s",
 			len(violations), strings.Join(violations, "\n"))
@@ -451,7 +453,7 @@ func TestGenericAggregates_R3cNestedInlineStructFieldNames(t *testing.T) {
 	t.Parallel()
 	decls := "type Box[T any] struct{ Value T }\ntype Pair[A, B any] struct{ First A\nSecond B }\n"
 	src := func(body string) map[string]string {
-		return map[string]string{"synthetic.go": "package fixture\n" + decls + body}
+		return map[string]string{"synthetic.go": "package fixture\n" + body + decls}
 	}
 	cases := []struct {
 		name      string
@@ -465,6 +467,9 @@ func TestGenericAggregates_R3cNestedInlineStructFieldNames(t *testing.T) {
 		{"defined chain to generic instantiation of inline struct", "type WrappedInlineDef Box[struct{ KeepwarmReplicaCount int }]\ntype WrappedInlineDefChain WrappedInlineDef\ntype DefinedWrappedAggregate struct {\n\tSlot WrappedInlineDefChain\n}\n", "DefinedWrappedAggregate", 1},
 		{"func param inline struct", "type FuncInlineAggregate struct {\n\tHandler func(struct{ KeepwarmReplicaCount int }) int\n}\n", "FuncInlineAggregate", 1},
 		{"paren-wrapped inline struct in generic arg", "type ParenInlineAggregate struct {\n\tSlot Box[(struct{ KeepwarmReplicaCount int })]\n}\n", "ParenInlineAggregate", 1},
+		{"paren root struct with name+package violations", "import \"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm\"\ntype ParenBothAggregate (struct {\n\tKeepwarmReplicaCount int\n\tSlot *keepwarm.Manager\n})\n", "ParenBothAggregate", 2},
+		{"doubly-paren root struct with name-only violation", "type ParenNameOnlyAggregate ((struct {\n\tKeepwarmReplicaCount int\n}))\n", "ParenNameOnlyAggregate", 1},
+		{"neutral paren root struct stays silent", "type ParenNeutralAggregate (struct {\n\tCount int\n})\n", "ParenNeutralAggregate", 0},
 		// R3d (Phase-10 review): named structs reached only by expanding an
 		// alias/defined generic container route through the named scanner.
 		{"alias container to generic instantiation of named struct", "type InnerGroup struct{ KeepwarmReplicaCount int }\ntype Wrapped = Box[InnerGroup]\ntype AliasContainerAggregate struct {\n\tSlot Wrapped\n}\n", "AliasContainerAggregate", 1},
