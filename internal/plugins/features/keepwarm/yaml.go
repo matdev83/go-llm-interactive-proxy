@@ -2,6 +2,7 @@ package keepwarm
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -86,10 +87,13 @@ func ConfigFromYAML(data []byte) (Config, error) {
 
 func ParseYAML(data []byte) (Config, error) { return ConfigFromYAML(data) }
 
-// DecodeConfig unmarshals a YAML node directly into Config.
+// DecodeConfig unmarshals a YAML node directly into Config with strict unknown field checks.
 func DecodeConfig(n yaml.Node) (Config, error) {
 	if n.Kind == 0 {
 		return DefaultConfig(), nil
+	}
+	if err := checkKeepwarmMappingKeys(n); err != nil {
+		return Config{}, err
 	}
 	var in yamlKeepwarm
 	if err := n.Decode(&in); err != nil {
@@ -140,4 +144,49 @@ func DecodeConfig(n yaml.Node) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func checkKeepwarmMappingKeys(n yaml.Node) error {
+	root := n
+	if root.Kind == yaml.DocumentNode {
+		if len(root.Content) == 0 {
+			return nil
+		}
+		root = *root.Content[0]
+	}
+	if root.Kind == 0 || (root.Kind == yaml.ScalarNode && (root.Tag == "!!null" || strings.TrimSpace(root.Value) == "" || root.Value == "null")) {
+		return nil
+	}
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("%w: config must be a mapping or null", ErrInvalidConfig)
+	}
+	for i := 0; i < len(root.Content); i += 2 {
+		k := root.Content[i].Value
+		switch k {
+		case "enabled", "max_refreshes_per_idle_epoch", "max_idle_duration",
+			"max_active_targets", "max_concurrent_renewals", "renew_timeout",
+			"continue_after_cold_recreate", "max_cold_recreates_per_idle_epoch",
+			"max_provider_tokens_per_idle_epoch", "heuristic_overrides":
+		default:
+			return fmt.Errorf("%w: unknown config key %q", ErrInvalidConfig, k)
+		}
+		if k == "heuristic_overrides" {
+			val := root.Content[i+1]
+			if val.Kind == yaml.SequenceNode {
+				for _, item := range val.Content {
+					if item.Kind == yaml.MappingNode {
+						for j := 0; j < len(item.Content); j += 2 {
+							hk := item.Content[j].Value
+							switch hk {
+							case "backend_instance", "canonical_model", "interval":
+							default:
+								return fmt.Errorf("%w: unknown heuristic_overrides key %q", ErrInvalidConfig, hk)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
 }

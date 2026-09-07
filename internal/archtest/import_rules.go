@@ -215,6 +215,11 @@ var ForbiddenImports = []ForbiddenImportRule{
 		Reason:        "internal/core must not depend on concrete feature plugins",
 	},
 	{
+		SourcePattern: "internal/core/config",
+		TargetPattern: "/internal/plugins/features/",
+		Reason:        "core config must not depend on concrete feature plugins",
+	},
+	{
 		SourcePattern: "internal/infra/runtimebundle",
 		TargetPattern: "/internal/plugins/features/",
 		Reason:        "runtimebundle must not depend on concrete feature plugins",

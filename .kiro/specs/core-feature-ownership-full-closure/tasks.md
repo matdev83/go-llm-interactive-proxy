@@ -383,8 +383,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 9. Move optional UX configuration/defaults out of core config
-- [ ] 9.1 Move interleaved feature configuration and built-in prompt to the feature
+- [x] 9. Move optional UX configuration/defaults out of core config
+- [x] 9.1 Move interleaved feature configuration and built-in prompt to the feature
   - Move `stream_to_client`, memo budget, max memo bytes, instructions file, built-in thinker prompt, file size/path policy and feature-specific validation/defaults to `internal/plugins/features/interleavedthinking/config.go`/`instructions.go`.
   - Core routing may retain only the minimum enablement/selector legality value if route planning genuinely requires it; prefer receiving enabled status through the generation-bound processor/route options rather than a full config object.
   - `internal/core/config` must not import the feature or define its prompt/defaults.
@@ -393,7 +393,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 8.4_
   - _Validation: config parity/migration tests; routing disabled/enabled behavior_
 
-- [ ] 9.2 Move keep-warm configuration to feature registration
+- [x] 9.2 Move keep-warm configuration to feature registration
   - Move current `prompt_cache.keepwarm` semantic config/defaults/validation to the `keepwarm` feature decoder.
   - Generic prompt-cache provider capability/profile config that is independently needed by core/backend contracts may stay; keep-warm scheduling policy may not.
   - Delete core config imports of keepwarm feature implementation.
@@ -402,7 +402,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 9.1_
   - _Validation: keepwarm config parity tests; config package import tests_
 
-- [ ] 9.3 Implement one-way legacy YAML normalization only if required
+- [x] 9.3 Implement one-way legacy YAML normalization only if required
   - First check current compatibility/release policy and repository fixtures. If old top-level syntax must remain accepted, implement `internal/standardplugins/legacyfeatureconfig` normalization exactly as design: legacy -> canonical `plugins.features` node before semantic feature decode; new+legacy conflict errors; one semantic validator.
   - If compatibility is not required, reject old syntax with an explicit migration error and update docs instead. Do **not** retain typed feature semantics in core config as a fallback.
   - Whichever path is selected must be locked by tests and recorded in closeout evidence.
@@ -411,7 +411,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 9.2_
   - _Validation: YAML golden tests for old/new/conflict/defaults; full config tests_
 
-- [ ] 9.4 Ratchet optional feature config ownership
+- [x] 9.4 Ratchet optional feature config ownership
   - Add compact archtest rules forbidding imports of `internal/plugins/features/*` from core config and forbidding known optional feature config/default symbols/large prompt literals in `internal/core/config`.
   - Add a structural test that a new standard feature config can be added through feature registration without editing core config production files.
   - _Requirements: 10.4, 12.1_
