@@ -86,6 +86,7 @@ type executorBuildInput struct {
 	TerminalDecisionPolicy *terminaldecisionpolicy.Store
 	ConversationReader     conversationprojection.Reader
 	ConversationStore      conversationview.Store
+	InterleavedProcessor   runtime.InterleavedProcessor
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -139,10 +140,8 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			meteringRT = &meteringRuntime{Recorder: prod.MeteringRecorder, StoreBacking: "injected"}
 		}
 	}
-	// Compute interleaved-thinking config before construction.
-	interleaved, err := interleavedExecutorRuntime(cfg)
-	if err != nil {
-		return nil, err
+	interleaved := runtime.InterleavedRuntime{
+		Processor: in.InterleavedProcessor,
 	}
 	// Compute accounting runtime fields.
 	accountingRT := runtime.AccountingRuntime{}

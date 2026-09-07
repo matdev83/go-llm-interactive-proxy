@@ -10,7 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -152,21 +152,25 @@ type failingUpdateMemoStore struct {
 	updateCalls atomic.Int32
 }
 
-func (s *failingUpdateMemoStore) Put(ctx context.Context, scope interleavedthinking.Scope, state interleavedthinking.MemoState) (interleavedstate.MemoRef, error) {
+func (s *failingUpdateMemoStore) Put(ctx context.Context, scope interleavedthinking.Scope, state interleavedthinking.MemoState) (interleavedthinking.MemoRef, error) {
 	return s.inner.Put(ctx, scope, state)
 }
 
-func (s *failingUpdateMemoStore) Get(ctx context.Context, scope interleavedthinking.Scope, ref interleavedstate.MemoRef) (interleavedthinking.MemoState, bool, error) {
+func (s *failingUpdateMemoStore) Get(ctx context.Context, scope interleavedthinking.Scope, ref interleavedthinking.MemoRef) (interleavedthinking.MemoState, bool, error) {
 	return s.inner.Get(ctx, scope, ref)
 }
 
-func (s *failingUpdateMemoStore) Update(context.Context, interleavedthinking.Scope, interleavedstate.MemoRef, interleavedthinking.MemoState) (interleavedstate.MemoRef, error) {
+func (s *failingUpdateMemoStore) Update(ctx context.Context, scope interleavedthinking.Scope, ref interleavedthinking.MemoRef, state interleavedthinking.MemoState) (interleavedthinking.MemoRef, error) {
 	s.updateCalls.Add(1)
-	return interleavedstate.MemoRef{}, errParallelRaceMemoUpdateFailed
+	return interleavedthinking.MemoRef{}, errParallelRaceMemoUpdateFailed
 }
 
-func (s *failingUpdateMemoStore) Delete(ctx context.Context, scope interleavedthinking.Scope, ref interleavedstate.MemoRef) error {
+func (s *failingUpdateMemoStore) Delete(ctx context.Context, scope interleavedthinking.Scope, ref interleavedthinking.MemoRef) error {
 	return s.inner.Delete(ctx, scope, ref)
+}
+
+func (s *failingUpdateMemoStore) LatestEntry(ctx context.Context, scope interleavedthinking.Scope) (interleavedthinking.MemoState, interleavedthinking.MemoRef, bool, error) {
+	return s.inner.LatestEntry(ctx, scope)
 }
 
 var errParallelRaceMemoUpdateFailed = errors.New("parallel race memo update failed")
@@ -382,13 +386,13 @@ func TestParallelRaceAuthorityLeak_L5_CommitMemoInjectionFailureReleasesAuthorit
 
 	innerMemo := interleavedthinking.NewMemoStore(4096)
 	memoStore := &failingUpdateMemoStore{inner: innerMemo}
-	ex.MemoStore = memoStore
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
+	}, memoStore)
+	RegisterTestMemoStore(ex, memoStore)
 
 	loserOpenedCh := make(chan struct{}, 1)
 	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
@@ -411,7 +415,7 @@ func TestParallelRaceAuthorityLeak_L5_CommitMemoInjectionFailureReleasesAuthorit
 	}
 
 	ctx := context.Background()
-	memoRef, err := innerMemo.Put(ctx, interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
+	_, err := innerMemo.Put(ctx, interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
 		Memo:                  "parallel plan",
 		RegularTurnsRemaining: 2,
 	})
@@ -433,7 +437,7 @@ func TestParallelRaceAuthorityLeak_L5_CommitMemoInjectionFailureReleasesAuthorit
 	budget := &attemptBudget{max: 10}
 	req := authorityOpenRequest(t, aLegID, budget)
 	req.reqFacts.aScope = aScope
-	req.interleaved = interleavedstate.State{MemoRef: &memoRef}
+	req.interleaved = interleavedstate.State{}
 	req.reqFacts.baseline.Messages = []lipapi.Message{{
 		Role:  lipapi.RoleUser,
 		Parts: []lipapi.Part{lipapi.TextPart("hello")},

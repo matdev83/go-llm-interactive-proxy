@@ -76,27 +76,6 @@ func TestCycleState_MatchesSelector_StaleDetection(t *testing.T) {
 	}
 }
 
-func TestMemoRef_IsEmptyAndEqual(t *testing.T) {
-	t.Parallel()
-	var zeroRef MemoRef
-	if !zeroRef.IsEmpty() {
-		t.Fatal("zero MemoRef must be empty")
-	}
-	a := MemoRef{Key: "k1", Version: 3}
-	if a.IsEmpty() {
-		t.Fatal("non-zero MemoRef must not be empty")
-	}
-	if !a.Equal(MemoRef{Key: "k1", Version: 3}) {
-		t.Fatal("equal MemoRefs must compare equal")
-	}
-	if a.Equal(MemoRef{Key: "k1", Version: 4}) {
-		t.Fatal("different version must not compare equal")
-	}
-	if a.Equal(MemoRef{Key: "k2", Version: 3}) {
-		t.Fatal("different key must not compare equal")
-	}
-}
-
 func TestState_IsEmptyAndEqual(t *testing.T) {
 	t.Parallel()
 	var zeroState State
@@ -104,8 +83,7 @@ func TestState_IsEmptyAndEqual(t *testing.T) {
 		t.Fatal("zero State must be empty")
 	}
 	s1 := State{
-		Cycle:   CycleState{SelectorKey: "k", Sequence: []CycleEntry{{Key: "a", Role: RoleThinker}}, NextIndex: 0},
-		MemoRef: &MemoRef{Key: "m1", Version: 1},
+		Cycle: CycleState{SelectorKey: "k", Sequence: []CycleEntry{{Key: "a", Role: RoleThinker}}, NextIndex: 0},
 	}
 	if s1.IsEmpty() {
 		t.Fatal("populated State must not be empty")
@@ -113,14 +91,11 @@ func TestState_IsEmptyAndEqual(t *testing.T) {
 	if !s1.Equal(s1) {
 		t.Fatal("State must equal itself")
 	}
-	s2 := s1
-	s2.MemoRef = &MemoRef{Key: "m1", Version: 2}
-	if s1.Equal(s2) {
-		t.Fatal("different memo version must not be equal")
+	s2 := State{
+		Cycle: CycleState{SelectorKey: "k", Sequence: []CycleEntry{{Key: "a", Role: RoleThinker}}, NextIndex: 1},
 	}
-	s3 := State{Cycle: s1.Cycle}
-	if s1.Equal(s3) {
-		t.Fatal("nil vs non-nil memo ref must not be equal")
+	if s1.Equal(s2) {
+		t.Fatal("different cycle cursor must not be equal")
 	}
 }
 
@@ -131,8 +106,7 @@ func TestState_Validate(t *testing.T) {
 		t.Fatalf("empty state validate: %v", err)
 	}
 	good := State{
-		Cycle:   CycleState{SelectorKey: "k", Sequence: []CycleEntry{{Key: "a"}}, NextIndex: 0},
-		MemoRef: &MemoRef{Key: "m1", Version: 1},
+		Cycle: CycleState{SelectorKey: "k", Sequence: []CycleEntry{{Key: "a"}}, NextIndex: 0},
 	}
 	if err := good.Validate(); err != nil {
 		t.Fatalf("good state validate: %v", err)
@@ -169,8 +143,7 @@ func TestCycleState_JSONRoundTrip(t *testing.T) {
 func TestState_JSONRoundTrip(t *testing.T) {
 	t.Parallel()
 	s := State{
-		Cycle:   CycleState{SelectorKey: "k", Sequence: []CycleEntry{{Key: "a", Role: RoleExecutor}}, NextIndex: 0},
-		MemoRef: &MemoRef{Key: "m1", Version: 2},
+		Cycle: CycleState{SelectorKey: "k", Sequence: []CycleEntry{{Key: "a", Role: RoleExecutor}}, NextIndex: 0},
 	}
 	data, err := json.Marshal(s)
 	if err != nil {
@@ -185,37 +158,17 @@ func TestState_JSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestState_JSONRoundTrip_EmptyOmitsMemoRef(t *testing.T) {
+func TestState_JSONRoundTrip_DecodesLegacyMemoRef(t *testing.T) {
 	t.Parallel()
-	s := State{Cycle: CycleState{SelectorKey: "k", Sequence: []CycleEntry{{Key: "a"}}, NextIndex: 0}}
-	data, err := json.Marshal(s)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	legacy := `{"cycle":{"selector_key":"k","sequence":[{"key":"a","role":"executor"}],"next_index":0},"memo_ref":{"key":"m1","version":2}}`
 	var got State
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if err := json.Unmarshal([]byte(legacy), &got); err != nil {
+		t.Fatalf("unmarshal legacy: %v", err)
 	}
-	if got.MemoRef != nil {
-		t.Fatalf("expected nil memo ref after round-trip, got %+v", got.MemoRef)
+	want := State{
+		Cycle: CycleState{SelectorKey: "k", Sequence: []CycleEntry{{Key: "a", Role: RoleExecutor}}, NextIndex: 0},
 	}
-	if !got.Equal(s) {
-		t.Fatalf("round-trip mismatch: got %+v want %+v", got, s)
-	}
-}
-
-func TestMemoRef_JSONRoundTrip(t *testing.T) {
-	t.Parallel()
-	r := MemoRef{Key: "abc", Version: 9}
-	data, err := json.Marshal(r)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var got MemoRef
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if !got.Equal(r) {
-		t.Fatalf("round-trip mismatch: got %+v want %+v", got, r)
+	if !got.Equal(want) {
+		t.Fatalf("round-trip mismatch: got %+v want %+v", got, want)
 	}
 }

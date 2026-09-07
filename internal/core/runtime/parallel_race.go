@@ -18,7 +18,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
@@ -45,13 +44,13 @@ type parallelLeg struct {
 	delay            time.Duration
 	startedAt        time.Time
 	recvErr          error
-	observedUsage    atomic.Value // lipapi.Event
-	interleaved      interleavedstate.State
-	memoUpdate       *interleavedthinking.PendingMemoUpdate
-	tx               *attemptTx
-	ready            *readyAttempt
-	managedByMain    bool
-	mainDone         bool
+	observedUsage atomic.Value // lipapi.Event
+	interleaved   interleavedstate.State
+	turn          InterleavedTurn
+	tx            *attemptTx
+	ready         *readyAttempt
+	managedByMain bool
+	mainDone      bool
 }
 
 func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg, legs []*parallelLeg) error {
@@ -359,7 +358,6 @@ func (e *Executor) tryOpenParallelGroup(
 			}
 			ready := tx.HandoffReady(pendingSelectionEffects{
 				interleaved: frozenInterleaved,
-				memoUpdate:  evalOutcome.shapeRes.MemoUpdate,
 			})
 			ready.setDefaultEvidence(authorityapp.ReleaseKindLosing, sdkterminal.CommandParallelLoser, billing.LegOutcomeFailed)
 			if err := tx.commitLaunchOrRegister(armCtx, ready, workerReqFacts.aScope); err != nil {
@@ -380,7 +378,7 @@ func (e *Executor) tryOpenParallelGroup(
 				authority:        tx.authLifecycle,
 				delay:            entry.delay,
 				interleaved:      frozenInterleaved,
-				memoUpdate:       evalOutcome.shapeRes.MemoUpdate,
+				turn:             evalOutcome.turn,
 				tx:               tx,
 				ready:            ready,
 				startedAt:        e.now(),
@@ -437,12 +435,12 @@ func (e *Executor) tryOpenParallelGroup(
 						ready: ready,
 						pending: pendingSelectionEffects{
 							interleaved: frozenInterleaved,
-							memoUpdate:  evalOutcome.shapeRes.MemoUpdate,
 						},
 						bleg:      tx.bleg,
 						observed:  observed,
 						winnerBuf: preBuf,
 						armLeg:    armLeg,
+						turn:      evalOutcome.turn,
 						delta:     parallelFailureDeltaFromHistory(localHist),
 					}, tx, ready)
 					return
@@ -708,7 +706,6 @@ func (r *parallelRoundReducer) Reduce(
 					legs[i].tx = o.armLeg.tx
 					legs[i].ready = o.armLeg.ready
 					legs[i].interleaved = o.armLeg.interleaved
-					legs[i].memoUpdate = o.armLeg.memoUpdate
 					legs[i].startedAt = o.armLeg.startedAt
 				}
 				legs[i].recvErr = o.failErr
@@ -776,14 +773,12 @@ func (r *parallelRoundReducer) Reduce(
 		}
 
 		pending := winnerOut.ready.Pending()
-		committedInterleaved, err := r.e.commitMemoInjection(ctx, r.req.reqFacts.aLegID, pending.interleaved, pending.memoUpdate)
-		if err != nil {
-			return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, r.losersDone, err)
-		}
+		committedInterleaved := pending.interleaved
 		if winnerIdx >= 0 {
 			legs[winnerIdx].interleaved = committedInterleaved
 		}
-		if pending.memoUpdate == nil && r.cycleAdvance != nil {
+		if r.cycleAdvance != nil {
+			committedInterleaved.Cycle = *r.cycleAdvance
 			if err := r.e.persistInterleavedState(ctx, r.req.reqFacts.aLegID, committedInterleaved); err != nil {
 				return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, r.losersDone, err)
 			}
@@ -848,6 +843,22 @@ func (r *parallelRoundReducer) Reduce(
 			winnerLeg.interleaved = committedInterleaved
 		}
 
+		winnerTurn := winnerOut.turn
+		if winnerTurn == nil && winnerLeg != nil {
+			winnerTurn = winnerLeg.turn
+		}
+		if winnerOut.cand.InterleavedRole == interleavedstate.RoleExecutor && winnerTurn != nil {
+			remaining, cerr := winnerTurn.CommitExecutor(ctx)
+			if cerr != nil {
+				return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, r.losersDone, cerr)
+			}
+			if remaining == 0 {
+				if derr := r.e.deactivateMemoSteeringOverlay(ctx, r.req.reqFacts.aLegID); derr != nil {
+					return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, r.losersDone, derr)
+				}
+			}
+		}
+
 		if err := winnerOut.ready.InstallBridgeStream(&parallelBridgeStream{
 			winner:           winnerLeg,
 			buf:              winnerBuf,
@@ -859,7 +870,7 @@ func (r *parallelRoundReducer) Reduce(
 		return openedAttempt{
 			ready:       winnerOut.ready,
 			interleaved: committedInterleaved,
-			memoUpdate:  nil,
+			turn:        winnerTurn,
 		}, nil
 	}
 
@@ -1071,6 +1082,7 @@ type parallelArmOutcome struct {
 	bleg      b2bua.BLegRecord
 	armLeg    *parallelLeg
 	winnerBuf []lipapi.Event
+	turn      InterleavedTurn
 }
 
 type parallelFailureDelta struct {

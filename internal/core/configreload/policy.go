@@ -261,14 +261,6 @@ func classifyInterleaved(active, candidate *config.Config, reload noteFn) {
 	if a.Enabled != c.Enabled {
 		reload("interleaved.enabled")
 	}
-	diffStr(reload, "interleaved.instructions_file", a.InstructionsFile, c.InstructionsFile)
-	diffStr(reload, "interleaved.stream_to_client", a.StreamToClient, c.StreamToClient)
-	if a.RegularTurnsRemaining != c.RegularTurnsRemaining {
-		reload("interleaved.regular_turns_remaining")
-	}
-	if a.MaxMemoBytes != c.MaxMemoBytes {
-		reload("interleaved.max_memo_bytes")
-	}
 }
 
 func classifyModelAliases(active, candidate *config.Config, reload noteFn) {

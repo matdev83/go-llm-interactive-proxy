@@ -6,11 +6,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -37,8 +39,9 @@ type ProcessInput struct {
 // CorePorts carries minimal fixed consumer-owned core interfaces needed by Tasks 3-7.
 // It is a fixed internal adapter, NOT a service map (design §7, Requirement 8.3).
 type CorePorts struct {
-	CompactionDetector runtime.CompactionDetector
-	ConversationReader conversationprojection.Reader
+	CompactionDetector   runtime.CompactionDetector
+	ConversationReader   conversationprojection.Reader
+	InterleavedProcessor runtime.InterleavedProcessor
 }
 
 // GenerationInput carries inputs for featurehost generation composition.
@@ -57,6 +60,9 @@ type GenerationInput struct {
 	// reasoning policy itself, so no merged ReasoningOpts field exists here.
 	ReasoningProdOpts ReasoningCompressionOptions
 	ReasoningTestOpts ReasoningCompressionOptions
+	InterleavedConfig interleavedthinking.Config
+	ConfigInterleaved config.InterleavedConfig
+	ConfigDir         string
 	AccessMode        accessmode.Mode
 	SecretEnv         SecretGuardEnvironment
 	SecretInputs      SecretGuardInputs

@@ -39,7 +39,6 @@ func TestInterleavedStateStore(t *testing.T, newStore func(t *testing.T) Store) 
 				},
 				NextIndex: 1,
 			},
-			MemoRef: &interleavedstate.MemoRef{Key: "memo-1", Version: 3},
 		}
 		if err := s.SetInterleavedState(ctx, leg.ALegID, want); err != nil {
 			t.Fatalf("SetInterleavedState: %v", err)

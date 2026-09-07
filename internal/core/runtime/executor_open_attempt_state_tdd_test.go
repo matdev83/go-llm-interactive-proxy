@@ -18,7 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -337,7 +337,6 @@ func TestTDD_ParallelLoserSchedule(t *testing.T) {
 	}
 
 	interleavedState := interleavedstate.State{
-		MemoRef: &memoRef,
 		Cycle: interleavedstate.CycleState{
 			SelectorKey: "parallel:backend-winner:model-1!backend-loser:model-1!backend-never-opened:model-1",
 			Sequence: []interleavedstate.CycleEntry{
@@ -356,11 +355,11 @@ func TestTDD_ParallelLoserSchedule(t *testing.T) {
 		t.Fatal("store does not implement InterleavedStateStore")
 	}
 
-	ex.MemoStore = memoStore
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
+	}, memoStore)
+	RegisterTestMemoStore(ex, memoStore)
 
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
 	aScope := coord.StartALeg(aLegID)

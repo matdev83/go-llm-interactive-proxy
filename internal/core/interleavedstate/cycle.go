@@ -39,18 +39,11 @@ type CycleState struct {
 	NextIndex   int          `json:"next_index"`
 }
 
-// MemoRef locates a stored memo under an authoritative session or A-leg scope.
-// Version is a monotonic counter bumped by the memo store on each mutation so
-// callers can detect stale references.
-type MemoRef struct {
-	Key     string `json:"key"`
-	Version int64  `json:"version"`
-}
-
-// State bundles the cycle cursor and latest memo reference for one A-leg.
+// State bundles the cycle cursor for one A-leg required by routing and continuity.
+// Memo payload and reference semantics are owned by the interleavedthinking feature,
+// not by core interleavedstate.
 type State struct {
-	Cycle   CycleState `json:"cycle"`
-	MemoRef *MemoRef   `json:"memo_ref,omitempty"`
+	Cycle CycleState `json:"cycle"`
 }
 
 // IsEmpty reports whether the cycle state has no established sequence.
@@ -94,45 +87,19 @@ func (c CycleState) Equal(other CycleState) bool {
 	})
 }
 
-// IsEmpty reports whether a memo reference points to no memo.
-func (r MemoRef) IsEmpty() bool {
-	return r.Key == "" && r.Version == 0
-}
-
-// Equal reports whether two memo references identify the same store entry
-// revision.
-func (r MemoRef) Equal(other MemoRef) bool {
-	return r.Key == other.Key && r.Version == other.Version
-}
-
-// IsEmpty reports whether the state carries no cycle and no memo reference.
+// IsEmpty reports whether the state carries no established cycle sequence.
 func (s State) IsEmpty() bool {
-	return s.Cycle.IsEmpty() && (s.MemoRef == nil || s.MemoRef.IsEmpty())
+	return s.Cycle.IsEmpty()
 }
 
-// Validate validates the cycle and memo reference portions of the state.
+// Validate validates the cycle portion of the state.
 func (s State) Validate() error {
-	if err := s.Cycle.Validate(); err != nil {
-		return err
-	}
-	if s.MemoRef != nil && s.MemoRef.Key == "" && s.MemoRef.Version != 0 {
-		return fmt.Errorf("interleavedstate: memo ref with empty key must be zero")
-	}
-	return nil
+	return s.Cycle.Validate()
 }
 
-// Equal reports whether two states have equal cycle and memo reference parts.
+// Equal reports whether two states have equal cycle parts.
 func (s State) Equal(other State) bool {
-	if !s.Cycle.Equal(other.Cycle) {
-		return false
-	}
-	if (s.MemoRef == nil) != (other.MemoRef == nil) {
-		return false
-	}
-	if s.MemoRef == nil {
-		return true
-	}
-	return s.MemoRef.Equal(*other.MemoRef)
+	return s.Cycle.Equal(other.Cycle)
 }
 
 // MarshalStateText serializes state for compact durable storage. Empty state is

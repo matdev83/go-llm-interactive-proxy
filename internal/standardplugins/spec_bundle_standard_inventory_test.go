@@ -53,6 +53,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"agent-loop-guard",
 		"codex-client-compat",
 		"compaction-continuity",
+		"interleaved-thinking",
 		"parts-noop",
 		"pre-request-policy",
 		"reasoning-output-preservation",

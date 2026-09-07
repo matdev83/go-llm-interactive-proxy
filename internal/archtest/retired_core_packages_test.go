@@ -19,6 +19,7 @@ func TestProductionTreeRetiredCorePackagesAbsent(t *testing.T) {
 		"internal/core/toolcallrepair",
 		"internal/core/secretguard",
 		"internal/core/compactiondetect",
+		"internal/core/interleavedthinking",
 	}
 
 	var violations []string
@@ -81,6 +82,11 @@ func TestProductionTreeRetiredCorePackages_RenamedOrNestedResurrectionRejected(t
 			relPath:    "internal/core/compactiondetect/detector.go",
 			wantReject: true,
 		},
+		{
+			name:       "interleavedthinking root file resurrection",
+			relPath:    "internal/core/interleavedthinking/memo.go",
+			wantReject: true,
+		},
 		// Renamed file resurrection
 		{
 			name:       "toolcallrepair renamed file resurrection",
@@ -95,6 +101,11 @@ func TestProductionTreeRetiredCorePackages_RenamedOrNestedResurrectionRejected(t
 		{
 			name:       "compactiondetect renamed file resurrection",
 			relPath:    "internal/core/compactiondetect/renamed_detector.go",
+			wantReject: true,
+		},
+		{
+			name:       "interleavedthinking renamed file resurrection",
+			relPath:    "internal/core/interleavedthinking/renamed_memo.go",
 			wantReject: true,
 		},
 		// Nested subpackage resurrection
@@ -126,6 +137,16 @@ func TestProductionTreeRetiredCorePackages_RenamedOrNestedResurrectionRejected(t
 		{
 			name:       "compactiondetect deeply nested detector resurrection",
 			relPath:    "internal/core/compactiondetect/deep/nested/detector.go",
+			wantReject: true,
+		},
+		{
+			name:       "interleavedthinking nested subpackage resurrection",
+			relPath:    "internal/core/interleavedthinking/nested/sub/bypass.go",
+			wantReject: true,
+		},
+		{
+			name:       "interleavedthinking deeply nested memo resurrection",
+			relPath:    "internal/core/interleavedthinking/deep/nested/memo.go",
 			wantReject: true,
 		},
 		// Legitimate packages (must NOT be rejected)
@@ -167,6 +188,16 @@ func TestProductionTreeRetiredCorePackages_RenamedOrNestedResurrectionRejected(t
 		{
 			name:       "featurehost compaction dedicated adapter allowed",
 			relPath:    "internal/standardplugins/featurehost/compaction/parent_port.go",
+			wantReject: false,
+		},
+		{
+			name:       "interleavedthinking feature processor allowed",
+			relPath:    "internal/plugins/features/interleavedthinking/processor.go",
+			wantReject: false,
+		},
+		{
+			name:       "featurehost interleaved dedicated adapter allowed",
+			relPath:    "internal/standardplugins/featurehost/interleaved.go",
 			wantReject: false,
 		},
 		{
@@ -222,12 +253,19 @@ func TestProductionTreeRetiredCorePackages_AdversarialTreeResurrectionSelfTest(t
 		"internal/core/compactiondetect/renamed_detector.go":  "package compactiondetect\n",
 		"internal/core/compactiondetect/nested/sub/bypass.go": "package bypass\n",
 		"internal/core/compactiondetect/sub/deep/detector.go": "package deep\n",
+		// InterleavedThinking resurrections
+		"internal/core/interleavedthinking/memo.go":              "package interleavedthinking\n",
+		"internal/core/interleavedthinking/renamed_memo.go":      "package interleavedthinking\n",
+		"internal/core/interleavedthinking/nested/sub/bypass.go": "package bypass\n",
+		"internal/core/interleavedthinking/sub/deep/memo.go":     "package deep\n",
 		// Legitimate packages (must NOT trigger findings)
-		"internal/plugins/features/toolcallrepair/bundle.go": "package toolcallrepair\n",
-		"internal/plugins/features/secretguard/guard.go":     "package secretguard\n",
-		"internal/infra/compactiondetect/detector.go":        "package compactiondetect\n",
-		"internal/infra/secretguardcompose/compose.go":       "package secretguardcompose\n",
-		"internal/core/runtime/service.go":                   "package runtime\n",
+		"internal/plugins/features/toolcallrepair/bundle.go":         "package toolcallrepair\n",
+		"internal/plugins/features/secretguard/guard.go":             "package secretguard\n",
+		"internal/plugins/features/interleavedthinking/processor.go": "package interleavedthinking\n",
+		"internal/infra/compactiondetect/detector.go":                "package compactiondetect\n",
+		"internal/infra/secretguardcompose/compose.go":               "package secretguardcompose\n",
+		"internal/standardplugins/featurehost/interleaved.go":        "package featurehost\n",
+		"internal/core/runtime/service.go":                           "package runtime\n",
 	}
 
 	for rel, content := range adversarialFiles {
@@ -259,6 +297,10 @@ func TestProductionTreeRetiredCorePackages_AdversarialTreeResurrectionSelfTest(t
 		"internal/core/compactiondetect/renamed_detector.go":    true,
 		"internal/core/compactiondetect/nested/sub/bypass.go":   true,
 		"internal/core/compactiondetect/sub/deep/detector.go":   true,
+		"internal/core/interleavedthinking/memo.go":              true,
+		"internal/core/interleavedthinking/renamed_memo.go":      true,
+		"internal/core/interleavedthinking/nested/sub/bypass.go": true,
+		"internal/core/interleavedthinking/sub/deep/memo.go":     true,
 	}
 
 	detected := make(map[string]bool)
@@ -284,6 +326,7 @@ func TestProductionTreeRetiredCorePackages_AdversarialTreeResurrectionSelfTest(t
 		"internal/core/toolcallrepair",
 		"internal/core/secretguard",
 		"internal/core/compactiondetect",
+		"internal/core/interleavedthinking",
 	}
 	var walkViolations []string
 	err = WalkProductionGoFiles(tmp, func(rel, abs string, src []byte) error {

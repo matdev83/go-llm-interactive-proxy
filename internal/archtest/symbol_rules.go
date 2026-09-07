@@ -139,6 +139,10 @@ var ForbiddenDeclarations = []ForbiddenDeclRule{
 	{Package: "internal/testkit/planeparity", Kind: SymbolFunc, Name: "Assert" + "MergedSurfacesEqual", Reason: "legacy surface equality" + " testkit helper deleted"},
 	{Package: "internal/testkit/planeparity", Kind: SymbolFunc, Name: "Assert" + "DualPathParity", Reason: "legacy dual path" + " parity testkit helper deleted"},
 	{Package: "internal/testkit/planeparity", Kind: SymbolFunc, Name: "Assert" + "GeneratedSurfaceInvariants", Reason: "superseded by Assert" + "GeneratedMergeInvariants"},
+	// Interleaved thinking core retirement (Task 5.4, F1)
+	{Package: "internal/core/interleavedstate", Kind: SymbolType, Name: "MemoRef", Reason: "memo reference owned by interleavedthinking feature"},
+	{Package: "internal/core/config", Kind: SymbolConst, Name: "DefaultInterleavedInstructions", Reason: "prompt owned by interleavedthinking feature"},
+	{Package: "internal/core/config", Kind: SymbolFunc, Name: "ResolveInterleavedInstructions", Reason: "instruction loading owned by interleavedthinking feature"},
 }
 
 // AbsentFiles must not exist in the production tree.
@@ -321,6 +325,7 @@ var RetiredPackageDirs = []string{
 	"internal/core/compactiondetect",
 	"internal/core/compactioncontinuity",
 	"internal/core/conversationview",
+	"internal/core/interleavedthinking",
 }
 
 // ScanFileRetiredPackage checks if a repo-relative file path belongs to a retired package.

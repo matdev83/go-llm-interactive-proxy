@@ -185,6 +185,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		TerminalDecisionPolicy: ps.TerminalDecisionPolicy,
 		ConversationReader:     ps.StandardFeatures.ConversationReader(),
 		ConversationStore:      ps.StandardFeatures.ConversationStore(),
+		InterleavedProcessor:   opts.CorePorts.InterleavedProcessor,
 	})
 	if err != nil {
 		return nil, fail(err)

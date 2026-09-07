@@ -20,7 +20,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
@@ -265,10 +264,9 @@ type ExtensionRuntime struct {
 	toolCallFinalizers []toolcall.Finalizer
 }
 
-// InterleavedRuntime carries interleaved-thinking shaping configuration and memo storage.
+// InterleavedRuntime carries the interleaved-thinking consumer processor port.
 type InterleavedRuntime struct {
-	InterleavedConfig interleavedthinking.ShapeConfig
-	MemoStore         interleavedthinking.MemoStore
+	Processor InterleavedProcessor
 }
 
 // CompactionRuntime carries the process-owned compaction detector reference.

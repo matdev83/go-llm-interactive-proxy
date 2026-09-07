@@ -300,7 +300,7 @@ func TestService_memoryHappyPathIdempotentAndNoBLegs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !interleaved.Cycle.IsEmpty() || interleaved.MemoRef != nil {
+	if !interleaved.Cycle.IsEmpty() {
 		t.Fatalf("command service must not write interleaved state: %+v", interleaved)
 	}
 }

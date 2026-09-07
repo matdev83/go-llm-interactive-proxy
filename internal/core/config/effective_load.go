@@ -17,6 +17,9 @@ type LoadEffectiveOptions struct {
 	// FixedStreamRecovery, when non-nil, materializes CLI/env stream-recovery
 	// overrides into the effective config (even when the struct is zero).
 	FixedStreamRecovery *StreamRecoveryOverrides
+	// NormalizeYAML, when non-nil, transforms raw configuration bytes before
+	// strict decode (e.g. legacy feature syntax normalization).
+	NormalizeYAML func([]byte) ([]byte, error)
 	// InjectFeatures is the standard-distribution feature injection seam.
 	InjectFeatures func(*Config) error
 	// ExtraValidate runs after core Validate (routing aliases, prefix checks, …).
@@ -39,6 +42,13 @@ type EffectiveConfig struct {
 func LoadEffective(ctx context.Context, raw []byte, opts LoadEffectiveOptions) (*EffectiveConfig, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if opts.NormalizeYAML != nil {
+		normalized, err := opts.NormalizeYAML(raw)
+		if err != nil {
+			return nil, err
+		}
+		raw = normalized
 	}
 	cfg, cat, err := StrictDecode(raw)
 	if err != nil {

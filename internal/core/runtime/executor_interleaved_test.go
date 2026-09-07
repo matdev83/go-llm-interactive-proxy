@@ -13,7 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -72,13 +72,13 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = memoStore
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
 	wireInterleavedTestSteering(ex)
 
 	first := interleavedBaseCall(selector)
@@ -193,9 +193,6 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stored state: fetch failed: %v", err)
 	}
-	if postState.MemoRef == nil {
-		t.Fatal("stored state: memo reference must persist after hidden capture")
-	}
 	if postState.Cycle.SelectorKey != selectorKey {
 		t.Fatalf("stored state: SelectorKey got %q want %q", postState.Cycle.SelectorKey, selectorKey)
 	}
@@ -203,7 +200,7 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 		t.Fatal("stored state: cycle must persist through continuation")
 	}
 
-	stored, ok, err := memoStore.Get(context.Background(), interleavedthinking.Scope(aLegID), *postState.MemoRef)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(aLegID))
 	if err != nil || !ok {
 		t.Fatalf("memo capture: lookup ok=%v err=%v", ok, err)
 	}
@@ -295,13 +292,13 @@ func TestExecutor_VisibleInterleavedEndToEnd(t *testing.T) {
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "visible",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = memoStore
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	wireInterleavedTestSteering(ex)
 
@@ -420,14 +417,11 @@ func TestExecutor_VisibleInterleavedEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stored state: fetch failed: %v", err)
 	}
-	if postState.MemoRef == nil {
-		t.Fatal("memo storage: memo reference must persist after visible capture")
-	}
 	if postState.Cycle.SelectorKey != selectorKey {
 		t.Fatalf("stored state: SelectorKey got %q want %q", postState.Cycle.SelectorKey, selectorKey)
 	}
 
-	stored, ok, err := memoStore.Get(context.Background(), interleavedthinking.Scope(aLegID), *postState.MemoRef)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(aLegID))
 	if err != nil || !ok {
 		t.Fatalf("memo storage: lookup ok=%v err=%v", ok, err)
 	}
@@ -523,13 +517,13 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "visible",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = memoStore
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
 	wireInterleavedTestSteering(ex)
 
 	collectTurn := func(origin, prev, call *lipapi.Call) {
@@ -631,7 +625,7 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 	}
 	assertStandaloneMemoSteering(t, laterExec.call, memoBody)
 
-	stored, ok, err := memoStore.Get(context.Background(), interleavedthinking.Scope(aLegID), *mustMemoRef(t, st, aLegID))
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(aLegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
 	}
@@ -641,18 +635,6 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 	if stored.InjectedCount != 1 {
 		t.Fatalf("later normal turn must consume injection budget once, InjectedCount=%d", stored.InjectedCount)
 	}
-}
-
-func mustMemoRef(t *testing.T, st *b2bua.MemoryStore, aLegID string) *interleavedstate.MemoRef {
-	t.Helper()
-	state, err := st.FetchInterleavedState(context.Background(), aLegID)
-	if err != nil {
-		t.Fatalf("fetch interleaved state: %v", err)
-	}
-	if state.MemoRef == nil {
-		t.Fatal("memo reference missing")
-	}
-	return state.MemoRef
 }
 
 // findMemoSteeringMessage returns the projected synthetic steering user message

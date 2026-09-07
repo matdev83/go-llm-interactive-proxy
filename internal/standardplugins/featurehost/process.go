@@ -10,6 +10,7 @@ import (
 	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 	"github.com/uptrace/bun"
 )
@@ -30,6 +31,7 @@ var (
 	newCompactionDetector   = compactiondetect.New
 	newBranchCoordinator    = state.NewBranchCoordinator
 	newCompactionParentPort = compaction.NewParentPort
+	newInterleavedProcessor = interleavedthinking.NewProcessor
 )
 
 // NewProcess constructs the standard-distribution featurehost process facade.

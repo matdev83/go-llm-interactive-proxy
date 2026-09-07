@@ -63,6 +63,8 @@ type BuildOptions struct {
 	// [CompileGeneration] so a candidate that removes the last feature does not
 	// reuse startup-merged lifecycles/extensions. Legacy [CompileCandidate]
 	// callers leave this false (nil overlay fields mean "no override").
+	// CorePorts carries minimal fixed consumer-owned core interfaces compiled by featurehost.
+	CorePorts featurehost.CorePorts
 	ReplaceCandidateSurface bool
 }
 

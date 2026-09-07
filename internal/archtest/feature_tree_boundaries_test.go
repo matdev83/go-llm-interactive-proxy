@@ -55,6 +55,19 @@ func TestForbiddenImports_FeatureTreeRulesEnforced(t *testing.T) {
 				"/internal/pluginreg",
 			},
 		},
+		{
+			source:    "internal/plugins/features/interleavedthinking",
+			ownPrefix: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking",
+			expectRules: []string{
+				"/internal/core",
+				"/internal/infra/runtimebundle",
+				"/internal/plugins/frontends",
+				"/internal/plugins/backends",
+				"/internal/plugins/features/",
+				"/internal/stdhttp",
+				"/internal/pluginreg",
+			},
+		},
 	}
 
 	for _, ft := range featureTrees {
@@ -283,8 +296,92 @@ func TestForbiddenImports_SecretGuardTreeAdversarialBypassRejected(t *testing.T)
 	}
 }
 
+// TestForbiddenImports_InterleavedThinkingTreeAdversarialBypassRejected verifies that
+// renamed files and nested subpackages in the interleavedthinking feature tree cannot
+// bypass boundaries to import stdhttp, pluginreg, core, runtimebundle, or sibling features.
+func TestForbiddenImports_InterleavedThinkingTreeAdversarialBypassRejected(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		relPath    string
+		importPath string
+		wantForbid bool
+	}{
+		{
+			name:       "interleaved nested imports stdhttp",
+			relPath:    "internal/plugins/features/interleavedthinking/nested/bypass.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp",
+			wantForbid: true,
+		},
+		{
+			name:       "interleaved nested imports pluginreg",
+			relPath:    "internal/plugins/features/interleavedthinking/nested/bypass.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg",
+			wantForbid: true,
+		},
+		{
+			name:       "interleaved nested imports sibling secretguard feature",
+			relPath:    "internal/plugins/features/interleavedthinking/nested/bypass.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard",
+			wantForbid: true,
+		},
+		{
+			name:       "interleaved nested imports core runtime",
+			relPath:    "internal/plugins/features/interleavedthinking/nested/deep/bypass.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
+			wantForbid: true,
+		},
+		{
+			name:       "interleaved nested imports runtimebundle",
+			relPath:    "internal/plugins/features/interleavedthinking/nested/bypass.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle",
+			wantForbid: true,
+		},
+		{
+			name:       "interleaved nested imports frontends",
+			relPath:    "internal/plugins/features/interleavedthinking/nested/bypass.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses",
+			wantForbid: true,
+		},
+		{
+			name:       "interleaved nested imports backends",
+			relPath:    "internal/plugins/features/interleavedthinking/nested/bypass.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat",
+			wantForbid: true,
+		},
+		{
+			name:       "interleaved root imports own state subpackage (allowed)",
+			relPath:    "internal/plugins/features/interleavedthinking/processor.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking/state",
+			wantForbid: false,
+		},
+		{
+			name:       "interleaved imports pkg/lipapi (allowed)",
+			relPath:    "internal/plugins/features/interleavedthinking/processor.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi",
+			wantForbid: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := fmt.Sprintf("package test\nimport _ %q\n", tc.importPath)
+			findings, err := ScanFileForbiddenImports(tc.relPath, tc.relPath, []byte(src))
+			if err != nil {
+				t.Fatalf("ScanFileForbiddenImports(%q): %v", tc.relPath, err)
+			}
+			isForbidden := len(findings) > 0
+			if isForbidden != tc.wantForbid {
+				t.Fatalf("ScanFileForbiddenImports(%q, %q): got forbidden=%v, want %v (findings: %v)",
+					tc.relPath, tc.importPath, isForbidden, tc.wantForbid, findings)
+			}
+		})
+	}
+}
+
 // TestProductionFeatureTreesHaveZeroForbiddenImports scans the live production trees
-// of toolcallrepair and secretguard and asserts zero forbidden imports.
+// of toolcallrepair, secretguard, compactioncontinuity, and interleavedthinking and asserts zero forbidden imports.
 func TestProductionFeatureTreesHaveZeroForbiddenImports(t *testing.T) {
 	t.Parallel()
 
@@ -294,7 +391,8 @@ func TestProductionFeatureTreesHaveZeroForbiddenImports(t *testing.T) {
 		pkg := PackageDirFromRel(rel)
 		if !MatchPathPrefix(pkg, "internal/plugins/features/toolcallrepair") &&
 			!MatchPathPrefix(pkg, "internal/plugins/features/secretguard") &&
-			!MatchPathPrefix(pkg, "internal/plugins/features/compactioncontinuity") {
+			!MatchPathPrefix(pkg, "internal/plugins/features/compactioncontinuity") &&
+			!MatchPathPrefix(pkg, "internal/plugins/features/interleavedthinking") {
 			return nil
 		}
 		findings, err := ScanFileForbiddenImports(rel, abs, src)

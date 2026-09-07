@@ -1,8 +1,10 @@
 package bunstore
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -441,30 +443,66 @@ FROM attempts WHERE a_leg_id = ? ORDER BY seq ASC
 	return out, nil
 }
 
-// SetInterleavedState persists the thinker cycle state and memo reference for
-// an A-leg as bounded JSON. An empty state clears any previously stored state
-// (stored as the zero-value empty string). Invalid state is rejected without
-// mutating the stored value. The memo body is never stored here; only the
-// compact cycle state and memo reference are persisted.
-func (s *Store) SetInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error {
+// LegacyInterleavedStateRowDTO represents the durable storage format that preserves
+// memo_ref alongside cycle state across legacy and current database rows without
+// executing feature algorithms in core.
+type LegacyInterleavedStateRowDTO struct {
+	Cycle   interleavedstate.CycleState `json:"cycle"`
+	MemoRef json.RawMessage             `json:"memo_ref,omitempty"`
+}
+
+// DecodeInterleavedStateRow decodes an encoded database string (which may be a legacy row
+// with memo_ref or a current row with cycle only) into the compatibility DTO, then projects
+// only cycle values into core state and memo values outward.
+func DecodeInterleavedStateRow(encoded string) (interleavedstate.State, json.RawMessage, error) {
+	if encoded == "" {
+		return interleavedstate.State{}, nil, nil
+	}
+	var dto LegacyInterleavedStateRowDTO
+	if err := json.Unmarshal([]byte(encoded), &dto); err != nil {
+		return interleavedstate.State{}, nil, err
+	}
+	state := interleavedstate.State{
+		Cycle: dto.Cycle,
+	}
+	return state, dto.MemoRef, nil
+}
+
+// EncodeInterleavedStateRow encodes a compatibility DTO into a JSON string,
+// preserving memo_ref alongside cycle state when present without feature algorithms in core.
+func EncodeInterleavedStateRow(dto LegacyInterleavedStateRowDTO) (string, error) {
+	if dto.Cycle.IsEmpty() && len(bytes.TrimSpace(dto.MemoRef)) == 0 {
+		return "", nil
+	}
+	b, err := json.Marshal(dto)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// SetInterleavedRow persists the compatibility DTO containing both core cycle state
+// and legacy memo_ref payload for an A-leg, preserving durable backward compatibility.
+func (s *Store) SetInterleavedRow(ctx context.Context, aLegID string, dto LegacyInterleavedStateRowDTO) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	state := interleavedstate.State{Cycle: dto.Cycle}
 	if err := state.Validate(); err != nil {
 		return fmt.Errorf("bunstore: invalid interleaved state: %w", err)
 	}
-	encoded, err := interleavedstate.MarshalStateText(state)
+	encoded, err := EncodeInterleavedStateRow(dto)
 	if err != nil {
-		return opErr("set interleaved state encode", err)
+		return opErr("set interleaved row encode", err)
 	}
 	res, err := s.db.NewRaw(`UPDATE a_legs SET interleaved_state_json = ?, last_seen_at_unix = ? WHERE a_leg_id = ?`,
 		encoded, time.Now().UnixNano(), aLegID).Exec(ctx)
 	if err != nil {
-		return opErr("set interleaved state update", err)
+		return opErr("set interleaved row update", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return opErr("set interleaved state rows affected", err)
+		return opErr("set interleaved row rows affected", err)
 	}
 	if n == 0 {
 		return b2bua.ErrALegNotFound
@@ -472,30 +510,104 @@ func (s *Store) SetInterleavedState(ctx context.Context, aLegID string, state in
 	return nil
 }
 
-// FetchInterleavedState returns the thinker cycle state and memo reference for
-// an A-leg. A leg with no stored state returns the zero value, which is a
-// harmless "new session" state for cycle purposes.
-func (s *Store) FetchInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error) {
+// SetInterleavedState persists the thinker cycle state for an A-leg, preserving
+// any existing legacy memo reference through a read-modify-write merge.
+// An empty cycle state with no existing memo reference clears the stored state
+// (stored as the zero-value empty string). Invalid state is rejected without
+// mutating the stored value.
+func (s *Store) SetInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error {
 	if err := ctx.Err(); err != nil {
-		return interleavedstate.State{}, err
+		return err
+	}
+	if err := state.Validate(); err != nil {
+		return fmt.Errorf("bunstore: invalid interleaved state: %w", err)
+	}
+	return s.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
+		var encoded string
+		err := tx.NewRaw(`SELECT interleaved_state_json FROM a_legs WHERE a_leg_id = ?`, aLegID).Scan(ctx, &encoded)
+		if errors.Is(err, sql.ErrNoRows) {
+			return b2bua.ErrALegNotFound
+		}
+		if err != nil {
+			return opErr("set interleaved state select existing", err)
+		}
+		var memoRef json.RawMessage
+		if encoded != "" {
+			_, memoRef, err = DecodeInterleavedStateRow(encoded)
+			if err != nil {
+				return opErr("set interleaved state decode existing", err)
+			}
+		}
+		dto := LegacyInterleavedStateRowDTO{
+			Cycle:   state.Cycle,
+			MemoRef: memoRef,
+		}
+		newEncoded, err := EncodeInterleavedStateRow(dto)
+		if err != nil {
+			return opErr("set interleaved state encode", err)
+		}
+		res, err := tx.NewRaw(`UPDATE a_legs SET interleaved_state_json = ?, last_seen_at_unix = ? WHERE a_leg_id = ?`,
+			newEncoded, time.Now().UnixNano(), aLegID).Exec(ctx)
+		if err != nil {
+			return opErr("set interleaved state update", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return opErr("set interleaved state rows affected", err)
+		}
+		if n == 0 {
+			return b2bua.ErrALegNotFound
+		}
+		return nil
+	})
+}
+
+
+// FetchInterleavedRow returns the compatibility DTO containing both core cycle state
+// and legacy memo_ref payload for an A-leg, preserving durable backward compatibility.
+func (s *Store) FetchInterleavedRow(ctx context.Context, aLegID string) (LegacyInterleavedStateRowDTO, error) {
+	if err := ctx.Err(); err != nil {
+		return LegacyInterleavedStateRowDTO{}, err
 	}
 	var encoded string
 	err := s.db.NewRaw(`SELECT interleaved_state_json FROM a_legs WHERE a_leg_id = ?`, aLegID).Scan(ctx, &encoded)
 	if errors.Is(err, sql.ErrNoRows) {
-		return interleavedstate.State{}, b2bua.ErrALegNotFound
+		return LegacyInterleavedStateRowDTO{}, b2bua.ErrALegNotFound
 	}
 	if err != nil {
-		return interleavedstate.State{}, opErr("fetch interleaved state select", err)
+		return LegacyInterleavedStateRowDTO{}, opErr("fetch interleaved row select", err)
 	}
-	state, err := interleavedstate.UnmarshalStateText(encoded)
-	if err != nil {
-		return interleavedstate.State{}, opErr("fetch interleaved state decode", err)
+	if encoded == "" {
+		return LegacyInterleavedStateRowDTO{}, nil
 	}
-	if err := state.Validate(); err != nil {
-		return interleavedstate.State{}, opErr("fetch interleaved state validate", err)
+	var dto LegacyInterleavedStateRowDTO
+	if err := json.Unmarshal([]byte(encoded), &dto); err != nil {
+		return LegacyInterleavedStateRowDTO{}, opErr("fetch interleaved row decode", err)
 	}
 	if _, err := s.db.NewRaw(`UPDATE a_legs SET last_seen_at_unix = ? WHERE a_leg_id = ?`, time.Now().UnixNano(), aLegID).Exec(ctx); err != nil {
-		return interleavedstate.State{}, opErr("fetch interleaved state touch a leg", err)
+		return LegacyInterleavedStateRowDTO{}, opErr("fetch interleaved row touch a leg", err)
 	}
-	return state, nil
+	return dto, nil
+}
+
+// FetchInterleavedStateRow returns the projected core cycle state and the raw memo_ref
+// payload outward from durable storage.
+func (s *Store) FetchInterleavedStateRow(ctx context.Context, aLegID string) (interleavedstate.State, json.RawMessage, error) {
+	dto, err := s.FetchInterleavedRow(ctx, aLegID)
+	if err != nil {
+		return interleavedstate.State{}, nil, err
+	}
+	state := interleavedstate.State{Cycle: dto.Cycle}
+	if err := state.Validate(); err != nil {
+		return interleavedstate.State{}, nil, opErr("fetch interleaved state validate", err)
+	}
+	return state, dto.MemoRef, nil
+}
+
+// FetchInterleavedState returns the thinker cycle state for an A-leg.
+// A leg with no stored state returns the zero value, which is a
+// harmless "new session" state for cycle purposes.
+func (s *Store) FetchInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error) {
+	state, _, err := s.FetchInterleavedStateRow(ctx, aLegID)
+	return state, err
 }

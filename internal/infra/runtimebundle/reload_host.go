@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/legacyfeatureconfig"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"go.opentelemetry.io/otel"
@@ -97,6 +98,7 @@ func bindHost(configPath string, in bindHostInput) (*Host, error) {
 		merged := fixed
 		return config.LoadEffective(ctx, raw, config.LoadEffectiveOptions{
 			ConfigDir: filepath.Dir(src.AbsolutePath()), FixedStreamRecovery: &merged,
+			NormalizeYAML: legacyfeatureconfig.NormalizeYAML,
 			InjectFeatures: injectStandardBootstrapFeatures, ExtraValidate: extraBootstrapValidate,
 		})
 	})

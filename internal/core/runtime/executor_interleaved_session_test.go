@@ -14,7 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage"
@@ -71,13 +71,14 @@ func interleavedSecureExecutor(t *testing.T, backends map[string]execbackend.Bac
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
 	ex.Now = func() time.Time { return time.Unix(3000, 0) }
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	memoStore := interleavedthinking.NewMemoStore(4096)
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = interleavedthinking.NewMemoStore(4096)
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
 	wireInterleavedTestSteering(ex)
 	return ex, st
 }
@@ -113,7 +114,7 @@ func TestExecutor_InterleavedSecureSession_AuthorizedResumePreservesMemo(t *test
 			return thinkerMemoStream(memoBody)
 		}),
 	}
-	ex, st := interleavedSecureExecutor(t, backends)
+	ex, _ := interleavedSecureExecutor(t, backends)
 	ownerCtx := principalCtx("owner-authorized")
 
 	first := interleavedBaseCall(selector)
@@ -141,12 +142,10 @@ func TestExecutor_InterleavedSecureSession_AuthorizedResumePreservesMemo(t *test
 	if len(captured.Messages) == 0 || !strings.Contains(textOf(captured.Messages[len(captured.Messages)-1]), memoBody) {
 		t.Fatalf("authorized resume must inject stored memo at the tail, got messages %+v", captured.Messages)
 	}
-	postState, err := st.FetchInterleavedState(context.Background(), first.Session.ALegID)
-	if err != nil {
-		t.Fatalf("fetch post-state: %v", err)
-	}
-	if postState.MemoRef == nil {
-		t.Fatal("authorized resume must preserve memo reference on A-leg")
+	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
+	if err != nil || !ok || stored.Memo != memoBody {
+		t.Fatalf("authorized resume must preserve memo state: ok=%v err=%v memo=%q", ok, err, stored.Memo)
 	}
 }
 
@@ -171,7 +170,7 @@ func TestExecutor_InterleavedSecureSession_DeniedResumeDoesNotApplyMemo(t *testi
 			return thinkerMemoStream(memoBody)
 		}),
 	}
-	ex, st := interleavedSecureExecutor(t, backends)
+	ex, _ := interleavedSecureExecutor(t, backends)
 	ownerCtx := principalCtx("owner-denied")
 
 	first := interleavedBaseCall(selector)
@@ -204,14 +203,8 @@ func TestExecutor_InterleavedSecureSession_DeniedResumeDoesNotApplyMemo(t *testi
 		t.Fatalf("denied resume must not open backends: before=%d after=%d", preOpens, opens.Load())
 	}
 
-	postState, err := st.FetchInterleavedState(context.Background(), first.Session.ALegID)
-	if err != nil {
-		t.Fatalf("fetch owner state: %v", err)
-	}
-	if postState.MemoRef == nil {
-		t.Fatal("denied turn must not clear owner's stored memo reference")
-	}
-	stored, ok, err := ex.MemoStore.Get(context.Background(), interleavedthinking.Scope(first.Session.ALegID), *postState.MemoRef)
+	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("owner memo lookup: ok=%v err=%v", ok, err)
 	}
@@ -353,11 +346,11 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 			return executorTextStream("exec answer")
 		}),
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = memoStore
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
 	cv := wireInterleavedTestSteering(ex)
 
 	first := interleavedBaseCall(oldSelector)
@@ -370,7 +363,7 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 	}
 	aLegID := first.Session.ALegID
 
-	memoRef, err := memoStore.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
+	_, err = memoStore.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
 		Memo:                  memoBody,
 		SourceSelector:        oldSelector,
 		Backend:               "exec-be",
@@ -388,8 +381,7 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 		NextIndex: 1,
 	}
 	if err := st.SetInterleavedState(context.Background(), aLegID, interleavedstate.State{
-		Cycle:   staleCycle,
-		MemoRef: &memoRef,
+		Cycle: staleCycle,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -429,8 +421,9 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch post-state: %v", err)
 	}
-	if postState.MemoRef == nil || postState.MemoRef.Key != memoRef.Key {
-		t.Fatalf("memo reference corrupted: %+v", postState.MemoRef)
+	storedMemo, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(aLegID))
+	if err != nil || !ok || storedMemo.Memo != memoBody {
+		t.Fatalf("memo corrupted: ok=%v err=%v memo=%q", ok, err, storedMemo.Memo)
 	}
 	if postState.Cycle.SelectorKey != newKey {
 		t.Fatalf("cycle must reset to new selector key: got %q want %q", postState.Cycle.SelectorKey, newKey)

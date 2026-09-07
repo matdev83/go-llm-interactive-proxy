@@ -13,7 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -26,21 +26,25 @@ type failUpdateMemoStore struct {
 	updateCalls atomic.Int32
 }
 
-func (s *failUpdateMemoStore) Put(ctx context.Context, scope interleavedthinking.Scope, state interleavedthinking.MemoState) (interleavedstate.MemoRef, error) {
+func (s *failUpdateMemoStore) Put(ctx context.Context, scope interleavedthinking.Scope, state interleavedthinking.MemoState) (interleavedthinking.MemoRef, error) {
 	return s.inner.Put(ctx, scope, state)
 }
 
-func (s *failUpdateMemoStore) Get(ctx context.Context, scope interleavedthinking.Scope, ref interleavedstate.MemoRef) (interleavedthinking.MemoState, bool, error) {
+func (s *failUpdateMemoStore) Get(ctx context.Context, scope interleavedthinking.Scope, ref interleavedthinking.MemoRef) (interleavedthinking.MemoState, bool, error) {
 	return s.inner.Get(ctx, scope, ref)
 }
 
-func (s *failUpdateMemoStore) Update(context.Context, interleavedthinking.Scope, interleavedstate.MemoRef, interleavedthinking.MemoState) (interleavedstate.MemoRef, error) {
+func (s *failUpdateMemoStore) Update(ctx context.Context, scope interleavedthinking.Scope, ref interleavedthinking.MemoRef, state interleavedthinking.MemoState) (interleavedthinking.MemoRef, error) {
 	s.updateCalls.Add(1)
-	return interleavedstate.MemoRef{}, errParallelRaceMemoUpdate
+	return interleavedthinking.MemoRef{}, errParallelRaceMemoUpdate
 }
 
-func (s *failUpdateMemoStore) Delete(ctx context.Context, scope interleavedthinking.Scope, ref interleavedstate.MemoRef) error {
+func (s *failUpdateMemoStore) Delete(ctx context.Context, scope interleavedthinking.Scope, ref interleavedthinking.MemoRef) error {
 	return s.inner.Delete(ctx, scope, ref)
+}
+
+func (s *failUpdateMemoStore) LatestEntry(ctx context.Context, scope interleavedthinking.Scope) (interleavedthinking.MemoState, interleavedthinking.MemoRef, bool, error) {
+	return s.inner.LatestEntry(ctx, scope)
 }
 
 type parallelRaceCleanupStream struct {
@@ -147,13 +151,14 @@ func hybridParallelExecutor(t *testing.T, backends map[string]execbackend.Backen
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	memoStore := interleavedthinking.NewMemoStore(4096)
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = interleavedthinking.NewMemoStore(4096)
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
 	wireInterleavedTestSteering(ex)
 	return ex, st
 }
@@ -259,14 +264,8 @@ func TestExecutor_HybridThinkerThenParallelContinuation(t *testing.T) {
 		t.Fatal("memo wrapper must not reach client")
 	}
 
-	state, err := st.FetchInterleavedState(context.Background(), first.Session.ALegID)
-	if err != nil {
-		t.Fatalf("fetch interleaved state: %v", err)
-	}
-	if state.MemoRef == nil {
-		t.Fatal("memo reference must persist after thinker capture")
-	}
-	stored, ok, err := ex.MemoStore.Get(context.Background(), interleavedthinking.Scope(first.Session.ALegID), *state.MemoRef)
+	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok || stored.Memo != "parallel plan" {
 		t.Fatalf("stored memo: ok=%v err=%v memo=%q", ok, err, stored.Memo)
 	}
@@ -330,7 +329,7 @@ func TestExecutor_HybridParallelMemoBudgetCommittedOnlyForWinner(t *testing.T) {
 		"slow-exec": {Caps: caps, TransportCaps: transport, Open: capture("slow-exec")},
 		"fast-exec": {Caps: caps, TransportCaps: transport, Open: capture("fast-exec")},
 	}
-	ex, st := hybridParallelExecutor(t, backends)
+	ex, _ := hybridParallelExecutor(t, backends)
 	selector := "[thinker]thinker-be:m^fast-exec:m!slow-exec:m"
 
 	first := interleavedBaseCall(selector)
@@ -356,11 +355,8 @@ func TestExecutor_HybridParallelMemoBudgetCommittedOnlyForWinner(t *testing.T) {
 		t.Fatalf("collect: %v", err)
 	}
 
-	state, err := st.FetchInterleavedState(context.Background(), first.Session.ALegID)
-	if err != nil {
-		t.Fatalf("fetch state: %v", err)
-	}
-	stored, ok, err := ex.MemoStore.Get(context.Background(), interleavedthinking.Scope(first.Session.ALegID), *state.MemoRef)
+	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
 	}
@@ -443,13 +439,13 @@ func TestParallelRace_CommitMemoInjectionFailureCleansUpStreams(t *testing.T) {
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = memoStore
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
 	wireInterleavedTestSteering(ex)
 	selector := "[thinker]thinker-be:m^fast-exec:m!slow-exec:m"
 
@@ -465,7 +461,7 @@ func TestParallelRace_CommitMemoInjectionFailureCleansUpStreams(t *testing.T) {
 	if aLegID == "" {
 		t.Fatal("seed execute must set A-leg id")
 	}
-	memoRef, err := innerMemo.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
+	_, err = innerMemo.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
 		Memo:                  "cleanup plan",
 		RegularTurnsRemaining: 2,
 	})
@@ -473,7 +469,6 @@ func TestParallelRace_CommitMemoInjectionFailureCleansUpStreams(t *testing.T) {
 		t.Fatalf("seed memo: %v", err)
 	}
 	if err := st.SetInterleavedState(context.Background(), aLegID, interleavedstate.State{
-		MemoRef: &memoRef,
 		Cycle: interleavedstate.CycleState{
 			SelectorKey: "thinker-be:m^parallel:fast-exec:m!slow-exec:m",
 			Sequence: []interleavedstate.CycleEntry{

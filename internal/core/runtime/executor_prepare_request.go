@@ -51,9 +51,10 @@ type preparedRequest struct {
 	// Task 3.3: generic two-phase local-turn stage. When isLocal true,
 	// localStream is the finite canonical response, merged snapshot already
 	// contains source+reply tags, and no billing/route/B-leg must run.
-	isLocal        bool
-	localStream    lipapi.EventStream
-	localHandlerID string
+	isLocal         bool
+	localStream     lipapi.EventStream
+	localHandlerID  string
+	interleavedTurn InterleavedTurn
 }
 
 func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {

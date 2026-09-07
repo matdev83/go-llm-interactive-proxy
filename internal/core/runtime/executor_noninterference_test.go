@@ -12,7 +12,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -62,8 +63,14 @@ func nonInterferenceExecutor(t *testing.T, backends map[string]execbackend.Backe
 	ex.Rand = routing.NewSeededRng(0)
 	ex.Backends = backends
 	if interleavedEnabled {
-		ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
-		ex.MemoStore = interleavedthinking.NewMemoStore(4096)
+		proc, err := interleavedthinking.NewProcessor(interleavedthinking.Config{
+			Enabled:      true,
+			Instructions: "Think step by step.",
+		}, interleavedthinking.NewMemoStore(4096))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
 	}
 	return ex, st
 }
@@ -72,8 +79,7 @@ func nonInterferenceSecureExecutor(t *testing.T, backends map[string]execbackend
 	t.Helper()
 	ex, st := interleavedSecureExecutor(t, backends)
 	if !interleavedEnabled {
-		ex.InterleavedConfig = interleavedthinking.ShapeConfig{}
-		ex.MemoStore = nil
+		ex.Processor = nil
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		Workspace: voidWorkspaceResolver{},

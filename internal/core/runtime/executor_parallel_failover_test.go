@@ -11,7 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -150,13 +150,14 @@ func TestExecutor_ParallelCommitMemoFailureEndsALegScope(t *testing.T) {
 	ex.Rand = routing.NewSeededRng(2)
 	ex.ALegLifecycle = lc
 	ex.Backends = backends
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = memoStore
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
+	wireInterleavedTestSteering(ex)
 	selector := "[thinker]thinker-be:m^fast-exec:m!slow-exec:m|recovery:m"
 
 	first := seedThinkerFirstCall(t, st, selector)
@@ -169,7 +170,7 @@ func TestExecutor_ParallelCommitMemoFailureEndsALegScope(t *testing.T) {
 	}
 	aLegID := first.Session.ALegID
 
-	memoRef, err := innerMemo.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
+	_, err = innerMemo.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
 		Memo:                  "scope cleanup plan",
 		RegularTurnsRemaining: 2,
 	})
@@ -177,7 +178,6 @@ func TestExecutor_ParallelCommitMemoFailureEndsALegScope(t *testing.T) {
 		t.Fatalf("seed memo: %v", err)
 	}
 	if err := st.SetInterleavedState(context.Background(), aLegID, interleavedstate.State{
-		MemoRef: &memoRef,
 		Cycle: interleavedstate.CycleState{
 			SelectorKey: "thinker-be:m^parallel:fast-exec:m!slow-exec:m|recovery:m",
 			Sequence: []interleavedstate.CycleEntry{

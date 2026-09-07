@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -116,8 +117,8 @@ func (r *Recorder) FlushVisibleSanitizer() []lipapi.Event {
 // thinker output with residual wrapper tags stripped, trimmed of surrounding
 // whitespace. interrupted marks the stored memo as captured from an
 // interrupted stream.
-func (r *Recorder) Finish(interrupted bool) MemoState {
-	state := MemoState{
+func (r *Recorder) Finish(interrupted bool) state.MemoState {
+	s := state.MemoState{
 		SourceSelector:        r.SourceSelector,
 		Backend:               r.Backend,
 		Model:                 r.Model,
@@ -127,8 +128,8 @@ func (r *Recorder) Finish(interrupted bool) MemoState {
 		ExtractionSource:      ExtractionSourceFull,
 		StreamInterrupted:     interrupted,
 	}
-	state.Memo = strings.TrimSpace(StripResidualMemoTags(r.buf.String()))
-	return state
+	s.Memo = strings.TrimSpace(StripResidualMemoTags(r.buf.String()))
+	return s
 }
 
 // StripResidualMemoTags removes complete <proxy_thinker_memo> and

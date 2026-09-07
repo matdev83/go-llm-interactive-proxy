@@ -41,6 +41,9 @@ func TestForbiddenImports_RetiredCorePackagesRulesEnforced(t *testing.T) {
 		"/internal/core/toolcallrepair",
 		"/internal/core/secretguard",
 		"/internal/core/compactiondetect",
+		"/internal/core/compactioncontinuity",
+		"/internal/core/conversationview",
+		"/internal/core/interleavedthinking",
 	}
 
 	for _, target := range retiredTargets {
@@ -109,6 +112,12 @@ func TestForbiddenImports_CoreConcreteFeaturesRenamedOrNestedBypassRejected(t *t
 			name:       "core runtime imports compactioncontinuity",
 			relPath:    "internal/core/runtime/renamed.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity",
+			wantForbid: true,
+		},
+		{
+			name:       "core runtime imports interleavedthinking",
+			relPath:    "internal/core/runtime/renamed.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking",
 			wantForbid: true,
 		},
 		{

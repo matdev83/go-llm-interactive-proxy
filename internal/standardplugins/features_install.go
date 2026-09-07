@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
@@ -283,4 +284,15 @@ func featureToolCallRepair(n yaml.Node) (lipfeature.FeatureBundle, error) {
 		return lipfeature.FeatureBundle{}, err
 	}
 	return toolcallrepair.FeatureBundle(cfg)
+}
+
+func featureInterleavedThinking(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	cfg, err := interleavedthinking.DecodeConfig(n)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	if !cfg.Enabled {
+		return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+	}
+	return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
 }

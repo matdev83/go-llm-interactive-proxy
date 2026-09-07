@@ -24,11 +24,13 @@ func compileCandidateWithFeatures(ctx context.Context, ps *runtimebundle.Process
 	if ps.StandardFeatures != nil && cfg != nil {
 		accessMode, _ := cfg.EffectiveAccessMode()
 		featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
-			Registrations:    config.RegistrationsFromConfig(cfg),
-			AccessMode:       accessMode,
-			SecretEnv:        candOpts.Extensions.SecretGuardEnvironment,
-			SecretInputs:     candOpts.Extensions.SecretGuardInputs,
-			DecisionObserver: candOpts.Extensions.SecretDecisionObserver,
+			Registrations:     config.RegistrationsFromConfig(cfg),
+			AccessMode:        accessMode,
+			ConfigInterleaved: cfg.Interleaved,
+			ConfigDir:         cfg.ConfigDir,
+			SecretEnv:         candOpts.Extensions.SecretGuardEnvironment,
+			SecretInputs:      candOpts.Extensions.SecretGuardInputs,
+			DecisionObserver:  candOpts.Extensions.SecretDecisionObserver,
 		})
 		if err != nil {
 			return nil, err
@@ -37,6 +39,9 @@ func compileCandidateWithFeatures(ctx context.Context, ps *runtimebundle.Process
 		candOpts.Extensions.SecretGuardInventory = featOut.SecretGuardInventory
 		candOpts.FeaturePlanes = featOut.Planes
 		candOpts.FeatureLifecycles = featOut.Lifecycles
+		if candOpts.CorePorts.InterleavedProcessor == nil {
+			candOpts.CorePorts.InterleavedProcessor = featOut.CorePorts.InterleavedProcessor
+		}
 	}
 	return runtimebundle.CompileCandidate(ctx, runtimebundle.GenerationCompileInput{
 		Process:       ps,

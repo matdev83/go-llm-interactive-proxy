@@ -15,11 +15,15 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"gopkg.in/yaml.v3"
 )
 
 func TestProcess_CloseIdempotencyCounting(t *testing.T) {
@@ -298,6 +302,73 @@ func TestProcess_CompactionConstructionCounted(t *testing.T) {
 	}
 }
 
+func TestCompileGeneration_InterleavedProcessorConstructionCounted(t *testing.T) {
+	var procCount atomic.Int32
+	origProc := newInterleavedProcessor
+	t.Cleanup(func() {
+		newInterleavedProcessor = origProc
+	})
+	newInterleavedProcessor = func(cfg interleavedthinking.Config, store interleavedthinking.MemoStore) (interleavedthinking.Processor, error) {
+		procCount.Add(1)
+		return origProc(cfg, store)
+	}
+
+	r, err := NewProcess(context.Background(), ProcessInput{Logger: slog.Default(), ExtensionState: corestate.NewMem(nil)})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+
+	genIn := GenerationInput{
+		InterleavedConfig: interleavedthinking.Config{
+			Enabled: true,
+		},
+	}
+
+	// Generation 1: enabled -> exactly 1 construction
+	gen1Out, err := r.CompileGeneration(context.Background(), genIn)
+	if err != nil {
+		t.Fatalf("CompileGeneration #1: %v", err)
+	}
+	if got := procCount.Load(); got != 1 {
+		t.Fatalf("interleaved processor constructions = %d, want 1", got)
+	}
+	if gen1Out.CorePorts.InterleavedProcessor == nil {
+		t.Fatal("expected non-nil InterleavedProcessor in CorePorts")
+	}
+
+	// Overlapping generation 2: enabled -> exactly 1 per generation (cumulative 2, 0 duplicates)
+	gen2Out, err := r.CompileGeneration(context.Background(), genIn)
+	if err != nil {
+		t.Fatalf("CompileGeneration #2: %v", err)
+	}
+	if got := procCount.Load(); got != 2 {
+		t.Fatalf("interleaved processor cumulative constructions = %d, want 2", got)
+	}
+	if gen2Out.CorePorts.InterleavedProcessor == nil {
+		t.Fatal("expected non-nil InterleavedProcessor in CorePorts for generation 2")
+	}
+	if gen1Out.CorePorts.InterleavedProcessor == gen2Out.CorePorts.InterleavedProcessor {
+		t.Fatal("overlapping generations must have distinct processor instances, not reused duplicate")
+	}
+
+	// Generation 3: disabled -> nil = disabled preserved, 0 additional constructions
+	gen3Out, err := r.CompileGeneration(context.Background(), GenerationInput{
+		InterleavedConfig: interleavedthinking.Config{
+			Enabled: false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGeneration #3: %v", err)
+	}
+	if got := procCount.Load(); got != 2 {
+		t.Fatalf("disabled generation caused construction: cumulative = %d, want 2", got)
+	}
+	if gen3Out.CorePorts.InterleavedProcessor != nil {
+		t.Fatal("disabled generation must have nil InterleavedProcessor")
+	}
+}
+
 func TestProcess_BranchCoordinatorBehaviorAndGenerationStability(t *testing.T) {
 	t.Parallel()
 
@@ -380,4 +451,88 @@ func TestProcess_CompactionResourceDistinctness_InternalSeam(t *testing.T) {
 	if rt1.compactionDetector == rt2.compactionDetector {
 		t.Fatalf("compactionDetector identical across processes: %p", rt1.compactionDetector)
 	}
+}
+
+func TestCompileGeneration_InterleavedParityAndConflict(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	rt, err := NewProcess(ctx, ProcessInput{Logger: slog.Default(), ExtensionState: corestate.NewMem(nil)})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	t.Cleanup(func() { _ = rt.Close() })
+
+	t.Run("from registrations canonical", func(t *testing.T) {
+		t.Parallel()
+		raw := `
+enabled: true
+stream_to_client: visible
+regular_turns_remaining: 3
+max_memo_bytes: 4096
+`
+		var n yaml.Node
+		if err := yaml.Unmarshal([]byte(raw), &n); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		genIn := GenerationInput{
+			Registrations: []lipsdk.Registration{
+				{
+					ID:      interleavedthinking.ID,
+					Kind:    lipsdk.PluginKindFeature,
+					Enabled: true,
+					Config:  lipsdk.ConfigPayload{Node: n},
+				},
+			},
+		}
+		out, err := rt.CompileGeneration(ctx, genIn)
+		if err != nil {
+			t.Fatalf("CompileGeneration with canonical registration: %v", err)
+		}
+		if out.CorePorts.InterleavedProcessor == nil {
+			t.Fatal("expected non-nil InterleavedProcessor in CorePorts")
+		}
+	})
+
+	t.Run("fallback carries full mapped policy with defaults", func(t *testing.T) {
+		t.Parallel()
+		genIn := GenerationInput{
+			ConfigInterleaved: config.InterleavedConfig{
+				Enabled: true,
+			},
+		}
+		out, err := rt.CompileGeneration(ctx, genIn)
+		if err != nil {
+			t.Fatalf("CompileGeneration fallback: %v", err)
+		}
+		if out.CorePorts.InterleavedProcessor == nil {
+			t.Fatal("expected non-nil InterleavedProcessor in CorePorts")
+		}
+	})
+
+	t.Run("conflict when both legacy and canonical are enabled", func(t *testing.T) {
+		t.Parallel()
+		raw := `enabled: true`
+		var n yaml.Node
+		if err := yaml.Unmarshal([]byte(raw), &n); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		genIn := GenerationInput{
+			ConfigInterleaved: config.InterleavedConfig{
+				Enabled: true,
+			},
+			Registrations: []lipsdk.Registration{
+				{
+					ID:      interleavedthinking.ID,
+					Kind:    lipsdk.PluginKindFeature,
+					Enabled: true,
+					Config:  lipsdk.ConfigPayload{Node: n},
+				},
+			},
+		}
+		_, err := rt.CompileGeneration(ctx, genIn)
+		if err == nil {
+			t.Fatal("expected conflict error when both legacy and canonical interleaved are enabled")
+		}
+	})
 }

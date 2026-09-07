@@ -84,7 +84,6 @@ func TestRecorder_ResidualWrapperTagsStrippedDefensively(t *testing.T) {
 		textDelta("intro " + memoOpenTag + "the plan" + memoCloseTag + " outro"),
 	})
 	state := r.Finish(false)
-	// The whole output is the memo; residual wrapper tags are stripped.
 	if state.Memo != "intro the plan outro" {
 		t.Fatalf("expected tag-stripped full memo %q, got %q", "intro the plan outro", state.Memo)
 	}

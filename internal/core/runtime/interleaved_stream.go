@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
@@ -32,8 +31,8 @@ type interleavedContinuationStream struct {
 	executor *retryRecvStream
 	phase    interleavedPhase
 
-	recorder *interleavedthinking.Recorder
-	state    interleavedstate.State
+	turn  InterleavedTurn
+	state interleavedstate.State
 
 	surfaceVisible   bool
 	visibleCommitted bool
@@ -56,22 +55,28 @@ var (
 
 type hiddenInterleavedStream = interleavedContinuationStream
 
-func newHiddenInterleavedStream(thinker *retryRecvStream, recorder *interleavedthinking.Recorder, state interleavedstate.State) *hiddenInterleavedStream {
+func newInterleavedContinuationStream(thinker *retryRecvStream, turn InterleavedTurn, state interleavedstate.State) *interleavedContinuationStream {
 	if thinker != nil && thinker.terminal != nil {
-		// This construction-time handoff is one-way: the outer wrapper owns the
-		// shared A-leg end for the combined thinker/executor turn.
 		thinker.terminal.deferALegEndToOuter()
 	}
-	return &interleavedContinuationStream{
-		thinker:  thinker,
-		phase:    interleavedPhaseThinker,
-		recorder: recorder,
-		state:    state,
+	s := &interleavedContinuationStream{
+		thinker: thinker,
+		phase:   interleavedPhaseThinker,
+		turn:    turn,
+		state:   state,
 	}
+	if turn != nil && turn.Visible() {
+		s.surfaceVisible = true
+	}
+	return s
 }
 
-func newVisibleInterleavedStream(thinker *retryRecvStream, recorder *interleavedthinking.Recorder, state interleavedstate.State) *interleavedContinuationStream {
-	s := newHiddenInterleavedStream(thinker, recorder, state)
+func newHiddenInterleavedStream(thinker *retryRecvStream, turn InterleavedTurn, state interleavedstate.State) *hiddenInterleavedStream {
+	return newInterleavedContinuationStream(thinker, turn, state)
+}
+
+func newVisibleInterleavedStream(thinker *retryRecvStream, turn InterleavedTurn, state interleavedstate.State) *interleavedContinuationStream {
+	s := newHiddenInterleavedStream(thinker, turn, state)
 	s.surfaceVisible = true
 	return s
 }
@@ -125,6 +130,16 @@ func (s *interleavedContinuationStream) recvThinker(ctx context.Context) (lipapi
 		ev, err := s.thinker.Recv(ctx)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				if s.surfaceVisible && s.turn != nil {
+					for _, visible := range s.turn.FlushVisible() {
+						if visible.Kind == lipapi.EventReasoningDelta {
+							s.enqueueVisibleReasoning(visible)
+						}
+					}
+					if out, ok := s.popPending(); ok {
+						return out, nil
+					}
+				}
 				// Only response_finished completion sets the request terminal's
 				// accounting-finalized claim.
 				// Truncated EOF / cancel / error terminals must not open an executor
@@ -132,14 +147,6 @@ func (s *interleavedContinuationStream) recvThinker(ctx context.Context) (lipapi
 				if s.thinker.terminal == nil || !s.thinker.terminal.accountingFinalized() {
 					s.finishWithCleanup(ctx)
 					return lipapi.Event{}, io.EOF
-				}
-				if s.surfaceVisible {
-					for _, visible := range s.recorder.FlushVisibleSanitizer() {
-						s.enqueueVisibleReasoning(visible)
-					}
-					if out, ok := s.popPending(); ok {
-						return out, nil
-					}
 				}
 				return s.beginExecutorContinuation(ctx)
 			}
@@ -158,16 +165,19 @@ func (s *interleavedContinuationStream) recvThinker(ctx context.Context) (lipapi
 			s.finishWithCleanup(ctx)
 			return ev, nil
 		}
-		for _, visible := range s.recorder.Observe(ev) {
-			if !s.surfaceVisible {
-				continue
+		if s.turn != nil {
+			visibles, err := s.turn.ObserveThinkerEvent(ev)
+			if err != nil {
+				s.finishWithCleanup(ctx)
+				return lipapi.Event{}, err
 			}
-			if visible.Kind != lipapi.EventReasoningDelta {
-				continue
-			}
-			s.enqueueVisibleReasoning(visible)
-			if out, ok := s.popPending(); ok {
-				return out, nil
+			for _, visible := range visibles {
+				if visible.Kind == lipapi.EventReasoningDelta {
+					s.enqueueVisibleReasoning(visible)
+					if out, ok := s.popPending(); ok {
+						return out, nil
+					}
+				}
 			}
 		}
 	}
@@ -204,7 +214,7 @@ func (s *interleavedContinuationStream) captureAndPersistThinkerMemo(ctx context
 		s.mu.Unlock()
 		return state, nil
 	}
-	if s.phase != interleavedPhaseThinker || s.recorder == nil || s.thinker == nil || s.thinker.recovery == nil {
+	if s.phase != interleavedPhaseThinker || s.turn == nil || s.thinker == nil || s.thinker.recovery == nil {
 		s.mu.Unlock()
 		return s.state, nil
 	}
@@ -219,16 +229,22 @@ func (s *interleavedContinuationStream) captureAndPersistThinkerMemo(ctx context
 		defer cleanupCancel()
 	}
 
-	memo := s.recorder.Finish(interrupted)
-	if strings.TrimSpace(memo.Memo) == "" {
-		// Differentiated skip reasons mirror the Python recorder: an interrupted
-		// stream wins over empty content; otherwise content that was observed but
-		// normalized to nothing is empty_memo, and a stream that never produced
-		// content is no_extractable_memo.
+	var memo InterleavedMemo
+	var err error
+	if s.turn != nil {
+		memo, err = s.turn.FinalizeThinkerStatus(persistCtx, interrupted, s.visibleCommitted)
+	}
+	if err != nil {
+		s.mu.Lock()
+		s.memoPersisted = false
+		s.mu.Unlock()
+		return s.state, err
+	}
+	if strings.TrimSpace(memo.Text) == "" {
 		reason := "empty_memo"
 		if interrupted {
 			reason = "stream_interrupted"
-		} else if !s.recorder.HadContent() {
+		} else if !memo.HadContent {
 			reason = "no_extractable_memo"
 		}
 		s.mu.Lock()
@@ -239,25 +255,13 @@ func (s *interleavedContinuationStream) captureAndPersistThinkerMemo(ctx context
 		}
 		return s.state, nil
 	}
-	memo.VisibleToClient = s.visibleCommitted
 	s.thinker.recovery.logMemoCaptured(persistCtx, s.thinker.facts.traceID, memo)
 	if !interrupted {
 		s.thinker.recovery.logPhaseTransition(persistCtx, s.thinker.facts.traceID)
 	}
-	state, err := s.thinker.recovery.persistCapturedMemo(persistCtx, s.thinker.facts.aLegID, state, memo, capturedMemoSource{
-		TraceID:  s.thinker.facts.traceID,
-		Ingress:  s.thinker.facts.ingressCall,
-		Snapshot: s.thinker.facts.conversationSnapshot,
-	})
-	if err != nil {
-		s.mu.Lock()
-		s.memoPersisted = false
-		s.mu.Unlock()
-		return s.state, err
+	if err := s.thinker.recovery.publishMemoSteeringOverlay(persistCtx, s.thinker.facts.aLegID, s.thinker.facts.ingressCall, s.thinker.facts.conversationSnapshot, memo.Text); err != nil {
+		s.thinker.recovery.logMemoSteeringSkipped(persistCtx, s.thinker.facts.traceID)
 	}
-	s.mu.Lock()
-	s.state = state
-	s.mu.Unlock()
 	return state, nil
 }
 

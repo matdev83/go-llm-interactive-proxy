@@ -325,26 +325,10 @@ var ForbiddenImports = []ForbiddenImportRule{
 		TargetPattern: "/internal/pluginreg",
 		Reason:        "secretguard feature tree must not depend on pluginreg",
 	},
-	{
-		SourcePattern: "internal/plugins/features/compactioncontinuity",
-		TargetPattern: "/internal/core",
-		Reason:        "compactioncontinuity feature tree must not depend on internal/core (use pkg/lipsdk contracts)",
-	},
-	{
-		SourcePattern: "internal/plugins/features/compactioncontinuity",
-		TargetPattern: "/internal/infra/runtimebundle",
-		Reason:        "compactioncontinuity feature tree must not depend on runtimebundle",
-	},
-	{
-		SourcePattern: "internal/plugins/features/compactioncontinuity",
-		TargetPattern: "/internal/plugins/frontends",
-		Reason:        "compactioncontinuity feature tree must not depend on frontend plugins",
-	},
-	{
-		SourcePattern: "internal/plugins/features/compactioncontinuity",
-		TargetPattern: "/internal/plugins/backends",
-		Reason:        "compactioncontinuity feature tree must not depend on backend plugins",
-	},
+	{SourcePattern: "internal/plugins/features/compactioncontinuity", TargetPattern: "/internal/core", Reason: "compactioncontinuity feature tree must not depend on internal/core (use pkg/lipsdk contracts)"},
+	{SourcePattern: "internal/plugins/features/compactioncontinuity", TargetPattern: "/internal/infra/runtimebundle", Reason: "compactioncontinuity feature tree must not depend on runtimebundle"},
+	{SourcePattern: "internal/plugins/features/compactioncontinuity", TargetPattern: "/internal/plugins/frontends", Reason: "compactioncontinuity feature tree must not depend on frontend plugins"},
+	{SourcePattern: "internal/plugins/features/compactioncontinuity", TargetPattern: "/internal/plugins/backends", Reason: "compactioncontinuity feature tree must not depend on backend plugins"},
 	{
 		SourcePattern: "internal/plugins/features/compactioncontinuity",
 		TargetPattern: "/internal/plugins/features/",
@@ -353,16 +337,23 @@ var ForbiddenImports = []ForbiddenImportRule{
 			"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity",
 		},
 	},
+	{SourcePattern: "internal/plugins/features/compactioncontinuity", TargetPattern: "/internal/stdhttp", Reason: "compactioncontinuity feature tree must not depend on stdhttp"},
+	{SourcePattern: "internal/plugins/features/compactioncontinuity", TargetPattern: "/internal/pluginreg", Reason: "compactioncontinuity feature tree must not depend on pluginreg"},
+	{SourcePattern: "*", TargetPattern: "/internal/core/interleavedthinking", Reason: "internal/core/interleavedthinking has been retired; use internal/plugins/features/interleavedthinking"},
+	{SourcePattern: "internal/plugins/features/interleavedthinking", TargetPattern: "/internal/core", Reason: "interleavedthinking feature tree must not depend on internal/core (use pkg/lipsdk contracts)"},
+	{SourcePattern: "internal/plugins/features/interleavedthinking", TargetPattern: "/internal/infra/runtimebundle", Reason: "interleavedthinking feature tree must not depend on runtimebundle"},
+	{SourcePattern: "internal/plugins/features/interleavedthinking", TargetPattern: "/internal/plugins/frontends", Reason: "interleavedthinking feature tree must not depend on frontend plugins"},
+	{SourcePattern: "internal/plugins/features/interleavedthinking", TargetPattern: "/internal/plugins/backends", Reason: "interleavedthinking feature tree must not depend on backend plugins"},
 	{
-		SourcePattern: "internal/plugins/features/compactioncontinuity",
-		TargetPattern: "/internal/stdhttp",
-		Reason:        "compactioncontinuity feature tree must not depend on stdhttp",
+		SourcePattern: "internal/plugins/features/interleavedthinking",
+		TargetPattern: "/internal/plugins/features/",
+		Reason:        "interleavedthinking feature tree must not depend on other feature plugins",
+		ExceptPrefix: []string{
+			"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking",
+		},
 	},
-	{
-		SourcePattern: "internal/plugins/features/compactioncontinuity",
-		TargetPattern: "/internal/pluginreg",
-		Reason:        "compactioncontinuity feature tree must not depend on pluginreg",
-	},
+	{SourcePattern: "internal/plugins/features/interleavedthinking", TargetPattern: "/internal/stdhttp", Reason: "interleavedthinking feature tree must not depend on stdhttp"},
+	{SourcePattern: "internal/plugins/features/interleavedthinking", TargetPattern: "/internal/pluginreg", Reason: "interleavedthinking feature tree must not depend on pluginreg"},
 }
 
 // fileScopedImportRule restricts specific production files.

@@ -220,7 +220,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 5. Split interleaved-thinking routing authority from UX processing
-- [ ] 5.1 Separate route-cycle state from memo feature state
+- [x] 5.1 Separate route-cycle state from memo feature state
   - Audit every post-first `interleavedstate` field consumer using the Task 1.1 census.
   - Keep `Role`, selector/cycle sequence and cursor in core only where routing/continuity directly require them.
   - Move memo payload/reference/budget semantics to `internal/plugins/features/interleavedthinking/state` when not required by route selection.
@@ -231,7 +231,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 4.3_
   - _Validation: B2BUA/continuity memory+DB state tests_
 
-- [ ] 5.2 Move prompt/memo/shape/sanitize implementation to the interleaved feature
+- [x] 5.2 Move prompt/memo/shape/sanitize implementation to the interleaved feature
   - Create/expand `internal/plugins/features/interleavedthinking` and mechanically move built-in instructions, instruction-file validation/loading, memo extraction/bounds/storage, executor memo injection and visible-stream sanitization.
   - Define feature-owned `Processor`, per-turn contract and DTOs using only standard library, `pkg/lipapi`, `pkg/lipsdk/*` and feature-local types. These types are deliberately separate from the later core consumer interface; the feature package must never import `internal/core/runtime` just to satisfy that interface.
   - Do not move selector parsing, thinker cycle planning, B-leg opening, failover or output commitment.
@@ -241,7 +241,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 5.1_
   - _Validation: moved pure tests; prompt/memo/sanitize fuzz where existing; feature import-boundary test_
 
-- [ ] 5.3 Introduce the narrow core `InterleavedProcessor` port and explicit featurehost adapter
+- [x] 5.3 Introduce the narrow core `InterleavedProcessor` port and explicit featurehost adapter
   - Add the smallest runtime-owned `InterleavedProcessor`/per-turn interface matching the final methods actually needed by current interleaved stream orchestration. Start from design's `BeginTurn`/turn object shape and delete any method not used by existing orchestration.
   - Keep all core interface input/output types core-owned and minimal. Prefer a turn object that retains memo feature state internally so core does not carry memo text; if a core `InterleavedMemo`/reference DTO remains necessary for durable continuity, it may contain only the bounded fields core actually persists/coordinates.
   - Implement `internal/standardplugins/featurehost/interleaved.go` as the **sole adapter** between the core-owned interface and the feature-owned `interleavedthinking.Processor`/`Turn` contracts. The feature does not implement/import the core interface directly.
@@ -256,7 +256,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 5.2_
   - _Validation: featurehost interleaved adapter tests + compile assertions; runtime interleaved tests hidden/visible/cancellation/failure; recursive feature import archtest_
 
-- [ ] 5.4 Delete `internal/core/interleavedthinking` and ratchet the split
+- [x] 5.4 Delete `internal/core/interleavedthinking` and ratchet the split
   - Remove the old core implementation after all call sites use routing state + processor port.
   - Add archtest forbidding feature prompt/memo/config defaults in core packages and forbidding core imports of the feature.
   - Preserve/extend the adapter compile/import tests from 5.3 so future interface changes cannot force the feature to import core.

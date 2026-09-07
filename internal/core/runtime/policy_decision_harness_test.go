@@ -11,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -74,8 +73,7 @@ func (h pdHungPreReq) Handle(ctx context.Context, _ *lipapi.Call, _ prerequest.M
 func policySecureExecutor(t *testing.T, backends map[string]execbackend.Backend, snapOpts extensions.SnapshotOptions) (*runtime.Executor, *b2bua.MemoryStore) {
 	t.Helper()
 	ex, st := interleavedSecureExecutor(t, backends)
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{}
-	ex.MemoStore = nil
+	ex.Processor = nil
 	if snapOpts.Workspace == nil {
 		snapOpts.Workspace = voidWorkspaceResolver{}
 	}

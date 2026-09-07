@@ -18,7 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial"
@@ -701,14 +701,14 @@ func newAdversarialInterleavedExecutor(t *testing.T, ptbObs traffic.Observer, ho
 	ex.SyntheticLocalPrincipal = false
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Now = func() time.Time { return time.Unix(5000, 0) }
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	memoStore := interleavedthinking.NewMemoStore(4096)
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
-	memoStore := interleavedthinking.NewMemoStore(4096)
-	ex.MemoStore = memoStore
+	}, memoStore)
+	RegisterTestMemoStore(ex, memoStore)
 	return ex, st, memoStore
 }
 

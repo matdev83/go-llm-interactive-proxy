@@ -520,7 +520,6 @@ func runContinuityParitySuite(t *testing.T, f continuityParityFixture) {
 					},
 					NextIndex: 1,
 				},
-				MemoRef: &interleavedstate.MemoRef{Key: "memo-restart", Version: 5},
 			}
 			require.NoError(t, s1.SetInterleavedState(ctx, leg.ALegID, want))
 
