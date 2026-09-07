@@ -1,4 +1,4 @@
-package runtimebundle
+package featurehost
 
 import (
 	"context"
@@ -46,9 +46,9 @@ func TestTerminalDecisionPolicyHTTPProjection_Snapshots(t *testing.T) {
 	snapG3 := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{})
 
 	// Capture all three returned TerminalDecisionPolicyInput values before any assertion
-	projG1 := terminalDecisionPolicyHTTPProjection(candidateProcessRefs{}, snapG1, lipsdk.HTTPHeaders{}, 65536)
-	projG2 := terminalDecisionPolicyHTTPProjection(candidateProcessRefs{}, snapG2, lipsdk.HTTPHeaders{}, 65536)
-	projG3 := terminalDecisionPolicyHTTPProjection(candidateProcessRefs{}, snapG3, lipsdk.HTTPHeaders{}, 65536)
+	projG1 := TerminalDecisionPolicyHTTPProjection(nil, snapG1, lipsdk.HTTPHeaders{}, 65536, nil)
+	projG2 := TerminalDecisionPolicyHTTPProjection(nil, snapG2, lipsdk.HTTPHeaders{}, 65536, nil)
+	projG3 := TerminalDecisionPolicyHTTPProjection(nil, snapG3, lipsdk.HTTPHeaders{}, 65536, nil)
 
 	ctx := context.Background()
 

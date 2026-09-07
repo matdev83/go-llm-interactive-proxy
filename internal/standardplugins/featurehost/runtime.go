@@ -11,11 +11,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
@@ -28,7 +28,7 @@ type Runtime struct {
 	logger               *slog.Logger
 	extState             lipstate.Store
 	bgAux                *auxreq.BackgroundScheduler // borrowed, never closed
-	terminalPolicy       *terminaldecisionpolicy.Store
+	terminalPolicy       *sessionpolicy.Store
 	compactionDetector   runtime.CompactionDetector
 	branchCoordinator    *state.BranchCoordinator
 	compactionParentPort *compaction.ParentPort
@@ -59,11 +59,19 @@ func (r *Runtime) CompactionDetector() runtime.CompactionDetector {
 }
 
 // TerminalDecisionPolicy returns the featurehost-owned terminal decision policy store, if owned.
-func (r *Runtime) TerminalDecisionPolicy() *terminaldecisionpolicy.Store {
+func (r *Runtime) TerminalDecisionPolicy() *sessionpolicy.Store {
 	if r == nil {
 		return nil
 	}
 	return r.terminalPolicy
+}
+
+// TerminalPolicyReader returns a consumer-owned adapter for the terminal decision policy store.
+func (r *Runtime) TerminalPolicyReader() runtime.TerminalPolicyReader {
+	if r == nil || r.terminalPolicy == nil {
+		return nil
+	}
+	return NewTerminalPolicyReaderAdapter(r.terminalPolicy)
 }
 
 // KeepwarmPolicy returns the featurehost-owned keepwarm policy store, if owned.

@@ -47,6 +47,7 @@ type CorePorts struct {
 	ConversationReader      conversationprojection.Reader
 	InterleavedProcessor    runtime.InterleavedProcessor
 	PromptCacheMaintenance  runtime.PromptCacheMaintenance
+	TerminalPolicyReader    runtime.TerminalPolicyReader
 }
 
 // GenerationInput carries inputs for featurehost generation composition.

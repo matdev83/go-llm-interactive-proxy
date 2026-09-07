@@ -300,8 +300,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 7. Move terminal-decision mutable session policy outside core
-- [ ] 7.1 Move the bounded actor policy store to standard feature infrastructure
+- [x] 7. Move terminal-decision mutable session policy outside core
+- [x] 7.1 Move the bounded actor policy store to standard feature infrastructure
   - Move current terminal policy store/tests to `internal/standardplugins/featurehost/sessionpolicy` unless Task 1.1 proves a second independent feature already uses the exact same semantics; only then use `internal/infra/sessionfeaturepolicy`.
   - Preserve key bounds, capacity, authority match, client/operator tri-state precedence, revisions and idempotent close.
   - Do not put terminal provider execution logic into this store.
@@ -311,7 +311,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 6.3_
   - _Validation: moved store tests under race; ownership-counting test remains on legacy owner_
 
-- [ ] 7.2 Replace core mutable policy dependency with effective snapshot reader
+- [x] 7.2 Replace core mutable policy dependency with effective snapshot reader
   - Add the narrow runtime `TerminalPolicyReader`/query/snapshot contract from design (or smaller if existing request-admission structure can carry the effective value directly).
   - Featurehost exposes an adapter for the moved store but must not become its physical owner until the Task 7.3 constructor/closer handoff is complete.
   - Core request admission sees effective enabled + revision only; actor-specific mutation and key-map ownership stay outside.
@@ -322,7 +322,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 7.1_
   - _Validation: request admission tests; HTTP/admin policy tests; terminal provider conflict/chokepoint tests; existing terminal-decision architecture ratchets still green before ownership switch_
 
-- [ ] 7.3 Atomically transfer terminal-policy ownership, delete core package, and migrate existing architecture ratchets
+- [x] 7.3 Atomically transfer terminal-policy ownership, delete core package, and migrate existing architecture ratchets
   - Enable featurehost/sessionpolicy process construction/ownership and in the **same integration change** remove the legacy `terminaldecisionpolicy.NewStore(...)` construction and legacy close registration from `NewProcessServices` (or the post-first equivalent).
   - Remove `TerminalDecisionPolicy` concrete field from `ProcessServices` and any direct concrete type in executor build inputs; update the Task 2.3 transition table and counted ownership test to require exactly one store construction and one physical close.
   - Delete `internal/core/terminaldecisionpolicy`; add/retain a resurrection ratchet.

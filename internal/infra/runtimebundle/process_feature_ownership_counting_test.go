@@ -12,11 +12,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	keepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
@@ -39,7 +39,7 @@ func (testBackgroundProcessRunner) Execute(context.Context, *lipapi.Call) (lipap
 type ProcessFeatureSnapshot struct {
 	KeepwarmPolicy         *keepwarm.PolicyStore
 	KeepwarmRegistry       *keepwarm.ManagerRegistry
-	TerminalDecisionPolicy *terminaldecisionpolicy.Store
+	TerminalDecisionPolicy *sessionpolicy.Store
 	CompactionDetector     runtime.CompactionDetector
 	ConversationStore      conversationview.Store
 	BackgroundAux          *BackgroundAuxScheduler
@@ -56,17 +56,19 @@ func CaptureProcessFeatureSnapshot(ps *ProcessServices) ProcessFeatureSnapshot {
 		convStore conversationview.Store
 		kwPolicy  *keepwarm.PolicyStore
 		kwReg     *keepwarm.ManagerRegistry
+		termPol   *sessionpolicy.Store
 	)
 	if ps.StandardFeatures != nil {
 		detector = ps.StandardFeatures.CompactionDetector()
 		convStore = ps.StandardFeatures.ConversationStore()
 		kwPolicy = ps.StandardFeatures.KeepwarmPolicy()
 		kwReg = ps.StandardFeatures.KeepwarmRegistry()
+		termPol = ps.StandardFeatures.TerminalDecisionPolicy()
 	}
 	return ProcessFeatureSnapshot{
 		KeepwarmPolicy:         kwPolicy,
 		KeepwarmRegistry:       kwReg,
-		TerminalDecisionPolicy: ps.TerminalDecisionPolicy,
+		TerminalDecisionPolicy: termPol,
 		CompactionDetector:     detector,
 		ConversationStore:      convStore,
 		BackgroundAux:          ps.BackgroundAux,
@@ -84,7 +86,7 @@ func (s ProcessFeatureSnapshot) AssertAllPresent(t *testing.T) {
 		t.Fatal("expected non-nil KeepwarmRegistry on StandardFeatures")
 	}
 	if s.TerminalDecisionPolicy == nil {
-		t.Fatal("expected non-nil TerminalDecisionPolicy on ProcessServices")
+		t.Fatal("expected non-nil TerminalDecisionPolicy on StandardFeatures")
 	}
 	if s.CompactionDetector == nil {
 		t.Fatal("expected non-nil CompactionDetector on StandardFeatures")
@@ -241,24 +243,17 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 	// Wrap closers of actually-closable process resources with injectable counters
 	// to verify exactly-once physical Close execution and detect any double disposal.
 	// In NewProcessServices:
-	// - closer 0 is registered at process_services.go:85 (TerminalDecisionPolicy.Close)
-	// - closer 1 is registered at background_aux_lifecycle.go:27 (BackgroundAux.Close)
-	if len(ps.closers) < 2 {
+	// - closer 0 is registered at background_aux_lifecycle.go:27 (BackgroundAux.Close)
+	// StandardFeatures owns its internal process closers (including TerminalDecisionPolicy).
+	if len(ps.closers) < 1 {
 		_ = ps.Close()
-		t.Fatalf("ps.closers length = %d, expected at least 2 for TDP and Aux", len(ps.closers))
+		t.Fatalf("ps.closers length = %d, expected at least 1 for Aux", len(ps.closers))
 	}
 
-	var terminalPolicyCloseCount atomic.Int32
 	var backgroundAuxCloseCount atomic.Int32
 
-	origTDPClose := ps.closers[0]
+	origAuxClose := ps.closers[0]
 	ps.closers[0] = func() error {
-		terminalPolicyCloseCount.Add(1)
-		return origTDPClose()
-	}
-
-	origAuxClose := ps.closers[1]
-	ps.closers[1] = func() error {
 		backgroundAuxCloseCount.Add(1)
 		return origAuxClose()
 	}
@@ -266,17 +261,22 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 	initialCloserCount := len(ps.closers)
 
 	// Verify initial operational state of closable resources before candidate compile.
-	policyKey := terminaldecisionpolicy.Key{
+	policyStore := ps.StandardFeatures.TerminalDecisionPolicy()
+	if policyStore == nil {
+		_ = ps.Close()
+		t.Fatal("expected non-nil TerminalDecisionPolicy on StandardFeatures")
+	}
+	policyKey := sessionpolicy.Key{
 		SecureSessionIncarnation: "test-sess",
 		ALegID:                   "test-aleg",
 		FeatureID:                "terminal-decision",
 	}
-	policyAuth := terminaldecisionpolicy.Authority{
+	policyAuth := sessionpolicy.Authority{
 		SecureSessionIncarnation: "test-sess",
 		ALegID:                   "test-aleg",
 		Authorized:               true,
 	}
-	snap, err := ps.TerminalDecisionPolicy.Snapshot(ctx, policyAuth, policyKey, false)
+	snap, err := policyStore.Snapshot(ctx, policyAuth, policyKey, false)
 	if err != nil {
 		_ = ps.Close()
 		t.Fatalf("TerminalDecisionPolicy.Effective before candidates: %v", err)
@@ -363,10 +363,10 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 		_ = ps.Close()
 		t.Fatal("ProcessServices was unexpectedly closed by Candidate #1 Close")
 	}
-	if terminalPolicyCloseCount.Load() != 0 {
+	if ps.StandardFeatures.Closed() {
 		_ = c2.Close()
 		_ = ps.Close()
-		t.Fatalf("TerminalDecisionPolicy closed prematurely on Candidate #1 Close")
+		t.Fatalf("StandardFeatures closed prematurely on Candidate #1 Close")
 	}
 	if backgroundAuxCloseCount.Load() != 0 {
 		_ = c2.Close()
@@ -377,7 +377,7 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 	initialSnap.AssertIdentical(t, snapAfterC1Close, "after candidate #1 close")
 
 	// Verify closable resources still accept calls while Generation 2 remains active.
-	if _, err := ps.TerminalDecisionPolicy.Snapshot(ctx, policyAuth, policyKey, false); err != nil {
+	if _, err := policyStore.Snapshot(ctx, policyAuth, policyKey, false); err != nil {
 		_ = c2.Close()
 		_ = ps.Close()
 		t.Fatalf("TerminalDecisionPolicy unexpectedly failed after Candidate #1 Close: %v", err)
@@ -394,9 +394,9 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 		_ = ps.Close()
 		t.Fatal("ProcessServices was unexpectedly closed by Candidate #2 Close")
 	}
-	if terminalPolicyCloseCount.Load() != 0 {
+	if ps.StandardFeatures.Closed() {
 		_ = ps.Close()
-		t.Fatalf("TerminalDecisionPolicy closed prematurely on Candidate #2 Close")
+		t.Fatalf("StandardFeatures closed prematurely on Candidate #2 Close")
 	}
 	if backgroundAuxCloseCount.Load() != 0 {
 		_ = ps.Close()
@@ -421,15 +421,12 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 	}
 
 	// Assert exactly one physical close per closable resource.
-	if got := terminalPolicyCloseCount.Load(); got != 1 {
-		t.Fatalf("TerminalDecisionPolicy physical close count = %d, want exactly 1", got)
-	}
 	if got := backgroundAuxCloseCount.Load(); got != 1 {
 		t.Fatalf("BackgroundAux physical close count = %d, want exactly 1", got)
 	}
 
 	// Verify TerminalDecisionPolicy is physically closed (operations fail with ErrClosed).
-	if _, err := ps.TerminalDecisionPolicy.Snapshot(ctx, policyAuth, policyKey, false); !errors.Is(err, terminaldecisionpolicy.ErrClosed) {
+	if _, err := policyStore.Snapshot(ctx, policyAuth, policyKey, false); !errors.Is(err, sessionpolicy.ErrClosed) {
 		t.Fatalf("TerminalDecisionPolicy.Effective after ps.Close() = %v, want ErrClosed", err)
 	}
 
@@ -442,9 +439,6 @@ func TestProcessFeatureResources_OwnershipCountingSeam(t *testing.T) {
 	// (c) second Close is safe and does NOT invoke physical closers again.
 	if err := ps.Close(); err != nil {
 		t.Fatalf("idempotent ProcessServices.Close: %v", err)
-	}
-	if got := terminalPolicyCloseCount.Load(); got != 1 {
-		t.Fatalf("TerminalDecisionPolicy physical close count after second Close = %d, want exactly 1", got)
 	}
 	if got := backgroundAuxCloseCount.Load(); got != 1 {
 		t.Fatalf("BackgroundAux physical close count after second Close = %d, want exactly 1", got)

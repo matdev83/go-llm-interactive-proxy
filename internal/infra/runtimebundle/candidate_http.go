@@ -18,7 +18,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -82,7 +81,6 @@ type candidateProcessRefs struct {
 	standardFeatures       *featurehost.Runtime
 	geoip                  *infraGeoIP.Service
 	secureSessions         ssessionapp.Store
-	terminalDecisionPolicy *terminaldecisionpolicy.Store
 }
 type candidateAssembly struct {
 	execution                      candidateExecutionGroup

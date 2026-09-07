@@ -26,7 +26,6 @@ import (
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
@@ -83,7 +82,7 @@ type executorBuildInput struct {
 	CompactionDetector     runtime.CompactionDetector
 	CompactionScheduler    *auxreq.BackgroundScheduler
 	GenerationRunner       *compactioncompose.GenerationExecutorRunner
-	TerminalDecisionPolicy *terminaldecisionpolicy.Store
+	TerminalPolicyReader   runtime.TerminalPolicyReader
 	ConversationReader     conversationprojection.Reader
 	ConversationStore      conversationview.Store
 	InterleavedProcessor   runtime.InterleavedProcessor
@@ -279,7 +278,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		Extension: runtime.ExtensionRuntime{
 			Bus:                              bctx.Bus,
 			RuntimeSnapshot:                  in.Ext.Snap,
-			TerminalDecisionPolicy:           in.TerminalDecisionPolicy,
+			TerminalPolicyReader:             in.TerminalPolicyReader,
 			ToolCallFinalizationMaxArgsBytes: maxArgsBytes,
 		},
 		Interleaved: interleaved,

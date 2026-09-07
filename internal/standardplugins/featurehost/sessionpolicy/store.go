@@ -1,8 +1,8 @@
-// Package terminaldecisionpolicy owns the bounded process policy used by the
+// Package sessionpolicy owns the bounded process policy used by the
 // terminal-decision feature. The store is deliberately small: it keeps only
 // safe scope identity and actor tri-state values, and has no expiry or
 // eviction policy.
-package terminaldecisionpolicy
+package sessionpolicy
 
 import (
 	"context"

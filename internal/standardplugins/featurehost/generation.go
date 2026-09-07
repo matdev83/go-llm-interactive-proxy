@@ -181,6 +181,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 			ConversationReader:      r.ConversationReader(),
 			InterleavedProcessor:    interleavedProc,
 			PromptCacheMaintenance:  kwMaint,
+			TerminalPolicyReader:    r.TerminalPolicyReader(),
 		},
 	}
 

@@ -15,7 +15,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
@@ -60,10 +59,6 @@ type ProcessServices struct {
 	SnapshotGeneration *snapshotgen.Publisher
 	SnapshotController *SnapshotController
 	MeteringQuerier    metering.Querier
-
-	// TerminalDecisionPolicy is the single process-owned policy store used by
-	// request admission across all immutable generations.
-	TerminalDecisionPolicy *terminaldecisionpolicy.Store
 
 	TerminalWorkProcessor *terminalworkapp.Processor
 	TerminalWorkRegistry  *terminalworkapp.Registry

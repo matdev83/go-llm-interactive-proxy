@@ -369,6 +369,7 @@ var ForbiddenImports = []ForbiddenImportRule{
 	},
 	{SourcePattern: "internal/plugins/features/keepwarm", TargetPattern: "/internal/stdhttp", Reason: "keepwarm feature tree must not depend on stdhttp"},
 	{SourcePattern: "internal/plugins/features/keepwarm", TargetPattern: "/internal/pluginreg", Reason: "keepwarm feature tree must not depend on pluginreg"},
+	{SourcePattern: "*", TargetPattern: "/internal/core/terminaldecisionpolicy", Reason: "internal/core/terminaldecisionpolicy has been retired; use internal/standardplugins/featurehost/sessionpolicy"},
 }
 
 // fileScopedImportRule restricts specific production files.

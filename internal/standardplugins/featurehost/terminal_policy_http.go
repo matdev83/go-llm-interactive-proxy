@@ -1,4 +1,4 @@
-package runtimebundle
+package featurehost
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	policyhttp "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/terminalpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -19,27 +19,31 @@ import (
 
 const terminalDecisionPolicyFeatureID = "terminal-decision"
 
-// terminalDecisionPolicyHTTPProjection binds the process-owned policy and
+// TerminalDecisionPolicyHTTPProjection binds the process-owned policy and
 // secure-session services to one immutable generation's HTTP composition.
 // The callbacks capture only request authority and the process store; they do
 // not perform live provider lookup or mutate generation state.
-func terminalDecisionPolicyHTTPProjection(
-	process candidateProcessRefs,
+func (r *Runtime) TerminalDecisionPolicyHTTPProjection(
 	snapshot *extensions.RequestRuntimeSnapshot,
 	headers lipsdk.HTTPHeaders,
 	maxBodyBytes int64,
+	store ssessionapp.Store,
 ) httpcontract.TerminalDecisionPolicyInput {
+	var policyStore *sessionpolicy.Store
+	if r != nil {
+		policyStore = r.terminalPolicy
+	}
 	available := snapshot != nil && snapshot.TerminalDecisionProvider() != nil
 	return httpcontract.TerminalDecisionPolicyInput{
-		Store: process.terminalDecisionPolicy,
+		Store: policyStore,
 		FeatureStatus: func(_ context.Context, featureID string) (bool, bool, error) {
 			return featureID == terminalDecisionPolicyFeatureID, available, nil
 		},
-		ResolveClientScope: func(ctx context.Context, r *http.Request, featureID string) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error) {
-			return resolveTerminalDecisionClientScope(ctx, r, featureID, process.secureSessions, headers)
+		ResolveClientScope: func(ctx context.Context, req *http.Request, featureID string) (sessionpolicy.Key, sessionpolicy.Authority, error) {
+			return resolveTerminalDecisionClientScope(ctx, req, featureID, store, headers)
 		},
-		AuthorizeOperatorTarget: func(ctx context.Context, r *http.Request, sessionID, featureID string) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error) {
-			return authorizeTerminalDecisionOperatorTarget(ctx, r, sessionID, featureID, process.secureSessions)
+		AuthorizeOperatorTarget: func(ctx context.Context, req *http.Request, sessionID, featureID string) (sessionpolicy.Key, sessionpolicy.Authority, error) {
+			return authorizeTerminalDecisionOperatorTarget(ctx, req, sessionID, featureID, store)
 		},
 		GenerationDefault: func(featureID string) bool {
 			return featureID == terminalDecisionPolicyFeatureID && available
@@ -48,44 +52,59 @@ func terminalDecisionPolicyHTTPProjection(
 	}
 }
 
+// TerminalDecisionPolicyHTTPProjection provides a package-level helper that safely
+// handles nil Runtime.
+func TerminalDecisionPolicyHTTPProjection(
+	r *Runtime,
+	snapshot *extensions.RequestRuntimeSnapshot,
+	headers lipsdk.HTTPHeaders,
+	maxBodyBytes int64,
+	store ssessionapp.Store,
+) httpcontract.TerminalDecisionPolicyInput {
+	if r == nil {
+		return (&Runtime{}).TerminalDecisionPolicyHTTPProjection(snapshot, headers, maxBodyBytes, store)
+	}
+	return r.TerminalDecisionPolicyHTTPProjection(snapshot, headers, maxBodyBytes, store)
+}
+
 func resolveTerminalDecisionClientScope(
 	ctx context.Context,
 	r *http.Request,
 	featureID string,
 	store ssessionapp.Store,
 	headers lipsdk.HTTPHeaders,
-) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error) {
+) (sessionpolicy.Key, sessionpolicy.Authority, error) {
 	sc, ok := httpauth.ScopeFromContext(ctx)
 	if !ok || !sc.PrincipalID.IsKnown() || strings.TrimSpace(sc.PrincipalID.String()) == "" {
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrUnauthenticated
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrUnauthenticated
 	}
 	if r == nil {
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrSecureSessionRequired
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrSecureSessionRequired
 	}
 	sessionID := strings.TrimSpace(headers.SessionIDValue(r.Header))
 	aLegID := strings.TrimSpace(headers.ALegIDValue(r.Header))
 	if sessionID == "" || aLegID == "" || store == nil {
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrSecureSessionRequired
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrSecureSessionRequired
 	}
 	rec, err := store.LoadByID(ctx, domain.SessionID(sessionID))
 	if err != nil {
 		if errors.Is(err, domain.ErrSessionNotFound) {
-			return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrSecureSessionRequired
+			return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrSecureSessionRequired
 		}
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, err
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, err
 	}
 	if !rec.Status.IsActive() || strings.TrimSpace(rec.ALegID) != aLegID {
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrSecureSessionRequired
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrSecureSessionRequired
 	}
 	if !principalOwnsSession(rec.Owner, sc) {
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrForbidden
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrForbidden
 	}
-	key := terminaldecisionpolicy.Key{
+	key := sessionpolicy.Key{
 		SecureSessionIncarnation: sessionID,
 		ALegID:                   rec.ALegID,
 		FeatureID:                featureID,
 	}
-	return key, terminaldecisionpolicy.Authority{
+	return key, sessionpolicy.Authority{
 		SecureSessionIncarnation: sessionID,
 		ALegID:                   rec.ALegID,
 		Authorized:               true,
@@ -97,33 +116,33 @@ func authorizeTerminalDecisionOperatorTarget(
 	r *http.Request,
 	sessionID, featureID string,
 	store ssessionapp.Store,
-) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error) {
+) (sessionpolicy.Key, sessionpolicy.Authority, error) {
 	if _, ok := httpauth.ScopeFromContext(ctx); !ok {
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrUnauthenticated
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrUnauthenticated
 	}
 	if r == nil || store == nil {
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrSessionNotFound
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrSessionNotFound
 	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrSessionNotFound
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrSessionNotFound
 	}
 	rec, err := store.LoadByID(ctx, domain.SessionID(sessionID))
 	if err != nil {
 		if errors.Is(err, domain.ErrSessionNotFound) {
-			return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrSessionNotFound
+			return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrSessionNotFound
 		}
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, err
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, err
 	}
 	if !rec.Status.IsActive() || strings.TrimSpace(rec.ALegID) == "" {
-		return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, policyhttp.ErrSessionNotFound
+		return sessionpolicy.Key{}, sessionpolicy.Authority{}, policyhttp.ErrSessionNotFound
 	}
-	key := terminaldecisionpolicy.Key{
+	key := sessionpolicy.Key{
 		SecureSessionIncarnation: sessionID,
 		ALegID:                   rec.ALegID,
 		FeatureID:                featureID,
 	}
-	return key, terminaldecisionpolicy.Authority{
+	return key, sessionpolicy.Authority{
 		SecureSessionIncarnation: sessionID,
 		ALegID:                   rec.ALegID,
 		Authorized:               true,

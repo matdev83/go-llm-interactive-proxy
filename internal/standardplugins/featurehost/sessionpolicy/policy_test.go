@@ -1,4 +1,4 @@
-package terminaldecisionpolicy
+package sessionpolicy
 
 import (
 	"errors"
@@ -9,10 +9,6 @@ import (
 	"testing"
 	"time"
 )
-
-// Task 6.1 RED contract: the process-owned policy store is deliberately tested
-// through one small, provider-neutral API. The implementation belongs to Task
-// 6.2; these tests must fail until that API and its ownership semantics exist.
 
 func policyConfig(maxKeys int) Config {
 	return Config{

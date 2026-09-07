@@ -58,6 +58,10 @@ func TestRetiredPackages_RenamedOrNestedBypassRejected(t *testing.T) {
 		{"internal/core/conversationview/nested/sub/bypass.go", true},
 		{"internal/infra/conversationview/store.go", false},
 		{"internal/core/conversationprojection/projection.go", false},
+		{"internal/core/terminaldecisionpolicy/store.go", true},
+		{"internal/core/terminaldecisionpolicy/renamed_store.go", true},
+		{"internal/core/terminaldecisionpolicy/nested/sub/bypass.go", true},
+		{"internal/standardplugins/featurehost/sessionpolicy/store.go", false},
 	}
 	for _, tc := range cases {
 		f := ScanFileRetiredPackage(tc.rel)

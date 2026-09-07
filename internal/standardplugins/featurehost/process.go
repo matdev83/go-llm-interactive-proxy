@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	"github.com/uptrace/bun"
 )
 
@@ -35,6 +36,7 @@ var (
 	newInterleavedProcessor    = interleavedthinking.NewProcessor
 	newKeepwarmPolicyStore     = keepwarm.NewPolicyStore
 	newKeepwarmManagerRegistry = keepwarm.NewManagerRegistry
+	newSessionPolicyStore      = sessionpolicy.NewStore
 )
 
 // NewProcess constructs the standard-distribution featurehost process facade.
@@ -139,6 +141,12 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 	}
 	r.keepwarmPolicy = kwPolicy
 	r.keepwarmRegistry = newKeepwarmManagerRegistry()
+
+	// Terminal decision policy process ownership (Task 7.3): bounded session policy store.
+	// Bounded in-memory store with client/operator overrides; closed on process shutdown.
+	policyStore := newSessionPolicyStore(sessionpolicy.Config{})
+	r.terminalPolicy = policyStore
+	r.registerCloser(policyStore.Close)
 
 	return r, nil
 }

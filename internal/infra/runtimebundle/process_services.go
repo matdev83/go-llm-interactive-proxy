@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
@@ -64,7 +63,6 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		Logger:                 in.Log,
 		FactoryCatalog:         in.Opts.PluginRegistry,
 		Tracing:                in.Tracing,
-		TerminalDecisionPolicy: terminaldecisionpolicy.NewStore(terminaldecisionpolicy.Config{}),
 		cfg:                    in.Cfg,
 		opts:                   in.Opts,
 	}
@@ -74,7 +72,6 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 			ps.closers = append(ps.closers, c)
 		}
 	}
-	register(ps.TerminalDecisionPolicy.Close)
 	adoptBackgroundAuxAndDetector(parent, &in, ps, register)
 	owner := &processResourceOwner{register: register}
 	fail := func(err error) (*ProcessServices, error) {

@@ -131,14 +131,9 @@ func TestFeatureHost_NoPreHandoffFeatureConstruction(t *testing.T) {
 		}
 
 		ast.Inspect(file, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.Ident:
+			if x, ok := n.(*ast.Ident); ok {
 				if forbiddenIdents[x.Name] {
 					t.Errorf("featurehost file %s must not declare or reference pre-handoff injection API %s", path, x.Name)
-				}
-			case *ast.SelectorExpr:
-				if pkg, ok := x.X.(*ast.Ident); ok && pkg.Name == "terminaldecisionpolicy" && x.Sel.Name == "NewStore" {
-					t.Errorf("featurehost file %s must not construct terminaldecisionpolicy.Store before Task 7.3", path)
 				}
 			}
 			return true

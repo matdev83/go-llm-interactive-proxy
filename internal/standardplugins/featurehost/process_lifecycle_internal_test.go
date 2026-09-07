@@ -17,11 +17,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"gopkg.in/yaml.v3"
 )
@@ -154,48 +154,59 @@ func TestProcess_CleanupErrorAggregationAndOrder(t *testing.T) {
 	}
 }
 
-func TestRuntime_DualOwnershipSignalsObservable(t *testing.T) {
-	t.Parallel()
+func TestProcess_TerminalPolicyConstructionCounted(t *testing.T) {
+	// NOT Parallel: swaps the package-level constructor seam below.
+	var storeCount atomic.Int32
+	origStore := newSessionPolicyStore
+	t.Cleanup(func() {
+		newSessionPolicyStore = origStore
+	})
+	newSessionPolicyStore = func(cfg sessionpolicy.Config) *sessionpolicy.Store {
+		storeCount.Add(1)
+		return origStore(cfg)
+	}
 
-	// Proves the exact signals ValidateProcessFeatureOwnership relies on flip
-	// under genuine dual ownership built with the REAL legacy constructor and
-	// the REAL closer registration. Pre-handoff, no production path can create
-	// this state (proven structurally by
-	// TestFeatureHost_NoPreHandoffFeatureConstruction and behaviorally by
-	// TestProcessFeatureOwnership_DualConstructorWiringRejected, which assert
-	// absence across representative process inputs). When the Task 7.3 handoff
-	// lands a real second constructor, THESE signals are what the ownership
-	// validator observes to reject dual wiring.
 	ctx := context.Background()
-	r, err := NewProcess(ctx, ProcessInput{Logger: slog.Default()})
+	r1, err := NewProcess(ctx, ProcessInput{Logger: slog.Default()})
 	if err != nil {
-		t.Fatalf("NewProcess: %v", err)
+		t.Fatalf("NewProcess r1: %v", err)
 	}
-	t.Cleanup(func() { _ = r.Close() })
-
-	// Precondition: pre-handoff Runtime owns nothing.
-	if got := r.TerminalDecisionPolicy(); got != nil {
-		t.Fatalf("expected no featurehost-owned policy pre-handoff, observed %p", got)
-	}
-	if got := r.ClosersCount(); got != 0 {
-		t.Fatalf("expected zero featurehost-owned closers pre-handoff, observed %d", got)
+	r2, err := NewProcess(ctx, ProcessInput{Logger: slog.Default()})
+	if err != nil {
+		t.Fatalf("NewProcess r2: %v", err)
 	}
 
-	// Simulate the Task 7.3 defect with the real constructor + real registration.
-	store := terminaldecisionpolicy.NewStore(terminaldecisionpolicy.Config{})
-	r.terminalPolicy = store
-	r.registerCloser(store.Close)
+	if got := storeCount.Load(); got != 2 {
+		t.Fatalf("session policy store constructions across 2 processes = %d, want 2", got)
+	}
+	if r1.terminalPolicy == nil || r2.terminalPolicy == nil {
+		t.Fatal("expected non-nil terminalPolicy on both processes")
+	}
+	if r1.terminalPolicy == r2.terminalPolicy {
+		t.Fatalf("terminalPolicy store identical across processes: %p", r1.terminalPolicy)
+	}
 
-	// Both ownership signals must flip: this is the observable dual state the
-	// validator rejects with ErrDualConstructorWiring.
-	if got := r.TerminalDecisionPolicy(); got == nil {
-		t.Fatal("expected featurehost-owned policy to be observable after second construction")
-	} else if got != store {
-		t.Fatalf("expected observed policy %p to be the constructed store %p", got, store)
+	// Zero constructions across overlapping generations on the same process.
+	if _, err := r1.CompileGeneration(ctx, GenerationInput{}); err != nil {
+		t.Fatalf("CompileGeneration #1: %v", err)
 	}
-	if got := r.ClosersCount(); got != 1 {
-		t.Fatalf("expected 1 featurehost-owned closer after second construction, observed %d", got)
+	if _, err := r1.CompileGeneration(ctx, GenerationInput{}); err != nil {
+		t.Fatalf("CompileGeneration #2: %v", err)
 	}
+	if got := storeCount.Load(); got != 2 {
+		t.Fatalf("session policy store constructions after overlapping generations = %d, want 2", got)
+	}
+
+	// Closers count includes the terminal policy store closer.
+	if got := r1.ClosersCount(); got != 1 {
+		t.Fatalf("expected 1 closer on r1, got %d", got)
+	}
+
+	// Shutdown closes it exactly once.
+	if err := r1.Close(); err != nil {
+		t.Fatalf("r1.Close: %v", err)
+	}
+	_ = r2.Close()
 }
 
 func TestProcess_CompactionConstructionCounted(t *testing.T) {

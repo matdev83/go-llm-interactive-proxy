@@ -45,6 +45,7 @@ func TestForbiddenImports_RetiredCorePackagesRulesEnforced(t *testing.T) {
 		"/internal/core/conversationview",
 		"/internal/core/interleavedthinking",
 		"/internal/core/keepwarm",
+		"/internal/core/terminaldecisionpolicy",
 	}
 
 	for _, target := range retiredTargets {

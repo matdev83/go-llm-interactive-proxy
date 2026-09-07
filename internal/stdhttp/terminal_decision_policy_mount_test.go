@@ -9,21 +9,21 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 )
 
 func TestComposeStandardHTTP_TerminalDecisionPolicyRoutesUseStoreAndOperatorProtection(t *testing.T) {
 	t.Parallel()
 	cfg := controlPlaneMountConfig(false)
-	store := terminaldecisionpolicy.NewStore(terminaldecisionpolicy.Config{})
+	store := sessionpolicy.NewStore(sessionpolicy.Config{})
 	t.Cleanup(func() { _ = store.Close() })
-	key := terminaldecisionpolicy.Key{
+	key := sessionpolicy.Key{
 		SecureSessionIncarnation: "session-1",
 		ALegID:                   "a-leg-1",
 		FeatureID:                "terminal-decision",
 	}
-	authority := terminaldecisionpolicy.Authority{
+	authority := sessionpolicy.Authority{
 		SecureSessionIncarnation: key.SecureSessionIncarnation,
 		ALegID:                   key.ALegID,
 		Authorized:               true,
@@ -37,10 +37,10 @@ func TestComposeStandardHTTP_TerminalDecisionPolicyRoutesUseStoreAndOperatorProt
 			FeatureStatus: func(context.Context, string) (bool, bool, error) {
 				return true, false, nil
 			},
-			ResolveClientScope: func(context.Context, *http.Request, string) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error) {
+			ResolveClientScope: func(context.Context, *http.Request, string) (sessionpolicy.Key, sessionpolicy.Authority, error) {
 				return key, authority, nil
 			},
-			AuthorizeOperatorTarget: func(context.Context, *http.Request, string, string) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error) {
+			AuthorizeOperatorTarget: func(context.Context, *http.Request, string, string) (sessionpolicy.Key, sessionpolicy.Authority, error) {
 				return key, authority, nil
 			},
 		}},

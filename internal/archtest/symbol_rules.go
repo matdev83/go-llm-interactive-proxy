@@ -330,6 +330,7 @@ var RetiredPackageDirs = []string{
 	"internal/core/conversationview",
 	"internal/core/interleavedthinking",
 	"internal/core/keepwarm",
+	"internal/core/terminaldecisionpolicy",
 }
 
 // ScanFileRetiredPackage checks if a repo-relative file path belongs to a retired package.

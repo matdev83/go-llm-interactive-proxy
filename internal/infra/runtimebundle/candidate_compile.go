@@ -182,7 +182,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		CompactionDetector:     ps.StandardFeatures.CompactionDetector(),
 		CompactionScheduler:    ps.BackgroundAux,
 		GenerationRunner:       in.GenerationRunner,
-		TerminalDecisionPolicy: ps.TerminalDecisionPolicy,
+		TerminalPolicyReader:   opts.CorePorts.TerminalPolicyReader,
 		ConversationReader:     ps.StandardFeatures.ConversationReader(),
 		ConversationStore:      ps.StandardFeatures.ConversationStore(),
 		InterleavedProcessor:   opts.CorePorts.InterleavedProcessor,
@@ -266,7 +266,6 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			standardFeatures:       ps.StandardFeatures,
 			geoip:                  ps.GeoIP,
 			secureSessions:         ps.SecureSessions,
-			terminalDecisionPolicy: ps.TerminalDecisionPolicy,
 		},
 		ledger: ledger,
 		terminalWorkReady: func() func(context.Context) error {

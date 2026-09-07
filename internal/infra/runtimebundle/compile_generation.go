@@ -305,7 +305,7 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
 			KeepwarmAdmin:        keepwarmAdmin, KeepwarmAdminEnabled: keepwarmAdminEnabled,
 			Registrations:          httpcontract.CloneRegistrations(regs),
-			TerminalDecisionPolicy: terminalDecisionPolicyHTTPProjection(cand.process, cand.security.runtimeSnapshot, httpHeaders, maxBody),
+			TerminalDecisionPolicy: featurehost.TerminalDecisionPolicyHTTPProjection(cand.process.standardFeatures, cand.security.runtimeSnapshot, httpHeaders, maxBody, cand.security.secureSessionStore),
 		},
 		Models: httpcontract.HTTPModelInput{
 			CatalogRuntime: cand.models.catalog, ModelRegistryRuntime: cand.models.registryRuntime,

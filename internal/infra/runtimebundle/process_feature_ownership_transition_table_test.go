@@ -11,12 +11,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	keepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -59,14 +59,14 @@ var ProcessFeatureTransitionTable = []ProcessFeatureTransitionRow{
 	},
 	{
 		ResourceName:          "TerminalDecisionPolicy",
-		ConcreteType:          "*terminaldecisionpolicy.Store",
-		CurrentConstructor:    "terminaldecisionpolicy.NewStore(terminaldecisionpolicy.Config{}) called at process_services.go:75",
-		CurrentFieldHolder:    "ProcessServices.TerminalDecisionPolicy",
-		CloseRegistrationSite: "Closable: register(ps.TerminalDecisionPolicy.Close) registered at process_services.go:85",
+		ConcreteType:          "*sessionpolicy.Store",
+		CurrentConstructor:    "sessionpolicy.NewStore(sessionpolicy.Config{}) called at featurehost/process.go:147",
+		CurrentFieldHolder:    "featurehost.Runtime.terminalPolicy",
+		CloseRegistrationSite: "Closable: r.registerCloser(policyStore.Close) registered at featurehost/process.go:149",
 		Closable:              true,
 		BorrowedDeps:          "None (pure in-memory bounded store)",
 		TransferTask:          "Task 7.3",
-		InterimOwnershipRule:  "Legacy ProcessServices closer remains sole physical cleanup owner; featurehost MUST NOT close. Atomic transfer in Task 7.3.",
+		InterimOwnershipRule:  "Featurehost is sole owner; ProcessServices retains zero fields or duplicate constructors.",
 	},
 	{
 		ResourceName:          "CompactionDetector",
@@ -129,21 +129,6 @@ var ProcessFeatureTransitionTable = []ProcessFeatureTransitionRow{
 // constructed or registered cleanup for the same process-scoped feature resource.
 var ErrDualConstructorWiring = errors.New("runtimebundle: dual constructor wiring detected")
 
-// checkNoFeaturehostOwnership rejects any featurehost-owned process resource
-// observed before its transfer task. It holds the pure dual-ownership decision
-// logic: ValidateProcessFeatureOwnership feeds it real Runtime state, and tests
-// feed it real constructor products, so both dual-state rejection branches
-// execute behaviorally (Task 2.3 negative proof).
-func checkNoFeaturehostOwnership(ownedPolicy *terminaldecisionpolicy.Store, ownedClosers int) error {
-	if ownedPolicy != nil {
-		return fmt.Errorf("%w: resource TerminalDecisionPolicy is constructed/owned by both legacy and featurehost paths (observed duplicate live instance on featurehost)", ErrDualConstructorWiring)
-	}
-	if ownedClosers > 0 {
-		return fmt.Errorf("%w: featurehost owns %d closers prior to transfer tasks", ErrDualConstructorWiring, ownedClosers)
-	}
-	return nil
-}
-
 // ValidateProcessFeatureOwnership verifies that every transition-table process resource
 // has strictly one constructor and cleanup owner at the current checkpoint (Task 2.3 / 3.3).
 // It inspects actual typed ProcessServices fields + featurehost Runtime typed state:
@@ -161,19 +146,12 @@ func ValidateProcessFeatureOwnership(ps *ProcessServices) error {
 		return fmt.Errorf("runtimebundle: nil StandardFeatures on ProcessServices")
 	}
 
-	// 1. Verify legacy constructor presence for all untransferred rows.
-	// If a legacy constructor is deleted before its handoff task, this check fails.
-	if ps.TerminalDecisionPolicy == nil {
-		return fmt.Errorf("%w: legacy resource TerminalDecisionPolicy is missing from ProcessServices", ErrDualConstructorWiring)
-	}
+	// 1. Verify borrowed generic resources.
 	if ps.BackgroundAux == nil {
 		return fmt.Errorf("%w: borrowed resource BackgroundAux is missing from ProcessServices", ErrDualConstructorWiring)
 	}
 
-	// 2. The transferred detector must be present on featurehost through the
-	// public consumer port. Coordinator/parent-port presence is proven inside
-	// package featurehost (TestProcess_CompactionConstructionCounted), which
-	// alone can observe the unexported fields.
+	// 2. Transferred resources must be present on featurehost.
 	if ps.StandardFeatures.CompactionDetector() == nil {
 		return fmt.Errorf("%w: transferred resource CompactionDetector is missing from featurehost", ErrDualConstructorWiring)
 	}
@@ -186,18 +164,18 @@ func ValidateProcessFeatureOwnership(ps *ProcessServices) error {
 	if ps.StandardFeatures.KeepwarmRegistry() == nil {
 		return fmt.Errorf("%w: transferred resource KeepwarmRegistry is missing from featurehost", ErrDualConstructorWiring)
 	}
-
-	// 3. Inspect real typed featurehost Runtime state per transition table.
-	// Prior to Task 7.3, featurehost must NOT own TerminalDecisionPolicy and
-	// must own zero process feature closers; the decision itself lives in
-	// checkNoFeaturehostOwnership so both rejection branches execute in tests.
-	return checkNoFeaturehostOwnership(ps.StandardFeatures.TerminalDecisionPolicy(), ps.StandardFeatures.ClosersCount())
+	if ps.StandardFeatures.TerminalDecisionPolicy() == nil {
+		return fmt.Errorf("%w: transferred resource TerminalDecisionPolicy is missing from featurehost", ErrDualConstructorWiring)
+	}
+	if ps.StandardFeatures.ClosersCount() != 1 {
+		return fmt.Errorf("%w: featurehost must own exactly 1 closer (terminal policy store), observed %d", ErrDualConstructorWiring, ps.StandardFeatures.ClosersCount())
+	}
+	return nil
 }
 
 // Non-tautological compile-time drift checks: any field retype or rename breaks compilation.
 func _driftCompilationGuard() {
 	var ps *ProcessServices
-	var _ *terminaldecisionpolicy.Store = ps.TerminalDecisionPolicy
 	var _ *auxreq.BackgroundScheduler = ps.BackgroundAux
 
 	var sf *featurehost.Runtime
@@ -205,11 +183,13 @@ func _driftCompilationGuard() {
 	var _ conversationview.Store = sf.ConversationStore()
 	var _ *keepwarm.PolicyStore = sf.KeepwarmPolicy()
 	var _ *keepwarm.ManagerRegistry = sf.KeepwarmRegistry()
+	var _ *sessionpolicy.Store = sf.TerminalDecisionPolicy()
+	var _ runtime.TerminalPolicyReader = sf.TerminalPolicyReader()
 
 	var (
 		_ func(int) (*keepwarm.PolicyStore, error)                                      = keepwarm.NewPolicyStore
 		_ func() *keepwarm.ManagerRegistry                                              = keepwarm.NewManagerRegistry
-		_ func(terminaldecisionpolicy.Config) *terminaldecisionpolicy.Store             = terminaldecisionpolicy.NewStore
+		_ func(sessionpolicy.Config) *sessionpolicy.Store                               = sessionpolicy.NewStore
 		_ func(context.Context, *config.Config) *auxreq.BackgroundScheduler             = compactioncompose.NewProductionBackgroundScheduler
 		_ func(context.Context, featurehost.ProcessInput) (*featurehost.Runtime, error) = featurehost.NewProcess
 	)
@@ -247,10 +227,11 @@ func TestProcessFeatureOwnership_TransitionTableIntegrity(t *testing.T) {
 		},
 		"TerminalDecisionPolicy": {
 			fieldName:    "TerminalDecisionPolicy",
+			fhField:      "terminalPolicy",
 			closable:     true,
 			transferTask: "Task 7.3",
-			callSite:     "process_services.go:75",
-			closeSite:    "process_services.go:85",
+			callSite:     "featurehost/process.go:147",
+			closeSite:    "featurehost/process.go:149",
 		},
 		"CompactionDetector": {
 			fieldName:    "CompactionDetector",
@@ -399,50 +380,27 @@ func TestProcessFeatureOwnership_DualConstructorWiringRejected(t *testing.T) {
 		ps := buildRealProcess(t, opts)
 		t.Cleanup(func() { _ = ps.Close() })
 
-		if ps.TerminalDecisionPolicy == nil {
-			t.Fatalf("%s: expected legacy TerminalDecisionPolicy to be instantiated", name)
+		if ps.StandardFeatures.TerminalDecisionPolicy() == nil {
+			t.Fatalf("%s: expected featurehost-owned TerminalDecisionPolicy to be instantiated", name)
 		}
-		if got := ps.StandardFeatures.TerminalDecisionPolicy(); got != nil {
-			t.Fatalf("%s: observed featurehost-owned TerminalDecisionPolicy %p pre-handoff (dual wiring)", name, got)
-		}
-		if got := ps.StandardFeatures.ClosersCount(); got != 0 {
-			t.Fatalf("%s: observed %d featurehost-owned closers pre-handoff (dual wiring)", name, got)
+		if got := ps.StandardFeatures.ClosersCount(); got != 1 {
+			t.Fatalf("%s: observed %d featurehost-owned closers (want 1 for terminal policy store)", name, got)
 		}
 		if err := ValidateProcessFeatureOwnership(ps); err != nil {
 			t.Fatalf("%s: ValidateProcessFeatureOwnership failed on single-owner wiring: %v", name, err)
 		}
 	}
 
-	// The validator must still reject genuinely missing legacy ownership.
+	// The validator must still reject genuinely missing transferred ownership.
 	broken := buildRealProcess(t, &BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
 	t.Cleanup(func() { _ = broken.Close() })
-	broken.TerminalDecisionPolicy = nil
+	broken.StandardFeatures = nil
 	if err := ValidateProcessFeatureOwnership(broken); err == nil {
-		t.Fatal("expected error when legacy constructor output is missing, got nil")
+		t.Fatal("expected error when StandardFeatures is missing, got nil")
 	}
 }
 
-func TestProcessFeatureOwnership_DualOwnershipSignalsRejected(t *testing.T) {
-	t.Parallel()
-
-	store := terminaldecisionpolicy.NewStore(terminaldecisionpolicy.Config{})
-	t.Cleanup(func() { _ = store.Close() })
-
-	if err := checkNoFeaturehostOwnership(store, 1); !errors.Is(err, ErrDualConstructorWiring) {
-		t.Fatalf("policy+closer dual state: expected ErrDualConstructorWiring, got %v", err)
-	}
-	if err := checkNoFeaturehostOwnership(store, 0); !errors.Is(err, ErrDualConstructorWiring) {
-		t.Fatalf("policy-only dual state: expected ErrDualConstructorWiring, got %v", err)
-	}
-	if err := checkNoFeaturehostOwnership(nil, 1); !errors.Is(err, ErrDualConstructorWiring) {
-		t.Fatalf("closer-only dual state: expected ErrDualConstructorWiring, got %v", err)
-	}
-	if err := checkNoFeaturehostOwnership(nil, 0); err != nil {
-		t.Fatalf("single-owner state: expected nil error, got %v", err)
-	}
-}
-
-func TestProcessFeatureOwnership_MissingLegacyConstructorRejected(t *testing.T) {
+func TestProcessFeatureOwnership_MissingBorrowedResourceRejected(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -456,11 +414,11 @@ func TestProcessFeatureOwnership_MissingLegacyConstructorRejected(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
-	// Simulate deleting the legacy constructor for TerminalDecisionPolicy
-	ps.TerminalDecisionPolicy = nil
+	// Simulate missing borrowed resource BackgroundAux
+	ps.BackgroundAux = nil
 
 	err = ValidateProcessFeatureOwnership(ps)
 	if err == nil {
-		t.Fatal("expected error when legacy constructor is missing/deleted, got nil")
+		t.Fatal("expected error when borrowed resource BackgroundAux is missing, got nil")
 	}
 }
