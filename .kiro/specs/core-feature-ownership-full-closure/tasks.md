@@ -465,8 +465,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 11. Lock the final architecture and prove change-surface reduction
-- [ ] 11.1 Create the durable core ownership manifest and admission test
+- [x] 11. Lock the final architecture and prove change-surface reduction
+- [x] 11.1 Create the durable core ownership manifest and admission test
   - Produce one machine-readable or compact Go table covering every final top-level `internal/core/*` package with category `kernel invariant` or `generic extension mechanism` plus a concise reason/independent consumer where applicable.
   - Architecture test must fail if a new top-level core package appears without an ownership entry.
   - This is a package admission gate, not a prohibition on all core growth; new entries require explicit architecture review.
@@ -476,7 +476,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 10.4_
   - _Validation: `go test ./internal/archtest/...`; `make arch-report`_
 
-- [ ] 11.2 Add permanent dependency/resurrection ratchets
+- [x] 11.2 Add permanent dependency/resurrection ratchets
   - Forbid `internal/core/** -> internal/plugins/features/**`, `runtimebundle -> concrete features`, runtimebundle -> featurehost child packages, feature packages -> core/runtimebundle, and public `pkg/lipruntime -> internal/plugins/features`.
   - Forbid resurrection of all core packages retired by both simplification specs, including final old conversation/interleaved/keepwarm/terminalpolicy paths.
   - Forbid a request-time featurehost service lookup/resolver or arbitrary binding map/reflection API.
@@ -486,7 +486,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 11.1_
   - _Validation: archtest with synthetic negative fixtures where existing framework supports them_
 
-- [ ] 11.3 Reset core and featurehost budgets from measured final code
+- [x] 11.3 Reset core and featurehost budgets from measured final code
   - Measure final non-test `internal/core` LOC and set the hard budget to measured final + the repo's small standard fixed headroom. Never preserve deleted feature LOC as spare capacity.
   - Add a separate recursive budget for `internal/standardplugins/featurehost` plus critical-file caps so feature growth cannot turn the facade into a god package.
   - Review existing `runtimebundle` budget and lower it if this spec deletes generic feature wiring; do not increase it to absorb migration scaffolding.
@@ -496,7 +496,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 11.2_
   - _Validation: `make arch-report`; budget tests_
 
-- [ ] 11.4 Run two disposable change-surface probes
+- [x] 11.4 Run two disposable change-surface probes
   - **Ordinary feature probe**: add a temporary standard feature using existing planes only; production changes must be limited to feature package + standard distribution registration/composition, with zero core/runtimebundle/public SDK production edits.
   - **Host-bound feature probe**: add a temporary host-bound feature using only already-modeled host registration/generic facts; it must require no new `ProcessServices`, `ExecutorConfig` or `pkg/lipruntime.Options` field and no core/runtimebundle production edit.
   - Run tests, record exact touched production files, then revert/delete probe code before merge while retaining evidence/assertion tests where useful.
@@ -506,7 +506,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 11.3_
   - _Validation: git diff/change-surface report + full focused tests_
 
-- [ ] 11.5 Re-run fixed-cost performance and concurrency certification
+- [x] 11.5 Re-run fixed-cost performance and concurrency certification
   - Compare predecessor plane/request snapshot allocations; require no regression.
   - Compare conversation projection benchmark/allocation behavior from Task 1.3; structural move must not add request-time lookup/locking/allocation beyond intentional snapshot construction.
   - Run keep-warm/compaction/session-policy concurrent tests under race.
@@ -516,7 +516,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 11.4_
   - _Validation: focused `-benchmem`; `go test -race`; current CI race workflow_
 
-- [ ] 11.6 Reconcile public docs, steering and authoring guidance
+- [x] 11.6 Reconcile public docs, steering and authoring guidance
   - Update architecture/extension authoring/plugin authoring/core-boundaries/steering docs to final package ownership.
   - Document core admission rule, standard featurehost role, host-feature registrations, feature-owned config, and distinction between kernel routing operators vs optional policy implementations.
   - Document the process-resource handoff rule as an implementation invariant: one constructor/physical close owner; `StandardFeatures.Close` never closes borrowed generic process resources.

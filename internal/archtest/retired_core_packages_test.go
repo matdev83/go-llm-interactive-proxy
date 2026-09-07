@@ -19,6 +19,8 @@ func TestProductionTreeRetiredCorePackagesAbsent(t *testing.T) {
 		"internal/core/toolcallrepair",
 		"internal/core/secretguard",
 		"internal/core/compactiondetect",
+		"internal/core/compactioncontinuity",
+		"internal/core/conversationview",
 		"internal/core/interleavedthinking",
 		"internal/core/keepwarm",
 		"internal/core/terminaldecisionpolicy",

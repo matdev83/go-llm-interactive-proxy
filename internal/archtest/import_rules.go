@@ -408,7 +408,7 @@ func ScanFileForbiddenImports(rel, abs string, src []byte) ([]RuleFinding, error
 	}
 	var out []RuleFinding
 	imports := FileImportPaths(f)
-	for _, rule := range ForbiddenImports {
+	for _, rule := range allForbiddenImportRules() {
 		if !MatchPathPrefix(pkg, rule.SourcePattern) {
 			continue
 		}
