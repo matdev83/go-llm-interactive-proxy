@@ -340,7 +340,41 @@ func aggregateFieldTypeToString(expr ast.Expr) string {
 		return "[]" + aggregateFieldTypeToString(t.Elt)
 	case *ast.MapType:
 		return "map[" + aggregateFieldTypeToString(t.Key) + "]" + aggregateFieldTypeToString(t.Value)
+	case *ast.ChanType:
+		return "chan " + aggregateFieldTypeToString(t.Value)
+	case *ast.Ellipsis:
+		return "..." + aggregateFieldTypeToString(t.Elt)
+	case *ast.ParenExpr:
+		return "(" + aggregateFieldTypeToString(t.X) + ")"
+	case *ast.StructType:
+		return "struct"
+	case *ast.FuncType:
+		return "func" + aggregateFieldListToString(t.Params) + aggregateFieldListToString(t.Results)
+	case *ast.InterfaceType:
+		return "interface"
+	case *ast.IndexExpr:
+		return aggregateFieldTypeToString(t.X) + "[" + aggregateFieldTypeToString(t.Index) + "]"
+	case *ast.IndexListExpr:
+		parts := make([]string, 0, len(t.Indices))
+		for _, idx := range t.Indices {
+			parts = append(parts, aggregateFieldTypeToString(idx))
+		}
+		return aggregateFieldTypeToString(t.X) + "[" + strings.Join(parts, ", ") + "]"
 	default:
 		return ""
 	}
+}
+
+// aggregateFieldListToString renders one func param/result list for the
+// textual type label; unhandled shapes render empty but never occur in the
+// valid type positions exercised here.
+func aggregateFieldListToString(fields *ast.FieldList) string {
+	if fields == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(fields.List))
+	for _, f := range fields.List {
+		parts = append(parts, aggregateFieldTypeToString(f.Type))
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
 }

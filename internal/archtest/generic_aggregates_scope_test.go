@@ -215,7 +215,9 @@ func (s *archPkgScope) resolveArchLocal(name string) (importPath, typeName strin
 
 // forbiddenPkgInType reports whether a field type references a forbidden
 // feature package, directly or through a same-package chain. Only type
-// positions are visited; inline-struct field names are never type references.
+// positions are visited (full audit in generic_aggregates_scope_resolve_test.go);
+// inline-struct field names are never type references. Array lengths are not
+// visited: an index length is never a type.
 func (s *archPkgScope) forbiddenPkgInType(expr ast.Expr, file *archPkgFile) (string, bool) {
 	bad := ""
 	hit := false
@@ -273,6 +275,14 @@ func (s *archPkgScope) forbiddenPkgInType(expr ast.Expr, file *archPkgFile) (str
 					visit(f.Type)
 				}
 			}
+		case *ast.IndexExpr:
+			visit(t.X)
+			visit(t.Index)
+		case *ast.IndexListExpr:
+			visit(t.X)
+			for _, idx := range t.Indices {
+				visit(idx)
+			}
 		}
 	}
 	visit(expr)
@@ -314,7 +324,7 @@ func (s *archPkgScope) approvedExceptionMatches(expr ast.Expr, file *archPkgFile
 }
 
 // namedArchRefs returns same-package candidate type names referenced by a
-// field type, unwrapping pointers, arrays, map keys/values, and channels.
+// field type (audit table in generic_aggregates_scope_resolve_test.go).
 func namedArchRefs(expr ast.Expr) []string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -327,6 +337,22 @@ func namedArchRefs(expr ast.Expr) []string {
 		return append(namedArchRefs(t.Key), namedArchRefs(t.Value)...)
 	case *ast.ChanType:
 		return namedArchRefs(t.Value)
+	case *ast.Ellipsis:
+		return namedArchRefs(t.Elt)
+	case *ast.ParenExpr:
+		return namedArchRefs(t.X)
+	case *ast.FuncType:
+		return append(namedArchFieldRefs(t.Params), namedArchFieldRefs(t.Results)...)
+	case *ast.InterfaceType:
+		return namedArchFieldRefs(t.Methods)
+	case *ast.IndexExpr:
+		return append(namedArchRefs(t.X), namedArchRefs(t.Index)...)
+	case *ast.IndexListExpr:
+		refs := namedArchRefs(t.X)
+		for _, idx := range t.Indices {
+			refs = append(refs, namedArchRefs(idx)...)
+		}
+		return refs
 	default:
 		return nil
 	}
