@@ -1,5 +1,13 @@
 package archtest
 
+import (
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+)
+
 // CoreOwnershipCategory classifies why a top-level internal/core package may
 // remain in the kernel after feature-ownership full closure (Req 12.3/13.2).
 type CoreOwnershipCategory string
@@ -87,4 +95,111 @@ func coreOwnershipByPackage() map[string]CoreOwnershipEntry {
 		out[e.Package] = e
 	}
 	return out
+}
+
+// dirHasProductionGo reports whether dir holds any production (non-test) Go
+// file anywhere beneath it, skipping testdata subtrees. Admission is
+// recursive: production code in a nested directory still requires a
+// manifest entry for the top-level package.
+func dirHasProductionGo(dir string) bool {
+	found := false
+	_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil || found {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
+			found = true
+		}
+		return nil
+	})
+	return found
+}
+
+// missingCoreOwnershipEntries reports top-level core packages holding
+// production code without a manifest entry. coreDir is the live
+// internal/core directory or a synthetic fixture root with the same layout.
+func missingCoreOwnershipEntries(coreDir string, byPackage map[string]CoreOwnershipEntry) []string {
+	entries, err := os.ReadDir(coreDir)
+	if err != nil {
+		return []string{"ReadDir " + coreDir + ": " + err.Error()}
+	}
+	var missing []string
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == "testdata" {
+			continue
+		}
+		if !dirHasProductionGo(filepath.Join(coreDir, e.Name())) {
+			continue
+		}
+		if _, ok := byPackage[e.Name()]; !ok {
+			missing = append(missing, "internal/core/"+e.Name())
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+// staleCoreOwnershipEntries reports manifest entries whose top-level
+// directory exists but holds zero production Go: the package was hollowed
+// out and the entry must be removed or re-justified. Entries without a
+// matching directory are reported by validateCoreOwnershipEntries instead.
+func staleCoreOwnershipEntries(root string, manifest []CoreOwnershipEntry) []string {
+	var stale []string
+	for _, e := range manifest {
+		dir := filepath.Join(root, "internal", "core", e.Package)
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if !dirHasProductionGo(dir) {
+			stale = append(stale, e.Package)
+		}
+	}
+	sort.Strings(stale)
+	return stale
+}
+
+// validateCoreOwnershipEntries locks the manifest shape: known categories
+// only, concise reasons, generic mechanisms carry independent consumer
+// evidence, entries match live top-level directories, and no stale entries
+// for packages without production code.
+func validateCoreOwnershipEntries(root string, manifest []CoreOwnershipEntry) []string {
+	var problems []string
+	seen := map[string]bool{}
+	for _, e := range manifest {
+		if e.Package == "" {
+			problems = append(problems, "manifest entry with empty package name")
+		}
+		if seen[e.Package] {
+			problems = append(problems, "duplicate manifest entry for core package "+strconv.Quote(e.Package))
+		}
+		seen[e.Package] = true
+		switch e.Category {
+		case CoreOwnershipKernelInvariant, CoreOwnershipGenericExtension:
+		default:
+			problems = append(problems, "package "+strconv.Quote(e.Package)+" has unknown ownership category "+strconv.Quote(string(e.Category)))
+		}
+		if strings.TrimSpace(e.Reason) == "" {
+			problems = append(problems, "package "+strconv.Quote(e.Package)+" has empty ownership reason")
+		}
+		if e.Category == CoreOwnershipGenericExtension && strings.TrimSpace(e.Consumers) == "" {
+			problems = append(problems, "generic extension mechanism "+strconv.Quote(e.Package)+" must record independent consumer evidence")
+		}
+		dir := filepath.Join(root, "internal", "core", e.Package)
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			problems = append(problems, "manifest entry "+strconv.Quote(e.Package)+" does not match a top-level internal/core directory")
+		}
+	}
+	for _, stale := range staleCoreOwnershipEntries(root, manifest) {
+		problems = append(problems, "stale manifest entry "+strconv.Quote(stale)+" has no production Go anywhere beneath internal/core/"+stale)
+	}
+	return problems
 }

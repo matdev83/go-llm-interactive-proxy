@@ -3,7 +3,6 @@ package archtest
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -17,26 +16,7 @@ func TestCoreOwnershipManifestCoversEveryTopLevelPackage(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	coreDir := filepath.Join(root, "internal", "core")
-	entries, err := os.ReadDir(coreDir)
-	if err != nil {
-		t.Fatalf("ReadDir internal/core: %v", err)
-	}
-	byPackage := coreOwnershipByPackage()
-	var missing []string
-	for _, e := range entries {
-		if !e.IsDir() || e.Name() == "testdata" {
-			continue
-		}
-		rel := filepath.Join("internal", "core", e.Name())
-		if !dirHasProductionGo(filepath.Join(root, rel)) {
-			continue
-		}
-		if _, ok := byPackage[e.Name()]; !ok {
-			missing = append(missing, rel)
-		}
-	}
-	sort.Strings(missing)
+	missing := missingCoreOwnershipEntries(filepath.Join(root, "internal", "core"), coreOwnershipByPackage())
 	if len(missing) > 0 {
 		t.Fatalf("top-level core packages without ownership manifest entry (%d):\n%s",
 			len(missing), strings.Join(missing, "\n"))
@@ -50,47 +30,57 @@ func TestCoreOwnershipManifestEntriesValid(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	seen := map[string]bool{}
-	for _, e := range CoreOwnershipManifest {
-		if e.Package == "" {
-			t.Errorf("manifest entry with empty package name: %+v", e)
-		}
-		if seen[e.Package] {
-			t.Errorf("duplicate manifest entry for core package %q", e.Package)
-		}
-		seen[e.Package] = true
-		switch e.Category {
-		case CoreOwnershipKernelInvariant, CoreOwnershipGenericExtension:
-		default:
-			t.Errorf("package %q has unknown ownership category %q", e.Package, e.Category)
-		}
-		if strings.TrimSpace(e.Reason) == "" {
-			t.Errorf("package %q has empty ownership reason", e.Package)
-		}
-		if e.Category == CoreOwnershipGenericExtension && strings.TrimSpace(e.Consumers) == "" {
-			t.Errorf("generic extension mechanism %q must record independent consumer evidence", e.Package)
-		}
-		dir := filepath.Join(root, "internal", "core", e.Package)
-		info, err := os.Stat(dir)
-		if err != nil || !info.IsDir() {
-			t.Errorf("manifest entry %q does not match a top-level internal/core directory", e.Package)
-		}
+	if problems := validateCoreOwnershipEntries(root, CoreOwnershipManifest); len(problems) > 0 {
+		t.Fatalf("core ownership manifest invalid (%d):\n%s", len(problems), strings.Join(problems, "\n"))
 	}
 }
 
-func dirHasProductionGo(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
+// TestCoreOwnershipAdmission_RecursiveSubtreeScan proves admission walks the
+// full subtree: a package whose production code lives only in a nested
+// directory (e.g. internal/core/newpolicy/app/policy.go with no .go files at
+// the top level) still requires a manifest entry.
+func TestCoreOwnershipAdmission_RecursiveSubtreeScan(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	nested := filepath.Join(root, "internal", "core", "newpolicy", "app")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
-			return true
+	if err := os.WriteFile(filepath.Join(nested, "policy.go"), []byte("package app\n\nfunc Enforce() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := missingCoreOwnershipEntries(filepath.Join(root, "internal", "core"), map[string]CoreOwnershipEntry{})
+	if len(missing) != 1 || missing[0] != "internal/core/newpolicy" {
+		t.Fatalf("nested-only production package must require a manifest entry, got missing=%v", missing)
+	}
+}
+
+// TestCoreOwnershipManifest_RejectsStaleEntries proves validation fails
+// closed: a manifest entry whose top-level directory holds zero production
+// Go anywhere beneath is a violation until removed or re-justified.
+func TestCoreOwnershipManifest_RejectsStaleEntries(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	staleDir := filepath.Join(root, "internal", "core", "stalepkg")
+	if err := os.MkdirAll(staleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staleDir, "doc_test.go"), []byte("package stalepkg\n\nfunc Example() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := []CoreOwnershipEntry{
+		{Package: "stalepkg", Category: CoreOwnershipKernelInvariant, Reason: "Synthetic stale fixture."},
+	}
+	problems := validateCoreOwnershipEntries(root, manifest)
+	found := false
+	for _, p := range problems {
+		if strings.Contains(p, "stalepkg") {
+			found = true
 		}
 	}
-	return false
+	if !found {
+		t.Fatalf("stale manifest entry must be rejected, got problems=%v", problems)
+	}
 }

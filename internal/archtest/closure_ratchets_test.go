@@ -250,29 +250,12 @@ func TestFeatureHost_ReflectOnlyTypedNilGuards(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, path, src, 0)
+		rel, _ := filepath.Rel(root, path)
+		findings, err := scanFeaturehostReflectViolations(rel, src)
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(root, path)
-		for _, decl := range f.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Name == nil {
-				continue
-			}
-			allowed := strings.HasPrefix(fn.Name.Name, "isNil") || strings.HasPrefix(fn.Name.Name, "IsNil")
-			ast.Inspect(fn, func(n ast.Node) bool {
-				sel, ok := n.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-				if id, ok := sel.X.(*ast.Ident); ok && id.Name == "reflect" && !allowed {
-					bad = append(bad, SlashPath(rel)+":"+fn.Name.Name+": reflect outside typed-nil guard")
-				}
-				return true
-			})
-		}
+		bad = append(bad, findings...)
 		return nil
 	})
 	if err != nil {
@@ -280,6 +263,120 @@ func TestFeatureHost_ReflectOnlyTypedNilGuards(t *testing.T) {
 	}
 	if len(bad) > 0 {
 		t.Fatalf("featurehost reflection must stay inside typed-nil guards (%d):\n%s", len(bad), strings.Join(bad, "\n"))
+	}
+}
+
+// TestClosureReflectNegativeFixtures proves the typed-nil-guard ratchet
+// cannot be bypassed: aliased reflect imports, package-level reflective
+// initializers, and dynamic dispatch hiding inside nil-guard-named functions
+// are all violations, while canonical typed-nil guards stay silent.
+func TestClosureReflectNegativeFixtures(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		src         string
+		wantFinding bool
+	}{
+		{
+			name: "aliased import dynamic dispatch",
+			src: `package featurehost
+
+import r "reflect"
+
+func ResolveCapability(v any, name string) any {
+	return r.ValueOf(v).MethodByName(name).Call(nil)[0].Interface()
+}
+`,
+			wantFinding: true,
+		},
+		{
+			name: "package-level reflective initializer",
+			src: `package featurehost
+
+import "reflect"
+
+var cachedType = reflect.TypeOf(0)
+`,
+			wantFinding: true,
+		},
+		{
+			name: "MethodByName inside isNil-named func",
+			src: `package featurehost
+
+import "reflect"
+
+func isNilDynamic(v any, method string) bool {
+	rv := reflect.ValueOf(v)
+	out := rv.MethodByName(method).Call(nil)
+	return len(out) == 0
+}
+`,
+			wantFinding: true,
+		},
+		{
+			name: "canonical typed-nil guard stays silent",
+			src: `package featurehost
+
+import "reflect"
+
+func isNilEgressPolicy(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+		return rv.IsNil()
+	default:
+		return false
+	}
+}
+`,
+			wantFinding: false,
+		},
+		{
+			name: "exported IsNil guard via alias stays silent",
+			src: `package featurehost
+
+import r "reflect"
+
+func IsNilCapability(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := r.ValueOf(v)
+	switch rv.Kind() {
+	case r.Chan, r.Func, r.Interface, r.Map, r.Pointer, r.Slice, r.UnsafePointer:
+		return rv.IsNil()
+	default:
+		return false
+	}
+}
+`,
+			wantFinding: false,
+		},
+		{
+			name: "plain code without reflect stays silent",
+			src: `package featurehost
+
+func Compose(a, b string) string { return a + b }
+`,
+			wantFinding: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			findings, err := scanFeaturehostReflectViolations("internal/standardplugins/featurehost/fixture.go", []byte(tc.src))
+			if err != nil {
+				t.Fatalf("scanFeaturehostReflectViolations: %v", err)
+			}
+			if got := len(findings) > 0; got != tc.wantFinding {
+				t.Fatalf("scanFeaturehostReflectViolations(%q): got violation=%v, want %v (findings: %v)",
+					tc.name, got, tc.wantFinding, findings)
+			}
+		})
 	}
 }
 
