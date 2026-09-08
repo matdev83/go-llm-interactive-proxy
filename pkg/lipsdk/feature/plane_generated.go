@@ -144,7 +144,7 @@ func (gc *generatedContributions) clone() *generatedContributions {
 	next.compactionPreserversID = gc.compactionPreserversID
 	next.compactionPreserversHasID = gc.compactionPreserversHasID
 	next.secretGuards = cloneSlice(gc.secretGuards)
-	next.secretGuardExecution = gc.secretGuardExecution
+	next.secretGuardExecution = canonicalPlaneSecretGuardExecutionPolicy.requestMaterializer(gc.secretGuardExecution)
 	next.secretGuardExecutionID = gc.secretGuardExecutionID
 	next.secretGuardExecutionHasID = gc.secretGuardExecutionHasID
 	next.localTurnHandlers = cloneSlice(gc.localTurnHandlers)
@@ -188,7 +188,7 @@ func (gc *generatedContributions) freeze() *generatedFrozen {
 		compactionPreserversID:           gc.compactionPreserversID,
 		compactionPreserversHasID:        gc.compactionPreserversHasID,
 		secretGuards:                     cloneSlice(gc.secretGuards),
-		secretGuardExecution:             gc.secretGuardExecution,
+		secretGuardExecution:             canonicalPlaneSecretGuardExecutionPolicy.requestMaterializer(gc.secretGuardExecution),
 		secretGuardExecutionID:           gc.secretGuardExecutionID,
 		secretGuardExecutionHasID:        gc.secretGuardExecutionHasID,
 		localTurnHandlers:                cloneSlice(gc.localTurnHandlers),
@@ -233,7 +233,7 @@ func (gf *generatedFrozen) toContributions() *generatedContributions {
 	gc.compactionPreserversID = gf.compactionPreserversID
 	gc.compactionPreserversHasID = gf.compactionPreserversHasID
 	gc.secretGuards = cloneSlice(gf.secretGuards)
-	gc.secretGuardExecution = gf.secretGuardExecution
+	gc.secretGuardExecution = canonicalPlaneSecretGuardExecutionPolicy.requestMaterializer(gf.secretGuardExecution)
 	gc.secretGuardExecutionID = gf.secretGuardExecutionID
 	gc.secretGuardExecutionHasID = gf.secretGuardExecutionHasID
 	gc.localTurnHandlers = cloneSlice(gf.localTurnHandlers)
@@ -277,7 +277,7 @@ func (gf *generatedFrozen) freezeRequest() *generatedFrozen {
 		compactionPreserversID:           gf.compactionPreserversID,
 		compactionPreserversHasID:        gf.compactionPreserversHasID,
 		secretGuards:                     materializeRequestSlice(gf.secretGuards, canonicalPlaneSecretGuardsPolicy.requestMaterializer),
-		secretGuardExecution:             gf.secretGuardExecution,
+		secretGuardExecution:             canonicalPlaneSecretGuardExecutionPolicy.requestMaterializer(gf.secretGuardExecution),
 		secretGuardExecutionID:           gf.secretGuardExecutionID,
 		secretGuardExecutionHasID:        gf.secretGuardExecutionHasID,
 		localTurnHandlers:                materializeRequestSlice(gf.localTurnHandlers, canonicalPlaneLocalTurnHandlersPolicy.requestMaterializer),
@@ -322,7 +322,7 @@ func (gf *generatedFrozen) clone() *generatedFrozen {
 		compactionPreserversID:           gf.compactionPreserversID,
 		compactionPreserversHasID:        gf.compactionPreserversHasID,
 		secretGuards:                     cloneSlice(gf.secretGuards),
-		secretGuardExecution:             gf.secretGuardExecution,
+		secretGuardExecution:             canonicalPlaneSecretGuardExecutionPolicy.requestMaterializer(gf.secretGuardExecution),
 		secretGuardExecutionID:           gf.secretGuardExecutionID,
 		secretGuardExecutionHasID:        gf.secretGuardExecutionHasID,
 		localTurnHandlers:                cloneSlice(gf.localTurnHandlers),
@@ -2893,7 +2893,7 @@ func init() {
 			if gf == nil {
 				return nil
 			}
-			return gf.secretGuardExecution
+			return canonicalPlaneSecretGuardExecutionPolicy.requestMaterializer(gf.secretGuardExecution)
 		},
 		identity: func(gf *generatedFrozen) (string, bool) {
 			if gf == nil {

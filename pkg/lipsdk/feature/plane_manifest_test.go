@@ -314,3 +314,53 @@ func TestSecretGuardExecutionPlane_ContributionIsolation(t *testing.T) {
 	require.Len(t, got.SourceCategories, 2, "frozen categories must survive contributor mutation")
 	assert.Equal(t, "env", got.SourceCategories[0], "frozen categories must not alias contributor slice")
 }
+
+// TestSecretGuardExecutionPlane_ReadIsolation pins frozen-value isolation on
+// every read path: mutating a value obtained through feature.Get (from the
+// generation set, a cloned set, or a request-frozen set) must not alter
+// subsequent reads. Shared engine capabilities are intentionally preserved;
+// the mutable container and slice are copied per read via the declared
+// RequestMaterializer.
+func TestSecretGuardExecutionPlane_ReadIsolation(t *testing.T) {
+	t.Parallel()
+
+	seed := &secretguard.ExecutionConfig{
+		AccessMode:       "single_user",
+		ConfigVersion:    "v1",
+		SourceCategories: []string{"env", "catalog"},
+	}
+	cs := feature.NewContributionSet()
+	require.NoError(t, feature.ContributeSource(cs, feature.PlaneSecretGuardExecution, feature.SourceGenerationBinder, "secret-guard-execution", seed))
+	frozen := cs.Freeze()
+
+	mutate := func(v *secretguard.ExecutionConfig) {
+		v.AccessMode = "mutated"
+		if len(v.SourceCategories) > 0 {
+			v.SourceCategories[0] = "mutated"
+		}
+	}
+	checkStable := func(v *secretguard.ExecutionConfig, where string) {
+		t.Helper()
+		require.NotNil(t, v, "expected execution config %s", where)
+		assert.Equal(t, "single_user", v.AccessMode, "frozen config mutated %s", where)
+		require.Len(t, v.SourceCategories, 2, "frozen categories changed %s", where)
+		assert.Equal(t, "env", v.SourceCategories[0], "frozen categories mutated %s", where)
+	}
+
+	// Ordinary read: mutate the returned value, reread must be stable.
+	first := feature.Get(frozen, feature.PlaneSecretGuardExecution)
+	checkStable(first, "on first read")
+	mutate(first)
+	checkStable(feature.Get(frozen, feature.PlaneSecretGuardExecution), "after mutating a Get result")
+
+	// Cloned set: reads through the clone must be isolated both ways.
+	cloned := frozen.Clone()
+	mutate(feature.Get(cloned, feature.PlaneSecretGuardExecution))
+	checkStable(feature.Get(cloned, feature.PlaneSecretGuardExecution), "after mutating a cloned-set read")
+	checkStable(feature.Get(frozen, feature.PlaneSecretGuardExecution), "on the original set after cloned-set mutation")
+
+	// Request-frozen set: materialized at snapshot construction.
+	reqFrozen := feature.FreezeRequestPlanes(frozen)
+	mutate(feature.Get(reqFrozen, feature.PlaneSecretGuardExecution))
+	checkStable(feature.Get(reqFrozen, feature.PlaneSecretGuardExecution), "after mutating a request-frozen read")
+}

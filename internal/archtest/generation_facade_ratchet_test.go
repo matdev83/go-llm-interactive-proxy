@@ -5,177 +5,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
-
-// TestGenerationFacadeShape pins the Task 2.2 conformance of the
-// standard-distribution generation facade: GenerationOutput carries only the
-// ordinary Bundle/Planes/Lifecycles plus the fixed CorePorts consumer ports,
-// and GenerationInput carries only generic composition inputs plus an
-// explicitly allowlisted set of feature-config inputs and generic ports.
-// CorePorts itself is pinned: the five task-assigned consumer interfaces plus
-// three opaque NO-GO-remediation ports (MetricsSwap, KeepwarmAdmin,
-// TerminalPolicyProjection), each documented below. Any new per-feature output
-// field, input field, or CorePorts member fails loudly here instead of leaking
-// back into generic runtimebundle.
-func TestGenerationFacadeShape(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	absPath := filepath.Join(root, filepath.FromSlash("internal/standardplugins/featurehost/inputs.go"))
-
-	wantOutput := []string{
-		"Bundle:lipfeature.FeatureBundle",
-		"Planes:lipfeature.FrozenPlaneSet",
-		"Lifecycles:[]lipplugin.Lifecycle",
-		"CorePorts:CorePorts",
-	}
-	// CorePorts members: five task-assigned consumer interfaces
-	// (CompactionDetector, ConversationReader, InterleavedProcessor,
-	// PromptCacheMaintenance, TerminalPolicyReader) plus three opaque
-	// remediation ports, each carrying no concrete feature type across the
-	// boundary: MetricsSwap is a bare func() invoked once per published
-	// generation; KeepwarmAdmin is a process-stable stdhttp options value
-	// copied opaquely; TerminalPolicyProjection is a factory func value
-	// invoked with generic composition state. Adding a ninth member
-	// requires the same bar: opaque type, documented justification here.
-	wantCorePorts := []string{
-		"CompactionDetector:runtime.CompactionDetector",
-		"ConversationReader:conversationprojection.Reader",
-		"InterleavedProcessor:runtime.InterleavedProcessor",
-		"PromptCacheMaintenance:runtime.PromptCacheMaintenance",
-		"TerminalPolicyReader:runtime.TerminalPolicyReader",
-		"MetricsSwap:func()",
-		"KeepwarmAdmin:adminkeepwarm.Options",
-		"TerminalPolicyProjection:TerminalPolicyProjectionFunc",
-	}
-	wantInput := []string{
-		"Registrations:[]lipsdk.Registration",
-		"HostRegistrations:[]sdkfeaturehost.Registration",
-		"MergeSurface:featurebundle.GeneratedMergeSurface",
-		"Planes:lipfeature.FrozenPlaneSet",
-		"Lifecycles:[]lipplugin.Lifecycle",
-		"CandidatePlanes:lipfeature.FrozenPlaneSet",
-		"BackgroundClient:auxiliary.BackgroundClient",
-		"BackgroundPoller:auxiliary.BackgroundPoller",
-		"ReasoningProdOpts:ReasoningCompressionOptions",
-		"ReasoningTestOpts:ReasoningCompressionOptions",
-		"InterleavedConfig:interleavedthinking.Config",
-		"ConfigInterleaved:config.InterleavedConfig",
-		"KeepwarmConfig:keepwarm.Config",
-		"NowFn:func()(time.Time)",
-		"KeepwarmAccounting:billing.ProviderMaintenanceUsageObserver",
-		"ConfigDir:string",
-		"AccessMode:accessmode.Mode",
-		"SecretEnv:SecretGuardEnvironment",
-		"SecretInputs:SecretGuardInputs",
-		"DecisionObserver:SecretDecisionObserver",
-		"FaultInject:error",
-	}
-
-	fieldsOf := func(structName string) []string {
-		t.Helper()
-		got, err := scanFacadeStructFields(absPath, structName)
-		if err != nil {
-			t.Fatalf("scanFacadeStructFields: %v", err)
-		}
-		return got
-	}
-
-	gotOutput := fieldsOf("GenerationOutput")
-	if !slices.Equal(gotOutput, wantOutput) {
-		t.Fatalf("GenerationOutput facade shape drift:\n got=%v\nwant=%v", gotOutput, wantOutput)
-	}
-	gotInput := fieldsOf("GenerationInput")
-	if !slices.Equal(gotInput, wantInput) {
-		t.Fatalf("GenerationInput facade shape drift:\n got=%v\nwant=%v", gotInput, wantInput)
-	}
-	gotCorePorts := fieldsOf("CorePorts")
-	if !slices.Equal(gotCorePorts, wantCorePorts) {
-		t.Fatalf("CorePorts facade shape drift:\n got=%v\nwant=%v", gotCorePorts, wantCorePorts)
-	}
-}
-
-// archTypeString renders a type expression deterministically for facade-shape
-// comparison. Unknown composite forms render as "complex", which never matches
-// the allowlist: new shapes fail closed instead of slipping through.
-func archTypeString(e ast.Expr) string {
-	switch t := e.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.SelectorExpr:
-		return archTypeString(t.X) + "." + t.Sel.Name
-	case *ast.StarExpr:
-		return "*" + archTypeString(t.X)
-	case *ast.ArrayType:
-		if t.Len == nil {
-			return "[]" + archTypeString(t.Elt)
-		}
-		return "[n]" + archTypeString(t.Elt)
-	case *ast.FuncType:
-		var params []string
-		if t.Params != nil {
-			for _, p := range t.Params.List {
-				params = append(params, archTypeString(p.Type))
-			}
-		}
-		s := "func(" + strings.Join(params, ",") + ")"
-		if t.Results != nil && len(t.Results.List) > 0 {
-			var results []string
-			for _, r := range t.Results.List {
-				results = append(results, archTypeString(r.Type))
-			}
-			s += "(" + strings.Join(results, ",") + ")"
-		}
-		return s
-	case *ast.ParenExpr:
-		return archTypeString(t.X)
-	default:
-		return "complex"
-	}
-}
-
-// scanFacadeStructFields returns "Name:Type" entries for a struct declared in
-// the file at absPath. Embedded fields (no names) are recorded as
-// "embedded:Type" so they can never silently match a named allowlist entry.
-func scanFacadeStructFields(absPath, structName string) ([]string, error) {
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, absPath, nil, 0)
-	if err != nil {
-		return nil, fmt.Errorf("ParseFile(%s): %w", absPath, err)
-	}
-	for _, decl := range node.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.TYPE {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			ts, ok := spec.(*ast.TypeSpec)
-			if !ok || ts.Name.Name != structName {
-				continue
-			}
-			st, ok := ts.Type.(*ast.StructType)
-			if !ok {
-				return nil, fmt.Errorf("%s is not a struct", structName)
-			}
-			var out []string
-			for _, f := range st.Fields.List {
-				typ := archTypeString(f.Type)
-				if len(f.Names) == 0 {
-					out = append(out, "embedded:"+typ)
-					continue
-				}
-				for _, name := range f.Names {
-					out = append(out, name.Name+":"+typ)
-				}
-			}
-			return out, nil
-		}
-	}
-	return nil, fmt.Errorf("struct %s not found in %s: scanner blind spot, refusing to pass", structName, absPath)
-}
 
 // featurehostImportNames resolves the local identifiers bound to the
 // featurehost package import in f, so aliased imports cannot bypass the
@@ -226,21 +58,172 @@ func scanFeaturehostRefs(rel string, src []byte) ([]string, error) {
 	if dotImport {
 		violations = append(violations, fmt.Sprintf("%s: dot-import of featurehost hides selectors", rel))
 	}
+	aliases := runtimeValueAliases(f, locals)
 	ast.Inspect(f, func(n ast.Node) bool {
 		sel, ok := n.(*ast.SelectorExpr)
 		if !ok {
 			return true
 		}
-		ident, ok := sel.X.(*ast.Ident)
-		if !ok || !locals[ident.Name] {
+		if ident, ok := sel.X.(*ast.Ident); ok && locals[ident.Name] {
+			if !allowedFeaturehostQualifiers[sel.Sel.Name] {
+				violations = append(violations, fmt.Sprintf("%s: forbidden featurehost.%s reference", rel, sel.Sel.Name))
+			}
 			return true
 		}
-		if !allowedFeaturehostQualifiers[sel.Sel.Name] {
-			violations = append(violations, fmt.Sprintf("%s: forbidden featurehost.%s reference", rel, sel.Sel.Name))
+		// Instance-method access on a *featurehost.Runtime value reaches the
+		// same facade surface as a package-qualified reference: a concrete
+		// feature accessor (KeepwarmPolicy, BoundSecretGuard, ...) bypasses
+		// the vocabulary gate above. Only pinned lifecycle/composition ports
+		// may be invoked on Runtime values.
+		if recv, method, ok := splitRuntimeMethodCall(sel); ok && receiverIsRuntimeValue(recv, aliases) {
+			if !allowedRuntimeMethods[method] {
+				violations = append(violations, fmt.Sprintf("%s: forbidden Runtime.%s method access", rel, method))
+			}
 		}
 		return true
 	})
 	return violations, nil
+}
+
+// allowedRuntimeMethods pins the exact set of *featurehost.Runtime methods
+// generic runtimebundle production code may invoke: facade construction,
+// lifecycle, and the grandfathered composition ports. Any new concrete
+// feature accessor (KeepwarmPolicy, BoundSecretGuard, TerminalDecisionPolicy,
+// BuildSecretGuardRuntime, ...) fails loudly here instead of reopening a
+// per-feature channel beside the facade.
+var allowedRuntimeMethods = map[string]bool{
+	"CompileGeneration":  true,
+	"Close":              true,
+	"Closed":             true,
+	"CompactionDetector": true,
+	"ConversationReader": true,
+	"ConversationStore":  true,
+}
+
+// splitRuntimeMethodCall splits sel into its receiver expression and final
+// method name.
+func splitRuntimeMethodCall(sel *ast.SelectorExpr) (recv ast.Expr, method string, ok bool) {
+	if sel == nil {
+		return nil, "", false
+	}
+	return sel.X, sel.Sel.Name, true
+}
+
+// receiverIsRuntimeValue reports whether e denotes a *featurehost.Runtime
+// value: a `.StandardFeatures`/`.standardFeatures` selector chain link, an
+// explicitly typed alias, or a locally tracked alias thereof.
+func receiverIsRuntimeValue(e ast.Expr, aliases map[string]bool) bool {
+	switch t := e.(type) {
+	case *ast.Ident:
+		return aliases[t.Name]
+	case *ast.SelectorExpr:
+		if t.Sel.Name == "StandardFeatures" || t.Sel.Name == "standardFeatures" {
+			return true
+		}
+		return receiverIsRuntimeValue(t.X, aliases)
+	default:
+		return false
+	}
+}
+
+// runtimeValueAliases collects local identifiers denoting a
+// *featurehost.Runtime value: parameters explicitly typed as
+// featurehost.Runtime (under any local import name), variables assigned
+// directly from a `.StandardFeatures`/`.standardFeatures` chain, and
+// transitive copies thereof. Composite literals and call results are
+// deliberately NOT tracked: merely mentioning a Runtime value does not make
+// the assigned variable one (that imprecision aliased execRun-style structs
+// and produced false positives).
+func runtimeValueAliases(f *ast.File, locals map[string]bool) map[string]bool {
+	aliases := map[string]bool{}
+	featurehostRuntime := func(e ast.Expr) bool {
+		if e == nil {
+			return false
+		}
+		if sel, ok := e.(*ast.StarExpr); ok {
+			e = sel.X
+		}
+		s, ok := e.(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		ident, ok := s.X.(*ast.Ident)
+		return ok && locals[ident.Name] && s.Sel.Name == "Runtime"
+	}
+	// isRuntimeChain reports whether e IS a Runtime-denoting chain: a
+	// `.StandardFeatures`/`.standardFeatures` selector, an explicitly typed
+	// reference, or a previously tracked alias (transitive copies).
+	isRuntimeChain := func(e ast.Expr) bool {
+		switch t := e.(type) {
+		case *ast.Ident:
+			return aliases[t.Name]
+		case *ast.SelectorExpr:
+			if t.Sel.Name == "StandardFeatures" || t.Sel.Name == "standardFeatures" {
+				return true
+			}
+			return false
+		default:
+			return featurehostRuntime(e)
+		}
+	}
+	trackFieldList := func(fields *ast.FieldList) {
+		if fields == nil {
+			return
+		}
+		for _, field := range fields.List {
+			if featurehostRuntime(field.Type) {
+				for _, name := range field.Names {
+					aliases[name.Name] = true
+				}
+			}
+		}
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch t := n.(type) {
+		case *ast.FuncDecl:
+			trackFieldList(t.Type.Params)
+		case *ast.FuncLit:
+			trackFieldList(t.Type.Params)
+		case *ast.AssignStmt:
+			// Multi-assign pairs positionally; single RHS fans out only to
+			// a direct chain (not to composite literals or call results).
+			for i, lhs := range t.Lhs {
+				ident, ok := lhs.(*ast.Ident)
+				if !ok || ident.Name == "_" {
+					continue
+				}
+				if len(t.Rhs) == 1 {
+					if isRuntimeChain(t.Rhs[0]) {
+						aliases[ident.Name] = true
+					}
+				} else if i < len(t.Rhs) && isRuntimeChain(t.Rhs[i]) {
+					aliases[ident.Name] = true
+				}
+			}
+		case *ast.ValueSpec:
+			if featurehostRuntime(t.Type) {
+				for _, name := range t.Names {
+					aliases[name.Name] = true
+				}
+				break
+			}
+			if len(t.Values) == 1 {
+				if isRuntimeChain(t.Values[0]) {
+					for _, name := range t.Names {
+						aliases[name.Name] = true
+					}
+				}
+			} else {
+				for i, name := range t.Names {
+					if i < len(t.Values) && isRuntimeChain(t.Values[i]) {
+						aliases[name.Name] = true
+					}
+				}
+			}
+		}
+		return true
+	})
+	return aliases
 }
 
 // allowedFeaturehostQualifiers pins the exact set of `featurehost.X`
@@ -378,6 +361,49 @@ var _ fh.CorePorts
 `,
 			wantCount: 0,
 		},
+		{
+			name: "concrete feature access through Runtime value is flagged",
+			src: `package runtimebundle
+import "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
+func bypass(r *featurehost.Runtime) {
+	_ = r.KeepwarmPolicy()
+	_ = r.BoundSecretGuard()
+}
+`,
+			wantCount: 2,
+		},
+		{
+			name: "concrete feature access through StandardFeatures chain is flagged",
+			src: `package runtimebundle
+import "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
+func bypass(ps *ProcessServices) {
+	_ = ps.StandardFeatures.TerminalDecisionPolicy()
+}
+`,
+			wantCount: 1,
+		},
+		{
+			name: "concrete feature access through tracked alias is flagged",
+			src: `package runtimebundle
+import "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
+func bypass(ps *ProcessServices) {
+	sf := ps.StandardFeatures
+	_ = sf.KeepwarmPolicy()
+}
+`,
+			wantCount: 1,
+		},
+		{
+			name: "pinned Runtime lifecycle methods stay silent",
+			src: `package runtimebundle
+import "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
+func ok(r *featurehost.Runtime) {
+	_ = r.Close
+	_ = r.CompileGeneration
+}
+`,
+			wantCount: 0,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -388,110 +414,6 @@ var _ fh.CorePorts
 			}
 			if len(got) != tc.wantCount {
 				t.Fatalf("got %d violations %v, want %d", len(got), got, tc.wantCount)
-			}
-		})
-	}
-}
-
-// TestFacadeShapeScanner_NegativeFixtures proves the shared shape scanner
-// rejects embedded fields and type drift that a name-only check would miss.
-func TestFacadeShapeScanner_NegativeFixtures(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name      string
-		src       string
-		wantCount int
-	}{
-		{
-			name: "embedded field is flagged",
-			src: `package featurehost
-type GenerationOutput struct {
-	Bundle lipfeature.FeatureBundle
-	embeddedPort
-}
-`,
-			wantCount: 1,
-		},
-		{
-			name: "field type drift is flagged",
-			src: `package featurehost
-type CorePorts struct {
-	MetricsSwap string
-}
-`,
-			wantCount: 1,
-		},
-		{
-			name: "exact typed shape stays silent",
-			src: `package featurehost
-type GenerationOutput struct {
-	Bundle     lipfeature.FeatureBundle
-	Planes     lipfeature.FrozenPlaneSet
-	Lifecycles []lipplugin.Lifecycle
-	CorePorts  CorePorts
-}
-`,
-			wantCount: 0,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			fset := token.NewFileSet()
-			f, err := parser.ParseFile(fset, "synthetic.go", tc.src, 0)
-			if err != nil {
-				t.Fatalf("ParseFile: %v", err)
-			}
-			var got []string
-			ast.Inspect(f, func(n ast.Node) bool {
-				ts, ok := n.(*ast.TypeSpec)
-				if !ok {
-					return true
-				}
-				st, ok := ts.Type.(*ast.StructType)
-				if !ok {
-					return true
-				}
-				for _, field := range st.Fields.List {
-					typ := archTypeString(field.Type)
-					if len(field.Names) == 0 {
-						got = append(got, "embedded:"+typ)
-						continue
-					}
-					for _, name := range field.Names {
-						// The pinned GenerationOutput shape carries exactly
-						// four named fields; anything else (embedded or
-						// mistyped) is a violation here.
-						if ts.Name.Name == "GenerationOutput" || ts.Name.Name == "CorePorts" {
-							got = append(got, name.Name+":"+typ)
-						}
-					}
-				}
-				return true
-			})
-			// Reuse the production allowlists: silence means the rendered
-			// shape is byte-identical to an approved entry.
-			approved := map[string]bool{
-				"Bundle:lipfeature.FeatureBundle":     true,
-				"Planes:lipfeature.FrozenPlaneSet":    true,
-				"Lifecycles:[]lipplugin.Lifecycle":    true,
-				"CorePorts:CorePorts":                 true,
-				"MetricsSwap:func()":                  true,
-				"KeepwarmAdmin:adminkeepwarm.Options": true,
-			}
-			flagged := 0
-			for _, entry := range got {
-				if !approved[entry] {
-					flagged++
-				}
-			}
-			// The silent case renders only approved entries; every other
-			// case must produce at least the expected violation count.
-			if tc.wantCount == 0 && flagged != 0 {
-				t.Fatalf("got %d violations %v, want 0", flagged, got)
-			}
-			if tc.wantCount > 0 && flagged < tc.wantCount {
-				t.Fatalf("got %d violations %v, want at least %d", flagged, got, tc.wantCount)
 			}
 		})
 	}

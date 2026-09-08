@@ -905,6 +905,10 @@ var PlaneSecretGuardExecution = Plane[*secretguard.ExecutionConfig]{
 		GenerationBinder: CombExclusive,
 	},
 	NilPolicy: NilSkip,
+	// RequestMaterializer isolates frozen generations: every copy boundary
+	// (clone, freeze, thaw, request freeze, read) deep-copies the container
+	// and categories while preserving shared engine capabilities.
+	RequestMaterializer: secretguard.CloneExecutionConfig,
 	Identity: func(v *secretguard.ExecutionConfig) (string, bool) {
 		if v == nil {
 			return "", false
