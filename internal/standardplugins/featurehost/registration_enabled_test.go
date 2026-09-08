@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
@@ -158,6 +159,50 @@ func TestCompileGeneration_KeepwarmRegistrationEnabled(t *testing.T) {
 			}
 			if got := out.CorePorts.PromptCacheMaintenance != nil; got != tc.wantManager {
 				t.Fatalf("PromptCacheMaintenance present=%v want %v", got, tc.wantManager)
+			}
+		})
+	}
+}
+
+// TestCompileGeneration_InterleavedDisabledRegistrationSuppressesLegacyFallback
+// pins that an outer-disabled canonical entry suppresses the legacy
+// config.interleaved fallback as well: even with legacy enabled, no processor
+// is built and no legacy/canonical conflict is reported for the disabled entry.
+func TestCompileGeneration_InterleavedDisabledRegistrationSuppressesLegacyFallback(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	cases := []struct {
+		name          string
+		registrations []lipsdk.Registration
+	}{
+		{
+			name: "outer disabled with empty config suppresses enabled legacy config",
+			registrations: []lipsdk.Registration{
+				featureRegistration(t, interleavedthinking.ID, false, ""),
+			},
+		},
+		{
+			name: "outer disabled with inner enabled suppresses enabled legacy config",
+			registrations: []lipsdk.Registration{
+				featureRegistration(t, interleavedthinking.ID, false, "enabled: true\n"),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rt := mustFeatureTestRuntime(t)
+			out, err := rt.CompileGeneration(ctx, featurehost.GenerationInput{
+				Registrations:     tc.registrations,
+				ConfigInterleaved: config.InterleavedConfig{Enabled: true},
+			})
+			if err != nil {
+				t.Fatalf("CompileGeneration: %v", err)
+			}
+			if out.CorePorts.InterleavedProcessor != nil {
+				t.Fatal("InterleavedProcessor present with outer-disabled registration and enabled legacy config, want nil")
 			}
 		})
 	}

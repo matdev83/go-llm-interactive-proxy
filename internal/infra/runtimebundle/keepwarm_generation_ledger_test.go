@@ -135,3 +135,29 @@ func TestCompileGeneration_OverlappingGenerationsKeepwarmRegistryCounts(t *testi
 		t.Fatalf("after gen1 Close registry len=%d want 0", got)
 	}
 }
+
+// TestCompileGeneration_CandidateCompileFailureDiscardsAcquiredKeepwarm covers
+// failure INSIDE candidate compilation: a fault injected at the "model"
+// boundary (before any candidate ledger exists to own the acquired cleanup)
+// must release the keep-warm manager through discardAcquiredKeepwarm instead
+// of leaking it into the process registry.
+func TestCompileGeneration_CandidateCompileFailureDiscardsAcquiredKeepwarm(t *testing.T) {
+	t.Parallel()
+	cfg := keepwarmLedgerTestConfig()
+	ps := mustKeepwarmLedgerProcess(t, cfg)
+	before := keepwarmRegistryLen(t, ps)
+
+	_, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+		Process:     ps,
+		Candidate:   cfg,
+		Compose:     stdhttp.ComposeStandardHTTP,
+		FaultInject: runtimebundle.CandidateFaultInject{After: "model"},
+	})
+	if err == nil {
+		t.Fatal("expected injected model fault, got nil")
+	}
+
+	if got := keepwarmRegistryLen(t, ps); got != before {
+		t.Fatalf("candidate-compile failure leaked keepwarm manager: registry len=%d want %d", got, before)
+	}
+}

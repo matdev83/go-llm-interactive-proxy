@@ -276,3 +276,198 @@ changed category; the §6 transition table stays discharged). The fixes moved
 policy surface out of generic trees into its owners, so generic-tree line
 totals did not grow except for the explicit port/capability seams the review
 required (see the implementation evidence for the measured deltas).
+
+### 7.2 Evidence closure for the 12.2 re-review
+
+The re-review accepted the §7.1 fixes as correct but rejected the evidence as
+not durable (RED outputs not captured verbatim), flagged two untested
+regression combinations, and asked for the all-adapter enablement handling
+behind §§2–6 to be independently established. This section closes all three
+points. RED was reproduced in a detached throwaway worktree at the parent of
+the fix commit (new test files copied over unchanged; files that reference
+new production symbols were demonstrated with minimal parent-API-only
+throwaways or pre-fix source excerpts instead of forcing compilation). The
+throwaway worktree was removed after capture. No production code changed
+under this section: the two suggested regressions were already handled by
+the §7.1 fixes, so the deliverable is two additional regression tests plus
+this evidence.
+
+#### H1–H4 RED (pre-fix outputs, verbatim)
+
+Command (throwaway worktree at parent commit):
+`go test -count=1 -run
+'TestCompileGeneration_RejectedCandidateQuiescesKeepwarmManager|TestCompileGeneration_OverlappingGenerationsKeepwarmRegistryCounts'
+./internal/infra/runtimebundle/`
+
+```text
+--- FAIL: TestCompileGeneration_RejectedCandidateQuiescesKeepwarmManager (0.01s)
+    keepwarm_generation_ledger_test.go:74: rejected candidate retained keepwarm manager: registry len=1 want 0
+--- FAIL: TestCompileGeneration_OverlappingGenerationsKeepwarmRegistryCounts (0.01s)
+    keepwarm_generation_ledger_test.go:110: after rejected candidate registry len=2 want 1
+FAIL
+FAIL	github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle	0.056s
+FAIL
+```
+
+Command: `go test -count=1 -run 'TestCoreHasZeroMemoSteeringPolicy' -v
+./internal/archtest/`
+
+```text
+    interleaved_steering_ownership_test.go:70: internal/core production holds memo steering policy (16):
+        internal/core/runtime/interleaved_steering.go: memo literal [Session Steering Guidance]
+        internal/core/runtime/interleaved_steering.go: memo literal interleaved-thinking-memo
+        internal/core/runtime/interleaved_steering.go: memo literal interleaved_thinking_memo
+        internal/core/runtime/interleaved_steering.go: memo symbol SessionSteeringGuidanceHeader
+        internal/core/runtime/interleaved_steering.go: memo symbol SessionSteeringGuidanceHeader
+        internal/core/runtime/interleaved_steering.go: memo symbol StablePrefixFallback
+        internal/core/runtime/interleaved_steering.go: memo symbol interleavedMemoOverlayID
+        internal/core/runtime/interleaved_steering.go: memo symbol interleavedMemoOverlayID
+        internal/core/runtime/interleaved_steering.go: memo symbol interleavedMemoOverlayID
+        internal/core/runtime/interleaved_steering.go: memo symbol interleavedMemoOverlayID
+        internal/core/runtime/interleaved_steering.go: memo symbol interleavedMemoSteeringReason
+        internal/core/runtime/interleaved_steering.go: memo symbol interleavedMemoSteeringReason
+        internal/core/runtime/interleaved_steering.go: memo symbol memoSteeringPayload
+        internal/core/runtime/interleaved_steering.go: memo symbol memoSteeringPayload
+        internal/core/runtime/interleaved_steering.go: memo symbol stripMemoSteeringOverlay
+        internal/core/runtime/interleaved_steering.go: memo symbol stripMemoSteeringOverlay
+--- FAIL: TestCoreHasZeroMemoSteeringPolicy (0.31s)
+FAIL
+FAIL	github.com/matdev83/go-llm-interactive-proxy/internal/archtest	0.347s
+FAIL
+```
+
+Command: `go test -count=1 -run
+'TestCompileGeneration_InterleavedRegistrationEnabled|TestCompileGeneration_KeepwarmRegistrationEnabled'
+-v ./internal/standardplugins/featurehost/`
+
+```text
+    registration_enabled_test.go:98: InterleavedProcessor present=true want false
+    registration_enabled_test.go:157: KeepwarmManager present=true want false
+    registration_enabled_test.go:157: KeepwarmManager present=true want false
+--- FAIL: TestCompileGeneration_InterleavedRegistrationEnabled (0.00s)
+    --- PASS: TestCompileGeneration_InterleavedRegistrationEnabled/outer_enabled_with_inner_enabled_constructs_processor (0.00s)
+    --- PASS: TestCompileGeneration_InterleavedRegistrationEnabled/outer_disabled_with_empty_config_constructs_nothing (0.00s)
+    --- PASS: TestCompileGeneration_InterleavedRegistrationEnabled/absent_entry_disables_processor_without_legacy_config (0.00s)
+    --- FAIL: TestCompileGeneration_InterleavedRegistrationEnabled/outer_disabled_with_inner_enabled_constructs_nothing (0.00s)
+--- FAIL: TestCompileGeneration_KeepwarmRegistrationEnabled (0.00s)
+    --- PASS: TestCompileGeneration_KeepwarmRegistrationEnabled/absent_entry_applies_defaults (0.00s)
+    --- PASS: TestCompileGeneration_KeepwarmRegistrationEnabled/outer_enabled_with_inner_enabled_constructs_manager (0.00s)
+    --- FAIL: TestCompileGeneration_KeepwarmRegistrationEnabled/outer_disabled_with_empty_config_constructs_nothing (0.00s)
+    --- FAIL: TestCompileGeneration_KeepwarmRegistrationEnabled/outer_disabled_with_inner_enabled_constructs_nothing (0.00s)
+FAIL
+FAIL	github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost	0.037s
+FAIL
+```
+
+H4 production-import ratchet (same ratchet body as
+`TestProductionRuntimeBundleHasZeroSecretguardhostImports`, run as a
+throwaway against the pre-fix tree):
+
+```text
+    zz_redcheck_sg_ratchet_test.go:37: production internal/infra/runtimebundle has forbidden secretguardhost imports (2):
+        internal/infra/runtimebundle/host_build.go: imports github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost
+        internal/infra/runtimebundle/production_options.go: imports github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost
+--- FAIL: TestRedcheckProductionRuntimeBundleHasZeroSecretguardhostImports (0.28s)
+FAIL
+FAIL	github.com/matdev83/go-llm-interactive-proxy/internal/archtest	0.312s
+FAIL
+```
+
+H4 end-to-end defaulting tests cannot compile against the parent (they use
+the new `featurehost.HostEnvironment` capability and `ProcessInput`
+`HostRegistrations`/`HostEnv` fields), which itself evidences the fix shape.
+Copy attempts failed as expected and the copies were deleted:
+
+```text
+vet: internal\standardplugins\featurehost\hostenv_redcheck_test.go:39:84: undefined: featurehost.HostEnvironment
+vet: internal\infra\runtimebundle\zz_redcheck_sg_test.go:17:6: stubSecretGuardHostEnv redeclared in this block
+```
+
+Pre-fix source excerpts (all shown deleted by
+`git diff <parent> HEAD -- internal/infra/runtimebundle/host_build.go
+internal/infra/runtimebundle/production_options.go`):
+
+```text
+host_build.go:25:   "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
+host_build.go:231: if in.SecretEnv != nil && !hasSecretGuardHostRegistration(prod.FeatureHostRegistrations) {
+host_build.go:233:   (&secretguardhost.Binding{Environment: in.SecretEnv}).Registration(),
+production_options.go:15: "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
+production_options.go:88: func hasSecretGuardHostRegistration(regs []featurehost.Registration) bool {
+production_options.go:93:   if strings.TrimSpace(reg.Binding.HostBindingID()) == secretguardhost.BindingID {
+```
+
+#### Suggested regressions S1/S2 (both real, both RED pre-fix, both green post-fix)
+
+S1 premise verified, not moot: `generation.go` carries a legacy
+`ConfigInterleaved` fallback (`if !ic.Enabled && in.ConfigInterleaved.Enabled`
+at the parent) that resurrects a processor independently of the canonical
+registration. At the parent the registration loop ignored outer `Enabled`,
+so the disabled+legacy-enabled combination built a processor (empty inner
+config) or errored spuriously (inner-enabled entry tripped the
+legacy/canonical conflict check). New test
+`TestCompileGeneration_InterleavedDisabledRegistrationSuppressesLegacyFallback`
+(`registration_enabled_test.go`) pins suppression for both inner variants.
+Pre-fix output:
+
+```text
+    registration_enabled_test.go:205: InterleavedProcessor present with outer-disabled registration and enabled legacy config, want nil
+    registration_enabled_test.go:202: CompileGeneration: featurehost: both legacy config.interleaved and canonical feature "interleaved-thinking" are configured
+--- FAIL: TestCompileGeneration_InterleavedDisabledRegistrationSuppressesLegacyFallback (0.00s)
+    --- FAIL: TestCompileGeneration_InterleavedDisabledRegistrationSuppressesLegacyFallback/outer_disabled_with_empty_config_suppresses_enabled_legacy_config (0.00s)
+    --- FAIL: TestCompileGeneration_InterleavedDisabledRegistrationSuppressesLegacyFallback/outer_disabled_with_inner_enabled_suppresses_enabled_legacy_config (0.00s)
+FAIL
+FAIL	github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost	0.038s
+FAIL
+```
+
+S2 covers failure inside candidate compilation: the `discardAcquiredKeepwarm`
+path (`candidate_lifecycle.go:65`, invoked from `compile_generation.go`
+when `compileCandidate` itself fails, before any candidate ledger exists to
+own the acquired cleanup). New test
+`TestCompileGeneration_CandidateCompileFailureDiscardsAcquiredKeepwarm`
+(`keepwarm_generation_ledger_test.go`) injects a fault at the `model`
+boundary inside `compileCandidate` and asserts the process registry is
+ clean. At the parent the error returned directly and the acquired manager
+leaked. Pre-fix output:
+
+```text
+    keepwarm_generation_ledger_test.go:161: candidate-compile failure leaked keepwarm manager: registry len=1 want 0
+--- FAIL: TestCompileGeneration_CandidateCompileFailureDiscardsAcquiredKeepwarm (0.01s)
+FAIL
+FAIL	github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle	0.066s
+FAIL
+```
+
+Both tests pass against the fixed tree with no production change required
+(the §7.1 fixes already implement the asserted behavior).
+
+#### All-adapter enablement audit
+
+Every `featurehost` adapter plus host bindings was read for outer
+disablement, absent-entry, and disabled-entry handling. No adapter ignores
+outer disablement; no fix was required, so no Part-C test was added (the
+reasoning/secretguard/compaction outer filters are pre-existing and
+unchanged by the §7.1 commit, hence not parent-RED-reproducible; mutation-run
+RED was out of scope, so the table cites code lines plus the existing tests
+that pin each behavior).
+
+| Adapter | Outer `Enabled=false` | Absent entry | Pin |
+|---|---|---|---|
+| compaction (`compaction.go:28,57`) | skipped in both prerequisite validation and continuity binding | loop no-op, surface unchanged | `TestBindCompactionContinuity_DisabledAndNonMatchingRegistrations` (`compaction_test.go:512`) |
+| conversation (`conversation.go`, `process.go:100-145`) | no registration concept: process-owned store, always on; no conversation feature ID exists under `internal/plugins/features` | N/A | N/A by design (infrastructure projection, not an optional feature) |
+| interleaved (`generation.go:150-186`) | authoritative; a lone disabled entry also suppresses the legacy `ConfigInterleaved` fallback (`:169,178,186`) | legacy fallback applies, else nil processor | §7.1 matrix (`registration_enabled_test.go:50,109`) plus S1 above |
+| keepwarm (`keepwarm.go:66-96`) | authoritative: `featureDisabled && !featureFound` returns nil manager/ports/cleanup (`:85-87`) | decoder defaults apply, i.e. `DefaultConfig` enabled (`:89-92`) | §7.1 matrix (`registration_enabled_test.go:109`) plus H1 ledger tests |
+| reasoning (`reasoning/generation.go:33,40`) | `!reg.Enabled` skipped; double-gated on inner `cfg.Compression.Enabled` | no bindings composed | `TestReasoningCompression_BindDisabledNoOp` (`reasoning/compose_test.go:373`, inner-disabled no-op) |
+| secretguard (`secretguard/compose.go` via `features/secretguard/runtime_compose.go:56-68`) | `!r.Enabled` filtered (`:59`); a lone disabled entry yields zero matches so `ComposeRuntimeConfig` returns the disabled zero value (`:35-36`) | disabled zero value; host bindings overlay only by presence | `TestSecretGuardCompose_DisabledZeroEnvironmentCalls` (`secretguard/compose_test.go:138`), `TestSecretGuardCompose_EnabledRegistrations` (`:319`), `TestSecretGuardCompose_ValidateRegistrations_RejectsDuplicates` (`:294`) |
+| terminalpolicy/sessionpolicy (`sessionpolicy/store.go:223-227`, `process.go:158`, `runtime.go:92-97`) | no registration concept: process-owned store; enablement decided per query from tri-state overrides plus generation default | N/A | N/A by design (policy store infrastructure; per-request enablement) |
+| host bindings (`bindings.go:35-77`) | no `Enabled` field exists (`pkg/lipsdk/featurehost/registration.go:29-31`): explicit host construction is presence-based; duplicates and unknown IDs fail (`:49-73`) | empty input yields the zero binding | N/A by design (constructor contract, not config enablement); covered by `bindings_test.go` |
+
+#### Exact featurehost measurement
+
+Authoritative counter `CountNonTestGoLines` (`internal/archtest/budgets.go:149`,
+raw lines over recursive non-`_test.go` `.go` files) reports for
+`internal/standardplugins/featurehost`: **3057** lines across 24 files.
+Budget ceiling 3082 (`budgets.go:76,143`) holds with arithmetic
+3082 − 3057 = 25 lines of headroom, the standard ratchet allowance. The two
+regression tests added under this section are `_test.go` files and do not
+enter the count.
