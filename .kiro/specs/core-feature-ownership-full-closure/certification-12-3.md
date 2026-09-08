@@ -55,22 +55,39 @@ introduced test failure remains.
 worker's runs): `parallel winner text="iso-slow-A" want iso-B`.
 The `parallel` subtest races a 250 ms-delayed instance A against fast
 instance B and asserts B wins — timing-sensitive by construction.
-Disposition: load-induced timing flake, NOT introduced.
+Disposition: UNCLASSIFIED pending investigation (execution-guardrails
+§3 suspected-flake rule — see below). NOT cleared as pre-existing,
+NOT attributed as introduced.
 - The test file is byte-identical to `main` (`git diff fff67a0b HEAD`
   empty; `git log fff67a0b..HEAD` empty for it) — this spec never touched it.
-- The only spec change near the exercised path,
-  `internal/core/runtime/parallel_race.go`, replaces the removed
+- `internal/core/routing/` is untouched by this spec. Near-path spec
+  changes: `internal/core/runtime/parallel_race.go` replaces the removed
   `memoUpdate *interleavedthinking.PendingMemoUpdate` field with the
   `turn InterleavedTurn` port and drops the `commitMemoInjection` call
-  from the winner path; winner selection, timing, failover and race
-  arbitration logic are untouched.
-- Reproduction: `go test -count=15 -run
-  TestCompatibleMultiInstance_routingPolicyIndependence` passes 15/15 on
-  this branch AND 15/15 on the clean `main` worktree (`fff67a0b`);
-  10/10 on this branch under artificial CPU load; two subsequent full
-  `go test -count=1 ./...` runs on this branch are fully green.
-No production fix applies; no RED test is writable for a load-only
-flake in an untouched file.
+  from the winner path (winner selection, timing, failover and race
+  arbitration logic untouched); `build_executor.go`/`compile_generation.go`
+  carry featurehost wiring; `openaicaps/compatible_replay.go` a 2-line
+  import move.
+- Reproduction attempts (all recorded, none reproduced the signature):
+  `go test -count=15` passes 15/15 on this branch AND 15/15 on the clean
+  `main` worktree (`fff67a0b`); 10/10 on this branch under artificial CPU
+  load; 25/15-rep and `-cpu=2` contention runs on `main` all green;
+  two subsequent full `go test -count=1 ./...` runs on this branch fully
+  green; full `go test -count=1 ./...` on clean `main` green for
+  `runtimebundle` (one unrelated `tools/taskrunner`
+  `TestRunner_TimeoutPath` timing failure there, passing isolated —
+  confirming full-suite load induces timing flakes on this host).
+- Per execution-guardrails §3, the same-signature reproduction on the
+  starting SHA was NOT achieved, so this failure MUST NOT be labeled
+  pre-existing and MUST NOT be labeled introduced either: it remains
+  explicitly UNCLASSIFIED. It does not block Task 12.3 because (a) the
+  exercised test file and routing arbitration are outside this SDD's
+  modified behavior, (b) all focused gates for the moved ownership paths
+  are green including exact Linux race evidence, and (c) the failure
+  signature (slow-leg win under full-suite load) is consistent with
+  load-induced timing, but that consistency is hypothesis, not proof.
+  The required follow-up (12.4/merge window): if this signature recurs,
+  investigate before using any run containing it as certification evidence.
 
 ### §2 `make quality-checks` triage
 
@@ -162,14 +179,19 @@ new files except this evidence file).
 
 ## Certification statement
 
-Task 12.3 is PASS with listed pre-existing failures: the full
-correctness suite (`go test -count=1 ./...`) is green, vet / module /
-vulnerability / generated-code / docs / arch-report / external-SDK /
-SQLite-parity / fixed-cost-benchmark gates are green, and every
-failure introduced by this SDD (105 lint findings, all in
-branch-owned files) is fixed in this change. Remaining red is
-pre-existing only: `make quality-checks` lint reports the 4
-`tools/kiro/speccheck` modernize findings verified identical on `main`
-(speccheck-inventory is a known main-CI failure); `postgres-direct`
-needs a server; Linux race evidence is held at orchestrator CI run
-34160765866 with a fresh strict run gated on 12.4.
+Task 12.3 is PASS with listed pre-existing failures and one explicitly
+UNCLASSIFIED timing-sensitive observation: the full correctness suite
+(`go test -count=1 ./...`) is green, vet / module / vulnerability /
+generated-code / docs / arch-report / external-SDK / SQLite-parity /
+fixed-cost-benchmark gates are green, and every failure introduced by
+this SDD (105 lint findings, all in branch-owned files) is fixed in
+this change. Remaining red is pre-existing only: `make quality-checks`
+lint reports the 4 `tools/kiro/speccheck` modernize findings verified
+identical on `main` (speccheck-inventory is a known main-CI failure);
+`postgres-direct` needs a server; Linux race evidence is held at
+orchestrator CI run 34160765866 with a fresh strict run gated on 12.4.
+Separately, one reviewer-observed `TestCompatibleMultiInstance`
+parallel-subtest mismatch is recorded as UNCLASSIFIED per
+execution-guardrails §3 (same-signature starting-SHA reproduction not
+achieved; neither pre-existing nor introduced may be claimed) with full
+reproduction evidence and a 12.4 recurrence watch.
