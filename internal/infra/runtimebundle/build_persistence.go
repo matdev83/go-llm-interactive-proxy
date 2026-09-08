@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+	"github.com/uptrace/bun"
 )
 
 // persistenceRuntime holds the continuity (B2BUA-wrapped) store and the secure-
@@ -54,4 +55,18 @@ func buildPersistenceRuntime(owner *processResourceOwner, bctx buildContext, cp 
 		owner.Own(ssRun.closer)
 	}
 	return &persistenceRuntime{Store: store, OverrideStore: overrideStore, SecureSession: ssRun}, nil
+}
+
+func borrowContinuityDB(s any) *bun.DB {
+	for s != nil {
+		if p, ok := s.(interface{ DB() *bun.DB }); ok {
+			return p.DB()
+		}
+		u, ok := s.(interface{ Unwrap() any })
+		if !ok {
+			break
+		}
+		s = u.Unwrap()
+	}
+	return nil
 }

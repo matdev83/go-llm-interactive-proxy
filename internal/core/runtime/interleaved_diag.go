@@ -7,7 +7,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 )
 
@@ -56,16 +55,12 @@ func (e *Executor) logInterleavedRouteSelected(ctx context.Context, traceID, bLe
 	)
 }
 
-func (e *Executor) logInterleavedMemoShape(ctx context.Context, traceID, bLegID string, c routing.AttemptCandidate, shapeRes interleavedthinking.ShapeResult) {
+func (e *Executor) logInterleavedMemoShape(ctx context.Context, traceID, bLegID string, c routing.AttemptCandidate, outcome string, turnsRemaining int) {
 	if e == nil || !e.interleavedEnabled() || c.InterleavedRole != interleavedstate.RoleExecutor {
 		return
 	}
-	switch shapeRes.MemoOutcome {
-	case interleavedthinking.MemoOutcomeInjected:
-		turns := 0
-		if shapeRes.MemoUpdate != nil {
-			turns = shapeRes.MemoUpdate.State.RegularTurnsRemaining
-		}
+	switch outcome {
+	case "injected":
 		diag.LogInterleavedTransition(
 			ctx, e.Log, "interleaved_memo_injected", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
 			diag.InterleavedTransition{
@@ -73,24 +68,27 @@ func (e *Executor) logInterleavedMemoShape(ctx context.Context, traceID, bLegID 
 				Role:           string(c.InterleavedRole),
 				MemoPresent:    true,
 				MemoInjected:   true,
-				InjectionMode:  interleavedthinking.MemoInjectionModeConversationView,
-				TurnsRemaining: turns,
+				InjectionMode:  "conversation_view_overlay",
+				TurnsRemaining: turnsRemaining,
 			},
 		)
-	case interleavedthinking.MemoOutcomeExpired:
+	case "expired":
 		diag.LogInterleavedTransition(
 			ctx, e.Log, "interleaved_memo_expired", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
-			diag.InterleavedTransition{Phase: "executor", Role: string(c.InterleavedRole), MemoPresent: true, MemoExpired: true},
+			diag.InterleavedTransition{
+				Phase:       "executor",
+				Role:        string(c.InterleavedRole),
+				MemoPresent: true,
+				MemoExpired: true,
+			},
 		)
-	case interleavedthinking.MemoOutcomeSkippedVisible,
-		interleavedthinking.MemoOutcomeSkippedMissing,
-		interleavedthinking.MemoOutcomeSkippedEmpty:
+	case "visible", "duplicate", "empty", "missing":
 		diag.LogInterleavedTransition(
 			ctx, e.Log, "interleaved_memo_skipped", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
 			diag.InterleavedTransition{
 				Phase:      "executor",
 				Role:       string(c.InterleavedRole),
-				SkipReason: memoSkipReason(shapeRes.MemoOutcome),
+				SkipReason: outcome,
 			},
 		)
 	}
@@ -106,19 +104,16 @@ func (e *Executor) logInterleavedThinkerSuppressed(ctx context.Context, traceID 
 	)
 }
 
-func (e *Executor) logInterleavedMemoCaptured(ctx context.Context, traceID string, memo interleavedthinking.MemoState) {
+func (e *Executor) logInterleavedMemoCaptured(ctx context.Context, traceID string, memo InterleavedMemo) {
 	if e == nil || !e.interleavedEnabled() {
 		return
 	}
 	diag.LogInterleavedTransition(
 		ctx, e.Log, "interleaved_memo_captured", diag.AttrOpts{CallID: traceID},
 		diag.InterleavedTransition{
-			Phase:             "thinker",
-			Role:              string(interleavedstate.RoleThinker),
-			MemoPresent:       strings.TrimSpace(memo.Memo) != "",
-			MemoVisible:       memo.VisibleToClient,
-			ExtractionSource:  strings.TrimSpace(memo.ExtractionSource),
-			StreamInterrupted: memo.StreamInterrupted,
+			Phase:       "thinker",
+			Role:        string(interleavedstate.RoleThinker),
+			MemoPresent: strings.TrimSpace(memo.Text) != "",
 		},
 	)
 }
@@ -208,19 +203,6 @@ func interleavedPhaseForRole(role interleavedstate.Role) string {
 		return "thinker"
 	case interleavedstate.RoleExecutor:
 		return "executor"
-	default:
-		return ""
-	}
-}
-
-func memoSkipReason(outcome interleavedthinking.MemoOutcome) string {
-	switch outcome {
-	case interleavedthinking.MemoOutcomeSkippedVisible:
-		return "visible"
-	case interleavedthinking.MemoOutcomeSkippedEmpty:
-		return "empty"
-	case interleavedthinking.MemoOutcomeSkippedMissing:
-		return "missing"
 	default:
 		return ""
 	}

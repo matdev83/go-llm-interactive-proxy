@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"

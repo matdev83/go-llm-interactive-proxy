@@ -5,7 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
@@ -18,11 +19,6 @@ type dummyOptLifecycle struct {
 
 func (dummyOptLifecycle) Start(context.Context) error { return nil }
 func (dummyOptLifecycle) Stop(context.Context) error  { return nil }
-
-type stubOptEnv struct{ val string }
-
-func (s stubOptEnv) Lookup(name string) (string, bool) { return s.val, true }
-func (s stubOptEnv) Snapshot() []string                { return []string{s.val} }
 
 type stubOptObserver struct{ val string }
 
@@ -122,8 +118,9 @@ func TestMergeCandidateBuildOptions_ProcessNilOverlayNonNil_IsolationAndCloning(
 
 	reg := pluginreg.NewRegistry()
 	planes := lipfeature.NewContributionSet().Freeze()
-	env := stubOptEnv{val: "env-val"}
 	obs := stubOptObserver{val: "obs-val"}
+	sgPlane := &extensions.SecretGuardPlane{AccessMode: "single_user"}
+	sgInv := &diag.InventoryExtras{SecretGuardCatalogEntryCount: 5}
 	lc1 := dummyOptLifecycle{id: "lc1"}
 	lc2 := dummyOptLifecycle{id: "lc2"}
 
@@ -133,18 +130,9 @@ func TestMergeCandidateBuildOptions_ProcessNilOverlayNonNil_IsolationAndCloning(
 		FeatureLifecycles:       []lipplugin.Lifecycle{lc1, lc2},
 		ReplaceCandidateSurface: true,
 		Extensions: ExtensionsOptions{
-			SecretGuardEnvironment: env,
 			SecretDecisionObserver: obs,
-			SecretGuardInputs: SecretGuardInputs{
-				SingleUser: coresg.SingleUserOptions{
-					IncludePopularEnv: true,
-					IncludeEnv:        []string{"INC_A", "INC_B"},
-					ExcludeEnv:        []string{"EXC_A", "EXC_B"},
-					MinSecretBytes:    16,
-					Matcher:           coresg.MatcherOptions{PreserveKnownPrefixes: true, MaskByte: '*'},
-					MatcherConfigured: true,
-				},
-			},
+			SecretGuard:            sgPlane,
+			SecretGuardInventory:   sgInv,
 		},
 	}
 
@@ -164,11 +152,14 @@ func TestMergeCandidateBuildOptions_ProcessNilOverlayNonNil_IsolationAndCloning(
 	if merged.FeaturePlanes.IsZero() {
 		t.Fatal("expected non-zero FeaturePlanes preserved from overlay")
 	}
-	if merged.Extensions.SecretGuardEnvironment != env {
-		t.Fatalf("expected SecretGuardEnvironment interface identity preserved, got %v", merged.Extensions.SecretGuardEnvironment)
-	}
 	if merged.Extensions.SecretDecisionObserver != obs {
 		t.Fatalf("expected SecretDecisionObserver interface identity preserved, got %v", merged.Extensions.SecretDecisionObserver)
+	}
+	if merged.Extensions.SecretGuard != sgPlane {
+		t.Fatalf("expected SecretGuard pointer identity preserved, got %v", merged.Extensions.SecretGuard)
+	}
+	if merged.Extensions.SecretGuardInventory != sgInv {
+		t.Fatalf("expected SecretGuardInventory pointer identity preserved, got %v", merged.Extensions.SecretGuardInventory)
 	}
 
 	// Two-way slice mutation isolation for FeatureLifecycles:
@@ -179,26 +170,6 @@ func TestMergeCandidateBuildOptions_ProcessNilOverlayNonNil_IsolationAndCloning(
 	overlay.FeatureLifecycles[1] = dummyOptLifecycle{id: "mutated-overlay-lc"}
 	if merged.FeatureLifecycles[1] != lc2 {
 		t.Fatalf("mutating overlay.FeatureLifecycles mutated merged.FeatureLifecycles: got %v want %v", merged.FeatureLifecycles[1], lc2)
-	}
-
-	// Two-way slice mutation isolation for IncludeEnv:
-	merged.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[0] = "MUTATED_INC_MERGED"
-	if overlay.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[0] != "INC_A" {
-		t.Fatalf("mutating merged IncludeEnv mutated overlay: got %s", overlay.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[0])
-	}
-	overlay.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[1] = "MUTATED_INC_OVERLAY"
-	if merged.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[1] != "INC_B" {
-		t.Fatalf("mutating overlay IncludeEnv mutated merged: got %s", merged.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[1])
-	}
-
-	// Two-way slice mutation isolation for ExcludeEnv:
-	merged.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[0] = "MUTATED_EXC_MERGED"
-	if overlay.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[0] != "EXC_A" {
-		t.Fatalf("mutating merged ExcludeEnv mutated overlay: got %s", overlay.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[0])
-	}
-	overlay.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[1] = "MUTATED_EXC_OVERLAY"
-	if merged.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[1] != "EXC_B" {
-		t.Fatalf("mutating overlay ExcludeEnv mutated merged: got %s", merged.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[1])
 	}
 }
 
@@ -213,27 +184,11 @@ func TestMergeCandidateBuildOptions_TwoWaySliceMutationIsolation_WithProcessAndO
 
 		process := &BuildOptions{
 			FeatureLifecycles: []lipplugin.Lifecycle{procLC},
-			Extensions: ExtensionsOptions{
-				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: coresg.SingleUserOptions{
-						IncludeEnv: []string{"PROC_INC"},
-						ExcludeEnv: []string{"PROC_EXC"},
-					},
-				},
-			},
 		}
 
 		overlay := &BuildOptions{
 			ReplaceCandidateSurface: true,
 			FeatureLifecycles:       []lipplugin.Lifecycle{candLC},
-			Extensions: ExtensionsOptions{
-				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: coresg.SingleUserOptions{
-						IncludeEnv: []string{"CAND_INC"},
-						ExcludeEnv: []string{"CAND_EXC"},
-					},
-				},
-			},
 		}
 
 		merged := mergeCandidateBuildOptions(process, overlay)
@@ -250,52 +205,37 @@ func TestMergeCandidateBuildOptions_TwoWaySliceMutationIsolation_WithProcessAndO
 		if merged.FeatureLifecycles[0] == overlay.FeatureLifecycles[0] {
 			t.Fatal("overlay lifecycle mutation leaked to merged")
 		}
-
-		// Two-way IncludeEnv / ExcludeEnv mutation
-		merged.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[0] = "MUTATED"
-		if overlay.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[0] != "CAND_INC" {
-			t.Fatal("IncludeEnv mutation leaked to overlay")
-		}
-		overlay.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[0] = "MUTATED_OVERLAY"
-		if merged.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[0] != "CAND_EXC" {
-			t.Fatal("ExcludeEnv mutation leaked to merged")
-		}
 	})
 
 	t.Run("nil_and_empty_slices_preserved_accurately", func(t *testing.T) {
 		t.Parallel()
 
 		process := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: coresg.SingleUserOptions{
-						IncludeEnv: nil,
-						ExcludeEnv: []string{},
-					},
-				},
-			},
+			FeatureLifecycles: nil,
 		}
 		overlay := &BuildOptions{
 			ReplaceCandidateSurface: true,
-			Extensions: ExtensionsOptions{
-				SecretGuardInputs: SecretGuardInputs{
-					SingleUser: coresg.SingleUserOptions{
-						IncludeEnv: []string{},
-						ExcludeEnv: nil,
-					},
-				},
-			},
+			FeatureLifecycles:       []lipplugin.Lifecycle{},
 		}
 
 		merged := mergeCandidateBuildOptions(process, overlay)
-		if merged.Extensions.SecretGuardInputs.SingleUser.IncludeEnv == nil {
-			t.Fatal("expected non-nil empty IncludeEnv")
+		if merged.FeatureLifecycles == nil {
+			t.Fatal("expected non-nil empty FeatureLifecycles")
 		}
-		if len(merged.Extensions.SecretGuardInputs.SingleUser.IncludeEnv) != 0 {
-			t.Fatal("expected 0 length IncludeEnv")
+		if len(merged.FeatureLifecycles) != 0 {
+			t.Fatal("expected 0 length FeatureLifecycles")
 		}
-		if merged.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv != nil {
-			t.Fatal("expected nil ExcludeEnv")
+
+		process2 := &BuildOptions{
+			FeatureLifecycles: []lipplugin.Lifecycle{},
+		}
+		overlay2 := &BuildOptions{
+			ReplaceCandidateSurface: true,
+			FeatureLifecycles:       nil,
+		}
+		merged2 := mergeCandidateBuildOptions(process2, overlay2)
+		if merged2.FeatureLifecycles != nil {
+			t.Fatal("expected nil FeatureLifecycles")
 		}
 	})
 }
@@ -483,7 +423,7 @@ func TestMergeCandidateBuildOptions_LifecyclesAndExtensionsOverlay(t *testing.T)
 	process := &BuildOptions{
 		FeatureLifecycles: []lipplugin.Lifecycle{procLC},
 		Extensions: ExtensionsOptions{
-			SecretGuardEnvironment: stubOptEnv{val: "v1"},
+			SecretDecisionObserver: stubOptObserver{val: "v1"},
 		},
 	}
 
@@ -492,13 +432,16 @@ func TestMergeCandidateBuildOptions_LifecyclesAndExtensionsOverlay(t *testing.T)
 		ReplaceCandidateSurface: false,
 		FeatureLifecycles:       []lipplugin.Lifecycle{candLC},
 		Extensions: ExtensionsOptions{
-			SecretGuardEnvironment: stubOptEnv{val: "v2"},
+			SecretDecisionObserver: stubOptObserver{val: "v2"},
 		},
 	}
 
 	merged := mergeCandidateBuildOptions(process, overlay)
 	if len(merged.FeatureLifecycles) != 1 || merged.FeatureLifecycles[0] != candLC {
 		t.Fatalf("expected overlay FeatureLifecycles, got %+v", merged.FeatureLifecycles)
+	}
+	if merged.Extensions.SecretDecisionObserver != (stubOptObserver{val: "v2"}) {
+		t.Fatalf("expected overlay SecretDecisionObserver, got %+v", merged.Extensions.SecretDecisionObserver)
 	}
 
 	// Defensive copy: mutating merged.FeatureLifecycles must not mutate overlay.FeatureLifecycles

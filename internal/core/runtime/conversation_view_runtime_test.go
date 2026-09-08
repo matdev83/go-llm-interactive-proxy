@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -31,13 +32,13 @@ import (
 )
 
 type countingReader struct {
-	base   conversationview.Reader
+	base   conversationprojection.Reader
 	mu     sync.Mutex
 	count  int
 	events *[]string
 }
 
-func (c *countingReader) Snapshot(ctx context.Context, aLegID string) (conversationview.Snapshot, error) {
+func (c *countingReader) Snapshot(ctx context.Context, aLegID string) (conversationprojection.Snapshot, error) {
 	c.mu.Lock()
 	c.count++
 	if c.events != nil {
@@ -47,7 +48,7 @@ func (c *countingReader) Snapshot(ctx context.Context, aLegID string) (conversat
 	if c.base != nil {
 		return c.base.Snapshot(ctx, aLegID)
 	}
-	return conversationview.Snapshot{}, nil
+	return conversationprojection.Snapshot{}, nil
 }
 
 func (c *countingReader) Count() int {
@@ -61,11 +62,34 @@ type failingSnapshotReader struct {
 	events *[]string
 }
 
-func (f *failingSnapshotReader) Snapshot(ctx context.Context, aLegID string) (conversationview.Snapshot, error) {
+func (f *failingSnapshotReader) Snapshot(ctx context.Context, aLegID string) (conversationprojection.Snapshot, error) {
 	if f.events != nil {
 		*f.events = append(*f.events, "Snapshot")
 	}
-	return conversationview.Snapshot{}, f.err
+	return conversationprojection.Snapshot{}, f.err
+}
+
+type cvTaggerTestAdapter struct {
+	store conversationview.Tagger
+}
+
+func (a cvTaggerTestAdapter) TagNeverBackend(ctx context.Context, aLegID string, tags []TagRequest) (TagResult, error) {
+	reqs := make([]conversationview.TagRequest, len(tags))
+	for i, t := range tags {
+		reqs[i] = conversationview.TagRequest{Identity: t.Identity, Reason: conversationview.ReasonCode(t.Reason)}
+	}
+	res, err := a.store.TagNeverBackend(ctx, aLegID, reqs)
+	if err != nil {
+		return TagResult{}, err
+	}
+	return TagResult{StateRevision: res.StateRevision, Tags: res.Tags}, nil
+}
+
+func testCVTagger(cv conversationview.Tagger) ConversationViewTagger {
+	if cv == nil {
+		return nil
+	}
+	return cvTaggerTestAdapter{store: cv}
 }
 
 func recordingCall(selector string, msgs []lipapi.Message) *lipapi.Call {
@@ -93,7 +117,7 @@ func (cvVoidWS) Resolve(context.Context) (lipworkspace.WorkspaceView, error) {
 	return lipworkspace.WorkspaceView{}, nil
 }
 
-func newSecureExecutorForCV(t *testing.T, reader conversationview.Reader, snapOpts extensions.SnapshotOptions) (*Executor, *b2bua.MemoryStore) {
+func newSecureExecutorForCV(t *testing.T, reader conversationprojection.Reader, snapOpts extensions.SnapshotOptions) (*Executor, *b2bua.MemoryStore) {
 	t.Helper()
 	st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	memSS := memory.New(memory.Options{SimulateDurable: true})
@@ -126,10 +150,11 @@ func TestConversationView_ExactlyOneSnapshotPerTurn(t *testing.T) {
 	t.Parallel()
 	var events []string
 	baseStore, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	counting := &countingReader{base: baseStore.ConversationViewStore(), events: &events}
+	counting := &countingReader{events: &events}
 	ex := TestExecutor()
 	ex.Store = baseStore
 	ex.ConversationViewReader = counting
+	ex.ConversationViewTagger = nil
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(1)
@@ -273,7 +298,8 @@ func TestConversationView_TaggedContentFilteredDownstream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cv := st.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
+	_ = cv.CreateALeg(ctx, aLegID)
 	if _, err := cv.TagNeverBackend(ctx, aLegID, []conversationview.TagRequest{{Identity: id, Reason: "test"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +346,8 @@ func TestConversationView_SteeringInjectedDownstream(t *testing.T) {
 	ctx := context.Background()
 	rec, _ := st.CreateALeg(ctx, "ck-steer")
 	aLegID := rec.ALegID
-	cv := st.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
+	_ = cv.CreateALeg(ctx, aLegID)
 	_, err := cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 		OverlayID:           "ov1",
 		Message:             conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "hidden-steer"},
@@ -384,7 +411,7 @@ func (r requestTransformCapture) Handle(ctx context.Context, call *lipapi.Call, 
 func TestConversationView_TaggedViaPrepareRequest_MemoryStore(t *testing.T) {
 	t.Parallel()
 	memStore, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := memStore.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
 	transformHook := requestTransformCapture{fn: func(call *lipapi.Call) { _ = call }}
 	snapOpts := extensions.SnapshotOptions{
 		FeaturePlanes: freezeBundle(testFeatureBundle{
@@ -393,6 +420,8 @@ func TestConversationView_TaggedViaPrepareRequest_MemoryStore(t *testing.T) {
 	}
 	ex := TestExecutor()
 	ex.Store = memStore
+	ex.ConversationViewReader = nil
+	ex.ConversationViewTagger = nil
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, snapOpts)
 	ex.Rand = routing.NewSeededRng(1)
@@ -405,6 +434,7 @@ func TestConversationView_TaggedViaPrepareRequest_MemoryStore(t *testing.T) {
 	}
 	aLegID := pr1.identity.aLeg.ALegID
 	cleanup1()
+	_ = cv.CreateALeg(context.Background(), aLegID)
 	taggedMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("local-only-tagged")}}
 	id, _ := conversationview.MessageIdentityOf(taggedMsg)
 	if _, err := cv.TagNeverBackend(context.Background(), aLegID, []conversationview.TagRequest{{Identity: id, Reason: "test"}}); err != nil {
@@ -413,6 +443,7 @@ func TestConversationView_TaggedViaPrepareRequest_MemoryStore(t *testing.T) {
 	staticSnap, _ := cv.Snapshot(context.Background(), aLegID)
 	counting := &countingReader{base: &staticReader{snap: staticSnap}}
 	ex.ConversationViewReader = counting
+	ex.ConversationViewTagger = testCVTagger(cv)
 	call2 := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{
@@ -451,7 +482,7 @@ func TestConversationView_TaggedViaPrepareRequest_MemoryStore(t *testing.T) {
 func TestConversationView_SteeringViaPrepareRequest_MemoryStore(t *testing.T) {
 	t.Parallel()
 	memStore, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := memStore.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
 	var transformSeen []lipapi.Message
 	var transformInstr []lipapi.Message
 	transformHook := requestTransformCapture{fn: func(call *lipapi.Call) {
@@ -465,6 +496,8 @@ func TestConversationView_SteeringViaPrepareRequest_MemoryStore(t *testing.T) {
 	}
 	ex := TestExecutor()
 	ex.Store = memStore
+	ex.ConversationViewReader = nil
+	ex.ConversationViewTagger = nil
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, snapOpts)
 	ex.Rand = routing.NewSeededRng(1)
@@ -474,6 +507,7 @@ func TestConversationView_SteeringViaPrepareRequest_MemoryStore(t *testing.T) {
 	prTmp, _, cleanupTmp, _ := ex.prepareRequest(ctxTmp, callTmp)
 	aLegID := prTmp.identity.aLeg.ALegID
 	cleanupTmp()
+	_ = cv.CreateALeg(context.Background(), aLegID)
 	_, err := cv.PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
 		OverlayID:           "ov-prepare",
 		Message:             conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "hidden-steer-prepare"},
@@ -487,6 +521,7 @@ func TestConversationView_SteeringViaPrepareRequest_MemoryStore(t *testing.T) {
 	staticSnap, _ := cv.Snapshot(context.Background(), aLegID)
 	counting := &countingReader{base: &staticReader{snap: staticSnap}}
 	ex.ConversationViewReader = counting
+	ex.ConversationViewTagger = testCVTagger(cv)
 	call2 := &lipapi.Call{
 		Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user hi")}}},
@@ -615,7 +650,7 @@ func TestConversationView_OneSnapshotThroughBackendOpen(t *testing.T) {
 	t.Parallel()
 	var events []string
 	baseStore, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	counting := &countingReader{base: baseStore.ConversationViewStore(), events: &events}
+	counting := &countingReader{events: &events}
 	backends := map[string]execbackend.Backend{
 		"openai": {Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming), Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
@@ -624,6 +659,7 @@ func TestConversationView_OneSnapshotThroughBackendOpen(t *testing.T) {
 	ex := TestExecutor()
 	ex.Store = baseStore
 	ex.ConversationViewReader = counting
+	ex.ConversationViewTagger = nil
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Backends = backends
@@ -694,8 +730,9 @@ func TestConversationView_FailureCountersZero(t *testing.T) {
 		t.Fatalf("backend should be 0 after snapshot failure, got %d", backendOpens.Load())
 	}
 	st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := st.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
 	rec, _ := st.CreateALeg(context.Background(), "fail-ctr")
+	_ = cv.CreateALeg(context.Background(), rec.ALegID)
 	anchor := conversationview.MessageAnchor{Identity: conversationview.MessageIdentity("v1:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"), Occurrence: 1}
 	if _, err := cv.PutSteering(context.Background(), rec.ALegID, conversationview.PutSteeringRequest{
 		OverlayID: "ov-fail-ctr", Message: conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "steer"},
@@ -712,6 +749,7 @@ func TestConversationView_FailureCountersZero(t *testing.T) {
 	ex2 := TestExecutor()
 	ex2.Store = st
 	ex2.ConversationViewReader = reader2
+	ex2.ConversationViewTagger = testCVTagger(cv)
 	ex2.Bus = hooks.New(hooks.Config{})
 	ex2.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex2.Bus, extensions.SnapshotOptions{
 		FeaturePlanes: freezeBundle(testFeatureBundle{
@@ -761,8 +799,9 @@ func (c *countingRouteHint) Hint(ctx context.Context, in routehint.Input) (route
 func TestConversationView_SummaryBounded(t *testing.T) {
 	t.Parallel()
 	st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := st.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
 	rec, _ := st.CreateALeg(context.Background(), "sum-ck")
+	_ = cv.CreateALeg(context.Background(), rec.ALegID)
 	hiMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}
 	hiID, _ := conversationview.MessageIdentityOf(hiMsg)
 	if _, err := cv.TagNeverBackend(context.Background(), rec.ALegID, []conversationview.TagRequest{{Identity: hiID, Reason: "r"}}); err != nil {
@@ -847,7 +886,8 @@ func TestConversationView_ProjectionFailureFailClosed(t *testing.T) {
 	ctx := context.Background()
 	rec, _ := st.CreateALeg(ctx, "ck-projfail")
 	aLegID := rec.ALegID
-	cv := st.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
+	_ = cv.CreateALeg(ctx, aLegID)
 	anchor := conversationview.MessageAnchor{Identity: conversationview.MessageIdentity("v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Occurrence: 1}
 	_, err := cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 		OverlayID: "ov-fail", Message: conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "steer"},
@@ -873,6 +913,7 @@ func TestConversationView_ProjectionFailureFailClosed(t *testing.T) {
 	ex := TestExecutor()
 	ex.Store = st
 	ex.ConversationViewReader = reader
+	ex.ConversationViewTagger = testCVTagger(cv)
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(1)
@@ -891,9 +932,11 @@ func TestConversationView_ProjectionFailureFailClosed(t *testing.T) {
 
 func libReRouteIntent() lipapi.RouteIntent { return lipapi.RouteIntent{Selector: "openai:gpt-4"} }
 
-type staticReader struct{ snap conversationview.Snapshot }
+type staticReader struct {
+	snap conversationprojection.Snapshot
+}
 
-func (s *staticReader) Snapshot(ctx context.Context, aLegID string) (conversationview.Snapshot, error) {
+func (s *staticReader) Snapshot(ctx context.Context, aLegID string) (conversationprojection.Snapshot, error) {
 	return s.snap, nil
 }
 
@@ -903,7 +946,8 @@ func TestConversationView_BoundedEvidenceAndProvenanceSeparation(t *testing.T) {
 	ctx := context.Background()
 	rec, _ := st.CreateALeg(ctx, "ck-ev")
 	aLegID := rec.ALegID
-	cv := st.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
+	_ = cv.CreateALeg(ctx, aLegID)
 	if _, err := cv.TagNeverBackend(ctx, aLegID, []conversationview.TagRequest{{Identity: conversationview.MessageIdentity("v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Reason: "r"}}); err != nil {
 		t.Fatalf("TagNeverBackend: %v", err)
 	}

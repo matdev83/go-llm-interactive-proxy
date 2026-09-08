@@ -259,9 +259,9 @@ Disabled feature still binds a noop `MatcherResolver` (zero env reads, zero cata
 | `internal/core/securesession` | Quarantine status/domain, durable `Store.Quarantine`, `Manager.AssertActive`, `ErrSessionQuarantined` |
 | `internal/plugins/features/secretguard/engine` | Catalog, Aho–Corasick matcher, known public prefixes, source policy |
 | `internal/plugins/features/secretguard` | Call scanner + `block`/`redact`/`log` Guard (registered in `standardplugins`) |
-| `internal/infra/secretguardcompose` | Dedicated runtime composition adapter (mode, environment, audit observer translation) |
+| `internal/standardplugins/featurehost/secretguard` (`compose.go`) | Dedicated standard-distribution composition adapter (mode, environment, audit observer translation) |
 | `internal/infra/runtimebundle` | Generic runtime composition and snapshot assembly |
-| `internal/infra/secretaudit` | Secret-decision structured log observer |
+| `internal/standardplugins/featurehost/secretguard` (`audit.go`) | Secret-decision structured log observer |
 | `internal/infra/metrics` | Bounded Prometheus counters (`action`/`outcome`/`source_category`) |
 | `internal/testkit` | Synthetic secret fixtures (never real credentials) |
 

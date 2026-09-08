@@ -7,13 +7,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
-	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	featurecompaction "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
@@ -313,12 +310,6 @@ func TestCompactionProjection_ContinuityGenerationBinder_ReplaceByIdentity(t *te
 	}
 	require.NoError(t, config.Validate(cfg))
 
-	coord, err := compactioncontinuity.NewBranchCoordinator(context.Background(), compactioncontinuity.Config{})
-	require.NoError(t, err)
-
-	parentPort, err := compactioncompose.NewCompactionContinuityParentPort(coord)
-	require.NoError(t, err)
-
 	opts := &BuildOptions{PluginRegistry: reg}
 
 	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
@@ -327,9 +318,6 @@ func TestCompactionProjection_ContinuityGenerationBinder_ReplaceByIdentity(t *te
 		Opts: opts,
 	})
 	require.NoError(t, err)
-	ps.CompactionDetector = compactiondetect.New(compactiondetect.Config{})
-	ps.BranchCoordinator = coord
-	ps.CompactionParentPort = parentPort
 	t.Cleanup(func() { _ = ps.Close() })
 
 	// Add an extra preserver via candidate options to check replacement preserves other preservers

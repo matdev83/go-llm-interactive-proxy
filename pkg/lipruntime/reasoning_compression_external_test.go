@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/reasoninghost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
@@ -37,16 +39,14 @@ func fullScope() scope.PrincipalScopeView {
 
 // capturingEgressPolicy records the received scope and policy input.
 type capturingEgressPolicy struct {
-	decision lipruntime.EgressDecision
-	received *lipruntime.EgressInput
+	decision reasoninghost.EgressDecision
+	received *reasoninghost.EgressInput
 	mutated  bool
 }
 
-func (c *capturingEgressPolicy) Decide(_ context.Context, in lipruntime.EgressInput) (lipruntime.EgressDecision, error) {
-	// Capture a copy of input for later inspection.
+func (c *capturingEgressPolicy) Decide(_ context.Context, in reasoninghost.EgressInput) (reasoninghost.EgressDecision, error) {
 	cp := in
 	c.received = &cp
-	// Try to mutate the returned scope to prove defensive clone.
 	s := in.Scope()
 	s.Roles = append(s.Roles, "mutated")
 	s.SafeClaims["injected"] = "evil"
@@ -57,20 +57,20 @@ func (c *capturingEgressPolicy) Decide(_ context.Context, in lipruntime.EgressIn
 
 type allowExternalPolicy struct{ version string }
 
-func (a allowExternalPolicy) Decide(_ context.Context, _ lipruntime.EgressInput) (lipruntime.EgressDecision, error) {
-	return lipruntime.EgressDecision{Action: lipruntime.EgressAllow, PolicyVersion: a.version}, nil
+func (a allowExternalPolicy) Decide(_ context.Context, _ reasoninghost.EgressInput) (reasoninghost.EgressDecision, error) {
+	return reasoninghost.EgressDecision{Action: reasoninghost.EgressAllow, PolicyVersion: a.version}, nil
 }
 
 type denyExternalPolicy struct{ version string }
 
-func (a denyExternalPolicy) Decide(_ context.Context, _ lipruntime.EgressInput) (lipruntime.EgressDecision, error) {
-	return lipruntime.EgressDecision{Action: lipruntime.EgressDeny, PolicyVersion: a.version}, nil
+func (a denyExternalPolicy) Decide(_ context.Context, _ reasoninghost.EgressInput) (reasoninghost.EgressDecision, error) {
+	return reasoninghost.EgressDecision{Action: reasoninghost.EgressDeny, PolicyVersion: a.version}, nil
 }
 
 type redactExternalPolicy struct{ version string }
 
-func (a redactExternalPolicy) Decide(_ context.Context, _ lipruntime.EgressInput) (lipruntime.EgressDecision, error) {
-	return lipruntime.EgressDecision{Action: lipruntime.EgressRedactThenAllow, PolicyVersion: a.version}, nil
+func (a redactExternalPolicy) Decide(_ context.Context, _ reasoninghost.EgressInput) (reasoninghost.EgressDecision, error) {
+	return reasoninghost.EgressDecision{Action: reasoninghost.EgressRedactThenAllow, PolicyVersion: a.version}, nil
 }
 
 type stubExternalMatcher struct{ redacted string }
@@ -104,8 +104,8 @@ func (s stubExternalResolver) Resolve(_ context.Context) (sdk.Matcher, error) { 
 // typedNilExternalEgress is a typed nil implementation for external test.
 type typedNilExternalEgress struct{}
 
-func (t *typedNilExternalEgress) Decide(_ context.Context, _ lipruntime.EgressInput) (lipruntime.EgressDecision, error) {
-	return lipruntime.EgressDecision{Action: lipruntime.EgressAllow, PolicyVersion: "v1"}, nil
+func (t *typedNilExternalEgress) Decide(_ context.Context, _ reasoninghost.EgressInput) (reasoninghost.EgressDecision, error) {
+	return reasoninghost.EgressDecision{Action: reasoninghost.EgressAllow, PolicyVersion: "v1"}, nil
 }
 
 type typedNilExternalResolver struct{}
@@ -115,7 +115,7 @@ func (t *typedNilExternalResolver) Resolve(_ context.Context) (sdk.Matcher, erro
 func TestEgressInput_ScopeDefensiveCloneFullFields(t *testing.T) {
 	t.Parallel()
 	orig := fullScope()
-	in := lipruntime.NewEgressInput("route-a", "reasoning_semantic_compression", "semantic_reasoning_text", orig)
+	in := reasoninghost.NewEgressInput("route-a", "reasoning_semantic_compression", "semantic_reasoning_text", orig)
 
 	// First Scope() must contain all fields.
 	got := in.Scope()
@@ -198,7 +198,7 @@ func TestEgressInput_ScopeDefensiveCloneFullFields(t *testing.T) {
 func TestEgressInput_NewEgressInput_ClonesSource(t *testing.T) {
 	t.Parallel()
 	src := fullScope()
-	in := lipruntime.NewEgressInput("r", "p", "c", src)
+	in := reasoninghost.NewEgressInput("r", "p", "c", src)
 	// Mutate src after construction.
 	src.Roles = append(src.Roles, "extra")
 	src.SafeClaims["extra"] = "x"
@@ -214,28 +214,39 @@ func TestEgressInput_NewEgressInput_ClonesSource(t *testing.T) {
 func TestLipruntime_PublicTypes_NoInternalImportsInSignatures(t *testing.T) {
 	t.Parallel()
 	// This test ensures the external package compiles without needing internal imports.
-	// If EgressInput, EgressDecision, EgressPolicy, ReasoningCompressionOptions
-	// had internal types in signatures, this file would not compile.
-	_ = lipruntime.EgressInput{}
-	_ = lipruntime.EgressDecision{Action: lipruntime.EgressAllow, PolicyVersion: "v1"}
-	var _ lipruntime.EgressPolicy = allowExternalPolicy{version: "v1"}
+	_ = reasoninghost.EgressInput{}
+	_ = reasoninghost.EgressDecision{Action: reasoninghost.EgressAllow, PolicyVersion: "v1"}
+	var _ reasoninghost.EgressPolicy = allowExternalPolicy{version: "v1"}
 	var _ sdk.MatcherResolver = stubExternalResolver{m: stubExternalMatcher{redacted: "x"}}
+	var _ featurehost.Binding = &reasoninghost.Binding{}
+	_ = featurehost.Registration{Binding: &reasoninghost.Binding{}}
 
-	// Also verify via reflection that lipruntime Options field types do not
-	// carry internal package paths (except allowed non-money host seams).
+	// Verify via reflection that lipruntime Options field types do not
+	// carry internal package paths.
 	typ := reflect.TypeFor[lipruntime.Options]()
 	for f := range typ.Fields() {
-		// Field type string should not contain internal imports for non-stdlib?
-		// We check that no field type's PkgPath contains "/internal/" for exported fields
-		// that are not part of the allowed surface (only lipsdk and stdlib).
 		pkgPath := f.Type.PkgPath()
 		if strings.Contains(pkgPath, "/internal/") {
 			t.Fatalf("Options field %s has internal package path %q", f.Name, pkgPath)
 		}
 	}
+
+	// Verify FeatureHostRegistrations field exists on Options and has the correct type.
+	fhrField, ok := typ.FieldByName("FeatureHostRegistrations")
+	if !ok {
+		t.Fatal("Options must have FeatureHostRegistrations field")
+	}
+	if fhrField.Type != reflect.TypeFor[[]featurehost.Registration]() {
+		t.Fatalf("Options.FeatureHostRegistrations type = %v, want []featurehost.Registration", fhrField.Type)
+	}
+
+	// Verify ReasoningCompression field no longer exists on Options.
+	if _, exists := typ.FieldByName("ReasoningCompression"); exists {
+		t.Fatal("Options must NOT have ReasoningCompression field")
+	}
+
 	// Verify exported method signatures on EgressInput don't expose internal types.
-	// Scope() should return scope.PrincipalScopeView (public lipsdk), not an internal type.
-	m, ok := reflect.TypeFor[lipruntime.EgressInput]().MethodByName("Scope")
+	m, ok := reflect.TypeFor[reasoninghost.EgressInput]().MethodByName("Scope")
 	if !ok {
 		t.Fatal("EgressInput.Scope method missing")
 	}
@@ -257,7 +268,6 @@ func writeTempConfigWithCompression(t *testing.T, enabled bool, egressRef string
 	content := string(raw)
 	if enabled {
 		// Inject compression block under reasoning-output-preservation config.
-		// Original has "          max_session_bytes: 262144" line.
 		target := "          max_session_bytes: 262144"
 		repl := target + "\n        compression:\n          enabled: true\n          mode: shadow\n          route: test-route\n          timeout: 5s\n          max_input_tokens: 10000\n          max_input_bytes: 100000\n          max_output_tokens: 1000\n          max_output_bytes: 100000\n          max_surrogate_bytes: 50000\n          min_source_bytes: 100\n          min_saved_bytes: 50\n          min_savings_ratio: 0.5\n          max_pending_per_session: 10\n          max_surrogate_bytes_per_session: 100000\n          max_pending_total: 100\n          max_surrogate_bytes_total: 1000000\n          egress_policy_ref: " + egressRef
 		if !strings.Contains(content, target) {
@@ -266,9 +276,7 @@ func writeTempConfigWithCompression(t *testing.T, enabled bool, egressRef string
 		content = strings.Replace(content, target, repl, 1)
 	} else {
 		// Ensure compression disabled: replace any enabled compression with disabled, or ensure no compression.
-		// If original has no compression, keep as is (disabled).
 		if strings.Contains(content, "compression:") {
-			// Replace enabled true with false and keep minimal
 			content = strings.ReplaceAll(content, "enabled: true", "enabled: false")
 		}
 	}
@@ -286,11 +294,14 @@ func TestBuild_CompressionEnabled_WithPublicPolicyAndResolver_Succeeds(t *testin
 	ctx := context.Background()
 	policy := allowExternalPolicy{version: "v1"}
 	resolver := stubExternalResolver{m: stubExternalMatcher{redacted: "REDACTED"}}
+	binding := &reasoninghost.Binding{
+		EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-allow": policy},
+		MatcherResolver: resolver,
+	}
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
 		ConfigPath: path,
-		ReasoningCompression: lipruntime.ReasoningCompressionOptions{
-			EgressPolicies:  map[string]lipruntime.EgressPolicy{"test-allow": policy},
-			MatcherResolver: resolver,
+		FeatureHostRegistrations: []featurehost.Registration{
+			binding.Registration(),
 		},
 	})
 	if err != nil {
@@ -308,9 +319,8 @@ func TestBuild_CompressionEnabled_StockZeroFailsClosed(t *testing.T) {
 	ctx := context.Background()
 	_, err := lipruntime.Build(ctx, lipruntime.Options{ConfigPath: path})
 	if err == nil {
-		t.Fatal("enabled compression with zero ReasoningCompression should fail closed")
+		t.Fatal("enabled compression with zero FeatureHostRegistrations should fail closed")
 	}
-	// Should mention missing EgressPolicy or MatcherResolver, not panic.
 	msg := strings.ToLower(err.Error())
 	if !strings.Contains(msg, "egresspolicy") && !strings.Contains(msg, "matcherresolver") && !strings.Contains(msg, "egress") {
 		t.Fatalf("error should mention EgressPolicy/MatcherResolver, got %v", err)
@@ -323,7 +333,7 @@ func TestBuild_CompressionDisabled_StockZeroSucceeds(t *testing.T) {
 	ctx := context.Background()
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{ConfigPath: path})
 	if err != nil {
-		t.Fatalf("disabled compression with zero ReasoningCompression should succeed, got %v", err)
+		t.Fatalf("disabled compression with zero FeatureHostRegistrations should succeed, got %v", err)
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
 	if !rt.Ready() {
@@ -337,18 +347,22 @@ func TestBuild_TypedNilPolicyAndResolver_FailClosedNotPanic(t *testing.T) {
 	ctx := context.Background()
 	var nilPolicy *typedNilExternalEgress
 	var nilResolver *typedNilExternalResolver
-	// Case1: typed nil policy entry
+
+	// Case 1: typed nil policy entry in reasoninghost.Binding
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				t.Fatalf("typed nil policy caused panic: %v", r)
 			}
 		}()
+		binding := &reasoninghost.Binding{
+			EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-allow": nilPolicy},
+			MatcherResolver: stubExternalResolver{m: stubExternalMatcher{}},
+		}
 		_, err := lipruntime.Build(ctx, lipruntime.Options{
 			ConfigPath: path,
-			ReasoningCompression: lipruntime.ReasoningCompressionOptions{
-				EgressPolicies:  map[string]lipruntime.EgressPolicy{"test-allow": nilPolicy},
-				MatcherResolver: stubExternalResolver{m: stubExternalMatcher{}},
+			FeatureHostRegistrations: []featurehost.Registration{
+				binding.Registration(),
 			},
 		})
 		if err == nil {
@@ -358,18 +372,22 @@ func TestBuild_TypedNilPolicyAndResolver_FailClosedNotPanic(t *testing.T) {
 			t.Fatalf("typed nil policy error should mention EgressPolicy, got %v", err)
 		}
 	}()
-	// Case2: typed nil resolver
+
+	// Case 2: typed nil resolver in reasoninghost.Binding
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				t.Fatalf("typed nil resolver caused panic: %v", r)
 			}
 		}()
+		binding := &reasoninghost.Binding{
+			EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-allow": allowExternalPolicy{version: "v1"}},
+			MatcherResolver: nilResolver,
+		}
 		_, err := lipruntime.Build(ctx, lipruntime.Options{
 			ConfigPath: path,
-			ReasoningCompression: lipruntime.ReasoningCompressionOptions{
-				EgressPolicies:  map[string]lipruntime.EgressPolicy{"test-allow": allowExternalPolicy{version: "v1"}},
-				MatcherResolver: nilResolver,
+			FeatureHostRegistrations: []featurehost.Registration{
+				binding.Registration(),
 			},
 		})
 		if err == nil {
@@ -379,22 +397,90 @@ func TestBuild_TypedNilPolicyAndResolver_FailClosedNotPanic(t *testing.T) {
 			t.Fatalf("typed nil resolver error should mention MatcherResolver, got %v", err)
 		}
 	}()
-	// Case3: both typed nil
+
+	// Case 3: both typed nil in reasoninghost.Binding
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				t.Fatalf("both typed nil caused panic: %v", r)
 			}
 		}()
+		binding := &reasoninghost.Binding{
+			EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-allow": nilPolicy},
+			MatcherResolver: nilResolver,
+		}
 		_, err := lipruntime.Build(ctx, lipruntime.Options{
 			ConfigPath: path,
-			ReasoningCompression: lipruntime.ReasoningCompressionOptions{
-				EgressPolicies:  map[string]lipruntime.EgressPolicy{"test-allow": nilPolicy},
-				MatcherResolver: nilResolver,
+			FeatureHostRegistrations: []featurehost.Registration{
+				binding.Registration(),
 			},
 		})
 		if err == nil {
 			t.Fatal("both typed nil should fail closed")
+		}
+	}()
+
+	// Case 4: nil binding in registration
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("nil binding in registration caused panic: %v", r)
+			}
+		}()
+		_, err := lipruntime.Build(ctx, lipruntime.Options{
+			ConfigPath: path,
+			FeatureHostRegistrations: []featurehost.Registration{
+				{Binding: nil},
+			},
+		})
+		if err == nil {
+			t.Fatal("nil binding in registration should fail closed")
+		}
+	}()
+
+	// Case 5: typed nil *reasoninghost.Binding in registration
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("typed nil *reasoninghost.Binding caused panic: %v", r)
+			}
+		}()
+		var typedNilBinding *reasoninghost.Binding
+		_, err := lipruntime.Build(ctx, lipruntime.Options{
+			ConfigPath: path,
+			FeatureHostRegistrations: []featurehost.Registration{
+				{Binding: typedNilBinding},
+			},
+		})
+		if err == nil {
+			t.Fatal("typed nil binding should fail closed")
+		}
+	}()
+
+	// Case 6: duplicate binding ID in registrations
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("duplicate binding ID caused panic: %v", r)
+			}
+		}()
+		b1 := &reasoninghost.Binding{
+			EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-allow": allowExternalPolicy{version: "v1"}},
+			MatcherResolver: stubExternalResolver{m: stubExternalMatcher{}},
+		}
+		b2 := &reasoninghost.Binding{
+			EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-allow": allowExternalPolicy{version: "v2"}},
+			MatcherResolver: stubExternalResolver{m: stubExternalMatcher{}},
+		}
+		_, err := lipruntime.Build(ctx, lipruntime.Options{
+			ConfigPath: path,
+			FeatureHostRegistrations: []featurehost.Registration{
+				b1.Registration(),
+				b2.Registration(),
+			},
+		})
+		if err == nil {
+			t.Fatal("duplicate binding ID should fail closed")
 		}
 	}()
 }
@@ -406,56 +492,70 @@ func TestOptions_NonMoneyArchitecture_NoBillingFields(t *testing.T) {
 		if strings.Contains(strings.ToLower(f.Name), "billing") {
 			t.Fatalf("public Options must not contain Billing field %q", f.Name)
 		}
-		// Also check type string for billing
 		typeStr := f.Type.String()
 		if strings.Contains(strings.ToLower(typeStr), "billing") {
 			t.Fatalf("Options field %s type %q contains billing", f.Name, typeStr)
 		}
 	}
-	// ReasoningCompression must exist and be non-money (no billing in its fields).
-	rcTyp := reflect.TypeFor[lipruntime.ReasoningCompressionOptions]()
+
+	// Verify FeatureHostRegistrations exists on Options
+	if _, ok := typ.FieldByName("FeatureHostRegistrations"); !ok {
+		t.Fatal("Options must have FeatureHostRegistrations field")
+	}
+
+	// Verify ReasoningCompression field does NOT exist on Options
+	if _, ok := typ.FieldByName("ReasoningCompression"); ok {
+		t.Fatal("Options must NOT have ReasoningCompression field")
+	}
+
+	// reasoninghost.Binding must be non-money (no billing in its fields).
+	rcTyp := reflect.TypeFor[reasoninghost.Binding]()
 	for f := range rcTyp.Fields() {
 		if strings.Contains(strings.ToLower(f.Name), "billing") {
-			t.Fatalf("ReasoningCompressionOptions field %q must not be billing", f.Name)
+			t.Fatalf("reasoninghost.Binding field %q must not be billing", f.Name)
 		}
-	}
-	// Verify ReasoningCompression field exists on Options
-	if _, ok := typ.FieldByName("ReasoningCompression"); !ok {
-		t.Fatal("Options must have ReasoningCompression field")
 	}
 }
 
 func TestEgressAction_StringAndMapping(t *testing.T) {
 	t.Parallel()
-	if lipruntime.EgressAllow.String() != "allow" {
-		t.Fatalf("EgressAllow String = %q", lipruntime.EgressAllow.String())
+	if reasoninghost.EgressAllow.String() != "allow" {
+		t.Fatalf("EgressAllow String = %q", reasoninghost.EgressAllow.String())
 	}
-	if lipruntime.EgressDeny.String() != "deny" {
-		t.Fatalf("EgressDeny String = %q", lipruntime.EgressDeny.String())
+	if reasoninghost.EgressDeny.String() != "deny" {
+		t.Fatalf("EgressDeny String = %q", reasoninghost.EgressDeny.String())
 	}
-	if lipruntime.EgressRedactThenAllow.String() != "redact_then_allow" {
-		t.Fatalf("EgressRedactThenAllow String = %q", lipruntime.EgressRedactThenAllow.String())
+	if reasoninghost.EgressRedactThenAllow.String() != "redact_then_allow" {
+		t.Fatalf("EgressRedactThenAllow String = %q", reasoninghost.EgressRedactThenAllow.String())
 	}
-	// Mapping is tested via Build success with each action; here we verify Build with deny still succeeds (policy is consulted, not route).
+
+	// Mapping is tested via Build success with each action; verify Build with deny still succeeds (policy is consulted, not route).
 	path := writeTempConfigWithCompression(t, true, "test-deny")
 	ctx := context.Background()
+	denyBinding := &reasoninghost.Binding{
+		EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-deny": denyExternalPolicy{version: "v1"}},
+		MatcherResolver: stubExternalResolver{m: stubExternalMatcher{}},
+	}
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
 		ConfigPath: path,
-		ReasoningCompression: lipruntime.ReasoningCompressionOptions{
-			EgressPolicies:  map[string]lipruntime.EgressPolicy{"test-deny": denyExternalPolicy{version: "v1"}},
-			MatcherResolver: stubExternalResolver{m: stubExternalMatcher{}},
+		FeatureHostRegistrations: []featurehost.Registration{
+			denyBinding.Registration(),
 		},
 	})
 	if err != nil {
 		t.Fatalf("Build with deny policy should still succeed (deny is valid action), got %v", err)
 	}
 	_ = rt.Close(ctx)
+
 	path2 := writeTempConfigWithCompression(t, true, "test-redact")
+	redactBinding := &reasoninghost.Binding{
+		EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-redact": redactExternalPolicy{version: "v1"}},
+		MatcherResolver: stubExternalResolver{m: stubExternalMatcher{redacted: "REDACTED"}},
+	}
 	rt2, err := lipruntime.Build(ctx, lipruntime.Options{
 		ConfigPath: path2,
-		ReasoningCompression: lipruntime.ReasoningCompressionOptions{
-			EgressPolicies:  map[string]lipruntime.EgressPolicy{"test-redact": redactExternalPolicy{version: "v1"}},
-			MatcherResolver: stubExternalResolver{m: stubExternalMatcher{redacted: "REDACTED"}},
+		FeatureHostRegistrations: []featurehost.Registration{
+			redactBinding.Registration(),
 		},
 	})
 	if err != nil {

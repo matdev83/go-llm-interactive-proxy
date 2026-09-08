@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
-	conversationviewStorecontract "github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/storecontract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	routeoverrideStorecontract "github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride/storecontract"
@@ -31,7 +29,6 @@ import (
 type continuityParityFixture interface {
 	NewStore(t *testing.T) *Store
 	RouteOverrideEnv(t *testing.T) routeoverrideStorecontract.ContractEnv
-	ConversationViewEnv(t *testing.T) conversationviewStorecontract.Env
 	ReopenStore(t *testing.T) (*Store, func() *Store)
 }
 
@@ -66,18 +63,6 @@ func (f *sqliteContinuityFixture) RouteOverrideEnv(t *testing.T) routeoverrideSt
 		AdvanceClock:    advanceBunLastSeen,
 		SeedStoredState: seedBunStoredState,
 		Spawn:           func(fn func()) { go fn() },
-	}
-}
-
-func (f *sqliteContinuityFixture) ConversationViewEnv(t *testing.T) conversationviewStorecontract.Env {
-	t.Helper()
-	return conversationviewStorecontract.Env{
-		New: func(t *testing.T) conversationviewStorecontract.Deps {
-			t.Helper()
-			s := f.NewStore(t)
-			return conversationViewDepsForStore(t, s)
-		},
-		Spawn: func(fn func()) { go fn() },
 	}
 }
 
@@ -121,41 +106,6 @@ func (f *sqliteContinuityFixture) ReopenStore(t *testing.T) (*Store, func() *Sto
 		return open()
 	}
 	return s1, reopen
-}
-
-func conversationViewDepsForStore(t *testing.T, st *Store) conversationviewStorecontract.Deps {
-	t.Helper()
-	cv := st.ConversationViewStore()
-	return conversationviewStorecontract.Deps{
-		Store: cv,
-		CreateALeg: func(ctx context.Context, aLegID string) error {
-			if _, err := st.db.NewRaw(`DELETE FROM a_legs WHERE a_leg_id = ?`, aLegID).Exec(ctx); err != nil {
-				return err
-			}
-			_, err := st.db.NewRaw(
-				`INSERT INTO a_legs(a_leg_id, continuity_key, created_at_unix, last_seen_at_unix, weighted_first_consumed, next_b_seq) VALUES(?,?,?,?,0,0)`,
-				aLegID, "", int64(0), int64(0),
-			).Exec(ctx)
-			if err != nil {
-				var count int
-				if err2 := st.db.NewRaw(`SELECT count(*) FROM a_legs WHERE a_leg_id = ?`, aLegID).Scan(ctx, &count); err2 == nil && count == 1 {
-					return nil
-				}
-			}
-			return err
-		},
-		DeleteALeg: func(ctx context.Context, aLegID string) error {
-			_, err := st.db.NewRaw(`DELETE FROM a_legs WHERE a_leg_id = ?`, aLegID).Exec(ctx)
-			return err
-		},
-		GetOverlay: func(ctx context.Context, aLegID, overlayID string) (conversationview.SteeringOverlay, error) {
-			cvStore, ok := cv.(*conversationViewStore)
-			if !ok {
-				return conversationview.SteeringOverlay{}, fmt.Errorf("unexpected cv store type %T", cv)
-			}
-			return cvStore.GetOverlay(ctx, aLegID, overlayID)
-		},
-	}
 }
 
 // runContinuityParitySuite executes the canonical behavioral and transactional parity suite
@@ -519,12 +469,6 @@ func runContinuityParitySuite(t *testing.T, f continuityParityFixture) {
 		})
 	})
 
-	t.Run("ConversationView", func(t *testing.T) {
-		t.Run("contract", func(t *testing.T) {
-			conversationviewStorecontract.Run(t, f.ConversationViewEnv(t))
-		})
-	})
-
 	t.Run("RestartSurvival", func(t *testing.T) {
 		t.Run("aLegAndAttempts", func(t *testing.T) {
 			s1, reopen := f.ReopenStore(t)
@@ -576,7 +520,6 @@ func runContinuityParitySuite(t *testing.T, f continuityParityFixture) {
 					},
 					NextIndex: 1,
 				},
-				MemoRef: &interleavedstate.MemoRef{Key: "memo-restart", Version: 5},
 			}
 			require.NoError(t, s1.SetInterleavedState(ctx, leg.ALegID, want))
 
@@ -616,42 +559,6 @@ func runContinuityParitySuite(t *testing.T, f continuityParityFixture) {
 			assert.False(t, gotAfterClear.Active)
 			assert.Empty(t, gotAfterClear.Selector)
 			assert.Equal(t, cleared.Revision, gotAfterClear.Revision)
-		})
-
-		t.Run("conversationView", func(t *testing.T) {
-			s1, reopen := f.ReopenStore(t)
-			ck := fmt.Sprintf("ck-restart-cv-%d", time.Now().UnixNano())
-			leg, err := s1.CreateALeg(ctx, ck)
-			require.NoError(t, err)
-
-			cv1 := s1.ConversationViewStore()
-			tagID := conversationview.MessageIdentity("v1:" + "1111111111111111111111111111111111111111111111111111111111111111")
-			_, err = cv1.TagNeverBackend(ctx, leg.ALegID, []conversationview.TagRequest{{Identity: tagID, Reason: "restart-tag"}})
-			require.NoError(t, err)
-
-			steeringText := "restart-steering-content"
-			_, err = cv1.PutSteering(ctx, leg.ALegID, conversationview.PutSteeringRequest{
-				OverlayID:           "ov-restart",
-				Message:             conversationview.StoredMessageV1{Role: lipapi.RoleUser, Text: steeringText},
-				Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix},
-				AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
-				Reason:              "restart-put",
-			})
-			require.NoError(t, err)
-
-			snapBefore, err := cv1.Snapshot(ctx, leg.ALegID)
-			require.NoError(t, err)
-
-			s2 := reopen()
-			cv2 := s2.ConversationViewStore()
-
-			snapAfter, err := cv2.Snapshot(ctx, leg.ALegID)
-			require.NoError(t, err)
-			assert.Equal(t, snapBefore.StateRevision, snapAfter.StateRevision)
-			require.Len(t, snapAfter.NeverBackend, 1)
-			assert.Equal(t, tagID, snapAfter.NeverBackend[0].Identity)
-			require.Len(t, snapAfter.Steering, 1)
-			assert.Equal(t, steeringText, snapAfter.Steering[0].Message.Text)
 		})
 	})
 

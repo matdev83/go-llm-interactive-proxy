@@ -12,8 +12,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -49,7 +49,7 @@ func TestOpenPlannedCandidate_MaxAttemptsDoesNotPersistCycle(t *testing.T) {
 			},
 		},
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "think"}, interleavedthinking.NewMemoStore(4096))
 	ttft := newTTFTBudget(ex.now(), sel)
 	progress := &recoveryController{
 		budget:   &attemptBudget{max: 0},
@@ -133,7 +133,7 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailPreservesInterleavedState(t *testing
 			return nil, nil
 		}},
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, interleavedthinking.NewMemoStore(4096))
 	seededCycle := interleavedstate.CycleState{
 		SelectorKey: "thinker-be:m^parallel:fail1:m!fail2:m",
 		Sequence: []interleavedstate.CycleEntry{
@@ -242,7 +242,7 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailFailoverToPrimaryInSamePass(t *testi
 			return nil, nil
 		}},
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, interleavedthinking.NewMemoStore(4096))
 	interleaved := interleavedstate.State{Cycle: interleavedstate.CycleState{
 		SelectorKey: "thinker-be:m^parallel:fail1:m!fail2:m|good:m",
 		Sequence: []interleavedstate.CycleEntry{
@@ -363,7 +363,7 @@ func TestTryPlanOpenOnce_ThinkerRecoverableOpenFailureDoesNotPersistCycleAdvance
 			},
 		},
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, interleavedthinking.NewMemoStore(4096))
 	thinkerIdx := 1
 	seededCycle := interleavedstate.CycleState{
 		SelectorKey: "bad-thinker:m^exec-be:m",
@@ -481,7 +481,7 @@ func TestTryPlanOpenOnce_InterleavedCyclePersistFailureFailsClosed(t *testing.T)
 			},
 		},
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "think"}, interleavedthinking.NewMemoStore(4096))
 	ttft := newTTFTBudget(ex.now(), sel)
 	budget := &attemptBudget{max: 8}
 	failures := budget.getFailures()
@@ -569,7 +569,7 @@ func TestTryPlanOpenOnce_ParallelBudgetRejectsAllPreservesCycle(t *testing.T) {
 			return nil, nil
 		}},
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, interleavedthinking.NewMemoStore(4096))
 	seededCycle := interleavedstate.CycleState{
 		SelectorKey: "thinker-be:m^a:m!b:m",
 		Sequence: []interleavedstate.CycleEntry{

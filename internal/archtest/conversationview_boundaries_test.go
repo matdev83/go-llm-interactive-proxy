@@ -1,37 +1,49 @@
 package archtest
 
 import (
+	"fmt"
 	"go/ast"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
-// TestConversationViewCoreImportsExcludeProvidersAndFrontends enforces that internal/core/conversationview
-// does not import provider SDKs or concrete frontend/backend plugins (Req 10.10, 13.6, 13.18).
+// TestConversationViewCoreImportsExcludeProvidersAndFrontends enforces that internal/core/conversationprojection
+// and internal/infra/conversationview do not import provider SDKs or concrete frontend/backend plugins.
 func TestConversationViewCoreImportsExcludeProvidersAndFrontends(t *testing.T) {
 	t.Parallel()
-	assertDepsExcludeForbidden(t, []string{"./internal/core/conversationview/..."}, []forbiddenDep{
-		{Substr: "github.com/openai/openai-go", ErrMsg: "conversationview must not import OpenAI SDK"},
-		{Substr: "github.com/anthropics/anthropic-sdk-go", ErrMsg: "conversationview must not import Anthropic SDK"},
-		{Substr: "google.golang.org/genai", ErrMsg: "conversationview must not import Gemini SDK"},
-		{Substr: "github.com/aws/aws-sdk-go-v2", ErrMsg: "conversationview must not import AWS SDK"},
-		{Substr: "/internal/plugins/frontends", ErrMsg: "conversationview must not import frontend plugins"},
-		{Substr: "/internal/plugins/backends", ErrMsg: "conversationview must not import backend plugins"},
-		{Substr: "uptrace/bun", ErrMsg: "conversationview core must not import Bun"},
-		{Substr: "database/sql", ErrMsg: "conversationview core must not import database/sql"},
+	assertDepsExcludeForbidden(t, []string{"./internal/core/conversationprojection/..."}, []forbiddenDep{
+		{Substr: "github.com/openai/openai-go", ErrMsg: "conversationprojection must not import OpenAI SDK"},
+		{Substr: "github.com/anthropics/anthropic-sdk-go", ErrMsg: "conversationprojection must not import Anthropic SDK"},
+		{Substr: "google.golang.org/genai", ErrMsg: "conversationprojection must not import Gemini SDK"},
+		{Substr: "github.com/aws/aws-sdk-go-v2", ErrMsg: "conversationprojection must not import AWS SDK"},
+		{Substr: "/internal/plugins/frontends", ErrMsg: "conversationprojection must not import frontend plugins"},
+		{Substr: "/internal/plugins/backends", ErrMsg: "conversationprojection must not import backend plugins"},
+		{Substr: "uptrace/bun", ErrMsg: "conversationprojection core must not import Bun"},
+		{Substr: "database/sql", ErrMsg: "conversationprojection core must not import database/sql"},
+		{Substr: "/internal/infra", ErrMsg: "conversationprojection core must not import infra"},
+	})
+	assertDepsExcludeForbidden(t, []string{"./internal/infra/conversationview/..."}, []forbiddenDep{
+		{Substr: "github.com/openai/openai-go", ErrMsg: "infra conversationview must not import OpenAI SDK"},
+		{Substr: "github.com/anthropics/anthropic-sdk-go", ErrMsg: "infra conversationview must not import Anthropic SDK"},
+		{Substr: "google.golang.org/genai", ErrMsg: "infra conversationview must not import Gemini SDK"},
+		{Substr: "github.com/aws/aws-sdk-go-v2", ErrMsg: "infra conversationview must not import AWS SDK"},
+		{Substr: "/internal/plugins/frontends", ErrMsg: "infra conversationview must not import frontend plugins"},
+		{Substr: "/internal/plugins/backends", ErrMsg: "infra conversationview must not import backend plugins"},
 	})
 }
 
 // TestConversationViewCoreHasNoPromptCacheKey proves PromptCacheKey / provider cache policy
-// was not moved into conversationview core (Req 10.10). The core must not reference
+// was not moved into conversationprojection core (Req 10.10). The core must not reference
 // PromptCacheKey, cache_control, or PromptCacheProfile/Observation.
 func TestConversationViewCoreHasNoPromptCacheKey(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	dir := filepath.Join(root, "internal", "core", "conversationview")
+	dir := filepath.Join(root, "internal", "core", "conversationprojection")
 	forbidden := []string{"PromptCacheKey", "PromptCacheProfile", "PromptCacheObservation", "cache_control", "CacheControl"}
 	var bad []string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -57,7 +69,7 @@ func TestConversationViewCoreHasNoPromptCacheKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(bad) != 0 {
-		t.Fatalf("conversationview core must not reference provider cache policy:\n%s", strings.Join(bad, "\n"))
+		t.Fatalf("conversationprojection core must not reference provider cache policy:\n%s", strings.Join(bad, "\n"))
 	}
 }
 
@@ -69,15 +81,19 @@ func TestConversationViewHasNoWatcherOrBackgroundGoroutine(t *testing.T) {
 	root := repoRoot(t)
 	// Only scan conversationview core and its direct runtime seam files (avoid unrelated runtime goroutines).
 	filesToScan := []string{
-		filepath.Join(root, "internal", "core", "conversationview", "store.go"),
-		filepath.Join(root, "internal", "core", "conversationview", "projection.go"),
-		filepath.Join(root, "internal", "core", "conversationview", "observer.go"),
-		filepath.Join(root, "internal", "core", "conversationview", "reassert.go"),
-		filepath.Join(root, "internal", "core", "conversationview", "anchor.go"),
-		filepath.Join(root, "internal", "core", "conversationview", "identity.go"),
-		filepath.Join(root, "internal", "core", "conversationview", "sdkadapter", "writer.go"),
-		filepath.Join(root, "internal", "core", "conversationview", "sdkadapter", "services.go"),
-		filepath.Join(root, "internal", "core", "conversationview", "sdkadapter", "registrar.go"),
+		filepath.Join(root, "internal", "core", "conversationprojection", "anchor.go"),
+		filepath.Join(root, "internal", "core", "conversationprojection", "filter.go"),
+		filepath.Join(root, "internal", "core", "conversationprojection", "identity.go"),
+		filepath.Join(root, "internal", "core", "conversationprojection", "projection.go"),
+		filepath.Join(root, "internal", "core", "conversationprojection", "reassert.go"),
+		filepath.Join(root, "internal", "core", "conversationprojection", "types.go"),
+		filepath.Join(root, "internal", "infra", "conversationview", "bun_store.go"),
+		filepath.Join(root, "internal", "infra", "conversationview", "observer.go"),
+		filepath.Join(root, "internal", "infra", "conversationview", "reference_store.go"),
+		filepath.Join(root, "internal", "infra", "conversationview", "store.go"),
+		filepath.Join(root, "internal", "infra", "conversationview", "sdkadapter", "writer.go"),
+		filepath.Join(root, "internal", "infra", "conversationview", "sdkadapter", "services.go"),
+		filepath.Join(root, "internal", "infra", "conversationview", "sdkadapter", "registrar.go"),
 		filepath.Join(root, "internal", "core", "runtime", "conversation_view.go"),
 		filepath.Join(root, "internal", "core", "runtime", "conversation_view_seam.go"),
 		filepath.Join(root, "internal", "core", "runtime", "local_turn.go"),
@@ -135,7 +151,7 @@ func TestConversationViewHasNoWatcherOrBackgroundGoroutine(t *testing.T) {
 	}
 	// Also ensure storecontract's concurrent helper is test-only (not production)
 	// Production code must not have package-level WaitGroup
-	contractPath := filepath.Join(root, "internal", "core", "conversationview", "storecontract", "contract.go")
+	contractPath := filepath.Join(root, "internal", "infra", "conversationview", "storecontract", "contract.go")
 	if _, err := os.ReadFile(contractPath); err != nil {
 		t.Fatalf("read contract.go: %v", err)
 	}
@@ -226,22 +242,33 @@ func TestConversationViewBaseContinuityStoresUnchanged(t *testing.T) {
 			t.Fatalf("pkg/lipsdk/continuity.Store contains unexpected method %q", m)
 		}
 	}
-	// Ensure conversationview capability is optional via AsStore/ConversationViewStore accessor, not widening base Store
-	// Accessor lives in conversationview_store.go, not store.go, so scan both.
+	// Ensure b2bua does not implement or expose conversation-view capability
 	b2buaDir := filepath.Join(root, "internal", "core", "b2bua")
-	hasAccessor := false
 	_ = filepath.Walk(b2buaDir, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 			return nil
 		}
 		b, _ := os.ReadFile(p)
 		if strings.Contains(string(b), "ConversationViewStore()") {
-			hasAccessor = true
+			t.Fatalf("b2bua must not expose ConversationViewStore; ownership belongs to featurehost")
 		}
 		return nil
 	})
-	if !hasAccessor {
-		t.Fatalf("MemoryStore must expose optional ConversationViewStore accessor, not widen Store")
+	// Ensure featurehost exposes ConversationStore()
+	fhDir := filepath.Join(root, "internal", "standardplugins", "featurehost")
+	hasFeatureHostAccessor := false
+	_ = filepath.Walk(fhDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+			return nil
+		}
+		b, _ := os.ReadFile(p)
+		if strings.Contains(string(b), "ConversationStore()") {
+			hasFeatureHostAccessor = true
+		}
+		return nil
+	})
+	if !hasFeatureHostAccessor {
+		t.Fatalf("featurehost must expose ConversationStore() accessor")
 	}
 }
 
@@ -321,4 +348,84 @@ func runCmd(dir, name string, args ...string) ([]byte, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	return cmd.Output()
+}
+
+// TestConversationProjectionKernelPurity_ExcludedSymbols enforces Requirement 4.1-4.2 and Design §7:
+// TagRequest, TagResult, StoredPlacement, SteeringOverlay, steering bounds/default policies,
+// and Observer.OnSteeringMutation must NOT remain in internal/core/conversationprojection.
+func TestConversationProjectionKernelPurity_ExcludedSymbols(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	dir := filepath.Join(root, "internal", "core", "conversationprojection")
+
+	forbiddenSymbols := []string{
+		"TagRequest",
+		"TagResult",
+		"StoredPlacement",
+		"SteeringOverlay",
+		"MaxNeverBackendTags",
+		"MaxActiveOverlays",
+		"MaxSteeringTextBytes",
+		"MaxTotalSteeringBytes",
+		"MaxReasonCodeBytes",
+		"MaxOverlayIDBytes",
+		"MaxALegIDBytes",
+		"OnSteeringMutation",
+	}
+
+	var findings []string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		_, f, err := ParseGoSource(path, src)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.TypeSpec:
+				if node.Name != nil {
+					for _, sym := range forbiddenSymbols {
+						if node.Name.Name == sym {
+							findings = append(findings, fmt.Sprintf("%s: forbidden type declaration %s", filepath.Base(path), sym))
+						}
+					}
+				}
+			case *ast.ValueSpec:
+				for _, id := range node.Names {
+					if id != nil {
+						for _, sym := range forbiddenSymbols {
+							if id.Name == sym {
+								findings = append(findings, fmt.Sprintf("%s: forbidden const/var declaration %s", filepath.Base(path), sym))
+							}
+						}
+					}
+				}
+			case *ast.Field: // interface method in Observer
+				for _, id := range node.Names {
+					if id != nil {
+						for _, sym := range forbiddenSymbols {
+							if id.Name == sym {
+								findings = append(findings, fmt.Sprintf("%s: forbidden interface method %s", filepath.Base(path), sym))
+							}
+						}
+					}
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	require.NoError(t, err)
+	if len(findings) > 0 {
+		t.Fatalf("conversationprojection contains forbidden symbols (must move to infra/conversationview):\n%s", strings.Join(findings, "\n"))
+	}
 }

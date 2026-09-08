@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/localstream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
@@ -14,7 +14,7 @@ import (
 // localTurnOutcome is the result of the two-phase local-turn stage.
 type localTurnOutcome struct {
 	claimed      bool
-	mergedSnap   conversationview.Snapshot
+	mergedSnap   conversationprojection.Snapshot
 	stream       lipapi.EventStream
 	handlerID    string
 	sourceReason localturn.ReasonCode
@@ -45,7 +45,7 @@ func normalizedMessageCount(call lipapi.Call) int {
 }
 
 // messageIdentityAt returns the MessageIdentity for the normalized message at idx.
-func messageIdentityAt(call lipapi.Call, idx int) (conversationview.MessageIdentity, error) {
+func messageIdentityAt(call lipapi.Call, idx int) (conversationprojection.MessageIdentity, error) {
 	if call.HasItemAuthority() {
 		n := 0
 		for _, it := range call.Items {
@@ -53,7 +53,7 @@ func messageIdentityAt(call lipapi.Call, idx int) (conversationview.MessageIdent
 				continue
 			}
 			if n == idx {
-				return conversationview.ItemIdentityOf(it)
+				return conversationprojection.ItemIdentityOf(it)
 			}
 			n++
 		}
@@ -62,37 +62,37 @@ func messageIdentityAt(call lipapi.Call, idx int) (conversationview.MessageIdent
 	combined := 0
 	// Instructions first, then Messages (projectLegacy order)
 	if idx < len(call.Instructions) {
-		return conversationview.MessageIdentityOf(call.Instructions[idx])
+		return conversationprojection.MessageIdentityOf(call.Instructions[idx])
 	}
 	combined = len(call.Instructions)
 	msgIdx := idx - combined
 	if msgIdx < 0 || msgIdx >= len(call.Messages) {
 		return "", fmt.Errorf("localturn: index %d out of range", idx)
 	}
-	return conversationview.MessageIdentityOf(call.Messages[msgIdx])
+	return conversationprojection.MessageIdentityOf(call.Messages[msgIdx])
 }
 
 // mergeTagsIntoSnapshot returns a new snapshot with Tags from result merged
 // without a second store read. It updates StateRevision and NeverBackend.
-func mergeTagsIntoSnapshot(base conversationview.Snapshot, result conversationview.TagResult) conversationview.Snapshot {
+func mergeTagsIntoSnapshot(base conversationprojection.Snapshot, result TagResult) conversationprojection.Snapshot {
 	out := base
 	out.StateRevision = result.StateRevision
 	// Deep copy tags (already sorted by store)
-	tags := make([]conversationview.Tag, len(result.Tags))
+	tags := make([]conversationprojection.Tag, len(result.Tags))
 	copy(tags, result.Tags)
 	out.NeverBackend = tags
 	return out
 }
 
 // localTurnSourceRequests builds TagRequests for claimed source indexes.
-func localTurnSourceRequests(call lipapi.Call, res localturn.MatchResult) ([]conversationview.TagRequest, error) {
+func localTurnSourceRequests(call lipapi.Call, res localturn.MatchResult) ([]TagRequest, error) {
 	if !res.Claimed {
 		return nil, nil
 	}
 	if len(res.Indexes) == 0 {
 		return nil, fmt.Errorf("localturn: claimed with empty indexes")
 	}
-	out := make([]conversationview.TagRequest, 0, len(res.Indexes))
+	out := make([]TagRequest, 0, len(res.Indexes))
 	for _, idx := range res.Indexes {
 		id, err := messageIdentityAt(call, idx)
 		if err != nil {
@@ -101,9 +101,9 @@ func localTurnSourceRequests(call lipapi.Call, res localturn.MatchResult) ([]con
 		if err := id.Validate(); err != nil {
 			return nil, fmt.Errorf("localturn: invalid source identity at %d: %w", idx, err)
 		}
-		out = append(out, conversationview.TagRequest{
+		out = append(out, TagRequest{
 			Identity: id,
-			Reason:   conversationview.ReasonCode(res.Reason),
+			Reason:   conversationprojection.ReasonCode(res.Reason),
 		})
 	}
 	return out, nil
@@ -129,7 +129,7 @@ func buildLocalEventStream(replyText string) lipapi.EventStream {
 // indexes, tags source before Handle, merges tags into request-local snapshot,
 // invokes Handle with panic recovery, tags reply before stream release, and
 // returns a finite stream. No second store read, no billing/route/B-leg.
-func (e *Executor) runLocalTurnStage(ctx context.Context, ingress lipapi.Call, snap conversationview.Snapshot, handlers []localturn.Handler, tagger conversationview.Tagger, aLegID string, traceID string) (localTurnOutcome, error) {
+func (e *Executor) runLocalTurnStage(ctx context.Context, ingress lipapi.Call, snap conversationprojection.Snapshot, handlers []localturn.Handler, tagger ConversationViewTagger, aLegID string, traceID string) (localTurnOutcome, error) {
 	if len(handlers) == 0 || tagger == nil {
 		return localTurnOutcome{}, nil
 	}
@@ -190,11 +190,11 @@ func (e *Executor) runLocalTurnStage(ctx context.Context, ingress lipapi.Call, s
 		}
 		// Construct canonical assistant message and tag reply BEFORE releasing event
 		cmsg := canonicalReplyMessage(reply.Text)
-		rid, err := conversationview.MessageIdentityOf(cmsg)
+		rid, err := conversationprojection.MessageIdentityOf(cmsg)
 		if err != nil {
 			return localTurnOutcome{}, fmt.Errorf("executor: localturn %s reply identity: %w", h.ID(), err)
 		}
-		replyReq := []conversationview.TagRequest{{Identity: rid, Reason: conversationview.ReasonCode(mr.Reason)}}
+		replyReq := []TagRequest{{Identity: rid, Reason: conversationprojection.ReasonCode(mr.Reason)}}
 		replyTagRes, err := tagger.TagNeverBackend(ctx, aLegID, replyReq)
 		if err != nil {
 			return localTurnOutcome{}, fmt.Errorf("executor: localturn %s reply tag: %w", h.ID(), err)

@@ -23,8 +23,8 @@ func TestComposeBillingBuildsDurableKeepwarmAccountingObserver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ComposeBilling: %v", err)
 	}
-	if _, ok := production.KeepwarmAccounting.(*billingcompose.DurableMaintenanceObserver); !ok {
-		t.Fatalf("KeepwarmAccounting = %T, want durable observer", production.KeepwarmAccounting)
+	if _, ok := production.MaintenanceAccounting.(*billingcompose.DurableMaintenanceObserver); !ok {
+		t.Fatalf("MaintenanceAccounting = %T, want durable observer", production.MaintenanceAccounting)
 	}
 }
 
@@ -33,13 +33,13 @@ func TestComposeBillingPreservesKeepwarmAccountingObserver(t *testing.T) {
 
 	input, _, _, _ := validComposeInput(t)
 	observer := &composedMaintenanceObserver{}
-	input.KeepwarmAccounting = observer
+	input.MaintenanceAccounting = observer
 
 	production, err := runtimebundle.ComposeBilling(input)
 	if err != nil {
 		t.Fatalf("ComposeBilling: %v", err)
 	}
-	if production.KeepwarmAccounting != observer {
-		t.Fatalf("KeepwarmAccounting = %T, want the injected observer instance", production.KeepwarmAccounting)
+	if production.MaintenanceAccounting != observer {
+		t.Fatalf("MaintenanceAccounting = %T, want the injected observer instance", production.MaintenanceAccounting)
 	}
 }

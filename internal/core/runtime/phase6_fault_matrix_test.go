@@ -17,10 +17,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -402,7 +402,6 @@ func TestPhase6_FaultMatrix_PublicationDenial_CloseWinsRace(t *testing.T) {
 			},
 			NextIndex: 0,
 		},
-		MemoRef: &initialRef,
 	}
 	if err := store.SetInterleavedState(ctx, aLeg.ALegID, initialInterleaved); err != nil {
 		t.Fatalf("set initial interleaved state: %v", err)
@@ -430,18 +429,10 @@ func TestPhase6_FaultMatrix_PublicationDenial_CloseWinsRace(t *testing.T) {
 		cand:     routing.AttemptCandidate{Key: "cand-2", Primary: routing.Primary{Backend: "b-2", Model: "m-2"}},
 	}
 
-	pendingUpdate := &interleavedthinking.PendingMemoUpdate{
-		Ref: initialRef,
-		State: interleavedthinking.MemoState{
-			Memo:                  "uncommitted memo from denied replacement",
-			RegularTurnsRemaining: 1,
-		},
-	}
 	ready := &readyAttempt{
 		session: replacementSession,
 		pending: pendingSelectionEffects{
 			interleaved: initialInterleaved,
-			memoUpdate:  pendingUpdate,
 		},
 		state: readyStatePrepared,
 	}
@@ -1016,7 +1007,7 @@ func TestPhase6_FaultMatrix_InterleavedContinuation(t *testing.T) {
 
 	memoStore := interleavedthinking.NewMemoStore(4096)
 	scope := interleavedthinking.Scope(aLeg.ALegID)
-	initialRef, err := memoStore.Put(ctx, scope, interleavedthinking.MemoState{
+	_, err = memoStore.Put(ctx, scope, interleavedthinking.MemoState{
 		Memo:                  "first thinker memo",
 		RegularTurnsRemaining: 2,
 	})
@@ -1033,8 +1024,7 @@ func TestPhase6_FaultMatrix_InterleavedContinuation(t *testing.T) {
 		NextIndex: 0,
 	}
 	initialState := interleavedstate.State{
-		Cycle:   cycle,
-		MemoRef: &initialRef,
+		Cycle: cycle,
 	}
 	if err := store.SetInterleavedState(ctx, aLeg.ALegID, initialState); err != nil {
 		t.Fatal(err)
@@ -1042,12 +1032,12 @@ func TestPhase6_FaultMatrix_InterleavedContinuation(t *testing.T) {
 
 	ex := TestExecutor()
 	ex.Store = store
-	ex.MemoStore = memoStore
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "shape instructions",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
+	}, memoStore)
+	RegisterTestMemoStore(ex, memoStore)
 
 	// Verify cycle advancement and memo update application
 	updatedMemoRef, err := memoStore.Put(ctx, scope, interleavedthinking.MemoState{
@@ -1060,8 +1050,7 @@ func TestPhase6_FaultMatrix_InterleavedContinuation(t *testing.T) {
 
 	cycle.NextIndex = 1
 	updatedState := interleavedstate.State{
-		Cycle:   cycle,
-		MemoRef: &updatedMemoRef,
+		Cycle: cycle,
 	}
 	if err := store.SetInterleavedState(ctx, aLeg.ALegID, updatedState); err != nil {
 		t.Fatal(err)
@@ -1075,7 +1064,7 @@ func TestPhase6_FaultMatrix_InterleavedContinuation(t *testing.T) {
 		t.Errorf("expected cycle NextIndex == 1, got %d", gotState.Cycle.NextIndex)
 	}
 
-	gotMemo, ok, err := memoStore.Get(ctx, scope, *gotState.MemoRef)
+	gotMemo, ok, err := memoStore.Get(ctx, scope, updatedMemoRef)
 	if err != nil || !ok {
 		t.Fatalf("failed to get memo: ok=%v, err=%v", ok, err)
 	}

@@ -8,10 +8,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -29,7 +29,7 @@ func installRegistryAndRegistrations(cfg *config.Config, mandatory []lipsdk.Requ
 		}
 	}
 	regs := config.RegistrationsFromConfig(cfg)
-	if err := secretguardcompose.ValidateRegistrations(regs); err != nil {
+	if err := featurehost.ValidateSecretGuardRegistrations(regs); err != nil {
 		return nil, nil, err
 	}
 	return reg, regs, nil

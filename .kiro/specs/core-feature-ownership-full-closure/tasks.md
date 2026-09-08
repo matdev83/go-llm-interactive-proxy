@@ -45,7 +45,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 0. Verify the predecessor implementation is actually complete
-- [ ] 0.1 Gate execution on the implemented `pre-oss-core-slimming` SDD
+- [x] 0.1 Gate execution on the implemented `pre-oss-core-slimming` SDD
   - Read the archived/completed predecessor spec (`.kiro/specs/archive/pre-oss-core-slimming/`) and its closeout evidence on the **current implementation branch/main**, not only PR #557 text.
   - Locate the predecessor Task 8.3 residual ownership inventory and record its path and exact baseline SHA in this SDD's implementation tracker/PR description.
   - Assert the predecessor's required end-state before changing production code: generated-only standard planes; retired `internal/core/toolcallrepair`, `internal/core/secretguard`, and concrete detector package absent as specified by the final predecessor; zero `runtimebundle -> internal/plugins/features/*` production imports; external feature fixture present; predecessor core budget ratchet active.
@@ -56,7 +56,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Validation: focused predecessor architecture tests; `make arch-report`; `git grep` checks from predecessor closeout_
 
 - [ ] 1. Freeze the post-first ownership and behavior baseline
-- [ ] 1.1 Generate the authoritative production ownership census
+- [x] 1.1 Generate the authoritative production ownership census
   - Recursively enumerate production Go packages/files under `internal/core`, `internal/infra/*compose`, `internal/standardplugins`, `internal/pluginreg`, `internal/featurebundle`, `internal/infra/runtimebundle`, `pkg/lipruntime`, and one-feature support packages outside `internal/plugins/features`.
   - Start from predecessor Task 8.3 inventory; refresh it against current `main` and record exact consumers/importers for every residual row.
   - Classify each row using the six categories in Requirement 1 and the Core Admission Test in `design.md`.
@@ -69,7 +69,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 0.1_
   - _Validation: `go list -deps`/repository import scan; `make arch-report`; inventory self-check test if project has a machine-readable manifest_
 
-- [ ] 1.2 Add behavior/lifetime characterization before movement
+- [x] 1.2 Add behavior/lifetime characterization before movement
   - Pin compaction-continuity parent isolation, revision/CAS, job/injection stale-result behavior and reload concurrency.
   - Pin conversation projection/reassertion, never-backend exclusion, anchor fallback/fail-closed, persistence parity and no-plaintext diagnostics.
   - Pin interleaved hidden/visible stream behavior, thinker cycle, memo injection budget, cancellation and visible-output commitment.
@@ -83,7 +83,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 1.1_
   - _Validation: focused package tests under race where state is concurrent; process ownership count tests_
 
-- [ ] 1.3 Capture structural and performance baselines
+- [x] 1.3 Capture structural and performance baselines
   - Record current non-test LOC for `internal/core`, `internal/infra/runtimebundle`, `internal/standardplugins`, and the planned `featurehost` tree (0 before creation).
   - Record current per-feature fields in `ProcessServices`, executor build/config inputs and `pkg/lipruntime.Options`.
   - Capture predecessor extension/request-snapshot allocation benchmarks and focused conversation projection/keep-warm benchmarks if present.
@@ -96,7 +96,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 2. Establish the standard-distribution featurehost composition boundary
-- [ ] 2.1 Add the small `internal/standardplugins/featurehost` process facade
+- [x] 2.1 Add the small `internal/standardplugins/featurehost` process facade
   - Create the package structure from `design.md`; keep `runtime.go`, `process.go`, `generation.go`, `inputs.go` small and move concrete feature integration to per-feature files/subpackages.
   - `ProcessInput` may contain only generic process capabilities required by the standard feature set. It must not accept `*runtimebundle.BuildOptions`, `*runtimebundle.ProcessServices`, full backend maps, database pool registries, or an `any` services map.
   - Implement `NewProcess` with fail-before-escape ownership: every successfully constructed owned feature resource is recorded before later construction can fail; failure unwinds in reverse order.
@@ -108,7 +108,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 1.2, 1.3_
   - _Validation: `go test -race ./internal/standardplugins/featurehost/...`_
 
-- [ ] 2.2 Add generation composition and fixed core-port output
+- [x] 2.2 Add generation composition and fixed core-port output
   - Add `GenerationInput`/`GenerationOutput` per design using ordinary `FeatureBundle`/`FrozenPlaneSet`, lifecycles and only the minimal fixed consumer-owned core interfaces required by Tasks 3–7.
   - Do not add a generic service map or `Resolve/Get` API. Do not expose featurehost to request code.
   - Generation output must be immutable/defensively copied where current contracts require it.
@@ -120,7 +120,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 2.1_
   - _Validation: featurehost tests; existing generation pin/reload tests; ownership-counting tests_
 
-- [ ] 2.3 Integrate one featurehost handle into `ProcessServices` with an explicit interim ownership map
+- [x] 2.3 Integrate one featurehost handle into `ProcessServices` with an explicit interim ownership map
   - Add exactly one `StandardFeatures *featurehost.Runtime` (final spelling may follow repository style) to `ProcessServices`.
   - Before wiring it, materialize the Task 1.1 per-resource transition table in the implementation evidence/test fixture with: resource/class, current constructor, current lifecycle/close registration, current physical owner, featurehost transfer task, and whether the resource is closable.
   - Construct featurehost after the generic dependencies it borrows are ready and before any generation that consumes it can be published.
@@ -135,7 +135,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 2.2_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/standardplugins/featurehost/...`; process shutdown + ownership-counting tests_
 
-- [ ] 2.4 Route simple predecessor compose adapters through featurehost
+- [x] 2.4 Route simple predecessor compose adapters through featurehost
   - Move/call the predecessor-created reasoning and secretguard generation composition through featurehost; retain ordinary extension planes as their execution output.
   - These are generation-composition adapters: do not create a new process resource or process closer merely because invocation moves under featurehost. Any feature lifecycle remains on the existing `ResourceLedger` path.
   - Do not change feature behavior or public host API in this task.
@@ -150,7 +150,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 3. Make compaction-continuity domain/state feature-owned
-- [ ] 3.1 Move compaction-continuity domain files mechanically under the feature
+- [x] 3.1 Move compaction-continuity domain files mechanically under the feature
   - Move coordinator/types/capsule/jobs/injection/preview/state code and their focused tests from the post-first equivalent of `internal/core/compactioncontinuity` into `internal/plugins/features/compactioncontinuity/state` (or the smallest feature-local subpackage matching design).
   - First commit should be mechanical with minimal import/name edits; do not change algorithms, constants, persistence keys or error semantics.
   - Feature-local package may import `pkg/lipapi`, `pkg/lipsdk/*` and feature-local packages only; no core/runtimebundle imports.
@@ -159,7 +159,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 2.4_
   - _Validation: moved package tests including race/reload characterization_
 
-- [ ] 3.2 Rebuild authoritative parent binding as a featurehost adapter
+- [x] 3.2 Rebuild authoritative parent binding as a featurehost adapter
   - Move/refactor feature-specific pieces of `compactioncompose` parent-port logic into `internal/standardplugins/featurehost/compaction`.
   - Adapter converts already-authoritative core/session/principal facts into the feature's opaque branch binding and implements the existing feature `ParentPort` contract.
   - Do not expose B2BUA/secure-session mutable stores to the feature. Do not let feature state choose an A-leg/branch from child or untrusted request hints.
@@ -169,7 +169,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 3.1_
   - _Validation: compaction continuity security/parent-port tests; adversarial cross-session/A-leg tests_
 
-- [ ] 3.3 Atomically move compaction process ownership under featurehost and delete generic fields/package
+- [x] 3.3 Atomically move compaction process ownership under featurehost and delete generic fields/package
   - Featurehost constructs/retains the process-shared coordinator and parent adapter.
   - In the same integration change, remove/disable their legacy constructor and lifecycle/close registration before enabling the featurehost-owned path; update the Task 2.3 transition table from `legacy` to `featurehost`.
   - If the post-first concrete compaction detector/support is still represented by a per-feature `ProcessServices` field, classify it now: if it is part of the same compaction standard-feature process service, transfer its construction/ownership in this task; if Task 1.1 proves it is a distinct support responsibility, assign its atomic handoff to Task 10 and keep it explicitly legacy-owned until then. It may not remain unassigned through Task 10.4.
@@ -186,7 +186,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 4. Split conversation projection kernel from steering/state services
-- [ ] 4.1 Extract the pure kernel package without changing behavior
+- [x] 4.1 Extract the pure kernel package without changing behavior
   - Create `internal/core/conversationprojection` (or final reviewed spelling) containing only semantic identity, exclusion filtering, pure projection/reassertion, anchors/provenance and immutable projection DTOs required by core.
   - Move tests that prove these pure invariants with it.
   - No store, writer, DB adapter, config default, metrics implementation or SDK command handler may enter this package.
@@ -196,7 +196,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 3.3_
   - _Validation: focused projection tests/benchmarks; allocation comparison to Task 1.3_
 
-- [ ] 4.2 Move steering/nonforwardable mutable services and persistence outside core
+- [x] 4.2 Move steering/nonforwardable mutable services and persistence outside core
   - Move steering CRUD/state, placement/missing-anchor policy, writer/registrar services, persistence/store contracts/adapters and feature-specific diagnostics to `internal/infra/conversationview/...` as designed.
   - Preserve persisted schema/table compatibility unless an existing migration mechanism explicitly requires a schema move.
   - Keep `pkg/lipsdk/steering`, `nonforwardable`, `localturn` contracts stable; adapters translate to outside-core services.
@@ -206,7 +206,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 4.1_
   - _Validation: memory/SQLite/Postgres store contract tests; SDK adapter tests; projection integration tests_
 
-- [ ] 4.3 Atomically move construction to featurehost and remove the mixed old core package
+- [x] 4.3 Atomically move construction to featurehost and remove the mixed old core package
   - Featurehost constructs the conversation-view state/services and supplies the narrow snapshot/services consumed by core.
   - In the same integration change, remove any legacy process-level constructor/close registration for the transferred service while preserving generic DB pool ownership as borrowed; update the Task 2.3 transition table and ownership-counting test.
   - Delete old `internal/core/conversationview` once all admitted kernel files live in `conversationprojection` and non-kernel files are outside core.
@@ -220,7 +220,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 5. Split interleaved-thinking routing authority from UX processing
-- [ ] 5.1 Separate route-cycle state from memo feature state
+- [x] 5.1 Separate route-cycle state from memo feature state
   - Audit every post-first `interleavedstate` field consumer using the Task 1.1 census.
   - Keep `Role`, selector/cycle sequence and cursor in core only where routing/continuity directly require them.
   - Move memo payload/reference/budget semantics to `internal/plugins/features/interleavedthinking/state` when not required by route selection.
@@ -231,7 +231,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 4.3_
   - _Validation: B2BUA/continuity memory+DB state tests_
 
-- [ ] 5.2 Move prompt/memo/shape/sanitize implementation to the interleaved feature
+- [x] 5.2 Move prompt/memo/shape/sanitize implementation to the interleaved feature
   - Create/expand `internal/plugins/features/interleavedthinking` and mechanically move built-in instructions, instruction-file validation/loading, memo extraction/bounds/storage, executor memo injection and visible-stream sanitization.
   - Define feature-owned `Processor`, per-turn contract and DTOs using only standard library, `pkg/lipapi`, `pkg/lipsdk/*` and feature-local types. These types are deliberately separate from the later core consumer interface; the feature package must never import `internal/core/runtime` just to satisfy that interface.
   - Do not move selector parsing, thinker cycle planning, B-leg opening, failover or output commitment.
@@ -241,7 +241,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 5.1_
   - _Validation: moved pure tests; prompt/memo/sanitize fuzz where existing; feature import-boundary test_
 
-- [ ] 5.3 Introduce the narrow core `InterleavedProcessor` port and explicit featurehost adapter
+- [x] 5.3 Introduce the narrow core `InterleavedProcessor` port and explicit featurehost adapter
   - Add the smallest runtime-owned `InterleavedProcessor`/per-turn interface matching the final methods actually needed by current interleaved stream orchestration. Start from design's `BeginTurn`/turn object shape and delete any method not used by existing orchestration.
   - Keep all core interface input/output types core-owned and minimal. Prefer a turn object that retains memo feature state internally so core does not carry memo text; if a core `InterleavedMemo`/reference DTO remains necessary for durable continuity, it may contain only the bounded fields core actually persists/coordinates.
   - Implement `internal/standardplugins/featurehost/interleaved.go` as the **sole adapter** between the core-owned interface and the feature-owned `interleavedthinking.Processor`/`Turn` contracts. The feature does not implement/import the core interface directly.
@@ -256,7 +256,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 5.2_
   - _Validation: featurehost interleaved adapter tests + compile assertions; runtime interleaved tests hidden/visible/cancellation/failure; recursive feature import archtest_
 
-- [ ] 5.4 Delete `internal/core/interleavedthinking` and ratchet the split
+- [x] 5.4 Delete `internal/core/interleavedthinking` and ratchet the split
   - Remove the old core implementation after all call sites use routing state + processor port.
   - Add archtest forbidding feature prompt/memo/config defaults in core packages and forbidding core imports of the feature.
   - Preserve/extend the adapter compile/import tests from 5.3 so future interface changes cannot force the feature to import core.
@@ -268,8 +268,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 6. Extract prompt-cache keep-warm policy from core
-- [ ] 6.1 Move keep-warm policy/scheduler/manager into a standard feature
+- [x] 6. Extract prompt-cache keep-warm policy from core
+- [x] 6.1 Move keep-warm policy/scheduler/manager into a standard feature
   - Create `internal/plugins/features/keepwarm` and move current config/policy/manager/registry/scheduler/lifecycle/accounting/admin/orchestrator logic mechanically with tests.
   - Preserve `pkg/lipsdk/promptcache` as provider-neutral observation/control contract; do not move scheduling policy into SDK.
   - Feature package must not import core/runtimebundle.
@@ -278,7 +278,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 5.4_
   - _Validation: moved keepwarm unit/race tests_
 
-- [ ] 6.2 Bind core lifecycle facts through `PromptCacheMaintenance`
+- [x] 6.2 Bind core lifecycle facts through `PromptCacheMaintenance`
   - Add the minimal runtime consumer interface from design for `BeginRealTurn`, `EndSession`, and committed successful turn facts actually required by current code.
   - Prefer featurehost/lifecycle ownership for `RunDue` and quiesce; add them to the core port only if current authoritative call point truly remains core after integration.
   - `PromptCacheCommittedTurn` must use canonical/SDK DTOs only.
@@ -288,7 +288,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 6.1_
   - _Validation: runtime committed-turn/session tests; keepwarm scheduler/quiesce tests_
 
-- [ ] 6.3 Atomically remove keep-warm fields/package from generic process/core
+- [x] 6.3 Atomically remove keep-warm fields/package from generic process/core
   - Enable featurehost ownership of keep-warm process/generation resources and in the same integration change remove their legacy process constructor/lifecycle registration and `KeepwarmPolicy`, `KeepwarmRegistry` and equivalent concrete fields from `ProcessServices`/executor config.
   - Update the Task 2.3 transition table and counted ownership test; require one construction and one physical close/quiesce sequence where applicable.
   - Delete `internal/core/keepwarm` and add resurrection/import ratchet.
@@ -300,8 +300,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 7. Move terminal-decision mutable session policy outside core
-- [ ] 7.1 Move the bounded actor policy store to standard feature infrastructure
+- [x] 7. Move terminal-decision mutable session policy outside core
+- [x] 7.1 Move the bounded actor policy store to standard feature infrastructure
   - Move current terminal policy store/tests to `internal/standardplugins/featurehost/sessionpolicy` unless Task 1.1 proves a second independent feature already uses the exact same semantics; only then use `internal/infra/sessionfeaturepolicy`.
   - Preserve key bounds, capacity, authority match, client/operator tri-state precedence, revisions and idempotent close.
   - Do not put terminal provider execution logic into this store.
@@ -311,7 +311,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 6.3_
   - _Validation: moved store tests under race; ownership-counting test remains on legacy owner_
 
-- [ ] 7.2 Replace core mutable policy dependency with effective snapshot reader
+- [x] 7.2 Replace core mutable policy dependency with effective snapshot reader
   - Add the narrow runtime `TerminalPolicyReader`/query/snapshot contract from design (or smaller if existing request-admission structure can carry the effective value directly).
   - Featurehost exposes an adapter for the moved store but must not become its physical owner until the Task 7.3 constructor/closer handoff is complete.
   - Core request admission sees effective enabled + revision only; actor-specific mutation and key-map ownership stay outside.
@@ -322,7 +322,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 7.1_
   - _Validation: request admission tests; HTTP/admin policy tests; terminal provider conflict/chokepoint tests; existing terminal-decision architecture ratchets still green before ownership switch_
 
-- [ ] 7.3 Atomically transfer terminal-policy ownership, delete core package, and migrate existing architecture ratchets
+- [x] 7.3 Atomically transfer terminal-policy ownership, delete core package, and migrate existing architecture ratchets
   - Enable featurehost/sessionpolicy process construction/ownership and in the **same integration change** remove the legacy `terminaldecisionpolicy.NewStore(...)` construction and legacy close registration from `NewProcessServices` (or the post-first equivalent).
   - Remove `TerminalDecisionPolicy` concrete field from `ProcessServices` and any direct concrete type in executor build inputs; update the Task 2.3 transition table and counted ownership test to require exactly one store construction and one physical close.
   - Delete `internal/core/terminaldecisionpolicy`; add/retain a resurrection ratchet.
@@ -340,8 +340,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 8. Replace feature-specific public host options with typed registrations
-- [ ] 8.1 Add startup-only `pkg/lipsdk/featurehost` registration envelope
+- [x] 8. Replace feature-specific public host options with typed registrations
+- [x] 8.1 Add startup-only `pkg/lipsdk/featurehost` registration envelope
   - Implement `Binding`, `Registration`, validation/identity bounds and duplicate detection from design.
   - No `any` payload, reflection, request-time lookup, resolver/service APIs or globals.
   - Standard SDK binding implementations must be nil-safe; add tests for nil, empty ID, duplicate ID, invalid binding, defensive slice handling and deterministic errors.
@@ -351,7 +351,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 7.3_
   - _Validation: `go test ./pkg/lipsdk/featurehost/...`; external compile fixture_
 
-- [ ] 8.2 Move reasoning host policy contract out of `pkg/lipruntime`
+- [x] 8.2 Move reasoning host policy contract out of `pkg/lipruntime`
   - Create `pkg/lipsdk/reasoninghost` (or reviewed equivalent) containing the current host-facing egress action/input/decision/policy and matcher binding semantics, without importing internal feature packages.
   - Add a typed host binding implementing the registration contract.
   - Move/adapt tests so the SDK contract is self-contained and typed-nil behavior remains safe.
@@ -360,7 +360,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 8.1_
   - _Validation: SDK tests; `go list` proving no internal imports_
 
-- [ ] 8.3 Teach standard featurehost to consume supported host bindings
+- [x] 8.3 Teach standard featurehost to consume supported host bindings
   - Generic runtime validates/forwards immutable registrations only.
   - Concrete binding type interpretation/type switches live only in `internal/standardplugins/featurehost/bindings.go`.
   - Bind reasoning host policy/matcher into predecessor reasoning composition without `pkg/lipruntime` or runtimebundle importing the feature.
@@ -371,7 +371,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 8.2_
   - _Validation: featurehost host-binding tests; reasoning integration tests_
 
-- [ ] 8.4 Collapse `pkg/lipruntime.Options` to one feature-host registration field
+- [x] 8.4 Collapse `pkg/lipruntime.Options` to one feature-host registration field
   - Add `FeatureHostRegistrations []featurehost.Registration`.
   - Delete `ReasoningCompressionOptions`, `adaptReasoningCompressionOptions`, concrete internal reasoning feature imports and the per-feature `ReasoningCompression` field by end of task.
   - If a public compatibility promise made after this SDD requires temporary source compatibility, implement a one-way deprecated adapter that produces the registration before build, errors on new+old conflict, and is explicitly marked for removal. Do not let standard featurehost inspect both paths.
@@ -383,8 +383,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 9. Move optional UX configuration/defaults out of core config
-- [ ] 9.1 Move interleaved feature configuration and built-in prompt to the feature
+- [x] 9. Move optional UX configuration/defaults out of core config
+- [x] 9.1 Move interleaved feature configuration and built-in prompt to the feature
   - Move `stream_to_client`, memo budget, max memo bytes, instructions file, built-in thinker prompt, file size/path policy and feature-specific validation/defaults to `internal/plugins/features/interleavedthinking/config.go`/`instructions.go`.
   - Core routing may retain only the minimum enablement/selector legality value if route planning genuinely requires it; prefer receiving enabled status through the generation-bound processor/route options rather than a full config object.
   - `internal/core/config` must not import the feature or define its prompt/defaults.
@@ -393,7 +393,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 8.4_
   - _Validation: config parity/migration tests; routing disabled/enabled behavior_
 
-- [ ] 9.2 Move keep-warm configuration to feature registration
+- [x] 9.2 Move keep-warm configuration to feature registration
   - Move current `prompt_cache.keepwarm` semantic config/defaults/validation to the `keepwarm` feature decoder.
   - Generic prompt-cache provider capability/profile config that is independently needed by core/backend contracts may stay; keep-warm scheduling policy may not.
   - Delete core config imports of keepwarm feature implementation.
@@ -402,7 +402,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 9.1_
   - _Validation: keepwarm config parity tests; config package import tests_
 
-- [ ] 9.3 Implement one-way legacy YAML normalization only if required
+- [x] 9.3 Implement one-way legacy YAML normalization only if required
   - First check current compatibility/release policy and repository fixtures. If old top-level syntax must remain accepted, implement `internal/standardplugins/legacyfeatureconfig` normalization exactly as design: legacy -> canonical `plugins.features` node before semantic feature decode; new+legacy conflict errors; one semantic validator.
   - If compatibility is not required, reject old syntax with an explicit migration error and update docs instead. Do **not** retain typed feature semantics in core config as a fallback.
   - Whichever path is selected must be locked by tests and recorded in closeout evidence.
@@ -411,7 +411,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 9.2_
   - _Validation: YAML golden tests for old/new/conflict/defaults; full config tests_
 
-- [ ] 9.4 Ratchet optional feature config ownership
+- [x] 9.4 Ratchet optional feature config ownership
   - Add compact archtest rules forbidding imports of `internal/plugins/features/*` from core config and forbidding known optional feature config/default symbols/large prompt literals in `internal/core/config`.
   - Add a structural test that a new standard feature config can be added through feature registration without editing core config production files.
   - _Requirements: 10.4, 12.1_
@@ -421,8 +421,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 10. Consolidate residual feature-only support and compose packages
-- [ ] 10.1 Re-run consumer analysis after all known migrations
+- [x] 10. Consolidate residual feature-only support and compose packages
+- [x] 10.1 Re-run consumer analysis after all known migrations
   - Refresh Task 1.1 census for predecessor reasoning/secretguard compose packages, remaining `compactioncompose`, `internal/reasoningreplay`, and every feature-specific infra/support row.
   - For each package record non-test production consumers and classify using Requirement 11.
   - Explicitly verify that every process resource from the Task 2.3 transition table is now either featurehost-owned or intentionally generic/borrowed; no `legacy`, `unassigned`, or dual-owner row may leave this task.
@@ -433,7 +433,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 9.4_
   - _Validation: import graph scan / `go list`; updated ownership + transition manifest; ownership-counting tests_
 
-- [ ] 10.2 Move one-feature support code under feature owners
+- [x] 10.2 Move one-feature support code under feature owners
   - Move reasoning replay/compression helpers and any equivalent one-feature algorithm identified by 10.1 beneath the owning feature package.
   - Update tests/imports mechanically; preserve public SDK separation.
   - Delete obsolete top-level helper packages and add absence ratchets where their return would recreate ambiguous ownership.
@@ -442,7 +442,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 10.1_
   - _Validation: affected feature tests; archtest_
 
-- [ ] 10.3 Fold feature-specific compose adapters under featurehost where appropriate
+- [x] 10.3 Fold feature-specific compose adapters under featurehost where appropriate
   - Move reasoning/secretguard/compaction adapter code that is solely standard-feature composition into featurehost children/details.
   - Keep only genuinely generic shared auxiliary scheduling/executor-runner infrastructure outside featurehost when two independent consumers are proven.
   - Generic runtimebundle may call only the featurehost facade, never child adapters.
@@ -452,7 +452,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 10.2_
   - _Validation: import graph; featurehost tests; `git grep` for direct runtimebundle adapter calls_
 
-- [ ] 10.4 Remove all per-feature fields from generic process/executor composition
+- [x] 10.4 Remove all per-feature fields from generic process/executor composition
   - Audit `ProcessServices`, `ProcessServicesInput`, `executorBuildInput`, `ExecutorConfig` groups, runtimebundle options and runtimehost handoff.
   - Remove any remaining field typed/named for a concrete optional standard feature, except the single `StandardFeatures` handle and minimal fixed consumer interfaces explicitly approved in design.
   - Ordinary extension behavior remains in `FrozenPlaneSet`/request snapshot, not dedicated executor fields.
@@ -465,8 +465,8 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 11. Lock the final architecture and prove change-surface reduction
-- [ ] 11.1 Create the durable core ownership manifest and admission test
+- [x] 11. Lock the final architecture and prove change-surface reduction
+- [x] 11.1 Create the durable core ownership manifest and admission test
   - Produce one machine-readable or compact Go table covering every final top-level `internal/core/*` package with category `kernel invariant` or `generic extension mechanism` plus a concise reason/independent consumer where applicable.
   - Architecture test must fail if a new top-level core package appears without an ownership entry.
   - This is a package admission gate, not a prohibition on all core growth; new entries require explicit architecture review.
@@ -476,7 +476,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 10.4_
   - _Validation: `go test ./internal/archtest/...`; `make arch-report`_
 
-- [ ] 11.2 Add permanent dependency/resurrection ratchets
+- [x] 11.2 Add permanent dependency/resurrection ratchets
   - Forbid `internal/core/** -> internal/plugins/features/**`, `runtimebundle -> concrete features`, runtimebundle -> featurehost child packages, feature packages -> core/runtimebundle, and public `pkg/lipruntime -> internal/plugins/features`.
   - Forbid resurrection of all core packages retired by both simplification specs, including final old conversation/interleaved/keepwarm/terminalpolicy paths.
   - Forbid a request-time featurehost service lookup/resolver or arbitrary binding map/reflection API.
@@ -486,7 +486,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 11.1_
   - _Validation: archtest with synthetic negative fixtures where existing framework supports them_
 
-- [ ] 11.3 Reset core and featurehost budgets from measured final code
+- [x] 11.3 Reset core and featurehost budgets from measured final code
   - Measure final non-test `internal/core` LOC and set the hard budget to measured final + the repo's small standard fixed headroom. Never preserve deleted feature LOC as spare capacity.
   - Add a separate recursive budget for `internal/standardplugins/featurehost` plus critical-file caps so feature growth cannot turn the facade into a god package.
   - Review existing `runtimebundle` budget and lower it if this spec deletes generic feature wiring; do not increase it to absorb migration scaffolding.
@@ -496,7 +496,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 11.2_
   - _Validation: `make arch-report`; budget tests_
 
-- [ ] 11.4 Run two disposable change-surface probes
+- [x] 11.4 Run two disposable change-surface probes
   - **Ordinary feature probe**: add a temporary standard feature using existing planes only; production changes must be limited to feature package + standard distribution registration/composition, with zero core/runtimebundle/public SDK production edits.
   - **Host-bound feature probe**: add a temporary host-bound feature using only already-modeled host registration/generic facts; it must require no new `ProcessServices`, `ExecutorConfig` or `pkg/lipruntime.Options` field and no core/runtimebundle production edit.
   - Run tests, record exact touched production files, then revert/delete probe code before merge while retaining evidence/assertion tests where useful.
@@ -506,7 +506,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 11.3_
   - _Validation: git diff/change-surface report + full focused tests_
 
-- [ ] 11.5 Re-run fixed-cost performance and concurrency certification
+- [x] 11.5 Re-run fixed-cost performance and concurrency certification
   - Compare predecessor plane/request snapshot allocations; require no regression.
   - Compare conversation projection benchmark/allocation behavior from Task 1.3; structural move must not add request-time lookup/locking/allocation beyond intentional snapshot construction.
   - Run keep-warm/compaction/session-policy concurrent tests under race.
@@ -516,7 +516,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 11.4_
   - _Validation: focused `-benchmem`; `go test -race`; current CI race workflow_
 
-- [ ] 11.6 Reconcile public docs, steering and authoring guidance
+- [x] 11.6 Reconcile public docs, steering and authoring guidance
   - Update architecture/extension authoring/plugin authoring/core-boundaries/steering docs to final package ownership.
   - Document core admission rule, standard featurehost role, host-feature registrations, feature-owned config, and distinction between kernel routing operators vs optional policy implementations.
   - Document the process-resource handoff rule as an implementation invariant: one constructor/physical close owner; `StandardFeatures.Close` never closes borrowed generic process resources.
@@ -530,7 +530,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 12. Close the program with zero residual simplification debt
-- [ ] 12.1 Regenerate final ownership census and require zero deferred row
+- [x] 12.1 Regenerate final ownership census and require zero deferred row
   - Repeat Task 1.1 against the final implementation.
   - Every production responsibility must be one of: kernel invariant, generic extension mechanism, optional feature implementation/policy, feature-specific infrastructure/composition, standard-distribution composition. No `mixed`, `unknown`, `temporary`, `compat-to-remove`, or `future simplification` row.
   - Verify every optional feature/policy row is outside core/generic runtime composition and every surviving core row has manifest justification.
@@ -542,7 +542,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 11.6_
   - _Validation: ownership manifest/census + process ownership tests; import/structure scans; `make arch-report`_
 
-- [ ] 12.2 Run independent architecture review against requirements/design
+- [x] 12.2 Run independent architecture review against requirements/design
   - Reviewer must explicitly check: kernel authority preservation; no feature semantics in core; featurehost not DI/service locator; process/generation cleanup singularity; public host binding safety; config single authority; conversation/interleaved split correctness; explicit interleaved adapter without feature->core import; migration of stale ownership-specific architecture tests; no request-hot-path lookup; no output/retry semantic drift.
   - Classify only material findings. Fix blockers/high material findings before closeout; do not generate a new cleanup tracker for them.
   - Record review verdict and resolved findings in normal PR/spec closeout evidence location used by the repo; do not add an unnecessary permanent report if existing spec workflow stores it elsewhere.
@@ -551,7 +551,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 12.1_
   - _Validation: independent review + focused reruns for repaired findings_
 
-- [ ] 12.3 Run full repository certification
+- [x] 12.3 Run full repository certification
   - Run current canonical correctness, architecture, generated-code, docs, vet, vulnerability, module verification and external SDK contract gates.
   - Run exact Linux race certification for concurrency-sensitive moved state/lifetimes.
   - Run relevant fuzz/integration/DB parity suites and fixed-cost benchmarks from Task 11.5.

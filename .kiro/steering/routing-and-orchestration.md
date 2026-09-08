@@ -9,7 +9,7 @@ Core (`internal/core/`) strictly owns:
 - B2BUA pre-output recovery policy & lineage tracking (`internal/core/b2bua`).
 - Stage evaluation & attempt coordination ([`internal/core/authoritycoord`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/authoritycoord)).
 - Control plane projections ([`internal/core/controlplane`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/controlplane)).
-- Interleaved reasoning memo stores & sanitization ([`internal/core/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/interleavedthinking)).
+- Interleaved thinker cycle authority in core plus feature-owned memo processing ([`internal/core/interleavedstate`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/interleavedstate), [`internal/plugins/features/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking)).
 
 Plugins supply policy inputs via SDK contracts; plugins **never** own orchestration logic.
 
@@ -76,7 +76,7 @@ Runtime has exactly two billing touch points: a cheap settled-credit screen befo
 
 ## Interleaved Reasoning Preservation
 
-- **Memo Store**: [`internal/core/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/interleavedthinking) (`memo.go`, `memo_store.go`) retains structured reasoning blocks across turns and B2BUA failover attempts.
+- **Memo Store**: [`internal/plugins/features/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking) retains structured reasoning blocks across turns and B2BUA failover attempts; only routing-required cycle values stay core-owned in `internal/core/interleavedstate`.
 - **Shape & Sanitize**: `shape.go` and `sanitize.go` prevent reasoning duplication/corruption across retries.
 
 ---

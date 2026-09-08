@@ -665,7 +665,6 @@ func TestStore_InterleavedState_restartSurvival(t *testing.T) {
 			},
 			NextIndex: 1,
 		},
-		MemoRef: &interleavedstate.MemoRef{Key: "m", Version: 2},
 	}
 	if err := s1.SetInterleavedState(ctx, leg.ALegID, want); err != nil {
 		t.Fatal(err)

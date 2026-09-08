@@ -71,8 +71,8 @@ func TestForbiddenImportsAbsent(t *testing.T) {
 func TestPackageTreeBudgetsExact(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	if len(PackageTreeBudgets) != 4 {
-		t.Fatalf("PackageTreeBudgets: want 4 entries, got %d", len(PackageTreeBudgets))
+	if len(PackageTreeBudgets) != 5 {
+		t.Fatalf("PackageTreeBudgets: want 5 entries, got %d", len(PackageTreeBudgets))
 	}
 	for _, tc := range PackageTreeBudgets {
 		t.Run(tc.Tree, func(t *testing.T) {

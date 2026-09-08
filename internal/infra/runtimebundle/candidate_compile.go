@@ -15,9 +15,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
 
@@ -29,7 +28,7 @@ type GenerationCompileInput struct {
 	Compose          HandlerComposer
 	LiveFactoryKinds map[string]int
 	FaultInject      CandidateFaultInject
-	GenerationRunner *compactioncompose.GenerationExecutorRunner
+	GenerationRunner *auxiliary.GenerationExecutorRunner
 }
 
 func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidateAssembly, error) {
@@ -133,13 +132,12 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if err != nil {
 		return nil, fail(err)
 	}
-	var regs []lipsdk.Registration
-	if cfg != nil {
-		regs = config.RegistrationsFromConfig(cfg)
-	}
-	sg, err := buildSecretGuardRuntime(cfg, log, opts, regs)
-	if err != nil {
-		return nil, fail(err)
+	var sg *secretGuardRuntime
+	if opts.Extensions.SecretGuard != nil {
+		sg = &secretGuardRuntime{
+			Plane:     *opts.Extensions.SecretGuard,
+			Inventory: opts.Extensions.SecretGuardInventory,
+		}
 	}
 	obs := buildGenerationObservability(bctx, ps.Metrics)
 	model, err := buildModelRuntime(bctx, obs.Upstream)
@@ -164,27 +162,30 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		return nil, fail(err)
 	}
 	execRun, err := buildExecutorRuntime(executorBuildInput{
-		Bctx:                   bctx,
-		Ledger:                 ledger,
-		NowFn:                  nowFn,
-		Ext:                    ext,
-		Model:                  model,
-		Persistence:            ps.persistence,
-		Security:               sec,
-		Observability:          &obs,
-		ControlPlane:           ps.controlPlane,
-		UsageAuthority:         ps.UsageAuthority,
-		Concurrency:            ps.concurrencyRT,
-		SnapshotGeneration:     ps.SnapshotGeneration,
-		TerminalWork:           ps.terminalWorkRT,
-		SharedMutable:          ps.sharedMutable,
-		AccountingStores:       ps.accountingStores,
-		Metering:               ps.meteringRT,
-		BackendIdentities:      backendIDs,
-		CompactionDetector:     ps.CompactionDetector,
-		CompactionScheduler:    ps.BackgroundAux,
-		GenerationRunner:       in.GenerationRunner,
-		TerminalDecisionPolicy: ps.TerminalDecisionPolicy,
+		Bctx:                 bctx,
+		Ledger:               ledger,
+		NowFn:                nowFn,
+		Ext:                  ext,
+		Model:                model,
+		Persistence:          ps.persistence,
+		Security:             sec,
+		Observability:        &obs,
+		ControlPlane:         ps.controlPlane,
+		UsageAuthority:       ps.UsageAuthority,
+		Concurrency:          ps.concurrencyRT,
+		SnapshotGeneration:   ps.SnapshotGeneration,
+		TerminalWork:         ps.terminalWorkRT,
+		SharedMutable:        ps.sharedMutable,
+		AccountingStores:     ps.accountingStores,
+		Metering:             ps.meteringRT,
+		BackendIdentities:    backendIDs,
+		CompactionDetector:   ps.StandardFeatures.CompactionDetector(),
+		BackgroundScheduler:  ps.BackgroundAux,
+		GenerationRunner:     in.GenerationRunner,
+		TerminalPolicyReader: opts.CorePorts.TerminalPolicyReader,
+		ConversationReader:   ps.StandardFeatures.ConversationReader(),
+		ConversationStore:    ps.StandardFeatures.ConversationStore(),
+		InterleavedProcessor: opts.CorePorts.InterleavedProcessor,
 	})
 	if err != nil {
 		return nil, fail(err)
@@ -205,10 +206,6 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		return nil, fail(err)
 	}
 	exec = execRun.Exec
-	var twReady func(context.Context) error
-	if ps.terminalWorkRT != nil {
-		twReady = ps.terminalWorkRT.checkReady
-	}
 	var billingProvisioner billing.AccountProvisioner
 	var billingExposureRecovery billing.ExposureRecovery
 	if billingCompositionConfigured(execRun.Production) {
@@ -244,36 +241,39 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			billingReportsPath:      execRun.Production.BillingReportsPath,
 			billingProvisioner:      billingProvisioner,
 			billingExposureRecovery: billingExposureRecovery,
-			keepwarmAccounting:      execRun.Production.KeepwarmAccounting,
+			keepwarmAccounting:      execRun.Production.MaintenanceAccounting,
 			tokenAccountingAdmin:    execRun.TokenAccountingAdmin,
 			readinessReport:         execRun.ReadinessReport,
-			secretGuardInventory:    sg.Inventory,
+			secretGuardInventory:    opts.Extensions.SecretGuardInventory,
 			terminalProcessor:       ps.TerminalWorkProcessor,
 			terminalRegistry:        ps.TerminalWorkRegistry,
 			terminalQueries:         ps.TerminalWorkQueries,
 			terminalMetrics:         ps.TerminalWorkMetrics,
 		},
 		process: candidateProcessRefs{
-			store:                  ps.Continuity,
-			pluginRegistry:         ps.FactoryCatalog,
-			databasePools:          ps.DatabasePools,
-			metrics:                ps.Metrics,
-			controlPlaneQueries:    ps.controlPlane.queriesHandle(),
-			controlPlaneStatus:     ps.controlPlane.statusHandle(),
-			controlPlaneRetention:  ps.controlPlane.retentionHandle(),
-			usageAuthority:         ps.UsageAuthority,
-			concurrencyAuthority:   ps.Concurrency,
-			snapshotGeneration:     ps.SnapshotGeneration,
-			snapshotController:     ps.SnapshotController,
-			meteringQuerier:        ps.MeteringQuerier,
-			keepwarmPolicy:         ps.KeepwarmPolicy,
-			keepwarmRegistry:       ps.KeepwarmRegistry,
-			geoip:                  ps.GeoIP,
-			secureSessions:         ps.SecureSessions,
-			terminalDecisionPolicy: ps.TerminalDecisionPolicy,
+			store:                 ps.Continuity,
+			pluginRegistry:        ps.FactoryCatalog,
+			databasePools:         ps.DatabasePools,
+			metrics:               ps.Metrics,
+			controlPlaneQueries:   ps.controlPlane.queriesHandle(),
+			controlPlaneStatus:    ps.controlPlane.statusHandle(),
+			controlPlaneRetention: ps.controlPlane.retentionHandle(),
+			usageAuthority:        ps.UsageAuthority,
+			concurrencyAuthority:  ps.Concurrency,
+			snapshotGeneration:    ps.SnapshotGeneration,
+			snapshotController:    ps.SnapshotController,
+			meteringQuerier:       ps.MeteringQuerier,
+			standardFeatures:      ps.StandardFeatures,
+			geoip:                 ps.GeoIP,
+			secureSessions:        ps.SecureSessions,
 		},
-		ledger:            ledger,
-		terminalWorkReady: twReady,
-		terminalWorkRT:    ps.terminalWorkRT,
+		ledger: ledger,
+		terminalWorkReady: func() func(context.Context) error {
+			if ps.terminalWorkRT != nil {
+				return ps.terminalWorkRT.checkReady
+			}
+			return nil
+		}(),
+		terminalWorkRT: ps.terminalWorkRT,
 	}, nil
 }

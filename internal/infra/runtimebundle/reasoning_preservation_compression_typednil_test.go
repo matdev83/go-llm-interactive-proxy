@@ -9,13 +9,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	sdkauxiliary "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/reasoninghost"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"gopkg.in/yaml.v3"
 )
@@ -23,23 +25,23 @@ import (
 // typed nil implementations
 type typedNilClient struct{}
 
-func (t *typedNilClient) SubmitCollect(ctx context.Context, req auxiliary.Request, opts auxiliary.SubmitOptions) (auxiliary.JobID, error) {
+func (t *typedNilClient) SubmitCollect(ctx context.Context, req sdkauxiliary.Request, opts sdkauxiliary.SubmitOptions) (sdkauxiliary.JobID, error) {
 	return "", nil
 }
 
-func (t *typedNilClient) Await(ctx context.Context, id auxiliary.JobID) (lipapi.Collected, error) {
+func (t *typedNilClient) Await(ctx context.Context, id sdkauxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
-func (t *typedNilClient) Forget(id auxiliary.JobID) {}
+func (t *typedNilClient) Forget(id sdkauxiliary.JobID) {}
 
-func (t *typedNilClient) Poll(ctx context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
-	return auxiliary.PollResult{}, nil
+func (t *typedNilClient) Poll(ctx context.Context, id sdkauxiliary.JobID) (sdkauxiliary.PollResult, error) {
+	return sdkauxiliary.PollResult{}, nil
 }
 
 type typedNilEgress struct{}
 
-func (t *typedNilEgress) Decide(_ context.Context, _ reasoningpreservation.CompressionEgressInput) (reasoningpreservation.CompressionEgressDecision, error) {
-	return reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: "v1"}, nil
+func (t *typedNilEgress) Decide(_ context.Context, _ reasoninghost.EgressInput) (reasoninghost.EgressDecision, error) {
+	return reasoninghost.EgressDecision{Action: reasoninghost.EgressAllow, PolicyVersion: "v1"}, nil
 }
 
 type typedNilResolver struct{}
@@ -105,13 +107,13 @@ compression:
 func TestReasoningPreservation_TypedNilClientFailsClosed(t *testing.T) {
 	t.Parallel()
 	var nilClient *typedNilClient
-	var client auxiliary.BackgroundClient = nilClient
+	var client sdkauxiliary.BackgroundClient = nilClient
 	var nilPoller *typedNilClient
-	var poller auxiliary.BackgroundPoller = nilPoller
-	if !isNilReasoningCapability(client) {
+	var poller sdkauxiliary.BackgroundPoller = nilPoller
+	if !isNilAuxiliaryCapability(client) {
 		t.Fatal("typed nil client should be detected as nil")
 	}
-	if !isNilReasoningCapability(poller) {
+	if !isNilAuxiliaryCapability(poller) {
 		t.Fatal("typed nil poller should be detected as nil")
 	}
 	regs := []struct {
@@ -123,13 +125,13 @@ func TestReasoningPreservation_TypedNilClientFailsClosed(t *testing.T) {
 	_ = regs
 	// Build minimal ProcessServices with typed nil policy/resolver also
 	var nilPolicy *typedNilEgress
-	var policy reasoningpreservation.EgressPolicy = nilPolicy
-	if !isNilReasoningCapability(policy) {
+	var policy reasoninghost.EgressPolicy = nilPolicy
+	if !isNilAuxiliaryCapability(policy) {
 		t.Fatal("typed nil egress policy should be nil")
 	}
 	var nilResolver *typedNilResolver
 	var resolver sdk.MatcherResolver = nilResolver
-	if !isNilReasoningCapability(resolver) {
+	if !isNilAuxiliaryCapability(resolver) {
 		t.Fatal("typed nil resolver should be nil")
 	}
 	// Direct isNil checks already cover; now test validate fails
@@ -141,7 +143,12 @@ func TestReasoningPreservation_TypedNilClientFailsClosed(t *testing.T) {
 	_ = jobRegs
 	// Use the actual validate function with typed nil client
 	fromRegs := config.RegistrationsFromConfig(&config.Config{Plugins: config.PluginsConfig{Features: []config.PluginConfig{{ID: reasoningpreservation.ID, Enabled: true, Config: node}}}})
-	ps2 := &ProcessServices{opts: &BuildOptions{Production: ProductionOptions{ReasoningCompression: ReasoningCompressionOptions{EgressPolicies: map[string]reasoningpreservation.EgressPolicy{"ref": &typedNilEgress{}}, MatcherResolver: &typedNilResolver{}}}}}
+	ps2 := &ProcessServices{opts: &BuildOptions{Production: ProductionOptions{FeatureHostRegistrations: []featurehost.Registration{
+		(&reasoninghost.Binding{
+			EgressPolicies:  map[string]reasoninghost.EgressPolicy{"ref": &typedNilEgress{}},
+			MatcherResolver: &typedNilResolver{},
+		}).Registration(),
+	}}}}
 	if err := validateReasoningPreservationCompressionGeneration(ps2, fromRegs, client, poller); err == nil || !strings.Contains(err.Error(), "BackgroundAux") {
 		t.Fatalf("typed nil client/poller should fail closed, got %v", err)
 	}
@@ -154,41 +161,61 @@ func TestReasoningPreservation_TypedNilPolicyResolverFailsClosed(t *testing.T) {
 	// Production with typed nil policy map entry and typed nil resolver
 	var nilPolicy *typedNilEgress
 	var nilResolver *typedNilResolver
-	psPolicyNil := &ProcessServices{opts: &BuildOptions{Production: ProductionOptions{ReasoningCompression: ReasoningCompressionOptions{
-		EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"typed-ref": nilPolicy},
-		MatcherResolver: &typedNilResolver{},
+	psPolicyNil := &ProcessServices{opts: &BuildOptions{Production: ProductionOptions{FeatureHostRegistrations: []featurehost.Registration{
+		(&reasoninghost.Binding{
+			EgressPolicies:  map[string]reasoninghost.EgressPolicy{"typed-ref": nilPolicy},
+			MatcherResolver: &typedNilResolver{},
+		}).Registration(),
 	}}}}
 	// Need a non-nil client/poller
 	scheduler, _ := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return fixedRunnerForTypedNil{id: "x"} }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 2, MaxResults: 5})
 	t.Cleanup(func() { _ = scheduler.Close() })
-	genRunner := compactioncompose.NewGenerationExecutorRunner()
+	genRunner := auxiliary.NewGenerationExecutorRunner()
 	bound := scheduler.BindRunner(genRunner)
-	bPoller, ok := bound.(auxiliary.BackgroundPoller)
+	bPoller, ok := bound.(sdkauxiliary.BackgroundPoller)
 	if !ok {
 		t.Fatal("bound background client must implement BackgroundPoller")
 	}
 	if err := validateReasoningPreservationCompressionGeneration(psPolicyNil, regs, bound, bPoller); err == nil || !strings.Contains(err.Error(), "EgressPolicy") {
 		t.Fatalf("typed nil policy should fail closed, got %v", err)
 	}
-	psResolverNil := &ProcessServices{opts: &BuildOptions{Production: ProductionOptions{ReasoningCompression: ReasoningCompressionOptions{
-		EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"typed-ref": &typedNilEgress{}},
-		MatcherResolver: nilResolver,
+	psResolverNil := &ProcessServices{opts: &BuildOptions{Production: ProductionOptions{FeatureHostRegistrations: []featurehost.Registration{
+		(&reasoninghost.Binding{
+			EgressPolicies:  map[string]reasoninghost.EgressPolicy{"typed-ref": &typedNilEgress{}},
+			MatcherResolver: nilResolver,
+		}).Registration(),
 	}}}}
 	if err := validateReasoningPreservationCompressionGeneration(psResolverNil, regs, bound, bPoller); err == nil || !strings.Contains(err.Error(), "MatcherResolver") {
 		t.Fatalf("typed nil resolver should fail closed, got %v", err)
 	}
 	// IsNil direct
-	if !isNilReasoningCapability(nilPolicy) {
+	if !isNilAuxiliaryCapability(nilPolicy) {
 		t.Fatal("typed nil policy isNil false")
 	}
-	if !isNilReasoningCapability(nilResolver) {
+	if !isNilAuxiliaryCapability(nilResolver) {
 		t.Fatal("typed nil resolver isNil false")
 	}
 	// Also lookup returns nil for typed nil resolver entry
-	psLookup := &ProcessServices{opts: &BuildOptions{Production: ProductionOptions{ReasoningCompression: ReasoningCompressionOptions{MatcherResolver: nilResolver}}}}
-	if r := lookupReasoningMatcherResolver(psLookup); !isNilReasoningCapability(r) {
+	psLookup := &ProcessServices{opts: &BuildOptions{Production: ProductionOptions{FeatureHostRegistrations: []featurehost.Registration{
+		(&reasoninghost.Binding{MatcherResolver: nilResolver}).Registration(),
+	}}}}
+	if r := lookupReasoningMatcherResolver(psLookup); !isNilAuxiliaryCapability(r) {
 		t.Fatalf("lookup should return typed nil resolver as nil, got %v", r)
 	}
+}
+
+// lookupReasoningMatcherResolver is a test helper that extracts MatcherResolver
+// from FeatureHostRegistrations for testing.
+func lookupReasoningMatcherResolver(ps *ProcessServices) sdk.MatcherResolver {
+	if ps == nil || ps.opts == nil {
+		return nil
+	}
+	for _, reg := range ps.opts.Production.FeatureHostRegistrations {
+		if b, ok := reg.Binding.(*reasoninghost.Binding); ok && b != nil {
+			return b.MatcherResolver
+		}
+	}
+	return nil
 }
 
 func TestReasoningPreservation_NilMatcherFailsClosed(t *testing.T) {
@@ -216,7 +243,7 @@ func TestReasoningPreservation_NilMatcherFailsClosed(t *testing.T) {
 	// Also typed nil matcher via resolver that returns typed nil matcher
 	typedNilM := (*typedNilMatcher)(nil)
 	var m sdk.Matcher = typedNilM
-	if !isNilReasoningCapability(m) {
+	if !isNilAuxiliaryCapability(m) {
 		t.Fatal("typed nil matcher should be nil")
 	}
 }
@@ -284,7 +311,12 @@ compression:
 	// Use full CompileGeneration with enabled config and ensure only one set
 	scheduler, _ := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return fixedRunnerForTypedNil{id: "dup"} }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 4, MaxResults: 10})
 	t.Cleanup(func() { _ = scheduler.Close() })
-	prod := ProductionOptions{ReasoningCompression: ReasoningCompressionOptions{EgressPolicies: map[string]reasoningpreservation.EgressPolicy{"dup-ref": &typedNilEgress{}}, MatcherResolver: &typedNilResolver{}}}
+	prod := ProductionOptions{FeatureHostRegistrations: []featurehost.Registration{
+		(&reasoninghost.Binding{
+			EgressPolicies:  map[string]reasoninghost.EgressPolicy{"dup-ref": &typedNilEgress{}},
+			MatcherResolver: &typedNilResolver{},
+		}).Registration(),
+	}}
 	opts := &BuildOptions{PluginRegistry: reg, Production: prod}
 	cfg := &config.Config{
 		Routing: config.RoutingConfig{MaxAttempts: 3}, Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
@@ -329,21 +361,26 @@ func TestReasoningPreservation_GeneratorBoundActualExecution(t *testing.T) {
 	execID := "gen-exec"
 	scheduler, _ := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return fixedRunnerForTypedNil{id: execID} }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 4, MaxResults: 10})
 	t.Cleanup(func() { _ = scheduler.Close() })
-	prod := ProductionOptions{ReasoningCompression: ReasoningCompressionOptions{EgressPolicies: map[string]reasoningpreservation.EgressPolicy{"gen-ref": &typedNilEgress{}}, MatcherResolver: &typedNilResolver{}}}
+	prod := ProductionOptions{FeatureHostRegistrations: []featurehost.Registration{
+		(&reasoninghost.Binding{
+			EgressPolicies:  map[string]reasoninghost.EgressPolicy{"gen-ref": &typedNilEgress{}},
+			MatcherResolver: &typedNilResolver{},
+		}).Registration(),
+	}}
 	opts := &BuildOptions{PluginRegistry: reg, Production: prod}
 	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{Cfg: cfg, Log: slog.Default(), Opts: opts, BackgroundAux: scheduler})
 	if err != nil {
 		t.Fatalf("NewProcessServices: %v", err)
 	}
 	t.Cleanup(func() { _ = ps.Close() })
-	genRunner, boundClient, boundPoller, err := newReasoningCompressionGenerationRunner(ps)
+	genRunner, boundClient, boundPoller, err := newGenerationAuxiliaryRunner(ps)
 	if err != nil {
 		t.Fatalf("newRunner: %v", err)
 	}
 	if genRunner == nil || boundClient == nil || boundPoller == nil {
 		t.Fatalf("runner/client/poller nil")
 	}
-	jid, err := boundClient.SubmitCollect(context.Background(), auxiliary.Request{Call: &lipapi.Call{ID: "test-gen"}}, auxiliary.SubmitOptions{CoalesceKey: "k-gen"})
+	jid, err := boundClient.SubmitCollect(context.Background(), sdkauxiliary.Request{Call: &lipapi.Call{ID: "test-gen"}}, sdkauxiliary.SubmitOptions{CoalesceKey: "k-gen"})
 	if err != nil {
 		t.Fatalf("SubmitCollect failed: %v", err)
 	}
@@ -357,8 +394,8 @@ func TestReasoningPreservation_GeneratorBoundActualExecution(t *testing.T) {
 		t.Fatalf("Poll should not be ErrNotConfigured, got %v", err)
 	}
 	// Also ensure that a direct Disabled client would fail
-	disabled := auxiliary.DisabledBackgroundClient{}
-	if _, err := disabled.SubmitCollect(context.Background(), auxiliary.Request{Call: &lipapi.Call{ID: "x"}}, auxiliary.SubmitOptions{CoalesceKey: "k"}); err == nil || !strings.Contains(err.Error(), "not configured") {
+	disabled := sdkauxiliary.DisabledBackgroundClient{}
+	if _, err := disabled.SubmitCollect(context.Background(), sdkauxiliary.Request{Call: &lipapi.Call{ID: "x"}}, sdkauxiliary.SubmitOptions{CoalesceKey: "k"}); err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("disabled client should be ErrNotConfigured")
 	}
 }

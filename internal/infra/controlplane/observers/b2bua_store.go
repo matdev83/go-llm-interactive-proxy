@@ -180,7 +180,16 @@ func mapB2BUAAttemptOutcome(o lipapi.AttemptOutcome) (cp.AttemptSurfaced, cp.Att
 	return cp.AttemptSurfacedUnknown, cp.AttemptOutcomeUnknown
 }
 
+// Unwrap returns the underlying b2bua.Store delegate.
+func (b *B2BUAStoreDecorator) Unwrap() any {
+	if b == nil {
+		return nil
+	}
+	return b.delegate
+}
+
 var (
-	_ b2bua.Store                 = (*B2BUAStoreDecorator)(nil)
-	_ b2bua.InterleavedStateStore = (*B2BUAStoreDecorator)(nil)
+	_ b2bua.Store                  = (*B2BUAStoreDecorator)(nil)
+	_ b2bua.InterleavedStateStore  = (*B2BUAStoreDecorator)(nil)
+	_ b2bua.ALegRetirementObserver = (*B2BUAStoreDecorator)(nil)
 )

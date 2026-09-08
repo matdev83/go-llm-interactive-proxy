@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 )
@@ -57,3 +58,16 @@ func (c *candidateAssembly) RollbackUnpublished() error {
 }
 
 func (c *candidateAssembly) Close() error { return c.RollbackUnpublished() }
+
+// discardAcquiredKeepwarm releases a featurehost-acquired keep-warm cleanup
+// when candidate compilation fails before any candidate ledger exists to own
+// it, so rejected candidates never leak managers into the process registry.
+func discardAcquiredKeepwarm(ctx context.Context, compileErr error, quiesce func(context.Context) error) error {
+	if quiesce == nil {
+		return compileErr
+	}
+	if qErr := quiesce(ctxOrBackground(ctx)); qErr != nil {
+		return errors.Join(compileErr, qErr)
+	}
+	return compileErr
+}

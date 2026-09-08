@@ -8,26 +8,22 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/geoip"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -35,7 +31,6 @@ import (
 )
 
 // ProcessTracing holds process-owned tracing shutdown and outbound-propagation state.
-// Constructed once at process startup (typically via tracing.Init in bootstrap).
 type ProcessTracing struct {
 	Shutdown func(context.Context) error
 	Active   bool
@@ -57,8 +52,6 @@ type ProcessServices struct {
 	ALegLifecycle      *leglifecycle.Coordinator
 	AffinityStore      affinity.Store
 	CandidateHealth    policy.CandidateHealth
-	KeepwarmPolicy     *keepwarm.PolicyStore
-	KeepwarmRegistry   *keepwarm.ManagerRegistry
 	ExtensionState     lipstate.Store
 	MeteringRecorder   metering.Recorder
 	UsageAuthority     *authorityapp.Service
@@ -67,20 +60,14 @@ type ProcessServices struct {
 	SnapshotController *SnapshotController
 	MeteringQuerier    metering.Querier
 
-	// TerminalDecisionPolicy is the single process-owned policy store used by
-	// request admission across all immutable generations.
-	TerminalDecisionPolicy *terminaldecisionpolicy.Store
-
 	TerminalWorkProcessor *terminalworkapp.Processor
 	TerminalWorkRegistry  *terminalworkapp.Registry
 	TerminalWorkQueries   *terminalworkapp.QueryService
 	TerminalWorkMetrics   *terminalworkapp.MetricsObserver
-	// Process-owned compaction detector shared by all runtime generations (7.1).
-	CompactionDetector runtime.CompactionDetector
-	BackgroundAux      *BackgroundAuxScheduler
-	// BranchCoordinator is process-owned and survives immutable generation reload.
-	BranchCoordinator    *compactioncontinuity.BranchCoordinator
-	CompactionParentPort *compactioncompose.CompactionContinuityParentPort
+	BackgroundAux         *BackgroundAuxScheduler
+
+	// StandardFeatures owns the single standard-distribution feature host handle (Task 2.3).
+	StandardFeatures *featurehost.Runtime
 
 	// Internal handles required by candidate compilation (non-API).
 	persistence       *persistenceRuntime
@@ -108,6 +95,11 @@ type ProcessServicesInput struct {
 	Log     *slog.Logger
 	Opts    *BuildOptions
 	Tracing ProcessTracing
+	// HostEnv is a generic process-environment capability forwarded to the
+	// standard feature host, which synthesizes the default env-derived host
+	// binding from it when no explicit binding is registered. It names no
+	// concrete feature and carries no feature semantics.
+	HostEnv featurehost.HostEnvironment
 	// PluginResourcePool, PluginHost, PluginArtifacts, and PluginStagingDir are
 	// process-owned discovered-plugin resources. When set, NewProcessServices
 	// takes sole ownership and disposes them once after generation retirement in

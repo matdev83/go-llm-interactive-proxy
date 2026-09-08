@@ -7,9 +7,10 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,16 +18,20 @@ func TestBuildSecretGuardRuntime_multiUserZeroEnvEvenWithMalformedSingleUser(t *
 	t.Parallel()
 	// Composition security boundary: multi-user source construction must never call Environment.
 	env := &panicSGEnv{}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuardEnvironment: env,
-		SecretGuardInputs: SecretGuardInputs{
-			SingleUser: secretguardcompose.SingleUserOptions{
-				IncludePopularEnv: true,
-				IncludeEnv:        []string{"OPENAI_API_KEY"},
-				MinSecretBytes:    8,
+	opts := &BuildOptions{
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{
+					Environment: env,
+					SingleUser: secretguardhost.SingleUserOptions{
+						IncludePopularEnv: true,
+						IncludeEnv:        []string{"OPENAI_API_KEY"},
+						MinSecretBytes:    8,
+					},
+				}).Registration(),
 			},
 		},
-	}}
+	}
 	regs := []lipsdk.Registration{{
 		Kind:        lipsdk.PluginKindFeature,
 		ID:          "secrets-guard",
@@ -35,7 +40,7 @@ func TestBuildSecretGuardRuntime_multiUserZeroEnvEvenWithMalformedSingleUser(t *
 		Config:      lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: block\n")},
 	}}
 	cfg := &config.Config{Access: config.AccessConfig{Mode: "multi_user"}}
-	if _, err := buildSecretGuardRuntime(cfg, nilDiscardLogger(), opts, regs); err != nil {
+	if _, err := testBuildSecretGuardRuntime(cfg, nilDiscardLogger(), opts, regs); err != nil {
 		t.Fatal(err)
 	}
 	if env.calls != 0 {
@@ -65,10 +70,16 @@ single_user:
 		Enabled:     true,
 		Config:      lipsdk.ConfigPayload{Node: raw},
 	}}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuardEnvironment: env,
-	}}
-	rt, err := buildSecretGuardRuntime(&config.Config{}, nilDiscardLogger(), opts, regs)
+	opts := &BuildOptions{
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{
+					Environment: env,
+				}).Registration(),
+			},
+		},
+	}
+	rt, err := testBuildSecretGuardRuntime(&config.Config{}, nilDiscardLogger(), opts, regs)
 	if err != nil {
 		t.Fatal(err)
 	}

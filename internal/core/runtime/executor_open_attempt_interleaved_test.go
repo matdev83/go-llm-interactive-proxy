@@ -11,14 +11,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -129,7 +129,7 @@ func TestExecutor_OpenAttempt_ShapesThinkerCallBeforeOpen(t *testing.T) {
 		),
 		"unused-exec": recoverableInterleavedBackend(nil),
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step and emit a memo."}
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step and emit a memo."}, nil)
 
 	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
 	stream, err := ex.Execute(context.Background(), call)
@@ -204,8 +204,9 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 			capture,
 		),
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
-	ex.MemoStore = memoStore
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
+	cv := wireInterleavedTestSteering(ex)
 
 	// Seed an A-leg via a valid selector whose executor branch is reachable first.
 	first := interleavedBaseCall("[thinker]other-be:m^exec-be:m")
@@ -224,7 +225,7 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	// Seed a memo for the A-leg scope and record its reference on the A-leg interleaved state.
 	// Since #391 the memo is presented to executors exclusively through the
 	// conversation-view steering overlay, so that overlay is seeded below too.
-	memoRef, err := memoStore.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
+	_, err = memoStore.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
 		Memo:                  "plan: do the thing",
 		SourceSelector:        "[thinker]exec-be:m^exec-be:m",
 		Backend:               "exec-be",
@@ -234,8 +235,7 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 		t.Fatalf("memo put: %v", err)
 	}
 	if err := st.SetInterleavedState(context.Background(), aLegID, interleavedstate.State{
-		Cycle:   interleavedstate.CycleState{SelectorKey: "exec-be:m", Sequence: []interleavedstate.CycleEntry{{Key: "exec-be:m", Role: interleavedstate.RoleThinker}}, NextIndex: 0},
-		MemoRef: &memoRef,
+		Cycle: interleavedstate.CycleState{SelectorKey: "exec-be:m", Sequence: []interleavedstate.CycleEntry{{Key: "exec-be:m", Role: interleavedstate.RoleThinker}}, NextIndex: 0},
 	}); err != nil {
 		t.Fatalf("seed interleaved state: %v", err)
 	}
@@ -256,7 +256,8 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve memo anchor: %v", err)
 	}
-	if _, err := st.ConversationViewStore().PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
+	_ = cv.CreateALeg(context.Background(), aLegID)
+	if _, err := cv.PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
 		OverlayID: "interleaved-thinking-memo",
 		Message: conversationview.StoredMessageV1{
 			Role: lipapi.RoleUser,
@@ -271,7 +272,7 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed memo steering overlay: %v", err)
 	}
-	seededSnapshot, err := st.ConversationViewStore().Snapshot(context.Background(), aLegID)
+	seededSnapshot, err := cv.Snapshot(context.Background(), aLegID)
 	if err != nil {
 		t.Fatalf("snapshot seeded memo steering overlay: %v", err)
 	}
@@ -319,17 +320,7 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	}
 
 	// Updated memo reference persisted at injection time: budget decremented and version bumped.
-	postState, err := st.FetchInterleavedState(context.Background(), aLegID)
-	if err != nil {
-		t.Fatalf("fetch post-state: %v", err)
-	}
-	if postState.MemoRef == nil || postState.MemoRef.Key != memoRef.Key {
-		t.Fatalf("memo reference not persisted: %+v", postState.MemoRef)
-	}
-	if postState.MemoRef.Version <= memoRef.Version {
-		t.Fatalf("persisted memo reference version not bumped: got %d want > %d", postState.MemoRef.Version, memoRef.Version)
-	}
-	stored, ok, err := memoStore.Get(context.Background(), interleavedthinking.Scope(aLegID), *postState.MemoRef)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(aLegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup after injection: ok=%v err=%v", ok, err)
 	}
@@ -378,7 +369,7 @@ func TestExecutor_OpenAttempt_ThinkerCycleCursorAdvancesAfterSuccessfulOpen(t *t
 			func(lipapi.Call) {},
 		),
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, interleavedthinking.NewMemoStore(4096))
 
 	selector := "[thinker]thinker-be:m^bad:m^ok:m"
 	wantSeq := []interleavedstate.CycleEntry{
@@ -463,8 +454,9 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 			func(lipapi.Call) {},
 		),
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
-	ex.MemoStore = memoStore
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
+	cv := wireInterleavedTestSteering(ex)
 
 	call := interleavedBaseCall("ok:m")
 	firstStream, err := ex.Execute(context.Background(), call)
@@ -475,15 +467,12 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 		t.Fatalf("collect first: %v", err)
 	}
 	aLegID := call.Session.ALegID
-	memoRef, err := memoStore.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
+	_, err = memoStore.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
 		Memo:                  "memo survives failed open",
 		RegularTurnsRemaining: 1,
 	})
 	if err != nil {
 		t.Fatalf("memo put: %v", err)
-	}
-	if err := st.SetInterleavedState(context.Background(), aLegID, interleavedstate.State{MemoRef: &memoRef}); err != nil {
-		t.Fatalf("seed interleaved state: %v", err)
 	}
 	gotMu.Lock()
 	opened = nil
@@ -496,7 +485,8 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve memo anchor: %v", err)
 	}
-	if _, err := st.ConversationViewStore().PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
+	_ = cv.CreateALeg(context.Background(), aLegID)
+	if _, err := cv.PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
 		OverlayID: "interleaved-thinking-memo",
 		Message: conversationview.StoredMessageV1{
 			Role: lipapi.RoleUser,
@@ -529,11 +519,7 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 	if msg := findMemoSteeringMessage(t, shaped); msg == nil || !strings.Contains(textOf(*msg), "memo survives failed open") {
 		t.Fatalf("successful backend must receive memo after failed candidate, got %+v", shaped.Messages)
 	}
-	state, err := st.FetchInterleavedState(context.Background(), aLegID)
-	if err != nil {
-		t.Fatalf("fetch interleaved state: %v", err)
-	}
-	stored, ok, err := memoStore.Get(context.Background(), interleavedthinking.Scope(aLegID), *state.MemoRef)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(aLegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
 	}
@@ -572,8 +558,8 @@ func TestExecutor_OpenAttempt_NonThinkerSelectorInert(t *testing.T) {
 			capture,
 		),
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
-	ex.MemoStore = memoStore
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
 
 	call := interleavedBaseCall("stub:m")
 	stream, err := ex.Execute(context.Background(), call)
@@ -778,7 +764,7 @@ func TestExecutor_OpenAttempt_InterleavedShapingRunsAfterTransformsBeforeComplet
 		),
 		"unused-exec": recoverableInterleavedBackend(nil),
 	}
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step and emit a memo."}
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step and emit a memo."}, nil)
 
 	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
 	stream, err := ex.Execute(context.Background(), call)

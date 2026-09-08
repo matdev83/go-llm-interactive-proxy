@@ -28,6 +28,7 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 			out.FeatureLifecycles = slices.Clone(overlay.FeatureLifecycles)
 			out.Extensions = cloneExtensionsOptions(overlay.Extensions)
 			out.FeaturePlanes = overlay.FeaturePlanes
+			out.CorePorts = overlay.CorePorts
 		} else {
 			if overlay.FeatureLifecycles != nil {
 				out.FeatureLifecycles = slices.Clone(overlay.FeatureLifecycles)
@@ -37,6 +38,15 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 			}
 			if !overlay.FeaturePlanes.IsZero() {
 				out.FeaturePlanes = overlay.FeaturePlanes
+			}
+			if overlay.CorePorts.InterleavedProcessor != nil {
+				out.CorePorts.InterleavedProcessor = overlay.CorePorts.InterleavedProcessor
+			}
+			if overlay.CorePorts.ConversationReader != nil {
+				out.CorePorts.ConversationReader = overlay.CorePorts.ConversationReader
+			}
+			if overlay.CorePorts.CompactionDetector != nil {
+				out.CorePorts.CompactionDetector = overlay.CorePorts.CompactionDetector
 			}
 		}
 		if overlay.WireModel != nil {
@@ -57,21 +67,11 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 }
 
 func hasExtensionOverlay(e ExtensionsOptions) bool {
-	return e.SecretGuardEnvironment != nil ||
-		e.SecretDecisionObserver != nil
+	return e.SecretDecisionObserver != nil || e.SecretGuard != nil || e.SecretGuardInventory != nil
 }
 
 func cloneExtensionsOptions(in ExtensionsOptions) ExtensionsOptions {
-	out := in
-	out.SecretGuardInputs = cloneSecretGuardInputs(in.SecretGuardInputs)
-	return out
-}
-
-func cloneSecretGuardInputs(in SecretGuardInputs) SecretGuardInputs {
-	out := in
-	out.SingleUser.IncludeEnv = slices.Clone(in.SingleUser.IncludeEnv)
-	out.SingleUser.ExcludeEnv = slices.Clone(in.SingleUser.ExcludeEnv)
-	return out
+	return in
 }
 
 func prependGeneratedLifecycles(gen, overlay []lipplugin.Lifecycle) []lipplugin.Lifecycle {

@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -113,7 +113,7 @@ func TestCanonicalAssistantMessage_IdentityEqualsCollectedReplay(t *testing.T) {
 			continue
 		}
 		tagged := CanonicalAssistantMessage(text)
-		taggedID, err := conversationview.MessageIdentityOf(tagged)
+		taggedID, err := conversationprojection.MessageIdentityOf(tagged)
 		if err != nil {
 			t.Fatalf("MessageIdentityOf tagged %q: %v", text, err)
 		}
@@ -123,7 +123,7 @@ func TestCanonicalAssistantMessage_IdentityEqualsCollectedReplay(t *testing.T) {
 			t.Fatalf("Collect %q: %v", text, err)
 		}
 		replayMsg := CanonicalAssistantMessage(col.Text.String())
-		replayID, err := conversationview.MessageIdentityOf(replayMsg)
+		replayID, err := conversationprojection.MessageIdentityOf(replayMsg)
 		if err != nil {
 			t.Fatalf("MessageIdentityOf replay %q: %v", text, err)
 		}
@@ -132,7 +132,7 @@ func TestCanonicalAssistantMessage_IdentityEqualsCollectedReplay(t *testing.T) {
 		}
 		// Item-authority replay should also be identity-equivalent.
 		replayItem := CanonicalAssistantItem(col.Text.String())
-		itemID, err := conversationview.ItemIdentityOf(replayItem)
+		itemID, err := conversationprojection.ItemIdentityOf(replayItem)
 		if err != nil {
 			t.Fatalf("ItemIdentityOf %q: %v", text, err)
 		}

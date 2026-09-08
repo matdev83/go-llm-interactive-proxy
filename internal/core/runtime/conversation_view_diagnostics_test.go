@@ -4,7 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -165,9 +166,9 @@ func TestConversationViewDiagnostics_FinalReassertFallback(t *testing.T) {
 		Session:  lipapi.SessionRef{ALegID: aLegID},
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("different")}}},
 	}
-	filtered, _ := conversationview.FilterNeverBackend(lateCall, snap)
+	filtered, _ := conversationprojection.FilterNeverBackend(lateCall, snap)
 	// Reassert should fallback, not fail
-	_, reEv, err := conversationview.Reassert(lateCall, snap, ev.Provenance, filtered)
+	_, reEv, err := conversationprojection.Reassert(lateCall, snap, ev.Provenance, filtered)
 	if err != nil {
 		t.Fatalf("reassert: %v", err)
 	}

@@ -14,12 +14,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -95,22 +95,26 @@ type spyMemoStore struct {
 	putCalls    atomic.Int32
 }
 
-func (s *spyMemoStore) Put(ctx context.Context, scope interleavedthinking.Scope, state interleavedthinking.MemoState) (interleavedstate.MemoRef, error) {
+func (s *spyMemoStore) Put(ctx context.Context, scope interleavedthinking.Scope, state interleavedthinking.MemoState) (interleavedthinking.MemoRef, error) {
 	s.putCalls.Add(1)
 	return s.inner.Put(ctx, scope, state)
 }
 
-func (s *spyMemoStore) Get(ctx context.Context, scope interleavedthinking.Scope, ref interleavedstate.MemoRef) (interleavedthinking.MemoState, bool, error) {
+func (s *spyMemoStore) Get(ctx context.Context, scope interleavedthinking.Scope, ref interleavedthinking.MemoRef) (interleavedthinking.MemoState, bool, error) {
 	return s.inner.Get(ctx, scope, ref)
 }
 
-func (s *spyMemoStore) Update(ctx context.Context, scope interleavedthinking.Scope, ref interleavedstate.MemoRef, state interleavedthinking.MemoState) (interleavedstate.MemoRef, error) {
+func (s *spyMemoStore) Update(ctx context.Context, scope interleavedthinking.Scope, ref interleavedthinking.MemoRef, state interleavedthinking.MemoState) (interleavedthinking.MemoRef, error) {
 	s.updateCalls.Add(1)
 	return s.inner.Update(ctx, scope, ref, state)
 }
 
-func (s *spyMemoStore) Delete(ctx context.Context, scope interleavedthinking.Scope, ref interleavedstate.MemoRef) error {
+func (s *spyMemoStore) Delete(ctx context.Context, scope interleavedthinking.Scope, ref interleavedthinking.MemoRef) error {
 	return s.inner.Delete(ctx, scope, ref)
+}
+
+func (s *spyMemoStore) LatestEntry(ctx context.Context, scope interleavedthinking.Scope) (interleavedthinking.MemoState, interleavedthinking.MemoRef, bool, error) {
+	return s.inner.LatestEntry(ctx, scope)
 }
 
 func TestParallelLoser_Strengthened(t *testing.T) {
@@ -130,13 +134,13 @@ func TestParallelLoser_Strengthened(t *testing.T) {
 	// Setup spy memo store
 	innerMemo := interleavedthinking.NewMemoStore(4096)
 	memoStore := &spyMemoStore{inner: innerMemo}
-	ex.MemoStore = memoStore
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
+	}, memoStore)
+	RegisterTestMemoStore(ex, memoStore)
 
 	// Configure preflight checker to require max output clamp enforcement
 	// MaxOutputTokens is clamped to 100, and client requests 500.
@@ -197,7 +201,7 @@ func TestParallelLoser_Strengthened(t *testing.T) {
 
 	// Seed memo in store
 	ctx := context.Background()
-	memoRef, err := innerMemo.Put(ctx, interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
+	_, err := innerMemo.Put(ctx, interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
 		Memo:                  "original memo guidance",
 		RegularTurnsRemaining: 2,
 	})
@@ -230,7 +234,7 @@ func TestParallelLoser_Strengthened(t *testing.T) {
 	budget := &attemptBudget{max: 10}
 	req := authorityOpenRequest(t, aLegID, budget)
 	req.reqFacts.aScope = aScope
-	req.interleaved = interleavedstate.State{MemoRef: &memoRef}
+	req.interleaved = interleavedstate.State{}
 	req.reqFacts.baseline.Messages = []lipapi.Message{{
 		Role:  lipapi.RoleUser,
 		Parts: []lipapi.Part{lipapi.TextPart("hello")},

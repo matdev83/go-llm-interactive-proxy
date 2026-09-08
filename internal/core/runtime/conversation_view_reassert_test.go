@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -36,11 +37,11 @@ func TestReassert_Pure_LateTransformRemovesAndReintroduces(t *testing.T) {
 		Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix},
 		AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback, Reason: "r",
 	}
-	snap := conversationview.Snapshot{StateRevision: 1, NeverBackend: []conversationview.Tag{{Identity: taggedID, Reason: "r"}}, Steering: []conversationview.SteeringOverlay{overlay}}
+	snap := conversationview.Snapshot{StateRevision: 1, NeverBackend: []conversationview.Tag{{Identity: taggedID, Reason: "r"}}, Steering: []conversationprojection.Overlay{overlay.ToProjectionOverlay()}}
 	// Build original client call that includes tagged (client replays it) plus users
 	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{user1, taggedMsg, user2}}
 	// Early projection baseline
-	baseline, ev, err := conversationview.Project(clientCall, snap)
+	baseline, ev, err := conversationprojection.Project(clientCall, snap)
 	if err != nil {
 		t.Fatalf("Project baseline: %v", err)
 	}
@@ -62,8 +63,8 @@ func TestReassert_Pure_LateTransformRemovesAndReintroduces(t *testing.T) {
 	late.Instructions = filteredInstr
 	// Now late has tagged reintroduced and steering deleted
 	// Reassert should repair
-	filtered, _ := conversationview.FilterNeverBackend(clientCall, snap)
-	repaired, _, err := conversationview.Reassert(late, snap, ev.Provenance, filtered)
+	filtered, _ := conversationprojection.FilterNeverBackend(clientCall, snap)
+	repaired, _, err := conversationprojection.Reassert(late, snap, ev.Provenance, filtered)
 	if err != nil {
 		t.Fatalf("Reassert: %v", err)
 	}
@@ -102,9 +103,9 @@ func TestReassert_Pure_DuplicateAndMove(t *testing.T) {
 		Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementAfterMessage, Anchor: &anchor},
 		AnchorMissingPolicy: conversationview.AnchorFailClosed, Reason: "r",
 	}
-	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationview.SteeringOverlay{overlay}}
+	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationprojection.Overlay{overlay.ToProjectionOverlay()}}
 	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{user1, {Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("a1")}}, {Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user2")}}}}
-	baseline, ev, _ := conversationview.Project(clientCall, snap)
+	baseline, ev, _ := conversationprojection.Project(clientCall, snap)
 	// Late duplicate: duplicate steering at tail
 	late := lipapi.CloneCall(baseline)
 	// Find steering message (should be after user1)
@@ -116,8 +117,8 @@ func TestReassert_Pure_DuplicateAndMove(t *testing.T) {
 		}
 	}
 	late.Messages = append(late.Messages, steeringMsg) // duplicate at tail
-	filteredDup, _ := conversationview.FilterNeverBackend(clientCall, snap)
-	repaired, _, err := conversationview.Reassert(late, snap, ev.Provenance, filteredDup)
+	filteredDup, _ := conversationprojection.FilterNeverBackend(clientCall, snap)
+	repaired, _, err := conversationprojection.Reassert(late, snap, ev.Provenance, filteredDup)
 	if err != nil {
 		t.Fatalf("Reassert duplicate: %v", err)
 	}
@@ -142,8 +143,8 @@ func TestReassert_Pure_DuplicateAndMove(t *testing.T) {
 	}
 	late2.Messages = filtered
 	late2.Messages = append(late2.Messages, steeringMsg) // moved to tail
-	filteredMove, _ := conversationview.FilterNeverBackend(clientCall, snap)
-	repaired2, _, err := conversationview.Reassert(late2, snap, ev.Provenance, filteredMove)
+	filteredMove, _ := conversationprojection.FilterNeverBackend(clientCall, snap)
+	repaired2, _, err := conversationprojection.Reassert(late2, snap, ev.Provenance, filteredMove)
 	if err != nil {
 		t.Fatalf("Reassert move: %v", err)
 	}
@@ -175,14 +176,14 @@ func TestReassert_FailClosed_AnchorMissing(t *testing.T) {
 		Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementAfterMessage, Anchor: &anchor},
 		AnchorMissingPolicy: conversationview.AnchorFailClosed, Reason: "r",
 	}
-	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationview.SteeringOverlay{overlay}}
+	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationprojection.Overlay{overlay.ToProjectionOverlay()}}
 	// Call without anchor (user1 missing due to truncation)
 	call := lipapi.Call{Instructions: []lipapi.Message{{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("sys")}}}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("other")}}}}
 
-	_, ev, _ := conversationview.Project(lipapi.Call{Instructions: []lipapi.Message{{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("sys")}}}, Messages: []lipapi.Message{user1}}, snap)
+	_, ev, _ := conversationprojection.Project(lipapi.Call{Instructions: []lipapi.Message{{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("sys")}}}, Messages: []lipapi.Message{user1}}, snap)
 	// Reassert with missing anchor should fail
-	filteredFail, _ := conversationview.FilterNeverBackend(call, snap)
-	_, _, err := conversationview.Reassert(call, snap, ev.Provenance, filteredFail)
+	filteredFail, _ := conversationprojection.FilterNeverBackend(call, snap)
+	_, _, err := conversationprojection.Reassert(call, snap, ev.Provenance, filteredFail)
 	if err == nil {
 		t.Fatal("expected anchor missing error")
 	}
@@ -203,9 +204,9 @@ func TestReassert_Collision_Legacy_PreservesLegitimateSameRoleText(t *testing.T)
 		Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix},
 		AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback, Reason: "r",
 	}
-	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationview.SteeringOverlay{overlay}}
+	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationprojection.Overlay{overlay.ToProjectionOverlay()}}
 	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{userColliding}}
-	baseline, ev, _ := conversationview.Project(clientCall, snap)
+	baseline, ev, _ := conversationprojection.Project(clientCall, snap)
 	// baseline should have sys, steering, userColliding? Actually stable prefix steering after sys, then userColliding
 	if len(baseline.Instructions) != 2 {
 		t.Fatalf("baseline Instructions %d want 2", len(baseline.Instructions))
@@ -224,8 +225,8 @@ func TestReassert_Collision_Legacy_PreservesLegitimateSameRoleText(t *testing.T)
 	}
 	late.Instructions = filteredInstr
 	// Now late has no steering in Instructions, but still has userColliding in Messages
-	filtered, _ := conversationview.FilterNeverBackend(clientCall, snap)
-	repaired, _, err := conversationview.Reassert(late, snap, ev.Provenance, filtered)
+	filtered, _ := conversationprojection.FilterNeverBackend(clientCall, snap)
+	repaired, _, err := conversationprojection.Reassert(late, snap, ev.Provenance, filtered)
 	if err != nil {
 		t.Fatalf("Reassert collision legacy: %v", err)
 	}
@@ -264,9 +265,9 @@ func TestReassert_Collision_Item_PreservesLegitimateSameRoleText(t *testing.T) {
 		Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix},
 		AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback, Reason: "r",
 	}
-	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationview.SteeringOverlay{overlay}}
+	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationprojection.Overlay{overlay.ToProjectionOverlay()}}
 	clientCall := lipapi.Call{Items: []lipapi.Item{sysItem, userItem}}
-	baseline, ev, _ := conversationview.Project(clientCall, snap)
+	baseline, ev, _ := conversationprojection.Project(clientCall, snap)
 	// Late deletes steering
 	late := lipapi.CloneCall(baseline)
 	var filteredItems []lipapi.Item
@@ -277,8 +278,8 @@ func TestReassert_Collision_Item_PreservesLegitimateSameRoleText(t *testing.T) {
 		filteredItems = append(filteredItems, it)
 	}
 	late.Items = filteredItems
-	filtered, _ := conversationview.FilterNeverBackend(clientCall, snap)
-	repaired, _, err := conversationview.Reassert(late, snap, ev.Provenance, filtered)
+	filtered, _ := conversationprojection.FilterNeverBackend(clientCall, snap)
+	repaired, _, err := conversationprojection.Reassert(late, snap, ev.Provenance, filtered)
 	if err != nil {
 		t.Fatalf("Reassert collision item: %v", err)
 	}
@@ -310,9 +311,9 @@ func TestReassert_DuplicateIdenticalOverlays_BothAuthorities(t *testing.T) {
 		Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix},
 		AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback, Reason: "r",
 	}
-	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationview.SteeringOverlay{overlay1, overlay2}}
+	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationprojection.Overlay{overlay1.ToProjectionOverlay(), overlay2.ToProjectionOverlay()}}
 	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{user}}
-	baseline, ev, _ := conversationview.Project(clientCall, snap)
+	baseline, ev, _ := conversationprojection.Project(clientCall, snap)
 	if len(baseline.Instructions) != 3 {
 		t.Fatalf("baseline duplicate len %d want 3", len(baseline.Instructions))
 	}
@@ -320,8 +321,8 @@ func TestReassert_DuplicateIdenticalOverlays_BothAuthorities(t *testing.T) {
 	late := lipapi.CloneCall(baseline)
 	dupMsg := lipapi.Message{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("duplicate-steer")}}
 	late.Instructions = append(late.Instructions, dupMsg)
-	filtered, _ := conversationview.FilterNeverBackend(clientCall, snap)
-	repaired, _, err := conversationview.Reassert(late, snap, ev.Provenance, filtered)
+	filtered, _ := conversationprojection.FilterNeverBackend(clientCall, snap)
+	repaired, _, err := conversationprojection.Reassert(late, snap, ev.Provenance, filtered)
 	if err != nil {
 		t.Fatalf("duplicate reassert: %v", err)
 	}
@@ -352,14 +353,14 @@ func TestReassert_VerifyAdaptation_FullProjection(t *testing.T) {
 		Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementAfterMessage, Anchor: &anchor},
 		AnchorMissingPolicy: conversationview.AnchorFailClosed, Reason: "r",
 	}
-	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationview.SteeringOverlay{overlay}}
+	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationprojection.Overlay{overlay.ToProjectionOverlay()}}
 	tagged := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("tagged-verify")}}
 	taggedID, _ := conversationview.MessageIdentityOf(tagged)
 	snap.NeverBackend = []conversationview.Tag{{Identity: taggedID, Reason: "r"}}
 	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{user1, tagged, {Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user2")}}}}
-	baseline, ev, _ := conversationview.Project(clientCall, snap)
-	filtered, _ := conversationview.FilterNeverBackend(clientCall, snap)
-	reasserted, _, _ := conversationview.Reassert(baseline, snap, ev.Provenance, filtered)
+	baseline, ev, _ := conversationprojection.Project(clientCall, snap)
+	filtered, _ := conversationprojection.FilterNeverBackend(clientCall, snap)
+	reasserted, _, _ := conversationprojection.Reassert(baseline, snap, ev.Provenance, filtered)
 	// Simulate adapted call that moves steering to tail (should be rejected)
 	adaptedMoved := lipapi.CloneCall(reasserted)
 	var steeringMsg lipapi.Message
@@ -372,19 +373,19 @@ func TestReassert_VerifyAdaptation_FullProjection(t *testing.T) {
 		filteredMsgs = append(filteredMsgs, m)
 	}
 	adaptedMoved.Messages = append(filteredMsgs, steeringMsg) // moved to tail
-	err := conversationview.VerifyAdaptationPreservesProjection(reasserted, adaptedMoved, snap, ev.Provenance)
+	err := conversationprojection.VerifyAdaptationPreservesProjection(reasserted, adaptedMoved, snap, ev.Provenance)
 	if err == nil {
 		t.Fatal("expected adaptation move to be rejected")
 	}
 	// Correct adaptation (no move) should pass
-	err = conversationview.VerifyAdaptationPreservesProjection(reasserted, reasserted, snap, ev.Provenance)
+	err = conversationprojection.VerifyAdaptationPreservesProjection(reasserted, reasserted, snap, ev.Provenance)
 	if err != nil {
 		t.Fatalf("correct adaptation should pass: %v", err)
 	}
 	// Adapted with reintroduced never_backend should fail
 	adaptedWithTagged := lipapi.CloneCall(reasserted)
 	adaptedWithTagged.Messages = append(adaptedWithTagged.Messages, tagged)
-	err = conversationview.VerifyAdaptationPreservesProjection(reasserted, adaptedWithTagged, snap, ev.Provenance)
+	err = conversationprojection.VerifyAdaptationPreservesProjection(reasserted, adaptedWithTagged, snap, ev.Provenance)
 	if err == nil {
 		t.Fatal("expected never_backend reintroduced to be rejected")
 	}
@@ -394,18 +395,24 @@ func TestReassert_VerifyAdaptation_FullProjection(t *testing.T) {
 func TestReassert_Runtime_NoReaderDuringAttemptsAndPTB(t *testing.T) {
 	t.Parallel()
 	st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := st.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
 	ctx := context.Background()
 	// Need an A-leg via prepare to get snapshot, but we will use countingReader to verify no extra reads during open
 	// Create a leg and snapshot with tagged + steering
 	tmpEx, _ := newSecureExecutorForCV(t, nil, extensions.SnapshotOptions{})
 	tmpEx.Store = st
+	tmpEx.ConversationViewReader = nil
+	tmpEx.ConversationViewTagger = nil
 	tmpEx.Bus = hooks.New(hooks.Config{})
 	tmpEx.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(tmpEx.Bus, extensions.SnapshotOptions{})
 	tmpCall := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("init")}}}}
-	prTmp, _, cleanupTmp, _ := tmpEx.prepareRequest(execDetachedCtx(ctx), tmpCall)
+	prTmp, _, cleanupTmp, err := tmpEx.prepareRequest(execDetachedCtx(ctx), tmpCall)
+	if err != nil {
+		t.Fatal(err)
+	}
 	aLegID := prTmp.identity.aLeg.ALegID
 	cleanupTmp()
+	_ = cv.CreateALeg(ctx, aLegID)
 	taggedMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("local-tagged-runtime")}}
 	taggedID, _ := conversationview.MessageIdentityOf(taggedMsg)
 	if _, err := cv.TagNeverBackend(ctx, aLegID, []conversationview.TagRequest{{Identity: taggedID, Reason: "test"}}); err != nil {
@@ -474,7 +481,7 @@ func TestReassert_Runtime_NoReaderDuringAttemptsAndPTB(t *testing.T) {
 	ctxExec := execDetachedCtx(context.Background())
 	// Also need to ensure late transform sees the tagged reintroduced: it will reintroduce tagged and delete steering after baseline projection.
 	// Execute
-	_, err := ex.Execute(ctxExec, call)
+	_, err = ex.Execute(ctxExec, call)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -518,11 +525,11 @@ func TestReassert_Runtime_NoReaderDuringAttemptsAndPTB(t *testing.T) {
 // helpers
 
 type countingReaderWithSnap struct {
-	snap  conversationview.Snapshot
+	snap  conversationprojection.Snapshot
 	count *atomic.Int32
 }
 
-func (c *countingReaderWithSnap) Snapshot(ctx context.Context, aLegID string) (conversationview.Snapshot, error) {
+func (c *countingReaderWithSnap) Snapshot(ctx context.Context, aLegID string) (conversationprojection.Snapshot, error) {
 	c.count.Add(1)
 	return c.snap, nil
 }

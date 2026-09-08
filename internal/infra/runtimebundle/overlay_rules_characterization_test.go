@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -177,40 +178,54 @@ func (overPanicTerminalProvider) Decide(context.Context, terminaldecision.Input)
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
 
-type overEnv struct{ tag string }
-
-func (e overEnv) Lookup(name string) (string, bool) { return e.tag, true }
-func (e overEnv) Snapshot() []string                { return []string{"TAG=" + e.tag} }
-
 // --- Acceptance Criteria 1 & 3: Overlay Finalizer Cap Overwrite Rule ---
 
 // --- Acceptance Criteria 3: Host Capability Overwrite-If-Non-Nil ---
 
 // TestOverlayExtensions_SecretGuardHostCapabilitiesOverwriteIfNonNil pins overwrite-if-non-nil:
-// - SecretGuardEnvironment: non-nil src overwrites dst; nil src preserves dst.
+// - SecretGuard: non-nil src overwrites dst; nil src preserves dst.
+// - SecretGuardInventory: non-nil src overwrites dst; nil src preserves dst.
 // - SecretDecisionObserver: non-nil src overwrites dst; nil src preserves dst.
 func TestOverlayExtensions_SecretGuardHostCapabilitiesOverwriteIfNonNil(t *testing.T) {
 	t.Parallel()
 
-	envA := overEnv{tag: "env-a"}
-	envB := overEnv{tag: "env-b"}
+	sgA := &extensions.SecretGuardPlane{AccessMode: "single_user"}
+	sgB := &extensions.SecretGuardPlane{AccessMode: "multi_user"}
+	invA := &diag.InventoryExtras{SecretGuardCatalogEntryCount: 1}
+	invB := &diag.InventoryExtras{SecretGuardCatalogEntryCount: 2}
 	obsA := sdk.ObserverFunc(func(context.Context, sdk.DecisionEvent) error { return nil })
 	obsB := sdk.ObserverFunc(func(context.Context, sdk.DecisionEvent) error { return nil })
 
-	t.Run("environment_overwrite_when_src_non_nil", func(t *testing.T) {
+	t.Run("secret_guard_overwrite_when_src_non_nil", func(t *testing.T) {
 		t.Parallel()
-		dst := &ExtensionsOptions{SecretGuardEnvironment: envA}
-		src := ExtensionsOptions{SecretGuardEnvironment: envB}
+		dst := &ExtensionsOptions{SecretGuard: sgA}
+		src := ExtensionsOptions{SecretGuard: sgB}
 		overlayExtensions(dst, src)
-		require.Equal(t, envB, dst.SecretGuardEnvironment)
+		require.Equal(t, sgB, dst.SecretGuard)
 	})
 
-	t.Run("environment_preserved_when_src_nil", func(t *testing.T) {
+	t.Run("secret_guard_preserved_when_src_nil", func(t *testing.T) {
 		t.Parallel()
-		dst := &ExtensionsOptions{SecretGuardEnvironment: envA}
-		src := ExtensionsOptions{SecretGuardEnvironment: nil}
+		dst := &ExtensionsOptions{SecretGuard: sgA}
+		src := ExtensionsOptions{SecretGuard: nil}
 		overlayExtensions(dst, src)
-		require.Equal(t, envA, dst.SecretGuardEnvironment)
+		require.Equal(t, sgA, dst.SecretGuard)
+	})
+
+	t.Run("secret_guard_inventory_overwrite_when_src_non_nil", func(t *testing.T) {
+		t.Parallel()
+		dst := &ExtensionsOptions{SecretGuardInventory: invA}
+		src := ExtensionsOptions{SecretGuardInventory: invB}
+		overlayExtensions(dst, src)
+		require.Equal(t, invB, dst.SecretGuardInventory)
+	})
+
+	t.Run("secret_guard_inventory_preserved_when_src_nil", func(t *testing.T) {
+		t.Parallel()
+		dst := &ExtensionsOptions{SecretGuardInventory: invA}
+		src := ExtensionsOptions{SecretGuardInventory: nil}
+		overlayExtensions(dst, src)
+		require.Equal(t, invA, dst.SecretGuardInventory)
 	})
 
 	t.Run("observer_overwrite_when_src_non_nil", func(t *testing.T) {
@@ -227,32 +242,6 @@ func TestOverlayExtensions_SecretGuardHostCapabilitiesOverwriteIfNonNil(t *testi
 		src := ExtensionsOptions{SecretDecisionObserver: nil}
 		overlayExtensions(dst, src)
 		require.NotNil(t, dst.SecretDecisionObserver)
-	})
-}
-
-// --- Acceptance Criteria 3: Omitted Fields Characterization ---
-
-// TestOverlayExtensions_OmittedFieldsBehavior pins omitted fields:
-// - SecretGuardInputs: present on ExtensionsOptions, but overlayExtensions does not touch it (no copy/overlay logic).
-// - Migrated observer families (TrafficObservers, UsageObservers, RawCaptureSinks, TrafficRedactors, CompactionObservers): omitted from overlayExtensions.
-// - CompactionPreservers: handled via generated plane adapters, NOT on ExtensionsOptions.
-func TestOverlayExtensions_OmittedFieldsBehavior(t *testing.T) {
-	t.Parallel()
-
-	t.Run("secret_guard_inputs_is_omitted_from_overlay", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{
-			SecretGuardInputs: SecretGuardInputs{
-				SingleUser: coresg.SingleUserOptions{MinSecretBytes: 10},
-			},
-		}
-		src := ExtensionsOptions{
-			SecretGuardInputs: SecretGuardInputs{
-				SingleUser: coresg.SingleUserOptions{MinSecretBytes: 20},
-			},
-		}
-		overlayExtensions(dst, src)
-		require.Equal(t, 10, dst.SecretGuardInputs.SingleUser.MinSecretBytes, "SecretGuardInputs is omitted from overlay and not modified")
 	})
 }
 

@@ -13,10 +13,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -221,7 +222,14 @@ func TestCandidateAttemptTransform_runsAfterInterleavedShapeBeforeCapabilities(t
 	ex.Bus = bus
 	ex.RuntimeSnapshot = snap
 	ex.Rand = routing.NewSeededRng(2)
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step and emit a memo."}
+	proc, err := interleavedthinking.NewProcessor(interleavedthinking.Config{
+		Enabled:      true,
+		Instructions: "Think step by step and emit a memo.",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
 	ex.Backends = map[string]execbackend.Backend{
 		"thinker-be": *interleavedBackend(
 			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),

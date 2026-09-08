@@ -9,7 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	infraaux "github.com/matdev83/go-llm-interactive-proxy/internal/infra/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
@@ -19,7 +19,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/reasoninghost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"gopkg.in/yaml.v3"
@@ -75,8 +77,8 @@ compression:
 
 type allowEgress struct{ version string }
 
-func (a allowEgress) Decide(_ context.Context, _ reasoningpreservation.CompressionEgressInput) (reasoningpreservation.CompressionEgressDecision, error) {
-	return reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: a.version}, nil
+func (a allowEgress) Decide(_ context.Context, _ reasoninghost.EgressInput) (reasoninghost.EgressDecision, error) {
+	return reasoninghost.EgressDecision{Action: reasoninghost.EgressAllow, PolicyVersion: a.version}, nil
 }
 
 type stubMatch struct{ redacted string }
@@ -170,9 +172,11 @@ func TestReasoningPreservation_CompileGeneration_BoundClientExecutes(t *testing.
 	}
 	t.Cleanup(func() { _ = scheduler.Close() })
 	prod := runtimebundle.ProductionOptions{
-		ReasoningCompression: runtimebundle.ReasoningCompressionOptions{
-			EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"test-allow": allowEgress{version: "v1"}},
-			MatcherResolver: stubResolver{m: stubMatch{redacted: "REDACTED"}},
+		FeatureHostRegistrations: []featurehost.Registration{
+			(&reasoninghost.Binding{
+				EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-allow": allowEgress{version: "v1"}},
+				MatcherResolver: stubResolver{m: stubMatch{redacted: "REDACTED"}},
+			}).Registration(),
 		},
 	}
 	opts := &runtimebundle.BuildOptions{PluginRegistry: reg, Production: prod}
@@ -190,7 +194,7 @@ func TestReasoningPreservation_CompileGeneration_BoundClientExecutes(t *testing.
 		t.Fatal("bundle handler nil")
 	}
 	// Bound client via generation runner must execute without ErrNotConfigured.
-	genRunner := compactioncompose.NewGenerationExecutorRunner()
+	genRunner := infraaux.NewGenerationExecutorRunner()
 	bound := scheduler.BindRunner(genRunner)
 	if _, ok := bound.(auxiliary.BackgroundPoller); !ok {
 		t.Fatal("bound client should implement BackgroundPoller")
@@ -241,9 +245,11 @@ func TestReasoningPreservation_MissingPrerequisitesFailClosed(t *testing.T) {
 	}{
 		{"missing_policy", func() *runtimebundle.ProcessServices {
 			prod := runtimebundle.ProductionOptions{
-				ReasoningCompression: runtimebundle.ReasoningCompressionOptions{
-					EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"other": allowEgress{version: "v1"}},
-					MatcherResolver: stubResolver{m: stubMatch{}},
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&reasoninghost.Binding{
+						EgressPolicies:  map[string]reasoninghost.EgressPolicy{"other": allowEgress{version: "v1"}},
+						MatcherResolver: stubResolver{m: stubMatch{}},
+					}).Registration(),
 				},
 			}
 			opts := &runtimebundle.BuildOptions{PluginRegistry: reg, Production: prod}
@@ -252,8 +258,10 @@ func TestReasoningPreservation_MissingPrerequisitesFailClosed(t *testing.T) {
 		}()},
 		{"missing_resolver", func() *runtimebundle.ProcessServices {
 			prod := runtimebundle.ProductionOptions{
-				ReasoningCompression: runtimebundle.ReasoningCompressionOptions{
-					EgressPolicies: map[string]reasoningpreservation.EgressPolicy{"missing-ref": allowEgress{version: "v1"}},
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&reasoninghost.Binding{
+						EgressPolicies: map[string]reasoninghost.EgressPolicy{"missing-ref": allowEgress{version: "v1"}},
+					}).Registration(),
 				},
 			}
 			opts := &runtimebundle.BuildOptions{PluginRegistry: reg, Production: prod}
@@ -262,9 +270,11 @@ func TestReasoningPreservation_MissingPrerequisitesFailClosed(t *testing.T) {
 		}()},
 		{"missing_scheduler", func() *runtimebundle.ProcessServices {
 			prod := runtimebundle.ProductionOptions{
-				ReasoningCompression: runtimebundle.ReasoningCompressionOptions{
-					EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"missing-ref": allowEgress{version: "v1"}},
-					MatcherResolver: stubResolver{m: stubMatch{}},
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&reasoninghost.Binding{
+						EgressPolicies:  map[string]reasoninghost.EgressPolicy{"missing-ref": allowEgress{version: "v1"}},
+						MatcherResolver: stubResolver{m: stubMatch{}},
+					}).Registration(),
 				},
 			}
 			opts := &runtimebundle.BuildOptions{PluginRegistry: reg, Production: prod}
@@ -308,9 +318,11 @@ func TestReasoningPreservation_ReloadDistinctRunners(t *testing.T) {
 	scheduler, _ := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return fixedRunner{id: "shared"} }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 4, MaxResults: 10})
 	t.Cleanup(func() { _ = scheduler.Close() })
 	prod := runtimebundle.ProductionOptions{
-		ReasoningCompression: runtimebundle.ReasoningCompressionOptions{
-			EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"test-allow": allowEgress{version: "v1"}},
-			MatcherResolver: stubResolver{m: stubMatch{}},
+		FeatureHostRegistrations: []featurehost.Registration{
+			(&reasoninghost.Binding{
+				EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-allow": allowEgress{version: "v1"}},
+				MatcherResolver: stubResolver{m: stubMatch{}},
+			}).Registration(),
 		},
 	}
 	opts := &runtimebundle.BuildOptions{PluginRegistry: reg, Production: prod}
@@ -407,9 +419,11 @@ func TestReasoningPreservation_OrdinaryStreamObserversPreservedWithCompression(t
 	}
 	t.Cleanup(func() { _ = scheduler.Close() })
 	prod := runtimebundle.ProductionOptions{
-		ReasoningCompression: runtimebundle.ReasoningCompressionOptions{
-			EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"test-allow": allowEgress{version: "v1"}},
-			MatcherResolver: stubResolver{m: stubMatch{redacted: "REDACTED"}},
+		FeatureHostRegistrations: []featurehost.Registration{
+			(&reasoninghost.Binding{
+				EgressPolicies:  map[string]reasoninghost.EgressPolicy{"test-allow": allowEgress{version: "v1"}},
+				MatcherResolver: stubResolver{m: stubMatch{redacted: "REDACTED"}},
+			}).Registration(),
 		},
 	}
 	opts := &runtimebundle.BuildOptions{PluginRegistry: reg, Production: prod}

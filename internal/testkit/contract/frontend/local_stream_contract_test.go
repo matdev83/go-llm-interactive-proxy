@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/localstream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
@@ -84,7 +84,7 @@ func TestLocalStream_FrontendContract_StreamingAndNonStreaming(t *testing.T) {
 			replyText := "local-contract-" + tc.name + "-reply"
 			// Tagged canonical identity (same construction as runtime tags).
 			taggedMsg := localstream.CanonicalAssistantMessage(replyText)
-			taggedID, err := conversationview.MessageIdentityOf(taggedMsg)
+			taggedID, err := conversationprojection.MessageIdentityOf(taggedMsg)
 			if err != nil {
 				t.Fatalf("tagged identity: %v", err)
 			}
@@ -107,7 +107,7 @@ func TestLocalStream_FrontendContract_StreamingAndNonStreaming(t *testing.T) {
 				t.Fatalf("FinishReceived must be true")
 			}
 			replayMsg := localstream.CanonicalAssistantMessage(col.Text.String())
-			replayID, err := conversationview.MessageIdentityOf(replayMsg)
+			replayID, err := conversationprojection.MessageIdentityOf(replayMsg)
 			if err != nil {
 				t.Fatalf("replay identity: %v", err)
 			}
@@ -115,7 +115,7 @@ func TestLocalStream_FrontendContract_StreamingAndNonStreaming(t *testing.T) {
 				t.Fatalf("replay identity %s != tagged %s", replayID, taggedID)
 			}
 			// Item-authority replay also equivalent.
-			itemID, err := conversationview.ItemIdentityOf(localstream.CanonicalAssistantItem(col.Text.String()))
+			itemID, err := conversationprojection.ItemIdentityOf(localstream.CanonicalAssistantItem(col.Text.String()))
 			if err != nil {
 				t.Fatalf("item identity: %v", err)
 			}
@@ -170,7 +170,7 @@ func TestLocalStream_FrontendContract_StreamingAndNonStreaming(t *testing.T) {
 				t.Fatalf("decoded text %q != reply %q", decodedText, replyText)
 			}
 			decodedMsg := localstream.CanonicalAssistantMessage(decodedText)
-			decodedID, err := conversationview.MessageIdentityOf(decodedMsg)
+			decodedID, err := conversationprojection.MessageIdentityOf(decodedMsg)
 			if err != nil {
 				t.Fatalf("decoded identity: %v", err)
 			}

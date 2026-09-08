@@ -4,59 +4,87 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 )
 
-const (
-	defaultInterleavedMaxMemoBytes = 16 * 1024
-	defaultInterleavedRegularTurns = 2
-)
+// InterleavedTurnInput carries per-turn facts required by interleaved thinking.
+type InterleavedTurnInput struct {
+	ALegID              string
+	Selector            string
+	Backend             string
+	Model               string
+	RequestID           string
+	StreamToClient      string
+	SuppressVisibleMemo bool
+}
+
+// InterleavedMemo carries minimal evidence of captured thinker output.
+type InterleavedMemo struct {
+	Text       string
+	Reference  string
+	Version    int64
+	HadContent bool
+}
+
+// IsEmpty reports whether the memo evidence is empty.
+func (m InterleavedMemo) IsEmpty() bool {
+	return m.Reference == "" && m.Text == ""
+}
+
+// InterleavedProcessor is the runtime-owned consumer interface for interleaved thinking.
+// Memo steering policy (rendering, overlay identity, placement/fallback
+// selection, memo filtering) is feature-owned: the processor answers every
+// memo-policy question so core never hardcodes feature semantics.
+type InterleavedProcessor interface {
+	BeginTurn(ctx context.Context, in InterleavedTurnInput) (InterleavedTurn, error)
+	IsMemoVisibleToClient(ctx context.Context, aLegID string) bool
+	// MemoSteeringPutRequest builds the feature-owned steering mutation that
+	// persists a captured memo.
+	MemoSteeringPutRequest(memo string) steering.PutRequest
+	// MemoSteeringOverlayID returns the feature-owned stable overlay identity
+	// for the thinker memo.
+	MemoSteeringOverlayID() steering.OverlayID
+	// IsMemoSteeringOverlay reports whether overlayID carries the thinker memo.
+	IsMemoSteeringOverlay(overlayID string) bool
+}
+
+// InterleavedTurn is the runtime-owned per-turn lifecycle contract.
+type InterleavedTurn interface {
+	ShapeThinker(call lipapi.Call) (lipapi.Call, error)
+	ObserveThinkerEvent(ev lipapi.Event) ([]lipapi.Event, error)
+	FinalizeThinker(ctx context.Context) (InterleavedMemo, error)
+	FinalizeThinkerStatus(ctx context.Context, interrupted bool, visibleCommitted bool) (InterleavedMemo, error)
+	ShapeExecutor(ctx context.Context, call lipapi.Call, memo InterleavedMemo) (lipapi.Call, error)
+	Visible() bool
+	CanContinue() bool
+	ShapeDiagnostics() (outcome string, turnsRemaining int)
+	CommitExecutor(ctx context.Context) (remaining int, err error)
+	FlushVisible() []lipapi.Event
+}
 
 // interleavedEnabled reports whether interleaved thinking is configured on the executor.
-// When false, the attempt-open path skips shaping and state persistence entirely so
-// behavior is identical to a deployment without the feature (Requirements 3.5, 10.2).
 func (e *Executor) interleavedEnabled() bool {
 	if e == nil {
 		return false
 	}
-	return e.InterleavedConfig.Instructions != "" || e.MemoStore != nil
+	return e.Processor != nil
 }
 
-// loadInterleavedState fetches the persisted thinker cycle state and memo reference for
-// the A-leg. A store that does not implement [b2bua.InterleavedStateStore] yields a
-// zero state, which is the harmless new-session equivalent for cycle purposes.
-// Memo bodies may be process-local; a persisted MemoRef without a memo is handled
-// later by shaping as a missing memo, not as a continuity failure.
+// loadInterleavedState fetches the persisted thinker cycle state for the A-leg.
 func (e *Executor) loadInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error) {
-	if !e.interleavedEnabled() {
-		return interleavedstate.State{}, nil
-	}
 	is, ok := e.Store.(b2bua.InterleavedStateStore)
 	if !ok || is == nil {
 		return interleavedstate.State{}, nil
 	}
-	state, err := is.FetchInterleavedState(ctx, aLegID)
-	if err != nil {
-		if errors.Is(err, b2bua.ErrALegNotFound) {
-			return interleavedstate.State{}, nil
-		}
-		return interleavedstate.State{}, fmt.Errorf("executor: load interleaved state: %w", err)
-	}
-	return state, nil
+	return is.FetchInterleavedState(ctx, aLegID)
 }
 
-// persistInterleavedState stores the thinker cycle state and memo reference for the A-leg.
-// It does not require durable memo bodies: the standard runtime persists the ref
-// so in-process turns can consume it, while restart loss degrades to no memo.
-// A store that does not implement [b2bua.InterleavedStateStore] rejects non-empty state so
-// callers fail closed instead of silently dropping authoritative interleaved state.
+// persistInterleavedState stores the thinker cycle state for the A-leg.
 func (e *Executor) persistInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error {
 	if !e.interleavedEnabled() {
 		return nil
@@ -72,177 +100,42 @@ func (e *Executor) persistInterleavedState(ctx context.Context, aLegID string, s
 }
 
 // shapeAttemptCall applies candidate-specific interleaved shaping to a canonical call before
-// capability negotiation and backend open. The A-leg ID is the authoritative memo scope.
-// RoleNone candidates and disabled configurations return a deep clone unchanged.
+// capability negotiation and backend open.
 func (e *Executor) shapeAttemptCall(
 	ctx context.Context,
 	call lipapi.Call,
 	c routing.AttemptCandidate,
-	aLegID string,
-	state interleavedstate.State,
-	suppressVisibleMemo bool,
-) (interleavedthinking.ShapeResult, error) {
-	if !e.interleavedEnabled() {
-		return interleavedthinking.ShapeResult{Call: lipapi.CloneCall(call)}, nil
+	turn InterleavedTurn,
+) (lipapi.Call, error) {
+	if !e.interleavedEnabled() || turn == nil {
+		return lipapi.CloneCall(call), nil
 	}
-	return interleavedthinking.ShapeCall(ctx, interleavedthinking.ShapeInput{
-		Call:                call,
-		Candidate:           c,
-		Config:              e.InterleavedConfig,
-		MemoStore:           e.MemoStore,
-		Scope:               interleavedthinking.Scope(aLegID),
-		MemoRef:             state.MemoRef,
-		SuppressVisibleMemo: suppressVisibleMemo,
-	})
+	switch c.InterleavedRole {
+	case interleavedstate.RoleThinker:
+		return turn.ShapeThinker(call)
+	case interleavedstate.RoleExecutor:
+		return turn.ShapeExecutor(ctx, call, InterleavedMemo{})
+	default:
+		return lipapi.CloneCall(call), nil
+	}
 }
 
-func (e *Executor) interleavedHiddenMode() bool {
-	if !e.interleavedEnabled() {
+func (e *Executor) shouldWrapInterleavedThinker(c routing.AttemptCandidate, turn InterleavedTurn) bool {
+	if !e.interleavedEnabled() || c.InterleavedRole != interleavedstate.RoleThinker {
 		return false
 	}
-	mode := strings.ToLower(strings.TrimSpace(e.InterleavedConfig.StreamToClient))
-	return mode == "" || mode == "hidden"
+	if turn != nil {
+		return turn.CanContinue()
+	}
+	return true
 }
 
-func (e *Executor) interleavedVisibleMode() bool {
-	if !e.interleavedEnabled() {
-		return false
-	}
-	return strings.ToLower(strings.TrimSpace(e.InterleavedConfig.StreamToClient)) == "visible"
+func (e *Executor) shouldWrapHiddenInterleavedThinker(c routing.AttemptCandidate, turn InterleavedTurn) bool {
+	return e.shouldWrapInterleavedThinker(c, turn)
 }
 
-func (e *Executor) shouldWrapHiddenInterleavedThinker(c routing.AttemptCandidate) bool {
-	return e.interleavedHiddenMode() && e.MemoStore != nil && c.InterleavedRole == interleavedstate.RoleThinker
-}
-
-func (e *Executor) shouldWrapVisibleInterleavedThinker(c routing.AttemptCandidate) bool {
-	return e.interleavedVisibleMode() && e.MemoStore != nil && c.InterleavedRole == interleavedstate.RoleThinker
-}
-
-func (e *Executor) effectiveMaxMemoBytes() int {
-	if e == nil || e.InterleavedConfig.MaxMemoBytes <= 0 {
-		return defaultInterleavedMaxMemoBytes
-	}
-	return e.InterleavedConfig.MaxMemoBytes
-}
-
-func (e *Executor) effectiveRegularTurnsRemaining() int {
-	if e == nil || e.InterleavedConfig.RegularTurnsRemaining <= 0 {
-		return defaultInterleavedRegularTurns
-	}
-	return e.InterleavedConfig.RegularTurnsRemaining
-}
-
-func (e *Executor) newThinkerRecorder(c routing.AttemptCandidate, call lipapi.Call) *interleavedthinking.Recorder {
-	return &interleavedthinking.Recorder{
-		MaxMemoBytes:          e.effectiveMaxMemoBytes(),
-		SourceSelector:        strings.TrimSpace(call.Route.Selector),
-		Backend:               strings.TrimSpace(c.Primary.Backend),
-		Model:                 strings.TrimSpace(c.Primary.Model),
-		RequestID:             strings.TrimSpace(call.ID),
-		RegularTurnsRemaining: e.effectiveRegularTurnsRemaining(),
-	}
-}
-
-// persistCapturedMemo publishes the captured memo as a persistent conversation-view
-// steering overlay and stores the memo bookkeeping state for the A-leg.
-//
-// The overlay is the only presentation path (#391): executor context receives
-// the memo through conversation-view projection as a standalone synthetic user
-// message anchored after the current ingress tail. If steering cannot be
-// published, the memo is not linked for presentation and the turn continues
-// without it; accounting then never presents steering that projection cannot
-// inject.
-//
-// Memo bodies remain process-local: the standard runtime persists the ref so
-// in-process turns can consume it, while restart loss degrades to no memo (and
-// best-effort cleanup of any still-active overlay). A store that does not
-// implement [b2bua.InterleavedStateStore] rejects non-empty state so callers
-// fail closed instead of silently dropping authoritative interleaved state.
-// capturedMemoSource carries the frozen turn view needed to publish the memo
-// as a conversation-view steering overlay. TraceID feeds bounded diagnostics
-// only; Ingress/Snapshot resolve the after_ingress_tail anchor at Put time.
-type capturedMemoSource struct {
-	TraceID  string
-	Ingress  lipapi.Call
-	Snapshot conversationview.Snapshot
-}
-
-func (e *Executor) persistCapturedMemo(
-	ctx context.Context,
-	aLegID string,
-	state interleavedstate.State,
-	memo interleavedthinking.MemoState,
-	src capturedMemoSource,
-) (interleavedstate.State, error) {
-	if e == nil || e.MemoStore == nil {
-		return state, fmt.Errorf("executor: memo store required for interleaved capture")
-	}
-	var overlayPublished bool
-	if strings.TrimSpace(memo.Memo) != "" {
-		if err := e.publishMemoSteeringOverlay(ctx, aLegID, src.Ingress, src.Snapshot, memo.Memo); err != nil {
-			e.logInterleavedMemoSteeringSkipped(ctx, src.TraceID)
-			return state, nil
-		}
-		overlayPublished = true
-	}
-	oldRef := state.MemoRef
-	ref, err := e.MemoStore.Put(ctx, interleavedthinking.Scope(aLegID), memo)
-	if err != nil {
-		if overlayPublished {
-			if restoreErr := e.restoreMemoSteeringOverlay(ctx, aLegID, oldRef, src); restoreErr != nil {
-				return state, fmt.Errorf("executor: store thinker memo: %w (restore steering: %v)", err, restoreErr)
-			}
-		}
-		return state, fmt.Errorf("executor: store thinker memo: %w", err)
-	}
-	state.MemoRef = &ref
-	if err := e.persistInterleavedState(ctx, aLegID, state); err != nil {
-		state.MemoRef = oldRef
-		if overlayPublished {
-			if restoreErr := e.restoreMemoSteeringOverlay(ctx, aLegID, oldRef, src); restoreErr != nil {
-				return state, fmt.Errorf("executor: persist memo reference: %w (restore steering: %v)", err, restoreErr)
-			}
-		}
-		scope := interleavedthinking.Scope(aLegID)
-		if delErr := e.MemoStore.Delete(ctx, scope, ref); delErr != nil {
-			return state, fmt.Errorf("executor: persist memo reference: %w (rollback delete: %v)", err, delErr)
-		}
-		return state, fmt.Errorf("executor: persist memo reference: %w", err)
-	}
-	if oldRef != nil && oldRef.Key != "" && !oldRef.Equal(ref) {
-		if err := e.MemoStore.Delete(ctx, interleavedthinking.Scope(aLegID), *oldRef); err != nil {
-			return state, fmt.Errorf("executor: delete replaced memo: %w", err)
-		}
-	}
-	return state, nil
-}
-
-// commitMemoInjection commits the memo budget mutation once a shaped executor
-// attempt becomes authoritative. When the budget reaches zero the persistent
-// memo steering overlay is deactivated so projection stops presenting an
-// expired memo (#391).
-func (e *Executor) commitMemoInjection(ctx context.Context, aLegID string, state interleavedstate.State, update *interleavedthinking.PendingMemoUpdate) (interleavedstate.State, error) {
-	if update == nil {
-		return state, nil
-	}
-	if e == nil || e.MemoStore == nil {
-		return state, fmt.Errorf("executor: memo store required for interleaved injection")
-	}
-	ref, err := e.MemoStore.Update(ctx, interleavedthinking.Scope(aLegID), update.Ref, update.State)
-	if err != nil {
-		return state, fmt.Errorf("executor: update injected memo: %w", err)
-	}
-	state.MemoRef = &ref
-	if err := e.persistInterleavedState(ctx, aLegID, state); err != nil {
-		return state, fmt.Errorf("executor: persist interleaved memo reference: %w", err)
-	}
-	if update.State.RegularTurnsRemaining <= 0 {
-		if err := e.deactivateMemoSteeringOverlay(ctx, aLegID); err != nil {
-			return state, fmt.Errorf("executor: deactivate exhausted memo steering: %w", err)
-		}
-	}
-	return state, nil
+func (e *Executor) shouldWrapVisibleInterleavedThinker(c routing.AttemptCandidate, turn InterleavedTurn) bool {
+	return e.shouldWrapInterleavedThinker(c, turn)
 }
 
 func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from *retryRecvStream, state interleavedstate.State) (*retryRecvStream, error) {
@@ -250,22 +143,8 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		return nil, fmt.Errorf("executor: invalid interleaved continuation arguments")
 	}
 	facts := from.facts
-	// The memo steering overlay was published after this logical turn's
-	// conversation-view snapshot froze. Refresh the frozen view so the executor
-	// continuation plans and reasserts against the projected baseline that
-	// includes it; visible-mode immediate continuations keep the memo excluded.
-	// Interleaved continuations always run under immediate-continuation
-	// suppression semantics, so suppression here depends only on whether the
-	// captured memo was surfaced to the client.
-	var refreshed bool
-	facts, refreshed = e.refreshMemoSteeringFacts(ctx, facts, state, true)
-	if !refreshed {
-		state.MemoRef = nil
-	}
-	// A continuation may be opened from Recv with a bare caller context after
-	// model/catalog refresh. Reattach the logical request's frozen views before
-	// any planning, capability resolution, or backend open; copying them onto the
-	// resulting stream afterward is too late.
+	facts, _ = e.refreshMemoSteeringFacts(ctx, facts, state, true)
+
 	boundCtx := projectRefreshedMemoContext(ctx, facts, from.responsePipeline.log)
 	boundCtx = from.responsePipeline.withDecisionEvidence(boundCtx, from.terminal)
 	e.logInterleavedThinkerSuppressed(boundCtx, facts.traceID)
@@ -281,7 +160,6 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		return nil, fmt.Errorf("executor: interleaved continuation: %w", routing.ErrNoEligibleCandidate)
 	}
 	responsePipeline := newResponsePipelineForExecutor(e)
-	// Fallible preparation before publish
 	if err := out.ready.Prepare(boundCtx, facts, responsePipeline, false); err != nil {
 		return nil, err
 	}

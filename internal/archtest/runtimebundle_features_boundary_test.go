@@ -85,22 +85,22 @@ func TestForbiddenImports_RuntimeBundleConcreteFeaturesRenamedOrNestedBypassReje
 			wantForbid: true,
 		},
 		{
-			name:       "runtimebundle imports compactioncompose adapter (allowed)",
+			name:       "runtimebundle imports retired compactioncompose adapter (forbidden)",
 			relPath:    "internal/infra/runtimebundle/compaction_continuity_generation.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose",
-			wantForbid: false,
+			wantForbid: true,
 		},
 		{
-			name:       "runtimebundle imports reasoningcompose adapter (allowed)",
-			relPath:    "internal/infra/runtimebundle/reasoning_preservation_compression.go",
+			name:       "runtimebundle imports retired reasoningcompose adapter (forbidden)",
+			relPath:    "internal/infra/runtimebundle/renamed.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/reasoningcompose",
-			wantForbid: false,
+			wantForbid: true,
 		},
 		{
-			name:       "runtimebundle imports secretguardcompose adapter (allowed)",
+			name:       "runtimebundle imports retired secretguardcompose adapter (forbidden)",
 			relPath:    "internal/infra/runtimebundle/secret_guard_runtime.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose",
-			wantForbid: false,
+			wantForbid: true,
 		},
 		{
 			name:       "runtimebundle imports standardplugins distribution (allowed)",
@@ -109,20 +109,20 @@ func TestForbiddenImports_RuntimeBundleConcreteFeaturesRenamedOrNestedBypassReje
 			wantForbid: false,
 		},
 		{
-			name:       "compactioncompose dedicated adapter imports feature (allowed)",
-			relPath:    "internal/infra/compactioncompose/parent_port.go",
+			name:       "featurehost compaction dedicated adapter imports feature (allowed)",
+			relPath:    "internal/standardplugins/featurehost/compaction/parent_port.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity",
 			wantForbid: false,
 		},
 		{
-			name:       "reasoningcompose dedicated adapter imports feature (allowed)",
-			relPath:    "internal/infra/reasoningcompose/bind.go",
+			name:       "featurehost reasoning dedicated adapter imports feature (allowed)",
+			relPath:    "internal/standardplugins/featurehost/reasoning/compose.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation",
 			wantForbid: false,
 		},
 		{
-			name:       "secretguardcompose dedicated adapter imports feature (allowed)",
-			relPath:    "internal/infra/secretguardcompose/compose.go",
+			name:       "featurehost secretguard dedicated adapter imports feature (allowed)",
+			relPath:    "internal/standardplugins/featurehost/secretguard/compose.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard",
 			wantForbid: false,
 		},
@@ -130,6 +130,7 @@ func TestForbiddenImports_RuntimeBundleConcreteFeaturesRenamedOrNestedBypassReje
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			src := fmt.Sprintf("package test\nimport _ %q\n", tc.importPath)
 			findings, err := ScanFileForbiddenImports(tc.relPath, tc.relPath, []byte(src))
 			if err != nil {
@@ -141,6 +142,44 @@ func TestForbiddenImports_RuntimeBundleConcreteFeaturesRenamedOrNestedBypassReje
 					tc.relPath, tc.importPath, isForbidden, tc.wantForbid, findings)
 			}
 		})
+	}
+}
+
+// TestProductionRuntimeBundleHasZeroSecretguardhostImports scans the live
+// production tree of internal/infra/runtimebundle and asserts zero imports of
+// the concrete secretguardhost SDK contract (Req 8.3/9.3/13.4). Default
+// environment binding construction plus presence/precedence handling live in
+// standard-distribution composition (internal/standardplugins/featurehost);
+// generic runtimebundle forwards only a generic environment capability.
+// Test files may still construct explicit bindings to prove precedence.
+func TestProductionRuntimeBundleHasZeroSecretguardhostImports(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	const target = "/pkg/lipsdk/secretguardhost"
+	var violations []string
+	err := WalkProductionGoFiles(root, func(rel, abs string, src []byte) error {
+		pkg := PackageDirFromRel(rel)
+		if !MatchPathPrefix(pkg, "internal/infra/runtimebundle") {
+			return nil
+		}
+		_, f, err := ParseGoSource(abs, src)
+		if err != nil {
+			return err
+		}
+		for _, imp := range FileImportPaths(f) {
+			if strings.Contains(imp, target) {
+				violations = append(violations, fmt.Sprintf("%s: imports %s", rel, imp))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkProductionGoFiles: %v", err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("production internal/infra/runtimebundle has forbidden secretguardhost imports (%d):\n%s",
+			len(violations), strings.Join(violations, "\n"))
 	}
 }
 

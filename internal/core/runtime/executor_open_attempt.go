@@ -13,14 +13,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
@@ -83,15 +82,16 @@ type candidateRejection struct {
 type candidateEvaluationOutcome struct {
 	accepted          bool
 	rejection         candidateRejection
-	shapeRes          interleavedthinking.ShapeResult
+	attempt           lipapi.Call
 	facts             modelcatalog.EffectiveFacts
 	preflightDecision accountingpreflight.Decision
 	admitOut          candidateAdmissionOutcome
+	turn              InterleavedTurn
 }
 type openedAttempt struct {
 	ready       *readyAttempt
 	interleaved interleavedstate.State
-	memoUpdate  *interleavedthinking.PendingMemoUpdate
+	turn        InterleavedTurn
 }
 type attemptTx struct {
 	e                *Executor
@@ -355,6 +355,20 @@ func (e *Executor) startAttemptTx(ctx context.Context, rf requestFacts, route ro
 	}, nil
 }
 
+func (e *Executor) getOrBeginInterleavedTurn(ctx context.Context, rf requestFacts, c routing.AttemptCandidate) (InterleavedTurn, error) {
+	if !e.interleavedEnabled() {
+		return nil, nil
+	}
+	return e.Processor.BeginTurn(ctx, InterleavedTurnInput{
+		ALegID:              rf.aLegID,
+		Selector:            rf.baseline.Route.Selector,
+		Backend:             c.Primary.Backend,
+		Model:               c.Primary.Model,
+		RequestID:           rf.traceID,
+		SuppressVisibleMemo: rf.suppressVisibleMemo,
+	})
+}
+
 func (e *Executor) evaluateCandidate(
 	ctx context.Context,
 	rf requestFacts,
@@ -367,28 +381,24 @@ func (e *Executor) evaluateCandidate(
 	if e.MaxPendingWireEvents > 0 {
 		attempt.MaxPendingWireEvents = e.MaxPendingWireEvents
 	}
-	shapeRes, err := e.shapeAttemptCall(ctx, attempt, plan.cand, rf.aLegID, interleaved, rf.suppressVisibleMemo)
-	if err != nil {
-		return zero, fmt.Errorf("executor: interleaved shape: %w", err)
-	}
-	attempt = shapeRes.Call
-	e.logInterleavedMemoShape(ctx, rf.traceID, "", plan.cand, shapeRes)
-	// Overlay lifecycle self-healing (#391): when shaping classifies the memo as
-	// expired, or the memo body is gone while a reference is still linked
-	// (process-local memo loss across restart), retire any still-active memo
-	// steering overlay so projection cannot present unbounded stale guidance.
-	// Both paths are best-effort and idempotent.
-	switch shapeRes.MemoOutcome {
-	case interleavedthinking.MemoOutcomeExpired:
-		if err := e.deactivateMemoSteeringOverlay(ctx, rf.aLegID); err != nil {
-			return zero, fmt.Errorf("executor: deactivate expired memo steering: %w", err)
+	var turn InterleavedTurn
+	if e.interleavedEnabled() && plan.cand.InterleavedRole != interleavedstate.RoleNone {
+		var err error
+		turn, err = e.getOrBeginInterleavedTurn(ctx, rf, plan.cand)
+		if err != nil {
+			return zero, fmt.Errorf("executor: interleaved turn: %w", err)
 		}
-	case interleavedthinking.MemoOutcomeSkippedMissing:
-		if interleaved.MemoRef != nil {
-			if err := e.deactivateMemoSteeringOverlay(ctx, rf.aLegID); err != nil {
-				return zero, fmt.Errorf("executor: deactivate missing memo steering: %w", err)
-			}
+		shaped, err := e.shapeAttemptCall(ctx, attempt, plan.cand, turn)
+		if err != nil {
+			return zero, fmt.Errorf("executor: interleaved shape: %w", err)
 		}
+		attempt = shaped
+		var outcome string
+		var turnsRemaining int
+		if turn != nil {
+			outcome, turnsRemaining = turn.ShapeDiagnostics()
+		}
+		e.logInterleavedMemoShape(ctx, rf.traceID, "", plan.cand, outcome, turnsRemaining)
 	}
 	be, ok := e.Backends[plan.cand.Primary.Backend]
 	if !ok {
@@ -407,7 +417,6 @@ func (e *Executor) evaluateCandidate(
 	if xformErr != nil {
 		return zero, fmt.Errorf("executor: candidate attempt transform: %w", xformErr)
 	}
-	shapeRes.Call = attempt
 	if xformRes.Excluded {
 		return candidateEvaluationOutcome{
 			accepted: false,
@@ -519,10 +528,11 @@ func (e *Executor) evaluateCandidate(
 	_ = precheckState
 	return candidateEvaluationOutcome{
 		accepted:          true,
-		shapeRes:          shapeRes,
+		attempt:           attempt,
 		facts:             facts,
 		preflightDecision: preflightDecision,
 		admitOut:          admitOut,
+		turn:              turn,
 	}, nil
 }
 
@@ -567,7 +577,7 @@ func (e *Executor) openAttemptTx(
 	plan candidatePlan,
 ) error {
 	c := plan.cand
-	attempt := evalOutcome.shapeRes.Call
+	attempt := evalOutcome.attempt
 	be := e.Backends[c.Primary.Backend]
 	if tx.budget != nil {
 		if !tx.budget.tryAcquire() {
@@ -605,15 +615,15 @@ func (e *Executor) openAttemptTx(
 	// Task 4.1: final conversation-view reassertion at shared candidate-open choke point.
 	// Uses frozen snapshot/provenance/filteredBaseline (no store read) to remove reintroduced never_backend and
 	// rebuild steering exactly once at frozen placement, handling late transforms based on projected baseline.
-	var reassertProvenance []conversationview.OverlayProvenance
+	var reassertProvenance []conversationprojection.OverlayProvenance
 	if len(tx.reqFacts.conversationSnapshot.NeverBackend) > 0 || len(tx.reqFacts.conversationSnapshot.Steering) > 0 || len(tx.reqFacts.conversationProvenance) > 0 {
-		reasserted, reEv, rerr := conversationview.Reassert(openCall, tx.reqFacts.conversationSnapshot, tx.reqFacts.conversationProvenance, tx.reqFacts.conversationFilteredBaseline)
+		reasserted, reEv, rerr := conversationprojection.Reassert(openCall, tx.reqFacts.conversationSnapshot, tx.reqFacts.conversationProvenance, tx.reqFacts.conversationFilteredBaseline)
 		if rerr != nil {
 			if obs := e.conversationViewObserver(); obs != nil {
-				safe := conversationview.SafeObserver(obs)
-				safe.OnProjectionFailure(conversationview.StageFinal)
-				if errors.Is(rerr, conversationview.ErrAnchorMissing) || errors.Is(rerr, conversationview.ErrAnchorNotFound) {
-					safe.OnAnchorFailure(conversationview.AnchorFailClosed)
+				safe := safeObserver{obs: obs}
+				safe.OnProjectionFailure(conversationprojection.StageFinal)
+				if errors.Is(rerr, conversationprojection.ErrAnchorMissing) || errors.Is(rerr, conversationprojection.ErrAnchorNotFound) {
+					safe.OnAnchorFailure(conversationprojection.AnchorFailClosed)
 				}
 			}
 			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
@@ -626,12 +636,12 @@ func (e *Executor) openAttemptTx(
 			reassertProvenance = tx.reqFacts.conversationProvenance
 		}
 		if obs := e.conversationViewObserver(); obs != nil {
-			safe := conversationview.SafeObserver(obs)
-			summary := conversationview.NewProjectionSummary(tx.reqFacts.conversationSnapshot, reEv)
-			safe.OnProjection(conversationview.StageFinal, summary)
+			safe := safeObserver{obs: obs}
+			summary := conversationprojection.NewProjectionSummary(tx.reqFacts.conversationSnapshot, reEv)
+			safe.OnProjection(conversationprojection.StageFinal, summary)
 			if reEv != nil {
 				for range reEv.Fallbacks {
-					safe.OnAnchorFallback(conversationview.StageFinal, conversationview.AnchorStablePrefixFallback)
+					safe.OnAnchorFallback(conversationprojection.StageFinal, conversationprojection.AnchorStablePrefixFallback)
 				}
 			}
 		}
@@ -720,9 +730,9 @@ func (e *Executor) openAttemptTx(
 		if len(provForVerify) == 0 {
 			provForVerify = tx.reqFacts.conversationProvenance
 		}
-		if verr := conversationview.VerifyAdaptationPreservesProjection(openCall, adaptedCall, tx.reqFacts.conversationSnapshot, provForVerify); verr != nil {
+		if verr := conversationprojection.VerifyAdaptationPreservesProjection(openCall, adaptedCall, tx.reqFacts.conversationSnapshot, provForVerify); verr != nil {
 			if obs := e.conversationViewObserver(); obs != nil {
-				conversationview.SafeObserver(obs).OnProjectionFailure(conversationview.StageFinal)
+				safeObserver{obs: obs}.OnProjectionFailure(conversationprojection.StageFinal)
 			}
 			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 			return fmt.Errorf("executor: conversation view adaptation integrity: %w", verr)
@@ -1035,7 +1045,6 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 
 	ready := tx.HandoffReady(pendingSelectionEffects{
 		interleaved: req.interleaved,
-		memoUpdate:  nil,
 	})
 
 	if err := tx.commitLaunchOrRegister(ctx, ready, req.reqFacts.aScope); err != nil {
@@ -1046,42 +1055,36 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 		return openedAttempt{interleaved: req.interleaved}, err
 	}
 
+	if plan.cand.InterleavedRole == interleavedstate.RoleExecutor && evalOutcome.turn != nil {
+		remaining, cerr := evalOutcome.turn.CommitExecutor(ctx)
+		if cerr != nil {
+			ready.Dispose(ctx, cerr)
+			return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: commit interleaved memo: %w", cerr)
+		}
+		if remaining == 0 {
+			if derr := e.deactivateMemoSteeringOverlay(ctx, req.reqFacts.aLegID); derr != nil {
+				ready.Dispose(ctx, derr)
+				return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: deactivate memo steering: %w", derr)
+			}
+		}
+	}
+
 	interleaved := req.interleaved
 	if plan.nextCycle != nil {
 		interleaved.Cycle = *plan.nextCycle
-	}
-	var memoUpdate *interleavedthinking.PendingMemoUpdate
-	if req.reqFacts.suppressThinker {
-		if plan.nextCycle != nil {
-			if perr := e.persistInterleavedState(ctx, req.reqFacts.aLegID, interleaved); perr != nil {
-				ready.Dispose(ctx, perr)
-				return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
-			}
-		}
-		memoUpdate = evalOutcome.shapeRes.MemoUpdate
-	} else {
-		if evalOutcome.shapeRes.MemoUpdate != nil {
-			interleaved, err = e.commitMemoInjection(ctx, req.reqFacts.aLegID, interleaved, evalOutcome.shapeRes.MemoUpdate)
-			if err != nil {
-				ready.Dispose(ctx, err)
-				return openedAttempt{interleaved: req.interleaved}, err
-			}
-		} else if plan.nextCycle != nil {
-			if perr := e.persistInterleavedState(ctx, req.reqFacts.aLegID, interleaved); perr != nil {
-				ready.Dispose(ctx, perr)
-				return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
-			}
+		if perr := e.persistInterleavedState(ctx, req.reqFacts.aLegID, interleaved); perr != nil {
+			ready.Dispose(ctx, perr)
+			return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
 		}
 	}
 	e.logInterleavedRouteSelected(ctx, req.reqFacts.traceID, tx.bleg.BLegID, plan.cand, req.interleaved.Cycle, interleaved.Cycle)
 	ready.setPending(pendingSelectionEffects{
 		interleaved: interleaved,
-		memoUpdate:  memoUpdate,
 	})
 	return openedAttempt{
 		ready:       ready,
 		interleaved: interleaved,
-		memoUpdate:  memoUpdate,
+		turn:        evalOutcome.turn,
 	}, nil
 }
 

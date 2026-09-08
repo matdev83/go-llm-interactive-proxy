@@ -11,11 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
@@ -78,10 +79,12 @@ func TestCacheRegression_Runtime_FrozenSnapshot_PrefixStable_AcrossThreeTurns(t 
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := store.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
 	// Need an A-leg via runtime prepare to get deterministic ID, then seed steering
 	tmpEx := TestExecutor()
 	tmpEx.Store = store
+	tmpEx.ConversationViewReader = nil
+	tmpEx.ConversationViewTagger = nil
 	tmpEx.Bus = hooks.New(hooks.Config{})
 	tmpEx.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(tmpEx.Bus, extensions.SnapshotOptions{})
 	tmpEx.Rand = routing.NewSeededRng(1)
@@ -91,7 +94,8 @@ func TestCacheRegression_Runtime_FrozenSnapshot_PrefixStable_AcrossThreeTurns(t 
 	require.NoError(t, err)
 	aLegID := prInit.identity.aLeg.ALegID
 	cleanup()
-	// Create stable_prefix overlay via MemoryStore (explicit discontinuity)
+	_ = cv.CreateALeg(ctx, aLegID)
+	// Create stable_prefix overlay via ReferenceStore (explicit discontinuity)
 	st, err := cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 		OverlayID:           "ov-rt-stable",
 		Message:             conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "RT_STABLE"},
@@ -113,19 +117,23 @@ func TestCacheRegression_Runtime_FrozenSnapshot_PrefixStable_AcrossThreeTurns(t 
 	ex.Now = func() time.Time { return time.Unix(1000, 0) }
 	sys := rtCacheSys("sys")
 	u1 := rtCacheUser("u1")
-	a1 := rtCacheAssistant("a1")
 	u2 := rtCacheUser("u2")
-	a2 := rtCacheAssistant("a2")
 	u3 := rtCacheUser("u3")
+
+	// Turn N: [sys, u1]
 	callN := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1}}
+	// Turn N+1: [sys, u1, a1, u2]
+	a1 := rtCacheAssistant("a1")
 	callN1 := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1, a1, u2}}
+	// Turn N+2: [sys, u1, a1, u2, a2, u3]
+	a2 := rtCacheAssistant("a2")
 	callN2 := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1, a1, u2, a2, u3}}
 	// Simulate three append-only turns via direct Project with frozen snap (runtime would do same)
-	projN, _, err := conversationview.Project(*callN, snap)
+	projN, _, err := conversationprojection.Project(*callN, snap)
 	require.NoError(t, err)
-	projN1, _, err := conversationview.Project(*callN1, snap)
+	projN1, _, err := conversationprojection.Project(*callN1, snap)
 	require.NoError(t, err)
-	projN2, _, err := conversationview.Project(*callN2, snap)
+	projN2, _, err := conversationprojection.Project(*callN2, snap)
 	require.NoError(t, err)
 	require.True(t, rtIsPrefix(rtCacheTraj(projN), rtCacheTraj(projN1)))
 	require.True(t, rtIsPrefix(rtCacheTraj(projN1), rtCacheTraj(projN2)))
@@ -163,22 +171,26 @@ func TestCacheRegression_Runtime_FixedActivation_FrozenAcrossTurns(t *testing.T)
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := store.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
 	tmpEx := TestExecutor()
 	tmpEx.Store = store
+	tmpEx.ConversationViewReader = nil
+	tmpEx.ConversationViewTagger = nil
 	tmpEx.Bus = hooks.New(hooks.Config{})
 	tmpEx.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(tmpEx.Bus, extensions.SnapshotOptions{})
 	tmpEx.Rand = routing.NewSeededRng(1)
 	tmpEx.Now = func() time.Time { return time.Unix(2000, 0) }
 	callInit := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Messages: []lipapi.Message{rtCacheUser("init")}}
-	prInit, _, cleanup, _ := tmpEx.prepareRequest(execDetachedCtx(ctx), callInit)
+	prInit, _, cleanup, err := tmpEx.prepareRequest(execDetachedCtx(ctx), callInit)
+	require.NoError(t, err)
 	aLegID := prInit.identity.aLeg.ALegID
 	cleanup()
+	_ = cv.CreateALeg(ctx, aLegID)
 	uAnchor := rtCacheUser("anchor-N")
 	sys := rtCacheSys("sys")
 	anchorCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{uAnchor}}
 	snap0, _ := cv.Snapshot(ctx, aLegID)
-	anchor, err := conversationview.ResolveAfterIngressTailAnchor(anchorCall, snap0)
+	anchor, err := conversationprojection.ResolveAfterIngressTailAnchor(anchorCall, snap0)
 	require.NoError(t, err)
 	_, err = cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 		OverlayID:           "ov-rt-fixed",
@@ -197,9 +209,9 @@ func TestCacheRegression_Runtime_FixedActivation_FrozenAcrossTurns(t *testing.T)
 	callN := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{uAnchor}}
 	callN1 := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{uAnchor, a1, u2}}
 	callN2 := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{uAnchor, a1, u2, a2, u3}}
-	projN, ev, _ := conversationview.Project(callN, snap)
-	projN1, _, _ := conversationview.Project(callN1, snap)
-	projN2, _, _ := conversationview.Project(callN2, snap)
+	projN, ev, _ := conversationprojection.Project(callN, snap)
+	projN1, _, _ := conversationprojection.Project(callN1, snap)
+	projN2, _, _ := conversationprojection.Project(callN2, snap)
 	require.True(t, rtIsPrefix(rtCacheTraj(projN), rtCacheTraj(projN1)))
 	require.True(t, rtIsPrefix(rtCacheTraj(projN1), rtCacheTraj(projN2)))
 	// Verify activation ordering U_N, STEER
@@ -214,17 +226,21 @@ func TestCacheRegression_Runtime_MutationDiscontinuity_FrozenIsolation(t *testin
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := store.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
 	tmpEx := TestExecutor()
 	tmpEx.Store = store
+	tmpEx.ConversationViewReader = nil
+	tmpEx.ConversationViewTagger = nil
 	tmpEx.Bus = hooks.New(hooks.Config{})
 	tmpEx.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(tmpEx.Bus, extensions.SnapshotOptions{})
 	tmpEx.Rand = routing.NewSeededRng(1)
 	tmpEx.Now = func() time.Time { return time.Unix(3000, 0) }
 	callInit := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Messages: []lipapi.Message{rtCacheUser("init")}}
-	prInit, _, cleanup, _ := tmpEx.prepareRequest(execDetachedCtx(ctx), callInit)
+	prInit, _, cleanup, err := tmpEx.prepareRequest(execDetachedCtx(ctx), callInit)
+	require.NoError(t, err)
 	aLegID := prInit.identity.aLeg.ALegID
 	cleanup()
+	_ = cv.CreateALeg(ctx, aLegID)
 	sys := rtCacheSys("sys")
 	u1 := rtCacheUser("u1")
 	a1 := rtCacheAssistant("a1")
@@ -262,7 +278,7 @@ func TestCacheRegression_Runtime_MutationDiscontinuity_FrozenIsolation(t *testin
 	traj2b := rtCacheTraj(mustProj(t, lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1, a1, u2}}, snap2))
 	require.True(t, rtIsPrefix(traj2, traj2b))
 	// MOVE
-	anchor, _ := conversationview.ResolveAfterIngressTailAnchor(lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1}}, snap2)
+	anchor, _ := conversationprojection.ResolveAfterIngressTailAnchor(lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1}}, snap2)
 	stMove, _ := cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 		OverlayID:           "ov-disc",
 		Message:             conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "DISC_REPLACE"},
@@ -297,20 +313,24 @@ func TestCacheRegression_Runtime_AnchorDisappearance_FallbackAndFailClosed(t *te
 	t.Run("fallback via runtime Execute", func(t *testing.T) {
 		t.Parallel()
 		store, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-		cv := store.ConversationViewStore()
+		cv := conversationview.NewReferenceStore()
 		tmpEx := TestExecutor()
 		tmpEx.Store = store
+		tmpEx.ConversationViewReader = nil
+		tmpEx.ConversationViewTagger = nil
 		tmpEx.Bus = hooks.New(hooks.Config{})
 		tmpEx.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(tmpEx.Bus, extensions.SnapshotOptions{})
 		tmpEx.Rand = routing.NewSeededRng(1)
 		tmpEx.Now = func() time.Time { return time.Unix(4000, 0) }
 		callInit := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Messages: []lipapi.Message{rtCacheUser("init")}}
-		prInit, _, cleanup, _ := tmpEx.prepareRequest(execDetachedCtx(ctx), callInit)
+		prInit, _, cleanup, err := tmpEx.prepareRequest(execDetachedCtx(ctx), callInit)
+		require.NoError(t, err)
 		aLegID := prInit.identity.aLeg.ALegID
 		cleanup()
+		_ = cv.CreateALeg(ctx, aLegID)
 		uAnchor := rtCacheUser("anchor-fb")
 		sys := rtCacheSys("sys")
-		anchor, _ := conversationview.ResolveAfterIngressTailAnchor(lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{uAnchor}}, mustSnap(t, cv, aLegID))
+		anchor, _ := conversationprojection.ResolveAfterIngressTailAnchor(lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{uAnchor}}, mustSnap(t, cv, aLegID))
 		_, _ = cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 			OverlayID:           "ov-fb",
 			Message:             conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "FB_STEER"},
@@ -348,8 +368,8 @@ func TestCacheRegression_Runtime_AnchorDisappearance_FallbackAndFailClosed(t *te
 		// second compacted projection must be deterministic (no wandering)
 		call2 := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{rtCacheUser("other"), rtCacheAssistant("a1"), rtCacheUser("u2")}}
 		// Direct project with same snap should be prefix-stable in fallback position
-		proj1, ev1, _ := conversationview.Project(*call, snap)
-		proj2, ev2, _ := conversationview.Project(*call2, snap)
+		proj1, ev1, _ := conversationprojection.Project(*call, snap)
+		proj2, ev2, _ := conversationprojection.Project(*call2, snap)
 		require.Len(t, ev1.Fallbacks, 1)
 		require.Len(t, ev2.Fallbacks, 1)
 		assert.True(t, rtIsPrefix(rtCacheTraj(proj1), rtCacheTraj(proj2)))
@@ -360,20 +380,24 @@ func TestCacheRegression_Runtime_AnchorDisappearance_FallbackAndFailClosed(t *te
 	t.Run("fail_closed via runtime Execute", func(t *testing.T) {
 		t.Parallel()
 		store, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-		cv := store.ConversationViewStore()
+		cv := conversationview.NewReferenceStore()
 		tmpEx := TestExecutor()
 		tmpEx.Store = store
+		tmpEx.ConversationViewReader = nil
+		tmpEx.ConversationViewTagger = nil
 		tmpEx.Bus = hooks.New(hooks.Config{})
 		tmpEx.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(tmpEx.Bus, extensions.SnapshotOptions{})
 		tmpEx.Rand = routing.NewSeededRng(1)
 		tmpEx.Now = func() time.Time { return time.Unix(4000, 0) }
 		callInit := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Messages: []lipapi.Message{rtCacheUser("init")}}
-		prInit, _, cleanup, _ := tmpEx.prepareRequest(execDetachedCtx(ctx), callInit)
+		prInit, _, cleanup, err := tmpEx.prepareRequest(execDetachedCtx(ctx), callInit)
+		require.NoError(t, err)
 		aLegID := prInit.identity.aLeg.ALegID
 		cleanup()
+		_ = cv.CreateALeg(ctx, aLegID)
 		uAnchor := rtCacheUser("anchor-fc")
 		sys := rtCacheSys("sys")
-		anchor, _ := conversationview.ResolveAfterIngressTailAnchor(lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{uAnchor}}, mustSnap(t, cv, aLegID))
+		anchor, _ := conversationprojection.ResolveAfterIngressTailAnchor(lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{uAnchor}}, mustSnap(t, cv, aLegID))
 		_, _ = cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 			OverlayID:           "ov-fc",
 			Message:             conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "FC_STEER"},
@@ -393,7 +417,7 @@ func TestCacheRegression_Runtime_AnchorDisappearance_FallbackAndFailClosed(t *te
 		ex.Rand = routing.NewSeededRng(1)
 		ex.Now = func() time.Time { return time.Unix(4000, 0) }
 		call := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{rtCacheUser("other"), rtCacheAssistant("a1")}}
-		_, err := ex.Execute(execDetachedCtx(ctx), call)
+		_, err = ex.Execute(execDetachedCtx(ctx), call)
 		require.Error(t, err)
 		assert.Equal(t, 0, capBackend.OpenCount(), "fail_closed must not open backend")
 		assert.False(t, strings.Contains(err.Error(), "FC_STEER"))
@@ -404,20 +428,24 @@ func TestCacheRegression_Runtime_NoTailReinject_And_ReassertFrozen(t *testing.T)
 	t.Parallel()
 	ctx := context.Background()
 	store, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := store.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
 	tmpEx := TestExecutor()
 	tmpEx.Store = store
+	tmpEx.ConversationViewReader = nil
+	tmpEx.ConversationViewTagger = nil
 	tmpEx.Bus = hooks.New(hooks.Config{})
 	tmpEx.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(tmpEx.Bus, extensions.SnapshotOptions{})
 	tmpEx.Rand = routing.NewSeededRng(1)
 	tmpEx.Now = func() time.Time { return time.Unix(5000, 0) }
 	callInit := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Messages: []lipapi.Message{rtCacheUser("init")}}
-	prInit, _, cleanup, _ := tmpEx.prepareRequest(execDetachedCtx(ctx), callInit)
+	prInit, _, cleanup, err := tmpEx.prepareRequest(execDetachedCtx(ctx), callInit)
+	require.NoError(t, err)
 	aLegID := prInit.identity.aLeg.ALegID
 	cleanup()
+	_ = cv.CreateALeg(ctx, aLegID)
 	sys := rtCacheSys("sys")
 	u1 := rtCacheUser("u1")
-	anchor, _ := conversationview.ResolveAfterIngressTailAnchor(lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1}}, mustSnap(t, cv, aLegID))
+	anchor, _ := conversationprojection.ResolveAfterIngressTailAnchor(lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1}}, mustSnap(t, cv, aLegID))
 	_, _ = cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 		OverlayID:           "ov-reassert",
 		Message:             conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "REASSERT_STEER"},
@@ -428,7 +456,7 @@ func TestCacheRegression_Runtime_NoTailReinject_And_ReassertFrozen(t *testing.T)
 	snap, _ := cv.Snapshot(ctx, aLegID)
 	// Late transform that moves steering to tail must be repaired by Reassert frozen snapshot
 	baseCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1, rtCacheAssistant("a1"), rtCacheUser("u2")}}
-	baseline, ev, _ := conversationview.Project(baseCall, snap)
+	baseline, ev, _ := conversationprojection.Project(baseCall, snap)
 	late := lipapi.CloneCall(baseline)
 	// Move steering to tail (simulate per-turn tail re-inject bug)
 	var steeringMsg lipapi.Message
@@ -441,15 +469,15 @@ func TestCacheRegression_Runtime_NoTailReinject_And_ReassertFrozen(t *testing.T)
 		filtered = append(filtered, m)
 	}
 	late.Messages = append(filtered, steeringMsg)
-	filteredBaseline, _ := conversationview.FilterNeverBackend(baseCall, snap)
-	repaired, _, err := conversationview.Reassert(late, snap, ev.Provenance, filteredBaseline)
+	filteredBaseline, _ := conversationprojection.FilterNeverBackend(baseCall, snap)
+	repaired, _, err := conversationprojection.Reassert(late, snap, ev.Provenance, filteredBaseline)
 	require.NoError(t, err)
 	trajRepaired := rtCacheTraj(repaired)
 	trajBaseline := rtCacheTraj(baseline)
 	assert.Equal(t, trajBaseline, trajRepaired, "Reassert must restore frozen fixed position, not tail")
 	// Ensure repaired is prefix of later turn
 	laterCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1, rtCacheAssistant("a1"), rtCacheUser("u2"), rtCacheAssistant("a2"), rtCacheUser("u3")}}
-	projLater, _, _ := conversationview.Project(laterCall, snap)
+	projLater, _, _ := conversationprojection.Project(laterCall, snap)
 	assert.True(t, rtIsPrefix(trajRepaired, rtCacheTraj(projLater)))
 	// Tail re-inject would break prefix: demonstrate
 	tailTraj := append(rtCacheTraj(baseline)[:len(rtCacheTraj(baseline))-1], "system:REASSERT_STEER")
@@ -459,11 +487,11 @@ func TestCacheRegression_Runtime_NoTailReinject_And_ReassertFrozen(t *testing.T)
 // helpers
 
 type cacheCountingReader struct {
-	snap  conversationview.Snapshot
+	snap  conversationprojection.Snapshot
 	count int
 }
 
-func (c *cacheCountingReader) Snapshot(_ context.Context, _ string) (conversationview.Snapshot, error) {
+func (c *cacheCountingReader) Snapshot(_ context.Context, _ string) (conversationprojection.Snapshot, error) {
 	c.count++
 	return c.snap, nil
 }
@@ -490,16 +518,16 @@ func (c *cacheCaptureBackend) LastCall() lipapi.Call {
 	return lipapi.CloneCall(c.calls[len(c.calls)-1])
 }
 
-func mustSnap(t *testing.T, cv conversationview.Store, aLeg string) conversationview.Snapshot {
+func mustSnap(t *testing.T, cv conversationview.Store, aLeg string) conversationprojection.Snapshot {
 	t.Helper()
 	snap, err := cv.Snapshot(context.Background(), aLeg)
 	require.NoError(t, err)
 	return snap
 }
 
-func mustProj(t *testing.T, call lipapi.Call, snap conversationview.Snapshot) lipapi.Call {
+func mustProj(t *testing.T, call lipapi.Call, snap conversationprojection.Snapshot) lipapi.Call {
 	t.Helper()
-	proj, _, err := conversationview.Project(call, snap)
+	proj, _, err := conversationprojection.Project(call, snap)
 	require.NoError(t, err)
 	return proj
 }

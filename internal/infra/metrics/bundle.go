@@ -4,7 +4,6 @@ import (
 	"database/sql"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
@@ -33,7 +32,7 @@ type Bundle struct {
 	ConversationView    *ConversationViewProm
 	sink                runtime.MetricsSink
 	tokenAccountingSink *TokenAccountingPromSink
-	conversationSink    conversationview.Observer
+	conversationSink    ConversationViewObserver
 }
 
 // NewBundle builds a registry with Go/process, inbound HTTP, executor, and upstream series.
@@ -127,7 +126,7 @@ func (b *Bundle) TokenAccountingObservabilitySink() *TokenAccountingPromSink {
 }
 
 // ConversationViewObserver returns a bounded conversation-view observer (nil when metrics disabled).
-func (b *Bundle) ConversationViewObserver() conversationview.Observer {
+func (b *Bundle) ConversationViewObserver() ConversationViewObserver {
 	if b == nil {
 		return nil
 	}

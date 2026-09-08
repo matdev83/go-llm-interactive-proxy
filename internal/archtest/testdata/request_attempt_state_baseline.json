@@ -133,6 +133,7 @@
       "execSpan",
       "guard",
       "identity",
+      "interleavedTurn",
       "isLocal",
       "localHandlerID",
       "localStream"

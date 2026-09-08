@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	conversationviewStorecontract "github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/storecontract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	routeoverrideStorecontract "github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride/storecontract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -75,17 +74,6 @@ func (f *postgresContinuityFixture) RouteOverrideEnv(t *testing.T) routeoverride
 		AdvanceClock:    advanceBunLastSeen,
 		SeedStoredState: seedBunStoredState,
 		Spawn:           func(fn func()) { go fn() },
-	}
-}
-
-func (f *postgresContinuityFixture) ConversationViewEnv(t *testing.T) conversationviewStorecontract.Env {
-	return conversationviewStorecontract.Env{
-		New: func(t *testing.T) conversationviewStorecontract.Deps {
-			t.Helper()
-			s := f.NewStore(t)
-			return conversationViewDepsForStore(t, s)
-		},
-		Spawn: func(fn func()) { go fn() },
 	}
 }
 

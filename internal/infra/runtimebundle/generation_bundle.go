@@ -2,12 +2,10 @@ package runtimebundle
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"sort"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
@@ -57,14 +55,11 @@ type generationOperations struct {
 }
 
 type GenerationBundle struct {
-	keepwarm         *keepwarm.Manager
-	keepwarmRegistry *keepwarm.ManagerRegistry
-	keepwarmID       uint64
-	execution        generationExecution
-	publication      generationHTTPPublication
-	models           generationModelViews
-	operations       generationOperations
-	ledger           *ResourceLedger
+	execution   generationExecution
+	publication generationHTTPPublication
+	models      generationModelViews
+	operations  generationOperations
+	ledger      *ResourceLedger
 }
 
 var (
@@ -223,41 +218,24 @@ func (b *GenerationBundle) Quiesce(ctx context.Context) error {
 	if b == nil {
 		return nil
 	}
-	var err error
-	if b.keepwarmRegistry != nil && b.keepwarmID != 0 {
-		if unregErr := b.keepwarmRegistry.Unregister(b.keepwarmID); unregErr != nil && !errors.Is(unregErr, keepwarm.ErrManagerNotRegistered) {
-			err = unregErr
-		}
-	}
-	if b.keepwarm != nil {
-		err = errors.Join(err, b.keepwarm.Quiesce(ctx))
-	}
+	// Generation-scoped cleanup (including keep-warm quiesce) is owned by
+	// the transferred resource ledger; no feature-specific path here.
 	if b.ledger != nil {
-		err = errors.Join(err, b.ledger.Quiesce(ctx))
+		return b.ledger.Quiesce(ctx)
 	}
-	return err
+	return nil
 }
 
 func (b *GenerationBundle) Close() error {
 	if b == nil {
 		return nil
 	}
-	var err error
-	// Close is also used for unpublished/rollback generations, so it must
-	// perform the same registry detachment as Quiesce before stopping the
-	// manager. Otherwise the process-owned registry retains a retired manager.
-	if b.keepwarmRegistry != nil && b.keepwarmID != 0 {
-		if unregErr := b.keepwarmRegistry.Unregister(b.keepwarmID); unregErr != nil && !errors.Is(unregErr, keepwarm.ErrManagerNotRegistered) {
-			err = unregErr
-		}
-	}
-	if b.keepwarm != nil {
-		err = errors.Join(err, b.keepwarm.Quiesce(context.Background()))
-	}
+	// Close is also used for unpublished/rollback generations. The ledger
+	// owns every generation-scoped cleanup.
 	if b.ledger != nil {
-		err = errors.Join(err, b.ledger.Close(context.Background()))
+		return b.ledger.Close(context.Background())
 	}
-	return err
+	return nil
 }
 
 func backendIDsOf(exec *runtime.Executor) []string {
@@ -274,9 +252,6 @@ func backendIDsOf(exec *runtime.Executor) []string {
 
 func newGenerationBundle(in generationBundleInput) *GenerationBundle {
 	return &GenerationBundle{
-		keepwarm:         in.keepwarm,
-		keepwarmRegistry: in.keepwarmRegistry,
-		keepwarmID:       in.keepwarmID,
 		execution: generationExecution{
 			executor:   in.executor,
 			backendIDs: append([]string(nil), in.backendIDs...),
@@ -315,7 +290,4 @@ type generationBundleInput struct {
 	terminalProviders *terminalworkapp.FrozenTerminalProviders
 	frozen            lipfeature.FrozenPlaneSet
 	readiness         controlplane.ReadinessReportReader
-	keepwarm          *keepwarm.Manager
-	keepwarmRegistry  *keepwarm.ManagerRegistry
-	keepwarmID        uint64
 }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -79,8 +79,8 @@ type recvTurnFactsInput struct {
 	billingCallID          billing.BillingCallID
 	billingCallState       *billingCallState
 
-	conversationSnapshot         conversationview.Snapshot
-	conversationProvenance       []conversationview.OverlayProvenance
+	conversationSnapshot         conversationprojection.Snapshot
+	conversationProvenance       []conversationprojection.OverlayProvenance
 	conversationFilteredBaseline lipapi.Call
 	ingressCall                  lipapi.Call
 	continuationIntent           continuationIntentFacts
@@ -123,8 +123,8 @@ type recvTurnFacts struct {
 	billingCallID          billing.BillingCallID
 	billingCallState       *billingCallState
 
-	conversationSnapshot         conversationview.Snapshot
-	conversationProvenance       []conversationview.OverlayProvenance
+	conversationSnapshot         conversationprojection.Snapshot
+	conversationProvenance       []conversationprojection.OverlayProvenance
 	conversationFilteredBaseline lipapi.Call
 	ingressCall                  lipapi.Call
 	continuationIntent           continuationIntentFacts
