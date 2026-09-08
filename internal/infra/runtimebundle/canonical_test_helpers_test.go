@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
@@ -29,19 +30,37 @@ func compileCandidateWithFeatures(ctx context.Context, ps *runtimebundle.Process
 		} else if len(candOpts.Testing.FeatureHostRegistrations) > 0 {
 			genHostRegs = candOpts.Testing.FeatureHostRegistrations
 		}
+		// Mirror CompileGeneration: merge the registration surface (with host
+		// contributions and candidate planes) so the facade composes guards
+		// and publishes the execution plane into a complete frozen surface.
+		regs := config.RegistrationsFromConfig(cfg)
+		host := featurebundle.HostContributions{
+			TrafficObservers: candOpts.Production.TrafficObservers,
+			UsageObservers:   candOpts.Production.UsageObservers,
+		}
+		genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(ps.FactoryCatalog, regs, host)
+		if err != nil {
+			return nil, err
+		}
+		if !candOpts.FeaturePlanes.IsZero() {
+			genMerged, err = genMerged.MergeCandidatePlanes(candOpts.FeaturePlanes)
+			if err != nil {
+				return nil, err
+			}
+		}
 		featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
-			Registrations:     config.RegistrationsFromConfig(cfg),
+			Registrations:     regs,
 			HostRegistrations: genHostRegs,
+			MergeSurface:      genMerged,
+			Planes:            genMerged.Frozen,
+			Lifecycles:        genMerged.Lifecycles,
 			AccessMode:        accessMode,
 			ConfigInterleaved: cfg.Interleaved,
 			ConfigDir:         cfg.ConfigDir,
-			DecisionObserver:  candOpts.Extensions.SecretDecisionObserver,
 		})
 		if err != nil {
 			return nil, err
 		}
-		candOpts.Extensions.SecretGuard = &featOut.SecretGuard
-		candOpts.Extensions.SecretGuardInventory = featOut.SecretGuardInventory
 		candOpts.FeaturePlanes = featOut.Planes
 		candOpts.FeatureLifecycles = featOut.Lifecycles
 		if candOpts.CorePorts.InterleavedProcessor == nil {

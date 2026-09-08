@@ -61,6 +61,8 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
 
 - `internal/pluginreg/` — Standard distribution plugin registry & validation.
 - `internal/standardplugins/` — Built-in bundle tables (`standard_table.go`), `InstallStandardBundleOn`, `ResolveUpstreamAPIKeysFromEnv`.
+- `internal/standardplugins/featurehost/` — Standard-distribution feature composition owner: compiles process/generation-bound features, holds host-feature registrations, and owns the single constructor / single physical cleanup per process feature resource (children: `compaction/`, `reasoning/`, `secretguard/`, `sessionpolicy/`).
+- `internal/standardplugins/legacyfeatureconfig/` — Decode-only legacy YAML shim: normalizes top-level `interleaved:` / `prompt_cache:` keys into canonical `plugins.features` entries (conflict errors on dual specification); feature-owned constructors stay authoritative downstream.
 - `internal/featurebundle/` — Feature merge engine (`MergeFeatureSurface`).
 - `internal/infra/runtimebundle/` — Process `Host` builder (`runtimebundle.BuildHost`), immutable generation management (`GenerationRuntime`), shutdown coordinator; the host lifecycle ends through `Host.Close`. Authoritative billing is injected through `ComposeBilling` → `BuildHostInput.Production`; `cmd/lipstd` does not open a billing journal. Contains zero direct imports of `internal/plugins/features/*`.
 - `internal/stdhttp/` — Standard HTTP surface, route mounting, auth attachment, diagnostics, access logs. Optional billing reports, routing-override admin mounts, and terminal-decision session-feature policy endpoints (generic authenticated client `/v1/lip/session/features/{feature_id}` and diagnostics-secret operator surfaces) are composition-gated.
@@ -93,7 +95,7 @@ Wire frontends translate protocol payloads <-> canonical contracts:
 
 ### 6. Support & Test Surfaces
 
-- `internal/infra/` — HTTP client tuning, structured logging, Prometheus metrics, OTLP tracing, DB connectors, secret audit, billing store/compose/admission adapters, compaction detection (`compactiondetect/`), and dedicated feature composition adapters (`compactioncompose/`, `reasoningcompose/`, `secretguardcompose/`).
+- `internal/infra/` — HTTP client tuning, structured logging, Prometheus metrics, OTLP tracing, DB connectors, secret audit, billing store/compose/admission adapters, compaction detection (`compactiondetect/`). The retired `internal/infra/` feature composition adapters now live beneath the standard-distribution feature owner as `internal/standardplugins/featurehost/` children (`compaction/`, `reasoning/`, `secretguard/`).
 - `internal/refbackend/` — Test-only backend emulators (HTTP).
 - `internal/refclient/` — Test-only official SDK reference clients.
 - `internal/testkit/` — Stubs, fakes, fixtures, reasoning E2E plans (`reasoninge2e/`), contract TCKs (`contract/` for canonical-core, frontend, and backend-family certification). Cartesian FE×BE completeness is not a release invariant.
@@ -155,6 +157,7 @@ The architecture gates also include the deterministic change-surface reporter at
 - Core must not import or branch on concrete terminal-decision providers: one exclusive provider slot, generic no-provider fallback, and provider removal preserves default behavior.
 - Feature plugins should depend on `pkg/lipsdk` contracts, not `internal/core` implementation packages.
 - Feature plugins (`toolcallrepair`, `secretguard`, `reasoningpreservation`, and all migrated standard features) own domain state, configuration decoding and bundle construction; simple plane-only features register a thin factory in `features_install.go` while process/generation-bound features are composed by `internal/standardplugins/featurehost`; standard distribution (`internal/standardplugins`) registers them explicitly; `internal/core` and `internal/infra/runtimebundle` contain no feature-specific branches or concrete feature imports. A process feature resource has exactly one constructor path and one physical cleanup owner; `StandardFeatures.Close` never closes borrowed generic process resources.
+- Kernel–policy split: pure projection/orchestration operators over canonical facts stay in `internal/core`; domain policy lives in feature plugins and reaches core only through `pkg/lipsdk` ports and featurehost bindings.
 - The v1 extension-plane catalog is closed (`pkg/lipsdk/feature/plane_manifest.go`); ungenerated planes fail with `ErrUngeneratedPlane`; canonical generated binding is authoritative for production policy.
 - Security startup checks belong in config/runtimebundle/stdhttp composition boundaries, not inside protocol codecs.
 - Backend local-only access-scope enforcement belongs in standard registration/runtimebundle policy, not inside protocol codecs.

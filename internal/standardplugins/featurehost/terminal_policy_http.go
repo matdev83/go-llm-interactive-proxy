@@ -52,6 +52,19 @@ func (r *Runtime) TerminalDecisionPolicyHTTPProjection(
 	}
 }
 
+// TerminalPolicyProjectionFunc builds one generation's terminal decision policy
+// HTTP input from request-time composition state. It is a fixed consumer port:
+// generic runtimebundle invokes it without referencing concrete feature symbols.
+type TerminalPolicyProjectionFunc func(snapshot *extensions.RequestRuntimeSnapshot, headers lipsdk.HTTPHeaders, maxBodyBytes int64, store ssessionapp.Store) httpcontract.TerminalDecisionPolicyInput
+
+// TerminalPolicyProjection returns the opaque generation-scoped factory for the
+// terminal decision policy HTTP projection bound to this process Runtime.
+func (r *Runtime) TerminalPolicyProjection() TerminalPolicyProjectionFunc {
+	return func(snapshot *extensions.RequestRuntimeSnapshot, headers lipsdk.HTTPHeaders, maxBodyBytes int64, store ssessionapp.Store) httpcontract.TerminalDecisionPolicyInput {
+		return r.TerminalDecisionPolicyHTTPProjection(snapshot, headers, maxBodyBytes, store)
+	}
+}
+
 // TerminalDecisionPolicyHTTPProjection provides a package-level helper that safely
 // handles nil Runtime.
 func TerminalDecisionPolicyHTTPProjection(

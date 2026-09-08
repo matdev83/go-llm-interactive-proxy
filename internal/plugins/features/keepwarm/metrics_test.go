@@ -1,27 +1,29 @@
-package metrics
+package keepwarm
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
 
-func TestKeepwarmPromAllowsAccountingErrors(t *testing.T) {
-	if !keepwarmMetricEventAllowed("accounting_error") {
+func TestPrometheusCollectorAllowsAccountingErrors(t *testing.T) {
+	if !metricEventAllowed("accounting_error") {
 		t.Fatal("accounting_error must be exported as a bounded keep-warm event")
 	}
 }
 
-func TestKeepwarmPromExportsBoundedManagerState(t *testing.T) {
+func TestPrometheusCollectorExportsBoundedManagerState(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	prom := RegisterKeepwarmProm(registry)
-	manager, err := keepwarm.NewManager(keepwarm.DefaultConfig(), keepwarm.ClockFunc(func() time.Time { return time.Unix(100, 0).UTC() }), keepwarm.Hooks{})
+	prom := NewPrometheusCollector()
+	if err := registry.Register(prom); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	manager, err := NewManager(DefaultConfig(), ClockFunc(func() time.Time { return time.Unix(100, 0).UTC() }), Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,10 +34,10 @@ func TestKeepwarmPromExportsBoundedManagerState(t *testing.T) {
 		Timing:    promptcache.Timing{ObservedAt: time.Unix(100, 0).UTC(), ExpiresAt: new(time.Unix(400, 0).UTC())},
 		Renewable: true, Handle: promptcache.Handle("opaque"),
 	}
-	result := manager.ArmFromCommittedTurn(keepwarm.ArmInput{
+	result := manager.ArmFromCommittedTurn(ArmInput{
 		ALegID: "a", BLegID: "b", BackendInstanceID: "backend", CommittedSuccessful: true,
 		ToolEvents:   []lipapi.ToolEvent{{Kind: lipapi.ToolEventFinished, ToolCallID: "tool", ToolName: "bash", Category: lipapi.ToolCategoryOSCommand}},
-		Observations: []promptcache.Observation{observation}, Controller: testControllerForMetrics{},
+		Observations: []promptcache.Observation{observation}, Controller: testControllerForMetricsCollector{},
 	})
 	if !result.Armed {
 		t.Fatal(result)
@@ -48,15 +50,13 @@ func TestKeepwarmPromExportsBoundedManagerState(t *testing.T) {
 	assertMetricGauge(t, families, "lip_prompt_cache_keepwarm_active_targets", 1)
 }
 
-func timePtr(t time.Time) *time.Time { return new(t) }
+type testControllerForMetricsCollector struct{}
 
-type testControllerForMetrics struct{}
-
-func (testControllerForMetrics) Renew(context.Context, promptcache.RenewRequest) (promptcache.RenewResponse, error) {
+func (testControllerForMetricsCollector) Renew(context.Context, promptcache.RenewRequest) (promptcache.RenewResponse, error) {
 	return promptcache.RenewResponse{}, nil
 }
 
-func (testControllerForMetrics) Release(context.Context, promptcache.ReleaseRequest) error {
+func (testControllerForMetricsCollector) Release(context.Context, promptcache.ReleaseRequest) error {
 	return nil
 }
 

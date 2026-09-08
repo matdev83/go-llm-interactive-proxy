@@ -6,11 +6,34 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"gopkg.in/yaml.v3"
 )
+
+// auditTestRuntime composes secret-guard audit through the featurehost facade
+// with an explicit per-generation observer, reading the plane back purely via
+// plane access (the same channel generic code uses).
+func auditTestRuntime(t *testing.T, regs []lipsdk.Registration, observer secretguard.Observer) *secretGuardTestRuntime {
+	t.Helper()
+	fh, err := featurehost.NewProcess(context.Background(), featurehost.ProcessInput{Logger: slog.Default()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+		Registrations:    regs,
+		AccessMode:       accessmode.ModeSingleUser,
+		DecisionObserver: observer,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plane, inv := secretGuardFromPlanes(out.Planes)
+	return &secretGuardTestRuntime{Plane: plane, Inventory: inv}
+}
 
 func TestBindSecretGuardAudit_failClosedChainsObserverErrors(t *testing.T) {
 	t.Parallel()
@@ -35,14 +58,8 @@ func TestBindSecretGuardAudit_failClosedChainsObserverErrors(t *testing.T) {
 		Enabled:     true,
 		Config:      lipsdk.ConfigPayload{Node: node},
 	}}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretDecisionObserver: secretguard.ChainObservers(secretguard.AuditFailClosed, failing, second),
-	}}
-	rt, err := bindSecretGuardAudit(&config.Config{}, opts, regs, slog.Default())
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = rt.Plane.DecisionObserver.OnSecretDecision(t.Context(), secretguard.DecisionEvent{})
+	rt := auditTestRuntime(t, regs, secretguard.ChainObservers(secretguard.AuditFailClosed, failing, second))
+	err := rt.Plane.DecisionObserver.OnSecretDecision(t.Context(), secretguard.DecisionEvent{})
 	if !errors.Is(err, boom) {
 		t.Fatalf("err=%v want sink down", err)
 	}
@@ -73,13 +90,7 @@ func TestBindSecretGuardAudit_bestEffortFromDecodedConfig(t *testing.T) {
 		Enabled:     true,
 		Config:      lipsdk.ConfigPayload{Node: node},
 	}}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretDecisionObserver: secretguard.ChainObservers(secretguard.AuditBestEffort, failing, second),
-	}}
-	rt, err := bindSecretGuardAudit(&config.Config{}, opts, regs, slog.Default())
-	if err != nil {
-		t.Fatal(err)
-	}
+	rt := auditTestRuntime(t, regs, secretguard.ChainObservers(secretguard.AuditBestEffort, failing, second))
 	if rt.Plane.AuditFailurePolicy != secretguard.AuditBestEffort {
 		t.Fatalf("policy=%q want best_effort", rt.Plane.AuditFailurePolicy)
 	}

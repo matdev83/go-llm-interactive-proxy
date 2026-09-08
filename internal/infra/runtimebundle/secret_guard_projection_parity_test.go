@@ -122,11 +122,10 @@ func TestSecretGuardProjection_ParityWithFrozenAndRegistrationOrder(t *testing.T
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
-	// 3. Plane.Guards retains registration order (defensive clone)
-	require.Len(t, res.Plane.Guards, 3)
-	assert.Equal(t, "sg-b1-20", res.Plane.Guards[0].ID())
-	assert.Equal(t, "sg-b1-10", res.Plane.Guards[1].ID())
-	assert.Equal(t, "sg-b2-5", res.Plane.Guards[2].ID())
+	// 3. The engine plane carries no guards by construction: guards travel on
+	// the ordinary planes, which preserve registration order (defensive clone,
+	// step 1). The snapshot overlays them on every access (steps 4-5).
+	require.Empty(t, res.Plane.Guards)
 
 	// 4. Snapshot SecretGuardExecutionPlane materializes in sorted order (ord ascending, then ID)
 	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
@@ -189,14 +188,16 @@ func TestSecretGuardProjection_NilAndEmptySlicePreservation(t *testing.T) {
 		assert.NotNil(t, guards[2])
 		assert.Nil(t, guards[3])
 
-		// Safe runtime projection does not invoke methods on nil elements
+		// Safe runtime projection does not invoke methods on nil elements.
+		// Nil-element preservation is pinned at the frozen level above; the
+		// engine plane itself carries no guards (they travel on planes).
 		opts := &BuildOptions{
 			FeaturePlanes: frozen,
 		}
 		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 		require.NoError(t, err)
 		require.NotNil(t, res)
-		require.Len(t, res.Plane.Guards, 4)
+		require.Empty(t, res.Plane.Guards)
 
 		// Snapshot execution plane filters both literal nil and typed nil
 		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
@@ -368,20 +369,28 @@ func TestSecretGuardProjection_HostCapabilitiesObserverFallbackAndChaining(t *te
 	var logBuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
+	// Observers enter composition through the pinned GenerationInput port; the
+	// composed plane is read back purely via plane access.
+	composeWithObserver := func(planes lipfeature.FrozenPlaneSet, observer sdksg.Observer) *secretGuardTestRuntime {
+		fh, err := featurehost.NewProcess(context.Background(), featurehost.ProcessInput{Logger: log})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = fh.Close() })
+		out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+			Planes:           planes,
+			DecisionObserver: observer,
+		})
+		require.NoError(t, err)
+		plane, inv := secretGuardFromPlanes(out.Planes)
+		return &secretGuardTestRuntime{Plane: plane, Inventory: inv}
+	}
+
 	// 1. Explicit observer chained
 	customObs := &parityTestCustomObserver{}
 	cs1 := lipfeature.NewContributionSet()
 	_ = lipfeature.Contribute(cs1, lipfeature.PlaneSecretGuards, "p", []sdksg.Guard{parityTestSGGuard{id: "g1", ord: 1}})
-	opts1 := &BuildOptions{
-		FeaturePlanes: cs1.Freeze(),
-		Extensions: ExtensionsOptions{
-			SecretDecisionObserver: customObs,
-		},
-	}
-	res1, err := testBuildSecretGuardRuntime(&config.Config{}, log, opts1, nil)
-	require.NoError(t, err)
+	res1 := composeWithObserver(cs1.Freeze(), customObs)
 	require.NotNil(t, res1.Plane.DecisionObserver)
-	err = res1.Plane.DecisionObserver.OnSecretDecision(context.Background(), sdksg.DecisionEvent{EventID: "ev-1"})
+	err := res1.Plane.DecisionObserver.OnSecretDecision(context.Background(), sdksg.DecisionEvent{EventID: "ev-1"})
 	require.NoError(t, err)
 	require.Len(t, customObs.events, 1)
 
@@ -389,14 +398,7 @@ func TestSecretGuardProjection_HostCapabilitiesObserverFallbackAndChaining(t *te
 	var typedNilObs *parityTestCustomObserver
 	cs2 := lipfeature.NewContributionSet()
 	_ = lipfeature.Contribute(cs2, lipfeature.PlaneSecretGuards, "p", []sdksg.Guard{parityTestSGGuard{id: "g1", ord: 1}})
-	opts2 := &BuildOptions{
-		FeaturePlanes: cs2.Freeze(),
-		Extensions: ExtensionsOptions{
-			SecretDecisionObserver: typedNilObs,
-		},
-	}
-	res2, err := testBuildSecretGuardRuntime(&config.Config{}, log, opts2, nil)
-	require.NoError(t, err)
+	res2 := composeWithObserver(cs2.Freeze(), typedNilObs)
 	require.NotNil(t, res2.Plane.DecisionObserver)
 	logBuf.Reset()
 	err = res2.Plane.DecisionObserver.OnSecretDecision(context.Background(), sdksg.DecisionEvent{EventID: "ev-typed-nil"})

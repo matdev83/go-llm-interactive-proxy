@@ -64,6 +64,8 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	for _, p := range planes {
 		if strings.HasPrefix(p.typeExpr, "[]") {
 			fmt.Fprintf(&buf, "\tnext.%s = cloneSlice(gc.%s)\n", p.fieldName, p.fieldName)
+		} else if p.hasRequestMaterializer {
+			fmt.Fprintf(&buf, "\tnext.%s = %s.requestMaterializer(gc.%s)\n", p.fieldName, canonicalPolicyVar(p), p.fieldName)
 		} else {
 			fmt.Fprintf(&buf, "\tnext.%s = gc.%s\n", p.fieldName, p.fieldName)
 		}
@@ -82,6 +84,8 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	for _, p := range planes {
 		if strings.HasPrefix(p.typeExpr, "[]") {
 			fmt.Fprintf(&buf, "\t\t%s: cloneSlice(gc.%s),\n", p.fieldName, p.fieldName)
+		} else if p.hasRequestMaterializer {
+			fmt.Fprintf(&buf, "\t\t%s: %s.requestMaterializer(gc.%s),\n", p.fieldName, canonicalPolicyVar(p), p.fieldName)
 		} else {
 			fmt.Fprintf(&buf, "\t\t%s: gc.%s,\n", p.fieldName, p.fieldName)
 		}
@@ -101,6 +105,8 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	for _, p := range planes {
 		if strings.HasPrefix(p.typeExpr, "[]") {
 			fmt.Fprintf(&buf, "\tgc.%s = cloneSlice(gf.%s)\n", p.fieldName, p.fieldName)
+		} else if p.hasRequestMaterializer {
+			fmt.Fprintf(&buf, "\tgc.%s = %s.requestMaterializer(gf.%s)\n", p.fieldName, canonicalPolicyVar(p), p.fieldName)
 		} else {
 			fmt.Fprintf(&buf, "\tgc.%s = gf.%s\n", p.fieldName, p.fieldName)
 		}
@@ -145,6 +151,8 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	for _, p := range planes {
 		if strings.HasPrefix(p.typeExpr, "[]") {
 			fmt.Fprintf(&buf, "\t\t%s: cloneSlice(gf.%s),\n", p.fieldName, p.fieldName)
+		} else if p.hasRequestMaterializer {
+			fmt.Fprintf(&buf, "\t\t%s: %s.requestMaterializer(gf.%s),\n", p.fieldName, canonicalPolicyVar(p), p.fieldName)
 		} else {
 			fmt.Fprintf(&buf, "\t\t%s: gf.%s,\n", p.fieldName, p.fieldName)
 		}
@@ -352,6 +360,8 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 		buf.WriteString("\t\t\t}\n")
 		if strings.HasPrefix(p.typeExpr, "[]") {
 			fmt.Fprintf(&buf, "\t\t\treturn cloneSlice(gf.%s)\n", p.fieldName)
+		} else if p.hasRequestMaterializer {
+			fmt.Fprintf(&buf, "\t\t\treturn %s.requestMaterializer(gf.%s)\n", canonicalPolicyVar(p), p.fieldName)
 		} else {
 			fmt.Fprintf(&buf, "\t\t\treturn gf.%s\n", p.fieldName)
 		}

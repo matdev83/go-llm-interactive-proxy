@@ -12,7 +12,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type dummyController struct{}
@@ -163,6 +165,115 @@ func TestKeepwarm_ConstructionCountingAndGenerationOutput(t *testing.T) { //noli
 	}
 }
 
+// gatheredSeriesNames returns the metric family names present in a registry.
+func gatheredSeriesNames(t *testing.T, reg *prometheus.Registry) []string {
+	t.Helper()
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	var names []string
+	for _, f := range families {
+		names = append(names, f.GetName())
+	}
+	return names
+}
+
+func hasSeries(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCompileKeepwarmMetricsSwapAndAdminProjection(t *testing.T) {
+	t.Parallel()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	reg := prometheus.NewRegistry()
+	r, err := NewProcess(context.Background(), ProcessInput{Logger: log, MetricsRegistry: reg})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	gen, err := r.CompileGeneration(context.Background(), GenerationInput{
+		KeepwarmConfig: keepwarm.DefaultConfig(),
+	})
+	if err != nil {
+		t.Fatalf("CompileGeneration: %v", err)
+	}
+	// The swap must not run during composition: generic runtimebundle invokes
+	// it once per published generation, preserving publication-time behavior.
+	if gen.CorePorts.MetricsSwap == nil {
+		t.Fatal("expected non-nil MetricsSwap port for enabled keep-warm")
+	}
+	if got := gatheredSeriesNames(t, reg); hasSeries(got, "lip_prompt_cache_keepwarm_active_epochs") {
+		t.Fatalf("metrics swap ran during composition: series already present: %v", got)
+	}
+	gen.CorePorts.MetricsSwap()
+	if got := gatheredSeriesNames(t, reg); !hasSeries(got, "lip_prompt_cache_keepwarm_active_epochs") {
+		t.Fatalf("expected keep-warm series after exactly one swap delivery, got %v", got)
+	}
+	// Admin projection travels opaquely with the process-owned service.
+	if !gen.CorePorts.KeepwarmAdmin.Enabled {
+		t.Fatal("expected enabled keep-warm admin projection")
+	}
+	if gen.CorePorts.KeepwarmAdmin.Service == nil {
+		t.Fatal("expected non-nil keep-warm admin service")
+	}
+	if gen.CorePorts.TerminalPolicyProjection == nil {
+		t.Fatal("expected non-nil terminal policy projection factory")
+	}
+	// The lifecycle side-channel owns manager release.
+	var kwLife *keepwarmGenerationLifecycle
+	for _, life := range gen.Lifecycles {
+		if kw, ok := life.(*keepwarmGenerationLifecycle); ok {
+			kwLife = kw
+			break
+		}
+	}
+	if kwLife == nil {
+		t.Fatal("expected keep-warm generation lifecycle in output lifecycles")
+	}
+	if err := kwLife.Start(context.Background()); err != nil {
+		t.Fatalf("lifecycle Start: %v", err)
+	}
+	if err := kwLife.Stop(context.Background()); err != nil {
+		t.Fatalf("lifecycle Stop: %v", err)
+	}
+	// Second Stop tolerates the already-released registration (idempotent).
+	if err := kwLife.Stop(context.Background()); err != nil {
+		t.Fatalf("lifecycle second Stop: %v", err)
+	}
+}
+
+func TestCompileKeepwarmDisabledOmitsPorts(t *testing.T) {
+	t.Parallel()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	r, err := NewProcess(context.Background(), ProcessInput{Logger: log})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	gen, err := r.CompileGeneration(context.Background(), GenerationInput{
+		Registrations: []lipsdk.Registration{{
+			Kind:    lipsdk.PluginKindFeature,
+			ID:      keepwarm.ID,
+			Enabled: false,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CompileGeneration: %v", err)
+	}
+	if gen.CorePorts.MetricsSwap != nil {
+		t.Fatal("expected nil MetricsSwap port for disabled keep-warm")
+	}
+	for _, life := range gen.Lifecycles {
+		if _, ok := life.(*keepwarmGenerationLifecycle); ok {
+			t.Fatal("disabled keep-warm must not contribute a generation lifecycle")
+		}
+	}
+}
+
 type compositionAccountingController struct {
 	response promptcache.RenewResponse
 	started  chan promptcache.RenewRequest
@@ -251,13 +362,27 @@ func TestCompileKeepwarmDeliversMaintenanceAccounting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
-	if gen.KeepwarmQuiesce != nil {
-		defer func() {
-			_ = gen.KeepwarmQuiesce(context.Background())
-		}()
+	// The keep-warm handle is ledger-owned via the lifecycle side-channel:
+	// Start launches the manager (candidate prepare), Stop releases it
+	// (rollback/close). Metrics/admin projections travel as opaque CorePorts.
+	var kwLife *keepwarmGenerationLifecycle
+	for _, life := range gen.Lifecycles {
+		if kw, ok := life.(*keepwarmGenerationLifecycle); ok {
+			kwLife = kw
+			break
+		}
 	}
+	if kwLife == nil {
+		t.Fatal("expected keep-warm generation lifecycle in output lifecycles")
+	}
+	if err := kwLife.Start(context.Background()); err != nil {
+		t.Fatalf("lifecycle Start: %v", err)
+	}
+	defer func() {
+		_ = kwLife.Stop(context.Background())
+	}()
 
-	kwMgr := gen.KeepwarmManager
+	kwMgr := kwLife.manager
 	if kwMgr == nil {
 		t.Fatal("expected non-nil KeepwarmManager")
 	}

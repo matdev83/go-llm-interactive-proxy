@@ -346,8 +346,11 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte, importMap map[st
 		if strings.Contains(featureRule, "CombConcatenate") || strings.Contains(featureRule, "CombReduce") {
 			return planeInfo{}, fmt.Errorf("exclusive plane cannot use concatenate or reduce rule on feature source")
 		}
-		if !strings.Contains(featureRule, "CombExclusive") {
-			return planeInfo{}, fmt.Errorf("exclusive plane must use CombExclusive on feature source")
+		// CombUnsupported is an explicit binder-only admission: the feature
+		// source may not contribute at all (rejected at runtime with
+		// ErrUnsupportedSource). Only an absent rule is a mistake.
+		if !strings.Contains(featureRule, "CombExclusive") && !strings.Contains(featureRule, "CombUnsupported") {
+			return planeInfo{}, fmt.Errorf("exclusive plane must use CombExclusive or CombUnsupported on feature source")
 		}
 	}
 

@@ -40,8 +40,7 @@ func TestFeatureHost_NoPackageLevelFallback_WhenStandardFeaturesNil(t *testing.T
 	require.NoError(t, err)
 	assert.True(t, out.Planes.IsZero())
 	assert.Empty(t, out.Lifecycles)
-	assert.Empty(t, out.SecretGuard.Guards)
-	assert.Nil(t, out.SecretGuardInventory)
+	assert.Equal(t, featurehost.CorePorts{}, out.CorePorts)
 }
 
 func TestCompileCandidate_DirectCallerHasNoSecretGuardFallback(t *testing.T) {
@@ -69,7 +68,7 @@ func TestCompileCandidate_DirectCallerHasNoSecretGuardFallback(t *testing.T) {
 		},
 	}
 
-	// Direct CompileCandidate call with opts.Extensions.SecretGuard == nil.
+	// Direct CompileCandidate call without composed secret-guard planes.
 	// Must NOT construct secret guard via fallback route.
 	cand, err := CompileCandidate(ctx, GenerationCompileInput{
 		Process:   ps,
@@ -82,5 +81,5 @@ func TestCompileCandidate_DirectCallerHasNoSecretGuardFallback(t *testing.T) {
 	t.Cleanup(func() { _ = cand.Close() })
 
 	// Assert secret guard is nil: direct CompileCandidate callers retain NO separate composition route.
-	assert.Nil(t, CandidateSecretGuardInventory(cand), "expected nil secret guard inventory when Extensions.SecretGuard is not injected")
+	assert.Nil(t, CandidateSecretGuardInventory(cand), "expected nil secret guard inventory without composed execution planes")
 }

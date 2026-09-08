@@ -8,12 +8,22 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
+// secretGuardTestRuntime carries the planes-derived secret-guard plane and
+// inventory for composition unit tests. It mirrors the production extraction
+// in secretGuardFromPlanes so tests pin the same channel generic code uses.
+type secretGuardTestRuntime struct {
+	Plane     extensions.SecretGuardPlane
+	Inventory *diag.InventoryExtras
+}
+
 // testBuildSecretGuardRuntime is a test helper for unit tests testing secret guard runtime composition.
-func testBuildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *BuildOptions, regs []lipsdk.Registration) (*secretGuardRuntime, error) {
+func testBuildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *BuildOptions, regs []lipsdk.Registration) (*secretGuardTestRuntime, error) {
 	if opts == nil {
 		return nil, nil
 	}
@@ -51,7 +61,6 @@ func testBuildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *Bui
 		HostRegistrations: genHostRegs,
 		Planes:            opts.FeaturePlanes,
 		AccessMode:        mode,
-		DecisionObserver:  opts.Extensions.SecretDecisionObserver,
 	})
 	if err != nil {
 		if unwrapped := errors.Unwrap(err); unwrapped != nil {
@@ -59,15 +68,16 @@ func testBuildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *Bui
 		}
 		return nil, err
 	}
-	return &secretGuardRuntime{
-		Plane:     out.SecretGuard,
-		Inventory: out.SecretGuardInventory,
+	plane, inv := secretGuardFromPlanes(out.Planes)
+	return &secretGuardTestRuntime{
+		Plane:     plane,
+		Inventory: inv,
 	}, nil
 }
 
 // bindSecretGuardAudit is a test helper alias for secret guard composition with a
 // discard logger fallback when log is nil.
-func bindSecretGuardAudit(cfg *config.Config, opts *BuildOptions, regs []lipsdk.Registration, log *slog.Logger) (*secretGuardRuntime, error) {
+func bindSecretGuardAudit(cfg *config.Config, opts *BuildOptions, regs []lipsdk.Registration, log *slog.Logger) (*secretGuardTestRuntime, error) {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	}

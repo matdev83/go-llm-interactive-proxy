@@ -136,12 +136,12 @@ func TestCompileGeneration_OverlappingGenerationsKeepwarmRegistryCounts(t *testi
 	}
 }
 
-// TestCompileGeneration_CandidateCompileFailureDiscardsAcquiredKeepwarm covers
+// TestCompileGeneration_CandidateCompileFailureLeavesNoKeepwarmTrace covers
 // failure INSIDE candidate compilation: a fault injected at the "model"
-// boundary (before any candidate ledger exists to own the acquired cleanup)
-// must release the keep-warm manager through discardAcquiredKeepwarm instead
-// of leaking it into the process registry.
-func TestCompileGeneration_CandidateCompileFailureDiscardsAcquiredKeepwarm(t *testing.T) {
+// boundary (before the candidate ledger adopts the generation handle) must
+// leave no keep-warm trace in the process registry. The handle starts and
+// registers at ledger prepare, so pre-prepare failures release nothing.
+func TestCompileGeneration_CandidateCompileFailureLeavesNoKeepwarmTrace(t *testing.T) {
 	t.Parallel()
 	cfg := keepwarmLedgerTestConfig()
 	ps := mustKeepwarmLedgerProcess(t, cfg)
@@ -159,5 +159,43 @@ func TestCompileGeneration_CandidateCompileFailureDiscardsAcquiredKeepwarm(t *te
 
 	if got := keepwarmRegistryLen(t, ps); got != before {
 		t.Fatalf("candidate-compile failure leaked keepwarm manager: registry len=%d want %d", got, before)
+	}
+}
+
+// TestCompileGeneration_RetirementQuiescesKeepwarmManager pins Requirement 6.5
+// quiesce ordering: retiring a published generation (Quiesce, without Close)
+// must release its keep-warm manager from the process registry so maintenance
+// work stops at retirement, not only at final close.
+func TestCompileGeneration_RetirementQuiescesKeepwarmManager(t *testing.T) {
+	t.Parallel()
+	cfg := keepwarmLedgerTestConfig()
+	ps := mustKeepwarmLedgerProcess(t, cfg)
+
+	gen, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+		Process:   ps,
+		Candidate: cfg,
+		Compose:   stdhttp.ComposeStandardHTTP,
+	})
+	if err != nil {
+		t.Fatalf("CompileGeneration: %v", err)
+	}
+	if got := keepwarmRegistryLen(t, ps); got != 1 {
+		t.Fatalf("after publish registry len=%d want 1", got)
+	}
+	qc, ok := gen.(interface{ Quiesce(context.Context) error })
+	if !ok {
+		t.Fatal("published generation does not expose Quiesce")
+	}
+	if err := qc.Quiesce(context.Background()); err != nil {
+		t.Fatalf("Quiesce: %v", err)
+	}
+	if got := keepwarmRegistryLen(t, ps); got != 0 {
+		t.Fatalf("retired generation retained keepwarm manager: registry len=%d want 0", got)
+	}
+	if err := gen.Close(); err != nil {
+		t.Fatalf("Close after Quiesce: %v", err)
+	}
+	if got := keepwarmRegistryLen(t, ps); got != 0 {
+		t.Fatalf("after Close registry len=%d want 0", got)
 	}
 }

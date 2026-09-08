@@ -202,6 +202,20 @@ func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
 	if err != nil {
 		return mapSessionError(err, false)
 	}
+	// The gRPC client stream forbids concurrent SendMsg and CloseSend: the
+	// input pump below Sends while the receive loop below CloseSends once the
+	// terminal frame arrives. Serialize the two so they never overlap; the
+	// Once additionally collapses the pump-deferred and terminal CloseSend
+	// into a single call with no change to cancellation or retry semantics.
+	var sendMu sync.Mutex
+	var closeSendOnce sync.Once
+	closeSend := func() {
+		closeSendOnce.Do(func() {
+			sendMu.Lock()
+			defer sendMu.Unlock()
+			_ = gs.CloseSend()
+		})
+	}
 	errCh := make(chan error, 1)
 	var reportOnce sync.Once
 	report := func(e error) {
@@ -212,7 +226,7 @@ func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
 	pumpDone := make(chan struct{})
 	go func() {
 		defer close(pumpDone)
-		defer func() { _ = gs.CloseSend() }()
+		defer closeSend()
 		for {
 			frame, recvErr := stream.Recv()
 			if recvErr != nil {
@@ -228,7 +242,10 @@ func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
 				report(convErr)
 				return
 			}
-			if sendErr := gs.Send(msg); sendErr != nil {
+			sendMu.Lock()
+			sendErr := gs.Send(msg)
+			sendMu.Unlock()
+			if sendErr != nil {
 				report(sendErr)
 				return
 			}
@@ -281,7 +298,7 @@ func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
 			return sendErr
 		}
 		if terminal {
-			_ = gs.CloseSend()
+			closeSend()
 		}
 	}
 }

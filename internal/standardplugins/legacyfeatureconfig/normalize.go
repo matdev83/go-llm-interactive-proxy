@@ -2,7 +2,9 @@ package legacyfeatureconfig
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 
 	"gopkg.in/yaml.v3"
 )
@@ -26,7 +28,12 @@ func NormalizeYAML(raw []byte) ([]byte, error) {
 		return raw, nil
 	}
 	var extra yaml.Node
-	if err := dec.Decode(&extra); err == nil {
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		// Either a genuine second document (err == nil) or malformed
+		// trailing content (any other decode error): return the original
+		// bytes unchanged so StrictDecode can reject/classify them
+		// (multiple-documents / trailing-content) instead of silently
+		// normalizing just the first document.
 		return raw, nil
 	}
 	doc := &root

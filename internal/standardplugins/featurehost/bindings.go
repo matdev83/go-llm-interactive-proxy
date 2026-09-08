@@ -76,6 +76,37 @@ func bindHostRegistrations(regs []sdkfeaturehost.Registration) (boundHostFeature
 	return out, nil
 }
 
+// bindingPresent reports whether regs contains a host binding with one of the
+// given stable binding IDs. Concrete binding identity interpretation stays in
+// this file so generation composition selects per-binding-type overlays
+// without type switches of its own.
+func bindingPresent(regs []sdkfeaturehost.Registration, ids ...string) bool {
+	for _, reg := range regs {
+		if reg.Binding == nil {
+			continue
+		}
+		got := strings.TrimSpace(reg.Binding.HostBindingID())
+		for _, want := range ids {
+			if got != "" && got == strings.TrimSpace(want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasReasoningBinding reports whether regs carries a reasoning host binding
+// (canonical ID or accepted alias).
+func hasReasoningBinding(regs []sdkfeaturehost.Registration) bool {
+	return bindingPresent(regs, reasoninghost.BindingID, "reasoning_compression")
+}
+
+// hasSecretGuardBinding reports whether regs carries a secret-guard host
+// binding (canonical ID or accepted alias).
+func hasSecretGuardBinding(regs []sdkfeaturehost.Registration) bool {
+	return bindingPresent(regs, secretguardhost.BindingID, "secret_guard")
+}
+
 func adaptSecretGuardHostBinding(b *secretguardhost.Binding) SecretGuardHostBinding {
 	if b == nil {
 		return SecretGuardHostBinding{}

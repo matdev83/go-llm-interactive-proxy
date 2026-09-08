@@ -5,8 +5,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -14,7 +12,6 @@ import (
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	sdksg "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -29,10 +26,6 @@ type stubProjEnv struct{ val string }
 
 func (s stubProjEnv) Lookup(name string) (string, bool) { return s.val, true }
 func (s stubProjEnv) Snapshot() []string                { return []string{s.val} }
-
-type stubProjObs struct{ val string }
-
-func (s stubProjObs) OnSecretDecision(context.Context, sdksg.DecisionEvent) error { return nil }
 
 type projCatalogFilter struct{ id string }
 
@@ -121,76 +114,39 @@ func assertAllSliceFieldsNil(t *testing.T, v any) {
 	}
 }
 
-// Pins exact emptiness transport through extensionsFromProcessOptions: a nil or empty process options
-// projects to all-zero extension options; populated secret options project to equal values.
+// Pins exact emptiness transport through extensionsFromProcessOptions: extensions
+// carry no concrete feature surfaces, so nil or populated process options both
+// project to the empty value. Concrete state flows via ordinary planes,
+// lifecycles, and fixed consumer ports instead.
 func TestExtensionsFromProcessOptions_preservesExactNilAndEmptyState(t *testing.T) {
 	t.Parallel()
 
-	t.Run("nil_process_options_projects_all_zero_extensions", func(t *testing.T) {
+	t.Run("nil_process_options_projects_empty_extensions", func(t *testing.T) {
 		t.Parallel()
 		ext := extensionsFromProcessOptions(nil)
-		assert.Nil(t, ext.SecretGuard)
-		assert.Nil(t, ext.SecretGuardInventory)
-		assert.Nil(t, ext.SecretDecisionObserver)
+		assert.Equal(t, ExtensionsOptions{}, ext)
 	})
 
-	t.Run("empty_process_options_projects_all_zero_extensions", func(t *testing.T) {
+	t.Run("populated_process_options_projects_empty_extensions", func(t *testing.T) {
 		t.Parallel()
 		ext := extensionsFromProcessOptions(&BuildOptions{})
-		assert.Nil(t, ext.SecretGuard)
-		assert.Nil(t, ext.SecretGuardInventory)
-		assert.Nil(t, ext.SecretDecisionObserver)
-	})
-
-	t.Run("populated_process_options_projects_equal_secret_options", func(t *testing.T) {
-		t.Parallel()
-		sgPlane := &extensions.SecretGuardPlane{AccessMode: "single_user"}
-		sgInv := &diag.InventoryExtras{SecretGuardCatalogEntryCount: 3}
-		obs := sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil })
-		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuard:            sgPlane,
-				SecretGuardInventory:   sgInv,
-				SecretDecisionObserver: obs,
-			},
-		}
-		ext := extensionsFromProcessOptions(opts)
-		assert.Equal(t, sgPlane, ext.SecretGuard)
-		assert.Equal(t, sgInv, ext.SecretGuardInventory)
-		assert.NotNil(t, ext.SecretDecisionObserver)
+		assert.Equal(t, ExtensionsOptions{}, ext)
 	})
 }
 
 func TestExtensionsFromProcessOptions_DefensiveCopyAndNilSemantics(t *testing.T) {
 	t.Parallel()
 
-	t.Run("all_fields_populated_exact_equality_interface_identity_and_isolation", func(t *testing.T) {
+	t.Run("extensions_always_project_to_empty_value", func(t *testing.T) {
 		t.Parallel()
 
-		obs := stubProjObs{val: "obs-val"}
-		sgPlane := &extensions.SecretGuardPlane{AccessMode: "single_user"}
-		sgInv := &diag.InventoryExtras{SecretGuardCatalogEntryCount: 5}
-		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuard:            sgPlane,
-				SecretGuardInventory:   sgInv,
-				SecretDecisionObserver: obs,
-			},
-		}
-
+		opts := &BuildOptions{}
 		ext := extensionsFromProcessOptions(opts)
-
-		// Exact equality across all fields
-		assert.Equal(t, opts.Extensions.SecretGuard, ext.SecretGuard)
-		assert.Equal(t, opts.Extensions.SecretGuardInventory, ext.SecretGuardInventory)
-		assert.Equal(t, opts.Extensions.SecretDecisionObserver, ext.SecretDecisionObserver)
-
-		// Interface identity
-		assert.Equal(t, obs, ext.SecretDecisionObserver)
+		assert.Equal(t, ExtensionsOptions{}, ext)
 	})
 }
 
-func TestOverlayExtensions_preservesSecretGuardBehavior(t *testing.T) {
+func TestOverlayExtensions_emptyExtensionsNoOp(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil_dst_does_not_panic", func(t *testing.T) {
@@ -200,30 +156,17 @@ func TestOverlayExtensions_preservesSecretGuardBehavior(t *testing.T) {
 		})
 	})
 
-	t.Run("empty_src_does_not_mutate_dst", func(t *testing.T) {
-		t.Parallel()
-		sgPlane := &extensions.SecretGuardPlane{AccessMode: "single_user"}
-		obs := sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil })
-		dst := ExtensionsOptions{
-			SecretGuard:            sgPlane,
-			SecretDecisionObserver: obs,
-		}
-		overlayExtensions(&dst, ExtensionsOptions{})
-		assert.Equal(t, sgPlane, dst.SecretGuard)
-		assert.NotNil(t, dst.SecretDecisionObserver)
-	})
-
-	t.Run("populated_src_overrides_dst", func(t *testing.T) {
+	t.Run("overlay_leaves_empty_extensions_empty", func(t *testing.T) {
 		t.Parallel()
 		dst := ExtensionsOptions{}
-		newSG := &extensions.SecretGuardPlane{AccessMode: "multi_user"}
-		newObs := sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil })
-		overlayExtensions(&dst, ExtensionsOptions{
-			SecretGuard:            newSG,
-			SecretDecisionObserver: newObs,
-		})
-		assert.Equal(t, newSG, dst.SecretGuard)
-		assert.NotNil(t, dst.SecretDecisionObserver)
+		overlayExtensions(&dst, ExtensionsOptions{})
+		assert.Equal(t, ExtensionsOptions{}, dst)
+	})
+
+	t.Run("no_extension_overlay_surfaces", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, hasExtensionOverlay(ExtensionsOptions{}))
+		assert.Equal(t, ExtensionsOptions{}, cloneExtensionsOptions(ExtensionsOptions{}))
 	})
 }
 

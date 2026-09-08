@@ -9,7 +9,6 @@ import (
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
@@ -21,7 +20,6 @@ import (
 	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -128,12 +126,11 @@ type AuthOptions struct {
 	AuthErrorRenderersByFrontend map[string]httpauth.AuthErrorRenderer
 }
 
-// ExtensionsOptions carries the feature-bundle extension surfaces merged into the runtime snapshot (task 5.1).
-type ExtensionsOptions struct {
-	SecretDecisionObserver sdk.Observer
-	SecretGuard            *extensions.SecretGuardPlane
-	SecretGuardInventory   *diag.InventoryExtras
-}
+// ExtensionsOptions is the feature-bundle extension surface merged into the
+// runtime snapshot. All concrete feature state travels via ordinary planes,
+// lifecycles, and fixed consumer ports; the struct is intentionally empty and
+// retained so [BuildOptions] keeps a stable shape.
+type ExtensionsOptions struct{}
 
 // PolicyOptions carries policy-decision observer and budget configuration.
 type PolicyOptions struct {

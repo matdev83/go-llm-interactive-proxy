@@ -5,12 +5,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
-	sdksg "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
 type dummyOptLifecycle struct {
@@ -19,12 +16,6 @@ type dummyOptLifecycle struct {
 
 func (dummyOptLifecycle) Start(context.Context) error { return nil }
 func (dummyOptLifecycle) Stop(context.Context) error  { return nil }
-
-type stubOptObserver struct{ val string }
-
-func (s stubOptObserver) OnSecretDecision(context.Context, sdksg.DecisionEvent) error {
-	return nil
-}
 
 func TestMergeCandidateBuildOptions_NilOverlay_ReturnsIndependentPointerAndIsolatesFeaturePlanes(t *testing.T) {
 	t.Parallel()
@@ -118,9 +109,6 @@ func TestMergeCandidateBuildOptions_ProcessNilOverlayNonNil_IsolationAndCloning(
 
 	reg := pluginreg.NewRegistry()
 	planes := lipfeature.NewContributionSet().Freeze()
-	obs := stubOptObserver{val: "obs-val"}
-	sgPlane := &extensions.SecretGuardPlane{AccessMode: "single_user"}
-	sgInv := &diag.InventoryExtras{SecretGuardCatalogEntryCount: 5}
 	lc1 := dummyOptLifecycle{id: "lc1"}
 	lc2 := dummyOptLifecycle{id: "lc2"}
 
@@ -129,11 +117,6 @@ func TestMergeCandidateBuildOptions_ProcessNilOverlayNonNil_IsolationAndCloning(
 		FeaturePlanes:           planes,
 		FeatureLifecycles:       []lipplugin.Lifecycle{lc1, lc2},
 		ReplaceCandidateSurface: true,
-		Extensions: ExtensionsOptions{
-			SecretDecisionObserver: obs,
-			SecretGuard:            sgPlane,
-			SecretGuardInventory:   sgInv,
-		},
 	}
 
 	merged := mergeCandidateBuildOptions(nil, overlay)
@@ -152,14 +135,8 @@ func TestMergeCandidateBuildOptions_ProcessNilOverlayNonNil_IsolationAndCloning(
 	if merged.FeaturePlanes.IsZero() {
 		t.Fatal("expected non-zero FeaturePlanes preserved from overlay")
 	}
-	if merged.Extensions.SecretDecisionObserver != obs {
-		t.Fatalf("expected SecretDecisionObserver interface identity preserved, got %v", merged.Extensions.SecretDecisionObserver)
-	}
-	if merged.Extensions.SecretGuard != sgPlane {
-		t.Fatalf("expected SecretGuard pointer identity preserved, got %v", merged.Extensions.SecretGuard)
-	}
-	if merged.Extensions.SecretGuardInventory != sgInv {
-		t.Fatalf("expected SecretGuardInventory pointer identity preserved, got %v", merged.Extensions.SecretGuardInventory)
+	if merged.Extensions != (ExtensionsOptions{}) {
+		t.Fatalf("expected empty ExtensionsOptions, got %+v", merged.Extensions)
 	}
 
 	// Two-way slice mutation isolation for FeatureLifecycles:
@@ -422,26 +399,21 @@ func TestMergeCandidateBuildOptions_LifecyclesAndExtensionsOverlay(t *testing.T)
 	procLC := dummyOptLifecycle{id: "proc-lc"}
 	process := &BuildOptions{
 		FeatureLifecycles: []lipplugin.Lifecycle{procLC},
-		Extensions: ExtensionsOptions{
-			SecretDecisionObserver: stubOptObserver{val: "v1"},
-		},
 	}
 
 	candLC := dummyOptLifecycle{id: "cand-lc"}
 	overlay := &BuildOptions{
 		ReplaceCandidateSurface: false,
 		FeatureLifecycles:       []lipplugin.Lifecycle{candLC},
-		Extensions: ExtensionsOptions{
-			SecretDecisionObserver: stubOptObserver{val: "v2"},
-		},
 	}
 
 	merged := mergeCandidateBuildOptions(process, overlay)
 	if len(merged.FeatureLifecycles) != 1 || merged.FeatureLifecycles[0] != candLC {
 		t.Fatalf("expected overlay FeatureLifecycles, got %+v", merged.FeatureLifecycles)
 	}
-	if merged.Extensions.SecretDecisionObserver != (stubOptObserver{val: "v2"}) {
-		t.Fatalf("expected overlay SecretDecisionObserver, got %+v", merged.Extensions.SecretDecisionObserver)
+	// Extensions carry no overlay surfaces: they always merge to the empty value.
+	if merged.Extensions != (ExtensionsOptions{}) {
+		t.Fatalf("expected empty ExtensionsOptions, got %+v", merged.Extensions)
 	}
 
 	// Defensive copy: mutating merged.FeatureLifecycles must not mutate overlay.FeatureLifecycles

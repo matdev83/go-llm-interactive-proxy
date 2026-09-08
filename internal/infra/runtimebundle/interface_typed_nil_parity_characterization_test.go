@@ -563,8 +563,9 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 		require.NoError(t, err)
 		require.NotNil(t, res)
-		// Composition preserves defensive copy with nil elements without invoking methods
-		require.Len(t, res.Plane.Guards, 4)
+		// Nil-element preservation is pinned at the frozen level above; the
+		// engine plane itself carries no guards (they travel on planes).
+		require.Empty(t, res.Plane.Guards)
 
 		// Runtime snapshot materialization filters both untyped nil and typed nil
 		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{FeaturePlanes: frozen, SecretGuardPlane: res.Plane})

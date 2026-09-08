@@ -1,31 +1,33 @@
-package metrics
+package keepwarm
 
 import (
 	"sync"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-type KeepwarmManager interface {
-	Metrics() keepwarm.MetricsSnapshot
-}
-
-// KeepwarmProm exports only bounded keep-warm state and finite event labels.
-// It retains no provider handles, cache identities, prompts, or session IDs.
-type KeepwarmProm struct {
+// PrometheusCollector exports only bounded keep-warm state and finite event
+// labels. It retains no provider handles, cache identities, prompts, or
+// session IDs.
+//
+// The collector lives with its feature owner (not in generic metrics
+// infrastructure): it reads MetricsSnapshot and owns the feature-specific
+// event vocabulary. Collector registration lifetime stays with the metrics
+// bundle owner, which registers this collector through a generic
+// prometheus.Registerer without importing the feature.
+type PrometheusCollector struct {
 	mu      sync.RWMutex
-	manager KeepwarmManager
+	manager *Manager
 
 	activeEpochs  *prometheus.Desc
 	activeTargets *prometheus.Desc
 	events        *prometheus.Desc
 }
 
-// RegisterKeepwarmProm registers the process collector. The active manager can
-// be replaced at generation publication without replacing the metric family.
-func RegisterKeepwarmProm(reg prometheus.Registerer) *KeepwarmProm {
-	p := &KeepwarmProm{
+// NewPrometheusCollector constructs an unregistered collector. Registration
+// is the metrics bundle owner's responsibility.
+func NewPrometheusCollector() *PrometheusCollector {
+	return &PrometheusCollector{
 		activeEpochs: prometheus.NewDesc(
 			"lip_prompt_cache_keepwarm_active_epochs", "Active keep-warm idle epochs.", nil, nil,
 		),
@@ -36,25 +38,19 @@ func RegisterKeepwarmProm(reg prometheus.Registerer) *KeepwarmProm {
 			"lip_prompt_cache_keepwarm_events_total", "Keep-warm events by bounded event name.", []string{"event"}, nil,
 		),
 	}
-	reg.MustRegister(p)
-	return p
 }
 
 // SetManager changes the generation whose state is exported.
-func (p *KeepwarmProm) SetManager(manager any) {
+func (p *PrometheusCollector) SetManager(manager *Manager) {
 	if p == nil {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if m, ok := manager.(KeepwarmManager); ok {
-		p.manager = m
-	} else {
-		p.manager = nil
-	}
+	p.manager = manager
 }
 
-func (p *KeepwarmProm) Describe(ch chan<- *prometheus.Desc) {
+func (p *PrometheusCollector) Describe(ch chan<- *prometheus.Desc) {
 	if p == nil {
 		return
 	}
@@ -63,7 +59,7 @@ func (p *KeepwarmProm) Describe(ch chan<- *prometheus.Desc) {
 	ch <- p.events
 }
 
-func (p *KeepwarmProm) Collect(ch chan<- prometheus.Metric) {
+func (p *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 	if p == nil {
 		return
 	}
@@ -77,14 +73,14 @@ func (p *KeepwarmProm) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(p.activeEpochs, prometheus.GaugeValue, float64(snapshot.ActiveEpochs))
 	ch <- prometheus.MustNewConstMetric(p.activeTargets, prometheus.GaugeValue, float64(snapshot.ActiveTargets))
 	for event, count := range snapshot.Events {
-		if !keepwarmMetricEventAllowed(event) {
+		if !metricEventAllowed(event) {
 			continue
 		}
 		ch <- prometheus.MustNewConstMetric(p.events, prometheus.CounterValue, float64(count), event)
 	}
 }
 
-func keepwarmMetricEventAllowed(event string) bool {
+func metricEventAllowed(event string) bool {
 	switch event {
 	case "armed", "disabled_global", "disabled_session", "uncommitted", "no_os_command",
 		"invalid_lineage", "revision_exhausted", "no_eligible_target", "generation_quiescing",
@@ -100,4 +96,4 @@ func keepwarmMetricEventAllowed(event string) bool {
 	}
 }
 
-var _ prometheus.Collector = (*KeepwarmProm)(nil)
+var _ prometheus.Collector = (*PrometheusCollector)(nil)

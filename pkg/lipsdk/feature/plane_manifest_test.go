@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
 // TestStandardPlanes_ManifestCompletenessAndValidation tests that the hand-authored
@@ -18,7 +19,7 @@ import (
 func TestStandardPlanes_ManifestCompletenessAndValidation(t *testing.T) {
 	t.Parallel()
 
-	require.Len(t, feature.StandardPlanes, 25, "manifest must declare exactly 25 standard planes")
+	require.Len(t, feature.StandardPlanes, 26, "manifest must declare exactly 26 standard planes")
 
 	// Validate the entire manifest
 	err := feature.ValidateManifest(feature.StandardPlanes...)
@@ -59,6 +60,7 @@ func TestStandardPlanes_ManifestCompletenessAndValidation(t *testing.T) {
 		{id: "compaction_observers", multiplicity: feature.MultOrdered, featComb: feature.CombConcatenate, hasDiagStage: false},
 		{id: "compaction_preservers", multiplicity: feature.MultOrdered, featComb: feature.CombConcatenate, hasDiagStage: false},
 		{id: "secret_guards", multiplicity: feature.MultOrdered, featComb: feature.CombConcatenate, hasDiagStage: true},
+		{id: "secret_guard_execution", multiplicity: feature.MultExclusive, featComb: feature.CombExclusive, hasDiagStage: false},
 		{id: "local_turn_handlers", multiplicity: feature.MultOrdered, featComb: feature.CombConcatenate, hasDiagStage: false},
 		{id: "terminal_decision_provider", multiplicity: feature.MultExclusive, featComb: feature.CombExclusive, hasDiagStage: false},
 	}
@@ -261,4 +263,104 @@ func TestPlaneDeclarationValidation_HookTarget(t *testing.T) {
 		assert.ErrorIs(t, err, feature.ErrInvalidPlane)
 		assert.Contains(t, err.Error(), "SubmitHooks")
 	})
+}
+
+// TestSecretGuardExecutionPlane_BinderOnlyAdmission pins that the
+// secret_guard_execution plane accepts ONLY generation-binder contributions.
+// A feature or host contribution must fail with ErrUnsupportedSource, so no
+// plugin can supply execution posture when the standard distribution composed
+// none, nor conflict with the standard binder's exclusive slot.
+func TestSecretGuardExecutionPlane_BinderOnlyAdmission(t *testing.T) {
+	t.Parallel()
+
+	cfg := &secretguard.ExecutionConfig{AccessMode: "single_user", ConfigVersion: "v1"}
+
+	feat := feature.NewContributionSet()
+	err := feature.ContributeSource(feat, feature.PlaneSecretGuardExecution, feature.SourceFeature, "plugin-ext", cfg)
+	require.ErrorIs(t, err, feature.ErrUnsupportedSource, "feature source must be rejected on the execution plane")
+
+	host := feature.NewContributionSet()
+	herr := feature.ContributeSource(host, feature.PlaneSecretGuardExecution, feature.SourceHost, "host-ext", cfg)
+	require.ErrorIs(t, herr, feature.ErrUnsupportedSource, "host source must be rejected on the execution plane")
+
+	binder := feature.NewContributionSet()
+	require.NoError(t, feature.ContributeSource(binder, feature.PlaneSecretGuardExecution, feature.SourceGenerationBinder, "secret-guard-execution", cfg),
+		"generation-binder source must be accepted on the execution plane")
+}
+
+// TestSecretGuardExecutionPlane_ContributionIsolation pins frozen-value
+// isolation: mutating a contributed ExecutionConfig after contribution must
+// not alter the frozen generation's configuration. The frozen set must never
+// alias contributor memory.
+func TestSecretGuardExecutionPlane_ContributionIsolation(t *testing.T) {
+	t.Parallel()
+
+	cfg := &secretguard.ExecutionConfig{
+		AccessMode:       "single_user",
+		ConfigVersion:    "v1",
+		SourceCategories: []string{"env", "catalog"},
+	}
+	cs := feature.NewContributionSet()
+	require.NoError(t, feature.ContributeSource(cs, feature.PlaneSecretGuardExecution, feature.SourceGenerationBinder, "secret-guard-execution", cfg))
+
+	// Mutate the contributor's value after contribution.
+	cfg.AccessMode = "mutated"
+	cfg.SourceCategories[0] = "mutated"
+
+	frozen := cs.Freeze()
+	got := feature.Get(frozen, feature.PlaneSecretGuardExecution)
+	require.NotNil(t, got, "expected composed execution config in frozen set")
+	assert.Equal(t, "single_user", got.AccessMode, "frozen config must not alias contributor memory")
+	require.Len(t, got.SourceCategories, 2, "frozen categories must survive contributor mutation")
+	assert.Equal(t, "env", got.SourceCategories[0], "frozen categories must not alias contributor slice")
+}
+
+// TestSecretGuardExecutionPlane_ReadIsolation pins frozen-value isolation on
+// every read path: mutating a value obtained through feature.Get (from the
+// generation set, a cloned set, or a request-frozen set) must not alter
+// subsequent reads. Shared engine capabilities are intentionally preserved;
+// the mutable container and slice are copied per read via the declared
+// RequestMaterializer.
+func TestSecretGuardExecutionPlane_ReadIsolation(t *testing.T) {
+	t.Parallel()
+
+	seed := &secretguard.ExecutionConfig{
+		AccessMode:       "single_user",
+		ConfigVersion:    "v1",
+		SourceCategories: []string{"env", "catalog"},
+	}
+	cs := feature.NewContributionSet()
+	require.NoError(t, feature.ContributeSource(cs, feature.PlaneSecretGuardExecution, feature.SourceGenerationBinder, "secret-guard-execution", seed))
+	frozen := cs.Freeze()
+
+	mutate := func(v *secretguard.ExecutionConfig) {
+		v.AccessMode = "mutated"
+		if len(v.SourceCategories) > 0 {
+			v.SourceCategories[0] = "mutated"
+		}
+	}
+	checkStable := func(v *secretguard.ExecutionConfig, where string) {
+		t.Helper()
+		require.NotNil(t, v, "expected execution config %s", where)
+		assert.Equal(t, "single_user", v.AccessMode, "frozen config mutated %s", where)
+		require.Len(t, v.SourceCategories, 2, "frozen categories changed %s", where)
+		assert.Equal(t, "env", v.SourceCategories[0], "frozen categories mutated %s", where)
+	}
+
+	// Ordinary read: mutate the returned value, reread must be stable.
+	first := feature.Get(frozen, feature.PlaneSecretGuardExecution)
+	checkStable(first, "on first read")
+	mutate(first)
+	checkStable(feature.Get(frozen, feature.PlaneSecretGuardExecution), "after mutating a Get result")
+
+	// Cloned set: reads through the clone must be isolated both ways.
+	cloned := frozen.Clone()
+	mutate(feature.Get(cloned, feature.PlaneSecretGuardExecution))
+	checkStable(feature.Get(cloned, feature.PlaneSecretGuardExecution), "after mutating a cloned-set read")
+	checkStable(feature.Get(frozen, feature.PlaneSecretGuardExecution), "on the original set after cloned-set mutation")
+
+	// Request-frozen set: materialized at snapshot construction.
+	reqFrozen := feature.FreezeRequestPlanes(frozen)
+	mutate(feature.Get(reqFrozen, feature.PlaneSecretGuardExecution))
+	checkStable(feature.Get(reqFrozen, feature.PlaneSecretGuardExecution), "after mutating a request-frozen read")
 }

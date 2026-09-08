@@ -27,7 +27,6 @@ type Bundle struct {
 	PostgresPool        *PostgresPoolProm
 	TerminalWork        *TerminalWorkProm
 	Reload              *ReloadProm
-	Keepwarm            *KeepwarmProm
 	GeoIP               *GeoIPProm
 	ConversationView    *ConversationViewProm
 	sink                runtime.MetricsSink
@@ -52,7 +51,6 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	pg := RegisterPostgresPoolProm(r, poolStats)
 	tw := RegisterTerminalWorkProm(r)
 	reload := RegisterReloadProm(r)
-	keepwarm := RegisterKeepwarmProm(r)
 	geoip := RegisterGeoIPProm(r)
 	cv := RegisterConversationViewProm(r)
 	return &Bundle{
@@ -68,7 +66,6 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 		PostgresPool:        pg,
 		TerminalWork:        tw,
 		Reload:              reload,
-		Keepwarm:            keepwarm,
 		GeoIP:               geoip,
 		ConversationView:    cv,
 		sink:                NewExecutorPromSink(exec),

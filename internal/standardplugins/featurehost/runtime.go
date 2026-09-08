@@ -39,6 +39,7 @@ type Runtime struct {
 	conversationStore    conversationview.Store
 	keepwarmPolicy       *keepwarm.PolicyStore
 	keepwarmRegistry     *keepwarm.ManagerRegistry
+	keepwarmMetrics      *keepwarm.PrometheusCollector
 	hostRegistrations    []sdkfeaturehost.Registration
 	boundReasoning       ReasoningCompressionOptions
 	boundSecretGuard     SecretGuardHostBinding
@@ -120,6 +121,24 @@ func (r *Runtime) KeepwarmAdminService() adminkeepwarm.Service {
 		return nil
 	}
 	return keepwarm.NewPolicyService(r.keepwarmPolicy, r.keepwarmRegistry, keepwarm.ClockFunc(func() time.Time { return time.Now().UTC() }))
+}
+
+// KeepwarmAdminProjection exposes the process-owned keep-warm admin projection
+// opaquely for stdhttp composition via generation CorePorts. Generic
+// runtimebundle copies the value without resolving the admin service itself.
+func (r *Runtime) KeepwarmAdminProjection() (adminkeepwarm.Options, bool) {
+	if r == nil {
+		return adminkeepwarm.Options{}, false
+	}
+	svc := r.KeepwarmAdminService()
+	if svc == nil {
+		return adminkeepwarm.Options{}, false
+	}
+	return adminkeepwarm.Options{
+		Enabled:       true,
+		Service:       svc,
+		ResolveALegID: adminkeepwarm.PathALegID,
+	}, true
 }
 
 // ClosersCount returns the number of closers registered on this Runtime.
