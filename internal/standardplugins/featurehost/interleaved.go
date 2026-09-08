@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 )
 
 // Compile-time interface assertions.
@@ -59,6 +60,25 @@ func (a *interleavedProcessorAdapter) IsMemoVisibleToClient(ctx context.Context,
 		return false
 	}
 	return a.inner.IsMemoVisibleToClient(ctx, aLegID)
+}
+
+// MemoSteeringPutRequest forwards the feature-owned memo steering mutation;
+// core persists it without interpreting feature semantics.
+func (a *interleavedProcessorAdapter) MemoSteeringPutRequest(memo string) steering.PutRequest {
+	if a == nil || a.inner == nil {
+		return steering.PutRequest{}
+	}
+	return interleavedthinking.MemoPutRequest(memo)
+}
+
+// MemoSteeringOverlayID returns the feature-owned stable memo overlay identity.
+func (a *interleavedProcessorAdapter) MemoSteeringOverlayID() steering.OverlayID {
+	return steering.OverlayID(interleavedthinking.MemoOverlayID)
+}
+
+// IsMemoSteeringOverlay reports whether overlayID carries the thinker memo.
+func (a *interleavedProcessorAdapter) IsMemoSteeringOverlay(overlayID string) bool {
+	return interleavedthinking.IsMemoOverlay(overlayID)
 }
 
 type interleavedTurnAdapter struct {

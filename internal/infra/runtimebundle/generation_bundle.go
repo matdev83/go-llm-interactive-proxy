@@ -2,7 +2,6 @@ package runtimebundle
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"sort"
 
@@ -56,12 +55,11 @@ type generationOperations struct {
 }
 
 type GenerationBundle struct {
-	keepwarmQuiesce func(context.Context) error
-	execution       generationExecution
-	publication     generationHTTPPublication
-	models          generationModelViews
-	operations      generationOperations
-	ledger          *ResourceLedger
+	execution   generationExecution
+	publication generationHTTPPublication
+	models      generationModelViews
+	operations  generationOperations
+	ledger      *ResourceLedger
 }
 
 var (
@@ -220,29 +218,24 @@ func (b *GenerationBundle) Quiesce(ctx context.Context) error {
 	if b == nil {
 		return nil
 	}
-	var err error
-	if b.keepwarmQuiesce != nil {
-		err = errors.Join(err, b.keepwarmQuiesce(ctx))
-	}
+	// Generation-scoped cleanup (including keep-warm quiesce) is owned by
+	// the transferred resource ledger; no feature-specific path here.
 	if b.ledger != nil {
-		err = errors.Join(err, b.ledger.Quiesce(ctx))
+		return b.ledger.Quiesce(ctx)
 	}
-	return err
+	return nil
 }
 
 func (b *GenerationBundle) Close() error {
 	if b == nil {
 		return nil
 	}
-	var err error
-	// Close is also used for unpublished/rollback generations.
-	if b.keepwarmQuiesce != nil {
-		err = errors.Join(err, b.keepwarmQuiesce(context.Background()))
-	}
+	// Close is also used for unpublished/rollback generations. The ledger
+	// owns every generation-scoped cleanup.
 	if b.ledger != nil {
-		err = errors.Join(err, b.ledger.Close(context.Background()))
+		return b.ledger.Close(context.Background())
 	}
-	return err
+	return nil
 }
 
 func backendIDsOf(exec *runtime.Executor) []string {
@@ -259,7 +252,6 @@ func backendIDsOf(exec *runtime.Executor) []string {
 
 func newGenerationBundle(in generationBundleInput) *GenerationBundle {
 	return &GenerationBundle{
-		keepwarmQuiesce: in.keepwarmQuiesce,
 		execution: generationExecution{
 			executor:   in.executor,
 			backendIDs: append([]string(nil), in.backendIDs...),
@@ -298,5 +290,4 @@ type generationBundleInput struct {
 	terminalProviders *terminalworkapp.FrozenTerminalProviders
 	frozen            lipfeature.FrozenPlaneSet
 	readiness         controlplane.ReadinessReportReader
-	keepwarmQuiesce   func(context.Context) error
 }

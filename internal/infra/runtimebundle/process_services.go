@@ -245,6 +245,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		ContinuityStore:   ps.Continuity,
 		BunDB:             borrowContinuityDB(ps.Continuity),
 		HostRegistrations: hostRegs,
+		HostEnv:           in.HostEnv,
 	}); err != nil {
 		return fail(fmt.Errorf("runtimebundle: standard features host: %w", err))
 	}

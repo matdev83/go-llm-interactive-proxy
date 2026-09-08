@@ -63,17 +63,27 @@ func (r *Runtime) compileKeepwarm(in GenerationInput) (runtime.PromptCacheMainte
 	}
 
 	cfg := in.KeepwarmConfig
-	var featureFound bool
+	var featureFound, featureDisabled bool
 	for _, reg := range in.Registrations {
-		if reg.Kind == lipsdk.PluginKindFeature && (reg.ID == keepwarm.ID || reg.FactoryKind == keepwarm.ID) {
-			featureFound = true
-			decoded, err := keepwarm.DecodeConfig(reg.Config.Node)
-			if err != nil {
-				return nil, nil, nil, fmt.Errorf("featurehost: keepwarm config: %w", err)
-			}
-			cfg = decoded
-			break
+		if reg.Kind != lipsdk.PluginKindFeature || (reg.ID != keepwarm.ID && reg.FactoryKind != keepwarm.ID) {
+			continue
 		}
+		// Outer Registration.Enabled is authoritative: disabled entries are
+		// skipped, a lone disabled entry disables the feature (no defaults).
+		if !reg.Enabled {
+			featureDisabled = true
+			continue
+		}
+		featureFound = true
+		decoded, err := keepwarm.DecodeConfig(reg.Config.Node)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("featurehost: keepwarm config: %w", err)
+		}
+		cfg = decoded
+		break
+	}
+	if featureDisabled && !featureFound {
+		return nil, nil, nil, nil
 	}
 
 	// If not explicitly configured via registration or input, default to DefaultConfig()

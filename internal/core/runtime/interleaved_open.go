@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 )
 
 // InterleavedTurnInput carries per-turn facts required by interleaved thinking.
@@ -36,9 +37,20 @@ func (m InterleavedMemo) IsEmpty() bool {
 }
 
 // InterleavedProcessor is the runtime-owned consumer interface for interleaved thinking.
+// Memo steering policy (rendering, overlay identity, placement/fallback
+// selection, memo filtering) is feature-owned: the processor answers every
+// memo-policy question so core never hardcodes feature semantics.
 type InterleavedProcessor interface {
 	BeginTurn(ctx context.Context, in InterleavedTurnInput) (InterleavedTurn, error)
 	IsMemoVisibleToClient(ctx context.Context, aLegID string) bool
+	// MemoSteeringPutRequest builds the feature-owned steering mutation that
+	// persists a captured memo.
+	MemoSteeringPutRequest(memo string) steering.PutRequest
+	// MemoSteeringOverlayID returns the feature-owned stable overlay identity
+	// for the thinker memo.
+	MemoSteeringOverlayID() steering.OverlayID
+	// IsMemoSteeringOverlay reports whether overlayID carries the thinker memo.
+	IsMemoSteeringOverlay(overlayID string) bool
 }
 
 // InterleavedTurn is the runtime-owned per-turn lifecycle contract.

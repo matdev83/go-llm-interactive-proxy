@@ -36,6 +36,9 @@ type ProcessInput struct {
 	ContinuityStore   b2bua.Store
 	BunDB             *bun.DB
 	HostRegistrations []sdkfeaturehost.Registration
+	// HostEnv is a generic process-environment capability. Featurehost
+	// synthesizes the default host binding from it when none is registered.
+	HostEnv HostEnvironment
 	// buildSteps carries staged construction actions for package-local tests
 	// only. It is unexported so no external caller (including generic
 	// runtimebundle) can inject constructors or closers (Tasks 2.1/2.3).

@@ -142,31 +142,40 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		return GenerationOutput{}, fmt.Errorf("featurehost: secret guard composition: %w", err)
 	}
 
-	// 5. Interleaved Thinking processor
+	// 5. Interleaved Thinking processor. Outer Registration.Enabled is
+	// authoritative: disabled entries are skipped, a lone disabled entry
+	// disables the feature (no legacy fallback).
 	var interleavedProc runtime.InterleavedProcessor
 	ic := in.InterleavedConfig
-	var featureEntryFound bool
+	var featureEntryFound, featureEntryDisabled bool
 	for _, r := range in.Registrations {
-		if r.Kind == lipsdk.PluginKindFeature && (r.ID == interleavedthinking.ID || r.FactoryKind == interleavedthinking.ID) {
-			featureEntryFound = true
-			decoded, err := interleavedthinking.DecodeConfig(r.Config.Node)
-			if err != nil {
-				return GenerationOutput{}, fmt.Errorf("featurehost: interleaved config: %w", err)
-			}
-			if !ic.Enabled && decoded.Enabled {
-				ic = decoded
-			}
-			break
+		if r.Kind != lipsdk.PluginKindFeature || (r.ID != interleavedthinking.ID && r.FactoryKind != interleavedthinking.ID) {
+			continue
 		}
+		if !r.Enabled {
+			featureEntryDisabled = true
+			continue
+		}
+		featureEntryFound = true
+		decoded, err := interleavedthinking.DecodeConfig(r.Config.Node)
+		if err != nil {
+			return GenerationOutput{}, fmt.Errorf("featurehost: interleaved config: %w", err)
+		}
+		if !ic.Enabled && decoded.Enabled {
+			ic = decoded
+		}
+		break
 	}
+	interleavedDisabled := featureEntryDisabled && !featureEntryFound
 
 	// Conflict detection: if both canonical feature entry and legacy config.interleaved are enabled
 	if in.ConfigInterleaved.Enabled && featureEntryFound && ic.Enabled {
 		return GenerationOutput{}, fmt.Errorf("featurehost: both legacy config.interleaved and canonical feature %q are configured", interleavedthinking.ID)
 	}
 
-	// Fallback to legacy config.interleaved carrying the FULL mapped policy with defaults
-	if !ic.Enabled && in.ConfigInterleaved.Enabled {
+	// Fallback to legacy config.interleaved. An explicitly disabled canonical
+	// entry is authoritative and suppresses this fallback as well.
+	if !interleavedDisabled && !ic.Enabled && in.ConfigInterleaved.Enabled {
 		ic = interleavedthinking.Config{
 			Enabled:               true,
 			StreamToClient:        interleavedthinking.DefaultStreamToClient,
@@ -174,7 +183,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 			MaxMemoBytes:          interleavedthinking.DefaultMaxMemoBytes,
 		}
 	}
-	if ic.Enabled {
+	if !interleavedDisabled && ic.Enabled {
 		if err := ic.Validate(); err != nil {
 			return GenerationOutput{}, fmt.Errorf("featurehost: interleaved processor: %w", err)
 		}

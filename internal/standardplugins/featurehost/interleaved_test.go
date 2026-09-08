@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 )
 
 type fakeFeatureProcessor struct {
@@ -513,5 +515,47 @@ func TestInterleavedProcessorAdapter_AlreadyCanceledContext(t *testing.T) {
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestInterleavedProcessorAdapter_MemoSteeringPolicy(t *testing.T) {
+	t.Parallel()
+
+	cfg := interleavedthinking.Config{Enabled: true}
+	store := interleavedthinking.NewMemoStore(cfg.EffectiveMaxMemoBytes())
+	proc, err := interleavedthinking.NewProcessor(cfg, store)
+	if err != nil {
+		t.Fatalf("NewProcessor: %v", err)
+	}
+	adapter := NewInterleavedProcessorAdapter(proc)
+	var _ runtime.InterleavedProcessor = adapter
+
+	req := adapter.MemoSteeringPutRequest("  memo body ")
+	if req.OverlayID != adapter.MemoSteeringOverlayID() {
+		t.Fatalf("PutRequest.OverlayID = %q, want adapter identity %q", req.OverlayID, adapter.MemoSteeringOverlayID())
+	}
+	if req.OverlayID != steering.OverlayID(interleavedthinking.MemoOverlayID) {
+		t.Fatalf("OverlayID = %q, want feature identity %q", req.OverlayID, interleavedthinking.MemoOverlayID)
+	}
+	if req.Message.Role != lipapi.RoleUser {
+		t.Fatalf("Role = %q, want user", req.Message.Role)
+	}
+	if !strings.Contains(req.Message.Text, interleavedthinking.SessionSteeringGuidanceHeader) {
+		t.Fatalf("Text missing feature header: %q", req.Message.Text)
+	}
+	if req.Placement != steering.AfterIngressTail {
+		t.Fatalf("Placement = %q, want after_ingress_tail", req.Placement)
+	}
+	if req.AnchorMissingPolicy != steering.StablePrefixFallback {
+		t.Fatalf("AnchorMissingPolicy = %q, want stable_prefix_fallback", req.AnchorMissingPolicy)
+	}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("PutRequest.Validate: %v", err)
+	}
+	if !adapter.IsMemoSteeringOverlay(interleavedthinking.MemoOverlayID) {
+		t.Fatal("IsMemoSteeringOverlay(feature ID) = false, want true")
+	}
+	if adapter.IsMemoSteeringOverlay("other-overlay") {
+		t.Fatal("IsMemoSteeringOverlay(other) = true, want false")
 	}
 }

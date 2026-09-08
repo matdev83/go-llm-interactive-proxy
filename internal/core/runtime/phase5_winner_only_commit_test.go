@@ -8,7 +8,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -30,6 +32,18 @@ func (fakeInterleavedProcessor) BeginTurn(context.Context, InterleavedTurnInput)
 
 func (fakeInterleavedProcessor) IsMemoVisibleToClient(context.Context, string) bool {
 	return false
+}
+
+func (fakeInterleavedProcessor) MemoSteeringPutRequest(memo string) steering.PutRequest {
+	return interleavedthinking.MemoPutRequest(memo)
+}
+
+func (fakeInterleavedProcessor) MemoSteeringOverlayID() steering.OverlayID {
+	return steering.OverlayID(interleavedthinking.MemoOverlayID)
+}
+
+func (fakeInterleavedProcessor) IsMemoSteeringOverlay(overlayID string) bool {
+	return interleavedthinking.IsMemoOverlay(overlayID)
 }
 
 // TestPhase5_WinnerOnlyCommit_AcceptedWinnerPersistsState proves that when a parallel race

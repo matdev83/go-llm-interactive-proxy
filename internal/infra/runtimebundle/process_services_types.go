@@ -95,6 +95,11 @@ type ProcessServicesInput struct {
 	Log     *slog.Logger
 	Opts    *BuildOptions
 	Tracing ProcessTracing
+	// HostEnv is a generic process-environment capability forwarded to the
+	// standard feature host, which synthesizes the default env-derived host
+	// binding from it when no explicit binding is registered. It names no
+	// concrete feature and carries no feature semantics.
+	HostEnv featurehost.HostEnvironment
 	// PluginResourcePool, PluginHost, PluginArtifacts, and PluginStagingDir are
 	// process-owned discovered-plugin resources. When set, NewProcessServices
 	// takes sole ownership and disposes them once after generation retirement in

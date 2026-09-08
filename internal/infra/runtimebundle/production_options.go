@@ -1,7 +1,6 @@
 package runtimebundle
 
 import (
-	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -12,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
@@ -79,20 +77,4 @@ type ProductionOptions struct {
 func (p ProductionOptions) HasAuthorityOverrides() bool {
 	return len(p.RequestRegistrations) > 0 || len(p.AttemptRegistrations) > 0 ||
 		p.ConcurrencyRegistration != nil
-}
-
-// hasSecretGuardHostRegistration reports whether regs already carry a
-// secret-guard host binding. It compares stable HostBindingID values only and
-// never type-switches or interprets concrete binding contents (that stays in
-// featurehost), so the default env-derived binding is appended exactly once.
-func hasSecretGuardHostRegistration(regs []featurehost.Registration) bool {
-	for _, reg := range regs {
-		if reg.Binding == nil {
-			continue
-		}
-		if strings.TrimSpace(reg.Binding.HostBindingID()) == secretguardhost.BindingID {
-			return true
-		}
-	}
-	return false
 }

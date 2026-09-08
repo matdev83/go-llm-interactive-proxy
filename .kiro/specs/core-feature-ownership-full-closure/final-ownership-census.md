@@ -220,3 +220,59 @@ No material simplification item remains:
 No fix-up change was required under this SDD: there was nothing material to
 fix. Accordingly this task changes no production code — the deliverable is
 this census plus the tasks.md checkbox.
+
+### 7.1 Correction: independent-review findings and fixes
+
+The independent architecture review (Task 12.2) returned four high findings
+against the census above after it was written. All four were mechanical
+ownership gaps and were fixed under this SDD with RED-first regressions plus
+permanent ratchets; the census claims in §§2–6 were re-verified after the
+fixes by the same gates listed in §1 (archtest, runtimebundle/featurehost/
+core-runtime/feature test suites, planes check, diff check, gofmt).
+
+1. Keep-warm generation leak (Req 2.3/6.5/8.5). The candidate acquired the
+   keep-warm manager (lazy start plus process-registry registration) while
+   its cleanup travelled separately to final bundle construction, so a
+   rejected candidate (candidate-compile failure, fault injection, handler
+   composition failure) retained its manager in the process registry; the
+   bundle also kept a feature-specific cleanup path beside the ledger. Fix:
+   the acquired cleanup transfers into the candidate `ResourceLedger`
+   immediately (rollback covers every later failure point), and the bundle
+   relies on ledger ownership only. Covered by process-registry counts
+   around rejected candidates, overlapping-generation counts, and a
+   fault-injection rollback test.
+2. Memo steering policy in core (Req 4.2/5.2/13.3). The model-visible memo
+   header, overlay identity, placement/fallback selection, and memo-specific
+   filtering/deactivation lived in `internal/core/runtime`. Fix: rendering,
+   overlay identity, placement/fallback, and filtering moved to the
+   feature-owned implementation (`interleavedthinking` steering policy)
+   behind an explicit adapter (`featurehost/interleaved.go`) extending the
+   `InterleavedProcessor` core port; core keeps authoritative output
+   commitment and B-leg continuation sequencing. Locked by a new archtest
+   ratchet forbidding the memo literal, overlay-ID constants,
+   `StablePrefixFallback`, and memo-policy symbols in `internal/core`
+   production code.
+3. Registration-level disablement bypassed (Req 5.5/6.5/10.5). Both adapters
+   matched registrations without checking outer `Registration.Enabled`, so
+   outer-disabled entries still constructed resources (interleaved with inner
+   enabled; keep-warm even with empty config via decoder defaults). Fix:
+   outer `Enabled=false` is authoritative in both adapters (no resource
+   constructed); absent entries keep their intended defaults. Covered by an
+   absent/disabled/enabled/conflicting matrix for both adapters.
+4. Generic runtime branched on concrete feature identity (Req 8.3/9.3/13.4).
+   `runtimebundle` imported `secretguardhost`, scanned registrations for its
+   `BindingID`, and threaded a feature-specific `SecretEnv` composition
+   input. Fix: default environment binding construction plus
+   presence/precedence handling moved into standard-distribution
+   composition; `featurehost` exposes a generic `HostEnvironment`
+   capability in `ProcessInput` and synthesizes the default
+   `secretguardhost.Binding` only when no explicit registration is present
+   (explicit wins, no duplicates). `runtimebundle` production code no longer
+   imports `secretguardhost`. Locked by a production-import ratchet plus the
+   extended host entry-point tests.
+
+Net ownership effect: §§2–5 classifications are unchanged (no responsibility
+changed category; the §6 transition table stays discharged). The fixes moved
+policy surface out of generic trees into its owners, so generic-tree line
+totals did not grow except for the explicit port/capability seams the review
+required (see the implementation evidence for the measured deltas).

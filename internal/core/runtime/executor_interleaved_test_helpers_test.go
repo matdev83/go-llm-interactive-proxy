@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 )
 
 var (
@@ -81,6 +82,21 @@ func (a *testInterleavedProcessorAdapter) IsMemoVisibleToClient(ctx context.Cont
 		return false
 	}
 	return a.inner.IsMemoVisibleToClient(ctx, aLegID)
+}
+
+func (a *testInterleavedProcessorAdapter) MemoSteeringPutRequest(memo string) steering.PutRequest {
+	if a == nil || a.inner == nil {
+		return steering.PutRequest{}
+	}
+	return interleavedthinking.MemoPutRequest(memo)
+}
+
+func (a *testInterleavedProcessorAdapter) MemoSteeringOverlayID() steering.OverlayID {
+	return steering.OverlayID(interleavedthinking.MemoOverlayID)
+}
+
+func (a *testInterleavedProcessorAdapter) IsMemoSteeringOverlay(overlayID string) bool {
+	return interleavedthinking.IsMemoOverlay(overlayID)
 }
 
 type testInterleavedTurnAdapter struct {

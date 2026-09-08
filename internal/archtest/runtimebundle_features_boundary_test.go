@@ -144,6 +144,44 @@ func TestForbiddenImports_RuntimeBundleConcreteFeaturesRenamedOrNestedBypassReje
 	}
 }
 
+// TestProductionRuntimeBundleHasZeroSecretguardhostImports scans the live
+// production tree of internal/infra/runtimebundle and asserts zero imports of
+// the concrete secretguardhost SDK contract (Req 8.3/9.3/13.4). Default
+// environment binding construction plus presence/precedence handling live in
+// standard-distribution composition (internal/standardplugins/featurehost);
+// generic runtimebundle forwards only a generic environment capability.
+// Test files may still construct explicit bindings to prove precedence.
+func TestProductionRuntimeBundleHasZeroSecretguardhostImports(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	const target = "/pkg/lipsdk/secretguardhost"
+	var violations []string
+	err := WalkProductionGoFiles(root, func(rel, abs string, src []byte) error {
+		pkg := PackageDirFromRel(rel)
+		if !MatchPathPrefix(pkg, "internal/infra/runtimebundle") {
+			return nil
+		}
+		_, f, err := ParseGoSource(abs, src)
+		if err != nil {
+			return err
+		}
+		for _, imp := range FileImportPaths(f) {
+			if strings.Contains(imp, target) {
+				violations = append(violations, fmt.Sprintf("%s: imports %s", rel, imp))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkProductionGoFiles: %v", err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("production internal/infra/runtimebundle has forbidden secretguardhost imports (%d):\n%s",
+			len(violations), strings.Join(violations, "\n"))
+	}
+}
+
 // TestProductionRuntimeBundleHasZeroConcreteFeatureImports scans the live production tree
 // of internal/infra/runtimebundle and asserts zero imports of internal/plugins/features/*.
 func TestProductionRuntimeBundleHasZeroConcreteFeatureImports(t *testing.T) {

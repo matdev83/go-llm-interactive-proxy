@@ -70,8 +70,10 @@ type PackageTreeBudget struct {
 var PackageTreeBudgets = []PackageTreeBudget{
 	// Ownership closure (Task 11.3): runtimebundle scaffolding removed, measured
 	// 12316; featurehost measured 2979 with its own recursive ceiling.
+	// 12.2 review remediation (H2 port methods, H3 enable-gating, H4 env
+	// capability): featurehost re-measured 3057; reset to 3082 with 25 headroom.
 	{Tree: "internal/infra/runtimebundle", Max: 12341},
-	{Tree: "internal/standardplugins/featurehost", Max: 3004},
+	{Tree: "internal/standardplugins/featurehost", Max: 3082},
 	{Tree: "internal/stdhttp", Max: 6693},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
@@ -137,7 +139,8 @@ var LineBudgets = []LineBudget{
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12341},
-	{Dir: "internal/standardplugins/featurehost", Max: 3004},
+	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
+	{Dir: "internal/standardplugins/featurehost", Max: 3082},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 720},
 }

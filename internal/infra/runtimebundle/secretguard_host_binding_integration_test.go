@@ -90,3 +90,32 @@ func TestBuildHost_WithSecretGuardHostBinding_NoDuplicateAndHostOptionsEffective
 		t.Fatalf("bound matcher override lost: got %+v", bound.Inputs.SingleUser.Matcher)
 	}
 }
+
+// TestBuildHost_DefaultSecretGuardBinding proves the host entry point still
+// works end-to-end with no secretguardhost knowledge in generic runtimebundle:
+// without an explicit registration, featurehost synthesizes exactly one
+// default env-derived binding from the generic process environment.
+func TestBuildHost_DefaultSecretGuardBinding(t *testing.T) {
+	t.Parallel()
+
+	cfgPath := runtimebundle.MaterializeExampleConfigForTest(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
+
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+	})
+	if err != nil {
+		t.Fatalf("BuildHost with default env binding failed: %v", err)
+	}
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
+
+	bound := runtimebundle.HostProcess(host).StandardFeatures.BoundSecretGuard()
+	if !bound.Present {
+		t.Fatal("bound secret-guard binding must be present via default env synthesis")
+	}
+	if bound.Environment == nil {
+		t.Fatal("bound secret-guard environment must be non-nil via default env synthesis")
+	}
+}

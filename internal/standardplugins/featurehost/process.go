@@ -66,14 +66,15 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 		return nil, err
 	}
 
-	if len(in.HostRegistrations) > 0 {
-		bound, err := bindHostRegistrations(in.HostRegistrations)
+	hostRegs := withDefaultEnvBinding(in.HostRegistrations, in.HostEnv)
+	if len(hostRegs) > 0 {
+		bound, err := bindHostRegistrations(hostRegs)
 		if err != nil {
 			return nil, err
 		}
 		r.boundReasoning = bound.reasoning
 		r.boundSecretGuard = bound.secretGuard
-		r.hostRegistrations = slices.Clone(in.HostRegistrations)
+		r.hostRegistrations = slices.Clone(hostRegs)
 	}
 
 	for _, step := range in.buildSteps {

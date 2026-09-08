@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -22,7 +21,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 )
 
 type BuildHostInput struct {
@@ -42,7 +40,7 @@ func BuildHost(ctx context.Context, in BuildHostInput) (*Host, error) {
 
 type hostBuildInput = BuildHostInput
 
-func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretEnv featurehost.SecretGuardEnvironment) (*Host, error) {
+func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, hostEnv featurehost.HostEnvironment) (*Host, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("runtimebundle: nil context")
 	}
@@ -118,7 +116,7 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretE
 	}
 
 	ps, err := ops.process(ctx, processBuildInput{
-		Cfg: cfg, Logger: logger, Registry: reg, SecretEnv: secretEnv, Production: in.Production,
+		Cfg: cfg, Logger: logger, Registry: reg, HostEnv: hostEnv, Production: in.Production,
 		Tracing:            ProcessTracing{Shutdown: traceShutdown, Active: traceRes.Active},
 		PluginResourcePool: pluginResourcePool,
 		PluginHost:         pluginHost,
@@ -173,12 +171,12 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretE
 	return host, nil
 }
 
-func buildHostWithEnv(ctx context.Context, in hostBuildInput, loadEffective bootstrapEffectiveLoader, secretEnv featurehost.SecretGuardEnvironment, _ any) (*Host, error) {
+func buildHostWithEnv(ctx context.Context, in hostBuildInput, loadEffective bootstrapEffectiveLoader, hostEnv featurehost.HostEnvironment, _ any) (*Host, error) {
 	ops := defaultHostBuildOps()
 	if loadEffective != nil {
 		ops.load = loadEffective
 	}
-	return buildHost(ctx, in, ops, secretEnv)
+	return buildHost(ctx, in, ops, hostEnv)
 }
 
 type (
@@ -204,7 +202,7 @@ type processBuildInput struct {
 	Cfg                *config.Config
 	Logger             *slog.Logger
 	Registry           *pluginreg.Registry
-	SecretEnv          featurehost.SecretGuardEnvironment
+	HostEnv            featurehost.HostEnvironment
 	Production         ProductionOptions
 	Tracing            ProcessTracing
 	PluginResourcePool *backendResourcePool
@@ -227,20 +225,15 @@ func defaultHostBuildOps() hostBuildOps {
 }
 
 func buildProcessServicesOp(ctx context.Context, in processBuildInput) (*ProcessServices, error) {
-	prod := in.Production
-	if in.SecretEnv != nil && !hasSecretGuardHostRegistration(prod.FeatureHostRegistrations) {
-		prod.FeatureHostRegistrations = append(slices.Clone(prod.FeatureHostRegistrations),
-			(&secretguardhost.Binding{Environment: in.SecretEnv}).Registration(),
-		)
-	}
 	return NewProcessServices(ctx, ProcessServicesInput{
 		Cfg: in.Cfg, Log: in.Logger,
 		Opts: &BuildOptions{
 			PluginRegistry: in.Registry,
 			Infra:          InfraOptions{OutboundTracing: in.Tracing.Active, ProcessTracing: in.Tracing},
 			Extensions:     ExtensionsOptions{},
-			Production:     prod,
+			Production:     in.Production,
 		},
+		HostEnv:            in.HostEnv,
 		Tracing:            in.Tracing,
 		PluginResourcePool: in.PluginResourcePool,
 		PluginHost:         in.PluginHost,

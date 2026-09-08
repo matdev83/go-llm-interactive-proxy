@@ -40,7 +40,7 @@ func ValidateDistribution(ctx context.Context, in ValidateDistributionInput) err
 func validateDistribution(
 	ctx context.Context,
 	in ValidateDistributionInput,
-	secretEnv featurehost.SecretGuardEnvironment,
+	hostEnv featurehost.HostEnvironment,
 	ops validateDistributionOps,
 ) error {
 	if ctx == nil {
@@ -112,7 +112,7 @@ func validateDistribution(
 	}
 
 	ps, err := ops.process(ctx, processBuildInput{
-		Cfg: cfg, Logger: logger, Registry: reg, SecretEnv: secretEnv, Production: in.Production,
+		Cfg: cfg, Logger: logger, Registry: reg, HostEnv: hostEnv, Production: in.Production,
 		Tracing:            ProcessTracing{Shutdown: traceShutdownRaw, Active: traceRes.Active},
 		PluginResourcePool: pluginResourcePool,
 		PluginHost:         pluginHost,

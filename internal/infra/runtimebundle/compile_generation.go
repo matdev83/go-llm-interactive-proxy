@@ -149,7 +149,13 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		GenerationRunner: genRunner,
 	})
 	if err != nil {
-		return nil, err
+		return nil, discardAcquiredKeepwarm(ctx, err, featOut.KeepwarmQuiesce)
+	}
+	// Transfer the acquired keep-warm cleanup into the candidate ledger
+	// immediately; later failure paths roll it back and publication transfers
+	// ledger ownership into the generation bundle.
+	if featOut.KeepwarmQuiesce != nil && cand.ledger != nil {
+		cand.ledger.Add("keepwarm-generation", PhaseQuiesce, featOut.KeepwarmQuiesce)
 	}
 	failBeforeTransfer := func(err error) (GenerationRuntime, error) {
 		if rollErr := cand.RollbackUnpublished(); rollErr != nil {
@@ -232,9 +238,8 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		// Publish the facade-composed planes as the generation's canonical
 		// frozen surface (Task 2.4, Requirement 8.3): facade-added/replaced
 		// planes must be visible to request-time bundle readers.
-		frozen:          featOut.Planes,
-		readiness:       cand.operations.readinessReport,
-		keepwarmQuiesce: featOut.KeepwarmQuiesce,
+		frozen:    featOut.Planes,
+		readiness: cand.operations.readinessReport,
 	})
 	return bundle, nil
 }

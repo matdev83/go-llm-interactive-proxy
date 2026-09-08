@@ -35,9 +35,9 @@ func (e *countingSecretGuardEnv) Snapshot() []string {
 
 // TestInspect_DoesNotRequestSecretGuardEnvironment characterizes the Task 5.3
 // Inspect invariant: prepareInspect (shared by [InspectRoutes]/[InspectInventory])
-// builds no ProcessServices and accepts no secret-guard environment seam at
+// builds no ProcessServices and accepts no host environment seam at
 // all, so it structurally cannot consult it (unlike BuildHost, which threads
-// an explicit featurehost.SecretGuardEnvironment into publishInitialGeneration).
+// an explicit featurehost.HostEnvironment into process construction).
 func TestInspect_DoesNotRequestSecretGuardEnvironment(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml")
 	in := InspectInput{
