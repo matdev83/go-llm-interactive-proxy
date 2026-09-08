@@ -77,6 +77,9 @@ func (e *Executor) interleavedEnabled() bool {
 
 // loadInterleavedState fetches the persisted thinker cycle state for the A-leg.
 func (e *Executor) loadInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error) {
+	if !e.interleavedEnabled() {
+		return interleavedstate.State{}, nil
+	}
 	is, ok := e.Store.(b2bua.InterleavedStateStore)
 	if !ok || is == nil {
 		return interleavedstate.State{}, nil

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 )
 
@@ -38,5 +39,72 @@ func TestInterleavedContinuationStream_UnknownPhaseRecvError(t *testing.T) {
 	_, err := s.Recv(context.Background())
 	if !errors.Is(err, errUnknownInterleavedPhase) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+type spyInterleavedStateStore struct {
+	b2bua.Store
+	fetchCalls int
+	state      interleavedstate.State
+}
+
+func (s *spyInterleavedStateStore) FetchInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error) {
+	s.fetchCalls++
+	return s.state, nil
+}
+
+func (s *spyInterleavedStateStore) SetInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error {
+	s.state = state
+	return nil
+}
+
+func TestExecutor_LoadInterleavedState_DisabledSkipsStore(t *testing.T) {
+	t.Parallel()
+	spy := &spyInterleavedStateStore{
+		state: interleavedstate.State{
+			Cycle: interleavedstate.CycleState{
+				Sequence: []interleavedstate.CycleEntry{{Key: "k1", Role: interleavedstate.RoleThinker}},
+			},
+		},
+	}
+	ex := TestExecutor()
+	ex.Store = spy
+	ex.Processor = nil // disabled
+
+	got, err := ex.loadInterleavedState(context.Background(), "a-leg-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.IsEmpty() {
+		t.Fatalf("expected empty state when interleaved disabled, got %+v", got)
+	}
+	if spy.fetchCalls != 0 {
+		t.Fatalf("expected 0 calls to FetchInterleavedState when disabled, got %d", spy.fetchCalls)
+	}
+}
+
+func TestExecutor_LoadInterleavedState_EnabledFetchesStore(t *testing.T) {
+	t.Parallel()
+	expectedState := interleavedstate.State{
+		Cycle: interleavedstate.CycleState{
+			Sequence: []interleavedstate.CycleEntry{{Key: "k1", Role: interleavedstate.RoleThinker}},
+		},
+	}
+	spy := &spyInterleavedStateStore{
+		state: expectedState,
+	}
+	ex := TestExecutor()
+	ex.Store = spy
+	ex.Processor = &testInterleavedProcessorAdapter{} // non-nil processor indicates enabled
+
+	got, err := ex.loadInterleavedState(context.Background(), "a-leg-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.Cycle.Sequence) != len(expectedState.Cycle.Sequence) || got.Cycle.Sequence[0] != expectedState.Cycle.Sequence[0] {
+		t.Fatalf("expected %+v, got %+v", expectedState, got)
+	}
+	if spy.fetchCalls != 1 {
+		t.Fatalf("expected 1 call to FetchInterleavedState when enabled, got %d", spy.fetchCalls)
 	}
 }
