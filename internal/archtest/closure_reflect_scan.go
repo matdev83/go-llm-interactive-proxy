@@ -61,31 +61,89 @@ func (s *reflectGuardScanner) scanFunc(fn *ast.FuncDecl) {
 
 // collectValueVars records identifiers bound to a reflect.ValueOf result so
 // later method dispatch on them (MethodByName/Call/Set/...) is recognized
-// even though the receiver is not the reflect package itself.
+// even though the receiver is not the reflect package itself. Identifier
+// copies (`copied := rv`, multi-assign, var-spec) propagate the taint to a
+// fixpoint, so ValueOf-derived values cannot escape through aliasing. The
+// ident set is finite and markings only grow, so the loop always terminates.
 func (s *reflectGuardScanner) collectValueVars(n ast.Node) {
+	var assigns []*ast.AssignStmt
+	var specs []*ast.ValueSpec
 	ast.Inspect(n, func(node ast.Node) bool {
 		switch v := node.(type) {
 		case *ast.AssignStmt:
+			assigns = append(assigns, v)
 			for _, rhs := range v.Rhs {
 				if isValueOfCall(rhs, s.reflectNames) {
 					for _, lhs := range v.Lhs {
-						if id, ok := lhs.(*ast.Ident); ok {
+						if id, ok := lhs.(*ast.Ident); ok && id.Name != "_" {
 							s.valueVars[id.Name] = true
 						}
 					}
 				}
 			}
 		case *ast.ValueSpec:
+			specs = append(specs, v)
 			for _, val := range v.Values {
 				if isValueOfCall(val, s.reflectNames) {
 					for _, name := range v.Names {
-						s.valueVars[name.Name] = true
+						if name.Name != "_" {
+							s.valueVars[name.Name] = true
+						}
 					}
 				}
 			}
 		}
 		return true
 	})
+	for changed := true; changed; {
+		changed = false
+		for _, a := range assigns {
+			if !assignCopiesValueVar(a, s.valueVars) {
+				continue
+			}
+			for _, lhs := range a.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok && id.Name != "_" && !s.valueVars[id.Name] {
+					s.valueVars[id.Name] = true
+					changed = true
+				}
+			}
+		}
+		for _, spec := range specs {
+			if !specCopiesValueVar(spec, s.valueVars) {
+				continue
+			}
+			for _, name := range spec.Names {
+				if name.Name != "_" && !s.valueVars[name.Name] {
+					s.valueVars[name.Name] = true
+					changed = true
+				}
+			}
+		}
+	}
+}
+
+// assignCopiesValueVar reports whether any right-hand side of an assignment
+// is an already-tainted value identifier, so the left-hand side inherits the
+// reflect.Value taint (conservatively: every LHS name, covering multi-assign
+// and multi-return shapes without positional analysis).
+func assignCopiesValueVar(a *ast.AssignStmt, valueVars map[string]bool) bool {
+	for _, rhs := range a.Rhs {
+		if id, ok := unparenExpr(rhs).(*ast.Ident); ok && valueVars[id.Name] {
+			return true
+		}
+	}
+	return false
+}
+
+// specCopiesValueVar reports whether a var-spec initializer copies an
+// already-tainted value identifier (`var c = rv`).
+func specCopiesValueVar(spec *ast.ValueSpec, valueVars map[string]bool) bool {
+	for _, val := range spec.Values {
+		if id, ok := unparenExpr(val).(*ast.Ident); ok && valueVars[id.Name] {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *reflectGuardScanner) visit(n ast.Node) bool {

@@ -380,6 +380,40 @@ func Compose(a, b string) string { return a + b }
 	}
 }
 
+// TestClosureReflectCopiedValueAlias proves ValueOf-derived identifiers cannot
+// escape the typed-nil-guard ratchet through identifier copies: `copied := rv`,
+// multi-assign, and var-spec copies all propagate the reflect.Value taint, so
+// dynamic dispatch on the copy is a violation, while guard-only Kind/IsNil use
+// of a copy stays silent.
+func TestClosureReflectCopiedValueAlias(t *testing.T) {
+	t.Parallel()
+
+	const head = "package featurehost\nimport \"reflect\"\n"
+	cases := []struct {
+		name        string
+		src         string
+		wantFinding bool
+	}{
+		{name: "copied value dispatch", src: head + "func isNilDynamic(v any, m string) bool {\nrv := reflect.ValueOf(v)\ncopied := rv\nout := copied.MethodByName(m).Call(nil)\nreturn len(out) == 0\n}\n", wantFinding: true},
+		{name: "multi-assign copy dispatch", src: head + "func isNilDynamic(v any, m string, o any) bool {\nrv := reflect.ValueOf(v)\na, b := rv, o\n_ = b\nout := a.MethodByName(m).Call(nil)\nreturn len(out) == 0\n}\n", wantFinding: true},
+		{name: "var-spec copy dispatch", src: head + "func isNilDynamic(v any, m string) bool {\nrv := reflect.ValueOf(v)\nvar c = rv\nout := c.MethodByName(m).Call(nil)\nreturn len(out) == 0\n}\n", wantFinding: true},
+		{name: "copied value guard-only stays silent", src: head + "func isNilEgressPolicy(v any) bool {\nif v == nil {\nreturn true\n}\nrv := reflect.ValueOf(v)\ncopied := rv\nswitch copied.Kind() {\ncase reflect.Chan, reflect.Pointer:\nreturn copied.IsNil()\ndefault:\nreturn false\n}\n}\n", wantFinding: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			findings, err := scanFeaturehostReflectViolations("internal/standardplugins/featurehost/fixture.go", []byte(tc.src))
+			if err != nil {
+				t.Fatalf("scanFeaturehostReflectViolations: %v", err)
+			}
+			if got := len(findings) > 0; got != tc.wantFinding {
+				t.Fatalf("scanFeaturehostReflectViolations(%q): got violation=%v, want %v (findings: %v)",
+					tc.name, got, tc.wantFinding, findings)
+			}
+		})
+	}
+}
+
 // TestRetiredCorePackageAbsenceCoversAllManifestDirs locks the redundant
 // absence test to the full manifest: every internal/core/* manifest entry for
 // a retired package must also appear in retired_core_packages_test.go so list
