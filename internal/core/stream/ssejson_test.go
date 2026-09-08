@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -18,7 +19,7 @@ func TestFlushSSEDataJSON_roundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := rec.Body.String()
-	if !bytes.Contains([]byte(s), []byte(`data: {"hello":"world"}`)) {
+	if !strings.Contains(s, `data: {"hello":"world"}`) {
 		t.Fatalf("body %q", s)
 	}
 }
@@ -31,7 +32,7 @@ func TestFlushSSEEventJSON_roundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := rec.Body.String()
-	if !bytes.Contains([]byte(s), []byte("event: evt")) || !bytes.Contains([]byte(s), []byte(`"k":"v"`)) {
+	if !strings.Contains(s, "event: evt") || !strings.Contains(s, `"k":"v"`) {
 		t.Fatalf("body %q", s)
 	}
 }

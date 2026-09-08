@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -398,8 +399,7 @@ func parseInventoryTable(content string) ([]inventoryRow, []string) {
 	seenHeader := false
 	seenSeparator := false
 
-	lines := strings.Split(section, "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(section, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || !strings.Contains(trimmed, "|") {
 			continue
@@ -507,8 +507,7 @@ func parseSummaryCounts(content string) (map[string]int, int, []string) {
 		reqMap[v] = true
 	}
 
-	lines := strings.Split(section, "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(section, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || !strings.Contains(trimmed, "|") {
 			continue
@@ -600,14 +599,7 @@ func validateResidualOwnershipInventoryContent(content string, repoRoot ...strin
 	// 4. Validate classification values on parsed rows
 	for _, row := range rows {
 		cleanClass := strings.Trim(strings.TrimSpace(row.Classification), "`")
-		found := false
-		for _, v := range requiredVocabulary {
-			if cleanClass == v {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(requiredVocabulary, cleanClass) {
 			errs = append(errs, fmt.Sprintf("row %q has invalid classification %q (must be one of: %s)", row.Responsibility, row.Classification, strings.Join(requiredVocabulary, ", ")))
 		}
 	}
@@ -684,14 +676,7 @@ func validateResidualOwnershipInventoryContent(content string, repoRoot ...strin
 	}
 
 	for _, rule := range mandatoryRules {
-		found := false
-		for _, row := range rows {
-			if rule.match(row) {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.ContainsFunc(rows, rule.match) {
 			errs = append(errs, fmt.Sprintf("missing mandatory row requirement: %s", rule.desc))
 		}
 	}

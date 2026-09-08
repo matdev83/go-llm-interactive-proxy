@@ -14,7 +14,7 @@ func TestSecurity_NoClientVisibilitySurface(t *testing.T) {
 	// If a field like Visibility or NonForwardable existed, this would compile.
 	// Ensure no such JSON field by marshaling shape check: call should not contain "non_forwardable" or "steering" keys
 	// when empty. This is compile-time guarantee; runtime check for insurance.
-	if strings.Contains(string(call.Session.ALegID), "non_forwardable") {
+	if strings.Contains(call.Session.ALegID, "non_forwardable") {
 		t.Fatal("unexpected")
 	}
 	// Ensure frontend DTOs do not expose visibility mutation: package lipsdk nonforwardable/steering are trusted only.

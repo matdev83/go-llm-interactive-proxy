@@ -65,7 +65,7 @@ func AssertTerminalLast(t *testing.T, events []lipapi.Event) {
 	if last.Kind != lipapi.EventResponseFinished && last.Kind != lipapi.EventError {
 		t.Fatalf("terminal ordering: last kind = %v, want ResponseFinished or Error", last.Kind)
 	}
-	for i := 0; i < len(events)-1; i++ {
+	for i := range len(events) - 1 {
 		if events[i].Kind == lipapi.EventResponseFinished {
 			t.Fatalf("terminal ordering: ResponseFinished at index %d before final event", i)
 		}

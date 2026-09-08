@@ -12,12 +12,14 @@ import (
 )
 
 func TestPrometheusCollectorAllowsAccountingErrors(t *testing.T) {
+	t.Parallel()
 	if !metricEventAllowed("accounting_error") {
 		t.Fatal("accounting_error must be exported as a bounded keep-warm event")
 	}
 }
 
 func TestPrometheusCollectorExportsBoundedManagerState(t *testing.T) {
+	t.Parallel()
 	registry := prometheus.NewRegistry()
 	prom := NewPrometheusCollector()
 	if err := registry.Register(prom); err != nil {

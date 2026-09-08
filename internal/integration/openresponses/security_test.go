@@ -604,6 +604,9 @@ func TestSecurity_WebSocketOriginAbuseRejected(t *testing.T) {
 	}
 	u.Scheme = "ws"
 	conn, resp, err := websocket.DefaultDialer.Dial(u.String(), http.Header{"Origin": []string{"https://evil.example"}})
+	if resp != nil && resp.Body != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
 	if conn != nil {
 		_ = conn.Close()
 	}
