@@ -561,7 +561,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 12.2_
   - _Validation: `go test -count=1 ./...`; `go test -race -count=1 ./...`; `make quality-checks`; `make arch-report`; `make docs-check`; generator `-check`; `go vet ./...`; `govulncheck ./...`; `go mod verify`; applicable fuzz/integration commands_
 
-- [ ] 12.4 Certify clean merged-main and archive the completed SDD
+- [x] 12.4 Certify clean merged-main and archive the completed SDD
   - After implementation PRs merge, rerun critical architecture/correctness checks on the exact merged `main` SHA to catch integration drift.
   - Confirm final ownership census, budgets, probe evidence and docs all reference the merged topology, not a stale feature branch.
   - Archive this SDD using repository convention and mark every task complete only after merged-main certification.
