@@ -16,17 +16,20 @@ import (
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
+// recordingTrafficObserver captures emitted observations grouped by traffic leg for functional tests.
 type recordingTrafficObserver struct {
 	mu   sync.Mutex
 	legs map[sdktraffic.Leg][]sdktraffic.Observation
 }
 
+// newRecordingTrafficObserver constructs an initialized recording traffic observer.
 func newRecordingTrafficObserver() *recordingTrafficObserver {
 	return &recordingTrafficObserver{
 		legs: make(map[sdktraffic.Leg][]sdktraffic.Observation),
 	}
 }
 
+// OnObservation records the observation under its traffic leg.
 func (r *recordingTrafficObserver) OnObservation(_ context.Context, obs sdktraffic.Observation) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -34,12 +37,24 @@ func (r *recordingTrafficObserver) OnObservation(_ context.Context, obs sdktraff
 	return nil
 }
 
+// observationsFor returns a shallow copy of the recorded observations for the given leg.
 func (r *recordingTrafficObserver) observationsFor(leg sdktraffic.Leg) []sdktraffic.Observation {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]sdktraffic.Observation(nil), r.legs[leg]...)
 }
 
+// benchDiscardTrafficObserver is a non-retaining observer that exercises the active emission path
+// during benchmarks without accumulating payloads across iterations.
+type benchDiscardTrafficObserver struct{}
+
+// OnObservation discards the observation without performing allocations.
+func (benchDiscardTrafficObserver) OnObservation(_ context.Context, _ sdktraffic.Observation) error {
+	return nil
+}
+
+// trafficTestExecutor builds a minimal test executor configured with a fixed mock backend and
+// a snapshot bound to the provided traffic observer.
 func trafficTestExecutor(t testing.TB, tobs sdktraffic.Observer) *runtime.Executor {
 	t.Helper()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -71,6 +86,8 @@ func trafficTestExecutor(t testing.TB, tobs sdktraffic.Observer) *runtime.Execut
 	return ex
 }
 
+// TestExecutor_Traffic_DisabledSkipsPayloadMarshal verifies that when traffic observation is disabled,
+// execution completes successfully and EmitIsNoop short-circuits before JSON serialization.
 func TestExecutor_Traffic_DisabledSkipsPayloadMarshal(t *testing.T) {
 	t.Parallel()
 	ex := trafficTestExecutor(t, nil)
@@ -93,6 +110,8 @@ func TestExecutor_Traffic_DisabledSkipsPayloadMarshal(t *testing.T) {
 	}
 }
 
+// TestExecutor_Traffic_EnabledEmitsCTPAndPTB verifies that when traffic observation is active,
+// both CTP and PTB payloads are marshaled and delivered to the observer.
 func TestExecutor_Traffic_EnabledEmitsCTPAndPTB(t *testing.T) {
 	t.Parallel()
 	recorder := newRecordingTrafficObserver()
@@ -137,6 +156,7 @@ func TestExecutor_Traffic_EnabledEmitsCTPAndPTB(t *testing.T) {
 	}
 }
 
+// BenchmarkExecutor_TrafficDisabled benchmarks request execution when traffic observation is disabled.
 func BenchmarkExecutor_TrafficDisabled(b *testing.B) {
 	ex := trafficTestExecutor(b, nil)
 	call := &lipapi.Call{
@@ -157,9 +177,10 @@ func BenchmarkExecutor_TrafficDisabled(b *testing.B) {
 	}
 }
 
+// BenchmarkExecutor_TrafficEnabled benchmarks request execution when traffic observation is enabled,
+// using a non-retaining observer to isolate emission overhead from retention memory.
 func BenchmarkExecutor_TrafficEnabled(b *testing.B) {
-	recorder := newRecordingTrafficObserver()
-	ex := trafficTestExecutor(b, recorder)
+	ex := trafficTestExecutor(b, benchDiscardTrafficObserver{})
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "mock:model-1"},
 		Messages: []lipapi.Message{

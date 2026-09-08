@@ -42,22 +42,27 @@ func TestInterleavedContinuationStream_UnknownPhaseRecvError(t *testing.T) {
 	}
 }
 
+// spyInterleavedStateStore records calls to FetchInterleavedState and SetInterleavedState.
 type spyInterleavedStateStore struct {
 	b2bua.Store
 	fetchCalls int
 	state      interleavedstate.State
 }
 
+// FetchInterleavedState increments the call count and returns the configured state.
 func (s *spyInterleavedStateStore) FetchInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error) {
 	s.fetchCalls++
 	return s.state, nil
 }
 
+// SetInterleavedState records the updated state.
 func (s *spyInterleavedStateStore) SetInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error {
 	s.state = state
 	return nil
 }
 
+// TestExecutor_LoadInterleavedState_DisabledSkipsStore verifies that when interleaved thinking is disabled,
+// loadInterleavedState immediately returns an empty state without calling FetchInterleavedState.
 func TestExecutor_LoadInterleavedState_DisabledSkipsStore(t *testing.T) {
 	t.Parallel()
 	spy := &spyInterleavedStateStore{
@@ -83,6 +88,8 @@ func TestExecutor_LoadInterleavedState_DisabledSkipsStore(t *testing.T) {
 	}
 }
 
+// TestExecutor_LoadInterleavedState_EnabledFetchesStore verifies that when interleaved thinking is enabled,
+// loadInterleavedState calls FetchInterleavedState on the store and returns its state.
 func TestExecutor_LoadInterleavedState_EnabledFetchesStore(t *testing.T) {
 	t.Parallel()
 	expectedState := interleavedstate.State{
