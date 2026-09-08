@@ -177,8 +177,12 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 		t.Fatal("configured secrets-guard matcher must find loaded secret")
 	}
 	guards[0] = stubSecretGuard{id: "mutated", ord: 0}
-	if got := res.Plane.Guards[0].ID(); got != "z" {
-		t.Fatalf("plane guards mutated via caller slice; got %q want z (unsorted clone)", got)
+	if got := len(res.Plane.Guards); got != 0 {
+		t.Fatalf("engine plane must not duplicate guards (they travel on planes); got %d", got)
+	}
+	frozenGuards := lipfeature.Get(opts.FeaturePlanes, lipfeature.PlaneSecretGuards)
+	if got := frozenGuards[0].ID(); got != "z" {
+		t.Fatalf("planes mutated via caller slice; got %q want z (unsorted clone)", got)
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
 		SecretGuardPlane: res.Plane,
@@ -264,21 +268,25 @@ func TestBuildSecretGuardRuntime_typedNilObserverFallsBackToSlog(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	var typedNil *typedNilDecisionObserver
-	opts := &BuildOptions{
-		FeaturePlanes: frozenSecretGuards(stubSecretGuard{id: "guard", ord: 1}),
-		Extensions: ExtensionsOptions{
-			SecretDecisionObserver: typedNil,
-		},
-	}
-
-	res, err := testBuildSecretGuardRuntime(&config.Config{}, log, opts, nil)
+	fh, err := featurehost.NewProcess(context.Background(), featurehost.ProcessInput{Logger: log})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res == nil || sdk.IsNilObserver(res.Plane.DecisionObserver) {
+	// The observer enters composition through the pinned GenerationInput port;
+	// the composed plane is read back purely via plane access.
+	out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+		Planes:           frozenSecretGuards(stubSecretGuard{id: "guard", ord: 1}),
+		AccessMode:       "single_user",
+		DecisionObserver: typedNil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plane, _ := secretGuardFromPlanes(out.Planes)
+	if sdk.IsNilObserver(plane.DecisionObserver) {
 		t.Fatal("typed-nil observer must be replaced with a usable runtime observer")
 	}
-	if err := res.Plane.DecisionObserver.OnSecretDecision(t.Context(), sdk.DecisionEvent{EventID: "evt-typed-nil"}); err != nil {
+	if err := plane.DecisionObserver.OnSecretDecision(t.Context(), sdk.DecisionEvent{EventID: "evt-typed-nil"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "lip.secret_guard.decision") {

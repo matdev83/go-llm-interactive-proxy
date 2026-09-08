@@ -47,3 +47,37 @@ Task 2.3 and Task 10.1 require verifying that all process-scoped feature resourc
    - `TestProcessFeatureOwnership_DualConstructorWiringRejected` proves that any attempt to wire dual constructors or register cleanup in both legacy and featurehost paths is rejected with `ErrDualConstructorWiring`.
 4. **Decoupled Borrowed Resource**:
    - `BackgroundAux` is verified by `TestProcessFeatureOwnership_MissingBorrowedResourceRejected` as the sole borrowed generic scheduler on `ProcessServices`, decoupled from all feature-specific bounds.
+
+---
+
+## 3. Exhaustive Residual Sweep: Concrete-Feature Imports Outside `internal/plugins/features/`
+
+Sweep method (exact commands, run from the worktree root; `_test.go` files excluded from production-consumer candidacy):
+
+- `git grep -n "internal/plugins/features/" -- "*.go" | grep -v "_test.go"` — full candidate enumeration.
+- `git grep -n "infra/metrics" -- "*.go" | grep -v "_test.go"` — importers of the metrics package.
+- `git grep -n "KeepwarmProm\|SetManager" -- "*.go" | grep -v "_test.go"` — consumers of the keepwarm Prometheus adapter.
+- `git grep -n "stdhttp/admin/keepwarm" -- "*.go" | grep -v "_test.go"` — consumers of the keepwarm admin handler.
+- `git grep -n "\.Keepwarm\b\|KeepwarmProm\|SetManager" -- "*.go"` filtered to files outside `internal/infra/metrics/` and `internal/standardplugins/featurehost/keepwarm` — second-consumer check for the metrics adapter.
+
+### 3.1 Non-production references (verified, no action)
+
+| Reference | File | Verification |
+| :--- | :--- | :--- |
+| Architecture-gate string rules | `internal/archtest/budgets.go:52-53` (file-size budget path strings), `internal/archtest/closure_import_rules.go`, `internal/archtest/import_rules.go:214-378` (forbidden-import rule patterns), `internal/archtest/tools/changesurface/report.go:286` (path-prefix classifier) | String literals in test/gate tooling, not production imports. The gates enforce the closure direction (feature tree must not depend on core/runtimebundle/featurehost; `pkg/lipruntime` must not depend on concrete features). |
+| Comment-only mentions | `internal/core/config/interleaved.go:7`, `internal/core/runtime/interleaved_steering.go:23`, `pkg/lipsdk/feature/doc.go:146` | Doc comments naming the feature owner; `go` import lists verified clean. No BLOCKER-grade real import exists in `internal/core` production code. |
+| Intra-feature imports | `internal/plugins/features/*` importing sibling feature packages (e.g. `catalog.go`, `bundle.go`, `plugin*.go`, `reasoningreplay` consumers) | Inside the feature zone itself; out of scope for this sweep. |
+| Approved composition owner | `internal/standardplugins/**` (`features_install.go`, `standard_table.go`, `featurehost/**`, `reasoning_preservation_inject.go`, `tool_call_repair_inject.go`) | The designated standard-distribution composition owner; expected and approved. |
+| Prior-census row | `internal/plugins/backends/openaicaps/compatible_replay.go:6` (imports `reasoningpreservation/reasoningreplay`) | Already classified as Row 1 (retained under feature; backend capability scanner reuse). No change. |
+
+### 3.2 Residual adapters requiring classification
+
+| Adapter | Non-Test Production Consumers | Req-11 Classification | Decision |
+| :--- | :--- | :--- | :--- |
+| `internal/infra/metrics/keepwarm.go` (`KeepwarmProm` Prometheus collector; narrow `KeepwarmManager` interface returning `keepwarm.MetricsSnapshot`; local bounded-event allowlist) | Sole structural consumer is the metrics bundle lifecycle: `internal/infra/metrics/bundle.go:30,55,71` (field, `RegisterKeepwarmProm`, construction). Per-generation feed arrives through the `any`-typed swap: `internal/infra/runtimebundle/compile_generation.go:107-108` (`metricsSink = ps.Metrics.Keepwarm`) with the manager supplied by `internal/standardplugins/featurehost/keepwarm.go:23,201` (`SetManager(manager any)` port + swap closure). Second-consumer check finds no other importer of `KeepwarmProm`. | One-feature support without an independent generic consumer (Req 11.1). | **MOVED UNDER THE FEATURE OWNER** (`internal/plugins/features/keepwarm/metrics.go` as `PrometheusCollector`, with its tests): collector implementation, snapshot reading, and the bounded-event allowlist now live with the feature. Collector *registration* lifetime stays with metrics infrastructure: the bundle exposes its generic registry, and featurehost constructs + registers the collector via the narrow `MetricsRegistry` process capability (`Register(prometheus.Collector) error`, no feature knowledge). Per-generation swap is featurehost-owned against its retained collector handle (`SetManager(*keepwarm.Manager)`, typed — no `any`); `GenerationInput.MetricsSink` and the `ManagerMetricsSink` interface are deleted, and `runtimebundle` no longer touches the swap path. Swap behavior is pinned by the moved collector tests plus `TestCompileKeepwarmMetricsSwapAndAdminProjection` (now asserting through a real registry: absent series pre-swap, present post-swap). |
+| `internal/stdhttp/admin/keepwarm/handler.go` (HTTP transport over feature-owned `keepwarm.SessionPolicy` + typed errors `ErrInvalidConfig`, `ErrPolicyCapacity`, `ErrPolicyNotFound`) | `internal/stdhttp/contract/http_input.go:25,89` (`KeepwarmAdmin adminkeepwarm.Options` port field), `internal/stdhttp/mount_admin.go:12,84` (`NewHandler` mounted at `/admin/keepwarm`), `internal/standardplugins/featurehost/keepwarm.go:12,124` + `runtime.go:19` + `inputs.go:17` (featurehost supplies the `Service` implementation and `Options` projection). | Host/process translation at a driving adapter (Req 11.3 analogue): HTTP request/response translation over feature-owned policy types, same direction and pattern as the classified backend reuse (Row 1, `openaicaps` → `reasoningreplay`). Permitted by the closure gates, which forbid only the reverse direction (feature tree depending on `stdhttp`). | **RETAIN IN `internal/stdhttp/admin/keepwarm` WITH DOCUMENTED JUSTIFICATION** (no move). The handler owns no policy: `Service` is a featurehost-supplied port, `ResolveALegID` keeps request bodies untrusted for policy identity, and error mapping is a pure wire translation of typed feature errors. |
+
+### 3.3 Tree-budget evidence for the move decision
+
+- `go test -count=1 ./internal/archtest/ -run TestPackageTreeBudgetsExact` on the current worktree: **PASS** — `internal/standardplugins/featurehost` measured 3255 against ceiling 3280 (reset with rationale alongside the remediation batch: per-binding overlay presence helpers, ledger-owned keep-warm lifecycle, secret-guard execution-plane projection, opaque admin/metrics ports). Runtimebundle shrank in the same change, so the growth is movement of composition into its owner, not new scope.
+- The move adds the collector registration block plus the retained handle to the featurehost tree (offset by deleting the `ManagerMetricsSink` interface and the `MetricsSink` input field) and a self-contained collector file to the keepwarm feature package, which carries no tree budget. No `*.go` files remain in `internal/infra/metrics` importing concrete features (verified by the throwaway RED test pre-move; the passing tree is the post-move proof).

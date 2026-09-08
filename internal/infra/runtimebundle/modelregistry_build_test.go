@@ -296,8 +296,8 @@ func TestBuild_modelRegistryStaticInventoryDoesNotStartRefreshCloser(t *testing.
 	_, b := mustProcessAndCandidate(t, modelRegistryTestConfig("test-inventory"), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if b.Ledger().Len() != 1 {
-		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with static inventory", b.Ledger().Len())
+	if b.Ledger().Len() != 3 {
+		t.Fatalf("closers = %d, want 1 upstream-idle closer plus ledger-owned keep-warm lifecycle prepare and quiesce entries for disabled model catalog with static inventory", b.Ledger().Len())
 	}
 	closeRuntimeBuilt(t, b)
 }
@@ -338,8 +338,8 @@ func TestBuild_modelRegistryErrorProviderWithCacheDoesNotStartRefreshCloser(t *t
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if b.Ledger().Len() != 1 {
-		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with cached model registry", b.Ledger().Len())
+	if b.Ledger().Len() != 3 {
+		t.Fatalf("closers = %d, want 1 upstream-idle closer plus ledger-owned keep-warm lifecycle prepare and quiesce entries for disabled model catalog with cached model registry", b.Ledger().Len())
 	}
 	defer closeRuntimeBuilt(t, b)
 	if runtimebundle.CandidateModelRegistryRuntime(b) == nil {

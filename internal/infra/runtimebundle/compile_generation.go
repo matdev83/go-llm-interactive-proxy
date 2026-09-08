@@ -119,16 +119,11 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		AccessMode:         accessMode,
 		ConfigInterleaved:  frozen.Interleaved,
 		ConfigDir:          frozen.ConfigDir,
-		DecisionObserver:   ext.SecretDecisionObserver,
 		NowFn:              nowFn,
 		KeepwarmAccounting: kwAccounting,
 	})
 	if err != nil {
 		return nil, err
-	}
-	if ps.StandardFeatures != nil {
-		ext.SecretGuard = &featOut.SecretGuard
-		ext.SecretGuardInventory = featOut.SecretGuardInventory
 	}
 	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	bus := in.Bus
@@ -149,13 +144,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		GenerationRunner: genRunner,
 	})
 	if err != nil {
-		return nil, discardAcquiredKeepwarm(ctx, err, featOut.KeepwarmQuiesce)
-	}
-	// Transfer the acquired keep-warm cleanup into the candidate ledger
-	// immediately; later failure paths roll it back and publication transfers
-	// ledger ownership into the generation bundle.
-	if featOut.KeepwarmQuiesce != nil && cand.ledger != nil {
-		cand.ledger.Add("keepwarm-generation", PhaseQuiesce, featOut.KeepwarmQuiesce)
+		return nil, err
 	}
 	failBeforeTransfer := func(err error) (GenerationRuntime, error) {
 		if rollErr := cand.RollbackUnpublished(); rollErr != nil {
@@ -208,8 +197,11 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		return failWithGenCtx(fmt.Errorf("runtimebundle: candidate resource ledger unavailable for transfer"))
 	}
 	cand.execution.executor.PromptCacheMaintenance = featOut.CorePorts.PromptCacheMaintenance
-	if cand.process.metrics != nil && cand.process.metrics.Keepwarm != nil && featOut.KeepwarmManager != nil {
-		cand.process.metrics.Keepwarm.SetManager(featOut.KeepwarmManager)
+	// Publish the generation's keep-warm manager to process metrics through
+	// the featurehost-owned swap: same program point as before, no concrete
+	// keep-warm seam in generic code.
+	if swap := featOut.CorePorts.MetricsSwap; swap != nil {
+		swap()
 	}
 	if retired, ok := cand.execution.executor.Store.(b2bua.ALegRetirementObserver); ok {
 		retired.SetALegRetirementObserver(func(aLegID string) {
@@ -297,7 +289,11 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 	if frozen != nil {
 		plugins = frozen.Plugins.Frontends
 	}
-	keepwarmAdmin, keepwarmAdminEnabled := keepwarmAdminProjection(cand.process)
+	keepwarmAdmin := cand.operations.corePorts.KeepwarmAdmin
+	var terminalPolicy httpcontract.TerminalDecisionPolicyInput
+	if project := cand.operations.corePorts.TerminalPolicyProjection; project != nil {
+		terminalPolicy = project(cand.security.runtimeSnapshot, httpHeaders, maxBody, cand.security.secureSessionStore)
+	}
 	return httpcontract.StandardHTTPInput{
 		Core: httpcontract.HTTPCoreInput{Executor: cand.execution.executor},
 		Security: httpcontract.HTTPSecurityInput{
@@ -316,9 +312,9 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
 			ReadinessReport:      cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
 			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
-			KeepwarmAdmin:        keepwarmAdmin, KeepwarmAdminEnabled: keepwarmAdminEnabled,
+			KeepwarmAdmin:        keepwarmAdmin, KeepwarmAdminEnabled: keepwarmAdmin.Enabled,
 			Registrations:          httpcontract.CloneRegistrations(regs),
-			TerminalDecisionPolicy: featurehost.TerminalDecisionPolicyHTTPProjection(cand.process.standardFeatures, cand.security.runtimeSnapshot, httpHeaders, maxBody, cand.security.secureSessionStore),
+			TerminalDecisionPolicy: terminalPolicy,
 		},
 		Models: httpcontract.HTTPModelInput{
 			CatalogRuntime: cand.models.catalog, ModelRegistryRuntime: cand.models.registryRuntime,
@@ -360,18 +356,8 @@ func extensionsFromProcessOptions(processOpts *BuildOptions) ExtensionsOptions {
 }
 
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
-	if dst == nil {
-		return
-	}
-	if src.SecretDecisionObserver != nil {
-		dst.SecretDecisionObserver = src.SecretDecisionObserver
-	}
-	if src.SecretGuard != nil {
-		dst.SecretGuard = src.SecretGuard
-	}
-	if src.SecretGuardInventory != nil {
-		dst.SecretGuardInventory = src.SecretGuardInventory
-	}
+	// Extensions carry no overlay surfaces: every concrete feature state
+	// flows via ordinary planes, lifecycles, or fixed consumer ports.
 }
 
 func validateTerminalDecisionProvider(provider terminaldecision.Provider) error {

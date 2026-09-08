@@ -64,8 +64,10 @@ func TestCompileGeneration_OverlappingGenerations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileGeneration #1: %v", err)
 	}
-	if len(gen1Out.Lifecycles) != 1 || lifecycleID(gen1Out.Lifecycles[0]) != "gen1-lc" {
-		t.Fatalf("expected gen1 lifecycle, got %v", gen1Out.Lifecycles)
+	// Input lifecycles lead; featurehost appends generation-owned handles
+	// (e.g. keep-warm) after them without mutating the input slice.
+	if len(gen1Out.Lifecycles) == 0 || lifecycleID(gen1Out.Lifecycles[0]) != "gen1-lc" {
+		t.Fatalf("expected gen1 lifecycle first, got %v", gen1Out.Lifecycles)
 	}
 
 	// Overlapping generation 2 while generation 1 is active
@@ -76,12 +78,12 @@ func TestCompileGeneration_OverlappingGenerations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileGeneration #2: %v", err)
 	}
-	if len(gen2Out.Lifecycles) != 1 || lifecycleID(gen2Out.Lifecycles[0]) != "gen2-lc" {
-		t.Fatalf("expected gen2 lifecycle, got %v", gen2Out.Lifecycles)
+	if len(gen2Out.Lifecycles) == 0 || lifecycleID(gen2Out.Lifecycles[0]) != "gen2-lc" {
+		t.Fatalf("expected gen2 lifecycle first, got %v", gen2Out.Lifecycles)
 	}
 
 	// Generation 1 output remains unaffected
-	if len(gen1Out.Lifecycles) != 1 || lifecycleID(gen1Out.Lifecycles[0]) != "gen1-lc" {
+	if len(gen1Out.Lifecycles) == 0 || lifecycleID(gen1Out.Lifecycles[0]) != "gen1-lc" {
 		t.Fatalf("gen1 was mutated by gen2 compile: %v", gen1Out.Lifecycles)
 	}
 }
@@ -128,7 +130,7 @@ func TestCompileGeneration_CandidateFailure_LastGoodIsolation(t *testing.T) {
 	}
 
 	// Assert last-good generation is intact
-	if len(gen1Out.Lifecycles) != 1 || lifecycleID(gen1Out.Lifecycles[0]) != "last-good" {
+	if len(gen1Out.Lifecycles) == 0 || lifecycleID(gen1Out.Lifecycles[0]) != "last-good" {
 		t.Fatalf("last-good generation corrupted by failed compile: %v", gen1Out.Lifecycles)
 	}
 
@@ -140,8 +142,8 @@ func TestCompileGeneration_CandidateFailure_LastGoodIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileGeneration #3 after failure: %v", err)
 	}
-	if len(gen3Out.Lifecycles) != 1 || lifecycleID(gen3Out.Lifecycles[0]) != "gen3-lc" {
-		t.Fatalf("expected gen3 lifecycle, got %v", gen3Out.Lifecycles)
+	if len(gen3Out.Lifecycles) == 0 || lifecycleID(gen3Out.Lifecycles[0]) != "gen3-lc" {
+		t.Fatalf("expected gen3 lifecycle first, got %v", gen3Out.Lifecycles)
 	}
 }
 

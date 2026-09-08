@@ -33,8 +33,11 @@ func TestBuild_sqliteStoreRegistersCloser(t *testing.T) {
 		PluginRegistry: reg,
 	})
 	// Candidate ledger entries are generation-owned only; sqlite continuity lives on ProcessServices.
-	if b.Ledger().Len() != 1 {
-		t.Fatalf("expected 1 generation closer (upstream idle), got %d", b.Ledger().Len())
+	// The second and third entries are the ledger-owned keep-warm generation
+	// lifecycle: its prepare-phase start/stop plus its quiesce-phase stop so
+	// retired generations release maintenance work at retirement (Req 6.5).
+	if b.Ledger().Len() != 3 {
+		t.Fatalf("expected 3 generation closers (upstream idle plus keep-warm prepare and quiesce lifecycle entries), got %d", b.Ledger().Len())
 	}
 	if ps.Closed() {
 		t.Fatal("process must remain open while candidate is live")

@@ -64,6 +64,9 @@ type candidateOperationsGroup struct {
 	terminalRegistry        *terminalworkapp.Registry
 	terminalQueries         *terminalworkapp.QueryService
 	terminalMetrics         *terminalworkapp.MetricsObserver
+	// corePorts carries the fixed featurehost consumer ports bound for this
+	// candidate generation (admin projections, policy factories).
+	corePorts featurehost.CorePorts
 }
 type candidateProcessRefs struct {
 	store                 b2bua.Store

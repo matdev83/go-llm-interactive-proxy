@@ -209,9 +209,6 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Opts: &runtimebundle.BuildOptions{
 			PluginRegistry: reg,
-			Extensions: runtimebundle.ExtensionsOptions{
-				SecretDecisionObserver: decisionObs,
-			},
 			Production: runtimebundle.ProductionOptions{
 				TrafficObservers: []sdktraffic.Observer{&countingTrafficObs{n: &h.trafficCalls}},
 				FeatureHostRegistrations: []featurehost.Registration{
@@ -250,8 +247,6 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 		if err != nil {
 			t.Fatal(err)
 		}
-		candOpts.Extensions.SecretGuard = &featOut.SecretGuard
-		candOpts.Extensions.SecretGuardInventory = featOut.SecretGuardInventory
 		candOpts.FeaturePlanes = featOut.Planes
 		candOpts.FeatureLifecycles = featOut.Lifecycles
 		candOpts.ReplaceCandidateSurface = true

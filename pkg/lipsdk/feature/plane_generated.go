@@ -56,6 +56,9 @@ type generatedContributions struct {
 	compactionPreserversID           string
 	compactionPreserversHasID        bool
 	secretGuards                     []secretguard.Guard
+	secretGuardExecution             *secretguard.ExecutionConfig
+	secretGuardExecutionID           string
+	secretGuardExecutionHasID        bool
 	localTurnHandlers                []localturn.Handler
 	terminalDecisionProvider         terminaldecision.Provider
 	terminalDecisionProviderID       string
@@ -93,6 +96,9 @@ type generatedFrozen struct {
 	compactionPreserversID           string
 	compactionPreserversHasID        bool
 	secretGuards                     []secretguard.Guard
+	secretGuardExecution             *secretguard.ExecutionConfig
+	secretGuardExecutionID           string
+	secretGuardExecutionHasID        bool
 	localTurnHandlers                []localturn.Handler
 	terminalDecisionProvider         terminaldecision.Provider
 	terminalDecisionProviderID       string
@@ -138,6 +144,9 @@ func (gc *generatedContributions) clone() *generatedContributions {
 	next.compactionPreserversID = gc.compactionPreserversID
 	next.compactionPreserversHasID = gc.compactionPreserversHasID
 	next.secretGuards = cloneSlice(gc.secretGuards)
+	next.secretGuardExecution = gc.secretGuardExecution
+	next.secretGuardExecutionID = gc.secretGuardExecutionID
+	next.secretGuardExecutionHasID = gc.secretGuardExecutionHasID
 	next.localTurnHandlers = cloneSlice(gc.localTurnHandlers)
 	next.terminalDecisionProvider = gc.terminalDecisionProvider
 	next.terminalDecisionProviderID = gc.terminalDecisionProviderID
@@ -179,6 +188,9 @@ func (gc *generatedContributions) freeze() *generatedFrozen {
 		compactionPreserversID:           gc.compactionPreserversID,
 		compactionPreserversHasID:        gc.compactionPreserversHasID,
 		secretGuards:                     cloneSlice(gc.secretGuards),
+		secretGuardExecution:             gc.secretGuardExecution,
+		secretGuardExecutionID:           gc.secretGuardExecutionID,
+		secretGuardExecutionHasID:        gc.secretGuardExecutionHasID,
 		localTurnHandlers:                cloneSlice(gc.localTurnHandlers),
 		terminalDecisionProvider:         gc.terminalDecisionProvider,
 		terminalDecisionProviderID:       gc.terminalDecisionProviderID,
@@ -221,6 +233,9 @@ func (gf *generatedFrozen) toContributions() *generatedContributions {
 	gc.compactionPreserversID = gf.compactionPreserversID
 	gc.compactionPreserversHasID = gf.compactionPreserversHasID
 	gc.secretGuards = cloneSlice(gf.secretGuards)
+	gc.secretGuardExecution = gf.secretGuardExecution
+	gc.secretGuardExecutionID = gf.secretGuardExecutionID
+	gc.secretGuardExecutionHasID = gf.secretGuardExecutionHasID
 	gc.localTurnHandlers = cloneSlice(gf.localTurnHandlers)
 	gc.terminalDecisionProvider = gf.terminalDecisionProvider
 	gc.terminalDecisionProviderID = gf.terminalDecisionProviderID
@@ -262,6 +277,9 @@ func (gf *generatedFrozen) freezeRequest() *generatedFrozen {
 		compactionPreserversID:           gf.compactionPreserversID,
 		compactionPreserversHasID:        gf.compactionPreserversHasID,
 		secretGuards:                     materializeRequestSlice(gf.secretGuards, canonicalPlaneSecretGuardsPolicy.requestMaterializer),
+		secretGuardExecution:             gf.secretGuardExecution,
+		secretGuardExecutionID:           gf.secretGuardExecutionID,
+		secretGuardExecutionHasID:        gf.secretGuardExecutionHasID,
 		localTurnHandlers:                materializeRequestSlice(gf.localTurnHandlers, canonicalPlaneLocalTurnHandlersPolicy.requestMaterializer),
 		terminalDecisionProvider:         gf.terminalDecisionProvider,
 		terminalDecisionProviderID:       gf.terminalDecisionProviderID,
@@ -304,6 +322,9 @@ func (gf *generatedFrozen) clone() *generatedFrozen {
 		compactionPreserversID:           gf.compactionPreserversID,
 		compactionPreserversHasID:        gf.compactionPreserversHasID,
 		secretGuards:                     cloneSlice(gf.secretGuards),
+		secretGuardExecution:             gf.secretGuardExecution,
+		secretGuardExecutionID:           gf.secretGuardExecutionID,
+		secretGuardExecutionHasID:        gf.secretGuardExecutionHasID,
 		localTurnHandlers:                cloneSlice(gf.localTurnHandlers),
 		terminalDecisionProvider:         gf.terminalDecisionProvider,
 		terminalDecisionProviderID:       gf.terminalDecisionProviderID,
@@ -524,6 +545,18 @@ func (gf *generatedFrozen) validate() error {
 			if err := canonicalPlaneSecretGuardsPolicy.validate(gf.secretGuards); err != nil {
 				return newPlaneValidationError(canonicalPlaneSecretGuardsPolicy.planeID, err)
 			}
+		}
+	}
+	if gf.secretGuardExecution == nil {
+		if gf.secretGuardExecutionHasID || gf.secretGuardExecutionID != "" {
+			return newPlaneValidationError(canonicalPlaneSecretGuardExecutionPolicy.planeID, errors.New("malformed metadata without value"))
+		}
+	} else {
+		if !gf.secretGuardExecutionHasID || gf.secretGuardExecutionID == "" {
+			return newPlaneValidationError(canonicalPlaneSecretGuardExecutionPolicy.planeID, errors.New("missing cached identity"))
+		}
+		if err := canonicalPlaneSecretGuardExecutionPolicy.validateIdentity(gf.secretGuardExecutionID); err != nil {
+			return newPlaneValidationError(canonicalPlaneSecretGuardExecutionPolicy.planeID, err)
 		}
 	}
 	if gf.localTurnHandlers != nil {
@@ -757,6 +790,15 @@ func (gf *generatedFrozen) checkSourceAdmission(source SourceKind, contributorID
 				PluginID: contributorID,
 				PlaneID:  canonicalPlaneSecretGuardsPolicy.planeID,
 				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneSecretGuardsPolicy.planeID),
+			}
+		}
+	}
+	if gf.secretGuardExecution != nil {
+		if canonicalPlaneSecretGuardExecutionPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSecretGuardExecutionPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneSecretGuardExecutionPolicy.planeID),
 			}
 		}
 	}
@@ -1666,6 +1708,21 @@ func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source 
 			return err
 		}
 	}
+	if gf.secretGuardExecution != nil {
+		if !gf.secretGuardExecutionHasID || gf.secretGuardExecutionID == "" {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSecretGuardExecutionPolicy.planeID,
+				Err:      fmt.Errorf("%w: frozen exclusive identity is missing", ErrInvalidContribution),
+			}
+		}
+		if gc.secretGuardExecutionHasID {
+			return makeExclusiveConflictError(contributorID, canonicalPlaneSecretGuardExecutionPolicy.planeID, canonicalPlaneSecretGuardExecutionPolicy.exclusiveConflictError, gc.secretGuardExecutionID, gf.secretGuardExecutionID)
+		}
+		gc.secretGuardExecution = gf.secretGuardExecution
+		gc.secretGuardExecutionID = gf.secretGuardExecutionID
+		gc.secretGuardExecutionHasID = true
+	}
 	if gf.localTurnHandlers != nil {
 		if canonicalPlaneLocalTurnHandlersPolicy.validate != nil {
 			if err := canonicalPlaneLocalTurnHandlersPolicy.validate(gf.localTurnHandlers); err != nil {
@@ -1717,6 +1774,11 @@ func (gf *generatedFrozen) hasIdentityReplayRule(source SourceKind, rule Combina
 	if canonicalPlaneCompactionPreserversPolicy.rules.RuleFor(source) == rule {
 		if len(gf.compactionPreservers) > 0 {
 			return canonicalPlaneCompactionPreserversPolicy.planeID, true
+		}
+	}
+	if canonicalPlaneSecretGuardExecutionPolicy.rules.RuleFor(source) == rule {
+		if !isNilValue(gf.secretGuardExecution) {
+			return canonicalPlaneSecretGuardExecutionPolicy.planeID, true
 		}
 	}
 	if canonicalPlaneTerminalDecisionProviderPolicy.rules.RuleFor(source) == rule {
@@ -1775,6 +1837,8 @@ var (
 	canonicalPlaneCompactionPreserversAccess             generatedAccess[[]compaction.Preserver]
 	canonicalPlaneSecretGuardsPolicy                     *generatedPolicy[[]secretguard.Guard]
 	canonicalPlaneSecretGuardsAccess                     generatedAccess[[]secretguard.Guard]
+	canonicalPlaneSecretGuardExecutionPolicy             *generatedPolicy[*secretguard.ExecutionConfig]
+	canonicalPlaneSecretGuardExecutionAccess             generatedAccess[*secretguard.ExecutionConfig]
 	canonicalPlaneLocalTurnHandlersPolicy                *generatedPolicy[[]localturn.Handler]
 	canonicalPlaneLocalTurnHandlersAccess                generatedAccess[[]localturn.Handler]
 	canonicalPlaneTerminalDecisionProviderPolicy         *generatedPolicy[terminaldecision.Provider]
@@ -2792,6 +2856,53 @@ func init() {
 		},
 	}
 	PlaneSecretGuards.generated = canonicalPlaneSecretGuardsAccess
+
+	canonicalPlaneSecretGuardExecutionPolicy = &generatedPolicy[*secretguard.ExecutionConfig]{
+		planeID:                PlaneSecretGuardExecution.ID,
+		rules:                  PlaneSecretGuardExecution.Rules,
+		nilPolicy:              PlaneSecretGuardExecution.NilPolicy,
+		isNil:                  PlaneSecretGuardExecution.IsNil,
+		validate:               PlaneSecretGuardExecution.Validate,
+		validateIdentity:       PlaneSecretGuardExecution.ValidateIdentity,
+		combine:                PlaneSecretGuardExecution.Combine,
+		identity:               PlaneSecretGuardExecution.Identity,
+		exclusiveConflictError: PlaneSecretGuardExecution.ExclusiveConflictError,
+		requestMaterializer:    PlaneSecretGuardExecution.RequestMaterializer,
+		requestBorrow:          PlaneSecretGuardExecution.RequestBorrow,
+		hookTarget:             PlaneSecretGuardExecution.HookTarget,
+		diagStageID:            PlaneSecretGuardExecution.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneSecretGuardExecution.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneSecretGuardExecution.Diagnostics.Order,
+		diagMaterialize:        PlaneSecretGuardExecution.Diagnostics.Materialize,
+		diagPrivileges:         PlaneSecretGuardExecution.Diagnostics.Privileges,
+	}
+	canonicalPlaneSecretGuardExecutionAccess = generatedAccess[*secretguard.ExecutionConfig]{
+		policy: canonicalPlaneSecretGuardExecutionPolicy,
+		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v *secretguard.ExecutionConfig) error {
+			combined, err := canonicalPlaneSecretGuardExecutionPolicy.combine(source, gc.secretGuardExecution, v)
+			if err != nil {
+				return err
+			}
+			gc.secretGuardExecution = combined
+			id, hasID := canonicalPlaneSecretGuardExecutionPolicy.identity(gc.secretGuardExecution)
+			gc.secretGuardExecutionID = id
+			gc.secretGuardExecutionHasID = hasID
+			return nil
+		},
+		get: func(gf *generatedFrozen) *secretguard.ExecutionConfig {
+			if gf == nil {
+				return nil
+			}
+			return gf.secretGuardExecution
+		},
+		identity: func(gf *generatedFrozen) (string, bool) {
+			if gf == nil {
+				return "", false
+			}
+			return gf.secretGuardExecutionID, gf.secretGuardExecutionHasID
+		},
+	}
+	PlaneSecretGuardExecution.generated = canonicalPlaneSecretGuardExecutionAccess
 
 	canonicalPlaneLocalTurnHandlersPolicy = &generatedPolicy[[]localturn.Handler]{
 		planeID:                PlaneLocalTurnHandlers.ID,

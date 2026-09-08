@@ -132,13 +132,10 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if err != nil {
 		return nil, fail(err)
 	}
-	var sg *secretGuardRuntime
-	if opts.Extensions.SecretGuard != nil {
-		sg = &secretGuardRuntime{
-			Plane:     *opts.Extensions.SecretGuard,
-			Inventory: opts.Extensions.SecretGuardInventory,
-		}
-	}
+	// The secret-guard execution posture arrives as ordinary planes composed by
+	// featurehost; the snapshot plane and diagnostics inventory are derived
+	// purely via plane access.
+	sgPlane, sgInventory := secretGuardFromPlanes(opts.FeaturePlanes)
 	obs := buildGenerationObservability(bctx, ps.Metrics)
 	model, err := buildModelRuntime(bctx, obs.Upstream)
 	if err != nil {
@@ -156,7 +153,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if ps.sharedMutable != nil {
 		extState = ps.sharedMutable.ExtensionState
 	}
-	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, ps.controlPlane, ps.policyObs, sg, extState)
+	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, ps.controlPlane, ps.policyObs, sgPlane, extState)
 	backendIDs, err := BackendStateIdentitiesFromConfig(cfg)
 	if err != nil {
 		return nil, fail(err)
@@ -244,11 +241,12 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			keepwarmAccounting:      execRun.Production.MaintenanceAccounting,
 			tokenAccountingAdmin:    execRun.TokenAccountingAdmin,
 			readinessReport:         execRun.ReadinessReport,
-			secretGuardInventory:    opts.Extensions.SecretGuardInventory,
+			secretGuardInventory:    sgInventory,
 			terminalProcessor:       ps.TerminalWorkProcessor,
 			terminalRegistry:        ps.TerminalWorkRegistry,
 			terminalQueries:         ps.TerminalWorkQueries,
 			terminalMetrics:         ps.TerminalWorkMetrics,
+			corePorts:               opts.CorePorts,
 		},
 		process: candidateProcessRefs{
 			store:                 ps.Continuity,

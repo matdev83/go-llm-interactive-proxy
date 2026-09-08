@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -182,66 +180,24 @@ func (overPanicTerminalProvider) Decide(context.Context, terminaldecision.Input)
 
 // --- Acceptance Criteria 3: Host Capability Overwrite-If-Non-Nil ---
 
-// TestOverlayExtensions_SecretGuardHostCapabilitiesOverwriteIfNonNil pins overwrite-if-non-nil:
-// - SecretGuard: non-nil src overwrites dst; nil src preserves dst.
-// - SecretGuardInventory: non-nil src overwrites dst; nil src preserves dst.
-// - SecretDecisionObserver: non-nil src overwrites dst; nil src preserves dst.
-func TestOverlayExtensions_SecretGuardHostCapabilitiesOverwriteIfNonNil(t *testing.T) {
+// TestOverlayExtensions_EmptyExtensionsNoOp pins that ExtensionsOptions carries
+// no overlay surfaces: overlaying is always a no-op and the merged value stays
+// empty. Concrete secret-guard posture converges through ordinary planes.
+func TestOverlayExtensions_EmptyExtensionsNoOp(t *testing.T) {
 	t.Parallel()
 
-	sgA := &extensions.SecretGuardPlane{AccessMode: "single_user"}
-	sgB := &extensions.SecretGuardPlane{AccessMode: "multi_user"}
-	invA := &diag.InventoryExtras{SecretGuardCatalogEntryCount: 1}
-	invB := &diag.InventoryExtras{SecretGuardCatalogEntryCount: 2}
-	obsA := sdk.ObserverFunc(func(context.Context, sdk.DecisionEvent) error { return nil })
-	obsB := sdk.ObserverFunc(func(context.Context, sdk.DecisionEvent) error { return nil })
-
-	t.Run("secret_guard_overwrite_when_src_non_nil", func(t *testing.T) {
+	t.Run("overlay_is_noop", func(t *testing.T) {
 		t.Parallel()
-		dst := &ExtensionsOptions{SecretGuard: sgA}
-		src := ExtensionsOptions{SecretGuard: sgB}
-		overlayExtensions(dst, src)
-		require.Equal(t, sgB, dst.SecretGuard)
+		dst := ExtensionsOptions{}
+		src := ExtensionsOptions{}
+		overlayExtensions(&dst, src)
+		require.Equal(t, ExtensionsOptions{}, dst)
 	})
 
-	t.Run("secret_guard_preserved_when_src_nil", func(t *testing.T) {
+	t.Run("no_overlay_surfaces", func(t *testing.T) {
 		t.Parallel()
-		dst := &ExtensionsOptions{SecretGuard: sgA}
-		src := ExtensionsOptions{SecretGuard: nil}
-		overlayExtensions(dst, src)
-		require.Equal(t, sgA, dst.SecretGuard)
-	})
-
-	t.Run("secret_guard_inventory_overwrite_when_src_non_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{SecretGuardInventory: invA}
-		src := ExtensionsOptions{SecretGuardInventory: invB}
-		overlayExtensions(dst, src)
-		require.Equal(t, invB, dst.SecretGuardInventory)
-	})
-
-	t.Run("secret_guard_inventory_preserved_when_src_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{SecretGuardInventory: invA}
-		src := ExtensionsOptions{SecretGuardInventory: nil}
-		overlayExtensions(dst, src)
-		require.Equal(t, invA, dst.SecretGuardInventory)
-	})
-
-	t.Run("observer_overwrite_when_src_non_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{SecretDecisionObserver: obsA}
-		src := ExtensionsOptions{SecretDecisionObserver: obsB}
-		overlayExtensions(dst, src)
-		require.NotNil(t, dst.SecretDecisionObserver)
-	})
-
-	t.Run("observer_preserved_when_src_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{SecretDecisionObserver: obsA}
-		src := ExtensionsOptions{SecretDecisionObserver: nil}
-		overlayExtensions(dst, src)
-		require.NotNil(t, dst.SecretDecisionObserver)
+		require.False(t, hasExtensionOverlay(ExtensionsOptions{}))
+		require.Equal(t, ExtensionsOptions{}, cloneExtensionsOptions(ExtensionsOptions{}))
 	})
 }
 

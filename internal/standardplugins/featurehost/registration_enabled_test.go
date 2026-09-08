@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func mustFeatureTestRuntime(t *testing.T) *featurehost.Runtime {
@@ -19,9 +20,10 @@ func mustFeatureTestRuntime(t *testing.T) *featurehost.Runtime {
 	sched := newTestScheduler(t)
 	t.Cleanup(func() { _ = sched.Close() })
 	rt, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{
-		Logger:         slog.Default(),
-		ExtensionState: state.NewMem(nil),
-		BackgroundAux:  sched,
+		Logger:          slog.Default(),
+		ExtensionState:  state.NewMem(nil),
+		BackgroundAux:   sched,
+		MetricsRegistry: prometheus.NewRegistry(),
 	})
 	if err != nil {
 		t.Fatalf("NewProcess: %v", err)
@@ -154,8 +156,8 @@ func TestCompileGeneration_KeepwarmRegistrationEnabled(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CompileGeneration: %v", err)
 			}
-			if got := out.KeepwarmManager != nil; got != tc.wantManager {
-				t.Fatalf("KeepwarmManager present=%v want %v", got, tc.wantManager)
+			if got := out.CorePorts.MetricsSwap != nil; got != tc.wantManager {
+				t.Fatalf("MetricsSwap present=%v want %v", got, tc.wantManager)
 			}
 			if got := out.CorePorts.PromptCacheMaintenance != nil; got != tc.wantManager {
 				t.Fatalf("PromptCacheMaintenance present=%v want %v", got, tc.wantManager)

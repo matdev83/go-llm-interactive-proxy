@@ -342,16 +342,16 @@ func TestSecretGuard_NilLoggerErrorPinned(t *testing.T) {
 	t.Run("injected_guards_with_explicit_observer_and_nil_logger_succeeds", func(t *testing.T) {
 		t.Parallel()
 		obs := &charSGCustomObserver{}
-		opts := &BuildOptions{
-			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "injected-guard", ord: 1}),
-			Extensions: ExtensionsOptions{
-				SecretDecisionObserver: obs,
-			},
-		}
-		res, err := testBuildSecretGuardRuntime(&config.Config{}, nil, opts, nil)
+		// An explicit observer enters composition through the pinned
+		// GenerationInput port, so no logger fallback is required.
+		fh := &featurehost.Runtime{}
+		out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+			Planes:           frozenSecretGuards(charSGStubGuard{id: "injected-guard", ord: 1}),
+			DecisionObserver: obs,
+		})
 		require.NoError(t, err)
-		require.NotNil(t, res)
-		assert.NotNil(t, res.Plane.DecisionObserver)
+		plane, _ := secretGuardFromPlanes(out.Planes)
+		assert.NotNil(t, plane.DecisionObserver)
 	})
 }
 
@@ -390,11 +390,15 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, res)
 
-		// Plane retains registration order (unsorted clone)
-		require.Len(t, res.Plane.Guards, 3)
-		assert.Equal(t, "guard-z", res.Plane.Guards[0].ID())
-		assert.Equal(t, "guard-a", res.Plane.Guards[1].ID())
-		assert.Equal(t, "guard-m", res.Plane.Guards[2].ID())
+		// The engine plane carries no guards by construction: the snapshot
+		// overlays guards from its feature planes on every access, while the
+		// planes preserve registration order (unsorted clone).
+		require.Empty(t, res.Plane.Guards)
+		planeGuards := lipfeature.Get(gen.Frozen, lipfeature.PlaneSecretGuards)
+		require.Len(t, planeGuards, 3)
+		assert.Equal(t, "guard-z", planeGuards[0].ID())
+		assert.Equal(t, "guard-a", planeGuards[1].ID())
+		assert.Equal(t, "guard-m", planeGuards[2].ID())
 
 		// Snapshot materializes in sorted order (ord ascending, then ID)
 		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
@@ -495,31 +499,31 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		var logBuf bytes.Buffer
 		log := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
+		// Observers enter composition through the pinned GenerationInput port;
+		// the composed plane is read back purely via plane access.
+		composeWithObserver := func(observer sdksg.Observer) *secretGuardTestRuntime {
+			fh, err := featurehost.NewProcess(context.Background(), featurehost.ProcessInput{Logger: log})
+			require.NoError(t, err)
+			out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+				Planes:           frozenSecretGuards(charSGStubGuard{id: "g1", ord: 1}),
+				DecisionObserver: observer,
+			})
+			require.NoError(t, err)
+			plane, inv := secretGuardFromPlanes(out.Planes)
+			return &secretGuardTestRuntime{Plane: plane, Inventory: inv}
+		}
+
 		// 1. Explicit non-nil observer is chained
 		customObs := &charSGCustomObserver{}
-		optsWithObs := &BuildOptions{
-			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "g1", ord: 1}),
-			Extensions: ExtensionsOptions{
-				SecretDecisionObserver: customObs,
-			},
-		}
-		res1, err := testBuildSecretGuardRuntime(&config.Config{}, log, optsWithObs, nil)
-		require.NoError(t, err)
+		res1 := composeWithObserver(customObs)
 		require.NotNil(t, res1.Plane.DecisionObserver)
-		err = res1.Plane.DecisionObserver.OnSecretDecision(context.Background(), sdksg.DecisionEvent{EventID: "ev-1"})
+		err := res1.Plane.DecisionObserver.OnSecretDecision(context.Background(), sdksg.DecisionEvent{EventID: "ev-1"})
 		require.NoError(t, err)
 		require.Len(t, customObs.events, 1)
 
 		// 2. Typed-nil observer falls back to slog observer
 		var typedNilObs *charSGCustomObserver
-		optsTypedNil := &BuildOptions{
-			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "g1", ord: 1}),
-			Extensions: ExtensionsOptions{
-				SecretDecisionObserver: typedNilObs,
-			},
-		}
-		res2, err := testBuildSecretGuardRuntime(&config.Config{}, log, optsTypedNil, nil)
-		require.NoError(t, err)
+		res2 := composeWithObserver(typedNilObs)
 		require.NotNil(t, res2.Plane.DecisionObserver)
 		logBuf.Reset()
 		err = res2.Plane.DecisionObserver.OnSecretDecision(context.Background(), sdksg.DecisionEvent{EventID: "ev-typed-nil"})
@@ -534,44 +538,33 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 	})
 }
 
-// TestSecretGuard_HostCapabilitiesOverlayPreservation pins the overlay semantics:
-// - SecretGuard: overwrite-if-non-nil (src != nil sets dst; src == nil preserves dst).
-// - SecretDecisionObserver: overwrite-if-non-nil (src != nil sets dst; src == nil preserves dst).
-func TestSecretGuard_HostCapabilitiesOverlayPreservation(t *testing.T) {
+// TestSecretGuard_PlanesConvergencePreservation pins that secret-guard posture
+// converges through ordinary planes: overlaying the (empty) ExtensionsOptions
+// is a no-op, and the featurehost-composed execution plane extracts back to an
+// identical plane and inventory purely via plane access.
+func TestSecretGuard_PlanesConvergencePreservation(t *testing.T) {
 	t.Parallel()
 
-	sgDst := &extensions.SecretGuardPlane{AccessMode: "single_user"}
-	sgSrc := &extensions.SecretGuardPlane{AccessMode: "multi_user"}
-	obsDst := &charSGCustomObserver{}
-	obsSrc := &charSGCustomObserver{}
-
-	t.Run("secret_guard_overwrite_and_preserve", func(t *testing.T) {
+	t.Run("extensions_overlay_is_noop", func(t *testing.T) {
 		t.Parallel()
-		// Overwrite when src is non-nil
-		dst := ExtensionsOptions{SecretGuard: sgDst}
-		src := ExtensionsOptions{SecretGuard: sgSrc}
-		overlayExtensions(&dst, src)
-		assert.Equal(t, sgSrc, dst.SecretGuard)
-
-		// Preserve when src is nil
-		dst2 := ExtensionsOptions{SecretGuard: sgDst}
-		src2 := ExtensionsOptions{SecretGuard: nil}
-		overlayExtensions(&dst2, src2)
-		assert.Equal(t, sgDst, dst2.SecretGuard)
+		dst := ExtensionsOptions{}
+		overlayExtensions(&dst, ExtensionsOptions{})
+		assert.Equal(t, ExtensionsOptions{}, dst)
 	})
 
-	t.Run("observer_overwrite_and_preserve", func(t *testing.T) {
+	t.Run("composed_execution_plane_extracts_identically", func(t *testing.T) {
 		t.Parallel()
-		// Overwrite when src is non-nil
-		dst := ExtensionsOptions{SecretDecisionObserver: obsDst}
-		src := ExtensionsOptions{SecretDecisionObserver: obsSrc}
-		overlayExtensions(&dst, src)
-		assert.Equal(t, obsSrc, dst.SecretDecisionObserver)
-
-		// Preserve when src is nil
-		dst2 := ExtensionsOptions{SecretDecisionObserver: obsDst}
-		src2 := ExtensionsOptions{SecretDecisionObserver: nil}
-		overlayExtensions(&dst2, src2)
-		assert.Equal(t, obsDst, dst2.SecretDecisionObserver)
+		fh, err := featurehost.NewProcess(context.Background(), featurehost.ProcessInput{Logger: slog.Default()})
+		require.NoError(t, err)
+		out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+			Planes: frozenSecretGuards(charSGStubGuard{id: "g1", ord: 1}),
+		})
+		require.NoError(t, err)
+		plane, inv := secretGuardFromPlanes(out.Planes)
+		require.NotNil(t, plane.DecisionObserver)
+		require.NotNil(t, inv)
+		assert.Equal(t, inv.SecretGuardCatalogEntryCount, 0)
+		assert.Equal(t, "single_user", plane.AccessMode)
+		assert.Equal(t, plane.AccessMode, inv.SecretGuardAccessMode)
 	})
 }

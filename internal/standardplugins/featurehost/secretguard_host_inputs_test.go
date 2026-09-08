@@ -8,7 +8,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 )
 
@@ -60,21 +62,31 @@ func minSecretBytesOnlyBinding(env *sgHostMapEnv) *secretguardhost.Binding {
 	}
 }
 
+// secretGuardExecFromOutput extracts the composed secret-guard execution plane
+// from the ordinary frozen surface. The dedicated GenerationOutput fields are
+// gone by design; planes are the only channel.
+func secretGuardExecFromOutput(t *testing.T, out featurehost.GenerationOutput) *secretguard.ExecutionConfig {
+	t.Helper()
+	execCfg := lipfeature.Get(out.Planes, lipfeature.PlaneSecretGuardExecution)
+	if execCfg == nil || execCfg.IsZero() {
+		t.Fatalf("expected composed secret-guard execution plane, got %#v", execCfg)
+	}
+	return execCfg
+}
+
 // assertMinBytesSixteenEffective asserts the composed generation catalog reflects
 // an effective MinSecretBytes of 16: the 12-byte secret must be absent from both
 // the inventory entry count and the resolved matcher behavior.
 func assertMinBytesSixteenEffective(t *testing.T, out featurehost.GenerationOutput) {
 	t.Helper()
-	if out.SecretGuardInventory == nil {
-		t.Fatal("expected non-nil SecretGuardInventory for enabled secrets-guard")
-	}
-	if got := out.SecretGuardInventory.SecretGuardCatalogEntryCount; got != 0 {
+	execCfg := secretGuardExecFromOutput(t, out)
+	if got := execCfg.CatalogEntryCount; got != 0 {
 		t.Fatalf("effective MinSecretBytes: catalog entry count=%d, want 0 (12-byte secret must be dropped by min 16)", got)
 	}
-	if out.SecretGuard.MatcherResolver == nil {
+	if execCfg.MatcherResolver == nil {
 		t.Fatal("expected non-nil MatcherResolver")
 	}
-	matcher, err := out.SecretGuard.MatcherResolver.Resolve(context.Background())
+	matcher, err := execCfg.MatcherResolver.Resolve(context.Background())
 	if err != nil {
 		t.Fatalf("matcher resolve: %v", err)
 	}
@@ -92,10 +104,11 @@ func assertMinBytesSixteenEffective(t *testing.T, out featurehost.GenerationOutp
 
 func assertTwelveByteSecretFound(t *testing.T, out featurehost.GenerationOutput) {
 	t.Helper()
-	if out.SecretGuardInventory == nil || out.SecretGuardInventory.SecretGuardCatalogEntryCount < 1 {
-		t.Fatalf("control: expected catalog entries for 12-byte secret under min 8, got %#v", out.SecretGuardInventory)
+	execCfg := secretGuardExecFromOutput(t, out)
+	if execCfg.CatalogEntryCount < 1 {
+		t.Fatalf("control: expected catalog entries for 12-byte secret under min 8, got %d", execCfg.CatalogEntryCount)
 	}
-	matcher, err := out.SecretGuard.MatcherResolver.Resolve(context.Background())
+	matcher, err := execCfg.MatcherResolver.Resolve(context.Background())
 	if err != nil || matcher == nil {
 		t.Fatalf("control: matcher resolve: m=%v err=%v", matcher, err)
 	}

@@ -67,8 +67,21 @@ func ClassifyBackendOverlap(reg *pluginreg.Registry, cfg *config.Config, liveFac
 	return nil
 }
 
-// AdaptOverlapSafeLifecycles registers Start on prepare and Stop on close/rollback
-// for lifecycles already classified as overlap-safe.
+// QuiescePhaseLifecycles opt into PhaseQuiesce stop semantics: their Stop
+// runs at generation retirement (Quiesce) instead of only at final close.
+// Admission-independent workers such as keep-warm maintenance must implement
+// it so a retired-but-not-closed generation stops background work at
+// retirement (Requirement 6.5: quiesce ordering).
+type QuiescePhaseLifecycles interface {
+	lipplugin.Lifecycle
+	QuiescePhase() bool
+}
+
+// AdaptOverlapSafeLifecycles registers Start on prepare and Stop on
+// close/rollback for lifecycles already classified as overlap-safe.
+// Lifecycles implementing QuiescePhaseLifecycles with a true QuiescePhase
+// additionally stop at generation retirement via the PhaseQuiesce ledger
+// entry, preserving quiesce ordering for admission-independent workers.
 func AdaptOverlapSafeLifecycles(ledger *ResourceLedger, lifes []lipplugin.Lifecycle) error {
 	if ledger == nil {
 		return fmt.Errorf("runtimebundle: nil resource ledger")
@@ -86,6 +99,10 @@ func AdaptOverlapSafeLifecycles(ledger *ResourceLedger, lifes []lipplugin.Lifecy
 			func(ctx context.Context) error { return life.Start(ctx) },
 			func(ctx context.Context) error { return life.Stop(ctx) },
 		)
+		if qp, ok := life.(QuiescePhaseLifecycles); ok && qp.QuiescePhase() {
+			stop := func(ctx context.Context) error { return life.Stop(ctx) }
+			ledger.Add(name+"-quiesce", PhaseQuiesce, stop)
+		}
 	}
 	return nil
 }

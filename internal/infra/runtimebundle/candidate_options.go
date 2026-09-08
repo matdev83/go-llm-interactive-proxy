@@ -67,11 +67,13 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 }
 
 func hasExtensionOverlay(e ExtensionsOptions) bool {
-	return e.SecretDecisionObserver != nil || e.SecretGuard != nil || e.SecretGuardInventory != nil
+	// Extensions carry no overlay surfaces: every concrete feature state
+	// flows via ordinary planes, lifecycles, or fixed consumer ports.
+	return false
 }
 
 func cloneExtensionsOptions(in ExtensionsOptions) ExtensionsOptions {
-	return in
+	return ExtensionsOptions{}
 }
 
 func prependGeneratedLifecycles(gen, overlay []lipplugin.Lifecycle) []lipplugin.Lifecycle {

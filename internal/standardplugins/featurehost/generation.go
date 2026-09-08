@@ -64,12 +64,22 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	// internally so callers never interpret reasoning policy (Task 2.4).
 	reasoningOpts := composeReasoningOptions(in.ReasoningProdOpts, in.ReasoningTestOpts)
 	var genBound boundHostFeatures
+	genHasReasoning := false
+	genHasSecretGuard := false
 	if len(in.HostRegistrations) > 0 {
 		var err error
 		genBound, err = bindHostRegistrations(in.HostRegistrations)
 		if err != nil {
 			return GenerationOutput{}, fmt.Errorf("featurehost: host registrations: %w", err)
 		}
+		// Per-binding-type overlay: a generation slice carrying only one
+		// binding kind must not suppress the process-bound options of the
+		// other kind. Each kind falls back to its process-bound value
+		// independently; an override replaces only its own kind.
+		genHasReasoning = hasReasoningBinding(in.HostRegistrations)
+		genHasSecretGuard = hasSecretGuardBinding(in.HostRegistrations)
+	}
+	if genHasReasoning {
 		reasoningOpts = composeReasoningOptions(reasoningOpts, genBound.reasoning)
 	} else if len(r.boundReasoning.EgressPolicies) > 0 || r.boundReasoning.MatcherResolver != nil {
 		reasoningOpts = composeReasoningOptions(reasoningOpts, r.boundReasoning)
@@ -111,7 +121,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	sgEnv := in.SecretEnv
 	sgInputs := in.SecretInputs
 	var sgHostInputs *SecretGuardInputs
-	if len(in.HostRegistrations) > 0 {
+	if genHasSecretGuard {
 		if genBound.secretGuard.Environment != nil {
 			sgEnv = genBound.secretGuard.Environment
 		}
@@ -140,6 +150,9 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	})
 	if err != nil {
 		return GenerationOutput{}, fmt.Errorf("featurehost: secret guard composition: %w", err)
+	}
+	if outPlanes, err = bindSecretGuardExecutionPlane(outPlanes, sgOut); err != nil {
+		return GenerationOutput{}, err
 	}
 
 	// 5. Interleaved Thinking processor. Outer Registration.Enabled is
@@ -203,10 +216,14 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		interleavedProc = NewInterleavedProcessorAdapter(proc)
 	}
 
-	// 6. Keep-warm prompt-cache maintenance (Task 6.2/6.3)
-	kwMaint, kwMgr, kwQuiesce, err := r.compileKeepwarm(in)
+	// 6. Keep-warm attachments: maintenance port, ledger-owned lifecycle,
+	// deferred metrics swap, and opaque admin projection for CorePorts.
+	kwMaint, kwLife, kwSwap, kwAdmin, err := r.keepwarmGenerationPorts(in)
 	if err != nil {
 		return GenerationOutput{}, err
+	}
+	if kwLife != nil {
+		outLifecycles = append(outLifecycles, kwLife)
 	}
 
 	out := GenerationOutput{
@@ -214,18 +231,17 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 			PlaneSet:   outPlanes,
 			Lifecycles: slices.Clone(outLifecycles),
 		},
-		Planes:               outPlanes,
-		Lifecycles:           outLifecycles,
-		SecretGuard:          sgOut.Plane,
-		SecretGuardInventory: sgOut.Inventory,
-		KeepwarmManager:      kwMgr,
-		KeepwarmQuiesce:      kwQuiesce,
+		Planes:     outPlanes,
+		Lifecycles: outLifecycles,
 		CorePorts: CorePorts{
-			CompactionDetector:     r.compactionDetector,
-			ConversationReader:     r.ConversationReader(),
-			InterleavedProcessor:   interleavedProc,
-			PromptCacheMaintenance: kwMaint,
-			TerminalPolicyReader:   r.TerminalPolicyReader(),
+			CompactionDetector:       r.compactionDetector,
+			ConversationReader:       r.ConversationReader(),
+			InterleavedProcessor:     interleavedProc,
+			PromptCacheMaintenance:   kwMaint,
+			TerminalPolicyReader:     r.TerminalPolicyReader(),
+			MetricsSwap:              kwSwap,
+			KeepwarmAdmin:            kwAdmin,
+			TerminalPolicyProjection: r.TerminalPolicyProjection(),
 		},
 	}
 

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
@@ -82,28 +81,29 @@ func (convergenceDummyObserver) OnSecretDecision(context.Context, sdk.DecisionEv
 func TestRuntimeBundle_SecretGuardCandidateOverlayAndReload(t *testing.T) {
 	t.Parallel()
 
-	baseSG := &extensions.SecretGuardPlane{AccessMode: "single_user"}
-	baseObs := convergenceDummyObserver{}
-
-	dst := ExtensionsOptions{
-		SecretGuard:            baseSG,
-		SecretDecisionObserver: baseObs,
-	}
-
-	candSG := &extensions.SecretGuardPlane{AccessMode: "multi_user"}
-	candObs := convergenceDummyObserver{}
-	src := ExtensionsOptions{
-		SecretGuard:            candSG,
-		SecretDecisionObserver: candObs,
-	}
+	// Secret-guard posture converges through ordinary planes: the composed
+	// execution config is published under SourceGenerationBinder semantics and
+	// read back purely via plane access. ExtensionsOptions carries no overlay
+	// surfaces, so overlaying it is always a no-op.
+	dst := ExtensionsOptions{}
+	src := ExtensionsOptions{}
 
 	overlayExtensions(&dst, src)
-
-	// Candidate overlay: SecretGuard and SecretDecisionObserver are overridden if non-nil
-	if dst.SecretGuard != candSG {
-		t.Fatalf("expected SecretGuard to be candidate overlay plane")
+	if dst != (ExtensionsOptions{}) {
+		t.Fatalf("expected empty ExtensionsOptions after overlay, got %+v", dst)
 	}
-	if dst.SecretGuard == baseSG {
-		t.Fatalf("expected base SecretGuard to be replaced")
+	if hasExtensionOverlay(src) {
+		t.Fatal("expected no extension overlay surfaces")
+	}
+
+	base := frozenSecretGuards(stubSecretGuard{id: "base-guard", ord: 1})
+	plane, inv := secretGuardFromPlanes(base)
+	// Guards without a composed execution config extract to the disabled
+	// posture: no engine plane, no inventory.
+	if inv != nil {
+		t.Fatalf("expected nil inventory without execution config, got %+v", inv)
+	}
+	if len(plane.Guards) != 0 || plane.MatcherResolver != nil {
+		t.Fatalf("expected zero plane without execution config, got %+v", plane)
 	}
 }

@@ -238,6 +238,10 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 			hostRegs = append(hostRegs, in.Opts.Testing.FeatureHostRegistrations...)
 		}
 	}
+	var metricsRegistry featurehost.MetricsRegistry // generic Prometheus registry contribution
+	if ps.Metrics != nil && ps.Metrics.Registry != nil {
+		metricsRegistry = ps.Metrics.Registry
+	}
 	if ps.StandardFeatures, err = featurehost.NewProcess(parent, featurehost.ProcessInput{
 		Logger:            in.Log,
 		ExtensionState:    ps.ExtensionState,
@@ -246,6 +250,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		BunDB:             borrowContinuityDB(ps.Continuity),
 		HostRegistrations: hostRegs,
 		HostEnv:           in.HostEnv,
+		MetricsRegistry:   metricsRegistry,
 	}); err != nil {
 		return fail(fmt.Errorf("runtimebundle: standard features host: %w", err))
 	}

@@ -60,13 +60,9 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 			},
 		},
 		{
-			relFile:    "internal/infra/runtimebundle/options.go",
-			structName: "BuildOptions",
-			allowedExceptions: map[string]string{
-				"SecretGuard":            "*" + archTestModulePath + "/internal/core/extensions.SecretGuardPlane",
-				"SecretGuardInventory":   "*" + archTestModulePath + "/internal/core/diag.InventoryExtras",
-				"SecretDecisionObserver": archTestModulePath + "/pkg/lipsdk/secretguard.Observer",
-			},
+			relFile:           "internal/infra/runtimebundle/options.go",
+			structName:        "BuildOptions",
+			allowedExceptions: map[string]string{},
 		},
 		{
 			relFile:           "internal/infra/runtimebundle/production_options.go",
@@ -79,13 +75,9 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 			allowedExceptions: map[string]string{},
 		},
 		{
-			relFile:    "internal/infra/runtimebundle/options.go",
-			structName: "ExtensionsOptions",
-			allowedExceptions: map[string]string{
-				"SecretGuard":            "*" + archTestModulePath + "/internal/core/extensions.SecretGuardPlane",
-				"SecretGuardInventory":   "*" + archTestModulePath + "/internal/core/diag.InventoryExtras",
-				"SecretDecisionObserver": archTestModulePath + "/pkg/lipsdk/secretguard.Observer",
-			},
+			relFile:           "internal/infra/runtimebundle/options.go",
+			structName:        "ExtensionsOptions",
+			allowedExceptions: map[string]string{},
 		},
 		{
 			relFile:           "internal/infra/runtimehost/generation.go",

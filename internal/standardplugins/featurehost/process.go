@@ -153,6 +153,16 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 	r.keepwarmPolicy = kwPolicy
 	r.keepwarmRegistry = newKeepwarmManagerRegistry()
 
+	// Feature-owned keep-warm collector, registered through the generic
+	// metrics registry (lifetime stays with metrics infrastructure).
+	if in.MetricsRegistry != nil {
+		mc := keepwarm.NewPrometheusCollector()
+		if err := in.MetricsRegistry.Register(mc); err != nil {
+			return rollback(fmt.Errorf("featurehost: keepwarm metrics collector: %w", err))
+		}
+		r.keepwarmMetrics = mc
+	}
+
 	// Terminal decision policy process ownership (Task 7.3): bounded session policy store.
 	// Bounded in-memory store with client/operator overrides; closed on process shutdown.
 	policyStore := newSessionPolicyStore(sessionpolicy.Config{})

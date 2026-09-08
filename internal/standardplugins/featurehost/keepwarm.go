@@ -9,7 +9,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
+	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
@@ -57,7 +59,85 @@ func (a *promptCacheMaintenanceAdapter) ArmCommittedTurn(turn runtime.PromptCach
 	})
 }
 
-func (r *Runtime) compileKeepwarm(in GenerationInput) (runtime.PromptCacheMaintenance, *keepwarm.Manager, func(context.Context) error, error) {
+// keepwarmGenerationLifecycle is the ledger-owned keep-warm generation handle.
+// Start launches the generation manager at candidate prepare; Stop releases it
+// (process-registry unregister plus manager quiesce) on quiesce, rollback, or
+// generation close, so rejected candidates never leak managers into the
+// process registry and retired generations stop maintenance work at quiesce.
+// SafeUnderCandidateOverlap is satisfied structurally so the generic candidate
+// ledger accepts the handle without featurehost importing generic runtimebundle.
+type keepwarmGenerationLifecycle struct {
+	manager  *keepwarm.Manager
+	registry *keepwarm.ManagerRegistry
+	regID    uint64
+}
+
+// QuiescePhaseName identifies the ledger phase carrying the keep-warm stop
+// action. The generic candidate ledger runs PhaseQuiesce entries on Quiesce
+// (at generation retirement), on Rollback, and skips them on Close only after
+// a prior Quiesce, matching the previous dedicated quiesce-path semantics
+// (Requirement 6.5: quiesce ordering — maintenance work stops at retirement,
+// not at final close).
+const QuiescePhaseName = "keepwarm-generation"
+
+func (l *keepwarmGenerationLifecycle) Start(context.Context) error {
+	if l == nil || l.manager == nil {
+		return nil
+	}
+	// The manager starts and registers here (candidate prepare), not at
+	// composition: failures before prepare leave no trace in the process
+	// registry, and ledger rollback releases everything adopted after it.
+	l.manager.Start()
+	if l.registry != nil {
+		id, err := l.registry.Register(l.manager)
+		if err != nil {
+			return err
+		}
+		l.regID = id
+	}
+	return nil
+}
+
+func (l *keepwarmGenerationLifecycle) Stop(ctx context.Context) error {
+	if l == nil {
+		return nil
+	}
+	var err error
+	if l.registry != nil && l.regID != 0 {
+		if uErr := l.registry.Unregister(l.regID); uErr != nil && !errors.Is(uErr, keepwarm.ErrManagerNotRegistered) {
+			err = uErr
+		}
+	}
+	if l.manager != nil {
+		err = errors.Join(err, l.manager.Quiesce(ctx))
+	}
+	return err
+}
+
+// SafeUnderCandidateOverlap reports the handle safe under candidate overlap:
+// generation managers are independent per candidate by construction.
+func (l *keepwarmGenerationLifecycle) SafeUnderCandidateOverlap() bool { return true }
+
+// QuiescePhase opts the handle into PhaseQuiesce stop semantics: the manager
+// stops maintenance work at generation retirement, not only at final close
+// (Requirement 6.5). Stop is idempotent, so the later Close-phase stop is a
+// safe no-op after a prior Quiesce.
+func (l *keepwarmGenerationLifecycle) QuiescePhase() bool { return true }
+
+// keepwarmGenerationPorts composes the keep-warm generation attachments: the
+// prompt-cache maintenance port, the ledger-owned lifecycle, the deferred
+// metrics swap, and the opaque admin projection. Lifecycle and swap are nil
+// when keep-warm is disabled for the generation.
+func (r *Runtime) keepwarmGenerationPorts(in GenerationInput) (maint runtime.PromptCacheMaintenance, life lipplugin.Lifecycle, swap func(), admin adminkeepwarm.Options, err error) {
+	maint, life, swap, err = r.compileKeepwarm(in)
+	if err != nil {
+		return nil, nil, nil, adminkeepwarm.Options{}, err
+	}
+	admin, _ = r.KeepwarmAdminProjection()
+	return maint, life, swap, admin, nil
+}
+
+func (r *Runtime) compileKeepwarm(in GenerationInput) (runtime.PromptCacheMaintenance, lipplugin.Lifecycle, func(), error) {
 	if r == nil {
 		return nil, nil, nil, nil
 	}
@@ -117,33 +197,21 @@ func (r *Runtime) compileKeepwarm(in GenerationInput) (runtime.PromptCacheMainte
 		}
 	}
 
-	mgr.Start()
+	// Registration happens in lifecycle Start (candidate prepare); a manager
+	// that never starts is never registered and needs no release.
 
-	var regID uint64
-	if r.keepwarmRegistry != nil {
-		id, err := r.keepwarmRegistry.Register(mgr)
-		if err != nil {
-			_ = mgr.Quiesce(context.Background())
-			return nil, nil, nil, fmt.Errorf("featurehost: register keep-warm manager: %w", err)
-		}
-		regID = id
-	}
-
-	quiesceFn := func(ctx context.Context) error {
-		var uErr error
-		if r.keepwarmRegistry != nil && regID != 0 {
-			if err := r.keepwarmRegistry.Unregister(regID); err != nil && !errors.Is(err, keepwarm.ErrManagerNotRegistered) {
-				uErr = err
-			}
-		}
-		if mgr != nil {
-			uErr = errors.Join(uErr, mgr.Quiesce(ctx))
-		}
-		return uErr
+	// Featurehost-owned swap: publishes the concrete manager to the
+	// process-registered collector when invoked once per published
+	// generation; nil without a registered collector.
+	var swap func()
+	if mc, m := r.keepwarmMetrics, mgr; mc != nil && m != nil {
+		swap = func() { mc.SetManager(m) }
 	}
 
 	orch := keepwarm.NewOrchestrator(mgr, r.keepwarmPolicy)
-	return NewPromptCacheMaintenanceAdapter(orch), mgr, quiesceFn, nil
+	return NewPromptCacheMaintenanceAdapter(orch),
+		&keepwarmGenerationLifecycle{manager: mgr, registry: r.keepwarmRegistry},
+		swap, nil
 }
 
 func keepwarmAccountingHooks(observer billing.ProviderMaintenanceUsageObserver) keepwarm.Hooks {
