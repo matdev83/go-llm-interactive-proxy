@@ -14,7 +14,7 @@ worktree HEAD) and main scheduled CI runs 34105540179 / 34022492580.
 | 2 | `go vet ./...` | 0 | clean |
 | 3 | `go mod verify` | 0 | all modules verified |
 | 4 | `govulncheck ./...` (govulncheck@v1.2.0, go1.26.6) | 0 | 0 vulnerabilities in code; 3 in required modules not called by this code |
-| 5 | `make quality-checks` | 1 | red SOLELY on 4 pre-existing findings (see §2); all 7 other guardrail groups OK |
+| 5 | `make quality-checks` | 2 (make boundary; lint child exit 1) | red SOLELY on 4 pre-existing findings (see §2); all 7 other guardrail groups OK |
 | 6 | `make arch-report` | 0 | clean (re-run after all edits) |
 | 7 | `make docs-check` | 0 | clean |
 | 8 | `go run ./scripts/generate-feature-planes.go -check` | 0 | generated file up to date |
@@ -48,6 +48,29 @@ lint-closure edits (exit 0) has zero failures.
 Neither failure matches the main-run pre-existing list, and neither
 reproduces outside full-suite load, so no production fix applies. No
 introduced test failure remains.
+
+3. `internal/infra/runtimebundle` —
+`TestCompatibleMultiInstance_routingPolicyIndependence/parallel`
+(observed once in an independent reviewer full-suite run, not in the
+worker's runs): `parallel winner text="iso-slow-A" want iso-B`.
+The `parallel` subtest races a 250 ms-delayed instance A against fast
+instance B and asserts B wins — timing-sensitive by construction.
+Disposition: load-induced timing flake, NOT introduced.
+- The test file is byte-identical to `main` (`git diff fff67a0b HEAD`
+  empty; `git log fff67a0b..HEAD` empty for it) — this spec never touched it.
+- The only spec change near the exercised path,
+  `internal/core/runtime/parallel_race.go`, replaces the removed
+  `memoUpdate *interleavedthinking.PendingMemoUpdate` field with the
+  `turn InterleavedTurn` port and drops the `commitMemoInjection` call
+  from the winner path; winner selection, timing, failover and race
+  arbitration logic are untouched.
+- Reproduction: `go test -count=15 -run
+  TestCompatibleMultiInstance_routingPolicyIndependence` passes 15/15 on
+  this branch AND 15/15 on the clean `main` worktree (`fff67a0b`);
+  10/10 on this branch under artificial CPU load; two subsequent full
+  `go test -count=1 ./...` runs on this branch are fully green.
+No production fix applies; no RED test is writable for a load-only
+flake in an untouched file.
 
 ### §2 `make quality-checks` triage
 
@@ -87,15 +110,15 @@ delegation comment; package re-run green.
 
 ### §3 Benchmark deltas (11.5 fixed-cost, same host CPU as 11.5 final)
 
-`BenchmarkCompletionGates_Populated|BenchmarkCompletionGates_Empty`
-`./internal/core/extensions/`: Populated 32 B/op, 1 allocs/op (identical);
-Empty 0 B/op, 0 allocs/op (identical).
+| Benchmark (package) | Baseline (11.5 final) | This change | Verdict |
+| --- | --- | --- | --- |
+| CompletionGates_Populated (`core/extensions`) | 32 B/op, 1 allocs/op | 32 B/op, 1 allocs/op | identical |
+| CompletionGates_Empty (`core/extensions`) | 0 B/op, 0 allocs/op | 0 B/op, 0 allocs/op | identical |
+| Project_NoStateFastPath (`core/conversationprojection`) | 21257 B/op, 170 allocs/op | 21257 B/op, 170 allocs/op | identical |
+| Reassert_NoState (`core/conversationprojection`) | 544 B/op, 21 allocs/op | 544 B/op, 21 allocs/op | identical |
+| Project_4096Tags_20Messages (`core/conversationprojection`) | 240099 B/op, 187 allocs/op | 240111 B/op, 187 allocs/op | same allocs (+12 B machine variance) |
 
-`BenchmarkProject_NoStateFastPath|BenchmarkReassert_NoState|BenchmarkProject_4096Tags_20Messages`
-`./internal/core/conversationprojection/`: NoStateFastPath 21257 B/op,
-170 allocs/op (same allocs as 11.5 final); Reassert 544 B/op, 21 allocs/op
-(identical); 4096Tags_20Messages 240111 B/op, 187 allocs/op (same allocs,
-+12 B machine variance vs 11.5 final 240099). No allocation regression.
+No allocation regression: every allocs/op count is identical to the 11.5 final.
 
 ### §4 Skipped with reason
 
