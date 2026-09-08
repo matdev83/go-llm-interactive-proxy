@@ -294,7 +294,10 @@ func assertWeightedFirstConsumed(t *testing.T, st *b2bua.MemoryStore, aLegID str
 
 func assertThinkerMemoPresent(t *testing.T, ex *runtime.Executor, st *b2bua.MemoryStore, aLegID string) {
 	t.Helper()
-	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
+	}
 	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(aLegID))
 	if err != nil || !ok {
 		t.Fatalf("memo Get ok=%v err=%v", ok, err)

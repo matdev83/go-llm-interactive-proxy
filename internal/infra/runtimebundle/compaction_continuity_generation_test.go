@@ -16,11 +16,11 @@ func TestProcessServices_CompactionDetectorInterfaceAndGenerationSharing(t *test
 	t.Parallel()
 
 	// 1. Assert CompactionDetector is no longer on ProcessServices (owned by StandardFeatures).
-	_, ok := reflect.TypeOf((*ProcessServices)(nil)).Elem().FieldByName("CompactionDetector")
+	_, ok := reflect.TypeFor[*ProcessServices]().Elem().FieldByName("CompactionDetector")
 	assert.False(t, ok, "ProcessServices must not have legacy CompactionDetector field")
 
 	// 2. Assert field type on executorBuildInput is the runtime.CompactionDetector interface.
-	buildField, ok := reflect.TypeOf((*executorBuildInput)(nil)).Elem().FieldByName("CompactionDetector")
+	buildField, ok := reflect.TypeFor[*executorBuildInput]().Elem().FieldByName("CompactionDetector")
 	require.True(t, ok, "executorBuildInput must have CompactionDetector field")
 	assert.Equal(t, reflect.Interface, buildField.Type.Kind(), "executorBuildInput.CompactionDetector must be an interface")
 	assert.Equal(t, "runtime.CompactionDetector", buildField.Type.String(), "executorBuildInput.CompactionDetector must be runtime.CompactionDetector")
@@ -42,8 +42,8 @@ func TestProcessServices_CompactionDetectorInterfaceAndGenerationSharing(t *test
 
 	// Invariant: CompactionDetector itself has no Close method
 	dType := reflect.TypeOf(detector)
-	for i := 0; i < dType.NumMethod(); i++ {
-		assert.NotEqual(t, "Close", dType.Method(i).Name, "CompactionDetector must not have a Close method")
+	for m := range dType.Methods() {
+		assert.NotEqual(t, "Close", m.Name, "CompactionDetector must not have a Close method")
 	}
 
 	// 4. Verify generation sharing: generation build inputs receive the exact same instance.

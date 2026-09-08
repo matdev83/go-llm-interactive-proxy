@@ -101,10 +101,8 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 	for _, tgt := range targets {
 		absPath := filepath.Join(root, filepath.FromSlash(tgt.relFile))
 		dir := filepath.Dir(absPath)
-		scope, ok := scopes[dir]
-		if !ok {
-			scope = archParseDir(t, dir)
-			scopes[dir] = scope
+		if _, ok := scopes[dir]; !ok {
+			scopes[dir] = archParseDir(t, dir)
 		}
 		rows, ok := dirRows[dir]
 		if !ok {

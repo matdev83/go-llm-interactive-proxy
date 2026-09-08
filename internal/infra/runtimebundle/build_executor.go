@@ -513,9 +513,11 @@ func (a metricsObserverAdapter) OnProjectionFailure(s string) { a.inner.OnProjec
 func (a metricsObserverAdapter) OnAnchorFallback(s string, p conversationprojection.AnchorMissingPolicy) {
 	a.inner.OnAnchorFallback(s, p)
 }
+
 func (a metricsObserverAdapter) OnAnchorFailure(p conversationprojection.AnchorMissingPolicy) {
 	a.inner.OnAnchorFailure(p)
 }
+
 func (a metricsObserverAdapter) OnSteeringMutation(k conversationview.CacheDiscontinuityKind, p conversationprojection.PlacementKind) {
 	a.inner.OnSteeringMutation(metrics.CacheDiscontinuityKind(k), p)
 }

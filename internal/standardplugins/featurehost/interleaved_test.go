@@ -13,6 +13,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 )
 
+// interleavedAdapterTestKey is a test-only context key type; bare string keys
+// are rejected by SA1029 even in tests.
+type interleavedAdapterTestKey string
+
 type fakeFeatureProcessor struct {
 	lastCtx       context.Context
 	lastIn        interleavedthinking.TurnInput
@@ -113,6 +117,7 @@ func (f *fakeFeatureTurn) FlushVisible() []lipapi.Event {
 }
 
 func TestInterleavedProcessorAdapter_NilDisabled(t *testing.T) {
+	t.Parallel()
 	adapter := NewInterleavedProcessorAdapter(nil)
 	if adapter != nil {
 		t.Fatalf("expected nil adapter for nil processor, got %v", adapter)
@@ -120,7 +125,8 @@ func TestInterleavedProcessorAdapter_NilDisabled(t *testing.T) {
 }
 
 func TestInterleavedProcessorAdapter_AllFiveOperations(t *testing.T) {
-	ctx := context.WithValue(context.Background(), "test-key", "test-val")
+	t.Parallel()
+	ctx := context.WithValue(context.Background(), interleavedAdapterTestKey("test-key"), "test-val")
 	fakeTurn := &fakeFeatureTurn{
 		shapeThinkerOutCall:  lipapi.Call{ID: "shaped-thinker-call"},
 		observeEventOut:      []lipapi.Event{{Kind: lipapi.EventReasoningDelta, Delta: "reasoning"}},
@@ -226,6 +232,7 @@ func TestInterleavedProcessorAdapter_AllFiveOperations(t *testing.T) {
 }
 
 func TestInterleavedProcessorAdapter_ErrorPropagation(t *testing.T) {
+	t.Parallel()
 	customErr := errors.New("custom test error")
 	fakeTurn := &fakeFeatureTurn{
 		shapeThinkerErr:  customErr,
@@ -291,7 +298,8 @@ func TestInterleavedProcessorAdapter_ErrorPropagation(t *testing.T) {
 }
 
 func TestInterleavedProcessorAdapter_AdditionalOperations(t *testing.T) {
-	ctx := context.WithValue(context.Background(), "additional-op-key", "additional-op-val")
+	t.Parallel()
+	ctx := context.WithValue(context.Background(), interleavedAdapterTestKey("additional-op-key"), "additional-op-val")
 	fakeTurn := &fakeFeatureTurn{
 		visibleRet:      true,
 		canContinueRet:  true,
@@ -384,6 +392,7 @@ func TestInterleavedProcessorAdapter_AdditionalOperations(t *testing.T) {
 }
 
 func TestInterleavedProcessorAdapter_ShapeExecutor_MemoPresentVsEmpty(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	fakeTurn := &fakeFeatureTurn{}
 	fakeProc := &fakeFeatureProcessor{turnToRet: fakeTurn}
@@ -428,8 +437,9 @@ func TestInterleavedProcessorAdapter_ShapeExecutor_MemoPresentVsEmpty(t *testing
 }
 
 func TestInterleavedProcessorAdapter_NilSafe(t *testing.T) {
+	t.Parallel()
 	// Processor adapter: NewInterleavedProcessorAdapter(nil) returns nil
-	var nilAdapter runtime.InterleavedProcessor = NewInterleavedProcessorAdapter(nil)
+	nilAdapter := NewInterleavedProcessorAdapter(nil)
 	if nilAdapter != nil {
 		t.Fatal("expected nil processor adapter for nil inner")
 	}
@@ -528,7 +538,7 @@ func TestInterleavedProcessorAdapter_MemoSteeringPolicy(t *testing.T) {
 		t.Fatalf("NewProcessor: %v", err)
 	}
 	adapter := NewInterleavedProcessorAdapter(proc)
-	var _ runtime.InterleavedProcessor = adapter
+	var _ runtime.InterleavedProcessor = adapter //nolint:staticcheck // QF1011: intentional compile-time interface assertion
 
 	req := adapter.MemoSteeringPutRequest("  memo body ")
 	if req.OverlayID != adapter.MemoSteeringOverlayID() {

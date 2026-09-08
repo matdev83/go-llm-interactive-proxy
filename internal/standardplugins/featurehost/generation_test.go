@@ -238,9 +238,9 @@ func TestCompileGeneration_ZeroCompactionResourceConstruction_Overlapping(t *tes
 func TestCompileGeneration_NoGenericServiceMapOrResolveAPI(t *testing.T) {
 	t.Parallel()
 
-	rtType := reflect.TypeOf((*featurehost.Runtime)(nil))
-	for i := 0; i < rtType.NumMethod(); i++ {
-		name := rtType.Method(i).Name
+	rtType := reflect.TypeFor[*featurehost.Runtime]()
+	for m := range rtType.Methods() {
+		name := m.Name
 		forbidden := []string{"Resolve", "Get", "Lookup", "Service", "Services", "GetService"}
 		for _, f := range forbidden {
 			if strings.EqualFold(name, f) {

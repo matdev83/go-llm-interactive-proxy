@@ -209,7 +209,6 @@ func TestProductionCoreConfig_SyntheticViolationsRejected(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			_, f, err := ParseGoSource("synthetic.go", []byte(tc.src))

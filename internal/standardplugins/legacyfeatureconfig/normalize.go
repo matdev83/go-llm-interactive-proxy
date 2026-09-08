@@ -124,9 +124,10 @@ func NormalizeNode(root *yaml.Node) error {
 			if item.Kind == yaml.MappingNode {
 				for j := 0; j < len(item.Content); j += 2 {
 					if item.Content[j].Value == "id" {
-						if item.Content[j+1].Value == CanonicalID {
+						switch item.Content[j+1].Value {
+						case CanonicalID:
 							hasCanonicalInterleaved = true
-						} else if item.Content[j+1].Value == KeepwarmCanonicalID {
+						case KeepwarmCanonicalID:
 							hasCanonicalKeepwarm = true
 						}
 					}

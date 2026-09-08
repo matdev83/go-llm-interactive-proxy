@@ -10,6 +10,7 @@ import (
 )
 
 func TestInterleavedThinking_BoundaryIsolation(t *testing.T) {
+	t.Parallel()
 	// Find root of the interleavedthinking package.
 	// Current test is in internal/plugins/features/interleavedthinking.
 	root := "."
@@ -52,7 +53,6 @@ func TestInterleavedThinking_BoundaryIsolation(t *testing.T) {
 		}
 		return nil
 	})
-
 	if err != nil {
 		t.Fatalf("walk failed: %v", err)
 	}

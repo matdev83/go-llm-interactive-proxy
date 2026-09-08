@@ -142,7 +142,10 @@ func TestExecutor_InterleavedSecureSession_AuthorizedResumePreservesMemo(t *test
 	if len(captured.Messages) == 0 || !strings.Contains(textOf(captured.Messages[len(captured.Messages)-1]), memoBody) {
 		t.Fatalf("authorized resume must inject stored memo at the tail, got messages %+v", captured.Messages)
 	}
-	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
+	}
 	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok || stored.Memo != memoBody {
 		t.Fatalf("authorized resume must preserve memo state: ok=%v err=%v memo=%q", ok, err, stored.Memo)
@@ -203,7 +206,10 @@ func TestExecutor_InterleavedSecureSession_DeniedResumeDoesNotApplyMemo(t *testi
 		t.Fatalf("denied resume must not open backends: before=%d after=%d", preOpens, opens.Load())
 	}
 
-	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
+	}
 	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("owner memo lookup: ok=%v err=%v", ok, err)

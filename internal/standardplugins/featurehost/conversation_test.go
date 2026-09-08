@@ -24,15 +24,16 @@ type bunDBProvider interface {
 }
 
 func TestConversationStore_PersistenceSelection_SQLiteYieldsBunStore(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "persist_selection.db")
 	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 	require.NoError(t, err)
-	defer bunDB.Close()
+	defer func() { _ = bunDB.Close() }()
 
 	ctx := context.Background()
 	rt, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{
@@ -70,7 +71,7 @@ func TestConversationStore_PersistenceSelection_SQLiteYieldsBunStore(t *testing.
 	})
 	require.NoError(t, err)
 	require.NotNil(t, rt2)
-	defer rt2.Close()
+	defer func() { _ = rt2.Close() }()
 
 	store2 := rt2.ConversationStore()
 	require.NotNil(t, store2)
@@ -85,13 +86,14 @@ func TestConversationStore_PersistenceSelection_SQLiteYieldsBunStore(t *testing.
 }
 
 func TestConversationStore_PersistenceSelection_InMemoryYieldsReferenceStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rt, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{
 		Logger: slog.Default(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, rt)
-	defer rt.Close()
+	defer func() { _ = rt.Close() }()
 
 	store := rt.ConversationStore()
 	require.NotNil(t, store)
@@ -102,6 +104,7 @@ func TestConversationStore_PersistenceSelection_InMemoryYieldsReferenceStore(t *
 }
 
 func TestConversationStore_ALegLifecycle_BoundedEvictionDeletesConversationState(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	curTime := time.Unix(1_700_000_000, 0)
 	b2bStore, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{
@@ -119,7 +122,7 @@ func TestConversationStore_ALegLifecycle_BoundedEvictionDeletesConversationState
 	})
 	require.NoError(t, err)
 	require.NotNil(t, rt)
-	defer rt.Close()
+	defer func() { _ = rt.Close() }()
 
 	convStore := rt.ConversationStore()
 	require.NotNil(t, convStore)

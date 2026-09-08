@@ -542,7 +542,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 11.6_
   - _Validation: ownership manifest/census + process ownership tests; import/structure scans; `make arch-report`_
 
-- [ ] 12.2 Run independent architecture review against requirements/design
+- [x] 12.2 Run independent architecture review against requirements/design
   - Reviewer must explicitly check: kernel authority preservation; no feature semantics in core; featurehost not DI/service locator; process/generation cleanup singularity; public host binding safety; config single authority; conversation/interleaved split correctness; explicit interleaved adapter without feature->core import; migration of stale ownership-specific architecture tests; no request-hot-path lookup; no output/retry semantic drift.
   - Classify only material findings. Fix blockers/high material findings before closeout; do not generate a new cleanup tracker for them.
   - Record review verdict and resolved findings in normal PR/spec closeout evidence location used by the repo; do not add an unnecessary permanent report if existing spec workflow stores it elsewhere.
@@ -551,7 +551,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 12.1_
   - _Validation: independent review + focused reruns for repaired findings_
 
-- [ ] 12.3 Run full repository certification
+- [x] 12.3 Run full repository certification
   - Run current canonical correctness, architecture, generated-code, docs, vet, vulnerability, module verification and external SDK contract gates.
   - Run exact Linux race certification for concurrency-sensitive moved state/lifetimes.
   - Run relevant fuzz/integration/DB parity suites and fixed-cost benchmarks from Task 11.5.

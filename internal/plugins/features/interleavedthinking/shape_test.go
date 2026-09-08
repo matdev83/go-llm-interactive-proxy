@@ -34,6 +34,7 @@ func baseCall() lipapi.Call {
 }
 
 func TestShapeThinkerCall(t *testing.T) {
+	t.Parallel()
 	call := baseCall()
 	shaped, err := ShapeThinkerCall(call, "Thinker instructions")
 	if err != nil {
@@ -54,6 +55,7 @@ func TestShapeThinkerCall(t *testing.T) {
 }
 
 func TestShapeThinkerCall_MissingInstructions(t *testing.T) {
+	t.Parallel()
 	call := baseCall()
 	_, err := ShapeThinkerCall(call, "")
 	if !errors.Is(err, ErrThinkerInstructionsMissing) {
@@ -62,6 +64,7 @@ func TestShapeThinkerCall_MissingInstructions(t *testing.T) {
 }
 
 func TestShapeExecutorCall_Outcomes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	call := baseCall()
 	store := NewMemoStore(4096)

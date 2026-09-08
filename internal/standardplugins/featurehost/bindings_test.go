@@ -172,12 +172,9 @@ func TestBindings_ValidReasoningHostBinding_SucceedsAndMapsEgress(t *testing.T) 
 			Frozen: lipfeature.FrozenPlaneSet{},
 		},
 	}
-	out, err := rt.CompileGeneration(context.Background(), genIn)
+	_, err = rt.CompileGeneration(context.Background(), genIn)
 	if err != nil {
 		t.Fatalf("CompileGeneration failed: %v", err)
-	}
-	if out.Bundle.PlaneSet.IsZero() && genIn.MergeSurface.Frozen.IsZero() {
-		// Plane is populated or merged
 	}
 
 	// Verify the bound reasoning options on Runtime

@@ -10,6 +10,7 @@ import (
 )
 
 func TestKeepwarm_BoundaryIsolation(t *testing.T) {
+	t.Parallel()
 	// Find root of the keepwarm package.
 	// Current test is in internal/plugins/features/keepwarm.
 	root := "."
@@ -52,7 +53,6 @@ func TestKeepwarm_BoundaryIsolation(t *testing.T) {
 		}
 		return nil
 	})
-
 	if err != nil {
 		t.Fatalf("walk failed: %v", err)
 	}

@@ -216,6 +216,7 @@ func TestForbiddenImports_CoreConcreteFeaturesRenamedOrNestedBypassRejected(t *t
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			src := fmt.Sprintf("package test\nimport _ %q\n", tc.importPath)
 			findings, err := ScanFileForbiddenImports(tc.relPath, tc.relPath, []byte(src))
 			if err != nil {

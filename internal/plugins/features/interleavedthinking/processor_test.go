@@ -10,6 +10,7 @@ import (
 )
 
 func TestProcessor_TurnLifecycle(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cfg := Config{
 		Enabled:               true,
@@ -183,6 +184,7 @@ func TestProcessor_ShapeExecutor_RespectsCanceledContext(t *testing.T) {
 }
 
 func TestProcessor_ContextCanceled(t *testing.T) {
+	t.Parallel()
 	ctx := canceledCtx()
 	cfg := Config{Enabled: true}
 	proc, err := NewProcessor(cfg, nil)

@@ -154,8 +154,7 @@ func TestProcess_CleanupErrorAggregationAndOrder(t *testing.T) {
 	}
 }
 
-func TestProcess_TerminalPolicyConstructionCounted(t *testing.T) {
-	// NOT Parallel: swaps the package-level constructor seam below.
+func TestProcess_TerminalPolicyConstructionCounted(t *testing.T) { //nolint:paralleltest // swaps the package-level constructor seam below; must remain serial.
 	var storeCount atomic.Int32
 	origStore := newSessionPolicyStore
 	t.Cleanup(func() {
@@ -209,10 +208,7 @@ func TestProcess_TerminalPolicyConstructionCounted(t *testing.T) {
 	_ = r2.Close()
 }
 
-func TestProcess_CompactionConstructionCounted(t *testing.T) {
-	// NOT Parallel: swaps the package-level constructor seams below.
-	// Sequential tests complete before parallel siblings resume, so the swap
-	// cannot race with other tests in this package.
+func TestProcess_CompactionConstructionCounted(t *testing.T) { //nolint:paralleltest // swaps package-level constructor seams; sequential tests complete before parallel siblings resume so the swap cannot race.
 	var detCount, coordCount, portCount atomic.Int32
 	origDet, origCoord, origPort := newCompactionDetector, newBranchCoordinator, newCompactionParentPort
 	t.Cleanup(func() {
@@ -313,7 +309,7 @@ func TestProcess_CompactionConstructionCounted(t *testing.T) {
 	}
 }
 
-func TestCompileGeneration_InterleavedProcessorConstructionCounted(t *testing.T) {
+func TestCompileGeneration_InterleavedProcessorConstructionCounted(t *testing.T) { //nolint:paralleltest // swaps the package-level constructor seam below; must remain serial.
 	var procCount atomic.Int32
 	origProc := newInterleavedProcessor
 	t.Cleanup(func() {

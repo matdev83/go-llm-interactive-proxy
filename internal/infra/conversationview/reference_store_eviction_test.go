@@ -10,6 +10,7 @@ import (
 )
 
 func TestReferenceStore_BoundedEviction_PastMaxLegs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	now := time.Now()
 	store := conversationview.NewReferenceStoreWithClock(func() time.Time { return now })

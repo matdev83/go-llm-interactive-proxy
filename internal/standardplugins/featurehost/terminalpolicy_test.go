@@ -13,7 +13,7 @@ func TestTerminalPolicyReaderAdapter_Effective(t *testing.T) {
 	t.Parallel()
 
 	store := sessionpolicy.NewStore(sessionpolicy.Config{})
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	reader := featurehost.NewTerminalPolicyReaderAdapter(store)
 	if reader == nil {

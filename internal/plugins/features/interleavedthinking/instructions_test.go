@@ -8,6 +8,7 @@ import (
 )
 
 func TestResolveInstructions_Default(t *testing.T) {
+	t.Parallel()
 	got, err := ResolveInstructions("", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -18,6 +19,7 @@ func TestResolveInstructions_Default(t *testing.T) {
 }
 
 func TestResolveInstructions_Inline(t *testing.T) {
+	t.Parallel()
 	inline := "You are a custom thinker model."
 	got, err := ResolveInstructions("", "", inline)
 	if err != nil {
@@ -29,6 +31,7 @@ func TestResolveInstructions_Inline(t *testing.T) {
 }
 
 func TestResolveInstructions_FromFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "instructions.txt")
 	content := "Custom thinker prompt from file"
@@ -46,6 +49,7 @@ func TestResolveInstructions_FromFile(t *testing.T) {
 }
 
 func TestResolveInstructions_EmptyFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "empty.txt")
 	if err := os.WriteFile(filePath, []byte("   \n"), 0o600); err != nil {
@@ -59,6 +63,7 @@ func TestResolveInstructions_EmptyFile(t *testing.T) {
 }
 
 func TestResolveInstructions_PathTraversal(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "sub")
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
@@ -72,6 +77,7 @@ func TestResolveInstructions_PathTraversal(t *testing.T) {
 }
 
 func TestResolveInstructions_NulByte(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	_, err := ResolveInstructions(dir, "file\x00name.txt", "")
 	if err == nil {
@@ -80,6 +86,7 @@ func TestResolveInstructions_NulByte(t *testing.T) {
 }
 
 func TestResolveInstructions_ExceedsMaxBytes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "huge.txt")
 	largeContent := strings.Repeat("A", DefaultMaxInstructionsBytes+10)

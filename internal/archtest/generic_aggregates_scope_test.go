@@ -158,20 +158,20 @@ func scanStructForFeatureFields(node *ast.File, structName string, allowedExcept
 
 // splitArchShape unwraps pointer/array/paren layers, returning the shape prefix.
 func splitArchShape(expr ast.Expr) (string, ast.Expr) {
-	shape := ""
+	var shape strings.Builder
 	curr := expr
 	for {
 		switch t := curr.(type) {
 		case *ast.StarExpr:
-			shape += "*"
+			shape.WriteString("*")
 			curr = t.X
 		case *ast.ArrayType:
-			shape += "[]"
+			shape.WriteString("[]")
 			curr = t.Elt
 		case *ast.ParenExpr:
 			curr = t.X
 		default:
-			return shape, curr
+			return shape.String(), curr
 		}
 	}
 }

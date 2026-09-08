@@ -80,7 +80,7 @@ func TestBinding_NoInternalImports(t *testing.T) {
 	// Read source files directly to ensure no internal packages are imported.
 	// This ensures the SDK contract is completely self-contained.
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
+	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool { //nolint:staticcheck // SA1019: intentional lightweight AST import scan of one package dir
 		return !strings.HasSuffix(fi.Name(), "_test.go")
 	}, parser.ImportsOnly)
 	if err != nil {

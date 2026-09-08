@@ -144,7 +144,6 @@ heuristic_overrides:
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var n yaml.Node

@@ -10,7 +10,7 @@ import (
 func TestInterleavedState_OnlyContainsCycle(t *testing.T) {
 	t.Parallel()
 
-	st := reflect.TypeOf(interleavedstate.State{})
+	st := reflect.TypeFor[interleavedstate.State]()
 	if st.NumField() != 1 {
 		t.Fatalf("interleavedstate.State must have exactly 1 field (Cycle), but has %d fields", st.NumField())
 	}
@@ -18,7 +18,7 @@ func TestInterleavedState_OnlyContainsCycle(t *testing.T) {
 	if f.Name != "Cycle" {
 		t.Fatalf("interleavedstate.State field 0 must be 'Cycle', got %q", f.Name)
 	}
-	if f.Type != reflect.TypeOf(interleavedstate.CycleState{}) {
+	if f.Type != reflect.TypeFor[interleavedstate.CycleState]() {
 		t.Fatalf("interleavedstate.State.Cycle type must be CycleState, got %v", f.Type)
 	}
 }

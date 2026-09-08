@@ -12,11 +12,13 @@ import (
 )
 
 // Re-exported types from secretguard so runtimebundle does not import dedicated compose package.
-type SecretGuardInputs = secretguard.SecretGuardInputs
-type SecretGuardEnvironment = secretguard.Environment
-type SingleUserOptions = secretguard.SingleUserOptions
-type MatcherOptions = secretguard.MatcherOptions
-type SecretDecisionObserver = sdk.Observer
+type (
+	SecretGuardInputs      = secretguard.SecretGuardInputs
+	SecretGuardEnvironment = secretguard.Environment
+	SingleUserOptions      = secretguard.SingleUserOptions
+	MatcherOptions         = secretguard.MatcherOptions
+	SecretDecisionObserver = sdk.Observer
+)
 
 // SecretGuardRuntime contains the compiled secret guard plane and inventory extras.
 type SecretGuardRuntime struct {

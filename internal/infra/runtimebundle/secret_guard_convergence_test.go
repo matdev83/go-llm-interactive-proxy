@@ -16,7 +16,7 @@ import (
 func TestRuntimeBundle_NoResidualSecretGuardConcreteImports(t *testing.T) {
 	t.Parallel()
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ImportsOnly)
+	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ImportsOnly) //nolint:staticcheck // SA1019: intentional lightweight AST import scan of one package dir
 	if err != nil {
 		t.Fatalf("failed to parse runtimebundle package: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestRuntimeBundle_NoResidualSecretGuardConcreteImports(t *testing.T) {
 func TestRuntimeBundle_NoResidualSecretGuardHelpers(t *testing.T) {
 	t.Parallel()
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
+	pkgs, err := parser.ParseDir(fset, ".", nil, 0) //nolint:staticcheck // SA1019: intentional lightweight AST declaration scan of one package dir
 	if err != nil {
 		t.Fatalf("failed to parse runtimebundle package: %v", err)
 	}

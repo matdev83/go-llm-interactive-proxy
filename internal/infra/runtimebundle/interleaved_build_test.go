@@ -177,7 +177,7 @@ func TestInterleavedProcessor_SingleConstructionPerGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ps.Close()
+	defer func() { _ = ps.Close() }()
 
 	accessMode, _ := cfg.EffectiveAccessMode()
 	featOut, err := ps.StandardFeatures.CompileGeneration(context.Background(), featurehost.GenerationInput{
@@ -210,7 +210,7 @@ func TestInterleavedProcessor_SingleConstructionPerGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cand.Close()
+	defer func() { _ = cand.Close() }()
 
 	// Executor must consume ONLY CorePorts.InterleavedProcessor (exact pointer equality, no duplicate construction)
 	if cand.Executor().Processor != featOut.CorePorts.InterleavedProcessor {
@@ -336,7 +336,7 @@ plugins:
 	if err != nil {
 		t.Fatalf("NewProcessServices old: %v", err)
 	}
-	defer psOld.Close()
+	defer func() { _ = psOld.Close() }()
 
 	accessModeOld, _ := oldEff.Config.EffectiveAccessMode()
 	featOutOld, err := psOld.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
@@ -356,7 +356,7 @@ plugins:
 	if err != nil {
 		t.Fatalf("NewProcessServices new: %v", err)
 	}
-	defer psNew.Close()
+	defer func() { _ = psNew.Close() }()
 
 	accessModeNew, _ := newEff.Config.EffectiveAccessMode()
 	featOutNew, err := psNew.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{

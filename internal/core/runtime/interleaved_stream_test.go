@@ -287,7 +287,10 @@ func TestExecutor_VisibleInterleavedContinuation_EmitsReasoningThenExecutor(t *t
 	if err != nil {
 		t.Fatalf("fetch interleaved state: %v", err)
 	}
-	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
+	}
 	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
@@ -776,7 +779,10 @@ func TestExecutor_HiddenInterleavedInterruptedThinkerPersistsPartialMemo(t *test
 	if err != nil {
 		t.Fatalf("fetch interleaved state: %v", err)
 	}
-	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
+	}
 	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
@@ -863,7 +869,10 @@ func TestExecutor_VisibleInterleavedInterruptedThinkerMemoNotMarkedVisible(t *te
 	}
 	_ = stream.Close()
 
-	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
+	}
 	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
@@ -919,7 +928,10 @@ func TestExecutor_VisibleInterleavedCloseAfterStartBeforeReasoningMemoNotVisible
 		t.Fatalf("close: %v", err)
 	}
 
-	memoStore := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
+	}
 	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)

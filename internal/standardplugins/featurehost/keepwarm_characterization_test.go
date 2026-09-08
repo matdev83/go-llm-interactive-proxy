@@ -26,6 +26,7 @@ func (dummyController) Release(ctx context.Context, req promptcache.ReleaseReque
 }
 
 func TestPromptCacheMaintenance_AdapterOperationAndFieldMapping(t *testing.T) {
+	t.Parallel()
 	cfg := keepwarm.DefaultConfig()
 	mgr, err := keepwarm.NewManager(cfg, keepwarm.ClockFunc(func() time.Time { return time.Now().UTC() }), keepwarm.Hooks{})
 	if err != nil {
@@ -37,7 +38,7 @@ func TestPromptCacheMaintenance_AdapterOperationAndFieldMapping(t *testing.T) {
 	}
 	orch := keepwarm.NewOrchestrator(mgr, policy)
 
-	var adapter runtime.PromptCacheMaintenance = NewPromptCacheMaintenanceAdapter(orch)
+	adapter := NewPromptCacheMaintenanceAdapter(orch)
 	if adapter == nil {
 		t.Fatal("expected non-nil adapter")
 	}
@@ -67,6 +68,7 @@ func TestPromptCacheMaintenance_AdapterOperationAndFieldMapping(t *testing.T) {
 }
 
 func TestPromptCacheMaintenance_NilSafety(t *testing.T) {
+	t.Parallel()
 	adapter := NewPromptCacheMaintenanceAdapter(nil)
 	if adapter != nil {
 		t.Fatalf("expected nil adapter for nil orchestrator, got %v", adapter)
@@ -86,6 +88,7 @@ func TestPromptCacheMaintenance_NilSafety(t *testing.T) {
 }
 
 func TestKeepwarm_ProcessOwnership(t *testing.T) {
+	t.Parallel()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	r, err := NewProcess(context.Background(), ProcessInput{
 		Logger: log,
@@ -101,7 +104,7 @@ func TestKeepwarm_ProcessOwnership(t *testing.T) {
 	}
 }
 
-func TestKeepwarm_ConstructionCountingAndGenerationOutput(t *testing.T) {
+func TestKeepwarm_ConstructionCountingAndGenerationOutput(t *testing.T) { //nolint:paralleltest // swaps package-level constructor seams; must remain serial.
 	origNewPolicy := newKeepwarmPolicyStore
 	origNewRegistry := newKeepwarmManagerRegistry
 	defer func() {

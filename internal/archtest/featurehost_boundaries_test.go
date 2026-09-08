@@ -19,11 +19,11 @@ import (
 func TestFeatureHost_NoRequestPathResolver(t *testing.T) {
 	t.Parallel()
 
-	rtType := reflect.TypeOf((*featurehost.Runtime)(nil))
+	rtType := reflect.TypeFor[*featurehost.Runtime]()
 	forbidden := []string{"Resolve", "Get", "Lookup", "Service", "Services", "GetService", "ResolveService"}
 
-	for i := 0; i < rtType.NumMethod(); i++ {
-		methodName := rtType.Method(i).Name
+	for m := range rtType.Methods() {
+		methodName := m.Name
 		for _, f := range forbidden {
 			if strings.EqualFold(methodName, f) {
 				t.Fatalf("featurehost.Runtime must not expose request-path resolver/service locator: %s", methodName)

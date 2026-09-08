@@ -609,7 +609,8 @@ func TestProcessFeatureResources_RealCompilerCandidateIsolation(t *testing.T) {
 	}
 	defer func() { _ = gen1.Close() }()
 
-	b1 := gen1.(*GenerationBundle)
+	b1, ok := gen1.(*GenerationBundle)
+	require.True(t, ok, "compiled generation must be *GenerationBundle")
 	snap1 := b1.execution.executor.RuntimeSnapshot
 	require.NotNil(t, snap1, "expected non-nil RuntimeSnapshot on compiled Generation 1")
 
@@ -636,7 +637,8 @@ func TestProcessFeatureResources_RealCompilerCandidateIsolation(t *testing.T) {
 		t.Fatalf("CompileGeneration neutral: %v", err)
 	}
 	defer func() { _ = genNeutral.Close() }()
-	bNeutral := genNeutral.(*GenerationBundle)
+	bNeutral, ok := genNeutral.(*GenerationBundle)
+	require.True(t, ok, "compiled neutral generation must be *GenerationBundle")
 	snapNeutral := bNeutral.execution.executor.RuntimeSnapshot
 	require.NotNil(t, snapNeutral, "expected non-nil RuntimeSnapshot on neutral Generation")
 	neutralPlane := snapNeutral.SecretGuardPlane()

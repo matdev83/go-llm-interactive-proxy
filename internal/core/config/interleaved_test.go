@@ -20,7 +20,7 @@ func TestInterleaved_DefaultsDisabled(t *testing.T) {
 
 func TestInterleavedConfig_MovedSymbolsAbsent(t *testing.T) {
 	t.Parallel()
-	typ := reflect.TypeOf(config.InterleavedConfig{})
+	typ := reflect.TypeFor[config.InterleavedConfig]()
 	for _, field := range []string{"StreamToClient", "RegularTurnsRemaining", "MaxMemoBytes", "InstructionsFile"} {
 		if _, ok := typ.FieldByName(field); ok {
 			t.Fatalf("config.InterleavedConfig must not contain moved field %q", field)

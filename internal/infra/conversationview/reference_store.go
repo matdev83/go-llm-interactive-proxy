@@ -86,7 +86,7 @@ func (s *ReferenceStore) evictExcessLocked() {
 		return ages[i].lastSeenAt.Before(ages[j].lastSeenAt)
 	})
 	excess := len(s.legs) - s.maxLegs
-	for i := 0; i < excess; i++ {
+	for i := range excess {
 		delete(s.legs, ages[i].id)
 	}
 }

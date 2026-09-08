@@ -1,6 +1,7 @@
 package reasoning
 
 import (
+	"maps"
 	"reflect"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
@@ -28,12 +29,8 @@ func ComposeOptions(prod, test Options) Options {
 		return out
 	}
 	policies := make(map[string]reasoningpreservation.EgressPolicy, len(prod.EgressPolicies)+len(test.EgressPolicies))
-	for k, v := range test.EgressPolicies {
-		policies[k] = v
-	}
-	for k, v := range prod.EgressPolicies {
-		policies[k] = v
-	}
+	maps.Copy(policies, test.EgressPolicies)
+	maps.Copy(policies, prod.EgressPolicies)
 	out.EgressPolicies = policies
 	return out
 }

@@ -35,11 +35,14 @@ func (testMatcherResolver) Resolve(context.Context) (sdk.Matcher, error) {
 
 type testMatcher struct{}
 
-func (testMatcher) ScanBytes(_ context.Context, _ []byte) ([]sdk.Finding, error)  { return nil, nil }
+func (testMatcher) ScanBytes(_ context.Context, _ []byte) ([]sdk.Finding, error) { return nil, nil }
+
 func (testMatcher) ScanString(_ context.Context, _ string) ([]sdk.Finding, error) { return nil, nil }
+
 func (testMatcher) RedactBytes(_ context.Context, b []byte) ([]byte, []sdk.Finding, error) {
 	return b, nil, nil
 }
+
 func (testMatcher) RedactString(_ context.Context, s string) (string, []sdk.Finding, error) {
 	return s, nil, nil
 }
@@ -57,6 +60,7 @@ type typedNilClient struct{}
 func (t *typedNilClient) SubmitCollect(context.Context, auxiliary.Request, auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return "", nil
 }
+
 func (t *typedNilClient) Await(context.Context, auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }

@@ -175,22 +175,22 @@ func ValidateProcessFeatureOwnership(ps *ProcessServices) error {
 // Non-tautological compile-time drift checks: any field retype or rename breaks compilation.
 func _driftCompilationGuard() {
 	var ps *ProcessServices
-	var _ *auxreq.BackgroundScheduler = ps.BackgroundAux
+	var _ *auxreq.BackgroundScheduler = ps.BackgroundAux //nolint:staticcheck // QF1011: intentional compile-time field-type drift guard
 
 	var sf *featurehost.Runtime
-	var _ runtime.CompactionDetector = sf.CompactionDetector()
-	var _ conversationview.Store = sf.ConversationStore()
-	var _ *keepwarm.PolicyStore = sf.KeepwarmPolicy()
-	var _ *keepwarm.ManagerRegistry = sf.KeepwarmRegistry()
-	var _ *sessionpolicy.Store = sf.TerminalDecisionPolicy()
-	var _ runtime.TerminalPolicyReader = sf.TerminalPolicyReader()
+	var _ runtime.CompactionDetector = sf.CompactionDetector()     //nolint:staticcheck // QF1011: intentional compile-time return-type drift guard
+	var _ conversationview.Store = sf.ConversationStore()          //nolint:staticcheck // QF1011: intentional compile-time return-type drift guard
+	var _ *keepwarm.PolicyStore = sf.KeepwarmPolicy()              //nolint:staticcheck // QF1011: intentional compile-time return-type drift guard
+	var _ *keepwarm.ManagerRegistry = sf.KeepwarmRegistry()        //nolint:staticcheck // QF1011: intentional compile-time return-type drift guard
+	var _ *sessionpolicy.Store = sf.TerminalDecisionPolicy()       //nolint:staticcheck // QF1011: intentional compile-time return-type drift guard
+	var _ runtime.TerminalPolicyReader = sf.TerminalPolicyReader() //nolint:staticcheck // QF1011: intentional compile-time return-type drift guard
 
 	var (
-		_ func(int) (*keepwarm.PolicyStore, error)                                      = keepwarm.NewPolicyStore
-		_ func() *keepwarm.ManagerRegistry                                              = keepwarm.NewManagerRegistry
-		_ func(sessionpolicy.Config) *sessionpolicy.Store                               = sessionpolicy.NewStore
-		_ func(context.Context, auxreq.SchedulerConfig) *auxreq.BackgroundScheduler     = auxiliary.NewProductionBackgroundScheduler
-		_ func(context.Context, featurehost.ProcessInput) (*featurehost.Runtime, error) = featurehost.NewProcess
+		_ func(int) (*keepwarm.PolicyStore, error)                                      = keepwarm.NewPolicyStore                    //nolint:staticcheck // QF1011: intentional compile-time constructor-signature drift guard
+		_ func() *keepwarm.ManagerRegistry                                              = keepwarm.NewManagerRegistry                //nolint:staticcheck // QF1011: intentional compile-time constructor-signature drift guard
+		_ func(sessionpolicy.Config) *sessionpolicy.Store                               = sessionpolicy.NewStore                     //nolint:staticcheck // QF1011: intentional compile-time constructor-signature drift guard
+		_ func(context.Context, auxreq.SchedulerConfig) *auxreq.BackgroundScheduler     = auxiliary.NewProductionBackgroundScheduler //nolint:staticcheck // QF1011: intentional compile-time constructor-signature drift guard
+		_ func(context.Context, featurehost.ProcessInput) (*featurehost.Runtime, error) = featurehost.NewProcess                     //nolint:staticcheck // QF1011: intentional compile-time constructor-signature drift guard
 	)
 }
 
