@@ -44,7 +44,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 0. Verify the predecessor implementation is actually complete
+- [x] 0. Verify the predecessor implementation is actually complete
 - [x] 0.1 Gate execution on the implemented `pre-oss-core-slimming` SDD
   - Read the archived/completed predecessor spec (`.kiro/specs/archive/pre-oss-core-slimming/`) and its closeout evidence on the **current implementation branch/main**, not only PR #557 text.
   - Locate the predecessor Task 8.3 residual ownership inventory and record its path and exact baseline SHA in this SDD's implementation tracker/PR description.
@@ -55,7 +55,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: implemented and certified pre-oss-core-slimming_
   - _Validation: focused predecessor architecture tests; `make arch-report`; `git grep` checks from predecessor closeout_
 
-- [ ] 1. Freeze the post-first ownership and behavior baseline
+- [x] 1. Freeze the post-first ownership and behavior baseline
 - [x] 1.1 Generate the authoritative production ownership census
   - Recursively enumerate production Go packages/files under `internal/core`, `internal/infra/*compose`, `internal/standardplugins`, `internal/pluginreg`, `internal/featurebundle`, `internal/infra/runtimebundle`, `pkg/lipruntime`, and one-feature support packages outside `internal/plugins/features`.
   - Start from predecessor Task 8.3 inventory; refresh it against current `main` and record exact consumers/importers for every residual row.
@@ -95,7 +95,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 2. Establish the standard-distribution featurehost composition boundary
+- [x] 2. Establish the standard-distribution featurehost composition boundary
 - [x] 2.1 Add the small `internal/standardplugins/featurehost` process facade
   - Create the package structure from `design.md`; keep `runtime.go`, `process.go`, `generation.go`, `inputs.go` small and move concrete feature integration to per-feature files/subpackages.
   - `ProcessInput` may contain only generic process capabilities required by the standard feature set. It must not accept `*runtimebundle.BuildOptions`, `*runtimebundle.ProcessServices`, full backend maps, database pool registries, or an `any` services map.
@@ -149,7 +149,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 3. Make compaction-continuity domain/state feature-owned
+- [x] 3. Make compaction-continuity domain/state feature-owned
 - [x] 3.1 Move compaction-continuity domain files mechanically under the feature
   - Move coordinator/types/capsule/jobs/injection/preview/state code and their focused tests from the post-first equivalent of `internal/core/compactioncontinuity` into `internal/plugins/features/compactioncontinuity/state` (or the smallest feature-local subpackage matching design).
   - First commit should be mechanical with minimal import/name edits; do not change algorithms, constants, persistence keys or error semantics.
@@ -185,7 +185,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 4. Split conversation projection kernel from steering/state services
+- [x] 4. Split conversation projection kernel from steering/state services
 - [x] 4.1 Extract the pure kernel package without changing behavior
   - Create `internal/core/conversationprojection` (or final reviewed spelling) containing only semantic identity, exclusion filtering, pure projection/reassertion, anchors/provenance and immutable projection DTOs required by core.
   - Move tests that prove these pure invariants with it.
@@ -219,7 +219,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 5. Split interleaved-thinking routing authority from UX processing
+- [x] 5. Split interleaved-thinking routing authority from UX processing
 - [x] 5.1 Separate route-cycle state from memo feature state
   - Audit every post-first `interleavedstate` field consumer using the Task 1.1 census.
   - Keep `Role`, selector/cycle sequence and cursor in core only where routing/continuity directly require them.
@@ -529,7 +529,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 
 ---
 
-- [ ] 12. Close the program with zero residual simplification debt
+- [x] 12. Close the program with zero residual simplification debt
 - [x] 12.1 Regenerate final ownership census and require zero deferred row
   - Repeat Task 1.1 against the final implementation.
   - Every production responsibility must be one of: kernel invariant, generic extension mechanism, optional feature implementation/policy, feature-specific infrastructure/composition, standard-distribution composition. No `mixed`, `unknown`, `temporary`, `compat-to-remove`, or `future simplification` row.
@@ -561,7 +561,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
   - _Depends: 12.2_
   - _Validation: `go test -count=1 ./...`; `go test -race -count=1 ./...`; `make quality-checks`; `make arch-report`; `make docs-check`; generator `-check`; `go vet ./...`; `govulncheck ./...`; `go mod verify`; applicable fuzz/integration commands_
 
-- [ ] 12.4 Certify clean merged-main and archive the completed SDD
+- [x] 12.4 Certify clean merged-main and archive the completed SDD
   - After implementation PRs merge, rerun critical architecture/correctness checks on the exact merged `main` SHA to catch integration drift.
   - Confirm final ownership census, budgets, probe evidence and docs all reference the merged topology, not a stale feature branch.
   - Archive this SDD using repository convention and mark every task complete only after merged-main certification.

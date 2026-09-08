@@ -471,3 +471,27 @@ Budget ceiling 3082 (`budgets.go:76,143`) holds with arithmetic
 3082 − 3057 = 25 lines of headroom, the standard ratchet allowance. The two
 regression tests added under this section are `_test.go` files and do not
 enter the count.
+
+## 8. Program closeout (Task 12.4)
+
+The core simplification program opened by `pre-oss-core-slimming` and
+completed by this specification is fully closed with zero residual
+ownership debt:
+
+- Final census (§§2-6) classifies every production responsibility with
+  zero deferred rows; the Wave-2 transition table is fully discharged.
+- Independent architecture review (Task 12.2) is APPROVED after its four
+  HIGH findings were fixed in-tree with RED-backed regressions.
+- Full repository certification (Task 12.3) is APPROVED: canonical gates
+  green, remaining red limited to main-verified pre-existing findings
+  plus one explicitly UNCLASSIFIED timing observation under a recurrence
+  watch — no third simplification tracker was opened.
+- Delivery merged as PR #598 (merge commit `d85fcc24`); merged-`main`
+  certification reruns are green (build, archtest, speccheck,
+  runtimebundle, featurehost, core/runtime, qa, planes check,
+  lipstd build/help, arch-report, docs-check; quality-checks red only
+  on the 4 pre-existing speccheck findings).
+- Exact Linux race evidence on the final tree shows all spec-owned
+  concurrency suites `ok` with no `DATA RACE` in spec-owned packages.
+
+No material simplification item remains. This SDD is complete.
