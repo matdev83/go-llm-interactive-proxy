@@ -195,3 +195,31 @@ parallel-subtest mismatch is recorded as UNCLASSIFIED per
 execution-guardrails §3 (same-signature starting-SHA reproduction not
 achieved; neither pre-existing nor introduced may be claimed) with full
 reproduction evidence and a 12.4 recurrence watch.
+
+### §6 Final-SHA strict race triage (run 34228868033, tested SHA `e1f3bd21`)
+
+Every spec-owned concurrency suite is `ok` under `-race` on the final
+SHA: `core/runtime` (+`failclosed`), `infra/auxiliary`,
+`infra/billingcompose`, `infra/conversationview` (+`sdkadapter`),
+`infra/runtimebundle` (264s), `plugins/features/compactioncontinuity`
+(+`carriers`, `extractor`, `injection`, `observability`, `policy`,
+`resultmerge`, `source`, `state`), `plugins/features/interleavedthinking`
+(+`state`), `plugins/features/keepwarm`,
+`plugins/features/reasoningpreservation` (+`reasoningreplay`),
+`plugins/features/secretguard` (+`engine`), `standardplugins/featurehost`
+(+`compaction`, `reasoning`, `secretguard`, `sessionpolicy`),
+`stdhttp/admin/keepwarm`, `lipsdk/featurehost`, `lipsdk/reasoninghost`,
+`lipsdk/secretguardhost`. Remaining run failures (billingstore journal,
+openresponses bridge, capsule merge, qa cross-platform, backendplugin
+bridge, speccheck inventory, billing-convergence) match the `main`
+scheduled-run failure set.
+
+Four `WARNING: DATA RACE` instances, all outside spec-owned production
+code: (1) gRPC `pkg/lipsdk/backendplugin/host/session.go`
+`SendMsg`/`CloseSend` — backend-connector infra, zero spec diff
+(`git diff fff67a0b HEAD` empty for `pkg/lipsdk/backendplugin/` and
+`internal/infra/backendplugins/`); (2)+(3) `capsule_test.go:247-248`
+loop-variable capture across parallel subtests — test-only, file
+untouched by this spec (`git log fff67a0b..HEAD` empty for it);
+(4) `backendplugin` cancel-handshake test channel close — test-only,
+same untouched trees. No `DATA RACE` in any spec-owned package.
