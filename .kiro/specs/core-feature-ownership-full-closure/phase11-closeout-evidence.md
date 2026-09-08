@@ -137,4 +137,29 @@ Full suites pass non-race on Windows: `keepwarm`, `compactioncontinuity/...`,
 `TestBranchCoordinator_SerializesConcurrentInjectionUpdates`.
 
 Windows local `-race` skipped: cgo-based race detector fails on Windows
-hosts. Race certification is required from Linux CI before merge.
+hosts. Linux race evidence obtained from CI run 34160765866
+(workflow "Race and fuzz (nightly)", workflow_dispatch on branch
+`feat/core-feature-ownership-full-closure`, tested SHA `90c88d7a`,
+command `bash scripts/race-check.sh --strict` =
+`go test -race -tags=precommit,integration -count=1 <full module list>`).
+
+Required concurrency suites — all `ok` under `-race` on Linux:
+`internal/infra/auxiliary`, `internal/infra/conversationview` (+`sdkadapter`),
+`internal/infra/runtimebundle` (284s), `internal/integration/conversationview`,
+`internal/plugins/features/interleavedthinking` (+`state`),
+`internal/plugins/features/keepwarm`, `internal/plugins/features/reasoningpreservation`
+(+`reasoningreplay`), `internal/plugins/features/secretguard` (+`engine`),
+`internal/standardplugins/featurehost` (+`compaction`, `reasoning`,
+`secretguard`, `sessionpolicy`), `internal/stdhttp/admin/keepwarm`,
+`pkg/lipsdk/featurehost`, `pkg/lipsdk/reasoninghost`, `pkg/lipsdk/secretguardhost`,
+plus `internal/plugins/features/compactioncontinuity` (+`carriers`,
+`extractor`, `injection`, `observability`, `policy`, `resultmerge`,
+`source`, `state`).
+
+Out-of-scope failures in the same run (billingstore journal concurrency,
+openresponses/frontend bridge, `compactioncontinuity/capsule` merge,
+`internal/qa` cross-platform selection, billing-convergence baselines,
+speccheck inventory) reproduce identically on `main` scheduled runs
+(34105540179, 34022492580) and are pre-existing, unrelated to this spec's
+ownership paths. No `DATA RACE` warning was reported in any spec-owned
+package.
