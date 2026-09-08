@@ -67,7 +67,6 @@ func TestStandardPlanes_ManifestCompletenessAndValidation(t *testing.T) {
 
 	for i, exp := range expectedPlanes {
 		decl := feature.StandardPlanes[i]
-		exp := exp
 		t.Run(exp.id, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, exp.id, decl.PlaneID())

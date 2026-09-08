@@ -65,8 +65,6 @@ func (c *testController) Release(context.Context, promptcache.ReleaseRequest) er
 	return nil
 }
 
-func timePtr(t time.Time) *time.Time { return new(t) }
-
 func testObservation(now time.Time, life promptcache.LifecycleKind, expires time.Duration) promptcache.Observation {
 	var exp *time.Time
 	if expires > 0 {

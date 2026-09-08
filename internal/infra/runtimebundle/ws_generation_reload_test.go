@@ -130,6 +130,7 @@ func wsGenDial(t *testing.T, h http.Handler) *websocket.Conn {
 	if err != nil {
 		t.Fatalf("ws dial through generation handler: %v", err)
 	}
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatalf("expected 101, got %d", resp.StatusCode)
 	}

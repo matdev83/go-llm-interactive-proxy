@@ -785,7 +785,6 @@ func Run(t *testing.T, env Env) {
 		errs := make(chan error, 20)
 		for n := range 10 {
 			wg.Add(1)
-			n := n
 			env.Spawn(func() {
 				defer wg.Done()
 				_, err := deps.Store.TagNeverBackend(context.Background(), aLeg, []conversationview.TagRequest{{Identity: testIdentity(1000 + n), Reason: testReason("r")}})

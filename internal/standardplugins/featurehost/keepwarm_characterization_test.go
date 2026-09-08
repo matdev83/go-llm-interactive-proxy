@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -180,12 +181,7 @@ func gatheredSeriesNames(t *testing.T, reg *prometheus.Registry) []string {
 }
 
 func hasSeries(names []string, want string) bool {
-	for _, n := range names {
-		if n == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(names, want)
 }
 
 func TestCompileKeepwarmMetricsSwapAndAdminProjection(t *testing.T) {
