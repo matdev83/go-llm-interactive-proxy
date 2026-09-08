@@ -530,7 +530,7 @@ For one weak executor, run sequentially in the numbered order. Separate stronger
 ---
 
 - [ ] 12. Close the program with zero residual simplification debt
-- [ ] 12.1 Regenerate final ownership census and require zero deferred row
+- [x] 12.1 Regenerate final ownership census and require zero deferred row
   - Repeat Task 1.1 against the final implementation.
   - Every production responsibility must be one of: kernel invariant, generic extension mechanism, optional feature implementation/policy, feature-specific infrastructure/composition, standard-distribution composition. No `mixed`, `unknown`, `temporary`, `compat-to-remove`, or `future simplification` row.
   - Verify every optional feature/policy row is outside core/generic runtime composition and every surviving core row has manifest justification.
