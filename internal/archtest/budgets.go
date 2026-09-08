@@ -81,7 +81,7 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// Runtimebundle shrank in the same change (deleted keepwarm_http.go and
 	// secret_guard_runtime.go, emptied ExtensionsOptions), so this is movement
 	// of composition into its owner, not new scope.
-	{Tree: "internal/infra/runtimebundle", Max: 12341},
+	{Tree: "internal/infra/runtimebundle", Max: 12333},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
 	{Tree: "internal/stdhttp", Max: 6693},
 	{Tree: "cmd/lipstd", Max: 979},
@@ -147,7 +147,7 @@ var LineBudgets = []LineBudget{
 	{Dir: "internal/core", Max: 82590},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
-	{Dir: "internal/infra/runtimebundle", Max: 12341},
+	{Dir: "internal/infra/runtimebundle", Max: 12333},
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},

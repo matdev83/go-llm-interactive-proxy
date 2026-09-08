@@ -42,6 +42,7 @@ func TestExtensionPlanesManifestStatus(t *testing.T) {
 		"request_transforms",
 		"tool_catalog_filters",
 		"secret_guards",
+		"secret_guard_execution",
 		"terminal_decision_provider",
 	}
 	for _, expected := range expectedPlanes {

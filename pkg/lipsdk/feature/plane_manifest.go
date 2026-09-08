@@ -923,9 +923,7 @@ var PlaneSecretGuardExecution = Plane[*secretguard.ExecutionConfig]{
 		// Defensive copy: the frozen set must never alias contributor memory,
 		// so later mutation by the contributor cannot alter a frozen
 		// generation's configuration (frozen-value isolation).
-		out := *incoming
-		out.SourceCategories = append([]string(nil), incoming.SourceCategories...)
-		return &out, nil
+		return secretguard.CloneExecutionConfig(incoming), nil
 	},
 }
 

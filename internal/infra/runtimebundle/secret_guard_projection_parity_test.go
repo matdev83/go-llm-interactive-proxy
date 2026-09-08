@@ -374,6 +374,7 @@ func TestSecretGuardProjection_HostCapabilitiesObserverFallbackAndChaining(t *te
 	composeWithObserver := func(planes lipfeature.FrozenPlaneSet, observer sdksg.Observer) *secretGuardTestRuntime {
 		fh, err := featurehost.NewProcess(context.Background(), featurehost.ProcessInput{Logger: log})
 		require.NoError(t, err)
+		t.Cleanup(func() { _ = fh.Close() })
 		out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
 			Planes:           planes,
 			DecisionObserver: observer,

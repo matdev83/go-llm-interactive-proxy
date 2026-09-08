@@ -123,14 +123,26 @@ func archTypeString(e ast.Expr) string {
 		var params []string
 		if t.Params != nil {
 			for _, p := range t.Params.List {
-				params = append(params, archTypeString(p.Type))
+				n := len(p.Names)
+				if n == 0 {
+					n = 1
+				}
+				for i := 0; i < n; i++ {
+					params = append(params, archTypeString(p.Type))
+				}
 			}
 		}
 		s := "func(" + strings.Join(params, ",") + ")"
 		if t.Results != nil && len(t.Results.List) > 0 {
 			var results []string
 			for _, r := range t.Results.List {
-				results = append(results, archTypeString(r.Type))
+				n := len(r.Names)
+				if n == 0 {
+					n = 1
+				}
+				for i := 0; i < n; i++ {
+					results = append(results, archTypeString(r.Type))
+				}
 			}
 			s += "(" + strings.Join(results, ",") + ")"
 		}

@@ -147,6 +147,21 @@ func TestCompileGeneration_SecretGuardOnlySlicePreservesProcessReasoning(t *test
 	if err != nil {
 		t.Fatalf("CompileGeneration with SG-only slice dropped process reasoning: %v", err)
 	}
+
+	// Control: without the process-bound reasoning binding the same
+	// generation must fail, proving this test discriminates the F1 fix.
+	bare, err := featurehost.NewProcess(ctx, featurehost.ProcessInput{Logger: slog.Default()})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	t.Cleanup(func() { _ = bare.Close() })
+	if _, err := bare.CompileGeneration(ctx, featurehost.GenerationInput{
+		Registrations:    []lipsdk.Registration{compressionEnabledReg(t, "policy-test")},
+		BackgroundClient: bg,
+		BackgroundPoller: bg,
+	}); err == nil {
+		t.Fatal("control: expected failure without a process-bound egress policy; this test cannot detect F1 regressions")
+	}
 }
 
 // TestCompileGeneration_ExplicitSecretGuardBindingWinsOverDefault locks the
