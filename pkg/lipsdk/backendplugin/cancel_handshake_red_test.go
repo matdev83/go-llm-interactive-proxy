@@ -41,6 +41,7 @@ func (m *activeCancelTrackingManaged) Cancel(_ context.Context, cause lipapi.Can
 type channelExecuteStream struct {
 	ctx       context.Context
 	inFrames  chan backendplugin.ClientFrame
+	done      chan struct{}
 	mu        sync.Mutex
 	sent      []backendplugin.ServerFrame
 	closeOnce sync.Once
@@ -50,14 +51,20 @@ func newChannelExecuteStream(ctx context.Context) *channelExecuteStream {
 	return &channelExecuteStream{
 		ctx:      ctx,
 		inFrames: make(chan backendplugin.ClientFrame, 8),
+		done:     make(chan struct{}),
 	}
 }
 
 func (c *channelExecuteStream) Context() context.Context { return c.ctx }
 
+// Close signals termination without closing the frame channel: closing
+// inFrames while the test goroutine sends and the control reader receives is
+// a close-vs-send race (and risks "send on closed channel"). Receivers observe
+// Close via done instead, mirroring the production bridgeExecuteStream
+// pattern of a separate close channel that is never sent on.
 func (c *channelExecuteStream) Close() error {
 	c.closeOnce.Do(func() {
-		close(c.inFrames)
+		close(c.done)
 	})
 	return nil
 }
@@ -69,6 +76,8 @@ func (c *channelExecuteStream) Recv() (backendplugin.ClientFrame, error) {
 			return backendplugin.ClientFrame{}, context.Canceled
 		}
 		return fr, nil
+	case <-c.done:
+		return backendplugin.ClientFrame{}, context.Canceled
 	case <-c.ctx.Done():
 		return backendplugin.ClientFrame{}, c.ctx.Err()
 	}
@@ -102,7 +111,7 @@ func newNegotiatedChannelExecuteStream(ctx context.Context) *negotiatedChannelWr
 func TestRED_ForwardExecute_PostStartCancelFrameNotConsumed(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	stream := newNegotiatedChannelExecuteStream(ctx)
@@ -138,5 +147,16 @@ func TestRED_ForwardExecute_PostStartCancelFrameNotConsumed(t *testing.T) {
 
 	if !ms.cancelCalled.Load() {
 		t.Fatal("upstream ManagedEventStream.Cancel was not called upon receiving in-band cancel frame")
+	}
+
+	// Join the worker so no ForwardExecute goroutine outlives the test; an
+	// unjoined worker racing test teardown is what the race detector flagged.
+	select {
+	case err := <-execDone:
+		if err != nil {
+			t.Fatalf("ForwardExecute returned unexpected error after in-band cancel: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ForwardExecute did not return after in-band cancel")
 	}
 }
