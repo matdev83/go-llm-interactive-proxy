@@ -744,25 +744,28 @@ func (e *Executor) openAttemptTx(
 	wireCall.Session.AuthoritativeSessionID = ""
 	wireCall.Session.ResumeToken = ""
 	if e.RuntimeSnapshot != nil {
-		if rawPayload, jerr := json.Marshal(wireCall); jerr == nil {
-			sc := tx.reqFacts.recvViews.Scope
-			meta := sdktraffic.CaptureMeta{
-				TraceID:     tx.reqFacts.traceID,
-				ALegID:      tx.reqFacts.aLegID,
-				BLegID:      tx.bleg.BLegID,
-				AttemptSeq:  tx.bleg.Seq,
-				BackendID:   strings.TrimSpace(c.Primary.Backend),
-				PrincipalID: strings.TrimSpace(sc.PrincipalID.String()),
-				Scope:       sc,
+		bundle := coretraffic.PortBundleFromSnapshot(e.RuntimeSnapshot)
+		if !bundle.EmitIsNoop() {
+			if rawPayload, jerr := json.Marshal(wireCall); jerr == nil {
+				sc := tx.reqFacts.recvViews.Scope
+				meta := sdktraffic.CaptureMeta{
+					TraceID:     tx.reqFacts.traceID,
+					ALegID:      tx.reqFacts.aLegID,
+					BLegID:      tx.bleg.BLegID,
+					AttemptSeq:  tx.bleg.Seq,
+					BackendID:   strings.TrimSpace(c.Primary.Backend),
+					PrincipalID: strings.TrimSpace(sc.PrincipalID.String()),
+					Scope:       sc,
+				}
+				bundle.Emit(
+					ctx,
+					sdktraffic.LegPTB,
+					meta,
+					"lip/canonical+json",
+					"application/json",
+					rawPayload,
+				)
 			}
-			coretraffic.PortBundleFromSnapshot(e.RuntimeSnapshot).Emit(
-				ctx,
-				sdktraffic.LegPTB,
-				meta,
-				"lip/canonical+json",
-				"application/json",
-				rawPayload,
-			)
 		}
 	}
 	baseOpenCtx := ctx
