@@ -183,7 +183,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Response-only planes remain eligible only after characterization.
   - _Requirements: 5, 13, 19_
 
-- [ ] 3.3 Freeze separate hook-bus occupancy/access classes
+- [x] 3.3 Freeze separate hook-bus occupancy/access classes
   - Do not assume hooks are planes.
   - Submit/request-part/tool/request-mutating chains are blockers unless explicit wire contract.
   - Response-only chains require tests proving no request content dependency.
@@ -819,3 +819,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 2.4 VERIFIED (fresh reviewer APPROVED): disabled-gate 0-alloc ratchet, core import boundary, sensitive-carrier redaction; SessionInput IDs spec-compliant clear-by-contract, Task 19.1 diagnostics must not use IDs as labels (follow-up); largebody 26/26 + boundary test PASS, vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
 - Task 3.1 VERIFIED (fresh reviewer APPROVED): RequestBodyAccess on sole plane descriptor, 26 annotations 19/3/4/0/0, fail-closed generation+CI, no eligibility consumption yet; feature 149 tests + archtest PASS, generator -check + vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
 - Task 3.2 VERIFIED (fresh reviewer APPROVED): non-negotiable blocker ratchets (Local Turn/Secret Guard/Terminal Decision canonical, request-mutating hooks canonical unless explicit wire contract, response-only only after characterization); 3.1 values already truthful; feature suite PASS, vet/gofmt/diff-check clean; zero production diff; test-only hardening scope, `-race` skipped Windows cgo limitation.
+- Task 3.3 VERIFIED (fresh reviewer APPROVED): Bus 4-chain freeze (submit/request-part/tool/request-mutating blockers unless explicit wire contract, response-only proof with no request content dependency, no plane conflation); hooks suite PASS, gofmt/diff-check clean; test-only scope, no production diff; `-race` skipped Windows cgo limitation.
