@@ -103,7 +103,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Characterize `PreRequestKeepalive`/`holdalive.Wait` and `StreamKeepaliveInterval` context behavior for enabled/disabled/slow-open cases.
   - _Requirements: 17, 18_
 
-- [ ] 1.7 Freeze deterministic request/economic identity
+- [x] 1.7 Freeze deterministic request/economic identity
   - Characterize `diag.StableCallID`, `StableCallToken`, `StableUnix`, explicit Call.ID precedence, metering checkpoint/fact/source IDs, billing call IDs, trace IDs, response IDs/timestamps.
   - Fixtures: huge strings, escaped Unicode/HTML-sensitive strings, tools/messages/items, model/selector, session-header precedence, optional fields.
   - _Requirements: 15, 16, 18_
@@ -809,3 +809,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 1.4 test-only scope VERIFIED (fresh reviewer APPROVED): required suites ALL PASS on feature branch (`runtimehost`, `runtimebundle` incl. repaired candidate test, `stdhttp`); repair attribution `3054bc43`/`dc5f42af` retained; gofmt/diff-check clean; `-race` skipped per Windows cgo limitation.
 - Task 1.5 test-only scope VERIFIED (fresh reviewer APPROVED): 3 lifecycle freeze test files; required 3-package suites PASS (`internal/core/runtime`, `internal/core/securesession`, `internal/core/routeoverride`); gofmt/diff-check clean; no production diff; Bun continuity via existing suites; future seams disclaimed; `-race` skipped per Windows cgo limitation.
 - Task 1.6 test-only scope VERIFIED (fresh reviewer APPROVED): 4 response/keepalive freeze files, 26 new tests, per-lane coverage; touched suites PASS; vet/gofmt/diff-check clean; no production diff; future bridge seams disclaimed; `-race` skipped per Windows cgo limitation.
+- Task 1.7 test-only scope VERIFIED (fresh reviewer APPROVED): 2 identity freeze files, 21 tests, per-requirement coverage (Req 15, 16, 18); diag + checkpoint suites PASS; vet/gofmt/diff-check clean; no production diff; future digest seams disclaimed; `-race` skipped per Windows cgo limitation.
