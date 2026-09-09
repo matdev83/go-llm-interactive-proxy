@@ -116,7 +116,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Produce a checked-in evidence table used by Tasks 3, 11, 12, and 19.
   - _Requirements: 5, 13, 14, 15, 19, 22_
 
-- [ ] 1.9 Freeze the 26-plane + hook census
+- [x] 1.9 Freeze the 26-plane + hook census
   - Enumerate from `feature.StandardPlanes()` / generated manifest, not a manually copied list.
   - Explicitly verify `PlaneSecretGuardExecution`, `PlaneLocalTurnHandlers`, `PlaneTerminalDecisionProvider`.
   - Inventory `hooks.Bus` separately.
@@ -811,3 +811,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 1.6 test-only scope VERIFIED (fresh reviewer APPROVED): 4 response/keepalive freeze files, 26 new tests, per-lane coverage; touched suites PASS; vet/gofmt/diff-check clean; no production diff; future bridge seams disclaimed; `-race` skipped per Windows cgo limitation.
 - Task 1.7 test-only scope VERIFIED (fresh reviewer APPROVED): 2 identity freeze files, 21 tests, per-requirement coverage (Req 15, 16, 18); diag + checkpoint suites PASS; vet/gofmt/diff-check clean; no production diff; future digest seams disclaimed; `-race` skipped per Windows cgo limitation.
 - Task 1.8 test-only scope VERIFIED (fresh reviewer APPROVED): evidence `evidence/1.8-call-census.md` with CloneCall register + narrow-port inventory + classifications, handoff for Tasks 3/11/12/19; archtest PASS, diff-check clean; no production diff.
+- Task 1.9 test-only scope VERIFIED (fresh reviewer APPROVED): 26-plane census test + evidence from `feature.StandardPlanes()`/generated manifest, explicitly naming `PlaneSecretGuardExecution`, `PlaneLocalTurnHandlers`, `PlaneTerminalDecisionProvider`; `hooks.Bus` inventoried separately; Local Turn/Secret Guard canonical blockers and fail-closed ratchet for unclassified/new planes; handoff for Task 3; archtest + feature suites PASS, vet/gofmt/diff-check clean; no production diff; `-race` skipped per Windows cgo limitation.
