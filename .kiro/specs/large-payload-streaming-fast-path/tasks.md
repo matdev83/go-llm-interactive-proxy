@@ -73,7 +73,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - _Validation: `go test -race ./internal/plugins/frontends/frontendpipe/... ./internal/plugins/frontends/openairesponses/... ./internal/plugins/frontends/openailegacy/... ./internal/plugins/frontends/openresponses/...`_
   - _Requirements: 1, 2, 17_
 
-- [ ] 1.3 Freeze request-body limits, gzip, decode admission, and route-selector precedence
+- [x] 1.3 Freeze request-body limits, gzip, decode admission, and route-selector precedence
   - Exact limit and limit+1; chunked/known length; cancellation; gzip canonical behavior.
   - Header selector wins as today; `RouteFromBodyModel` runs only when selector remains empty and while decode permit is held.
   - Full-body resolver, when configured, runs before shared JSON preflight.
