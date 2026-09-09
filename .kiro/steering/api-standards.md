@@ -1,61 +1,84 @@
 # API Standards (Steering)
 
-## Core Architectural Invariants
+## Architectural Invariants
 
-1. **Canonical in the middle**: Frontends decode to canonical (`pkg/lipapi`); backends emit canonical events. Zero pairwise translators.
-2. **Streaming primary**: Non-streaming is collection over canonical SSE stream events.
-3. **Protocol legality**: Output framing, status codes, and terminal error shapes must remain protocol-legal for the active frontend.
-4. **Deterministic capabilities**: Unsupported required semantics MUST fail explicitly before upstream execution starts.
-5. **No lossy downgrades**: Any capability degradation must be explicit in capability catalogs.
-6. **Core owns product semantics**: Only cross-protocol or core-orchestrated semantics belong in `pkg/lipapi`.
-7. **Adapters own wire details**: Provider SDKs, vendor payloads, and transport quirks stay inside backend/frontend adapters.
+1. **Canonical in the middle** — frontends decode wire protocols to `pkg/lipapi`; backends translate canonical calls to provider protocols and canonicalize the resulting events.
+2. **No pairwise translators** — protocol A must never be translated directly to protocol B as a product architecture.
+3. **Streaming is primary** — non-streaming responses are collected from the same canonical event path.
+4. **Wire legality is adapter-owned** — framing, status codes, headers, terminal errors, and transport-specific lifecycle rules remain legal for the active frontend/backend protocol.
+5. **Capabilities are explicit** — required semantics are negotiated before upstream execution where possible; unsupported semantics fail rather than disappearing silently.
+6. **Canonical contracts are provider-neutral** — a type belongs in `pkg/lipapi` only when it represents cross-protocol product semantics, not because one provider exposes a convenient field.
+7. **Opaque semantics stay opaque** — provider-specific signed/structured/continuation artifacts may be carried canonically when preservation is required, but the proxy must not silently reinterpret one provider dialect as another.
+8. **Errors cross boundaries deliberately** — internal/provider details are classified and mapped to protocol-legal client errors; stack traces, local paths, secrets, and raw sensitive payloads do not cross the A-leg boundary.
 
----
+## Ownership Rules
 
-## Supported Surface Matrix
+### Frontend adapters
 
-- **Frontends**: OpenAI Responses API & OpenResponses 2026-04-24 (HTTP POST/SSE + WebSocket turns/continuation), legacy OpenAI Chat/Models, Anthropic Messages API, Gemini `generateContent`.
-- **Essential hosted backends**: OpenAI Responses, legacy OpenAI Chat, Anthropic Messages, Gemini `generateContent`, Bedrock Converse, Alibaba Token Plan International (`alibabatokenplanintl`), plus built-in custom-compatible families.
-- **Optional connectors**: ACP prompt-turn family, OpenRouter, NVIDIA, Hugging Face, OpenAI Codex, OpenCode Go/Zen, Ollama (`ollama`/`ollama-cloud`), llama.cpp, LM Studio, vLLM, `localstub`, and other executable gRPC plugins under `connectors/`.
+Frontends are driving adapters. They own:
 
-Source of truth: [`internal/standardplugins/standard_table.go`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/standardplugins/standard_table.go) and [`pkg/lipsdk/standard_bundle.go`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/pkg/lipsdk/standard_bundle.go).
+- wire request decoding and validation;
+- HTTP/SSE/WebSocket lifecycle and protocol framing;
+- canonical-to-wire response/error encoding;
+- transport-specific identity/session carriers;
+- frontend-only compatibility behavior.
 
----
+They do **not** own routing policy, backend selection, retry/failover semantics, or provider SDK calls.
 
-## Canonical Contracts & Dialects (`pkg/lipapi`)
+### Backend adapters and connectors
 
-- Keep contracts protocol-neutral, versionable, and free of provider SDK / HTTP server types.
-- **Reasoning Carriers (`EventReasoningPart`)**:
-  - Chat-style text: `EventReasoningDelta` / text fields.
-  - Anthropic signed thinking: Opaque delta carriers.
-  - OpenAI Responses: Dialect `openai.responses.reasoning_item.v1` with allowlisted Opaque JSON schema ([`internal/plugins/protocols/openairesponsesitem`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/protocols/openairesponsesitem)).
-  - OpenAI Codex native compaction: Opaque reasoning continuations retained across compaction turns ([`codexclientcompat`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat)).
-  - Alibaba Token Plan: Dialect-aware streaming reasoning deltas forwarded without dropping markers.
-  - Never silently convert dialects across providers.
-- **Tool classification**: Canonical `ToolEvent` carries a coarse `ToolCategory` and conservative `MayMutateLocalFS` derived from the tool **name** (`ClassifyToolName`). Match is trim + case-fold + exact alias; no argument, schema, provider, or harness inspection. Unknown/empty names are `unknown` with `MayMutateLocalFS=true`. Name-less fragments inherit by `ToolCallID` for the request; rewrites recompute from the effective name. Classification is derived metadata for policy/reactors, never allow/deny authority.
+Backends are driven adapters. They own:
 
----
+- canonical-to-provider request translation;
+- provider SDK/client use;
+- provider transport quirks and authentication mechanics;
+- provider response/error translation back to canonical events;
+- provider-specific capability declaration.
 
-## Frontend Pipeline & Adapter Rules
+Provider SDK types must stay inside backend/connector boundaries. Shared compatible-protocol helpers may be reused by a protocol family, but they must not become a second canonical layer.
 
-- Driving adapters decode incoming HTTP/SSE/WebSocket into canonical requests and encode canonical events to protocol responses.
-- **Unified Pipeline**: All standard HTTP/SSE handlers and pumps are unified behind [`internal/plugins/frontends/frontendpipe/`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe) and `stream.PumpSSE`.
-- **OpenResponses Extension**: [`internal/plugins/frontends/openresponses`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/frontends/openresponses) adds WebSocket turn management, allowed-tool filters, and HTTP/WS continuation lifecycle stores.
+### Canonical/core packages
 
----
+Canonical and core packages may define only semantics required to coordinate providers/protocols generically. They must not import provider SDKs or concrete protocol/feature plugins.
 
-## Backend Adapter Rules
+## Capability and Dialect Policy
 
-- Driven adapters translate canonical requests -> upstream provider calls, and upstream responses -> canonical events.
-- Keep provider SDK types strictly inside adapter packages (`internal/plugins/backends/` or `connectors/`).
-- Reuse compatible-protocol helpers ([`internal/plugins/backends/openaicompat`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/backends/openaicompat), `openresponsescompat`, `compatmode`, `transporterr`) without making them canonical shortcuts.
-- Backend factories declare credential and access-scope posture metadata for startup trust validation.
+- Required client semantics must be represented in capability negotiation or fail explicitly.
+- A downgrade is acceptable only when its lossiness is modeled and permitted by the negotiated contract.
+- Provider-specific structured artifacts that must survive failover/continuation should use bounded, versionable opaque dialect carriers rather than polluting generic structs with provider fields.
+- Cross-provider conversion of opaque dialects is forbidden unless an explicit, tested semantic conversion contract exists.
+- Derived metadata used by policy must be conservative. Unknown inputs should bias toward safety rather than falsely claiming precision or permission.
 
----
+## Identity, Session, and Authority
 
-## Session Authority, Identity & Sentinel Error Rules
+- Session authority is proxy-owned; client-provided session identifiers or hints are untrusted inputs.
+- Product identity on the client leg and provider identity on backend legs are separate concerns.
+- Authentication/authorization decisions must be made before backend execution and must not be inferred from protocol convenience fields.
+- Derived classification metadata is not authorization by itself.
 
-- **Session Authority**: Proxy-owned (`securesession`). `BeginTurn` validates authority before backend execution. Client session hints are untrusted.
-- **Proxy Identity**: Product identity (`Server` header on A-leg, `User-Agent` / OpenRouter attribution on B-leg) is proxy-owned and configured separately from session authority (see [`docs/proxy-identity.md`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/docs/proxy-identity.md)).
-- **Sentinel Error Protection**: Never leak raw internal stack traces, local paths, or unredacted provider payloads to clients. Surface legal protocol errors to clients while recording diagnostic details in internal logs and audit sinks.
-- Terminal stream errors must be inspectable with `errors.As`.
+## Protocol Change Procedure
+
+When adding or changing a protocol surface:
+
+1. **Classify the change**: wire-only, canonical semantic, or shared execution semantic.
+2. **Keep the smallest ownership surface**:
+   - wire-only → frontend/backend adapter;
+   - cross-protocol data semantic → `pkg/lipapi`;
+   - provider-neutral orchestration semantic → core/SDK seam.
+3. **Define capability behavior** before implementation: supported, explicitly degraded, or rejected.
+4. **Preserve the streaming path**; do not add a separate non-streaming executor.
+5. **Add contract/conformance coverage** at the family boundary. Avoid frontend×backend Cartesian tests unless a unique cross-boundary invariant truly requires one.
+6. **Verify error and cancellation legality** for the affected wire protocol.
+7. **Keep provider-specific dependencies at the edge** and run architecture guards.
+
+If a new provider or protocol implementation follows these rules, its addition does not require updating this steering file.
+
+## Current Surface Lookup
+
+Do not maintain supported-provider/protocol inventories here. Current state is derived from:
+
+- standard contributions under `internal/standardplugins/`;
+- canonical/public contracts under `pkg/lipapi` and `pkg/lipsdk`;
+- provider-profile catalogs under `internal/providerprofiles/`;
+- executable connector manifests under `connectors/`;
+- protocol/operator documentation and contract TCKs under `docs/` and `internal/testkit/`.

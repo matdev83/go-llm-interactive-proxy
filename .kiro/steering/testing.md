@@ -2,85 +2,125 @@
 
 ## Core Testing Invariants
 
-- **TDD by Default**: Red -> Green -> Refactor.
-- **Specification Bundle (Recoverability)**: Executable tests + `testdata/` golden fixtures + canonical types (`pkg/lipapi`, `pkg/lipsdk`) + steering rules + scenario index ([`docs/spec-bundle-index.md`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/docs/spec-bundle-index.md)).
-- **Composed Tests in Default Suite**: Untagged `*_test.go` files inside package dirs use `httptest` + stubs without external networks. They run in default `go test ./...` and `make test`. Tests marked with `//go:build integration` are environment-gated.
-- **`goleak.VerifyTestMain`**: Mandatory in packages managing goroutines ([`runtime`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/runtime), `stream`, `pluginreg`, `standardplugins`, `bedrock`, `stdhttp`, `connectors/*`).
+- **TDD by default**: characterize or make the desired invariant fail first, implement the smallest correct change, then refactor.
+- **Test behavior at ownership boundaries**: prefer canonical/domain contracts, adapter contracts, and lifecycle invariants over tests that mirror internal call graphs.
+- **Every bug fix gets a focused regression**: reproduce the defect with the smallest stable fixture/test that would have caught it.
+- **Default tests stay self-contained**: ordinary unit/composed tests use in-memory stores, `httptest`, stubs, fake clocks/IDs, and no external network/service requirement.
+- **Concurrency owners prove cleanup**: packages that own goroutines, streams, processes, or async workers need cancellation/cleanup tests and leak/race evidence appropriate to the change.
+- **Real canonical types over mock graphs**: do not mock internal implementation chains merely to satisfy coverage.
 
----
+## Test Architecture
+
+Use layered evidence instead of a Cartesian product:
+
+1. **Unit/domain tests** prove local policy and pure transformations.
+2. **Adapter/family contracts** prove each frontend/backend/connector family against canonical semantics.
+3. **Core contracts** prove orchestration, routing, commitment, continuity, and lifecycle independently of specific providers.
+4. **Architecture/QA ratchets** prove dependency direction, generated-contract currency, bounded change surfaces, and repository hygiene.
+5. **Bounded real-stack sentinels** prove a small number of representative end-to-end paths.
+6. **Environment/topology tests** prove database, process, or external-service behavior only when that topology matters.
+
+Do not grow frontend×backend matrices simply because another provider/profile was added. A new implementation that passes the relevant family contract should not multiply unrelated test cells.
 
 ## Test-Cost and Iteration-Speed Policy
 
-- Keep an explicit architectural/test-cost budget: default tests must stay narrow and cheap. Do not add recursive repository-wide test invocations when a package, cached scope, or focused contract proves the invariant.
-- Architecture checks share a cached loader; reusable test executables are compiled once and invoked for their intended checks rather than rebuilt by each consumer.
-- Prefer in-memory databases unless a test proves durability or reopen behavior; use fake clocks (and deterministic IDs/stores) for time- or randomness-dependent tests.
-- Before an intentionally expensive test-infrastructure change, run the Windows-authoritative `make test-cost` ratchet and include its evidence with the change.
-- `allow-test-cost-growth` is a maintainer-only label for an authorized policy update; it never bypasses the Windows measurement or comparison.
+Fast feedback is an architectural constraint.
+
+- Keep the default suite narrow enough for normal development loops.
+- Prefer focused package/contract execution over recursively spawning repository-wide test commands from tests.
+- Reuse compiled/cached test helpers rather than rebuilding the same executable for each check.
+- Prefer fake clocks and deterministic IDs over sleeps/polling.
+- Prefer in-memory persistence unless reopen/durability/engine behavior is the subject of the test.
+- Do not add expensive tagged/external work to the default unit path.
+- Before intentionally increasing test/QA infrastructure cost, run the Windows-authoritative `make test-cost` ratchet and provide evidence. Budget changes require explicit maintainer authorization; they are not a normal escape hatch for regressions.
 
 ## Build Tag & Environment Gating Rules
 
-- **Default `make test-unit` vs `make test`**:
-  - `make test-unit` runs `go test $(GO_TEST_FLAGS) ./...` (fast in-memory and composed unit tests using `httptest` and stubs, without external network or database dependencies; excludes `//go:build precommit` and `//go:build integration`). Parallelism defaults to machine core count and is configurable via `GO_TEST_FLAGS` (or `LIP_TEST_PARALLEL`).
-  - `make test` composes `quality-checks-fast`, `test-unit`, and `parity-checks` for comprehensive local verification.
-  - `make parity-checks` encompasses the full parity scope: contract TCKs (`internal/testkit/contract`, `internal/providerprofiles`, `pkg/lipsdk/backendplugin/contracttest`, `internal/testkit/compatibleparity`), protocol conformance matrices (`internal/testkit/conformance` with `-tags=precommit,integration`), external connector parity (ACP, OpenRouter, hosted compatible), and the bounded sentinel (`TestBoundedSentinel`).
-  - `make qa` executes `quality-checks-fast`, the full tagged test pass `qa-tests` (`-tags=precommit,integration`), static analyzers (`lint` with `golangci-lint` preferred and `staticcheck` fallback; `govulncheck` via `vuln`), and static release gates (`backend-plugin-release-gates-static`, `test-openresponses-compliance-static`). It verifies code and architecture without requiring external database services (unconfigured external DB integration tests skip).
-- **Database Dialect Parity Gate**: Canonical repository-wide parity runner derived dynamically from package `internal/testkit/dbparity` via `dbparity.DefaultCatalog()` (8 component families). Executed via `make test-db-parity` (or `make test-db-parity-sqlite`, `make test-db-parity-postgres-direct`). Mandatory direct PostgreSQL mode requires `LIP_REQUIRE_POSTGRES=1` with direct DSN `LIP_TEST_POSTGRES_DSN` (runner accepts fallback to `LIP_TEST_POSTGRES_ADMIN_DSN`) and fails closed on missing/unhealthy service, redacting credentials.
-- **`//go:build integration`**: Env-gated tests requiring real services (e.g. PostgreSQL via `LIP_TEST_POSTGRES_DSN`). In ad-hoc unit runs, tests skip automatically if env vars are unset; in mandatory parity / authority gates, missing configuration fails closed.
-- **`//go:build precommit`**: Non-blocking checks (hygiene in `internal/qa`, regression matrices in `internal/core/runtime`, reasoning HTTP matrix in `internal/stdhttp`). Executed in `make qa` / CI (`-tags=precommit,integration`).
-- **Specialized PostgreSQL Topology Gates**:
-  - `make test-authority-postgres-direct`: Direct PostgreSQL runtime proof for authority/lease/journal/workstore (`LIP_REQUIRE_POSTGRES=1`). Direct DSN in `LIP_TEST_POSTGRES_DSN` (or admin DSN).
-  - `make test-authority-postgres-pooled`: Transaction-pooled runtime proof requiring runtime pooler DSN `LIP_TEST_POSTGRES_DSN`, admin DSN `LIP_TEST_POSTGRES_ADMIN_DSN`, and explicit topology attestation `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1` (Make sets `LIP_REQUIRE_POSTGRES_POOLER=1`).
-  - `make test-postgres-migrations`: Applies and verifies dual-plane PostgreSQL migrations using `LIP_MIGRATION_POSTGRES_DSN` (with fallback to admin/runtime DSNs).
-  - `make test-authority-postgres`: Aggregate direct + pooled proof + migrations (`LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1` required).
-  - Billing convergence (`make billing-convergence-certify`): Deep domain financial invariants and schema verification.
-- **PR CI & Hygiene Integration**:
-  - CI job `db-parity` in `.github/workflows/ci.yml` starts an ephemeral direct PostgreSQL container (`postgres:17-alpine`), runs canonical `make test-db-parity` for test-relevant changes, emits an explicit bypass for changes classified as non-test-relevant by `scripts/ci-scope.sh`, and feeds into the required `repo-hygiene` aggregate status check (`if: always() && needs.db-parity.result != 'success'`).
-  - PR QA in `.github/workflows/qa.yml` runs fast preflight, hygiene, provider profile ratchet, vet, and architecture guardrails; it does not run full tagged integration or postgres authority suites.
-  - The Windows-only `make test-cost` target is the authoritative, opt-in comparison of `test-unit`, `quality-checks`, and `qa-tagged-hotspots` against `scripts/test-cost-budget.json`; it must not be a prerequisite of `make test`. CI passes the PR base SHA and runs the ratchet only on the Windows matrix leg.
+- **Untagged/default tests** must be hermetic and must not require external databases, credentials, or network services.
+- **Integration-tagged tests** may require real services/topologies and must state their prerequisites clearly.
+- **Precommit/tagged matrices** are for broader certification that is too expensive or environment-sensitive for the inner loop.
+- A mandatory gate that explicitly requests an external topology must **fail closed** when the prerequisite is unavailable; an optional ad-hoc integration run may skip when it is not configured.
+- Do not infer CI behavior from steering. The `Makefile` and workflow files are authoritative for the current target/job graph.
 
----
+### Database parity
 
-## High-Value Test Targets
+`internal/testkit/dbparity.DefaultCatalog()` is the authoritative persistence inventory. Steering does not copy the number or names of registered components.
 
-- **Canonical Translation**: `pkg/lipapi` request/event decoding/encoding, dialect preservation, name-based tool classification (`ClassifyToolName` / `ToolEvent` correlation).
-- **Contract TCKs**: Frontend, backend-family, and canonical-core kits under [`internal/testkit/contract`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/testkit/contract). Cartesian FE×BE completeness is retired; a bounded sentinel plus pinned historical inventory replace `AllCells()`.
-- **OpenResponses API**: HTTP POST/SSE and WebSocket turn/continuation pipelines, allowed-tool filters ([`internal/plugins/frontends/openresponses`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/frontends/openresponses)).
-- **Authority & Stage Coordination**: Execution stage budgets, settle failures, provider isolation ([`internal/core/authoritycoord`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/authoritycoord)).
-- **Control Plane Projections**: Ledger projections, metering bridges, readiness reports ([`internal/core/controlplane`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/controlplane)).
-- **Usage-Record Billing**: cheap credit screen, quote/exposure admission, immutable BillingCallID-scoped leg/call records, post-usage customer settlement, independent provider-cost posting, catalog miss fail-closed, and `ComposeBilling` injection ([`internal/core/billing`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/billing), [`internal/infra/billingstore`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/infra/billingstore)). Dual-dialect Bun parity is exercised when PostgreSQL is configured; integration tests skip unless the configured DSN is available.
-- **Interleaved Reasoning**: Routing-required thinker cycle state in core plus feature-owned reasoning memo stores, shape sanitization, Codex native compaction ([`internal/core/interleavedstate`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/interleavedstate), [`internal/plugins/features/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking), `codexclientcompat`).
-- **Durable Stores**: Dual-dialect Bun SQLite/PostgreSQL stores ([`internal/core/continuity/bunstore`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/continuity/bunstore), `securesession/adapters`), including A-leg route-override rows.
-- **Routing & Resilience**: Selector parsing, model aliases, weighted groups, parallel races, TTFT budgets, `[first]`/`[thinker]`, pre-output failover swallowing, runtime A-leg routing overrides (in-flight isolation, generation reload).
-- **Attempt Lifecycle & Cancellation**: TerminalizeAttempt at-most-once convergence, ReadyAttempt-gated publication, A-leg cancellation vs B-leg activation races, terminal evidence draining ([`internal/core/runtime`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/runtime), [`internal/core/leglifecycle`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/leglifecycle)).
-- **Terminal Decisions**: Shared chokepoint single-flight and authoritative pass-through, bounded evidence projection, policy admission snapshots ([`internal/core/runtime`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/runtime), [`internal/plugins/features/agentloopguard`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/features/agentloopguard)).
-- **Conversation View & Local Turns**: Anchor/tag-before-release races, `never_backend` exclusion classification, frozen-view reassertion before backend open, no inference fallback after local-turn failure (kernel [`internal/core/conversationprojection`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/conversationprojection), state in [`internal/infra/conversationview`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/infra/conversationview)).
-- **Secure Sessions**: Authority validation, BeginTurn, resume denial, diagnostics redaction.
+- `make test-db-parity` is the canonical repository-wide dual-engine certification.
+- `make test-db-parity-sqlite` proves the SQLite side of the registered contracts.
+- `make test-db-parity-postgres-direct` proves the direct PostgreSQL side and fails closed when invoked as a mandatory gate without a usable service.
+- Specialized distributed/pooler/migration tests supplement the catalog when topology semantics differ; use the `Makefile` and persistence/release docs for their current names and prerequisites.
 
----
+## Change-Surface Verification Procedure
 
-## Mocking & Boundary Rules
+Select evidence from the semantics changed, not from habit:
 
-- Prefer `httptest.Server` and small stubs over mock frameworks.
-- NEVER mock internal call graphs.
-- Use fake clocks/stores/IDs for time or randomness.
-- Real canonical types (`pkg/lipapi`) MUST be used in tests. Hide vendor SDK types behind adapter edges.
-- Every bug fix MUST include a minimal regression test or fixture.
+| Change surface | Minimum evidence direction |
+| --- | --- |
+| Pure domain/canonical logic | focused unit/regression tests |
+| Parser/decoder/codec | focused tests + fuzzing where practical |
+| Frontend/backend protocol behavior | family contract/conformance tests + focused wire tests |
+| Routing/B2BUA/commitment | core runtime/routing tests; prove no post-commit recovery |
+| Cancellation/goroutine/stream lifecycle | focused concurrency tests + race evidence where practical |
+| Feature/extension-plane behavior | feature tests + SDK/architecture guards; generator check when plane metadata changes |
+| Host/generation publication/reload | candidate rollback, publication isolation, retirement/cleanup tests |
+| Persistence/schema/migrations | focused store tests + applicable `dbparity` gate/topology proof |
+| Connector module | module-local tests + backend-plugin contract/release checks |
+| Billing/accounting | domain invariants + persistence/convergence evidence; no stream-path shortcuts |
+| Test/QA infrastructure | affected tests + `make test-cost` when cost could change |
+| Wide/release-grade change | `make qa` plus domain-specific gates |
 
----
+Run the smallest complete evidence set that proves the changed invariant. Add wider gates when the blast radius is genuinely wider.
 
-## Command Reference
+## High-Value Semantic Targets
 
-- `make quality-checks` — Format, tidy, vet, ad-hoc goroutine allowlist, hot-path regex check, archtest guardrails.
-- `make test` — Quality checks (`quality-checks-fast`) + default unit tests (`test-unit`) + parity checks (`parity-checks`).
-- `make test-unit` — `go test $(GO_TEST_FLAGS) ./...` (fast in-memory/composed unit tests; configurable via `GO_TEST_FLAGS` or `LIP_TEST_PARALLEL`).
-- `make test-db-parity` — Sequential repository-wide SQLite and direct PostgreSQL parity gate (derived from `internal/testkit/dbparity` via `dbparity.DefaultCatalog()` across all 8 components).
-- `make test-db-parity-sqlite` — Canonical SQLite database parity tests across all registered components.
-- `make test-db-parity-postgres-direct` — Repository-wide fail-closed direct PostgreSQL parity (direct/admin DSN; Make sets `LIP_REQUIRE_POSTGRES=1`).
-- `make test-authority-postgres-direct` — Direct PostgreSQL runtime proof for authority/lease/journal/workstore (`LIP_REQUIRE_POSTGRES=1`).
-- `make test-authority-postgres-pooled` — Transaction-pooled runtime proof (requires runtime pooler DSN `LIP_TEST_POSTGRES_DSN`, admin DSN `LIP_TEST_POSTGRES_ADMIN_DSN`, and `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`).
-- `make test-authority-postgres` — Aggregate direct + pooled proof + migrations (pooled attestation required).
-- `make test-postgres-migrations` — Apply and verify dual-plane PostgreSQL migrations.
-- `go test ./internal/archtest/...` — Architecture guardrail tests (including database parity discovery).
-- `make parity-checks` — Full parity matrix: contract TCKs, protocol conformance (`-tags=precommit,integration`), connector parity suites, and bounded sentinel (configurable via `GO_TEST_FLAGS`).
-- `make qa` — Quality checks (`quality-checks-fast`) + full tagged test pass (`-tags=precommit,integration`) + linter (`make lint`: `golangci-lint` preferred, `staticcheck` fallback) + `govulncheck` (`make vuln`) + static release gates (`backend-plugin-release-gates-static`, `test-openresponses-compliance-static`).
-- Extension scalability evidence: `go test ./internal/archtest/...`, `go test ./internal/providerprofiles/...`, `go test ./internal/testkit/contract/...`, `go test ./pkg/lipsdk/backendplugin/contracttest`, and the bounded sentinel through `make parity-checks`. Use `go run ./internal/archtest/tools/changesurface/cmd -json` for the deterministic Git path report; provider-profile-only changes must also pass `make profile-only-check PROFILE_ONLY_BASE=HEAD` (CI runs the same ratchet when profile paths change).
+Prioritize tests for invariants whose failure would invalidate product behavior:
+
+- canonical translation and explicit capability handling;
+- protocol-legal streaming/error framing;
+- routing planning and pre-output-only recovery;
+- at-most-once attempt terminalization and cancellation ownership;
+- immutable generation publication/rollback/retirement;
+- secure-session and authorization boundaries;
+- durable continuity and attempt ordering;
+- feature/core ownership seams and no concrete feature leakage into generic runtime;
+- secret-safe diagnostics/observability;
+- billing exposure/usage/settlement separation;
+- database logical parity across supported engines/topologies.
+
+Concrete feature/provider inventories should not be copied into this list.
+
+## Mocking and Fixture Rules
+
+- Prefer small fakes/stubs and `httptest.Server` over general mock frameworks.
+- Mock external boundaries, not internal call graphs.
+- Use real `pkg/lipapi` canonical types in protocol/core tests.
+- Keep fixtures bounded and human-auditable; golden files are appropriate when exact wire/canonical shape is the contract.
+- Avoid sleeps as synchronization. Use channels, fake clocks, explicit barriers, or state observation.
+- Tests must not depend on execution order or mutable process-global leftovers.
+
+## Failure Triage
+
+When a broad gate fails during a scoped change:
+
+1. reproduce the failure on the change branch;
+2. determine whether the touched ownership surface can causally affect it;
+3. reproduce on the relevant baseline/main SHA when attribution is uncertain;
+4. fix branch-owned regressions before claiming completion;
+5. record genuinely unrelated baseline failures without expanding the task into opportunistic cleanup.
+
+Never claim success from a partial command when the requested completion gate is broader.
+
+## Canonical Command Intents
+
+The `Makefile` is authoritative for exact target composition. Common intents are:
+
+- `make quality-checks` — static/architecture/hygiene checks;
+- `make test-unit` — default unit/composed tests;
+- `make test` — normal comprehensive local verification;
+- `make parity-checks` — protocol/contract parity and bounded cross-surface checks;
+- `make test-db-parity` — repository-wide persistence parity;
+- `make qa` — wide/release-grade verification;
+- `make test-cost` — Windows-authoritative test/QA cost comparison.
+
+Do not duplicate current CI job names, workflow predicates, container versions, connector inventories, or the full Make dependency graph in steering.

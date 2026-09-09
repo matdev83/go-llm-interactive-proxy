@@ -5,21 +5,23 @@ metadata:
   shared-rules: "steering-principles.md"
 ---
 
-
 # Kiro Steering Management
 
 <background_information>
-**Role**: Maintain `.kiro/steering/` as persistent project memory.
+**Role**: Maintain `.kiro/steering/` as durable project memory.
 
 **Mission**:
-- Bootstrap: Generate core steering from codebase (first-time)
-- Sync: Keep steering and codebase aligned (maintenance)
-- Preserve: User customizations are sacred, updates are additive
+- Bootstrap: derive enduring architecture/product/testing guidance from the codebase.
+- Sync: keep steering aligned when governing rules change.
+- De-volatilize: remove copied inventories/version snapshots that are better represented by executable sources of truth.
+- Preserve: protect user intent and valuable custom rules, not stale derived-state prose.
 
 **Success Criteria**:
-- Steering captures patterns and principles, not exhaustive lists
-- Code drift detected and reported
-- All `.kiro/steering/*.md` treated equally (core + custom)
+- Steering captures invariants, ownership boundaries, standards, and decision procedures.
+- Volatile state is referenced through authoritative registries/manifests/parsers/module files rather than duplicated.
+- Ordinary additions that follow an existing pattern do not create steering churn.
+- Contradictory or stale steering is corrected rather than preserved for history.
+- All `.kiro/steering/*.md` are treated as working project memory, including custom files.
 </background_information>
 
 <instructions>
@@ -27,129 +29,99 @@ metadata:
 
 Check `.kiro/steering/` status:
 
-**Bootstrap Mode**: Empty OR missing core files (product.md, tech.md, structure.md)
-**Sync Mode**: All core files exist
+**Bootstrap Mode**: Empty or missing the core product/technology/structure guidance.
+
+**Sync Mode**: Core steering exists.
 
 ---
 
 ## Bootstrap Flow
 
-1. Load templates from `.kiro/settings/templates/steering/`
-2. Analyze codebase (JIT):
+1. Load templates and this skill's `rules/steering-principles.md`.
+2. Analyze the codebase just-in-time:
+   - product/architecture documentation for enduring promises;
+   - composition/registry/manifest code for ownership patterns;
+   - module/config/build files for technology and verification policy;
+   - architecture/QA tests for enforced boundaries.
+3. Separate **rules** from **derived state** before writing:
+   - Rule: "optional backends are manifest-discovered executable connectors" → steering.
+   - Derived state: "the optional connectors are A/B/C/..." → point to manifests, do not copy list.
+4. Generate concise domain-focused steering.
+5. Verify references are repository-relative and portable.
+6. Present a summary of durable decisions captured and executable sources referenced.
 
-#### Parallel Research
-
-The following research areas are independent and can be executed in parallel:
-1. **Product analysis**: README, package.json, documentation files for purpose, value, core capabilities
-2. **Tech analysis**: Config files, dependencies, frameworks for technology patterns and decisions
-3. **Structure analysis**: Directory tree, naming conventions, import patterns for organization
-
-If multi-agent is enabled, spawn sub-agents for each area above. Otherwise execute sequentially.
-
-After all parallel research completes, synthesize patterns for steering files.
-
-3. Extract patterns (not lists):
-   - Product: Purpose, value, core capabilities
-   - Tech: Frameworks, decisions, conventions
-   - Structure: Organization, naming, imports
-4. Generate steering files (follow templates)
-5. Load principles from `rules/steering-principles.md` from this skill's directory
-6. Present summary for review
-
-**Focus**: Patterns that guide decisions, not catalogs of files/dependencies.
+**Focus**: future decision quality, not a snapshot of current implementation inventory.
 
 ---
 
 ## Sync Flow
 
-1. Load all existing steering (`.kiro/steering/*.md`)
-2. Analyze codebase for changes (JIT)
-3. Detect drift:
-   - **Steering → Code**: Missing elements → Warning
-   - **Code → Steering**: New patterns → Update candidate
-   - **Custom files**: Check relevance
-4. Propose updates (additive, preserve user content)
-5. Report: Updates, warnings, recommendations
+1. Read all existing `.kiro/steering/*.md`.
+2. Inspect the code/docs/tests relevant to each steering domain.
+3. Classify observed drift:
+   - **Rule drift**: ownership/invariant/standard/procedure changed → update steering.
+   - **Derived-state drift**: another provider/feature/package follows the same pattern → normally no steering update; generalize/remove stale inventory prose if present.
+   - **Refactor drift**: implementation moved but responsibility stayed the same → update only durable lookup pointers if necessary.
+   - **Contradiction**: steering no longer describes enforced behavior → correct/replace it.
+4. Prefer executable sources of truth for volatile facts: registries, manifests, catalogs, parsers, `go.mod`, `Makefile`, architecture tests.
+5. Remove machine-local absolute links, copied version numbers/counts, CI implementation details, and exhaustive inventories unless they are themselves a deliberate contract.
+6. Preserve user-authored intent while rewriting stale representations when needed.
+7. Report what changed at the rule level and what volatile content was deliberately *not* copied.
 
-**Update Philosophy**: Add, don't replace. Preserve user sections.
+**Update Philosophy**: additive for new durable rules; corrective replacement/deletion for stale or derived-state duplication. Git is the history.
 
 ---
 
-## Granularity Principle
+## Granularity Test
 
-From `rules/steering-principles.md` (in this skill's directory):
+Before adding a statement, ask:
 
-> "If new code follows existing patterns, steering shouldn't need updating."
+1. Will it still matter after several ordinary features/providers/packages are added?
+2. Does it tell a future agent how to decide or what must never break?
+3. Is the current value mechanically discoverable elsewhere?
 
-Document patterns and principles, not exhaustive lists.
+If the answer is "no" to 1/2 or "yes" to 3 without a strong reason to duplicate it, keep it out of steering and point to the authoritative source instead.
 
-**Bad**: List every file in directory tree
-**Good**: Describe organization pattern with examples
+## Common Anti-Patterns
 
+**Bad**: list every provider, feature, package, connector, test job, or exact version.
+
+**Good**: state the architectural class, ownership rule, and source of current inventory.
+
+**Bad**: preserve stale prose because updates are supposed to be additive.
+
+**Good**: preserve user intent, delete snapshot noise, and correct contradictions.
+
+**Bad**: machine-local `file://` links.
+
+**Good**: repository-relative paths or plain package/file references.
 </instructions>
 
-## Tool guidance
+## Tool Guidance
 
-- **Glob**: Find source/config files
-- **Read**: Read steering, docs, configs
-- **Grep**: Search patterns
-- **Bash** with `ls`: Analyze structure
+- Use repository search/tree inspection to find authoritative sources.
+- Read architecture/QA tests when a boundary is supposed to be enforced.
+- Prefer targeted inspection over dumping the whole repository into steering.
+- After updates, search steering for machine-local links and obvious inventories/version snapshots.
 
-**JIT Strategy**: Fetch when needed, not upfront.
+## Output Description
 
-## Output description
+Update files directly, then summarize:
 
-Chat summary only (files updated directly).
-
-### Bootstrap:
-```
-✅ Steering Created
-
-## Generated:
-- product.md: [Brief description]
-- tech.md: [Key stack]
-- structure.md: [Organization]
-
-Review and approve as Source of Truth.
-```
-
-### Sync:
-```
-✅ Steering Updated
-
-## Changes:
-- tech.md: React 18 → 19
-- structure.md: Added API pattern
-
-## Code Drift:
-- Components not following import conventions
-
-## Recommendations:
-- Consider api-standards.md
-```
-
-## Examples
-
-### Bootstrap
-**Input**: Empty steering, React TypeScript project
-**Output**: 3 files with patterns - "Feature-first", "TypeScript strict", "React 19"
-
-### Sync
-**Input**: Existing steering, new `/api` directory
-**Output**: Updated structure.md, flagged non-compliant files, suggested api-standards.md
+- durable rules added/changed;
+- stale or volatile material removed/generalized;
+- executable sources of truth referenced;
+- unresolved contradictions or gaps, if any.
 
 ## Safety & Fallback
 
-- **Security**: Never include keys, passwords, secrets (see principles)
-- **Uncertainty**: Report both states, ask user
-- **Preservation**: Add rather than replace when in doubt
+- Never include credentials, secrets, private database URLs, or sensitive infrastructure details.
+- When evidence conflicts, report the conflict and prefer executable behavior/tests over stale prose.
+- Do not invent a current inventory from partial repository reads.
 
 ## Notes
 
-- All `.kiro/steering/*.md` loaded as project memory
-- Templates and principles are external for customization
-- Focus on patterns, not catalogs
-- "Golden Rule": New code following patterns shouldn't require steering updates
-- Avoid documenting agent-specific tooling directories (e.g. `.cursor/`, `.gemini/`, `.claude/`)
-- `.kiro/settings/` content should NOT be documented in steering files (settings are metadata, not project knowledge)
-- Light references to `.kiro/specs/` and `.kiro/steering/` are acceptable; avoid other `.kiro/` directories
+- All `.kiro/steering/*.md` are working project memory.
+- Templates are starting points, not required shapes.
+- Ordinary code following existing patterns should not require steering updates.
+- Steering is not the place for `.kiro/` metadata documentation or agent-tooling inventories.

@@ -191,49 +191,35 @@ func validateReleaseGatesDoc(content string, catalog dbparity.Catalog) []string 
 	return violations
 }
 
-func validateSteeringAndAgentsDocs(testingContent, techContent, agentsContent string, catalog dbparity.Catalog) []string {
+func validateSteeringAndAgentsDocs(testingContent, techContent, agentsContent string) []string {
 	var violations []string
-	expectedCount := len(catalog.Components)
 
-	// 1. .kiro/steering/testing.md
+	// Steering intentionally references the executable catalog and stable command intents,
+	// but does not duplicate current component counts, component inventories, CI job names,
+	// workflow predicates, or container versions. Those volatile details belong in the
+	// catalog, Makefile/workflows, and maintainer/release documentation.
 	testingSection, err := extractMarkdownSection(testingContent, "## Build Tag & Environment Gating Rules")
 	if err != nil {
 		violations = append(violations, ".kiro/steering/testing.md: "+err.Error())
 	} else {
-		countNeedle := fmt.Sprintf("%d component families", expectedCount)
-		testingMarkers := []string{
+		for _, m := range []string{
 			"internal/testkit/dbparity",
 			"dbparity.DefaultCatalog()",
-			countNeedle,
 			"make test-db-parity",
 			"make test-db-parity-sqlite",
 			"make test-db-parity-postgres-direct",
-			"repo-hygiene",
-			"db-parity",
-			"always() && needs.db-parity.result != 'success'",
-			"scripts/ci-scope.sh",
-		}
-		for _, m := range testingMarkers {
+		} {
 			if !strings.Contains(testingSection, m) {
 				violations = append(violations, ".kiro/steering/testing.md: section missing marker '"+m+"'")
 			}
 		}
 	}
 
-	// 2. .kiro/steering/tech.md
 	techStandardsSection, err := extractMarkdownSection(techContent, "## Database & PgBouncer Standards")
 	if err != nil {
 		violations = append(violations, ".kiro/steering/tech.md: "+err.Error())
 	} else {
-		countNeedle := fmt.Sprintf("All %d production persistence families", expectedCount)
-		techStandardsMarkers := []string{
-			"internal/testkit/dbparity",
-			"dbparity.DefaultCatalog()",
-			countNeedle,
-			"make test-db-parity",
-			"make test-db-parity-postgres-direct",
-		}
-		for _, m := range techStandardsMarkers {
+		for _, m := range []string{"internal/testkit/dbparity", "dbparity.DefaultCatalog()"} {
 			if !strings.Contains(techStandardsSection, m) {
 				violations = append(violations, ".kiro/steering/tech.md: standards section missing marker '"+m+"'")
 			}
@@ -244,29 +230,26 @@ func validateSteeringAndAgentsDocs(testingContent, techContent, agentsContent st
 	if err != nil {
 		violations = append(violations, ".kiro/steering/tech.md: "+err.Error())
 	} else {
-		techCommandsMarkers := []string{
+		for _, m := range []string{
 			"make test-db-parity",
 			"make test-db-parity-sqlite",
 			"make test-db-parity-postgres-direct",
-		}
-		for _, m := range techCommandsMarkers {
+		} {
 			if !strings.Contains(techCommandsSection, m) {
 				violations = append(violations, ".kiro/steering/tech.md: commands section missing marker '"+m+"'")
 			}
 		}
 	}
 
-	// 3. AGENTS.md
 	agentsSection, err := extractMarkdownSection(agentsContent, "## Architecture Guardrails")
 	if err != nil {
 		violations = append(violations, "AGENTS.md: "+err.Error())
 	} else {
-		agentsMarkers := []string{
+		for _, m := range []string{
 			"internal/testkit/dbparity",
 			"dbparity.DefaultCatalog()",
 			"make test-db-parity",
-		}
-		for _, m := range agentsMarkers {
+		} {
 			if !strings.Contains(agentsSection, m) {
 				violations = append(violations, "AGENTS.md: guardrails section missing marker '"+m+"'")
 			}
@@ -453,12 +436,11 @@ func TestDatabaseParity_MaintainerDocsFailClosedPolicy(t *testing.T) {
 func TestDatabaseParity_SteeringAndAgentsDocsDrift(t *testing.T) {
 	t.Parallel()
 
-	catalog := dbparity.DefaultCatalog()
 	testingDoc := readRepositoryFile(t, ".kiro", "steering", "testing.md")
 	techDoc := readRepositoryFile(t, ".kiro", "steering", "tech.md")
 	agentsDoc := readRepositoryFile(t, "AGENTS.md")
 
-	violations := validateSteeringAndAgentsDocs(testingDoc, techDoc, agentsDoc, catalog)
+	violations := validateSteeringAndAgentsDocs(testingDoc, techDoc, agentsDoc)
 	if len(violations) > 0 {
 		t.Fatalf("FAIL-CLOSED: Steering / AGENTS.md database parity drift violations:\n  - %s",
 			strings.Join(violations, "\n  - "))
@@ -468,12 +450,11 @@ func TestDatabaseParity_SteeringAndAgentsDocsDrift(t *testing.T) {
 func TestDatabaseParity_SteeringAndAgentsDocsFailClosedPolicy(t *testing.T) {
 	t.Parallel()
 
-	catalog := dbparity.DefaultCatalog()
 	testingDoc := readRepositoryFile(t, ".kiro", "steering", "testing.md")
 	techDoc := readRepositoryFile(t, ".kiro", "steering", "tech.md")
 	agentsDoc := readRepositoryFile(t, "AGENTS.md")
 
-	if v := validateSteeringAndAgentsDocs(testingDoc, techDoc, agentsDoc, catalog); len(v) != 0 {
+	if v := validateSteeringAndAgentsDocs(testingDoc, techDoc, agentsDoc); len(v) != 0 {
 		t.Fatalf("expected baseline steering and agents docs to have 0 violations, got: %v", v)
 	}
 
@@ -499,20 +480,12 @@ func TestDatabaseParity_SteeringAndAgentsDocsFailClosedPolicy(t *testing.T) {
 			wantSubstr: ".kiro/steering/testing.md: section missing marker 'dbparity.DefaultCatalog()'",
 		},
 		{
-			name: "missing count in testing.md",
+			name: "missing canonical command in testing.md",
 			mutate: func(t *testing.T, testingDoc, techDoc, agentsDoc string) (string, string, string) {
 				t.Helper()
-				return mustMutate(t, testingDoc, "8 component families", "6 component families"), techDoc, agentsDoc
+				return mustMutateAll(t, testingDoc, "make test-db-parity-postgres-direct", "make test-postgres-other"), techDoc, agentsDoc
 			},
-			wantSubstr: ".kiro/steering/testing.md: section missing marker",
-		},
-		{
-			name: "missing CI fail-closed condition in testing.md",
-			mutate: func(t *testing.T, testingDoc, techDoc, agentsDoc string) (string, string, string) {
-				t.Helper()
-				return mustMutate(t, testingDoc, "always() && needs.db-parity.result != 'success'", "needs.db-parity.result == 'failure'"), techDoc, agentsDoc
-			},
-			wantSubstr: ".kiro/steering/testing.md: section missing marker 'always() && needs.db-parity.result != 'success''",
+			wantSubstr: ".kiro/steering/testing.md: section missing marker 'make test-db-parity-postgres-direct'",
 		},
 		{
 			name: "missing package path in tech.md",
@@ -531,12 +504,12 @@ func TestDatabaseParity_SteeringAndAgentsDocsFailClosedPolicy(t *testing.T) {
 			wantSubstr: ".kiro/steering/tech.md: standards section missing marker 'dbparity.DefaultCatalog()'",
 		},
 		{
-			name: "missing count in tech.md",
+			name: "missing canonical command in tech.md",
 			mutate: func(t *testing.T, testingDoc, techDoc, agentsDoc string) (string, string, string) {
 				t.Helper()
-				return testingDoc, mustMutate(t, techDoc, "All 8 production persistence families", "All 5 production persistence families"), agentsDoc
+				return testingDoc, mustMutateAll(t, techDoc, "make test-db-parity-sqlite", "make sqlite-other"), agentsDoc
 			},
-			wantSubstr: ".kiro/steering/tech.md: standards section missing marker",
+			wantSubstr: ".kiro/steering/tech.md: commands section missing marker 'make test-db-parity-sqlite'",
 		},
 		{
 			name: "missing package path in AGENTS.md",
@@ -568,7 +541,7 @@ func TestDatabaseParity_SteeringAndAgentsDocsFailClosedPolicy(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			mTesting, mTech, mAgents := tc.mutate(t, testingDoc, techDoc, agentsDoc)
-			violations := validateSteeringAndAgentsDocs(mTesting, mTech, mAgents, catalog)
+			violations := validateSteeringAndAgentsDocs(mTesting, mTech, mAgents)
 			joined := strings.Join(violations, "; ")
 			if !strings.Contains(joined, tc.wantSubstr) {
 				t.Fatalf("expected violation containing %q, got: %q", tc.wantSubstr, joined)

@@ -1,89 +1,100 @@
 # Routing and Orchestration (Steering)
 
-## Core Ownership Boundaries
+## Core Ownership Boundary
 
-Core (`internal/core/`) strictly owns:
-- Selector parsing (`internal/core/routing`), model alias expansion, candidate resolution, health/exclusion filtering.
-- Attempt sequencing, parallel-race coordination, TTFT budget enforcement (`{ttft_timeout=N}`, `[handicap=N]`).
-- A-leg routing-override state (`internal/core/routeoverride`) and turn-level snapshot application; plugins never own override persistence or selector authority.
-- B2BUA pre-output recovery policy & lineage tracking (`internal/core/b2bua`).
-- Stage evaluation & attempt coordination ([`internal/core/authoritycoord`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/authoritycoord)).
-- Control plane projections ([`internal/core/controlplane`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/controlplane)).
-- Interleaved thinker cycle authority in core plus feature-owned memo processing ([`internal/core/interleavedstate`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/interleavedstate), [`internal/plugins/features/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking)).
+Core owns provider-neutral execution semantics:
 
-Plugins supply policy inputs via SDK contracts; plugins **never** own orchestration logic.
+- selector parsing and route-plan construction;
+- model alias expansion and candidate resolution;
+- health/exclusion filtering and attempt budgets;
+- ordered failover, weighted choice, affinity, races, and time budgets;
+- A-leg routing-override authority and turn-level snapshotting;
+- B2BUA attempt sequencing, lineage, output commitment, and pre-output recovery;
+- cancellation/terminal ownership and provider-neutral evidence flow;
+- core execution-stage authority and control-plane projections.
 
----
+Plugins may contribute policy inputs or optional behavior through SDK contracts. They do not become alternate owners of route planning, B2BUA sequencing, commitment, or retry/failover policy.
 
-## Selector Syntax & Capabilities
+The parser and its tests are the source of truth for concrete selector syntax. Steering records semantics, not a token-by-token grammar copy.
 
-- **Ordered Failover (`|`)**: Tries candidates left-to-right on pre-output recoverable errors (`model-a | model-b`).
-- **Weighted Groups**: Comma-separated weighted branches; the planner picks one eligible arm (session-sticky / retry-aware). Exact grammar stays in the parser.
-- **Parallel Races (`!`)**: Races multiple backends concurrently (`model-a ! model-b`).
-- **Leg Handicap (`[handicap=N]`)**: Delays start of a parallel leg by N milliseconds (`model-a ! model-b[handicap=200]`).
-- **TTFT Budgets (`{ttft_timeout=N}` / `[ttft_timeout=N]`)**: Time-to-first-token budget; satisfied **only** by client-visible canonical output (not keepalive/usage events).
-- **First-Request Steering (`[first]`)**: Routes the initial request of a session differently from subsequent turns.
-- **Thinker Arm (`[thinker]`)**: Marks an interleaved-thinking branch. Disabled unless `interleaved.enabled`. Cannot combine with `[first]` on the same branch. Override substitution must reuse existing A-leg thinker/memo state, not a second planner.
-- **Model Aliases**: Regexp rewrite rules applied before selector parsing. Invalid rules fail startup validation.
-- **Syntax Invariants**: Parallel `!` groups CANNOT mix with `^`, weights, or `[first]` in the same arm.
+## Routing Semantics
 
----
+Regardless of concrete selector syntax, these rules are invariant:
 
-## Runtime A-Leg Routing Overrides
+- **Planning precedes execution**: aliases, overrides, capability checks, eligibility, and candidate shaping are resolved before opening a provider leg where possible.
+- **Attempt-local state stays attempt-local**: candidate-specific capability downgrades, provider identity, timeouts, and evidence must not leak into sibling attempts.
+- **Affinity is advisory policy, not hidden authority**: it may influence candidate choice but must not bypass capability/security/health rejection.
+- **Runtime overrides are A-leg scoped**: changes affect later admitted turns, never mutate an in-flight turn or B-leg, and must be snapshotted before planning.
+- **Reload is generation-based**: new configuration affects new admissions through a newly published immutable generation; in-flight turns keep their admitted generation/state.
 
-Opt-in under `routing.override_admin` (`enabled` defaults false). When set, a protected GET/PUT/DELETE surface under literal `path_prefix` (default `/admin/routing-overrides`) replaces the effective client selector for **later** turns on that A-leg. ServeMux `{id}` wildcards are rejected; the A-leg id is a path suffix under the prefix.
+## Output Commitment and Recovery
 
-- Latest-wins revisioned state; snapshot once per admitted turn before route planning.
-- Never mutate in-flight turns or B-legs. Clear restores current client routing for subsequent turns.
-- Full existing selector language (aliases, failover, weights, races, TTFT, affinity, `[first]`, `[thinker]`).
-- Persist with continuity (memory and Bun SQLite/PostgreSQL). Generation reload reinterprets the raw selector; it does not rewrite in-flight snapshots.
-- Disabling the HTTP surface does not clear persisted overrides. Non-loopback exposure requires the diagnostics shared secret.
+1. **Recovery is pre-output only** — transparent failover, retry, or race substitution is allowed only before client-visible canonical output commits an attempt.
+2. **First visible content commits** — once an attempt has emitted client-visible content, later failure is terminal for that attempt; completed effects are not replayed.
+3. **Every attempt is attributable** — each logical client turn and backend attempt is tracked with lineage/evidence according to the configured continuity mode; persistence durability is a store/topology choice, not part of the attribution invariant.
+4. **Race losers terminate cleanly** — losing or canceled attempts are canceled, drained only as needed for bounded terminal evidence, and terminalized exactly once.
+5. **Provider-only evidence may survive cancellation** — bounded secret-safe terminal evidence can still feed accounting/diagnostics even when the attempt never commits output.
 
----
+## Attempt Publication and Terminal Ownership
 
-## Billing Seams (Not Stream Orchestration)
+- Attempt publication is gated: an attempt is not visible to downstream reducers until its required readiness/initialization contract is complete.
+- There is one physical terminal owner for an attempt. All teardown, observers, authority settlement, metering, lineage, billing evidence, and local state converge through that at-most-once terminal path.
+- A-leg cancellation versus provider activation must be linearizable. Cancellation cannot leave an unowned provider stream or publish a half-initialized attempt.
+- Transitional rollback/abort paths should not create a second terminal protocol.
 
-Runtime has exactly two billing touch points: a cheap settled-credit screen before route expansion, then side-effect-free route/quote followed by atomic operational-exposure admission. After admission, terminal ownership appends immutable per-B-leg usage plus one BillingCallID-scoped call closure. Stream handlers must not rate, journal, mutate balance/exposure, or accumulate financial evidence. Failover, races, and no-retry-after-output stay execution concerns.
+## Generation Compilation and Publication
 
----
+A runtime generation is an immutable request plane. Candidate compilation/validation and active publication are distinct phases.
 
-## B2BUA Pre-Output Recovery Rules
+- **Compilation must be side-effect isolated**: compiling or validating a candidate generation must not mutate active process feature state or externally visible generation state.
+- **Candidate-owned resources use explicit ownership**: resources acquired during compilation belong to the candidate resource ledger and are released on rejection/rollback.
+- **Publication-only effects run after publication**: any action that changes process-visible behavior because a generation became active must be registered for the publication phase and execute only after the generation is the active published request plane.
+- **Rejected candidates are observationally inert**: a candidate that never publishes must not retarget process metrics, replace active services, or otherwise affect serving behavior.
+- **Retirement is manager-owned**: superseded generations drain existing users and close through the generation lifecycle; request paths do not implement ad-hoc generation cleanup.
 
-1. **Pre-Output Only**: Failover/swallowing is permitted **ONLY BEFORE** client-visible canonical output starts.
-2. **Commitment**: The first client-visible content event commits the attempt. No silent failover after commitment.
-3. **Lineage Invariant**: Every A-leg (logical client request) and B-leg (backend attempt) MUST be recorded in lineage.
-4. **Clean Race Cancellation**: Parallel losing legs MUST be cancelled immediately without goroutine leaks or corrupted lineage.
-5. **Leg Attribution**: Each B-leg uses backend-specific identity (`User-Agent`/OpenRouter); A-leg `Server` identity remains proxy-owned ([`docs/proxy-identity.md`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/docs/proxy-identity.md)).
+These rules apply to feature-host output, metrics projections, background workers, reload, and future generation-bound facilities.
 
----
+## Core vs Feature Policy
 
-## Attempt Publication, Terminal Ownership & Cancellation
+Use the kernel/policy test when deciding ownership:
 
-- **Sole Terminal Owner**: `attemptSession.TerminalizeAttempt` is the only physical attempt terminal owner; terminalization is at-most-once via terminal CAS over one converged protocol (detach, cancel/close, observers, authority, metering, B-leg, billing, evidence, local state).
-- **Gated Publication**: Slot publication requires the single-use `ReadyAttempt` capability; readiness (sideband drain + final stream observation) completes before publication and initial assembly is atomic. No transitional abort/rollback shims: losing arms are terminalized exactly once by the serial reducer.
-- **Linearizable Cancellation**: A-leg cancellation vs B-leg provider activation is linearizable (close-backed cancellation deadlines, CANCEL/EOF race handling). Cancel acknowledgment/outcome negotiation is truthful; force-close coordination is bounded.
-- **Evidence Precedence**: Canceled or losing attempts still drain bounded, secret-safe terminal evidence; provider-only sideband evidence survives through terminal billing with exactly-once precedence. Committed output and completed tool effects are never replayed.
+- If logic is required with all optional product features disabled and is necessary to coordinate execution safely, it may be core.
+- If logic is optional UX, maintenance, reasoning shaping, safety policy, actor policy, or other feature behavior, the feature owns it and core consumes only a narrow typed port/plane.
+- Pure projection/state-machine kernels over canonical facts may stay core when multiple features/protocols rely on the same invariant; mutable feature state and feature-specific policy stay outside core.
 
----
+No request-time service locator or concrete-feature switch belongs in core/runtime composition.
 
-## Authority Coordination & Control Plane
+## Billing Boundary
 
-- **[`internal/core/authoritycoord`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/authoritycoord)**: `stage_evaluator.go` enforces execution stage budgets and records attempt-stage settle failures.
-- **Concurrency & Usage Authorities**: `concurrencyauthority` & `usageauthority` enforce turn limits and token/request quotas per principal/tenant. Production `accounting.authority` YAML must not encode monetary `budget` / `spend_cap` / `money_nano`; money admission is billing authorization.
-- **Control Plane Projections**: `controlplane` projects execution facts to ledger stores (`usage_projector.go`), provides metering bridges, and builds readiness reports (`readiness_report.go`). Those rows are not customer-balance truth.
+Routing/execution and billing cooperate through narrow lifecycle seams:
 
----
+- a cheap financial eligibility screen may occur before expensive route expansion;
+- route/quote evaluation remains side-effect-free;
+- operational exposure is admitted atomically before upstream execution;
+- terminal ownership appends immutable per-attempt/call usage evidence;
+- customer settlement and provider cost posting happen after usage and are not stream-receive responsibilities.
 
-## Interleaved Reasoning Preservation
+Stream handlers must not rate prices, post journal entries, mutate balances/exposure, or use the legacy token ledger as monetary truth.
 
-- **Memo Store**: [`internal/plugins/features/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking) retains structured reasoning blocks across turns and B2BUA failover attempts; only routing-required cycle values stay core-owned in `internal/core/interleavedstate`.
-- **Shape & Sanitize**: `shape.go` and `sanitize.go` prevent reasoning duplication/corruption across retries.
+## Continuity and Persistence
 
----
+Continuity implementations may be in-memory or durable, but semantics must remain backend-independent:
 
-## Continuity & Durable Store Rules
+- A-leg/B-leg identity and ordering are authoritative product concepts, not database-row accidents.
+- Persistence adapters must preserve the same contract across supported database engines.
+- Pooler/topology restrictions belong to persistence/infrastructure policy, not routing logic.
+- Feature-owned durable state must not turn the core continuity store into a generic feature database.
 
-- **Default In-Memory**: `continuity.store: memory` (single-process mode).
-- **Dual SQLite / PostgreSQL Store**: [`internal/core/continuity/bunstore`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/continuity/bunstore) provides durable metadata over Bun ORM (`uptrace/bun`). Secure sessions use the same driver pattern ([`internal/core/securesession/adapters/`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/securesession/adapters)).
-- **PgBouncer Pooler Invariants**: Direct admin DSN (`LIP_TEST_POSTGRES_ADMIN_DSN`) for migrations/cleanup; pooled runtime DSN (`LIP_TEST_POSTGRES_DSN`) for runtime DML. **FORBIDDEN**: `SET search_path`, temporary tables, prepared statements, session locks, or `transaction_pool` + `auto_migrate`.
-- `internal/plugins/stores/` is reserved for future third-party store plugins. Primary stores stay in `internal/core/`.
+## Change Procedure
+
+For routing/orchestration changes:
+
+1. Identify whether the change affects parsing, planning, attempt lifecycle, commitment, cancellation, generation lifecycle, or optional feature policy.
+2. Preserve single ownership: do not solve a feature problem by adding a second planner/terminal path.
+3. Write focused characterization/regression tests before rewiring lifecycle code.
+4. Exercise cancellation/race cases when concurrency changes.
+5. Verify no retry/failover can occur after commitment.
+6. Verify candidate-generation failure leaves active process/generation state unchanged when composition changes.
+7. Run architecture and relevant contract/parity gates.
+
+Concrete selector operators, feature names, provider inventories, and store implementations should be looked up in their executable packages/tests rather than duplicated here.

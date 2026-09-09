@@ -1,45 +1,88 @@
 # Product Overview (Steering)
 
-## Core Identity & Value Proposition
+## Purpose
 
-**LLM Interactive Proxy (Go)** is a universal LLM control plane that decouples client integrations from backend models and providers.
+LLM Interactive Proxy is a protocol-neutral control plane between AI clients and model backends. Its durable product promise is to let clients and backends evolve independently while the proxy owns cross-provider execution policy, continuity, safety, and observability.
 
-- **Universal Translation**: Frontends decode to canonical (`pkg/lipapi`); backends emit canonical events. Zero pairwise translators.
-- **Policy-Owning Core**: Dynamic routing, weighted load-balancing, ordered failover, parallel races, TTFT budgets, A-leg routing overrides, and pre-output recovery are strictly core-owned.
-- **Fail-Fast Capabilities**: Mismatches or lossy feature degradations fail explicitly before upstream execution.
-- **Observable Continuity**: A-leg continuity and B-leg attempt lineage are fully observable and audit-logged.
+Steering describes that promise and the rules that preserve it. It is intentionally **not** a catalog of currently implemented providers, connectors, feature plugins, or protocol versions.
 
----
+## Enduring Product Contract
 
-## Supported Compatibility Surfaces
+1. **Canonical translation, not pairwise translation**
+   - Frontends decode wire protocols into canonical `pkg/lipapi` contracts.
+   - Backends consume canonical calls and emit canonical events.
+   - Adding a frontend or backend must not create frontend×backend translators.
 
-- **Client Frontends**: OpenAI Responses API & OpenResponses 2026-04-24 (HTTP POST/SSE + WebSocket turns/continuation), legacy OpenAI Chat/Models, Anthropic Messages API, Gemini `generateContent`.
-- **Essential hosted backends**: OpenAI Responses, legacy OpenAI Chat, Anthropic Messages, Gemini `generateContent`, Bedrock Converse, Alibaba Token Plan International (`alibabatokenplanintl`), plus built-in custom-compatible families.
-- **Optional connectors**: ACP prompt-turn family (`acp`, `agycliacp`, `cursorcliacp`, `cursorsdk`, `geminicliacp`), OpenRouter, NVIDIA, Hugging Face, OpenAI Codex, OpenCode Go/Zen, Ollama (`ollama`/`ollama-cloud`), llama.cpp, LM Studio, vLLM, `localstub`.
+2. **Streaming is the primary execution model**
+   - Streaming semantics define the request/response lifecycle.
+   - Non-streaming behavior is collection over the same canonical event path, not a second execution engine.
 
-Source of truth: [`internal/standardplugins/standard_table.go`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/standardplugins/standard_table.go) and [`pkg/lipsdk/standard_bundle.go`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/pkg/lipsdk/standard_bundle.go).
+3. **Core owns shared execution semantics**
+   - Routing, candidate planning, failover/races, output commitment, B2BUA attempt lifecycle, continuity, and other provider-neutral orchestration stay in the core.
+   - Provider- or feature-specific policy reaches the core through explicit SDK contracts; it does not become concrete core branching.
 
----
+4. **Capabilities fail explicitly**
+   - Required semantics must be negotiated before upstream execution where possible.
+   - Unsupported or lossy behavior must be explicit. Silent semantic degradation is not an acceptable compatibility strategy.
 
-## Core Product Pillars
+5. **Continuity and lineage are first-class**
+   - A logical client turn and every backend attempt must remain attributable.
+   - Recovery is bounded by downstream commitment: once client-visible output commits an attempt, transparent replay/failover is no longer allowed.
 
-1. **Streaming-First Execution**: Primary path is streaming. Non-streaming collects events over the canonical stream.
-2. **Authority Coordination**: Execution stage limits and settle failure recording via [`internal/core/authoritycoord`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/authoritycoord). Non-money quota and rate-limit rules stay here; production YAML must not encode monetary `budget` / `spend_cap` / `money_nano` authority.
-3. **Control Plane Projections**: Operator facts, metering usage bridges, and readiness reporting via [`internal/core/controlplane`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/controlplane). Control-plane rows are not monetary truth.
-4. **Usage-Record Billing**: Run a cheap credit screen, admit one atomic operational exposure after route/quote, execute billing-blind, append BillingCallID-scoped terminal usage, then post-usage customer settlement closes exposure while provider COGS posts independently. Stock `lipstd` and public `pkg/lipruntime.Options` do not invent accounts or open the journal; internal hosts inject via `runtimebundle.ComposeBilling`. Recipe: [`docs/billing-host-composition.md`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/docs/billing-host-composition.md).
-5. **Interleaved Reasoning**: Structured reasoning block retention across turns/attempts via the routing-owned thinker cycle ([`internal/core/interleavedstate`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/interleavedstate)) plus the feature-owned processor ([`internal/plugins/features/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking)), with opt-in semantic compression of plain-text reasoning that keeps original artifacts authoritative and fails closed.
-6. **Proxy-Owned Conversation View**: Replay-stable message identities let the proxy tag client-visible content as never-forwarded-to-backend (`never_backend`), persist client-hidden model-visible steering, and run generic proxy-local turns — all bounded, proxy-owned state (kernel [`internal/core/conversationprojection`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/conversationprojection), state in [`internal/infra/conversationview`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/infra/conversationview)).
-7. **Pluggable Terminal Decisions**: Provisional-terminal continuation decisions flow through one core chokepoint with a single exclusive provider slot (e.g., Agent Loop Guard); core stays provider-neutral and removal restores generic behavior.
-8. **Decoupled Extensibility**: Hooks and extension stages (`pkg/lipsdk`) provide typed facades for auth, sessions, workspace resolution, tool reactors, completion gates, and accounting without core coupling. Compatible-provider growth is data-driven (`internal/providerprofiles`) plus contract TCKs, not a Cartesian frontend×backend product.
-9. **Fail-Closed Security**: Mandatory secure-session authority (`securesession`), loopback-only `no_auth`, and non-root execution.
+6. **Extensibility must preserve a small kernel**
+   - Optional UX, safety, maintenance, reasoning, and workflow behaviors belong in feature plugins or infrastructure behind narrow SDK seams.
+   - Compatible-provider growth is data-driven where a protocol family can be shared; dedicated adapters/connectors are used only when the wire/runtime contract genuinely differs.
 
----
+7. **Security is fail-closed**
+   - Client hints are not authority.
+   - Secrets and provider diagnostics must not leak across the client boundary.
+   - Unsafe exposure modes must be explicit and bounded.
+
+8. **Money is not stream orchestration**
+   - Financial authorization, usage evidence, rating, settlement, and provider cost accounting remain separated from stream processing.
+   - Public runtime composition stays non-money; hosts that need billing inject the required ports explicitly.
+
+## Architectural Classes
+
+The product is organized around durable classes rather than a fixed inventory:
+
+- **Frontends** — driving adapters for client wire protocols.
+- **Core** — provider-neutral orchestration, continuity, commitment, and shared policy mechanisms.
+- **Backends** — driven adapters for essential in-process provider families and compatible protocol families.
+- **Executable connectors** — optional out-of-process backend integrations discovered through trusted manifests.
+- **Feature plugins** — optional behavior contributed through typed extension planes and host-feature bindings.
+- **Infrastructure** — persistence, HTTP clients, observability, connector hosting, and other technology adapters.
+- **Composition roots** — explicit assembly of the standard distribution and immutable runtime generations.
+
+A new implementation that fits an existing class should normally **not** require a steering change.
+
+## Where to Find Current Product State
+
+Use executable sources for volatile inventories instead of copying them into steering:
+
+- Bundled frontend/backend/feature contributions: `internal/standardplugins/`.
+- Public standard-distribution requirements: `pkg/lipsdk/standard_bundle.go`.
+- Compatible-provider profiles: `internal/providerprofiles/`.
+- Optional executable connectors: connector manifests and release metadata under `connectors/`.
+- Current operator-facing behavior and examples: `README.md` and `docs/`.
+
+When these inventories change without changing an architectural rule, update the executable source/docs — not this file.
+
+## Decision Rules for New Work
+
+- If behavior exists only because of one wire protocol or provider, keep it at the adapter edge.
+- If behavior is shared execution policy needed independently of optional features, it may belong in core.
+- If behavior is optional product policy or UX, prefer a feature-owned implementation behind SDK contracts.
+- If a provider is compatible with an existing protocol family, prefer a declarative profile before creating another in-process backend package.
+- If an integration needs its own dependencies/process/runtime contract, prefer an executable connector over widening the root module.
+- If correctness can be certified by family contracts and bounded real-stack tests, do not introduce Cartesian frontend×backend test matrices.
 
 ## Architectural Non-Goals
 
-- Avoid Python-era legacy claims without Go implementation.
-- Do not leak provider-specific or transport-specific logic into `internal/core/`.
-- Reject textbook `app/domain/adapters` directory taxonomy churn.
-- Forbid Go native dynamic binary loading (Go `plugin` package is forbidden; use out-of-process gRPC connectors under `connectors/`).
-- Prevent feature additions that compromise small core policy ownership or contract testability.
-- Do not restore stream-time price enrichment, token-ledger monetary writes, or YAML auto-open of the billing journal.
+- No provider SDK or wire-format leakage into canonical/core packages.
+- No pairwise protocol translators.
+- No native Go `plugin` loading for backend extensibility.
+- No DI/service-locator framework or reflection-based runtime registry.
+- No feature-specific service map or request-time feature lookup in generic core composition.
+- No stream-time financial rating/journal mutation.
+- No steering maintenance whose only purpose is to mirror a changing provider, connector, package, feature, or version inventory.
