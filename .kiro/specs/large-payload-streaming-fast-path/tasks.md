@@ -89,7 +89,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - _Validation: `go test -race ./internal/infra/runtimehost/... ./internal/infra/runtimebundle/... ./internal/stdhttp/...`_
   - _Requirements: 1, 5, 6_
 
-- [ ] 1.5 Freeze secure-session/A-leg/route-override lifecycle
+- [x] 1.5 Freeze secure-session/A-leg/route-override lifecycle
   - Count principal/scope/session-open/workspace stages, `BeginTurn`, A-leg create/fetch, route-override snapshot/barrier, secure client-turn recorder, B-legs, terminal/finalization, new-session resume-token return, resume/denial/cancel/error paths.
   - Characterize standard memory and Bun continuity stores as route-override-capable compositions.
   - Detached execution stays canonical-only.
@@ -807,3 +807,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 1.2 test-only scope VERIFIED (independent reviewer APPROVED): fresh `go test -count=1` PASS exit 0 for 4 frontend packages (`frontendpipe`, `openairesponses`, `openailegacy`, `openresponses`); gofmt and diff check clean. Windows `go test -race` for same packages failed on `cgo.exe` exit 2 (Windows race/cgo toolchain limitation, not a test failure); future race certification needs working toolchain.
 - Task 1.3 approved correction applied: 1.3 characterizes current canonical one-`TryAdmit` decision including terminal decode failure; Task 7.6 owns proof-decline same-permit fallback and Task 11.9 owns assessment-decline same-permit fallback with the original permit held and no second decision; Requirement 6.3 preserved.
 - Task 1.4 test-only scope VERIFIED (fresh reviewer APPROVED): required suites ALL PASS on feature branch (`runtimehost`, `runtimebundle` incl. repaired candidate test, `stdhttp`); repair attribution `3054bc43`/`dc5f42af` retained; gofmt/diff-check clean; `-race` skipped per Windows cgo limitation.
+- Task 1.5 test-only scope VERIFIED (fresh reviewer APPROVED): 3 lifecycle freeze test files; required 3-package suites PASS (`internal/core/runtime`, `internal/core/securesession`, `internal/core/routeoverride`); gofmt/diff-check clean; no production diff; Bun continuity via existing suites; future seams disclaimed; `-race` skipped per Windows cgo limitation.
