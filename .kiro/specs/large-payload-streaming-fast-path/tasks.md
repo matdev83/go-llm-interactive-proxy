@@ -58,7 +58,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 1. Revalidate the exact implementation-start architecture before production changes
 
-- [ ] 1.1 Record implementation-start SHA and compare it with this revision
+- [x] 1.1 Record implementation-start SHA and compare it with this revision
   - Record `git rev-parse HEAD` in implementation evidence.
   - Re-check frontend ingress/decode/admission, generated planes, request-generation binding, secure-session lifecycle, metering/accounting, routing/route override, backend contracts, keepalive/response ownership.
   - If any material seam differs from the assumptions below, update `requirements.md`, `design.md`, and this plan before production code.
@@ -800,3 +800,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Full QA/race/static results.
   - Do not close #532 until all applicable workstreams are complete or explicitly documented as intentionally canonical-only follow-ups under the requirements.
   - _Requirements: 21, 22_
+
+## Implementation Notes
+
+- Task 1.1 at `3da34d7875443355d65cb9d7df649555dfad3edb` has unchanged runtime seams vs `b08c608` baseline but full archtest and focused billing docs test failed at that SHA due to upstream `product.md`/`structure.md` marker removal; evidence `evidence/1.1-rebaseline.md`; no downstream workaround or production changes. Repaired by `caa38dc9` (cherry-pick of upstream fix `a640123c` restoring billing-exposure contract markers); `go test -count=1 -timeout=10m ./internal/archtest` now passes on the feature worktree.
