@@ -14,13 +14,17 @@ updates:
       - /connector-support/openaicompat
       - /connectors/acp
       - /connectors/agycliacp
+      - /connectors/azure
+      - /connectors/cloudflare
       - /connectors/codex
       - /connectors/commandcode-anthropic
       - /connectors/commandcode-openai
       - /connectors/cursorcliacp
       - /connectors/cursorsdk
+      - /connectors/databricks
       - /connectors/geminicliacp
       - /connectors/huggingface
+      - /connectors/infomaniak
       - /connectors/llamacpp
       - /connectors/lmstudio
       - /connectors/localstub
@@ -28,6 +32,7 @@ updates:
       - /connectors/ollama
       - /connectors/opencode
       - /connectors/openrouter
+      - /connectors/snowflake
       - /connectors/vllm
     schedule:
       interval: weekly
