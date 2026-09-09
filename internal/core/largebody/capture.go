@@ -348,6 +348,7 @@ type CaptureResult struct {
 	Outcome      CaptureOutcome
 	Source       Source
 	Continuation *CaptureReader
+	Digest       SourceDigest
 	BytesRead    int64
 	Err          error
 }
@@ -487,6 +488,7 @@ func CaptureRequestBody(body io.ReadCloser, spill *SpillBuffer, cfg CaptureConfi
 		if rErr != nil {
 			if errors.Is(rErr, io.EOF) {
 				var src Source
+				var digest SourceDigest
 				if spill != nil {
 					compSrc, err := spill.Complete()
 					if err != nil {
@@ -499,10 +501,12 @@ func CaptureRequestBody(body io.ReadCloser, spill *SpillBuffer, cfg CaptureConfi
 						}
 					}
 					src = compSrc
+					digest = compSrc.Digest()
 				}
 				return CaptureResult{
 					Outcome:   CaptureOutcomeCompleted,
 					Source:    src,
+					Digest:    digest,
 					BytesRead: totalRead,
 				}
 			}

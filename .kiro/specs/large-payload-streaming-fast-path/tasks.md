@@ -246,7 +246,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Windows file deletion covered; no cleanup goroutine required.
   - _Requirements: 10, 20_
 
-- [ ] 4.5 Compute source integrity digest during capture
+- [x] 4.5 Compute source integrity digest during capture
   - Source digest is for replay/attempt evidence only; never substitute for canonical semantic identity.
   - _Requirements: 15, 16, 20_
 
@@ -828,3 +828,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 4.2 VERIFIED (fresh reviewer APPROVED): SpillBuffer bounded RAM + 0600 unpredictable spill, suffix preservation, reservation integration, budgets bump; largebody + archtest PASS, budget recount verified, diff-check/gofmt/vet clean; -race unavailable cgo limitation.
 - Task 4.3 VERIFIED (fresh reviewer APPROVED): CaptureReader/CaptureRequestBody lossless continuation, forward-only socket, same ceiling, suffix guard, budgets bump; largebody + budget gate PASS, diff-check/gofmt/vet clean; -race unavailable cgo limitation.
 - Task 4.4 VERIFIED (fresh reviewer APPROVED): CompletedSource offset-zero readers, parallel independence, idempotent nonblocking close, pending deletion, budgets bump; follow-up: pre-completion reader tracking gap noted for 4.6; largebody suite + archtest budget PASS, vet/diff-check clean; -race unavailable cgo limitation.
+- Task 4.5 VERIFIED (fresh reviewer APPROVED): incremental SHA-256 source digest, evidence-only distinct from IdentityDigest, unwritten suffix never hashed, budgets bump; largebody suite + budget gate PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.

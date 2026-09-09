@@ -3,9 +3,11 @@ package largebody
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -95,6 +97,8 @@ type SpillConfig struct {
 //     ensuring no bytes read from the client socket are discarded (Requirement 20.6).
 //   - Root Close() is idempotent and nonblocking; if readers are active, deletion
 //     is marked pending and removal occurs when tracked readers close (Requirement 20.9).
+//   - Incrementally hashes committed writes (SHA-256) during capture writes (Task 4.5;
+//     Requirements 15, 16.5, 20).
 //   - Thread-safe for concurrent read/close operations.
 type SpillBuffer struct {
 	mu sync.Mutex
@@ -113,6 +117,7 @@ type SpillBuffer struct {
 
 	bytesWritten int64
 	fileBytes    int64
+	hasher       hash.Hash
 
 	// Unwritten suffix from a failed or partial write (Requirement 20.6).
 	unwrittenSuffix []byte
@@ -179,6 +184,7 @@ func NewSpillBuffer(cfg SpillConfig) (*SpillBuffer, error) {
 		copyBuf:          make([]byte, copySize),
 		reservation:      cfg.Reservation,
 		mem:              mem,
+		hasher:           sha256.New(),
 		createFile:       createFile,
 		openFile:         openFile,
 		removeFile:       removeFile,
@@ -270,6 +276,9 @@ func (b *SpillBuffer) Write(p []byte) (int, error) {
 			// Entire chunk fits in memory
 			b.mem = append(b.mem, p...)
 			b.bytesWritten += int64(len(p))
+			if b.hasher != nil {
+				b.hasher.Write(p)
+			}
 			b.unwrittenSuffix = nil
 			return len(p), nil
 		}
@@ -278,6 +287,9 @@ func (b *SpillBuffer) Write(p []byte) (int, error) {
 		if availMem > 0 {
 			b.mem = append(b.mem, p[:availMem]...)
 			b.bytesWritten += availMem
+			if b.hasher != nil {
+				b.hasher.Write(p[:availMem])
+			}
 		}
 		toSpill := p[availMem:]
 
@@ -295,6 +307,9 @@ func (b *SpillBuffer) Write(p []byte) (int, error) {
 		if nw > 0 {
 			b.bytesWritten += int64(nw)
 			b.fileBytes += int64(nw)
+			if b.hasher != nil {
+				b.hasher.Write(toSpill[:nw])
+			}
 		}
 		if err != nil || nw < len(toSpill) {
 			unwritten := toSpill[nw:]
@@ -324,6 +339,9 @@ func (b *SpillBuffer) Write(p []byte) (int, error) {
 	if nw > 0 {
 		b.bytesWritten += int64(nw)
 		b.fileBytes += int64(nw)
+		if b.hasher != nil {
+			b.hasher.Write(p[:nw])
+		}
 	}
 	if err != nil || nw < len(p) {
 		unwritten := p[nw:]
@@ -536,9 +554,28 @@ func (b *SpillBuffer) Open() (io.ReadCloser, error) {
 	}, nil
 }
 
+// Digest returns the running source integrity digest computed over all bytes
+// committed so far (Requirements 15, 16, 20; design section 5).
+// It returns a zero SourceDigest if no bytes have been written yet.
+func (b *SpillBuffer) Digest() SourceDigest {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.bytesWritten == 0 || b.hasher == nil {
+		return SourceDigest{}
+	}
+	var sum [32]byte
+	copy(sum[:], b.hasher.Sum(nil))
+	return NewSourceDigest(sum)
+}
+
+// SourceDigest returns the running source integrity digest computed so far.
+func (b *SpillBuffer) SourceDigest() SourceDigest {
+	return b.Digest()
+}
+
 // Complete transitions the SpillBuffer into an immutable CompletedSource (Requirements 10, 20; design section 5).
 // It syncs and closes the write file handle (if any), shrinks the spool reservation to actual bytes written,
-// seals the buffer against further writes, and returns the immutable CompletedSource.
+// binds the incrementally computed SourceDigest, seals the buffer against further writes, and returns the immutable CompletedSource.
 func (b *SpillBuffer) Complete() (*CompletedSource, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -567,12 +604,20 @@ func (b *SpillBuffer) Complete() (*CompletedSource, error) {
 		_ = b.reservation.ShrinkTo(b.bytesWritten)
 	}
 
+	var digest SourceDigest
+	if b.hasher != nil && b.bytesWritten > 0 {
+		var sum [32]byte
+		copy(sum[:], b.hasher.Sum(nil))
+		digest = NewSourceDigest(sum)
+	}
+
 	b.completed = true
 
 	src := &CompletedSource{
 		mem:           b.mem,
 		filePath:      b.filePath,
 		size:          b.bytesWritten,
+		digest:        digest,
 		reservation:   b.reservation,
 		activeReaders: b.activeReaders,
 		deletePending: b.deletePending,

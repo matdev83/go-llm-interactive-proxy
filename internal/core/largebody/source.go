@@ -2,6 +2,7 @@ package largebody
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,10 @@ type CompletedSourceConfig struct {
 	// Size is the exact captured body size in bytes.
 	Size int64
 
+	// Digest is the replay/attempt source integrity digest (Requirements 15, 16, 20; design section 5).
+	// If zero and data is in-memory without spill, it is automatically computed via SHA-256.
+	Digest SourceDigest
+
 	// Reservation is an optional logical spool reservation released on root close.
 	Reservation *SpoolReservation
 
@@ -47,12 +52,14 @@ type CompletedSourceConfig struct {
 //   - Windows open-file deletion safety: if readers are active during root Close(), deletion is marked pending
 //     and the spill file is removed only when the last active reader closes (Requirements 20.9, 20.10).
 //   - No background cleanup goroutines required.
+//   - Binds an immutable SourceDigest for replay/attempt evidence; explicitly not a substitute for canonical semantic identity (Requirements 15, 16.5).
 type CompletedSource struct {
 	mu sync.Mutex
 
 	mem         []byte
 	filePath    string
 	size        int64
+	digest      SourceDigest
 	reservation *SpoolReservation
 
 	activeReaders int
@@ -94,10 +101,16 @@ func NewCompletedSource(cfg CompletedSourceConfig) (*CompletedSource, error) {
 		}
 	}
 
+	digest := cfg.Digest
+	if digest.IsZero() && len(mem) > 0 && cfg.FilePath == "" {
+		digest = NewSourceDigest(sha256.Sum256(mem))
+	}
+
 	return &CompletedSource{
 		mem:         mem,
 		filePath:    cfg.FilePath,
 		size:        size,
+		digest:      digest,
 		reservation: cfg.Reservation,
 		openFile:    openFile,
 		removeFile:  removeFile,
@@ -107,13 +120,16 @@ func NewCompletedSource(cfg CompletedSourceConfig) (*CompletedSource, error) {
 // NewMemorySource constructs an immutable in-memory CompletedSource from data.
 func NewMemorySource(data []byte) *CompletedSource {
 	var mem []byte
+	var digest SourceDigest
 	if len(data) > 0 {
 		mem = make([]byte, len(data))
 		copy(mem, data)
+		digest = NewSourceDigest(sha256.Sum256(mem))
 	}
 	return &CompletedSource{
 		mem:        mem,
 		size:       int64(len(mem)),
+		digest:     digest,
 		openFile:   defaultOpenSpillFile,
 		removeFile: os.Remove,
 	}
@@ -264,6 +280,20 @@ func (s *CompletedSource) IsDeletePending() bool {
 	return s.deletePending
 }
 
+// Digest reports the bound source integrity digest (Requirements 15, 16, 20; design section 5).
+// The source digest is for replay/attempt evidence only and is never a substitute for
+// canonical semantic identity (Requirement 16.5).
+func (s *CompletedSource) Digest() SourceDigest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.digest
+}
+
+// SourceDigest reports the bound source integrity digest (alias for Digest).
+func (s *CompletedSource) SourceDigest() SourceDigest {
+	return s.Digest()
+}
+
 // String returns a bounded diagnostic representation without leaking prompt
 // content, model names, or filesystem paths (Requirement 20.3).
 func (s *CompletedSource) String() string {
@@ -272,8 +302,8 @@ func (s *CompletedSource) String() string {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return fmt.Sprintf("CompletedSource{size=%d, mem=%d, spilled=%t, readers=%d, closed=%t}",
-		s.size, len(s.mem), s.filePath != "", s.activeReaders, s.closed)
+	return fmt.Sprintf("CompletedSource{size=%d, mem=%d, spilled=%t, readers=%d, closed=%t, digest=%s}",
+		s.size, len(s.mem), s.filePath != "", s.activeReaders, s.closed, s.digest.String())
 }
 
 // completedSourceReader wraps an io.Reader and tracks reader lifetime on the parent CompletedSource.
