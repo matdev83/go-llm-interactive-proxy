@@ -5,7 +5,7 @@ go 1.26.6
 require (
 	github.com/matdev83/go-llm-interactive-proxy v0.0.0
 	go.uber.org/goleak v1.3.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 )
 
 // Local development: replace points at the monorepo root so GOWORK=off module
