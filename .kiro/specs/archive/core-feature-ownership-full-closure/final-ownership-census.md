@@ -10,7 +10,7 @@ feature implementation/policy**, **feature-specific infrastructure/composition**
 ## 1. Method
 
 Commands run in this session against the final worktree (branch
-`feat/core-feature-ownership-full-closure`, HEAD `e7016d3f`):
+`fix/closure-publication-ownership`, HEAD `48ee4b19`):
 
 - `go list ./internal/core/... ./internal/infra/... ./internal/standardplugins/...
   ./internal/pluginreg/... ./internal/featurebundle/... ./pkg/lipruntime/...
@@ -129,7 +129,7 @@ children in Tasks 2.4/3.3/10.3 (see `residual-consumer-census.md` rows 2–4).
 | --- | --- | --- |
 | `internal/standardplugins` (+`contrib`), `internal/standardplugins/featurehost` (+`compaction`, `reasoning`, `secretguard`, `sessionpolicy` children), `internal/standardplugins/legacyfeatureconfig` | standard-distribution registration/composition | The single composition layer permitted to know concrete standard features (Req 8.1). `legacyfeatureconfig` is the bounded one-way legacy-YAML normalizer (Task 9.3); it decodes no new semantics. Budgeted separately (Task 11.3). |
 | `internal/pluginreg`, `internal/featurebundle` | generic extension mechanism | Static backend/feature registries and the closed `FeatureBundle` typed carrier; no concrete standard-feature knowledge. |
-| `internal/infra/runtimebundle` | kernel invariant (generic composition root) | Production imports include only the `featurehost` facade plus `pkg/lipsdk/featurehost` — zero `internal/plugins/features/*` production edges (verified `go list -f Imports`; remaining `git grep` hits are test files only). |
+| `internal/infra/runtimebundle` | kernel invariant (generic composition root) | Production imports include only the `featurehost` facade plus `pkg/lipsdk/featurehost` — zero `internal/plugins/features/*` production edges (verified `go list -f Imports`; remaining `git grep` hits are test files only). Featurehost-owned metrics swaps arrive via opaque `CorePorts.MetricsSwap func()` registered into candidate `PhasePublish`, executing only post-publication. |
 | `pkg/lipruntime` | kernel invariant / generic extension mechanism (public facade) | Production imports are `internal/infra/runtimebundle`, `internal/stdhttp`, and `pkg/lipsdk/*` only — zero `internal/plugins/features/*` production edges. `Options.ReasoningCompression` is gone (no non-test hit); the sole feature seam is `FeatureHostRegistrations []featurehost.Registration`. |
 | `internal/plugins/features/*` (compactioncontinuity + subpackages, interleavedthinking + state, keepwarm, reasoningpreservation + reasoningreplay, secretguard + engine, toolcallrepair, agentloopguard, reference `ref*` fixtures) | optional feature implementation/policy | Leaves with respect to core/runtime: `go list -deps` over the three migrated features shows zero `internal/core` / `runtimebundle` edges; `TestProductionClosureEdgesHold` and the recursive feature import-boundary tests enforce this permanently. Reasoning replay lives under its owning feature (`reasoningpreservation/reasoningreplay`); top-level `internal/reasoningreplay` is absent. |
 | `pkg/lipsdk/featurehost`, `pkg/lipsdk/reasoninghost`, `pkg/lipsdk/secretguardhost` | generic extension mechanism (public SDK host-binding contracts) | Feature-neutral registration envelope plus narrowly scoped typed capability contracts; generic runtime forwards without type-switching. Per `residual-consumer-census.md` row 6. |
@@ -149,6 +149,9 @@ children in Tasks 2.4/3.3/10.3 (see `residual-consumer-census.md` rows 2–4).
   `ConversationViewObserver`/`SteeringWriterFactory`, `TerminalPolicyReader`,
   `InterleavedProcessor` (`Processor`), `CompactionDetector` (`Detector`) —
   all narrow interfaces over core/SDK DTOs, never concrete feature types.
+  Secret Guard execution posture crosses strictly through the binder-only
+  `secret_guard_execution` extension plane (closed set of 26 planes after the
+  reviewed exception); `ExtensionsOptions` contains no Secret Guard exception fields.
 - `pkg/lipruntime.Options`: generic production registrations (authority,
   economics, metering, traffic, usage, policy observers) plus the single
   `FeatureHostRegistrations []featurehost.Registration` aggregate. No

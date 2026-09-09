@@ -25,7 +25,7 @@
 
 ### Non-Goals
 
-- Revisit the v1 closed generated extension-plane decision from the first SDD.
+- Revisit the v1 closed generated extension-plane decision from the first SDD (beyond the single reviewed exception: `secret_guard_execution`, bringing the closed set to 26 planes).
 - Move routing/failover/B2BUA/client-output authority into feature code.
 - Build an arbitrary workflow engine for agent chains.
 - Build a Cordis runtime, DI container, reactive dependency graph, service locator, `map[string]any` dependency bag, or reflection registry.
@@ -98,6 +98,20 @@ If a package contains both admitted and non-admitted responsibilities, **split i
 - A dedicated adapter is found to have multiple independent non-feature consumers.
 
 On any trigger, stop that wave and repair requirements/design before implementation. Do not improvise a general framework.
+
+### Fired Revalidation Event: `secret_guard_execution` (26th Plane)
+
+During independent review and remediation, a revalidation trigger fired: Secret Guard required conveying its generation execution posture from its host binding into request execution. Two architectural alternatives existed:
+
+1. **Rejected alternative**: Add concrete Secret Guard fields back into generic runtime composition (`ExtensionsOptions`, `ProcessServices`, or candidate compile bags). This would directly violate Requirement 8.2/8.3 and the core goal of full ownership closure by re-polluting generic runtime composition with optional feature knowledge.
+2. **Approved alternative (sole reviewed exception)**: Introduce exactly one highly constrained extension plane, `secret_guard_execution`, as the sole reviewed exception to the v1 plane set freeze.
+
+The closed extension-plane set is **26 planes after this reviewed exception**, not "25 plus an accidental extra". The contract for `secret_guard_execution` is strictly constrained:
+- **Exact plane ID**: `secret_guard_execution`.
+- **Merge semantics**: `MultExclusive`.
+- **Source admission**: `GenerationBinder` only (`NilSkip`). Feature bundles and host registrations cannot contribute to it; candidate overlays cannot set it.
+- **Defensive copies**: Frozen snapshots return defensive frozen copies to ensure cross-generation isolation.
+- **Scope lock**: This approval is singular and closed. It does not reopen arbitrary plane growth, dynamic extension planes, or ungenerated contributions. Any future plane additions remain formal revalidation events.
 
 ## Architecture
 
