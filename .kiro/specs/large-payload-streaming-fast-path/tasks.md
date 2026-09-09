@@ -150,7 +150,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Do not create a DTO mirroring `lipapi.Call`.
   - _Requirements: 4, 6, 7, 8, 9, 14, 16, 18, 22_
 
-- [ ] 2.3 Keep public SDK compatibility
+- [x] 2.3 Keep public SDK compatibility
   - Do not add mandatory methods to `lipsdk.ExecutorView`.
   - Standard frontend path type-asserts an internal optional large-body capability; absence => canonical.
   - External/manual frontends/executors remain source-compatible/canonical-only.
@@ -815,3 +815,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 1.10 test-only scope VERIFIED (fresh reviewer APPROVED): baseline harness + evidence covering 32 KiB, 256 KiB, 1 MiB, 5 MiB, test-only gated 20 MiB with allocs/B/ns, GC, decode/encode, provider-open, clone amplification metrics including current #592/#602; package tests + benchmark slices PASS, gofmt/diff-check clean; 20 MiB properly gated; no production diff; handoff for Task 19; `-race` skipped per Windows cgo limitation.
 - Task 2.1 VERIFIED (fresh reviewer APPROVED): six-field default-off `server.large_payload_fast_path` config with validation + invalid-reload last-good preservation; `MaxRequestBodyBytes` untouched; config package + archtest PASS, vet/gofmt/diff-check clean; budgets.go bump justified per procedure; `-race` skipped Windows cgo limitation.
 - Task 2.2 VERIFIED (fresh reviewer APPROVED): `internal/core/largebody` provider-neutral DTO seam (bounded/immutable/redacted, no Call mirror, no SDK/frontend imports, no prompt/path/header-bag/unbounded maps); core ownership + budget ratchets PASS; largebody 17/17 + focused archtest PASS, vet/gofmt/diff-check clean; full archtest 18.8s implementer-claimed, focused subsets re-verified; no consumers yet; `-race` skipped Windows cgo limitation.
+- Task 2.3 VERIFIED (fresh reviewer APPROVED): internal LargeBodyExecutor + AsLargeBodyExecutor helper, ExecutorView unchanged, absent=>canonical, budgets bump; largebody 21/21 + line-budget PASS, vet/gofmt/diff-check clean, pkg/lipsdk untouched; `-race` skipped Windows cgo limitation.
