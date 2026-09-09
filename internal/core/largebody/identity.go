@@ -2,6 +2,7 @@ package largebody
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,15 @@ func (d IdentityDigest) CallID(explicitID string) string {
 		return id
 	}
 	return "call_" + d.Token()
+}
+
+const stableTimestampBase = 1715620000
+
+// Unix returns the deterministic Unix timestamp derived from the call sum,
+// matching diag.StableUnixFromSum byte-for-byte and second-for-second.
+func (d IdentityDigest) Unix() int64 {
+	offset := int64(binary.BigEndian.Uint32(d.sum[:4]) % 86_400)
+	return stableTimestampBase + offset
 }
 
 // StreamingEscapeWriter writes JSON-escaped string characters into an underlying
@@ -842,12 +852,51 @@ func (c *textPartCloser) Close() error {
 	return err
 }
 
+type itemTextPartCloser struct {
+	sw           *StreamingEscapeWriter
+	parentHasher io.Writer
+	started      bool
+	closed       bool
+}
+
+func (c *itemTextPartCloser) Write(p []byte) (int, error) {
+	if c.closed {
+		return 0, errors.New("largebody: write to closed item text part")
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if !c.started {
+		if _, err := io.WriteString(c.parentHasher, `{"kind":"text","text":"`); err != nil {
+			return 0, err
+		}
+		c.started = true
+	}
+	return c.sw.Write(p)
+}
+
+func (c *itemTextPartCloser) Close() error {
+	if c.closed {
+		return nil
+	}
+	c.closed = true
+	if !c.started {
+		_, err := io.WriteString(c.parentHasher, `{"kind":"text"}`)
+		return err
+	}
+	if err := c.sw.Close(); err != nil {
+		return err
+	}
+	_, err := io.WriteString(c.parentHasher, `"}`)
+	return err
+}
+
 // ItemIdentityWriter writes item content parts to the identity stream.
 type ItemIdentityWriter struct {
 	parent      *CallIdentityWriter
 	openContent bool
 	partCount   int
-	currText    *textPartCloser
+	currText    *itemTextPartCloser
 	ended       bool
 }
 
@@ -857,6 +906,7 @@ func (it *ItemIdentityWriter) AddContentPart(part lipapi.ContentPart) error {
 		if err := it.currText.Close(); err != nil {
 			return err
 		}
+		it.currText = nil
 	}
 	if it.partCount > 0 {
 		if _, err := io.WriteString(it.parent.hasher, `,`); err != nil {
@@ -878,6 +928,7 @@ func (it *ItemIdentityWriter) BeginTextContentPart() (io.WriteCloser, error) {
 		if err := it.currText.Close(); err != nil {
 			return nil, err
 		}
+		it.currText = nil
 	}
 	if it.partCount > 0 {
 		if _, err := io.WriteString(it.parent.hasher, `,`); err != nil {
@@ -886,14 +937,8 @@ func (it *ItemIdentityWriter) BeginTextContentPart() (io.WriteCloser, error) {
 	}
 	it.partCount++
 
-	if _, err := io.WriteString(it.parent.hasher, `{"kind":"text","text":"`); err != nil {
-		return nil, err
-	}
-
-	sw := NewStreamingEscapeWriter(it.parent.hasher)
-	it.currText = &textPartCloser{
-		sw:           sw,
-		suffix:       `"}`,
+	it.currText = &itemTextPartCloser{
+		sw:           NewStreamingEscapeWriter(it.parent.hasher),
 		parentHasher: it.parent.hasher,
 	}
 	return it.currText, nil
@@ -909,6 +954,7 @@ func (it *ItemIdentityWriter) EndItem() error {
 		if err := it.currText.Close(); err != nil {
 			return err
 		}
+		it.currText = nil
 	}
 	if it.openContent {
 		if _, err := io.WriteString(it.parent.hasher, `]}`); err != nil {

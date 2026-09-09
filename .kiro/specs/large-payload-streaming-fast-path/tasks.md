@@ -296,7 +296,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Large string contents streamed into hash without retention.
   - _Requirements: 4, 16, 17_
 
-- [ ] 6.3 Differential identity corpus/fuzz
+- [x] 6.3 Differential identity corpus/fuzz
   - Decode same body canonically and compare sum + ID/token/Unix + downstream deterministic IDs.
   - Huge Unicode/escaped strings, tools/items/messages, optional controls, route/model/session headers.
   - Any shape that cannot match exactly is removed from profile eligibility.
@@ -835,3 +835,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 5.3 VERIFIED (fresh reviewer APPROVED): differential corpus + fuzz harness (191 differential subtests, 15s fuzz 1.2M execs 0 failures), Kind-only parity decision vs slice preflight, surrogate-split scanner panic fix independently verified, no request-path wiring; jsonshape suite PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 6.1 VERIFIED (review subagent APPROVED): FromSum factoring, byte-for-byte parity, Call.ID precedence, budgets bump; diag + archtest PASS, diff-check/gofmt clean; follow-ups noted (explicit-ID early-return optimization + dead wrapper removal); -race unavailable cgo limitation.
 - Task 6.2 VERIFIED (review subagent APPROVED): CallIdentityWriter hash-writer, streaming escape parity, Call.ID identical, no retention, budgets bump; largebody + diag + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 6.3 VERIFIED (review subagent APPROVED): differential corpus + fuzz cover Items path incl. empty-text fix, marshal-faithful F1 resolution, oracle untouched; suites + fuzz PASS, diff-check/vet/gofmt clean; -race unavailable cgo limitation.

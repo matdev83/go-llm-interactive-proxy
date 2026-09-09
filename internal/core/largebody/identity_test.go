@@ -396,6 +396,55 @@ func TestIdentityWriter_StreamingItems(t *testing.T) {
 	}
 }
 
+func TestIdentityWriter_BeginTextContentPart_EmptyText(t *testing.T) {
+	t.Parallel()
+
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "stub:gpt-4o-mini"},
+		Items: []lipapi.Item{{
+			Kind:    lipapi.ItemKindMessage,
+			ID:      "m1",
+			Status:  lipapi.ItemStatusCompleted,
+			Role:    lipapi.RoleUser,
+			Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: ""}},
+		}},
+	}
+
+	wantSum := diag.StableCallSum(call)
+
+	w, err := largebody.NewCallIdentityWriter(largebody.CallIdentityConfig{
+		Route: call.Route,
+	})
+	if err != nil {
+		t.Fatalf("NewCallIdentityWriter: %v", err)
+	}
+
+	itemWriter, err := w.BeginMessageItem("m1", lipapi.ItemStatusCompleted, lipapi.RoleUser, "")
+	if err != nil {
+		t.Fatalf("BeginMessageItem: %v", err)
+	}
+
+	textWriter, err := itemWriter.BeginTextContentPart()
+	if err != nil {
+		t.Fatalf("BeginTextContentPart: %v", err)
+	}
+	if err := textWriter.Close(); err != nil {
+		t.Fatalf("textWriter.Close: %v", err)
+	}
+	if err := itemWriter.EndItem(); err != nil {
+		t.Fatalf("itemWriter.EndItem: %v", err)
+	}
+
+	digest, err := w.Digest()
+	if err != nil {
+		t.Fatalf("w.Digest: %v", err)
+	}
+
+	if digest.Sum() != wantSum {
+		t.Fatalf("streaming items empty text sum mismatch:\ngot:  %x\nwant: %x", digest.Sum(), wantSum)
+	}
+}
+
 // TestIdentityWriter_WriteCall_AllFixtures tests that CallIdentityWriter.WriteCall
 // matches diag.StableCallSum on all fixtures.
 func TestIdentityWriter_WriteCall_AllFixtures(t *testing.T) {
