@@ -55,11 +55,11 @@ func (benchDiscardTrafficObserver) OnObservation(_ context.Context, _ sdktraffic
 
 // trafficTestExecutor builds a minimal test executor configured with a fixed mock backend and
 // a snapshot bound to the provided traffic observer.
-func trafficTestExecutor(t testing.TB, tobs sdktraffic.Observer) *runtime.Executor {
-	t.Helper()
+func trafficTestExecutor(tb testing.TB, tobs sdktraffic.Observer) *runtime.Executor {
+	tb.Helper()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
