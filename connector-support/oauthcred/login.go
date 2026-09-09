@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // LoginModePreProvisionedRefreshOnly marks connectors whose initial
@@ -27,7 +28,19 @@ const LoginModePreProvisionedRefreshOnly = "pre-provisioned-refresh-only"
 //
 // A record holding only a refresh token is accepted: that is the normal
 // pre-provisioned state and the refresh path will mint access tokens.
-func RequireCredential(store Store, provider, loginHint string) (TokenRecord, error) {
+// Records holding a refresh token are accepted regardless of access-token
+// expiry for the same reason.
+//
+// An access-only record (empty refresh token) is accepted only when its
+// access token is Session-fresh: non-empty access, non-zero Expiry, and
+// time.Until(Expiry) > skew (mirroring Session.Token). Otherwise Configure
+// would pass while the first inference call deterministically fails with
+// "refresh token is empty".
+//
+// NOTE: do NOT use TokenRecord.IsExpired(skew) here. IsExpired returns false
+// for a zero Expiry, which is the opposite of the Session freshness rule
+// (Session requires a non-zero Expiry to treat a token as fresh).
+func RequireCredential(store Store, provider, loginHint string, skew time.Duration) (TokenRecord, error) {
 	if store == nil {
 		return TokenRecord{}, fmt.Errorf("%s: no OAuth credential store configured; %s", provider, loginHint)
 	}
@@ -47,6 +60,17 @@ func RequireCredential(store Store, provider, loginHint string) (TokenRecord, er
 	}
 	if strings.TrimSpace(rec.AccessToken) == "" && strings.TrimSpace(rec.RefreshToken) == "" {
 		return TokenRecord{}, fmt.Errorf("%s: OAuth credential at %q holds no tokens; %s", provider, store.Path(), loginHint)
+	}
+	if strings.TrimSpace(rec.RefreshToken) == "" {
+		effectiveSkew := skew
+		if effectiveSkew <= 0 {
+			effectiveSkew = DefaultSkew
+		}
+		// Session freshness rule, stated explicitly (see note on IsExpired above).
+		fresh := strings.TrimSpace(rec.AccessToken) != "" && !rec.Expiry.IsZero() && time.Until(rec.Expiry) > effectiveSkew
+		if !fresh {
+			return TokenRecord{}, fmt.Errorf("%s: OAuth credential at %q holds no refresh token and no fresh access token; %s", provider, store.Path(), loginHint)
+		}
 	}
 	return rec, nil
 }

@@ -33,7 +33,6 @@ const maxSageMakerResponseBytes = 4 << 20
 type Client struct {
 	Config  Config
 	Runtime RuntimeClient
-	Control ControlClient
 }
 
 func parseHFTextGenResponse(raw []byte) (string, error) {

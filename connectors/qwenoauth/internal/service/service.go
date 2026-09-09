@@ -70,7 +70,7 @@ func DefaultTokenProviderFactory(_ context.Context, cfg Config, secrets backendp
 	}
 
 	store := oauthcred.NewFileStore(tokenFilePath)
-	if _, err := oauthcred.RequireCredential(store, "qwen-oauth", "qwen-oauth is "+oauthcred.LoginModePreProvisionedRefreshOnly+": initial browser/PKCE login is not implemented; provision the token file via Qwen's official authorization channels first, then retry"); err != nil {
+	if _, err := oauthcred.RequireCredential(store, "qwen-oauth", "qwen-oauth is "+oauthcred.LoginModePreProvisionedRefreshOnly+": initial browser/PKCE login is not implemented; provision the token file via Qwen's official authorization channels first, then retry", TokenRefreshSkew); err != nil {
 		return nil, err
 	}
 	refresher := &QwenOAuthRefresher{

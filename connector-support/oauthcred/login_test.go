@@ -24,7 +24,7 @@ func TestRequireCredential_MissingFile_Actionable(t *testing.T) {
 	store := oauthcred.NewFileStore(path)
 	hint := "run login first, then retry"
 
-	_, err := oauthcred.RequireCredential(store, "test-oauth", hint)
+	_, err := oauthcred.RequireCredential(store, "test-oauth", hint, time.Minute)
 	if err == nil {
 		t.Fatalf("expected error for missing credential file, got nil")
 	}
@@ -42,7 +42,7 @@ func TestRequireCredential_MissingFile_Actionable(t *testing.T) {
 
 func TestRequireCredential_NilStore(t *testing.T) {
 	t.Parallel()
-	_, err := oauthcred.RequireCredential(nil, "test-oauth", "run login first")
+	_, err := oauthcred.RequireCredential(nil, "test-oauth", "run login first", time.Minute)
 	if err == nil {
 		t.Fatalf("expected error for nil store, got nil")
 	}
@@ -59,7 +59,7 @@ func TestRequireCredential_EmptyRecord_Actionable(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	_, err := oauthcred.RequireCredential(store, "test-oauth", "run login first")
+	_, err := oauthcred.RequireCredential(store, "test-oauth", "run login first", time.Minute)
 	if err == nil {
 		t.Fatalf("expected error for token-less record, got nil")
 	}
@@ -81,7 +81,7 @@ func TestRequireCredential_Quarantined_Actionable(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	_, err := oauthcred.RequireCredential(store, "test-oauth", "explicit re-login required")
+	_, err := oauthcred.RequireCredential(store, "test-oauth", "explicit re-login required", time.Minute)
 	if err == nil {
 		t.Fatalf("expected error for quarantined record, got nil")
 	}
@@ -102,7 +102,7 @@ func TestRequireCredential_RefreshOnly_OK(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	rec, err := oauthcred.RequireCredential(store, "test-oauth", "run login first")
+	rec, err := oauthcred.RequireCredential(store, "test-oauth", "run login first", time.Minute)
 	if err != nil {
 		t.Fatalf("refresh-only record must be accepted, got: %v", err)
 	}
@@ -123,11 +123,102 @@ func TestRequireCredential_FreshRecord_OK(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	if _, err := oauthcred.RequireCredential(store, "test-oauth", "run login first"); err != nil {
+	if _, err := oauthcred.RequireCredential(store, "test-oauth", "run login first", time.Minute); err != nil {
 		t.Fatalf("fresh record must be accepted, got: %v", err)
 	}
 }
 
+func TestRequireCredential_AccessOnlyZeroExpiry_Rejected(t *testing.T) {
+	t.Parallel()
+	const secretAccess = "access-only-secret-value"
+	path := filepath.Join(t.TempDir(), "tokens.json")
+	store := oauthcred.NewFileStore(path)
+	if err := store.Save(oauthcred.TokenRecord{AccessToken: secretAccess}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	hint := "run login first, then retry"
+	_, err := oauthcred.RequireCredential(store, "test-oauth", hint, time.Minute)
+	if err == nil {
+		t.Fatalf("expected error for access-only record with zero expiry, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "test-oauth") || !strings.Contains(msg, fmt.Sprintf("%q", path)) || !strings.Contains(msg, hint) {
+		t.Fatalf("error must name provider + path + hint, got: %v", err)
+	}
+	if strings.Contains(msg, secretAccess) {
+		t.Fatalf("error must not leak token material: %v", err)
+	}
+}
+
+func TestRequireCredential_AccessOnlyExpired_Rejected(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "tokens.json")
+	store := oauthcred.NewFileStore(path)
+	if err := store.Save(oauthcred.TokenRecord{
+		AccessToken: "stale-access",
+		Expiry:      time.Now().Add(-1 * time.Hour),
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	if _, err := oauthcred.RequireCredential(store, "test-oauth", "run login first", time.Minute); err == nil {
+		t.Fatalf("expected error for access-only record with expired token, got nil")
+	}
+}
+
+func TestRequireCredential_AccessOnlyWithinSkew_Rejected(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "tokens.json")
+	store := oauthcred.NewFileStore(path)
+	if err := store.Save(oauthcred.TokenRecord{
+		AccessToken: "near-expiry-access",
+		Expiry:      time.Now().Add(30 * time.Second),
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	if _, err := oauthcred.RequireCredential(store, "test-oauth", "run login first", time.Minute); err == nil {
+		t.Fatalf("expected error for access-only record expiring within skew, got nil")
+	}
+}
+
+func TestRequireCredential_AccessOnlyFresh_Accepted(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "tokens.json")
+	store := oauthcred.NewFileStore(path)
+	if err := store.Save(oauthcred.TokenRecord{
+		AccessToken: "fresh-access",
+		Expiry:      time.Now().Add(1 * time.Hour),
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	rec, err := oauthcred.RequireCredential(store, "test-oauth", "run login first", time.Minute)
+	if err != nil {
+		t.Fatalf("fresh access-only record must be accepted, got: %v", err)
+	}
+	if rec.AccessToken != "fresh-access" {
+		t.Fatalf("unexpected record: %+v", rec)
+	}
+}
+
+func TestRequireCredential_RefreshTokenOnlyNoAccess_Accepted(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "tokens.json")
+	store := oauthcred.NewFileStore(path)
+	if err := store.Save(oauthcred.TokenRecord{RefreshToken: "pre-provisioned-refresh"}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	rec, err := oauthcred.RequireCredential(store, "test-oauth", "run login first", time.Minute)
+	if err != nil {
+		t.Fatalf("refresh-token-only record (no access token) must be accepted, got: %v", err)
+	}
+	if rec.RefreshToken != "pre-provisioned-refresh" {
+		t.Fatalf("unexpected record: %+v", rec)
+	}
+}
 func TestRequireCredential_ErrorsNeverLeakTokens(t *testing.T) {
 	t.Parallel()
 	const secretRefresh = "super-secret-refresh-token-value"
@@ -142,7 +233,7 @@ func TestRequireCredential_ErrorsNeverLeakTokens(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	_, err := oauthcred.RequireCredential(store, "test-oauth", "run login first")
+	_, err := oauthcred.RequireCredential(store, "test-oauth", "run login first", time.Minute)
 	if err == nil {
 		t.Fatalf("expected quarantined error, got nil")
 	}
@@ -155,7 +246,7 @@ func TestRequireCredential_ErrorsNeverLeakTokens(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not-json "+secretRefresh), 0o600); err != nil {
 		t.Fatalf("corrupt: %v", err)
 	}
-	_, err = oauthcred.RequireCredential(store, "test-oauth", "run login first")
+	_, err = oauthcred.RequireCredential(store, "test-oauth", "run login first", time.Minute)
 	if err == nil {
 		t.Fatalf("expected load error, got nil")
 	}

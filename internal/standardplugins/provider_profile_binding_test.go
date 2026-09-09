@@ -966,6 +966,35 @@ func TestWrapCompatibleLifecycle_rejectsUnresolvableMarkerWithoutFallback(t *tes
 	}
 }
 
+func TestWrapCompatibleLifecycle_rejectsEmptyProfileIDMarkerWithoutFallback(t *testing.T) {
+	t.Parallel()
+	cases := map[string]yaml.Node{
+		"bare anchor":  forgedCustomNode(t, "lip_profile_", ""),
+		"bare comment": forgedCustomNode(t, "", "lip:provider-profile:"),
+	}
+	for name, node := range cases {
+		node := node
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			baseCalled := false
+			stubBase := func(string, yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+				baseCalled = true
+				return pluginreg.BackendBuildResult{}, nil
+			}
+			wrapped := wrapCompatibleLifecycle(providerprofiles.FamilyOpenAIResponses, stubBase)
+			_, err := wrapped("empty-marker", node, http.DefaultClient, pluginreg.BackendFactoryDeps{})
+			if err == nil {
+				t.Fatal("empty profile-ID marker accepted")
+			} else if !strings.Contains(err.Error(), "missing a profile ID") {
+				t.Fatalf("empty-marker error missing profile-ID detail, got %q", err.Error())
+			}
+			if baseCalled {
+				t.Fatal("empty profile-ID marker fell back to generic base")
+			}
+		})
+	}
+}
+
 func TestWrapCompatibleLifecycle_legitimateExpandRoundtripKeepsProfileSemantics(t *testing.T) {
 	t.Setenv("GROQ_API_KEY", "groq-test-key")
 	var profileNode yaml.Node

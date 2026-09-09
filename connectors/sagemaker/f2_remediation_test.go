@@ -2,11 +2,9 @@ package sagemaker_test
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	"github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/sagemaker/internal/service"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -30,18 +28,9 @@ func (f *f2StubRuntime) InvokeEndpoint(ctx context.Context, params *sagemakerrun
 	return &sagemakerruntime.InvokeEndpointOutput{Body: []byte(`{"generated_text":"ok"}`)}, nil
 }
 
-type f2StubControl struct {
-	calls int
-}
-
-func (f *f2StubControl) ListEndpoints(context.Context, *sagemaker.ListEndpointsInput, ...func(*sagemaker.Options)) (*sagemaker.ListEndpointsOutput, error) {
-	f.calls++
-	return nil, errors.New("sagemaker: control plane must not be consulted for inventory")
-}
-
-func f2Configure(t *testing.T, r *f2StubRuntime, c *f2StubControl, endpoint string) backendplugin.ConfiguredInstance {
+func f2Configure(t *testing.T, r *f2StubRuntime, endpoint string) backendplugin.ConfiguredInstance {
 	t.Helper()
-	svc := service.New(service.WithStaticClients(r, c))
+	svc := service.New(service.WithStaticClients(r))
 	inst, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
 		FactoryKind: service.FactoryKind,
 		InstanceID:  "f2-inst",
@@ -54,13 +43,12 @@ func f2Configure(t *testing.T, r *f2StubRuntime, c *f2StubControl, endpoint stri
 	return inst
 }
 
-// ListModels with control plane advertising A/B/C (here: control fails if
-// consulted at all) still advertises exactly sagemaker/A without streaming.
+// ListModels with no control plane in the loop still advertises exactly
+// sagemaker/A without streaming.
 func TestF2_ListModels_ExposesOnlyConfiguredEndpoint(t *testing.T) {
 	t.Parallel()
 	r := &f2StubRuntime{}
-	c := &f2StubControl{}
-	inst := f2Configure(t, r, c, "ep-a")
+	inst := f2Configure(t, r, "ep-a")
 
 	resp, err := inst.ListModels(context.Background(), 10)
 	if err != nil {
@@ -78,9 +66,6 @@ func TestF2_ListModels_ExposesOnlyConfiguredEndpoint(t *testing.T) {
 	if resp.Models[0].Capabilities.Streaming {
 		t.Fatalf("provider streaming must not be advertised in ListModels")
 	}
-	if c.calls != 0 {
-		t.Fatalf("ListModels consulted control plane %d times; must expose only the configured endpoint", c.calls)
-	}
 }
 
 // Execute(B) while configured for A fails closed with an explicit
@@ -88,8 +73,7 @@ func TestF2_ListModels_ExposesOnlyConfiguredEndpoint(t *testing.T) {
 func TestF2_Execute_UnconfiguredEndpoint_FailsClosed(t *testing.T) {
 	t.Parallel()
 	r := &f2StubRuntime{}
-	c := &f2StubControl{}
-	inst := f2Configure(t, r, c, "ep-a")
+	inst := f2Configure(t, r, "ep-a")
 
 	stream := newTestExecuteStream(context.Background(), "sagemaker/ep-b", lipapi.OperationOpenAIChatCompletions, "hello", true, nil)
 	err := inst.Execute(stream)
@@ -107,7 +91,7 @@ func TestF2_Execute_UnconfiguredEndpoint_FailsClosed(t *testing.T) {
 // Provider streaming is not advertised anywhere for this contract.
 func TestF2_StreamingNotAdvertised(t *testing.T) {
 	t.Parallel()
-	svc := service.New(service.WithStaticClients(&f2StubRuntime{}, &f2StubControl{}))
+	svc := service.New(service.WithStaticClients(&f2StubRuntime{}))
 	desc, err := svc.Describe(context.Background())
 	if err != nil {
 		t.Fatalf("Describe failed: %v", err)
@@ -120,8 +104,7 @@ func TestF2_StreamingNotAdvertised(t *testing.T) {
 	}
 
 	r := &f2StubRuntime{}
-	c := &f2StubControl{}
-	inst := f2Configure(t, r, c, "ep-a")
+	inst := f2Configure(t, r, "ep-a")
 	profile, err := inst.Resolve(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
@@ -143,8 +126,7 @@ func TestF2_StreamingNotAdvertised(t *testing.T) {
 func TestF2_StreamingDelivery_UsesUnaryCollect(t *testing.T) {
 	t.Parallel()
 	r := &f2StubRuntime{}
-	c := &f2StubControl{}
-	inst := f2Configure(t, r, c, "ep-a")
+	inst := f2Configure(t, r, "ep-a")
 
 	stream := newTestExecuteStream(context.Background(), "sagemaker/ep-a", lipapi.OperationOpenAIChatCompletions, "hello", false, nil)
 	if err := inst.Execute(stream); err != nil {
@@ -170,28 +152,80 @@ func TestF2_StreamingDelivery_UsesUnaryCollect(t *testing.T) {
 	}
 }
 
-// Oversized unary responses fail closed on the explicit byte bound instead of
-// growing an unbounded buffer.
-func TestF2_UnaryOversizedResponse_BoundedError(t *testing.T) {
-	t.Parallel()
-	big := make([]byte, (4<<20)+1)
-	for i := range big {
-		big[i] = 'x'
-	}
-	r := &f2StubRuntime{
-		invokeFn: func(context.Context, *sagemakerruntime.InvokeEndpointInput) (*sagemakerruntime.InvokeEndpointOutput, error) {
-			return &sagemakerruntime.InvokeEndpointOutput{Body: big}, nil
-		},
-	}
-	c := &f2StubControl{}
-	inst := f2Configure(t, r, c, "ep-a")
+// f2MaxResponseBytes mirrors the connector's maxSageMakerResponseBytes bound
+// (unary InvokeEndpoint bodies larger than this fail closed).
+const f2MaxResponseBytes = 4 << 20
 
-	stream := newTestExecuteStream(context.Background(), "sagemaker/ep-a", lipapi.OperationOpenAIChatCompletions, "hello", true, nil)
-	err := inst.Execute(stream)
-	if err == nil {
-		t.Fatalf("expected oversized response to fail closed")
+// f2ExactSizeDoc builds a valid hf-text-generation document of exactly size
+// bytes: the padding lives in an ignored JSON field so the emitted text stays
+// small while the raw body exercises the size bound precisely.
+func f2ExactSizeDoc(t *testing.T, size int) []byte {
+	t.Helper()
+	const prefix = `{"generated_text":"ok","pad":"`
+	const suffix = `"}`
+	if size < len(prefix)+len(suffix) {
+		t.Fatalf("size %d smaller than minimal document %d", size, len(prefix)+len(suffix))
 	}
-	if !strings.Contains(err.Error(), "exceeds limit") {
-		t.Fatalf("expected bounded exceeds-limit error, got: %v", err)
+	doc := prefix + strings.Repeat("x", size-len(prefix)-len(suffix)) + suffix
+	if len(doc) != size {
+		t.Fatalf("built document is %d bytes, want exactly %d", len(doc), size)
+	}
+	return []byte(doc)
+}
+
+// Unary responses at exactly the byte bound are accepted; anything larger
+// fails closed on the explicit bound instead of growing an unbounded buffer.
+func TestF2_UnaryResponseSizeBound(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		size      int
+		wantDelta string // non-empty: Execute must succeed and emit this delta
+		wantErr   string // non-empty: Execute must fail with this substring
+	}{
+		{name: "exact limit accepted", size: f2MaxResponseBytes, wantDelta: "ok"},
+		{name: "limit plus one rejected", size: f2MaxResponseBytes + 1, wantErr: "exceeds limit"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := f2ExactSizeDoc(t, tc.size)
+			r := &f2StubRuntime{
+				invokeFn: func(context.Context, *sagemakerruntime.InvokeEndpointInput) (*sagemakerruntime.InvokeEndpointOutput, error) {
+					return &sagemakerruntime.InvokeEndpointOutput{Body: body}, nil
+				},
+			}
+			inst := f2Configure(t, r, "ep-a")
+
+			stream := newTestExecuteStream(context.Background(), "sagemaker/ep-a", lipapi.OperationOpenAIChatCompletions, "hello", true, nil)
+			err := inst.Execute(stream)
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected %d-byte response to fail closed", tc.size)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("expected bounded exceeds-limit error, got: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected %d-byte response to be accepted, got: %v", tc.size, err)
+			}
+			var sawDelta, sawTerminal bool
+			for _, f := range stream.outbox {
+				if f.Kind == backendplugin.ServerFrameEvent && f.Event != nil && f.Event.Kind == backendplugin.EventTextDelta && f.Event.Delta != nil && *f.Event.Delta == tc.wantDelta {
+					sawDelta = true
+				}
+				if f.Kind == backendplugin.ServerFrameTerminal && f.Terminal != nil && f.Terminal.Status == backendplugin.TerminalSuccess {
+					sawTerminal = true
+				}
+			}
+			if !sawDelta {
+				t.Fatalf("expected text delta %q for exact-limit body", tc.wantDelta)
+			}
+			if !sawTerminal {
+				t.Fatalf("expected terminal success for exact-limit body")
+			}
+		})
 	}
 }

@@ -92,6 +92,12 @@ func (s *LoginSession) Instructions() string {
 // code expires / ctx is cancelled) and persists the minted credential via
 // store. Persisting a fresh record clears any previous quarantine, and the
 // refresh path afterwards is unchanged.
+//
+// Contract: Complete writes through the raw store only, so it does not clear
+// the in-process quarantine latch of a live configured oauthcred.Session in
+// the same process. Same-process holders of a configured Session must use
+// CompleteToSession (or re-run Configure, which builds a fresh Session);
+// file-only callers without a live Session use Complete.
 func (s *LoginSession) Complete(ctx context.Context, store oauthcred.Store) (oauthcred.TokenRecord, error) {
 	if s == nil {
 		return oauthcred.TokenRecord{}, errors.New("minimax-oauth: no login session to complete")
@@ -104,6 +110,26 @@ func (s *LoginSession) Complete(ctx context.Context, store oauthcred.Store) (oau
 		return oauthcred.TokenRecord{}, fmt.Errorf("minimax-oauth: complete login: %w", err)
 	}
 	if err := store.Save(rec); err != nil {
+		return oauthcred.TokenRecord{}, fmt.Errorf("minimax-oauth: persist login credential: %w", err)
+	}
+	return rec, nil
+}
+
+// CompleteToSession polls exactly like Complete, then persists the minted
+// credential via sess.Save so a live configured oauthcred.Session clears its
+// in-process quarantine latch on the fresh record.
+func (s *LoginSession) CompleteToSession(ctx context.Context, sess *oauthcred.Session) (oauthcred.TokenRecord, error) {
+	if s == nil {
+		return oauthcred.TokenRecord{}, errors.New("minimax-oauth: no login session to complete")
+	}
+	if sess == nil {
+		return oauthcred.TokenRecord{}, errors.New("minimax-oauth: credential session is required to complete login")
+	}
+	rec, err := PollToken(ctx, s.httpClient, s.portalBaseURL, s.clientID, s.UserCode, s.codeVerifier, s.ExpiresIn, s.Interval)
+	if err != nil {
+		return oauthcred.TokenRecord{}, fmt.Errorf("minimax-oauth: complete login: %w", err)
+	}
+	if err := sess.Save(rec); err != nil {
 		return oauthcred.TokenRecord{}, fmt.Errorf("minimax-oauth: persist login credential: %w", err)
 	}
 	return rec, nil

@@ -102,7 +102,7 @@ func DefaultTokenProviderFactory(_ context.Context, cfg Config, secrets backendp
 	}
 
 	store := oauthcred.NewFileStore(tokenFilePath)
-	if _, err := oauthcred.RequireCredential(store, "xai-oauth", "xai-oauth is "+oauthcred.LoginModePreProvisionedRefreshOnly+": initial browser/device login is not implemented; provision the token file via xAI's official authorization channels first, then retry"); err != nil {
+	if _, err := oauthcred.RequireCredential(store, "xai-oauth", "xai-oauth is "+oauthcred.LoginModePreProvisionedRefreshOnly+": initial browser/device login is not implemented; provision the token file via xAI's official authorization channels first, then retry", TokenRefreshSkew); err != nil {
 		return nil, err
 	}
 	refresher := &XAIOAuthRefresher{

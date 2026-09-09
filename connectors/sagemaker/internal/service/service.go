@@ -17,17 +17,15 @@ func WithAWSClientFactory(f AWSClientFactory) Option {
 	}
 }
 
-func WithStaticClients(r RuntimeClient, c ControlClient) Option {
+func WithStaticClients(r RuntimeClient) Option {
 	return func(s *Service) {
 		s.runtimeClient = r
-		s.controlClient = c
 	}
 }
 
 type Service struct {
 	clientFactory AWSClientFactory
 	runtimeClient RuntimeClient
-	controlClient ControlClient
 }
 
 func New(opts ...Option) *Service {
@@ -89,18 +87,15 @@ func (s *Service) Configure(ctx context.Context, req backendplugin.ConfigureRequ
 	}
 
 	var rCli RuntimeClient
-	var cCli ControlClient
 
-	if s.runtimeClient != nil && s.controlClient != nil {
+	if s.runtimeClient != nil {
 		rCli = s.runtimeClient
-		cCli = s.controlClient
 	} else if s.clientFactory != nil {
-		r, c, err := s.clientFactory(ctx, cfg, req.Secrets)
+		r, err := s.clientFactory(ctx, cfg, req.Secrets)
 		if err != nil {
 			return nil, fmt.Errorf("sagemaker: create AWS clients: %w", err)
 		}
 		rCli = r
-		cCli = c
 	} else {
 		return nil, fmt.Errorf("sagemaker: requires AWS configuration or credentials (use NewProduction)")
 	}
@@ -108,7 +103,6 @@ func (s *Service) Configure(ctx context.Context, req backendplugin.ConfigureRequ
 	return &instance{
 		cfg:  cfg,
 		rCli: rCli,
-		cCli: cCli,
 		kind: FactoryKind,
 	}, nil
 }
@@ -116,7 +110,6 @@ func (s *Service) Configure(ctx context.Context, req backendplugin.ConfigureRequ
 type instance struct {
 	cfg  Config
 	rCli RuntimeClient
-	cCli ControlClient
 	kind string
 }
 
@@ -124,7 +117,6 @@ func (i *instance) client() *Client {
 	return &Client{
 		Config:  i.cfg,
 		Runtime: i.rCli,
-		Control: i.cCli,
 	}
 }
 

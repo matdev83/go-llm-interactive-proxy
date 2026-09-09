@@ -700,3 +700,190 @@ func TestCohereTools_StreamMissingMessageStartEmitted(t *testing.T) {
 		t.Fatalf("unexpected collected text: %q", got)
 	}
 }
+
+func cohereWireAssistantMessage(t *testing.T, body map[string]any, index int) map[string]any {
+	t.Helper()
+	messages, ok := body["messages"].([]any)
+	if !ok || len(messages) <= index {
+		t.Fatalf("expected at least %d wire messages, got %v", index+1, body["messages"])
+	}
+	assistant, ok := messages[index].(map[string]any)
+	if !ok || assistant["role"] != "assistant" {
+		t.Fatalf("unexpected assistant message at index %d: %v", index, messages[index])
+	}
+	return assistant
+}
+
+func TestCohereTools_AssistantReasoningReplay(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reasoning text maps to tool_plan", func(t *testing.T) {
+		t.Parallel()
+		var captured capturedCohereRequest
+		cl := openCohereTestClient(t, serveCohereCaptureJSON(&captured, cohereSimpleTextResponse))
+
+		msgs := []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
+				{Kind: lipapi.PartReasoning, Reasoning: &lipapi.ReasoningPart{
+					Dialect: lipapi.ReasoningDialectOpenAIChatTextV1,
+					Text:    "I will check",
+				}},
+			}},
+		}
+		call := cohereTestCall(msgs, nil, lipapi.ToolChoice{}, false)
+		stream, err := cl.Open(context.Background(), call, "command-r")
+		if err != nil {
+			t.Fatalf("open failed: %v", err)
+		}
+		_ = stream.Close()
+
+		assistant := cohereWireAssistantMessage(t, captured.body, 1)
+		if assistant["tool_plan"] != "I will check" {
+			t.Fatalf("expected tool_plan %q, got %v", "I will check", assistant["tool_plan"])
+		}
+	})
+
+	t.Run("signature reasoning fails closed", func(t *testing.T) {
+		t.Parallel()
+		var captured capturedCohereRequest
+		cl := openCohereTestClient(t, serveCohereCaptureJSON(&captured, cohereSimpleTextResponse))
+
+		msgs := []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
+				{Kind: lipapi.PartReasoning, Reasoning: &lipapi.ReasoningPart{
+					Dialect:   lipapi.ReasoningDialectOpenAIChatTextV1,
+					Text:      "think",
+					Signature: "sig",
+				}},
+			}},
+		}
+		call := cohereTestCall(msgs, nil, lipapi.ToolChoice{}, false)
+		_, err := cl.Open(context.Background(), call, "command-r")
+		if err == nil {
+			t.Fatalf("expected signature reasoning to fail closed, got nil")
+		}
+		if !strings.Contains(err.Error(), "tool_plan") {
+			t.Fatalf("expected tool_plan round-trip error, got %q", err.Error())
+		}
+	})
+
+	t.Run("opaque reasoning fails closed", func(t *testing.T) {
+		t.Parallel()
+		var captured capturedCohereRequest
+		cl := openCohereTestClient(t, serveCohereCaptureJSON(&captured, cohereSimpleTextResponse))
+
+		msgs := []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
+				{Kind: lipapi.PartReasoning, Reasoning: &lipapi.ReasoningPart{
+					Dialect: lipapi.ReasoningDialectOpenAIChatTextV1,
+					Text:    "think",
+					Opaque:  json.RawMessage(`{"x":1}`),
+				}},
+			}},
+		}
+		call := cohereTestCall(msgs, nil, lipapi.ToolChoice{}, false)
+		_, err := cl.Open(context.Background(), call, "command-r")
+		if err == nil {
+			t.Fatalf("expected opaque reasoning to fail closed, got nil")
+		}
+		if !strings.Contains(err.Error(), "tool_plan") {
+			t.Fatalf("expected tool_plan round-trip error, got %q", err.Error())
+		}
+	})
+
+	t.Run("mixed text reasoning and tool calls coherent", func(t *testing.T) {
+		t.Parallel()
+		var captured capturedCohereRequest
+		cl := openCohereTestClient(t, serveCohereCaptureJSON(&captured, cohereSimpleTextResponse))
+
+		msgs := []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("weather?")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
+				lipapi.TextPart("Let me check."),
+				{Kind: lipapi.PartReasoning, Reasoning: &lipapi.ReasoningPart{
+					Dialect: lipapi.ReasoningDialectOpenAIChatTextV1,
+					Text:    "I will check",
+				}},
+				{Kind: lipapi.PartJSON, ToolCallID: "call_1", ToolName: "get_weather", Content: json.RawMessage(`{"city":"Paris"}`)},
+			}},
+		}
+		call := cohereTestCall(msgs, []lipapi.ToolDef{{Name: "get_weather"}}, lipapi.ToolChoice{}, false)
+		stream, err := cl.Open(context.Background(), call, "command-r")
+		if err != nil {
+			t.Fatalf("open failed: %v", err)
+		}
+		_ = stream.Close()
+
+		assistant := cohereWireAssistantMessage(t, captured.body, 1)
+		if assistant["content"] != "Let me check." {
+			t.Fatalf("unexpected content: %v", assistant["content"])
+		}
+		if assistant["tool_plan"] != "I will check" {
+			t.Fatalf("unexpected tool_plan: %v", assistant["tool_plan"])
+		}
+		wireCalls, ok := assistant["tool_calls"].([]any)
+		if !ok || len(wireCalls) != 1 {
+			t.Fatalf("expected 1 wire tool_call, got %v", assistant["tool_calls"])
+		}
+		wireCall, ok := wireCalls[0].(map[string]any)
+		if !ok || wireCall["id"] != "call_1" {
+			t.Fatalf("unexpected wire tool_call: %v", wireCalls[0])
+		}
+		fn, ok := wireCall["function"].(map[string]any)
+		if !ok || fn["name"] != "get_weather" {
+			t.Fatalf("unexpected wire function: %v", wireCall["function"])
+		}
+	})
+}
+
+func TestCohereTools_EnvelopeDiscriminatorCollidingRawArgs(t *testing.T) {
+	t.Parallel()
+	var captured capturedCohereRequest
+	cl := openCohereTestClient(t, serveCohereCaptureJSON(&captured, cohereSimpleTextResponse))
+
+	msgs := []lipapi.Message{
+		{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}},
+		{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{
+			Kind: lipapi.PartJSON, ToolCallID: "call_collide", ToolName: "get_weather",
+			Content: json.RawMessage(`{"function":{"name":"main"}}`),
+		}}},
+		{Role: lipapi.RoleTool, Parts: []lipapi.Part{
+			{Kind: lipapi.PartToolResult, ToolCallID: "call_collide", ToolName: "get_weather", Text: "ok"},
+		}},
+	}
+	call := cohereTestCall(msgs, []lipapi.ToolDef{{Name: "get_weather"}}, lipapi.ToolChoice{}, false)
+	stream, err := cl.Open(context.Background(), call, "command-r")
+	if err != nil {
+		t.Fatalf("open failed: %v", err)
+	}
+	_ = stream.Close()
+
+	assistant := cohereWireAssistantMessage(t, captured.body, 1)
+	wireCalls, ok := assistant["tool_calls"].([]any)
+	if !ok || len(wireCalls) != 1 {
+		t.Fatalf("expected 1 wire tool_call, got %v", assistant["tool_calls"])
+	}
+	wireCall, ok := wireCalls[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected tool_call object, got %T", wireCalls[0])
+	}
+	fn, ok := wireCall["function"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected function object, got %T", wireCall["function"])
+	}
+	args, ok := fn["arguments"].(string)
+	if !ok {
+		t.Fatalf("expected arguments string, got %T", fn["arguments"])
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(args), &decoded); err != nil {
+		t.Fatalf("arguments must be JSON: %q", args)
+	}
+	nested, ok := decoded["function"].(map[string]any)
+	if !ok || nested["name"] != "main" {
+		t.Fatalf("expected raw arguments preserved via raw path, got %q", args)
+	}
+}

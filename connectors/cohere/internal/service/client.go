@@ -27,6 +27,7 @@ type cohereMessage struct {
 	Content    string           `json:"content,omitempty"`
 	ToolCalls  []cohereToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
+	ToolPlan   string           `json:"tool_plan,omitempty"`
 }
 
 type cohereChatRequest struct {

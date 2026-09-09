@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -156,6 +157,93 @@ func TestCompleteLogin_NilGuards(t *testing.T) {
 	}
 	if _, err := sess.Complete(context.Background(), nil); err == nil {
 		t.Fatalf("expected error for nil store, got nil")
+	}
+}
+
+func TestCompleteToSession_ClearsQuarantineLatch(t *testing.T) {
+	store := oauthcred.NewFileStore(filepath.Join(t.TempDir(), "tokens.json"))
+	if err := store.Save(oauthcred.TokenRecord{
+		AccessToken:  "expired-tok",
+		RefreshToken: "ref-tok",
+		Expiry:       time.Now().Add(-10 * time.Minute),
+	}); err != nil {
+		t.Fatalf("seed credential: %v", err)
+	}
+
+	var refreshCalls int32
+	refresher := oauthcred.RefresherFunc(func(_ context.Context, _ string) (string, string, time.Time, error) {
+		atomic.AddInt32(&refreshCalls, 1)
+		return "", "", time.Time{}, errors.New("oauth: server returned invalid_grant: token revoked")
+	})
+	sess := oauthcred.NewSession(store, refresher)
+
+	if _, err := sess.Token(context.Background()); !errors.Is(err, oauthcred.ErrTerminalRefresh) {
+		t.Fatalf("expected ErrTerminalRefresh, got %v", err)
+	}
+	if _, err := sess.Token(context.Background()); !errors.Is(err, oauthcred.ErrQuarantined) {
+		t.Fatalf("expected latched ErrQuarantined, got %v", err)
+	}
+	if got := atomic.LoadInt32(&refreshCalls); got != 1 {
+		t.Fatalf("expected 1 refresher call before login, got %d", got)
+	}
+
+	var pollHits int32
+	srv := newLoginTestServer(t, &pollHits)
+	t.Cleanup(srv.Close)
+	loginSess, err := service.StartLogin(context.Background(), srv.Client(), srv.URL, "client-1", "")
+	if err != nil {
+		t.Fatalf("StartLogin: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	rec, err := loginSess.CompleteToSession(ctx, sess)
+	if err != nil {
+		t.Fatalf("CompleteToSession: %v", err)
+	}
+	if rec.AccessToken != "login-access-token" {
+		t.Fatalf("unexpected access token %q", rec.AccessToken)
+	}
+	if rec.Quarantined {
+		t.Fatalf("fresh login record must not be quarantined")
+	}
+	if got := atomic.LoadInt32(&refreshCalls); got != 1 {
+		t.Fatalf("CompleteToSession must not replay refresher, calls=%d", got)
+	}
+
+	tok, err := sess.Token(context.Background())
+	if err != nil {
+		t.Fatalf("Token after CompleteToSession: %v", err)
+	}
+	if tok != "login-access-token" {
+		t.Fatalf("expected fresh login token, got %q", tok)
+	}
+	if got := atomic.LoadInt32(&refreshCalls); got != 1 {
+		t.Fatalf("Token after login must serve cached credential without refresher replay, calls=%d", got)
+	}
+}
+
+func TestCompleteToSession_NilGuards(t *testing.T) {
+	store := oauthcred.NewFileStore(filepath.Join(t.TempDir(), "tokens.json"))
+	sess := oauthcred.NewSession(store, oauthcred.RefresherFunc(
+		func(_ context.Context, _ string) (string, string, time.Time, error) {
+			return "", "", time.Time{}, errors.New("must not be called")
+		}))
+
+	var nilSess *service.LoginSession
+	if _, err := nilSess.CompleteToSession(context.Background(), sess); err == nil {
+		t.Fatalf("expected error for nil login session, got nil")
+	}
+
+	var pollHits int32
+	srv := newLoginTestServer(t, &pollHits)
+	t.Cleanup(srv.Close)
+	loginSess, err := service.StartLogin(context.Background(), srv.Client(), srv.URL, "client-1", "")
+	if err != nil {
+		t.Fatalf("StartLogin: %v", err)
+	}
+	if _, err := loginSess.CompleteToSession(context.Background(), nil); err == nil {
+		t.Fatalf("expected error for nil credential session, got nil")
 	}
 }
 

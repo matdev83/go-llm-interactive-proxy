@@ -466,15 +466,17 @@ func TestConfiguredInstance_Execute_HFTextGen_Streaming(t *testing.T) {
 	}
 }
 
-// 7. ListModels exposes only the configured endpoint (never enumerates
-// arbitrary InService endpoints); Execute of a non-configured endpoint fails.
+// 7. ListModels exposes only the configured endpoint (no control-plane
+// enumeration); Execute of a non-configured endpoint fails.
 // The control-plane stub below advertises extra endpoints to prove they are
-// not exposed.
+// neither exposed nor consulted.
 func TestConfiguredInstance_ListModels_And_UnconfiguredEndpointFails(t *testing.T) {
 	t.Parallel()
 
+	var listEndpointsCalled atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.Header.Get("X-Amz-Target") == "SageMaker.ListEndpoints" {
+			listEndpointsCalled.Add(1)
 			w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{
@@ -523,6 +525,9 @@ func TestConfiguredInstance_ListModels_And_UnconfiguredEndpointFails(t *testing.
 	if listResp.Models[0].Capabilities.Streaming {
 		t.Fatalf("provider streaming must not be advertised")
 	}
+	if count := listEndpointsCalled.Load(); count != 0 {
+		t.Fatalf("control plane ListEndpoints was called %d times; inventory must expose only the configured endpoint", count)
+	}
 
 	// Executing configured endpoint succeeds
 	streamOK := newTestExecuteStream(context.Background(), "sagemaker/configured-ep", lipapi.OperationOpenAIChatCompletions, "test", true, nil)
@@ -553,6 +558,9 @@ func TestConfiguredInstance_ListModels_And_UnconfiguredEndpointFails(t *testing.
 	}
 	if errOther != nil && !strings.Contains(errOther.Error(), "does not match configured endpoint_name") {
 		t.Fatalf("expected explicit endpoint_name mismatch error, got: %v", errOther)
+	}
+	if count := listEndpointsCalled.Load(); count != 0 {
+		t.Fatalf("control plane ListEndpoints was called %d times; it must never be consulted", count)
 	}
 }
 

@@ -304,8 +304,11 @@ func buildProviderProfileBackendWithNode(
 func wrapCompatibleLifecycle(family providerprofiles.Family, base pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
 	return func(instanceID string, n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
 		profileID, _, hasMarker := extractProfileReference(n)
-		if !hasMarker || profileID == "" {
+		if !hasMarker {
 			return base(instanceID, n, upstream, deps)
+		}
+		if profileID == "" {
+			return pluginreg.BackendBuildResult{}, fmt.Errorf("custom-compatible backend %q: provider-profile marker is missing a profile ID; remove the %q anchor / %q comment to keep the row independent of profiles", instanceID, profileAnchorPrefix, profileTagPrefix)
 		}
 		profile, ok := resolveProviderProfile(n)
 		if !ok {

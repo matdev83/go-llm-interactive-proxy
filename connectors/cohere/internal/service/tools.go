@@ -117,14 +117,28 @@ func cohereToolChoiceValue(tc lipapi.ToolChoice, nTools int) (*string, error) {
 
 // buildAssistantMessage maps a canonical assistant message onto a Cohere v2
 // assistant message, carrying prior tool calls (PartJSON parts) as tool_calls
-// with ID correlation alongside any text content.
+// with ID correlation alongside any text content. Text-only reasoning
+// (PartReasoning with Text and no signature/opaque/exact fields) replays as
+// tool_plan, mirroring the tool_plan → EventReasoningDelta → PartReasoning
+// round-trip; non-text reasoning cannot round-trip through tool_plan and
+// fails closed.
 func buildAssistantMessage(msg lipapi.Message) (cohereMessage, error) {
 	var sb strings.Builder
+	var plan strings.Builder
 	var calls []cohereToolCall
 	for _, p := range msg.Parts {
 		switch p.Kind {
 		case lipapi.PartText:
 			sb.WriteString(p.Text)
+		case lipapi.PartReasoning:
+			if p.Reasoning == nil {
+				return cohereMessage{}, fmt.Errorf("cohere: reasoning part requires Reasoning payload")
+			}
+			rp := p.Reasoning
+			if rp.Signature != "" || len(rp.Opaque) > 0 || lipapi.ReasoningHasExactResponsesFields(rp) || len(rp.EncryptedContent) > 0 {
+				return cohereMessage{}, fmt.Errorf("cohere: reasoning with signature/opaque cannot round-trip through tool_plan (text-only reasoning is supported)")
+			}
+			plan.WriteString(rp.Text)
 		case lipapi.PartJSON:
 			tc, err := cohereToolCallFromPart(p)
 			if err != nil {
@@ -135,8 +149,8 @@ func buildAssistantMessage(msg lipapi.Message) (cohereMessage, error) {
 			return cohereMessage{}, fmt.Errorf("cohere: unsupported part kind %q in assistant message (vision and non-text are not supported)", p.Kind)
 		}
 	}
-	out := cohereMessage{Role: "assistant", Content: sb.String(), ToolCalls: calls}
-	if out.Content == "" && len(calls) == 0 {
+	out := cohereMessage{Role: "assistant", Content: sb.String(), ToolCalls: calls, ToolPlan: plan.String()}
+	if out.Content == "" && out.ToolPlan == "" && len(calls) == 0 {
 		return cohereMessage{}, fmt.Errorf("cohere: assistant message is empty")
 	}
 	return out, nil
@@ -153,12 +167,13 @@ func cohereToolCallFromPart(p lipapi.Part) (cohereToolCall, error) {
 	if len(p.Content) > 0 {
 		var env struct {
 			ID       string `json:"id"`
+			Type     string `json:"type"`
 			Function *struct {
 				Name      string          `json:"name"`
 				Arguments json.RawMessage `json:"arguments"`
 			} `json:"function"`
 		}
-		if err := json.Unmarshal(p.Content, &env); err == nil && env.Function != nil &&
+		if err := json.Unmarshal(p.Content, &env); err == nil && env.Type == "function" && env.Function != nil &&
 			(env.ID != "" || env.Function.Name != "" || len(env.Function.Arguments) > 0) {
 			if id == "" {
 				id = strings.TrimSpace(env.ID)
