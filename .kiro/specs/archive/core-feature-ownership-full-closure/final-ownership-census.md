@@ -10,9 +10,10 @@ feature implementation/policy**, **feature-specific infrastructure/composition**
 ## 1. Method
 
 Commands run in this session against the final worktree (branch
-`fix/closure-ownership-final-census`, incorporating metrics publication fix
-`48ee4b19`, collector registration assertion `db773a0e`, and HEAD at this
-census certification commit):
+`fix/closure-ownership-final-census`, HEAD of this certification commit).
+Production publication-timing remediation is already on `main` as PR #613
+(`82b5bd36`, which includes collector registration assertion `db773a0e`).
+This PR adds census/CI/plane-count certification only:
 
 - `go list ./internal/core/... ./internal/infra/... ./internal/standardplugins/...
   ./internal/pluginreg/... ./internal/featurebundle/... ./pkg/lipruntime/...
@@ -228,8 +229,10 @@ No material simplification item remains:
    `secret_guard_execution` extension plane (closed set of 26 planes after the
    sole reviewed exception); `ExtensionsOptions` contains no Secret Guard exception fields.
 
-The production changes under this final remediation PR strictly address the publication
-timing gap and SDD revalidation, preserving all zero-debt invariants across the repository.
+The production publication-timing fix is already on `main` (PR #613,
+`82b5bd36`). This certification PR does not change production runtime
+behavior; it regenerates ownership evidence, records the 26-plane census
+comment, and extends the targeted Linux race workflow.
 
 ## 8. Program closeout & Final Ownership Certification
 
@@ -252,16 +255,20 @@ ownership debt:
   - `internal/infra/runtimebundle`: **12310** non-test lines (budget ceiling **12333**).
   - Both convergence trees strictly satisfy `TestPackageTreeBudgetsExact` and
     `TestLineComplexityBudgets`.
-- **Repository certification gates**: Full `go test ./...`, `go vet ./...`,
-  `make quality-checks`, and release-grade `make qa` pass cleanly.
+- **Repository certification gates**: Architecture budget tests, publication
+  timing tests, `planeparity`, and `make quality-checks` pass on this tree.
+  Required PR CI plus the targeted Linux race workflow in §8.1 are the merge
+  evidence; this census does not claim a local `make qa` run.
 
 ### 8.1 Verification Evidence & Targeted Linux Race
 
 ```text
 Targeted Linux race (required for this lifecycle change):
-  command: go test -count=1 -race ./internal/infra/runtimebundle/... ./internal/standardplugins/featurehost/... ./internal/plugins/features/keepwarm/...
-  runner: ubuntu-latest via pre-oss-core-slimming-race.yml (extended package list)
-  result: pending orchestrator dispatch after push — do not claim PASS without a run
+  command: go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/core/extensions ./internal/infra/runtimebundle ./internal/plugins/features/secretguard/... ./internal/standardplugins/featurehost/... ./internal/plugins/features/keepwarm/...
+  runner: ubuntu-latest via pre-oss-core-slimming-race.yml (workflow_dispatch)
+  SHA: ab10be8ec6340ac98e23e33c7743c7b21ab8b4f3
+  result: PASS
+  evidence: https://github.com/matdev83/go-llm-interactive-proxy/actions/runs/34343849798
 ```
 
 ---
