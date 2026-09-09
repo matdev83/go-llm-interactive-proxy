@@ -272,7 +272,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Provider-neutral scanner; no protocol field names in shared core.
   - _Requirements: 4, 9_
 
-- [ ] 5.3 Differential/fuzz against current slice preflight
+- [x] 5.3 Differential/fuzz against current slice preflight
   - Random buffer splits around UTF-8/escapes/numbers, deep/wide JSON, giant strings, duplicates, malformed/trailing data, exact limits, cancellation.
   - Compare stable error class/aggregate limits, not incidental text.
   - _Validation: `go test ./internal/core/jsonshape/...` + fuzz targets_
@@ -832,3 +832,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 4.6 VERIFIED (fresh reviewer APPROVED): fault-injection/privacy/leak test suite (reservation/create/short-write/read/remove failures, cancellation, timeout, exact limit/+1, leaked reader, no prompt/spool/secret leaks); test-only, Task 4.4 gap characterized without production change; largebody + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 5.1 VERIFIED (fresh reviewer APPROVED): incremental Scanner in jsonshape, chunked feeds, UTF-8/escape/number/limits/cancel, no giant-string retention, differential parity vs preflight oracle, budgets bump; jsonshape + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 5.2 VERIFIED (fresh reviewer APPROVED): path-tracked token events with exact spans, nested-key discrimination, provider-neutral caller-selected keys, budgets bump; jsonshape + budget gates PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 5.3 VERIFIED (fresh reviewer APPROVED): differential corpus + fuzz harness (191 differential subtests, 15s fuzz 1.2M execs 0 failures), Kind-only parity decision vs slice preflight, surrogate-split scanner panic fix independently verified, no request-path wiring; jsonshape suite PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.

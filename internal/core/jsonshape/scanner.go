@@ -491,9 +491,57 @@ func (s *Scanner) Feed(chunk []byte) error {
 							if s.strIsKey {
 								s.keyBuf = utf8.AppendRune(s.keyBuf, utf8.RuneError)
 							}
-							s.strInEscape = false
-							s.escapeLen = 0
-							i -= 2 // re-process \ and b
+							s.escapeBuf[0] = b
+							s.escapeLen = 1
+							s.strInEscape = true
+
+							switch b {
+							case '"', '\\', '/':
+								s.strDecodedBytes++
+								if s.strIsKey {
+									s.keyBuf = append(s.keyBuf, b)
+								}
+								s.strInEscape = false
+								s.escapeLen = 0
+							case 'b':
+								s.strDecodedBytes++
+								if s.strIsKey {
+									s.keyBuf = append(s.keyBuf, '\b')
+								}
+								s.strInEscape = false
+								s.escapeLen = 0
+							case 'f':
+								s.strDecodedBytes++
+								if s.strIsKey {
+									s.keyBuf = append(s.keyBuf, '\f')
+								}
+								s.strInEscape = false
+								s.escapeLen = 0
+							case 'n':
+								s.strDecodedBytes++
+								if s.strIsKey {
+									s.keyBuf = append(s.keyBuf, '\n')
+								}
+								s.strInEscape = false
+								s.escapeLen = 0
+							case 'r':
+								s.strDecodedBytes++
+								if s.strIsKey {
+									s.keyBuf = append(s.keyBuf, '\r')
+								}
+								s.strInEscape = false
+								s.escapeLen = 0
+							case 't':
+								s.strDecodedBytes++
+								if s.strIsKey {
+									s.keyBuf = append(s.keyBuf, '\t')
+								}
+								s.strInEscape = false
+								s.escapeLen = 0
+							default:
+								s.err = &Error{Kind: KindMalformed, Reason: MalformedSyntax, Msg: "malformed JSON"}
+								return s.err
+							}
 						}
 					} else if s.escapeLen == 11 {
 						r1, _ := parseHex4(s.escapeBuf[1:5])
