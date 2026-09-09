@@ -82,7 +82,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - _Validation: `go test -race ./internal/plugins/frontends/decodeqos/... ./internal/plugins/frontends/reqbody/... ./internal/plugins/frontends/frontendpipe/...`_
   - _Requirements: 1, 2, 3, 4, 6, 13_
 
-- [ ] 1.4 Freeze request-generation binding
+- [x] 1.4 Freeze request-generation binding
   - Characterize `GenerationDispatcher` request lease and generation-scoped frontend executor wiring.
   - Add reload-race fixture proving one HTTP request cannot assess against generation N and execute/fallback against generation N+1.
   - Do not redesign public `GenerationExecutor`; this is a characterization/ratchet task.
@@ -806,3 +806,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 1.1 at `3da34d7875443355d65cb9d7df649555dfad3edb` has unchanged runtime seams vs `b08c608` baseline but full archtest and focused billing docs test failed at that SHA due to upstream `product.md`/`structure.md` marker removal; evidence `evidence/1.1-rebaseline.md`; no downstream workaround or production changes. Repaired by `caa38dc9` (cherry-pick of upstream fix `a640123c` restoring billing-exposure contract markers); `go test -count=1 -timeout=10m ./internal/archtest` now passes on the feature worktree.
 - Task 1.2 test-only scope VERIFIED (independent reviewer APPROVED): fresh `go test -count=1` PASS exit 0 for 4 frontend packages (`frontendpipe`, `openairesponses`, `openailegacy`, `openresponses`); gofmt and diff check clean. Windows `go test -race` for same packages failed on `cgo.exe` exit 2 (Windows race/cgo toolchain limitation, not a test failure); future race certification needs working toolchain.
 - Task 1.3 approved correction applied: 1.3 characterizes current canonical one-`TryAdmit` decision including terminal decode failure; Task 7.6 owns proof-decline same-permit fallback and Task 11.9 owns assessment-decline same-permit fallback with the original permit held and no second decision; Requirement 6.3 preserved.
+- Task 1.4 test-only scope VERIFIED (fresh reviewer APPROVED): required suites ALL PASS on feature branch (`runtimehost`, `runtimebundle` incl. repaired candidate test, `stdhttp`); repair attribution `3054bc43`/`dc5f42af` retained; gofmt/diff-check clean; `-race` skipped per Windows cgo limitation.
