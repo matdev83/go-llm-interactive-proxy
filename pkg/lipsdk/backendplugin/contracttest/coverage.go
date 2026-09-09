@@ -31,5 +31,12 @@ var CurrentConnectorFamilyCoverage = []ConnectorFamilyCoverage{
 	{ModulePath: "connectors/cursorsdk", Family: "acp-sdk", Subject: "cursorsdk"},
 	{ModulePath: "connectors/llamacpp", Family: "openai-compatible", Subject: "llamacpp"},
 	{ModulePath: "connectors/lmstudio", Family: "openai-compatible", Subject: "lmstudio"},
+	{ModulePath: "connectors/vertex", Family: "vertex", Subject: "vertex"},
+	{ModulePath: "connectors/sagemaker", Family: "sagemaker", Subject: "sagemaker"},
+	{ModulePath: "connectors/oci", Family: "oci", Subject: "oci-generative-ai"},
+	{ModulePath: "connectors/watsonx", Family: "watsonx", Subject: "watsonx"},
+	{ModulePath: "connectors/sapaicore", Family: "sapaicore", Subject: "sapaicore"},
+	{ModulePath: "connectors/cohere", Family: "cohere", Subject: "cohere"},
+	{ModulePath: "connectors/replicate", Family: "replicate", Subject: "replicate"},
 	{ModulePath: "connectors/localstub", Family: "test-emulator", Subject: "localstub"},
 }
