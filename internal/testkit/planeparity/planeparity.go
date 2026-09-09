@@ -91,7 +91,7 @@ func AssertGeneratedMergeInvariants(tb testing.TB, bundles ...lipfeature.Feature
 	// Diagnostics projection equivalence
 	assert.Equal(tb, lipfeature.ProjectDiagnostics(oracleFrozen), lipfeature.ProjectDiagnostics(gen.Frozen), "Diagnostics projection mismatch")
 
-	// 25 Standard Plane Census
+	// 26 Standard Plane Census
 	assertPlaneCensus(tb, gen.Frozen, oracleFrozen)
 }
 
