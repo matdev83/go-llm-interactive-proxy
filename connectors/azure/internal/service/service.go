@@ -128,6 +128,10 @@ func (s *Service) Configure(_ context.Context, req backendplugin.ConfigureReques
 		return nil, fmt.Errorf("azure-openai: unsupported credential_mode %q", mode)
 	}
 
+	if len(cfg.Deployments) == 0 {
+		return nil, errMissingDeployments()
+	}
+
 	hc, err := cfg.HTTPClientWithTokenProvider(apiKey, tp)
 	if err != nil {
 		return nil, err
@@ -166,19 +170,28 @@ func (i *instance) Resolve(context.Context, *string) (backendplugin.ResolvedProf
 	}, nil
 }
 
-func (i *instance) ListModels(ctx context.Context, limit uint32) (backendplugin.ListModelsResponse, error) {
-	models, err := i.client().ListModels(ctx, 0)
-	if err != nil {
-		return backendplugin.ListModelsResponse{}, err
+func (i *instance) ListModels(_ context.Context, limit uint32) (backendplugin.ListModelsResponse, error) {
+	if len(i.cfg.Deployments) == 0 {
+		return backendplugin.ListModelsResponse{}, errMissingDeployments()
 	}
-	out := make([]backendplugin.ModelDescriptor, 0, len(models))
-	for _, m := range models {
-		if !isResponsesCapableModel(m.ID) {
+	// Deployment-driven inventory: Azure inference routes by deployment name,
+	// while /openai/v1/models lists available models, not the deployment-name
+	// mapping. Advertising bare model IDs would misroute, so each configured
+	// deployment is one routable identity and the models endpoint is not consulted.
+	out := make([]backendplugin.ModelDescriptor, 0, len(i.cfg.Deployments))
+	for _, name := range sortedDeploymentNames(i.cfg.Deployments) {
+		model := i.cfg.Deployments[name]
+		if !isResponsesCapableModel(model) {
 			continue
 		}
+		display := name
+		if model != name {
+			display = name + " (" + model + ")"
+		}
 		out = append(out, backendplugin.ModelDescriptor{
-			CanonicalModelID: i.kind + "/" + m.ID,
-			NativeModelID:    m.ID,
+			CanonicalModelID: i.kind + "/" + name,
+			NativeModelID:    name,
+			DisplayName:      display,
 			FactoryKind:      i.kind,
 			Capabilities:     backendplugin.CapabilitySummary{Streaming: true},
 		})
@@ -197,12 +210,11 @@ func (i *instance) Close(context.Context) error { return nil }
 
 func (i *instance) Execute(stream backendplugin.ExecuteStream) error {
 	cl := i.client()
-	return openaicompat.ForwardExecute(stream, openaicompat.ExecuteOpts{
-		DefaultModel: "default",
-		ResolveModel: func(inv backendplugin.Invocation, call lipapi.Call) string {
-			return resolveModel(i.kind, inv, call)
-		},
-		ResolveFlavor: ResolveFlavor,
-		Open:          cl.Open,
+	return backendplugin.ForwardExecute(stream, func(ctx context.Context, inv backendplugin.Invocation, call lipapi.Call) (lipapi.ManagedEventStream, error) {
+		model, err := resolveDeployment(i.cfg, i.kind, inv.CanonicalModelID)
+		if err != nil {
+			return nil, err
+		}
+		return cl.Open(ctx, call, model, ResolveFlavor(call))
 	})
 }

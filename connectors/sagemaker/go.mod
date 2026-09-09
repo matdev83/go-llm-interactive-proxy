@@ -10,7 +10,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20
 	github.com/aws/aws-sdk-go-v2/config v1.33.3
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.3
-	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.275.0
 	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.48.0
 	github.com/matdev83/go-llm-interactive-proxy v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc v1.83.2

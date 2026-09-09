@@ -460,6 +460,123 @@ func TestSession_Logout_AndReLoginClearsQuarantine(t *testing.T) {
 	}
 }
 
+// F5 regression: terminal refresh quarantine must latch in-process even when
+// quarantine persistence fails. Refresher must be called exactly once across
+// repeated Token() calls until explicit re-login/reset, and the Save failure
+// must be surfaced to the caller (not silently discarded).
+func TestSession_TerminalQuarantine_PersistFailure_NoReplay(t *testing.T) {
+	t.Parallel()
+
+	errSave := errors.New("quarantine persist boom")
+
+	stub := &quarantineFailStore{
+		rec: oauthcred.TokenRecord{
+			AccessToken:  "expired-tok",
+			RefreshToken: "ref-tok",
+			Expiry:       time.Now().Add(-10 * time.Minute),
+		},
+		failQuarantineSave: true,
+		saveErr:            errSave,
+	}
+
+	var refreshCalls atomic.Int32
+	refresher := oauthcred.RefresherFunc(func(ctx context.Context, rt string) (string, string, time.Time, error) {
+		refreshCalls.Add(1)
+		return "", "", time.Time{}, errors.New("oauth: server returned invalid_grant: token revoked")
+	})
+
+	sess := oauthcred.NewSession(stub, refresher)
+
+	// First call: terminal failure; Save fails so error must surface the failure.
+	_, err := sess.Token(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, oauthcred.ErrTerminalRefresh) {
+		t.Fatalf("expected ErrTerminalRefresh in %v", err)
+	}
+	if !errors.Is(err, errSave) {
+		t.Fatalf("expected Save error %v surfaced in %v", errSave, err)
+	}
+	if got := refreshCalls.Load(); got != 1 {
+		t.Fatalf("expected 1 refresh call, got %d", got)
+	}
+	if stub.saveCalls != 1 {
+		t.Fatalf("expected 1 save attempt, got %d", stub.saveCalls)
+	}
+
+	// Second call: must NOT replay refresher even though persistence failed.
+	_, err = sess.Token(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, oauthcred.ErrQuarantined) {
+		t.Fatalf("expected ErrQuarantined in %v", err)
+	}
+	if got := refreshCalls.Load(); got != 1 {
+		t.Fatalf("refresher replayed despite quarantine latch! expected 1 call, got %d", got)
+	}
+
+	// Third call: still latched, still no replay.
+	_, err = sess.Token(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, oauthcred.ErrQuarantined) {
+		t.Fatalf("expected ErrQuarantined in %v", err)
+	}
+	if got := refreshCalls.Load(); got != 1 {
+		t.Fatalf("refresher replayed despite quarantine latch! expected 1 call, got %d", got)
+	}
+
+	// Explicit re-login/reset clears the latch and serves the fresh token.
+	fresh := oauthcred.TokenRecord{
+		AccessToken:  "clean-new-token",
+		RefreshToken: "new-refresh-token",
+		Expiry:       time.Now().Add(2 * time.Hour),
+	}
+	if err := sess.Save(fresh); err != nil {
+		t.Fatalf("save fresh: %v", err)
+	}
+	tok, err := sess.Token(context.Background())
+	if err != nil {
+		t.Fatalf("token after re-login: %v", err)
+	}
+	if tok != "clean-new-token" {
+		t.Fatalf("expected clean-new-token, got %q", tok)
+	}
+	if got := refreshCalls.Load(); got != 1 {
+		t.Fatalf("expected no additional refresh after re-login with fresh token, got %d calls", got)
+	}
+}
+
+// quarantineFailStore fails quarantine persistence while allowing plain
+// credential writes (re-login) to succeed, modelling a transient disk failure.
+type quarantineFailStore struct {
+	rec                oauthcred.TokenRecord
+	failQuarantineSave bool
+	saveErr            error
+	saveCalls          int
+}
+
+func (s *quarantineFailStore) Load() (oauthcred.TokenRecord, error) { return s.rec, nil }
+
+func (s *quarantineFailStore) Save(rec oauthcred.TokenRecord) error {
+	s.saveCalls++
+	if rec.Quarantined && s.failQuarantineSave {
+		return s.saveErr
+	}
+	s.rec = rec
+	return nil
+}
+
+func (s *quarantineFailStore) Delete() error {
+	s.rec = oauthcred.TokenRecord{}
+	return nil
+}
+
+func (s *quarantineFailStore) Path() string { return "quarantine-fail-store" }
+
 // 9. No import of pkg/lipapi OAuth types (there must be none added)
 func TestHygiene_NoLipapiOAuthTypes(t *testing.T) {
 	t.Parallel()

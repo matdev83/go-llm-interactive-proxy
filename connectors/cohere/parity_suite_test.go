@@ -296,8 +296,9 @@ func TestConfigure_Execute_NativeV2Body_Streaming(t *testing.T) {
 	}
 }
 
-// 6. Tools fail closed. Vision/non-text parts fail closed. Responses operation fail closed.
-func TestExecute_ToolsAndVision_FailClosed(t *testing.T) {
+// 6. Vision/non-text parts fail closed. Responses operation fail closed.
+// Tools are natively supported (see tools_test.go) and must NOT fail closed.
+func TestExecute_VisionAndResponses_FailClosed(t *testing.T) {
 	t.Parallel()
 	svc := service.New(service.WithTokenProvider(service.StaticTokenProvider("tok")))
 	inst, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
@@ -309,32 +310,9 @@ func TestExecute_ToolsAndVision_FailClosed(t *testing.T) {
 		t.Fatalf("configure failed: %v", err)
 	}
 
-	// Tools fail closed
+	// Tools are natively supported and must be accepted at admission; the
+	// native mapping is covered in tools_test.go.
 	msg := "hello"
-	invTools := backendplugin.Invocation{
-		RequestID:        "req-tools",
-		AttemptID:        "att-tools",
-		CanonicalModelID: "cohere/command-r",
-		Operation:        string(lipapi.OperationOpenAIChatCompletions),
-		Messages: []backendplugin.Message{{
-			Role:  backendplugin.RoleUser,
-			Parts: []backendplugin.Part{{Kind: backendplugin.PartKindText, Text: &msg}},
-		}},
-		Tools: []backendplugin.ToolDef{{
-			Name: "my_tool",
-		}},
-	}
-	streamTools := &memStream{
-		ctx: context.Background(),
-		inbox: []backendplugin.ClientFrame{
-			{Kind: backendplugin.ClientFrameStart, InstanceID: "inst-1", Invocation: &invTools},
-			{Kind: backendplugin.ClientFrameCloseInput, InstanceID: "inst-1"},
-		},
-	}
-	if err := inst.Execute(streamTools); err == nil {
-		t.Fatalf("expected tools to fail closed, got nil")
-	}
-
 	// Vision/image fail closed
 	imgRef := "http://image.png"
 	invVision := backendplugin.Invocation{
@@ -513,7 +491,7 @@ func TestHardNegative_VersusOpenAI_AndLegacyV1(t *testing.T) {
 	}
 }
 
-// 9. Describe kind cohere. Streaming true; Tools/Vision false.
+// 9. Describe kind cohere. Streaming and Tools true; Vision false.
 func TestDescribe_Descriptor(t *testing.T) {
 	t.Parallel()
 	svc := service.New()
@@ -541,8 +519,11 @@ func TestDescribe_Descriptor(t *testing.T) {
 	if !f.StaticCapabilities.Streaming {
 		t.Fatalf("expected Streaming=true")
 	}
-	if f.StaticCapabilities.Tools || f.StaticCapabilities.Vision {
-		t.Fatalf("Tools and Vision must be false, got Tools=%v Vision=%v", f.StaticCapabilities.Tools, f.StaticCapabilities.Vision)
+	if !f.StaticCapabilities.Tools {
+		t.Fatalf("expected Tools=true (native Cohere v2 tools)")
+	}
+	if f.StaticCapabilities.Vision {
+		t.Fatalf("Vision must be false, got Vision=%v", f.StaticCapabilities.Vision)
 	}
 }
 
