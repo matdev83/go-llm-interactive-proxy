@@ -28,11 +28,12 @@ func StableCallTokenFromSum(sum [32]byte) string {
 // StableCallID returns the caller-provided ID when present, otherwise a
 // deterministic call-derived identifier suitable for trace and wire fallback use.
 func StableCallID(call *lipapi.Call) string {
-	var explicitID string
 	if call != nil {
-		explicitID = call.ID
+		if id := strings.TrimSpace(call.ID); id != "" {
+			return id
+		}
 	}
-	return StableCallIDFromSum(explicitID, StableCallSum(call))
+	return StableCallIDFromSum("", StableCallSum(call))
 }
 
 // StableCallIDFromSum returns explicitID when present, otherwise a deterministic
@@ -83,8 +84,4 @@ func StableCallSum(call *lipapi.Call) [32]byte {
 		return zero
 	}
 	return sha256.Sum256(b)
-}
-
-func stableCallSum(call *lipapi.Call) [32]byte {
-	return StableCallSum(call)
 }

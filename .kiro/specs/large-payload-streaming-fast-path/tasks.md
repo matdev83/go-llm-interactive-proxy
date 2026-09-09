@@ -290,7 +290,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - No behavior change in this subtask.
   - _Requirements: 16_
 
-- [ ] 6.2 Define profile hash-writer contract
+- [x] 6.2 Define profile hash-writer contract
   - Emit/hash exact canonical stable representation for supported subset with `Call.ID` handling identical to current code.
   - Explicit field order, zero/omitted semantics, normalization, JSON escaping, arrays/maps/options, route/session precedence.
   - Large string contents streamed into hash without retention.
@@ -834,3 +834,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 5.2 VERIFIED (fresh reviewer APPROVED): path-tracked token events with exact spans, nested-key discrimination, provider-neutral caller-selected keys, budgets bump; jsonshape + budget gates PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 5.3 VERIFIED (fresh reviewer APPROVED): differential corpus + fuzz harness (191 differential subtests, 15s fuzz 1.2M execs 0 failures), Kind-only parity decision vs slice preflight, surrogate-split scanner panic fix independently verified, no request-path wiring; jsonshape suite PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 6.1 VERIFIED (review subagent APPROVED): FromSum factoring, byte-for-byte parity, Call.ID precedence, budgets bump; diag + archtest PASS, diff-check/gofmt clean; follow-ups noted (explicit-ID early-return optimization + dead wrapper removal); -race unavailable cgo limitation.
+- Task 6.2 VERIFIED (review subagent APPROVED): CallIdentityWriter hash-writer, streaming escape parity, Call.ID identical, no retention, budgets bump; largebody + diag + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
