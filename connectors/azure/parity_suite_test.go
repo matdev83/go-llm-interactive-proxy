@@ -2,6 +2,7 @@ package azure_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -247,7 +248,7 @@ func TestParity_APIKeyModeHeader(t *testing.T) {
 	inst, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
 		FactoryKind: service.FactoryKind,
 		InstanceID:  "inst-key",
-		ConfigYAML:  []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: api_key\n"),
+		ConfigYAML:  []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: api_key\ndeployments:\n  gpt-4o: gpt-4o\n"),
 		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("az-key-12345")}},
 	})
 	if err != nil {
@@ -304,7 +305,7 @@ func TestParity_EntraModeBearer(t *testing.T) {
 	inst, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
 		FactoryKind: service.FactoryKind,
 		InstanceID:  "inst-entra",
-		ConfigYAML:  []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: entra\n"),
+		ConfigYAML:  []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: entra\ndeployments:\n  gpt-4o: gpt-4o\n"),
 		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{}},
 	})
 	if err != nil {
@@ -364,7 +365,7 @@ func TestParity_HardNegativeResponsesNeverFallsBackToChat(t *testing.T) {
 	instA, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
 		FactoryKind: service.FactoryKind,
 		InstanceID:  "inst-a",
-		ConfigYAML:  []byte("endpoint: " + srvA.URL + "\napi_version: 2024-10-21\n"),
+		ConfigYAML:  []byte("endpoint: " + srvA.URL + "\napi_version: 2024-10-21\ndeployments:\n  gpt-4o: gpt-4o\n"),
 		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("k")}},
 	})
 	if err != nil {
@@ -394,7 +395,7 @@ func TestParity_HardNegativeResponsesNeverFallsBackToChat(t *testing.T) {
 	instB, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
 		FactoryKind: service.FactoryKind,
 		InstanceID:  "inst-b",
-		ConfigYAML:  []byte("endpoint: " + srvB.URL + "\napi_version: 2024-10-21\n"),
+		ConfigYAML:  []byte("endpoint: " + srvB.URL + "\napi_version: 2024-10-21\ndeployments:\n  gpt-4o: gpt-4o\n"),
 		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("k")}},
 	})
 	if err != nil {
@@ -436,7 +437,7 @@ func TestParity_InboundChatOperationUsesChat(t *testing.T) {
 	inst, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
 		FactoryKind: service.FactoryKind,
 		InstanceID:  "inst-chat",
-		ConfigYAML:  []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\n"),
+		ConfigYAML:  []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ndeployments:\n  gpt-4o: gpt-4o\n"),
 		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("k")}},
 	})
 	if err != nil {
@@ -459,25 +460,11 @@ func TestParity_InboundChatOperationUsesChat(t *testing.T) {
 func TestInventory_MapsDeployedModels(t *testing.T) {
 	t.Parallel()
 
-	mixedPayload := `{
-		"data": [
-			{"id": "gpt-4o", "owned_by": "system"},
-			{"id": "gpt-4o-mini", "owned_by": "system"},
-			{"id": "o1-preview", "owned_by": "system"},
-			{"id": "text-embedding-3-large", "owned_by": "system"},
-			{"id": "dall-e-3", "owned_by": "system"},
-			{"id": "whisper", "owned_by": "system"},
-			{"id": "tts-1", "owned_by": "system"},
-			{"id": "", "owned_by": ""}
-		]
-	}`
-
+	// Any /models hit is a bug: Azure inference routes by deployment name
+	// (user-configurable, need not equal the underlying model), so inventory
+	// is deployment-driven and must never dial the models endpoint.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/models") {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(mixedPayload))
-			return
-		}
+		t.Errorf("unexpected outbound %s %s: azure inventory must be deployment-driven", r.Method, r.URL.Path)
 		http.NotFound(w, r)
 	}))
 	t.Cleanup(srv.Close)
@@ -486,7 +473,7 @@ func TestInventory_MapsDeployedModels(t *testing.T) {
 	inst, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
 		FactoryKind: service.FactoryKind,
 		InstanceID:  "inst-inv",
-		ConfigYAML:  []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: api_key\n"),
+		ConfigYAML:  []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: api_key\ndeployments:\n  coding-prod: gpt-5.x\n  chat-eu: gpt-4o\n  embed-prod: text-embedding-3-large\n"),
 		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("k")}},
 	})
 	if err != nil {
@@ -498,26 +485,51 @@ func TestInventory_MapsDeployedModels(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantIDs := []string{"gpt-4o", "gpt-4o-mini", "o1-preview"}
-	if len(resp.Models) != len(wantIDs) {
+	// Embedding-backed deployments stay out of Responses inventory; the rest
+	// is advertised by deployment name in stable sorted order.
+	wantCanonical := []string{"azure-openai/chat-eu", "azure-openai/coding-prod"}
+	if len(resp.Models) != len(wantCanonical) {
 		var got []string
 		for _, m := range resp.Models {
-			got = append(got, m.NativeModelID)
+			got = append(got, m.CanonicalModelID)
 		}
-		t.Fatalf("got %d models (%v), want %d (%v)", len(resp.Models), got, len(wantIDs), wantIDs)
+		t.Fatalf("got %d models (%v), want %d (%v)", len(resp.Models), got, len(wantCanonical), wantCanonical)
 	}
 
-	for i, want := range wantIDs {
-		if resp.Models[i].NativeModelID != want {
-			t.Fatalf("model %d NativeModelID=%q want %q", i, resp.Models[i].NativeModelID, want)
+	for i, want := range wantCanonical {
+		got := resp.Models[i]
+		if got.CanonicalModelID != want {
+			t.Fatalf("model %d CanonicalModelID=%q want %q", i, got.CanonicalModelID, want)
 		}
-		wantCanonical := "azure-openai/" + want
-		if resp.Models[i].CanonicalModelID != wantCanonical {
-			t.Fatalf("model %d CanonicalModelID=%q want %q", i, resp.Models[i].CanonicalModelID, wantCanonical)
+		deployment := strings.TrimPrefix(want, "azure-openai/")
+		if got.NativeModelID != deployment {
+			t.Fatalf("model %d NativeModelID=%q want deployment name %q", i, got.NativeModelID, deployment)
 		}
-		if resp.Models[i].FactoryKind != service.FactoryKind {
-			t.Fatalf("model %d FactoryKind=%q want %q", i, resp.Models[i].FactoryKind, service.FactoryKind)
+		if got.FactoryKind != service.FactoryKind {
+			t.Fatalf("model %d FactoryKind=%q want %q", i, got.FactoryKind, service.FactoryKind)
 		}
+	}
+
+	// Bare underlying model IDs must never be advertised as routable identities.
+	for _, m := range resp.Models {
+		if m.NativeModelID == "gpt-5.x" || m.NativeModelID == "gpt-4o" ||
+			m.NativeModelID == "text-embedding-3-large" {
+			t.Fatalf("bare model ID %q advertised; inventory must list deployment names only", m.NativeModelID)
+		}
+	}
+
+	// DisplayName surfaces the underlying model for operators.
+	if resp.Models[1].DisplayName != "coding-prod (gpt-5.x)" {
+		t.Fatalf("DisplayName=%q want %q", resp.Models[1].DisplayName, "coding-prod (gpt-5.x)")
+	}
+
+	// Limit is honored.
+	limited, err := inst.ListModels(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited.Models) != 1 || limited.Models[0].CanonicalModelID != "azure-openai/chat-eu" {
+		t.Fatalf("limited inventory=%+v want [azure-openai/chat-eu]", limited.Models)
 	}
 }
 
@@ -547,7 +559,7 @@ func TestNewProduction_WiresEntraCredentialChain(t *testing.T) {
 	instProd, err := svcProd.Configure(context.Background(), backendplugin.ConfigureRequest{
 		FactoryKind: service.FactoryKind,
 		InstanceID:  "inst-prod",
-		ConfigYAML:  []byte("resource_name: res\napi_version: 2024-10-21\ncredential_mode: entra\ntenant_id: ten-1\nclient_id: cli-1\n"),
+		ConfigYAML:  []byte("resource_name: res\napi_version: 2024-10-21\ncredential_mode: entra\ntenant_id: ten-1\nclient_id: cli-1\ndeployments:\n  gpt-4o: gpt-4o\n"),
 		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{"client_secret": []byte("cs-1")}},
 	})
 	if err != nil {
@@ -555,5 +567,128 @@ func TestNewProduction_WiresEntraCredentialChain(t *testing.T) {
 	}
 	if instProd == nil {
 		t.Fatal("expected non-nil configured instance")
+	}
+}
+
+func TestConfigure_RejectsMissingDeployments(t *testing.T) {
+	t.Parallel()
+	svc := service.New()
+	secrets := backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("k")}}
+
+	// 1. No deployments key at all.
+	_, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
+		FactoryKind: service.FactoryKind,
+		InstanceID:  "inst-nodeploy",
+		ConfigYAML:  []byte("endpoint: https://example.openai.azure.com\napi_version: 2024-10-21\ncredential_mode: api_key\n"),
+		Secrets:     secrets,
+	})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "deployments") {
+		t.Fatalf("expected deployments error, got %v", err)
+	}
+
+	// 2. Empty deployments map.
+	_, err = svc.Configure(context.Background(), backendplugin.ConfigureRequest{
+		FactoryKind: service.FactoryKind,
+		InstanceID:  "inst-emptydeploy",
+		ConfigYAML:  []byte("endpoint: https://example.openai.azure.com\napi_version: 2024-10-21\ncredential_mode: api_key\ndeployments: {}\n"),
+		Secrets:     secrets,
+	})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "deployments") {
+		t.Fatalf("expected deployments error for empty map, got %v", err)
+	}
+}
+
+func TestParseConfig_RejectsEmptyDeploymentEntries(t *testing.T) {
+	t.Parallel()
+	_, err := service.ParseConfigYAML([]byte("endpoint: https://example.openai.azure.com\napi_version: 2024-10-21\ndeployments:\n  coding-prod: ''\n"))
+	if err == nil || !strings.Contains(err.Error(), "coding-prod") {
+		t.Fatalf("expected coding-prod deployment error, got %v", err)
+	}
+}
+
+func TestExecute_RoutesDeploymentNameOnWire(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var gotModel string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err == nil {
+			mu.Lock()
+			if m, ok := payload["model"].(string); ok {
+				gotModel = m
+			}
+			mu.Unlock()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-1","output":[{"content":[{"type":"output_text","text":"hello"}]}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	svc := service.New()
+	inst, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
+		FactoryKind: service.FactoryKind,
+		InstanceID:  "inst-deploywire",
+		ConfigYAML:  []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: api_key\ndeployments:\n  coding-prod: gpt-5.x\n"),
+		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("k")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream := newTestExecuteStream(context.Background(), "azure-openai/coding-prod", lipapi.OperationOpenAIResponses)
+	if err := inst.Execute(stream); err != nil {
+		t.Fatalf("inst.Execute failed: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gotModel != "coding-prod" {
+		t.Fatalf("wire model=%q want %q (deployment name, not underlying model ID)", gotModel, "coding-prod")
+	}
+}
+
+func TestExecute_RejectsUnmappedModelID(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected outbound %s %s: unmapped models must fail before any HTTP", r.Method, r.URL.Path)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	svc := service.New()
+	inst, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
+		FactoryKind: service.FactoryKind,
+		InstanceID:  "inst-unmapped",
+		ConfigYAML:  []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: api_key\ndeployments:\n  coding-prod: gpt-5.x\n"),
+		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("k")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name  string
+		model string
+	}{
+		{"underlying model ID is not routable", "azure-openai/gpt-5.x"},
+		{"unknown deployment", "azure-openai/gpt-4o"},
+		{"empty deployment", "azure-openai/"},
+		{"bare kind", "azure-openai"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			stream := newTestExecuteStream(context.Background(), tc.model, lipapi.OperationOpenAIResponses)
+			err := inst.Execute(stream)
+			if err == nil {
+				t.Fatalf("expected unknown-deployment error for %q, got nil", tc.model)
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), "deployment") {
+				t.Fatalf("error for %q must name the deployment problem, got %v", tc.model, err)
+			}
+		})
 	}
 }

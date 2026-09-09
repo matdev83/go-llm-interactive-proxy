@@ -102,6 +102,9 @@ func (s *Service) Configure(ctx context.Context, req backendplugin.ConfigureRequ
 		tp = &StaticTokenProvider{AccessToken: cfg.DirectToken}
 	} else {
 		store := oauthcred.NewFileStore(cfg.OAuthTokenFile)
+		if _, err := oauthcred.RequireCredential(store, "minimax-oauth", "run the MiniMax login flow first (StartLogin displays the verification URI and user code; LoginSession.Complete polls approval and persists credentials), then retry", TokenRefreshSkew); err != nil {
+			return nil, err
+		}
 		refresher := &MiniMaxOAuthRefresher{
 			PortalBaseURL: cfg.PortalBaseURL,
 			ClientID:      cfg.OAuthClientID,

@@ -23,15 +23,20 @@ type Client struct {
 }
 
 type cohereMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content,omitempty"`
+	ToolCalls  []cohereToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+	ToolPlan   string           `json:"tool_plan,omitempty"`
 }
 
 type cohereChatRequest struct {
-	Model     string          `json:"model"`
-	Messages  []cohereMessage `json:"messages"`
-	Stream    bool            `json:"stream"`
-	MaxTokens *uint32         `json:"max_tokens,omitempty"`
+	Model      string          `json:"model"`
+	Messages   []cohereMessage `json:"messages"`
+	Stream     bool            `json:"stream"`
+	MaxTokens  *uint32         `json:"max_tokens,omitempty"`
+	Tools      []cohereToolDef `json:"tools,omitempty"`
+	ToolChoice *string         `json:"tool_choice,omitempty"`
 }
 
 type cohereMessageContent struct {
@@ -62,8 +67,10 @@ func (mc *cohereMessageContent) UnmarshalJSON(data []byte) error {
 type cohereChatResponse struct {
 	ID      string `json:"id"`
 	Message struct {
-		Role    string               `json:"role"`
-		Content cohereMessageContent `json:"content"`
+		Role      string               `json:"role"`
+		Content   cohereMessageContent `json:"content"`
+		ToolCalls []cohereToolCall     `json:"tool_calls"`
+		ToolPlan  string               `json:"tool_plan"`
 	} `json:"message"`
 	FinishReason string `json:"finish_reason"`
 }
@@ -82,9 +89,6 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, targetModel string)
 	if call.Invocation.Operation == lipapi.OperationOpenAIResponses ||
 		call.Invocation.Operation == lipapi.OperationOpenResponsesCreate {
 		return nil, fmt.Errorf("cohere: responses operations are not supported")
-	}
-	if len(call.Tools) > 0 {
-		return nil, fmt.Errorf("cohere: tools are not supported")
 	}
 
 	targetModel = strings.TrimSpace(targetModel)
@@ -105,26 +109,40 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, targetModel string)
 	}
 
 	for _, msg := range call.Messages {
-		var role string
 		switch msg.Role {
 		case lipapi.RoleSystem:
-			role = "system"
+			var sb strings.Builder
+			for _, p := range msg.Parts {
+				if p.Kind != lipapi.PartText {
+					return nil, fmt.Errorf("cohere: unsupported part kind %q (vision and non-text are not supported)", p.Kind)
+				}
+				sb.WriteString(p.Text)
+			}
+			messages = append(messages, cohereMessage{Role: "system", Content: sb.String()})
 		case lipapi.RoleUser:
-			role = "user"
+			var sb strings.Builder
+			for _, p := range msg.Parts {
+				if p.Kind != lipapi.PartText {
+					return nil, fmt.Errorf("cohere: unsupported part kind %q (vision and non-text are not supported)", p.Kind)
+				}
+				sb.WriteString(p.Text)
+			}
+			messages = append(messages, cohereMessage{Role: "user", Content: sb.String()})
 		case lipapi.RoleAssistant:
-			role = "assistant"
+			assistant, err := buildAssistantMessage(msg)
+			if err != nil {
+				return nil, err
+			}
+			messages = append(messages, assistant)
+		case lipapi.RoleTool:
+			toolMsgs, err := buildToolMessages(msg)
+			if err != nil {
+				return nil, err
+			}
+			messages = append(messages, toolMsgs...)
 		default:
 			return nil, fmt.Errorf("cohere: unsupported message role %q", msg.Role)
 		}
-
-		var sb strings.Builder
-		for _, p := range msg.Parts {
-			if p.Kind != lipapi.PartText {
-				return nil, fmt.Errorf("cohere: unsupported part kind %q (vision and non-text are not supported)", p.Kind)
-			}
-			sb.WriteString(p.Text)
-		}
-		messages = append(messages, cohereMessage{Role: role, Content: sb.String()})
 	}
 
 	isStreaming := call.Invocation.DeliveryMode != lipapi.DeliveryModeNonStreaming &&
@@ -139,6 +157,16 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, targetModel string)
 		mt := uint32(*call.Options.MaxOutputTokens)
 		chatReq.MaxTokens = &mt
 	}
+	tools, err := buildCohereTools(call.Tools)
+	if err != nil {
+		return nil, err
+	}
+	chatReq.Tools = tools
+	toolChoice, err := cohereToolChoiceValue(call.ToolChoice, len(call.Tools))
+	if err != nil {
+		return nil, err
+	}
+	chatReq.ToolChoice = toolChoice
 
 	bodyBytes, err := json.Marshal(chatReq)
 	if err != nil {
@@ -195,14 +223,10 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, targetModel string)
 	}
 
 	text := cr.Message.Content.Text
-	events := []lipapi.Event{
-		{Kind: lipapi.EventResponseStarted},
-		{Kind: lipapi.EventMessageStarted},
+	events, err := cohereResponseEvents(text, cr.Message.ToolPlan, cr.Message.ToolCalls, cr.FinishReason)
+	if err != nil {
+		return nil, err
 	}
-	if text != "" {
-		events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text})
-	}
-	events = append(events, lipapi.Event{Kind: lipapi.EventResponseFinished})
 
 	return lipapi.CloseOnlyManagedStream{Stream: &sliceStream{events: events}}, nil
 }
@@ -241,8 +265,18 @@ type sseChatStream struct {
 	scanner  *bufio.Scanner
 	mu       sync.Mutex
 	started  bool
+	msgStart bool
 	finished bool
 	closed   bool
+	pending  []lipapi.Event
+	// toolIDs correlates stream indices to tool call IDs announced by
+	// tool-call-start events; toolOrder preserves first-seen order so an
+	// unterminated stream can still close open calls deterministically.
+	toolIDs map[int]string
+	// pendingArgs buffers arguments deltas that arrive before their
+	// tool-call-start event, flushed in order when the start arrives.
+	pendingArgs map[int][]string
+	toolOrder   []int
 }
 
 func newSSEChatStream(ctx context.Context, body io.ReadCloser) *sseChatStream {
@@ -251,6 +285,26 @@ func newSSEChatStream(ctx context.Context, body io.ReadCloser) *sseChatStream {
 		body:    body,
 		scanner: bufio.NewScanner(body),
 	}
+}
+
+// ensureMsgStarted queues the message frame ahead of the first content-class
+// event so streamed tool calls stay Collect-compatible like text deltas.
+func (s *sseChatStream) ensureMsgStarted() {
+	if !s.msgStart {
+		s.msgStart = true
+		s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventMessageStarted})
+	}
+}
+
+func (s *sseChatStream) finishOpenToolCalls() {
+	for _, idx := range s.toolOrder {
+		if id := s.toolIDs[idx]; id != "" {
+			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: id})
+		}
+	}
+	s.toolIDs = nil
+	s.pendingArgs = nil
+	s.toolOrder = nil
 }
 
 func (s *sseChatStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -266,7 +320,15 @@ func (s *sseChatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		return lipapi.Event{Kind: lipapi.EventResponseStarted}, nil
 	}
 
-	for s.scanner.Scan() {
+	for {
+		if len(s.pending) > 0 {
+			ev := s.pending[0]
+			s.pending = s.pending[1:]
+			return ev, nil
+		}
+		if !s.scanner.Scan() {
+			break
+		}
 		if err := ctx.Err(); err != nil {
 			return lipapi.Event{}, err
 		}
@@ -290,50 +352,136 @@ func (s *sseChatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					Content struct {
 						Text string `json:"text"`
 					} `json:"content"`
+					ToolPlan  string          `json:"tool_plan"`
+					ToolCalls json.RawMessage `json:"tool_calls"`
 				} `json:"message"`
-				Text string `json:"text"`
+				Text         string `json:"text"`
+				FinishReason string `json:"finish_reason"`
 			} `json:"delta"`
 			Text string `json:"text"`
 		}
-		if err := json.Unmarshal([]byte(data), &ev); err == nil {
-			switch ev.Type {
-			case "content-delta":
-				delta := ev.Delta.Message.Content.Text
-				if delta == "" {
-					delta = ev.Delta.Text
-				}
-				if delta == "" {
-					delta = ev.Text
-				}
-				if delta != "" {
-					return lipapi.Event{Kind: lipapi.EventTextDelta, Delta: delta}, nil
-				}
-			case "message-end":
-				if !s.finished {
-					s.finished = true
-					return lipapi.Event{Kind: lipapi.EventResponseFinished}, nil
-				}
-			default:
-				if ev.Delta.Message.Content.Text != "" {
-					return lipapi.Event{Kind: lipapi.EventTextDelta, Delta: ev.Delta.Message.Content.Text}, nil
-				}
-				if ev.Delta.Text != "" {
-					return lipapi.Event{Kind: lipapi.EventTextDelta, Delta: ev.Delta.Text}, nil
-				}
-			}
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			continue
 		}
+		s.handleStreamEvent(ev.Type, ev.Index, ev.Delta.Message.Content.Text, ev.Delta.Message.ToolPlan,
+			ev.Delta.Message.ToolCalls, ev.Delta.Text, ev.Text, ev.Delta.FinishReason)
 	}
 
 	if err := s.scanner.Err(); err != nil && err != io.EOF {
 		return lipapi.Event{}, err
 	}
 
+	if len(s.pending) > 0 {
+		ev := s.pending[0]
+		s.pending = s.pending[1:]
+		return ev, nil
+	}
+
 	if !s.finished {
 		s.finished = true
+		s.finishOpenToolCalls()
+		if len(s.pending) > 0 {
+			ev := s.pending[0]
+			s.pending = s.pending[1:]
+			// Keep the terminal event for the next Recv: requeue it behind
+			// the tool finishes so lifecycles close before the response ends.
+			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventResponseFinished})
+			return ev, nil
+		}
 		return lipapi.Event{Kind: lipapi.EventResponseFinished}, nil
 	}
 
 	return lipapi.Event{}, io.EOF
+}
+
+// handleStreamEvent routes one Cohere v2 SSE event onto canonical pending
+// events: text deltas, tool-plan deltas (reasoning channel), ID-correlated
+// tool-call start/args/finish lifecycles, and the terminal message-end.
+func (s *sseChatStream) handleStreamEvent(
+	eventType string,
+	index int,
+	contentText, toolPlan string,
+	toolCalls json.RawMessage,
+	deltaText, text, finishReason string,
+) {
+	switch normalizeCohereStreamType(eventType) {
+	case "tool-plan-delta":
+		if toolPlan != "" {
+			s.ensureMsgStarted()
+			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: toolPlan})
+		}
+		return
+	case "tool-call-start":
+		for _, tc := range parseCohereStreamToolCalls(toolCalls) {
+			id := strings.TrimSpace(tc.ID)
+			if id == "" {
+				continue
+			}
+			s.ensureMsgStarted()
+			if s.toolIDs == nil {
+				s.toolIDs = make(map[int]string)
+			}
+			if _, seen := s.toolIDs[index]; !seen {
+				s.toolOrder = append(s.toolOrder, index)
+			}
+			s.toolIDs[index] = id
+			s.pending = append(s.pending, lipapi.Event{
+				Kind: lipapi.EventToolCallStarted, ToolCallID: id, ToolName: tc.Function.Name,
+			})
+			for _, args := range s.pendingArgs[index] {
+				s.pending = append(s.pending, lipapi.Event{
+					Kind: lipapi.EventToolCallArgsDelta, ToolCallID: id, Delta: args,
+				})
+			}
+			delete(s.pendingArgs, index)
+		}
+		return
+	case "tool-call-delta":
+		for _, tc := range parseCohereStreamToolCalls(toolCalls) {
+			if tc.Function.Arguments == "" {
+				continue
+			}
+			s.ensureMsgStarted()
+			if id := s.toolIDs[index]; id != "" {
+				s.pending = append(s.pending, lipapi.Event{
+					Kind: lipapi.EventToolCallArgsDelta, ToolCallID: id, Delta: tc.Function.Arguments,
+				})
+				continue
+			}
+			if s.pendingArgs == nil {
+				s.pendingArgs = make(map[int][]string)
+			}
+			s.pendingArgs[index] = append(s.pendingArgs[index], tc.Function.Arguments)
+		}
+		return
+	case "tool-call-end":
+		if id := s.toolIDs[index]; id != "" {
+			delete(s.toolIDs, index)
+			s.pending = append(s.pending, lipapi.Event{
+				Kind: lipapi.EventToolCallFinished, ToolCallID: id,
+			})
+		}
+		return
+	case "message-end":
+		if !s.finished {
+			s.finished = true
+			s.finishOpenToolCalls()
+			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: finishReason})
+		}
+		return
+	}
+
+	delta := contentText
+	if delta == "" {
+		delta = deltaText
+	}
+	if delta == "" {
+		delta = text
+	}
+	if delta != "" {
+		s.ensureMsgStarted()
+		s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: delta})
+	}
 }
 
 func (s *sseChatStream) Close() error {

@@ -58,7 +58,7 @@ func TestSupportedContractTCK(t *testing.T) {
 	srv := httptest.NewServer(openaicompat.NewEmulator(openaicompat.EmulatorConfig{RequireBearer: false}))
 	t.Cleanup(srv.Close)
 
-	cfgYAML := []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: api_key\n")
+	cfgYAML := []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: api_key\ndeployments:\n  contract-model: gpt-4o\n")
 	secrets := backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("test-key")}}
 
 	result := contracttest.Run(t, contracttest.Config{
@@ -89,7 +89,7 @@ func TestSupportedContractTCK_LegacyFallback(t *testing.T) {
 	srv := httptest.NewServer(openaicompat.NewEmulator(openaicompat.EmulatorConfig{RequireBearer: false}))
 	t.Cleanup(srv.Close)
 
-	cfgYAML := []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: api_key\n")
+	cfgYAML := []byte("endpoint: " + srv.URL + "\napi_version: 2024-10-21\ncredential_mode: api_key\ndeployments:\n  contract-model: gpt-4o\n")
 	secrets := backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("test-key")}}
 
 	legacyOffer := backendplugin.ProtocolOffer{

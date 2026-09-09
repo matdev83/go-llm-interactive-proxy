@@ -20,8 +20,6 @@ github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 h1:bAdDl/
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19/go.mod h1:KaUzbLxv4CeSxh6ZCl9B4m7CuFenS8kUEaDs+f/DQr4=
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2 h1:ZtHYnumr6QyxhzEzNZwzQTFJEXOswrZqTTkRxthwvr4=
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2/go.mod h1:a1NXrYpBd311gBzn1UI5UzJyyvXktM4xNh/ydPiPpqY=
-github.com/aws/aws-sdk-go-v2/service/sagemaker v1.275.0 h1:y8495C33FkCZrygnWuslU1nuPRuWmhjMdzd7tdRgl8g=
-github.com/aws/aws-sdk-go-v2/service/sagemaker v1.275.0/go.mod h1:opnmS+mxUWEonWmb/l98IOmdtCOTjTEJKfKu1ltAWmM=
 github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.48.0 h1:Xy+hfOGcItRJiTp8OrJouy9hZm/wupIQzp/wXGQsqQo=
 github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.48.0/go.mod h1:eilVrtBW4j4hFpRHweuum8P7tnGftSc1jHJ9B9NDFi8=
 github.com/aws/aws-sdk-go-v2/service/signin v1.9.0 h1:c3k+k/CS4L+sAIH6fxikL+g5g2LpeNczaoyjjw1iMKI=
