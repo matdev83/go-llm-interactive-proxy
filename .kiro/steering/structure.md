@@ -1,209 +1,160 @@
 # Project Structure (Steering)
 
-## Architecture Overview
+## Purpose of This File
 
-Five-zone modular design: stable public contracts at the edge, a policy-owning internal core, frontend/backend/feature plugins, and infrastructure/harness support.
+This file defines **ownership zones and placement rules**, not a directory inventory. Package names may change and new plugins/connectors may appear without requiring a steering update when they follow the existing architecture.
 
-```text
-                    ┌─────────────────────────┐
-                    │      pkg/lipapi         │  Canonical Contracts
-                    └───────────┬─────────────┘
-                                │
-┌──────────────────┐  ┌─────────▼───────────┐  ┌──────────────────┐
-│ Frontends (FEs)  ├──►    internal/core    ◄──┤  Backends (BEs)  │
-│ (openresponses,  │  │  (routing, b2bua,   │  │ (hosted,         │
-│  responses, chat,│  │   authoritycoord,   │  │  compatible,     │
-│  anthropic, gmi) │  │   billing,          │  │  connectors)     │
-│                  │  │   securesession)    │  │                  │
-└──────────────────┘  └─────────▲───────────┘  └──────────────────┘
-                                │
-                    ┌───────────┴─────────────┐
-                    │      pkg/lipsdk         │  Plugin Seams & SDK Facades
-                    └─────────────────────────┘
-```
+For current package/file inventory, inspect the repository tree, `docs/architecture.md`, standard contribution registries, manifests, and architecture tests.
 
----
+## Architectural Zones
 
-## Package Inventory by Zone
+### 1. Public contracts — `pkg/`
 
-### 1. Public Contracts (Stable Surface)
+Public packages expose stable, versionable contracts for external callers and plugins.
 
-- `pkg/lipapi/` — Protocol-neutral canonical request, item, part, tool, event, capability, limit, and error types, including name-derived tool classification. Zero provider SDK or HTTP dependencies.
-- `pkg/lipsdk/` — Plugin registration contracts, frontend/backend/hook interfaces, SDK facades (`auth`, `session`, `workspace`, `request`, `routehint`, `toolcatalog`, `toolpolicy`, `completion`, `auxiliary`, `state`, `traffic`, `usage`, `modelinventory`, `securesession`, `continuation`, `compaction`). Newer seams follow the same trusted-producer/explicit-construction pattern: conversation-view producers (`localturn`, `nonforwardable`, `steering`), terminal decisions (`terminaldecision`), prompt-cache prefixes (`promptcache`), principal/scope attribution (`scope`), and terminal ownership contracts (`terminal`).
-  - `pkg/lipsdk/secretguard/` — Ingress secret-guard contracts (`Guard`, `Matcher`, `DecisionEvent`).
-  - `pkg/lipsdk/configreload/` — Secret-safe runtime reload contract (`Trigger`, `Result`, `Status`, `HistoryEntry`).
-  - `pkg/lipsdk/backendplugin/` — Versioned gRPC connector ABI, DTOs, and table-driven converter helpers.
+- `pkg/lipapi` owns provider-neutral canonical request/event/capability/error semantics.
+- `pkg/lipsdk` owns plugin/extension contracts and typed facades.
+- `pkg/lipruntime` is a thin public host/reload facade over internal composition.
 
-### 2. Internal Core Runtime (`internal/core/`)
+Rules:
 
-Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; core **never** imports concrete plugins or provider SDKs.
+- no provider SDK or internal package types in public contracts;
+- keep exported surface minimal;
+- add a public abstraction only for a real external/stable seam;
+- public runtime options must not become a generic service bag or monetary composition surface.
 
-- **Execution & Lifecycle**: `runtime/` (executor), `execbackend/`, `execctx/`, `leglifecycle/`, `lineage/`, `terminal/`, `terminalwork/`, `continuation/`
-- **Routing & Policy**: `routing/` (selector parser, failover, weighted groups, parallel race, TTFT, `[first]`/`[thinker]`), `routeoverride/` (A-leg latest-wins override values and ports), `affinity/`, `policy/`, `modelview/`
-- **Authority Coordination & Control Plane**:
-  - `authoritycoord/` — Stage evaluator (`stage_evaluator.go`), attempt coordination, attempt-stage settle failure recording.
-  - `concurrencyauthority/` & `usageauthority/` — Principal turn and usage quota tracking.
-  - `authorityattribution/` — Leg attribution tracking.
-  - `controlplane/` — Ledgerstore projections (`usage_projector.go`), metering bridges, readiness reports (`readiness_report.go`), query bounds, privacy guardrails.
-  - `metering/` — Usage/cost metering models.
-- **Continuity & Sessions**: `b2bua/` (attempt lineage/store), `continuity/` (`bunstore`), `securesession/` (`adapters/`, `storecontract/`, `domain/`, `app/`), `conversationprojection/` (pure replay-stable message identity, `never_backend` exclusion, deterministic projection/reassertion at the A-leg/B-leg boundary). Mutable steering/tag state and persistence live outside core in `internal/infra/conversationview` (`sdkadapter/`, `storecontract/`, Memory/SQLite/PostgreSQL) and are composed by `internal/standardplugins/featurehost`.
-- **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `geoip/` (protocol-neutral ingress GeoIP policy semantics)
-- **Canonical Support & State**: `capabilities/`, `jsonpresence/`, `jsonshape/` (preflight guards), `diag/`, `config/`, `configreload/`, `interleavedstate/` (routing-required thinker cycle values only; memo/prompt/sanitize policy is feature-owned in `internal/plugins/features/interleavedthinking/`), `snapshotgen/`
-- **Observability/Detection**: compaction-continuity branch/capsule/job state is feature-owned in `internal/plugins/features/compactioncontinuity/state`, bound to authoritative core facts by `internal/standardplugins/featurehost/compaction`; keep-warm scheduling/policy is feature-owned in `internal/plugins/features/keepwarm`
-- **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`, `localstream/` (generic canonical proxy-local response streams backing local turns)
-- **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform), runtime consumer-owned `TerminalPolicyReader` (effective terminal-decision policy snapshot admission; mutable session policy store is process-owned outside core under `internal/standardplugins/featurehost/sessionpolicy`). The runtime enforces the shared terminal-decision chokepoint over the single exclusive `pkg/lipsdk/terminaldecision` provider slot with core-owned continuation transactions; generic no-provider behavior is preserved when no provider is installed.
-- **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `billing/`, `tokenaccounting/` (keep-warm accounting adaptation is feature-owned in `internal/plugins/features/keepwarm`)
-  - `billing/` owns BillingCallID, quote/exposure policy, immutable per-call/per-leg usage contracts (including authoritative persisted `AttemptSeq`), post-usage rating, journal settlement, and billing reports. Runtime performs cheap credit screening and atomic operational exposure admission, then appends terminal usage; it must not enrich prices or write the legacy token ledger. Customer rating resolves customer pricing and model cards only, independent of provider/operator-rate readiness; runtime billing bookkeeping is `BillingCallID`-scoped (no executor-global call registry).
-  - `tokenaccounting/` remains a protocol/quota usage projection and admin counting surface only; it is not a financial balance or journal input.
-  - Durable money persistence is `internal/infra/billingstore` (Bun). Host injection is `internal/infra/billingcompose` (snapshot catalog + identity) plus `runtimebundle.ComposeBilling`. Admission adapter is `internal/infra/billingadmission`. Public `pkg/lipruntime.Options` stays non-money.
+### 2. Kernel and orchestration — `internal/core/`
 
-### 2a. Composition & Standard Distribution Assembly
+Core owns product semantics that remain necessary with optional features disabled: routing, B2BUA lifecycle, commitment/recovery, canonical streaming, continuity/session authority, shared execution policy mechanisms, and narrow domain contracts consumed by infrastructure.
 
-- `internal/pluginreg/` — Standard distribution plugin registry & validation.
-- `internal/standardplugins/` — Built-in bundle tables (`standard_table.go`), `InstallStandardBundleOn`, `ResolveUpstreamAPIKeysFromEnv`.
-- `internal/standardplugins/featurehost/` — Standard-distribution feature composition owner: compiles process/generation-bound features, holds host-feature registrations, and owns the single constructor / single physical cleanup per process feature resource (children: `compaction/`, `reasoning/`, `secretguard/`, `sessionpolicy/`).
-- `internal/standardplugins/legacyfeatureconfig/` — Decode-only legacy YAML shim: normalizes top-level `interleaved:` / `prompt_cache:` keys into canonical `plugins.features` entries (conflict errors on dual specification); feature-owned constructors stay authoritative downstream.
-- `internal/featurebundle/` — Feature merge engine (`MergeFeatureSurface`).
-- `internal/infra/runtimebundle/` — Process `Host` builder (`runtimebundle.BuildHost`), immutable generation management (`GenerationRuntime`), shutdown coordinator; the host lifecycle ends through `Host.Close`. Authoritative billing is injected through `ComposeBilling` → `BuildHostInput.Production`; `cmd/lipstd` does not open a billing journal. Contains zero direct imports of `internal/plugins/features/*`.
-- `internal/stdhttp/` — Standard HTTP surface, route mounting, auth attachment, diagnostics, access logs. Optional billing reports, routing-override admin mounts, and terminal-decision session-feature policy endpoints (generic authenticated client `/v1/lip/session/features/{feature_id}` and diagnostics-secret operator surfaces) are composition-gated.
-- `internal/jsonbody/` — Bounded HTTP JSON decode policy for standard/admin adapters: byte cap, request-envelope shape preflight, exactly-one-document admission. Consumers: `internal/stdhttp/admin/billing`, `keepwarm`, `tokenaccounting`.
-- `internal/providerprofiles/` — Declarative compatible-provider catalog (`lip.provider-profile/v1`); composition compiles profiles onto protocol-family adapters. Do not grow a new in-process backend package per compatible vendor.
+Rules:
 
-### 3. Official Frontend Plugins (`internal/plugins/frontends/`)
+- core may depend on public canonical/SDK contracts, never concrete plugins or provider SDKs;
+- provider/protocol-specific behavior stays at adapter edges;
+- optional UX/policy does not live in core merely because the executor needs to call it;
+- new top-level core responsibilities must satisfy the repository's core-ownership admission rules and architecture tests.
 
-Wire frontends translate protocol payloads <-> canonical contracts:
-- **Wire Frontends**: `openresponses/` (OpenResponses 2026-04-24 API, HTTP/WS turns & continuation), `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`
-- **Frontend Helpers**: `frontendpipe/` (unified ServeHTTP pipeline & SSE `stream.PumpSSE`), `identitywire/` (product identity headers), `streamdebug/`, `decodeqos/`, `execerr/`, `exechold/`, `frontendconfig/`, `holdalive/`, `jsonguard/`, `limits/`, `openaiwire/`, `parity/`, `reqbody/`, `routeselect/`, `sessionwire/`
+The current allowed core package set and justification are executable policy under `internal/archtest/`; do not duplicate that package list here.
 
-### 4. Official Backend Plugins & Connectors (Hybrid Architecture — ADR 0008)
+### 3. Standard-distribution composition
 
-- **Essential Hosted Backends** (`internal/plugins/backends/` — statically linked): `alibabatokenplanintl/`, `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`
-- **Custom-Compatible Helpers**: `openresponsescompat/`, `openaicompat/`, `compatmode/`, `transporterr/`, `checkcfg/`, `credpool/`, `httpidentity/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `protocols/`, `streampeek/`
-- **Protocol Protocols**: `internal/plugins/protocols/openairesponsesitem` (exact OpenAI Responses reasoning-item Opaque schema).
-- **Optional Backend Connectors** (`connectors/` — independent modules, gRPC ABI over IPC): `acp`, `agycliacp`, `codex`, `cursorcliacp`, `cursorsdk`, `geminicliacp`, `huggingface`, `llamacpp`, `lmstudio`, `localstub`, `nvidia`, `ollama`, `opencode`, `openrouter`, `vllm`.
-- **Connector Support**: `connector-support/` (`acp/`, `openaicompat/`), plus host-side executable-connector infrastructure in `internal/infra/backendplugins/` (`adapter/`, `catalog/`, `discovery/`, `manifest/`, `processhost/`, security/trust).
+The standard distribution is assembled explicitly rather than through globals, reflection, or DI containers.
 
-### 5. Official Feature Plugins (`internal/plugins/features/`)
+- `internal/pluginreg` owns registry/validation mechanics.
+- `internal/standardplugins` owns the concrete built-in contribution set.
+- `internal/standardplugins/featurehost` is the only composition layer that knows the concrete standard feature set and owns process/generation feature assembly.
+- `internal/featurebundle` owns generic feature-surface merge mechanics.
+- `internal/infra/runtimebundle` owns generic Host/process/generation composition, publication, reload, and shutdown.
+- `internal/stdhttp` owns the standard HTTP/control surfaces.
 
-- `reasoningpreservation/` — Default-on reasoning output capture/restore (`EventReasoningPart` + Chat/Anthropic/Codex dialects), plus opt-in semantic compression of canonically compressible plain-text reasoning (immutable compression claims through reservation→egress→adoption; fails closed; disabled unless explicitly configured).
-- `agentloopguard/` — Opt-in removable Agent Loop Guard terminal-decision provider: bounded verification, progress detection, and conservative continuation policy behind the exclusive provider slot.
-- `compactioncontinuity/` — Coding-agent compaction capsule continuity (preview/response merge via background auxiliary jobs over the process-owned branch coordinator).
-- `codexclientcompat/` — OpenAI Codex native compaction reasoning output preservation.
-- `secretguard/` — Ingress credential scanner & enforcement Guard (`engine/` catalog & Aho–Corasick matcher, source policy).
-- `toolcallrepair/` — Malformed tool-call YAML auto-repair (`repair/` engine, bounded JSON tail completion/schema repair).
-- Proof/Ref Features: `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `submitnoop/`, `partsnoop/`, `toolreactornoop/`.
+Post-refactor invariant:
 
-### 6. Support & Test Surfaces
+- `internal/core` and generic `runtimebundle` do not import concrete feature packages;
+- generic runtime holds direct typed generation references/ports, not a request-time feature resolver;
+- each process feature resource has one constructor path and one physical cleanup owner;
+- borrowed generic resources are not closed by feature composition;
+- publication-only behavior is registered into the generic generation publication lifecycle rather than executed during candidate compilation.
 
-- `internal/infra/` — HTTP client tuning, structured logging, Prometheus metrics, OTLP tracing, DB connectors, secret audit, billing store/compose/admission adapters, compaction detection (`compactiondetect/`). The retired `internal/infra/` feature composition adapters now live beneath the standard-distribution feature owner as `internal/standardplugins/featurehost/` children (`compaction/`, `reasoning/`, `secretguard/`).
-- `internal/refbackend/` — Test-only backend emulators (HTTP).
-- `internal/refclient/` — Test-only official SDK reference clients.
-- `internal/testkit/` — Stubs, fakes, fixtures, reasoning E2E plans (`reasoninge2e/`), contract TCKs (`contract/` for canonical-core, frontend, and backend-family certification). Cartesian FE×BE completeness is not a release invariant.
-- `internal/plugins/features/reasoningpreservation/reasoningreplay/` — Reasoning prefix matcher (`compatible-auto.v2`).
-- `internal/qa/` & `internal/archtest/` — Repository hygiene & architecture guardrail gates.
+### 4. Protocol adapters — `internal/plugins/frontends/` and `internal/plugins/backends/`
 
-The architecture gates also include the deterministic change-surface reporter at `internal/archtest/tools/changesurface`; it classifies Git paths and keeps profile-only shared-boundary footprint at zero.
+Frontends and backends are wire/provider adapters around canonical contracts.
 
----
+- frontends translate client protocols to/from canonical calls/events;
+- essential in-process backends translate canonical calls/events to provider protocols;
+- reusable compatible-family helpers may share transport/codec mechanics without becoming a second canonical layer.
 
-## Quick Intent-to-Package Map
+Provider SDKs and vendor transport types stay inside these adapter boundaries.
 
-| Developer Intent | Target Directory / File |
-| :--- | :--- |
-| Add/modify client API format | `internal/plugins/frontends/<protocol>/` |
-| Change unified HTTP/SSE pipeline | `internal/plugins/frontends/frontendpipe/`, `internal/core/stream/` |
-| Add essential hosted backend | `internal/plugins/backends/<provider>/`, register in `internal/standardplugins/` |
-| Add optional backend connector | `connectors/<name>/` (independent module with gRPC ABI) |
-| Change stage evaluation / attempt logic | `internal/core/authoritycoord/` |
-| Change control plane projections / metering | `internal/core/controlplane/` |
-| Change dual SQLite/Postgres persistence | `internal/core/continuity/bunstore/`, `internal/core/securesession/adapters/` |
-| Modify canonical request/event structs | `pkg/lipapi/` |
-| Modify plugin SDK or extension facades | `pkg/lipsdk/` |
-| Change routing rules / selector syntax | `internal/core/routing/` |
-| Add A-leg runtime routing overrides | `internal/core/routeoverride/`, persist via `b2bua` / `continuity/bunstore`, HTTP in `internal/stdhttp/` |
-| Change stream semantics or keepalives | `internal/core/stream/`, `internal/core/streamrecovery/` |
-| Modify reasoning preservation | `internal/plugins/features/reasoningpreservation/`, standard composition via `internal/standardplugins/featurehost/` |
-| Update standard HTTP server / auth | `internal/stdhttp/`, `internal/infra/runtimebundle/` |
-| Change exposure / usage / journal / post-usage settlement | `internal/core/billing/`, persist via `internal/infra/billingstore/` |
-| Enable billing in an internal host | `runtimebundle.ComposeBilling`, catalog in `internal/infra/billingcompose/`; see `docs/billing-host-composition.md` |
-| Add a compatible inference profile | `internal/providerprofiles/` (data), bind through `internal/standardplugins/` |
-| Classify coding-agent tool names | `pkg/lipapi` (`ClassifyToolName`); runtime correlates name-less fragments by `ToolCallID` |
-| Detect coding-agent session compaction | `internal/infra/compactiondetect/`; subscribe via `pkg/lipsdk/compaction` observers |
-| Change compaction-continuity capsule state | `internal/plugins/features/compactioncontinuity/state`, parent binding via `internal/standardplugins/featurehost/compaction` |
-| Tag content non-forwardable / add local turns or persistent steering | `internal/core/conversationprojection/` (pure kernel) + `internal/infra/conversationview/` (state/services); trusted producers via `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, `pkg/lipsdk/localturn` |
-| Add a terminal-decision feature provider (e.g., loop guards) | contract `pkg/lipsdk/terminaldecision`, provider plugin under `internal/plugins/features/`, policy endpoints in `internal/stdhttp/` |
+### 5. Optional executable backends — `connectors/` and `connector-support/`
 
----
+Optional integrations that should not widen the root module run as executable connectors over the versioned backend-plugin ABI.
 
-## Architectural Guardrails
+Rules:
 
-1. **No Core Leaks**: `internal/core` must never import provider SDKs or concrete plugins.
-2. **No Pairwise Translators**: All translation flows `Frontend -> Canonical (pkg/lipapi) -> Backend`.
-3. **Streaming First**: Non-streaming responses collect events over canonical streams.
-4. **No Hidden Downgrade**: Unsupported required capabilities must fail explicitly before backend call.
-5. **Pre-Output Swallowing Only**: Failover/retry allowed only before client-visible output starts. Committed legs cannot failover silently.
-6. **No Dynamic Loading**: Essential backends are statically linked; optional backends use out-of-process gRPC IPC connectors (`connectors/`).
-7. **Explicit Wiring**: No DI containers, reflection registries, global state, or `init()` setup functions.
+- connector modules remain dependency-isolated from the root module;
+- discovery is manifest-driven and trust-validated;
+- connector-specific dependencies stay in the connector module/support package;
+- do not add an optional connector to essential fixed tables simply for convenience.
 
-## Structural guardrails
+Current connector inventory is derived from manifests/release metadata, not steering.
 
-- No protocol-specific branching inside core packages.
-- No provider SDK imports outside backend plugins and test/reference support.
-- No frontend package may call provider SDKs directly.
-- No feature plugin may depend on another concrete plugin without an explicit SDK contract.
-- Non-streaming code must not become a second execution path.
-- B2BUA continuity must stay isolated from protocol codec packages.
-- Request/response mutation logic must live behind hooks or extension stages, not in the routing engine.
-- Core must not import or branch on concrete terminal-decision providers: one exclusive provider slot, generic no-provider fallback, and provider removal preserves default behavior.
-- Feature plugins should depend on `pkg/lipsdk` contracts, not `internal/core` implementation packages.
-- Feature plugins (`toolcallrepair`, `secretguard`, `reasoningpreservation`, and all migrated standard features) own domain state, configuration decoding and bundle construction; simple plane-only features register a thin factory in `features_install.go` while process/generation-bound features are composed by `internal/standardplugins/featurehost`; standard distribution (`internal/standardplugins`) registers them explicitly; `internal/core` and `internal/infra/runtimebundle` contain no feature-specific branches or concrete feature imports. A process feature resource has exactly one constructor path and one physical cleanup owner; `StandardFeatures.Close` never closes borrowed generic process resources.
-- Kernel–policy split: pure projection/orchestration operators over canonical facts stay in `internal/core`; domain policy lives in feature plugins and reaches core only through `pkg/lipsdk` ports and featurehost bindings.
-- The v1 extension-plane catalog is closed (`pkg/lipsdk/feature/plane_manifest.go`); ungenerated planes fail with `ErrUngeneratedPlane`; canonical generated binding is authoritative for production policy.
-- Security startup checks belong in config/runtimebundle/stdhttp composition boundaries, not inside protocol codecs.
-- Backend local-only access-scope enforcement belongs in standard registration/runtimebundle policy, not inside protocol codecs.
-- Concrete dependency construction belongs in composition roots or adapter constructors, not in core workflow methods.
-- Public `pkg/lipruntime.Options` must not grow money fields (journal, catalog, rating). Billing attaches through internal `ProductionOptions` / `ComposeBilling`.
-- Do not reintroduce Cartesian frontend×backend completeness gates; certify via contract TCKs plus a bounded sentinel.
-- Do not put financial mutation, rating, or journal I/O on the stream receive path.
+### 6. Feature plugins — `internal/plugins/features/`
 
-## Naming and import conventions
+Features own optional domain behavior, configuration decoding, state/policy, and bundle construction.
 
-- package names are short, lowercase, and singular where practical.
-- avoid stutter such as `routing.RouterService`.
-- define interfaces where they are consumed.
-- keep interfaces small; compose larger contracts from focused pieces only when a real seam requires it.
-- constructors should return concrete types unless the package is intentionally exposing a stable SDK/plugin contract.
-- keep exported surface area small.
-- prefer internal packages for code that should not be imported externally.
-- use compile-time interface assertions near implementations for important plugin, SDK, and adapter contracts.
+Rules:
 
-## Pragmatic hexagonal guidance
+- features depend on SDK contracts, not core implementation packages;
+- feature-owned process/generation resources are composed through `featurehost`;
+- the closed typed extension-plane catalog is defined by `pkg/lipsdk/feature` executable metadata;
+- adding a normal feature to an existing plane does not require a core branch or steering update;
+- a genuinely new platform plane is an SDK/runtime architecture change and requires manifest/generator/contract updates.
 
-Apply hexagonal architecture here as an ownership and dependency-direction discipline, not as a directory-renaming exercise.
+### 7. Infrastructure — `internal/infra/`
 
-For this repository, read the usual hexagonal terms through the current LIP package map:
+Infrastructure implements technology-specific driven adapters: databases, connector hosting, HTTP clients, observability, persistence, audit, and similar concerns.
 
-- **domain/policy center:** canonical contracts in `pkg/lipapi` plus core policy packages under `internal/core/`.
-- **application/use-case orchestration:** executor, routing, continuity, extension, and runtime assembly paths that coordinate multiple seams.
-- **driving adapters:** HTTP frontends, CLI commands, admin/diagnostic HTTP surfaces, and transport auth entrypoints.
-- **driven adapters:** backend plugins, stores, model/catalog providers, tokenizers, metrics/tracing exporters, and other infrastructure implementations.
-- **composition roots:** `cmd/lipstd/`, `internal/pluginreg/`, `internal/infra/runtimebundle/`, and `internal/stdhttp/`.
+Rules:
 
-- keep the existing package map when it already expresses a clean boundary,
-- prefer selective seam extraction over repo-wide package churn,
-- place new seams near the consuming capability, not in generic `ports`, `interfaces`, or `services` buckets,
-- prefer concrete inbound services for driving adapters unless multiple real consumers justify an interface,
-- distinguish pure domain policy, application/use-case orchestration, and edge translation when a feature becomes complex enough to need those names,
-- keep transactions, durable writes, and outbox-style side effects explicit at the orchestration boundary; never leak driver handles into core policy,
-- use dedicated read/query adapters for operator views, diagnostics, or reporting when a write-shaped repository would hide intent,
-- allow dedicated query adapters and read DTOs for diagnostics, admin, or reporting flows when they are simpler than repository-shaped write abstractions,
-- do not create interfaces only for mocking or symmetry.
-- keep provider/vendor names and SDK enums at adapter edges unless they are explicit compatibility-surface identifiers, not canonical business concepts.
+- infrastructure implements interfaces/contracts owned by the consuming domain where practical;
+- driver handles and vendor types do not leak into core policy;
+- persistence behavior must preserve domain semantics across supported engines/topologies;
+- infrastructure is not a dumping ground for optional product policy.
 
-This means a seam may legitimately be:
+### 8. Test and certification surfaces
 
-- a small interface,
-- a narrow function-typed contract,
-- or a frozen concrete struct,
+Reference clients/backends, testkits, architecture guards, QA checks, and contract TCKs are test support rather than production architecture.
 
-as long as it gives the core a real substitution boundary and keeps technology details at the edge.
+Prefer reusable family contracts and architecture ratchets over duplicated end-to-end matrices.
+
+## Intent-to-Zone Decision Table
+
+| Change intent | Default ownership |
+| --- | --- |
+| New/changed client wire protocol | frontend adapter |
+| New essential provider wire implementation | backend adapter + standard contribution |
+| New optional provider/tool integration with separate dependencies/runtime | executable connector |
+| New compatible vendor on an existing protocol family | provider profile/data first |
+| New cross-protocol canonical semantic | `pkg/lipapi` |
+| New plugin/host contract | narrow `pkg/lipsdk` seam |
+| Routing, commitment, B2BUA, failover semantics | core |
+| Optional UX/safety/reasoning/maintenance policy | feature plugin |
+| Feature process/generation construction | `internal/standardplugins/featurehost` |
+| Generic host/generation lifecycle | `internal/infra/runtimebundle` |
+| SQL/driver/telemetry/client implementation | infrastructure adapter |
+| Operator/admin HTTP surface | `internal/stdhttp` plus owning domain/infra service |
+
+If the ownership decision is ambiguous, apply the kernel test: **would this behavior still be required with all optional features disabled, and is it provider/protocol neutral?** If not, it usually does not belong in core.
+
+## Dependency-Direction Guardrails
+
+- Core and public contracts never import concrete plugins or provider SDKs.
+- Feature plugins do not import core implementations.
+- Frontends do not call provider SDKs.
+- Backends/connectors do not own frontend framing.
+- No pairwise protocol translators.
+- No request-time service locator, reflection registry, or generic feature map.
+- No native Go `plugin` loading.
+- No protocol/provider-specific switch statements in core when an adapter/SDK seam can own the behavior.
+- No optional-feature policy hidden in generic infrastructure/composition.
+
+## Package Design Conventions
+
+- Define interfaces where they are consumed; keep them narrow.
+- Constructors normally return concrete types unless exposing a stable SDK/plugin contract.
+- Prefer function-typed ports or frozen structs when they express the seam more simply than an interface.
+- Keep package names short and responsibility-focused; avoid generic `services`, `interfaces`, or `ports` buckets.
+- Avoid package churn solely to imitate textbook architecture taxonomy.
+- Use compile-time interface assertions for important adapter/plugin contracts.
+- Keep process ownership, generation ownership, request ownership, and attempt ownership explicit.
+
+## When Steering Should Change
+
+Update this file when **ownership or dependency rules change** — for example, a new architectural zone, a new allowed dependency direction, or a changed process/generation ownership model.
+
+Do not update it merely because:
+
+- a provider/connector/feature was added or removed;
+- a package was renamed within the same zone;
+- a registry gained another entry;
+- an implementation detail moved between files without changing responsibility.
