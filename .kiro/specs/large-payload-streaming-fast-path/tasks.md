@@ -156,7 +156,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - External/manual frontends/executors remain source-compatible/canonical-only.
   - _Requirements: 1, 22_
 
-- [ ] 2.4 Add configuration/DTO architecture tests before behavior
+- [x] 2.4 Add configuration/DTO architecture tests before behavior
   - Feature disabled produces no new request-path object allocation beyond a trivial branch.
   - Core large-body package cannot import provider/frontend packages.
   - Sensitive carrier cannot be accidentally formatted into normal telemetry.
@@ -816,3 +816,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 2.1 VERIFIED (fresh reviewer APPROVED): six-field default-off `server.large_payload_fast_path` config with validation + invalid-reload last-good preservation; `MaxRequestBodyBytes` untouched; config package + archtest PASS, vet/gofmt/diff-check clean; budgets.go bump justified per procedure; `-race` skipped Windows cgo limitation.
 - Task 2.2 VERIFIED (fresh reviewer APPROVED): `internal/core/largebody` provider-neutral DTO seam (bounded/immutable/redacted, no Call mirror, no SDK/frontend imports, no prompt/path/header-bag/unbounded maps); core ownership + budget ratchets PASS; largebody 17/17 + focused archtest PASS, vet/gofmt/diff-check clean; full archtest 18.8s implementer-claimed, focused subsets re-verified; no consumers yet; `-race` skipped Windows cgo limitation.
 - Task 2.3 VERIFIED (fresh reviewer APPROVED): internal LargeBodyExecutor + AsLargeBodyExecutor helper, ExecutorView unchanged, absent=>canonical, budgets bump; largebody 21/21 + line-budget PASS, vet/gofmt/diff-check clean, pkg/lipsdk untouched; `-race` skipped Windows cgo limitation.
+- Task 2.4 VERIFIED (fresh reviewer APPROVED): disabled-gate 0-alloc ratchet, core import boundary, sensitive-carrier redaction; SessionInput IDs spec-compliant clear-by-contract, Task 19.1 diagnostics must not use IDs as labels (follow-up); largebody 26/26 + boundary test PASS, vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
