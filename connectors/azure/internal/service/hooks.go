@@ -1,0 +1,59 @@
+package service
+
+import (
+	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+)
+
+// ProviderHooks returns openaicompat request hooks for Azure OpenAI.
+func ProviderHooks(Config) openaicompat.RequestHooks {
+	return openaicompat.RequestHooks{}
+}
+
+// ResolveFlavor selects the endpoint flavor: Responses preferred.
+// Ambiguous or empty operations default to Responses; only explicit chat completions uses chat.
+func ResolveFlavor(call lipapi.Call) openaicompat.Flavor {
+	if call.Invocation.Operation == lipapi.OperationOpenAIChatCompletions {
+		return openaicompat.FlavorChat
+	}
+	return openaicompat.FlavorResponses
+}
+
+func resolveModel(kind string, inv backendplugin.Invocation, _ lipapi.Call) string {
+	return strings.TrimPrefix(strings.TrimSpace(inv.CanonicalModelID), kind+"/")
+}
+
+// isResponsesCapableModel filters inventory to Responses-capable text/coding models.
+// It drops embedding, rerank, image, audio, and empty/whitespace model IDs.
+func isResponsesCapableModel(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	lower := strings.ToLower(id)
+	dropPatterns := []string{
+		"embed",
+		"bge",
+		"rerank",
+		"image",
+		"flux",
+		"diffusion",
+		"dall-e",
+		"whisper",
+		"audio",
+		"tts",
+		"speech",
+		"music",
+		"asr",
+		"video",
+	}
+	for _, pattern := range dropPatterns {
+		if strings.Contains(lower, pattern) {
+			return false
+		}
+	}
+	return true
+}
