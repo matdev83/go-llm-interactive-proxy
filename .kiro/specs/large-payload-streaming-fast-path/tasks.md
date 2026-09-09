@@ -108,7 +108,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Fixtures: huge strings, escaped Unicode/HTML-sensitive strings, tools/messages/items, model/selector, session-header precedence, optional fields.
   - _Requirements: 15, 16, 18_
 
-- [ ] 1.8 Build current Call/authority dependency census
+- [x] 1.8 Build current Call/authority dependency census
   - Do **not** search only historical `preparedRequest.call`.
   - Trace all production `lipapi.Call` reads/retention and `lipapi.CloneCall` sites reachable from accepted request execution: `prep.call`, identity ingress/backend/conversation baselines, receive-turn facts, terminal evidence, attempt derivation/clamp preview, continuation/interleaved, metering/accounting, billing callbacks, local turn, secret guard, terminal decision, traffic, prompt-cache/compaction, response helpers.
   - Inventory current narrow ports from `executor_config.go`: prompt-cache maintenance; conversation reader/tagger/observer/steering; terminal policy; interleaved; compaction; request token estimator; routing/capability/eligibility; route override; secure-session recorder; accounting; billing; traffic; custom Call callbacks.
@@ -810,3 +810,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 1.5 test-only scope VERIFIED (fresh reviewer APPROVED): 3 lifecycle freeze test files; required 3-package suites PASS (`internal/core/runtime`, `internal/core/securesession`, `internal/core/routeoverride`); gofmt/diff-check clean; no production diff; Bun continuity via existing suites; future seams disclaimed; `-race` skipped per Windows cgo limitation.
 - Task 1.6 test-only scope VERIFIED (fresh reviewer APPROVED): 4 response/keepalive freeze files, 26 new tests, per-lane coverage; touched suites PASS; vet/gofmt/diff-check clean; no production diff; future bridge seams disclaimed; `-race` skipped per Windows cgo limitation.
 - Task 1.7 test-only scope VERIFIED (fresh reviewer APPROVED): 2 identity freeze files, 21 tests, per-requirement coverage (Req 15, 16, 18); diag + checkpoint suites PASS; vet/gofmt/diff-check clean; no production diff; future digest seams disclaimed; `-race` skipped per Windows cgo limitation.
+- Task 1.8 test-only scope VERIFIED (fresh reviewer APPROVED): evidence `evidence/1.8-call-census.md` with CloneCall register + narrow-port inventory + classifications, handoff for Tasks 3/11/12/19; archtest PASS, diff-check clean; no production diff.
