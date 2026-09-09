@@ -127,12 +127,12 @@ type Config struct {
 type Spec[Opts any] struct {
 	Config
 	Wire WireErrors
-	// Profile optionally enables large-payload fast-path candidate evaluation
-	// for certified frontends (Task 7.1). When nil, requests follow the
-	// unchanged canonical path with zero spool allocation.
+	// Profile optionally enables large-payload fast-path candidate evaluation (Task 7.1).
 	Profile FrontendProfile
 	// OnPreCaptureGate optionally observes candidate gate decisions (Task 7.3).
 	OnPreCaptureGate func(r *http.Request, res PreCaptureResult)
+	// OnCandidateCapture optionally observes candidate capture outcomes (Task 7.4).
+	OnCandidateCapture func(r *http.Request, res CandidateCaptureResult)
 	// MatchPath returns ok=false for 404. When AltServe is non-nil and invoked, the pipeline stops.
 	MatchPath func(path string) (pm PathMatch, ok bool)
 	AltServe  func(ctx context.Context, w http.ResponseWriter, r *http.Request) bool
@@ -167,13 +167,11 @@ func (c Config) logWriteJSONErr(ctx context.Context, msg string, werr error) {
 func writeHookError[Opts any](ctx context.Context, spec *Spec[Opts], w http.ResponseWriter, err error) {
 	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WritePreflightCanceled(w))
-		return
-	}
-	if hw, ok := spec.Wire.(HookErrorWriter); ok {
+	} else if hw, ok := spec.Wire.(HookErrorWriter); ok {
 		spec.logWriteJSONErr(ctx, "write error json failed", hw.WriteHookError(w, err))
-		return
+	} else {
+		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidRequest(w))
 	}
-	spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidRequest(w))
 }
 
 func rejectInvalidCall[Opts any](ctx context.Context, spec *Spec[Opts], w http.ResponseWriter, call *lipapi.Call) bool {
@@ -202,10 +200,8 @@ func (c Config) execute(ctx context.Context, w http.ResponseWriter, call *lipapi
 	if !stream {
 		return c.Exec.Execute(ctx, call)
 	}
-	return holdalive.Wait(ctx, w, holdalive.Config{
-		Enabled:  c.PreRequestKeepalive.Enabled,
-		Interval: c.PreRequestKeepalive.Interval,
-	}, func(ctx context.Context) (lipapi.EventStream, error) {
+	hcfg := holdalive.Config{Enabled: c.PreRequestKeepalive.Enabled, Interval: c.PreRequestKeepalive.Interval}
+	return holdalive.Wait(ctx, w, hcfg, func(ctx context.Context) (lipapi.EventStream, error) {
 		return c.Exec.Execute(ctx, call)
 	})
 }
@@ -235,7 +231,13 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 	}
 
 	limits := jsonguard.Limits{MaxBytes: spec.maxBodyLimit()}
-	body, err := reqbody.ReadAll(w, r, limits.MaxBytes)
+	var body []byte
+	var err error
+	if !gateRes.Candidate {
+		body, err = reqbody.ReadAll(w, r, limits.MaxBytes)
+	} else {
+		body, err = captureCandidate(ctx, spec, w, r, limits.MaxBytes)
+	}
 	if err != nil {
 		if reqbody.TooLarge(err) {
 			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteBodyTooLarge(w))
@@ -252,7 +254,6 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecutorNotConfigured(w))
 		return
 	}
-
 	sel := spec.HTTPHeaders.RouteSelector(r.Header)
 	if spec.ResolveRouteSelector != nil {
 		if v := strings.TrimSpace(spec.ResolveRouteSelector(r, body, pm)); v != "" {

@@ -1,14 +1,19 @@
 package frontendpipe
 
 import (
+	"context"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonshape"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
 )
 
 // LargePayloadConfig parameterizes the large-payload fast path for a frontend create pipeline
-// (Task 7.3, Requirements 1, 2; design section 3).
+// (Task 7.3, 7.4, Requirements 1, 2, 20; design section 3, 5).
 type LargePayloadConfig struct {
 	// Enabled gates fast-path candidate evaluation. Default false.
 	Enabled bool
@@ -17,6 +22,14 @@ type LargePayloadConfig struct {
 	ThresholdBytes int64
 	// WireEligibility optionally supplies the generation-frozen WireEligibilitySummary.
 	WireEligibility largebody.WireEligibilitySummary
+	// SpoolLedger optionally supplies the shared in-flight logical spool ledger (Task 4.1).
+	SpoolLedger *largebody.SpoolLedger
+	// MemorySpoolBytes bounds retained bytes in Go heap per capture before spilling.
+	MemorySpoolBytes int64
+	// SpoolDir is the directory where temporary spill files are created.
+	SpoolDir string
+	// CopyBufferSize is the chunk size used for reading from the client body.
+	CopyBufferSize int
 }
 
 // EffectiveThresholdBytes returns ThresholdBytes if > 0, else DefaultThresholdBytes (1 MiB).
@@ -25,6 +38,22 @@ func (c LargePayloadConfig) EffectiveThresholdBytes() int64 {
 		return c.ThresholdBytes
 	}
 	return largebody.DefaultThresholdBytes
+}
+
+// EffectiveMemorySpoolBytes returns MemorySpoolBytes if > 0, else DefaultMemorySpoolBytes (64 KiB).
+func (c LargePayloadConfig) EffectiveMemorySpoolBytes() int64 {
+	if c.MemorySpoolBytes > 0 {
+		return c.MemorySpoolBytes
+	}
+	return largebody.DefaultMemorySpoolBytes
+}
+
+// EffectiveCopyBufferSize returns CopyBufferSize if > 0, else DefaultCopyBufferSize (32 KiB).
+func (c LargePayloadConfig) EffectiveCopyBufferSize() int {
+	if c.CopyBufferSize > 0 {
+		return c.CopyBufferSize
+	}
+	return largebody.DefaultCopyBufferSize
 }
 
 // StaticDispositionProvider is the optional interface an executor may implement
@@ -211,4 +240,221 @@ func isRequestGzip(r *http.Request) bool {
 func isRequestCompressed(r *http.Request) bool {
 	h := strings.TrimSpace(r.Header.Get("Content-Encoding"))
 	return h != "" && !strings.EqualFold(h, "identity")
+}
+
+// CandidateCaptureResult reports the outcome of candidate request body capture (Task 7.4).
+type CandidateCaptureResult struct {
+	// Outcome reports whether capture completed, declined, or failed.
+	Outcome largebody.CaptureOutcome
+	// Source is the completed replay source (non-nil on CaptureOutcomeCompleted).
+	Source largebody.Source
+	// Completed is the concrete CompletedSource (non-nil on CaptureOutcomeCompleted).
+	Completed *largebody.CompletedSource
+	// Continuation is the lossless continuation reader (non-nil on CaptureOutcomeDeclined).
+	Continuation *largebody.CaptureReader
+	// Digest is the replay source integrity digest computed incrementally during capture.
+	Digest largebody.SourceDigest
+	// BytesRead is the total client body bytes read during capture.
+	BytesRead int64
+	// ScannerResult carries token and depth facts from the shared streaming JSON scanner.
+	ScannerResult jsonshape.Result
+	// ScannerErr reports any syntax or limit error from the shared streaming JSON scanner.
+	ScannerErr error
+	// Err is any underlying error that caused decline or failure.
+	Err error
+}
+
+// CaptureCandidateBody captures the request body for a candidate request
+// while concurrently feeding chunks to the shared streaming JSON scanner (Task 7.4, Requirements 1, 2, 3, 20).
+//
+// Invariants:
+//   - Logical spool reservation: early for known content-length, incremental for unknown/chunked.
+//   - Bounded memory + secure temporary file spill via largebody.SpillBuffer.
+//   - Shared streaming JSON scanner fed per chunk.
+//   - Enforces the same request body ceiling as canonical reqbody path (*http.MaxBytesError).
+//   - On EOF, produces CompletedSource with source integrity digest and finishes scanner.
+//   - Recoverable decline (budget exhaustion, spill failure, scanner uncertainty)
+//     yields a lossless continuation via largebody.CaptureReader.
+//   - Unknown/chunked final size below threshold declines to canonical from source.
+func CaptureCandidateBody[Opts any](
+	ctx context.Context,
+	spec *Spec[Opts],
+	w http.ResponseWriter,
+	r *http.Request,
+	maxBytes int64,
+) (CandidateCaptureResult, []byte, error) {
+	if maxBytes <= 0 {
+		maxBytes = reqbody.DefaultMaxBytes
+	}
+
+	// 1. Spool reservation accounting (Task 4.1, Requirement 20.4)
+	var reservation *largebody.SpoolReservation
+	if spec.LargePayload.SpoolLedger != nil {
+		if r.ContentLength > 0 {
+			res, err := spec.LargePayload.SpoolLedger.Reserve(r.ContentLength)
+			if err != nil {
+				if largebody.IsSpoolBudgetExhausted(err) {
+					cont, cerr := largebody.NewCaptureReader(largebody.CaptureReaderConfig{
+						Remaining:      r.Body,
+						MaxBytes:       maxBytes,
+						ResponseWriter: w,
+					})
+					if cerr != nil {
+						return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeReadError, Err: cerr}, nil, cerr
+					}
+					body, berr := drainContinuation(cont)
+					return CandidateCaptureResult{
+						Outcome:      largebody.CaptureOutcomeDeclined,
+						Continuation: cont,
+						Err:          err,
+					}, body, berr
+				}
+				body, rerr := reqbody.ReadAll(w, r, maxBytes)
+				return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeDeclined, Err: err}, body, rerr
+			}
+			reservation = res
+		} else {
+			res, err := spec.LargePayload.SpoolLedger.BeginReservation()
+			if err != nil {
+				body, rerr := reqbody.ReadAll(w, r, maxBytes)
+				return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeDeclined, Err: err}, body, rerr
+			}
+			reservation = res
+		}
+	}
+
+	// 2. Bounded RAM + secure file spill buffer (Task 4.2, Requirement 20.1, 20.2)
+	spillCfg := largebody.SpillConfig{
+		SpoolDir:         spec.LargePayload.SpoolDir,
+		MemorySpoolBytes: spec.LargePayload.EffectiveMemorySpoolBytes(),
+		CopyBufferSize:   spec.LargePayload.EffectiveCopyBufferSize(),
+		Reservation:      reservation,
+	}
+	spill, err := largebody.NewSpillBuffer(spillCfg)
+	if err != nil {
+		if reservation != nil {
+			_ = reservation.Release()
+		}
+		cont, cerr := largebody.NewCaptureReader(largebody.CaptureReaderConfig{
+			Remaining:      r.Body,
+			MaxBytes:       maxBytes,
+			ResponseWriter: w,
+		})
+		if cerr != nil {
+			return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeReadError, Err: cerr}, nil, cerr
+		}
+		body, berr := drainContinuation(cont)
+		return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeDeclined, Continuation: cont, Err: err}, body, berr
+	}
+
+	// 3. Shared streaming JSON scanner (Task 5.1, Requirement 3)
+	scannerLimits := jsonshape.Limits{MaxBytes: maxBytes}
+	scanner := jsonshape.NewScanner(ctx, scannerLimits)
+
+	// 4. Capture request body with concurrent chunk feeding to scanner
+	captureCfg := largebody.CaptureConfig{
+		MaxBytes:       maxBytes,
+		ResponseWriter: w,
+		CopyBufferSize: spec.LargePayload.EffectiveCopyBufferSize(),
+		OnChunk: func(chunk []byte) error {
+			return scanner.Feed(chunk)
+		},
+	}
+	captureRes := largebody.CaptureRequestBody(r.Body, spill, captureCfg)
+
+	// 5. Evaluate capture outcome
+	switch captureRes.Outcome {
+	case largebody.CaptureOutcomeLimitExceeded:
+		return CandidateCaptureResult{
+			Outcome:   largebody.CaptureOutcomeLimitExceeded,
+			BytesRead: captureRes.BytesRead,
+			Err:       captureRes.Err,
+		}, nil, captureRes.Err
+
+	case largebody.CaptureOutcomeReadError:
+		return CandidateCaptureResult{
+			Outcome:   largebody.CaptureOutcomeReadError,
+			BytesRead: captureRes.BytesRead,
+			Err:       captureRes.Err,
+		}, nil, captureRes.Err
+
+	case largebody.CaptureOutcomeDeclined:
+		cont := captureRes.Continuation
+		body, berr := drainContinuation(cont)
+		return CandidateCaptureResult{
+			Outcome:      largebody.CaptureOutcomeDeclined,
+			Continuation: cont,
+			BytesRead:    captureRes.BytesRead,
+			Err:          captureRes.Err,
+		}, body, berr
+
+	case largebody.CaptureOutcomeCompleted:
+		compSrc, _ := captureRes.Source.(*largebody.CompletedSource)
+		scanResult, scanErr := scanner.Finish()
+		res := CandidateCaptureResult{
+			Outcome:       largebody.CaptureOutcomeCompleted,
+			Source:        captureRes.Source,
+			Completed:     compSrc,
+			Digest:        captureRes.Digest,
+			BytesRead:     captureRes.BytesRead,
+			ScannerResult: scanResult,
+			ScannerErr:    scanErr,
+		}
+		if scanErr != nil {
+			body, berr := readCompletedSource(compSrc)
+			return res, body, berr
+		}
+		threshold := spec.LargePayload.EffectiveThresholdBytes()
+		if compSrc != nil && compSrc.Size() < threshold {
+			body, berr := readCompletedSource(compSrc)
+			return res, body, berr
+		}
+		body, berr := readCompletedSource(compSrc)
+		return res, body, berr
+
+	default:
+		body, berr := reqbody.ReadAll(w, r, maxBytes)
+		return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeDeclined}, body, berr
+	}
+}
+
+func captureCandidate[Opts any](
+	ctx context.Context,
+	spec *Spec[Opts],
+	w http.ResponseWriter,
+	r *http.Request,
+	maxBytes int64,
+) ([]byte, error) {
+	capRes, body, err := CaptureCandidateBody(ctx, spec, w, r, maxBytes)
+	if spec.OnCandidateCapture != nil {
+		spec.OnCandidateCapture(r, capRes)
+	}
+	if capRes.Completed != nil {
+		_ = capRes.Completed.Close()
+	}
+	return body, err
+}
+
+func drainContinuation(cont *largebody.CaptureReader) ([]byte, error) {
+	if cont == nil {
+		return nil, errors.New("frontendpipe: continuation reader is nil")
+	}
+	defer func() {
+		_ = cont.Close()
+	}()
+	return io.ReadAll(cont)
+}
+
+func readCompletedSource(src *largebody.CompletedSource) ([]byte, error) {
+	if src == nil {
+		return nil, errors.New("frontendpipe: completed source is nil")
+	}
+	rc, err := src.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rc.Close()
+	}()
+	return io.ReadAll(rc)
 }

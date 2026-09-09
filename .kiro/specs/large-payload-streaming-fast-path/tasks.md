@@ -335,7 +335,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Do not trust compressed Content-Length as decoded length.
   - _Requirements: 1, 2, 5, 11, 13, 21_
 
-- [ ] 7.4 Capture to EOF while running shared scanner
+- [x] 7.4 Capture to EOF while running shared scanner
   - Preserve body limit/error parity and Task 4 continuation on recoverable decline.
   - Unknown/chunked final size below threshold => canonical from source.
   - _Requirements: 1, 2, 3, 20_
@@ -840,3 +840,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 7.1 VERIFIED (review subagent APPROVED): FrontendProfile + wire state/seeds plumbing, nil=>canonical no-spool, zero ServeHTTP change, budgets catch-up bump; frontendpipe + archtest PASS, vet/diff-check clean; -race unavailable cgo limitation.
 - Task 7.2 VERIFIED (review subagent APPROVED): per-frontend outer ordering freeze characterized across 4 frontends (no universal sequence, OpenResponses auth/media intact); reviewer suggestion/obligation noted for Task 7.3 to land production ServeHTTP candidate-gate proof; 4 frontend suites PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 7.3 VERIFIED (review subagent APPROVED): five cheap gates in order wired into ServeHTTP after outer checks, zero spool on decline, off/nil unchanged; frontendpipe suite PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 7.4 VERIFIED (review subagent APPROVED): capture-to-EOF with scanner feed, parity, lossless continuation, below-threshold canonical-from-source; frontendpipe + largebody suites PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
