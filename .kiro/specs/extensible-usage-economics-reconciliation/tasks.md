@@ -80,9 +80,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 2.1, 2.2, 2.4, 3.1, 3.4, 3.5, 15.5_
 
 - [ ] 2.3 Implement observation, subject and provenance contracts
-  - Implement V2 observation identity, source revision, acquisition/origin, subject union, timestamps, measure presence/quality, safe evidence fields and charge coverage.
-  - Validate account-window/resource/attempt distinctions and provider-versus-runtime attribution authority; split different acquisition provenance rather than broaden record-wide authority.
-  - Completion: local/provider/statement records coexist, aggregate-only money is legal, and malformed source/scope combinations are rejected.
+  - Implement V2 observation identity, source revision, acquisition/origin, subject union, timestamps, measure presence/quality, safe evidence fields, typed charge kinds, typed inclusive/additive coverage relations and store-scoped charge references.
+  - Validate account-window/resource/attempt distinctions and provider-versus-runtime attribution authority; split different acquisition provenance rather than broaden record-wide authority. Reject local self/cyclic/contradictory coverage shapes before they can become rateable.
+  - Completion: local/provider/statement records coexist, aggregate-only money is legal, and malformed source/scope/coverage combinations are rejected.
   - _Contracts: D1–D2_
   - _Boundary: SDK/public metering evidence_
   - _Depends: 2.2_
@@ -90,14 +90,14 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 5.3, 5.5, 6.1, 9.1, 10.1, 16.3_
 
 - [ ] 2.4 Implement valuation and line-item contracts
-  - Implement immutable E/Q/P/S/R valuation DTOs, input references, line detail, snapshot/qualifier hashes, exact/rounded amounts and completeness.
+  - Implement immutable E/Q/P/S/R valuation DTOs, input references, line detail, snapshot/qualifier hashes, exact/rounded amounts and completeness. Define the public provider-neutral `Rater`/`Quoter` interfaces and their versioned input/output DTOs; statement-import and reconciliation DTOs share the same public observation/valuation identities without accepting provider-shaped raw payloads.
   - Keep reported aggregate cost separate from inferred line costs; support native currency and optional referenced reporting conversion without an implicit FX rate.
-  - Completion: serialization preserves every required unit/cost pair and distinguishes locally derived Q from provider-reported P.
+  - Completion: serialization preserves every required unit/cost pair, distinguishes locally derived Q from provider-reported P, and an external module can compile a typed custom rater/quoter using only public packages.
   - _Contracts: D4_
   - _Boundary: SDK/public economics_
   - _Depends: 2.3_
   - _Validation: go test ./pkg/lipsdk/economics/..._
-  - _Requirements: 1.2, 1.6, 2.5, 2.6, 6.6, 7.1, 7.2_
+  - _Requirements: 1.2, 1.6, 2.5, 2.6, 6.6, 7.1, 7.2, 7.6, 15.2_
 
 - [ ] 2.5 Implement explicit V1 reader and one-way projection adapters
   - Decode V1 facts/usage without changing historic hashes or guessing lost provenance; map proven fields to V2 with legacy markers.
@@ -134,7 +134,7 @@ Tests in this plan are required future implementation evidence. They were not ru
 
 - [ ] 3.3 Enforce semantic replay, corrections and provenance integrity
   - Use source event/revision identity for replay and full payload equality for conflicts, including duplicate identities within one batch.
-  - Validate supersession target scope, acyclic revision relationships, parent coverage and sequence ordering; preserve old evidence.
+  - Validate supersession target scope, acyclic revision relationships, typed charge-coverage graph integrity and sequence ordering; preserve old evidence. Reject cross-store charge references, inclusive/additive contradictions, coverage cycles and unresolved ambiguous overlaps rather than selecting a payable graph by arrival order.
   - Completion: repeated frames are no-ops, changed payload under one identity conflicts, and legitimate corrections do not duplicate a charge.
   - _Contracts: D2; C1; C5_
   - _Boundary: metering domain identity and correction_
@@ -200,8 +200,8 @@ Tests in this plan are required future implementation evidence. They were not ru
 
 - [ ] 5.1 Implement call, attempt, provider charge and workload lineage
   - Carry trusted CallID/ALeg/BLeg/AttemptSeq and provider account/request/charge identities without conflating them.
-  - Add explicit parent-inclusive/additive-child coverage and resource/account-period subjects; do not invent per-request allocations.
-  - Completion: retries, losers, failed work and auxiliary charges have stable distinct owners and one economic leaf per actual charge.
+  - Resolve store-scoped charge references and explicit parent-inclusive/additive-child coverage across the attributable graph. Reject cycles, contradictory/ambiguous overlap and non-conserved shared allocations before the graph becomes eligible for rating; do not invent per-request allocations.
+  - Completion: retries, losers, failed work and auxiliary charges have stable distinct owners, one economic leaf per actual charge, and no inclusive parent can be rolled up together with the child amount it already covers.
   - _Contracts: D1; C1_
   - _Boundary: core lifecycle and billing identity_
   - _Depends: 4.4_
@@ -392,7 +392,7 @@ Tests in this plan are required future implementation evidence. They were not ru
 
 - [ ] 9.2 Implement exact unit rates, fixed fees and rounding rules
   - Implement line-level linear price, fixed fee at declared scope, block rounding and minimums with exact intermediate arithmetic.
-  - Reject overlapping additive aggregate/subcomponent rules unless an explicit surcharge applies; persist pre-round and rounded values.
+  - Validate the resolved charge-coverage graph before rating. Reject overlapping additive aggregate/subcomponent rules unless an explicit surcharge applies, reject inclusive-parent plus covered-child double counting, and require conserved explicit allocation for shared ownership; persist pre-round and rounded values.
   - Completion: synthetic cached-token, fixed-once and fractional unit vectors produce their exact expected values.
   - _Contracts: D3–D4; C3_
   - _Boundary: billing domain reference rating_
@@ -584,8 +584,9 @@ Tests in this plan are required future implementation evidence. They were not ru
 
 - [ ] 13.3 Implement selected-cost heads and balanced delta corrections
   - Persist selected/posted valuation revision and compare-and-swap it in the same transaction as an adjustment operation and balanced journal.
-  - Compute new selected minus previously posted amount; support downward corrections with debit/credit reversal rather than invalid negative gross amounts.
-  - Completion: 10 to 8 posts only a -2 adjustment; replay and racing revisions produce no duplicate effects.
+  - Before subtraction, require the old/new selected valuations to share native currency or the same explicit frozen FX conversion basis. A currency mismatch without frozen FX remains pending/incomparable and performs no valuation-link, journal, or head mutation.
+  - Compute new selected minus previously posted comparable amount; support downward corrections with debit/credit reversal rather than invalid negative gross amounts.
+  - Completion: 10 to 8 in the same currency posts only a -2 adjustment; a USD-to-EUR replacement without frozen FX posts nothing; replay and racing revisions produce no duplicate effects.
   - _Contracts: C5; D5_
   - _Boundary: billing domain posting intent and driven SQL adapter_
   - _Depends: 13.2_
@@ -603,7 +604,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 10.6, 13.3, 13.5, 14.6, 16.5_
 
 - [ ] 13.5 Certify correction and dispute-like recovery scenarios
-  - Test late evidence after closure, corrected quantities, aggregate statement adjustments, duplicate imports, unmatched statements and native-currency mismatch.
+  - Test late evidence after closure, corrected quantities, aggregate statement adjustments, duplicate imports, unmatched statements and native-currency mismatch. Prove mismatched native currencies cannot advance `billing_cost_heads` or post a delta without an explicit frozen FX basis.
   - Test customer no-rebill default and explicit provisional pass-through adjustment policy.
   - Completion: economic history remains immutable and pending comparison does not erase incurred COGS or customer settlement.
   - _Contracts: C5; Acceptance Vectors_
@@ -649,14 +650,14 @@ Tests in this plan are required future implementation evidence. They were not ru
 - [ ] 15. Expose one external billing host binding without a runtime fork
 
 - [ ] 15.1 Publish the minimal typed external binding
-  - Implement public binding identity/version, complete cheap-screen/quote-admit/terminal ports and explicit owned-resource lifecycle registration.
+  - Implement public binding identity/version, complete cheap-screen/quote-admit/terminal ports and explicit owned-resource lifecycle registration. Preserve the separately defined public provider-neutral observation/sideband and Rater/Quoter/StatementImporter/ReconciliationReader contracts; do not add a generic provider-shaped normalizer port.
   - Use only public DTOs; adapters translate to existing internal billing services. Reject typed-nil, incomplete and duplicate monetary bindings.
   - Completion: public interfaces contain no internal, SQL, concrete provider or generic service-map types.
   - _Contracts: C7_
   - _Boundary: SDK/public billing host contract_
   - _Depends: 14.3_
   - _Validation: go test ./pkg/lipsdk/... ./internal/archtest/..._
-  - _Requirements: 15.1, 15.2, 15.3, 15.4_
+  - _Requirements: 15.1, 15.3, 15.4_
 
 - [ ] 15.2 Integrate explicit BuildWithBilling through the existing Host
   - Factor minimal common assembly behind Build and BuildWithBilling; call one BuildHost and preserve Host/Manager cleanup ownership.
@@ -783,7 +784,7 @@ Tests in this plan are required future implementation evidence. They were not ru
 - [ ] 19.1 Certify the complete independent-economics lifecycle
   - Run local/provider capture through storage, E/Q/P/R rating, discrepancy, COGS/customer settlement and query using real-family fixtures.
   - Include all-leg/auxiliary, missing/zero, aggregate-only money, trusted submission, credits and synthetic non-token extensibility.
-  - Completion: every design acceptance vector has a passing named test and every requirement has implementation evidence.
+  - Completion: every design acceptance vector exercised by this integrated lifecycle task has a passing named test and every requirement listed on this task has implementation evidence; migration/cutover and remaining release-wide criteria are completed by 19.2–20.1.
   - _Contracts: Testing Strategy and Acceptance Vectors_
   - _Boundary: tests: bounded integrated contracts_
   - _Depends: 18.2_
