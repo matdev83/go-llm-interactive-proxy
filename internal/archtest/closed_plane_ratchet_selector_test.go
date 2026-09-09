@@ -165,6 +165,7 @@ func init() {
 		requestMaterializer:    (PlaneSubmitHooks).RequestMaterializer,
 		requestBorrow:          (PlaneSubmitHooks).RequestBorrow,
 		hookTarget:             (PlaneSubmitHooks).HookTarget,
+		requestAccess:          (PlaneSubmitHooks).RequestAccess,
 		diagStageID:            ((PlaneSubmitHooks).Diagnostics).StageID,
 		diagCoalesceGroup:      (PlaneSubmitHooks).Diagnostics.CoalesceGroup,
 		diagOrder:              (PlaneSubmitHooks).Diagnostics.Order,

@@ -91,8 +91,9 @@ func validateNonEmptyCachedIdentity(id string) error {
 
 // PlaneSubmitHooks declares the SubmitHooks extension plane.
 var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{
-	ID:           "submit_hooks",
-	Multiplicity: MultOrdered,
+	ID:            "submit_hooks",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -117,8 +118,9 @@ var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{
 
 // PlaneRequestPartHooks declares the RequestPartHooks extension plane.
 var PlaneRequestPartHooks = Plane[[]hooks.RequestPartHook]{
-	ID:           "request_part_hooks",
-	Multiplicity: MultOrdered,
+	ID:            "request_part_hooks",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -143,8 +145,9 @@ var PlaneRequestPartHooks = Plane[[]hooks.RequestPartHook]{
 
 // PlaneResponsePartHooks declares the ResponsePartHooks extension plane.
 var PlaneResponsePartHooks = Plane[[]hooks.ResponsePartHook]{
-	ID:           "response_part_hooks",
-	Multiplicity: MultOrdered,
+	ID:            "response_part_hooks",
+	RequestAccess: RequestBodyResponseOnly,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -169,8 +172,9 @@ var PlaneResponsePartHooks = Plane[[]hooks.ResponsePartHook]{
 
 // PlaneToolReactors declares the ToolReactors extension plane.
 var PlaneToolReactors = Plane[[]hooks.ToolReactor]{
-	ID:           "tool_reactors",
-	Multiplicity: MultOrdered,
+	ID:            "tool_reactors",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -196,8 +200,9 @@ var PlaneToolReactors = Plane[[]hooks.ToolReactor]{
 
 // PlaneSessionOpeners declares the SessionOpeners extension plane.
 var PlaneSessionOpeners = Plane[[]session.Opener]{
-	ID:           "session_openers",
-	Multiplicity: MultOrdered,
+	ID:            "session_openers",
+	RequestAccess: RequestBodyMetadataOnly,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -230,8 +235,9 @@ var PlaneSessionOpeners = Plane[[]session.Opener]{
 
 // PlaneWorkspaceResolvers declares the WorkspaceResolvers extension plane.
 var PlaneWorkspaceResolvers = Plane[[]workspace.Resolver]{
-	ID:           "workspace_resolvers",
-	Multiplicity: MultOrdered,
+	ID:            "workspace_resolvers",
+	RequestAccess: RequestBodyMetadataOnly,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -258,8 +264,9 @@ var PlaneWorkspaceResolvers = Plane[[]workspace.Resolver]{
 
 // PlaneToolCatalogFilters declares the ToolCatalogFilters extension plane.
 var PlaneToolCatalogFilters = Plane[[]toolcatalog.Filter]{
-	ID:           "tool_catalog_filters",
-	Multiplicity: MultOrdered,
+	ID:            "tool_catalog_filters",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -292,8 +299,9 @@ var PlaneToolCatalogFilters = Plane[[]toolcatalog.Filter]{
 
 // PlaneToolCallPolicies declares the ToolCallPolicies extension plane.
 var PlaneToolCallPolicies = Plane[[]toolpolicy.Policy]{
-	ID:           "tool_call_policies",
-	Multiplicity: MultOrdered,
+	ID:            "tool_call_policies",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -323,8 +331,9 @@ var PlaneToolCallPolicies = Plane[[]toolpolicy.Policy]{
 
 // PlaneToolCallFinalizers declares the ToolCallFinalizers extension plane.
 var PlaneToolCallFinalizers = Plane[[]toolcall.Finalizer]{
-	ID:           "tool_call_finalizers",
-	Multiplicity: MultOrdered,
+	ID:            "tool_call_finalizers",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -354,8 +363,9 @@ var PlaneToolCallFinalizers = Plane[[]toolcall.Finalizer]{
 
 // PlaneToolCallFinalizationMaxArgsBytes declares the ToolCallFinalizationMaxArgsBytes extension plane.
 var PlaneToolCallFinalizationMaxArgsBytes = Plane[int]{
-	ID:           "tool_call_finalization_max_args_bytes",
-	Multiplicity: MultOrdered,
+	ID:            "tool_call_finalization_max_args_bytes",
+	RequestAccess: RequestBodyMetadataOnly,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombReduce,
 	},
@@ -379,8 +389,9 @@ var PlaneToolCallFinalizationMaxArgsBytes = Plane[int]{
 
 // PlaneRequestTransforms declares the RequestTransforms extension plane.
 var PlaneRequestTransforms = Plane[[]request.Transform]{
-	ID:           "request_transforms",
-	Multiplicity: MultOrdered,
+	ID:            "request_transforms",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -418,8 +429,9 @@ var PlaneRequestTransforms = Plane[[]request.Transform]{
 
 // PlanePreRequestHandlers declares the PreRequestHandlers extension plane.
 var PlanePreRequestHandlers = Plane[[]prerequest.Handler]{
-	ID:           "pre_request_handlers",
-	Multiplicity: MultOrdered,
+	ID:            "pre_request_handlers",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -458,8 +470,9 @@ var PlanePreRequestHandlers = Plane[[]prerequest.Handler]{
 
 // PlaneRouteHintProviders declares the RouteHintProviders extension plane.
 var PlaneRouteHintProviders = Plane[[]routehint.Provider]{
-	ID:           "route_hint_providers",
-	Multiplicity: MultOrdered,
+	ID:            "route_hint_providers",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -486,8 +499,9 @@ var PlaneRouteHintProviders = Plane[[]routehint.Provider]{
 
 // PlaneCompletionGates declares the CompletionGates extension plane.
 var PlaneCompletionGates = Plane[[]completion.Gate]{
-	ID:           "completion_gates",
-	Multiplicity: MultOrdered,
+	ID:            "completion_gates",
+	RequestAccess: RequestBodyResponseOnly,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -520,8 +534,9 @@ var PlaneCompletionGates = Plane[[]completion.Gate]{
 
 // PlaneAttemptTransforms declares the AttemptTransforms extension plane.
 var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
-	ID:           "attempt_transforms",
-	Multiplicity: MultOrdered,
+	ID:            "attempt_transforms",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature:          CombConcatenate,
 		GenerationBinder: CombReplaceByIdentity,
@@ -594,8 +609,9 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 
 // PlaneStreamObserverFactories declares the StreamObserverFactories extension plane.
 var PlaneStreamObserverFactories = Plane[[]response.StreamObserverFactory]{
-	ID:           "stream_observer_factories",
-	Multiplicity: MultOrdered,
+	ID:            "stream_observer_factories",
+	RequestAccess: RequestBodyResponseOnly,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature:          CombConcatenate,
 		GenerationBinder: CombReplaceByIdentity,
@@ -662,8 +678,9 @@ var PlaneStreamObserverFactories = Plane[[]response.StreamObserverFactory]{
 
 // PlaneTrafficObservers declares the TrafficObservers extension plane.
 var PlaneTrafficObservers = Plane[[]traffic.Observer]{
-	ID:           "traffic_observers",
-	Multiplicity: MultOrdered,
+	ID:            "traffic_observers",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 		Host:    CombConcatenate,
@@ -691,8 +708,9 @@ var PlaneTrafficObservers = Plane[[]traffic.Observer]{
 
 // PlaneUsageObservers declares the UsageObservers extension plane.
 var PlaneUsageObservers = Plane[[]usage.Observer]{
-	ID:           "usage_observers",
-	Multiplicity: MultOrdered,
+	ID:            "usage_observers",
+	RequestAccess: RequestBodyResponseOnly,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 		Host:    CombConcatenate,
@@ -720,8 +738,9 @@ var PlaneUsageObservers = Plane[[]usage.Observer]{
 
 // PlaneRawCaptureSinks declares the RawCaptureSinks extension plane.
 var PlaneRawCaptureSinks = Plane[[]traffic.RawCaptureSink]{
-	ID:           "raw_capture_sinks",
-	Multiplicity: MultOrdered,
+	ID:            "raw_capture_sinks",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -754,8 +773,9 @@ var PlaneRawCaptureSinks = Plane[[]traffic.RawCaptureSink]{
 
 // PlaneTrafficRedactors declares the TrafficRedactors extension plane.
 var PlaneTrafficRedactors = Plane[[]traffic.Redactor]{
-	ID:           "traffic_redactors",
-	Multiplicity: MultOrdered,
+	ID:            "traffic_redactors",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -783,8 +803,9 @@ var PlaneTrafficRedactors = Plane[[]traffic.Redactor]{
 
 // PlaneCompactionObservers declares the CompactionObservers extension plane.
 var PlaneCompactionObservers = Plane[[]compaction.Observer]{
-	ID:           "compaction_observers",
-	Multiplicity: MultOrdered,
+	ID:            "compaction_observers",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -808,8 +829,9 @@ func safePreserverID(p compaction.Preserver) (id string) {
 
 // PlaneCompactionPreservers declares the CompactionPreservers extension plane.
 var PlaneCompactionPreservers = Plane[[]compaction.Preserver]{
-	ID:           "compaction_preservers",
-	Multiplicity: MultOrdered,
+	ID:            "compaction_preservers",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature:          CombConcatenate,
 		GenerationBinder: CombReplaceByIdentity,
@@ -858,8 +880,9 @@ var PlaneCompactionPreservers = Plane[[]compaction.Preserver]{
 
 // PlaneSecretGuards declares the SecretGuards extension plane.
 var PlaneSecretGuards = Plane[[]secretguard.Guard]{
-	ID:           "secret_guards",
-	Multiplicity: MultOrdered,
+	ID:            "secret_guards",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -892,8 +915,9 @@ var PlaneSecretGuards = Plane[[]secretguard.Guard]{
 // audit, policy, and diagnostics posture bound by the standard distribution
 // for one generation. It is never candidate-overlaid.
 var PlaneSecretGuardExecution = Plane[*secretguard.ExecutionConfig]{
-	ID:           "secret_guard_execution",
-	Multiplicity: MultExclusive,
+	ID:            "secret_guard_execution",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultExclusive,
 	Rules: SourceRules{
 		// Binder-only admission: only the standard-distribution generation
 		// binder may publish composed engine posture. Feature and host
@@ -929,8 +953,9 @@ var PlaneSecretGuardExecution = Plane[*secretguard.ExecutionConfig]{
 
 // PlaneLocalTurnHandlers declares the LocalTurnHandlers extension plane.
 var PlaneLocalTurnHandlers = Plane[[]localturn.Handler]{
-	ID:           "local_turn_handlers",
-	Multiplicity: MultOrdered,
+	ID:            "local_turn_handlers",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultOrdered,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -973,8 +998,9 @@ var PlaneLocalTurnHandlers = Plane[[]localturn.Handler]{
 
 // PlaneTerminalDecisionProvider declares the TerminalDecisionProvider extension plane.
 var PlaneTerminalDecisionProvider = Plane[terminaldecision.Provider]{
-	ID:           "terminal_decision_provider",
-	Multiplicity: MultExclusive,
+	ID:            "terminal_decision_provider",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultExclusive,
 	Rules: SourceRules{
 		Feature: CombExclusive,
 	},

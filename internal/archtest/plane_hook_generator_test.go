@@ -189,10 +189,10 @@ func TestPlaneGenerator_HookViewMetadata_DeterministicEmission(t *testing.T) {
 
 	validHookManifest := `package feature
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
-var PlaneRequestPartHooks = Plane[[]hooks.RequestPartHook]{ID: "request_part_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "RequestPartHooks", Combine: func(s SourceKind, c, in []hooks.RequestPartHook) ([]hooks.RequestPartHook, error) { return in, nil }}
-var PlaneResponsePartHooks = Plane[[]hooks.ResponsePartHook]{ID: "response_part_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "ResponsePartHooks", Combine: func(s SourceKind, c, in []hooks.ResponsePartHook) ([]hooks.ResponsePartHook, error) { return in, nil }}
-var PlaneToolReactors = Plane[[]hooks.ToolReactor]{ID: "tool_reactors", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "ToolReactors", Combine: func(s SourceKind, c, in []hooks.ToolReactor) ([]hooks.ToolReactor, error) { return in, nil }}
+var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
+var PlaneRequestPartHooks = Plane[[]hooks.RequestPartHook]{ID: "request_part_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "RequestPartHooks", Combine: func(s SourceKind, c, in []hooks.RequestPartHook) ([]hooks.RequestPartHook, error) { return in, nil }}
+var PlaneResponsePartHooks = Plane[[]hooks.ResponsePartHook]{ID: "response_part_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "ResponsePartHooks", Combine: func(s SourceKind, c, in []hooks.ResponsePartHook) ([]hooks.ResponsePartHook, error) { return in, nil }}
+var PlaneToolReactors = Plane[[]hooks.ToolReactor]{ID: "tool_reactors", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "ToolReactors", Combine: func(s SourceKind, c, in []hooks.ToolReactor) ([]hooks.ToolReactor, error) { return in, nil }}
 var StandardPlanes = []any{PlaneSubmitHooks, PlaneRequestPartHooks, PlaneResponsePartHooks, PlaneToolReactors}`
 
 	t.Run("EmitsHookConfigAndProjectHookConfig", func(t *testing.T) {
@@ -243,8 +243,8 @@ func TestPlaneGenerator_HookViewMetadata_SubsetManifest(t *testing.T) {
 		t.Parallel()
 		subsetManifest := `package feature
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
-var PlaneToolReactors = Plane[[]hooks.ToolReactor]{ID: "tool_reactors", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "ToolReactors", Combine: func(s SourceKind, c, in []hooks.ToolReactor) ([]hooks.ToolReactor, error) { return in, nil }}
+var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
+var PlaneToolReactors = Plane[[]hooks.ToolReactor]{ID: "tool_reactors", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "ToolReactors", Combine: func(s SourceKind, c, in []hooks.ToolReactor) ([]hooks.ToolReactor, error) { return in, nil }}
 var StandardPlanes = []any{PlaneSubmitHooks, PlaneToolReactors}`
 		codeBytes, err := GenerateFeaturePlanesCode([]byte(subsetManifest))
 		require.NoError(t, err)
@@ -275,8 +275,8 @@ var StandardPlanes = []any{PlaneSubmitHooks, PlaneToolReactors}`
 		t.Parallel()
 		customManifest := `package feature
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
-var PlaneToolReactors = Plane[[]hooks.ToolReactor]{ID: "tool_reactors", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "ToolReactors", Combine: func(s SourceKind, c, in []hooks.ToolReactor) ([]hooks.ToolReactor, error) { return in, nil }}
+var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
+var PlaneToolReactors = Plane[[]hooks.ToolReactor]{ID: "tool_reactors", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "ToolReactors", Combine: func(s SourceKind, c, in []hooks.ToolReactor) ([]hooks.ToolReactor, error) { return in, nil }}
 var StandardPlanes = []any{PlaneToolReactors, PlaneSubmitHooks}`
 		codeBytes, err := GenerateFeaturePlanesCode([]byte(customManifest))
 		require.NoError(t, err)
@@ -309,7 +309,7 @@ func TestPlaneGenerator_HookViewMetadata_NoTargetManifest_EmitsNeither(t *testin
 
 	noTargetManifest := `package feature
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
-var PlaneSessionOpeners = Plane[[]session.Opener]{ID: "session_openers", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var PlaneSessionOpeners = Plane[[]session.Opener]{ID: "session_openers", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
 var StandardPlanes = []any{PlaneSessionOpeners}`
 	codeBytes, err := GenerateFeaturePlanesCode([]byte(noTargetManifest))
 	require.NoError(t, err)
@@ -329,7 +329,7 @@ func TestPlaneGenerator_HookViewMetadata_CanonicalAndAliasedImports(t *testing.T
 		t.Parallel()
 		manifest := `package feature
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
+var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
 var StandardPlanes = []any{PlaneSubmitHooks}`
 		codeBytes, err := GenerateFeaturePlanesCode([]byte(manifest))
 		require.NoError(t, err)
@@ -362,8 +362,8 @@ var StandardPlanes = []any{PlaneSubmitHooks}`
 		t.Parallel()
 		aliasedManifest := `package feature
 import sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-var PlaneSubmitHooks = Plane[[]sdkhooks.SubmitHook]{ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []sdkhooks.SubmitHook) ([]sdkhooks.SubmitHook, error) { return in, nil }}
-var PlaneToolReactors = Plane[[]sdkhooks.ToolReactor]{ID: "tool_reactors", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "ToolReactors", Combine: func(s SourceKind, c, in []sdkhooks.ToolReactor) ([]sdkhooks.ToolReactor, error) { return in, nil }}
+var PlaneSubmitHooks = Plane[[]sdkhooks.SubmitHook]{ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []sdkhooks.SubmitHook) ([]sdkhooks.SubmitHook, error) { return in, nil }}
+var PlaneToolReactors = Plane[[]sdkhooks.ToolReactor]{ID: "tool_reactors", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "ToolReactors", Combine: func(s SourceKind, c, in []sdkhooks.ToolReactor) ([]sdkhooks.ToolReactor, error) { return in, nil }}
 var StandardPlanes = []any{PlaneSubmitHooks, PlaneToolReactors}`
 		codeBytes, err := GenerateFeaturePlanesCode([]byte(aliasedManifest))
 		require.NoError(t, err)
@@ -412,8 +412,8 @@ func TestPlaneGenerator_HookViewMetadata_ValidationRejections(t *testing.T) {
 		t.Parallel()
 		dupManifest := `package feature
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-var PlaneSubmit1 = Plane[[]hooks.SubmitHook]{ID: "s1", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
-var PlaneSubmit2 = Plane[[]hooks.SubmitHook]{ID: "s2", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
+var PlaneSubmit1 = Plane[[]hooks.SubmitHook]{ID: "s1", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
+var PlaneSubmit2 = Plane[[]hooks.SubmitHook]{ID: "s2", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
 var StandardPlanes = []any{PlaneSubmit1, PlaneSubmit2}`
 		_, err := GenerateFeaturePlanesCode([]byte(dupManifest))
 		require.Error(t, err)
@@ -424,7 +424,7 @@ var StandardPlanes = []any{PlaneSubmit1, PlaneSubmit2}`
 		t.Parallel()
 		unknownManifest := `package feature
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-var PlaneUnknown = Plane[[]hooks.SubmitHook]{ID: "u1", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "UnknownTargetTypo", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
+var PlaneUnknown = Plane[[]hooks.SubmitHook]{ID: "u1", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "UnknownTargetTypo", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
 var StandardPlanes = []any{PlaneUnknown}`
 		_, err := GenerateFeaturePlanesCode([]byte(unknownManifest))
 		require.Error(t, err)
@@ -435,7 +435,7 @@ var StandardPlanes = []any{PlaneUnknown}`
 		t.Parallel()
 		incompatibleManifest := `package feature
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
-var PlaneIncompatible = Plane[[]session.Opener]{ID: "i1", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var PlaneIncompatible = Plane[[]session.Opener]{ID: "i1", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
 var StandardPlanes = []any{PlaneIncompatible}`
 		_, err := GenerateFeaturePlanesCode([]byte(incompatibleManifest))
 		require.Error(t, err)
@@ -449,8 +449,8 @@ import (
 	hooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	otherhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
-var PlaneSubmit = Plane[[]hooks.SubmitHook]{ID: "s", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
-var PlaneRequest = Plane[[]otherhooks.RequestPartHook]{ID: "r", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "RequestPartHooks", Combine: func(s SourceKind, c, in []otherhooks.RequestPartHook) ([]otherhooks.RequestPartHook, error) { return in, nil }}
+var PlaneSubmit = Plane[[]hooks.SubmitHook]{ID: "s", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
+var PlaneRequest = Plane[[]otherhooks.RequestPartHook]{ID: "r", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "RequestPartHooks", Combine: func(s SourceKind, c, in []otherhooks.RequestPartHook) ([]otherhooks.RequestPartHook, error) { return in, nil }}
 var StandardPlanes = []any{PlaneSubmit, PlaneRequest}`
 		_, err := GenerateFeaturePlanesCode([]byte(manifest))
 		require.Error(t, err)
@@ -462,7 +462,7 @@ var StandardPlanes = []any{PlaneSubmit, PlaneRequest}`
 	t.Run("UnimportedHookPackage_Rejected", func(t *testing.T) {
 		t.Parallel()
 		manifest := `package feature
-var PlaneUnimported = Plane[[]unimported.SubmitHook]{ID: "u", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []unimported.SubmitHook) ([]unimported.SubmitHook, error) { return in, nil }}
+var PlaneUnimported = Plane[[]unimported.SubmitHook]{ID: "u", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []unimported.SubmitHook) ([]unimported.SubmitHook, error) { return in, nil }}
 var StandardPlanes = []any{PlaneUnimported}`
 		_, err := GenerateFeaturePlanesCode([]byte(manifest))
 		require.Error(t, err)
@@ -475,7 +475,7 @@ var StandardPlanes = []any{PlaneUnimported}`
 		manifest := `package feature
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 type SubmitHook string
-var PlaneBare = Plane[[]SubmitHook]{ID: "b", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []SubmitHook) ([]SubmitHook, error) { return in, nil }}
+var PlaneBare = Plane[[]SubmitHook]{ID: "b", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []SubmitHook) ([]SubmitHook, error) { return in, nil }}
 var StandardPlanes = []any{PlaneBare}`
 		_, err := GenerateFeaturePlanesCode([]byte(manifest))
 		require.Error(t, err)
@@ -487,7 +487,7 @@ var StandardPlanes = []any{PlaneBare}`
 		t.Parallel()
 		manifest := `package feature
 import hooks "github.com/foreign/package/hooks"
-var PlaneForeign = Plane[[]hooks.SubmitHook]{ID: "f", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
+var PlaneForeign = Plane[[]hooks.SubmitHook]{ID: "f", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "SubmitHooks", Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return in, nil }}
 var StandardPlanes = []any{PlaneForeign}`
 		_, err := GenerateFeaturePlanesCode([]byte(manifest))
 		require.Error(t, err)

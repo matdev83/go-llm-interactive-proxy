@@ -20,22 +20,22 @@ import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 
 var PlaneSubmit = Plane[[]hooks.SubmitHook]{
 	ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetSubmitHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetSubmitHooks,
 	Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(c, in...), nil },
 }
 var PlaneRequest = Plane[[]hooks.RequestPartHook]{
 	ID: "request_part_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetRequestPartHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetRequestPartHooks,
 	Combine: func(s SourceKind, c, in []hooks.RequestPartHook) ([]hooks.RequestPartHook, error) { return append(c, in...), nil },
 }
 var PlaneResponse = Plane[[]hooks.ResponsePartHook]{
 	ID: "response_part_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetResponsePartHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetResponsePartHooks,
 	Combine: func(s SourceKind, c, in []hooks.ResponsePartHook) ([]hooks.ResponsePartHook, error) { return append(c, in...), nil },
 }
 var PlaneTool = Plane[[]hooks.ToolReactor]{
 	ID: "tool_reactors", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetToolReactors,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetToolReactors,
 	Combine: func(s SourceKind, c, in []hooks.ToolReactor) ([]hooks.ToolReactor, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneSubmit, PlaneRequest, PlaneResponse, PlaneTool}
@@ -50,12 +50,12 @@ var StandardPlanes = []any{PlaneSubmit, PlaneRequest, PlaneResponse, PlaneTool}
 			"import \"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks\"\n\n" +
 			"var PlaneRaw = Plane[[]hooks.SubmitHook]{\n" +
 			"	ID: \"submit_raw\", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},\n" +
-			"	NilPolicy: NilNotApplicable, HookTarget: `SubmitHooks`,\n" +
+			"	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: `SubmitHooks`,\n" +
 			"	Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(c, in...), nil },\n" +
 			"}\n" +
 			"var PlaneEscaped = Plane[[]hooks.RequestPartHook]{\n" +
 			"	ID: \"req_escaped\", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},\n" +
-			"	NilPolicy: NilNotApplicable, HookTarget: \"Request\\x50artHooks\",\n" +
+			"	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: \"Request\\x50artHooks\",\n" +
 			"	Combine: func(s SourceKind, c, in []hooks.RequestPartHook) ([]hooks.RequestPartHook, error) { return append(c, in...), nil },\n" +
 			"}\n" +
 			"var StandardPlanes = []any{PlaneRaw, PlaneEscaped}\n"
@@ -69,7 +69,7 @@ var StandardPlanes = []any{PlaneSubmit, PlaneRequest, PlaneResponse, PlaneTool}
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 var PlaneBad = Plane[[]hooks.SubmitHook]{
 	ID: "submit_bad", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: SubmitHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: SubmitHooks,
 	Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneBad}
@@ -86,7 +86,7 @@ var StandardPlanes = []any{PlaneBad}
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 var PlaneBad = Plane[[]hooks.SubmitHook]{
 	ID: "submit_bad", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: arbitrary.HookTargetSubmitHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: arbitrary.HookTargetSubmitHooks,
 	Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneBad}
@@ -103,7 +103,7 @@ var StandardPlanes = []any{PlaneBad}
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 var PlaneBad = Plane[[]hooks.SubmitHook]{
 	ID: "submit_bad", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetSubmitHooksSpoofed,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetSubmitHooksSpoofed,
 	Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneBad}
@@ -120,7 +120,7 @@ var StandardPlanes = []any{PlaneBad}
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 var PlaneBad = Plane[[]hooks.SubmitHook]{
 	ID: "submit_bad", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: "NonExistentHookTarget",
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "NonExistentHookTarget",
 	Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneBad}
@@ -137,7 +137,7 @@ var StandardPlanes = []any{PlaneBad}
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 var PlaneBad = Plane[[]hooks.SubmitHook]{
 	ID: "submit_bad", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: "Unknown\x54arget",
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: "Unknown\x54arget",
 	Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneBad}
@@ -162,7 +162,7 @@ import sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 
 var PlaneSubmitHooks = Plane[[]sdkhooks.SubmitHook]{
 	ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetSubmitHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetSubmitHooks,
 	Combine: func(s SourceKind, c, in []sdkhooks.SubmitHook) ([]sdkhooks.SubmitHook, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneSubmitHooks}
@@ -181,7 +181,7 @@ import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 
 var PlaneSubmitHooks = Plane[  [ ]   hooks.SubmitHook  ]{
 	ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetSubmitHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetSubmitHooks,
 	Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneSubmitHooks}
@@ -199,7 +199,7 @@ import hooks "github.com/foreign/package/hooks"
 
 var PlaneSubmit = Plane[[]hooks.SubmitHook]{
 	ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetSubmitHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetSubmitHooks,
 	Combine: func(s SourceKind, c, in []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneSubmit}
@@ -218,7 +218,7 @@ type SubmitHook struct{}
 
 var PlaneSubmit = Plane[[]SubmitHook]{
 	ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetSubmitHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetSubmitHooks,
 	Combine: func(s SourceKind, c, in []SubmitHook) ([]SubmitHook, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneSubmit}
@@ -236,7 +236,7 @@ import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 
 var PlaneSubmit = Plane[[]hooks.ToolReactor]{
 	ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetSubmitHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetSubmitHooks,
 	Combine: func(s SourceKind, c, in []hooks.ToolReactor) ([]hooks.ToolReactor, error) { return append(c, in...), nil },
 }
 var StandardPlanes = []any{PlaneSubmit}
@@ -255,7 +255,7 @@ import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 
 var PlaneSubmit = Plane[hooks.SubmitHook]{
 	ID: "submit_hooks", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilNotApplicable, HookTarget: HookTargetSubmitHooks,
+	NilPolicy: NilNotApplicable, RequestAccess: RequestBodyCanonicalRequired, HookTarget: HookTargetSubmitHooks,
 	Combine: func(s SourceKind, c, in hooks.SubmitHook) (hooks.SubmitHook, error) { return in, nil },
 }
 var StandardPlanes = []any{PlaneSubmit}

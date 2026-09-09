@@ -168,7 +168,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 3. Make obviously impossible generations skip spool/scanner work
 
-- [ ] 3.1 Extend the existing generated plane descriptor with request access class
+- [x] 3.1 Extend the existing generated plane descriptor with request access class
   - Add zero `Unclassified` plus `CanonicalRequired`, `MetadataOnly`, `ResponseOnly`, `WireContract` (equivalent names allowed).
   - Annotate **all 26 current production planes** from actual semantics.
   - Do not create a second named plane list.
@@ -817,3 +817,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 2.2 VERIFIED (fresh reviewer APPROVED): `internal/core/largebody` provider-neutral DTO seam (bounded/immutable/redacted, no Call mirror, no SDK/frontend imports, no prompt/path/header-bag/unbounded maps); core ownership + budget ratchets PASS; largebody 17/17 + focused archtest PASS, vet/gofmt/diff-check clean; full archtest 18.8s implementer-claimed, focused subsets re-verified; no consumers yet; `-race` skipped Windows cgo limitation.
 - Task 2.3 VERIFIED (fresh reviewer APPROVED): internal LargeBodyExecutor + AsLargeBodyExecutor helper, ExecutorView unchanged, absent=>canonical, budgets bump; largebody 21/21 + line-budget PASS, vet/gofmt/diff-check clean, pkg/lipsdk untouched; `-race` skipped Windows cgo limitation.
 - Task 2.4 VERIFIED (fresh reviewer APPROVED): disabled-gate 0-alloc ratchet, core import boundary, sensitive-carrier redaction; SessionInput IDs spec-compliant clear-by-contract, Task 19.1 diagnostics must not use IDs as labels (follow-up); largebody 26/26 + boundary test PASS, vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
+- Task 3.1 VERIFIED (fresh reviewer APPROVED): RequestBodyAccess on sole plane descriptor, 26 annotations 19/3/4/0/0, fail-closed generation+CI, no eligibility consumption yet; feature 149 tests + archtest PASS, generator -check + vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
