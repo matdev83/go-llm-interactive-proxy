@@ -159,13 +159,29 @@ type Measure struct {
     MethodRef string
     Reason    string
 }
+type ChargeKind string
+type CoverageRelation string
+const (
+    CoverageInclusive CoverageRelation = "inclusive"
+    CoverageAdditive  CoverageRelation = "additive"
+)
+type ChargeRef struct {
+    StoreID       string
+    ObservationID string
+    Revision      uint64
+    ChargeItemID  string
+}
+type ChargeCoverageRef struct {
+    Ref      ChargeRef
+    Relation CoverageRelation
+}
 type ReportedCharge struct {
     ChargeItemID string
     Component    *ComponentKey // nil for a genuine provider aggregate
     Amount       *Decimal
     Currency     string
-    Coverage     string // component, aggregate, surcharge, tax, adjustment
-    Covers       []string
+    Kind         ChargeKind // component, aggregate, surcharge, tax, adjustment, credit
+    Covers       []ChargeCoverageRef
 }
 type Observation struct {
     Version       uint32
@@ -190,7 +206,9 @@ type Observation struct {
 }
 ```
 
-`SubjectRef` is a tagged union with subject kind and scoped identity fields from D1; validation rejects foreign combinations. `CorrelationV2` contains D1 lineage plus trusted tenant/store scope. `ObservationRef` identifies store, observation ID and revision plus payload hash. `SafeEvidenceField` has allowlisted header name or JSON path, exact numeric/string lexeme, original null/absence state and acquisition channel. No raw prompt/object blob field exists.
+`SubjectRef` is a tagged union with subject kind and scoped identity fields from D1; validation rejects foreign combinations. `CorrelationV2` contains D1 lineage plus trusted tenant/store scope. `ObservationRef` identifies store, observation ID and revision plus payload hash. `ChargeRef` is likewise store-scoped and must resolve to the exact observation revision and charge item; bare provider-local charge IDs are never sufficient cross-record references. `SafeEvidenceField` has allowlisted header name or JSON path, exact numeric/string lexeme, original null/absence state and acquisition channel. No raw prompt/object blob field exists.
+
+Charge coverage is a validated graph, not free-form metadata. `inclusive` means the referenced charge is already contained in the parent amount; `additive` means it remains separately payable in the same rollup. Before any valuation or COGS rollup, validation rejects self-reference and cycles, duplicate or contradictory relations for the same edge, cross-store references, a child being both inclusive and additive in one rollup, and ambiguous overlapping inclusive parents unless a separate explicit allocation record resolves the ownership. Shared allocation weights use exact rational/decimal values, include any explicit unallocated remainder, and must conserve exactly to one before attributed amounts become billable. Invalid coverage remains stored as conflicting/incomplete evidence but is not eligible for rating or posting.
 
 Decimal constraints: at most 38 coefficient digits and scale 0–18; normalize insignificant fractional zeros and negative zero before hashing. Reject NaN/infinity, coercion through float64, exponent expansion beyond limits and unsupported precision. Token/count components require exact integers; fractional credits, seconds and resource products have explicit schema quanta. Parsing raw scientific notation is allowed only through bounded decimal parsing. Provider raw lexemes that cannot normalize safely remain bounded rejected evidence with a diagnostic, not a silently rounded usable amount.
 
@@ -247,7 +265,7 @@ Tables supporting PostgreSQL must preserve SQLite semantics and transaction-pool
 
 ### C1. Evidence collector and normalization
 
-Public metering contracts define immutable DTOs, component schemas, validation and `ObservationSink.Append(context.Context, Observation) error`. A terminal envelope writer groups observations and neutral call/attempt closure. Normalizer implementations live at the adapter edge and are selected once per immutable provider profile/generation. They receive provider-local decoded fields and produce neutral observations; no provider-shaped parameter object reaches core.
+Public metering contracts define immutable DTOs, component schemas, validation and `ObservationSink.Append(context.Context, Observation) error`. A terminal envelope writer groups observations and neutral call/attempt closure. Normalizer implementations live at the adapter or connector edge and are selected once per immutable provider profile/generation. They receive provider-local decoded fields and produce the versioned neutral observation/sideband DTOs; no generic public raw-provider normalizer interface is introduced and no provider-shaped parameter object reaches core. External connectors participate by emitting the same negotiated neutral DTOs through the backend-plugin ABI.
 
 The collector is request/attempt-owned; it holds local and remote observations in separate streams. Source/event identity is assigned when first acquired, not generated again at finalization. Include request-scoped provider charge identity plus event revision. A finalizer matching earlier evidence references it; it does not append another billable charge solely because the transport channel differs.
 
@@ -333,7 +351,7 @@ Queries report known subtotal, count/IDs of missing charges, selected-basis mix 
 
 The generic authenticated importer accepts normalized records and performs identity validation, replay/conflict detection and exact-granularity matching. Request charge ID match is preferred; only complete compatible account/period/SKU coverage permits aggregate matching. Missing join keys produce an unmatched record, not timestamp-nearest attribution. Batch/statement coverage can reference a set of observed charges without asserting a per-request allocation.
 
-A late provider correction, statement or revised selection creates a new valuation and reconciliation result. Under a lock or compare-and-swap of `billing_cost_heads`, calculate **new selected amount minus previously posted selected amount**. Insert the valuation link, balanced delta journal and head transition atomically. Unique operation key includes economic charge identity, old/new selected valuation identities and adjustment revision. Replay returns the existing operation; a different payload under the same key conflicts. Negative deltas reverse the applicable COGS/payable entries using existing debit/credit semantics rather than inserting an invalid negative gross charge.
+A late provider correction, statement or revised selection creates a new valuation and reconciliation result. Under a lock or compare-and-swap of `billing_cost_heads`, first validate monetary comparability. Calculate **new selected amount minus previously posted selected amount** only when both selected valuations use the same native currency, or when both are mapped through the same explicit frozen FX conversion basis whose identity and exact rate material are retained. If currencies differ without such a frozen conversion, leave the correction pending or reject it as incomparable and perform **no** valuation-link insertion, journal delta, or head transition. For a valid comparison, insert the valuation link, balanced delta journal and head transition atomically. Unique operation key includes economic charge identity, old/new selected valuation identities, currency or frozen FX basis, and adjustment revision. Replay returns the existing operation; a different payload under the same key conflicts. Negative deltas reverse the applicable COGS/payable entries using existing debit/credit semantics rather than inserting an invalid negative gross charge.
 
 A statement that covers several already-posted charges compares against their sum and posts only the aggregate adjustment once. No duplicate per-B-leg posting of the entire statement total. Customer settlement never waits for unrelated supplier statements. Cost-pass-through offers can elect a provisional amount and later permitted adjustment; the policy must freeze that choice. Default independent customer offers receive no automatic upstream-driven rebill.
 
@@ -364,7 +382,7 @@ Post-turn work uses bounded batches and existing host-owned workers with durable
 
 ### C7. Public binding and Open Core boundary
 
-The current `ComposeBilling` uses internal types and therefore is not itself an external-module plugin API. Publish minimal binding DTOs/ports in `pkg/lipsdk/billing`, expressed only through public scope/metering/economics types. Required binding members cover cheap credit screen, quote/exposure admit, terminal evidence handoff, and explicit lifecycle ownership. Binding-created post-turn workers and custom raters are owned by the binding and registered once with Host cleanup; supplied borrowed stores are not implicitly closed.
+The current `ComposeBilling` uses internal types and therefore is not itself an external-module plugin API. Publish minimal binding DTOs/ports in `pkg/lipsdk/billing`, expressed only through public scope/metering/economics types. Required binding members cover cheap credit screen, quote/exposure admit, terminal evidence handoff, and explicit lifecycle ownership. The provider-neutral `Observation`/connector-sideband DTOs and the narrow public `Rater`, `Quoter`, `StatementImporter`, and `ReconciliationReader` contracts are the supported external economics seams; provider-shaped normalization remains inside the supplying adapter/connector. Binding-created post-turn workers and custom raters are owned by the binding and registered once with Host cleanup; supplied borrowed stores are not implicitly closed.
 
 New signature:
 
