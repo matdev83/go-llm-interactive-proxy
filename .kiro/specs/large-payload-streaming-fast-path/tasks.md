@@ -124,7 +124,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - _Validation: generator check + plane parity/arch tests_
   - _Requirements: 5, 13, 22_
 
-- [ ] 1.10 Capture current-main performance baseline
+- [x] 1.10 Capture current-main performance baseline
   - Bodies: 32 KiB, 256 KiB, 1 MiB, 5 MiB, test-only 20 MiB raised limit.
   - Record allocs/op, B/op, ns/op, GC cycles/pause/live+peak heap, decode/encode, provider-open fixture latency, Call clone amplification, production-like composition.
   - Include current #592/#602 optimizations; do not use stale #531-era numbers as the primary baseline.
@@ -812,3 +812,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 1.7 test-only scope VERIFIED (fresh reviewer APPROVED): 2 identity freeze files, 21 tests, per-requirement coverage (Req 15, 16, 18); diag + checkpoint suites PASS; vet/gofmt/diff-check clean; no production diff; future digest seams disclaimed; `-race` skipped per Windows cgo limitation.
 - Task 1.8 test-only scope VERIFIED (fresh reviewer APPROVED): evidence `evidence/1.8-call-census.md` with CloneCall register + narrow-port inventory + classifications, handoff for Tasks 3/11/12/19; archtest PASS, diff-check clean; no production diff.
 - Task 1.9 test-only scope VERIFIED (fresh reviewer APPROVED): 26-plane census test + evidence from `feature.StandardPlanes()`/generated manifest, explicitly naming `PlaneSecretGuardExecution`, `PlaneLocalTurnHandlers`, `PlaneTerminalDecisionProvider`; `hooks.Bus` inventoried separately; Local Turn/Secret Guard canonical blockers and fail-closed ratchet for unclassified/new planes; handoff for Task 3; archtest + feature suites PASS, vet/gofmt/diff-check clean; no production diff; `-race` skipped per Windows cgo limitation.
+- Task 1.10 test-only scope VERIFIED (fresh reviewer APPROVED): baseline harness + evidence covering 32 KiB, 256 KiB, 1 MiB, 5 MiB, test-only gated 20 MiB with allocs/B/ns, GC, decode/encode, provider-open, clone amplification metrics including current #592/#602; package tests + benchmark slices PASS, gofmt/diff-check clean; 20 MiB properly gated; no production diff; handoff for Task 19; `-race` skipped per Windows cgo limitation.
