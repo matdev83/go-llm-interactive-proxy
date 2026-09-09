@@ -47,6 +47,10 @@ linters:
       - path: ^connectors/cursorsdk/internal/product/.*_test\.go$
         linters:
           - paralleltest
+      # Connector parity suites and state machines test sequential OAuth lifecycle and token refresh.
+      - path: ^connectors/(gitlabduo|minimexoauth|nousportal|qwenoauth|xaioauth)/.*_test\.go$
+        linters:
+          - paralleltest
       # These composed protocol/backend suites use shared scripted transports,
       # deterministic stream timing, or package-level test fixtures.
       - path: ^(internal/plugins/backends/openresponsescompat|internal/plugins/protocols/openresponses|internal/plugins/frontends/openresponses|internal/refclient/openresponses)/.*_test\.go$
