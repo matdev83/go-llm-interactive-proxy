@@ -126,6 +126,10 @@ type Config struct {
 type Spec[Opts any] struct {
 	Config
 	Wire WireErrors
+	// Profile optionally enables large-payload fast-path candidate evaluation
+	// for certified frontends (Task 7.1). When nil, requests follow the
+	// unchanged canonical path with zero spool allocation.
+	Profile FrontendProfile
 	// MatchPath returns ok=false for 404. When AltServe is non-nil and invoked, the pipeline stops.
 	MatchPath func(path string) (pm PathMatch, ok bool)
 	AltServe  func(ctx context.Context, w http.ResponseWriter, r *http.Request) bool

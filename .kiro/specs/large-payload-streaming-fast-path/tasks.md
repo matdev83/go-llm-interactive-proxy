@@ -313,7 +313,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 7. Add candidate ingress without certifying a provider lane yet
 
-- [ ] 7.1 Add optional profile plumbing and bounded frontend wire state
+- [x] 7.1 Add optional profile plumbing and bounded frontend wire state
   - Profile owns protocol proof, canonical identity digest, recorder shape, session precedence facts, body mode/rewrite semantics, model span, response-state seeds.
   - No backend selection/network inside profile.
   - Nil profile/capability => canonical with no spool.
@@ -837,3 +837,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 6.2 VERIFIED (review subagent APPROVED): CallIdentityWriter hash-writer, streaming escape parity, Call.ID identical, no retention, budgets bump; largebody + diag + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 6.3 VERIFIED (review subagent APPROVED): differential corpus + fuzz cover Items path incl. empty-text fix, marshal-faithful F1 resolution, oracle untouched; suites + fuzz PASS, diff-check/vet/gofmt clean; -race unavailable cgo limitation.
 - Task 6.4 VERIFIED (review subagent APPROVED): economic/checkpoint parity on digest seam, caller-ID precedence, Task 10 obligation documented, zero production diff; 41 parity tests PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 7.1 VERIFIED (review subagent APPROVED): FrontendProfile + wire state/seeds plumbing, nil=>canonical no-spool, zero ServeHTTP change, budgets catch-up bump; frontendpipe + archtest PASS, vet/diff-check clean; -race unavailable cgo limitation.
