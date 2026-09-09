@@ -38,6 +38,9 @@ func newKeepwarmTimingProcess(t *testing.T) (*runtimebundle.ProcessServices, *ca
 		t.Fatalf("featurehost.NewProcess: %v", err)
 	}
 	t.Cleanup(func() { _ = fh.Close() })
+	if capture.collector == nil {
+		t.Fatal("featurehost.NewProcess did not register a keepwarm.PrometheusCollector")
+	}
 	ps.StandardFeatures = fh
 	return ps, capture
 }
