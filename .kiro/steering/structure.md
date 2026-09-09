@@ -34,6 +34,7 @@ Rules:
 - core may depend on public canonical/SDK contracts, never concrete plugins or provider SDKs;
 - provider/protocol-specific behavior stays at adapter edges;
 - optional UX/policy does not live in core merely because the executor needs to call it;
+- `internal/core/billing` owns BillingCallID, quote and operational exposure policy, immutable usage contracts, post-usage rating, and journal commands (no SQL, no provider SDKs);
 - new top-level core responsibilities must satisfy the repository's core-ownership admission rules and architecture tests.
 
 The current allowed core package set and justification are executable policy under `internal/archtest/`; do not duplicate that package list here.
@@ -101,6 +102,7 @@ Rules:
 - infrastructure implements interfaces/contracts owned by the consuming domain where practical;
 - driver handles and vendor types do not leak into core policy;
 - persistence behavior must preserve domain semantics across supported engines/topologies;
+- billing persistence and admission stay in existing adapters: `internal/infra/billingstore` owns the Bun journal, `internal/infra/billingcompose` owns the snapshot catalog, and `internal/infra/billingadmission` owns the admission adapter;
 - infrastructure is not a dumping ground for optional product policy.
 
 ### 8. Test and certification surfaces
