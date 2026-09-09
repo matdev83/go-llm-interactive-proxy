@@ -96,7 +96,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - _Validation: `go test -race ./internal/core/runtime/... ./internal/core/securesession/... ./internal/core/routeoverride/...`_
   - _Requirements: 6, 7, 14, 19_
 
-- [ ] 1.6 Freeze frontend response + keepalive behavior
+- [x] 1.6 Freeze frontend response + keepalive behavior
   - OpenAI Responses: response ID/cancellation carrier/timestamp/model/session+resume headers, stream/non-stream, debug helpers.
   - OpenAI Chat: completion ID/timestamp/model/session headers.
   - OpenResponses: `AfterDecode`, `prepareCreateState`, store/continuation, wrappers/options/recorder.
@@ -808,3 +808,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 1.3 approved correction applied: 1.3 characterizes current canonical one-`TryAdmit` decision including terminal decode failure; Task 7.6 owns proof-decline same-permit fallback and Task 11.9 owns assessment-decline same-permit fallback with the original permit held and no second decision; Requirement 6.3 preserved.
 - Task 1.4 test-only scope VERIFIED (fresh reviewer APPROVED): required suites ALL PASS on feature branch (`runtimehost`, `runtimebundle` incl. repaired candidate test, `stdhttp`); repair attribution `3054bc43`/`dc5f42af` retained; gofmt/diff-check clean; `-race` skipped per Windows cgo limitation.
 - Task 1.5 test-only scope VERIFIED (fresh reviewer APPROVED): 3 lifecycle freeze test files; required 3-package suites PASS (`internal/core/runtime`, `internal/core/securesession`, `internal/core/routeoverride`); gofmt/diff-check clean; no production diff; Bun continuity via existing suites; future seams disclaimed; `-race` skipped per Windows cgo limitation.
+- Task 1.6 test-only scope VERIFIED (fresh reviewer APPROVED): 4 response/keepalive freeze files, 26 new tests, per-lane coverage; touched suites PASS; vet/gofmt/diff-check clean; no production diff; future bridge seams disclaimed; `-race` skipped per Windows cgo limitation.
