@@ -31,7 +31,7 @@ Regardless of concrete selector syntax, these rules are invariant:
 
 1. **Recovery is pre-output only** — transparent failover, retry, or race substitution is allowed only before client-visible canonical output commits an attempt.
 2. **First visible content commits** — once an attempt has emitted client-visible content, later failure is terminal for that attempt; completed effects are not replayed.
-3. **Every attempt is attributable** — each logical client turn and backend attempt has durable lineage/evidence according to the configured continuity mode.
+3. **Every attempt is attributable** — each logical client turn and backend attempt is tracked with lineage/evidence according to the configured continuity mode; persistence durability is a store/topology choice, not part of the attribution invariant.
 4. **Race losers terminate cleanly** — losing or canceled attempts are canceled, drained only as needed for bounded terminal evidence, and terminalized exactly once.
 5. **Provider-only evidence may survive cancellation** — bounded secret-safe terminal evidence can still feed accounting/diagnostics even when the attempt never commits output.
 
