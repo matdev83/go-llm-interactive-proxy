@@ -145,7 +145,8 @@ var LineBudgets = []LineBudget{
 	// pre-oss-core-slimming race remediation: measured 89936 after synchronizing attempt accounting, sideband teardown, and terminal provider identity; retain 25 lines of headroom.
 	// Ownership closure (Task 11.3): measured 82565 after extracting compaction-continuity, conversation steering, interleaved UX, keep-warm and terminal policy; reset to 82590 with 25 headroom. Deleted feature LOC is not retained as growth allowance.
 	// Large-payload fast-path Task 2.1 server config (typed LargePayloadFastPathConfig + validation + effective getters); measured 82712, bump to 82737 with 25 headroom.
-	{Dir: "internal/core", Max: 82737},
+	// Large-payload fast-path Task 2.2 provider-neutral large-body DTOs (bounded source/span/rewrite/proof/session/turn/identity/assessment/wire/rewrite-plan/result/facts/sensitive-carrier contracts, zero behavior); measured 83801, bump to 83826 with 25 headroom.
+	{Dir: "internal/core", Max: 83826},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12333},

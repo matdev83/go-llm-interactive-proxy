@@ -144,7 +144,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Document plaintext spool and optimization-budget semantics.
   - _Requirements: 1, 2, 20, 22_
 
-- [ ] 2.2 Add internal provider-neutral large-body DTOs
+- [x] 2.2 Add internal provider-neutral large-body DTOs
   - Define bounded `Source`, `Span`, `BodyMode`, immutable `RewriteSemantics`, protocol `Proof`, `SessionInput`, `ClientTurnShape`, canonical `IdentityDigest`, source digest, assessment request/result/stamp, wire request/domain facts, rewrite plan, `ExecutionResult`, bounded `ResponseFacts`, sensitive session-response carrier.
   - No provider SDK/frontend-specific type, raw arbitrary header bag, prompt text, temp path, or unbounded map.
   - Do not create a DTO mirroring `lipapi.Call`.
@@ -814,3 +814,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 1.9 test-only scope VERIFIED (fresh reviewer APPROVED): 26-plane census test + evidence from `feature.StandardPlanes()`/generated manifest, explicitly naming `PlaneSecretGuardExecution`, `PlaneLocalTurnHandlers`, `PlaneTerminalDecisionProvider`; `hooks.Bus` inventoried separately; Local Turn/Secret Guard canonical blockers and fail-closed ratchet for unclassified/new planes; handoff for Task 3; archtest + feature suites PASS, vet/gofmt/diff-check clean; no production diff; `-race` skipped per Windows cgo limitation.
 - Task 1.10 test-only scope VERIFIED (fresh reviewer APPROVED): baseline harness + evidence covering 32 KiB, 256 KiB, 1 MiB, 5 MiB, test-only gated 20 MiB with allocs/B/ns, GC, decode/encode, provider-open, clone amplification metrics including current #592/#602; package tests + benchmark slices PASS, gofmt/diff-check clean; 20 MiB properly gated; no production diff; handoff for Task 19; `-race` skipped per Windows cgo limitation.
 - Task 2.1 VERIFIED (fresh reviewer APPROVED): six-field default-off `server.large_payload_fast_path` config with validation + invalid-reload last-good preservation; `MaxRequestBodyBytes` untouched; config package + archtest PASS, vet/gofmt/diff-check clean; budgets.go bump justified per procedure; `-race` skipped Windows cgo limitation.
+- Task 2.2 VERIFIED (fresh reviewer APPROVED): `internal/core/largebody` provider-neutral DTO seam (bounded/immutable/redacted, no Call mirror, no SDK/frontend imports, no prompt/path/header-bag/unbounded maps); core ownership + budget ratchets PASS; largebody 17/17 + focused archtest PASS, vet/gofmt/diff-check clean; full archtest 18.8s implementer-claimed, focused subsets re-verified; no consumers yet; `-race` skipped Windows cgo limitation.

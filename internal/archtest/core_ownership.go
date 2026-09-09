@@ -64,6 +64,7 @@ var CoreOwnershipManifest = []CoreOwnershipEntry{
 	{Package: "interleavedstate", Category: CoreOwnershipKernelInvariant, Reason: "Routing-required thinker cycle state for route selection and continuity."},
 	{Package: "jsonpresence", Category: CoreOwnershipKernelInvariant, Reason: "JSON empty-vs-null presence semantics."},
 	{Package: "jsonshape", Category: CoreOwnershipKernelInvariant, Reason: "Structural JSON validation for streams and frontends."},
+	{Package: "largebody", Category: CoreOwnershipGenericExtension, Reason: "Provider-neutral large-payload wire DTOs shared by frontend proof, core assessment, and backend wire open.", Consumers: "frontend profiles, core assessment, backend wire open"},
 	{Package: "leglifecycle", Category: CoreOwnershipKernelInvariant, Reason: "Upstream attempt leg lifecycle tracking and abort handling."},
 	{Package: "lineage", Category: CoreOwnershipKernelInvariant, Reason: "Request/response message causal lineage tracking."},
 	{Package: "localstream", Category: CoreOwnershipKernelInvariant, Reason: "In-memory canonical stream for local execution loops."},
