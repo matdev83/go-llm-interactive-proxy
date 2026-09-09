@@ -136,7 +136,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 2. Add zero-behavior-change plumbing only
 
-- [ ] 2.1 Add `server.large_payload_fast_path` configuration
+- [x] 2.1 Add `server.large_payload_fast_path` configuration
   - Fields: `enabled`, `threshold_bytes`, `memory_spool_bytes`, `max_inflight_spool_bytes`, `max_semantic_fact_bytes`, `spool_dir`.
   - Default off. Validate positive/overflow relationships and spool directory during candidate generation/reload.
   - Invalid reload preserves last-good generation.
@@ -813,3 +813,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 1.8 test-only scope VERIFIED (fresh reviewer APPROVED): evidence `evidence/1.8-call-census.md` with CloneCall register + narrow-port inventory + classifications, handoff for Tasks 3/11/12/19; archtest PASS, diff-check clean; no production diff.
 - Task 1.9 test-only scope VERIFIED (fresh reviewer APPROVED): 26-plane census test + evidence from `feature.StandardPlanes()`/generated manifest, explicitly naming `PlaneSecretGuardExecution`, `PlaneLocalTurnHandlers`, `PlaneTerminalDecisionProvider`; `hooks.Bus` inventoried separately; Local Turn/Secret Guard canonical blockers and fail-closed ratchet for unclassified/new planes; handoff for Task 3; archtest + feature suites PASS, vet/gofmt/diff-check clean; no production diff; `-race` skipped per Windows cgo limitation.
 - Task 1.10 test-only scope VERIFIED (fresh reviewer APPROVED): baseline harness + evidence covering 32 KiB, 256 KiB, 1 MiB, 5 MiB, test-only gated 20 MiB with allocs/B/ns, GC, decode/encode, provider-open, clone amplification metrics including current #592/#602; package tests + benchmark slices PASS, gofmt/diff-check clean; 20 MiB properly gated; no production diff; handoff for Task 19; `-race` skipped per Windows cgo limitation.
+- Task 2.1 VERIFIED (fresh reviewer APPROVED): six-field default-off `server.large_payload_fast_path` config with validation + invalid-reload last-good preservation; `MaxRequestBodyBytes` untouched; config package + archtest PASS, vet/gofmt/diff-check clean; budgets.go bump justified per procedure; `-race` skipped Windows cgo limitation.

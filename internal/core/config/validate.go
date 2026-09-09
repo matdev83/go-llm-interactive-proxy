@@ -237,6 +237,9 @@ func validateServer(cfg *Config) error {
 	if s.MaxInflightDecodeBytes < s.EffectiveMaxRequestBodyBytesForBudget() {
 		return fmt.Errorf("server.max_inflight_decode_bytes: must be >= max single request body (%d bytes)", s.EffectiveMaxRequestBodyBytesForBudget())
 	}
+	if err := validateLargePayloadFastPath(s); err != nil {
+		return err
+	}
 	for _, chk := range []struct {
 		name string
 		val  string

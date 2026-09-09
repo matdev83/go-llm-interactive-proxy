@@ -317,6 +317,10 @@ type ServerConfig struct {
 	MaxInflightDecodeBytes int64 `yaml:"max_inflight_decode_bytes"`
 	// MaxPendingWireEvents caps backend adapter-internal pending-event queues per stream (0 = unlimited).
 	MaxPendingWireEvents int `yaml:"max_pending_wire_events"`
+	// LargePayloadFastPath controls the optional large-payload streaming fast
+	// path (design section 3). Default off; see LargePayloadFastPathConfig for
+	// plaintext-spool and optimization-budget semantics.
+	LargePayloadFastPath LargePayloadFastPathConfig `yaml:"large_payload_fast_path"`
 	// PreRequestKeepalive optionally emits SSE comment keepalives while streaming frontends wait for
 	// pre-request admission handlers to finish inside executor setup.
 	PreRequestKeepalive PreRequestKeepaliveConfig `yaml:"pre_request_keepalive"`
