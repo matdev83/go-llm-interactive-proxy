@@ -284,7 +284,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 6. Preserve one request/economic identity namespace
 
-- [ ] 6.1 Factor `diag` helpers around an already-computed canonical sum
+- [x] 6.1 Factor `diag` helpers around an already-computed canonical sum
   - Preserve canonical `StableCallID`, token, Unix outputs byte-for-byte.
   - Add internal `...FromSum`/equivalent helpers; canonical path continues to derive sum from full Call.
   - No behavior change in this subtask.
@@ -833,3 +833,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 5.1 VERIFIED (fresh reviewer APPROVED): incremental Scanner in jsonshape, chunked feeds, UTF-8/escape/number/limits/cancel, no giant-string retention, differential parity vs preflight oracle, budgets bump; jsonshape + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 5.2 VERIFIED (fresh reviewer APPROVED): path-tracked token events with exact spans, nested-key discrimination, provider-neutral caller-selected keys, budgets bump; jsonshape + budget gates PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 5.3 VERIFIED (fresh reviewer APPROVED): differential corpus + fuzz harness (191 differential subtests, 15s fuzz 1.2M execs 0 failures), Kind-only parity decision vs slice preflight, surrogate-split scanner panic fix independently verified, no request-path wiring; jsonshape suite PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 6.1 VERIFIED (review subagent APPROVED): FromSum factoring, byte-for-byte parity, Call.ID precedence, budgets bump; diag + archtest PASS, diff-check/gofmt clean; follow-ups noted (explicit-ID early-return optimization + dead wrapper removal); -race unavailable cgo limitation.

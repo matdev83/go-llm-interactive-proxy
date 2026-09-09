@@ -156,7 +156,8 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 4.5 compute source integrity digest during capture (incremental SHA-256 during writes + CompletedSource digest binding); measured 86426, bump to 86451 with 25 headroom.
 	// Large-payload fast-path Task 5.1 incremental lexer/state machine (Feed chunks, UTF-8/escapes/surrogates/numbers/limits, fixed buffers, no giant string retention); measured 87467, bump to 87492 with 25 headroom.
 	// Large-payload fast-path Task 5.2 expose bounded token/path/span events (exact raw spans for selected top-level values, nested-key discrimination, TopLevelSpanTracker, Span Validate/End); measured 87639, bump to 87664 with 25 headroom.
-	{Dir: "internal/core", Max: 87664},
+	// Large-payload fast-path Task 6.1 factor diag helpers around already-computed canonical sum; measured 87717, bump to 87742 with 25 headroom.
+	{Dir: "internal/core", Max: 87742},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12333},
