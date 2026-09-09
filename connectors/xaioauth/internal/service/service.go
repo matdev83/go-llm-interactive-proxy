@@ -70,7 +70,15 @@ func DefaultTokenProviderFactory(_ context.Context, cfg Config, secrets backendp
 		}
 	}
 
-	// 2. Check for OAuth credentials
+	// 2. Check for OAuth credentials.
+	//
+	// xai-oauth is pre-provisioned-refresh-only: the connector implements the
+	// refresh half of the OAuth lifecycle (OIDC discovery + refresh_token
+	// grant, proactive refresh, terminal quarantine) against credentials
+	// provisioned out-of-band through xAI's official authorization channels.
+	// There is no documented public third-party device/browser authorization
+	// endpoint, so no initial login flow is implemented here; reimplementing
+	// xAI's first-party login would be private-interface scraping.
 	tokenFilePath := cfg.OAuthTokenFile
 	if tokenFilePath == "" {
 		if b, ok := secrets.Values["oauth_token_file"]; ok && len(b) > 0 {
@@ -86,14 +94,17 @@ func DefaultTokenProviderFactory(_ context.Context, cfg Config, secrets backendp
 	}
 
 	if clientID == "" {
-		return nil, fmt.Errorf("xai-oauth: oauth_client_id is required in configuration or secrets (Hermes client_id is not used)")
+		return nil, fmt.Errorf("xai-oauth: oauth_client_id is required in configuration or secrets (Hermes client_id is not used); xai-oauth is %s", oauthcred.LoginModePreProvisionedRefreshOnly)
 	}
 
 	if tokenFilePath == "" {
-		return nil, fmt.Errorf("xai-oauth: credentials required (supply 'api_key' in secrets or 'oauth_token_file' with 'oauth_client_id' in config/secrets)")
+		return nil, fmt.Errorf("xai-oauth: credentials required (supply 'api_key' in secrets or 'oauth_token_file' with 'oauth_client_id' in config/secrets); xai-oauth OAuth is %s", oauthcred.LoginModePreProvisionedRefreshOnly)
 	}
 
 	store := oauthcred.NewFileStore(tokenFilePath)
+	if _, err := oauthcred.RequireCredential(store, "xai-oauth", "xai-oauth is "+oauthcred.LoginModePreProvisionedRefreshOnly+": initial browser/device login is not implemented; provision the token file via xAI's official authorization channels first, then retry", TokenRefreshSkew); err != nil {
+		return nil, err
+	}
 	refresher := &XAIOAuthRefresher{
 		IssuerURL:     cfg.GetIssuerURL(),
 		TokenEndpoint: cfg.TokenEndpoint,

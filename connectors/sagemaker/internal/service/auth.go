@@ -6,29 +6,30 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	"github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
 // RuntimeClient defines the consumer-driven interface for SageMaker Runtime inference.
+// Only the unary InvokeEndpoint is used: the hf-text-generation contract has
+// no incremental token framing, so provider streaming
+// (InvokeEndpointWithResponseStream) is intentionally not part of this
+// interface to prevent unbounded event-stream buffering.
 type RuntimeClient interface {
 	InvokeEndpoint(ctx context.Context, params *sagemakerruntime.InvokeEndpointInput, optFns ...func(*sagemakerruntime.Options)) (*sagemakerruntime.InvokeEndpointOutput, error)
-	InvokeEndpointWithResponseStream(ctx context.Context, params *sagemakerruntime.InvokeEndpointWithResponseStreamInput, optFns ...func(*sagemakerruntime.Options)) (*sagemakerruntime.InvokeEndpointWithResponseStreamOutput, error)
 }
 
-// ControlClient defines the consumer-driven interface for SageMaker Control Plane inventory.
-type ControlClient interface {
-	ListEndpoints(ctx context.Context, params *sagemaker.ListEndpointsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListEndpointsOutput, error)
-}
+// AWSClientFactory constructs the SageMaker runtime inference client.
+type AWSClientFactory func(ctx context.Context, cfg Config, secrets backendplugin.SecretBundle) (RuntimeClient, error)
 
-// AWSClientFactory constructs SageMaker runtime and control plane clients.
-type AWSClientFactory func(ctx context.Context, cfg Config, secrets backendplugin.SecretBundle) (RuntimeClient, ControlClient, error)
-
-// DefaultAWSClientFactory builds real AWS SDK v2 SageMaker clients with SigV4 signing.
-func DefaultAWSClientFactory(ctx context.Context, cfg Config, secrets backendplugin.SecretBundle) (RuntimeClient, ControlClient, error) {
+// DefaultAWSClientFactory builds a real AWS SDK v2 SageMaker runtime client
+// with SigV4 signing. The underlying HTTP client is wrapped so oversized
+// response bodies fail closed before the SDK deserializer can size a buffer
+// from a large declared Content-Length (see boundedResponseHTTPClient).
+func DefaultAWSClientFactory(ctx context.Context, cfg Config, secrets backendplugin.SecretBundle) (RuntimeClient, error) {
 	var loadOpts []func(*awsconfig.LoadOptions) error
 	if cfg.Region != "" {
 		loadOpts = append(loadOpts, awsconfig.WithRegion(cfg.Region))
@@ -53,26 +54,24 @@ func DefaultAWSClientFactory(ctx context.Context, cfg Config, secrets backendplu
 	if ak != "" && sk != "" {
 		loadOpts = append(loadOpts, awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(ak, sk, st)))
 	}
+	// Guard the HTTP layer before the SDK deserializer runs: the
+	// sagemakerruntime deserializer sizes a buffer from the declared
+	// Content-Length, so this must be in place at config load.
+	loadOpts = append(loadOpts, awsconfig.WithHTTPClient(&boundedResponseHTTPClient{inner: awshttp.NewBuildableClient()}))
 
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, loadOpts...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("sagemaker: load AWS config: %w", err)
+		return nil, fmt.Errorf("sagemaker: load AWS config: %w", err)
 	}
 
 	var runtimeOptFns []func(*sagemakerruntime.Options)
-	var controlOptFns []func(*sagemaker.Options)
 
 	if cfg.APIOrigin != "" {
 		baseEndpoint := cfg.APIOrigin
 		runtimeOptFns = append(runtimeOptFns, func(o *sagemakerruntime.Options) {
 			o.BaseEndpoint = aws.String(baseEndpoint)
 		})
-		controlOptFns = append(controlOptFns, func(o *sagemaker.Options) {
-			o.BaseEndpoint = aws.String(baseEndpoint)
-		})
 	}
 
-	rCli := sagemakerruntime.NewFromConfig(awsCfg, runtimeOptFns...)
-	cCli := sagemaker.NewFromConfig(awsCfg, controlOptFns...)
-	return rCli, cCli, nil
+	return sagemakerruntime.NewFromConfig(awsCfg, runtimeOptFns...), nil
 }

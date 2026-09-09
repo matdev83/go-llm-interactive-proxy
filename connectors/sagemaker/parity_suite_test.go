@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/sagemaker/internal/service"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
@@ -185,7 +184,7 @@ func TestConfigure_YAMLSecrets_Forbidden(t *testing.T) {
 	}
 }
 
-// 9. Describe factory kind sagemaker. Capabilities: Streaming true; Tools/Vision false.
+// 9. Describe factory kind sagemaker. Capabilities: Streaming false (unary collect); Tools/Vision false.
 func TestDescribe_Metadata(t *testing.T) {
 	t.Parallel()
 	svc := service.New()
@@ -206,8 +205,8 @@ func TestDescribe_Metadata(t *testing.T) {
 	if f.Kind != service.FactoryKind {
 		t.Fatalf("Factory kind=%q want %q", f.Kind, service.FactoryKind)
 	}
-	if !f.StaticCapabilities.Streaming {
-		t.Fatalf("Streaming capability must be true")
+	if f.StaticCapabilities.Streaming {
+		t.Fatalf("Streaming capability must be false: provider streaming is not advertised, inference collects the unary response")
 	}
 	if f.StaticCapabilities.Tools || f.StaticCapabilities.Vision {
 		t.Fatalf("Tools and Vision capabilities must be false")
@@ -385,32 +384,30 @@ func TestConfiguredInstance_Execute_HardNegative404(t *testing.T) {
 	}
 }
 
-// 6. Streaming uses InvokeEndpointWithResponseStream (or documented eventstream) and still parses generated_text.
+// 6. Streaming delivery is served via unary InvokeEndpoint collect (no provider
+// event-stream buffering): a streaming request must NOT touch
+// invocations-response-stream and still yields the generated_text delta.
 func TestConfiguredInstance_Execute_HFTextGen_Streaming(t *testing.T) {
 	t.Parallel()
 
+	var unaryInvokeCalled atomic.Bool
 	var streamInvokeCalled atomic.Bool
 	var authHeader atomic.Pointer[string]
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.URL.Path == "/endpoints/stream-ep/invocations-response-stream" {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "invocations-response-stream") {
 			streamInvokeCalled.Store(true)
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/endpoints/stream-ep/invocations" {
+			unaryInvokeCalled.Store(true)
 			auth := r.Header.Get("Authorization")
 			authHeader.Store(&auth)
 
-			w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-
-			var msg eventstream.Message
-			msg.Headers = eventstream.Headers{
-				{Name: ":message-type", Value: eventstream.StringValue("event")},
-				{Name: ":event-type", Value: eventstream.StringValue("PayloadPart")},
-				{Name: ":content-type", Value: eventstream.StringValue("application/json")},
-			}
-			msg.Payload = []byte(`{"generated_text": "Streamed text from SageMaker!"}`)
-
-			encoder := eventstream.NewEncoder()
-			_ = encoder.Encode(w, msg)
+			_, _ = w.Write([]byte(`{"generated_text": "Streamed text from SageMaker!"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -435,8 +432,11 @@ func TestConfiguredInstance_Execute_HFTextGen_Streaming(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	if !streamInvokeCalled.Load() {
-		t.Fatalf("expected /endpoints/stream-ep/invocations-response-stream to be called")
+	if !unaryInvokeCalled.Load() {
+		t.Fatalf("expected /endpoints/stream-ep/invocations to be called for streaming delivery (unary collect)")
+	}
+	if streamInvokeCalled.Load() {
+		t.Fatalf("provider event stream must not be used: invocations-response-stream was called")
 	}
 
 	auth := authHeader.Load()
@@ -466,12 +466,17 @@ func TestConfiguredInstance_Execute_HFTextGen_Streaming(t *testing.T) {
 	}
 }
 
-// 7. ListModels via ListEndpoints maps InService names to sagemaker/{name}; Execute of a listed-but-not-configured endpoint fails.
+// 7. ListModels exposes only the configured endpoint (no control-plane
+// enumeration); Execute of a non-configured endpoint fails.
+// The control-plane stub below advertises extra endpoints to prove they are
+// neither exposed nor consulted.
 func TestConfiguredInstance_ListModels_And_UnconfiguredEndpointFails(t *testing.T) {
 	t.Parallel()
 
+	var listEndpointsCalled atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.Header.Get("X-Amz-Target") == "SageMaker.ListEndpoints" {
+			listEndpointsCalled.Add(1)
 			w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{
@@ -511,12 +516,17 @@ func TestConfiguredInstance_ListModels_And_UnconfiguredEndpointFails(t *testing.
 		t.Fatalf("ListModels failed: %v", err)
 	}
 
-	if len(listResp.Models) != 2 {
-		t.Fatalf("expected 2 InService models, got %d: %+v", len(listResp.Models), listResp.Models)
+	if len(listResp.Models) != 1 {
+		t.Fatalf("expected exactly 1 configured model, got %d: %+v", len(listResp.Models), listResp.Models)
 	}
-	modelIDs := []string{listResp.Models[0].CanonicalModelID, listResp.Models[1].CanonicalModelID}
-	if modelIDs[0] != "sagemaker/configured-ep" || modelIDs[1] != "sagemaker/other-ep" {
-		t.Fatalf("expected [sagemaker/configured-ep sagemaker/other-ep], got %v", modelIDs)
+	if listResp.Models[0].CanonicalModelID != "sagemaker/configured-ep" {
+		t.Fatalf("expected sagemaker/configured-ep, got %v", listResp.Models[0].CanonicalModelID)
+	}
+	if listResp.Models[0].Capabilities.Streaming {
+		t.Fatalf("provider streaming must not be advertised")
+	}
+	if count := listEndpointsCalled.Load(); count != 0 {
+		t.Fatalf("control plane ListEndpoints was called %d times; inventory must expose only the configured endpoint", count)
 	}
 
 	// Executing configured endpoint succeeds
@@ -545,6 +555,12 @@ func TestConfiguredInstance_ListModels_And_UnconfiguredEndpointFails(t *testing.
 	}
 	if errOther == nil && !sawOtherErr {
 		t.Fatalf("expected execute of listed-but-unconfigured endpoint 'other-ep' to fail closed")
+	}
+	if errOther != nil && !strings.Contains(errOther.Error(), "does not match configured endpoint_name") {
+		t.Fatalf("expected explicit endpoint_name mismatch error, got: %v", errOther)
+	}
+	if count := listEndpointsCalled.Load(); count != 0 {
+		t.Fatalf("control plane ListEndpoints was called %d times; it must never be consulted", count)
 	}
 }
 

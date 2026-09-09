@@ -11,10 +11,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
-	sagemakertypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
-	runtimetypes "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime/types"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
@@ -28,10 +25,14 @@ type HFTextGenParams struct {
 	MaxNewTokens *int `json:"max_new_tokens,omitempty"`
 }
 
+// maxSageMakerResponseBytes bounds the unary InvokeEndpoint body accepted for
+// the hf-text-generation contract. Responses larger than this fail closed
+// instead of growing an unbounded buffer.
+const maxSageMakerResponseBytes = 4 << 20
+
 type Client struct {
 	Config  Config
 	Runtime RuntimeClient
-	Control ControlClient
 }
 
 func parseHFTextGenResponse(raw []byte) (string, error) {
@@ -102,27 +103,11 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 		return nil, fmt.Errorf("sagemaker: marshal request: %w", err)
 	}
 
-	stream := call.Invocation.DeliveryMode != lipapi.DeliveryModeNonStreaming &&
-		call.Invocation.TransportMode != lipapi.TransportModeNonStreaming
-
-	if stream {
-		streamInput := &sagemakerruntime.InvokeEndpointWithResponseStreamInput{
-			EndpointName: aws.String(model),
-			ContentType:  aws.String("application/json"),
-			Accept:       aws.String("application/json"),
-			Body:         bodyBytes,
-		}
-		if c.Config.InferenceComponentName != "" {
-			streamInput.InferenceComponentName = aws.String(c.Config.InferenceComponentName)
-		}
-
-		resp, err := c.Runtime.InvokeEndpointWithResponseStream(ctx, streamInput)
-		if err != nil {
-			return nil, fmt.Errorf("sagemaker: invoke endpoint with stream: %w", err)
-		}
-		return lipapi.CloseOnlyManagedStream{Stream: newSageMakerResponseStream(ctx, resp.GetStream())}, nil
-	}
-
+	// Provider streaming is intentionally not used for the hf-text-generation
+	// contract: the contract defines a single generated_text JSON document with
+	// no incremental token framing, so the connector collects the unary
+	// InvokeEndpoint response. This avoids buffering an unbounded event stream
+	// before the first delta.
 	input := &sagemakerruntime.InvokeEndpointInput{
 		EndpointName: aws.String(model),
 		ContentType:  aws.String("application/json"),
@@ -140,6 +125,9 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 	if err != nil {
 		return nil, fmt.Errorf("sagemaker: invoke endpoint: %w", err)
 	}
+	if len(resp.Body) > maxSageMakerResponseBytes {
+		return nil, fmt.Errorf("sagemaker: response body %d bytes exceeds limit %d bytes", len(resp.Body), maxSageMakerResponseBytes)
+	}
 
 	genText, err := parseHFTextGenResponse(resp.Body)
 	if err != nil {
@@ -156,41 +144,29 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 }
 
 func (c *Client) ListModels(ctx context.Context, limit uint32) (backendplugin.ListModelsResponse, error) {
-	input := &sagemaker.ListEndpointsInput{
-		StatusEquals: sagemakertypes.EndpointStatusInService,
+	if ctx == nil {
+		return backendplugin.ListModelsResponse{}, lipapi.ErrNilContext
 	}
-	if limit > 0 && limit <= 100 {
-		maxResults := int32(limit)
-		input.MaxResults = &maxResults
+	// Expose only the configured endpoint under its deterministic
+	// hf-text-generation contract. Arbitrary InService endpoints may front
+	// arbitrary containers, so enumerating them would advertise models this
+	// connector refuses to execute (Execute fails closed unless the name
+	// matches endpoint_name). There is no per-endpoint contract registry in
+	// config, so fail closed to exactly one model.
+	name := strings.TrimSpace(c.Config.EndpointName)
+	if name == "" {
+		return backendplugin.ListModelsResponse{}, fmt.Errorf("sagemaker: endpoint_name is not configured")
 	}
-
-	resp, err := c.Control.ListEndpoints(ctx, input)
-	if err != nil {
-		return backendplugin.ListModelsResponse{}, fmt.Errorf("sagemaker: list endpoints: %w", err)
-	}
-
-	out := make([]backendplugin.ModelDescriptor, 0, len(resp.Endpoints))
-	for _, ep := range resp.Endpoints {
-		if ep.EndpointName == nil {
-			continue
-		}
-		if ep.EndpointStatus != "" && ep.EndpointStatus != sagemakertypes.EndpointStatusInService {
-			continue
-		}
-		name := *ep.EndpointName
-		out = append(out, backendplugin.ModelDescriptor{
+	_ = limit
+	return backendplugin.ListModelsResponse{
+		Models: []backendplugin.ModelDescriptor{{
 			CanonicalModelID: FactoryKind + "/" + name,
 			NativeModelID:    name,
 			FactoryKind:      FactoryKind,
-			Capabilities:     backendplugin.CapabilitySummary{Streaming: true},
-		})
-		if limit > 0 && uint32(len(out)) >= limit {
-			break
-		}
-	}
-
-	return backendplugin.ListModelsResponse{
-		Models:          out,
+			// Provider streaming is not advertised: inference collects the
+			// unary response (see Open).
+			Capabilities: backendplugin.CapabilitySummary{Streaming: false},
+		}},
 		InventorySource: FactoryKind,
 		FetchedUnixMS:   time.Now().UnixMilli(),
 	}, nil
@@ -221,84 +197,5 @@ func (s *sliceStream) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
-	return nil
-}
-
-type sagemakerEventStream interface {
-	Events() <-chan runtimetypes.ResponseStream
-	Close() error
-	Err() error
-}
-
-type sagemakerStream struct {
-	ctx      context.Context
-	stream   sagemakerEventStream
-	mu       sync.Mutex
-	events   []lipapi.Event
-	idx      int
-	consumed bool
-	closed   bool
-}
-
-func newSageMakerResponseStream(ctx context.Context, stream sagemakerEventStream) *sagemakerStream {
-	return &sagemakerStream{
-		ctx:    ctx,
-		stream: stream,
-	}
-}
-
-func (s *sagemakerStream) Recv(ctx context.Context) (lipapi.Event, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.closed {
-		return lipapi.Event{}, fmt.Errorf("sagemaker: stream closed")
-	}
-
-	if !s.consumed {
-		s.consumed = true
-		var buf bytes.Buffer
-		if s.stream != nil {
-			for event := range s.stream.Events() {
-				if err := ctx.Err(); err != nil {
-					return lipapi.Event{}, err
-				}
-				if part, ok := event.(*runtimetypes.ResponseStreamMemberPayloadPart); ok {
-					buf.Write(part.Value.Bytes)
-				}
-			}
-			if err := s.stream.Err(); err != nil && err != io.EOF {
-				return lipapi.Event{}, fmt.Errorf("sagemaker: stream error: %w", err)
-			}
-		}
-
-		genText, err := parseHFTextGenResponse(buf.Bytes())
-		if err != nil {
-			return lipapi.Event{}, err
-		}
-
-		s.events = []lipapi.Event{
-			{Kind: lipapi.EventResponseStarted},
-			{Kind: lipapi.EventMessageStarted},
-			{Kind: lipapi.EventTextDelta, Delta: genText},
-			{Kind: lipapi.EventResponseFinished},
-		}
-	}
-
-	if s.idx >= len(s.events) {
-		return lipapi.Event{}, io.EOF
-	}
-	ev := s.events[s.idx]
-	s.idx++
-	return ev, nil
-}
-
-func (s *sagemakerStream) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.closed = true
-	if s.stream != nil {
-		return s.stream.Close()
-	}
 	return nil
 }

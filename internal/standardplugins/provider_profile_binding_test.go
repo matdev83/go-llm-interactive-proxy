@@ -869,3 +869,188 @@ func TestBuildProviderProfileBackend_NilUpstream_FailsClosed(t *testing.T) {
 		t.Fatalf("expected error containing %q, got %q", wantSubstr, err.Error())
 	}
 }
+
+func forgedCustomNode(t *testing.T, anchor, headComment string) yaml.Node {
+	t.Helper()
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte("backend_prefix: forged\nbase_url: https://example.invalid/v1\n"), &node); err != nil {
+		t.Fatal(err)
+	}
+	if anchor != "" {
+		node.Anchor = anchor
+		if len(node.Content) > 0 {
+			node.Content[0].Anchor = anchor
+		}
+	}
+	if headComment != "" {
+		node.HeadComment = headComment
+		if len(node.Content) > 0 {
+			node.Content[0].HeadComment = headComment
+		}
+	}
+	return node
+}
+
+func TestExpandProviderProfileRows_rejectsForgedMarkerOnCustomRow(t *testing.T) {
+	t.Parallel()
+	kinds := []string{CustomOpenAIResponsesCompatibleID, CustomOpenAILegacyCompatibleID, CustomAnthropicCompatibleID, CustomOpenResponsesCompatibleID}
+	for _, kind := range kinds {
+		forgedAnchor := forgedCustomNode(t, "lip_profile_groq", "")
+		cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{
+			{ID: "forged-anchor", Kind: kind, Enabled: true, Config: forgedAnchor},
+		}}}
+		if _, err := ExpandProviderProfileRows(cfg); err == nil {
+			t.Fatalf("kind %q: forged anchor accepted", kind)
+		} else if !strings.Contains(err.Error(), "remove the marker") {
+			t.Fatalf("kind %q: anchor error missing operator guidance, got %q", kind, err.Error())
+		}
+
+		forgedComment := forgedCustomNode(t, "", "lip:provider-profile:groq")
+		cfg = &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{
+			{ID: "forged-comment", Kind: kind, Enabled: true, Config: forgedComment},
+		}}}
+		if _, err := ExpandProviderProfileRows(cfg); err == nil {
+			t.Fatalf("kind %q: forged comment accepted", kind)
+		} else if !strings.Contains(err.Error(), "remove the marker") {
+			t.Fatalf("kind %q: comment error missing operator guidance, got %q", kind, err.Error())
+		}
+	}
+}
+
+func TestWrapCompatibleLifecycle_rejectsCrossFamilyProfile(t *testing.T) {
+	t.Parallel()
+	var profileNode yaml.Node
+	if err := yaml.Unmarshal([]byte("profile: groq\n"), &profileNode); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{
+		{ID: "x-fam", Kind: ProviderProfileKind, Enabled: true, Config: profileNode},
+	}}}
+	prepared, err := ExpandProviderProfileRows(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expanded := prepared.Plugins.Backends[0].Config
+	baseCalled := false
+	stubBase := func(string, yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+		baseCalled = true
+		return pluginreg.BackendBuildResult{}, nil
+	}
+	wrapped := wrapCompatibleLifecycle(providerprofiles.FamilyAnthropic, stubBase)
+	if _, err := wrapped("x-fam", expanded, http.DefaultClient, pluginreg.BackendFactoryDeps{}); err == nil {
+		t.Fatal("cross-family profile accepted")
+	} else if !strings.Contains(err.Error(), "family") {
+		t.Fatalf("cross-family error missing family detail, got %q", err.Error())
+	}
+	if baseCalled {
+		t.Fatal("cross-family marker fell back to generic base")
+	}
+}
+
+func TestWrapCompatibleLifecycle_rejectsUnresolvableMarkerWithoutFallback(t *testing.T) {
+	t.Parallel()
+	forged := forgedCustomNode(t, "lip_profile_does-not-exist", "")
+	baseCalled := false
+	stubBase := func(string, yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+		baseCalled = true
+		return pluginreg.BackendBuildResult{}, nil
+	}
+	wrapped := wrapCompatibleLifecycle(providerprofiles.FamilyOpenAIResponses, stubBase)
+	if _, err := wrapped("forged", forged, http.DefaultClient, pluginreg.BackendFactoryDeps{}); err == nil {
+		t.Fatal("unresolvable marker accepted")
+	} else if !strings.Contains(err.Error(), "remove") {
+		t.Fatalf("unresolvable-marker error missing operator guidance, got %q", err.Error())
+	}
+	if baseCalled {
+		t.Fatal("unresolvable marker fell back to generic base")
+	}
+}
+
+func TestWrapCompatibleLifecycle_rejectsEmptyProfileIDMarkerWithoutFallback(t *testing.T) {
+	t.Parallel()
+	cases := map[string]yaml.Node{
+		"bare anchor":  forgedCustomNode(t, "lip_profile_", ""),
+		"bare comment": forgedCustomNode(t, "", "lip:provider-profile:"),
+	}
+	for name, node := range cases {
+		node := node
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			baseCalled := false
+			stubBase := func(string, yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+				baseCalled = true
+				return pluginreg.BackendBuildResult{}, nil
+			}
+			wrapped := wrapCompatibleLifecycle(providerprofiles.FamilyOpenAIResponses, stubBase)
+			_, err := wrapped("empty-marker", node, http.DefaultClient, pluginreg.BackendFactoryDeps{})
+			if err == nil {
+				t.Fatal("empty profile-ID marker accepted")
+			} else if !strings.Contains(err.Error(), "missing a profile ID") {
+				t.Fatalf("empty-marker error missing profile-ID detail, got %q", err.Error())
+			}
+			if baseCalled {
+				t.Fatal("empty profile-ID marker fell back to generic base")
+			}
+		})
+	}
+}
+
+func TestWrapCompatibleLifecycle_legitimateExpandRoundtripKeepsProfileSemantics(t *testing.T) {
+	t.Setenv("GROQ_API_KEY", "groq-test-key")
+	var profileNode yaml.Node
+	if err := yaml.Unmarshal([]byte("profile: groq\n"), &profileNode); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{
+		{ID: "groq-roundtrip", Kind: ProviderProfileKind, Enabled: true, Config: profileNode},
+	}}}
+	prepared, err := PrepareProviderProfiles(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := pluginreg.NewRegistry()
+	if err := InstallStandardBundleOn(reg, UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	row := prepared.Plugins.Backends[0]
+	res, err := reg.BuildBackendWithLifecycle(row.FactoryID(), row.InstanceID(), row.Config, http.DefaultClient, pluginreg.BackendFactoryDeps{})
+	if err != nil {
+		t.Fatalf("legitimate roundtrip failed: %v", err)
+	}
+	if !slices.Contains(res.Backend.BackendPrefixes, "groq") {
+		t.Fatalf("expected prefix groq, got %v", res.Backend.BackendPrefixes)
+	}
+	if _, ok := res.Backend.Caps[lipapi.CapabilityVision]; ok {
+		t.Fatal("expected vision disabled by groq profile ceiling")
+	}
+}
+
+func TestWrapCompatibleLifecycle_cleanCustomRowStaysGeneric(t *testing.T) {
+	t.Parallel()
+	var customNode yaml.Node
+	if err := yaml.Unmarshal([]byte("backend_prefix: custom_pfx\nbase_url: https://private.example/v1\n"), &customNode); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{
+		{ID: "clean-custom", Kind: CustomOpenAIResponsesCompatibleID, Enabled: true, Config: customNode},
+	}}}
+	prepared, err := ExpandProviderProfileRows(cfg)
+	if err != nil {
+		t.Fatalf("clean custom row rejected: %v", err)
+	}
+	if prepared.Plugins.Backends[0].Kind != CustomOpenAIResponsesCompatibleID {
+		t.Fatalf("clean custom row kind changed to %q", prepared.Plugins.Backends[0].Kind)
+	}
+	baseCalled := false
+	stubBase := func(string, yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+		baseCalled = true
+		return pluginreg.BackendBuildResult{}, nil
+	}
+	wrapped := wrapCompatibleLifecycle(providerprofiles.FamilyOpenAIResponses, stubBase)
+	if _, err := wrapped("clean-custom", customNode, http.DefaultClient, pluginreg.BackendFactoryDeps{}); err != nil {
+		t.Fatalf("clean custom row failed: %v", err)
+	}
+	if !baseCalled {
+		t.Fatal("clean custom row did not use generic base")
+	}
+}

@@ -22,6 +22,13 @@ type Config struct {
 	CredentialMode string `yaml:"credential_mode"`
 	HTTPTimeout    string `yaml:"http_timeout"`
 
+	// Deployments maps Azure deployment name (the wire `model` value) to the
+	// underlying model ID (informational: inventory filtering and display).
+	// Azure OpenAI inference routes by deployment name, which need not equal
+	// the underlying model ID, so at least one entry is required and
+	// inventory advertises deployment names only.
+	Deployments map[string]string `yaml:"deployments"`
+
 	// Entra configuration fields (non-secret):
 	TenantID string `yaml:"tenant_id"`
 	ClientID string `yaml:"client_id"`
@@ -61,11 +68,34 @@ func ParseConfigYAML(raw []byte) (Config, error) {
 	cfg.TenantID = strings.TrimSpace(cfg.TenantID)
 	cfg.ClientID = strings.TrimSpace(cfg.ClientID)
 
+	normalized := make(map[string]string, len(cfg.Deployments))
+	for name, model := range cfg.Deployments {
+		name = strings.TrimSpace(name)
+		model = strings.TrimSpace(model)
+		if name == "" {
+			return Config{}, fmt.Errorf("azure-openai: deployments: empty deployment name is forbidden")
+		}
+		if model == "" {
+			return Config{}, fmt.Errorf("azure-openai: deployments[%q]: underlying model is required", name)
+		}
+		if _, dup := normalized[name]; dup {
+			return Config{}, fmt.Errorf("azure-openai: deployments[%q]: duplicate deployment name", name)
+		}
+		normalized[name] = model
+	}
+	cfg.Deployments = normalized
+
 	if strings.Contains(strings.ToLower(cfg.Endpoint), "/compat") {
 		return Config{}, fmt.Errorf("azure-openai: /compat endpoint is forbidden for ordinary calls")
 	}
 
 	return cfg, nil
+}
+
+// errMissingDeployments fails closed when no deployment mapping is configured.
+// Azure inference routes by deployment name, so bare model IDs are not routable.
+func errMissingDeployments() error {
+	return fmt.Errorf("azure-openai: deployments is required (at least one <deployment-name>: <model> entry); Azure inference routes by deployment name, not model ID")
 }
 
 func (c Config) BaseURL() string {
