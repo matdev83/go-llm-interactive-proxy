@@ -325,7 +325,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Shared pipe candidate gates occur only after the frontend's current outer checks.
   - _Requirements: 1, 17_
 
-- [ ] 7.3 Apply cheap pre-capture gates in this order
+- [x] 7.3 Apply cheap pre-capture gates in this order
   - feature/profile/two-phase executor available;
   - parsed known identity/uncompressed request length below threshold => canonical;
   - gzip wave 1 => canonical;
@@ -839,3 +839,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 6.4 VERIFIED (review subagent APPROVED): economic/checkpoint parity on digest seam, caller-ID precedence, Task 10 obligation documented, zero production diff; 41 parity tests PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 7.1 VERIFIED (review subagent APPROVED): FrontendProfile + wire state/seeds plumbing, nil=>canonical no-spool, zero ServeHTTP change, budgets catch-up bump; frontendpipe + archtest PASS, vet/diff-check clean; -race unavailable cgo limitation.
 - Task 7.2 VERIFIED (review subagent APPROVED): per-frontend outer ordering freeze characterized across 4 frontends (no universal sequence, OpenResponses auth/media intact); reviewer suggestion/obligation noted for Task 7.3 to land production ServeHTTP candidate-gate proof; 4 frontend suites PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 7.3 VERIFIED (review subagent APPROVED): five cheap gates in order wired into ServeHTTP after outer checks, zero spool on decline, off/nil unchanged; frontendpipe suite PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.

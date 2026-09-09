@@ -120,6 +120,7 @@ type Config struct {
 	FrontendID              string
 	HTTPHeaders             lipsdk.HTTPHeaders
 	StreamKeepaliveInterval time.Duration
+	LargePayload            LargePayloadConfig
 }
 
 // Spec parameterizes one frontend's create path.
@@ -130,6 +131,8 @@ type Spec[Opts any] struct {
 	// for certified frontends (Task 7.1). When nil, requests follow the
 	// unchanged canonical path with zero spool allocation.
 	Profile FrontendProfile
+	// OnPreCaptureGate optionally observes candidate gate decisions (Task 7.3).
+	OnPreCaptureGate func(r *http.Request, res PreCaptureResult)
 	// MatchPath returns ok=false for 404. When AltServe is non-nil and invoked, the pipeline stops.
 	MatchPath func(path string) (pm PathMatch, ok bool)
 	AltServe  func(ctx context.Context, w http.ResponseWriter, r *http.Request) bool
@@ -225,6 +228,10 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 	if !ok {
 		http.NotFound(w, r)
 		return
+	}
+	gateRes := EvaluatePreCaptureGates(spec, r)
+	if spec.OnPreCaptureGate != nil {
+		spec.OnPreCaptureGate(r, gateRes)
 	}
 
 	limits := jsonguard.Limits{MaxBytes: spec.maxBodyLimit()}

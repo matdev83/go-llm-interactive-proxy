@@ -752,4 +752,63 @@ func TestPipeOrdering_CandidateGatesEvaluateStrictlyAfterOuterChecks(t *testing.
 			t.Fatalf("CandidatePrerequisites mismatch: want (%p, true), got (%p, %v)", lbe, exec, ok)
 		}
 	})
+
+	t.Run("production ServeHTTP candidate gates never invoked after outer rejection", func(t *testing.T) {
+		t.Parallel()
+		log := &orderingLog{}
+		spec, _, _ := newCandidateSpec(log)
+		spec.Wire = &orderingWire{log: log}
+		spec.Decode = func(dctx frontendpipe.DecodeContext) (*frontendpipe.Decoded, error) {
+			log.add("decode")
+			return &frontendpipe.Decoded{
+				Call: orderingValidCall(),
+			}, nil
+		}
+		spec.OnPreCaptureGate = func(r *http.Request, res frontendpipe.PreCaptureResult) {
+			log.add("candidate_gates_evaluated")
+		}
+
+		// 1. GET -> 405 Method Not Allowed; candidate gates must NOT be reached.
+		req1 := httptest.NewRequest(http.MethodGet, "/v1/create", strings.NewReader(`{}`))
+		rec1 := httptest.NewRecorder()
+		frontendpipe.ServeHTTP(&spec, rec1, req1)
+		if rec1.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("GET: status=%d want 405", rec1.Code)
+		}
+		if indexOf(log.snapshot(), "candidate_gates_evaluated") >= 0 {
+			t.Fatalf("candidate gates evaluated after GET method rejection: %v", log.snapshot())
+		}
+
+		// 2. AltServe -> 418 Teapot; candidate gates must NOT be reached.
+		req2 := httptest.NewRequest(http.MethodPost, "/v1/alt", strings.NewReader(`{}`))
+		rec2 := httptest.NewRecorder()
+		frontendpipe.ServeHTTP(&spec, rec2, req2)
+		if rec2.Code != http.StatusTeapot {
+			t.Fatalf("AltServe: status=%d want 418", rec2.Code)
+		}
+		if indexOf(log.snapshot(), "candidate_gates_evaluated") >= 0 {
+			t.Fatalf("candidate gates evaluated after AltServe claimed request: %v", log.snapshot())
+		}
+
+		// 3. Unknown path -> 404 Not Found; candidate gates must NOT be reached.
+		req3 := httptest.NewRequest(http.MethodPost, "/v1/unknown", strings.NewReader(`{}`))
+		rec3 := httptest.NewRecorder()
+		frontendpipe.ServeHTTP(&spec, rec3, req3)
+		if rec3.Code != http.StatusNotFound {
+			t.Fatalf("Unknown path: status=%d want 404", rec3.Code)
+		}
+		if indexOf(log.snapshot(), "candidate_gates_evaluated") >= 0 {
+			t.Fatalf("candidate gates evaluated after 404 path rejection: %v", log.snapshot())
+		}
+
+		// 4. Valid path -> passes outer checks, candidate gates ARE reached.
+		req4 := httptest.NewRequest(http.MethodPost, "/v1/create", strings.NewReader(`{}`))
+		rec4 := httptest.NewRecorder()
+		frontendpipe.ServeHTTP(&spec, rec4, req4)
+		if rec4.Code != http.StatusOK {
+			t.Fatalf("Valid path: status=%d want 200", rec4.Code)
+		}
+		events := log.snapshot()
+		assertOrder(t, events, "matchpath:/v1/create", "candidate_gates_evaluated")
+	})
 }
