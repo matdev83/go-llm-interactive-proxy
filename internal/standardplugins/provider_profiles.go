@@ -30,12 +30,20 @@ func ValidateProviderProfiles() error {
 }
 
 func PrepareProviderProfiles(cfg *config.Config) (*config.Config, error) {
-	prepared, err := ExpandProviderProfileRows(cfg)
+	catalog, err := ProviderProfileCatalog()
 	if err != nil {
 		return nil, err
 	}
-	if err := ValidateProviderProfiles(); err != nil {
+	return PrepareProviderProfilesWithCatalog(cfg, catalog)
+}
+
+func PrepareProviderProfilesWithCatalog(cfg *config.Config, catalog *providerprofiles.Catalog) (*config.Config, error) {
+	prepared, err := ExpandProviderProfileRowsWithCatalog(cfg, catalog)
+	if err != nil {
 		return nil, err
+	}
+	if _, err := catalog.CompileAll(); err != nil {
+		return nil, fmt.Errorf("standard provider profiles: %w", err)
 	}
 	return prepared, nil
 }
