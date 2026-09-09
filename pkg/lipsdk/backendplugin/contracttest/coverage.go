@@ -38,5 +38,10 @@ var CurrentConnectorFamilyCoverage = []ConnectorFamilyCoverage{
 	{ModulePath: "connectors/sapaicore", Family: "sapaicore", Subject: "sapaicore"},
 	{ModulePath: "connectors/cohere", Family: "cohere", Subject: "cohere"},
 	{ModulePath: "connectors/replicate", Family: "replicate", Subject: "replicate"},
+	{ModulePath: "connectors/gitlabduo", Family: "gitlabduo", Subject: "gitlabduo"},
+	{ModulePath: "connectors/nousportal", Family: "nousportal", Subject: "nousportal"},
+	{ModulePath: "connectors/xaioauth", Family: "xaioauth", Subject: "xaioauth"},
+	{ModulePath: "connectors/qwenoauth", Family: "qwenoauth", Subject: "qwenoauth"},
+	{ModulePath: "connectors/minimexoauth", Family: "minimax-oauth", Subject: "minimax-oauth"},
 	{ModulePath: "connectors/localstub", Family: "test-emulator", Subject: "localstub"},
 }

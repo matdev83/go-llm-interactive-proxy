@@ -35,8 +35,8 @@ Profile batches are sequential/small because they edit the same embedded catalog
 
 ---
 
-- [ ] 1. Repair and freeze the real provider-profile runtime contract
-- [ ] 1.1 Add a RED regression through the production profile-to-registry path
+- [x] 1. Repair and freeze the real provider-profile runtime contract
+- [x] 1.1 Add a RED regression through the production profile-to-registry path
   - Extend `internal/standardplugins/provider_profile_binding_test.go` and, where the candidate build seam needs coverage, a focused `internal/infra/runtimebundle` test.
   - Start from an operator row with `kind: provider-profile`; drive it through `PrepareProviderProfiles` and the same backend registry lifecycle used by candidate compilation. A direct call to `BuildProviderProfileBackend` alone does **not** certify this path.
   - Prove the current path loses at least a compiled disabled capability. Add focused fixtures for a bounded safe header, the Anthropic alternate model path quirk, and OpenResponses capabilities/dialects so the complete compiler boundary is locked.
@@ -47,7 +47,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: focused test fails before 1.2 and passes after it; final gate `go test ./internal/standardplugins/... -run 'ProviderProfile|Compatible' && go test ./internal/infra/runtimebundle/... -run 'ProviderProfile|Candidate'`_
 
-- [ ] 1.2 Preserve the complete compiled profile at backend construction
+- [x] 1.2 Preserve the complete compiled profile at backend construction
   - Repair the existing `internal/standardplugins` profile-binding/family-lifecycle seam so the runtime family builder receives the selected profile's complete compiled semantics: endpoint/auth, inventory, tokenizer, bounded headers, capability ceiling, closed quirks/model path, and OpenResponses capability/dialect declarations.
   - Keep `providerprofiles.CompileProfile`/the embedded catalog as the single semantic authority. Do not maintain an independently-derived capability/header/quirk policy in generic compatible YAML.
   - Preserve current behavior for arbitrary `custom-*-compatible` rows and keep their config independent of provider profiles.
@@ -59,7 +59,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 1.1_
   - _Validation: Task 1.1 gates + `go test ./internal/providerprofiles/...` + `make parity-checks`_
 
-- [ ] 1.3 Add the incremental embedded-provider characterization and scale guardrails
+- [x] 1.3 Add the incremental embedded-provider characterization and scale guardrails
   - Create `internal/providerprofiles/catalog_population_test.go` (or equivalently focused `_test.go`).
   - Define a test-only table with stable fields: `ID`, `Family`, `BaseURL`, `AuthMode`, `EnvVar`, `Discovery`, exact `[]providerprofiles.Model` static rows, and expected disabled capabilities.
   - Start with the representative rows landed with/after Task 1.2; each Tasks 2-4 batch extends the expected table in the same commit. Task 4.4 locks the exact final set. Do not seed a full expected set that cannot pass before its catalog rows exist.
@@ -74,8 +74,8 @@ Profile batches are sequential/small because they edit the same embedded catalog
 
 ---
 
-- [ ] 2. Add the Responses-first and explicit multi-flavor strategic profiles
-- [ ] 2.1 Add the exact bare Responses profiles
+- [x] 2. Add the Responses-first and explicit multi-flavor strategic profiles
+- [x] 2.1 Add the exact bare Responses profiles
   - Add `fireworks`, `groq`, `digitalocean`, `vercel-ai-gateway`, `requesty`, and `meta` using `family: openai-responses-compatible` and exact base/env data from `research.md`.
   - Use `family_default` inventory only where frozen matrix permits; otherwise use the frozen static set.
   - Omit tokenizer unless explicitly frozen.
@@ -89,7 +89,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 1.3_
   - _Validation: `go test ./internal/providerprofiles/... && go test ./internal/standardplugins/... -run 'ProviderProfile|Compatible' && make profile-only-check PROFILE_ONLY_BASE=<batch-base-sha> && make parity-checks`_
 
-- [ ] 2.2 Add DeepSeek as an explicit flavor split
+- [x] 2.2 Add DeepSeek as an explicit flavor split
   - Add `deepseek-responses`: Responses family, base `https://api.deepseek.com`, env `DEEPSEEK_API_KEY`, **static inventory restricted to `deepseek-v4-flash`**.
   - Add `deepseek-openai`: Chat family, same base/env; use family-default `/models` only if existing discovery fixture conforms, otherwise static Flash+Pro.
   - Do not add bare `deepseek` or redundant Anthropic alias.
@@ -100,7 +100,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 2.1_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 2.3 Add Scaleway as a flavor-correct split
+- [x] 2.3 Add Scaleway as a flavor-correct split
   - Add `scaleway-responses`: Responses family, base `https://api.scaleway.ai/v1`, env `SCW_SECRET_KEY`, static Responses-supported inventory seeded from frozen serverless list including `openai/gpt-oss-120b:fp4` and `openai/gpt-oss-20b:fp4` when present in frozen fixture.
   - Add `scaleway-openai`: Chat family, same base/env, family-default `/models` for broader Chat set.
   - Do not add bare `scaleway`.
@@ -112,8 +112,8 @@ Profile batches are sequential/small because they edit the same embedded catalog
 
 ---
 
-- [ ] 3. Populate the OpenAI Chat compatible catalog in bounded batches
-- [ ] 3.1 Add Chat profiles A-C
+- [x] 3. Populate the OpenAI Chat compatible catalog in bounded batches
+- [x] 3.1 Add Chat profiles A-C
   - Add exactly: `302ai`, `abacus`, `abliteration-ai`, `ai-router`, `aiand`, `aihubmix`, `aki-io`, `alibaba`, `alibaba-cn`, `alibaba-coding-plan`, `alibaba-coding-plan-cn`, `alibaba-token-plan-cn`, `ambient`, `amd`, `anyapi`, `arcee`, `auriko`, `baseten`, `berget`, `blueclaw`, `cerebras`, `chutes`, `clarifai`, `claudinio`, `cline-pass`, `cloudferro-sherlock`, `coralbricks`, `cortecs`, `crof`, `crossmodel`, `crusoe`.
   - Copy exact base/env data from `research.md`; family is `openai-chat-compatible` for every row.
   - Do **not** add Alibaba Token Plan International: existing `alibaba-token-plan-intl` owns that product.
@@ -126,7 +126,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 2_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 3.2 Add Chat profiles D-M, including Kilo
+- [x] 3.2 Add Chat profiles D-M, including Kilo
   - Add exactly: `daoxe`, `deepinfra`, `dinference`, `drun`, `ebcloud`, `echo`, `edenai`, `empiriolabs`, `evroc`, `fastrouter`, `friendli`, `frogbot`, `gmicloud`, `greenpt`, `helicone`, `hetzner`, `hpc-ai`, `hyper`, `iflowcn`, `impossibl`, `inception`, `inceptron`, `inference-net`, `inferx`, `io-net`, `jalapeno`, `jiekou`, `kenari`, `kilo`, `llmgateway`, `llmtech`, `llmtr`, `longcat`, `lucidquery`, `meganova`, `mistral`, `mixlayer`, `moark`, `modal`, `model-oracle-ai`, `modelis`, `modelscope`, `moonshot`, `moonshot-cn`, `morph`.
   - Use exact base/env data from `research.md`.
   - `kilo`: base `https://api.kilo.ai/api/gateway`, env `KILO_API_KEY`, Chat family. This follows Kilo's current official Quickstart/API Reference; do not implement Cline's secondary Responses classification.
@@ -140,7 +140,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 3.1_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 3.3 Add Chat profiles N-Z
+- [x] 3.3 Add Chat profiles N-Z
   - Add exactly: `neuralwatt`, `nova`, `novita-ai`, `ofox`, `opper`, `orcarouter`, `ovhcloud`, `pendra`, `pioneer`, `poe`, `poolside`, `qihang-ai`, `qiniu-ai`, `regolo-ai`, `routing-run`, `scnet-token-plan`, `scx-ai`, `siliconflow`, `siliconflow-cn`, `stackit`, `standardcompute`, `stepfun`, `stepfun-cn`, `stepfun-step-plan`, `stepfun-step-plan-cn`, `submodel`, `synthetic`, `tencent-coding-plan`, `tencent-token-plan`, `tencent-tokenhub`, `tensorx`, `the-grid-ai`, `tinfoil`, `together`, `trustedrouter`, `vultr`, `wafer-ai`, `wandb`, `xai`, `xiaomi`, `xiaomi-token-plan-eu`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-sg`, `xpersona`, `zai`, `zai-cn`, `zai-coding-plan`, `zai-coding-plan-cn`, `zeldoc`, `zenifra`, `zenmux`.
   - Use exact base/env data from `research.md`.
   - `xai` is deliberately Chat: current official xAI OpenAPI was authoritative and contained `/v1/chat/completions` but no `/v1/responses`.
@@ -152,8 +152,8 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 3.2_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 4. Add Anthropic-compatible provider profiles
-- [ ] 4.1 Add `kimi-coding`
+- [x] 4. Add Anthropic-compatible provider profiles
+- [x] 4.1 Add `kimi-coding`
   - Family `anthropic-compatible`; base `https://api.kimi.com/coding/`; auth `api_key_env`, env `KIMI_API_KEY`.
   - Static inventory exactly `k3`, `k3-256k`, `kimi-for-coding`, `kimi-for-coding-highspeed` unless a frozen provider deprecation is already recorded in implementation branch.
   - Assert each static row's complete canonical/native/display identity from `research.md`, not IDs alone.
@@ -166,7 +166,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 3.3_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 4.2 Add MiniMax API-key profiles
+- [x] 4.2 Add MiniMax API-key profiles
   - Add `minimax`: Anthropic family, base `https://api.minimax.io/anthropic`, env `MINIMAX_API_KEY`, family-default `/v1/models` inventory.
   - Add `minimax-cn`: base `https://api.minimaxi.com/anthropic`, env **`MINIMAX_CN_API_KEY`**. Use family-default China `/anthropic/v1/models` only if fixture matches existing Anthropic inventory contract; otherwise static.
   - Do not conflate with `minimax-oauth` (Task 8.8).
@@ -176,7 +176,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 4.1_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 4.3 Add Thinking Machines/Tinker
+- [x] 4.3 Add Thinking Machines/Tinker
   - Add `thinking-machines`: Anthropic family, base `https://tinker.thinkingmachines.dev/services/tinker-prod/anthropic/api`, env `TINKER_API_KEY`, static initial model `thinkingmachines/Inkling`.
   - Assert the static row's complete canonical/native/display identity from `research.md`.
   - Explicitly disable unsupported/unproven capabilities including `reasoning_replay`; do not claim prompt-cache behavior because Tinker documents `cache_control` as ignored.
@@ -186,7 +186,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 4.2_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 4.4 Remove placeholder and lock the complete embedded profile set
+- [x] 4.4 Remove placeholder and lock the complete embedded profile set
   - Remove `example-openai-responses` after real catalog population.
   - Make the expected-profile test compare the exact final profile set from Tasks 2-4, including complete static-model identities and the frozen distinct region/plan credential roots.
   - Add negative assertion forbidding profile duplication of dedicated products such as `openrouter`, `nvidia`, `huggingface`, `opencode-go`, `opencode-zen`, `openai-codex`, `commandcode-*`, `ollama*`, `lmstudio`, `vllm`, `alibaba-token-plan-intl` unless future ownership intentionally changes.
@@ -197,8 +197,8 @@ Profile batches are sequential/small because they edit the same embedded catalog
 
 ---
 
-- [ ] 5. Publish provider-profile operator contract
-- [ ] 5.1 Add concise first-class profile configuration example
+- [x] 5. Publish provider-profile operator contract
+- [x] 5.1 Add concise first-class profile configuration example
   - Add `config/examples/provider-profiles-bulk.example.yaml` (or repo-local equivalent) demonstrating at most: one bare Responses provider, one split Responses/Chat provider, one Chat provider, one Anthropic provider.
   - Operators specify runtime `id`, `kind: provider-profile`, `config.profile`; do not duplicate full endpoint/env matrix into YAML examples.
   - Verify check-config/routes/inventory behavior without requiring real credentials for structural validation.
@@ -207,7 +207,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 4.4_
   - _Validation: `make example-config-check`_
 
-- [ ] 5.2 Document complete first-class profile table
+- [x] 5.2 Document complete first-class profile table
   - Add/update provider-profile operator doc with profile ID, product, protocol family, preferred/supplemental status, base endpoint identity, env var, inventory method, region/plan notes and capability caveats.
   - Mark Responses preferred for split providers.
   - Distinguish standard profiles from private `custom-*-compatible` rows and API-key from OAuth/subscription products.
@@ -220,7 +220,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
 ---
 
 - [ ] 6. Implement managed/dynamic-address compatible connectors (P)
-- [ ] 6.1 Cloudflare AI Gateway connector (P)
+- [x] 6.1 Cloudflare AI Gateway connector (P)
   - Create `connectors/cloudflare` using standard external connector layout.
   - Implement the current account-scoped Cloudflare AI Gateway REST API; Responses preferred. This task does not claim a separate Workers AI connector/product.
   - Typed config: `account_id`, API-token reference, optional `gateway_id`; construct `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1` inside connector.
@@ -231,7 +231,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector module tests + `make backend-plugin-cross-platform-qa` + `make backend-plugin-release-gates-static`_
 
-- [ ] 6.2 Azure OpenAI / Azure AI Foundry connector (P)
+- [x] 6.2 Azure OpenAI / Azure AI Foundry connector (P)
   - One connector artifact may expose distinct Azure OpenAI/Foundry kinds only when endpoint/deployment semantics require; avoid duplicate SDK implementations.
   - Responses preferred for deployments/regions where current Azure v1 supports it; Chat supplemental for deployments requiring Chat.
   - Typed config owns resource/endpoint, deployment/model mapping, credential mode and required API-version compatibility.
@@ -244,7 +244,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
-- [ ] 6.3 Snowflake Cortex connector (P)
+- [x] 6.3 Snowflake Cortex connector (P)
   - Typed config: account identifier, optional role, PAT/JWT credential reference; documented browser OAuth may be same connector product.
   - Construct `https://{account}.snowflakecomputing.com/api/v2/cortex/v1` internally.
   - Reuse compatible OpenAI transport where wire-compatible; keep account/role/auth connector-local.
@@ -254,7 +254,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
-- [ ] 6.4 Databricks AI connector (P)
+- [x] 6.4 Databricks AI connector (P)
   - Typed config: workspace host, token/OAuth source, optional serving endpoint/gateway selector.
   - Construct current workspace AI Gateway/OpenAI-compatible root internally; no provider-profile env substitution/template feature.
   - Reuse shared compatible transport; connector owns workspace auth and serving-endpoint discovery.
@@ -263,7 +263,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
-- [ ] 6.5 Infomaniak AI connector (P)
+- [x] 6.5 Infomaniak AI connector (P)
   - Typed config: `product_id` plus API-key reference.
   - Construct `https://api.infomaniak.com/2/ai/{product_id}/openai/v1` and reuse compatible transport.
   - Do not add generic URL-template profile support for this product.
@@ -275,7 +275,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
 ---
 
 - [ ] 7. Implement provider-native and managed-cloud connectors (P)
-- [ ] 7.1 Google Vertex AI connector (P)
+- [x] 7.1 Google Vertex AI connector (P)
   - Create `connectors/vertex`, distinct from existing Gemini API-key backend.
   - Typed config: GCP project, location, optional publisher/model/deployment selectors, credential source.
   - Use ADC/service-account/workload identity through provider-supported Google auth/client library inside connector.
@@ -286,7 +286,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
-- [ ] 7.2 AWS SageMaker connector (P)
+- [x] 7.2 AWS SageMaker connector (P)
   - Create `connectors/sagemaker` using AWS SDK v2 inside connector module.
   - Typed config: region/profile/credential-chain options, endpoint name and declared inference contract for selected deployment.
   - Use SigV4/default AWS chain and Runtime `InvokeEndpoint`/supported streaming equivalent.
@@ -296,7 +296,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
-- [ ] 7.3 OCI Generative AI connector (P)
+- [x] 7.3 OCI Generative AI connector (P)
   - Create `connectors/oci` with typed region, compartment, endpoint/model selectors and OCI credential/signing source.
   - Use OCI signing/workload identity; do not convert credentials into static bearer YAML.
   - Enumerate generative models/endpoints and preserve stable Go-LIP IDs across generated endpoint resources.
@@ -305,7 +305,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
-- [ ] 7.4 IBM watsonx.ai connector (P)
+- [x] 7.4 IBM watsonx.ai connector (P)
   - Create `connectors/watsonx` with service/region, project-or-space ID and IBM credential reference.
   - Implement IAM token acquisition/refresh connector-locally and native watsonx chat/text mapping.
   - Enumerate supported foundation/deployed language models and filter to declared Go-LIP semantics.
@@ -314,7 +314,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
-- [ ] 7.5 SAP AI Core connector (P)
+- [x] 7.5 SAP AI Core connector (P)
   - Create `connectors/sapaicore`.
   - Accept service-key **reference**, parse `clientid`, `clientsecret`, auth URL and `serviceurls.AI_API_URL` connector-locally; never project secret-bearing service key to diagnostics.
   - Acquire OAuth client-credentials token and apply configured `AI-Resource-Group` where required.
@@ -325,7 +325,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
-- [ ] 7.6 Cohere native connector (P)
+- [x] 7.6 Cohere native connector (P)
   - Create `connectors/cohere` against native `POST /v2/chat` rooted at `https://api.cohere.com`.
   - Map canonical messages/tools/stream directly; no LiteLLM translation and no pretending native API is OpenAI Chat.
   - Enumerate language models through Cohere model API and expose only supported coding/text capabilities.
@@ -335,7 +335,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
-- [ ] 7.7 Replicate language-model connector (P)
+- [x] 7.7 Replicate language-model connector (P)
   - Create `connectors/replicate`, root `https://api.replicate.com/v1`, bearer `REPLICATE_API_TOKEN` or connector-standard secret reference.
   - Own prediction create, stream/poll, terminal result, cancellation and cleanup; asynchronous lifecycle must not be hidden in generic retry logic.
   - Enumerate models/versions but expose only language-model deployments with configured/frozen canonical mapping. Arbitrary Replicate schemas are out of scope.
@@ -348,7 +348,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
 ---
 
 - [ ] 8. Implement non-ACP OAuth/subscription bridges (P)
-- [ ] 8.1 Establish connector-local OAuth credential pattern without universal auth framework
+- [x] 8.1 Establish connector-local OAuth credential pattern without universal auth framework
   - Reuse secure credential/account-store patterns from existing Codex connector where applicable: restrictive files, atomic updates, redacted diagnostics, refresh-before-expiry, terminal refresh quarantine, explicit re-login.
   - Do not add OAuth concepts to `pkg/lipapi` or core routing.
   - Shared helper under `connector-support` only after at least two bridges need exact same PKCE/device primitive; provider endpoints/scopes/entitlements remain connector-local.
@@ -358,7 +358,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: none_
   - _Validation: connector-support tests + connector release gates_
 
-- [ ] 8.2 GitHub Copilot direct HTTP subscription bridge (P)
+- [x] 8.2 GitHub Copilot direct HTTP subscription bridge (P)
   - **Do not use Copilot ACP.** Direct service access only.
   - Use current supported GitHub device/OAuth credential route and Copilot service-token/model entitlement flow from pinned surveyed implementations; service identity is `https://api.githubcopilot.com`.
   - Inventory from Copilot model entitlement service, not all GitHub Models.
@@ -369,7 +369,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 8.1_
   - _Validation: offline OAuth/token-exchange fixtures + connector tests_
 
-- [ ] 8.3 GitLab Duo / Duo Agent Platform bridge (P)
+- [x] 8.3 GitLab Duo / Duo Agent Platform bridge (P)
   - **No ACP.** Support GitLab.com and configured self-managed instance.
   - Auth: browser OAuth recommended, PAT supported; self-managed OAuth client ID explicit when required.
   - Support configured AI Gateway/workflow service; dynamically discover `duo-workflow-*` models from namespace/instance and cache only within connector generation lifecycle.
@@ -380,7 +380,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 8.1_
   - _Validation: OAuth/PAT fixtures + dynamic model discovery + connector tests_
 
-- [ ] 8.4 Claude subscription/OAuth bridge (P)
+- [x] 8.4 Claude subscription/OAuth bridge (P)
   - Keep existing `anthropic` API-key backend unchanged; this is distinct credential/billing product.
   - Implement only Anthropic's currently documented/permitted third-party OAuth/setup-token route from pinned Hermes behavior.
   - Do not impersonate Claude Code or claim subscription allowance that route does not actually consume.
@@ -391,7 +391,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 8.1_
   - _Validation: auth-store/refresh fixtures + connector tests_
 
-- [ ] 8.5 Nous Portal connector (P)
+- [x] 8.5 Nous Portal connector (P)
   - Distinct subscription gateway; do not conflate with direct Nous API-key inference.
   - Follow pinned Hermes `6dcebea7fc5d0cc4f621eeaddf52b7d877a5f882`: OAuth-managed credentials, scoped `inference:invoke` JWT preferred, legacy opaque session-key only if current public contract still requires, rotation/refresh, revoked-token quarantine.
   - Send truthful Go-LIP/AIProxer client identity, never claim Hermes identity.
@@ -401,7 +401,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 8.1_
   - _Validation: scoped-token/refresh/catalog fixtures + connector tests_
 
-- [ ] 8.6 xAI subscription OAuth bridge (P)
+- [x] 8.6 xAI subscription OAuth bridge (P)
   - Keep API-key `xai` Chat profile separate.
   - Implement only current documented xAI subscription/device/browser authorization; resulting bearer uses same supported xAI model-service semantics.
   - OAuth does not automatically change wire family to Responses.
@@ -412,7 +412,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 8.1_
   - _Validation: device/OAuth fixtures + entitlement/error tests + connector tests_
 
-- [ ] 8.7 Qwen Portal OAuth bridge (P)
+- [x] 8.7 Qwen Portal OAuth bridge (P)
   - Identity `qwen-oauth`; distinct from `alibaba`/DashScope API-key profiles.
   - Inference base `https://portal.qwen.ai/v1` from pinned Hermes provider profile.
   - Port connector-local request adaptations from Hermes `plugins/model-providers/qwen-oauth/__init__.py`: normalize string content to typed text parts, preserve image URL objects, system-last-part ephemeral cache marker only if current Portal accepts it, `vl_high_resolution_images: true`, Qwen session metadata at correct top-level location.
@@ -423,7 +423,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 8.1_
   - _Validation: PKCE/auth fixtures + request-shape golden tests + connector tests_
 
-- [ ] 8.8 MiniMax OAuth bridge (P)
+- [x] 8.8 MiniMax OAuth bridge (P)
   - Identity `minimax-oauth`; distinct from API-key profiles.
   - Inference base `https://api.minimax.io/anthropic`, Anthropic Messages transport.
   - Port exact pinned Hermes flow from `website/docs/guides/minimax-oauth.md` at `6dcebea7fc5d0cc4f621eeaddf52b7d877a5f882`: PKCE verifier/challenge+state; POST `{base_url}/oauth/code`; open/display verification URI/user code; poll `{base_url}/oauth/token`; persist access+refresh+expiry; refresh within 60s; terminal 4xx/`invalid_grant`/revoked/`refresh_token_reused` -> quarantine; successful re-login clears quarantine.
@@ -437,7 +437,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
 ---
 
 - [ ] 9. Finalize complete provider coverage and release evidence
-- [ ] 9.1 Reconcile expected provider inventory against repository support
+- [x] 9.1 Reconcile expected provider inventory against repository support
   - Enumerate current built-in backend kinds, embedded provider profiles and source/discovered connector manifest factory kinds against this spec's expected list.
   - Fail on duplicate semantic provider ownership, missing expected profile/connector, unexpected ACP addition or stale placeholder.
   - Optional connector artifacts need not be installed merely to validate source-tree expected set; use manifest/source metadata.
@@ -446,7 +446,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - _Depends: 4.4,5,6,7,8_
   - _Validation: expected-inventory test + `make backend-plugin-release-gates-static`_
 
-- [ ] 9.2 Update top-level supported-backend documentation
+- [x] 9.2 Update top-level supported-backend documentation
   - Update README/architecture/provider docs so they no longer under-report already-landed support (including Alibaba Token Plan International) and include new profile/connector coverage.
   - Use compact categories plus detailed provider doc rather than 100-row README.
   - For each connector/bridge document: backend kind, auth method, endpoint construction, model enumeration, required config/env, protocol surface and caveats.
@@ -489,3 +489,32 @@ Stop only the affected provider task and report exact reason when:
 - native provider would require semantic approximation/loss instead of lossless mapping or explicit rejection.
 
 These are fail-closed conditions, not invitations for a smaller executor to resume broad research or invent architecture.
+
+## Implementation Notes
+
+- Phase 1 binding repair carries provider-profile identity on expanded YAML `Anchor`/`HeadComment` (`lip_profile_<id>`), then recompiles from the catalog at family build time. Do not key compiled profiles by backend instance ID; custom-*-compatible rows must keep generic semantics.
+- Task 3.1: `safeName`/`safeEnv` now allow a leading digit so frozen `302ai` / `302AI_API_KEY` validate. Do not treat that as permission to widen profile v1 fields.
+- Phase 5: `make example-config-check` still runs the stale `-run TestConfigExamples_passBootstrapInspect` regex (no matching test). The real example gate is `TestConfigExamples_passInspectRoutes`, which includes `provider-profiles-bulk.example.yaml`. Do not treat the Makefile target as proof that a new example inspects.
+- Task 6.1: Cloudflare inventory filter is a conservative model-ID heuristic (drop embed/rerank/image/audio). Do not treat that as a Cloudflare protocol-field parser. Factory kind is `cloudflare`; research product name remains `cloudflare-ai-gateway`.
+- Task 6.2: single factory kind `azure-openai` covers Azure OpenAI and Foundry v1. Production Entra uses `NewProduction` + azidentity (`DefaultAzureCredential` / client-secret). Tests inject `TokenProvider`; do not treat a pasted JWT secret as the Entra path.
+- Task 6.3: factory kind `snowflake-cortex`; Cortex base is constructed as `https://{account}.snowflakecomputing.com/api/v2/cortex/v1`; optional role uses documented `X-Snowflake-Role`. Browser OAuth was not implemented (same-product future, not a second connector).
+- Task 6.4: factory kind `databricks-ai`; frozen surface is `https://{host}/ai-gateway/mlflow/v1`. Optional `serving_endpoint` is the default mlflow `model` value only. Do not send `X-Databricks-Serving-Endpoint` or `Databricks-Model-Provider-Service` (the latter belongs to `/ai-gateway/openai/v1` external provider services, which this connector does not implement).
+- Task 6.5: factory kind `infomaniak-ai`; constructed base is `https://api.infomaniak.com/2/ai/{product_id}/openai/v1`. `product_id` accepts YAML integer or digit string. Default flavor is Chat because Infomaniak documents `/chat/completions` not `/responses`; explicit Responses still fail closed with no Chat fallback.
+- Task 7.1: factory kind `vertex`; inference is v1 `generateContent`/`streamGenerateContent` on `{location}-aiplatform.googleapis.com` (global origin `https://aiplatform.googleapis.com`). Inventory is documented Model Garden `GET /v1beta1/publishers/{publisher}/models`, not a project-scoped publishers list. Distinct from in-process `gemini` API-key backend. Production uses ADC / `service_account_json`; tests inject `TokenProvider`.
+- Task 7.2: factory kind `sagemaker`; AWS SDK v2 Runtime `InvokeEndpoint` / `InvokeEndpointWithResponseStream` plus control-plane `ListEndpoints`. v1 ships only `inference_contract: hf-text-generation`. Distinct from in-process `bedrock`. Tests drive `DefaultAWSClientFactory` against httptest with SigV4; do not stub away the SDK for parity Execute tests.
+- Task 7.3: factory kind `oci-generative-ai`; chat `https://inference.generativeai.{region}.oci.oraclecloud.com/20231130/actions/chat`; inventory `GET https://generativeai.{region}.oci.oraclecloud.com/20231130/models`. OCI HTTP Signature via `oci-go-sdk/v65`; no `/openai/v1` fallback. ListModels fails closed on transport/HTTP errors (no `model_id` catalog fallback). Static `private_key` requires `tenancy_ocid`/`user_ocid`/`fingerprint`. Canonical IDs use serving display names (`oci-generative-ai/{displayName}`); NativeModelID is the OCID.
+- Task 7.4: factory kind `watsonx`; IBM Cloud IAM `POST https://iam.cloud.ibm.com/identity/token` then native `POST https://{region}.ml.cloud.ibm.com/ml/v1/text/chat` (`chat_stream` / `text/generation`). Exactly one of `project_id`/`space_id`. Canonical `watsonx/{model_id}` vs `watsonx/deployment/{id}`. Inventory `GET /ml/v1/foundation_model_specs` + `GET /ml/v4/deployments?version=2021-06-01`. No LiteLLM / OpenAI-compat fallback. Tests inject `TokenProvider` for mapping; `NewProduction` IAM factory is proven against httptest.
+- Task 7.5: factory kind `sapaicore`; parse BTP `service_key` JSON (`clientid`/`clientsecret`/`url`/`serviceurls.AI_API_URL`); XSUAA `POST {url}/oauth/token` client_credentials; `AI-Resource-Group`; v1 only `inference_contract: openai-chat` after resolving `{AI_API_URL}/v2/inference/deployments/{id}` then openaicompat Chat. Inventory `GET /v2/lm/deployments` RUNNING. No orchestration `/v2/completion`. Secrets never in diagnostics.
+- Task 7.6: factory kind `cohere`; native `POST https://api.cohere.com/v2/chat` (stream via same path + `stream: true`); inventory `GET /v1/models?endpoint=chat`. Bearer `api_key`. No LiteLLM, no OpenAI `/chat/completions`, no Cohere v1 `/v1/chat` fallback. Tools/vision/Responses fail closed.
+- Task 7.7: factory kind `replicate`; `POST /v1/models/{owner}/{name}/predictions` with v1 `inference_contract: prompt-text` (`input.prompt`). Owns create / poll `GET urls.get` / stream `GET urls.stream` / cancel `POST urls.cancel`. Inventory is only the configured model (`GET /v1/models/{owner}/{name}`). No OpenAI-compat. Default poll interval is 100ms (aggressive; later tune if needed).
+- Task 8.1: `connector-support/oauthcred` is the file store + 60s refresh-before-expiry + terminal `invalid_grant`/4xx quarantine (no refresh replay) + logout + local PKCE S256/state helpers. Stdlib only. Not an OAuth HTTP client. No `pkg/lipapi`/core types. Provider token URLs stay in later connector tasks.
+- Task 8.2: `github-copilot` is **unsupported-by-policy**. GitHub public REST documents Copilot usage/billing/seat APIs only; OAuth device flow yields a GitHub user token, not a Copilot inference entitlement. No connector factory, no ACP substitute. Recorded in `docs/backend-plugins/unsupported.md`.
+- Task 8.3: factory kind `gitlab-duo`; PAT + oauthcred file OAuth (self-managed requires `oauth_client_id`); `POST /api/v4/ai/third_party_agents/direct_access` (2xx including 201) then AI Gateway Anthropic/OpenAI proxy. Inventory: static `duo-chat-*` plus GraphQL `aiChatAvailableModels` refs when `root_namespace_id` or `project_path` is set (no Group/1, no fake `duo-workflow-*` prefix, no DWS/ACP/repo tools).
+- Task 8.4: `claude-subscription` / `anthropic-oauth` is **unsupported-by-policy**. Anthropic restricts consumer OAuth to Claude Code and claude.ai; third-party products must use Console API keys. Existing in-process `anthropic` API-key backend unchanged. Recorded in `docs/backend-plugins/unsupported.md`.
+- Task 8.5: factory kind `nous-portal`; Portal `POST /api/oauth/token` with `x-nous-refresh-token` (Hermes pin HTTP) and **configured** `oauth_client_id` (never `hermes-cli`); `inference:invoke` JWT then OpenAI Chat at `https://inference-api.nousresearch.com/v1`. Inventory `GET /v1/models`. Truthful Go-LIP UA. 403 entitlement vs one 401 mint retry.
+- Task 8.6: factory kind `xai-oauth`; OIDC discovery at `https://auth.x.ai/.well-known/openid-configuration`; Chat-only `https://api.x.ai/v1`; required configured `oauth_client_id` (no Hermes UUID); 403 entitlement vs one 401 refresh. Distinct from catalog API-key `xai`.
+- Task 8.7: factory kind `qwen-oauth`; PKCE/refresh against `https://chat.qwen.ai/api/v1/oauth2/token`; Chat at `https://portal.qwen.ai/v1`. Wire adaptations: typed text parts, preserved `image_url`, system last-part ephemeral `cache_control`, top-level `vl_high_resolution_images`, `metadata.sessionId`/`promptId` (not `session_id`). Required configured `oauth_client_id`. Distinct from DashScope/`alibaba`.
+- Task 8.8: factory kind `minimax-oauth`; plugin `io.golip.backend.minimexoauth`; Anthropic Messages `POST {inference}/v1/messages` (not OpenAI Chat). PKCE S256 + `POST /oauth/code` then poll `POST /oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:user_code` (Hermes pin: min 2s poll). oauthcred 60s skew; refresher returns `HTTPError` / `ErrTerminalRefresh` (Session owns quarantine; 408/429 transient). Required configured `oauth_client_id` (never Hermes UUID). No `MINIMAX_API_KEY`. China aliases `cn`/`china`/`minimax-cn`. Static `MiniMax-M2.7` + `MiniMax-M2.7-highspeed`.
+- Task 9.1: `internal/providerprofiles/expected_inventory_test.go` locks the 17 spec connector factory kinds against `release.yaml` / non-darwin manifests / `coverage.go`, rejects surprise connector dirs, records `github-copilot` and `claude-subscription` as unsupported-without-factory, and extends `dedicatedBackendAndConnectorIDs` so catalog IDs cannot collide with new connector kinds. Optional connectors stay out of `EssentialBackendBundle`.
+- Task 9.2: README compact categories (141 profiles, 17 spec connectors, `alibaba-token-plan-intl`); `docs/provider-profiles.md` no longer lists Copilot/Claude as supported bridges; kinds vs module dirs (`connectors/xaioauth`, `minimexoauth`, `qwenoauth`). ACP called out as out of scope. Details in `docs/backend-plugins/operator.md` + `unsupported.md`.
+- Task 9.3: architecture confirmations hold (production `kind: provider-profile` registry path, no `pkg/lipapi`/core/frontend/ABI/`PlaneSet` provider contribution, no Models.dev runtime fetch, no ACP from this spec, root `go.mod` independent of connectors). Independent orchestrator re-run: focused profile tests, `make quality-checks`, `go test ./...` and `-tags=precommit,integration` with `-skip TestRootHygiene_DirtyGoFiles`, `make parity-checks`, `make vuln`, `make backend-plugin-release-gates-static`, `make test-openresponses-compliance-static`, `make docs-check knowledge-check`, `TestConfigExamples_passInspectRoutes` all PASS. `make test` / `make qa` remain red **only** on `TestRootHygiene_DirtyGoFiles` (193 dirty `*.go` files; limit 100). Do not weaken `internal/qa`. Delivery split/commits required before the written 9.3 validation command is fully green. HTTP/2 `http2ClientConn` goleak ignores were added next to existing HTTP/1 `persistConn` ignores in `publish_pinned_characterization_test.go`.
