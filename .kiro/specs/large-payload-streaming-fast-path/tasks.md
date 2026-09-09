@@ -221,7 +221,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 4. Build replay independently of protocol/routing logic
 
-- [ ] 4.1 Implement bounded logical spool reservation
+- [x] 4.1 Implement bounded logical spool reservation
   - Known identity length may reserve early; unknown/chunked reserve incrementally with checked `int64` math.
   - Release exactly once on fallback/success/cancel/error.
   - Exhaustion => canonical optimization decline, not new 413.
@@ -824,3 +824,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 3.5 VERIFIED (fresh reviewer APPROVED): WireEligibilitySummary composition-time/deterministic/pinned/bounded/fail-closed, fixed bitsets/enums, no request-sized data, budgets bump; largebody + feature + archtest PASS, vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
 - Task 3.6 VERIFIED (fresh reviewer APPROVED): StaticDisposition two-state (DefinitelyCanonical vs NeedsRequestAssessment) + bounded reason, allocation-free, generation-pinned, budgets bump; largebody + archtest PASS, gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
 - Task 3.7 VERIFIED (fresh reviewer APPROVED): static-disposition ratchets (Local Turn, Secret Guard, unclassified plane, canonical-only traffic, missing two-phase executor, normal eligible generation) + benchmarks (0-alloc ~11-14ns vs 4ns baseline); largebody + feature/archtest/runtime/runtimebundle suites PASS, vet/gofmt/diff-check clean; zero production diff; `-race` skipped Windows cgo limitation.
+- Task 4.1 VERIFIED (fresh reviewer APPROVED): SpoolLedger/SpoolReservation ledger with checked int64, exact-once release, exhaustion => decline not 413, no filesystem yet; largebody + budget gate PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
