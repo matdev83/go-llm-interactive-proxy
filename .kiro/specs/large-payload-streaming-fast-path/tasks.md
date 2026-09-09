@@ -175,7 +175,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - New/unclassified plane fails generation/CI.
   - _Requirements: 5, 13, 22_
 
-- [ ] 3.2 Apply non-negotiable initial classifications
+- [x] 3.2 Apply non-negotiable initial classifications
   - Occupied `PlaneLocalTurnHandlers` => canonical required.
   - Active Secret Guard execution/guards => canonical required until separately certified streaming guard contract.
   - `PlaneTerminalDecisionProvider` => canonical required unless Task 12 later implements bounded terminal evidence + continuation-source parity; do not classify it response-only merely because SDK input is bounded.
@@ -818,3 +818,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 2.3 VERIFIED (fresh reviewer APPROVED): internal LargeBodyExecutor + AsLargeBodyExecutor helper, ExecutorView unchanged, absent=>canonical, budgets bump; largebody 21/21 + line-budget PASS, vet/gofmt/diff-check clean, pkg/lipsdk untouched; `-race` skipped Windows cgo limitation.
 - Task 2.4 VERIFIED (fresh reviewer APPROVED): disabled-gate 0-alloc ratchet, core import boundary, sensitive-carrier redaction; SessionInput IDs spec-compliant clear-by-contract, Task 19.1 diagnostics must not use IDs as labels (follow-up); largebody 26/26 + boundary test PASS, vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
 - Task 3.1 VERIFIED (fresh reviewer APPROVED): RequestBodyAccess on sole plane descriptor, 26 annotations 19/3/4/0/0, fail-closed generation+CI, no eligibility consumption yet; feature 149 tests + archtest PASS, generator -check + vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
+- Task 3.2 VERIFIED (fresh reviewer APPROVED): non-negotiable blocker ratchets (Local Turn/Secret Guard/Terminal Decision canonical, request-mutating hooks canonical unless explicit wire contract, response-only only after characterization); 3.1 values already truthful; feature suite PASS, vet/gofmt/diff-check clean; zero production diff; test-only hardening scope, `-race` skipped Windows cgo limitation.
