@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/legacyfeatureconfig"
 )
 
 // bootstrapEffectiveLoader is the singular startup effective-load operation.
@@ -52,6 +53,7 @@ func LoadBootstrapEffectiveWithSource(ctx context.Context, path string, cliOverr
 	eff, err := config.LoadEffective(ctx, snap.Bytes, config.LoadEffectiveOptions{
 		ConfigDir:           filepath.Dir(src.AbsolutePath()),
 		FixedStreamRecovery: &merged,
+		NormalizeYAML:       legacyfeatureconfig.NormalizeYAML,
 		InjectFeatures:      injectStandardBootstrapFeatures,
 		ExtraValidate:       extraBootstrapValidate,
 	})

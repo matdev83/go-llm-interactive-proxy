@@ -209,7 +209,8 @@ the surrounding standard composition without enabling remote extraction.
 - [#312 compaction event detection](https://github.com/matdev83/go-llm-interactive-proxy/issues/312)
 - [`internal/infra/compactiondetect`](../internal/infra/compactiondetect/) — detector preview/commit capability
 - [`internal/plugins/features/compactioncontinuity`](../internal/plugins/features/compactioncontinuity/) — feature-private configuration and semantics
-- [`internal/core/compactioncontinuity`](../internal/core/compactioncontinuity/) — parent branch coordinator
+- [`internal/plugins/features/compactioncontinuity/state`](../internal/plugins/features/compactioncontinuity/state/) — branch coordinator and capsule/job/injection state (feature-owned)
+- [`internal/standardplugins/featurehost/compaction`](../internal/standardplugins/featurehost/compaction/) — authoritative parent binding adapter (standard-distribution composition)
 - [`internal/core/auxreq`](../internal/core/auxreq/) — process-owned bounded background scheduler
 - [`config/config.yaml`](../config/config.yaml) — commented reference row
 - [`config/examples/dogfood-local-stub.yaml`](../config/examples/dogfood-local-stub.yaml) — disabled deterministic example

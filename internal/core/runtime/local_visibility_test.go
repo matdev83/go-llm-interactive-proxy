@@ -4,8 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/localstream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
@@ -18,31 +17,19 @@ import (
 // Req 11.1-11.3 for task 3.4.
 func TestLocalStream_LegacyFullHistory_ClientVisibleBackendFiltered(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := st.ConversationViewStore()
-
-	rec, err := st.CreateALeg(ctx, "ck-local-legacy-visibility")
-	if err != nil {
-		t.Fatal(err)
-	}
-	aLegID := rec.ALegID
+	aLegID := "a_test_local_legacy_visibility"
 
 	sourceMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("local-claimed-input")}}
 	replyText := "local-reply-legacy"
 	replyMsg := localstream.CanonicalAssistantMessage(replyText)
 	// Simulate local turn tagging: source and reply.
-	sourceID, _ := conversationview.MessageIdentityOf(sourceMsg)
-	replyID, _ := conversationview.MessageIdentityOf(replyMsg)
-	if _, err := cv.TagNeverBackend(ctx, aLegID, []conversationview.TagRequest{
-		{Identity: sourceID, Reason: "test_local"},
-		{Identity: replyID, Reason: "test_local"},
-	}); err != nil {
-		t.Fatalf("tag: %v", err)
-	}
-	snap, err := cv.Snapshot(ctx, aLegID)
-	if err != nil {
-		t.Fatal(err)
+	sourceID, _ := conversationprojection.MessageIdentityOf(sourceMsg)
+	replyID, _ := conversationprojection.MessageIdentityOf(replyMsg)
+	snap := conversationprojection.Snapshot{
+		NeverBackend: []conversationprojection.Tag{
+			{Identity: sourceID, Reason: "test_local"},
+			{Identity: replyID, Reason: "test_local"},
+		},
 	}
 	if len(snap.NeverBackend) != 2 {
 		t.Fatalf("snapshot never_backend %d want 2", len(snap.NeverBackend))
@@ -61,10 +48,10 @@ func TestLocalStream_LegacyFullHistory_ClientVisibleBackendFiltered(t *testing.T
 	foundSource := false
 	foundReply := false
 	for _, m := range legacyCall.Messages {
-		if id, _ := conversationview.MessageIdentityOf(m); id == sourceID {
+		if id, _ := conversationprojection.MessageIdentityOf(m); id == sourceID {
 			foundSource = true
 		}
-		if id, _ := conversationview.MessageIdentityOf(m); id == replyID {
+		if id, _ := conversationprojection.MessageIdentityOf(m); id == replyID {
 			foundReply = true
 		}
 	}
@@ -72,7 +59,7 @@ func TestLocalStream_LegacyFullHistory_ClientVisibleBackendFiltered(t *testing.T
 		t.Fatalf("ingress lost local messages: source %v reply %v", foundSource, foundReply)
 	}
 	// Backend-effective projection must remove both.
-	out, ev, err := conversationview.Project(legacyCall, snap)
+	out, ev, err := conversationprojection.Project(legacyCall, snap)
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
@@ -80,12 +67,12 @@ func TestLocalStream_LegacyFullHistory_ClientVisibleBackendFiltered(t *testing.T
 		t.Fatalf("filtered %d want 2", ev.FilteredCount)
 	}
 	for _, m := range out.Messages {
-		if id, _ := conversationview.MessageIdentityOf(m); id == sourceID || id == replyID {
+		if id, _ := conversationprojection.MessageIdentityOf(m); id == sourceID || id == replyID {
 			t.Fatalf("backend call still contains tagged %s", id)
 		}
 	}
 	for _, m := range out.Instructions {
-		if id, _ := conversationview.MessageIdentityOf(m); id == sourceID || id == replyID {
+		if id, _ := conversationprojection.MessageIdentityOf(m); id == sourceID || id == replyID {
 			t.Fatalf("backend instructions still contains tagged %s", id)
 		}
 	}
@@ -94,9 +81,8 @@ func TestLocalStream_LegacyFullHistory_ClientVisibleBackendFiltered(t *testing.T
 		t.Fatalf("backend messages %+v want single next question", out.Messages)
 	}
 	// Feature does not require frontend to delete from A-leg history; snap still holds tags.
-	snap2, _ := cv.Snapshot(ctx, aLegID)
-	if len(snap2.NeverBackend) != 2 {
-		t.Fatalf("snapshot after projection %d want 2", len(snap2.NeverBackend))
+	if len(snap.NeverBackend) != 2 {
+		t.Fatalf("snapshot after projection %d want 2", len(snap.NeverBackend))
 	}
 }
 
@@ -108,13 +94,7 @@ func TestLocalStream_LegacyFullHistory_ClientVisibleBackendFiltered(t *testing.T
 func TestLocalStream_OpenResponsesMaterializedHistory_ClientVisibleBackendFiltered(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := st.ConversationViewStore()
-	rec, err := st.CreateALeg(ctx, "ck-local-or-visibility")
-	if err != nil {
-		t.Fatal(err)
-	}
-	aLegID := rec.ALegID
+	aLegID := "a_test_local_or_visibility"
 
 	// Same identities as legacy but in item authority.
 	sourceItem := lipapi.Item{
@@ -125,15 +105,14 @@ func TestLocalStream_OpenResponsesMaterializedHistory_ClientVisibleBackendFilter
 	replyText := "local-reply-or"
 	replyItem := localstream.CanonicalAssistantItem(replyText)
 	replyItem.ID = "item-reply-1"
-	sourceID, _ := conversationview.ItemIdentityOf(sourceItem)
-	replyID, _ := conversationview.ItemIdentityOf(replyItem)
-	if _, err := cv.TagNeverBackend(ctx, aLegID, []conversationview.TagRequest{
-		{Identity: sourceID, Reason: "test_local"},
-		{Identity: replyID, Reason: "test_local"},
-	}); err != nil {
-		t.Fatalf("tag: %v", err)
+	sourceID, _ := conversationprojection.ItemIdentityOf(sourceItem)
+	replyID, _ := conversationprojection.ItemIdentityOf(replyItem)
+	snap := conversationprojection.Snapshot{
+		NeverBackend: []conversationprojection.Tag{
+			{Identity: sourceID, Reason: "test_local"},
+			{Identity: replyID, Reason: "test_local"},
+		},
 	}
-	snap, _ := cv.Snapshot(ctx, aLegID)
 	if len(snap.NeverBackend) != 2 {
 		t.Fatalf("snapshot never_backend %d want 2", len(snap.NeverBackend))
 	}
@@ -164,10 +143,10 @@ func TestLocalStream_OpenResponsesMaterializedHistory_ClientVisibleBackendFilter
 		if it.Kind != lipapi.ItemKindMessage {
 			continue
 		}
-		if id, _ := conversationview.ItemIdentityOf(it); id == sourceID {
+		if id, _ := conversationprojection.ItemIdentityOf(it); id == sourceID {
 			foundSource = true
 		}
-		if id, _ := conversationview.ItemIdentityOf(it); id == replyID {
+		if id, _ := conversationprojection.ItemIdentityOf(it); id == replyID {
 			foundReply = true
 		}
 	}
@@ -175,7 +154,7 @@ func TestLocalStream_OpenResponsesMaterializedHistory_ClientVisibleBackendFilter
 		t.Fatalf("materialized lost local items")
 	}
 
-	out, ev, err := conversationview.Project(materializedCall, snap)
+	out, ev, err := conversationprojection.Project(materializedCall, snap)
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
@@ -184,7 +163,7 @@ func TestLocalStream_OpenResponsesMaterializedHistory_ClientVisibleBackendFilter
 	}
 	for _, it := range out.Items {
 		if it.Kind == lipapi.ItemKindMessage {
-			if id, _ := conversationview.ItemIdentityOf(it); id == sourceID || id == replyID {
+			if id, _ := conversationprojection.ItemIdentityOf(it); id == sourceID || id == replyID {
 				t.Fatalf("backend still contains tagged item %s", id)
 			}
 		}
@@ -231,7 +210,7 @@ func TestLocalStream_OpenResponsesMaterializedHistory_ClientVisibleBackendFilter
 	found := false
 	for _, it := range stored.OutputItems {
 		if it.Kind == lipapi.ItemKindMessage {
-			if id2, _ := conversationview.ItemIdentityOf(it); id2 == replyID {
+			if id2, _ := conversationprojection.ItemIdentityOf(it); id2 == replyID {
 				found = true
 			}
 		}
@@ -249,29 +228,23 @@ func TestLocalStream_OpenResponsesMaterializedHistory_ClientVisibleBackendFilter
 // It asserts cross-turn visibility without requiring a second store read.
 func TestLocalStream_LocalHandlerClaimPreservesClientVisibilityYetFiltersNextTurn(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	// This test is intentionally light: the per-turn filtering is already
-	// proven by the two focused tests above. This integration check ensures
-	// the local turn's merged snapshot is usable for the *next* turn's
-	// projection without requiring a second store read.
-	st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	cv := st.ConversationViewStore()
-	rec, _ := st.CreateALeg(ctx, "ck-visibility-integration")
 	sourceMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("claimed-input")}}
-	sourceID, _ := conversationview.MessageIdentityOf(sourceMsg)
+	sourceID, _ := conversationprojection.MessageIdentityOf(sourceMsg)
 	replyText := "integration-reply"
 	replyMsg := localstream.CanonicalAssistantMessage(replyText)
-	replyID, _ := conversationview.MessageIdentityOf(replyMsg)
-	if _, err := cv.TagNeverBackend(ctx, rec.ALegID, []conversationview.TagRequest{{Identity: sourceID, Reason: "test_local"}, {Identity: replyID, Reason: "test_local"}}); err != nil {
-		t.Fatal(err)
+	replyID, _ := conversationprojection.MessageIdentityOf(replyMsg)
+	snap := conversationprojection.Snapshot{
+		NeverBackend: []conversationprojection.Tag{
+			{Identity: sourceID, Reason: "test_local"},
+			{Identity: replyID, Reason: "test_local"},
+		},
 	}
-	snap, _ := cv.Snapshot(ctx, rec.ALegID)
 	// Next backend call from same A-leg replays both local messages plus new turn.
 	nextCall := lipapi.Call{
 		Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{sourceMsg, replyMsg, {Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("follow up")}}},
 	}
-	out, ev, err := conversationview.Project(nextCall, snap)
+	out, ev, err := conversationprojection.Project(nextCall, snap)
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}

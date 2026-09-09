@@ -49,8 +49,18 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/plugins/protocols/openresponses/state_machine.go", Max: 708},
 	{Path: "internal/plugins/protocols/openresponses/state_machine_event_handlers.go", Max: 515},
 	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 383},
-	{Path: "internal/core/keepwarm/manager.go", Max: 450},
-	{Path: "internal/core/keepwarm/scheduler.go", Max: 450},
+	{Path: "internal/plugins/features/keepwarm/manager.go", Max: 450},
+	{Path: "internal/plugins/features/keepwarm/scheduler.go", Max: 450},
+	// Ownership-closure facade caps (Task 11.3): measured final + 25 headroom
+	// so feature growth cannot turn featurehost into a god package.
+	{Path: "internal/standardplugins/featurehost/runtime.go", Max: 184},
+	{Path: "internal/standardplugins/featurehost/process.go", Max: 187},
+	{Path: "internal/standardplugins/featurehost/generation.go", Max: 249},
+	{Path: "internal/standardplugins/featurehost/inputs.go", Max: 121},
+	// NO-GO remediation (Finding 1): per-binding presence helpers so a
+	// generation slice carrying one binding kind cannot suppress the
+	// process-bound options of the other kind; measured 224.
+	{Path: "internal/standardplugins/featurehost/bindings.go", Max: 249},
 }
 
 // PackageTreeBudget caps recursive non-test .go lines for a package tree.
@@ -61,9 +71,18 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	// Pre-OSS core slimming extracts tool-call repair, secret guard, and compaction detection;
-	// runtimebundle shrank from 12796 to 12541; ratchet downward to final+25 headroom (12566).
-	{Tree: "internal/infra/runtimebundle", Max: 12566},
+	// Ownership closure (Task 11.3): runtimebundle scaffolding removed, measured
+	// 12316; featurehost measured 2979 with its own recursive ceiling.
+	// 12.2 review remediation (H2 port methods, H3 enable-gating, H4 env
+	// capability): featurehost re-measured 3057; reset to 3082 with 25 headroom.
+	// NO-GO remediation (Findings 1, 3): per-binding overlay presence helpers,
+	// ledger-owned keep-warm generation lifecycle, secret-guard execution-plane
+	// projection, and opaque admin/metrics CorePorts members; re-measured 3255.
+	// Runtimebundle shrank in the same change (deleted keepwarm_http.go and
+	// secret_guard_runtime.go, emptied ExtensionsOptions), so this is movement
+	// of composition into its owner, not new scope.
+	{Tree: "internal/infra/runtimebundle", Max: 12333},
+	{Tree: "internal/standardplugins/featurehost", Max: 3280},
 	{Tree: "internal/stdhttp", Max: 6693},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
@@ -124,10 +143,14 @@ var LineBudgets = []LineBudget{
 	// database-dialect-parity-enforcement: stable parity normalization across core components; measured 95020, bump to 95045 with 25 headroom.
 	// extension-plane-local-terminal: frozen identity accessor and turn-terminal carrier; measured 95070, bump to 95095 with 25 headroom.
 	// pre-oss-core-slimming race remediation: measured 89936 after synchronizing attempt accounting, sideband teardown, and terminal provider identity; retain 25 lines of headroom.
-	{Dir: "internal/core", Max: 89961},
+	// Ownership closure (Task 11.3): measured 82565 after extracting compaction-continuity, conversation steering, interleaved UX, keep-warm and terminal policy; reset to 82590 with 25 headroom. Deleted feature LOC is not retained as growth allowance.
+	{Dir: "internal/core", Max: 82590},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
-	{Dir: "internal/infra/runtimebundle", Max: 12566},
+	{Dir: "internal/infra/runtimebundle", Max: 12333},
+	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
+	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
+	{Dir: "internal/standardplugins/featurehost", Max: 3280},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 720},
 }

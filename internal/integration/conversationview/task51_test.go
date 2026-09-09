@@ -14,7 +14,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuation"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -23,6 +23,7 @@ import (
 	secmem "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	secapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
@@ -108,12 +109,12 @@ func (c *captureBackend) count() int {
 
 // pinnedReader returns snapshot for pinned ALegID regardless of queried ID, but reads from real store.
 type pinnedReader struct {
-	store  *b2bua.MemoryStore
+	store  conversationview.Store
 	pinned string
 }
 
-func (r *pinnedReader) Snapshot(ctx context.Context, _ string) (conversationview.Snapshot, error) {
-	return r.store.ConversationViewStore().Snapshot(ctx, r.pinned)
+func (r *pinnedReader) Snapshot(ctx context.Context, _ string) (conversationprojection.Snapshot, error) {
+	return r.store.Snapshot(ctx, r.pinned)
 }
 
 type contAuth struct{}
@@ -184,8 +185,8 @@ func TestTask51_OpenResponses_RealExecutor_EndToEnd(t *testing.T) {
 	t.Parallel()
 	localInput := lipapi.Item{Kind: lipapi.ItemKindMessage, ID: "item-local-input", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "local-tagged-input"}}}
 	localReply := lipapi.Item{Kind: lipapi.ItemKindMessage, ID: "item-local-reply", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleAssistant, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "local-tagged-reply"}}}
-	localInputID, _ := conversationview.ItemIdentityOf(localInput)
-	localReplyID, _ := conversationview.ItemIdentityOf(localReply)
+	localInputID, _ := conversationprojection.ItemIdentityOf(localInput)
+	localReplyID, _ := conversationprojection.ItemIdentityOf(localReply)
 
 	steeringText := "hidden-steering-integration-OpenResponses"
 	steeringOverlayText := steeringText
@@ -228,14 +229,16 @@ func TestTask51_OpenResponses_RealExecutor_EndToEnd(t *testing.T) {
 	tmpEx := newSecureExecutorWithCapture(t, b2Store, tmpCap)
 	// Need a backend for the dummy call to allocate A-leg
 	tmpEx.Backends = map[string]execbackend.Backend{"openai": (&captureBackend{}).Backend()}
-	// Use TestExecutor's prepare path via Execute detached? Instead directly create ALeg via b2Store.CreateALeg for pinning.
 	// Simpler: directly create ALeg via b2Store.CreateALeg and use its ID as pinned.
 	rec, err := b2Store.CreateALeg(context.Background(), "pin-continuity-openresponses")
 	if err != nil {
 		t.Fatalf("CreateALeg: %v", err)
 	}
 	pinnedALeg := rec.ALegID
-	cv := b2Store.ConversationViewStore()
+	cv := conversationview.NewReferenceStore()
+	if err := cv.CreateALeg(context.Background(), pinnedALeg); err != nil {
+		t.Fatalf("CreateALeg: %v", err)
+	}
 	if _, err := cv.TagNeverBackend(context.Background(), pinnedALeg, []conversationview.TagRequest{{Identity: localInputID, Reason: "test_local"}, {Identity: localReplyID, Reason: "test_local"}}); err != nil {
 		t.Fatalf("Tag: %v", err)
 	}
@@ -250,7 +253,7 @@ func TestTask51_OpenResponses_RealExecutor_EndToEnd(t *testing.T) {
 	capBackend := &captureBackend{}
 	// Real runtime executor with secure session, but ConversationViewReader pinned to real store's pinned ALeg
 	exReal := newSecureExecutorWithCapture(t, b2Store, trafficCap)
-	exReal.ConversationViewReader = &pinnedReader{store: b2Store, pinned: pinnedALeg}
+	exReal.ConversationViewReader = &pinnedReader{store: cv, pinned: pinnedALeg}
 	exReal.Backends = map[string]execbackend.Backend{"openai": capBackend.Backend()}
 	// Debug wrapper to surface executor error in test log
 	ex := &debugExecutor{Executor: exReal, t: t}
@@ -451,9 +454,12 @@ func TestTask51_LegacyFullHistory_RealExecutor(t *testing.T) {
 	pinned := rec.ALegID
 	sourceMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("local-tagged-legacy")}}
 	replyMsg := lipapi.Message{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("local-reply-legacy")}}
-	sourceID, _ := conversationview.MessageIdentityOf(sourceMsg)
-	replyID, _ := conversationview.MessageIdentityOf(replyMsg)
-	cv := b2Store.ConversationViewStore()
+	sourceID, _ := conversationprojection.MessageIdentityOf(sourceMsg)
+	replyID, _ := conversationprojection.MessageIdentityOf(replyMsg)
+	cv := conversationview.NewReferenceStore()
+	if err := cv.CreateALeg(context.Background(), pinned); err != nil {
+		t.Fatalf("CreateALeg: %v", err)
+	}
 	if _, err := cv.TagNeverBackend(context.Background(), pinned, []conversationview.TagRequest{{Identity: sourceID, Reason: "test_local"}, {Identity: replyID, Reason: "test_local"}}); err != nil {
 		t.Fatalf("TagNeverBackend: %v", err)
 	}
@@ -464,7 +470,7 @@ func TestTask51_LegacyFullHistory_RealExecutor(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PutSteering: %v", err)
 	}
-	ex.ConversationViewReader = &pinnedReader{store: b2Store, pinned: pinned}
+	ex.ConversationViewReader = &pinnedReader{store: cv, pinned: pinned}
 	backendCap := &captureBackend{}
 	ex.Backends = map[string]execbackend.Backend{"openai": backendCap.Backend()}
 

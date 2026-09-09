@@ -3,14 +3,18 @@ package runtimebundle_test
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"sync"
 	"testing"
 
+	"github.com/uptrace/bun"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -195,11 +199,15 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 	pinnedALeg := rec.ALegID
 	taggedMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("gen-reload-tagged")}}
 	taggedID, _ := conversationview.MessageIdentityOf(taggedMsg)
-	cvAny, ok := conversationview.AsStore(ps.Continuity)
-	if !ok || cvAny == nil {
-		t.Fatalf("ConversationViewStore nil - store does not implement capability")
+	cv := ps.StandardFeatures.ConversationStore()
+	if cv == nil {
+		t.Fatalf("ConversationStore nil on StandardFeatures")
 	}
-	cv := cvAny
+	if creator, ok := cv.(interface {
+		CreateALeg(context.Context, string) error
+	}); ok {
+		_ = creator.CreateALeg(context.Background(), pinnedALeg)
+	}
 	if _, err := cv.TagNeverBackend(context.Background(), pinnedALeg, []conversationview.TagRequest{{Identity: taggedID, Reason: "test"}}); err != nil {
 		t.Fatalf("Tag: %v", err)
 	}
@@ -255,7 +263,7 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 	// Instead of hacking, we can directly use the store's snapshot for verification via Project,
 	// and also via real Execute with pinnedReader override on ex2.
 	// Override ex2's ConversationViewReader to pinned (still reading real store's pinned ALeg)
-	ex2.ConversationViewReader = &pinnedReaderForReload{store: ps.Continuity, pinned: pinnedALeg}
+	ex2.ConversationViewReader = &pinnedReaderForReload{reader: cv, pinned: pinnedALeg}
 
 	// Execute a legacy call containing tagged message via ex2 (gen2)
 	// Use secure context with principal to ensure CTP path (secure manager exists in ps?)
@@ -331,18 +339,79 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 
 // pinnedReaderForReload delegates Snapshot to real store but ignores requested ALegID and returns pinned.
 type pinnedReaderForReload struct {
-	store  b2bua.Store
+	reader conversationprojection.Reader
 	pinned string
 }
 
-func (r *pinnedReaderForReload) Snapshot(ctx context.Context, _ string) (conversationview.Snapshot, error) {
-	// Use conversationview.AsReader to get reader from store, then Snapshot for pinned
-	if rd, ok := conversationview.AsReader(r.store); ok {
-		return rd.Snapshot(ctx, r.pinned)
+func (r *pinnedReaderForReload) Snapshot(ctx context.Context, _ string) (conversationprojection.Snapshot, error) {
+	if r.reader != nil {
+		return r.reader.Snapshot(ctx, r.pinned)
 	}
-	return conversationview.Snapshot{}, conversationview.ErrALegNotFound
+	return conversationprojection.Snapshot{}, conversationview.ErrALegNotFound
 }
 
 func execPrincipalWithID(ctx context.Context, id string) context.Context {
 	return execview.WithPrincipal(ctx, execview.PrincipalView{ID: id})
+}
+
+func TestProcessServices_ConversationStore_PersistenceSelection_SQLiteAndInMemory(t *testing.T) {
+	t.Parallel()
+	// 1. SQLite: proves SQLite config yields Bun-backed store and writes survive process restart
+	path := filepath.Join(t.TempDir(), "conv-persist-restart.db")
+	cfg := routeOverrideBaseConfig()
+	cfg.Continuity = config.ContinuityConfig{
+		InMemory:   false,
+		Store:      "sqlite",
+		SQLitePath: path,
+	}
+	ctx := context.Background()
+	ps1 := mustRouteOverrideProcess(t, cfg)
+	store1 := ps1.StandardFeatures.ConversationStore()
+	require.NotNil(t, store1)
+
+	type bunDBProvider interface {
+		DB() *bun.DB
+	}
+	p1, ok := store1.(bunDBProvider)
+	require.True(t, ok)
+	require.NotNil(t, p1.DB(), "SQLite-configured ProcessServices must yield Bun-backed conversation store")
+
+	leg, err := ps1.Continuity.CreateALeg(ctx, "conv-sqlite-reopen")
+	require.NoError(t, err)
+
+	_, err = store1.PutSteering(ctx, leg.ALegID, conversationview.PutSteeringRequest{
+		OverlayID:           "ov-sqlite",
+		Message:             conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "sqlite-reopen-test"},
+		Placement:           conversationview.StoredPlacement{Kind: conversationprojection.PlacementStablePrefix},
+		AnchorMissingPolicy: conversationprojection.AnchorStablePrefixFallback,
+		Reason:              "test",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, ps1.Close())
+
+	// Reopen with same SQLite DB path
+	ps2 := mustRouteOverrideProcess(t, cfg)
+	t.Cleanup(func() { _ = ps2.Close() })
+	store2 := ps2.StandardFeatures.ConversationStore()
+	require.NotNil(t, store2)
+
+	p2, ok := store2.(bunDBProvider)
+	require.True(t, ok)
+	require.NotNil(t, p2.DB())
+
+	snap, err := store2.Snapshot(ctx, leg.ALegID)
+	require.NoError(t, err)
+	require.Len(t, snap.Steering, 1)
+	require.Equal(t, "sqlite-reopen-test", snap.Steering[0].Message.Text)
+
+	// 2. In-memory: proves in-memory config yields ReferenceStore with nil DB()
+	memCfg := routeOverrideBaseConfig()
+	psMem := mustRouteOverrideProcess(t, memCfg)
+	t.Cleanup(func() { _ = psMem.Close() })
+	memStore := psMem.StandardFeatures.ConversationStore()
+	require.NotNil(t, memStore)
+	pMem, ok := memStore.(bunDBProvider)
+	require.True(t, ok)
+	require.Nil(t, pMem.DB(), "in-memory ProcessServices must yield ReferenceStore with nil DB()")
 }

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
+	keepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 )
 
 type wrappedEOFReader struct{}
@@ -22,14 +22,14 @@ type policyStub struct {
 	calls    int
 }
 
-func (p *policyStub) Disable(string) (core.SessionPolicy, error) {
+func (p *policyStub) Disable(string) (keepwarm.SessionPolicy, error) {
 	p.disabled = true
 	p.calls++
-	return core.SessionPolicy{Disabled: true, Revision: 1, UpdatedAt: time.Now()}, nil
+	return keepwarm.SessionPolicy{Disabled: true, Revision: 1, UpdatedAt: time.Now()}, nil
 }
 func (p *policyStub) Clear(string) error { p.disabled = false; p.calls++; return nil }
-func (p *policyStub) Get(string) (core.SessionPolicy, bool) {
-	return core.SessionPolicy{Disabled: p.disabled, Revision: 1}, p.disabled
+func (p *policyStub) Get(string) (keepwarm.SessionPolicy, bool) {
+	return keepwarm.SessionPolicy{Disabled: p.disabled, Revision: 1}, p.disabled
 }
 
 func TestHandlerUsesAuthenticatedResolverNotBodyIdentity(t *testing.T) {

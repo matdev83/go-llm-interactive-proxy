@@ -80,10 +80,10 @@ func checkKeepwarmOrchestration(t *testing.T, root string) {
 	checkMetadata(t, root, "prompt-cache-keepwarm-orchestration")
 	checkTasks(t, root, "prompt-cache-keepwarm-orchestration", nil)
 	checkRequiredFiles(t, root, "prompt-cache-keepwarm-orchestration", []string{
-		"internal/core/keepwarm/manager.go",
-		"internal/core/keepwarm/scheduler.go",
-		"internal/core/keepwarm/lifecycle.go",
-		"internal/core/runtime/keepwarm_integration.go",
+		"internal/plugins/features/keepwarm/manager.go",
+		"internal/plugins/features/keepwarm/scheduler.go",
+		"internal/plugins/features/keepwarm/lifecycle.go",
+		"internal/core/runtime/prompt_cache_maintenance.go",
 		"internal/plugins/backends/anthropic/promptcache_live_test.go",
 	})
 	liveTest := readSpecFile(t, root, "internal/plugins/backends/anthropic/promptcache_live_test.go")

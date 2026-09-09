@@ -8,8 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	legacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	anthropic "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/anthropicmessages"
 	gemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/geminigenerate"
@@ -35,7 +36,7 @@ func visibilityProjectedCall(t *testing.T, fixedRole lipapi.Role, fixedText stri
 	anchorCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{u1}}
 	snap0, err := store.Snapshot(ctx, aLeg)
 	require.NoError(t, err)
-	anchor, err := conversationview.ResolveAfterIngressTailAnchor(anchorCall, snap0)
+	anchor, err := conversationprojection.ResolveAfterIngressTailAnchor(anchorCall, snap0)
 	require.NoError(t, err)
 	_, err = store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
 		OverlayID:           "steer-fixed",
@@ -54,7 +55,7 @@ func visibilityProjectedCall(t *testing.T, fixedRole lipapi.Role, fixedText stri
 		Messages:       []lipapi.Message{u1, a1, u2},
 		PromptCacheKey: "cache-key-123",
 	}
-	proj, _, err := conversationview.Project(call, snap)
+	proj, _, err := conversationprojection.Project(call, snap)
 	require.NoError(t, err)
 	require.NoError(t, proj.Validate())
 	assert.Equal(t, "cache-key-123", proj.PromptCacheKey)

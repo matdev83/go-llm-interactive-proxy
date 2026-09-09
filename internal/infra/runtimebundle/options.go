@@ -14,12 +14,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -62,6 +62,8 @@ type BuildOptions struct {
 	// [CompileGeneration] so a candidate that removes the last feature does not
 	// reuse startup-merged lifecycles/extensions. Legacy [CompileCandidate]
 	// callers leave this false (nil overlay fields mean "no override").
+	// CorePorts carries minimal fixed consumer-owned core interfaces compiled by featurehost.
+	CorePorts               featurehost.CorePorts
 	ReplaceCandidateSurface bool
 }
 
@@ -124,17 +126,11 @@ type AuthOptions struct {
 	AuthErrorRenderersByFrontend map[string]httpauth.AuthErrorRenderer
 }
 
-// ExtensionsOptions carries the feature-bundle extension surfaces merged into the runtime snapshot (task 5.1).
-// SecretGuardInputs carries single-user catalog / matcher composition overrides.
-type SecretGuardInputs = secretguardcompose.SecretGuardInputs
-
-type ExtensionsOptions struct {
-	// SecretGuardInputs carries supported composition seams for the guard
-	// matcher/source configuration.
-	SecretGuardInputs      SecretGuardInputs
-	SecretGuardEnvironment secretguardcompose.Environment
-	SecretDecisionObserver sdk.Observer
-}
+// ExtensionsOptions is the feature-bundle extension surface merged into the
+// runtime snapshot. All concrete feature state travels via ordinary planes,
+// lifecycles, and fixed consumer ports; the struct is intentionally empty and
+// retained so [BuildOptions] keeps a stable shape.
+type ExtensionsOptions struct{}
 
 // PolicyOptions carries policy-decision observer and budget configuration.
 type PolicyOptions struct {
@@ -186,6 +182,6 @@ type TestingOptions struct {
 	// SnapshotPublisherOverride, when non-nil, replaces the Build-constructed
 	// policy/rating generation publisher (Phase 9.3). Tests only.
 	SnapshotPublisherOverride *snapshotgen.Publisher
-	// ReasoningCompression mirrors Production.ReasoningCompression for tests.
-	ReasoningCompression ReasoningCompressionOptions
+	// FeatureHostRegistrations carries startup-only host-feature bindings for tests.
+	FeatureHostRegistrations []sdkfeaturehost.Registration
 }

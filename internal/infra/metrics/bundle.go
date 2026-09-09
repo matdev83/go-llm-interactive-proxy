@@ -4,7 +4,6 @@ import (
 	"database/sql"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
@@ -28,12 +27,11 @@ type Bundle struct {
 	PostgresPool        *PostgresPoolProm
 	TerminalWork        *TerminalWorkProm
 	Reload              *ReloadProm
-	Keepwarm            *KeepwarmProm
 	GeoIP               *GeoIPProm
 	ConversationView    *ConversationViewProm
 	sink                runtime.MetricsSink
 	tokenAccountingSink *TokenAccountingPromSink
-	conversationSink    conversationview.Observer
+	conversationSink    ConversationViewObserver
 }
 
 // NewBundle builds a registry with Go/process, inbound HTTP, executor, and upstream series.
@@ -53,7 +51,6 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	pg := RegisterPostgresPoolProm(r, poolStats)
 	tw := RegisterTerminalWorkProm(r)
 	reload := RegisterReloadProm(r)
-	keepwarm := RegisterKeepwarmProm(r)
 	geoip := RegisterGeoIPProm(r)
 	cv := RegisterConversationViewProm(r)
 	return &Bundle{
@@ -69,7 +66,6 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 		PostgresPool:        pg,
 		TerminalWork:        tw,
 		Reload:              reload,
-		Keepwarm:            keepwarm,
 		GeoIP:               geoip,
 		ConversationView:    cv,
 		sink:                NewExecutorPromSink(exec),
@@ -127,7 +123,7 @@ func (b *Bundle) TokenAccountingObservabilitySink() *TokenAccountingPromSink {
 }
 
 // ConversationViewObserver returns a bounded conversation-view observer (nil when metrics disabled).
-func (b *Bundle) ConversationViewObserver() conversationview.Observer {
+func (b *Bundle) ConversationViewObserver() ConversationViewObserver {
 	if b == nil {
 		return nil
 	}

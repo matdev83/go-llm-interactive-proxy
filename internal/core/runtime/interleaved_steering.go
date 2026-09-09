@@ -4,14 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/sdkadapter"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 )
 
 // The thinker memo reaches executor context exclusively as a persistent
@@ -21,58 +17,40 @@ import (
 // best-effort with bounded diagnostics: when steering cannot be persisted, the
 // memo is not linked for presentation and the turn continues without it,
 // mirroring the tolerant missing-memo semantics of the shaping contract.
-
-const (
-	// interleavedMemoOverlayID is the stable conversation-view overlay ID that
-	// carries the latest thinker memo for an A-leg. Each capture replaces the
-	// payload and re-resolves the anchor to the current ingress tail.
-	interleavedMemoOverlayID = "interleaved-thinking-memo"
-	// interleavedMemoSteeringReason is the bounded content-free reason recorded
-	// on the memo steering overlay and its diagnostics.
-	interleavedMemoSteeringReason = "interleaved_thinking_memo"
-)
-
-// memoSteeringPayload renders the model-visible user-message text persisted for
-// a captured memo. The header keeps prior injections unambiguous without any
-// protocol-specific markers.
-func memoSteeringPayload(memo string) string {
-	return interleavedthinking.SessionSteeringGuidanceHeader + "\n" + strings.TrimSpace(memo)
-}
+//
+// Memo steering policy (rendering, overlay identity, placement/fallback
+// selection, memo filtering) is feature-owned by
+// internal/plugins/features/interleavedthinking and reaches this orchestration
+// only through the runtime.InterleavedProcessor port. This file keeps the
+// authoritative output commitment and B-leg continuation sequencing.
 
 // publishMemoSteeringOverlay persists or replaces the thinker memo steering
-// overlay for the A-leg. Placement resolves after_ingress_tail against the
-// accepted ingress trajectory frozen at turn preparation; the anchor therefore
-// stays fixed while later history appends behind it (cache-stable).
+// overlay for the A-leg. The mutation itself is feature-owned (rendering,
+// overlay identity, placement, fallback, reason); this orchestration only
+// resolves the writer and commits it authoritatively.
 func (e *Executor) publishMemoSteeringOverlay(
 	ctx context.Context,
 	aLegID string,
 	ingress lipapi.Call,
-	snap conversationview.Snapshot,
+	snap conversationprojection.Snapshot,
 	memo string,
 ) error {
 	if e == nil || ctx == nil {
 		return errors.New("executor: invalid memo steering publish arguments")
 	}
-	store := e.conversationViewSteeringStore()
-	if store == nil {
+	if e.Processor == nil {
+		return errors.New("executor: interleaved processor unavailable")
+	}
+	if e.SteeringWriterFactory == nil {
 		return errors.New("executor: conversation-view steering capability unavailable")
 	}
-	writer, err := sdkadapter.NewWriter(store, aLegID, func(_ context.Context) (lipapi.Call, conversationview.Snapshot, error) {
+	writer, err := e.SteeringWriterFactory(ctx, aLegID, func(_ context.Context) (lipapi.Call, conversationprojection.Snapshot, error) {
 		return ingress, snap, nil
 	})
 	if err != nil {
 		return err
 	}
-	_, err = writer.Put(ctx, steering.PutRequest{
-		OverlayID: steering.OverlayID(interleavedMemoOverlayID),
-		Message: steering.Message{
-			Role: lipapi.RoleUser,
-			Text: memoSteeringPayload(memo),
-		},
-		Placement:           steering.AfterIngressTail,
-		AnchorMissingPolicy: steering.StablePrefixFallback,
-		Reason:              steering.ReasonCode(interleavedMemoSteeringReason),
-	})
+	_, err = writer.Put(ctx, e.Processor.MemoSteeringPutRequest(memo))
 	return err
 }
 
@@ -84,33 +62,22 @@ func (e *Executor) deactivateMemoSteeringOverlay(ctx context.Context, aLegID str
 	if e == nil || ctx == nil || aLegID == "" {
 		return nil
 	}
-	store := e.conversationViewSteeringStore()
-	if store == nil {
+	if e.Processor == nil {
+		return nil
+	}
+	if e.SteeringWriterFactory == nil {
 		return errors.New("executor: conversation-view steering capability unavailable")
 	}
-	_, err := store.DeactivateSteering(ctx, aLegID, interleavedMemoOverlayID)
-	if err != nil && !errors.Is(err, conversationview.ErrOverlayNotFound) && !errors.Is(err, conversationview.ErrALegNotFound) {
+	writer, err := e.SteeringWriterFactory(ctx, aLegID, nil)
+	if err != nil {
+		return err
+	}
+	_, err = writer.Deactivate(ctx, e.Processor.MemoSteeringOverlayID())
+	if err != nil && !errors.Is(err, conversationprojection.ErrOverlayNotFound) && !errors.Is(err, conversationprojection.ErrALegNotFound) {
 		e.logMemoSteeringDeactivateFailed(ctx, aLegID, err)
 		return err
 	}
 	return nil
-}
-
-// restoreMemoSteeringOverlay restores the previously linked memo after a
-// replacement transaction fails, or deactivates the newly published overlay
-// when no prior memo existed.
-func (e *Executor) restoreMemoSteeringOverlay(ctx context.Context, aLegID string, oldRef *interleavedstate.MemoRef, src capturedMemoSource) error {
-	if oldRef == nil || oldRef.Key == "" || e.MemoStore == nil {
-		return e.deactivateMemoSteeringOverlay(ctx, aLegID)
-	}
-	oldMemo, ok, err := e.MemoStore.Get(ctx, interleavedthinking.Scope(aLegID), *oldRef)
-	if err != nil {
-		return err
-	}
-	if !ok || strings.TrimSpace(oldMemo.Memo) == "" {
-		return e.deactivateMemoSteeringOverlay(ctx, aLegID)
-	}
-	return e.publishMemoSteeringOverlay(ctx, aLegID, src.Ingress, src.Snapshot, oldMemo.Memo)
 }
 
 // refreshMemoSteeringFacts rebuilds the request facts for the same-turn
@@ -132,6 +99,9 @@ func (e *Executor) refreshMemoSteeringFacts(
 	if e == nil || ctx == nil {
 		return facts, false
 	}
+	if e.Processor == nil {
+		return facts, false
+	}
 	reader := e.conversationViewReader()
 	if reader == nil {
 		return facts, false
@@ -143,7 +113,7 @@ func (e *Executor) refreshMemoSteeringFacts(
 	}
 	memoVisibleSuppressed := suppressVisibleMemo && e.memoStateVisibleToClient(ctx, facts.aLegID, state)
 	if memoVisibleSuppressed {
-		snap = stripMemoSteeringOverlay(snap)
+		snap = withoutSteeringOverlay(snap, e.Processor.IsMemoSteeringOverlay)
 	}
 	if snap.StateRevision == conversationRevision(facts) && !memoVisibleSuppressed {
 		return facts, true
@@ -152,12 +122,12 @@ func (e *Executor) refreshMemoSteeringFacts(
 	if len(ingress.Items) == 0 && len(ingress.Messages) == 0 {
 		ingress = memoProjectionBaseline(facts)
 	}
-	projected, ev, err := conversationview.Project(ingress, snap)
+	projected, ev, err := conversationprojection.Project(ingress, snap)
 	if err != nil {
 		e.logMemoSteeringRefreshFailure(ctx, facts.traceID, "projection", err)
 		return facts, false
 	}
-	filtered, err := conversationview.FilterNeverBackend(ingress, snap)
+	filtered, err := conversationprojection.FilterNeverBackend(ingress, snap)
 	if err != nil {
 		e.logMemoSteeringRefreshFailure(ctx, facts.traceID, "filter", err)
 		return facts, false
@@ -198,26 +168,25 @@ func projectRefreshedMemoContext(ctx context.Context, source recvTurnFacts, log 
 }
 
 // memoStateVisibleToClient reports whether the currently linked memo was
-// surfaced to the client during this logical turn. A missing memo body yields
-// false so hidden-mode behavior is unchanged.
+// surfaced to the client during this logical turn.
 func (e *Executor) memoStateVisibleToClient(ctx context.Context, aLegID string, state interleavedstate.State) bool {
-	if e == nil || e.MemoStore == nil || state.MemoRef == nil || state.MemoRef.Key == "" {
+	if e == nil || e.Processor == nil || aLegID == "" {
 		return false
 	}
-	memo, ok, err := e.MemoStore.Get(ctx, interleavedthinking.Scope(aLegID), *state.MemoRef)
-	if err != nil || !ok {
-		return false
-	}
-	return memo.VisibleToClient
+	return e.Processor.IsMemoVisibleToClient(ctx, aLegID)
 }
 
-// stripMemoSteeringOverlay returns a copy of snap without the memo steering
-// overlay so the immediate visible-mode continuation does not duplicate
-// reasoning the client already saw.
-func stripMemoSteeringOverlay(snap conversationview.Snapshot) conversationview.Snapshot {
-	kept := make([]conversationview.SteeringOverlay, 0, len(snap.Steering))
+// withoutSteeringOverlay returns a copy of snap without overlays matching
+// isTarget, so the immediate visible-mode continuation does not duplicate
+// reasoning the client already saw. The match predicate is feature-owned;
+// this sequencing helper knows no overlay identity.
+func withoutSteeringOverlay(snap conversationprojection.Snapshot, isTarget func(string) bool) conversationprojection.Snapshot {
+	if isTarget == nil {
+		return snap
+	}
+	kept := make([]conversationprojection.Overlay, 0, len(snap.Steering))
 	for _, ov := range snap.Steering {
-		if ov.OverlayID == interleavedMemoOverlayID {
+		if isTarget(ov.OverlayID) {
 			continue
 		}
 		kept = append(kept, ov)

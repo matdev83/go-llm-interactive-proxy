@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
@@ -35,9 +36,9 @@ func TestCompactionContinuityShutdownCertification_ProcessOwnsAndClosesResources
 	if ps.BackgroundAux != scheduler {
 		t.Fatal("ProcessServices did not adopt the supplied process scheduler")
 	}
-	if ps.BranchCoordinator == nil {
-		t.Fatal("ProcessServices did not construct the process branch coordinator")
-	}
+	// Branch-coordinator presence and behavior now live inside package
+	// featurehost (TestProcess_BranchCoordinatorBehaviorAndGenerationStability);
+	// this certification covers process shutdown ordering only.
 
 	if err := ps.Close(); err != nil {
 		t.Fatalf("ProcessServices.Close: %v", err)
@@ -53,7 +54,7 @@ func TestCompactionContinuityShutdownCertification_ProcessOwnsAndClosesResources
 
 func TestCompactionContinuityShutdownCertification_BranchAndPreviewBounds(t *testing.T) {
 	clock := &certificationClock{now: time.Unix(100, 0)}
-	coordinator, err := compactioncontinuity.NewBranchCoordinator(context.Background(), compactioncontinuity.Config{
+	coordinator, err := state.NewBranchCoordinator(context.Background(), state.Config{
 		MaxEntries:        2,
 		MaxPreviewIntents: 1,
 		TTL:               time.Minute,
@@ -71,13 +72,13 @@ func TestCompactionContinuityShutdownCertification_BranchAndPreviewBounds(t *tes
 	if _, err := coordinator.Capture(context.Background(), second); err != nil {
 		t.Fatalf("Capture second: %v", err)
 	}
-	if _, err := coordinator.Capture(context.Background(), third); !errors.Is(err, compactioncontinuity.ErrBranchLimit) {
+	if _, err := coordinator.Capture(context.Background(), third); !errors.Is(err, state.ErrBranchLimit) {
 		t.Fatalf("third branch error=%v want ErrBranchLimit", err)
 	}
-	if _, err := coordinator.RecordPreviewIntent(context.Background(), first, compactioncontinuity.PreviewIntent{Key: "preview-first", TargetSourceRevision: 1}); err != nil {
+	if _, err := coordinator.RecordPreviewIntent(context.Background(), first, state.PreviewIntent{Key: "preview-first", TargetSourceRevision: 1}); err != nil {
 		t.Fatalf("RecordPreviewIntent first: %v", err)
 	}
-	if _, err := coordinator.RecordPreviewIntent(context.Background(), second, compactioncontinuity.PreviewIntent{Key: "preview-second", TargetSourceRevision: 1}); !errors.Is(err, compactioncontinuity.ErrPreviewIntentLimit) {
+	if _, err := coordinator.RecordPreviewIntent(context.Background(), second, state.PreviewIntent{Key: "preview-second", TargetSourceRevision: 1}); !errors.Is(err, state.ErrPreviewIntentLimit) {
 		t.Fatalf("second preview intent error=%v want ErrPreviewIntentLimit", err)
 	}
 
@@ -89,6 +90,15 @@ func TestCompactionContinuityShutdownCertification_BranchAndPreviewBounds(t *tes
 	}
 	if _, err := coordinator.Capture(context.Background(), third); err != nil {
 		t.Fatalf("Capture after bounded expiry: %v", err)
+	}
+}
+
+func processServicesCoordinatorConfig() *config.Config {
+	return &config.Config{
+		Routing:    config.RoutingConfig{MaxAttempts: 1},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins:    config.PluginsConfig{Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}}},
+		Server:     config.ServerConfig{MaxConcurrentDecodes: 1, MaxInflightDecodeBytes: 1024},
 	}
 }
 
@@ -109,8 +119,8 @@ func (c *certificationClock) Advance(d time.Duration) {
 	c.mu.Unlock()
 }
 
-func certificationBranchKey(id string) compactioncontinuity.BranchKey {
-	key, err := compactioncontinuity.NewBranchKey("session-certification", "a-"+id, "principal-certification")
+func certificationBranchKey(id string) state.BranchKey {
+	key, err := state.NewBranchKey("session-certification", "a-"+id, "principal-certification")
 	if err != nil {
 		panic(err)
 	}

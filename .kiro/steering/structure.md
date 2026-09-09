@@ -46,13 +46,13 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
   - `authorityattribution/` — Leg attribution tracking.
   - `controlplane/` — Ledgerstore projections (`usage_projector.go`), metering bridges, readiness reports (`readiness_report.go`), query bounds, privacy guardrails.
   - `metering/` — Usage/cost metering models.
-- **Continuity & Sessions**: `b2bua/` (attempt lineage/store), `continuity/` (`bunstore`), `securesession/` (`adapters/`, `storecontract/`, `domain/`, `app/`), `conversationview/` (`sdkadapter/`, `storecontract/` — replay-stable message identity, `never_backend` exclusion classification, and persistent client-hidden/model-visible steering projected at the A-leg/B-leg boundary; persisted through its own store contract over Memory/SQLite/PostgreSQL)
+- **Continuity & Sessions**: `b2bua/` (attempt lineage/store), `continuity/` (`bunstore`), `securesession/` (`adapters/`, `storecontract/`, `domain/`, `app/`), `conversationprojection/` (pure replay-stable message identity, `never_backend` exclusion, deterministic projection/reassertion at the A-leg/B-leg boundary). Mutable steering/tag state and persistence live outside core in `internal/infra/conversationview` (`sdkadapter/`, `storecontract/`, Memory/SQLite/PostgreSQL) and are composed by `internal/standardplugins/featurehost`.
 - **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `geoip/` (protocol-neutral ingress GeoIP policy semantics)
-- **Canonical Support & State**: `capabilities/`, `jsonpresence/`, `jsonshape/` (preflight guards), `diag/`, `config/`, `configreload/`, `interleavedthinking/` (reasoning memo store/shape), `interleavedstate/`, `snapshotgen/`
-- **Observability/Detection**: `compactioncontinuity/` (process-owned branch coordinator — `BranchKey`/`BranchState` CAS authority for compaction-continuity capsules committed via background auxiliary jobs)
+- **Canonical Support & State**: `capabilities/`, `jsonpresence/`, `jsonshape/` (preflight guards), `diag/`, `config/`, `configreload/`, `interleavedstate/` (routing-required thinker cycle values only; memo/prompt/sanitize policy is feature-owned in `internal/plugins/features/interleavedthinking/`), `snapshotgen/`
+- **Observability/Detection**: compaction-continuity branch/capsule/job state is feature-owned in `internal/plugins/features/compactioncontinuity/state`, bound to authoritative core facts by `internal/standardplugins/featurehost/compaction`; keep-warm scheduling/policy is feature-owned in `internal/plugins/features/keepwarm`
 - **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`, `localstream/` (generic canonical proxy-local response streams backing local turns)
-- **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform), `terminaldecisionpolicy/` (process-owned bounded session policy store for terminal-decision feature overrides). The runtime enforces the shared terminal-decision chokepoint over the single exclusive `pkg/lipsdk/terminaldecision` provider slot with core-owned continuation transactions; generic no-provider behavior is preserved when no provider is installed.
-- **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `billing/`, `tokenaccounting/`, `keepwarm/` (keep-warm accounting)
+- **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform), runtime consumer-owned `TerminalPolicyReader` (effective terminal-decision policy snapshot admission; mutable session policy store is process-owned outside core under `internal/standardplugins/featurehost/sessionpolicy`). The runtime enforces the shared terminal-decision chokepoint over the single exclusive `pkg/lipsdk/terminaldecision` provider slot with core-owned continuation transactions; generic no-provider behavior is preserved when no provider is installed.
+- **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `billing/`, `tokenaccounting/` (keep-warm accounting adaptation is feature-owned in `internal/plugins/features/keepwarm`)
   - `billing/` owns BillingCallID, quote/exposure policy, immutable per-call/per-leg usage contracts (including authoritative persisted `AttemptSeq`), post-usage rating, journal settlement, and billing reports. Runtime performs cheap credit screening and atomic operational exposure admission, then appends terminal usage; it must not enrich prices or write the legacy token ledger. Customer rating resolves customer pricing and model cards only, independent of provider/operator-rate readiness; runtime billing bookkeeping is `BillingCallID`-scoped (no executor-global call registry).
   - `tokenaccounting/` remains a protocol/quota usage projection and admin counting surface only; it is not a financial balance or journal input.
   - Durable money persistence is `internal/infra/billingstore` (Bun). Host injection is `internal/infra/billingcompose` (snapshot catalog + identity) plus `runtimebundle.ComposeBilling`. Admission adapter is `internal/infra/billingadmission`. Public `pkg/lipruntime.Options` stays non-money.
@@ -61,6 +61,8 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
 
 - `internal/pluginreg/` — Standard distribution plugin registry & validation.
 - `internal/standardplugins/` — Built-in bundle tables (`standard_table.go`), `InstallStandardBundleOn`, `ResolveUpstreamAPIKeysFromEnv`.
+- `internal/standardplugins/featurehost/` — Standard-distribution feature composition owner: compiles process/generation-bound features, holds host-feature registrations, and owns the single constructor / single physical cleanup per process feature resource (children: `compaction/`, `reasoning/`, `secretguard/`, `sessionpolicy/`).
+- `internal/standardplugins/legacyfeatureconfig/` — Decode-only legacy YAML shim: normalizes top-level `interleaved:` / `prompt_cache:` keys into canonical `plugins.features` entries (conflict errors on dual specification); feature-owned constructors stay authoritative downstream.
 - `internal/featurebundle/` — Feature merge engine (`MergeFeatureSurface`).
 - `internal/infra/runtimebundle/` — Process `Host` builder (`runtimebundle.BuildHost`), immutable generation management (`GenerationRuntime`), shutdown coordinator; the host lifecycle ends through `Host.Close`. Authoritative billing is injected through `ComposeBilling` → `BuildHostInput.Production`; `cmd/lipstd` does not open a billing journal. Contains zero direct imports of `internal/plugins/features/*`.
 - `internal/stdhttp/` — Standard HTTP surface, route mounting, auth attachment, diagnostics, access logs. Optional billing reports, routing-override admin mounts, and terminal-decision session-feature policy endpoints (generic authenticated client `/v1/lip/session/features/{feature_id}` and diagnostics-secret operator surfaces) are composition-gated.
@@ -93,11 +95,11 @@ Wire frontends translate protocol payloads <-> canonical contracts:
 
 ### 6. Support & Test Surfaces
 
-- `internal/infra/` — HTTP client tuning, structured logging, Prometheus metrics, OTLP tracing, DB connectors, secret audit, billing store/compose/admission adapters, compaction detection (`compactiondetect/`), and dedicated feature composition adapters (`compactioncompose/`, `reasoningcompose/`, `secretguardcompose/`).
+- `internal/infra/` — HTTP client tuning, structured logging, Prometheus metrics, OTLP tracing, DB connectors, secret audit, billing store/compose/admission adapters, compaction detection (`compactiondetect/`). The retired `internal/infra/` feature composition adapters now live beneath the standard-distribution feature owner as `internal/standardplugins/featurehost/` children (`compaction/`, `reasoning/`, `secretguard/`).
 - `internal/refbackend/` — Test-only backend emulators (HTTP).
 - `internal/refclient/` — Test-only official SDK reference clients.
 - `internal/testkit/` — Stubs, fakes, fixtures, reasoning E2E plans (`reasoninge2e/`), contract TCKs (`contract/` for canonical-core, frontend, and backend-family certification). Cartesian FE×BE completeness is not a release invariant.
-- `internal/reasoningreplay/` — Reasoning prefix matcher (`compatible-auto.v2`).
+- `internal/plugins/features/reasoningpreservation/reasoningreplay/` — Reasoning prefix matcher (`compatible-auto.v2`).
 - `internal/qa/` & `internal/archtest/` — Repository hygiene & architecture guardrail gates.
 
 The architecture gates also include the deterministic change-surface reporter at `internal/archtest/tools/changesurface`; it classifies Git paths and keeps profile-only shared-boundary footprint at zero.
@@ -120,15 +122,15 @@ The architecture gates also include the deterministic change-surface reporter at
 | Change routing rules / selector syntax | `internal/core/routing/` |
 | Add A-leg runtime routing overrides | `internal/core/routeoverride/`, persist via `b2bua` / `continuity/bunstore`, HTTP in `internal/stdhttp/` |
 | Change stream semantics or keepalives | `internal/core/stream/`, `internal/core/streamrecovery/` |
-| Modify reasoning preservation | `internal/plugins/features/reasoningpreservation/`, `internal/core/interleavedthinking/` |
+| Modify reasoning preservation | `internal/plugins/features/reasoningpreservation/`, standard composition via `internal/standardplugins/featurehost/` |
 | Update standard HTTP server / auth | `internal/stdhttp/`, `internal/infra/runtimebundle/` |
 | Change exposure / usage / journal / post-usage settlement | `internal/core/billing/`, persist via `internal/infra/billingstore/` |
 | Enable billing in an internal host | `runtimebundle.ComposeBilling`, catalog in `internal/infra/billingcompose/`; see `docs/billing-host-composition.md` |
 | Add a compatible inference profile | `internal/providerprofiles/` (data), bind through `internal/standardplugins/` |
 | Classify coding-agent tool names | `pkg/lipapi` (`ClassifyToolName`); runtime correlates name-less fragments by `ToolCallID` |
 | Detect coding-agent session compaction | `internal/infra/compactiondetect/`; subscribe via `pkg/lipsdk/compaction` observers |
-| Change compaction-continuity capsule state | `internal/core/compactioncontinuity/`, feature merge via `internal/infra/compactioncompose/` |
-| Tag content non-forwardable / add local turns or persistent steering | `internal/core/conversationview/`; trusted producers via `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, `pkg/lipsdk/localturn` |
+| Change compaction-continuity capsule state | `internal/plugins/features/compactioncontinuity/state`, parent binding via `internal/standardplugins/featurehost/compaction` |
+| Tag content non-forwardable / add local turns or persistent steering | `internal/core/conversationprojection/` (pure kernel) + `internal/infra/conversationview/` (state/services); trusted producers via `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, `pkg/lipsdk/localturn` |
 | Add a terminal-decision feature provider (e.g., loop guards) | contract `pkg/lipsdk/terminaldecision`, provider plugin under `internal/plugins/features/`, policy endpoints in `internal/stdhttp/` |
 
 ---
@@ -154,7 +156,8 @@ The architecture gates also include the deterministic change-surface reporter at
 - Request/response mutation logic must live behind hooks or extension stages, not in the routing engine.
 - Core must not import or branch on concrete terminal-decision providers: one exclusive provider slot, generic no-provider fallback, and provider removal preserves default behavior.
 - Feature plugins should depend on `pkg/lipsdk` contracts, not `internal/core` implementation packages.
-- In the target architecture, migrated feature plugins (`toolcallrepair`, `secretguard`, `reasoningpreservation`) own configuration decoding and bundle construction as the target model for new features, while retained `standardplugins`-owned assembly (e.g. Agent Loop Guard, Pre-request Policy, reference/no-op factories in `features_install.go:38,53,220`) is deferred with inventory tracking; standard distribution (`internal/standardplugins`) registers them explicitly; `internal/core` and `internal/infra/runtimebundle` contain no feature-specific branches or concrete feature imports.
+- Feature plugins (`toolcallrepair`, `secretguard`, `reasoningpreservation`, and all migrated standard features) own domain state, configuration decoding and bundle construction; simple plane-only features register a thin factory in `features_install.go` while process/generation-bound features are composed by `internal/standardplugins/featurehost`; standard distribution (`internal/standardplugins`) registers them explicitly; `internal/core` and `internal/infra/runtimebundle` contain no feature-specific branches or concrete feature imports. A process feature resource has exactly one constructor path and one physical cleanup owner; `StandardFeatures.Close` never closes borrowed generic process resources.
+- Kernel–policy split: pure projection/orchestration operators over canonical facts stay in `internal/core`; domain policy lives in feature plugins and reaches core only through `pkg/lipsdk` ports and featurehost bindings.
 - The v1 extension-plane catalog is closed (`pkg/lipsdk/feature/plane_manifest.go`); ungenerated planes fail with `ErrUngeneratedPlane`; canonical generated binding is authoritative for production policy.
 - Security startup checks belong in config/runtimebundle/stdhttp composition boundaries, not inside protocol codecs.
 - Backend local-only access-scope enforcement belongs in standard registration/runtimebundle policy, not inside protocol codecs.

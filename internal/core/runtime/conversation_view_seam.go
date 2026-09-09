@@ -7,7 +7,7 @@ package runtime
 //   Validate → SecureSession.BeginTurn → FetchALeg → RouteAuthoritySnapshotBarrier
 //   → captureFrontendIngressBeforeSubmit → admitRequestAuthorityOnce → RunSubmit
 //   → CTP emit (traffic.LegCTP) → [SEAM] → ToolCatalog/RequestTransform/PreRequest
-//   → RouteSelector override + RouteHint → Keepwarm.BeginRealTurn → stampBillingCallID
+//   → RouteSelector override + RouteHint → PromptCacheMaintenance.BeginRealTurn → stampBillingCallID
 //   → StartALeg → route planning / billing / capability → B-leg open.
 //
 // The seam is placed after authoritative A-leg + secret/submit/CTP boundaries

@@ -5,21 +5,29 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 )
 
 // normalizedProduction is the defensively copied descriptor-bound registration set.
 type normalizedProduction struct {
-	RequestRegistrations    []authority.RequestRegistration
-	AttemptRegistrations    []authority.AttemptRegistration
-	ConcurrencyRegistration *authority.ConcurrencyRegistration
+	RequestRegistrations     []authority.RequestRegistration
+	AttemptRegistrations     []authority.AttemptRegistration
+	ConcurrencyRegistration  *authority.ConcurrencyRegistration
+	FeatureHostRegistrations []featurehost.Registration
 }
 
 // normalizeCanonicalOptions accepts descriptor-bound registrations only.
 func normalizeCanonicalOptions(opts Options) (normalizedProduction, error) {
 	out := normalizedProduction{
-		RequestRegistrations:    append([]authority.RequestRegistration(nil), opts.RequestRegistrations...),
-		AttemptRegistrations:    append([]authority.AttemptRegistration(nil), opts.AttemptRegistrations...),
-		ConcurrencyRegistration: opts.ConcurrencyRegistration,
+		RequestRegistrations:     append([]authority.RequestRegistration(nil), opts.RequestRegistrations...),
+		AttemptRegistrations:     append([]authority.AttemptRegistration(nil), opts.AttemptRegistrations...),
+		ConcurrencyRegistration:  opts.ConcurrencyRegistration,
+		FeatureHostRegistrations: append([]featurehost.Registration(nil), opts.FeatureHostRegistrations...),
+	}
+	if len(out.FeatureHostRegistrations) > 0 {
+		if err := featurehost.Validate(out.FeatureHostRegistrations); err != nil {
+			return normalizedProduction{}, fmt.Errorf("lipruntime: %w", err)
+		}
 	}
 	if err := validateRegistrationSets(out); err != nil {
 		return normalizedProduction{}, err

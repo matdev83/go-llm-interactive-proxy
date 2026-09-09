@@ -16,7 +16,7 @@ func knownItemType(t string) bool {
 }
 
 func isExtensionType(t string) bool {
-	return bytes.ContainsRune([]byte(t), ':')
+	return strings.ContainsRune(t, ':')
 }
 
 // UnmarshalJSON parses a discriminated wire item. Known portable types are typed;

@@ -14,9 +14,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -88,13 +89,19 @@ func TestExecutor_HiddenInterleavedContinuation_EmitsExecutorOnlyAndStoresMemo(t
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	proc, err := interleavedthinking.NewProcessor(interleavedthinking.Config{
+		Enabled:               true,
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
+	}, memoStore)
+	if err != nil {
+		t.Fatal(err)
 	}
-	ex.MemoStore = memoStore
+	ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
+	runtime.RegisterTestMemoStore(ex, memoStore)
+	wireInterleavedTestSteering(ex)
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := interleavedBaseCall(selector)
@@ -137,14 +144,11 @@ func TestExecutor_HiddenInterleavedContinuation_EmitsExecutorOnlyAndStoresMemo(t
 		t.Fatal("memo wrapper tags must not reach the client")
 	}
 
-	state, err := st.FetchInterleavedState(context.Background(), aLegID)
+	_, err = st.FetchInterleavedState(context.Background(), aLegID)
 	if err != nil {
 		t.Fatalf("fetch interleaved state: %v", err)
 	}
-	if state.MemoRef == nil {
-		t.Fatal("memo reference must be persisted after hidden thinker capture")
-	}
-	stored, ok, err := memoStore.Get(context.Background(), interleavedthinking.Scope(aLegID), *state.MemoRef)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(aLegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
 	}
@@ -191,13 +195,19 @@ func interleavedVisibleExecutor(t *testing.T, backends map[string]execbackend.Ba
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	proc, err := interleavedthinking.NewProcessor(interleavedthinking.Config{
+		Enabled:               true,
 		Instructions:          "Think step by step.",
 		StreamToClient:        "visible",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
+	}, memoStore)
+	if err != nil {
+		t.Fatal(err)
 	}
-	ex.MemoStore = memoStore
+	ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
+	runtime.RegisterTestMemoStore(ex, memoStore)
+	wireInterleavedTestSteering(ex)
 	return ex, st
 }
 
@@ -273,14 +283,15 @@ func TestExecutor_VisibleInterleavedContinuation_EmitsReasoningThenExecutor(t *t
 		t.Fatalf("text: got %q want %q", got, "executor answer")
 	}
 
-	state, err := st.FetchInterleavedState(context.Background(), first.Session.ALegID)
+	_, err = st.FetchInterleavedState(context.Background(), first.Session.ALegID)
 	if err != nil {
 		t.Fatalf("fetch interleaved state: %v", err)
 	}
-	if state.MemoRef == nil {
-		t.Fatal("memo reference must be persisted after visible thinker capture")
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
 	}
-	stored, ok, err := ex.MemoStore.Get(context.Background(), interleavedthinking.Scope(first.Session.ALegID), *state.MemoRef)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
 	}
@@ -424,13 +435,19 @@ func interleavedExecutor(t *testing.T, backends map[string]execbackend.Backend) 
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	proc, err := interleavedthinking.NewProcessor(interleavedthinking.Config{
+		Enabled:               true,
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
+	}, memoStore)
+	if err != nil {
+		t.Fatal(err)
 	}
-	ex.MemoStore = memoStore
+	ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
+	runtime.RegisterTestMemoStore(ex, memoStore)
+	wireInterleavedTestSteering(ex)
 	return ex, st
 }
 
@@ -758,14 +775,15 @@ func TestExecutor_HiddenInterleavedInterruptedThinkerPersistsPartialMemo(t *test
 	}
 	_ = stream.Close()
 
-	state, err := st.FetchInterleavedState(context.Background(), first.Session.ALegID)
+	_, err = st.FetchInterleavedState(context.Background(), first.Session.ALegID)
 	if err != nil {
 		t.Fatalf("fetch interleaved state: %v", err)
 	}
-	if state.MemoRef == nil {
-		t.Fatal("interrupted thinker with partial memo must persist memo reference")
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
 	}
-	stored, ok, err := ex.MemoStore.Get(context.Background(), interleavedthinking.Scope(first.Session.ALegID), *state.MemoRef)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
 	}
@@ -827,7 +845,7 @@ func TestExecutor_VisibleInterleavedInterruptedThinkerMemoNotMarkedVisible(t *te
 			},
 		},
 	}
-	ex, st := interleavedVisibleExecutor(t, backends)
+	ex, _ := interleavedVisibleExecutor(t, backends)
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := interleavedBaseCall(selector)
@@ -851,14 +869,11 @@ func TestExecutor_VisibleInterleavedInterruptedThinkerMemoNotMarkedVisible(t *te
 	}
 	_ = stream.Close()
 
-	state, err := st.FetchInterleavedState(context.Background(), first.Session.ALegID)
-	if err != nil {
-		t.Fatalf("fetch interleaved state: %v", err)
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
 	}
-	if state.MemoRef == nil {
-		t.Fatal("interrupted thinker with partial memo must persist memo reference")
-	}
-	stored, ok, err := ex.MemoStore.Get(context.Background(), interleavedthinking.Scope(first.Session.ALegID), *state.MemoRef)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
 	}
@@ -882,7 +897,7 @@ func TestExecutor_VisibleInterleavedCloseAfterStartBeforeReasoningMemoNotVisible
 			return thinkerMemoStream("plan before close")
 		}),
 	}
-	ex, st := interleavedVisibleExecutor(t, backends)
+	ex, _ := interleavedVisibleExecutor(t, backends)
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := interleavedBaseCall(selector)
@@ -913,14 +928,11 @@ func TestExecutor_VisibleInterleavedCloseAfterStartBeforeReasoningMemoNotVisible
 		t.Fatalf("close: %v", err)
 	}
 
-	state, err := st.FetchInterleavedState(context.Background(), first.Session.ALegID)
-	if err != nil {
-		t.Fatalf("fetch interleaved state: %v", err)
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
 	}
-	if state.MemoRef == nil {
-		t.Fatal("thinker memo must still be persisted on close")
-	}
-	stored, ok, err := ex.MemoStore.Get(context.Background(), interleavedthinking.Scope(first.Session.ALegID), *state.MemoRef)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(first.Session.ALegID))
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
 	}
@@ -1313,5 +1325,85 @@ func TestExecutor_HiddenInterleavedContinuationHandoffClosesThinkerStream(t *tes
 	}
 	if thinkerStream.closeCount.Load() != 1 {
 		t.Fatalf("outer close must not double-close thinker: got %d want 1", thinkerStream.closeCount.Load())
+	}
+}
+
+func TestExecutor_VisibleInterleavedContinuation_FlushesPartialTagAtEOF(t *testing.T) {
+	t.Parallel()
+
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoStore := interleavedthinking.NewMemoStore(4096)
+
+	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools)
+	backends := map[string]execbackend.Backend{
+		"exec-be": *interleavedBackendWithStream(caps, nil, func() lipapi.ManagedEventStream {
+			return executorTextStream("executor answer")
+		}),
+		"thinker-be": *interleavedBackendWithStream(caps, nil, func() lipapi.ManagedEventStream {
+			return lipapi.NewFixedEventStream([]lipapi.Event{
+				{Kind: lipapi.EventResponseStarted},
+				{Kind: lipapi.EventMessageStarted},
+				{Kind: lipapi.EventTextDelta, Delta: "visible plan <proxy_thinker_me"},
+				{Kind: lipapi.EventResponseFinished},
+			})
+		}),
+	}
+
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = backends
+	proc, err := interleavedthinking.NewProcessor(interleavedthinking.Config{
+		Enabled:               true,
+		Instructions:          "Think step by step.",
+		StreamToClient:        "visible",
+		MaxMemoBytes:          4096,
+		RegularTurnsRemaining: 2,
+	}, memoStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
+	runtime.RegisterTestMemoStore(ex, memoStore)
+	wireInterleavedTestSteering(ex)
+
+	selector := "[thinker]thinker-be:m^exec-be:m"
+	first := interleavedBaseCall(selector)
+	firstStream, err := ex.Execute(context.Background(), first)
+	if err != nil {
+		t.Fatalf("first execute: %v", err)
+	}
+	if _, err := lipapi.Collect(context.Background(), firstStream); err != nil {
+		t.Fatalf("first collect: %v", err)
+	}
+	aLegID := first.Session.ALegID
+	if aLegID == "" {
+		t.Fatal("first execute must set A-leg id")
+	}
+
+	second := interleavedBaseCall(selector)
+	second.Session = lipapi.SessionRef{
+		AuthoritativeSessionID: first.Session.AuthoritativeSessionID,
+		ALegID:                 aLegID,
+		ClientSessionID:        first.Session.ClientSessionID,
+		ResumeToken:            first.Session.ResumeToken,
+	}
+	stream, err := ex.Execute(context.Background(), second)
+	if err != nil {
+		t.Fatalf("second execute: %v", err)
+	}
+
+	collected, err := lipapi.Collect(context.Background(), stream)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+
+	reasoning := collected.Reasoning.String()
+	if !strings.Contains(reasoning, "<proxy_thinker_me") {
+		t.Fatalf("EOF flush failed: reasoning %q does not contain flushed partial tag %q", reasoning, "<proxy_thinker_me")
 	}
 }

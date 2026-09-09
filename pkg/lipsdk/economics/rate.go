@@ -32,7 +32,7 @@ func ParseDecimalToNano(raw string) (int64, error) {
 		return 0, fmt.Errorf("economics: empty decimal")
 	}
 	dot := -1
-	for i := 0; i < len(raw); i++ {
+	for i := range len(raw) {
 		c := raw[i]
 		if c == '.' {
 			if dot >= 0 {

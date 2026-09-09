@@ -17,7 +17,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
@@ -558,7 +557,6 @@ func (s *attemptSlot) swapIfOpen(ready *readyAttempt) (old *attemptSession, publ
 // pendingSelectionEffects captures winner/interleaved effects as data until publication accepts.
 type pendingSelectionEffects struct {
 	interleaved interleavedstate.State
-	memoUpdate  *interleavedthinking.PendingMemoUpdate
 }
 
 type pendingInvalidationKind int

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	corehooks "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -113,7 +113,7 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	ibt.conversationEvidence = projEv
 	ibt.conversationSummary = newConversationProjectionSummary(snapView, projEv)
 	ibt.convSnapshotSet = true
-	if filtered, ferr := conversationview.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
+	if filtered, ferr := conversationprojection.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
 		ibt.conversationFilteredBaseline = &filtered
 	} else {
 		_ = e.releaseRequestAuthority(outCtx)

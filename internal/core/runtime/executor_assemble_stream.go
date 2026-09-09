@@ -70,14 +70,18 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	var stream lipapi.EventStream = rs
 	// Determine candidate for wrapper selection without consuming ready.
 	cand := out.ready.Candidate()
-	if e.shouldWrapHiddenInterleavedThinker(cand) {
+	turn := openedTurn(out)
+	if turn == nil && e != nil && e.interleavedEnabled() {
+		turn, _ = e.getOrBeginInterleavedTurn(ctx, requestFacts{
+			recvTurnFacts: rsFacts,
+			bus:           prep.bus,
+			aScope:        prep.aScope,
+		}, cand)
+	}
+	if e.shouldWrapInterleavedThinker(cand, turn) {
 		rs.terminal.setInterleavedThinker()
 		rs.terminal.deferALegEndToOuter()
-		stream = newHiddenInterleavedStream(rs, e.newThinkerRecorder(cand, *prep.call), out.interleaved)
-	} else if e.shouldWrapVisibleInterleavedThinker(cand) {
-		rs.terminal.setInterleavedThinker()
-		rs.terminal.deferALegEndToOuter()
-		stream = newVisibleInterleavedStream(rs, e.newThinkerRecorder(cand, *prep.call), out.interleaved)
+		stream = newInterleavedContinuationStream(rs, turn, out.interleaved)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -124,4 +128,8 @@ func (tx *streamAssemblyTx) Rollback(ctx context.Context, err error) {
 	if tx.ready != nil {
 		tx.ready.Dispose(ctx, err)
 	}
+}
+
+func openedTurn(a openedAttempt) InterleavedTurn {
+	return a.turn
 }

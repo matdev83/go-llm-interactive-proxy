@@ -13,13 +13,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -27,6 +25,7 @@ import (
 	infraGeoIP "github.com/matdev83/go-llm-interactive-proxy/internal/infra/geoip"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -65,25 +64,26 @@ type candidateOperationsGroup struct {
 	terminalRegistry        *terminalworkapp.Registry
 	terminalQueries         *terminalworkapp.QueryService
 	terminalMetrics         *terminalworkapp.MetricsObserver
+	// corePorts carries the fixed featurehost consumer ports bound for this
+	// candidate generation (admin projections, policy factories).
+	corePorts featurehost.CorePorts
 }
 type candidateProcessRefs struct {
-	store                  b2bua.Store
-	pluginRegistry         *pluginreg.Registry
-	databasePools          *db.PoolRegistry
-	metrics                *metrics.Bundle
-	controlPlaneQueries    *controlplane.QueryService
-	controlPlaneStatus     *controlplane.Status
-	controlPlaneRetention  *controlplane.RetentionController
-	usageAuthority         *authorityapp.Service
-	concurrencyAuthority   *concurrencyapp.Service
-	snapshotGeneration     *snapshotgen.Publisher
-	snapshotController     *SnapshotController
-	meteringQuerier        metering.Querier
-	keepwarmPolicy         *keepwarm.PolicyStore
-	keepwarmRegistry       *keepwarm.ManagerRegistry
-	geoip                  *infraGeoIP.Service
-	secureSessions         ssessionapp.Store
-	terminalDecisionPolicy *terminaldecisionpolicy.Store
+	store                 b2bua.Store
+	pluginRegistry        *pluginreg.Registry
+	databasePools         *db.PoolRegistry
+	metrics               *metrics.Bundle
+	controlPlaneQueries   *controlplane.QueryService
+	controlPlaneStatus    *controlplane.Status
+	controlPlaneRetention *controlplane.RetentionController
+	usageAuthority        *authorityapp.Service
+	concurrencyAuthority  *concurrencyapp.Service
+	snapshotGeneration    *snapshotgen.Publisher
+	snapshotController    *SnapshotController
+	meteringQuerier       metering.Querier
+	standardFeatures      *featurehost.Runtime
+	geoip                 *infraGeoIP.Service
+	secureSessions        ssessionapp.Store
 }
 type candidateAssembly struct {
 	execution                      candidateExecutionGroup

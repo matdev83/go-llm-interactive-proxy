@@ -8,9 +8,11 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview/sdkadapter"
 	schedulekit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
@@ -252,7 +254,13 @@ func newContinuationRedHarness(t *testing.T, opener func(context.Context, replac
 	terminal := newTurnTerminal()
 	terminal.supportsContinuation = true
 	terminal.markCommitted(nil)
-	terminal.steeringStore = store
+	terminal.steeringWriterFactory = func(ctx context.Context, aLegID string, resolver SteeringWriterResolver) (steering.Writer, error) {
+		var trajResolver sdkadapter.TrajectoryResolver
+		if resolver != nil {
+			trajResolver = sdkadapter.TrajectoryResolver(resolver)
+		}
+		return sdkadapter.NewWriterWithObserver(store, aLegID, trajResolver, nil)
+	}
 	terminal.conversationReader = store
 	if opener == nil {
 		opener = func(context.Context, replacementOpenRequest) (replacementOpenResult, error) {

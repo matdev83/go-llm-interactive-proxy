@@ -7,9 +7,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -143,8 +143,7 @@ func TestExecutor_thinkerOverrideUsesExistingALegMemoAndDoesNotResetOnMutate(t *
 				assertThinkerMemoPresent(t, ex, st, session.Session.ALegID)
 			}
 
-			mid, err := st.FetchInterleavedState(context.Background(), session.Session.ALegID)
-			if err != nil {
+			if _, err := st.FetchInterleavedState(context.Background(), session.Session.ALegID); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := st.Replace(context.Background(), session.Session.ALegID, otherSel, time.Now().UTC()); err != nil {
@@ -153,14 +152,10 @@ func TestExecutor_thinkerOverrideUsesExistingALegMemoAndDoesNotResetOnMutate(t *
 			if _, err := st.Clear(context.Background(), session.Session.ALegID, time.Now().UTC()); err != nil {
 				t.Fatalf("clear: %v", err)
 			}
-			afterClear, err := st.FetchInterleavedState(context.Background(), session.Session.ALegID)
-			if err != nil {
+			if _, err := st.FetchInterleavedState(context.Background(), session.Session.ALegID); err != nil {
 				t.Fatal(err)
 			}
-			if tc.existingMemo || mid.MemoRef != nil {
-				if afterClear.MemoRef == nil || (mid.MemoRef != nil && afterClear.MemoRef.Key != mid.MemoRef.Key) {
-					t.Fatalf("clear must not delete memo ref: mid=%+v after=%+v", mid, afterClear)
-				}
+			if tc.existingMemo {
 				assertThinkerMemoPresent(t, ex, st, session.Session.ALegID)
 			}
 		})
@@ -299,17 +294,11 @@ func assertWeightedFirstConsumed(t *testing.T, st *b2bua.MemoryStore, aLegID str
 
 func assertThinkerMemoPresent(t *testing.T, ex *runtime.Executor, st *b2bua.MemoryStore, aLegID string) {
 	t.Helper()
-	state, err := st.FetchInterleavedState(context.Background(), aLegID)
-	if err != nil {
-		t.Fatalf("FetchInterleavedState: %v", err)
+	memoStore, ok := runtime.GetTestMemoStore(ex).(*interleavedthinking.InMemoryMemoStore)
+	if !ok {
+		t.Fatal("test memo store must be *interleavedthinking.InMemoryMemoStore")
 	}
-	if state.MemoRef == nil || state.MemoRef.IsEmpty() {
-		t.Fatalf("expected memo ref, got %+v", state)
-	}
-	if ex.MemoStore == nil {
-		t.Fatal("nil memo store")
-	}
-	stored, ok, err := ex.MemoStore.Get(context.Background(), interleavedthinking.Scope(aLegID), *state.MemoRef)
+	stored, ok, err := memoStore.Latest(context.Background(), interleavedthinking.Scope(aLegID))
 	if err != nil || !ok {
 		t.Fatalf("memo Get ok=%v err=%v", ok, err)
 	}

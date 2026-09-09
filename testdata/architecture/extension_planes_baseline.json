@@ -3,11 +3,11 @@
   "description": "Extension plane declaration, generation currency, and progressive mirror migration baseline.",
   "active_wave": "W5c_Residual",
   "active_wave_ordinal": 7,
-  "total_planes": 25,
+  "total_planes": 26,
   "total_remaining_mirrors": 0,
   "active_forbidden_mirrors": 0,
   "manifest": {
-    "plane_count": 25,
+    "plane_count": 26,
     "plane_ids": [
       "attempt_transforms",
       "compaction_observers",
@@ -20,6 +20,7 @@
       "request_transforms",
       "response_part_hooks",
       "route_hint_providers",
+      "secret_guard_execution",
       "secret_guards",
       "session_openers",
       "stream_observer_factories",
@@ -119,10 +120,11 @@
       "wave": 5,
       "wave_name": "W5a_GuardsCompaction",
       "family_name": "GuardsCompaction",
-      "description": "Secret guard and compaction family (guards, compaction observers, compaction preservers)",
-      "plane_count": 3,
+      "description": "Secret guard and compaction family (guards, guard execution posture, compaction observers, compaction preservers)",
+      "plane_count": 4,
       "planes": [
         "secret_guards",
+        "secret_guard_execution",
         "compaction_observers",
         "compaction_preservers"
       ],

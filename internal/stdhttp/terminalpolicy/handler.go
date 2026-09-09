@@ -13,7 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 )
 
 const defaultMaxBodyBytes int64 = 64 << 10
@@ -36,7 +36,7 @@ var (
 // supplied by existing authentication and secure-session middleware; this
 // package does not inspect credentials or create an authorization system.
 type Options struct {
-	Store *terminaldecisionpolicy.Store
+	Store *sessionpolicy.Store
 
 	// FeatureStatus reports whether the generic feature is known and whether
 	// its provider is currently active. A known but inactive feature remains
@@ -46,11 +46,11 @@ type Options struct {
 	// ResolveClientScope resolves the current authoritative client scope. The
 	// feature ID is supplied separately from the request path for callers that
 	// bind authority to the admitted request.
-	ResolveClientScope func(context.Context, *http.Request, string) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error)
+	ResolveClientScope func(context.Context, *http.Request, string) (sessionpolicy.Key, sessionpolicy.Authority, error)
 
 	// AuthorizeOperatorTarget validates an authenticated operator and target
 	// session. The callback receives only bounded path identities.
-	AuthorizeOperatorTarget func(context.Context, *http.Request, string, string) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error)
+	AuthorizeOperatorTarget func(context.Context, *http.Request, string, string) (sessionpolicy.Key, sessionpolicy.Authority, error)
 
 	// GenerationDefault supplies the immutable generation default used by the
 	// core store's effective-state calculation.
@@ -187,15 +187,15 @@ func (h *handler) serveMutation(w http.ResponseWriter, r *http.Request, route ro
 		return nil
 	}
 
-	actor := terminaldecisionpolicy.ActorClient
+	actor := sessionpolicy.ActorClient
 	if route.operator {
-		actor = terminaldecisionpolicy.ActorOperator
+		actor = sessionpolicy.ActorOperator
 	}
-	state := terminaldecisionpolicy.TriStateUnset
+	state := sessionpolicy.TriStateUnset
 	if enabled != nil {
-		state = terminaldecisionpolicy.TriStateEnabled
+		state = sessionpolicy.TriStateEnabled
 		if !*enabled {
-			state = terminaldecisionpolicy.TriStateDisabled
+			state = sessionpolicy.TriStateDisabled
 		}
 	}
 	updated, err := h.opts.Store.Set(r.Context(), authority, key, actor, state)
@@ -208,7 +208,7 @@ func (h *handler) serveMutation(w http.ResponseWriter, r *http.Request, route ro
 	return nil
 }
 
-func (h *handler) resolveScope(r *http.Request, route route) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error) {
+func (h *handler) resolveScope(r *http.Request, route route) (sessionpolicy.Key, sessionpolicy.Authority, error) {
 	if route.operator {
 		return h.opts.AuthorizeOperatorTarget(r.Context(), r, route.sessionID, route.featureID)
 	}
@@ -225,7 +225,7 @@ type response struct {
 	AppliesFrom   string `json:"applies_from,omitempty"`
 }
 
-func responseFor(route route, state terminaldecisionpolicy.Snapshot, available, mutation bool) response {
+func responseFor(route route, state sessionpolicy.Snapshot, available, mutation bool) response {
 	resp := response{
 		FeatureID:   route.featureID,
 		Available:   available,
@@ -242,11 +242,11 @@ func responseFor(route route, state terminaldecisionpolicy.Snapshot, available, 
 	return resp
 }
 
-func effectiveEnabled(client, operator terminaldecisionpolicy.TriState, generationDefault bool) bool {
-	if client == terminaldecisionpolicy.TriStateDisabled || operator == terminaldecisionpolicy.TriStateDisabled {
+func effectiveEnabled(client, operator sessionpolicy.TriState, generationDefault bool) bool {
+	if client == sessionpolicy.TriStateDisabled || operator == sessionpolicy.TriStateDisabled {
 		return false
 	}
-	if client == terminaldecisionpolicy.TriStateEnabled || operator == terminaldecisionpolicy.TriStateEnabled {
+	if client == sessionpolicy.TriStateEnabled || operator == sessionpolicy.TriStateEnabled {
 		return true
 	}
 	return generationDefault
@@ -345,7 +345,7 @@ func writeAuthorizationError(w http.ResponseWriter, operator bool, err error) {
 		writeError(w, http.StatusNotFound, "session_not_found")
 	case errors.Is(err, ErrForbidden):
 		writeError(w, http.StatusForbidden, "forbidden")
-	case errors.Is(err, terminaldecisionpolicy.ErrUnauthorized):
+	case errors.Is(err, sessionpolicy.ErrUnauthorized):
 		if operator {
 			writeError(w, http.StatusForbidden, "forbidden")
 		} else {
@@ -362,11 +362,11 @@ func writeAuthorizationError(w http.ResponseWriter, operator bool, err error) {
 
 func writeStoreError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, terminaldecisionpolicy.ErrCapacity):
+	case errors.Is(err, sessionpolicy.ErrCapacity):
 		writeError(w, http.StatusConflict, "policy_capacity")
-	case errors.Is(err, terminaldecisionpolicy.ErrClosed):
+	case errors.Is(err, sessionpolicy.ErrClosed):
 		writeError(w, http.StatusServiceUnavailable, "policy_unavailable")
-	case errors.Is(err, terminaldecisionpolicy.ErrUnauthorized):
+	case errors.Is(err, sessionpolicy.ErrUnauthorized):
 		writeError(w, http.StatusForbidden, "forbidden")
 	default:
 		writeError(w, http.StatusServiceUnavailable, "policy_unavailable")

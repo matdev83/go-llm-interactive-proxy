@@ -886,6 +886,47 @@ var PlaneSecretGuards = Plane[[]secretguard.Guard]{
 	},
 }
 
+// PlaneSecretGuardExecution declares the generation-composed secret-guard
+// execution configuration plane. Guards travel on PlaneSecretGuards; this
+// exclusive generation-binder plane carries the engine-composed matcher,
+// audit, policy, and diagnostics posture bound by the standard distribution
+// for one generation. It is never candidate-overlaid.
+var PlaneSecretGuardExecution = Plane[*secretguard.ExecutionConfig]{
+	ID:           "secret_guard_execution",
+	Multiplicity: MultExclusive,
+	Rules: SourceRules{
+		// Binder-only admission: only the standard-distribution generation
+		// binder may publish composed engine posture. Feature and host
+		// sources are explicitly unsupported so no plugin can supply
+		// execution posture when none was composed, nor conflict with the
+		// standard binder's exclusive slot.
+		Feature:          CombUnsupported,
+		Host:             CombUnsupported,
+		GenerationBinder: CombExclusive,
+	},
+	NilPolicy: NilSkip,
+	// RequestMaterializer isolates frozen generations: every copy boundary
+	// (clone, freeze, thaw, request freeze, read) deep-copies the container
+	// and categories while preserving shared engine capabilities.
+	RequestMaterializer: secretguard.CloneExecutionConfig,
+	Identity: func(v *secretguard.ExecutionConfig) (string, bool) {
+		if v == nil {
+			return "", false
+		}
+		return "secret-guard-execution", true
+	},
+	ValidateIdentity: validateNonEmptyCachedIdentity,
+	Combine: func(source SourceKind, current, incoming *secretguard.ExecutionConfig) (*secretguard.ExecutionConfig, error) {
+		if incoming == nil {
+			return incoming, nil
+		}
+		// Defensive copy: the frozen set must never alias contributor memory,
+		// so later mutation by the contributor cannot alter a frozen
+		// generation's configuration (frozen-value isolation).
+		return secretguard.CloneExecutionConfig(incoming), nil
+	},
+}
+
 // PlaneLocalTurnHandlers declares the LocalTurnHandlers extension plane.
 var PlaneLocalTurnHandlers = Plane[[]localturn.Handler]{
 	ID:           "local_turn_handlers",
@@ -981,6 +1022,7 @@ var StandardPlanes = []PlaneDeclaration{
 	PlaneCompactionObservers,
 	PlaneCompactionPreservers,
 	PlaneSecretGuards,
+	PlaneSecretGuardExecution,
 	PlaneLocalTurnHandlers,
 	PlaneTerminalDecisionProvider,
 }

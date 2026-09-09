@@ -44,11 +44,29 @@ func TestRetiredPackages_RenamedOrNestedBypassRejected(t *testing.T) {
 		{"internal/core/secretguard/nested/sub/bypass.go", true},
 		{"internal/core/secretguard/engine/deep.go", true},
 		{"internal/plugins/features/secretguard/engine/catalog.go", false},
-		{"internal/infra/secretguardcompose/compose.go", false},
+		{"internal/standardplugins/featurehost/secretguard/compose.go", false},
 		{"internal/core/compactiondetect/detector.go", true},
 		{"internal/core/compactiondetect/renamed_detector.go", true},
 		{"internal/core/compactiondetect/nested/sub/bypass.go", true},
 		{"internal/infra/compactiondetect/detector.go", false},
+		{"internal/core/compactioncontinuity/branch_coordinator.go", true},
+		{"internal/core/compactioncontinuity/renamed_coordinator.go", true},
+		{"internal/core/compactioncontinuity/nested/sub/bypass.go", true},
+		{"internal/plugins/features/compactioncontinuity/state/branch_coordinator.go", false},
+		{"internal/core/conversationview/store.go", true},
+		{"internal/core/conversationview/renamed_store.go", true},
+		{"internal/core/conversationview/nested/sub/bypass.go", true},
+		{"internal/infra/conversationview/store.go", false},
+		{"internal/core/conversationprojection/projection.go", false},
+		{"internal/core/terminaldecisionpolicy/store.go", true},
+		{"internal/core/terminaldecisionpolicy/renamed_store.go", true},
+		{"internal/core/terminaldecisionpolicy/nested/sub/bypass.go", true},
+		{"internal/standardplugins/featurehost/sessionpolicy/store.go", false},
+		{"internal/reasoningreplay/eligible.go", true},
+		{"internal/infra/reasoningcompose/generation.go", true},
+		{"internal/infra/secretguardcompose/compose.go", true},
+		{"internal/infra/secretaudit/logger.go", true},
+		{"internal/infra/compactioncompose/scheduler.go", true},
 	}
 	for _, tc := range cases {
 		f := ScanFileRetiredPackage(tc.rel)
@@ -281,6 +299,108 @@ func TestForbiddenImports_CompactionDetectRenamedOrNestedBypassRejected(t *testi
 			name:       "infra compactiondetect allowed",
 			relPath:    "internal/infra/runtimebundle/background_aux_lifecycle.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect",
+			wantForbid: false,
+		},
+	}
+	for _, tc := range adversarialImports {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := fmt.Sprintf("package dummy\nimport _ %q\n", tc.importPath)
+			findings, err := ScanFileForbiddenImports(tc.relPath, tc.relPath, []byte(src))
+			if err != nil {
+				t.Fatalf("ScanFileForbiddenImports error: %v", err)
+			}
+			if tc.wantForbid && len(findings) == 0 {
+				t.Errorf("%s: expected forbidden import finding for %s importing %s, got none", tc.name, tc.relPath, tc.importPath)
+			}
+			if !tc.wantForbid && len(findings) > 0 {
+				t.Errorf("%s: unexpected forbidden import finding for %s importing %s: %v", tc.name, tc.relPath, tc.importPath, findings)
+			}
+		})
+	}
+}
+
+func TestForbiddenImports_CompactionContinuityRenamedOrNestedBypassRejected(t *testing.T) {
+	t.Parallel()
+	adversarialImports := []struct {
+		name       string
+		relPath    string
+		importPath string
+		wantForbid bool
+	}{
+		{
+			name:       "core runtime imports retired compactioncontinuity",
+			relPath:    "internal/core/runtime/renamed_coordinator.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity",
+			wantForbid: true,
+		},
+		{
+			name:       "nested core imports retired nested compactioncontinuity",
+			relPath:    "internal/core/runtime/nested/deep.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity/nested",
+			wantForbid: true,
+		},
+		{
+			name:       "plugins features compactioncontinuity state allowed",
+			relPath:    "internal/standardplugins/featurehost/process.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state",
+			wantForbid: false,
+		},
+	}
+	for _, tc := range adversarialImports {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := fmt.Sprintf("package dummy\nimport _ %q\n", tc.importPath)
+			findings, err := ScanFileForbiddenImports(tc.relPath, tc.relPath, []byte(src))
+			if err != nil {
+				t.Fatalf("ScanFileForbiddenImports error: %v", err)
+			}
+			if tc.wantForbid && len(findings) == 0 {
+				t.Errorf("%s: expected forbidden import finding for %s importing %s, got none", tc.name, tc.relPath, tc.importPath)
+			}
+			if !tc.wantForbid && len(findings) > 0 {
+				t.Errorf("%s: unexpected forbidden import finding for %s importing %s: %v", tc.name, tc.relPath, tc.importPath, findings)
+			}
+		})
+	}
+}
+
+func TestForbiddenImports_ConversationViewRenamedOrNestedBypassRejected(t *testing.T) {
+	t.Parallel()
+	adversarialImports := []struct {
+		name       string
+		relPath    string
+		importPath string
+		wantForbid bool
+	}{
+		{
+			name:       "core runtime imports retired conversationview",
+			relPath:    "internal/core/runtime/renamed_cv.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview",
+			wantForbid: true,
+		},
+		{
+			name:       "nested core imports retired nested conversationview",
+			relPath:    "internal/core/runtime/nested/deep.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/nested",
+			wantForbid: true,
+		},
+		{
+			name:       "conversationprojection core imports infra forbidden",
+			relPath:    "internal/core/conversationprojection/projection.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview",
+			wantForbid: true,
+		},
+		{
+			name:       "infra conversationview allowed",
+			relPath:    "internal/standardplugins/featurehost/conversation.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview",
+			wantForbid: false,
+		},
+		{
+			name:       "core conversationprojection allowed",
+			relPath:    "internal/core/runtime/conversation_view.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection",
 			wantForbid: false,
 		},
 	}

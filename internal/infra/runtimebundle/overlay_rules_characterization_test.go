@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -177,82 +176,28 @@ func (overPanicTerminalProvider) Decide(context.Context, terminaldecision.Input)
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
 
-type overEnv struct{ tag string }
-
-func (e overEnv) Lookup(name string) (string, bool) { return e.tag, true }
-func (e overEnv) Snapshot() []string                { return []string{"TAG=" + e.tag} }
-
 // --- Acceptance Criteria 1 & 3: Overlay Finalizer Cap Overwrite Rule ---
 
 // --- Acceptance Criteria 3: Host Capability Overwrite-If-Non-Nil ---
 
-// TestOverlayExtensions_SecretGuardHostCapabilitiesOverwriteIfNonNil pins overwrite-if-non-nil:
-// - SecretGuardEnvironment: non-nil src overwrites dst; nil src preserves dst.
-// - SecretDecisionObserver: non-nil src overwrites dst; nil src preserves dst.
-func TestOverlayExtensions_SecretGuardHostCapabilitiesOverwriteIfNonNil(t *testing.T) {
+// TestOverlayExtensions_EmptyExtensionsNoOp pins that ExtensionsOptions carries
+// no overlay surfaces: overlaying is always a no-op and the merged value stays
+// empty. Concrete secret-guard posture converges through ordinary planes.
+func TestOverlayExtensions_EmptyExtensionsNoOp(t *testing.T) {
 	t.Parallel()
 
-	envA := overEnv{tag: "env-a"}
-	envB := overEnv{tag: "env-b"}
-	obsA := sdk.ObserverFunc(func(context.Context, sdk.DecisionEvent) error { return nil })
-	obsB := sdk.ObserverFunc(func(context.Context, sdk.DecisionEvent) error { return nil })
-
-	t.Run("environment_overwrite_when_src_non_nil", func(t *testing.T) {
+	t.Run("overlay_is_noop", func(t *testing.T) {
 		t.Parallel()
-		dst := &ExtensionsOptions{SecretGuardEnvironment: envA}
-		src := ExtensionsOptions{SecretGuardEnvironment: envB}
-		overlayExtensions(dst, src)
-		require.Equal(t, envB, dst.SecretGuardEnvironment)
+		dst := ExtensionsOptions{}
+		src := ExtensionsOptions{}
+		overlayExtensions(&dst, src)
+		require.Equal(t, ExtensionsOptions{}, dst)
 	})
 
-	t.Run("environment_preserved_when_src_nil", func(t *testing.T) {
+	t.Run("no_overlay_surfaces", func(t *testing.T) {
 		t.Parallel()
-		dst := &ExtensionsOptions{SecretGuardEnvironment: envA}
-		src := ExtensionsOptions{SecretGuardEnvironment: nil}
-		overlayExtensions(dst, src)
-		require.Equal(t, envA, dst.SecretGuardEnvironment)
-	})
-
-	t.Run("observer_overwrite_when_src_non_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{SecretDecisionObserver: obsA}
-		src := ExtensionsOptions{SecretDecisionObserver: obsB}
-		overlayExtensions(dst, src)
-		require.NotNil(t, dst.SecretDecisionObserver)
-	})
-
-	t.Run("observer_preserved_when_src_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{SecretDecisionObserver: obsA}
-		src := ExtensionsOptions{SecretDecisionObserver: nil}
-		overlayExtensions(dst, src)
-		require.NotNil(t, dst.SecretDecisionObserver)
-	})
-}
-
-// --- Acceptance Criteria 3: Omitted Fields Characterization ---
-
-// TestOverlayExtensions_OmittedFieldsBehavior pins omitted fields:
-// - SecretGuardInputs: present on ExtensionsOptions, but overlayExtensions does not touch it (no copy/overlay logic).
-// - Migrated observer families (TrafficObservers, UsageObservers, RawCaptureSinks, TrafficRedactors, CompactionObservers): omitted from overlayExtensions.
-// - CompactionPreservers: handled via generated plane adapters, NOT on ExtensionsOptions.
-func TestOverlayExtensions_OmittedFieldsBehavior(t *testing.T) {
-	t.Parallel()
-
-	t.Run("secret_guard_inputs_is_omitted_from_overlay", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{
-			SecretGuardInputs: SecretGuardInputs{
-				SingleUser: coresg.SingleUserOptions{MinSecretBytes: 10},
-			},
-		}
-		src := ExtensionsOptions{
-			SecretGuardInputs: SecretGuardInputs{
-				SingleUser: coresg.SingleUserOptions{MinSecretBytes: 20},
-			},
-		}
-		overlayExtensions(dst, src)
-		require.Equal(t, 10, dst.SecretGuardInputs.SingleUser.MinSecretBytes, "SecretGuardInputs is omitted from overlay and not modified")
+		require.False(t, hasExtensionOverlay(ExtensionsOptions{}))
+		require.Equal(t, ExtensionsOptions{}, cloneExtensionsOptions(ExtensionsOptions{}))
 	})
 }
 

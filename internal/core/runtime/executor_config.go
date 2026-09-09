@@ -2,8 +2,11 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
@@ -12,13 +15,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
@@ -26,7 +27,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
@@ -39,6 +39,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
 
@@ -60,18 +61,71 @@ type CoreRuntime struct {
 	Now                  func() time.Time
 	MaxPendingWireEvents int
 	StreamRecovery       streamrecovery.Config
-	// Keepwarm is the generation-owned provider-neutral maintenance orchestrator.
-	// It is nil for test/minimal executors that do not compose the feature.
-	Keepwarm *keepwarm.Orchestrator
+	// PromptCacheMaintenance is the optional generation-owned provider-neutral maintenance port.
+	PromptCacheMaintenance PromptCacheMaintenance
 	// ConversationViewReader is an optional narrow snapshot port. When set,
-	// runtime prefers it over AsReader(Store) to avoid widening b2bua.Store
-	// while preserving the single-snapshot per-turn invariant (task 3.2).
-	ConversationViewReader conversationview.Reader
+	// runtime preserves the single-snapshot per-turn invariant (task 3.2).
+	ConversationViewReader conversationprojection.Reader
 	// ConversationViewTagger is the optional narrow tagger port for local-turn
-	// tag-before-release. When set, runtime prefers it over AsTagger(Store).
-	// Nil means tagger is resolved via AsTagger(Store) if available.
-	ConversationViewTagger conversationview.Tagger
+	// tag-before-release.
+	ConversationViewTagger ConversationViewTagger
+	// SteeringWriterFactory constructs an authoritative steering writer for a given A-leg.
+	SteeringWriterFactory SteeringWriterFactory
 }
+
+// ConversationViewObserver is optional narrow diagnostics for bounded conversation-view
+// projection/anchor/steering metrics. Nil is no-op. Labels are bounded enums only (placement, operation, policy, stage).
+type ConversationViewObserver interface {
+	OnProjection(stage string, summary conversationprojection.ProjectionSummary)
+	OnProjectionFailure(stage string)
+	OnAnchorFallback(stage string, policy conversationprojection.AnchorMissingPolicy)
+	OnAnchorFailure(policy conversationprojection.AnchorMissingPolicy)
+}
+
+// TagRequest is one element of a TagNeverBackend batch.
+type TagRequest struct {
+	Identity conversationprojection.MessageIdentity `json:"identity"`
+	Reason   conversationprojection.ReasonCode      `json:"reason"`
+}
+
+func (r TagRequest) Validate() error {
+	if err := r.Identity.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", conversationprojection.ErrInvalidMessageIdentity, err)
+	}
+	s := string(r.Reason)
+	if strings.TrimSpace(s) == "" {
+		return fmt.Errorf("%w: reason code is required", conversationprojection.ErrInvalidReasonCode)
+	}
+	if len(s) > 64 {
+		return fmt.Errorf("%w: reason code exceeds 64 bytes", conversationprojection.ErrInvalidReasonCode)
+	}
+	for _, ch := range s {
+		if ch > unicode.MaxASCII {
+			return fmt.Errorf("%w: reason code must be ascii", conversationprojection.ErrInvalidReasonCode)
+		}
+		if ch != '_' && ch != '-' && ch != '.' && (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') {
+			return fmt.Errorf("%w: invalid character %q in reason code", conversationprojection.ErrInvalidReasonCode, ch)
+		}
+	}
+	return nil
+}
+
+// TagResult is returned from a successful TagNeverBackend call.
+type TagResult struct {
+	StateRevision uint64                       `json:"state_revision"`
+	Tags          []conversationprojection.Tag `json:"tags"`
+}
+
+// ConversationViewTagger is the narrow tagger interface consumed by runtime.
+type ConversationViewTagger interface {
+	TagNeverBackend(ctx context.Context, aLegID string, tags []TagRequest) (TagResult, error)
+}
+
+// SteeringWriterResolver resolves the current call and snapshot for anchor calculation.
+type SteeringWriterResolver func(ctx context.Context) (lipapi.Call, conversationprojection.Snapshot, error)
+
+// SteeringWriterFactory constructs an authoritative steering writer for a given A-leg.
+type SteeringWriterFactory func(ctx context.Context, aLegID string, resolver SteeringWriterResolver) (steering.Writer, error)
 
 // BillingRuntime carries the runtime seams for two-stage exposure admission and
 // durable terminal usage. Token quota and usage-authority stay on AccountingRuntime.
@@ -189,16 +243,17 @@ type ObservabilityRuntime struct {
 	CompletionBufferLimits     completion.BufferLimits
 	// ConversationViewObserver is optional narrow diagnostics for bounded conversation-view
 	// projection/anchor/steering metrics. Nil is no-op. Labels are bounded enums only (placement, operation, policy, stage).
-	ConversationViewObserver conversationview.Observer
+	ConversationViewObserver ConversationViewObserver
 }
 
 // ExtensionRuntime carries the hook bus and frozen per-build extension snapshot.
 type ExtensionRuntime struct {
 	Bus             *hooks.Bus
 	RuntimeSnapshot *extensions.RequestRuntimeSnapshot
-	// TerminalDecisionPolicy is process-owned and read once during request
-	// admission to freeze the policy projection for the request lifetime.
-	TerminalDecisionPolicy *terminaldecisionpolicy.Store
+
+	// TerminalPolicyReader resolves session-scoped terminal decision policy overrides
+	// at request admission (Task 7.2).
+	TerminalPolicyReader TerminalPolicyReader
 
 	// ToolCallFinalizationMaxArgsBytes is the assembler buffer cap from merged
 	// feature bundles (0 means default at assembler construction).
@@ -207,10 +262,9 @@ type ExtensionRuntime struct {
 	toolCallFinalizers []toolcall.Finalizer
 }
 
-// InterleavedRuntime carries interleaved-thinking shaping configuration and memo storage.
+// InterleavedRuntime carries the interleaved-thinking consumer processor port.
 type InterleavedRuntime struct {
-	InterleavedConfig interleavedthinking.ShapeConfig
-	MemoStore         interleavedthinking.MemoStore
+	Processor InterleavedProcessor
 }
 
 // CompactionRuntime carries the process-owned compaction detector reference.

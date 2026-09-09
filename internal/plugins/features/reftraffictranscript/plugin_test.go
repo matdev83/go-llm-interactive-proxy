@@ -40,7 +40,7 @@ func TestEmit_allFourLegs(t *testing.T) {
 	meta := traffic.CaptureMeta{TraceID: "t1"}
 	legs := []traffic.Leg{traffic.LegCTP, traffic.LegPTB, traffic.LegBTP, traffic.LegPTC}
 	for _, leg := range legs {
-		pb.Emit(context.Background(), leg, meta, "p", "t", []byte{byte(leg[0])})
+		pb.Emit(context.Background(), leg, meta, "p", "t", []byte{leg[0]})
 	}
 	if len(obs.Rows) != 4 {
 		t.Fatalf("got %d rows", len(obs.Rows))

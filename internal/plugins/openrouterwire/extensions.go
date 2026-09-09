@@ -169,7 +169,7 @@ func ValidExtraBodyFieldName(name string) bool {
 	if name == "" || len(name) > MaxExtraBodyFieldNameBytes {
 		return false
 	}
-	for i := 0; i < len(name); i++ {
+	for i := range len(name) {
 		c := name[i]
 		if c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || i > 0 && c >= '0' && c <= '9' {
 			continue

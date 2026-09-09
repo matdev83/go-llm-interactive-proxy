@@ -29,7 +29,7 @@ func CompleteJSONSuffix(in []byte) ([]byte, bool) {
 	stack := make([]byte, 0, 8)
 	inString := false
 	escape := false
-	for i := range len(in) {
+	for i := range in {
 		c := in[i]
 		if inString {
 			if escape {

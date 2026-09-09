@@ -295,7 +295,7 @@ func TestReloadFacade_NoSensitiveFields(t *testing.T) {
 		}
 	}
 	v := reflect.ValueOf(st)
-	for i := 0; i < v.NumField(); i++ {
+	for i := range v.NumField() {
 		f := v.Field(i)
 		if f.Kind() == reflect.String && strings.Contains(f.String(), "/var/secrets") {
 			t.Fatalf("field %s leaked path %q", v.Type().Field(i).Name, f.String())

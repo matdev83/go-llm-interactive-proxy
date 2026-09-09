@@ -11,10 +11,10 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
@@ -29,9 +29,10 @@ var (
 type recoveryEnvironment interface {
 	now() time.Time
 	logInterleavedMemoStoreSkipped(ctx context.Context, traceID, reason string, interrupted bool)
-	logInterleavedMemoCaptured(ctx context.Context, traceID string, memo interleavedthinking.MemoState)
+	logInterleavedMemoCaptured(ctx context.Context, traceID string, memo InterleavedMemo)
 	logInterleavedPhaseTransition(ctx context.Context, traceID string)
-	persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState, src capturedMemoSource) (interleavedstate.State, error)
+	logInterleavedMemoSteeringSkipped(ctx context.Context, traceID string)
+	publishMemoSteeringOverlay(ctx context.Context, aLegID string, ingress lipapi.Call, snap conversationprojection.Snapshot, memo string) error
 	openInterleavedExecutorContinuation(ctx context.Context, from *retryRecvStream, state interleavedstate.State) (*retryRecvStream, error)
 	logInterleavedMemoPersistFailed(ctx context.Context, traceID string, err error)
 	noteRouteDecision(ctx context.Context, traceID, decision, detail string)
@@ -418,7 +419,7 @@ func (r *recoveryController) logMemoStoreSkipped(ctx context.Context, traceID, r
 	}
 }
 
-func (r *recoveryController) logMemoCaptured(ctx context.Context, traceID string, memo interleavedthinking.MemoState) {
+func (r *recoveryController) logMemoCaptured(ctx context.Context, traceID string, memo InterleavedMemo) {
 	if r != nil && r.e != nil {
 		r.e.logInterleavedMemoCaptured(ctx, traceID, memo)
 	}
@@ -430,11 +431,17 @@ func (r *recoveryController) logPhaseTransition(ctx context.Context, traceID str
 	}
 }
 
-func (r *recoveryController) persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState, src capturedMemoSource) (interleavedstate.State, error) {
-	if r == nil || r.e == nil {
-		return state, errors.New("runtime: interleaved memo persistence unavailable")
+func (r *recoveryController) logMemoSteeringSkipped(ctx context.Context, traceID string) {
+	if r != nil && r.e != nil {
+		r.e.logInterleavedMemoSteeringSkipped(ctx, traceID)
 	}
-	return r.e.persistCapturedMemo(ctx, aLegID, state, memo, src)
+}
+
+func (r *recoveryController) publishMemoSteeringOverlay(ctx context.Context, aLegID string, ingress lipapi.Call, snap conversationprojection.Snapshot, memo string) error {
+	if r == nil || r.e == nil {
+		return errors.New("runtime: interleaved memo persistence unavailable")
+	}
+	return r.e.publishMemoSteeringOverlay(ctx, aLegID, ingress, snap, memo)
 }
 
 func (r *recoveryController) openInterleavedContinuation(ctx context.Context, from *retryRecvStream, state interleavedstate.State) (*retryRecvStream, error) {
