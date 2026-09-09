@@ -14,7 +14,7 @@ type SentinelCase struct {
 
 var boundedSentinelCases = []SentinelCase{
 	{ID: "builtin-openresponses-sse", Frontend: FrontendOpenResponses, Backend: BackendOpenResponses, Transport: TransportSSE, Protects: "built-in frontend/core/backend route mounting, streaming event ordering, and terminal ownership"},
-	{ID: "compatible-profile-openai-responses-json", Frontend: FrontendOpenResponses, Backend: BackendCompatibleOpenAI, Transport: TransportJSON, ProfileID: "example-openai-responses", Protects: "validated OpenAI-compatible provider profile family binding and non-stream collection"},
+	{ID: "compatible-profile-openai-responses-json", Frontend: FrontendOpenResponses, Backend: BackendCompatibleOpenAI, Transport: TransportJSON, ProfileID: "groq", Protects: "validated OpenAI-compatible provider profile family binding and non-stream collection"},
 	{ID: "connector-openresponses-sse", Frontend: FrontendOpenResponses, Backend: BackendOpenRouter, Transport: TransportSSE, Protects: "executable connector host negotiation, wiring, and provider request path"},
 	{ID: "stateful-openresponses-websocket", Frontend: FrontendOpenResponses, Backend: BackendOpenResponses, Transport: TransportWebSocket, Protects: "stateful frontend session and WebSocket lifecycle composition"},
 	{ID: "negative-openresponses-decode", Frontend: FrontendOpenResponses, Backend: BackendOpenResponses, Transport: TransportJSON, Negative: true, Protects: "frontend decode and admission rejection before upstream work"},

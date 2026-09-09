@@ -348,7 +348,7 @@ func TestProviderProfile_ReloadPublishesExpandedFamilyRow(t *testing.T) {
       kind: provider-profile
       enabled: %v
       config:
-        profile: example-openai-responses
+        profile: groq
 `, enabled)
 	}
 	initial := strings.Replace(string(base), "  backends:\n", "  backends:\n"+row(false), 1)
@@ -394,7 +394,7 @@ func TestProviderProfile_ReloadPublishesExpandedFamilyRow(t *testing.T) {
 }
 
 func TestProviderProfile_CompileAndDiagnosticsEndToEnd(t *testing.T) {
-	t.Setenv("MOCK_PROFILE_KEY", "mock-key-value")
+	t.Setenv("GROQ_API_KEY", "mock-key-value")
 	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "config.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -403,7 +403,7 @@ func TestProviderProfile_CompileAndDiagnosticsEndToEnd(t *testing.T) {
       kind: provider-profile
       enabled: true
       config:
-        profile: example-openai-responses
+        profile: groq
 `
 	text := strings.Replace(string(base), "  backends:\n", "  backends:\n"+row, 1)
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
@@ -442,7 +442,7 @@ func TestProviderProfile_CompileAndDiagnosticsEndToEnd(t *testing.T) {
 
 	foundProfile := false
 	for _, b := range snap.CompatibleBackends {
-		if b.InstanceID == "profile-end-to-end" || b.Profile == "example-openai-responses" {
+		if b.InstanceID == "profile-end-to-end" || b.Profile == "groq" {
 			foundProfile = true
 			break
 		}

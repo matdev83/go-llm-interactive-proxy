@@ -31,19 +31,13 @@ func TestBoundedSentinelCasesAreExplicitAndProfileIndependent(t *testing.T) {
 		}
 	}
 
+	template, err := providerprofiles.EmbeddedProfile("groq")
+	if err != nil {
+		t.Fatalf("EmbeddedProfile(groq): %v", err)
+	}
 	profiles := make([]providerprofiles.Profile, 1000)
 	for i := range profiles {
-		p, err := providerprofiles.EmbeddedProfile("example-openai-responses")
-		if err != nil {
-			p = providerprofiles.Profile{
-				APIVersion: providerprofiles.APIVersionV1,
-				ID:         "provider-profile",
-				Family:     providerprofiles.FamilyOpenAIResponses,
-				Endpoint:   providerprofiles.Endpoint{BaseURL: "https://example.invalid/v1", PathPolicy: providerprofiles.PathPolicyFamilyDefault},
-				Auth:       providerprofiles.Auth{Mode: providerprofiles.AuthBearerEnv, EnvVar: "PROFILE_KEY"},
-				Models:     providerprofiles.ModelDiscovery{Policy: providerprofiles.DiscoveryFamilyDefault, Namespace: providerprofiles.Namespace{Mode: providerprofiles.NamespacePreserve}},
-			}
-		}
+		p := template
 		p.ID = fmt.Sprintf("profile-%04d", i)
 		// The profile catalog owns provider population; sentinel policy does not.
 		profiles[i] = p
