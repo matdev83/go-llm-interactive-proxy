@@ -17,6 +17,7 @@ updates:
       - /connectors/azure
       - /connectors/cloudflare
       - /connectors/codex
+      - /connectors/cohere
       - /connectors/commandcode-anthropic
       - /connectors/commandcode-openai
       - /connectors/cursorcliacp
@@ -29,11 +30,17 @@ updates:
       - /connectors/lmstudio
       - /connectors/localstub
       - /connectors/nvidia
+      - /connectors/oci
       - /connectors/ollama
       - /connectors/opencode
       - /connectors/openrouter
+      - /connectors/replicate
+      - /connectors/sagemaker
+      - /connectors/sapaicore
       - /connectors/snowflake
+      - /connectors/vertex
       - /connectors/vllm
+      - /connectors/watsonx
     schedule:
       interval: weekly
       day: monday
