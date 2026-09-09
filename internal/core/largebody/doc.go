@@ -6,14 +6,18 @@
 // semantic identity, assessment and wire facts, rewrite plans, execution
 // results, and the sensitive session-response carrier.
 //
-// Design references (design.md): section 6 (protocol proof and canonical
-// semantic identity), section 8 (side-effect-free assessment), section 9
-// (backend wire contract), section 10 (secure session and sensitive carrier),
-// section 11 (post-commit runtime facts, no shadow Call), section 13
-// (ExecutionResult and frontend bridge). Note: design section 4 is the static
-// pre-capture disposition, not the DTO contract section.
+// Design references (design.md): section 4 (static pre-capture disposition),
+// section 6 (protocol proof and canonical semantic identity), section 7
+// (generation-frozen authority classification and WireEligibilitySummary),
+// section 8 (side-effect-free assessment), section 9 (backend wire contract),
+// section 10 (secure session and sensitive carrier), section 11 (post-commit
+// runtime facts, no shadow Call), section 13 (ExecutionResult and frontend
+// bridge). Eligibility compilation (section 7) is composition-time only:
+// CompileWireEligibilitySummary is a pure function of frozen generation
+// facts, and the published summary carries fixed bitsets/enums plus a bounded
+// generation binding (Requirements 5, 6, 22).
 //
-// Hard constraints (Task 2.2, Requirements 4, 6, 7, 8, 9, 14, 16, 18, 22):
+// Hard constraints (Task 2.2, Requirements 4, 5, 6, 7, 8, 9, 14, 16, 18, 22):
 // no provider SDK or frontend-specific types (only stdlib plus pkg/lipapi),
 // no raw arbitrary header bags, no prompt text, no temp/spool paths, no
 // unbounded maps, and no DTO mirroring lipapi.Call.

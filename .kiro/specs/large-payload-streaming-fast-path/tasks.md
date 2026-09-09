@@ -196,7 +196,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - No runtime reflection or arbitrary callback invocation.
   - _Requirements: 5, 14, 15, 19_
 
-- [ ] 3.5 Publish bounded generation-frozen `WireEligibilitySummary`
+- [x] 3.5 Publish bounded generation-frozen `WireEligibilitySummary`
   - Composition-time only, deterministic, generation-pinned.
   - Summary may contain fixed bitsets/enums/small immutable slices; no request-sized data.
   - Unknown fails closed.
@@ -821,3 +821,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 3.2 VERIFIED (fresh reviewer APPROVED): non-negotiable blocker ratchets (Local Turn/Secret Guard/Terminal Decision canonical, request-mutating hooks canonical unless explicit wire contract, response-only only after characterization); 3.1 values already truthful; feature suite PASS, vet/gofmt/diff-check clean; zero production diff; test-only hardening scope, `-race` skipped Windows cgo limitation.
 - Task 3.3 VERIFIED (fresh reviewer APPROVED): Bus 4-chain freeze (submit/request-part/tool/request-mutating blockers unless explicit wire contract, response-only proof with no request content dependency, no plane conflation); hooks suite PASS, gofmt/diff-check clean; test-only scope, no production diff; `-race` skipped Windows cgo limitation.
 - Task 3.4 VERIFIED (fresh reviewer APPROVED): 46-row narrow-port freeze from Task 1.8 inventory (stock no-op vs blocker vs wire-capable states, custom Call callbacks blockers unless explicit bounded fact contract, no reflection/arbitrary invocation); runtime suite PASS, vet/gofmt/diff-check clean; test-only scope, no production diff; `-race` skipped Windows cgo limitation.
+- Task 3.5 VERIFIED (fresh reviewer APPROVED): WireEligibilitySummary composition-time/deterministic/pinned/bounded/fail-closed, fixed bitsets/enums, no request-sized data, budgets bump; largebody + feature + archtest PASS, vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
