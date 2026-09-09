@@ -10,15 +10,16 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdksg "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -103,8 +104,10 @@ func TestSecretGuard_UniquenessCompositionRootAndCompileGeneration(t *testing.T)
 	t.Run("duplicate_enabled_registrations_exact_error", func(t *testing.T) {
 		t.Parallel()
 		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: &charSGPanicEnv{},
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: &charSGPanicEnv{}}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{
@@ -112,7 +115,7 @@ func TestSecretGuard_UniquenessCompositionRootAndCompileGeneration(t *testing.T)
 			{Kind: lipsdk.PluginKindFeature, ID: "sg-2", FactoryKind: "secrets-guard", Enabled: true, Config: lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: redact\n")}},
 		}
 
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 		require.Error(t, err)
 		assert.Nil(t, res)
 		assert.Equal(t, "runtimebundle: multiple enabled secrets-guard registrations", err.Error())
@@ -137,7 +140,7 @@ func TestSecretGuard_UniquenessCompositionRootAndCompileGeneration(t *testing.T)
 					{Kind: lipsdk.PluginKindFeature, ID: "sg-a", FactoryKind: tc.k1, Enabled: true, Config: lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: log\n")}},
 					{Kind: lipsdk.PluginKindFeature, ID: "sg-b", FactoryKind: tc.k2, Enabled: true, Config: lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: log\n")}},
 				}
-				_, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+				_, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 				require.Error(t, err)
 				assert.Equal(t, "runtimebundle: multiple enabled secrets-guard registrations", err.Error())
 			})
@@ -151,7 +154,7 @@ func TestSecretGuard_UniquenessCompositionRootAndCompileGeneration(t *testing.T)
 			{Kind: lipsdk.PluginKindFeature, ID: "sg-disabled", FactoryKind: "secrets-guard", Enabled: false, Config: lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: log\n")}},
 			{Kind: lipsdk.PluginKindFeature, ID: "sg-enabled", FactoryKind: "secrets-guard", Enabled: true, Config: lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: block\n")}},
 		}
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		assert.Equal(t, "block", res.Inventory.SecretGuardAction)
@@ -163,7 +166,7 @@ func TestSecretGuard_UniquenessCompositionRootAndCompileGeneration(t *testing.T)
 		regs := []lipsdk.Registration{
 			{Kind: lipsdk.PluginKindFeature, ID: "sg-disabled", FactoryKind: "secrets-guard", Enabled: false},
 		}
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		assert.Empty(t, res.Plane.Guards)
@@ -296,7 +299,7 @@ func TestSecretGuard_ConfigValidationErrorsPinned(t *testing.T) {
 				Config:      lipsdk.ConfigPayload{Node: mustYAMLNode(t, tt.yamlConfig)},
 			}}
 
-			res, err := buildSecretGuardRuntime(cfg, slog.Default(), opts, regs)
+			res, err := testBuildSecretGuardRuntime(cfg, slog.Default(), opts, regs)
 			require.Error(t, err)
 			assert.Nil(t, res)
 			assert.Equal(t, tt.wantError, err.Error())
@@ -319,7 +322,7 @@ func TestSecretGuard_NilLoggerErrorPinned(t *testing.T) {
 			Enabled:     true,
 			Config:      lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: log\n")},
 		}}
-		res, err := buildSecretGuardRuntime(&config.Config{}, nil, opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, nil, opts, regs)
 		require.Error(t, err)
 		assert.Nil(t, res)
 		assert.Equal(t, "runtimebundle: secrets-guard audit requires a non-nil logger", err.Error())
@@ -330,7 +333,7 @@ func TestSecretGuard_NilLoggerErrorPinned(t *testing.T) {
 		opts := &BuildOptions{
 			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "injected-guard", ord: 1}),
 		}
-		res, err := buildSecretGuardRuntime(&config.Config{}, nil, opts, nil)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, nil, opts, nil)
 		require.Error(t, err)
 		assert.Nil(t, res)
 		assert.Equal(t, "runtimebundle: secrets-guard audit requires a non-nil logger", err.Error())
@@ -339,16 +342,16 @@ func TestSecretGuard_NilLoggerErrorPinned(t *testing.T) {
 	t.Run("injected_guards_with_explicit_observer_and_nil_logger_succeeds", func(t *testing.T) {
 		t.Parallel()
 		obs := &charSGCustomObserver{}
-		opts := &BuildOptions{
-			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "injected-guard", ord: 1}),
-			Extensions: ExtensionsOptions{
-				SecretDecisionObserver: obs,
-			},
-		}
-		res, err := buildSecretGuardRuntime(&config.Config{}, nil, opts, nil)
+		// An explicit observer enters composition through the pinned
+		// GenerationInput port, so no logger fallback is required.
+		fh := &featurehost.Runtime{}
+		out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+			Planes:           frozenSecretGuards(charSGStubGuard{id: "injected-guard", ord: 1}),
+			DecisionObserver: obs,
+		})
 		require.NoError(t, err)
-		require.NotNil(t, res)
-		assert.NotNil(t, res.Plane.DecisionObserver)
+		plane, _ := secretGuardFromPlanes(out.Planes)
+		assert.NotNil(t, plane.DecisionObserver)
 	})
 }
 
@@ -383,15 +386,19 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		assert.Equal(t, "guard-m", frozenGuards[2].ID())
 
 		opts := &BuildOptions{FeaturePlanes: gen.Frozen}
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 
-		// Plane retains registration order (unsorted clone)
-		require.Len(t, res.Plane.Guards, 3)
-		assert.Equal(t, "guard-z", res.Plane.Guards[0].ID())
-		assert.Equal(t, "guard-a", res.Plane.Guards[1].ID())
-		assert.Equal(t, "guard-m", res.Plane.Guards[2].ID())
+		// The engine plane carries no guards by construction: the snapshot
+		// overlays guards from its feature planes on every access, while the
+		// planes preserve registration order (unsorted clone).
+		require.Empty(t, res.Plane.Guards)
+		planeGuards := lipfeature.Get(gen.Frozen, lipfeature.PlaneSecretGuards)
+		require.Len(t, planeGuards, 3)
+		assert.Equal(t, "guard-z", planeGuards[0].ID())
+		assert.Equal(t, "guard-a", planeGuards[1].ID())
+		assert.Equal(t, "guard-m", planeGuards[2].ID())
 
 		// Snapshot materializes in sorted order (ord ascending, then ID)
 		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
@@ -413,8 +420,10 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 			},
 		}
 		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: env,
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: env}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{{
@@ -425,7 +434,7 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 			Config:      lipsdk.ConfigPayload{Node: mustYAMLNode(t, "action: redact\n")},
 		}}
 
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		assert.Greater(t, env.lookups+env.snapshots, 0, "env must be consulted in single-user enabled mode")
@@ -439,8 +448,10 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		env := &charSGPanicEnv{}
 		opts := &BuildOptions{
 			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "injected", ord: 1}),
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: env,
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: env}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{{
@@ -450,7 +461,7 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 			Enabled:     false,
 		}}
 
-		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		assert.Equal(t, 0, env.calls, "env must not be consulted when feature is disabled")
@@ -460,8 +471,10 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		t.Parallel()
 		env := &charSGPanicEnv{}
 		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: env,
+			Production: ProductionOptions{
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: env}).Registration(),
+				},
 			},
 		}
 		regs := []lipsdk.Registration{{
@@ -473,7 +486,7 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		}}
 		cfg := &config.Config{Access: config.AccessConfig{Mode: "multi_user"}}
 
-		res, err := buildSecretGuardRuntime(cfg, slog.Default(), opts, regs)
+		res, err := testBuildSecretGuardRuntime(cfg, slog.Default(), opts, regs)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		assert.Equal(t, 0, env.calls, "env must not be consulted in multi_user mode")
@@ -486,31 +499,31 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		var logBuf bytes.Buffer
 		log := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
+		// Observers enter composition through the pinned GenerationInput port;
+		// the composed plane is read back purely via plane access.
+		composeWithObserver := func(observer sdksg.Observer) *secretGuardTestRuntime {
+			fh, err := featurehost.NewProcess(context.Background(), featurehost.ProcessInput{Logger: log})
+			require.NoError(t, err)
+			out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+				Planes:           frozenSecretGuards(charSGStubGuard{id: "g1", ord: 1}),
+				DecisionObserver: observer,
+			})
+			require.NoError(t, err)
+			plane, inv := secretGuardFromPlanes(out.Planes)
+			return &secretGuardTestRuntime{Plane: plane, Inventory: inv}
+		}
+
 		// 1. Explicit non-nil observer is chained
 		customObs := &charSGCustomObserver{}
-		optsWithObs := &BuildOptions{
-			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "g1", ord: 1}),
-			Extensions: ExtensionsOptions{
-				SecretDecisionObserver: customObs,
-			},
-		}
-		res1, err := buildSecretGuardRuntime(&config.Config{}, log, optsWithObs, nil)
-		require.NoError(t, err)
+		res1 := composeWithObserver(customObs)
 		require.NotNil(t, res1.Plane.DecisionObserver)
-		err = res1.Plane.DecisionObserver.OnSecretDecision(context.Background(), sdksg.DecisionEvent{EventID: "ev-1"})
+		err := res1.Plane.DecisionObserver.OnSecretDecision(context.Background(), sdksg.DecisionEvent{EventID: "ev-1"})
 		require.NoError(t, err)
 		require.Len(t, customObs.events, 1)
 
 		// 2. Typed-nil observer falls back to slog observer
 		var typedNilObs *charSGCustomObserver
-		optsTypedNil := &BuildOptions{
-			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "g1", ord: 1}),
-			Extensions: ExtensionsOptions{
-				SecretDecisionObserver: typedNilObs,
-			},
-		}
-		res2, err := buildSecretGuardRuntime(&config.Config{}, log, optsTypedNil, nil)
-		require.NoError(t, err)
+		res2 := composeWithObserver(typedNilObs)
 		require.NotNil(t, res2.Plane.DecisionObserver)
 		logBuf.Reset()
 		err = res2.Plane.DecisionObserver.OnSecretDecision(context.Background(), sdksg.DecisionEvent{EventID: "ev-typed-nil"})
@@ -519,66 +532,39 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 
 		// 3. Feature disabled and 0 guards leaves observer uninitialized (nil)
 		optsDisabled := &BuildOptions{}
-		res3, err := buildSecretGuardRuntime(&config.Config{}, log, optsDisabled, nil)
+		res3, err := testBuildSecretGuardRuntime(&config.Config{}, log, optsDisabled, nil)
 		require.NoError(t, err)
 		assert.Nil(t, res3.Plane.DecisionObserver)
 	})
 }
 
-// TestSecretGuard_HostCapabilitiesOverlayPreservation pins the overlay semantics
-// documented in w0-overlay-decision-record.md (§2 rows 28-30 & §3.4):
-// - SecretGuardEnvironment: overwrite-if-non-nil (src != nil sets dst; src == nil preserves dst).
-// - SecretDecisionObserver: overwrite-if-non-nil (src != nil sets dst; src == nil preserves dst).
-// - SecretGuardInputs: omitted from overlayExtensions (dst retains dst unchanged).
-func TestSecretGuard_HostCapabilitiesOverlayPreservation(t *testing.T) {
+// TestSecretGuard_PlanesConvergencePreservation pins that secret-guard posture
+// converges through ordinary planes: overlaying the (empty) ExtensionsOptions
+// is a no-op, and the featurehost-composed execution plane extracts back to an
+// identical plane and inventory purely via plane access.
+func TestSecretGuard_PlanesConvergencePreservation(t *testing.T) {
 	t.Parallel()
 
-	envDst := &charSGCountingEnv{vals: map[string]string{"A": "1"}}
-	envSrc := &charSGCountingEnv{vals: map[string]string{"B": "2"}}
-	obsDst := &charSGCustomObserver{}
-	obsSrc := &charSGCustomObserver{}
-	inputsDst := SecretGuardInputs{
-		SingleUser: coresg.SingleUserOptions{MinSecretBytes: 10},
-	}
-	inputsSrc := SecretGuardInputs{
-		SingleUser: coresg.SingleUserOptions{MinSecretBytes: 20},
-	}
-
-	t.Run("environment_overwrite_and_preserve", func(t *testing.T) {
+	t.Run("extensions_overlay_is_noop", func(t *testing.T) {
 		t.Parallel()
-		// Overwrite when src is non-nil
-		dst := ExtensionsOptions{SecretGuardEnvironment: envDst}
-		src := ExtensionsOptions{SecretGuardEnvironment: envSrc}
-		overlayExtensions(&dst, src)
-		assert.Equal(t, envSrc, dst.SecretGuardEnvironment)
-
-		// Preserve when src is nil
-		dst2 := ExtensionsOptions{SecretGuardEnvironment: envDst}
-		src2 := ExtensionsOptions{SecretGuardEnvironment: nil}
-		overlayExtensions(&dst2, src2)
-		assert.Equal(t, envDst, dst2.SecretGuardEnvironment)
+		dst := ExtensionsOptions{}
+		overlayExtensions(&dst, ExtensionsOptions{})
+		assert.Equal(t, ExtensionsOptions{}, dst)
 	})
 
-	t.Run("observer_overwrite_and_preserve", func(t *testing.T) {
+	t.Run("composed_execution_plane_extracts_identically", func(t *testing.T) {
 		t.Parallel()
-		// Overwrite when src is non-nil
-		dst := ExtensionsOptions{SecretDecisionObserver: obsDst}
-		src := ExtensionsOptions{SecretDecisionObserver: obsSrc}
-		overlayExtensions(&dst, src)
-		assert.Equal(t, obsSrc, dst.SecretDecisionObserver)
-
-		// Preserve when src is nil
-		dst2 := ExtensionsOptions{SecretDecisionObserver: obsDst}
-		src2 := ExtensionsOptions{SecretDecisionObserver: nil}
-		overlayExtensions(&dst2, src2)
-		assert.Equal(t, obsDst, dst2.SecretDecisionObserver)
-	})
-
-	t.Run("inputs_omitted_from_overlay", func(t *testing.T) {
-		t.Parallel()
-		dst := ExtensionsOptions{SecretGuardInputs: inputsDst}
-		src := ExtensionsOptions{SecretGuardInputs: inputsSrc}
-		overlayExtensions(&dst, src)
-		assert.Equal(t, 10, dst.SecretGuardInputs.SingleUser.MinSecretBytes, "SecretGuardInputs must be omitted from overlay")
+		fh, err := featurehost.NewProcess(context.Background(), featurehost.ProcessInput{Logger: slog.Default()})
+		require.NoError(t, err)
+		out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+			Planes: frozenSecretGuards(charSGStubGuard{id: "g1", ord: 1}),
+		})
+		require.NoError(t, err)
+		plane, inv := secretGuardFromPlanes(out.Planes)
+		require.NotNil(t, plane.DecisionObserver)
+		require.NotNil(t, inv)
+		assert.Equal(t, inv.SecretGuardCatalogEntryCount, 0)
+		assert.Equal(t, "single_user", plane.AccessMode)
+		assert.Equal(t, plane.AccessMode, inv.SecretGuardAccessMode)
 	})
 }

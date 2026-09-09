@@ -57,7 +57,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 			TrafficObservers:          opts.TrafficObservers,
 			UsageObservers:            opts.UsageObservers,
 			PolicyObservers:           opts.PolicyObservers,
-			ReasoningCompression:      adaptReasoningCompressionOptions(opts.ReasoningCompression),
+			FeatureHostRegistrations:  norm.FeatureHostRegistrations,
 		},
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})

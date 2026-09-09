@@ -9,7 +9,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
@@ -31,23 +30,14 @@ func TestSnapshotTerminalDecisionPolicyUsesGenerationDefaultWithoutSecureScope(t
 
 func TestSnapshotTerminalDecisionPolicyUsesSecureScopeOverride(t *testing.T) {
 	provider := admissionProviderStub{}
-	store := terminaldecisionpolicy.NewStore(terminaldecisionpolicy.Config{})
 	turn := secureAdmissionTurn()
-	key := terminaldecisionpolicy.Key{
-		SecureSessionIncarnation: string(turn.secureTurn.SessionID),
-		ALegID:                   turn.aLeg.ALegID,
-		FeatureID:                terminalDecisionFeatureID,
-	}
-	authority := terminaldecisionpolicy.Authority{
-		SecureSessionIncarnation: key.SecureSessionIncarnation,
-		ALegID:                   key.ALegID,
-		Authorized:               true,
-	}
-	if _, err := store.Set(context.Background(), authority, key, terminaldecisionpolicy.ActorOperator, terminaldecisionpolicy.TriStateDisabled); err != nil {
-		t.Fatalf("set secure override: %v", err)
-	}
 	executor := admissionExecutor(provider)
-	executor.TerminalDecisionPolicy = store
+	executor.TerminalPolicyReader = &fakeTerminalPolicyReader{
+		snapshot: TerminalPolicySnapshot{
+			EffectiveEnabled: false,
+			Revision:         42,
+		},
+	}
 
 	policy, enabled, err := executor.snapshotTerminalDecisionPolicy(context.Background(), turn)
 	if err != nil {
@@ -56,8 +46,8 @@ func TestSnapshotTerminalDecisionPolicyUsesSecureScopeOverride(t *testing.T) {
 	if enabled {
 		t.Fatal("secure-session disable override must disable the provider")
 	}
-	if policy.Revision == "0" {
-		t.Fatal("secure-session override must carry the store revision")
+	if policy.Revision != "42" {
+		t.Fatalf("expected revision 42, got %q", policy.Revision)
 	}
 }
 
@@ -101,5 +91,52 @@ func secureAdmissionTurn() *identityBoundTurn {
 			TurnID:    domain.TurnID("turn-admission"),
 		},
 		secureTurnOK: true,
+	}
+}
+
+type fakeTerminalPolicyReader struct {
+	lastQuery TerminalPolicyQuery
+	snapshot  TerminalPolicySnapshot
+	err       error
+}
+
+func (f *fakeTerminalPolicyReader) Effective(_ context.Context, in TerminalPolicyQuery) (TerminalPolicySnapshot, error) {
+	f.lastQuery = in
+	return f.snapshot, f.err
+}
+
+func TestSnapshotTerminalDecisionPolicy_UsesTerminalPolicyReaderSeam(t *testing.T) {
+	provider := admissionProviderStub{}
+	reader := &fakeTerminalPolicyReader{
+		snapshot: TerminalPolicySnapshot{
+			EffectiveEnabled: false,
+			Revision:         42,
+		},
+	}
+	turn := secureAdmissionTurn()
+	executor := admissionExecutor(provider)
+	executor.TerminalPolicyReader = reader
+
+	policy, enabled, err := executor.snapshotTerminalDecisionPolicy(context.Background(), turn)
+	if err != nil {
+		t.Fatalf("snapshot policy: %v", err)
+	}
+	if enabled {
+		t.Fatal("reader returning disabled must disable terminal-decision")
+	}
+	if policy.Revision != "42" {
+		t.Fatalf("policy revision = %q, want 42", policy.Revision)
+	}
+	if reader.lastQuery.SecureSessionIncarnation != "session-admission" {
+		t.Fatalf("reader query session incarnation = %q, want session-admission", reader.lastQuery.SecureSessionIncarnation)
+	}
+	if reader.lastQuery.ALegID != "a-leg-admission" {
+		t.Fatalf("reader query ALegID = %q, want a-leg-admission", reader.lastQuery.ALegID)
+	}
+	if reader.lastQuery.FeatureID != terminalDecisionFeatureID {
+		t.Fatalf("reader query FeatureID = %q, want %q", reader.lastQuery.FeatureID, terminalDecisionFeatureID)
+	}
+	if !reader.lastQuery.GenerationDefault {
+		t.Fatal("reader query GenerationDefault must be true when provider is present")
 	}
 }

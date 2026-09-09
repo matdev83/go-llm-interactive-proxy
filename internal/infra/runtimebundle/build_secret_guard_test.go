@@ -10,11 +10,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,20 +75,21 @@ func (stubSecretGuard) Evaluate(context.Context, *lipapi.Call, sdk.Meta, sdk.Ser
 func TestBuildSecretGuardRuntime_doesNotMutateBuildOptions(t *testing.T) {
 	t.Parallel()
 	env := &panicSGEnv{}
+	binding := &secretguardhost.Binding{Environment: env}
 	opts := &BuildOptions{
 		FeaturePlanes: frozenSecretGuards(stubSecretGuard{id: "b", ord: 1}, stubSecretGuard{id: "a", ord: 1}),
-		Extensions: ExtensionsOptions{
-			SecretGuardEnvironment: env,
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{binding.Registration()},
 		},
 	}
-	before := opts.Extensions
+	before := opts.Production
 
-	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
+	res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(opts.Extensions, before) {
-		t.Fatalf("buildSecretGuardRuntime mutated BuildOptions.Extensions:\nbefore=%#v\nafter=%#v", before, opts.Extensions)
+	if !reflect.DeepEqual(opts.Production, before) {
+		t.Fatalf("buildSecretGuardRuntime mutated BuildOptions.Production:\nbefore=%#v\nafter=%#v", before, opts.Production)
 	}
 	if env.calls != 0 {
 		t.Fatalf("env calls=%d want 0", env.calls)
@@ -101,12 +104,14 @@ func TestBuildSecretGuardRuntime_injectedGuardsSkipEnvironmentButWireAudit(t *te
 	env := &panicSGEnv{}
 	opts := &BuildOptions{
 		FeaturePlanes: frozenSecretGuards(stubSecretGuard{id: "injected-without-feature"}),
-		Extensions: ExtensionsOptions{
-			SecretGuardEnvironment: env,
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{Environment: env}).Registration(),
+			},
 		},
 	}
 
-	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
+	res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,8 +138,10 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 	}
 	opts := &BuildOptions{
 		FeaturePlanes: frozenSecretGuards(guards...),
-		Extensions: ExtensionsOptions{
-			SecretGuardEnvironment: env,
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{Environment: env}).Registration(),
+			},
 		},
 	}
 	regs := []lipsdk.Registration{{
@@ -145,7 +152,7 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 		Config:      lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: redact\naudit_failure_policy: best_effort\n")},
 	}}
 
-	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+	res, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,8 +177,12 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 		t.Fatal("configured secrets-guard matcher must find loaded secret")
 	}
 	guards[0] = stubSecretGuard{id: "mutated", ord: 0}
-	if got := res.Plane.Guards[0].ID(); got != "z" {
-		t.Fatalf("plane guards mutated via caller slice; got %q want z (unsorted clone)", got)
+	if got := len(res.Plane.Guards); got != 0 {
+		t.Fatalf("engine plane must not duplicate guards (they travel on planes); got %d", got)
+	}
+	frozenGuards := lipfeature.Get(opts.FeaturePlanes, lipfeature.PlaneSecretGuards)
+	if got := frozenGuards[0].ID(); got != "z" {
+		t.Fatalf("planes mutated via caller slice; got %q want z (unsorted clone)", got)
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
 		SecretGuardPlane: res.Plane,
@@ -188,9 +199,13 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 func TestBuildSecretGuardRuntime_multiUserEnabledSkipsEnvironment(t *testing.T) {
 	t.Parallel()
 	env := &panicSGEnv{}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuardEnvironment: env,
-	}}
+	opts := &BuildOptions{
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{Environment: env}).Registration(),
+			},
+		},
+	}
 	regs := []lipsdk.Registration{{
 		Kind:        lipsdk.PluginKindFeature,
 		ID:          "secrets-guard",
@@ -199,7 +214,7 @@ func TestBuildSecretGuardRuntime_multiUserEnabledSkipsEnvironment(t *testing.T) 
 		Config:      lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: block\n")},
 	}}
 	cfg := &config.Config{Access: config.AccessConfig{Mode: "multi_user"}}
-	res, err := buildSecretGuardRuntime(cfg, slog.Default(), opts, regs)
+	res, err := testBuildSecretGuardRuntime(cfg, slog.Default(), opts, regs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,14 +232,18 @@ func TestBuildSecretGuardRuntime_multiUserEnabledSkipsEnvironment(t *testing.T) 
 func TestBuildSecretGuardRuntime_rejectsMultipleEnabledBeforeEnv(t *testing.T) {
 	t.Parallel()
 	env := &panicSGEnv{}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuardEnvironment: env,
-	}}
+	opts := &BuildOptions{
+		Production: ProductionOptions{
+			FeatureHostRegistrations: []featurehost.Registration{
+				(&secretguardhost.Binding{Environment: env}).Registration(),
+			},
+		},
+	}
 	regs := []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "sg-a", FactoryKind: "secrets-guard", Enabled: true, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: log\n")}},
 		{Kind: lipsdk.PluginKindFeature, ID: "sg-b", FactoryKind: "secrets-guard", Enabled: true, Config: lipsdk.ConfigPayload{Node: mustNodeForRuntimebundle(t, "action: redact\n")}},
 	}
-	_, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
+	_, err := testBuildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, regs)
 	if err == nil {
 		t.Fatal("expected duplicate enabled secrets-guard registrations to fail")
 	}
@@ -249,21 +268,25 @@ func TestBuildSecretGuardRuntime_typedNilObserverFallsBackToSlog(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	var typedNil *typedNilDecisionObserver
-	opts := &BuildOptions{
-		FeaturePlanes: frozenSecretGuards(stubSecretGuard{id: "guard", ord: 1}),
-		Extensions: ExtensionsOptions{
-			SecretDecisionObserver: typedNil,
-		},
-	}
-
-	res, err := buildSecretGuardRuntime(&config.Config{}, log, opts, nil)
+	fh, err := featurehost.NewProcess(context.Background(), featurehost.ProcessInput{Logger: log})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res == nil || sdk.IsNilObserver(res.Plane.DecisionObserver) {
+	// The observer enters composition through the pinned GenerationInput port;
+	// the composed plane is read back purely via plane access.
+	out, err := fh.CompileGeneration(context.Background(), featurehost.GenerationInput{
+		Planes:           frozenSecretGuards(stubSecretGuard{id: "guard", ord: 1}),
+		AccessMode:       "single_user",
+		DecisionObserver: typedNil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plane, _ := secretGuardFromPlanes(out.Planes)
+	if sdk.IsNilObserver(plane.DecisionObserver) {
 		t.Fatal("typed-nil observer must be replaced with a usable runtime observer")
 	}
-	if err := res.Plane.DecisionObserver.OnSecretDecision(t.Context(), sdk.DecisionEvent{EventID: "evt-typed-nil"}); err != nil {
+	if err := plane.DecisionObserver.OnSecretDecision(t.Context(), sdk.DecisionEvent{EventID: "evt-typed-nil"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "lip.secret_guard.decision") {

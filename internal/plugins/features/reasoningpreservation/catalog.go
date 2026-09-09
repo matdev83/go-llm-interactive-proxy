@@ -3,7 +3,7 @@ package reasoningpreservation
 import (
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/reasoningreplay"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation/reasoningreplay"
 )
 
 const BuiltinCatalogVersion = reasoningreplay.CatalogVersion

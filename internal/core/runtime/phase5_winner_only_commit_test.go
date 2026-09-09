@@ -3,30 +3,51 @@ package runtime
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 // Parity note (Important 4): winner-only SetInterleavedState atomicity is proven in-memory
-// via b2bua.NewMemoryStore + interleavedthinking.NewMemoStore (FetchInterleavedState / Get
-// assertions below). This suffices because b2bua.Store SetInterleavedState is a single-record
-// atomic operation across all production Store implementations: MemoryStore holds the state as one
-// map entry under mu (internal/core/b2bua/store.go:287, 304), and bunstore.Store persists it as a
-// single UPDATE a_legs SET interleaved_state_json = ? WHERE a_leg_id = ? (internal/core/continuity/bunstore/store.go:441-452)
-// for both SQLite and Postgres (dialect-agnostic). No multi-row/cross-table transaction is involved;
-// memo content is orthogonal (MemoStore) and likewise verified via Get. Bunstore SQLite/Postgres
-// parity is covered independently by internal/core/continuity/bunstore integration tests.
+// via b2bua.NewMemoryStore (FetchInterleavedState assertions below). This suffices because b2bua.Store
+// SetInterleavedState is a single-record atomic operation across all production Store implementations:
+// MemoryStore holds the state as one map entry under mu (internal/core/b2bua/store.go:287, 304), and
+// bunstore.Store persists it as a single UPDATE a_legs SET interleaved_state_json = ? WHERE a_leg_id = ?
+// (internal/core/continuity/bunstore/store.go:441-452) for both SQLite and Postgres (dialect-agnostic).
+// No multi-row/cross-table transaction is involved. Bunstore SQLite/Postgres parity is covered independently
+// by internal/core/continuity/bunstore integration tests.
 // See internal/core/runtime/testdata/phase5_red_evidence.md section 5.3 for RED->GREEN evidence.
 
+type fakeInterleavedProcessor struct{}
+
+func (fakeInterleavedProcessor) BeginTurn(context.Context, InterleavedTurnInput) (InterleavedTurn, error) {
+	return nil, nil
+}
+
+func (fakeInterleavedProcessor) IsMemoVisibleToClient(context.Context, string) bool {
+	return false
+}
+
+func (fakeInterleavedProcessor) MemoSteeringPutRequest(memo string) steering.PutRequest {
+	return interleavedthinking.MemoPutRequest(memo)
+}
+
+func (fakeInterleavedProcessor) MemoSteeringOverlayID() steering.OverlayID {
+	return steering.OverlayID(interleavedthinking.MemoOverlayID)
+}
+
+func (fakeInterleavedProcessor) IsMemoSteeringOverlay(overlayID string) bool {
+	return interleavedthinking.IsMemoOverlay(overlayID)
+}
+
 // TestPhase5_WinnerOnlyCommit_AcceptedWinnerPersistsState proves that when a parallel race
-// accepts a winning arm, only the winning arm's pending selection effects (interleaved memo and cycle)
+// accepts a winning arm, only the winning arm's pending selection effects (interleaved cycle)
 // are committed to the store, and losing arms' pending effects are never committed.
 func TestPhase5_WinnerOnlyCommit_AcceptedWinnerPersistsState(t *testing.T) {
 	t.Parallel()
@@ -41,24 +62,9 @@ func TestPhase5_WinnerOnlyCommit_AcceptedWinnerPersistsState(t *testing.T) {
 		t.Fatalf("create a-leg: %v", err)
 	}
 
-	memoStore := interleavedthinking.NewMemoStore(4096)
 	ex := TestExecutor()
 	ex.Store = store
-	ex.MemoStore = memoStore
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
-		Instructions:          "instructions",
-		MaxMemoBytes:          4096,
-		RegularTurnsRemaining: 2,
-	}
-
-	scope := interleavedthinking.Scope(aLeg.ALegID)
-	initialRef, err := memoStore.Put(ctx, scope, interleavedthinking.MemoState{
-		Memo:                  "initial memo",
-		RegularTurnsRemaining: 2,
-	})
-	if err != nil {
-		t.Fatalf("put initial memo: %v", err)
-	}
+	ex.Processor = fakeInterleavedProcessor{}
 
 	initialInterleaved := interleavedstate.State{
 		Cycle: interleavedstate.CycleState{
@@ -69,7 +75,6 @@ func TestPhase5_WinnerOnlyCommit_AcceptedWinnerPersistsState(t *testing.T) {
 			},
 			NextIndex: 0,
 		},
-		MemoRef: &initialRef,
 	}
 	if err := store.SetInterleavedState(ctx, aLeg.ALegID, initialInterleaved); err != nil {
 		t.Fatalf("set initial interleaved state: %v", err)
@@ -95,33 +100,37 @@ func TestPhase5_WinnerOnlyCommit_AcceptedWinnerPersistsState(t *testing.T) {
 	sessionA := &attemptSession{terminal: newStreamTerminal(sdkterminal.ScopeAttempt), bleg: b2bua.BLegRecord{BLegID: "bleg-a"}}
 	sessionB := &attemptSession{terminal: newStreamTerminal(sdkterminal.ScopeAttempt), bleg: b2bua.BLegRecord{BLegID: "bleg-b"}}
 
-	winnerPendingUpdate := &interleavedthinking.PendingMemoUpdate{
-		Ref: initialRef,
-		State: interleavedthinking.MemoState{
-			Memo:                  "winner memo from arm A",
-			RegularTurnsRemaining: 1,
+	winnerInterleaved := interleavedstate.State{
+		Cycle: interleavedstate.CycleState{
+			SelectorKey: "sel-1",
+			Sequence: []interleavedstate.CycleEntry{
+				{Key: "cand-a", Role: interleavedstate.RoleThinker},
+				{Key: "cand-b", Role: interleavedstate.RoleExecutor},
+			},
+			NextIndex: 1,
 		},
 	}
-	loserPendingUpdate := &interleavedthinking.PendingMemoUpdate{
-		Ref: initialRef,
-		State: interleavedthinking.MemoState{
-			Memo:                  "loser memo from arm B",
-			RegularTurnsRemaining: 0,
+	loserInterleaved := interleavedstate.State{
+		Cycle: interleavedstate.CycleState{
+			SelectorKey: "sel-1",
+			Sequence: []interleavedstate.CycleEntry{
+				{Key: "cand-a", Role: interleavedstate.RoleThinker},
+				{Key: "cand-b", Role: interleavedstate.RoleExecutor},
+			},
+			NextIndex: 99,
 		},
 	}
 
 	readyA := &readyAttempt{
 		session: sessionA,
 		pending: pendingSelectionEffects{
-			interleaved: initialInterleaved,
-			memoUpdate:  winnerPendingUpdate,
+			interleaved: winnerInterleaved,
 		},
 	}
 	readyB := &readyAttempt{
 		session: sessionB,
 		pending: pendingSelectionEffects{
-			interleaved: initialInterleaved,
-			memoUpdate:  loserPendingUpdate,
+			interleaved: loserInterleaved,
 		},
 	}
 
@@ -152,30 +161,18 @@ func TestPhase5_WinnerOnlyCommit_AcceptedWinnerPersistsState(t *testing.T) {
 		t.Errorf("expected loser readyB to be marked consumed/disposed")
 	}
 
-	// Verify memo store has WINNER memo, NOT loser memo
-	persistedMemo, ok, err := memoStore.Get(ctx, scope, initialRef)
-	if err != nil || !ok {
-		t.Fatalf("fetch persisted memo: ok=%v, err=%v", ok, err)
-	}
-	if persistedMemo.Memo != "winner memo from arm A" {
-		t.Errorf("persisted memo = %q, want %q", persistedMemo.Memo, "winner memo from arm A")
-	}
-	if persistedMemo.RegularTurnsRemaining != 1 {
-		t.Errorf("persisted turns = %d, want 1", persistedMemo.RegularTurnsRemaining)
-	}
-
-	// Verify interleaved state store has the winner's updated memo reference
+	// Verify interleaved state store has the winner's committed cycle cursor
 	persistedState, err := store.FetchInterleavedState(ctx, aLeg.ALegID)
 	if err != nil {
 		t.Fatalf("fetch interleaved state: %v", err)
 	}
-	if persistedState.MemoRef == nil || persistedState.MemoRef.Key != initialRef.Key {
-		t.Errorf("persisted state memo ref mismatch: got %v, want %v", persistedState.MemoRef, initialRef)
+	if persistedState.Cycle.NextIndex != 1 {
+		t.Errorf("persisted state cursor mismatch: got %d, want 1", persistedState.Cycle.NextIndex)
 	}
 }
 
 // TestPhase5_WinnerOnlyCommit_AllFailureNeverPersists proves that when all arms fail in a parallel
-// round, no winner-only state or memo updates are committed to the store.
+// round, no winner-only state or cycle updates are committed to the store.
 func TestPhase5_WinnerOnlyCommit_AllFailureNeverPersists(t *testing.T) {
 	t.Parallel()
 
@@ -189,31 +186,14 @@ func TestPhase5_WinnerOnlyCommit_AllFailureNeverPersists(t *testing.T) {
 		t.Fatalf("create a-leg: %v", err)
 	}
 
-	memoStore := interleavedthinking.NewMemoStore(4096)
 	ex := TestExecutor()
 	ex.Store = store
-	ex.MemoStore = memoStore
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
-		Instructions:          "instructions",
-		MaxMemoBytes:          4096,
-		RegularTurnsRemaining: 2,
-	}
-
-	scope := interleavedthinking.Scope(aLeg.ALegID)
-	initialRef, err := memoStore.Put(ctx, scope, interleavedthinking.MemoState{
-		Memo:                  "untouched initial memo",
-		RegularTurnsRemaining: 2,
-	})
-	if err != nil {
-		t.Fatalf("put initial memo: %v", err)
-	}
 
 	initialInterleaved := interleavedstate.State{
 		Cycle: interleavedstate.CycleState{
 			SelectorKey: "sel-1",
 			NextIndex:   0,
 		},
-		MemoRef: &initialRef,
 	}
 	if err := store.SetInterleavedState(ctx, aLeg.ALegID, initialInterleaved); err != nil {
 		t.Fatalf("set initial interleaved state: %v", err)
@@ -249,15 +229,6 @@ func TestPhase5_WinnerOnlyCommit_AllFailureNeverPersists(t *testing.T) {
 		t.Fatalf("expected nil session on all-failure round")
 	}
 
-	// Verify memo in store remains completely untouched
-	memo, ok, err := memoStore.Get(ctx, scope, initialRef)
-	if err != nil || !ok {
-		t.Fatalf("fetch memo: ok=%v, err=%v", ok, err)
-	}
-	if memo.Memo != "untouched initial memo" {
-		t.Errorf("memo was mutated on all-failure round: got %q, want untouched", memo.Memo)
-	}
-
 	// Verify interleaved state in store remains completely untouched
 	state, err := store.FetchInterleavedState(ctx, aLeg.ALegID)
 	if err != nil {
@@ -283,28 +254,11 @@ func TestPhase5_WinnerOnlyCommit_FatalErrorNeverPersists(t *testing.T) {
 		t.Fatalf("create a-leg: %v", err)
 	}
 
-	memoStore := interleavedthinking.NewMemoStore(4096)
 	ex := TestExecutor()
 	ex.Store = store
-	ex.MemoStore = memoStore
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
-		Instructions:          "instructions",
-		MaxMemoBytes:          4096,
-		RegularTurnsRemaining: 2,
-	}
-
-	scope := interleavedthinking.Scope(aLeg.ALegID)
-	initialRef, err := memoStore.Put(ctx, scope, interleavedthinking.MemoState{
-		Memo:                  "original memo",
-		RegularTurnsRemaining: 2,
-	})
-	if err != nil {
-		t.Fatalf("put initial memo: %v", err)
-	}
 
 	initialInterleaved := interleavedstate.State{
-		Cycle:   interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},
-		MemoRef: &initialRef,
+		Cycle: interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},
 	}
 	if err := store.SetInterleavedState(ctx, aLeg.ALegID, initialInterleaved); err != nil {
 		t.Fatalf("set initial interleaved state: %v", err)
@@ -339,12 +293,12 @@ func TestPhase5_WinnerOnlyCommit_FatalErrorNeverPersists(t *testing.T) {
 	}
 
 	// Store must remain untouched
-	memo, ok, err := memoStore.Get(ctx, scope, initialRef)
-	if err != nil || !ok {
-		t.Fatalf("fetch memo: ok=%v, err=%v", ok, err)
+	state, err := store.FetchInterleavedState(ctx, aLeg.ALegID)
+	if err != nil {
+		t.Fatalf("fetch state: %v", err)
 	}
-	if memo.Memo != "original memo" {
-		t.Errorf("memo was mutated despite fatal error: got %q", memo.Memo)
+	if state.Cycle.NextIndex != 0 {
+		t.Errorf("cycle was mutated on fatal error: got %d, want 0", state.Cycle.NextIndex)
 	}
 }
 
@@ -365,28 +319,11 @@ func TestPhase5_WinnerOnlyCommit_ContextCanceledNeverPersists(t *testing.T) {
 		t.Fatalf("create a-leg: %v", err)
 	}
 
-	memoStore := interleavedthinking.NewMemoStore(4096)
 	ex := TestExecutor()
 	ex.Store = store
-	ex.MemoStore = memoStore
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
-		Instructions:          "instructions",
-		MaxMemoBytes:          4096,
-		RegularTurnsRemaining: 2,
-	}
-
-	scope := interleavedthinking.Scope(aLeg.ALegID)
-	initialRef, err := memoStore.Put(context.Background(), scope, interleavedthinking.MemoState{
-		Memo:                  "original memo",
-		RegularTurnsRemaining: 2,
-	})
-	if err != nil {
-		t.Fatalf("put initial memo: %v", err)
-	}
 
 	initialInterleaved := interleavedstate.State{
-		Cycle:   interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},
-		MemoRef: &initialRef,
+		Cycle: interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},
 	}
 	if err := store.SetInterleavedState(context.Background(), aLeg.ALegID, initialInterleaved); err != nil {
 		t.Fatalf("set initial interleaved state: %v", err)
@@ -411,10 +348,8 @@ func TestPhase5_WinnerOnlyCommit_ContextCanceledNeverPersists(t *testing.T) {
 	readyA := &readyAttempt{
 		session: sessionA,
 		pending: pendingSelectionEffects{
-			interleaved: initialInterleaved,
-			memoUpdate: &interleavedthinking.PendingMemoUpdate{
-				Ref:   initialRef,
-				State: interleavedthinking.MemoState{Memo: "canceled memo", RegularTurnsRemaining: 1},
+			interleaved: interleavedstate.State{
+				Cycle: interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 1},
 			},
 		},
 	}
@@ -433,36 +368,35 @@ func TestPhase5_WinnerOnlyCommit_ContextCanceledNeverPersists(t *testing.T) {
 	}
 
 	// Store must remain untouched
-	memo, ok, err := memoStore.Get(context.Background(), scope, initialRef)
-	if err != nil || !ok {
-		t.Fatalf("fetch memo: ok=%v, err=%v", ok, err)
+	state, err := store.FetchInterleavedState(context.Background(), aLeg.ALegID)
+	if err != nil {
+		t.Fatalf("fetch state: %v", err)
 	}
-	if memo.Memo != "original memo" {
-		t.Errorf("memo was mutated despite context cancellation: got %q", memo.Memo)
+	if state.Cycle.NextIndex != 0 {
+		t.Errorf("cycle was mutated despite context cancellation: got %d, want 0", state.Cycle.NextIndex)
 	}
 }
 
-// failingMemoUpdateStore is a test double that fails on Update.
-type failingMemoUpdateStore struct {
-	inner interleavedthinking.MemoStore
-	calls atomic.Int32
+type failingInterleavedStateStore struct {
+	b2bua.Store
+	failSet bool
 }
 
-func (s *failingMemoUpdateStore) Put(ctx context.Context, scope interleavedthinking.Scope, state interleavedthinking.MemoState) (interleavedstate.MemoRef, error) {
-	return s.inner.Put(ctx, scope, state)
+func (s *failingInterleavedStateStore) SetInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error {
+	if s.failSet {
+		return errors.New("simulated interleaved state commit failure")
+	}
+	if iss, ok := s.Store.(b2bua.InterleavedStateStore); ok {
+		return iss.SetInterleavedState(ctx, aLegID, state)
+	}
+	return b2bua.ErrInterleavedStateUnsupported
 }
 
-func (s *failingMemoUpdateStore) Get(ctx context.Context, scope interleavedthinking.Scope, ref interleavedstate.MemoRef) (interleavedthinking.MemoState, bool, error) {
-	return s.inner.Get(ctx, scope, ref)
-}
-
-func (s *failingMemoUpdateStore) Update(ctx context.Context, scope interleavedthinking.Scope, ref interleavedstate.MemoRef, state interleavedthinking.MemoState) (interleavedstate.MemoRef, error) {
-	s.calls.Add(1)
-	return interleavedstate.MemoRef{}, errors.New("simulated memo update failure")
-}
-
-func (s *failingMemoUpdateStore) Delete(ctx context.Context, scope interleavedthinking.Scope, ref interleavedstate.MemoRef) error {
-	return s.inner.Delete(ctx, scope, ref)
+func (s *failingInterleavedStateStore) FetchInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error) {
+	if iss, ok := s.Store.(b2bua.InterleavedStateStore); ok {
+		return iss.FetchInterleavedState(ctx, aLegID)
+	}
+	return interleavedstate.State{}, b2bua.ErrInterleavedStateUnsupported
 }
 
 // TestPhase5_WinnerOnlyCommit_CommitFailureCleansUpAndReleases proves that when committing
@@ -480,29 +414,13 @@ func TestPhase5_WinnerOnlyCommit_CommitFailureCleansUpAndReleases(t *testing.T) 
 		t.Fatalf("create a-leg: %v", err)
 	}
 
-	innerMemo := interleavedthinking.NewMemoStore(4096)
-	memoStore := &failingMemoUpdateStore{inner: innerMemo}
+	failStore := &failingInterleavedStateStore{Store: store, failSet: true}
 	ex := TestExecutor()
-	ex.Store = store
-	ex.MemoStore = memoStore
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
-		Instructions:          "instructions",
-		MaxMemoBytes:          4096,
-		RegularTurnsRemaining: 2,
-	}
-
-	scope := interleavedthinking.Scope(aLeg.ALegID)
-	initialRef, err := innerMemo.Put(ctx, scope, interleavedthinking.MemoState{
-		Memo:                  "original memo",
-		RegularTurnsRemaining: 2,
-	})
-	if err != nil {
-		t.Fatalf("put initial memo: %v", err)
-	}
+	ex.Store = failStore
+	ex.Processor = fakeInterleavedProcessor{}
 
 	initialInterleaved := interleavedstate.State{
-		Cycle:   interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},
-		MemoRef: &initialRef,
+		Cycle: interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},
 	}
 	if err := store.SetInterleavedState(ctx, aLeg.ALegID, initialInterleaved); err != nil {
 		t.Fatalf("set initial interleaved state: %v", err)
@@ -529,10 +447,8 @@ func TestPhase5_WinnerOnlyCommit_CommitFailureCleansUpAndReleases(t *testing.T) 
 	readyA := &readyAttempt{
 		session: sessionA,
 		pending: pendingSelectionEffects{
-			interleaved: initialInterleaved,
-			memoUpdate: &interleavedthinking.PendingMemoUpdate{
-				Ref:   initialRef,
-				State: interleavedthinking.MemoState{Memo: "failed memo", RegularTurnsRemaining: 1},
+			interleaved: interleavedstate.State{
+				Cycle: interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 1},
 			},
 		},
 	}
@@ -553,18 +469,19 @@ func TestPhase5_WinnerOnlyCommit_CommitFailureCleansUpAndReleases(t *testing.T) 
 	}
 
 	// Store must remain untouched
-	memo, ok, err := innerMemo.Get(ctx, scope, initialRef)
-	if err != nil || !ok {
-		t.Fatalf("fetch memo: ok=%v, err=%v", ok, err)
+	failStore.failSet = false
+	state, err := store.FetchInterleavedState(ctx, aLeg.ALegID)
+	if err != nil {
+		t.Fatalf("fetch state: %v", err)
 	}
-	if memo.Memo != "original memo" {
-		t.Errorf("memo was mutated despite commit failure: got %q", memo.Memo)
+	if state.Cycle.NextIndex != 0 {
+		t.Errorf("cycle was mutated despite commit failure: got %d, want 0", state.Cycle.NextIndex)
 	}
 }
 
 // TestPhase5_WinnerOnlyCommit_LoserDisposeDoesNotMutateStore directly proves that calling
 // Dispose on a readyAttempt carrying pendingSelectionEffects terminalizes the attempt session
-// without committing or mutating any memo or cycle state in stores.
+// without committing or mutating any cycle state in stores.
 func TestPhase5_WinnerOnlyCommit_LoserDisposeDoesNotMutateStore(t *testing.T) {
 	t.Parallel()
 
@@ -573,20 +490,11 @@ func TestPhase5_WinnerOnlyCommit_LoserDisposeDoesNotMutateStore(t *testing.T) {
 		bleg:     b2bua.BLegRecord{BLegID: "bleg-loser"},
 	}
 
-	ref := interleavedstate.MemoRef{Key: "ref-1", Version: 1}
 	ready := &readyAttempt{
 		session: session,
 		pending: pendingSelectionEffects{
 			interleaved: interleavedstate.State{
-				Cycle:   interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 1},
-				MemoRef: &ref,
-			},
-			memoUpdate: &interleavedthinking.PendingMemoUpdate{
-				Ref: ref,
-				State: interleavedthinking.MemoState{
-					Memo:                  "loser pending memo",
-					RegularTurnsRemaining: 1,
-				},
+				Cycle: interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 1},
 			},
 		},
 	}
@@ -605,7 +513,7 @@ func TestPhase5_WinnerOnlyCommit_LoserDisposeDoesNotMutateStore(t *testing.T) {
 
 // TestPhase5_WinnerOnlyCommit_PublicationDeniedByClosedSlot proves that when publication
 // is denied by the slot (e.g., Close won the publication lease), the ready attempt is disposed
-// and its pending selection effects (memo/cycle) are never committed to the store.
+// and its pending selection effects (cycle) are never committed to the store.
 func TestPhase5_WinnerOnlyCommit_PublicationDeniedByClosedSlot(t *testing.T) {
 	t.Parallel()
 
@@ -619,19 +527,8 @@ func TestPhase5_WinnerOnlyCommit_PublicationDeniedByClosedSlot(t *testing.T) {
 		t.Fatalf("create a-leg: %v", err)
 	}
 
-	memoStore := interleavedthinking.NewMemoStore(4096)
-	scope := interleavedthinking.Scope(aLeg.ALegID)
-	initialRef, err := memoStore.Put(ctx, scope, interleavedthinking.MemoState{
-		Memo:                  "original memo before publication denial",
-		RegularTurnsRemaining: 3,
-	})
-	if err != nil {
-		t.Fatalf("put initial memo: %v", err)
-	}
-
 	initialInterleaved := interleavedstate.State{
-		Cycle:   interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},
-		MemoRef: &initialRef,
+		Cycle: interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},
 	}
 	if err := store.SetInterleavedState(ctx, aLeg.ALegID, initialInterleaved); err != nil {
 		t.Fatalf("set initial interleaved state: %v", err)
@@ -654,15 +551,7 @@ func TestPhase5_WinnerOnlyCommit_PublicationDeniedByClosedSlot(t *testing.T) {
 		session: replacementSession,
 		pending: pendingSelectionEffects{
 			interleaved: interleavedstate.State{
-				Cycle:   interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 1},
-				MemoRef: &initialRef,
-			},
-			memoUpdate: &interleavedthinking.PendingMemoUpdate{
-				Ref: initialRef,
-				State: interleavedthinking.MemoState{
-					Memo:                  "denied replacement memo",
-					RegularTurnsRemaining: 2,
-				},
+				Cycle: interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 1},
 			},
 		},
 	}
@@ -683,15 +572,7 @@ func TestPhase5_WinnerOnlyCommit_PublicationDeniedByClosedSlot(t *testing.T) {
 		t.Errorf("expected ready to be consumed/disposed")
 	}
 
-	// Store must remain untouched: memo and cycle are never persisted
-	memo, ok, err := memoStore.Get(ctx, scope, initialRef)
-	if err != nil || !ok {
-		t.Fatalf("fetch memo: ok=%v, err=%v", ok, err)
-	}
-	if memo.Memo != "original memo before publication denial" {
-		t.Errorf("memo was mutated despite publication denial: got %q", memo.Memo)
-	}
-
+	// Store must remain untouched: cycle is never persisted
 	state, err := store.FetchInterleavedState(ctx, aLeg.ALegID)
 	if err != nil {
 		t.Fatalf("fetch state: %v", err)
@@ -717,28 +598,11 @@ func TestPhase5_WinnerOnlyCommit_AlreadyConsumedReadyRejectedInReduce(t *testing
 		t.Fatalf("create a-leg: %v", err)
 	}
 
-	memoStore := interleavedthinking.NewMemoStore(4096)
 	ex := TestExecutor()
 	ex.Store = store
-	ex.MemoStore = memoStore
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
-		Instructions:          "instructions",
-		MaxMemoBytes:          4096,
-		RegularTurnsRemaining: 2,
-	}
-
-	scope := interleavedthinking.Scope(aLeg.ALegID)
-	initialRef, err := memoStore.Put(ctx, scope, interleavedthinking.MemoState{
-		Memo:                  "original memo before consumed ready",
-		RegularTurnsRemaining: 2,
-	})
-	if err != nil {
-		t.Fatalf("put initial memo: %v", err)
-	}
 
 	initialInterleaved := interleavedstate.State{
-		Cycle:   interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},
-		MemoRef: &initialRef,
+		Cycle: interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},
 	}
 	if err := store.SetInterleavedState(ctx, aLeg.ALegID, initialInterleaved); err != nil {
 		t.Fatalf("set initial interleaved state: %v", err)
@@ -764,10 +628,6 @@ func TestPhase5_WinnerOnlyCommit_AlreadyConsumedReadyRejectedInReduce(t *testing
 		session: sessionA,
 		pending: pendingSelectionEffects{
 			interleaved: initialInterleaved,
-			memoUpdate: &interleavedthinking.PendingMemoUpdate{
-				Ref:   initialRef,
-				State: interleavedthinking.MemoState{Memo: "should never persist", RegularTurnsRemaining: 1},
-			},
 		},
 	}
 
@@ -784,11 +644,11 @@ func TestPhase5_WinnerOnlyCommit_AlreadyConsumedReadyRejectedInReduce(t *testing
 	}
 
 	// Store must remain untouched
-	memo, ok, err := memoStore.Get(ctx, scope, initialRef)
-	if err != nil || !ok {
-		t.Fatalf("fetch memo: ok=%v, err=%v", ok, err)
+	state, err := store.FetchInterleavedState(ctx, aLeg.ALegID)
+	if err != nil {
+		t.Fatalf("fetch state: %v", err)
 	}
-	if memo.Memo != "original memo before consumed ready" {
-		t.Errorf("memo was mutated: got %q, want original", memo.Memo)
+	if state.Cycle.NextIndex != 0 {
+		t.Errorf("cycle was mutated: got %d, want 0", state.Cycle.NextIndex)
 	}
 }

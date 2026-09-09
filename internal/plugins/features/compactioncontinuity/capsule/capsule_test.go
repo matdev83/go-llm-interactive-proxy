@@ -244,7 +244,7 @@ func TestMergeRejectsUnknownNonActiveDuplicateAndNonSemanticTransitions(t *testi
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			activeBase := testCapsule(t)
-			activeBase, err = Merge(activeBase, Delta{BaseRevision: activeBase.Revision, BranchBinding: activeBase.BranchBinding, Decisions: []Decision{semantic}})
+			activeBase, err := Merge(activeBase, Delta{BaseRevision: activeBase.Revision, BranchBinding: activeBase.BranchBinding, Decisions: []Decision{semantic}})
 			if err != nil {
 				t.Fatal(err)
 			}

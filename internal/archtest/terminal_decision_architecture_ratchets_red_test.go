@@ -119,7 +119,7 @@ func TestTask81ContinuationDoesNotOwnHiddenContent(t *testing.T) {
 	root := repoRoot(t)
 	path := filepath.Join(root, "internal", "core", "runtime", "terminal_decision_continuation.go")
 	src := string(readTask81File(t, path))
-	if !strings.Contains(src, "sdkadapter.NewWriter") {
+	if !strings.Contains(src, "steeringWriterFactory") {
 		t.Fatalf("continuation transaction must use the canonical SDK writer: %s", path)
 	}
 	for _, forbidden := range []string{
@@ -136,33 +136,48 @@ func TestTask81ContinuationDoesNotOwnHiddenContent(t *testing.T) {
 }
 
 // TestTask81TerminalDecisionPolicyStoreIsProcessOwned ensures a policy store
-// is created once by ProcessServices and passed to generations as a borrowed
-// dependency. Generation compilation must not construct another store.
+// is created once by featurehost process construction and is not owned directly
+// by ProcessServices or constructed by generation compilation.
 func TestTask81TerminalDecisionPolicyStoreIsProcessOwned(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	typesPath := filepath.Join(root, "internal", "infra", "runtimebundle", "process_services_types.go")
 	servicesPath := filepath.Join(root, "internal", "infra", "runtimebundle", "process_services.go")
+	featurehostProcPath := filepath.Join(root, "internal", "standardplugins", "featurehost", "process.go")
 	typesSrc := string(readTask81File(t, typesPath))
 	servicesSrc := string(readTask81File(t, servicesPath))
-	if !strings.Contains(typesSrc, "TerminalDecisionPolicy *terminaldecisionpolicy.Store") {
-		t.Fatalf("ProcessServices must own the terminal decision policy store")
+	fhProcSrc := string(readTask81File(t, featurehostProcPath))
+
+	if strings.Contains(typesSrc, "TerminalDecisionPolicy *terminaldecisionpolicy.Store") ||
+		strings.Contains(typesSrc, "terminaldecisionpolicy") ||
+		strings.Contains(typesSrc, "sessionpolicy.Store") {
+		t.Fatalf("ProcessServices must not own a concrete terminal decision policy store field")
 	}
-	if !strings.Contains(servicesSrc, "terminaldecisionpolicy.NewStore(") {
-		t.Fatalf("NewProcessServices must construct the process policy store")
+	if !strings.Contains(typesSrc, "StandardFeatures *featurehost.Runtime") {
+		t.Fatalf("ProcessServices must own StandardFeatures *featurehost.Runtime")
+	}
+	if strings.Contains(servicesSrc, "terminaldecisionpolicy.NewStore(") ||
+		strings.Contains(servicesSrc, "sessionpolicy.NewStore(") {
+		t.Fatalf("NewProcessServices must not construct the policy store directly")
+	}
+	if !strings.Contains(fhProcSrc, "sessionpolicy.NewStore") && !strings.Contains(fhProcSrc, "newSessionPolicyStore") {
+		t.Fatalf("featurehost process construction must construct sessionpolicy store")
 	}
 
 	err := WalkProductionGoFiles(root, func(rel, _ string, src []byte) error {
-		if !strings.HasPrefix(rel, "internal/infra/runtimebundle/") || rel == "internal/infra/runtimebundle/process_services.go" {
+		if strings.HasPrefix(rel, "internal/standardplugins/featurehost/sessionpolicy/") {
 			return nil
 		}
-		if strings.Contains(string(src), "terminaldecisionpolicy.NewStore(") {
-			t.Fatalf("generation-owned file %s constructs a second policy store", rel)
+		if rel == "internal/standardplugins/featurehost/process.go" {
+			return nil
+		}
+		if strings.Contains(string(src), "sessionpolicy.NewStore(") || strings.Contains(string(src), "terminaldecisionpolicy.NewStore(") {
+			t.Fatalf("non-process file %s constructs a policy store", rel)
 		}
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("scan runtimebundle ownership: %v", err)
+		t.Fatalf("scan policy store ownership: %v", err)
 	}
 }
 
@@ -176,8 +191,8 @@ func TestTask81TerminalDecisionPolicyLookupStopsAtAdmission(t *testing.T) {
 	prepPath := filepath.Join(root, "internal", "core", "runtime", "executor_prepare_request.go")
 	admissionSrc := string(readTask81File(t, filepath.Join(root, filepath.FromSlash(admissionPath))))
 	prepSrc := string(readTask81File(t, prepPath))
-	if !strings.Contains(admissionSrc, "TerminalDecisionPolicy.Snapshot(") {
-		t.Fatal("request admission must take the process policy snapshot")
+	if !strings.Contains(admissionSrc, "TerminalPolicyReader.Effective(") {
+		t.Fatal("request admission must invoke TerminalPolicyReader.Effective")
 	}
 	if !strings.Contains(prepSrc, "snapshotTerminalDecisionPolicy(") {
 		t.Fatal("request preparation must invoke the admission policy snapshot seam")
@@ -189,6 +204,7 @@ func TestTask81TerminalDecisionPolicyLookupStopsAtAdmission(t *testing.T) {
 		}
 		text := string(src)
 		for _, lookup := range []string{
+			"TerminalPolicyReader.Effective(",
 			"TerminalDecisionPolicy.Snapshot(",
 			"TerminalDecisionPolicy.Set(",
 			"TerminalDecisionPolicy.Delete(",
@@ -211,7 +227,7 @@ func TestTask81TerminalDecisionPolicyLookupStopsAtAdmission(t *testing.T) {
 func TestTask81DiagnosticsHaveBoundedDimensions(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	path := filepath.Join(root, "internal", "core", "conversationview", "observer.go")
+	path := filepath.Join(root, "internal", "core", "conversationprojection", "snapshot.go")
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if err != nil {

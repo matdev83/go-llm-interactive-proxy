@@ -7,6 +7,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
@@ -153,6 +155,8 @@ func StandardBundle() Bundle {
 			{ID: secretguard.ID, Factory: featureSecretGuard},
 			{ID: reasoningpreservation.ID, Factory: featureReasoningOutputPreservation},
 			{ID: compactioncontinuity.ID, Factory: featureCompactionContinuity},
+			{ID: interleavedthinking.ID, Factory: featureInterleavedThinking},
+			{ID: keepwarm.ID, Factory: featureKeepwarm},
 		},
 	}
 }

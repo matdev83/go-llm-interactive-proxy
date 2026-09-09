@@ -19,8 +19,13 @@ func TestExtensionPlanesManifestStatus(t *testing.T) {
 		t.Fatalf("MeasureManifestStatus failed: %v", err)
 	}
 
-	if status.PlaneCount != 25 {
-		t.Fatalf("expected 25 declared planes, got %d", status.PlaneCount)
+	// 26 planes: the v1 closure set of 25 plus the generation-binder
+	// secret_guard_execution plane, added deliberately so composed
+	// secret-guard engine posture travels via the ordinary frozen plane
+	// surface instead of dedicated GenerationOutput fields. Any further
+	// count change requires the same deliberate review.
+	if status.PlaneCount != 26 {
+		t.Fatalf("expected 26 declared planes, got %d", status.PlaneCount)
 	}
 
 	if !status.IsGeneratedUpToDate {
@@ -37,6 +42,7 @@ func TestExtensionPlanesManifestStatus(t *testing.T) {
 		"request_transforms",
 		"tool_catalog_filters",
 		"secret_guards",
+		"secret_guard_execution",
 		"terminal_decision_provider",
 	}
 	for _, expected := range expectedPlanes {
@@ -177,8 +183,8 @@ func TestExtensionPlanesBaselineGeneration_Determinism(t *testing.T) {
 	if doc.SchemaVersion != 1 {
 		t.Errorf("expected schema_version 1, got %d", doc.SchemaVersion)
 	}
-	if doc.TotalPlanes != 25 {
-		t.Errorf("expected total_planes 25, got %d", doc.TotalPlanes)
+	if doc.TotalPlanes != 26 {
+		t.Errorf("expected total_planes 26, got %d", doc.TotalPlanes)
 	}
 	if doc.ActiveForbiddenMirrors != 0 {
 		t.Errorf("expected 0 active forbidden mirrors, got %d", doc.ActiveForbiddenMirrors)
@@ -213,11 +219,11 @@ func TestExtensionPlanesBaselineArtifact_MatchesDisk(t *testing.T) {
 	if doc.SchemaVersion != 1 {
 		t.Errorf("expected schema_version 1, got %d", doc.SchemaVersion)
 	}
-	if doc.TotalPlanes != 25 {
-		t.Errorf("expected total_planes 25, got %d", doc.TotalPlanes)
+	if doc.TotalPlanes != 26 {
+		t.Errorf("expected total_planes 26, got %d", doc.TotalPlanes)
 	}
-	if doc.Manifest.PlaneCount != 25 {
-		t.Errorf("expected manifest plane_count 25, got %d", doc.Manifest.PlaneCount)
+	if doc.Manifest.PlaneCount != 26 {
+		t.Errorf("expected manifest plane_count 26, got %d", doc.Manifest.PlaneCount)
 	}
 	if !doc.Manifest.IsGeneratedUpToDate {
 		t.Errorf("expected is_generated_up_to_date to be true, got %v (%s)", doc.Manifest.IsGeneratedUpToDate, doc.Manifest.GeneratedOutputCurrency)

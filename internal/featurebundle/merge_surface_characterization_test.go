@@ -312,7 +312,7 @@ func assertAllSliceFieldsNil(t *testing.T, v any) {
 	t.Helper()
 	rv := reflect.ValueOf(v)
 	rt := rv.Type()
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 		if field.Type.Kind() != reflect.Slice {
 			continue

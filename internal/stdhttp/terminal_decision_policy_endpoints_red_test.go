@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	policyhttp "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/terminalpolicy"
 )
 
@@ -24,7 +24,7 @@ import (
 // Proposed API:
 //
 //   policyhttp.NewHandler(policyhttp.Options{
-//       Store:                    *terminaldecisionpolicy.Store,
+//       Store:                    *sessionpolicy.Store,
 //       FeatureStatus:            func(context.Context, string) (known, available bool, err error),
 //       ResolveClientScope:       func(context.Context, *http.Request, string) (Key, Authority, error),
 //       AuthorizeOperatorTarget:  func(context.Context, *http.Request, string, string) (Key, Authority, error),
@@ -44,9 +44,9 @@ const (
 )
 
 type endpointHarness struct {
-	store              *terminaldecisionpolicy.Store
-	key                terminaldecisionpolicy.Key
-	auth               terminaldecisionpolicy.Authority
+	store              *sessionpolicy.Store
+	key                sessionpolicy.Key
+	auth               sessionpolicy.Authority
 	clientResolvedPath string
 
 	known       bool
@@ -57,12 +57,12 @@ type endpointHarness struct {
 
 func newEndpointHarness(t *testing.T, maxKeys int) *endpointHarness {
 	t.Helper()
-	key := terminaldecisionpolicy.Key{
+	key := sessionpolicy.Key{
 		SecureSessionIncarnation: clientSession,
 		ALegID:                   clientALeg,
 		FeatureID:                policyFeature,
 	}
-	store := terminaldecisionpolicy.NewStore(terminaldecisionpolicy.Config{
+	store := sessionpolicy.NewStore(sessionpolicy.Config{
 		MaxKeys:       maxKeys,
 		MaxKeyBytes:   128,
 		MaxValueBytes: 128,
@@ -74,7 +74,7 @@ func newEndpointHarness(t *testing.T, maxKeys int) *endpointHarness {
 	return &endpointHarness{
 		store:     store,
 		key:       key,
-		auth:      terminaldecisionpolicy.Authority{SecureSessionIncarnation: clientSession, ALegID: clientALeg, Authorized: true},
+		auth:      sessionpolicy.Authority{SecureSessionIncarnation: clientSession, ALegID: clientALeg, Authorized: true},
 		known:     true,
 		available: true,
 	}
@@ -87,21 +87,21 @@ func (h *endpointHarness) handler(t *testing.T) http.Handler {
 		FeatureStatus: func(_ context.Context, featureID string) (bool, bool, error) {
 			return h.known && featureID != "missing-feature", h.available, nil
 		},
-		ResolveClientScope: func(_ context.Context, r *http.Request, _ string) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error) {
+		ResolveClientScope: func(_ context.Context, r *http.Request, _ string) (sessionpolicy.Key, sessionpolicy.Authority, error) {
 			h.clientResolvedPath = r.URL.Path
 			if h.clientErr != nil {
-				return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, h.clientErr
+				return sessionpolicy.Key{}, sessionpolicy.Authority{}, h.clientErr
 			}
 			return h.key, h.auth, nil
 		},
-		AuthorizeOperatorTarget: func(context.Context, *http.Request, string, string) (terminaldecisionpolicy.Key, terminaldecisionpolicy.Authority, error) {
+		AuthorizeOperatorTarget: func(context.Context, *http.Request, string, string) (sessionpolicy.Key, sessionpolicy.Authority, error) {
 			if h.operatorErr != nil {
-				return terminaldecisionpolicy.Key{}, terminaldecisionpolicy.Authority{}, h.operatorErr
+				return sessionpolicy.Key{}, sessionpolicy.Authority{}, h.operatorErr
 			}
 			key := h.key
 			key.SecureSessionIncarnation = operatorSession
 			key.ALegID = "operator-target-a-leg"
-			return key, terminaldecisionpolicy.Authority{
+			return key, sessionpolicy.Authority{
 				SecureSessionIncarnation: operatorSession,
 				ALegID:                   "operator-target-a-leg",
 				Authorized:               true,
@@ -287,7 +287,7 @@ func TestTerminalDecisionPolicyEndpoints_ErrorMatrixAndNoMutation_RED(t *testing
 				other.ALegID = aLegID
 				otherAuth := h.auth
 				otherAuth.ALegID = aLegID
-				if _, err := h.store.Set(context.Background(), otherAuth, other, terminaldecisionpolicy.ActorClient, terminaldecisionpolicy.TriStateEnabled); err != nil {
+				if _, err := h.store.Set(context.Background(), otherAuth, other, sessionpolicy.ActorClient, sessionpolicy.TriStateEnabled); err != nil {
 					panic(err)
 				}
 			}
@@ -303,7 +303,7 @@ func TestTerminalDecisionPolicyEndpoints_ErrorMatrixAndNoMutation_RED(t *testing
 				tc.configure(h)
 			}
 			before, err := h.store.Snapshot(t.Context(), h.auth, h.key, false)
-			if err != nil && !errors.Is(err, terminaldecisionpolicy.ErrClosed) {
+			if err != nil && !errors.Is(err, sessionpolicy.ErrClosed) {
 				t.Fatalf("baseline snapshot: %v", err)
 			}
 			request := doEndpointRequest

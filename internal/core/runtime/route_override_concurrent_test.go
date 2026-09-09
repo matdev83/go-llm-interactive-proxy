@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -155,9 +156,12 @@ func TestExecutor_concurrentAdmissionWhileOverrideMutations(t *testing.T) {
 			if tc.thinker {
 				ex, st = thinkerOverrideExecutor(t, &routeOpenCapture{}, false)
 				ex.Backends = tc.backends(log)
-				cfg := ex.InterleavedConfig
-				cfg.RegularTurnsRemaining = 64
-				ex.InterleavedConfig = cfg
+				ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+					Instructions:          "Think step by step.",
+					StreamToClient:        "hidden",
+					MaxMemoBytes:          4096,
+					RegularTurnsRemaining: 64,
+				}, runtime.GetTestMemoStore(ex))
 			} else {
 				ex, st = routePlanLifetimeExecutor(t, tc.backends(log))
 			}

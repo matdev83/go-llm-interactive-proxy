@@ -41,6 +41,11 @@ func TestForbiddenImports_RetiredCorePackagesRulesEnforced(t *testing.T) {
 		"/internal/core/toolcallrepair",
 		"/internal/core/secretguard",
 		"/internal/core/compactiondetect",
+		"/internal/core/compactioncontinuity",
+		"/internal/core/conversationview",
+		"/internal/core/interleavedthinking",
+		"/internal/core/keepwarm",
+		"/internal/core/terminaldecisionpolicy",
 	}
 
 	for _, target := range retiredTargets {
@@ -112,9 +117,21 @@ func TestForbiddenImports_CoreConcreteFeaturesRenamedOrNestedBypassRejected(t *t
 			wantForbid: true,
 		},
 		{
+			name:       "core runtime imports interleavedthinking",
+			relPath:    "internal/core/runtime/renamed.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking",
+			wantForbid: true,
+		},
+		{
 			name:       "core runtime imports reasoningpreservation",
 			relPath:    "internal/core/runtime/renamed.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation",
+			wantForbid: true,
+		},
+		{
+			name:       "core runtime imports keepwarm",
+			relPath:    "internal/core/runtime/renamed.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm",
 			wantForbid: true,
 		},
 		{
@@ -172,8 +189,14 @@ func TestForbiddenImports_CoreConcreteFeaturesRenamedOrNestedBypassRejected(t *t
 			wantForbid: false,
 		},
 		{
-			name:       "compactioncompose dedicated adapter imports compactioncontinuity (allowed)",
-			relPath:    "internal/infra/compactioncompose/parent_port.go",
+			name:       "standardplugins distribution imports keepwarm (allowed)",
+			relPath:    "internal/standardplugins/features_install.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm",
+			wantForbid: false,
+		},
+		{
+			name:       "featurehost compaction dedicated adapter imports compactioncontinuity (allowed)",
+			relPath:    "internal/standardplugins/featurehost/compaction/parent_port.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity",
 			wantForbid: false,
 		},
@@ -193,6 +216,7 @@ func TestForbiddenImports_CoreConcreteFeaturesRenamedOrNestedBypassRejected(t *t
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			src := fmt.Sprintf("package test\nimport _ %q\n", tc.importPath)
 			findings, err := ScanFileForbiddenImports(tc.relPath, tc.relPath, []byte(src))
 			if err != nil {

@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -24,6 +25,7 @@ import (
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/reasoninghost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -970,11 +972,13 @@ func TestCompileGeneration_CandidateFeaturePlanes_ReasoningPreservationAttemptRe
 	t.Cleanup(func() { _ = scheduler.Close() })
 
 	prod := ProductionOptions{
-		ReasoningCompression: ReasoningCompressionOptions{
-			EgressPolicies: map[string]reasoningpreservation.EgressPolicy{
-				egressRef: charEgressPolicy{version: "v1"},
-			},
-			MatcherResolver: charMatcherResolver{},
+		FeatureHostRegistrations: []featurehost.Registration{
+			(&reasoninghost.Binding{
+				EgressPolicies: map[string]reasoninghost.EgressPolicy{
+					egressRef: charEgressPolicy{version: "v1"},
+				},
+				MatcherResolver: charMatcherResolver{},
+			}).Registration(),
 		},
 	}
 

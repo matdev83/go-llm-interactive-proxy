@@ -2,7 +2,7 @@
 
 Canonical A-leg/B-leg visibility for proxy-owned content. One authoritative A-leg snapshot determines the model-visible B-leg trajectory, with no client-writable visibility flag.
 
-Spec: `.kiro/specs/non-forwardable-conversation-content/` (requirements, design, tasks, final-review). SDK: `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, `pkg/lipsdk/localturn`. Core policy: `internal/core/conversationview` (+ `internal/core/conversationview/sdkadapter`). Persistence: `internal/core/b2bua` (Memory) and `internal/core/continuity/bunstore` (SQLite/PostgreSQL). Runtime seams: `internal/core/runtime` (early projection, final reassertion, local-turn), `internal/core/localstream` (canonical local streams), `internal/infra/metrics` (bounded observability).
+Spec: `.kiro/specs/non-forwardable-conversation-content/` (requirements, design, tasks, final-review). SDK: `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, `pkg/lipsdk/localturn`. Kernel projection: `internal/core/conversationprojection` (pure identity/exclusion/projection/reassertion/anchors). Steering state and persistence: `internal/infra/conversationview` (+ `sdkadapter`). Memory/durable stores: `internal/core/b2bua` (Memory) and `internal/core/continuity/bunstore` (SQLite/PostgreSQL). Runtime seams: `internal/core/runtime` (early projection, final reassertion, local-turn), `internal/core/localstream` (canonical local streams), `internal/infra/metrics` (bounded observability). Standard composition of the state services is owned by `internal/standardplugins/featurehost`.
 
 ## Both directions
 
@@ -36,7 +36,7 @@ All exclusion and anchor decisions use a **replay-stable semantic identity** for
 * **Normalized**: CRLF/CR → LF, otherwise whitespace/Unicode preserved; structured JSON content canonicalized deterministically before hashing.
 * **Authority neutral**: legacy `Message` vs item authority with equivalent role/content produce the same identity; frontend encode→decode round-trip preserves it for every covered content form.
 * **Occurrence aware**: identical role/content repeated in one call shares the base digest; a placement anchor pairs `MessageAnchor{Identity, Occurrence}` to disambiguate.
-* **Telemetry safe**: logs/metrics carry only bounded reason codes and counts; plaintext and raw digests are not logged to enforce exclusion or resolve an anchor (`internal/core/conversationview/identity.go`).
+* **Telemetry safe**: logs/metrics carry only bounded reason codes and counts; plaintext and raw digests are not logged to enforce exclusion or resolve an anchor (`internal/core/conversationprojection/identity.go`).
 
 Identity/anchor/tag APIs reject non-`ItemKindMessage` items rather than inferring partial semantics.
 
@@ -87,7 +87,7 @@ For a given overlay revision, role/text/anchor/order are byte-stable. No per-tur
 
 Cache invariant: with append-only forwardable history and unchanged steering, `M(T)` is an exact prefix of `M(T+1)` through `T`'s final content. Activation `… U_N, STEERING` stays `… U_N, STEERING, A_N, U_N+1` later.
 
-Anti-tail rule: unchanged steering is never appended to the moving tail to fake stability; that would relocate it relative to prior assistant/user history and break prefix equality across three append-only turns (covered by regression suites in `internal/core/conversationview` and `internal/core/runtime`).
+Anti-tail rule: unchanged steering is never appended to the moving tail to fake stability; that would relocate it relative to prior assistant/user history and break prefix equality across three append-only turns (covered by regression suites in `internal/core/conversationprojection` and `internal/core/runtime`).
 
 ## Explicit discontinuities, fallback, and fail-closed
 
@@ -120,7 +120,7 @@ No core projection redesign is required for these future consumers; they are **s
 * **Generic async notification scheduler** — not implemented.
 * **Interleaved-thinking memo migration** — intentionally not refocused onto persistent steering.
 
-Tests for local-turn and steering use only generic fake producers (`pkg/lipsdk/localturn`, `pkg/lipsdk/steering`, `internal/core/conversationview/sdkadapter`, `internal/featurebundle`); no concrete command/verifier/quota/provider-cache implementation belongs in this diff. Final traceability review removes any such scope creep.
+Tests for local-turn and steering use only generic fake producers (`pkg/lipsdk/localturn`, `pkg/lipsdk/steering`, `internal/infra/conversationview/sdkadapter`, `internal/featurebundle`); no concrete command/verifier/quota/provider-cache implementation belongs in this diff.
 
 ## Observability
 

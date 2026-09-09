@@ -87,8 +87,8 @@ var (
 	}
 
 	AllowedExtensionsOptionsFields = map[string]bool{
-		"SecretGuardInputs":      true,
-		"SecretGuardEnvironment": true,
+		"SecretGuard":            true,
+		"SecretGuardInventory":   true,
 		"SecretDecisionObserver": true,
 		"frozen":                 true,
 		"Frozen":                 true,
@@ -202,13 +202,14 @@ var (
 	// AllowedObserverProjections is the qualified-symbol allowlist of observer and tool projection functions.
 	// Any other function whose body reads observer/tool planes via Get past Wave 2/4 is forbidden.
 	AllowedObserverProjections = map[string]bool{
-		"internal/infra/runtimebundle.buildRuntimeSnapshot":    true,
-		"internal/infra/runtimebundle.buildExecutorRuntime":    true,
-		"internal/infra/runtimebundle.buildSecretGuardRuntime": true,
-		"internal/infra/compactioncompose.BindFeatureSurface":  true,
-		"internal/infra/reasoningcompose.Bind":                 true,
-		"internal/featurebundle.FreezeBundle":                  true,
-		"internal/featurebundle.MergeBundlesGenerated":         true,
+		"internal/infra/runtimebundle.buildRuntimeSnapshot":                        true,
+		"internal/infra/runtimebundle.buildExecutorRuntime":                        true,
+		"internal/infra/runtimebundle.buildSecretGuardRuntime":                     true,
+		"internal/standardplugins/featurehost.(*Runtime).CompileGeneration":        true,
+		"internal/standardplugins/featurehost.(*Runtime).bindCompactionContinuity": true,
+		"internal/standardplugins/featurehost/reasoning.Bind":                      true,
+		"internal/featurebundle.FreezeBundle":                                      true,
+		"internal/featurebundle.MergeBundlesGenerated":                             true,
 	}
 
 	// ClosedPlaneTargetStorageStructs lists the structs in pkg/lipsdk/feature that

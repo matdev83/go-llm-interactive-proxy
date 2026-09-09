@@ -5,7 +5,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicaps"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/reasoningreplay"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation/reasoningreplay"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )

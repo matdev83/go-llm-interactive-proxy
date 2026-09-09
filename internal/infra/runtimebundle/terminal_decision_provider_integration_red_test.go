@@ -192,8 +192,8 @@ func TestTerminalDecisionProviderFeatureIntegrationAndRemoval(t *testing.T) {
 		assert.False(t, avail2Unk)
 		assert.False(t, capturedReplacement.GenerationDefault("unknown-feature"))
 
-		assert.Same(t, process.TerminalDecisionPolicy, capturedEnabled.Store)
-		assert.Same(t, process.TerminalDecisionPolicy, capturedReplacement.Store)
+		assert.Same(t, process.StandardFeatures.TerminalDecisionPolicy(), capturedEnabled.Store)
+		assert.Same(t, process.StandardFeatures.TerminalDecisionPolicy(), capturedReplacement.Store)
 
 		// 3. Assert replacement TerminalDecisionProvider() is nil.
 		genBundle, ok := bundle2.(*runtimebundle.GenerationBundle)

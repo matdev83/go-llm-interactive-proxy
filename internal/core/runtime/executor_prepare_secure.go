@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -276,28 +276,31 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		return failAfterRequestAdmit(err)
 	}
 	if snap != nil {
-		ctpCall := *workingCall
-		ctpSess := workingCall.Session
-		ctpSess.ResumeToken = ""
-		ctpCall.Session = ctpSess
-		if rawPayload, jerr := json.Marshal(&ctpCall); jerr == nil {
-			meta := sdktraffic.CaptureMeta{
-				TraceID:     ibt.traceID,
-				ALegID:      strings.TrimSpace(ibt.aLeg.ALegID),
-				SessionID:   ctpCall.Session.CorrelationID(),
-				PrincipalID: strings.TrimSpace(ibt.principal.ID),
-				Scope:       ibt.scope.Clone(),
+		bundle := coretraffic.PortBundleFromSnapshot(snap)
+		if !bundle.EmitIsNoop() {
+			ctpCall := *workingCall
+			ctpSess := workingCall.Session
+			ctpSess.ResumeToken = ""
+			ctpCall.Session = ctpSess
+			if rawPayload, jerr := json.Marshal(&ctpCall); jerr == nil {
+				meta := sdktraffic.CaptureMeta{
+					TraceID:     ibt.traceID,
+					ALegID:      strings.TrimSpace(ibt.aLeg.ALegID),
+					SessionID:   ctpCall.Session.CorrelationID(),
+					PrincipalID: strings.TrimSpace(ibt.principal.ID),
+					Scope:       ibt.scope.Clone(),
+				}
+				bundle.Emit(
+					outCtx,
+					sdktraffic.LegCTP,
+					meta,
+					"lip/canonical+json",
+					"application/json",
+					rawPayload,
+				)
+			} else if e.Log != nil {
+				e.Log.DebugContext(outCtx, "submit traffic marshal skipped", "leg", sdktraffic.LegCTP, "error", jerr)
 			}
-			coretraffic.PortBundleFromSnapshot(snap).Emit(
-				outCtx,
-				sdktraffic.LegCTP,
-				meta,
-				"lip/canonical+json",
-				"application/json",
-				rawPayload,
-			)
-		} else if e.Log != nil {
-			e.Log.DebugContext(outCtx, "submit traffic marshal skipped", "leg", sdktraffic.LegCTP, "error", jerr)
 		}
 		// --- Task 3.2 seam: snapshot once after authoritative A-leg resolution ---
 		// Preserve ingress before projection; project exclusion+steering ONCE
@@ -317,7 +320,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		ibt.conversationEvidence = projEv
 		ibt.conversationSummary = newConversationProjectionSummary(snapView, projEv)
 		ibt.convSnapshotSet = true
-		if filtered, ferr := conversationview.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
+		if filtered, ferr := conversationprojection.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
 			ibt.conversationFilteredBaseline = &filtered
 		} else {
 			// Filter should not fail if Project succeeded; treat as fail-closed

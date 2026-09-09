@@ -24,12 +24,10 @@ type extensionRuntime struct {
 }
 
 // buildExtensionRuntime builds the snapshot preserving exec-cell closure.
-func buildExtensionRuntime(bctx buildContext, nowFn func() time.Time, execRunnerProvider func() auxreq.ExecutorRunner, cp *controlPlaneRuntime, policyObs policydecision.Observer, sg *secretGuardRuntime, extensionState lipstate.Store) *extensionRuntime {
-	var plane extensions.SecretGuardPlane
-	if sg != nil {
-		plane = sg.Plane
-	}
-	snap := buildRuntimeSnapshot(bctx.Bus, bctx.Cfg, bctx.Opts, nowFn, execRunnerProvider, cp, policyObs, plane, extensionState)
+// The secret-guard plane is planes-derived by the caller; no concrete feature
+// assembly crosses this boundary.
+func buildExtensionRuntime(bctx buildContext, nowFn func() time.Time, execRunnerProvider func() auxreq.ExecutorRunner, cp *controlPlaneRuntime, policyObs policydecision.Observer, sgPlane extensions.SecretGuardPlane, extensionState lipstate.Store) *extensionRuntime {
+	snap := buildRuntimeSnapshot(bctx.Bus, bctx.Cfg, bctx.Opts, nowFn, execRunnerProvider, cp, policyObs, sgPlane, extensionState)
 	return &extensionRuntime{Snap: snap}
 }
 

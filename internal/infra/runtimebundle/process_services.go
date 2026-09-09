@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
+	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 )
 
 // NewProcessServices constructs process-owned stores, pools, metrics, terminal-work,
@@ -54,27 +54,18 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	parent := ctx
-	if parent == nil {
-		parent = context.Background()
-	}
 	if in.Opts.Startup.StartupContext != nil {
 		parent = in.Opts.Startup.StartupContext
+	} else if parent == nil {
+		parent = context.Background()
 	}
 
-	keepwarmPolicy, err := keepwarm.NewPolicyStore(keepwarm.DefaultMaxPolicyEntries)
-	if err != nil {
-		releaseProcessInputOwnership(&in, releasePluginOwnership)
-		return nil, fmt.Errorf("runtimebundle: keep-warm policy store: %w", err)
-	}
 	ps := &ProcessServices{
-		Logger:                 in.Log,
-		FactoryCatalog:         in.Opts.PluginRegistry,
-		Tracing:                in.Tracing,
-		KeepwarmPolicy:         keepwarmPolicy,
-		KeepwarmRegistry:       keepwarm.NewManagerRegistry(),
-		TerminalDecisionPolicy: terminaldecisionpolicy.NewStore(terminaldecisionpolicy.Config{}),
-		cfg:                    in.Cfg,
-		opts:                   in.Opts,
+		Logger:         in.Log,
+		FactoryCatalog: in.Opts.PluginRegistry,
+		Tracing:        in.Tracing,
+		cfg:            in.Cfg,
+		opts:           in.Opts,
 	}
 
 	register := func(c func() error) {
@@ -82,7 +73,6 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 			ps.closers = append(ps.closers, c)
 		}
 	}
-	register(ps.TerminalDecisionPolicy.Close)
 	adoptBackgroundAuxAndDetector(parent, &in, ps, register)
 	owner := &processResourceOwner{register: register}
 	fail := func(err error) (*ProcessServices, error) {
@@ -204,11 +194,10 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		PostgresPools:     postgresPools,
 		DualPlaneMigrator: ps.dualPlaneMigrator,
 	}
-	persist, err := buildPersistenceRuntime(owner, bctx, controlPlane, ps.Metrics)
-	if err != nil {
+	if ps.persistence, err = buildPersistenceRuntime(owner, bctx, controlPlane, ps.Metrics); err != nil {
 		return fail(err)
 	}
-	ps.persistence = persist
+	persist := ps.persistence
 	if persist != nil {
 		ps.Continuity = persist.Store
 		ps.RouteOverrideStore = persist.OverrideStore
@@ -225,19 +214,14 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		nowFn = time.Now
 	}
 
-	accountingStores, err := buildProcessAccountingStores(parent, in.Cfg, nowFn)
-	if err != nil {
+	if ps.accountingStores, err = buildProcessAccountingStores(parent, in.Cfg, nowFn); err != nil {
 		return fail(err)
 	}
-	ps.accountingStores = accountingStores
-
-	meteringRT, err := buildMeteringRuntime(owner, parent, in.Cfg, nowFn, postgresPools, ps.dualPlaneMigrator)
-	if err != nil {
+	if ps.meteringRT, err = buildMeteringRuntime(owner, parent, in.Cfg, nowFn, postgresPools, ps.dualPlaneMigrator); err != nil {
 		return fail(err)
 	}
-	ps.meteringRT = meteringRT
-	if meteringRT != nil {
-		ps.MeteringRecorder = meteringRT.Recorder
+	if ps.meteringRT != nil {
+		ps.MeteringRecorder = ps.meteringRT.Recorder
 	}
 
 	shared := buildSharedMutableRuntime(in.Cfg, nowFn)
@@ -245,17 +229,41 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		return fail(fmt.Errorf("runtimebundle: branch coordinator: %w", err))
 	}
 
+	var hostRegs []sdkfeaturehost.Registration
+	if in.Opts != nil {
+		if len(in.Opts.Production.FeatureHostRegistrations) > 0 {
+			hostRegs = append(hostRegs, in.Opts.Production.FeatureHostRegistrations...)
+		}
+		if len(in.Opts.Testing.FeatureHostRegistrations) > 0 {
+			hostRegs = append(hostRegs, in.Opts.Testing.FeatureHostRegistrations...)
+		}
+	}
+	var metricsRegistry featurehost.MetricsRegistry // generic Prometheus registry contribution
+	if ps.Metrics != nil && ps.Metrics.Registry != nil {
+		metricsRegistry = ps.Metrics.Registry
+	}
+	if ps.StandardFeatures, err = featurehost.NewProcess(parent, featurehost.ProcessInput{
+		Logger:            in.Log,
+		ExtensionState:    ps.ExtensionState,
+		BackgroundAux:     ps.BackgroundAux,
+		ContinuityStore:   ps.Continuity,
+		BunDB:             borrowContinuityDB(ps.Continuity),
+		HostRegistrations: hostRegs,
+		HostEnv:           in.HostEnv,
+		MetricsRegistry:   metricsRegistry,
+	}); err != nil {
+		return fail(fmt.Errorf("runtimebundle: standard features host: %w", err))
+	}
+	register(ps.StandardFeatures.Close)
+
 	// Snapshot binder before terminal workers so IntentService/reconciler receive
 	// executable pending ownership without a post-start setter race.
-	snapGen, snapCtrl := buildSnapshotGeneration(in.Cfg, in.Opts.Testing, in.Opts.Production)
-	ps.SnapshotGeneration = snapGen
-	ps.SnapshotController = snapCtrl
+	ps.SnapshotGeneration, ps.SnapshotController = buildSnapshotGeneration(in.Cfg, in.Opts.Testing, in.Opts.Production)
 
-	twRT, err := buildTerminalWorkWithSetReconcile(owner, parent, in.Opts.Production, nowFn, ps.Metrics, ps.Concurrency, snapGen)
-	if err != nil {
+	if ps.terminalWorkRT, err = buildTerminalWorkWithSetReconcile(owner, parent, in.Opts.Production, nowFn, ps.Metrics, ps.Concurrency, ps.SnapshotGeneration); err != nil {
 		return fail(err)
 	}
-	ps.terminalWorkRT = twRT
+	twRT := ps.terminalWorkRT
 	if twRT != nil {
 		ps.TerminalWorkProcessor = twRT.Processor
 		ps.TerminalWorkRegistry = twRT.Registry
@@ -263,10 +271,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		ps.TerminalWorkMetrics = twRT.Metrics
 	}
 
-	ps.DecodeAdmission = decodeqos.New(
-		in.Cfg.Server.EffectiveMaxConcurrentDecodes(),
-		in.Cfg.Server.EffectiveMaxInflightDecodeBytes(),
-	)
+	ps.DecodeAdmission = decodeqos.New(in.Cfg.Server.EffectiveMaxConcurrentDecodes(), in.Cfg.Server.EffectiveMaxInflightDecodeBytes())
 	ps.MeteringQuerier = in.Opts.Production.MeteringQuerier
 
 	// One-time prune after all process-owned Open/Claim paths complete. Candidate

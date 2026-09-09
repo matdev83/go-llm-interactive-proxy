@@ -53,8 +53,8 @@ func TestBuild_modelCatalog_disabledDoesNotStartRuntime(t *testing.T) {
 	if b.Executor().RequestTokenEstimator != nil {
 		t.Fatalf("expected nil RequestTokenEstimator")
 	}
-	if b.Ledger().Len() != 1 {
-		t.Fatalf("expected generation-owned upstream idle closer only (disabled catalog, in-memory continuity), got %d", b.Ledger().Len())
+	if b.Ledger().Len() != 3 {
+		t.Fatalf("expected generation-owned upstream idle closer plus ledger-owned keep-warm lifecycle prepare and quiesce entries (disabled catalog, in-memory continuity), got %d", b.Ledger().Len())
 	}
 	closeRuntimeBuilt(t, b)
 }

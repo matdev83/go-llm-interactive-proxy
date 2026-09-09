@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -91,9 +91,9 @@ type turnTerminal struct {
 	// a clean final without raw frame concatenation.
 	supportsContinuation bool
 
-	steeringStore        conversationview.SteeringStore
-	conversationReader   conversationview.Reader
-	conversationObserver conversationview.Observer
+	steeringWriterFactory SteeringWriterFactory
+	conversationReader    conversationprojection.Reader
+	conversationObserver  ConversationViewObserver
 
 	terminalDecisionMu     sync.Mutex
 	terminalDecisionFlight *terminalDecisionFlight
@@ -137,7 +137,7 @@ func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
 	t.emitFrontendEgress = e.emitFrontendEgressMeteringFact
 	t.meteringRecorderPresent = e.MeteringRecorder != nil
 	t.emitBackendEgress = e.emitBackendEgressMeteringFact
-	t.steeringStore = e.conversationViewSteeringStore()
+	t.steeringWriterFactory = e.SteeringWriterFactory
 	t.conversationReader = e.conversationViewReader()
 	t.conversationObserver = e.conversationViewObserver()
 	if !t.terminalDecisionAuxiliaryBound && e.RuntimeSnapshot != nil {
@@ -182,7 +182,7 @@ func newTurnTerminalWithSharedALeg(parent *turnTerminal) *turnTerminal {
 	if parent != nil {
 		terminal.aLegEndAuthority = parent.aLegEndAuthority
 		terminal.supportsContinuation = parent.supportsContinuation
-		terminal.steeringStore = parent.steeringStore
+		terminal.steeringWriterFactory = parent.steeringWriterFactory
 		terminal.conversationReader = parent.conversationReader
 		terminal.conversationObserver = parent.conversationObserver
 		terminal.terminalDecisionProvider = parent.terminalDecisionProvider

@@ -6,7 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -35,8 +35,8 @@ type requestTerminalFacts struct {
 	routePrefs                   []string
 	recvViews                    execctx.Views
 	metering                     *checkpoint.RequestHolder
-	conversationSnapshot         conversationview.Snapshot
-	conversationProvenance       []conversationview.OverlayProvenance
+	conversationSnapshot         conversationprojection.Snapshot
+	conversationProvenance       []conversationprojection.OverlayProvenance
 	conversationFilteredBaseline lipapi.Call
 	ingressCall                  lipapi.Call
 	continuationIntent           continuationIntentFacts
@@ -98,7 +98,7 @@ func (f recvTurnFacts) terminalFacts() requestTerminalFacts {
 	}
 }
 
-func cloneSnapshot(s conversationview.Snapshot) conversationview.Snapshot {
+func cloneSnapshot(s conversationprojection.Snapshot) conversationprojection.Snapshot {
 	out := s
 	if s.NeverBackend != nil {
 		out.NeverBackend = slices.Clone(s.NeverBackend)

@@ -266,7 +266,10 @@ func TestTransport_underlyingErrorIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Do(req)
+	resp, err := client.Do(req)
+	if resp != nil && resp.Body != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("got %v want sentinel", err)
 	}

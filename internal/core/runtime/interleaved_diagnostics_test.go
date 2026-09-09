@@ -13,9 +13,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -48,13 +48,14 @@ func TestExecutor_InterleavedDiagnostics_HiddenFlowObservesTransitionsWithoutMem
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
 	ex.Log = log
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = memoStore
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
+	wireInterleavedTestSteering(ex)
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := interleavedBaseCall(selector)
@@ -144,11 +145,12 @@ func TestExecutor_InterleavedDiagnostics_ExpiredMemoEmitsExpiredWithoutBody(t *t
 		),
 	}
 	ex.Log = log
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = memoStore
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
+	wireInterleavedTestSteering(ex)
 
 	first := interleavedBaseCall("[thinker]exec-be:m^exec-be:m")
 	firstStream, err := ex.Execute(context.Background(), first)
@@ -160,7 +162,7 @@ func TestExecutor_InterleavedDiagnostics_ExpiredMemoEmitsExpiredWithoutBody(t *t
 	}
 	aLegID := first.Session.ALegID
 
-	memoRef, err := memoStore.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
+	_, err = memoStore.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
 		Memo:                  secretMemo,
 		SourceSelector:        "[thinker]exec-be:m^exec-be:m",
 		Backend:               "exec-be",
@@ -171,8 +173,7 @@ func TestExecutor_InterleavedDiagnostics_ExpiredMemoEmitsExpiredWithoutBody(t *t
 	}
 	cycle := thinkerCycleState(t, "[thinker]exec-be:m^exec-be:m", 0)
 	if err := st.SetInterleavedState(context.Background(), aLegID, interleavedstate.State{
-		Cycle:   cycle,
-		MemoRef: &memoRef,
+		Cycle: cycle,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -274,13 +275,14 @@ func TestExecutor_InterleavedDiagnostics_StoreSkipReasonsDifferentiated(t *testi
 		"err-think":   errThinker,
 	}
 	ex.Log = log
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	memoStore := interleavedthinking.NewMemoStore(4096)
+	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
-	}
-	ex.MemoStore = interleavedthinking.NewMemoStore(4096)
+	}, memoStore)
+	runtime.RegisterTestMemoStore(ex, memoStore)
 
 	// Round 1: turn 1 of a new session runs the executor slot (setup). The
 	// resumed turn 2 runs the empty thinker, which completes without producing

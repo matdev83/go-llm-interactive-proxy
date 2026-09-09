@@ -23,14 +23,17 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	dto "github.com/prometheus/client_model/go"
 	"gopkg.in/yaml.v3"
@@ -191,25 +194,26 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 	}
 
 	bus := hooks.New(hooks.Config{})
+	decisionObs := sdk.ObserverFunc(func(_ context.Context, ev sdk.DecisionEvent) error {
+		h.auditCalls.Add(1)
+		h.auditMu.Lock()
+		h.auditEvents = append(h.auditEvents, ev)
+		h.auditMu.Unlock()
+		return nil
+	})
+	secretEnv := secretGuardEnv{
+		"OPENAI_API_KEY": secret,
+	}
 	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
 		Cfg: cfg,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Opts: &runtimebundle.BuildOptions{
 			PluginRegistry: reg,
-			Extensions: runtimebundle.ExtensionsOptions{
-				SecretGuardEnvironment: secretGuardEnv{
-					"OPENAI_API_KEY": secret,
-				},
-				SecretDecisionObserver: sdk.ObserverFunc(func(_ context.Context, ev sdk.DecisionEvent) error {
-					h.auditCalls.Add(1)
-					h.auditMu.Lock()
-					h.auditEvents = append(h.auditEvents, ev)
-					h.auditMu.Unlock()
-					return nil
-				}),
-			},
 			Production: runtimebundle.ProductionOptions{
 				TrafficObservers: []sdktraffic.Observer{&countingTrafficObs{n: &h.trafficCalls}},
+				FeatureHostRegistrations: []featurehost.Registration{
+					(&secretguardhost.Binding{Environment: secretEnv}).Registration(),
+				},
 			},
 		},
 		Tracing: runtimebundle.ProcessTracing{
@@ -220,10 +224,39 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ps.Close() })
+
+	candOpts := &runtimebundle.BuildOptions{PluginRegistry: reg}
+	if ps.StandardFeatures != nil && cfg != nil {
+		accessMode, _ := cfg.EffectiveAccessMode()
+		host := featurebundle.HostContributions{
+			TrafficObservers: []sdktraffic.Observer{&countingTrafficObs{n: &h.trafficCalls}},
+		}
+		genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(reg, config.RegistrationsFromConfig(cfg), host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		featOut, err := ps.StandardFeatures.CompileGeneration(context.Background(), featurehost.GenerationInput{
+			Registrations:     config.RegistrationsFromConfig(cfg),
+			HostRegistrations: []featurehost.Registration{(&secretguardhost.Binding{Environment: secretEnv}).Registration()},
+			MergeSurface:      genMerged,
+			Planes:            genMerged.Frozen,
+			Lifecycles:        genMerged.Lifecycles,
+			AccessMode:        accessMode,
+			DecisionObserver:  decisionObs,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		candOpts.FeaturePlanes = featOut.Planes
+		candOpts.FeatureLifecycles = featOut.Lifecycles
+		candOpts.ReplaceCandidateSurface = true
+	}
+
 	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
-		Process:   ps,
-		Bus:       bus,
-		Candidate: cfg,
+		Process:       ps,
+		Bus:           bus,
+		Candidate:     cfg,
+		CandidateOpts: candOpts,
 	})
 	if err != nil {
 		t.Fatal(err)

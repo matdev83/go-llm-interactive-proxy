@@ -7,8 +7,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
@@ -99,8 +99,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		t.Parallel()
 		localPrep := newPrep()
 		ex := TestExecutor()
-		ex.MemoStore = interleavedthinking.NewMemoStore(1024)
-		ex.InterleavedConfig = interleavedthinking.ShapeConfig{StreamToClient: "hidden"}
+		ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{StreamToClient: "hidden"}, interleavedthinking.NewMemoStore(1024))
 		hiddenOut := out
 		hiddenOut.ready = newReadyAttempt(&attemptSession{
 			inner: stream,
@@ -119,8 +118,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		t.Parallel()
 		localPrep := newPrep()
 		ex := TestExecutor()
-		ex.MemoStore = interleavedthinking.NewMemoStore(1024)
-		ex.InterleavedConfig = interleavedthinking.ShapeConfig{StreamToClient: "visible"}
+		ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{StreamToClient: "visible"}, interleavedthinking.NewMemoStore(1024))
 		visibleOut := out
 		visibleOut.ready = newReadyAttempt(&attemptSession{
 			inner: stream,

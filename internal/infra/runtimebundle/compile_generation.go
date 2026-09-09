@@ -14,16 +14,17 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -59,14 +60,8 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		return nil, err
 	}
 	regs := freezeRegistrations(config.RegistrationsFromConfig(frozen))
-	if err := validateCompactionContinuityGeneration(ps, regs); err != nil {
-		return nil, err
-	}
-	genRunner, boundClient, boundPoller, err := newReasoningCompressionGenerationRunner(ps)
+	genRunner, boundClient, boundPoller, err := newGenerationAuxiliaryRunner(ps)
 	if err != nil {
-		return nil, err
-	}
-	if err := validateReasoningPreservationCompressionGeneration(ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
 	var host featurebundle.HostContributions
@@ -84,29 +79,64 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 			return nil, fmt.Errorf("runtimebundle: candidate feature planes: %w", err)
 		}
 	}
-	if genMerged, err = bindCompactionContinuity(genMerged, ps, regs); err != nil {
+	accessMode, err := frozen.EffectiveAccessMode()
+	if err != nil {
 		return nil, err
 	}
-	if genMerged, err = bindReasoningPreservationCompression(genMerged, ps, regs, boundClient, boundPoller); err != nil {
-		return nil, err
-	}
-	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	lifecycles := append([]lipplugin.Lifecycle(nil), genMerged.Lifecycles...)
 	ext := extensionsFromProcessOptions(ps.opts)
 	if in.CandidateOpts != nil {
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
 		overlayExtensions(&ext, in.CandidateOpts.Extensions)
 	}
+	nowFn := time.Now
+	if ps.opts != nil && ps.opts.Testing.Clock != nil {
+		nowFn = ps.opts.Testing.Clock
+	}
+	var kwAccounting billing.ProviderMaintenanceUsageObserver
+	if ps.opts != nil {
+		kwAccounting = ps.opts.Production.MaintenanceAccounting
+	}
+	if in.CandidateOpts != nil && in.CandidateOpts.Production.MaintenanceAccounting != nil {
+		kwAccounting = in.CandidateOpts.Production.MaintenanceAccounting
+	}
+	var genHostRegs []sdkfeaturehost.Registration
+	if in.CandidateOpts != nil && len(in.CandidateOpts.Production.FeatureHostRegistrations) > 0 {
+		genHostRegs = in.CandidateOpts.Production.FeatureHostRegistrations
+	} else if ps.opts != nil && len(ps.opts.Production.FeatureHostRegistrations) > 0 {
+		genHostRegs = ps.opts.Production.FeatureHostRegistrations
+	} else if ps.opts != nil && len(ps.opts.Testing.FeatureHostRegistrations) > 0 {
+		genHostRegs = ps.opts.Testing.FeatureHostRegistrations
+	}
+	featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
+		Registrations:      regs,
+		HostRegistrations:  genHostRegs,
+		MergeSurface:       genMerged,
+		Planes:             genMerged.Frozen,
+		Lifecycles:         lifecycles,
+		BackgroundClient:   boundClient,
+		BackgroundPoller:   boundPoller,
+		AccessMode:         accessMode,
+		ConfigInterleaved:  frozen.Interleaved,
+		ConfigDir:          frozen.ConfigDir,
+		NowFn:              nowFn,
+		KeepwarmAccounting: kwAccounting,
+	})
+	if err != nil {
+		return nil, err
+	}
+	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	bus := in.Bus
 	if bus == nil {
-		bus = hooks.New(lipfeature.ProjectHookConfig(genMerged.Frozen, toolReactorErrorPolicy))
+		bus = hooks.New(lipfeature.ProjectHookConfig(featOut.Planes, toolReactorErrorPolicy))
 	}
 	cand, err := compileCandidate(ctx, GenerationCompileInput{
 		Process: ps, Bus: bus, Candidate: frozen,
 		CandidateOpts: &BuildOptions{
-			FeatureLifecycles:       lifecycles,
+			FeatureLifecycles:       featOut.Lifecycles,
 			Extensions:              ext,
-			FeaturePlanes:           genMerged.Frozen,
+			FeaturePlanes:           featOut.Planes,
+			CorePorts:               featOut.CorePorts,
 			ReplaceCandidateSurface: true,
 		},
 		LiveFactoryKinds: in.LiveFactoryKinds,
@@ -139,10 +169,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		cand.ledger.AddClose("openresponses-generation-lifecycle", PhaseQuiesce, func() error { genCancel(); return nil })
 	}
 	failWithGenCtx := func(err error) (GenerationRuntime, error) { genCancel(); return failBeforeTransfer(err) }
-	nowFn := time.Now
-	if ps.opts != nil && ps.opts.Testing.Clock != nil {
-		nowFn = ps.opts.Testing.Clock
-	}
 	adminHandler, err := bindGenerationRouteOverride(ps, frozen, cand.execution.executor, nowFn)
 	if err != nil {
 		return failWithGenCtx(err)
@@ -170,16 +196,24 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if ledger == nil {
 		return failWithGenCtx(fmt.Errorf("runtimebundle: candidate resource ledger unavailable for transfer"))
 	}
-	keepwarmManager, keepwarmID, err := buildKeepwarmGeneration(frozen, nowFn, cand.process.keepwarmRegistry, cand.process.keepwarmPolicy, cand.operations.keepwarmAccounting)
-	if err != nil {
-		return failWithGenCtx(err)
+	cand.execution.executor.PromptCacheMaintenance = featOut.CorePorts.PromptCacheMaintenance
+	// Publish the generation's keep-warm manager to process metrics through
+	// the featurehost-owned swap: same program point as before, no concrete
+	// keep-warm seam in generic code.
+	if swap := featOut.CorePorts.MetricsSwap; swap != nil {
+		swap()
 	}
-	if cand.process.metrics != nil && cand.process.metrics.Keepwarm != nil {
-		cand.process.metrics.Keepwarm.SetManager(keepwarmManager)
-	}
-	cand.execution.executor.Keepwarm = keepwarm.NewOrchestrator(keepwarmManager, cand.process.keepwarmPolicy)
 	if retired, ok := cand.execution.executor.Store.(b2bua.ALegRetirementObserver); ok {
-		retired.SetALegRetirementObserver(cand.execution.executor.Keepwarm.EndSession)
+		retired.SetALegRetirementObserver(func(aLegID string) {
+			if cand.execution.executor.PromptCacheMaintenance != nil {
+				cand.execution.executor.PromptCacheMaintenance.EndSession(aLegID)
+			}
+			if deleter, ok := cand.execution.executor.ConversationViewTagger.(interface {
+				DeleteALeg(context.Context, string) error
+			}); ok {
+				_ = deleter.DeleteALeg(context.Background(), aLegID)
+			}
+		})
 	}
 	bundle := newGenerationBundle(generationBundleInput{
 		handler:           handler,
@@ -193,11 +227,11 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		backendIDs:        backendIDsOf(cand.execution.executor),
 		ledger:            ledger,
 		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
-		frozen:            genMerged.Frozen,
-		readiness:         cand.operations.readinessReport,
-		keepwarm:          keepwarmManager,
-		keepwarmRegistry:  cand.process.keepwarmRegistry,
-		keepwarmID:        keepwarmID,
+		// Publish the facade-composed planes as the generation's canonical
+		// frozen surface (Task 2.4, Requirement 8.3): facade-added/replaced
+		// planes must be visible to request-time bundle readers.
+		frozen:    featOut.Planes,
+		readiness: cand.operations.readinessReport,
 	})
 	return bundle, nil
 }
@@ -255,7 +289,11 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 	if frozen != nil {
 		plugins = frozen.Plugins.Frontends
 	}
-	keepwarmAdmin, keepwarmAdminEnabled := keepwarmAdminProjection(cand.process)
+	keepwarmAdmin := cand.operations.corePorts.KeepwarmAdmin
+	var terminalPolicy httpcontract.TerminalDecisionPolicyInput
+	if project := cand.operations.corePorts.TerminalPolicyProjection; project != nil {
+		terminalPolicy = project(cand.security.runtimeSnapshot, httpHeaders, maxBody, cand.security.secureSessionStore)
+	}
 	return httpcontract.StandardHTTPInput{
 		Core: httpcontract.HTTPCoreInput{Executor: cand.execution.executor},
 		Security: httpcontract.HTTPSecurityInput{
@@ -274,9 +312,9 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
 			ReadinessReport:      cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
 			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
-			KeepwarmAdmin:        keepwarmAdmin, KeepwarmAdminEnabled: keepwarmAdminEnabled,
+			KeepwarmAdmin:        keepwarmAdmin, KeepwarmAdminEnabled: keepwarmAdmin.Enabled,
 			Registrations:          httpcontract.CloneRegistrations(regs),
-			TerminalDecisionPolicy: terminalDecisionPolicyHTTPProjection(cand.process, cand.security.runtimeSnapshot, httpHeaders, maxBody),
+			TerminalDecisionPolicy: terminalPolicy,
 		},
 		Models: httpcontract.HTTPModelInput{
 			CatalogRuntime: cand.models.catalog, ModelRegistryRuntime: cand.models.registryRuntime,
@@ -318,15 +356,8 @@ func extensionsFromProcessOptions(processOpts *BuildOptions) ExtensionsOptions {
 }
 
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
-	if dst == nil {
-		return
-	}
-	if src.SecretGuardEnvironment != nil {
-		dst.SecretGuardEnvironment = src.SecretGuardEnvironment
-	}
-	if src.SecretDecisionObserver != nil {
-		dst.SecretDecisionObserver = src.SecretDecisionObserver
-	}
+	// Extensions carry no overlay surfaces: every concrete feature state
+	// flows via ordinary planes, lifecycles, or fixed consumer ports.
 }
 
 func validateTerminalDecisionProvider(provider terminaldecision.Provider) error {

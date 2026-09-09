@@ -9,14 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
 func TestRuntimeBundle_NoResidualSecretGuardConcreteImports(t *testing.T) {
 	t.Parallel()
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ImportsOnly)
+	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ImportsOnly) //nolint:staticcheck // SA1019: intentional lightweight AST import scan of one package dir
 	if err != nil {
 		t.Fatalf("failed to parse runtimebundle package: %v", err)
 	}
@@ -43,7 +42,7 @@ func TestRuntimeBundle_NoResidualSecretGuardConcreteImports(t *testing.T) {
 func TestRuntimeBundle_NoResidualSecretGuardHelpers(t *testing.T) {
 	t.Parallel()
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
+	pkgs, err := parser.ParseDir(fset, ".", nil, 0) //nolint:staticcheck // SA1019: intentional lightweight AST declaration scan of one package dir
 	if err != nil {
 		t.Fatalf("failed to parse runtimebundle package: %v", err)
 	}
@@ -82,43 +81,29 @@ func (convergenceDummyObserver) OnSecretDecision(context.Context, sdk.DecisionEv
 func TestRuntimeBundle_SecretGuardCandidateOverlayAndReload(t *testing.T) {
 	t.Parallel()
 
-	baseEnv := &convergenceDummyEnv{}
-	baseObs := convergenceDummyObserver{}
-	baseInputs := SecretGuardInputs{
-		SingleUser: secretguardcompose.SingleUserOptions{
-			MinSecretBytes: 10,
-		},
-	}
-
-	dst := ExtensionsOptions{
-		SecretGuardEnvironment: baseEnv,
-		SecretDecisionObserver: baseObs,
-		SecretGuardInputs:      baseInputs,
-	}
-
-	candEnv := &convergenceDummyEnv{}
-	candObs := convergenceDummyObserver{}
-	src := ExtensionsOptions{
-		SecretGuardEnvironment: candEnv,
-		SecretDecisionObserver: candObs,
-		SecretGuardInputs: SecretGuardInputs{
-			SingleUser: secretguardcompose.SingleUserOptions{
-				MinSecretBytes: 20,
-			},
-		},
-	}
+	// Secret-guard posture converges through ordinary planes: the composed
+	// execution config is published under SourceGenerationBinder semantics and
+	// read back purely via plane access. ExtensionsOptions carries no overlay
+	// surfaces, so overlaying it is always a no-op.
+	dst := ExtensionsOptions{}
+	src := ExtensionsOptions{}
 
 	overlayExtensions(&dst, src)
+	if dst != (ExtensionsOptions{}) {
+		t.Fatalf("expected empty ExtensionsOptions after overlay, got %+v", dst)
+	}
+	if hasExtensionOverlay(src) {
+		t.Fatal("expected no extension overlay surfaces")
+	}
 
-	// Candidate overlay: SecretGuardEnvironment and SecretDecisionObserver are overridden if non-nil
-	if dst.SecretGuardEnvironment != candEnv {
-		t.Fatalf("expected SecretGuardEnvironment to be candidate overlay env")
+	base := frozenSecretGuards(stubSecretGuard{id: "base-guard", ord: 1})
+	plane, inv := secretGuardFromPlanes(base)
+	// Guards without a composed execution config extract to the disabled
+	// posture: no engine plane, no inventory.
+	if inv != nil {
+		t.Fatalf("expected nil inventory without execution config, got %+v", inv)
 	}
-	if dst.SecretGuardEnvironment == baseEnv {
-		t.Fatalf("expected base SecretGuardEnvironment to be replaced")
-	}
-	// SecretGuardInputs is omitted from overlayExtensions and preserved from base
-	if dst.SecretGuardInputs.SingleUser.MinSecretBytes != 10 {
-		t.Fatalf("expected base SecretGuardInputs to be preserved, got min_secret_bytes=%d", dst.SecretGuardInputs.SingleUser.MinSecretBytes)
+	if len(plane.Guards) != 0 || plane.MatcherResolver != nil {
+		t.Fatalf("expected zero plane without execution config, got %+v", plane)
 	}
 }

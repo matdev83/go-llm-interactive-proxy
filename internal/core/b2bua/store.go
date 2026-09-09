@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -118,21 +117,13 @@ var (
 	_ routeoverride.Store   = (*MemoryStore)(nil)
 )
 
-type legConversationView struct {
-	Revision     uint64
-	NeverBackend map[conversationview.MessageIdentity]conversationview.Tag
-	Steering     map[string]conversationview.SteeringOverlay
-	NextSlot     uint64
-}
-
 type legState struct {
-	record           ALegRecord
-	nextSeq          int
-	seqToBLeg        map[int]string
-	attemptBySeq     map[int]lipapi.AttemptRecord
-	interleaved      interleavedstate.State
-	override         routeoverride.State
-	conversationView *legConversationView
+	record       ALegRecord
+	nextSeq      int
+	seqToBLeg    map[int]string
+	attemptBySeq map[int]lipapi.AttemptRecord
+	interleaved  interleavedstate.State
+	override     routeoverride.State
 }
 
 // NewMemoryStore returns an empty store. opts may be zero-valued defaults.

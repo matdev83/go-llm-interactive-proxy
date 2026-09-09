@@ -8,10 +8,10 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -29,12 +29,13 @@ func setupInterleavedAuthorityContinuation(t *testing.T, auth *recordingAuthorit
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
 	aScope := coord.StartALeg(aLegID)
 	ex.ALegLifecycle = coord
-	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+	memoStore := interleavedthinking.NewMemoStore(4096)
+	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:   "think",
 		StreamToClient: streamToClient,
 		MaxMemoBytes:   4096,
-	}
-	ex.MemoStore = interleavedthinking.NewMemoStore(4096)
+	}, memoStore)
+	RegisterTestMemoStore(ex, memoStore)
 
 	sel, err := routing.Parse("backend-1:model-1")
 	if err != nil {

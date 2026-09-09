@@ -6,29 +6,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 func TestTerminalDecisionPolicyStoreIsProcessOwnedAcrossGenerationReload(t *testing.T) {
 	t.Parallel()
 	fixture := newTerminalDecisionFeatureFixture(t)
-	store := fixture.process.TerminalDecisionPolicy
+	store := fixture.process.StandardFeatures.TerminalDecisionPolicy()
 	if store == nil {
-		t.Fatal("process services did not construct terminal decision policy store")
+		t.Fatal("process services standard features did not construct terminal decision policy store")
 	}
-	key := terminaldecisionpolicy.Key{
+	key := sessionpolicy.Key{
 		SecureSessionIncarnation: "session-policy-lifecycle",
 		ALegID:                   "a-leg-policy-lifecycle",
 		FeatureID:                "terminal-decision",
 	}
-	authority := terminaldecisionpolicy.Authority{
+	authority := sessionpolicy.Authority{
 		SecureSessionIncarnation: key.SecureSessionIncarnation,
 		ALegID:                   key.ALegID,
 		Authorized:               true,
 	}
-	setSnapshot, err := store.Set(context.Background(), authority, key, terminaldecisionpolicy.ActorClient, terminaldecisionpolicy.TriStateDisabled)
+	setSnapshot, err := store.Set(context.Background(), authority, key, sessionpolicy.ActorClient, sessionpolicy.TriStateDisabled)
 	if err != nil {
 		t.Fatalf("Set: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestTerminalDecisionPolicyStoreIsProcessOwnedAcrossGenerationReload(t *test
 	if err := fixture.process.Close(); err != nil {
 		t.Fatalf("idempotent process close: %v", err)
 	}
-	if _, err := store.Set(context.Background(), authority, key, terminaldecisionpolicy.ActorClient, terminaldecisionpolicy.TriStateEnabled); !errors.Is(err, terminaldecisionpolicy.ErrClosed) {
+	if _, err := store.Set(context.Background(), authority, key, sessionpolicy.ActorClient, sessionpolicy.TriStateEnabled); !errors.Is(err, sessionpolicy.ErrClosed) {
 		t.Fatalf("Set after process close error=%v want ErrClosed", err)
 	}
 }
