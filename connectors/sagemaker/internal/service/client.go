@@ -163,9 +163,9 @@ func (c *Client) ListModels(ctx context.Context, limit uint32) (backendplugin.Li
 			CanonicalModelID: FactoryKind + "/" + name,
 			NativeModelID:    name,
 			FactoryKind:      FactoryKind,
-			// Provider streaming is not advertised: inference collects the
-			// unary response (see Open).
-			Capabilities: backendplugin.CapabilitySummary{Streaming: false},
+			// Provider streaming is served via unary InvokeEndpoint collect:
+			// canonical events are emitted over a managed stream.
+			Capabilities: backendplugin.CapabilitySummary{Streaming: true},
 		}},
 		InventorySource: FactoryKind,
 		FetchedUnixMS:   time.Now().UnixMilli(),

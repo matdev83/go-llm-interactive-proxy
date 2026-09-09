@@ -308,6 +308,13 @@ func (s *sseChatStream) finishOpenToolCalls() {
 }
 
 func (s *sseChatStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
+	if err := ctx.Err(); err != nil {
+		return lipapi.Event{}, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -321,6 +328,9 @@ func (s *sseChatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return lipapi.Event{}, err
+		}
 		if len(s.pending) > 0 {
 			ev := s.pending[0]
 			s.pending = s.pending[1:]
@@ -371,6 +381,10 @@ func (s *sseChatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		return lipapi.Event{}, err
 	}
 
+	if err := ctx.Err(); err != nil {
+		return lipapi.Event{}, err
+	}
+
 	if len(s.pending) > 0 {
 		ev := s.pending[0]
 		s.pending = s.pending[1:]
@@ -378,6 +392,9 @@ func (s *sseChatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 
 	if !s.finished {
+		if err := ctx.Err(); err != nil {
+			return lipapi.Event{}, err
+		}
 		s.finished = true
 		s.finishOpenToolCalls()
 		if len(s.pending) > 0 {

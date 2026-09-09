@@ -170,9 +170,9 @@ func TestCompleteToSession_ClearsQuarantineLatch(t *testing.T) {
 		t.Fatalf("seed credential: %v", err)
 	}
 
-	var refreshCalls int32
+	var refreshCalls atomic.Int32
 	refresher := oauthcred.RefresherFunc(func(_ context.Context, _ string) (string, string, time.Time, error) {
-		atomic.AddInt32(&refreshCalls, 1)
+		refreshCalls.Add(1)
 		return "", "", time.Time{}, errors.New("oauth: server returned invalid_grant: token revoked")
 	})
 	sess := oauthcred.NewSession(store, refresher)
@@ -183,7 +183,7 @@ func TestCompleteToSession_ClearsQuarantineLatch(t *testing.T) {
 	if _, err := sess.Token(context.Background()); !errors.Is(err, oauthcred.ErrQuarantined) {
 		t.Fatalf("expected latched ErrQuarantined, got %v", err)
 	}
-	if got := atomic.LoadInt32(&refreshCalls); got != 1 {
+	if got := refreshCalls.Load(); got != 1 {
 		t.Fatalf("expected 1 refresher call before login, got %d", got)
 	}
 
@@ -207,7 +207,7 @@ func TestCompleteToSession_ClearsQuarantineLatch(t *testing.T) {
 	if rec.Quarantined {
 		t.Fatalf("fresh login record must not be quarantined")
 	}
-	if got := atomic.LoadInt32(&refreshCalls); got != 1 {
+	if got := refreshCalls.Load(); got != 1 {
 		t.Fatalf("CompleteToSession must not replay refresher, calls=%d", got)
 	}
 
@@ -218,7 +218,7 @@ func TestCompleteToSession_ClearsQuarantineLatch(t *testing.T) {
 	if tok != "login-access-token" {
 		t.Fatalf("expected fresh login token, got %q", tok)
 	}
-	if got := atomic.LoadInt32(&refreshCalls); got != 1 {
+	if got := refreshCalls.Load(); got != 1 {
 		t.Fatalf("Token after login must serve cached credential without refresher replay, calls=%d", got)
 	}
 }

@@ -68,7 +68,7 @@ func cohereUserCall(text string) lipapi.Call {
 	)
 }
 
-func drainCohereEvents(t *testing.T, ctx context.Context, s lipapi.ManagedEventStream) []lipapi.Event {
+func drainCohereEvents(ctx context.Context, t *testing.T, s lipapi.ManagedEventStream) []lipapi.Event {
 	t.Helper()
 	defer func() { _ = s.Close() }()
 	var out []lipapi.Event
@@ -192,8 +192,14 @@ func TestCohereTools_RequestToolDefinitions(t *testing.T) {
 			t.Fatalf("expected 2 tools, got %d", len(arr))
 		}
 		for i, want := range []string{"get_weather", "get_time"} {
-			tool := arr[i].(map[string]any)
-			fn := tool["function"].(map[string]any)
+			tool, ok := arr[i].(map[string]any)
+			if !ok {
+				t.Fatalf("tool %d is not map[string]any", i)
+			}
+			fn, ok := tool["function"].(map[string]any)
+			if !ok {
+				t.Fatalf("tool %d function is not map[string]any", i)
+			}
 			if fn["name"] != want {
 				t.Fatalf("tool %d: expected %q, got %v", i, want, fn["name"])
 			}
@@ -214,7 +220,14 @@ func TestCohereTools_RequestToolDefinitions(t *testing.T) {
 		_ = stream.Close()
 
 		arr := cohereWireTools(t, captured.body)
-		fn := arr[0].(map[string]any)["function"].(map[string]any)
+		tool, ok := arr[0].(map[string]any)
+		if !ok {
+			t.Fatalf("tool 0 is not map[string]any")
+		}
+		fn, ok := tool["function"].(map[string]any)
+		if !ok {
+			t.Fatalf("tool 0 function is not map[string]any")
+		}
 		params, ok := fn["parameters"].(map[string]any)
 		if !ok || params["type"] != "object" {
 			t.Fatalf("expected default object schema, got %v", fn["parameters"])
@@ -246,6 +259,9 @@ func TestCohereTools_ToolChoiceMapping(t *testing.T) {
 		Parameters: json.RawMessage(`{"type":"object"}`),
 	}}
 
+	none := "NONE"
+	required := "REQUIRED"
+
 	cases := []struct {
 		name    string
 		choice  lipapi.ToolChoice
@@ -255,9 +271,9 @@ func TestCohereTools_ToolChoiceMapping(t *testing.T) {
 	}{
 		{name: "auto omits tool_choice", choice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, tools: tools, want: nil},
 		{name: "empty mode omits tool_choice", choice: lipapi.ToolChoice{}, tools: tools, want: nil},
-		{name: "none maps to NONE", choice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceNone}, tools: nil, want: strptr("NONE")},
-		{name: "any maps to REQUIRED", choice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny}, tools: tools, want: strptr("REQUIRED")},
-		{name: "required without name maps to REQUIRED", choice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired}, tools: tools, want: strptr("REQUIRED")},
+		{name: "none maps to NONE", choice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceNone}, tools: nil, want: &none},
+		{name: "any maps to REQUIRED", choice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny}, tools: tools, want: &required},
+		{name: "required without name maps to REQUIRED", choice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired}, tools: tools, want: &required},
 		{name: "required with name fails closed", choice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: "get_weather"}, tools: tools, wantErr: "get_weather"},
 		{name: "any without tools fails closed", choice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny}, tools: nil, wantErr: "at least one tool"},
 	}
@@ -302,8 +318,6 @@ func TestCohereTools_ToolChoiceMapping(t *testing.T) {
 	}
 }
 
-func strptr(s string) *string { return &s }
-
 const cohereParallelToolResponse = `{
 	"id": "msg-tools-1",
 	"finish_reason": "TOOL_CALL",
@@ -331,7 +345,7 @@ func TestCohereTools_NonStreamingToolCallsIDCorrelation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
 	}
-	evs := drainCohereEvents(t, context.Background(), stream)
+	evs := drainCohereEvents(context.Background(), t, stream)
 
 	wantKinds := []lipapi.EventKind{
 		lipapi.EventResponseStarted,
@@ -513,7 +527,7 @@ func TestCohereTools_StreamingToolCallDeltas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
 	}
-	evs := drainCohereEvents(t, context.Background(), stream)
+	evs := drainCohereEvents(context.Background(), t, stream)
 
 	wantKinds := []lipapi.EventKind{
 		lipapi.EventResponseStarted,
@@ -581,7 +595,7 @@ func TestCohereTools_StreamingDeltaBufferedBeforeStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
 	}
-	evs := drainCohereEvents(t, context.Background(), stream)
+	evs := drainCohereEvents(context.Background(), t, stream)
 
 	wantKinds := []lipapi.EventKind{
 		lipapi.EventResponseStarted,
@@ -681,7 +695,7 @@ func TestCohereTools_StreamMissingMessageStartEmitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
 	}
-	evs := drainCohereEvents(t, context.Background(), stream)
+	evs := drainCohereEvents(context.Background(), t, stream)
 	gotKinds := eventKinds(evs)
 	wantKinds := []lipapi.EventKind{
 		lipapi.EventResponseStarted,
@@ -885,5 +899,107 @@ func TestCohereTools_EnvelopeDiscriminatorCollidingRawArgs(t *testing.T) {
 	nested, ok := decoded["function"].(map[string]any)
 	if !ok || nested["name"] != "main" {
 		t.Fatalf("expected raw arguments preserved via raw path, got %q", args)
+	}
+}
+
+func TestCohereStream_CancellationWithQueuedToolEvents(t *testing.T) {
+	t.Parallel()
+
+	ssePayload := strings.Join([]string{
+		`data: {"type":"message-start","delta":{"message":{"content":{"text":""}}}}`,
+		`data: {"type":"tool-call-start","index":0,"delta":{"message":{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{\"q\":\"lip\"}"}}]}}}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(ssePayload))
+	}))
+	t.Cleanup(srv.Close)
+
+	cl := &service.Client{
+		Config:        service.Config{APIOrigin: srv.URL},
+		TokenProvider: service.StaticTokenProvider("test-token"),
+		HTTPClient:    srv.Client(),
+	}
+
+	call := cohereTestCall([]lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}, []lipapi.ToolDef{{Name: "search"}}, lipapi.ToolChoice{}, true)
+	stream, err := cl.Open(context.Background(), call, "command-r")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 1. Initial event is response_started
+	ev, err := stream.Recv(ctx)
+	if err != nil {
+		t.Fatalf("first Recv failed: %v", err)
+	}
+	if ev.Kind != lipapi.EventResponseStarted {
+		t.Fatalf("expected EventResponseStarted, got %v", ev.Kind)
+	}
+
+	// 2. Second event reads SSE and enqueues message_started + tool_call_started + args delta.
+	// It returns message_started, leaving tool_call_started + args delta in pending.
+	ev, err = stream.Recv(ctx)
+	if err != nil {
+		t.Fatalf("second Recv failed: %v", err)
+	}
+	if ev.Kind != lipapi.EventMessageStarted {
+		t.Fatalf("expected EventMessageStarted, got %v", ev.Kind)
+	}
+
+	// 3. Caller cancels before consuming queued tool events
+	cancel()
+
+	// 4. Recv with cancelled context MUST return context.Canceled error and NOT yield queued events.
+	_, err = stream.Recv(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled from Recv after cancellation, got: %v", err)
+	}
+
+	// 5. Nil context check
+	var nilCtx context.Context
+	//nolint:staticcheck // testing explicit nil context rejection
+	_, err = stream.Recv(nilCtx)
+	if !errors.Is(err, lipapi.ErrNilContext) {
+		t.Fatalf("expected ErrNilContext, got: %v", err)
+	}
+}
+
+func TestCohereStream_Recv_PreCancelledContextReturnsEarly(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	t.Cleanup(srv.Close)
+
+	cl := &service.Client{
+		Config:        service.Config{APIOrigin: srv.URL},
+		TokenProvider: service.StaticTokenProvider("test-token"),
+		HTTPClient:    srv.Client(),
+	}
+
+	call := cohereTestCall([]lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}, nil, lipapi.ToolChoice{}, true)
+	stream, err := cl.Open(context.Background(), call, "command-r")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = stream.Recv(canceledCtx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled before first event, got: %v", err)
 	}
 }

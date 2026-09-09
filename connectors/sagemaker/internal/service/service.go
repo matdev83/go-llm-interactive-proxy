@@ -69,9 +69,10 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 			RoutePrefixes:            []string{FactoryKind},
 			SupportsDynamicInventory: true,
 			ProcessSharing:           backendplugin.ProcessSharingPerInstance,
-			// Provider streaming is not advertised: the hf-text-generation
-			// contract collects the unary InvokeEndpoint response (see Open).
-			StaticCapabilities:    backendplugin.CapabilitySummary{Streaming: false},
+			// Provider streaming is served via unary InvokeEndpoint collect:
+			// canonical events are emitted over a managed stream so both
+			// streaming and non-streaming delivery are supported.
+			StaticCapabilities:    backendplugin.CapabilitySummary{Streaming: true},
 			TransportCapabilities: backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true},
 		}},
 	}, nil
@@ -122,9 +123,10 @@ func (i *instance) client() *Client {
 
 func (i *instance) Resolve(context.Context, *string) (backendplugin.ResolvedProfile, error) {
 	return backendplugin.ResolvedProfile{
-		// Provider streaming is not advertised: the hf-text-generation
-		// contract collects the unary InvokeEndpoint response (see Open).
-		Capabilities:             backendplugin.CapabilitySummary{Streaming: false},
+		// Provider streaming is served via unary InvokeEndpoint collect:
+		// canonical events are emitted over a managed stream so both
+		// streaming and non-streaming delivery are supported.
+		Capabilities:             backendplugin.CapabilitySummary{Streaming: true},
 		TransportCapabilities:    backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true},
 		SupportsDynamicInventory: true,
 		RoutePrefixes:            []string{i.kind},

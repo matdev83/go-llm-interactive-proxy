@@ -24,11 +24,8 @@ func (b *trackBody) Read(p []byte) (int, error) {
 	if b.remain <= 0 {
 		return 0, io.EOF
 	}
-	n := int64(len(p))
-	if n > b.remain {
-		n = b.remain
-	}
-	for i := int64(0); i < n; i++ {
+	n := min(int64(len(p)), b.remain)
+	for i := range n {
 		p[i] = 'x'
 	}
 	b.remain -= n
@@ -187,7 +184,7 @@ func TestBoundedHTTPClient_RealHTTPChunkedOverflow_Errors(t *testing.T) {
 		for i := range chunk {
 			chunk[i] = 'x'
 		}
-		for i := 0; i < 96; i++ { // 6 MiB total, chunked (unknown length)
+		for range 96 { // 6 MiB total, chunked (unknown length)
 			if _, err := w.Write(chunk); err != nil {
 				return
 			}

@@ -973,7 +973,6 @@ func TestWrapCompatibleLifecycle_rejectsEmptyProfileIDMarkerWithoutFallback(t *t
 		"bare comment": forgedCustomNode(t, "", "lip:provider-profile:"),
 	}
 	for name, node := range cases {
-		node := node
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			baseCalled := false

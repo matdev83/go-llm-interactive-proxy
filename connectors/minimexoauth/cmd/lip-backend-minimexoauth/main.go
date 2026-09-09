@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"sync"
 
@@ -16,6 +18,16 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "login" {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+		if err := RunLogin(ctx, os.Stdout, os.Stderr, http.DefaultClient, os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "minimax-oauth login error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	listen := flag.String("listen", "", "loopback listen address (optional; production uses LIP_PLUGIN_CHANNEL_PIPE or LIP_PLUGIN_CHANNEL_FD)")
 	flag.Parse()
 	svc := service.NewProduction()
