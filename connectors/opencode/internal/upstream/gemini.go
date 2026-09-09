@@ -96,6 +96,9 @@ func openGemini(ctx context.Context, hc *http.Client, baseURL, apiKey string, ca
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-goog-api-key", apiKey)
+	if sid := resolveSessionID(call); sid != "" {
+		req.Header.Set(HeaderOpenCodeSession, sid)
+	}
 	if streaming(call) {
 		req.Header.Set("Accept", "text/event-stream")
 	}

@@ -234,3 +234,18 @@ func TestOpenCodeSuffixLookupVariants(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenCodeVendorResolver_omenKeywordFallback(t *testing.T) {
+	t.Parallel()
+	r := NewOpenCodeVendorResolver(StaticActiveSnapshotProvider{Index: nil}, true)
+	got := r.Resolve("omen-alpha")
+	if got.Kind != VendorResolveKeywordFallback {
+		t.Fatalf("Kind = %v want keyword_fallback", got.Kind)
+	}
+	if got.CanonicalID != "opencode/omen-alpha" {
+		t.Fatalf("CanonicalID = %q want opencode/omen-alpha", got.CanonicalID)
+	}
+	if got.CatalogVendor != "opencode" {
+		t.Fatalf("CatalogVendor = %q want opencode", got.CatalogVendor)
+	}
+}

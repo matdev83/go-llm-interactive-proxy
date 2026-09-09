@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/opencode/internal/catalog"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/opencode/internal/catalog/vendor"
@@ -60,12 +59,11 @@ func (s *Service) Configure(_ context.Context, req backendplugin.ConfigureReques
 	if err != nil {
 		return nil, err
 	}
-	if secret := strings.TrimSpace(string(req.Secrets.Values["api_key"])); secret != "" {
-		cfg.APIKey = secret
+	apiKey, err := ResolveAPIKey(kind, cfg, req.Secrets)
+	if err != nil {
+		return nil, err
 	}
-	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("opencode: api_key is required")
-	}
+	cfg.APIKey = apiKey
 	hc, err := cfg.HTTPClient()
 	if err != nil {
 		return nil, err

@@ -51,3 +51,41 @@ func TestModelCatalog_unknownModelFailsExplicitly(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestModelCatalog_omenAlphaStealthModel(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewModelCatalog(BackendGo, nil, testKeywordFallbackResolver())
+
+	res, err := catalog.Resolve("omen-alpha")
+	if err != nil {
+		t.Fatalf("resolve omen-alpha: %v", err)
+	}
+	if res.WireModel != "omen-alpha" || res.Flavor != FlavorOpenAIChat {
+		t.Fatalf("omen-alpha = %+v", res)
+	}
+
+	res, err = catalog.Resolve("opencode-go/omen-alpha")
+	if err != nil {
+		t.Fatalf("resolve opencode-go/omen-alpha: %v", err)
+	}
+	if res.WireModel != "omen-alpha" || res.Flavor != FlavorOpenAIChat {
+		t.Fatalf("opencode-go/omen-alpha = %+v", res)
+	}
+}
+
+func TestModelCatalog_legacyAliasMapping(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewModelCatalog(BackendGo, []ModelEntry{
+		{RawID: "kimi-k2.7-code"},
+	}, testKeywordFallbackResolver())
+
+	res, err := catalog.Resolve("opencode-go/kimi-k2.7")
+	if err != nil {
+		t.Fatalf("resolve kimi-k2.7: %v", err)
+	}
+	if res.WireModel != "kimi-k2.7-code" {
+		t.Fatalf("wireModel = %q want kimi-k2.7-code", res.WireModel)
+	}
+}
