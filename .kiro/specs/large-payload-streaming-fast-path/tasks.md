@@ -209,7 +209,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - No map/backend/plugin/store walk; no I/O; target allocation-free hot path.
   - _Requirements: 1, 5, 21_
 
-- [ ] 3.7 Add static-disposition ratchets/benchmarks now
+- [x] 3.7 Add static-disposition ratchets/benchmarks now
   - Tests for Local Turn, Secret Guard, unclassified plane, canonical-only traffic, missing two-phase executor, and a normal potentially eligible generation.
   - Benchmark definitely-ineligible candidate against feature-disabled canonical baseline: no temp file/replay/scanner and negligible overhead.
   - _Validation: `go test ./pkg/lipsdk/feature/... ./internal/archtest/... ./internal/core/runtime/... ./internal/infra/runtimebundle/...`_
@@ -823,3 +823,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 3.4 VERIFIED (fresh reviewer APPROVED): 46-row narrow-port freeze from Task 1.8 inventory (stock no-op vs blocker vs wire-capable states, custom Call callbacks blockers unless explicit bounded fact contract, no reflection/arbitrary invocation); runtime suite PASS, vet/gofmt/diff-check clean; test-only scope, no production diff; `-race` skipped Windows cgo limitation.
 - Task 3.5 VERIFIED (fresh reviewer APPROVED): WireEligibilitySummary composition-time/deterministic/pinned/bounded/fail-closed, fixed bitsets/enums, no request-sized data, budgets bump; largebody + feature + archtest PASS, vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
 - Task 3.6 VERIFIED (fresh reviewer APPROVED): StaticDisposition two-state (DefinitelyCanonical vs NeedsRequestAssessment) + bounded reason, allocation-free, generation-pinned, budgets bump; largebody + archtest PASS, gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
+- Task 3.7 VERIFIED (fresh reviewer APPROVED): static-disposition ratchets (Local Turn, Secret Guard, unclassified plane, canonical-only traffic, missing two-phase executor, normal eligible generation) + benchmarks (0-alloc ~11-14ns vs 4ns baseline); largebody + feature/archtest/runtime/runtimebundle suites PASS, vet/gofmt/diff-check clean; zero production diff; `-race` skipped Windows cgo limitation.
