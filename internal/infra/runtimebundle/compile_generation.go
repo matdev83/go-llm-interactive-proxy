@@ -197,11 +197,13 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		return failWithGenCtx(fmt.Errorf("runtimebundle: candidate resource ledger unavailable for transfer"))
 	}
 	cand.execution.executor.PromptCacheMaintenance = featOut.CorePorts.PromptCacheMaintenance
-	// Publish the generation's keep-warm manager to process metrics through
-	// the featurehost-owned swap: same program point as before, no concrete
-	// keep-warm seam in generic code.
+	// Defer the keep-warm metrics swap to PhasePublish: only an active,
+	// published generation may retarget process metrics.
 	if swap := featOut.CorePorts.MetricsSwap; swap != nil {
-		swap()
+		ledger.AddAction("standard-features-metrics-publish", PhasePublish, func(context.Context) error {
+			swap()
+			return nil
+		}, nil)
 	}
 	if retired, ok := cand.execution.executor.Store.(b2bua.ALegRetirementObserver); ok {
 		retired.SetALegRetirementObserver(func(aLegID string) {
