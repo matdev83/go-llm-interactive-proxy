@@ -117,9 +117,11 @@ type SpillBuffer struct {
 	// Unwritten suffix from a failed or partial write (Requirement 20.6).
 	unwrittenSuffix []byte
 
-	activeReaders int
-	deletePending bool
-	closed        bool
+	activeReaders   int
+	deletePending   bool
+	closed          bool
+	completed       bool
+	completedSource *CompletedSource
 
 	createFile func(dir string) (SpillFile, string, error)
 	openFile   func(path string) (io.ReadCloser, error)
@@ -234,6 +236,9 @@ func (b *SpillBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if b.completed {
+		return 0, ErrAlreadyCompleted
+	}
 	if b.closed {
 		b.setUnwrittenSuffix(p)
 		return 0, ErrSpillClosed
@@ -337,6 +342,10 @@ func (b *SpillBuffer) Write(p []byte) (int, error) {
 // It never allocates a payload-growing buffer (Requirement 20.1).
 func (b *SpillBuffer) ReadFrom(r io.Reader) (int64, error) {
 	b.mu.Lock()
+	if b.completed {
+		b.mu.Unlock()
+		return 0, ErrAlreadyCompleted
+	}
 	if b.closed {
 		b.mu.Unlock()
 		return 0, ErrSpillClosed
@@ -487,6 +496,10 @@ func (b *SpillBuffer) Open() (io.ReadCloser, error) {
 		return nil, ErrSpillClosed
 	}
 
+	if b.completed && b.completedSource != nil {
+		return b.completedSource.Open()
+	}
+
 	if b.filePath == "" {
 		// All data resides in memory
 		b.activeReaders++
@@ -523,6 +536,60 @@ func (b *SpillBuffer) Open() (io.ReadCloser, error) {
 	}, nil
 }
 
+// Complete transitions the SpillBuffer into an immutable CompletedSource (Requirements 10, 20; design section 5).
+// It syncs and closes the write file handle (if any), shrinks the spool reservation to actual bytes written,
+// seals the buffer against further writes, and returns the immutable CompletedSource.
+func (b *SpillBuffer) Complete() (*CompletedSource, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.completed {
+		return nil, ErrAlreadyCompleted
+	}
+	if b.closed {
+		return nil, ErrSpillClosed
+	}
+	if len(b.unwrittenSuffix) > 0 {
+		return nil, ErrUnconsumedSuffix
+	}
+
+	if b.file != nil {
+		if err := b.file.Sync(); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrSpillWriteFailed, err)
+		}
+		if err := b.file.Close(); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrSpillWriteFailed, err)
+		}
+		b.file = nil
+	}
+
+	if b.reservation != nil {
+		_ = b.reservation.ShrinkTo(b.bytesWritten)
+	}
+
+	b.completed = true
+
+	src := &CompletedSource{
+		mem:           b.mem,
+		filePath:      b.filePath,
+		size:          b.bytesWritten,
+		reservation:   b.reservation,
+		activeReaders: b.activeReaders,
+		deletePending: b.deletePending,
+		openFile:      b.openFile,
+		removeFile:    b.removeFile,
+	}
+	b.completedSource = src
+	return src, nil
+}
+
+// IsCompleted reports whether the buffer has been transitioned to a CompletedSource.
+func (b *SpillBuffer) IsCompleted() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.completed
+}
+
 // Close releases the spill buffer (implements io.Closer and Source).
 //
 // Invariants (Requirement 20.9):
@@ -539,6 +606,10 @@ func (b *SpillBuffer) Close() error {
 		return nil
 	}
 	b.closed = true
+
+	if b.completed && b.completedSource != nil {
+		return b.completedSource.Close()
+	}
 
 	if b.reservation != nil {
 		b.reservation.Release()

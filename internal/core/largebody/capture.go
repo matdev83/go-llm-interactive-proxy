@@ -346,6 +346,7 @@ func (o CaptureOutcome) String() string {
 // CaptureResult is the outcome returned by CaptureRequestBody.
 type CaptureResult struct {
 	Outcome      CaptureOutcome
+	Source       Source
 	Continuation *CaptureReader
 	BytesRead    int64
 	Err          error
@@ -485,8 +486,23 @@ func CaptureRequestBody(body io.ReadCloser, spill *SpillBuffer, cfg CaptureConfi
 
 		if rErr != nil {
 			if errors.Is(rErr, io.EOF) {
+				var src Source
+				if spill != nil {
+					compSrc, err := spill.Complete()
+					if err != nil {
+						_ = body.Close()
+						_ = spill.Close()
+						return CaptureResult{
+							Outcome:   CaptureOutcomeReadError,
+							BytesRead: totalRead,
+							Err:       err,
+						}
+					}
+					src = compSrc
+				}
 				return CaptureResult{
 					Outcome:   CaptureOutcomeCompleted,
+					Source:    src,
 					BytesRead: totalRead,
 				}
 			}

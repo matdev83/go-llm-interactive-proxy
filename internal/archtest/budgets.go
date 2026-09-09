@@ -152,7 +152,8 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 4.1 logical spool reservation ledger (bounded logical spool accounting + checked int64 math + idempotent release); measured 84843, bump to 84868 with 25 headroom.
 	// Large-payload fast-path Task 4.2 bounded RAM + secure spill (fixed copy buffer + unpredictable 0600 file spill + unwritten suffix preservation + nonblocking root close); measured 85449, bump to 85474 with 25 headroom.
 	// Large-payload fast-path Task 4.3 lossless mid-capture canonical continuation (CaptureReader + unconsumed suffix guard + capture driver); measured 85960, bump to 85985 with 25 headroom.
-	{Dir: "internal/core", Max: 85985},
+	// Large-payload fast-path Task 4.4 immutable completed source + independent readers (CompletedSource + offset-zero readers + Windows-safe pending deletion); measured 86347, bump to 86372 with 25 headroom.
+	{Dir: "internal/core", Max: 86372},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12333},

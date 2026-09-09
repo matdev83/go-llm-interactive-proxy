@@ -240,7 +240,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Random chunk/fault tests compare byte-for-byte with direct canonical read.
   - _Requirements: 1, 2, 20_
 
-- [ ] 4.4 Implement immutable completed source + independent readers
+- [x] 4.4 Implement immutable completed source + independent readers
   - Offset-zero fresh reader each open; parallel readers independent.
   - Root close idempotent/nonblocking; pending deletion after root close until readers zero.
   - Windows file deletion covered; no cleanup goroutine required.
@@ -827,3 +827,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 4.1 VERIFIED (fresh reviewer APPROVED): SpoolLedger/SpoolReservation ledger with checked int64, exact-once release, exhaustion => decline not 413, no filesystem yet; largebody + budget gate PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 4.2 VERIFIED (fresh reviewer APPROVED): SpillBuffer bounded RAM + 0600 unpredictable spill, suffix preservation, reservation integration, budgets bump; largebody + archtest PASS, budget recount verified, diff-check/gofmt/vet clean; -race unavailable cgo limitation.
 - Task 4.3 VERIFIED (fresh reviewer APPROVED): CaptureReader/CaptureRequestBody lossless continuation, forward-only socket, same ceiling, suffix guard, budgets bump; largebody + budget gate PASS, diff-check/gofmt/vet clean; -race unavailable cgo limitation.
+- Task 4.4 VERIFIED (fresh reviewer APPROVED): CompletedSource offset-zero readers, parallel independence, idempotent nonblocking close, pending deletion, budgets bump; follow-up: pre-completion reader tracking gap noted for 4.6; largebody suite + archtest budget PASS, vet/diff-check clean; -race unavailable cgo limitation.
