@@ -202,7 +202,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Unknown fails closed.
   - _Requirements: 5, 6, 22_
 
-- [ ] 3.6 Add constant-time static pre-capture disposition
+- [x] 3.6 Add constant-time static pre-capture disposition
   - Expose only `DefinitelyCanonical` vs `NeedsRequestAssessment` + bounded reason enum.
   - Static disposition **never** says “wire eligible.”
   - `DefinitelyCanonical` performs zero spool/scanner/profile construction and continues through the unchanged canonical body-read path.
@@ -822,3 +822,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 3.3 VERIFIED (fresh reviewer APPROVED): Bus 4-chain freeze (submit/request-part/tool/request-mutating blockers unless explicit wire contract, response-only proof with no request content dependency, no plane conflation); hooks suite PASS, gofmt/diff-check clean; test-only scope, no production diff; `-race` skipped Windows cgo limitation.
 - Task 3.4 VERIFIED (fresh reviewer APPROVED): 46-row narrow-port freeze from Task 1.8 inventory (stock no-op vs blocker vs wire-capable states, custom Call callbacks blockers unless explicit bounded fact contract, no reflection/arbitrary invocation); runtime suite PASS, vet/gofmt/diff-check clean; test-only scope, no production diff; `-race` skipped Windows cgo limitation.
 - Task 3.5 VERIFIED (fresh reviewer APPROVED): WireEligibilitySummary composition-time/deterministic/pinned/bounded/fail-closed, fixed bitsets/enums, no request-sized data, budgets bump; largebody + feature + archtest PASS, vet/gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
+- Task 3.6 VERIFIED (fresh reviewer APPROVED): StaticDisposition two-state (DefinitelyCanonical vs NeedsRequestAssessment) + bounded reason, allocation-free, generation-pinned, budgets bump; largebody + archtest PASS, gofmt/diff-check clean; `-race` skipped Windows cgo limitation.

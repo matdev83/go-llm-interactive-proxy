@@ -148,7 +148,8 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 2.2 provider-neutral large-body DTOs (bounded source/span/rewrite/proof/session/turn/identity/assessment/wire/rewrite-plan/result/facts/sensitive-carrier contracts, zero behavior); measured 83801, bump to 83826 with 25 headroom.
 	// Large-payload fast-path Task 2.3 internal optional large-body capability (SDK-compat seam, type-assert helper, zero behavior); measured 83845, bump to 83870 with 25 headroom.
 	// Large-payload fast-path Task 3.5 generation-frozen WireEligibilitySummary (bounded leaf-pure compiler over frozen plane/hook/port facts, fixed bitsets/enums, no request data); measured 84326, bump to 84351 with 25 headroom.
-	{Dir: "internal/core", Max: 84351},
+	// Large-payload fast-path Task 3.6 constant-time static pre-capture disposition (bounded leaf-pure gate over WireEligibilitySummary + cheap request facts, zero alloc); measured 84491, bump to 84516 with 25 headroom.
+	{Dir: "internal/core", Max: 84516},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12333},
