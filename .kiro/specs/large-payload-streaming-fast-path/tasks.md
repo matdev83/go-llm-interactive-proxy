@@ -267,7 +267,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Fixed buffers; giant string contents not retained.
   - _Requirements: 3_
 
-- [ ] 5.2 Expose bounded token/path/span events
+- [x] 5.2 Expose bounded token/path/span events
   - Exact raw spans for selected top-level values; nested-key discrimination.
   - Provider-neutral scanner; no protocol field names in shared core.
   - _Requirements: 4, 9_
@@ -831,3 +831,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 4.5 VERIFIED (fresh reviewer APPROVED): incremental SHA-256 source digest, evidence-only distinct from IdentityDigest, unwritten suffix never hashed, budgets bump; largebody suite + budget gate PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 4.6 VERIFIED (fresh reviewer APPROVED): fault-injection/privacy/leak test suite (reservation/create/short-write/read/remove failures, cancellation, timeout, exact limit/+1, leaked reader, no prompt/spool/secret leaks); test-only, Task 4.4 gap characterized without production change; largebody + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 5.1 VERIFIED (fresh reviewer APPROVED): incremental Scanner in jsonshape, chunked feeds, UTF-8/escape/number/limits/cancel, no giant-string retention, differential parity vs preflight oracle, budgets bump; jsonshape + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 5.2 VERIFIED (fresh reviewer APPROVED): path-tracked token events with exact spans, nested-key discrimination, provider-neutral caller-selected keys, budgets bump; jsonshape + budget gates PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.

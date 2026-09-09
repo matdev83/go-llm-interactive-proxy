@@ -2,6 +2,9 @@ package jsonshape
 
 import (
 	"context"
+	"fmt"
+	"math"
+	"slices"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -24,14 +27,50 @@ const (
 	EventNull
 )
 
+// Span represents an exact raw byte range [Offset, Offset+Length) in the source stream.
+type Span struct {
+	Offset int64
+	Length int64
+}
+
+// Validate rejects negative bounds and checked-int64 overflow.
+func (s Span) Validate() error {
+	if s.Offset < 0 {
+		return fmt.Errorf("jsonshape: span offset must be >= 0, got %d", s.Offset)
+	}
+	if s.Length < 0 {
+		return fmt.Errorf("jsonshape: span length must be >= 0, got %d", s.Length)
+	}
+	if _, err := s.End(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// End returns the exclusive end offset using checked int64 math.
+func (s Span) End() (int64, error) {
+	if s.Offset > math.MaxInt64-s.Length {
+		return 0, fmt.Errorf("jsonshape: span end overflows int64 (offset %d length %d)", s.Offset, s.Length)
+	}
+	return s.Offset + s.Length, nil
+}
+
 // Event describes a syntactic token event in the JSON stream.
 // Giant scalar string contents are never retained in Event.
 type Event struct {
-	Type   EventType
-	Offset int64
-	Length int64
-	Depth  int
-	Key    string
+	Type     EventType
+	Offset   int64
+	Length   int64
+	Span     Span
+	Depth    int
+	Key      string
+	Path     []string
+	TopLevel bool
+}
+
+// IsTopLevelKey reports whether the event is an immediate member of the root object matching key.
+func (e Event) IsTopLevelKey(key string) bool {
+	return e.TopLevel && e.Key == key
 }
 
 // EventHandler receives stream events during scanning.
@@ -46,6 +85,54 @@ func (f EventHandlerFunc) OnEvent(e Event) error {
 	return f(e)
 }
 
+// TopLevelSpanTracker collects exact raw byte spans for selected top-level object values.
+// It discriminates nested keys and values, recording only immediate root-object values.
+type TopLevelSpanTracker struct {
+	selected map[string]struct{}
+	spans    map[string]Span
+}
+
+// NewTopLevelSpanTracker creates a tracker for the provided top-level keys.
+func NewTopLevelSpanTracker(keys ...string) *TopLevelSpanTracker {
+	selected := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		selected[k] = struct{}{}
+	}
+	return &TopLevelSpanTracker{
+		selected: selected,
+		spans:    make(map[string]Span),
+	}
+}
+
+// OnEvent implements EventHandler.
+func (t *TopLevelSpanTracker) OnEvent(e Event) error {
+	if !e.TopLevel || e.Type == EventKey {
+		return nil
+	}
+	if _, ok := t.selected[e.Key]; ok {
+		switch e.Type {
+		case EventString, EventNumber, EventTrue, EventFalse, EventNull, EventObjectEnd, EventArrayEnd:
+			t.spans[e.Key] = e.Span
+		}
+	}
+	return nil
+}
+
+// Span returns the recorded raw byte span for the given top-level key.
+func (t *TopLevelSpanTracker) Span(key string) (Span, bool) {
+	s, ok := t.spans[key]
+	return s, ok
+}
+
+// Spans returns a copy of all recorded top-level spans.
+func (t *TopLevelSpanTracker) Spans() map[string]Span {
+	res := make(map[string]Span, len(t.spans))
+	for k, v := range t.spans {
+		res[k] = v
+	}
+	return res
+}
+
 // Option configures a Scanner.
 type Option func(*Scanner)
 
@@ -53,6 +140,13 @@ type Option func(*Scanner)
 func WithEventHandler(h EventHandler) Option {
 	return func(s *Scanner) {
 		s.handler = h
+	}
+}
+
+// WithTrackedTopLevelSpans configures the scanner to record exact spans for selected top-level keys.
+func WithTrackedTopLevelSpans(keys ...string) Option {
+	return func(s *Scanner) {
+		s.tracker = NewTopLevelSpanTracker(keys...)
 	}
 }
 
@@ -88,13 +182,18 @@ const (
 )
 
 type scanFrame struct {
-	object bool
-	count  int
-	seen   map[string]struct{}
+	object      bool
+	count       int
+	seen        map[string]struct{}
+	startOffset int64
+	currentKey  string
 }
 
-func newScanObjectFrame(rejectDuplicates bool) scanFrame {
-	f := scanFrame{object: true}
+func newScanObjectFrame(startOffset int64, rejectDuplicates bool) scanFrame {
+	f := scanFrame{
+		object:      true,
+		startOffset: startOffset,
+	}
 	if rejectDuplicates {
 		f.seen = make(map[string]struct{})
 	}
@@ -106,6 +205,7 @@ type Scanner struct {
 	ctx     context.Context
 	limits  Limits
 	handler EventHandler
+	tracker *TopLevelSpanTracker
 
 	state      scanState
 	frames     []scanFrame
@@ -165,18 +265,72 @@ func (s *Scanner) SetEventHandler(h EventHandler) {
 	s.handler = h
 }
 
-func (s *Scanner) emitEvent(t EventType, length int64, key string) error {
-	if s.handler == nil {
+// TopLevelSpan returns the recorded raw span for the selected top-level key.
+func (s *Scanner) TopLevelSpan(key string) (Span, bool) {
+	if s.tracker == nil {
+		return Span{}, false
+	}
+	return s.tracker.Span(key)
+}
+
+// TopLevelSpans returns all recorded top-level spans.
+func (s *Scanner) TopLevelSpans() map[string]Span {
+	if s.tracker == nil {
 		return nil
 	}
-	e := Event{
-		Type:   t,
-		Offset: s.tokStartOffset,
-		Length: length,
-		Depth:  s.tokDepth,
-		Key:    key,
+	return s.tracker.Spans()
+}
+
+func (s *Scanner) currentPath() []string {
+	var path []string
+	for i := range s.frames {
+		if s.frames[i].currentKey != "" {
+			path = append(path, s.frames[i].currentKey)
+		}
 	}
-	return s.handler.OnEvent(e)
+	return path
+}
+
+func (s *Scanner) valueContext() (key string, path []string, topLevel bool) {
+	if len(s.frames) == 0 {
+		return "", nil, false
+	}
+	top := &s.frames[len(s.frames)-1]
+	if top.object {
+		key = top.currentKey
+	}
+	topLevel = len(s.frames) == 1 && top.object
+	path = s.currentPath()
+	return key, path, topLevel
+}
+
+func (s *Scanner) emitEvent(t EventType, offset, length int64, key string, path []string, topLevel bool) error {
+	if s.handler == nil && s.tracker == nil {
+		return nil
+	}
+	var pathCopy []string
+	if len(path) > 0 {
+		pathCopy = slices.Clone(path)
+	}
+	e := Event{
+		Type:     t,
+		Offset:   offset,
+		Length:   length,
+		Span:     Span{Offset: offset, Length: length},
+		Depth:    s.tokDepth,
+		Key:      key,
+		Path:     pathCopy,
+		TopLevel: topLevel,
+	}
+	if s.tracker != nil {
+		if err := s.tracker.OnEvent(e); err != nil {
+			return err
+		}
+	}
+	if s.handler != nil {
+		return s.handler.OnEvent(e)
+	}
+	return nil
 }
 
 func (s *Scanner) checkTokenLimit() error {
@@ -191,6 +345,7 @@ func (s *Scanner) valueFinished() {
 	if len(s.frames) == 0 {
 		s.state = stateRootDone
 	} else if s.frames[len(s.frames)-1].object {
+		s.frames[len(s.frames)-1].currentKey = ""
 		s.state = stateExpectObjectCommaOrEnd
 	} else {
 		s.state = stateExpectArrayCommaOrEnd
@@ -439,17 +594,21 @@ func (s *Scanner) Feed(chunk []byte) error {
 						s.err = &Error{Kind: KindTooManyItems, Limit: s.limits.MaxObjectKeys, Value: frame.count}
 						return s.err
 					}
-					if err := s.emitEvent(EventKey, length, keyStr); err != nil {
+					topLevel := len(s.frames) == 1 && s.frames[0].object
+					path := append(s.currentPath(), keyStr)
+					if err := s.emitEvent(EventKey, s.tokStartOffset, length, keyStr, path, topLevel); err != nil {
 						s.err = err
 						return s.err
 					}
+					frame.currentKey = keyStr
 					s.state = stateExpectColon
 				} else {
 					if s.strDecodedBytes > s.limits.MaxStringBytes {
 						s.err = &Error{Kind: KindStringTooLong, Limit: s.limits.MaxStringBytes, Value: s.strDecodedBytes}
 						return s.err
 					}
-					if err := s.emitEvent(EventString, length, ""); err != nil {
+					key, path, topLevel := s.valueContext()
+					if err := s.emitEvent(EventString, s.tokStartOffset, length, key, path, topLevel); err != nil {
 						s.err = err
 						return s.err
 					}
@@ -598,7 +757,8 @@ func (s *Scanner) Feed(chunk []byte) error {
 				s.err = err
 				return s.err
 			}
-			if err := s.emitEvent(EventNumber, int64(s.numLen), ""); err != nil {
+			key, path, topLevel := s.valueContext()
+			if err := s.emitEvent(EventNumber, s.tokStartOffset, int64(s.numLen), key, path, topLevel); err != nil {
 				s.err = err
 				return s.err
 			}
@@ -629,7 +789,8 @@ func (s *Scanner) Feed(chunk []byte) error {
 				s.err = err
 				return s.err
 			}
-			if err := s.emitEvent(s.literalType, int64(len(s.literalExpected)), ""); err != nil {
+			key, path, topLevel := s.valueContext()
+			if err := s.emitEvent(s.literalType, s.tokStartOffset, int64(len(s.literalExpected)), key, path, topLevel); err != nil {
 				s.err = err
 				return s.err
 			}
@@ -683,9 +844,11 @@ func (s *Scanner) Feed(chunk []byte) error {
 					return s.err
 				}
 				curOffset := s.bytes - int64(n-i)
-				length := curOffset - s.tokStartOffset
+				frame := s.frames[len(s.frames)-1]
 				s.frames = s.frames[:len(s.frames)-1]
-				if err := s.emitEvent(EventArrayEnd, length, ""); err != nil {
+				length := curOffset - frame.startOffset
+				key, path, topLevel := s.valueContext()
+				if err := s.emitEvent(EventArrayEnd, frame.startOffset, length, key, path, topLevel); err != nil {
 					s.err = err
 					return s.err
 				}
@@ -721,9 +884,11 @@ func (s *Scanner) Feed(chunk []byte) error {
 					return s.err
 				}
 				curOffset := s.bytes - int64(n-i)
-				length := curOffset - s.tokStartOffset
+				frame := s.frames[len(s.frames)-1]
 				s.frames = s.frames[:len(s.frames)-1]
-				if err := s.emitEvent(EventObjectEnd, length, ""); err != nil {
+				length := curOffset - frame.startOffset
+				key, path, topLevel := s.valueContext()
+				if err := s.emitEvent(EventObjectEnd, frame.startOffset, length, key, path, topLevel); err != nil {
 					s.err = err
 					return s.err
 				}
@@ -769,9 +934,11 @@ func (s *Scanner) Feed(chunk []byte) error {
 					return s.err
 				}
 				curOffset := s.bytes - int64(n-i)
-				length := curOffset - s.tokStartOffset
+				frame := s.frames[len(s.frames)-1]
 				s.frames = s.frames[:len(s.frames)-1]
-				if err := s.emitEvent(EventObjectEnd, length, ""); err != nil {
+				length := curOffset - frame.startOffset
+				key, path, topLevel := s.valueContext()
+				if err := s.emitEvent(EventObjectEnd, frame.startOffset, length, key, path, topLevel); err != nil {
 					s.err = err
 					return s.err
 				}
@@ -794,9 +961,11 @@ func (s *Scanner) Feed(chunk []byte) error {
 					return s.err
 				}
 				curOffset := s.bytes - int64(n-i)
-				length := curOffset - s.tokStartOffset
+				frame := s.frames[len(s.frames)-1]
 				s.frames = s.frames[:len(s.frames)-1]
-				if err := s.emitEvent(EventArrayEnd, length, ""); err != nil {
+				length := curOffset - frame.startOffset
+				key, path, topLevel := s.valueContext()
+				if err := s.emitEvent(EventArrayEnd, frame.startOffset, length, key, path, topLevel); err != nil {
 					s.err = err
 					return s.err
 				}
@@ -841,12 +1010,13 @@ func (s *Scanner) startValue(b byte, remainingBytes int64) error {
 			s.err = err
 			return s.err
 		}
-		s.frames = append(s.frames, newScanObjectFrame(s.limits.RejectDuplicateNames))
-		s.maxDepth = max(s.maxDepth, len(s.frames))
-		if err := s.emitEvent(EventObjectStart, 1, ""); err != nil {
+		key, path, topLevel := s.valueContext()
+		if err := s.emitEvent(EventObjectStart, s.tokStartOffset, 1, key, path, topLevel); err != nil {
 			s.err = err
 			return s.err
 		}
+		s.frames = append(s.frames, newScanObjectFrame(s.tokStartOffset, s.limits.RejectDuplicateNames))
+		s.maxDepth = max(s.maxDepth, len(s.frames))
 		s.state = stateExpectObjectKeyOrEnd
 	case '[':
 		if err := checkDepth(len(s.frames)+1, s.limits.MaxDepth); err != nil {
@@ -857,12 +1027,13 @@ func (s *Scanner) startValue(b byte, remainingBytes int64) error {
 			s.err = err
 			return s.err
 		}
-		s.frames = append(s.frames, scanFrame{object: false})
-		s.maxDepth = max(s.maxDepth, len(s.frames))
-		if err := s.emitEvent(EventArrayStart, 1, ""); err != nil {
+		key, path, topLevel := s.valueContext()
+		if err := s.emitEvent(EventArrayStart, s.tokStartOffset, 1, key, path, topLevel); err != nil {
 			s.err = err
 			return s.err
 		}
+		s.frames = append(s.frames, scanFrame{object: false, startOffset: s.tokStartOffset})
+		s.maxDepth = max(s.maxDepth, len(s.frames))
 		s.state = stateExpectArrayValueOrEnd
 	case '"':
 		s.startString(false, remainingBytes)
@@ -938,7 +1109,8 @@ func (s *Scanner) Finish() (Result, error) {
 			s.err = err
 			return Result{}, s.err
 		}
-		if err := s.emitEvent(EventNumber, int64(s.numLen), ""); err != nil {
+		key, path, topLevel := s.valueContext()
+		if err := s.emitEvent(EventNumber, s.tokStartOffset, int64(s.numLen), key, path, topLevel); err != nil {
 			s.err = err
 			return Result{}, s.err
 		}
@@ -952,7 +1124,8 @@ func (s *Scanner) Finish() (Result, error) {
 			s.err = err
 			return Result{}, s.err
 		}
-		if err := s.emitEvent(s.literalType, int64(len(s.literalExpected)), ""); err != nil {
+		key, path, topLevel := s.valueContext()
+		if err := s.emitEvent(s.literalType, s.tokStartOffset, int64(len(s.literalExpected)), key, path, topLevel); err != nil {
 			s.err = err
 			return Result{}, s.err
 		}
