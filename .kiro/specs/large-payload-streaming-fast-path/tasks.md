@@ -65,7 +65,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - _Validation: `git diff --check`; targeted architecture tests_
   - _Requirements: 22_
 
-- [ ] 1.2 Freeze frontend-specific outer ordering and shared pipe ordering
+- [x] 1.2 Freeze frontend-specific outer ordering and shared pipe ordering
   - Characterize OpenAI Responses, OpenAI Chat, and OpenResponses separately.
   - Confirm current shared ordering: body read → header selector → optional whole-body resolver → shared preflight → `TryAdmit` → guarded `RouteFromBodyModel`/Decode → post-decode/traffic → execute.
   - Confirm OpenResponses auth + JSON media-type check stays in the outer handler before `frontendpipe`.
@@ -804,3 +804,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 ## Implementation Notes
 
 - Task 1.1 at `3da34d7875443355d65cb9d7df649555dfad3edb` has unchanged runtime seams vs `b08c608` baseline but full archtest and focused billing docs test failed at that SHA due to upstream `product.md`/`structure.md` marker removal; evidence `evidence/1.1-rebaseline.md`; no downstream workaround or production changes. Repaired by `caa38dc9` (cherry-pick of upstream fix `a640123c` restoring billing-exposure contract markers); `go test -count=1 -timeout=10m ./internal/archtest` now passes on the feature worktree.
+- Task 1.2 test-only scope VERIFIED (independent reviewer APPROVED): fresh `go test -count=1` PASS exit 0 for 4 frontend packages (`frontendpipe`, `openairesponses`, `openailegacy`, `openresponses`); gofmt and diff check clean. Windows `go test -race` for same packages failed on `cgo.exe` exit 2 (Windows race/cgo toolchain limitation, not a test failure); future race certification needs working toolchain.
