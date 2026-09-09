@@ -22,6 +22,7 @@ type RequestCapture struct {
 	Authorization   string
 	AnthropicAPIKey string
 	GoogleAPIKey    string
+	OpenCodeSession string
 	Body            []byte
 }
 
@@ -32,6 +33,7 @@ func (c *RequestCapture) record(r *http.Request, body []byte) {
 	c.Authorization = r.Header.Get("Authorization")
 	c.AnthropicAPIKey = r.Header.Get("x-api-key")
 	c.GoogleAPIKey = r.Header.Get("x-goog-api-key")
+	c.OpenCodeSession = r.Header.Get("x-opencode-session")
 	c.Body = append(c.Body[:0], body...)
 }
 

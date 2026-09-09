@@ -61,6 +61,17 @@ func (r *Router) openAIClient(baseURL string) *openaicompat.Client {
 		APIKey:     r.apiKey,
 		HTTPClient: r.hc,
 		Transport:  openaicompat.TransportChatAndResponses,
+		Hooks: openaicompat.RequestHooks{
+			PrepareHeaders: func(h http.Header, call lipapi.Call, model string, flavor openaicompat.Flavor) {
+				if sid := resolveSessionID(call); sid != "" {
+					h.Set(HeaderOpenCodeSession, sid)
+				}
+			},
+			MutateBody: func(body map[string]any, call lipapi.Call, model string, flavor openaicompat.Flavor) error {
+				sanitizeOpenAIPayload(body, model)
+				return nil
+			},
+		},
 	}
 	r.openAI[baseURL] = cl
 	return cl

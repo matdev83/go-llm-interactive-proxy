@@ -13,17 +13,19 @@ import (
 const DefaultHTTPTimeout = 60 * time.Second
 
 type Config struct {
-	BaseURL     string               `yaml:"base_url"`
-	APIKey      string               `yaml:"api_key"`
-	HTTPTimeout string               `yaml:"http_timeout"`
-	Models      []catalog.ModelEntry `yaml:"-"`
+	BaseURL      string               `yaml:"base_url"`
+	APIKey       string               `yaml:"api_key"`
+	AuthJSONPath string               `yaml:"auth_json_path"`
+	HTTPTimeout  string               `yaml:"http_timeout"`
+	Models       []catalog.ModelEntry `yaml:"-"`
 }
 
 type configYAML struct {
-	BaseURL     string `yaml:"base_url"`
-	APIKey      string `yaml:"api_key"`
-	HTTPTimeout string `yaml:"http_timeout"`
-	Models      []struct {
+	BaseURL      string `yaml:"base_url"`
+	APIKey       string `yaml:"api_key"`
+	AuthJSONPath string `yaml:"auth_json_path"`
+	HTTPTimeout  string `yaml:"http_timeout"`
+	Models       []struct {
 		ID           string `yaml:"id"`
 		DisplayName  string `yaml:"display_name"`
 		Endpoint     string `yaml:"endpoint"`
@@ -39,9 +41,10 @@ func ParseConfigYAML(kind string, raw []byte) (Config, error) {
 		}
 	}
 	cfg := Config{
-		BaseURL:     strings.TrimSpace(y.BaseURL),
-		APIKey:      strings.TrimSpace(y.APIKey),
-		HTTPTimeout: strings.TrimSpace(y.HTTPTimeout),
+		BaseURL:      strings.TrimSpace(y.BaseURL),
+		APIKey:       strings.TrimSpace(y.APIKey),
+		AuthJSONPath: strings.TrimSpace(y.AuthJSONPath),
+		HTTPTimeout:  strings.TrimSpace(y.HTTPTimeout),
 	}
 	if cfg.BaseURL == "" {
 		switch kind {

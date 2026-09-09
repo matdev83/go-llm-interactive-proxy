@@ -28,6 +28,9 @@ func openAnthropic(ctx context.Context, hc *http.Client, baseURL, apiKey string,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
+	if sid := resolveSessionID(call); sid != "" {
+		req.Header.Set(HeaderOpenCodeSession, sid)
+	}
 	if streaming(call) {
 		req.Header.Set("Accept", "text/event-stream")
 	}

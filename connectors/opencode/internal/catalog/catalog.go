@@ -12,6 +12,18 @@ import (
 
 var ErrUnknownModel = errors.New("opencode: unknown model")
 
+var legacyModelAliases = map[string]string{
+	"kimi-k2.7": "kimi-k2.7-code",
+}
+
+var builtInGoModels = map[string]ModelEntry{
+	"omen-alpha": {
+		RawID:        "omen-alpha",
+		DisplayName:  "Omen Alpha",
+		AISDKPackage: "@ai-sdk/openai-compatible",
+	},
+}
+
 type ResolvedModel struct {
 	RawID     string
 	WireModel string
@@ -38,16 +50,20 @@ func NewModelCatalog(kind BackendKind, entries []ModelEntry, vendors vendor.Vend
 		byRaw:         make(map[string]ModelEntry, len(entries)),
 	}
 	for _, entry := range entries {
-		rawID := strings.TrimSpace(entry.RawID)
-		if rawID == "" {
-			continue
-		}
-		c.byCanonical[c.canonicalizer.CanonicalID(rawID)] = entry
-		c.byNative[NativeID(kind, rawID)] = entry
-		c.byRaw[rawID] = entry
-		c.byRaw[strings.ToLower(rawID)] = entry
+		c.addEntry(entry)
 	}
 	return c
+}
+
+func (c *ModelCatalog) addEntry(entry ModelEntry) {
+	rawID := strings.TrimSpace(entry.RawID)
+	if rawID == "" {
+		return
+	}
+	c.byCanonical[c.canonicalizer.CanonicalID(rawID)] = entry
+	c.byNative[NativeID(c.kind, rawID)] = entry
+	c.byRaw[rawID] = entry
+	c.byRaw[strings.ToLower(rawID)] = entry
 }
 
 func (c *ModelCatalog) Resolve(model string) (ResolvedModel, error) {
@@ -61,9 +77,13 @@ func (c *ModelCatalog) Resolve(model string) (ResolvedModel, error) {
 		return ResolvedModel{}, fmt.Errorf("%w: %q", ErrUnknownModel, model)
 	}
 	rawID := strings.TrimSpace(entry.RawID)
+	wireModel := rawID
+	if target, ok := legacyModelAliases[strings.ToLower(rawID)]; ok {
+		wireModel = target
+	}
 	return ResolvedModel{
 		RawID:     rawID,
-		WireModel: rawID,
+		WireModel: wireModel,
 		Flavor:    InferFlavor(entry),
 		Entry:     entry,
 	}, nil
@@ -94,6 +114,20 @@ func (c *ModelCatalog) lookup(model string) (ModelEntry, bool) {
 			return entry, true
 		}
 		if entry, ok := c.byRaw[strings.ToLower(raw)]; ok {
+			return entry, true
+		}
+	}
+	raw := model
+	if stripped, ok := strings.CutPrefix(model, prefix); ok {
+		raw = stripped
+	}
+	if target, ok := legacyModelAliases[strings.ToLower(raw)]; ok {
+		if entry, ok := c.lookup(target); ok {
+			return entry, true
+		}
+	}
+	if c.kind == BackendGo {
+		if entry, ok := builtInGoModels[strings.ToLower(raw)]; ok {
 			return entry, true
 		}
 	}

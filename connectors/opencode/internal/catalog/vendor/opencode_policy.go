@@ -31,6 +31,7 @@ var openCodeVendorKeywordRules = []openCodeKeywordRule{
 	{keyword: "minimax", vendor: "minimax"},
 	{keyword: "mimo", vendor: "xiaomi"},
 	{keyword: "hy3", vendor: "tencent"},
+	{keyword: "omen", vendor: "opencode"},
 }
 
 func OpenCodeVendorPolicy() VendorPolicy {
