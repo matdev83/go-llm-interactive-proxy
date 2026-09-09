@@ -233,7 +233,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Preserve current chunk/unwritten suffix until write succeeds.
   - _Requirements: 20_
 
-- [ ] 4.3 Implement lossless mid-capture canonical continuation
+- [x] 4.3 Implement lossless mid-capture canonical continuation
   - Reader = retained prefix + current unwritten suffix + still-unread request body.
   - Never reread/restart client socket.
   - Preserve same body ceiling/status semantics.
@@ -826,3 +826,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 3.7 VERIFIED (fresh reviewer APPROVED): static-disposition ratchets (Local Turn, Secret Guard, unclassified plane, canonical-only traffic, missing two-phase executor, normal eligible generation) + benchmarks (0-alloc ~11-14ns vs 4ns baseline); largebody + feature/archtest/runtime/runtimebundle suites PASS, vet/gofmt/diff-check clean; zero production diff; `-race` skipped Windows cgo limitation.
 - Task 4.1 VERIFIED (fresh reviewer APPROVED): SpoolLedger/SpoolReservation ledger with checked int64, exact-once release, exhaustion => decline not 413, no filesystem yet; largebody + budget gate PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 4.2 VERIFIED (fresh reviewer APPROVED): SpillBuffer bounded RAM + 0600 unpredictable spill, suffix preservation, reservation integration, budgets bump; largebody + archtest PASS, budget recount verified, diff-check/gofmt/vet clean; -race unavailable cgo limitation.
+- Task 4.3 VERIFIED (fresh reviewer APPROVED): CaptureReader/CaptureRequestBody lossless continuation, forward-only socket, same ceiling, suffix guard, budgets bump; largebody + budget gate PASS, diff-check/gofmt/vet clean; -race unavailable cgo limitation.

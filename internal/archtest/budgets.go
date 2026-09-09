@@ -151,7 +151,8 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 3.6 constant-time static pre-capture disposition (bounded leaf-pure gate over WireEligibilitySummary + cheap request facts, zero alloc); measured 84491, bump to 84516 with 25 headroom.
 	// Large-payload fast-path Task 4.1 logical spool reservation ledger (bounded logical spool accounting + checked int64 math + idempotent release); measured 84843, bump to 84868 with 25 headroom.
 	// Large-payload fast-path Task 4.2 bounded RAM + secure spill (fixed copy buffer + unpredictable 0600 file spill + unwritten suffix preservation + nonblocking root close); measured 85449, bump to 85474 with 25 headroom.
-	{Dir: "internal/core", Max: 85474},
+	// Large-payload fast-path Task 4.3 lossless mid-capture canonical continuation (CaptureReader + unconsumed suffix guard + capture driver); measured 85960, bump to 85985 with 25 headroom.
+	{Dir: "internal/core", Max: 85985},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12333},

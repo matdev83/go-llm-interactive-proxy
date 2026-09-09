@@ -35,6 +35,12 @@ var ErrSpillWriteFailed = errors.New("largebody: spill file write failed")
 // ErrInvalidSpillConfig is returned when a SpillConfig parameter violates bounds.
 var ErrInvalidSpillConfig = errors.New("largebody: invalid spill configuration")
 
+// ErrUnconsumedSuffix is returned when attempting to Write to a SpillBuffer that
+// still holds an unwritten suffix from a previous failed or partial write.
+// Callers must consume the suffix via TakeUnwrittenSuffix() before retrying new writes
+// (Task 4.2 review suggestion; Requirement 20.6).
+var ErrUnconsumedSuffix = errors.New("largebody: unwritten suffix must be consumed via TakeUnwrittenSuffix before new writes")
+
 // SpillFile represents the file abstraction used for spill storage.
 // It is implemented directly by *os.File in production and can be substituted
 // for fault injection in tests (Requirement 20.10).
@@ -231,6 +237,9 @@ func (b *SpillBuffer) Write(p []byte) (int, error) {
 	if b.closed {
 		b.setUnwrittenSuffix(p)
 		return 0, ErrSpillClosed
+	}
+	if len(b.unwrittenSuffix) > 0 {
+		return 0, ErrUnconsumedSuffix
 	}
 	if len(p) == 0 {
 		return 0, nil
