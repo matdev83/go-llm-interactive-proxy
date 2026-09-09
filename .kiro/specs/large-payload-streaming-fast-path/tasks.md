@@ -78,7 +78,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Header selector wins as today; `RouteFromBodyModel` runs only when selector remains empty and while decode permit is held.
   - Full-body resolver, when configured, runs before shared JSON preflight.
   - Characterize decode admission weight/saturation/overweight/cancel/panic-release and `Retry-After` mapping.
-  - Add fixture proving a considered request receives at most one `TryAdmit` decision even if it falls back.
+  - Add fixture proving the current canonical path applies at most one `TryAdmit` decision per considered request, including terminal `Spec.Decode` failure; true proof/assessment-decline same-permit fallback is owned by Tasks 7.6/11.9, not this task.
   - _Validation: `go test -race ./internal/plugins/frontends/decodeqos/... ./internal/plugins/frontends/reqbody/... ./internal/plugins/frontends/frontendpipe/...`_
   - _Requirements: 1, 2, 3, 4, 6, 13_
 
@@ -348,7 +348,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - _Requirements: 4, 6, 13, 14, 16, 17_
 
 - [ ] 7.6 Canonical proof decline under SAME permit
-  - Materialize/decode from replay with existing `Spec.Decode` while current permit remains held.
+  - Proof decline owns same-permit fallback: materialize/decode from replay with existing `Spec.Decode` while the original admission permit remains held, with no release/reacquire and no second `TryAdmit`/429/503 decision.
   - Release only at today's post-decode boundary and continue normal Validate/AfterDecode/traffic/Execute.
   - Add decode-admission saturation race test proving no second 429/503 decision.
   - _Requirements: 1, 6_
@@ -510,7 +510,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - _Requirements: 6, 8_
 
 - [ ] 11.9 Call assessment while SAME decode permit remains held
-  - Proof decline or assessment decline => canonical `Spec.Decode` from replay under same permit.
+  - Assessment decline owns same-permit fallback: canonical `Spec.Decode` from replay under the original permit still held, with no release/reacquire and no second `TryAdmit`/429/503 decision (proof-decline fallback is owned by Task 7.6 under the same rule).
   - Accept => release once then commit.
   - Saturation/concurrency tests prove no fallback-induced second admission decision.
   - _Requirements: 1, 6_
@@ -805,3 +805,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - Task 1.1 at `3da34d7875443355d65cb9d7df649555dfad3edb` has unchanged runtime seams vs `b08c608` baseline but full archtest and focused billing docs test failed at that SHA due to upstream `product.md`/`structure.md` marker removal; evidence `evidence/1.1-rebaseline.md`; no downstream workaround or production changes. Repaired by `caa38dc9` (cherry-pick of upstream fix `a640123c` restoring billing-exposure contract markers); `go test -count=1 -timeout=10m ./internal/archtest` now passes on the feature worktree.
 - Task 1.2 test-only scope VERIFIED (independent reviewer APPROVED): fresh `go test -count=1` PASS exit 0 for 4 frontend packages (`frontendpipe`, `openairesponses`, `openailegacy`, `openresponses`); gofmt and diff check clean. Windows `go test -race` for same packages failed on `cgo.exe` exit 2 (Windows race/cgo toolchain limitation, not a test failure); future race certification needs working toolchain.
+- Task 1.3 approved correction applied: 1.3 characterizes current canonical one-`TryAdmit` decision including terminal decode failure; Task 7.6 owns proof-decline same-permit fallback and Task 11.9 owns assessment-decline same-permit fallback with the original permit held and no second decision; Requirement 6.3 preserved.
