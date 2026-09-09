@@ -256,7 +256,7 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 13.2. If a statement line cannot be matched unambiguously to a provider charge or compatible aggregate scope, the system shall retain it as unmatched rather than attach it to a guessed B-leg.
 
-13.3. When new evidence changes a previously posted operator cost, the system shall append an idempotent balanced adjustment referencing the original posting and shall not post the full replacement amount again.
+13.3. When new evidence changes a previously posted operator cost, the system shall append an idempotent balanced adjustment referencing the original posting only when the old and new selected valuations share a native currency or an explicit frozen FX conversion basis; otherwise it shall leave the correction pending or reject it without posting a monetary delta, and it shall never post the full replacement amount again.
 
 13.4. When an upstream correction changes operator cost, the system shall not automatically alter a settled customer charge unless the frozen customer policy explicitly permits a separate audited adjustment.
 
@@ -292,7 +292,7 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 15.1. The system shall keep provider-field parsing in adapters, generic evidence semantics in the metering domain, financial policy in billing, SQL in storage adapters, and lifecycle ownership in the runtime.
 
-15.2. The system shall expose typed, versioned public contracts for externally supplied evidence normalizers, raters, statement import, and reconciliation consumption without requiring third-party imports of repository internal packages.
+15.2. The system shall expose typed, versioned public contracts for provider-neutral economic observations and connector sideband, injected raters and quoters, statement import, and reconciliation consumption without requiring third-party imports of repository internal packages; provider-shaped evidence normalization shall remain owned by the supplying adapter or connector.
 
 15.3. The system shall provide a narrow explicit opt-in monetary host binding using the same underlying host and existing billing admission and terminal seams, while leaving ordinary public runtime Options and stock startup nonmonetary.
 
@@ -358,4 +358,3 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 18.5. The implementation shall keep stream-time work bounded by configured accounting evidence limits, avoid per-token database writes and rating, and measure disabled-path and enabled-path overhead against the fresh baseline.
 
 18.6. The implementation shall pass the repository quality, unit, parity, wide QA, architecture, and applicable race gates and shall report Windows-authoritative test-cost evidence without silently increasing budgets.
-
