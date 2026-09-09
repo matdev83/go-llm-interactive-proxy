@@ -18,6 +18,7 @@ import (
 type PrometheusCollector struct {
 	mu      sync.RWMutex
 	manager *Manager
+	swaps   int
 
 	activeEpochs  *prometheus.Desc
 	activeTargets *prometheus.Desc
@@ -48,6 +49,27 @@ func (p *PrometheusCollector) SetManager(manager *Manager) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.manager = manager
+	p.swaps++
+}
+
+// Manager returns the currently exported keep-warm manager, if any.
+func (p *PrometheusCollector) Manager() *Manager {
+	if p == nil {
+		return nil
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.manager
+}
+
+// SwapCount returns the number of times SetManager was invoked.
+func (p *PrometheusCollector) SwapCount() int {
+	if p == nil {
+		return 0
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.swaps
 }
 
 func (p *PrometheusCollector) Describe(ch chan<- *prometheus.Desc) {

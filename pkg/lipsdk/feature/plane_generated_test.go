@@ -303,7 +303,7 @@ func TestContributionSet_Clone_PreservesAllPlanesAndIsolation(t *testing.T) {
 }
 
 // TestContributionSet_FromFrozen_PreservesAllPlanes verifies that FrozenPlaneSet.ToContributions
-// and feature.ContributionSetFromFrozen reconstruct a mutable ContributionSet with all 25 planes.
+// and feature.ContributionSetFromFrozen reconstruct a mutable ContributionSet with all 26 planes.
 func TestContributionSet_FromFrozen_PreservesAllPlanes(t *testing.T) {
 	t.Parallel()
 

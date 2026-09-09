@@ -75,3 +75,29 @@ func assertMetricGauge(t *testing.T, families []*dto.MetricFamily, name string, 
 	}
 	t.Fatalf("metric %s not found", name)
 }
+
+func TestPrometheusCollectorManagerAndSwapCount(t *testing.T) {
+	t.Parallel()
+	prom := NewPrometheusCollector()
+	if got := prom.Manager(); got != nil {
+		t.Fatalf("initial Manager=%v want nil", got)
+	}
+	if got := prom.SwapCount(); got != 0 {
+		t.Fatalf("initial SwapCount=%d want 0", got)
+	}
+	manager, err := NewManager(DefaultConfig(), ClockFunc(func() time.Time { return time.Unix(100, 0).UTC() }), Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prom.SetManager(manager)
+	if got := prom.Manager(); got != manager {
+		t.Fatalf("post-swap Manager=%v want %v", got, manager)
+	}
+	if got := prom.SwapCount(); got != 1 {
+		t.Fatalf("post-swap SwapCount=%d want 1", got)
+	}
+	prom.SetManager(manager)
+	if got := prom.SwapCount(); got != 2 {
+		t.Fatalf("second-swap SwapCount=%d want 2", got)
+	}
+}
