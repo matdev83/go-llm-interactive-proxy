@@ -154,7 +154,8 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 4.3 lossless mid-capture canonical continuation (CaptureReader + unconsumed suffix guard + capture driver); measured 85960, bump to 85985 with 25 headroom.
 	// Large-payload fast-path Task 4.4 immutable completed source + independent readers (CompletedSource + offset-zero readers + Windows-safe pending deletion); measured 86347, bump to 86372 with 25 headroom.
 	// Large-payload fast-path Task 4.5 compute source integrity digest during capture (incremental SHA-256 during writes + CompletedSource digest binding); measured 86426, bump to 86451 with 25 headroom.
-	{Dir: "internal/core", Max: 86451},
+	// Large-payload fast-path Task 5.1 incremental lexer/state machine (Feed chunks, UTF-8/escapes/surrogates/numbers/limits, fixed buffers, no giant string retention); measured 87467, bump to 87492 with 25 headroom.
+	{Dir: "internal/core", Max: 87492},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12333},

@@ -262,7 +262,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 5. Match current shared JSON protections without retaining large scalar content
 
-- [ ] 5.1 Implement incremental lexer/state machine
+- [x] 5.1 Implement incremental lexer/state machine
   - UTF-8, escapes/surrogates, numbers, delimiters/root/trailing/incomplete, depth/token/object/array/key/string/number/byte limits, cancellation.
   - Fixed buffers; giant string contents not retained.
   - _Requirements: 3_
@@ -830,3 +830,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 4.4 VERIFIED (fresh reviewer APPROVED): CompletedSource offset-zero readers, parallel independence, idempotent nonblocking close, pending deletion, budgets bump; follow-up: pre-completion reader tracking gap noted for 4.6; largebody suite + archtest budget PASS, vet/diff-check clean; -race unavailable cgo limitation.
 - Task 4.5 VERIFIED (fresh reviewer APPROVED): incremental SHA-256 source digest, evidence-only distinct from IdentityDigest, unwritten suffix never hashed, budgets bump; largebody suite + budget gate PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 4.6 VERIFIED (fresh reviewer APPROVED): fault-injection/privacy/leak test suite (reservation/create/short-write/read/remove failures, cancellation, timeout, exact limit/+1, leaked reader, no prompt/spool/secret leaks); test-only, Task 4.4 gap characterized without production change; largebody + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 5.1 VERIFIED (fresh reviewer APPROVED): incremental Scanner in jsonshape, chunked feeds, UTF-8/escape/number/limits/cancel, no giant-string retention, differential parity vs preflight oracle, budgets bump; jsonshape + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
