@@ -7,7 +7,7 @@ The standard distribution, `cmd/lipstd`, serves bundled HTTP frontends, routes t
 ## What it does
 
 - **Multi-protocol frontends** - OpenAI Responses, legacy OpenAI-compatible chat, Anthropic Messages, and Gemini generateContent-compatible HTTP surfaces.
-- **Backend flexibility** - hosted provider adapters, OpenAI-compatible/local runtimes, agent-specific backends, custom-compatible backend rows, and a no-key `localstub` backend for dogfood.
+- **Backend flexibility** - 140+ embedded provider profiles, enterprise cloud connectors, direct model APIs, dedicated subscription OAuth bridges, OpenAI-compatible/local runtimes, agent-specific backends, custom-compatible backend rows, and a no-key `localstub` backend for dogfood.
 - **Canonical translation** - frontend and backend adapters translate through one protocol-neutral request model and event stream; no pairwise protocol translators.
 - **Core-owned routing** - ordered failover, weighted routing, parallel races, TTFT budgets, model aliases, route diagnostics, and circuit-breaker eligibility live in the core.
 - **Continuity and recovery** - B2BUA-style A-leg/B-leg lineage records recoverable pre-output attempts, while post-output failures are surfaced instead of silently retried.
@@ -24,10 +24,28 @@ Hybrid backends ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)):
 | Surface | Bundled support |
 | --- | --- |
 | Frontends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini` |
-| Hosted/provider backends | Built-in: `openai-responses`, `openai-legacy`, `anthropic`, `gemini`, `bedrock`. External plugins: `acp` family, `openrouter`, `nvidia`, `huggingface`, `opencode-go`/`opencode-zen` (`connectors/opencode` one artifact), `openai-codex`/`openai-codex-app-server` (`connectors/codex` one artifact) |
-| Local / compatible backends | External: `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `local-stub`. Built-in: custom OpenAI/Anthropic-compatible kinds — see [`docs/custom-compatible-backends.md`](docs/custom-compatible-backends.md) |
-| Local-agent / experimental | External `cursorcliacp` connector; experimental external `cursorsdk` connector (Node `bridge-node` over `@cursor/sdk` 1.0.23) discovered via closed manifest — see [`docs/cursor-sdk-backend.md`](docs/cursor-sdk-backend.md) |
+| Essential built-in backends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini`, `bedrock`, `alibaba-token-plan-intl` (dedicated token-plan product), and custom-compatible kinds (`custom-openai-responses-compatible`, `custom-openai-legacy-compatible`, `custom-anthropic-compatible` — see [`docs/custom-compatible-backends.md`](docs/custom-compatible-backends.md)) |
+| Embedded provider profiles | 141 data-driven provider profiles (`kind: provider-profile`) spanning Responses-first, OpenAI-compatible Chat, Anthropic-compatible Messages, and regional/plan splits (e.g. DeepSeek, Groq, Together, Mistral, Moonshot/Kimi, MiniMax, Qwen/Alibaba, xAI, etc.). Zero-dependency, offline-validated. See [Provider Profiles Operator Guide](docs/provider-profiles.md) |
+| External cloud & enterprise connectors | Executable gRPC plugins under `connectors/`: `azure-openai`, `vertex`, `sagemaker`, `oci-generative-ai`, `watsonx`, `sapaicore`, `snowflake-cortex`, `databricks-ai`, `cloudflare`, `infomaniak-ai`. See [Backend Plugin Operator Guide](docs/backend-plugins/operator.md) |
+| External model API connectors | Executable gRPC plugins under `connectors/`: `cohere`, `replicate`, `openrouter`, `nvidia`, `huggingface`. See [Backend Plugin Operator Guide](docs/backend-plugins/operator.md) |
+| External OAuth & subscription bridges | Dedicated identity bridges under `connectors/`: `nous-portal`, `xai-oauth`, `qwen-oauth`, `minimax-oauth`, and token-exchange bridge `gitlab-duo`. See [Backend Plugin Operator Guide](docs/backend-plugins/operator.md) |
+| Local runtimes & developer stubs | External: `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `local-stub` |
+| Coding agents & developer tools | External: `opencode-go`/`opencode-zen` (`connectors/opencode`), `openai-codex`/`openai-codex-app-server` (`connectors/codex`), experimental `cursorsdk` (Node bridge over `@cursor/sdk` — see [`docs/cursor-sdk-backend.md`](docs/cursor-sdk-backend.md)). ACP runtimes: `acp` family, `cursorcliacp` (separate product line) |
 | Feature plugins | no-op compatibility hooks plus reference/proof plugins for submit, parts, tools, workspace guard, traffic transcript, verifier, pre-request policy, auto-append, and Codex client compatibility; standard distro also default-enables canonical `tool-call-repair` (ADR 0007; opt out with `enabled: false`) |
+
+### Distinct API-key vs. Dedicated OAuth / Cloud Connectors
+
+To avoid operational ambiguity, Go-LIP strictly distinguishes between direct API-key access and dedicated OAuth / cloud connectors:
+- **xAI:** `xai` profile (`kind: provider-profile`) uses API keys vs. `xai-oauth` connector (`connectors/xaioauth`, `kind: xai-oauth`) using subscription OAuth tokens.
+- **MiniMax:** `minimax` / `minimax-cn` profiles (`kind: provider-profile`) use API keys vs. `minimax-oauth` connector (`connectors/minimexoauth`, `kind: minimax-oauth`) using Anthropic Messages OAuth tokens.
+- **Alibaba / Qwen:** `alibaba*` / DashScope profiles (`kind: provider-profile`) use API keys vs. `qwen-oauth` connector (`connectors/qwenoauth`, `kind: qwen-oauth`) using subscription OAuth tokens vs. `alibaba-token-plan-intl` (in-process dedicated product).
+- **Anthropic / Claude:** In-process `anthropic` backend uses commercial API keys. Subscription OAuth bridges (`claude-subscription` / `anthropic-oauth`) are explicitly [unsupported-by-policy](docs/backend-plugins/unsupported.md).
+- **Google / Gemini:** In-process `gemini` backend uses Developer API keys vs. `vertex` connector (`connectors/vertex`, `kind: vertex`) using Google Cloud IAM / Service Accounts.
+
+### Scope notes: ACP and Unsupported Bridges
+
+- **ACP is a separate product line:** Agent Client Protocol (ACP) connectors (`acp`, `cursorcliacp`) represent agent runtimes and are outside the scope of this bulk inference provider expansion.
+- **Unsupported-by-policy bridges:** Direct third-party consumer subscription bridges for `github-copilot` and `claude-subscription` (`anthropic-oauth`) are explicitly unsupported due to absence of public, third-party API contracts and terms-of-service constraints. See [`docs/backend-plugins/unsupported.md`](docs/backend-plugins/unsupported.md) for full policy evaluations.
 
 ## Quick start
 

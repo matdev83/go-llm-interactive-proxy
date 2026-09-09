@@ -4,11 +4,12 @@ Built-in compatible backend modes let operators add OpenAI Chat Completions, Ope
 
 Use them when a provider exposes a wire-compatible HTTP API and you do not need a dedicated connector (OAuth bridges, vendor SDKs, agent runtimes, or other non-trivial protocol extensions).
 
-## When to use generic modes vs external connectors
+## When to use generic modes vs provider profiles vs external connectors
 
 | Need | Use |
 | --- | --- |
-| OpenAI `/chat/completions`, `/responses`, or Anthropic `/v1/messages` against a custom base URL | Built-in `custom-*-compatible` kinds (this guide) |
+| Standard public/cloud provider (Groq, Together, DeepSeek, Kimi, etc.) | Standard **Provider Profiles** (`kind: provider-profile`) — see [Provider Profiles](provider-profiles.md) |
+| OpenAI `/chat/completions`, `/responses`, or Anthropic `/v1/messages` against a custom/private base URL | Built-in `custom-*-compatible` kinds (this guide) |
 | OpenRouter routing, attribution, and provider-specific headers | Dedicated **OpenRouter external connector** (`openrouter` kind under `connectors/openrouter/`) — not a generic compatible row |
 | OAuth/user login, agent IPC, local process spawning, vendor SDK features | Matching external connector under `connectors/` |
 | Local no-key stub for development | `local-stub` connector or dogfood examples |
@@ -96,6 +97,7 @@ Compatible rows never show plugin process, manifest, or digest fields.
 
 Runnable configs (validate with `go run ./cmd/lipstd check-config --config <path>`):
 
+- `config/examples/provider-profiles-bulk.example.yaml` (standard provider profiles)
 - `config/examples/custom-openai-legacy-compatible.yaml`
 - `config/examples/custom-openai-responses-compatible.yaml`
 - `config/examples/custom-anthropic-compatible.yaml`

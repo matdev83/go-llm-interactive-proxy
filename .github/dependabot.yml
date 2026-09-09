@@ -11,6 +11,7 @@ updates:
       - /testdata/external_connector
       - /testdata/external_feature_sdk
       - /connector-support/acp
+      - /connector-support/oauthcred
       - /connector-support/openaicompat
       - /connectors/acp
       - /connectors/agycliacp
@@ -24,16 +25,20 @@ updates:
       - /connectors/cursorsdk
       - /connectors/databricks
       - /connectors/geminicliacp
+      - /connectors/gitlabduo
       - /connectors/huggingface
       - /connectors/infomaniak
       - /connectors/llamacpp
       - /connectors/lmstudio
       - /connectors/localstub
+      - /connectors/minimexoauth
+      - /connectors/nousportal
       - /connectors/nvidia
       - /connectors/oci
       - /connectors/ollama
       - /connectors/opencode
       - /connectors/openrouter
+      - /connectors/qwenoauth
       - /connectors/replicate
       - /connectors/sagemaker
       - /connectors/sapaicore
@@ -41,6 +46,7 @@ updates:
       - /connectors/vertex
       - /connectors/vllm
       - /connectors/watsonx
+      - /connectors/xaioauth
     schedule:
       interval: weekly
       day: monday
