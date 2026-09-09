@@ -340,7 +340,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Unknown/chunked final size below threshold => canonical from source.
   - _Requirements: 1, 2, 3, 20_
 
-- [ ] 7.5 Acquire exactly one decode-admission permit after EOF
+- [x] 7.5 Acquire exactly one decode-admission permit after EOF
   - Weight = exact final decoded bytes.
   - Never hold permit while waiting for client upload/spill writes.
   - Under permit, replay source through protocol proof: selector/default, semantic subset validation, `ClientTurnShape`, `SessionInput`, body/rewrite facts, canonical semantic identity.
@@ -841,3 +841,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 7.2 VERIFIED (review subagent APPROVED): per-frontend outer ordering freeze characterized across 4 frontends (no universal sequence, OpenResponses auth/media intact); reviewer suggestion/obligation noted for Task 7.3 to land production ServeHTTP candidate-gate proof; 4 frontend suites PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 7.3 VERIFIED (review subagent APPROVED): five cheap gates in order wired into ServeHTTP after outer checks, zero spool on decline, off/nil unchanged; frontendpipe suite PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 7.4 VERIFIED (review subagent APPROVED): capture-to-EOF with scanner feed, parity, lossless continuation, below-threshold canonical-from-source; frontendpipe + largebody suites PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 7.5 VERIFIED (review subagent APPROVED): single exact-weight permit post-EOF, proof replay under permit, same-permit decline fallback, legacy bypass, 429 parity; frontendpipe + largebody + decodeqos + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation; reviewer flags noted: capture-time materialization to revisit in 8+, partial 7.6 overlap, unreachable defensive branch.

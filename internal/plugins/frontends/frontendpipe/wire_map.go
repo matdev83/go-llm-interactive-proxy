@@ -86,3 +86,40 @@ func geminiStatusFromHTTP(status int) string {
 		return "UNKNOWN"
 	}
 }
+
+// StatusError is a protocol-mapped HTTP error returned from AfterDecode or WrapStream.
+type StatusError struct {
+	Status  int
+	Type    string
+	Code    string
+	Message string
+	Err     error
+}
+
+func (e *StatusError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Message != "" {
+		return e.Message
+	}
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return "request failed"
+}
+
+func (e *StatusError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// HTTPStatus returns a wire-safe status, never 0.
+func (e *StatusError) HTTPStatus() int {
+	if e == nil || e.Status < 100 || e.Status > 599 {
+		return http.StatusBadRequest
+	}
+	return e.Status
+}

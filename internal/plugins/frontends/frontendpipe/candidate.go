@@ -9,8 +9,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonshape"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
 )
+
+// DefaultMaxSemanticFactBytes is the default ceiling on profile-derived facts (256 KiB; Requirement 4, design section 3).
+const DefaultMaxSemanticFactBytes int64 = 256 * 1024
 
 // LargePayloadConfig parameterizes the large-payload fast path for a frontend create pipeline
 // (Task 7.3, 7.4, Requirements 1, 2, 20; design section 3, 5).
@@ -418,23 +423,6 @@ func CaptureCandidateBody[Opts any](
 	}
 }
 
-func captureCandidate[Opts any](
-	ctx context.Context,
-	spec *Spec[Opts],
-	w http.ResponseWriter,
-	r *http.Request,
-	maxBytes int64,
-) ([]byte, error) {
-	capRes, body, err := CaptureCandidateBody(ctx, spec, w, r, maxBytes)
-	if spec.OnCandidateCapture != nil {
-		spec.OnCandidateCapture(r, capRes)
-	}
-	if capRes.Completed != nil {
-		_ = capRes.Completed.Close()
-	}
-	return body, err
-}
-
 func drainContinuation(cont *largebody.CaptureReader) ([]byte, error) {
 	if cont == nil {
 		return nil, errors.New("frontendpipe: continuation reader is nil")
@@ -457,4 +445,119 @@ func readCompletedSource(src *largebody.CompletedSource) ([]byte, error) {
 		_ = rc.Close()
 	}()
 	return io.ReadAll(rc)
+}
+
+// replayCandidate performs Task 7.5 candidate decode admission and protocol proof replay.
+// Returns (decoded, body, ok, err).
+// If ok is false and err is nil, an HTTP error response was already written to w.
+// If err is non-nil, an error occurred during decode that should be handled by standard decode error handling.
+func replayCandidate[Opts any](
+	ctx context.Context,
+	spec *Spec[Opts],
+	w http.ResponseWriter,
+	r *http.Request,
+	pm PathMatch,
+	capRes CandidateCaptureResult,
+) (*Decoded, []byte, bool, error) {
+	if capRes.ScannerErr != nil {
+		_ = capRes.Completed.Close()
+		if jsonguard.Classify(capRes.ScannerErr) == jsonguard.KindCanceled {
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WritePreflightCanceled(w))
+			return nil, nil, false, nil
+		}
+		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidJSON(w))
+		return nil, nil, false, nil
+	}
+
+	if spec.Exec == nil {
+		_ = capRes.Completed.Close()
+		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecutorNotConfigured(w))
+		return nil, nil, false, nil
+	}
+
+	sel := spec.HTTPHeaders.RouteSelector(r.Header)
+	// Task 7.5: Legacy full-body route resolver is NOT invoked here.
+
+	// Task 7.5: Acquire exactly one decode-admission permit after EOF — weight = exact final decoded bytes
+	weight := capRes.Completed.Size()
+	releaseDecode, ok, aerr := decodeqos.TryAdmit(ctx, spec.DecodeAdmission, weight)
+	if d := decodeqos.Decide(ok, aerr); d.Status != 0 {
+		_ = capRes.Completed.Close()
+		if d.RetryAfter {
+			w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
+		}
+		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteAdmissionReject(w, d))
+		return nil, nil, false, nil
+	}
+
+	var decoded *Decoded
+	var body []byte
+	err := decodeqos.Guard(releaseDecode, func() error {
+		defer func() {
+			_ = capRes.Completed.Close()
+		}()
+
+		proofIn := ProofInput{
+			Ctx:                  ctx,
+			Headers:              r.Header,
+			URLPath:              r.URL.Path,
+			Path:                 pm,
+			RouteSelector:        sel,
+			RoutePrefixes:        spec.RoutePrefixes,
+			DefaultRouteSelector: spec.DefaultRouteSelector,
+			RouteFromBodyModel:   spec.RouteFromBodyModel,
+			Source:               capRes.Completed,
+			BodyBytes:            capRes.Completed.Size(),
+			AnthropicVersion:     strings.TrimSpace(r.Header.Get("anthropic-version")),
+		}
+
+		var proofOut ProofOutput
+		var proofErr error
+		if spec.Profile != nil {
+			proofOut, proofErr = spec.Profile.CompileProof(ctx, proofIn)
+			if proofErr == nil {
+				proofErr = proofOut.Validate(DefaultMaxSemanticFactBytes)
+			}
+		} else {
+			proofErr = errors.New("frontendpipe: profile not configured")
+		}
+
+		if spec.OnCandidateProof != nil {
+			spec.OnCandidateProof(r, CandidateProofResult{
+				Output:     proofOut,
+				PermitHeld: true,
+				Err:        proofErr,
+			})
+		}
+
+		// Read whole body for fallback Spec.Decode under the SAME held permit
+		var berr error
+		body, berr = readCompletedSource(capRes.Completed)
+		if berr != nil {
+			return berr
+		}
+		if sel == "" && spec.RouteFromBodyModel {
+			if proofErr == nil && proofOut.Proof().RouteSelector != "" {
+				sel = proofOut.Proof().RouteSelector
+			} else {
+				sel = spec.RoutePrefixes.FromModelOrDefault(body, spec.DefaultRouteSelector)
+			}
+		}
+		dctx := DecodeContext{
+			Ctx:              ctx,
+			Body:             body,
+			RouteSelector:    sel,
+			Headers:          r.Header,
+			Path:             pm,
+			URLPath:          r.URL.Path,
+			AnthropicVersion: strings.TrimSpace(r.Header.Get("anthropic-version")),
+		}
+		var derr error
+		decoded, derr = spec.Decode(dctx)
+		return derr
+	})
+	if err != nil {
+		return nil, body, false, err
+	}
+	return decoded, body, true, nil
 }

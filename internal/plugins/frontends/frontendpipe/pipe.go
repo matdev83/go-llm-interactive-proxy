@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
@@ -39,43 +40,6 @@ type Decoded struct {
 	RouteSelector string
 	// Extra holds per-request protocol state (continuation, response IDs).
 	Extra any
-}
-
-// StatusError is a protocol-mapped HTTP error returned from AfterDecode or WrapStream.
-type StatusError struct {
-	Status  int
-	Type    string
-	Code    string
-	Message string
-	Err     error
-}
-
-func (e *StatusError) Error() string {
-	if e == nil {
-		return ""
-	}
-	if e.Message != "" {
-		return e.Message
-	}
-	if e.Err != nil {
-		return e.Err.Error()
-	}
-	return "request failed"
-}
-
-func (e *StatusError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Err
-}
-
-// HTTPStatus returns a wire-safe status, never 0.
-func (e *StatusError) HTTPStatus() int {
-	if e == nil || e.Status < 100 || e.Status > 599 {
-		return http.StatusBadRequest
-	}
-	return e.Status
 }
 
 // HookErrorWriter optionally writes AfterDecode/WrapStream errors with protocol envelopes.
@@ -133,6 +97,8 @@ type Spec[Opts any] struct {
 	OnPreCaptureGate func(r *http.Request, res PreCaptureResult)
 	// OnCandidateCapture optionally observes candidate capture outcomes (Task 7.4).
 	OnCandidateCapture func(r *http.Request, res CandidateCaptureResult)
+	// OnCandidateProof optionally observes candidate protocol proof outcomes (Task 7.5).
+	OnCandidateProof func(r *http.Request, res CandidateProofResult)
 	// MatchPath returns ok=false for 404. When AltServe is non-nil and invoked, the pipeline stops.
 	MatchPath func(path string) (pm PathMatch, ok bool)
 	AltServe  func(ctx context.Context, w http.ResponseWriter, r *http.Request) bool
@@ -233,12 +199,19 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 	limits := jsonguard.Limits{MaxBytes: spec.maxBodyLimit()}
 	var body []byte
 	var err error
+	var capRes CandidateCaptureResult
 	if !gateRes.Candidate {
 		body, err = reqbody.ReadAll(w, r, limits.MaxBytes)
 	} else {
-		body, err = captureCandidate(ctx, spec, w, r, limits.MaxBytes)
+		capRes, body, err = CaptureCandidateBody(ctx, spec, w, r, limits.MaxBytes)
+		if spec.OnCandidateCapture != nil {
+			spec.OnCandidateCapture(r, capRes)
+		}
 	}
 	if err != nil {
+		if capRes.Completed != nil {
+			_ = capRes.Completed.Close()
+		}
 		if reqbody.TooLarge(err) {
 			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteBodyTooLarge(w))
 			return
@@ -250,50 +223,68 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
-	if spec.Exec == nil {
-		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecutorNotConfigured(w))
-		return
-	}
-	sel := spec.HTTPHeaders.RouteSelector(r.Header)
-	if spec.ResolveRouteSelector != nil {
-		if v := strings.TrimSpace(spec.ResolveRouteSelector(r, body, pm)); v != "" {
-			sel = v
-		}
-	}
-	if _, err := jsonguard.PreflightWithContext(ctx, body, limits); err != nil {
-		if jsonguard.Classify(err) == jsonguard.KindCanceled {
-			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WritePreflightCanceled(w))
+
+	threshold := spec.LargePayload.EffectiveThresholdBytes()
+	isCandidateReplay := gateRes.Candidate &&
+		capRes.Outcome == largebody.CaptureOutcomeCompleted &&
+		capRes.Completed != nil &&
+		capRes.Completed.Size() >= threshold
+
+	var decoded *Decoded
+	if isCandidateReplay {
+		var ok bool
+		decoded, body, ok, err = replayCandidate(ctx, spec, w, r, pm, capRes)
+		if !ok && err == nil {
 			return
 		}
-		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidJSON(w))
-		return
+	} else {
+		if capRes.Completed != nil {
+			_ = capRes.Completed.Close()
+		}
+		if spec.Exec == nil {
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecutorNotConfigured(w))
+			return
+		}
+		sel := spec.HTTPHeaders.RouteSelector(r.Header)
+		if spec.ResolveRouteSelector != nil {
+			if v := strings.TrimSpace(spec.ResolveRouteSelector(r, body, pm)); v != "" {
+				sel = v
+			}
+		}
+		if _, err := jsonguard.PreflightWithContext(ctx, body, limits); err != nil {
+			if jsonguard.Classify(err) == jsonguard.KindCanceled {
+				spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WritePreflightCanceled(w))
+				return
+			}
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidJSON(w))
+			return
+		}
+		releaseDecode, ok, aerr := decodeqos.TryAdmit(ctx, spec.DecodeAdmission, int64(len(body)))
+		if d := decodeqos.Decide(ok, aerr); d.Status != 0 {
+			if d.RetryAfter {
+				w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
+			}
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteAdmissionReject(w, d))
+			return
+		}
+		err = decodeqos.Guard(releaseDecode, func() error {
+			if sel == "" && spec.RouteFromBodyModel {
+				sel = spec.RoutePrefixes.FromModelOrDefault(body, spec.DefaultRouteSelector)
+			}
+			dctx := DecodeContext{
+				Ctx:              ctx,
+				Body:             body,
+				RouteSelector:    sel,
+				Headers:          r.Header,
+				Path:             pm,
+				URLPath:          r.URL.Path,
+				AnthropicVersion: strings.TrimSpace(r.Header.Get("anthropic-version")),
+			}
+			var derr error
+			decoded, derr = spec.Decode(dctx)
+			return derr
+		})
 	}
-	releaseDecode, ok, err := decodeqos.TryAdmit(ctx, spec.DecodeAdmission, int64(len(body)))
-	if d := decodeqos.Decide(ok, err); d.Status != 0 {
-		if d.RetryAfter {
-			w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
-		}
-		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteAdmissionReject(w, d))
-		return
-	}
-	var decoded *Decoded
-	err = decodeqos.Guard(releaseDecode, func() error {
-		if sel == "" && spec.RouteFromBodyModel {
-			sel = spec.RoutePrefixes.FromModelOrDefault(body, spec.DefaultRouteSelector)
-		}
-		dctx := DecodeContext{
-			Ctx:              ctx,
-			Body:             body,
-			RouteSelector:    sel,
-			Headers:          r.Header,
-			Path:             pm,
-			URLPath:          r.URL.Path,
-			AnthropicVersion: strings.TrimSpace(r.Header.Get("anthropic-version")),
-		}
-		var derr error
-		decoded, derr = spec.Decode(dctx)
-		return derr
-	})
 	if err != nil {
 		log := diag.LoggerOrDefault(spec.Log)
 		diag.LogError(ctx, log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))

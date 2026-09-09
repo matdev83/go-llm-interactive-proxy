@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -40,14 +41,27 @@ type FrontendProfile interface {
 
 // ProofInput supplies request inputs and replay source to the profile proof compiler.
 type ProofInput struct {
-	Ctx              context.Context
-	Headers          http.Header
-	URLPath          string
-	Path             PathMatch
-	RouteSelector    string
-	Source           largebody.Source
-	BodyBytes        int64
-	AnthropicVersion string
+	Ctx                  context.Context
+	Headers              http.Header
+	URLPath              string
+	Path                 PathMatch
+	RouteSelector        string
+	RoutePrefixes        routeselect.PrefixSet
+	DefaultRouteSelector string
+	RouteFromBodyModel   bool
+	Source               largebody.Source
+	BodyBytes            int64
+	AnthropicVersion     string
+}
+
+// CandidateProofResult carries the outcome of candidate protocol proof under decode admission (Task 7.5).
+type CandidateProofResult struct {
+	// Output is the compiled proof output (valid when Err is nil).
+	Output ProofOutput
+	// PermitHeld indicates that the decode-admission permit was held during proof compilation.
+	PermitHeld bool
+	// Err is any proof compilation or validation error.
+	Err error
 }
 
 // ResponseStateSeeds carries bounded seed facts derived during protocol proof
