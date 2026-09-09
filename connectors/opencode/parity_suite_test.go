@@ -2,6 +2,7 @@ package opencode_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,11 +38,19 @@ func TestDescribe_BothFactories(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // t.Setenv modifies process-global environment
 func TestConfigure_RequiresAPIKey(t *testing.T) {
-	t.Parallel()
+	t.Setenv("OPENCODE_GO_API_KEY", "")
+	t.Setenv("OPENCODE_ZEN_API_KEY", "")
+	t.Setenv("OPENCODE_API_KEY", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
 	for _, kind := range []string{service.FactoryKindGo, service.FactoryKindZen} {
 		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
 			_, err := service.New().Configure(context.Background(), backendplugin.ConfigureRequest{
 				FactoryKind: kind, InstanceID: "i1", ConfigYAML: []byte("base_url: http://127.0.0.1:9\n"),
 				Negotiation: backendplugin.Negotiation{Compatible: true},
@@ -161,6 +170,9 @@ func TestParity_GoRoutesOpenAIChat(t *testing.T) {
 	if capture.Authorization != "Bearer test-key" {
 		t.Fatalf("auth=%q", capture.Authorization)
 	}
+	if !strings.HasPrefix(capture.OpenCodeSession, "lip-") {
+		t.Fatalf("session=%q", capture.OpenCodeSession)
+	}
 }
 
 func TestParity_GoRoutesAnthropicMessages(t *testing.T) {
@@ -179,6 +191,9 @@ func TestParity_GoRoutesAnthropicMessages(t *testing.T) {
 	}
 	if capture.AnthropicAPIKey != SyntheticAnthropicAPIKey {
 		t.Fatalf("x-api-key=%q", capture.AnthropicAPIKey)
+	}
+	if !strings.HasPrefix(capture.OpenCodeSession, "lip-") {
+		t.Fatalf("session=%q", capture.OpenCodeSession)
 	}
 }
 
@@ -202,6 +217,9 @@ func TestParity_ZenRoutesResponses(t *testing.T) {
 	if !strings.HasSuffix(capture.Path, "/v1/responses") {
 		t.Fatalf("path=%q", capture.Path)
 	}
+	if !strings.HasPrefix(capture.OpenCodeSession, "lip-") {
+		t.Fatalf("session=%q", capture.OpenCodeSession)
+	}
 }
 
 func TestParity_ZenRoutesGemini(t *testing.T) {
@@ -220,6 +238,9 @@ func TestParity_ZenRoutesGemini(t *testing.T) {
 	}
 	if capture.GoogleAPIKey != "gemini-key" {
 		t.Fatalf("google key=%q", capture.GoogleAPIKey)
+	}
+	if !strings.HasPrefix(capture.OpenCodeSession, "lip-") {
+		t.Fatalf("session=%q", capture.OpenCodeSession)
 	}
 }
 
@@ -267,6 +288,9 @@ func TestParity_ExecuteStreamingGo(t *testing.T) {
 	if capture.Authorization != "Bearer sk" {
 		t.Fatalf("auth=%q", capture.Authorization)
 	}
+	if capture.OpenCodeSession != "r1" {
+		t.Fatalf("session=%q", capture.OpenCodeSession)
+	}
 }
 
 func TestParity_ExecuteStreamingZen(t *testing.T) {
@@ -281,6 +305,9 @@ func TestParity_ExecuteStreamingZen(t *testing.T) {
 	frames := mustExecute(t, inst, "opencode-zen/emu-model", true)
 	if !framesHaveText(frames, "responses-stream-ok") {
 		t.Fatalf("frames=%v path=%q", frames, capture.Path)
+	}
+	if capture.OpenCodeSession != "r1" {
+		t.Fatalf("session=%q", capture.OpenCodeSession)
 	}
 }
 
@@ -297,6 +324,157 @@ func TestParity_ConformanceGo(t *testing.T) {
 	})
 	if !rep.Ok() {
 		t.Fatalf("failures=%v", rep.Failures())
+	}
+}
+
+func TestParity_SessionHeaderForwarded(t *testing.T) {
+	t.Parallel()
+
+	t.Run("OpenAIChat", func(t *testing.T) {
+		t.Parallel()
+		var capture RequestCapture
+		srv, entries := flavorServerWithModels(t, &capture, catalog.BackendGo)
+		router := upstream.NewRouter(catalog.BackendGo, srv.URL, "test-key", srv.Client())
+		resolved, err := catalog.NewModelCatalog(catalog.BackendGo, entries, vendor.NewOpenCodeVendorResolver(vendor.StaticActiveSnapshotProvider{}, true)).
+			Resolve("moonshotai/kimi-k2.7-code")
+		if err != nil {
+			t.Fatal(err)
+		}
+		call := nonStreamCall()
+		call.Session.ClientSessionID = "custom-sess-chat"
+		es, err := router.Open(context.Background(), call, resolved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		drainEvents(t, es)
+		if capture.OpenCodeSession != "custom-sess-chat" {
+			t.Fatalf("expected custom-sess-chat, got %q", capture.OpenCodeSession)
+		}
+	})
+
+	t.Run("OpenAIResponses", func(t *testing.T) {
+		t.Parallel()
+		var capture RequestCapture
+		srv, entries := flavorServerWithModels(t, &capture, catalog.BackendZen)
+		router := upstream.NewRouter(catalog.BackendZen, srv.URL, "test-key", srv.Client())
+		resolved, err := catalog.NewModelCatalog(catalog.BackendZen, entries, vendor.NewOpenCodeVendorResolver(vendor.StaticActiveSnapshotProvider{}, true)).
+			Resolve("openai/gpt-5.4")
+		if err != nil {
+			t.Fatal(err)
+		}
+		call := nonStreamCall()
+		call.Session.ClientSessionID = "custom-sess-resp"
+		es, err := router.Open(context.Background(), call, resolved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		drainEvents(t, es)
+		if capture.OpenCodeSession != "custom-sess-resp" {
+			t.Fatalf("expected custom-sess-resp, got %q", capture.OpenCodeSession)
+		}
+	})
+
+	t.Run("AnthropicMessages", func(t *testing.T) {
+		t.Parallel()
+		var capture RequestCapture
+		srv, entries := flavorServerWithModels(t, &capture, catalog.BackendGo)
+		router := upstream.NewRouter(catalog.BackendGo, srv.URL, SyntheticAnthropicAPIKey, srv.Client())
+		resolved, err := catalog.NewModelCatalog(catalog.BackendGo, entries, vendor.NewOpenCodeVendorResolver(vendor.StaticActiveSnapshotProvider{}, true)).
+			Resolve("minimax/minimax-m3")
+		if err != nil {
+			t.Fatal(err)
+		}
+		call := nonStreamCall()
+		call.Session.ClientSessionID = "custom-sess-anthropic"
+		es, err := router.Open(context.Background(), call, resolved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		drainEvents(t, es)
+		if capture.OpenCodeSession != "custom-sess-anthropic" {
+			t.Fatalf("expected custom-sess-anthropic, got %q", capture.OpenCodeSession)
+		}
+	})
+
+	t.Run("GoogleGemini", func(t *testing.T) {
+		t.Parallel()
+		var capture RequestCapture
+		srv, entries := flavorServerWithModels(t, &capture, catalog.BackendZen)
+		router := upstream.NewRouter(catalog.BackendZen, srv.URL, "gemini-key", srv.Client())
+		resolved, err := catalog.NewModelCatalog(catalog.BackendZen, entries, vendor.NewOpenCodeVendorResolver(vendor.StaticActiveSnapshotProvider{}, true)).
+			Resolve("google/gemini-3.1-pro")
+		if err != nil {
+			t.Fatal(err)
+		}
+		call := nonStreamCall()
+		call.Session.ClientSessionID = "custom-sess-gemini"
+		es, err := router.Open(context.Background(), call, resolved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		drainEvents(t, es)
+		if capture.OpenCodeSession != "custom-sess-gemini" {
+			t.Fatalf("expected custom-sess-gemini, got %q", capture.OpenCodeSession)
+		}
+	})
+}
+
+func TestParity_OmenAlphaStealthExecution(t *testing.T) {
+	t.Parallel()
+	var capture RequestCapture
+	srv := NewFlavorServer(t, &capture)
+	inst, err := service.New().Configure(context.Background(), mustCfg(t, service.FactoryKindGo,
+		"base_url: "+srv.URL+"\napi_key: sk-omen\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	frames := mustExecute(t, inst, "opencode-go/omen-alpha", true)
+	if !framesHaveText(frames, "chat-stream-ok") {
+		t.Fatalf("frames=%v", frames)
+	}
+	if !strings.HasSuffix(capture.Path, "/v1/chat/completions") {
+		t.Fatalf("expected chat completions endpoint, got %q", capture.Path)
+	}
+	if capture.Authorization != "Bearer sk-omen" {
+		t.Fatalf("expected Bearer sk-omen, got %q", capture.Authorization)
+	}
+	if capture.OpenCodeSession == "" {
+		t.Fatal("expected x-opencode-session header to be set")
+	}
+	var reqBody map[string]any
+	if err := json.Unmarshal(capture.Body, &reqBody); err != nil {
+		t.Fatalf("failed to unmarshal request body: %v", err)
+	}
+	if reqBody["model"] != "omen-alpha" {
+		t.Fatalf("expected wire model 'omen-alpha', got %v", reqBody["model"])
+	}
+	for _, forbidden := range []string{"reasoning", "reasoning_effort", "thinking"} {
+		if _, exists := reqBody[forbidden]; exists {
+			t.Fatalf("forbidden key %q found in request body", forbidden)
+		}
+	}
+}
+
+func TestParity_LegacyAliasKimiK27(t *testing.T) {
+	t.Parallel()
+	var capture RequestCapture
+	srv := NewFlavorServer(t, &capture)
+	inst, err := service.New().Configure(context.Background(), mustCfg(t, service.FactoryKindGo,
+		"base_url: "+srv.URL+"\napi_key: sk\nmodels:\n  - id: kimi-k2.7-code\n    endpoint: "+srv.URL+"/v1/chat/completions\n    ai_sdk_package: \"@ai-sdk/openai-compatible\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := mustExecute(t, inst, "opencode-go/kimi-k2.7", true)
+	if !framesHaveText(frames, "chat-stream-ok") {
+		t.Fatalf("frames=%v", frames)
+	}
+	var reqBody map[string]any
+	if err := json.Unmarshal(capture.Body, &reqBody); err != nil {
+		t.Fatalf("failed to unmarshal request body: %v", err)
+	}
+	if reqBody["model"] != "kimi-k2.7-code" {
+		t.Fatalf("expected wire model 'kimi-k2.7-code', got %v", reqBody["model"])
 	}
 }
 
