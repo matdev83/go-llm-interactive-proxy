@@ -393,3 +393,100 @@ func TestOpenResponses_TrafficCarriesOriginalBody(t *testing.T) {
 		t.Fatalf("traffic body=%q want original %q", obs.event.Body, body)
 	}
 }
+
+// Task 7.2 characterization: prove OpenResponses outer auth/media check remains
+// where it is, and candidate gates evaluate strictly after outer checks
+// (Method -> Auth -> Media -> MatchPath).
+func TestOpenResponses_CandidateGatesOrderingPrecedence(t *testing.T) {
+	t.Parallel()
+
+	t.Run("outer method precedes auth media and candidate gates", func(t *testing.T) {
+		t.Parallel()
+		auth := &mockAuthorizer{authenticated: false}
+		exec := &orderingOpenResponsesExec{}
+		h := openresponses.NewHandler(openresponses.HandlerConfig{
+			AllowUnauthenticated: true,
+			Authorizer:           auth,
+			Executor:             exec,
+		})
+		req := httptest.NewRequest(http.MethodGet, "/openresponses/v1/responses", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status=%d want 405 Method Not Allowed", rec.Code)
+		}
+		if auth.calls != 0 {
+			t.Fatalf("auth calls=%d want 0 (method precedes auth)", auth.calls)
+		}
+		if exec.calls != 0 {
+			t.Fatalf("exec calls=%d want 0 (method precedes execution)", exec.calls)
+		}
+	})
+
+	t.Run("outer auth precedes media and candidate gates", func(t *testing.T) {
+		t.Parallel()
+		auth := &mockAuthorizer{authenticated: false}
+		exec := &orderingOpenResponsesExec{}
+		h := openresponses.NewHandler(openresponses.HandlerConfig{
+			AllowUnauthenticated: true,
+			Authorizer:           auth,
+			Executor:             exec,
+		})
+		// Even with valid Content-Type and large body candidate payload, unauthenticated request must yield 401.
+		req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(`{"model":"gpt-4o","input":"test"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status=%d want 401 Unauthorized", rec.Code)
+		}
+		typ, code, _ := decodeOpenResponsesWireError(t, rec.Body.Bytes())
+		if typ != "authentication_error" || code != "unauthorized" {
+			t.Fatalf("type=%q code=%q want authentication_error/unauthorized", typ, code)
+		}
+		if exec.calls != 0 {
+			t.Fatalf("exec calls=%d want 0 (auth precedes candidate/execution)", exec.calls)
+		}
+	})
+
+	t.Run("outer media precedes path and candidate gates", func(t *testing.T) {
+		t.Parallel()
+		exec := &orderingOpenResponsesExec{}
+		h := openResponsesAuthedHandler(exec, nil)
+		// Non-JSON Content-Type must yield 415 Unsupported Media Type before path or candidate logic.
+		req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(`{"model":"gpt-4o","input":"test"}`))
+		req.Header.Set("Content-Type", "text/plain")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnsupportedMediaType {
+			t.Fatalf("status=%d want 415 Unsupported Media Type", rec.Code)
+		}
+		typ, code, msg := decodeOpenResponsesWireError(t, rec.Body.Bytes())
+		if typ != "invalid_request_error" || code != "unsupported_media_type" {
+			t.Fatalf("type=%q code=%q want invalid_request_error/unsupported_media_type", typ, code)
+		}
+		if msg != "Request Content-Type must be application/json" {
+			t.Fatalf("message=%q", msg)
+		}
+		if exec.calls != 0 {
+			t.Fatalf("exec calls=%d want 0 (media precedes candidate/execution)", exec.calls)
+		}
+	})
+
+	t.Run("path check precedes candidate gates", func(t *testing.T) {
+		t.Parallel()
+		exec := &orderingOpenResponsesExec{}
+		h := openResponsesAuthedHandler(exec, nil)
+		// Unknown path with auth + valid media must yield 404 before candidate logic.
+		req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/unknown_route", strings.NewReader(`{"model":"gpt-4o","input":"test"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status=%d want 404 Not Found", rec.Code)
+		}
+		if exec.calls != 0 {
+			t.Fatalf("exec calls=%d want 0 (path precedes candidate/execution)", exec.calls)
+		}
+	})
+}

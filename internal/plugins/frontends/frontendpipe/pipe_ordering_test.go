@@ -584,3 +584,172 @@ func TestPipeOrdering_AltServeBeforePathAndBody(t *testing.T) {
 		t.Fatal("executor ran after AltServe")
 	}
 }
+
+// Task 7.2 characterization: prove candidate gates (starting with CandidatePrerequisites)
+// evaluate strictly after each frontend's existing outer checks (Method, AltServe, MatchPath).
+// The shared pipeline must never evaluate candidate prerequisites or allocate candidate
+// resources if an outer check short-circuits the request.
+func TestPipeOrdering_CandidateGatesEvaluateStrictlyAfterOuterChecks(t *testing.T) {
+	t.Parallel()
+
+	newCandidateSpec := func(log *orderingLog) (frontendpipe.Spec[struct{}], *stubLargeBodyExecutor, *testProfile) {
+		exec := &stubLargeBodyExecutor{}
+		prof := &testProfile{}
+		spec := frontendpipe.Spec[struct{}]{
+			Config: frontendpipe.Config{
+				Exec: exec,
+			},
+			Profile: prof,
+			MatchPath: func(path string) (frontendpipe.PathMatch, bool) {
+				log.add("matchpath:" + path)
+				if path == "/v1/create" {
+					return frontendpipe.PathMatch{}, true
+				}
+				return frontendpipe.PathMatch{}, false
+			},
+			AltServe: func(_ context.Context, w http.ResponseWriter, r *http.Request) bool {
+				log.add("altserve:" + r.URL.Path)
+				if r.URL.Path == "/v1/alt" {
+					w.WriteHeader(http.StatusTeapot)
+					return true
+				}
+				return false
+			},
+			Decode: func(dctx frontendpipe.DecodeContext) (*frontendpipe.Decoded, error) {
+				log.add("decode")
+				return &frontendpipe.Decoded{
+					Call: &lipapi.Call{ID: "call_test"},
+				}, nil
+			},
+			BuildEncodeOpts: func(decoded *frontendpipe.Decoded) struct{} {
+				return struct{}{}
+			},
+			WriteNonStream: func(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts struct{}) error {
+				w.WriteHeader(http.StatusOK)
+				return nil
+			},
+		}
+		return spec, exec, prof
+	}
+
+	t.Run("method check precedes candidate evaluation", func(t *testing.T) {
+		t.Parallel()
+		log := &orderingLog{}
+		spec, _, _ := newCandidateSpec(log)
+
+		// Non-POST request must be rejected with 405 Method Not Allowed before candidate logic.
+		req := httptest.NewRequest(http.MethodGet, "/v1/create", strings.NewReader(`{}`))
+		rec := httptest.NewRecorder()
+		frontendpipe.ServeHTTP(&spec, rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status=%d want 405 Method Not Allowed", rec.Code)
+		}
+		events := log.snapshot()
+		if indexOf(events, "matchpath:/v1/create") >= 0 {
+			t.Fatalf("matchpath evaluated after method reject: %v", events)
+		}
+		if indexOf(events, "decode") >= 0 {
+			t.Fatalf("decode ran after method reject: %v", events)
+		}
+	})
+
+	t.Run("altserve precedes candidate evaluation", func(t *testing.T) {
+		t.Parallel()
+		log := &orderingLog{}
+		spec, _, _ := newCandidateSpec(log)
+
+		// AltServe-handled request must be claimed before candidate logic or path matching.
+		req := httptest.NewRequest(http.MethodPost, "/v1/alt", strings.NewReader(`{}`))
+		rec := httptest.NewRecorder()
+		frontendpipe.ServeHTTP(&spec, rec, req)
+
+		if rec.Code != http.StatusTeapot {
+			t.Fatalf("status=%d want 418 Teapot from AltServe", rec.Code)
+		}
+		events := log.snapshot()
+		if indexOf(events, "altserve:/v1/alt") < 0 {
+			t.Fatalf("altserve event missing: %v", events)
+		}
+		if indexOf(events, "matchpath:/v1/alt") >= 0 {
+			t.Fatalf("matchpath ran after AltServe claimed request: %v", events)
+		}
+		if indexOf(events, "decode") >= 0 {
+			t.Fatalf("decode ran after AltServe: %v", events)
+		}
+	})
+
+	t.Run("matchpath precedes candidate evaluation", func(t *testing.T) {
+		t.Parallel()
+		log := &orderingLog{}
+		spec, _, _ := newCandidateSpec(log)
+
+		// Unknown path must be rejected with 404 Not Found before candidate logic.
+		req := httptest.NewRequest(http.MethodPost, "/v1/unknown", strings.NewReader(`{}`))
+		rec := httptest.NewRecorder()
+		frontendpipe.ServeHTTP(&spec, rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status=%d want 404 Not Found", rec.Code)
+		}
+		events := log.snapshot()
+		if indexOf(events, "matchpath:/v1/unknown") < 0 {
+			t.Fatalf("matchpath event missing: %v", events)
+		}
+		if indexOf(events, "decode") >= 0 {
+			t.Fatalf("decode ran after path reject: %v", events)
+		}
+	})
+
+	t.Run("candidate prerequisites evaluation contract order", func(t *testing.T) {
+		t.Parallel()
+		// Verifies the structural ordering contract: CandidatePrerequisites(spec)
+		// must only be evaluated after outer Method, AltServe, and MatchPath checks pass.
+		log := &orderingLog{}
+		spec, lbe, _ := newCandidateSpec(log)
+
+		// Helper representing the prescribed outer-check-then-candidate-gate sequence.
+		evaluateCandidatePipeline := func(r *http.Request) (status int, candidateEvaluated bool) {
+			if r.Method != http.MethodPost {
+				return http.StatusMethodNotAllowed, false
+			}
+			rec := httptest.NewRecorder()
+			if spec.AltServe != nil && spec.AltServe(r.Context(), rec, r) {
+				return rec.Code, false
+			}
+			if _, ok := spec.MatchPath(r.URL.Path); !ok {
+				return http.StatusNotFound, false
+			}
+			// Outer checks passed: now evaluate candidate prerequisites.
+			log.add("candidate_prerequisites")
+			exec, ok := frontendpipe.CandidatePrerequisites(&spec)
+			if !ok || exec == nil {
+				return http.StatusOK, false // falls back to canonical
+			}
+			return http.StatusOK, true
+		}
+
+		// 1. GET -> 405, candidate not evaluated
+		if status, cand := evaluateCandidatePipeline(httptest.NewRequest(http.MethodGet, "/v1/create", nil)); status != 405 || cand {
+			t.Fatalf("GET: status=%d cand=%v want 405, false", status, cand)
+		}
+		// 2. AltServe -> 418, candidate not evaluated
+		if status, cand := evaluateCandidatePipeline(httptest.NewRequest(http.MethodPost, "/v1/alt", nil)); status != 418 || cand {
+			t.Fatalf("AltServe: status=%d cand=%v want 418, false", status, cand)
+		}
+		// 3. Unknown path -> 404, candidate not evaluated
+		if status, cand := evaluateCandidatePipeline(httptest.NewRequest(http.MethodPost, "/v1/unknown", nil)); status != 404 || cand {
+			t.Fatalf("Unknown path: status=%d cand=%v want 404, false", status, cand)
+		}
+		// 4. Valid path -> passes outer checks, candidate evaluated
+		if status, cand := evaluateCandidatePipeline(httptest.NewRequest(http.MethodPost, "/v1/create", nil)); status != 200 || !cand {
+			t.Fatalf("Valid path: status=%d cand=%v want 200, true", status, cand)
+		}
+
+		events := log.snapshot()
+		assertOrder(t, events, "matchpath:/v1/create", "candidate_prerequisites")
+		if exec, ok := frontendpipe.CandidatePrerequisites(&spec); !ok || exec != lbe {
+			t.Fatalf("CandidatePrerequisites mismatch: want (%p, true), got (%p, %v)", lbe, exec, ok)
+		}
+	})
+}

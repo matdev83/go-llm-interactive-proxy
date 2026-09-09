@@ -268,6 +268,75 @@ func TestOpenAILegacy_TrafficCarriesOriginalBodyBeforeExecute(t *testing.T) {
 	}
 }
 
+// Task 7.2 characterization: prove OpenAI Legacy outer ordering (Method -> MatchPath)
+// is preserved before candidate logic, and no universal auth or content-type sequence is forced.
+func TestOpenAILegacy_CandidateGatesOrderingPrecedence(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no forced universal auth or media check", func(t *testing.T) {
+		t.Parallel()
+		exec := &orderingRouteExec{}
+		h := &openailegacy.Handler{
+			Exec:                 exec,
+			DefaultRouteSelector: "stub:default",
+		}
+		// Request without Authorization header and with text/plain Content-Type must NOT
+		// be rejected by outer 401 or 415. OpenAI Legacy does not enforce outer auth
+		// or outer JSON media check.
+		body := readGolden(t, "create_text_nonstream.json")
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "text/plain") // non-application/json
+		// no Authorization header
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code == http.StatusUnauthorized || rr.Code == http.StatusUnsupportedMediaType {
+			t.Fatalf("status=%d must not be 401 or 415 (no forced outer auth/content-type sequence)", rr.Code)
+		}
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status=%d want 200 OK (body: %s)", rr.Code, rr.Body.String())
+		}
+		if !exec.called {
+			t.Fatal("executor was not called")
+		}
+	})
+
+	t.Run("method precedes candidate gates", func(t *testing.T) {
+		t.Parallel()
+		exec := &orderingRouteExec{}
+		h := &openailegacy.Handler{
+			Exec:                 exec,
+			DefaultRouteSelector: "stub:default",
+		}
+		req := httptest.NewRequest(http.MethodGet, "/v1/chat/completions", strings.NewReader(`{}`))
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status=%d want 405 Method Not Allowed", rr.Code)
+		}
+		if exec.called {
+			t.Fatal("executor ran after method reject")
+		}
+	})
+
+	t.Run("path precedes candidate gates", func(t *testing.T) {
+		t.Parallel()
+		exec := &orderingRouteExec{}
+		h := &openailegacy.Handler{
+			Exec:                 exec,
+			DefaultRouteSelector: "stub:default",
+		}
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/unknown", strings.NewReader(`{}`))
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("status=%d want 404 Not Found", rr.Code)
+		}
+		if exec.called {
+			t.Fatal("executor ran after path reject")
+		}
+	})
+}
+
 func strconvQuote(s string) string {
 	return "\"" + strings.ReplaceAll(s, "\"", "\\\"") + "\""
 }

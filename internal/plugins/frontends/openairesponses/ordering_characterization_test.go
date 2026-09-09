@@ -267,3 +267,90 @@ func TestOpenAIResponses_TrafficCarriesOriginalBodyBeforeExecute(t *testing.T) {
 		t.Fatalf("traffic body=%q want original %q", obs.event.Body, body)
 	}
 }
+
+// Task 7.2 characterization: prove OpenAI Responses outer ordering (Method -> AltServe -> MatchPath)
+// is preserved before candidate logic, and no universal auth or content-type sequence is forced.
+func TestOpenAIResponses_CandidateGatesOrderingPrecedence(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no forced universal auth or media check", func(t *testing.T) {
+		t.Parallel()
+		exec := &orderingRouteExec{}
+		h := &openairesponses.Handler{
+			Exec:                 exec,
+			DefaultRouteSelector: "stub:default",
+		}
+		// Request without Authorization header and with text/plain Content-Type must NOT
+		// be rejected by outer 401 or 415. OpenAI Responses does not enforce outer auth
+		// or outer JSON media check.
+		body := readGolden(t, "create_text_nonstream.json")
+		req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "text/plain") // non-application/json
+		// no Authorization header
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code == http.StatusUnauthorized || rr.Code == http.StatusUnsupportedMediaType {
+			t.Fatalf("status=%d must not be 401 or 415 (no forced outer auth/content-type sequence)", rr.Code)
+		}
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status=%d want 200 OK (body: %s)", rr.Code, rr.Body.String())
+		}
+		if !exec.called {
+			t.Fatal("executor was not called")
+		}
+	})
+
+	t.Run("method precedes candidate gates", func(t *testing.T) {
+		t.Parallel()
+		exec := &orderingRouteExec{}
+		h := &openairesponses.Handler{
+			Exec:                 exec,
+			DefaultRouteSelector: "stub:default",
+		}
+		req := httptest.NewRequest(http.MethodGet, "/v1/responses", strings.NewReader(`{}`))
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status=%d want 405 Method Not Allowed", rr.Code)
+		}
+		if exec.called {
+			t.Fatal("executor ran after method reject")
+		}
+	})
+
+	t.Run("altserve cancel precedes candidate gates", func(t *testing.T) {
+		t.Parallel()
+		exec := &orderingRouteExec{}
+		h := &openairesponses.Handler{
+			Exec:                 exec,
+			DefaultRouteSelector: "stub:default",
+		}
+		req := httptest.NewRequest(http.MethodPost, "/v1/responses/resp_test123/cancel", strings.NewReader(`{}`))
+		req.Header.Set("X-LIP-A-Leg-Id", "aleg_test123")
+		req.Header.Set("X-LIP-Session-Id", "sess_test123")
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		// Cancel route is claimed by AltServe before candidate gates or normal body/route processing.
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status=%d want 200 OK from cancel AltServe (body: %s)", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("path precedes candidate gates", func(t *testing.T) {
+		t.Parallel()
+		exec := &orderingRouteExec{}
+		h := &openairesponses.Handler{
+			Exec:                 exec,
+			DefaultRouteSelector: "stub:default",
+		}
+		req := httptest.NewRequest(http.MethodPost, "/v1/unknown_responses_path", strings.NewReader(`{}`))
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("status=%d want 404 Not Found", rr.Code)
+		}
+		if exec.called {
+			t.Fatal("executor ran after path reject")
+		}
+	})
+}

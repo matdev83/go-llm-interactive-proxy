@@ -319,7 +319,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Nil profile/capability => canonical with no spool.
   - _Requirements: 4, 8, 9, 14, 16, 18_
 
-- [ ] 7.2 Preserve each frontend's current outer ordering before candidate logic
+- [x] 7.2 Preserve each frontend's current outer ordering before candidate logic
   - Do not force a universal auth/content-type sequence.
   - OpenResponses outer auth/media check remains where it is.
   - Shared pipe candidate gates occur only after the frontend's current outer checks.
@@ -838,3 +838,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 6.3 VERIFIED (review subagent APPROVED): differential corpus + fuzz cover Items path incl. empty-text fix, marshal-faithful F1 resolution, oracle untouched; suites + fuzz PASS, diff-check/vet/gofmt clean; -race unavailable cgo limitation.
 - Task 6.4 VERIFIED (review subagent APPROVED): economic/checkpoint parity on digest seam, caller-ID precedence, Task 10 obligation documented, zero production diff; 41 parity tests PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 7.1 VERIFIED (review subagent APPROVED): FrontendProfile + wire state/seeds plumbing, nil=>canonical no-spool, zero ServeHTTP change, budgets catch-up bump; frontendpipe + archtest PASS, vet/diff-check clean; -race unavailable cgo limitation.
+- Task 7.2 VERIFIED (review subagent APPROVED): per-frontend outer ordering freeze characterized across 4 frontends (no universal sequence, OpenResponses auth/media intact); reviewer suggestion/obligation noted for Task 7.3 to land production ServeHTTP candidate-gate proof; 4 frontend suites PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
