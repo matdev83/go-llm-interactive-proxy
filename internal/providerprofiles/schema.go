@@ -155,9 +155,9 @@ type Compiled struct {
 }
 
 var (
-	safeName       = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,127}$`)
+	safeName       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	safeHeaderName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`)
-	safeEnv        = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+	safeEnv        = regexp.MustCompile(`^[A-Z0-9][A-Z0-9_]{0,127}$`)
 )
 
 func Validate(p Profile) error {
