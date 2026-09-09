@@ -105,19 +105,23 @@ func validateComponentInventoryBijection(docName string, extractedIDs []string, 
 			violations = append(violations, fmt.Sprintf("%s: missing catalog component ID %q in documented component list", docName, id))
 		}
 	}
+
 	for _, id := range extractedIDs {
 		if !slices.Contains(expectedIDs, id) {
 			violations = append(violations, fmt.Sprintf("%s: found unexpected or stale component ID %q in documented component list", docName, id))
 		}
 	}
+
 	if len(extractedIDs) != expectedCount {
 		violations = append(violations, fmt.Sprintf("%s: extracted %d component IDs, expected exactly %d", docName, len(extractedIDs), expectedCount))
 	}
+
 	return violations
 }
 
 func validateDatabasePersistenceDoc(content string, catalog dbparity.Catalog) []string {
 	var violations []string
+
 	section, err := extractMarkdownSection(content, "## Maintainer guide: dual-dialect parity & enforcement")
 	if err != nil {
 		return []string{"docs/database-persistence.md: " + err.Error()}
@@ -148,11 +152,13 @@ func validateDatabasePersistenceDoc(content string, catalog dbparity.Catalog) []
 	} else {
 		violations = append(violations, validateComponentInventoryBijection("docs/database-persistence.md", ids, count, catalog)...)
 	}
+
 	return violations
 }
 
 func validateReleaseGatesDoc(content string, catalog dbparity.Catalog) []string {
 	var violations []string
+
 	section, err := extractMarkdownSection(content, "## Database dialect parity (persistence gates)")
 	if err != nil {
 		return []string{"docs/release-gates.md: " + err.Error()}
@@ -181,6 +187,7 @@ func validateReleaseGatesDoc(content string, catalog dbparity.Catalog) []string 
 	} else {
 		violations = append(violations, validateComponentInventoryBijection("docs/release-gates.md", ids, count, catalog)...)
 	}
+
 	return violations
 }
 
@@ -248,26 +255,31 @@ func validateSteeringAndAgentsDocs(testingContent, techContent, agentsContent st
 			}
 		}
 	}
+
 	return violations
 }
 
 func TestDatabaseParity_MaintainerDocsCatalogDrift(t *testing.T) {
 	t.Parallel()
+
 	catalog := dbparity.DefaultCatalog()
 
 	persistenceDoc := readRepositoryFile(t, "docs", "database-persistence.md")
 	if violations := validateDatabasePersistenceDoc(persistenceDoc, catalog); len(violations) > 0 {
-		t.Fatalf("FAIL-CLOSED: docs/database-persistence.md drift violations:\n  - %s", strings.Join(violations, "\n  - "))
+		t.Fatalf("FAIL-CLOSED: docs/database-persistence.md drift violations:\n  - %s",
+			strings.Join(violations, "\n  - "))
 	}
 
 	releaseGatesDoc := readRepositoryFile(t, "docs", "release-gates.md")
 	if violations := validateReleaseGatesDoc(releaseGatesDoc, catalog); len(violations) > 0 {
-		t.Fatalf("FAIL-CLOSED: docs/release-gates.md drift violations:\n  - %s", strings.Join(violations, "\n  - "))
+		t.Fatalf("FAIL-CLOSED: docs/release-gates.md drift violations:\n  - %s",
+			strings.Join(violations, "\n  - "))
 	}
 }
 
 func TestDatabaseParity_MaintainerDocsFailClosedPolicy(t *testing.T) {
 	t.Parallel()
+
 	catalog := dbparity.DefaultCatalog()
 	persistenceDoc := readRepositoryFile(t, "docs", "database-persistence.md")
 	releaseGatesDoc := readRepositoryFile(t, "docs", "release-gates.md")
@@ -279,13 +291,21 @@ func TestDatabaseParity_MaintainerDocsFailClosedPolicy(t *testing.T) {
 		t.Fatalf("expected baseline releaseGatesDoc to have 0 violations, got: %v", v)
 	}
 
-	for _, tc := range []struct {
+	persistenceNegativeCases := []struct {
 		name       string
 		mutate     func(*testing.T, string) string
 		wantSubstr string
 	}{
 		{
-			name: "persistence stale component inventory",
+			name: "missing catalog component ID billing",
+			mutate: func(t *testing.T, s string) string {
+				t.Helper()
+				return mustMutate(t, s, "`billing`", "`something-else`")
+			},
+			wantSubstr: "missing catalog component ID \"billing\"",
+		},
+		{
+			name: "stale or extra component ID in list",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
 				return mustMutate(t, s, "`billing`", "`billing`, `stale-legacy-store`")
@@ -293,7 +313,7 @@ func TestDatabaseParity_MaintainerDocsFailClosedPolicy(t *testing.T) {
 			wantSubstr: "found unexpected or stale component ID \"stale-legacy-store\"",
 		},
 		{
-			name: "persistence wrong component count",
+			name: "incorrect component count in persistence doc",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
 				return mustMutate(t, s, "It captures 8 production component families:", "It captures 7 production component families:")
@@ -301,38 +321,73 @@ func TestDatabaseParity_MaintainerDocsFailClosedPolicy(t *testing.T) {
 			wantSubstr: "documented component family count is 7, expected 8",
 		},
 		{
-			name: "persistence missing catalog source",
+			name: "missing package path in persistence doc",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
-				return mustMutateAll(t, s, "dbparity.DefaultCatalog()", "dbparity.OtherCatalog()")
+				return mustMutateAll(t, s, "internal/testkit/dbparity", "internal/wrong/path")
+			},
+			wantSubstr: "maintainer section missing marker 'internal/testkit/dbparity'",
+		},
+		{
+			name: "missing symbol in persistence doc",
+			mutate: func(t *testing.T, s string) string {
+				t.Helper()
+				return mustMutate(t, s, "dbparity.DefaultCatalog()", "dbparity.OtherCatalog()")
 			},
 			wantSubstr: "maintainer section missing marker 'dbparity.DefaultCatalog()'",
 		},
 		{
-			name: "persistence missing CI fail-closed contract",
+			name: "missing canonical command in persistence doc",
+			mutate: func(t *testing.T, s string) string {
+				t.Helper()
+				return mustMutate(t, s, "make test-db-parity-sqlite", "make test-sqlite-unit")
+			},
+			wantSubstr: "maintainer section missing marker 'make test-db-parity-sqlite'",
+		},
+		{
+			name: "missing CI fail-closed condition in persistence doc",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
 				return mustMutate(t, s, "always() && needs.db-parity.result != 'success'", "needs.db-parity.result == 'failure'")
 			},
 			wantSubstr: "maintainer section missing marker 'always() && needs.db-parity.result != 'success''",
 		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+		{
+			name: "missing maintainer section header in persistence doc",
+			mutate: func(t *testing.T, s string) string {
+				t.Helper()
+				return mustMutate(t, s, "## Maintainer guide: dual-dialect parity & enforcement", "## Other guide")
+			},
+			wantSubstr: "missing exact heading \"## Maintainer guide: dual-dialect parity & enforcement\"",
+		},
+	}
+
+	for _, tc := range persistenceNegativeCases {
+		t.Run("PersistenceDoc_"+tc.name, func(t *testing.T) {
 			mutated := tc.mutate(t, persistenceDoc)
-			joined := strings.Join(validateDatabasePersistenceDoc(mutated, catalog), "; ")
+			violations := validateDatabasePersistenceDoc(mutated, catalog)
+			joined := strings.Join(violations, "; ")
 			if !strings.Contains(joined, tc.wantSubstr) {
 				t.Fatalf("expected violation containing %q, got: %q", tc.wantSubstr, joined)
 			}
 		})
 	}
 
-	for _, tc := range []struct {
+	releaseGatesNegativeCases := []struct {
 		name       string
 		mutate     func(*testing.T, string) string
 		wantSubstr string
 	}{
 		{
-			name: "release gates stale component inventory",
+			name: "missing catalog component ID continuity",
+			mutate: func(t *testing.T, s string) string {
+				t.Helper()
+				return mustMutate(t, s, "`continuity`", "`unknown-component`")
+			},
+			wantSubstr: "missing catalog component ID \"continuity\"",
+		},
+		{
+			name: "stale extra component ID in release gates",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
 				return mustMutate(t, s, "`continuity`", "`continuity`, `extra-stale-store`")
@@ -340,17 +395,37 @@ func TestDatabaseParity_MaintainerDocsFailClosedPolicy(t *testing.T) {
 			wantSubstr: "found unexpected or stale component ID \"extra-stale-store\"",
 		},
 		{
-			name: "release gates missing QA verification command",
+			name: "missing section header in release gates",
+			mutate: func(t *testing.T, s string) string {
+				t.Helper()
+				return mustMutate(t, s, "## Database dialect parity (persistence gates)", "## Persistence")
+			},
+			wantSubstr: "missing exact heading \"## Database dialect parity (persistence gates)\"",
+		},
+		{
+			name: "missing QA verification command in release gates",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
 				return mustMutate(t, s, "go test ./internal/qa -run DatabaseParity", "go test ./internal/qa -run Other")
 			},
 			wantSubstr: "persistence gates section missing marker 'go test ./internal/qa -run DatabaseParity'",
 		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+		{
+			name: "missing archtest verification command in release gates",
+			mutate: func(t *testing.T, s string) string {
+				t.Helper()
+				return mustMutate(t, s, "go test ./internal/archtest -run DatabaseParity", "go test ./internal/archtest -run Other")
+			},
+			wantSubstr: "persistence gates section missing marker 'go test ./internal/archtest -run DatabaseParity'",
+		},
+	}
+
+	for _, tc := range releaseGatesNegativeCases {
+		t.Run("ReleaseGatesDoc_"+tc.name, func(t *testing.T) {
+			t.Parallel()
 			mutated := tc.mutate(t, releaseGatesDoc)
-			joined := strings.Join(validateReleaseGatesDoc(mutated, catalog), "; ")
+			violations := validateReleaseGatesDoc(mutated, catalog)
+			joined := strings.Join(violations, "; ")
 			if !strings.Contains(joined, tc.wantSubstr) {
 				t.Fatalf("expected violation containing %q, got: %q", tc.wantSubstr, joined)
 			}
@@ -360,18 +435,21 @@ func TestDatabaseParity_MaintainerDocsFailClosedPolicy(t *testing.T) {
 
 func TestDatabaseParity_SteeringAndAgentsDocsDrift(t *testing.T) {
 	t.Parallel()
+
 	testingDoc := readRepositoryFile(t, ".kiro", "steering", "testing.md")
 	techDoc := readRepositoryFile(t, ".kiro", "steering", "tech.md")
 	agentsDoc := readRepositoryFile(t, "AGENTS.md")
 
 	violations := validateSteeringAndAgentsDocs(testingDoc, techDoc, agentsDoc)
 	if len(violations) > 0 {
-		t.Fatalf("FAIL-CLOSED: Steering / AGENTS.md database parity drift violations:\n  - %s", strings.Join(violations, "\n  - "))
+		t.Fatalf("FAIL-CLOSED: Steering / AGENTS.md database parity drift violations:\n  - %s",
+			strings.Join(violations, "\n  - "))
 	}
 }
 
 func TestDatabaseParity_SteeringAndAgentsDocsFailClosedPolicy(t *testing.T) {
 	t.Parallel()
+
 	testingDoc := readRepositoryFile(t, ".kiro", "steering", "testing.md")
 	techDoc := readRepositoryFile(t, ".kiro", "steering", "tech.md")
 	agentsDoc := readRepositoryFile(t, "AGENTS.md")
@@ -380,13 +458,21 @@ func TestDatabaseParity_SteeringAndAgentsDocsFailClosedPolicy(t *testing.T) {
 		t.Fatalf("expected baseline steering and agents docs to have 0 violations, got: %v", v)
 	}
 
-	for _, tc := range []struct {
+	negativeCases := []struct {
 		name       string
 		mutate     func(*testing.T, string, string, string) (string, string, string)
 		wantSubstr string
 	}{
 		{
-			name: "missing catalog source in testing.md",
+			name: "missing package path in testing.md",
+			mutate: func(t *testing.T, testingDoc, techDoc, agentsDoc string) (string, string, string) {
+				t.Helper()
+				return mustMutateAll(t, testingDoc, "internal/testkit/dbparity", "internal/other"), techDoc, agentsDoc
+			},
+			wantSubstr: ".kiro/steering/testing.md: section missing marker 'internal/testkit/dbparity'",
+		},
+		{
+			name: "missing symbol in testing.md",
 			mutate: func(t *testing.T, testingDoc, techDoc, agentsDoc string) (string, string, string) {
 				t.Helper()
 				return mustMutateAll(t, testingDoc, "dbparity.DefaultCatalog()", "dbparity.Other()"), techDoc, agentsDoc
@@ -402,7 +488,15 @@ func TestDatabaseParity_SteeringAndAgentsDocsFailClosedPolicy(t *testing.T) {
 			wantSubstr: ".kiro/steering/testing.md: section missing marker 'make test-db-parity-postgres-direct'",
 		},
 		{
-			name: "missing catalog source in tech.md",
+			name: "missing package path in tech.md",
+			mutate: func(t *testing.T, testingDoc, techDoc, agentsDoc string) (string, string, string) {
+				t.Helper()
+				return testingDoc, mustMutateAll(t, techDoc, "internal/testkit/dbparity", "internal/other"), agentsDoc
+			},
+			wantSubstr: ".kiro/steering/tech.md: standards section missing marker 'internal/testkit/dbparity'",
+		},
+		{
+			name: "missing symbol in tech.md",
 			mutate: func(t *testing.T, testingDoc, techDoc, agentsDoc string) (string, string, string) {
 				t.Helper()
 				return testingDoc, mustMutateAll(t, techDoc, "dbparity.DefaultCatalog()", "dbparity.Other()"), agentsDoc
@@ -425,11 +519,30 @@ func TestDatabaseParity_SteeringAndAgentsDocsFailClosedPolicy(t *testing.T) {
 			},
 			wantSubstr: "AGENTS.md: guardrails section missing marker 'internal/testkit/dbparity'",
 		},
-	} {
+		{
+			name: "missing symbol in AGENTS.md",
+			mutate: func(t *testing.T, testingDoc, techDoc, agentsDoc string) (string, string, string) {
+				t.Helper()
+				return testingDoc, techDoc, mustMutateAll(t, agentsDoc, "dbparity.DefaultCatalog()", "dbparity.Other()")
+			},
+			wantSubstr: "AGENTS.md: guardrails section missing marker 'dbparity.DefaultCatalog()'",
+		},
+		{
+			name: "missing canonical command in AGENTS.md",
+			mutate: func(t *testing.T, testingDoc, techDoc, agentsDoc string) (string, string, string) {
+				t.Helper()
+				return testingDoc, techDoc, mustMutateAll(t, agentsDoc, "make test-db-parity", "make test-unit")
+			},
+			wantSubstr: "AGENTS.md: guardrails section missing marker 'make test-db-parity'",
+		},
+	}
+
+	for _, tc := range negativeCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			mTesting, mTech, mAgents := tc.mutate(t, testingDoc, techDoc, agentsDoc)
-			joined := strings.Join(validateSteeringAndAgentsDocs(mTesting, mTech, mAgents), "; ")
+			violations := validateSteeringAndAgentsDocs(mTesting, mTech, mAgents)
+			joined := strings.Join(violations, "; ")
 			if !strings.Contains(joined, tc.wantSubstr) {
 				t.Fatalf("expected violation containing %q, got: %q", tc.wantSubstr, joined)
 			}
