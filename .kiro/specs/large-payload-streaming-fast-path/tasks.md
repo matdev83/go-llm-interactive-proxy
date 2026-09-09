@@ -302,7 +302,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Any shape that cannot match exactly is removed from profile eligibility.
   - _Requirements: 16, 17, 18_
 
-- [ ] 6.4 Prove economic/checkpoint identity parity
+- [x] 6.4 Prove economic/checkpoint identity parity
   - Same logical request canonical vs wire gets same request/trace and deterministic metering/source/checkpoint identities.
   - Explicit caller IDs retain precedence.
   - _Requirements: 15, 16_
@@ -836,3 +836,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 6.1 VERIFIED (review subagent APPROVED): FromSum factoring, byte-for-byte parity, Call.ID precedence, budgets bump; diag + archtest PASS, diff-check/gofmt clean; follow-ups noted (explicit-ID early-return optimization + dead wrapper removal); -race unavailable cgo limitation.
 - Task 6.2 VERIFIED (review subagent APPROVED): CallIdentityWriter hash-writer, streaming escape parity, Call.ID identical, no retention, budgets bump; largebody + diag + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 6.3 VERIFIED (review subagent APPROVED): differential corpus + fuzz cover Items path incl. empty-text fix, marshal-faithful F1 resolution, oracle untouched; suites + fuzz PASS, diff-check/vet/gofmt clean; -race unavailable cgo limitation.
+- Task 6.4 VERIFIED (review subagent APPROVED): economic/checkpoint parity on digest seam, caller-ID precedence, Task 10 obligation documented, zero production diff; 41 parity tests PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
