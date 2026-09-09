@@ -184,7 +184,7 @@ func TestConfigure_YAMLSecrets_Forbidden(t *testing.T) {
 	}
 }
 
-// 9. Describe factory kind sagemaker. Capabilities: Streaming false (unary collect); Tools/Vision false.
+// 9. Describe factory kind sagemaker. Capabilities: Streaming true (unary InvokeEndpoint emits canonical events); Tools/Vision false.
 func TestDescribe_Metadata(t *testing.T) {
 	t.Parallel()
 	svc := service.New()
@@ -205,8 +205,8 @@ func TestDescribe_Metadata(t *testing.T) {
 	if f.Kind != service.FactoryKind {
 		t.Fatalf("Factory kind=%q want %q", f.Kind, service.FactoryKind)
 	}
-	if f.StaticCapabilities.Streaming {
-		t.Fatalf("Streaming capability must be false: provider streaming is not advertised, inference collects the unary response")
+	if !f.StaticCapabilities.Streaming {
+		t.Fatalf("Streaming capability must be true: InvokeEndpoint emits canonical events over a managed stream")
 	}
 	if f.StaticCapabilities.Tools || f.StaticCapabilities.Vision {
 		t.Fatalf("Tools and Vision capabilities must be false")
@@ -522,8 +522,8 @@ func TestConfiguredInstance_ListModels_And_UnconfiguredEndpointFails(t *testing.
 	if listResp.Models[0].CanonicalModelID != "sagemaker/configured-ep" {
 		t.Fatalf("expected sagemaker/configured-ep, got %v", listResp.Models[0].CanonicalModelID)
 	}
-	if listResp.Models[0].Capabilities.Streaming {
-		t.Fatalf("provider streaming must not be advertised")
+	if !listResp.Models[0].Capabilities.Streaming {
+		t.Fatalf("provider streaming must be advertised")
 	}
 	if count := listEndpointsCalled.Load(); count != 0 {
 		t.Fatalf("control plane ListEndpoints was called %d times; inventory must expose only the configured endpoint", count)

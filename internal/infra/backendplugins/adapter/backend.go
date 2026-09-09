@@ -179,10 +179,10 @@ func transportCapsFromProfile(profile backendplugin.ResolvedProfile, op lipapi.O
 		return nil
 	}
 	modes := make([]lipapi.TransportMode, 0, 2)
-	if profile.Capabilities.Streaming || profile.TransportCapabilities.BidirectionalStream {
+	if profile.Capabilities.Streaming {
 		modes = append(modes, lipapi.TransportModeStreaming)
 	}
-	if profile.Capabilities.Streaming {
+	if profile.Capabilities.Streaming || profile.TransportCapabilities.BidirectionalStream {
 		modes = append(modes, lipapi.TransportModeNonStreaming)
 	}
 	if len(modes) == 0 {

@@ -45,18 +45,13 @@ func TestCandidateCompile_ProviderProfile_PreservesCapabilitiesAndPrefix(t *test
 		},
 	}
 
-	prepared, err := standardplugins.PrepareProviderProfiles(cfg)
-	if err != nil {
-		t.Fatalf("PrepareProviderProfiles: %v", err)
-	}
-
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Drive through candidate-compile registry path (CompileCandidate / compileCandidate assembly)
-	_, cand := mustProcessAndCandidate(t, prepared, &runtimebundle.BuildOptions{
+	_, cand := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Infra: runtimebundle.InfraOptions{
 			HTTPClient: srv.Client(),

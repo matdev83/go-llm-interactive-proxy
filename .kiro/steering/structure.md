@@ -27,6 +27,8 @@ Rules:
 
 Core owns product semantics that remain necessary with optional features disabled: routing, B2BUA lifecycle, commitment/recovery, canonical streaming, continuity/session authority, shared execution policy mechanisms, and narrow domain contracts consumed by infrastructure.
 
+- `internal/core/billing` owns BillingCallID, quote/exposure policy, immutable usage contracts, post-usage rating, and journal commands (no SQL, no provider SDKs). Runtime performs cheap credit screening and operational exposure admission before upstream work.
+
 Rules:
 
 - core may depend on public canonical/SDK contracts, never concrete plugins or provider SDKs;
@@ -44,7 +46,7 @@ The standard distribution is assembled explicitly rather than through globals, r
 - `internal/standardplugins` owns the concrete built-in contribution set.
 - `internal/standardplugins/featurehost` is the only composition layer that knows the concrete standard feature set and owns process/generation feature assembly.
 - `internal/featurebundle` owns generic feature-surface merge mechanics.
-- `internal/infra/runtimebundle` owns generic Host/process/generation composition, publication, reload, and shutdown.
+- `internal/infra/runtimebundle` owns Process `Host` builder (`runtimebundle.BuildHost`), immutable generation management (`GenerationRuntime`), reload coordination (`pkg/lipsdk/configreload`), and shutdown (`Host.Close`).
 - `internal/stdhttp` owns the standard HTTP/control surfaces.
 
 Post-refactor invariant:
@@ -67,7 +69,7 @@ Provider SDKs and vendor transport types stay inside these adapter boundaries.
 
 ### 5. Optional executable backends — `connectors/` and `connector-support/`
 
-Optional integrations that should not widen the root module run as executable connectors over the versioned backend-plugin ABI.
+Hybrid backend composition ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)): essential builtins are static; optional integrations that should not widen the root module run as executable connectors under `connectors/` over the versioned backend-plugin ABI.
 
 Rules:
 

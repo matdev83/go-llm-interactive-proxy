@@ -219,6 +219,7 @@ func TestRequireCredential_RefreshTokenOnlyNoAccess_Accepted(t *testing.T) {
 		t.Fatalf("unexpected record: %+v", rec)
 	}
 }
+
 func TestRequireCredential_ErrorsNeverLeakTokens(t *testing.T) {
 	t.Parallel()
 	const secretRefresh = "super-secret-refresh-token-value"

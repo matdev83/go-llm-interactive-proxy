@@ -63,8 +63,8 @@ func TestF2_ListModels_ExposesOnlyConfiguredEndpoint(t *testing.T) {
 	if resp.Models[0].NativeModelID != "ep-a" {
 		t.Fatalf("NativeModelID=%q want %q", resp.Models[0].NativeModelID, "ep-a")
 	}
-	if resp.Models[0].Capabilities.Streaming {
-		t.Fatalf("provider streaming must not be advertised in ListModels")
+	if !resp.Models[0].Capabilities.Streaming {
+		t.Fatalf("provider streaming must be advertised in ListModels")
 	}
 }
 
@@ -88,8 +88,8 @@ func TestF2_Execute_UnconfiguredEndpoint_FailsClosed(t *testing.T) {
 	}
 }
 
-// Provider streaming is not advertised anywhere for this contract.
-func TestF2_StreamingNotAdvertised(t *testing.T) {
+// Provider streaming capability is advertised (InvokeEndpoint emits canonical events over a managed stream).
+func TestF2_StreamingAdvertised(t *testing.T) {
 	t.Parallel()
 	svc := service.New(service.WithStaticClients(&f2StubRuntime{}))
 	desc, err := svc.Describe(context.Background())
@@ -99,8 +99,8 @@ func TestF2_StreamingNotAdvertised(t *testing.T) {
 	if len(desc.Factories) != 1 {
 		t.Fatalf("expected 1 factory, got %d", len(desc.Factories))
 	}
-	if desc.Factories[0].StaticCapabilities.Streaming {
-		t.Fatalf("Describe must not advertise provider streaming")
+	if !desc.Factories[0].StaticCapabilities.Streaming {
+		t.Fatalf("Describe must advertise provider streaming")
 	}
 
 	r := &f2StubRuntime{}
@@ -109,15 +109,15 @@ func TestF2_StreamingNotAdvertised(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
-	if profile.Capabilities.Streaming {
-		t.Fatalf("Resolve must not advertise provider streaming")
+	if !profile.Capabilities.Streaming {
+		t.Fatalf("Resolve must advertise provider streaming")
 	}
 	listed, err := inst.ListModels(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("ListModels failed: %v", err)
 	}
-	if len(listed.Models) != 1 || listed.Models[0].Capabilities.Streaming {
-		t.Fatalf("ListModels must advertise exactly one non-streaming model, got %+v", listed.Models)
+	if len(listed.Models) != 1 || !listed.Models[0].Capabilities.Streaming {
+		t.Fatalf("ListModels must advertise exactly one streaming model, got %+v", listed.Models)
 	}
 }
 
@@ -225,6 +225,98 @@ func TestF2_UnaryResponseSizeBound(t *testing.T) {
 			}
 			if !sawTerminal {
 				t.Fatalf("expected terminal success for exact-limit body")
+			}
+		})
+	}
+}
+
+// Candidate admission accepts both streaming and non-streaming delivery modes for SageMaker,
+// and executing both through the connector delivers expected canonical events.
+func TestF2_CandidateAdmission_StreamingAndNonStreaming(t *testing.T) {
+	t.Parallel()
+	r := &f2StubRuntime{}
+	inst := f2Configure(t, r, "ep-a")
+
+	profile, err := inst.Resolve(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if !profile.Capabilities.Streaming {
+		t.Fatalf("expected profile.Capabilities.Streaming=true")
+	}
+	if !profile.TransportCapabilities.BidirectionalStream {
+		t.Fatalf("expected profile.TransportCapabilities.BidirectionalStream=true")
+	}
+
+	modes := []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming}
+	transportCaps := lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+		Operation: lipapi.OperationOpenAIChatCompletions,
+		Modes:     modes,
+	})
+
+	for _, tc := range []struct {
+		name         string
+		deliveryMode lipapi.DeliveryMode
+		wantMode     lipapi.TransportMode
+		nonStreaming bool
+	}{
+		{
+			name:         "streaming",
+			deliveryMode: lipapi.DeliveryModeStreaming,
+			wantMode:     lipapi.TransportModeStreaming,
+			nonStreaming: false,
+		},
+		{
+			name:         "non_streaming",
+			deliveryMode: lipapi.DeliveryModeNonStreaming,
+			wantMode:     lipapi.TransportModeNonStreaming,
+			nonStreaming: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			call := lipapi.Call{
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: tc.deliveryMode,
+				},
+				Messages: []lipapi.Message{{
+					Role:  lipapi.RoleUser,
+					Parts: []lipapi.Part{lipapi.TextPart("admission test")},
+				}},
+			}
+			admitRes := lipapi.AdmitCandidate(lipapi.CandidateAdmissionInput{
+				Call:            call,
+				Invocation:      call.Invocation,
+				BackendCaps:     lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				TransportCaps:   transportCaps,
+				TransportPolicy: lipapi.TransportFallbackExact,
+			})
+			if admitRes.Kind != lipapi.NegotiationLossless {
+				t.Fatalf("expected candidate admission lossless, got %v: %v", admitRes.Kind, admitRes.Transport.Err())
+			}
+			if admitRes.Transport.Selected != tc.wantMode {
+				t.Fatalf("expected Selected=%s, got %s", tc.wantMode, admitRes.Transport.Selected)
+			}
+
+			stream := newTestExecuteStream(context.Background(), "sagemaker/ep-a", lipapi.OperationOpenAIChatCompletions, "admission test", tc.nonStreaming, nil)
+			if err := inst.Execute(stream); err != nil {
+				t.Fatalf("Execute failed for %s: %v", tc.name, err)
+			}
+			var sawDelta, sawTerminal bool
+			for _, f := range stream.outbox {
+				if f.Kind == backendplugin.ServerFrameEvent && f.Event != nil && f.Event.Kind == backendplugin.EventTextDelta && f.Event.Delta != nil && *f.Event.Delta == "ok" {
+					sawDelta = true
+				}
+				if f.Kind == backendplugin.ServerFrameTerminal && f.Terminal != nil && f.Terminal.Status == backendplugin.TerminalSuccess {
+					sawTerminal = true
+				}
+			}
+			if !sawDelta {
+				t.Fatalf("expected text delta for %s", tc.name)
+			}
+			if !sawTerminal {
+				t.Fatalf("expected terminal success for %s", tc.name)
 			}
 		})
 	}

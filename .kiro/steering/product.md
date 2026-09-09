@@ -40,6 +40,7 @@ Steering describes that promise and the rules that preserve it. It is intentiona
 
 8. **Money is not stream orchestration**
    - Financial authorization, usage evidence, rating, settlement, and provider cost accounting remain separated from stream processing.
+   - Runtime has two touchpoints: cheap credit screen before route expansion, then atomic operational exposure admission after quote; terminal ownership appends BillingCallID-scoped usage.
    - Public runtime composition stays non-money; hosts that need billing inject the required ports explicitly.
 
 ## Architectural Classes

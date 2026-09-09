@@ -27,7 +27,7 @@ Steering records technology **choices and constraints**, not dependency/version 
 - **Single Host ownership**: Host construction owns process resources, immutable generation management, reload coordination, and shutdown. `Host.Close` is the process shutdown coordinator.
 - **Immutable generations**: configuration reload compiles a candidate and publishes a new immutable request plane for new admissions.
 - **Publication isolation**: candidate compilation/validation must not mutate active process-visible behavior. Publication-only side effects run through the publication lifecycle after the generation becomes active.
-- **Hybrid backend model**: essential adapters may be linked in-process; optional backends with independent dependency/runtime needs use executable connectors over the versioned SDK ABI. Native Go `plugin` loading is forbidden.
+- **Hybrid backend model** ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)): essential adapters may be linked in-process; optional backends with independent dependency/runtime needs use executable connectors under `connectors/` over the versioned SDK ABI. Native Go `plugin` loading is forbidden.
 
 ## Dependency and SDK Isolation
 

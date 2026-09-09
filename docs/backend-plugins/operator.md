@@ -214,7 +214,7 @@ Key characteristics:
   - `credential_mode: entra`: authenticates via Microsoft Entra ID credential chain (`DefaultAzureCredential` or workload identity/service principal using optional typed `tenant_id`, `client_id`, and secret `client_secret`). Sends `Authorization: Bearer <token>` header (no `api-key` header). Tokens are resolved dynamically per request and never persisted to YAML, diagnostics, or descriptors. Never paste a static JWT bearer token into configuration.
 - **Not `/compat`:** The `/compat` endpoint is forbidden for ordinary calls.
 - **Not ACP:** The connector is an `execution_class: inference` backend, not an Agent Client Protocol runtime.
-- **Secret safety:** Secrets must be supplied via `ConfigureRequest.Secrets` (`api_key` or `client_secret`). Literal secrets in configuration YAML are strictly forbidden and rejected.
+- **Deployments:** A required `deployments` mapping (`<deployment-name>: <underlying-model>`). Azure routes inference requests by deployment name rather than model ID. At least one deployment is required.
 - **Model inventory:** `ListModels` maps deployed models to canonical IDs prefixed with `azure-openai/` and filters out non-Responses models (embeddings, rerank, audio, image).
 
 ### Configuration Example
@@ -228,6 +228,9 @@ plugins:
         resource_name: "my-openai-resource"
         api_version: "2024-10-21"
         credential_mode: "api_key"
+        deployments:
+          my-gpt-4o: gpt-4o
+          my-gpt-4o-mini: gpt-4o-mini
 ```
 
 ## Snowflake Cortex REST Connector
