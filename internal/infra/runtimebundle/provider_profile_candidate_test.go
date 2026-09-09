@@ -50,7 +50,9 @@ func TestCandidateCompile_ProviderProfile_PreservesCapabilitiesAndPrefix(t *test
 		t.Fatal(err)
 	}
 
-	// Drive through candidate-compile registry path (CompileCandidate / compileCandidate assembly)
+	// Candidate compilation owns provider-profile preparation (raw-only contract):
+	// pass the raw provider-profile row; compileCandidate prepares it once.
+	// Pre-preparing here would double-prepare and hit the forged-marker guard.
 	_, cand := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Infra: runtimebundle.InfraOptions{
