@@ -250,7 +250,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Source digest is for replay/attempt evidence only; never substitute for canonical semantic identity.
   - _Requirements: 15, 16, 20_
 
-- [ ] 4.6 Fault-injection/privacy/leak tests
+- [x] 4.6 Fault-injection/privacy/leak tests
   - Reservation/create/short-write/read/remove failures, cancellation, timeout, exact limit/+1, leaked reader.
   - Assert no prompt bytes/spool path/session secret in logs/metrics/errors.
   - _Validation: `go test -race` for new replay package + reqbody/frontend fixtures_
@@ -829,3 +829,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 4.3 VERIFIED (fresh reviewer APPROVED): CaptureReader/CaptureRequestBody lossless continuation, forward-only socket, same ceiling, suffix guard, budgets bump; largebody + budget gate PASS, diff-check/gofmt/vet clean; -race unavailable cgo limitation.
 - Task 4.4 VERIFIED (fresh reviewer APPROVED): CompletedSource offset-zero readers, parallel independence, idempotent nonblocking close, pending deletion, budgets bump; follow-up: pre-completion reader tracking gap noted for 4.6; largebody suite + archtest budget PASS, vet/diff-check clean; -race unavailable cgo limitation.
 - Task 4.5 VERIFIED (fresh reviewer APPROVED): incremental SHA-256 source digest, evidence-only distinct from IdentityDigest, unwritten suffix never hashed, budgets bump; largebody suite + budget gate PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 4.6 VERIFIED (fresh reviewer APPROVED): fault-injection/privacy/leak test suite (reservation/create/short-write/read/remove failures, cancellation, timeout, exact limit/+1, leaked reader, no prompt/spool/secret leaks); test-only, Task 4.4 gap characterized without production change; largebody + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
