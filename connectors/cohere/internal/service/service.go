@@ -77,7 +77,7 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 			RoutePrefixes:            []string{FactoryKind},
 			SupportsDynamicInventory: true,
 			ProcessSharing:           backendplugin.ProcessSharingPerInstance,
-			StaticCapabilities:       backendplugin.CapabilitySummary{Streaming: true},
+			StaticCapabilities:       backendplugin.CapabilitySummary{Streaming: true, Tools: true, ParallelToolCalls: true},
 			TransportCapabilities:    backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true},
 		}},
 	}, nil
@@ -140,7 +140,7 @@ func (i *instance) client() *Client {
 
 func (i *instance) Resolve(context.Context, *string) (backendplugin.ResolvedProfile, error) {
 	return backendplugin.ResolvedProfile{
-		Capabilities:             backendplugin.CapabilitySummary{Streaming: true},
+		Capabilities:             backendplugin.CapabilitySummary{Streaming: true, Tools: true, ParallelToolCalls: true},
 		TransportCapabilities:    backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true},
 		SupportsDynamicInventory: true,
 		RoutePrefixes:            []string{i.kind},
@@ -161,9 +161,6 @@ func (i *instance) Execute(stream backendplugin.ExecuteStream) error {
 		if call.Invocation.Operation == lipapi.OperationOpenAIResponses ||
 			call.Invocation.Operation == lipapi.OperationOpenResponsesCreate {
 			return nil, fmt.Errorf("cohere: responses operations are not supported")
-		}
-		if len(call.Tools) > 0 || len(inv.Tools) > 0 {
-			return nil, fmt.Errorf("cohere: tools are not supported")
 		}
 
 		m := strings.TrimSpace(inv.CanonicalModelID)

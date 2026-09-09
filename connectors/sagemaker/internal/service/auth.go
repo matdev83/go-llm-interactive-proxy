@@ -14,9 +14,12 @@ import (
 )
 
 // RuntimeClient defines the consumer-driven interface for SageMaker Runtime inference.
+// Only the unary InvokeEndpoint is used: the hf-text-generation contract has
+// no incremental token framing, so provider streaming
+// (InvokeEndpointWithResponseStream) is intentionally not part of this
+// interface to prevent unbounded event-stream buffering.
 type RuntimeClient interface {
 	InvokeEndpoint(ctx context.Context, params *sagemakerruntime.InvokeEndpointInput, optFns ...func(*sagemakerruntime.Options)) (*sagemakerruntime.InvokeEndpointOutput, error)
-	InvokeEndpointWithResponseStream(ctx context.Context, params *sagemakerruntime.InvokeEndpointWithResponseStreamInput, optFns ...func(*sagemakerruntime.Options)) (*sagemakerruntime.InvokeEndpointWithResponseStreamOutput, error)
 }
 
 // ControlClient defines the consumer-driven interface for SageMaker Control Plane inventory.

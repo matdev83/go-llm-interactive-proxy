@@ -113,6 +113,11 @@ type Session struct {
 	refresher Refresher
 	skew      time.Duration
 	mu        sync.Mutex
+	// quarantined latches a terminal refresh outcome in-process so a failed
+	// quarantine persistence cannot cause a terminal credential replay.
+	// Guarded by mu; cleared only by explicit Save/Delete.
+	quarantined      bool
+	quarantineReason string
 }
 
 // NewSession creates a new Session.
@@ -133,10 +138,17 @@ func NewSession(store Store, refresher Refresher, opts ...SessionOption) *Sessio
 // Token returns a valid access token. If quarantined, it returns ErrQuarantined without calling Refresher.
 // If the access token is fresh (expires > skew), it returns the cached token.
 // Otherwise, it calls Refresher once to refresh tokens.
-// If refresh fails terminally, it sets Quarantined = true, persists to store, and returns error.
+// If refresh fails terminally, it latches quarantine in-process, persists to
+// store, and returns error. A quarantine persistence failure is surfaced to
+// the caller but the in-process latch still prevents refresher replay; only
+// an explicit Save/Delete clears the latch.
 func (s *Session) Token(ctx context.Context) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.quarantined {
+		return "", fmt.Errorf("%w: %s", ErrQuarantined, s.quarantineReason)
+	}
 
 	rec, err := s.store.Load()
 	if err != nil {
@@ -147,6 +159,8 @@ func (s *Session) Token(ctx context.Context) (string, error) {
 	}
 
 	if rec.Quarantined {
+		s.quarantined = true
+		s.quarantineReason = rec.QuarantineReason
 		return "", fmt.Errorf("%w: %s", ErrQuarantined, rec.QuarantineReason)
 	}
 
@@ -173,7 +187,11 @@ func (s *Session) Token(ctx context.Context) (string, error) {
 			cleanErr := Redact(err.Error(), rec.AccessToken, rec.RefreshToken)
 			rec.Quarantined = true
 			rec.QuarantineReason = cleanErr
-			_ = s.store.Save(rec)
+			s.quarantined = true
+			s.quarantineReason = cleanErr
+			if saveErr := s.store.Save(rec); saveErr != nil {
+				return "", fmt.Errorf("%w: %s: quarantine persist failed: %w", ErrTerminalRefresh, cleanErr, saveErr)
+			}
 			return "", fmt.Errorf("%w: %s", ErrTerminalRefresh, cleanErr)
 		}
 		return "", fmt.Errorf("oauthcred: refresh failed: %w", RedactError(err, rec.AccessToken, rec.RefreshToken))
@@ -182,7 +200,11 @@ func (s *Session) Token(ctx context.Context) (string, error) {
 	if strings.TrimSpace(newAccess) == "" {
 		rec.Quarantined = true
 		rec.QuarantineReason = "refresher returned empty access token"
-		_ = s.store.Save(rec)
+		s.quarantined = true
+		s.quarantineReason = rec.QuarantineReason
+		if saveErr := s.store.Save(rec); saveErr != nil {
+			return "", fmt.Errorf("%w: %s: quarantine persist failed: %w", ErrTerminalRefresh, rec.QuarantineReason, saveErr)
+		}
 		return "", fmt.Errorf("%w: %s", ErrTerminalRefresh, rec.QuarantineReason)
 	}
 
@@ -210,14 +232,24 @@ func (s *Session) Record() (TokenRecord, error) {
 func (s *Session) Save(rec TokenRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.store.Save(rec)
+	if err := s.store.Save(rec); err != nil {
+		return err
+	}
+	s.quarantined = rec.Quarantined
+	s.quarantineReason = rec.QuarantineReason
+	return nil
 }
 
 // Delete removes the credentials from storage.
 func (s *Session) Delete() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.store.Delete()
+	if err := s.store.Delete(); err != nil {
+		return err
+	}
+	s.quarantined = false
+	s.quarantineReason = ""
+	return nil
 }
 
 // Logout removes the credentials from storage.

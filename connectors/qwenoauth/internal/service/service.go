@@ -38,7 +38,15 @@ func DefaultTokenProviderFactory(_ context.Context, cfg Config, secrets backendp
 		}
 	}
 
-	// 2. Check for OAuth credentials
+	// 2. Check for OAuth credentials.
+	//
+	// qwen-oauth is pre-provisioned-refresh-only: the connector implements the
+	// refresh half of the OAuth lifecycle (refresh_token grant, proactive
+	// refresh, terminal quarantine) against credentials provisioned out-of-band
+	// through Qwen's official authorization channels. The initial browser/PKCE
+	// login belongs to Qwen's first-party surfaces; reimplementing that
+	// consumer login here would be private-interface scraping, so no initial
+	// login flow is implemented.
 	tokenFilePath := cfg.OAuthTokenFile
 	if tokenFilePath == "" {
 		if b, ok := secrets.Values["oauth_token_file"]; ok && len(b) > 0 {
@@ -54,14 +62,17 @@ func DefaultTokenProviderFactory(_ context.Context, cfg Config, secrets backendp
 	}
 
 	if clientID == "" {
-		return nil, fmt.Errorf("qwen-oauth: oauth_client_id is required in configuration or secrets (Hermes client_id is not used)")
+		return nil, fmt.Errorf("qwen-oauth: oauth_client_id is required in configuration or secrets (Hermes client_id is not used); qwen-oauth is %s", oauthcred.LoginModePreProvisionedRefreshOnly)
 	}
 
 	if tokenFilePath == "" {
-		return nil, fmt.Errorf("qwen-oauth: credentials required (supply 'api_key' in secrets or 'oauth_token_file' with 'oauth_client_id' in config/secrets)")
+		return nil, fmt.Errorf("qwen-oauth: credentials required (supply 'api_key' in secrets or 'oauth_token_file' with 'oauth_client_id' in config/secrets); qwen-oauth OAuth is %s", oauthcred.LoginModePreProvisionedRefreshOnly)
 	}
 
 	store := oauthcred.NewFileStore(tokenFilePath)
+	if _, err := oauthcred.RequireCredential(store, "qwen-oauth", "qwen-oauth is "+oauthcred.LoginModePreProvisionedRefreshOnly+": initial browser/PKCE login is not implemented; provision the token file via Qwen's official authorization channels first, then retry"); err != nil {
+		return nil, err
+	}
 	refresher := &QwenOAuthRefresher{
 		TokenURL:   cfg.GetTokenURL(),
 		ClientID:   clientID,

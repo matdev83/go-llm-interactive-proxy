@@ -1,11 +1,12 @@
 package service
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
 // ProviderHooks returns openaicompat request hooks for Azure OpenAI.
@@ -22,8 +23,29 @@ func ResolveFlavor(call lipapi.Call) openaicompat.Flavor {
 	return openaicompat.FlavorResponses
 }
 
-func resolveModel(kind string, inv backendplugin.Invocation, _ lipapi.Call) string {
-	return strings.TrimPrefix(strings.TrimSpace(inv.CanonicalModelID), kind+"/")
+func resolveDeployment(cfg Config, kind string, canonicalModelID string) (string, error) {
+	name := strings.TrimSpace(canonicalModelID)
+	if kind != "" {
+		name = strings.TrimPrefix(name, kind+"/")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("azure-openai: model is required; route via %s/<deployment-name>", kind)
+	}
+	if _, ok := cfg.Deployments[name]; !ok {
+		return "", fmt.Errorf("azure-openai: unknown deployment %q; configured deployments: %s", name, strings.Join(sortedDeploymentNames(cfg.Deployments), ", "))
+	}
+	return name, nil
+}
+
+// sortedDeploymentNames returns configured deployment names in stable order.
+func sortedDeploymentNames(deployments map[string]string) []string {
+	names := make([]string, 0, len(deployments))
+	for name := range deployments {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // isResponsesCapableModel filters inventory to Responses-capable text/coding models.

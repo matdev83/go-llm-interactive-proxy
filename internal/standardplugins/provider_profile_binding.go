@@ -151,6 +151,11 @@ func ExpandProviderProfileRowsWithCatalog(cfg *config.Config, catalog *providerp
 	for i := range rows {
 		row := &rows[i]
 		if row.FactoryID() != ProviderProfileKind {
+			if IsCustomCompatibleBackendKind(row.FactoryID()) {
+				if _, _, ok := extractProfileReference(row.Config); ok {
+					return nil, fmt.Errorf("provider profile row %q: custom-compatible config reserves anchor prefix %q and comment prefix %q for expanded provider profiles; remove the marker to keep the row independent of profiles", row.InstanceID(), profileAnchorPrefix, profileTagPrefix)
+				}
+			}
 			continue
 		}
 		profileID, err := profileReference(row.Config)
@@ -298,9 +303,16 @@ func buildProviderProfileBackendWithNode(
 
 func wrapCompatibleLifecycle(family providerprofiles.Family, base pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
 	return func(instanceID string, n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+		profileID, _, hasMarker := extractProfileReference(n)
+		if !hasMarker || profileID == "" {
+			return base(instanceID, n, upstream, deps)
+		}
 		profile, ok := resolveProviderProfile(n)
 		if !ok {
-			return base(instanceID, n, upstream, deps)
+			return pluginreg.BackendBuildResult{}, fmt.Errorf("custom-compatible backend %q: unresolvable provider-profile marker for %q; remove the %q anchor / %q comment to keep the row independent of profiles", instanceID, profileID, profileAnchorPrefix, profileTagPrefix)
+		}
+		if profile.Binding.Family != family {
+			return pluginreg.BackendBuildResult{}, fmt.Errorf("custom-compatible backend %q: provider profile %q belongs to family %q, cannot build via %q lifecycle; remove the marker or move the row to the matching custom-compatible kind", instanceID, profile.Profile.ID, profile.Binding.Family, family)
 		}
 		be, err := buildProviderProfileBackendWithNode(profile, instanceID, n, upstream, deps)
 		if err != nil {
