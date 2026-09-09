@@ -285,7 +285,7 @@ and remediated in-tree:
 
 ### A.2 Historical Predecessor Delivery (PR #598)
 
-PR #598 was historically merged as commit `d85fcc24` completing Wave 2. This current
-certification supersedes interim follow-ups (#600, #613) on branch
-`fix/closure-ownership-final-census`, certifying the publication timing fix,
-26-plane contract, and ownership censuses against live tree state.
+PR #598 was historically merged as commit `d85fcc24` completing Wave 2. Production
+publication-timing remediation merged as PR #613 (`82b5bd36`). This document
+certifies that merged tree plus the census/race/plane-count follow-up on
+`fix/closure-ownership-final-census`.
