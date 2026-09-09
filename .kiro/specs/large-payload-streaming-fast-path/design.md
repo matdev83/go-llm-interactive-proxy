@@ -2,163 +2,132 @@
 
 ## Overview
 
-#503 adds an **optional, proof-gated large-request execution lane** for already-supported JSON create operations. An eligible request is captured into a bounded-memory replay source, receives the same shared JSON protections, is semantically proven under the existing byte-weighted decode admission, is assessed against the complete frozen runtime composition, and only then is replayed directly to an explicitly same-wire backend without building the full canonical `lipapi.Call` graph or re-marshalling the provider request.
+#503 adds an **optional, proof-gated large-request execution lane** for already-supported JSON create operations. #532 is the implementation work order. An eligible request is captured into a bounded-memory replay source, receives the same shared JSON protections, is semantically proven under the existing byte-weighted decode admission, is assessed against the complete frozen runtime composition, and only then is replayed directly to an explicitly same-wire backend without building the full canonical `lipapi.Call` graph or re-marshalling the provider request.
 
-The existing canonical path remains the behavioral oracle and fallback. “Streaming” does **not** mean client bytes are forwarded upstream before EOF: Go-LIP still needs complete request validity and eligibility before provider commitment. The first-order benefit is lower retained heap/GC and avoided canonical decode/re-encode work for multi-MiB bodies, not earlier provider TTFT.
+The existing canonical path remains the behavioral oracle and fallback. “Streaming” does **not** mean client bytes are forwarded upstream before EOF: Go-LIP still needs complete request validity and eligibility before provider commitment. The first-order benefit is lower retained Go heap/GC and avoided canonical decode/re-encode/clone work for multi-MiB bodies, not earlier provider TTFT.
 
-This document was revalidated against `main` at `40168ce1f3890a1c86c22e898be9d264d63ccd72` after PR #533.
+This revision was re-baselined against `main` at `b08c60846a2a0119eeefef135cd6bbe06162a894` on 2026-09-09. The original architecture survives, but all implementation references below use the current post-slimming/ownership-closure runtime.
 
-## Brownfield Findings That Changed the Draft
+## Rebaseline Findings
 
-The original spool/replay direction was sound, but implementation-readiness required material corrections:
+The material changes since the previous `40168ce...` review are:
 
-1. `feature.Plane[T]`, `plane_manifest.go`, and `FrozenPlaneSet` are now production architecture; there is no reason to preserve a second legacy plane-classification path.
-2. `hooks.Bus` remains a separate production request authority outside the typed plane set and must be classified explicitly.
-3. Protocol `Decode` is protected by `decodeqos.TryAdmit(..., decodedBodyBytes)`. Performing wire semantic proof during upload would bypass that authority.
-4. Releasing decode admission after semantic proof and later rediscovering a core blocker would force a second admission decision; that could turn a request that was already admitted into a new 429/503. The correct seam is therefore **two-phase assessment while the same permit remains held**.
-5. Frontend response construction still depends on `*lipapi.Call`/`Decoded.Extra`, including cancellation identity and session response carriers. EventStream-only is insufficient.
-6. New secure sessions return the raw resume token by mutating the canonical `call.Session` after `BeginTurn`; wire execution needs a sensitive frontend-bound session response carrier.
-7. The secure-session recorder is standard/always composed, but currently records only normalized item shape (role/ordinal/part kinds), not prompt text. It should get a compact wire view rather than permanently blocking the optimization.
-8. Metering frontend/backend ingress checkpoints currently clone and retain full Calls even when the public checkpoint needs only bounded quantities/correlation. The wire lane needs wire-native checkpoints or the memory optimization is defeated.
-9. `diag.StableCallID`/`StableCallToken`/`StableUnix` hash the canonical Call, and Call.ID drives restart-stable metering identities. A different raw-body hash is not a harmless implementation detail; profiles need an equivalent canonical semantic digest.
-10. Standard memory and Bun continuity stores implement route overrides and runtimebundle wires `RouteOverrideReader` when available. Treating reader presence as a blocker would make V1 effectively dead in normal deployments. Late-bound routing instead needs a pre-certified **route-domain envelope**.
-11. OpenResponses create defaults `store=true`; absence of `previous_response_id` is not enough for a stateless first lane.
-12. `preparedRequest.call` remains consumed by routing, metering/accounting, billing, `recvTurnFacts`, continuation/interleaved-thinking, and terminal/session paths. Every post-commit dependency must be closed or blocked before assessment succeeds.
-13. `frontendpipe.Spec.ResolveRouteSelector`, when configured, is a separate **pre-preflight full-body route authority**: it receives the complete `[]byte` request before shared JSON preflight. V1 cannot silently skip or reorder it, and invoking the legacy callback from replay by reconstructing another full body would defeat the retention goal. A configured legacy callback is therefore canonical-only before capture unless a separately designed bounded route-resolution contract preserves the same ordering, precedence, and authority.
+1. The generated plane architecture is now a closed set of **26** standard planes. The large-body classification must extend `feature.Plane[T]` / `plane_manifest.go` / `FrozenPlaneSet`; no parallel plane registry is allowed.
+2. Three current planes require explicit treatment:
+   - `PlaneLocalTurnHandlers` receives a full `lipapi.Call` in both match and handle and may short-circuit the request: V1 blocker when occupied.
+   - `PlaneSecretGuardExecution` drives content-aware secret guards over the full Call plus quarantine/audit semantics: V1 blocker when active until a separately exact streaming guard contract exists.
+   - `PlaneTerminalDecisionProvider` has a bounded SDK input, but `DecisionContinue` can rely on request trajectory/continuation state: initial V1 blocker unless Task 12 closes both evidence and continuation-source dependencies.
+3. Core feature ownership has been slimmed into feature-host composition and narrow runtime ports. The dependency census must classify current ports rather than historical feature-specific structs.
+4. `preparedRequest.call` is no longer a reliable textual search token. Current code uses `prep.call`, identity ingress/baseline Calls, terminal/receive facts, and many `lipapi.CloneCall` sites. Architecture ratchets must follow type/dataflow/package ownership, not stale symbol spelling.
+5. Standard bundled HTTP frontends are generation-scoped and receive `*runtime.Executor`; the outer `GenerationDispatcher` already pins the request generation. The optional internal two-phase executor seam remains viable, but tests must prove assessment and execution cannot cross a generation reload boundary.
+6. `frontendpipe.Config.execute` currently wraps **streaming** execution in `holdalive.Wait`, while `StreamKeepaliveInterval` is injected into request context before body processing. Wire execution must preserve both behaviors.
+7. OpenAI Responses and legacy Chat currently use `RouteFromBodyModel=true` and no legacy `ResolveRouteSelector`; OpenResponses performs auth and JSON media-type checks in its outer handler before entering `frontendpipe`. Candidate gating must preserve these frontend-specific orderings.
+8. Current `main` already contains focused hot-path improvements, including no-op traffic/interleaved savings. Benchmarks must start from current main and must not attribute already-landed savings to #503.
+9. A meaningful missed optimization in the older spec is visible now: a generation whose frozen authority summary makes wire execution **impossible for every request** should not spool/scan a multi-MiB request merely to rediscover that blocker. The design therefore adds a constant-time static pre-capture disposition.
+10. Performance completion needs a stronger invariant than “B/op improved”: an accepted spill-backed wire request must not retain or allocate payload-sized Go objects after capture. Heap growth across 1 MiB → 5 MiB → 20 MiB should be bounded rather than O(payload) or clone-amplified.
 
 ---
 
 ## 1. Canonical Flow: Behavioral Oracle
 
-The current shared HTTP create flow is approximately:
+Current shared frontend behavior is the oracle. The exact outer ordering differs by frontend, but the shared `frontendpipe` flow is approximately:
 
 ```text
-frontend handler
-  ├─ method/path/auth/content-type checks
+frontend-specific outer handler
+  ├─ method/path/auth/media-type checks where that frontend owns them
   └─ frontendpipe.ServeHTTP
-       ├─ reqbody.ReadAll (gzip decode + MaxBytesReader)
+       ├─ request context stream-keepalive interval
+       ├─ method / AltServe / path
+       ├─ reqbody.ReadAll under MaxRequestBodyBytes
+       ├─ executor availability
        ├─ header route selector
-       ├─ Spec.ResolveRouteSelector(r, full []byte, path) when configured
-       ├─ jsonguard.PreflightWithContext
-       ├─ decodeqos.TryAdmit(weight = decoded body bytes)
-       │    └─ decodeqos.Guard
-       │         ├─ RouteFromBodyModel defaulting when selector is still empty
-       │         └─ Spec.Decode
-       ├─ authoritative session headers
-       ├─ Call.Validate
-       ├─ Spec.AfterDecode (if any)
-       ├─ Call.Validate again
-       ├─ stable Call/trace identity
-       ├─ frontend TrafficPorts.Emit(full []byte)
-       ├─ Executor.Execute(*lipapi.Call)
-       │    ├─ secure-session identity / BeginTurn / A-leg
-       │    ├─ route override snapshot
-       │    ├─ guards / traffic / request authority / submit hooks
-       │    ├─ secure-session client-turn record
-       │    ├─ conversation/request transforms
-       │    ├─ metering/accounting/billing
-       │    ├─ route/capability/attempts/backend encode
-       │    └─ canonical EventStream + terminal settlement
-       ├─ frontend WrapStream / BuildEncodeOpts
-       ├─ session response carriers
-       └─ protocol response writer
+       ├─ optional ResolveRouteSelector(r, whole []byte, path)   <-- legacy full-body authority
+       ├─ jsonguard.PreflightWithContext(whole []byte)
+       ├─ decodeqos.TryAdmit(decodedBodyBytes)
+       ├─ RouteFromBodyModel/default selector under permit
+       ├─ Spec.Decode
+       ├─ release decode permit
+       ├─ call.Validate / AfterDecode / traffic
+       ├─ Exec.Execute (streaming wrapped in holdalive.Wait)
+       ├─ WrapStream
+       └─ BuildEncodeOpts + stream/non-stream writer
 ```
 
-Characterization tests must freeze this ordering for target profiles before production refactoring. In particular, the full-body route resolver is an authority before shared preflight, whereas `RouteFromBodyModel` defaulting occurs under the existing decode-admission guard.
+The large-body lane may refactor shared helpers but shall not silently change this oracle's observable ordering or error ownership.
 
 ---
 
-## 2. Central ADR: Two-Phase Assess → Commit → Execute
-
-V1 does not use a deep `Canonicalize` callback from core and does not split secure preparation merely to support late fallback.
-
-Instead the optional executor seam is conceptually:
-
-```go
-// Illustrative internal/provider-neutral shape. Public lipsdk.ExecutorView is unchanged in V1.
-type LargeBodyExecutorView interface {
-    AssessLargeBody(context.Context, AssessmentRequest) (Assessment, error)
-    ExecuteLargeBody(context.Context, ExecuteRequest) (ExecutionResult, error)
-}
-```
-
-### Phase A: capture and proof
+## 2. Target Request Flow
 
 ```text
-handler cheap gates
+frontend-specific outer checks
   ↓
-legacy full-body route-resolver gate
-  (`ResolveRouteSelector != nil` without bounded wire contract → canonical)
+cheap candidate gates
+  ├─ feature disabled / no profile / no two-phase executor → canonical
+  ├─ identity body + known request length below threshold → canonical
+  ├─ gzip wave 1 → canonical
+  ├─ legacy full-body ResolveRouteSelector present → canonical
+  └─ FrozenStaticDisposition == definitely-canonical → canonical   [O(1), no spool]
   ↓
-bounded replay capture to EOF
-  + shared streaming JSON preflight
+CaptureSource
+  ├─ fixed RAM prefix/window
+  ├─ secure spill after memory threshold
+  ├─ exact body ceiling
+  ├─ shared streaming JSON scanner
+  └─ lossless continuation state if capture must decline
+  ↓ EOF / final decoded bytes
+below threshold → canonical from source
   ↓
-final decoded size known
+one existing DecodeAdmission permit
   ↓
-decodeqos.TryAdmit(exact decoded bytes)
-  ↓ permit held
-frontend protocol semantic proof from Source.Open()
-  + canonical RouteFromBodyModel/default selector derivation
+frontend profile proof from replay
+  ├─ canonical route selector/model/default facts
+  ├─ exact protocol semantics for certified subset
+  ├─ normalized client-turn shape
+  ├─ canonical semantic identity digest
+  ├─ body mode/rewrite semantics
+  └─ rewrite spans
   ↓
-exact canonical identity digest + bounded wire facts
-  ↓
-core AssessLargeBody(wire facts)
+core AssessLargeBody (same permit still held)
+  ├─ frozen authority summary
+  ├─ exact route candidate set
+  ├─ late-route compatibility envelope
+  ├─ backend exact/domain wire proofs
+  ├─ secure/metering/accounting/billing capabilities
+  └─ NO side effects / I/O / stores / provider calls
+  ├─ decline → Spec.Decode from replay under SAME permit → normal canonical path
+  └─ accept  → release permit → ONE-WAY WIRE COMMIT
+                                ↓
+                         ExecuteLargeBody
+                                ├─ BeginTurn/A-leg exactly once
+                                ├─ normal late route override inside certified domain
+                                ├─ existing authority/economic admission
+                                ├─ existing attempt/failover/race owner
+                                ├─ per-attempt replay + bounded model splice
+                                ├─ backend OpenWire using existing client/security policy
+                                └─ canonical EventStream + ResponseFacts
+                                      ↓
+                         frontend Wrap/Encode/keepalive/session carriers
 ```
 
-The legacy `ResolveRouteSelector` gate is intentionally before capture. If that callback is configured, V1 enters the unchanged canonical path, which reads the normal body and invokes the callback at today's point before preflight. The wire lane must not invoke the callback after streaming preflight (ordering drift), skip it (authority drift), or materialize a second whole body solely to satisfy its `[]byte` signature (memory regression). A future bounded route-resolution contract is allowed only as a separately characterized extension preserving current precedence and ordering.
+### Commit rule
 
-`AssessLargeBody` is side-effect-free: no `BeginTurn`, store read or mutation, DB I/O, billing reservation, provider network call, spill filesystem work, client-body wait, or arbitrary unbounded plugin work. It reads only immutable/frozen generation composition and calls pure backend wire-support functions. Its additional decode-permit hold is explicitly benchmarked and bounded by generation-sized data structures.
-
-### Decline
-
-If the profile or assessment declines, **the same decode permit remains held**:
-
-```text
-materialize replay source
-  ↓
-existing Spec.Decode under current Guard/admission ownership
-  ↓
-release permit at today's boundary
-  ↓
-existing Validate / AfterDecode / traffic / Executor.Execute
-```
-
-There is no release/reacquire race and no new admission outcome introduced by the optimization.
-
-### Eligible
-
-If assessment succeeds:
-
-```text
-release decode permit
-  ↓
-WIRE COMMIT (one way)
-  ↓
-ExecuteLargeBody(assessment stamp + proof + Source)
-  ↓
-BeginTurn / A-leg / route authorities / attempts / response
-```
-
-No expected condition after this point requires a canonical Call. If execution finds an unclassified content dependency after commit, that is an invariant bug: finalize/abort the one turn; never launch a second canonical execution.
-
-### Assessment stamp
-
-Assessment returns an opaque provider-neutral stamp, e.g. generation ID + digest/token over immutable assessment inputs. Execution validates that it is running on the same executor/generation and that the proof inputs have not changed. Backend-specific plan objects do not cross the internal frontend/core seam, and the public SDK remains unchanged; execution may recompute pure support checks and assert identical results.
+Before the wire commit, **canonical fallback is expected and cheap enough to be normal control flow**. After the wire commit, expected canonical fallback is forbidden. Any unexpected need for prompt content after commit is an invariant failure that cleans up the one logical turn; it never starts a second canonical execution.
 
 ---
 
 ## 3. Configuration
 
-Illustrative configuration:
+Illustrative internal configuration:
 
 ```yaml
 server:
-  max_request_body_bytes: 8388608 # existing authority; unchanged
+  max_request_body_bytes: 8388608   # existing authority; unchanged
   large_payload_fast_path:
     enabled: false
     threshold_bytes: 1048576
     memory_spool_bytes: 65536
-    max_inflight_spool_bytes: 1073741824
+    max_inflight_spool_bytes: 268435456
     max_semantic_fact_bytes: 262144
     spool_dir: ""
 ```
@@ -166,681 +135,550 @@ server:
 Rules:
 
 - default off;
-- positive threshold/spool/budget/fact bounds; memory spool <= threshold;
-- explicit spool directory validated during candidate config/reload; empty uses `os.TempDir()`;
-- invalid reload retains last-good generation;
-- `max_inflight_spool_bytes` bounds optimization-owned replay storage only. Canonical fallback may still allocate according to the old path; this is not global OOM admission.
+- `threshold_bytes > 0` and must not change the existing max-body policy;
+- `memory_spool_bytes` bounds retained request bytes in Go heap;
+- `max_inflight_spool_bytes` is an optimization budget, not a new request-admission error source;
+- `max_semantic_fact_bytes` bounds profile-derived metadata such as normalized part shapes;
+- `spool_dir` is validated at generation build/reload; invalid configuration rejects the candidate generation and preserves last-good publication;
+- defaults are evidence-adjustable after Task 19 measurements, not assumed optimal.
+
+The feature configuration belongs to base server/runtime configuration because it controls an internal transport optimization, not provider business semantics.
 
 ---
 
-## 4. Replayable Body Source
+## 4. Static Pre-Capture Disposition
 
-Internal provider-neutral V1 contract; this is not new public SDK surface:
+### Purpose
+
+The dynamic assessor is necessarily request-specific: route selector/model, delivery mode, rewrite facts, protocol requirements, and some economic/counting facts are unknown until the body is proven. But many blockers are generation-static. Spooling a 5–20 MiB request when `LocalTurnHandlers` or an unclassified content authority makes **every** request canonical would waste disk/CPU and add latency without any chance of benefit.
+
+### Contract
+
+Composition derives a compact immutable summary and a hot projection equivalent to:
 
 ```go
-type Span struct {
-    Start int64
-    End   int64
-}
+type StaticWireDisposition uint8
 
-type Source struct {
-    Size  int64
-    Open  func() (io.ReadCloser, error)
-    Close func() error
-}
+const (
+    StaticWireUnknown StaticWireDisposition = iota
+    StaticWireDefinitelyCanonical
+    StaticWireNeedsRequestAssessment
+)
+
+type StaticWireReason uint16 // bounded enum, no plugin/provider/user strings
+
+// Illustrative internal method; exact package/name may differ.
+func (e *Executor) LargeBodyStaticDisposition(frontendProfileID string) (StaticWireDisposition, StaticWireReason)
 ```
 
-All first-wave consumers are built-in frontend/core/backend packages. Existing public `lipsdk.ExecutorView` and external/manual executors remain unchanged and canonical-only. Promotion of these low-level replay/proof/assessment types to `pkg/lipsdk` would require a separate API/ABI/versioning review once a concrete external consumer exists.
+This surface is **not authorization**. `NeedsRequestAssessment` means only “do not reject before capture”; the request still needs complete proof and `AssessLargeBody`.
 
-Capture state:
+### Must be static blockers initially
 
-```text
-client body
-  ├─ fixed/reused copy buffer
-  ├─ bounded in-memory prefix
-  └─ spill → secure CreateTemp file + append
-```
+At minimum, when relevant to the candidate profile:
 
-Invariants:
+- unclassified typed plane;
+- occupied Local Turn plane;
+- active Secret Guard execution requiring Call content;
+- terminal decision provider without separately certified continuation-source support;
+- active canonical-only request-mutating hook/plane;
+- canonical-only traffic/raw-capture/redaction path;
+- mandatory secure-session/metering/accounting capability that has no wire view at that implementation stage;
+- external/manual executor with no internal two-phase capability.
 
-- immutable after EOF;
-- every `Open` begins at offset zero and has an independent cursor;
-- multiple readers may coexist for races;
-- root `Close` is idempotent and nonblocking with respect to outstanding readers;
-- root close marks deletion pending; last tracked reader performs final file removal;
-- no goroutine per body chunk and no cleanup-wait goroutine;
-- every consumed byte remains recoverable until frontend chooses canonical fallback or ownership transfers to wire execution.
+A static route/backend blocker may be used only when composition can prove it for the entire frontend profile without request/model-dependent callbacks. Otherwise leave it to dynamic assessment.
 
-Mid-capture optimization failure has an explicit no-rewind contract. Capture retains the current input chunk until its destination write has fully succeeded. On a short/partial file or memory write, only the written prefix is treated as durable and the unwritten suffix stays owned by capture. A canonical-continuation reader then presents exactly:
+### Performance rules
 
-```text
-successfully retained memory/file prefix
-+ current unwritten suffix
-+ still-unread client body
-```
-
-under the existing request-size ceiling. It may materialize the ordinary canonical `[]byte` because the optimization has been abandoned, but it must never restart or reread the client socket. Reservation decline, file-create failure, partial write, exact-limit boundaries, cancellation, and randomized chunk splits are fault-tested byte-for-byte against direct canonical reading.
-
-Capture computes an incremental **source digest** over decoded identity bytes. This is useful for immutability/replay/widening evidence but is distinct from the canonical semantic identity digest described later.
-
-Spill confidentiality:
-
-- unpredictable names only;
-- no user/model/session data in names;
-- owner-only permissions where supported;
-- no spool path/content in normal telemetry;
-- docs state files may contain plaintext prompts.
+- no reflection;
+- no map walk proportional to plugins/backends;
+- no plugin/backend/store callback;
+- no allocation on the common path;
+- no temp file/replay/scanner construction when definitely canonical.
 
 ---
 
-## 5. Shared Streaming JSON Shape Scanner
+## 5. Replay Source and Lossless Canonical Continuation
 
-One provider-neutral shared scanner validates:
+### Source abstraction
 
-- UTF-8 across buffers;
-- escapes and surrogate pairs;
-- JSON number grammar;
-- delimiters/nesting/root/trailing data;
-- existing byte/depth/token/object/array/key/string/number limits;
-- context cancellation.
-
-It retains no ordinary giant scalar contents. It can emit bounded structural events and raw spans to a frontend profile observer.
-
-The current slice preflight remains the differential oracle. Fuzz/property suites compare acceptance/error class and aggregate counts across buffer splits and exact limit boundaries.
-
----
-
-## 6. Frontend Semantic Proof
-
-A frontend profile is a protocol-specific **proof adapter**, not a backend selector. It consumes a replay reader under decode admission and emits bounded facts only for request subsets proven equivalent to canonical decode/validation.
-
-Illustrative proof:
+Illustrative shape:
 
 ```go
-type SessionInput struct {
-    AuthoritativeSessionID string
-    ResumeToken            string // sensitive; never backend/log/metric
-    ClientSessionID        string
-}
-
-type ClientTurnShape struct {
-    Lines []ClientInputShape // bounded role/ordinal/part-kind facts
-}
-
-type CanonicalIdentity struct {
-    ExplicitCallID string
-    StableSum      [32]byte // same semantic digest as current canonical stableCallSum
-}
-
-type Proof struct {
-    ProfileID            ProfileID
-    FrontendID           string
-    Operation            lipapi.Operation
-    DeliveryMode         lipapi.DeliveryMode
-    RouteSelector        string
-    ClientModel          string
-    ProtocolRequirements lipapi.ProtocolRequirements
-    ModelSpan            Span
-    BodyBytes            int64
-    MaxOutputTokens      *int64
-    Session              SessionInput
-    ClientTurn           ClientTurnShape
-    Identity             CanonicalIdentity
-    SourceDigest         [32]byte
+type Source interface {
+    Size() int64
+    Open() (io.ReadCloser, error) // independent offset-zero reader
+    Close() error                 // idempotent root close
 }
 ```
 
-Exact types/names may differ, but the constraints are fixed:
+Implementation may use a memory segment followed by an append-only file or a single spill file after a memory threshold. It must not construct a second payload-sized buffer to join pieces.
 
-- no raw arbitrary headers;
-- no provider SDK types;
-- no unbounded maps/user metadata;
-- no prompt/tool text retained merely for proof;
-- sensitive session token fields are explicitly marked and never serialized to telemetry/backend requests;
-- semantic fact memory has an explicit bound; overflow selects canonical.
+### Capture guarantees
 
-### Route-selector precedence
-
-Header-derived selector precedence remains unchanged. A configured legacy `Spec.ResolveRouteSelector` is a V1 pre-capture canonical gate unless a future bounded resolver is explicitly characterized. For profiles using `RouteFromBodyModel`, semantic proof derives the body-model selector/default **under the held decode permit** with the same prefix/default semantics as the canonical guarded decode path. The resulting `Proof.RouteSelector` is the exact selector used for canonical identity derivation and core assessment.
-
-### Session precedence
-
-`frontendpipe`/profile owns the same authoritative header/body precedence as current `sessionwire.ApplyAuthoritativeHeaders`. Initial OpenAI profiles may simply reject body-carried LIP session metadata while supporting the normal LIP session/resume headers.
-
-### Normalized secure-session record shape
-
-The current secure recorder consumes `lipapi.NormalizedItems` only to persist role/ordinal/content-part kinds. Profiles produce the equivalent shape for certified requests. They do not store prompt text. Large pathological item-count shapes that exceed the semantic-fact budget fall back.
-
----
-
-## 7. Exact Canonical Identity Digest
-
-A raw source SHA is **not** an acceptable substitute for canonical request identity.
-
-Current `diag.stableCallSum` clones the canonical Call, clears `ID`, marshals it, and hashes the canonical JSON. That digest feeds stable Call IDs/tokens/timestamps. Call.ID then drives metering checkpoint IDs, fact/source IDs, trace correlation, billing/request identities, and frontend deterministic response fields.
-
-A wire profile therefore implements a streaming **canonical semantic identity writer** for its certified subset. It must emit/hash the same canonical Call representation that the current decoder + session-header application + pre-core normalization would produce, without retaining large scalar contents.
-
-Conceptually:
+- consume client body once;
+- enforce existing decoded body limit;
+- reserve logical spool bytes with checked arithmetic;
+- keep current input chunk/unwritten suffix until write success;
+- on recoverable spool decline/write failure, expose exactly:
 
 ```text
-raw JSON string/content
-  → incremental decode/unescape + certified normalization
-  → canonical Call-field serialization into hash.Writer
-  → stable sum identical to diag.stableCallSum(canonicalCall)
+retained prefix + current unwritten suffix + still-unread request body
 ```
 
-The implementation may refactor `diag` to expose helpers such as stable ID/token/Unix **from an already-proven sum** without changing existing canonical outputs.
+as one canonical continuation reader;
+- never restart the socket read;
+- preserve cancellation;
+- root close does not block forever on leaked child readers;
+- Windows open-file deletion semantics are explicitly tested;
+- spill paths use unpredictable names and restrictive permissions where supported;
+- prompt bytes/path never enter telemetry.
 
-Differential identity tests are mandatory for:
+### Shared streaming JSON scanner
 
-- huge strings;
-- Unicode/escape/HTML-sensitive string cases;
-- message/tool/function shapes;
-- optional fields/zero values;
-- model/route selector;
-- session header precedence;
-- every certified protocol normalization.
+Implement a provider-neutral incremental equivalent of current `jsonguard`/JSON-shape preflight. It owns syntax/shape/limit semantics only. Protocol profiles subscribe to token/span events or a similarly bounded stream; the shared scanner must not know OpenAI/OpenResponses fields.
 
-If the profile cannot produce exact identity for a shape, it declines.
-
-This also lets wire frontend response IDs/timestamps and economic identities remain path-stable rather than defining a second identity namespace.
+The scanner must handle chunk boundaries inside UTF-8, escapes, surrogate pairs, numbers, object names, and giant strings without retaining giant values.
 
 ---
 
-## 8. Frozen Wire-Eligibility Summary
+## 6. Protocol Proof and Canonical Semantic Identity
+
+Each certified frontend profile owns a bounded proof compiler over the validated replay stream.
+
+Illustrative output:
+
+```go
+type LargeBodyProof struct {
+    ProfileID          string
+    Operation          lipapi.Operation
+    Delivery           lipapi.DeliveryMode
+    RouteSelector      string
+    ClientModel        string
+    MaxOutputTokens    int64
+    ProtocolFacts      ProtocolFacts
+    BodyMode           BodyMode
+    Rewrite            RewriteSemantics
+    ModelSpan          Span
+    CanonicalDigest    [32]byte
+    ClientTurnShape    ClientTurnShape
+    SessionInput       SessionInput
+    SourceDigest       [32]byte
+    BodyBytes          int64
+}
+```
+
+Do **not** turn this into a shadow `lipapi.Call`. Every field must have a named downstream consumer and bounded size.
+
+### Exact identity
+
+The wire path must derive the same stable semantic sum as the canonical post-frontend-decode/pre-core Call for the supported subset. The safest implementation is to factor `diag` so canonical and wire paths can both derive existing IDs/tokens/timestamps from the same already-computed sum.
+
+The profile's hash writer must reproduce canonical serialization semantics exactly for its certified subset:
+
+- field order used by the stable hash;
+- zero/omitted behavior;
+- normalized messages/items/tools/options;
+- JSON string escaping and Unicode;
+- route selector/model precedence;
+- session/header precedence;
+- `Call.ID` clearing semantics used by the current stable hash.
+
+If exact equivalence is difficult for a field, that shape is canonical-only. A raw request hash is useful as source integrity evidence but is **not** a substitute for canonical economic/request identity.
+
+---
+
+## 7. Generation-Frozen Authority Classification
 
 ### Typed planes
 
-Extend canonical `feature.Plane[T]` declarations with an access class:
+Add request-access metadata to the existing generated plane descriptor. Equivalent names are allowed, but semantics are:
 
 ```go
 type RequestBodyAccess uint8
+
 const (
     RequestBodyAccessUnclassified RequestBodyAccess = iota
-    RequestBodyAccessCanonicalRequired
-    RequestBodyAccessMetadataOnly
-    RequestBodyAccessResponseOnly
-    RequestBodyAccessWireContract
+    RequestBodyCanonicalRequired
+    RequestBodyMetadataOnly
+    RequestBodyResponseOnly
+    RequestBodyWireContract
 )
 ```
 
-`Unclassified` is zero and rejected for production declarations. The generator/frozen set derives a compact access summary; runtime unknown still fails closed.
+The generator/frozen set remains the only typed-plane census. New plane without classification = generation/CI failure.
 
-### Legacy hook bus is separate
+### Current explicit initial classifications
 
-`RequestRuntimeSnapshot` still contains `*hooks.Bus`; its submit/request-part/response-part/tool chains are not magically covered by `plane_manifest.go`. `HookChainLengths()` already provides frozen occupancy without reflection.
+The implementation agent must audit all 26 planes, not copy this small list blindly. These are non-negotiable starting points:
 
-V1 summary rules are conservative:
+| Plane | Initial V1 posture | Reason |
+| --- | --- | --- |
+| `SecretGuardExecution` + guards | canonical required when active | guard stage receives full Call; quarantine/audit/denial semantics |
+| `LocalTurnHandlers` | canonical required when occupied | `Match`/`Handle` receive full Call; can claim/short-circuit |
+| `TerminalDecisionProvider` | canonical required unless continuation-source parity implemented | bounded provider input is insufficient when decision can continue trajectory |
+| request/attempt transforms and request-part hooks | canonical required unless explicit wire contract | mutate/inspect canonical request |
+| response-only observers | potentially response-only | operate on canonical output events, subject to characterization |
+| bounded metadata-only session/workspace authorities | potentially metadata-only | only after exact bounded input parity |
 
-- occupied submit hooks: canonical-required unless a new typed wire contract exists;
-- occupied request-part hooks: canonical-required;
-- response-part chains may be response-only when characterization proves that;
-- tool reactors/future ambiguous chains fail closed unless explicitly classified.
+### Separate hook bus
 
-### Standard non-plane authorities
+`hooks.Bus` is not a typed plane. Freeze occupancy/chain categories into the same summary. Call-mutating/request-content chains are blockers unless wire-certified.
 
-The generation summary also records standard runtime capabilities/modes that matter for wire execution:
+### Current narrow/non-plane ports
 
-- frontend/core traffic/raw capture/redaction;
-- secure-session recorder (wire-shape support is expected, not a permanent blocker);
-- metering checkpoint mode;
-- token accounting/preflight/billing/counting capabilities;
-- route-override capability;
-- Call-shaped custom billing/policy callbacks;
-- any additional non-plane Call dependency discovered by the ratchet inventory.
+Task 1 must classify at least current executor/config dependencies:
 
-The summary is built at composition time and pinned with the request generation. There is one plane declaration system, but wire eligibility intentionally spans more than planes because the brownfield runtime does. The legacy frontend full-body resolver is handled even earlier as a frontend-owned pre-capture gate because its current callback contract itself requires the complete body.
+- prompt cache maintenance;
+- conversation view reader/tagger/observer and steering writer factory;
+- terminal policy reader;
+- interleaved processor;
+- compaction detector/background auxiliary;
+- request token estimator;
+- catalog/capability/eligibility and backend-execution resolvers;
+- route override reader;
+- secure-session manager/recorder and denial policy;
+- metering recorder;
+- accounting preflight/stream reconstruction/usage authority/concurrency coordinators/terminal work;
+- billing credit gate/exposure admission/leg observer/terminal sink;
+- `BillingIdentity` Call-shaped callbacks;
+- traffic raw/observer/redactor facilities;
+- any custom Call-shaped callback added by composition.
 
----
-
-## 9. Side-Effect-Free Core Assessment
-
-`AssessLargeBody` takes the profile proof and frozen generation summary and returns `eligible` or one bounded decline reason.
-
-It performs only pure/frozen work:
-
-1. validate proof/profile support and assessment identity;
-2. inspect typed-plane/hook/non-plane eligibility summary;
-3. verify standard wire views exist for secure-session recorder/metering and any enabled accounting/billing path;
-4. compile/validate the exact initial route selector using existing aliases/execution-composition policy;
-5. bind direct candidate models where semantics are pure/generation-fixed;
-6. build the exact initial candidate superset needed by weighted/fallback/race selection;
-7. build any **late-bound route authority domain**;
-8. ask backends for exact and/or domain-wide wire compatibility, including the immutable profile body mode and permitted rewrite semantics;
-9. validate replay/parallel/model-rewrite requirements;
-10. return a generation-bound assessment stamp.
-
-No secure-session store lookup, route-override store read, token reservation, DB I/O, provider request, spill I/O, client-body wait, or other turn side effect occurs here.
-
-If accounting/token preflight needs an exact input count and no wire counter exists, assessment declines now while the same decode permit is still held.
+Unknown is canonical, never “probably metadata-only.”
 
 ---
 
-## 10. Late-Bound Route-Authority Envelope
+## 8. Side-Effect-Free Assessment
 
-### Why reader presence cannot be a blocker
-
-Standard memory and Bun continuity stores implement the optional route-override store, and runtimebundle installs `RouteOverrideReader` whenever that capability exists. A rule `RouteOverrideReader != nil => canonical` would make V1 unreachable in ordinary secure-session deployments.
-
-### Domain proof
-
-Current route override state is keyed by authoritative A-leg and is intentionally snapshotted only after `BeginTurn`/A-leg fetch. V1 keeps that canonical ordering but pre-proves a **domain** large enough that the later selector can never reveal a wire-incompatible backend.
-
-For route override, derive the domain from the same generation validator that accepts stored/admin selectors:
-
-- current known backend IDs;
-- alias expansion semantics;
-- current execution-composition policy (sequential/fallback/race/etc.);
-- model-selection domain accepted by that validator.
-
-Because override validation can accept model text that is not a finite catalog, a backend used in this domain may need to certify that same-wire semantics hold for **any model value accepted by that backend/profile**. If backend wire support is model-dependent and the accepted override model domain cannot be closed, the domain is not provable and assessment declines.
-
-After wire commit, the existing `snapshotRouteOverride`/barrier runs normally. Whatever selector it returns is within the already-certified domain by construction. Weighted-first/affinity/interleaved state may choose/order a subset without new proof.
-
-### Other late selectors
-
-Any route-hint/future authority that can produce a selector after commit needs its own bounded domain declaration. Existing route-hint providers currently receive a full Call, so they are canonical-required by default.
-
-### Trade-off
-
-A heterogeneous generation containing a canonical-only backend may make the route-override domain too broad and force canonical handling even when the request's initial selector is same-wire. This is a deliberate V1 correctness trade-off. Eligibility benchmarks must quantify it. A future read-only/transactional route-authority preview can narrow the domain without reintroducing unsafe late fallback.
-
----
-
-## 11. Backend Wire Contract
-
-Backends need both exact-candidate and, where necessary, domain-wide proof. Body form and permitted rewrite behavior are **inputs** to proof, not facts inferred from a compatibility result. Illustrative internal shape:
+Illustrative internal interface:
 
 ```go
-type WireRequestFacts struct {
-    ProfileID            largebody.ProfileID
-    Operation            lipapi.Operation
-    DeliveryMode         lipapi.DeliveryMode
-    ProtocolRequirements lipapi.ProtocolRequirements
-    BodyMode             largebody.BodyMode
-    RewriteSemantics     largebody.RewriteSemantics
-    ClientModel          string
-    CandidateModel       string
-    BodyBytes            int64
-}
-
-type WireDomainFacts struct {
-    ProfileID            largebody.ProfileID
-    Operation            lipapi.Operation
-    DeliveryMode         lipapi.DeliveryMode
-    ProtocolRequirements lipapi.ProtocolRequirements
-    BodyMode             largebody.BodyMode
-    RewriteSemantics     largebody.RewriteSemantics
-    ModelDomain          ModelDomain // exact set or AnyAcceptedModel
-    ExecutionModes       ExecutionModeSet
-}
-
-type WireSupport struct {
-    Compatible           bool
-    NeedsModelRewrite    bool
-    SupportsParallelOpen bool
-    Reason               WireSupportReason
+type LargeBodyExecutorView interface {
+    LargeBodyStaticDisposition(profileID string) (StaticWireDisposition, StaticWireReason)
+    AssessLargeBody(context.Context, AssessmentRequest) (Assessment, error)
+    ExecuteLargeBody(context.Context, ExecuteRequest) (ExecutionResult, error)
 }
 ```
 
-`BodyMode` and `RewriteSemantics` are immutable, provider-neutral profile facts. They identify the exact body representation being forwarded (for example, the first-wave decoded identity-JSON form) and the exact transformations the profile has certified (for example, only the scanner-proven top-level model-token splice, with all other body bytes unchanged). Domain proof receives the same contract and must certify it for the whole declared model/execution domain.
+Public `lipsdk.ExecutorView` is unchanged in V1. Standard bundled frontends may type-assert the internal concrete executor/interface; external/manual frontends remain canonical-only.
 
-`NeedsModelRewrite` remains an **assessment output**: it says the selected backend/candidate requires the already-certified model rewrite. It is not a substitute for the rewrite-semantics input. A resolver may report `Compatible` only after validating the supplied body mode and permitted rewrite contract; if it requires a transformation outside that contract, or a rewrite is required but the profile lacks the exact certified model span/semantics, assessment declines.
+### Assessment input
 
-`ResolveWireRequest` / `ResolveWireDomain` are pure and perform no provider I/O. Nil/unknown means canonical-only.
+Contains proof + immutable generation facts only. It must not carry a full request body reader because assessment is not allowed to inspect prompt content; protocol proof already produced the bounded facts.
 
-`OpenWire` remains attempt-time and receives the immutable source + rewrite plan. It reuses normal backend URL/credential/client/parser/error machinery.
+### Assessment work
 
-Core never switches on provider names.
+1. verify frozen eligibility summary is not statically incompatible;
+2. resolve exact selector/default aliases using current pure generation data;
+3. derive the same candidate set/order/composition semantics as canonical routing;
+4. compute the finite/universal late route-override domain without reading the live route-override store;
+5. resolve pure backend exact/domain wire support for every possible candidate/domain member;
+6. verify body/rewrite/model-span compatibility;
+7. verify secure/metering/accounting/billing/counting capabilities;
+8. verify current non-plane/custom Call callbacks are either bounded wire facts or blockers;
+9. issue an opaque generation/proof-bound acceptance stamp.
+
+### Forbidden during assessment
+
+Tests must fail if assessment:
+
+- calls `SecureSession.BeginTurn`;
+- creates/fetches an A-leg;
+- reads or mutates DB/store/continuation/route-override state;
+- reserves billing/accounting/usage authority;
+- opens provider/network connections;
+- reads replay/spill bytes;
+- waits on client body;
+- invokes arbitrary plugin callbacks whose bounded/pure contract is not declared.
+
+Assessment happens under the decode permit, so bounded CPU matters. Precompute route-domain/backend compatibility facts at composition time where possible, but do not create a second provider-specific core registry.
 
 ---
 
-## 12. Model Rewrite
+## 9. Backend Wire Contract
 
-The profile records the exact raw token span of the selected top-level model. Per candidate:
+Extend the internal backend abstraction additively with provider-neutral capability functions, equivalent to:
 
-```text
-source[0:model.start]
-+ json.Marshal(nativeModel)
-+ source[model.end:size]
+```go
+type WireRequestSupport struct {
+    Compatible        bool
+    NeedsModelRewrite bool
+    // bounded reason enum for diagnostics
+}
+
+type WireDomainSupport struct {
+    Compatible       bool
+    AnyAcceptedModel bool
+}
+
+// Pure, no I/O.
+ResolveWireRequest(ctx, WireRequestFacts, AttemptCandidate) WireRequestSupport
+ResolveWireDomain(ctx, WireDomainFacts) WireDomainSupport
+
+// Post-commit only.
+OpenWire(ctx, WireOpenRequest) (lipapi.ManagedEventStream, error)
 ```
 
-A splice reader streams these segments. Checked `int64` arithmetic computes rewritten length. Duplicate/ambiguous/repaired model forms decline.
+Proof receives immutable `BodyMode` and `RewriteSemantics`; `NeedsModelRewrite` cannot magically authorize a transformation that the frontend profile did not certify.
 
-Every retry opens a fresh source reader and creates a fresh splice reader.
+### OpenWire implementation rule
+
+For OpenAI-compatible backends, reuse current:
+
+- base URL/endpoint resolution;
+- credential pool/acquire/cooldown/auth-invalid handling;
+- shared HTTP client and client options;
+- SDK retry policy choice;
+- first-recv/stream-peek semantics;
+- provider response parsing and error classification.
+
+The new path should replace only request-body construction/serialization, not create a parallel transport/security stack.
+
+### HTTP framing/security
+
+Build outbound method/path/query/headers from backend-owned canonical logic. Never forward client headers wholesale. Rewritten body length must control outbound `Content-Length` if a known length is sent. Do not leak stale `Transfer-Encoding`, `Content-Encoding`, `Expect`, trailers, client auth, or LIP session/control headers.
+
+Test HTTP/1.1 and HTTP/2 with the same shared client policy, cancellation, connection reuse, and redirect behavior.
 
 ---
 
-## 13. Wire Secure-Session Preparation
+## 10. Secure Session, Metering, Accounting, and Billing
 
-After wire commit, execution follows the existing secure-session lifecycle but consumes bounded views rather than a fake Call.
+### Secure session
 
-Refactor only reusable **fact-based** helpers needed by both paths:
+Protocol proof emits bounded `SessionInput` and `ClientTurnShape`. Wire execution refactors existing secure-session fact construction so both canonical and wire paths share authority rules. Only after one-way commit may it call `BeginTurn`.
 
-- principal/scope resolution;
-- workspace/session-opener stages whose inputs are metadata-only;
-- `BeginTurn` request construction from `SessionInput`;
-- authoritative session/A-leg result binding;
-- route-override snapshot after A-leg fetch;
-- request authority inputs from exact identity/scope/session facts.
-
-Content-reading/mutating stages are absent because assessment already proved them inactive or wire-certified.
-
-### Secure recorder
-
-Instead of `buildClientTurnRecordInput(..., *lipapi.Call)`, add a sibling/helper accepting the profile's `ClientTurnShape`. The resulting `ClientTurnRecordInput` must equal canonical output for the certified corpus.
-
-### Session response carrier
-
-Current `BeginTurn` returns a resume token for a new session and canonical preparation copies it into the caller-visible Call. Wire execution returns this through a sensitive response carrier:
+`BeginTurn` results required by the frontend return through a sensitive carrier:
 
 ```go
 type SessionResponseCarrier struct {
     AuthoritativeSessionID string
     ALegID                 string
-    ResumeToken            string // sensitive
+    ResumeToken            secretString // illustrative non-loggable wrapper
 }
 ```
 
-The frontend writes existing `X-LIP-Session-ID` / `X-LIP-Resume-Token` semantics and never logs the token.
+The token is frontend-only and not available to provider/metrics/general diagnostics.
+
+### Metering
+
+Current Call-cloning checkpoints cannot be used on the accepted wire lane. Introduce wire-native checkpoints from bounded facts and source/rewrite digests. Preserve public checkpoint identity and exact-once semantics.
+
+### Token accounting
+
+If configured admission requires input tokens and only `CountCall` is available, assessment declines. A future/implemented `WireCounter` must count exactly from the certified source/profile semantics; bytes are never tokens.
+
+### Billing
+
+Refactor stock Call-shaped callbacks only where semantics can be expressed exactly as bounded facts. Custom `BillingIdentity` Call callbacks are blockers by default. Reservation/settlement/idempotency begins only after wire commit and stays under existing lifecycle ownership.
 
 ---
 
-## 14. Wire-Native Metering Checkpoints
+## 11. Post-Commit Runtime Facts: No Shadow Call
 
-Current `checkpoint.Snapshot` clones a full Call for recount/rerate; using it unchanged would reintroduce the exact large heap object #503 is meant to avoid.
+Create only DTOs required by downstream consumers, for example:
 
-Add a wire-native checkpoint representation or a tagged source that shares the same public `metering.Checkpoint` semantics without retaining a Call.
+- request/trace/economic identity;
+- operation/delivery/protocol requirements;
+- selector/client model/effective model;
+- max-output bound;
+- session/A-leg/workspace/principal scope;
+- source digest/body bytes;
+- rewrite semantics and per-attempt rewrite digest;
+- bounded conversation/terminal facts only where proven independent of prompt content.
 
-### Frontend ingress wire evidence
+Do not add a struct that gradually mirrors every field of `lipapi.Call`.
 
-Exact facts are available from proof + secure identity:
+### Audit targets on current main
 
-- stable request ID / trace ID from canonical digest;
-- scope/frontend ID;
-- A-leg/session correlation after BeginTurn;
-- request count = 1;
-- exact max-output quantity when present;
-- capture timestamp/perspective.
+The implementation inventory must trace current `lipapi.CloneCall` and Call retention through:
 
-### Backend ingress wire evidence
+- preparation and accepted ingress/backend baselines;
+- conversation projection/filter baselines;
+- `recvTurnFacts`;
+- terminal evidence/call closure;
+- attempt derivation and clamp preview;
+- continuation/interleaved paths;
+- metering/accounting checkpoints;
+- billing callbacks;
+- local turn / secret guard / terminal decision;
+- frontend response helpers.
 
-Per attempt:
-
-- same stable request/trace identity;
-- B-leg/attempt/backend/model;
-- A-leg/session correlation;
-- request count/max-output bounds;
-- source digest + exact rewrite plan/attempt digest for immutability/widening evidence.
-
-No prompt body is copied into checkpoint storage.
-
-### Counting
-
-If accounting/preflight is disabled, these public wire checkpoints need no token count.
-
-If accounting requires input-token count, introduce a typed `WireCounter`/equivalent capable of exact counting from proof/source/backend semantics. It may use a provider-native raw counting capability or a bounded streaming profile counter. **Bytes are never tokens.** If the configured economic authority has only `CountCall`, assessment declines before commit.
-
-Stock billing/exposure logic receives exact bounded views where possible; arbitrary custom Call callbacks remain blockers.
+Architecture tests should define the accepted wire package/function boundary and reject `lipapi.Call`/`CloneCall` ingress there except for explicit response-only canonical APIs. Do not grep only `preparedRequest.call`.
 
 ---
 
-## 15. Closing Remaining Full-Call Consumers
+## 12. ExecuteLargeBody and Existing Attempt Ownership
 
-Before `OpenWire` can exist in production, maintain a checked inventory of every post-commit Call dependency.
+After stamp validation and source ownership transfer:
 
-Known categories:
+1. perform wire secure-session preparation and exactly one `BeginTurn`;
+2. apply normal live route-override snapshot/barrier inside the already certified route domain;
+3. perform normal request authority/economic admission;
+4. use the existing attempt/recovery owner for sequential/fallback/race behavior;
+5. allocate B-legs/metrics/TTFT/failure history as today;
+6. for each attempt, open a fresh replay reader at offset zero;
+7. apply only assessment-approved model token splice for that candidate;
+8. call the candidate backend's `OpenWire`;
+9. preserve first-visible-event commitment and no-failover-after-output behavior;
+10. preserve terminal accounting/session/attempt cleanup.
 
-- route selector/request-size/protocol requirements;
-- capability negotiation;
-- `recvTurnFacts` baselines;
-- continuation support;
-- interleaved-thinking recorders;
-- frontend/backend metering checkpoints and widening checks;
-- token accounting/preflight;
-- billing identity/exposure/price/policy/max-output callbacks;
-- terminal usage/session closures;
-- secure recorder;
-- traffic snapshots;
-- response/debug helpers;
-- stable identity helpers.
-
-Every consumer is one of:
-
-1. **bounded exact fact/view**;
-2. **source/digest/rewrite contract**;
-3. **response-only**;
-4. **assessment blocker**.
-
-No post-commit code receives a fake `lipapi.Call`. Architecture/AST tests enforce the inventory and disallow accidental `preparedRequest.call` use on the wire branch.
+If attempt 1 fails pre-output, attempt 2 must see a complete replay. Parallel race attempts receive independent readers.
 
 ---
 
-## 16. Frontend Response-State Bridge
+## 13. Frontend Response and Keepalive Bridge
 
-Wire execution result:
+`ExecutionResult` must include canonical stream plus bounded response facts:
 
 ```go
-type ResponseFacts struct {
-    CallID                 string
-    TraceID                string
-    StableSum              [32]byte
-    ALegID                 string
-    AuthoritativeSessionID string
-    SessionID              string
-    Operation              lipapi.Operation
-    DeliveryMode           lipapi.DeliveryMode
-    SessionCarrier         SessionResponseCarrier // sensitive field handling required
-}
-
 type ExecutionResult struct {
-    Stream   lipapi.EventStream
-    Response ResponseFacts
+    Stream        lipapi.EventStream
+    ResponseFacts ResponseFacts
+    Session       SessionResponseCarrier
 }
 ```
 
-The exact field list is characterization-driven. Frontend-specific state remains local to the frontend/profile; core does not carry `createEncodeState` or provider types.
+Frontend-owned profile state plus those facts must be sufficient for current `BuildEncodeOpts`, `WrapStream`, response writers, cancellation IDs, and session headers.
 
-Each frontend has a wire response binding path or a refactored common encode context. No partial Call is synthesized.
+### Keepalive parity
 
-### OpenAI Responses
+Current shared pipe has two relevant mechanisms:
 
-- response ID/token/timestamp can use the exact stable semantic sum;
-- cancellation carrier must include authoritative A-leg/session semantics exactly as today;
-- session response headers use `SessionCarrier`.
+- `StreamKeepaliveInterval` is placed into request context before body processing;
+- streaming `Execute` is wrapped in `holdalive.Wait` using `PreRequestKeepalive`.
 
-### OpenAI Chat
+The candidate flow must preserve both. Implement the wire invoke under the same holdalive wrapper after proof/assessment/commit. Do not send keepalive before complete validation/commit merely to hide a slow upload or assessment.
 
-- deterministic completion ID/timestamp use the exact stable sum;
-- remaining encode options come from bounded frontend wire state.
-
-### OpenResponses
-
-- moved later because `AfterDecode` creates response/continuation state;
-- first lane is explicit no-store only.
+OpenAI Responses must preserve the A-leg/session cancellation carrier encoded in response ID. Chat/Responses deterministic IDs/timestamps continue to derive from canonical semantic identity where current behavior does so.
 
 ---
 
-## 17. Retry/Failover/Race Integration
+## 14. Protocol Certification Order
 
-Wire provider open is a new body source for the **existing** B-leg/attempt/recovery owner, not a second retry engine.
+Certification is sequential. A later lane may reuse infrastructure only after the earlier lane proves it.
 
-Preserved:
+### Lane 1 — OpenAI Responses frontend → OpenAI-compatible Responses backend
 
-- attempt budget/order;
-- weighted-first/affinity/interleaved state;
-- credential retry/cooldown;
-- provider failure classification;
-- first-visible-event commitment;
-- no post-output failover;
-- B-leg lifecycle/cleanup;
-- canonical response event assembly;
-- terminal/economic settlement.
+Current frontend facts to freeze in tests:
 
-Parallel attempts receive independent replay readers. Late route override can select only within the pre-certified domain.
+- no legacy `ResolveRouteSelector` in the create spec;
+- `RouteFromBodyModel=true`;
+- header selector precedence over body model/default;
+- response ID/cancellation/session carrier behavior;
+- stable created-at/identity behavior;
+- stream/non-stream writers.
 
----
+Initial profile is intentionally narrow. Unknown/normalization-sensitive/body-LIP-metadata shapes are canonical.
 
-## 18. Protocol Certification Order
+### Lane 2 — OpenAI Chat Completions → OpenAI-compatible Chat
 
-### Lane 1: OpenAI Responses → OpenAI-compatible Responses
+Same architecture, with Chat message/tool/function/reasoning normalization and completion response identity characterized independently.
 
-Reasons:
+### Lane 3 — OpenResponses HTTP create → OpenResponses-compatible backend
 
-- high-value agentic workload;
-- shared `frontendpipe` create path;
-- it uses `RouteFromBodyModel` rather than the legacy full-body `ResolveRouteSelector` callback, so the conservative V1 route-resolver gate does not make this lane unreachable;
-- no current create `AfterDecode` stateful hook comparable to OpenResponses;
-- forces response/cancellation/session-carrier/identity parity early.
+Initial subset only:
 
-Canonical-only triggers include body-carried LIP session metadata (initially), duplicate protocol-owned keys, unknown fields dropped by canonical encode, repair-sensitive histories/aliases, and any unhandled normalization.
-
-### Lane 2: OpenAI Chat Completions → OpenAI-compatible Chat
-
-Add after Lane 1. Preserve deterministic completion identity from the canonical semantic digest.
-
-### Lane 3: OpenResponses HTTP create → OpenResponses-compatible backend
-
-Initial subset:
-
-- HTTP create only;
-- **explicit `store:false`**;
+- HTTP create;
+- explicit `store:false`;
 - no `previous_response_id`;
 - no compaction;
-- no WebSocket;
-- bounded response-state bridge;
-- no unresolved `AfterDecode` error/side effect.
+- no WebSocket.
 
-Missing `store` is canonical because current decoder defaults it to true. `store:true`/continuation is a later certification only after reservation/recorder/cleanup/lineage parity exists.
+Outer auth + JSON media-type checks stay before `frontendpipe`. `store:true`/continuation requires a later explicit certification because current `prepareCreateState` performs reservation/lineage/recorder work and may materialize parent continuation state.
 
-Other frontends remain canonical until individually certified.
+### Gzip
+
+Wave 1 remains canonical. Decoded-stream support is a later wave only after exact decoded limits/framing/body-mode semantics are proven.
 
 ---
 
-## 19. Gzip Follow-Up
+## 15. Performance Model and Hard Gates
 
-Wave 1: gzip always canonical.
+### What should disappear on accepted wire requests
 
-Later:
+The accepted path should avoid:
+
+- whole-body `[]byte` retention after spill;
+- full protocol DTO decode of prompt-sized content;
+- `lipapi.Call` message/item/tool tree construction proportional to prompt size;
+- multiple `CloneCall` copies of that tree;
+- provider request re-serialization proportional to the canonical tree;
+- Call-retaining metering checkpoints.
+
+### What still exists
+
+- one full client upload to local replay storage;
+- JSON validation/protocol proof CPU;
+- source file I/O above memory threshold;
+- bounded semantic metadata;
+- provider upload from replay;
+- output/event processing.
+
+### Heap invariant
+
+For an accepted spill-backed request, request-attributable Go heap is bounded by:
 
 ```text
-compressed body
-  → existing bounded decompression semantics
-  → decoded identity replay source
-  → shared scanner + decode admission + semantic proof + assessment
-  → identity JSON provider body with stale Content-Encoding removed
+memory_spool_bytes
++ max_semantic_fact_bytes
++ O(fixed scanner/copy/http buffers)
++ bounded runtime/response metadata
 ```
 
-All threshold/reservation limits are decoded bytes.
+It must not contain a payload-sized body slice/string, full Call tree, or payload-scale clone. Compare 1 MiB, 5 MiB, and test-only 20 MiB profiles; accepted wire heap should remain approximately flat/bounded while canonical remains proportional to request materialization.
+
+Do not impose a brittle single nanosecond threshold across platforms. Gate on architecture + heap scaling + material multi-MiB benefit and report CPU/file-I/O tradeoffs separately.
+
+### Static-blocker benchmark
+
+A generation that is definitely canonical (for example occupied Local Turn without wire contract) must show essentially canonical baseline overhead: no spool file, no replay source, no streaming scanner/profile, no decode-permit behavior change. This benchmark prevents the optimization infrastructure itself from taxing common incompatible deployments.
 
 ---
 
-## 20. Failure / Ownership Matrix
+## 16. Testing and Ratchets
 
-| Stage | Decode permit held? | Turn begun? | Provider body committed? | Outcome |
-|---|---:|---:|---:|---|
-| legacy full-body route resolver configured without bounded wire contract | no | no | no | unchanged canonical path; resolver runs at current pre-preflight point |
-| body limit/shared JSON error | no | no | no | existing frontend error |
-| mid-capture replay/spill decline | no | no | no | lossless stitched canonical continuation; existing path |
-| decode admission reject | no permit acquired | no | no | existing 429/503 semantics |
-| semantic profile decline | yes | no | no | canonical Decode under same permit |
-| core assessment decline | yes | no | no | canonical Decode under same permit |
-| canonical Decode error after decline | yes | no | no | existing decode error; permit releases normally |
-| assessment eligible | yes → release | no | no | one-way wire commit |
-| BeginTurn/policy/billing denial | no | yes/phase-specific | no | existing lifecycle/error semantics |
-| actual route override | no | yes | no | must be inside pre-certified late-route domain |
-| unexpected content dependency after commit | no | yes | no/possibly pre-open | invariant failure; finalize once, no canonical restart |
-| provider failure pre-output | no | yes | maybe headers/body | existing retry/failover |
-| failure after visible output | no | yes | yes | no new failover |
-| client cancel | phase-dependent | phase-dependent | phase-dependent | close readers/source; existing cleanup |
+Minimum suites:
 
----
+1. canonical characterization before refactor;
+2. streaming JSON differential/fuzz vs current preflight;
+3. replay short-write/failure/cancel/Windows cleanup state tests;
+4. canonical semantic identity differential/fuzz;
+5. 26-plane + hook + non-plane authority census ratchet;
+6. static disposition no-allocation/no-spool tests;
+7. same-permit fallback under admission saturation;
+8. side-effect sentinel tests for `AssessLargeBody`;
+9. secure-session first-turn → resume-next-turn with wire first turn;
+10. metering/accounting/billing exact-once tests;
+11. route-domain tests for homogeneous/heterogeneous, sequential/fallback/race;
+12. provider request semantic/body/model rewrite tests;
+13. HTTP/1.1 + HTTP/2 framing/header/client-policy parity tests;
+14. retry/replay/race/cancel tests;
+15. response identity/cancellation/keepalive/session-header parity tests;
+16. no-Call/no-Clone post-commit architecture tests;
+17. multi-size heap/GC/allocation/load benchmarks;
+18. full repo QA/race/static checks.
 
-## 21. Security and Privacy
-
-- no upstream provider body before full request validation + assessment;
-- decode QoS still governs expensive protocol proof;
-- configured pre-preflight route authority is never skipped/reordered merely for optimization;
-- sensitive resume tokens are isolated from provider facts/telemetry;
-- spool files are short-lived secrets and may contain plaintext prompts;
-- no client Authorization/hop-by-hop header passthrough;
-- extension/hook/non-plane authority summary fails closed;
-- canonical semantic digest is treated as correlation data and does not expose request content directly;
-- backend proof is explicit and provider knowledge remains outside core.
+No production lane advertises support until its own differential certification and realistic secure-session + metering composition are green.
 
 ---
 
-## 22. Observability and Performance Evidence
+## 17. Failure Ownership Summary
 
-Bounded metrics:
+| Failure point | Result |
+| --- | --- |
+| feature/profile/static disposition unavailable | canonical, before capture |
+| known identity request length below threshold | canonical, before capture |
+| legacy full-body route resolver present | canonical, before capture |
+| spool reservation/create/write recoverably unavailable | lossless canonical continuation |
+| malformed/over-limit JSON | same canonical frontend error; no provider open |
+| decode admission rejects | same 429/503 behavior; no provider open |
+| profile proof uncertain | canonical decode under same permit |
+| assessment blocker/incompatible route domain | canonical decode under same permit |
+| assessment accept | one-way wire commit |
+| post-commit unexpected content need | internal invariant failure; clean one turn; no canonical re-execute |
+| provider pre-output failure | existing retry/failover using fresh replay reader |
+| provider failure after visible output | existing committed-stream behavior; no new failover |
 
-- considered / assessed-eligible / wire / canonical counts;
-- decline reason enum (`below_threshold`, `gzip`, `frontend_route_resolver`, `frontend_traffic`, `profile_decline`, `plane_blocker`, `hook_blocker`, `accounting_counter`, `route_domain`, `backend_wire`, `spool_budget`, etc.);
-- body-size buckets;
-- memory/file spill;
-- replay/rewrite counts;
-- capture/preflight/proof/assessment/provider-open latency;
-- active logical spool bytes.
-
-No backend/model/user/session IDs in metric labels and no body/path/resume token in telemetry.
-
-Benchmarks compare disabled canonical vs wire for 32 KiB, 256 KiB, 1 MiB, 5 MiB, and test-only 20 MiB bodies. Measure allocs/B/op, CPU, GC/heap under concurrency, file I/O, replay, malformed/late metadata, giant strings, slow uploads, and spool saturation.
-
-Measure the decode permit's additional hold across `AssessLargeBody`; it must remain bounded/pure and must never include client upload, DB/store access, spill I/O, or provider I/O.
-
-Publish realistic eligibility for:
-
-- standard secure-session recorder;
-- wire-native metering with accounting disabled;
-- accounting/billing enabled/disabled;
-- empty vs occupied typed planes and hook chains;
-- frontend/core traffic;
-- legacy full-body route-resolver absent/present;
-- route override under homogeneous same-wire vs heterogeneous backend generations;
-- sequential/fallback/race selectors.
-
-At least one normal secure-session + metering composition must hit wire execution before the feature is considered complete.
-
----
-
-## 23. Architecture Ratchets
-
-Tests/codegen fail if:
-
-- a production typed plane is unclassified;
-- a production hook/non-plane request authority is absent from wire eligibility inventory;
-- provider names/types enter core/internal large-body contracts;
-- V1 low-level replay/proof/assessment types are promoted to public SDK without explicit API/ABI review;
-- a configured legacy full-body `ResolveRouteSelector` is skipped/reordered or invoked by materializing a second whole body solely for wire eligibility;
-- protocol semantic proof runs outside decode admission;
-- assessment performs turn/store/provider side effects;
-- expected canonical fallback is added after wire commit;
-- wire code fabricates a partial Call;
-- a wire checkpoint clones/retains a full Call;
-- a wire request uses a raw-body identity in place of exact canonical stable identity;
-- backend compatibility can report success without receiving the exact profile body mode and rewrite semantics;
-- a late route authority can select outside the pre-certified domain;
-- route eligibility prunes/reorders candidates to retain wire mode;
-- post-commit wire code acquires a new unclassified full-Call dependency.
-
----
-
-## 24. Implementation Gate
-
-No production profile advertises wire support until these are green:
-
-1. canonical ingress/route-resolution/decode-admission/lifecycle/response/economic identity characterization;
-2. replay source + mid-capture continuation + shared scanner differential/fuzz suite;
-3. exact canonical identity-digest differential suite;
-4. typed plane + hook + non-plane frozen eligibility summary/ratchets;
-5. standard secure-session wire input/recorder/session-response-carrier parity;
-6. wire-native metering checkpoint path;
-7. accounting/billing disposition or exact wire contracts;
-8. two-phase assessment tests proving declines occur under the same decode permit and before `BeginTurn`;
-9. initial-route + late-route-domain backend proof tests, including exact body-mode/rewrite-contract inputs;
-10. complete post-commit Call-dependency closure;
-11. first-lane canonical-vs-wire provider/frontend/retry/cancel conformance;
-12. performance and realistic eligibility evidence.
-
-The first release remains explicit opt-in/default-off.
+This table is the implementation agent's fallback oracle.
