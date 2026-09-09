@@ -227,7 +227,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Exhaustion => canonical optimization decline, not new 413.
   - _Requirements: 1, 20, 21_
 
-- [ ] 4.2 Implement bounded RAM + secure spill
+- [x] 4.2 Implement bounded RAM + secure spill
   - Fixed/reusable copy buffer; no payload-growing `bytes.Buffer`.
   - Private unpredictable file names; restrictive permissions where supported.
   - Preserve current chunk/unwritten suffix until write succeeds.
@@ -825,3 +825,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 3.6 VERIFIED (fresh reviewer APPROVED): StaticDisposition two-state (DefinitelyCanonical vs NeedsRequestAssessment) + bounded reason, allocation-free, generation-pinned, budgets bump; largebody + archtest PASS, gofmt/diff-check clean; `-race` skipped Windows cgo limitation.
 - Task 3.7 VERIFIED (fresh reviewer APPROVED): static-disposition ratchets (Local Turn, Secret Guard, unclassified plane, canonical-only traffic, missing two-phase executor, normal eligible generation) + benchmarks (0-alloc ~11-14ns vs 4ns baseline); largebody + feature/archtest/runtime/runtimebundle suites PASS, vet/gofmt/diff-check clean; zero production diff; `-race` skipped Windows cgo limitation.
 - Task 4.1 VERIFIED (fresh reviewer APPROVED): SpoolLedger/SpoolReservation ledger with checked int64, exact-once release, exhaustion => decline not 413, no filesystem yet; largebody + budget gate PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 4.2 VERIFIED (fresh reviewer APPROVED): SpillBuffer bounded RAM + 0600 unpredictable spill, suffix preservation, reservation integration, budgets bump; largebody + archtest PASS, budget recount verified, diff-check/gofmt/vet clean; -race unavailable cgo limitation.

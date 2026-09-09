@@ -1,0 +1,606 @@
+package largebody
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+)
+
+const (
+	// DefaultCopyBufferSize is the fixed size of the reusable copy buffer (32 KiB)
+	// used for streaming I/O. It bounds copy-buffer heap allocation (Requirement 20.1).
+	DefaultCopyBufferSize = 32 * 1024
+
+	// DefaultMemorySpoolBytes is the default per-capture in-memory ceiling (64 KiB)
+	// before spilling excess request bytes to disk (Requirement 20.1).
+	DefaultMemorySpoolBytes int64 = 64 * 1024
+)
+
+// ErrSpillClosed is returned when attempting an operation on a closed SpillBuffer.
+var ErrSpillClosed = errors.New("largebody: spill buffer is closed")
+
+// ErrSpillFileCreationFailed is returned when creating a temporary spill file fails.
+var ErrSpillFileCreationFailed = errors.New("largebody: failed to create spill file")
+
+// ErrSpillWriteFailed is returned when writing to the spill file fails.
+var ErrSpillWriteFailed = errors.New("largebody: spill file write failed")
+
+// ErrInvalidSpillConfig is returned when a SpillConfig parameter violates bounds.
+var ErrInvalidSpillConfig = errors.New("largebody: invalid spill configuration")
+
+// SpillFile represents the file abstraction used for spill storage.
+// It is implemented directly by *os.File in production and can be substituted
+// for fault injection in tests (Requirement 20.10).
+type SpillFile interface {
+	io.ReadWriteCloser
+	io.Seeker
+	Sync() error
+	Name() string
+}
+
+// SpillConfig configures bounded RAM + secure spill capture
+// (Requirements 20; design section 5).
+type SpillConfig struct {
+	// SpoolDir is the directory where temporary spill files are created.
+	// If empty, the OS default temp directory is used (Requirement 20.2;
+	// config.LargePayloadFastPathConfig.EffectiveSpoolDir).
+	SpoolDir string
+
+	// MemorySpoolBytes bounds retained request bytes in Go heap before spilling
+	// excess bytes to secondary storage. If 0, all data is spilled directly to disk.
+	// Must be >= 0 (Requirement 20.1).
+	MemorySpoolBytes int64
+
+	// CopyBufferSize is the size in bytes of the fixed reusable copy buffer
+	// used for streaming reads. If <= 0, DefaultCopyBufferSize (32 KiB) is used.
+	CopyBufferSize int
+
+	// Reservation is an optional logical spool reservation used for budget
+	// accounting (Task 4.1, Requirement 20.4). If nil, no reservation ledger
+	// accounting is performed.
+	Reservation *SpoolReservation
+
+	// CreateFile optionally overrides spill file creation (for fault injection).
+	CreateFile func(dir string) (SpillFile, string, error)
+
+	// OpenFile optionally overrides opening the spill file for readers.
+	OpenFile func(path string) (io.ReadCloser, error)
+
+	// RemoveFile optionally overrides spill file deletion.
+	RemoveFile func(path string) error
+}
+
+// SpillBuffer provides bounded RAM capture with secure temporary file spill
+// (Requirements 20; design section 5).
+//
+// Invariants (Task 4.2; Requirements 20.1, 20.2, 20.6, 20.9, 20.10):
+//   - Memory retained in Go heap is bounded by configured MemorySpoolBytes plus
+//     a fixed reusable copy buffer; it never uses a payload-growing bytes.Buffer.
+//   - Excess bytes spill to an unpredictable file name (crypto/rand hex, no prompt/
+//     session/model metadata) with restrictive permissions (0600 where supported).
+//   - Preserves the current chunk/unwritten suffix if a write fails or is short,
+//     ensuring no bytes read from the client socket are discarded (Requirement 20.6).
+//   - Root Close() is idempotent and nonblocking; if readers are active, deletion
+//     is marked pending and removal occurs when tracked readers close (Requirement 20.9).
+//   - Thread-safe for concurrent read/close operations.
+type SpillBuffer struct {
+	mu sync.Mutex
+
+	spoolDir         string
+	memorySpoolBytes int64
+	copyBuf          []byte
+	reservation      *SpoolReservation
+
+	// In-memory prefix: capacity bounded by memorySpoolBytes.
+	mem []byte
+
+	// Spill file state
+	file     SpillFile
+	filePath string
+
+	bytesWritten int64
+	fileBytes    int64
+
+	// Unwritten suffix from a failed or partial write (Requirement 20.6).
+	unwrittenSuffix []byte
+
+	activeReaders int
+	deletePending bool
+	closed        bool
+
+	createFile func(dir string) (SpillFile, string, error)
+	openFile   func(path string) (io.ReadCloser, error)
+	removeFile func(path string) error
+}
+
+var _ Source = (*SpillBuffer)(nil)
+var _ io.Writer = (*SpillBuffer)(nil)
+var _ io.ReaderFrom = (*SpillBuffer)(nil)
+var _ io.Closer = (*SpillBuffer)(nil)
+
+// NewSpillBuffer validates configuration and constructs an initialized SpillBuffer.
+func NewSpillBuffer(cfg SpillConfig) (*SpillBuffer, error) {
+	if cfg.MemorySpoolBytes < 0 {
+		return nil, fmt.Errorf("%w: memory_spool_bytes must be >= 0, got %d",
+			ErrInvalidSpillConfig, cfg.MemorySpoolBytes)
+	}
+
+	memSpool := cfg.MemorySpoolBytes
+	if memSpool == 0 && cfg.Reservation != nil && cfg.Reservation.MemorySpoolBytes() > 0 {
+		memSpool = cfg.Reservation.MemorySpoolBytes()
+	}
+
+	copySize := cfg.CopyBufferSize
+	if copySize <= 0 {
+		copySize = DefaultCopyBufferSize
+	}
+
+	spoolDir := strings.TrimSpace(cfg.SpoolDir)
+	if spoolDir == "" {
+		spoolDir = os.TempDir()
+	}
+
+	createFile := cfg.CreateFile
+	if createFile == nil {
+		createFile = defaultCreateSpillFile
+	}
+	openFile := cfg.OpenFile
+	if openFile == nil {
+		openFile = defaultOpenSpillFile
+	}
+	removeFile := cfg.RemoveFile
+	if removeFile == nil {
+		removeFile = os.Remove
+	}
+
+	var mem []byte
+	if memSpool > 0 {
+		mem = make([]byte, 0, memSpool)
+	}
+
+	return &SpillBuffer{
+		spoolDir:         spoolDir,
+		memorySpoolBytes: memSpool,
+		copyBuf:          make([]byte, copySize),
+		reservation:      cfg.Reservation,
+		mem:              mem,
+		createFile:       createFile,
+		openFile:         openFile,
+		removeFile:       removeFile,
+	}, nil
+}
+
+// defaultCreateSpillFile creates an unpredictable temporary file with 0600 permissions
+// (Requirement 20.2; design section 5).
+func defaultCreateSpillFile(dir string) (SpillFile, string, error) {
+	dir = filepath.Clean(dir)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, "", fmt.Errorf("%w: failed to create spool dir %q: %v",
+			ErrSpillFileCreationFailed, dir, err)
+	}
+
+	for attempts := 0; attempts < 3; attempts++ {
+		var nonce [16]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return nil, "", fmt.Errorf("%w: crypto/rand read failure: %v",
+				ErrSpillFileCreationFailed, err)
+		}
+
+		fileName := "lip_spill_" + hex.EncodeToString(nonce[:]) + ".tmp"
+		filePath := filepath.Join(dir, fileName)
+
+		flags := os.O_RDWR | os.O_CREATE | os.O_EXCL
+		f, err := os.OpenFile(filePath, flags, 0600)
+		if err == nil {
+			return f, filePath, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, "", fmt.Errorf("%w: %v", ErrSpillFileCreationFailed, err)
+		}
+	}
+
+	return nil, "", fmt.Errorf("%w: collision after 3 attempts", ErrSpillFileCreationFailed)
+}
+
+// defaultOpenSpillFile opens an independent read-only handle to the spill file.
+func defaultOpenSpillFile(path string) (io.ReadCloser, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// Write writes p to the bounded buffer. If within MemorySpoolBytes, p is appended
+// to the in-memory buffer. Excess bytes are spilled to a secure temporary file.
+//
+// Invariants (Requirement 20.6):
+// If the write fails or is short, the unwritten portion of p is preserved in
+// UnwrittenSuffix() and can be recovered for canonical continuation.
+func (b *SpillBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.closed {
+		b.setUnwrittenSuffix(p)
+		return 0, ErrSpillClosed
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	// 1. Spool reservation accounting (Task 4.1, Requirement 20.4)
+	if b.reservation != nil {
+		reserved := b.reservation.ReservedBytes()
+		neededTotal := b.bytesWritten + int64(len(p))
+		if neededTotal > reserved {
+			need := neededTotal - reserved
+			if err := b.reservation.ReserveMore(need); err != nil {
+				b.setUnwrittenSuffix(p)
+				return 0, err
+			}
+		}
+	}
+
+	// 2. Memory vs Spill distribution
+	if b.file == nil && b.memorySpoolBytes > 0 {
+		availMem := b.memorySpoolBytes - int64(len(b.mem))
+		if int64(len(p)) <= availMem {
+			// Entire chunk fits in memory
+			b.mem = append(b.mem, p...)
+			b.bytesWritten += int64(len(p))
+			b.unwrittenSuffix = nil
+			return len(p), nil
+		}
+
+		// Fits partially in memory: fill memory first
+		if availMem > 0 {
+			b.mem = append(b.mem, p[:availMem]...)
+			b.bytesWritten += availMem
+		}
+		toSpill := p[availMem:]
+
+		// Create spill file for excess
+		f, path, err := b.createFile(b.spoolDir)
+		if err != nil {
+			b.setUnwrittenSuffix(toSpill)
+			return int(availMem), fmt.Errorf("%w: %v", ErrSpillFileCreationFailed, err)
+		}
+		b.file = f
+		b.filePath = path
+
+		// Write toSpill to file
+		nw, err := b.file.Write(toSpill)
+		if nw > 0 {
+			b.bytesWritten += int64(nw)
+			b.fileBytes += int64(nw)
+		}
+		if err != nil || nw < len(toSpill) {
+			unwritten := toSpill[nw:]
+			b.setUnwrittenSuffix(unwritten)
+			if err == nil {
+				err = io.ErrShortWrite
+			}
+			return int(availMem) + nw, fmt.Errorf("%w: %v", ErrSpillWriteFailed, err)
+		}
+
+		b.unwrittenSuffix = nil
+		return len(p), nil
+	}
+
+	// Spill directly to file (either MemorySpoolBytes == 0 or file already open)
+	if b.file == nil {
+		f, path, err := b.createFile(b.spoolDir)
+		if err != nil {
+			b.setUnwrittenSuffix(p)
+			return 0, fmt.Errorf("%w: %v", ErrSpillFileCreationFailed, err)
+		}
+		b.file = f
+		b.filePath = path
+	}
+
+	nw, err := b.file.Write(p)
+	if nw > 0 {
+		b.bytesWritten += int64(nw)
+		b.fileBytes += int64(nw)
+	}
+	if err != nil || nw < len(p) {
+		unwritten := p[nw:]
+		b.setUnwrittenSuffix(unwritten)
+		if err == nil {
+			err = io.ErrShortWrite
+		}
+		return nw, fmt.Errorf("%w: %v", ErrSpillWriteFailed, err)
+	}
+
+	b.unwrittenSuffix = nil
+	return len(p), nil
+}
+
+// ReadFrom reads from r until EOF or error using a fixed reusable copy buffer.
+// It never allocates a payload-growing buffer (Requirement 20.1).
+func (b *SpillBuffer) ReadFrom(r io.Reader) (int64, error) {
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return 0, ErrSpillClosed
+	}
+	buf := b.copyBuf
+	b.mu.Unlock()
+
+	var totalRead int64
+	for {
+		nr, rErr := r.Read(buf)
+		if nr > 0 {
+			nw, wErr := b.Write(buf[:nr])
+			totalRead += int64(nw)
+			if wErr != nil {
+				return totalRead, wErr
+			}
+		}
+		if rErr != nil {
+			if errors.Is(rErr, io.EOF) {
+				return totalRead, nil
+			}
+			return totalRead, rErr
+		}
+	}
+}
+
+// Size reports the exact captured body size in bytes (implements Source).
+func (b *SpillBuffer) Size() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.bytesWritten
+}
+
+// BytesWritten reports total committed bytes across memory and spill storage.
+func (b *SpillBuffer) BytesWritten() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.bytesWritten
+}
+
+// MemoryBytes returns the in-memory portion of the captured body.
+func (b *SpillBuffer) MemoryBytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.mem) == 0 {
+		return nil
+	}
+	out := make([]byte, len(b.mem))
+	copy(out, b.mem)
+	return out
+}
+
+// FileBytes reports the count of bytes spilled to secondary storage.
+func (b *SpillBuffer) FileBytes() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.fileBytes
+}
+
+// HasSpilled reports whether any bytes have spilled to secondary storage.
+func (b *SpillBuffer) HasSpilled() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.filePath != ""
+}
+
+// FilePath reports the spill file path, or empty string if not spilled.
+func (b *SpillBuffer) FilePath() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.filePath
+}
+
+// UnwrittenSuffix returns any unwritten portion of the last chunk from a failed
+// or short write (Requirement 20.6).
+func (b *SpillBuffer) UnwrittenSuffix() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.unwrittenSuffix) == 0 {
+		return nil
+	}
+	out := make([]byte, len(b.unwrittenSuffix))
+	copy(out, b.unwrittenSuffix)
+	return out
+}
+
+// HasUnwrittenSuffix reports whether an unwritten suffix is currently held.
+func (b *SpillBuffer) HasUnwrittenSuffix() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.unwrittenSuffix) > 0
+}
+
+// TakeUnwrittenSuffix returns the unwritten suffix and clears it from the buffer,
+// transferring ownership to the caller (e.g. for canonical continuation).
+func (b *SpillBuffer) TakeUnwrittenSuffix() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	suffix := b.unwrittenSuffix
+	b.unwrittenSuffix = nil
+	return suffix
+}
+
+func (b *SpillBuffer) setUnwrittenSuffix(p []byte) {
+	if len(p) == 0 {
+		b.unwrittenSuffix = nil
+		return
+	}
+	b.unwrittenSuffix = make([]byte, len(p))
+	copy(b.unwrittenSuffix, p)
+}
+
+// ShrinkReservation shrinks the associated logical spool reservation to the actual
+// bytes committed, returning any over-reserved budget back to the global ledger.
+func (b *SpillBuffer) ShrinkReservation() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.reservation == nil || b.closed {
+		return nil
+	}
+	return b.reservation.ShrinkTo(b.bytesWritten)
+}
+
+// Reservation returns the associated spool reservation, or nil if none.
+func (b *SpillBuffer) Reservation() *SpoolReservation {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.reservation
+}
+
+// DetachReservation releases association with the reservation and returns it,
+// transferring ownership to the caller.
+func (b *SpillBuffer) DetachReservation() *SpoolReservation {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	res := b.reservation
+	b.reservation = nil
+	return res
+}
+
+// Open returns an independent offset-zero reader over the captured body (implements Source).
+// Multiple readers can be opened concurrently and read independently.
+func (b *SpillBuffer) Open() (io.ReadCloser, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.closed {
+		return nil, ErrSpillClosed
+	}
+
+	if b.filePath == "" {
+		// All data resides in memory
+		b.activeReaders++
+		return &spillReader{
+			buf: b,
+			r:   bytes.NewReader(b.mem),
+		}, nil
+	}
+
+	// Data is partially in memory, partially spilled to file
+	if b.file != nil {
+		_ = b.file.Sync()
+	}
+
+	rc, err := b.openFile(b.filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	b.activeReaders++
+	if len(b.mem) > 0 {
+		multi := io.MultiReader(bytes.NewReader(b.mem), rc)
+		return &spillReader{
+			buf: b,
+			r:   multi,
+			f:   rc,
+		}, nil
+	}
+
+	return &spillReader{
+		buf: b,
+		r:   rc,
+		f:   rc,
+	}, nil
+}
+
+// Close releases the spill buffer (implements io.Closer and Source).
+//
+// Invariants (Requirement 20.9):
+//   - Idempotent and nonblocking.
+//   - Releases the associated spool reservation back to the ledger.
+//   - Closes the write file handle immediately.
+//   - If active readers exist, deletion is marked pending and final removal
+//     occurs when the last reader closes (Windows open-file safety).
+func (b *SpillBuffer) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.closed {
+		return nil
+	}
+	b.closed = true
+
+	if b.reservation != nil {
+		b.reservation.Release()
+	}
+
+	var closeErr error
+	if b.file != nil {
+		closeErr = b.file.Close()
+		b.file = nil
+	}
+
+	if b.filePath != "" {
+		if b.activeReaders == 0 {
+			if err := b.removeFile(b.filePath); err != nil && closeErr == nil {
+				closeErr = err
+			}
+			b.filePath = ""
+		} else {
+			b.deletePending = true
+		}
+	}
+
+	return closeErr
+}
+
+func (b *SpillBuffer) readerClosed() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.activeReaders--
+	if b.activeReaders < 0 {
+		b.activeReaders = 0
+	}
+
+	if b.deletePending && b.activeReaders == 0 && b.filePath != "" {
+		_ = b.removeFile(b.filePath)
+		b.filePath = ""
+	}
+}
+
+// String returns a bounded diagnostic representation without leaking prompt
+// content, model names, or filesystem paths (Requirement 20.3).
+func (b *SpillBuffer) String() string {
+	if b == nil {
+		return "<nil>"
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return fmt.Sprintf("SpillBuffer{written=%d, mem=%d, fileBytes=%d, spilled=%t}",
+		b.bytesWritten, len(b.mem), b.fileBytes, b.filePath != "")
+}
+
+// spillReader wraps an io.Reader and tracks reader lifetime on the parent SpillBuffer.
+type spillReader struct {
+	buf  *SpillBuffer
+	r    io.Reader
+	f    io.Closer
+	once sync.Once
+}
+
+func (s *spillReader) Read(p []byte) (int, error) {
+	return s.r.Read(p)
+}
+
+func (s *spillReader) Close() error {
+	var err error
+	s.once.Do(func() {
+		if s.f != nil {
+			err = s.f.Close()
+		}
+		s.buf.readerClosed()
+	})
+	return err
+}
