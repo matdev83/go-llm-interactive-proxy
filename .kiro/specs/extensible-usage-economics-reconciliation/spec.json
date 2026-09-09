@@ -1,7 +1,7 @@
 {
   "feature_name": "extensible-usage-economics-reconciliation",
   "created_at": "2026-09-09T15:01:04Z",
-  "updated_at": "2026-09-09T17:15:15Z",
+  "updated_at": "2026-09-09T17:53:00Z",
   "language": "en",
   "phase": "tasks-generated",
   "approvals": {
@@ -46,6 +46,7 @@
     "design_review": "passed_after_repairs",
     "brownfield_design_validation": "passed_after_repairs",
     "task_graph_and_coverage": "passed_local_check",
-    "production_tests": "not_run_spec_only"
+    "production_tests": "not_run_spec_only",
+    "external_pr_review": "passed_after_repairs"
   }
 }
