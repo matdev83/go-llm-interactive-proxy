@@ -3,15 +3,20 @@ package frontendpipe_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +26,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+var (
+	_ fmt.Stringer   = frontendpipe.ResponseContext{}
+	_ fmt.GoStringer = frontendpipe.ResponseContext{}
+	_ fmt.Formatter  = frontendpipe.ResponseContext{}
+	_ slog.LogValuer = frontendpipe.ResponseContext{}
 )
 
 type mockSource struct {
@@ -769,5 +781,685 @@ func TestResponseContext_OpenAICancellationCarrier_BoundToAuthoritativeALegAndSe
 	}
 	if canceler2.canceled.ALegID != "" {
 		t.Errorf("canceler should not be called for unbound ID")
+	}
+}
+
+type testLogSpy struct {
+	mu      sync.Mutex
+	records []string
+}
+
+func (s *testLogSpy) Enabled(context.Context, slog.Level) bool { return true }
+func (s *testLogSpy) Handle(_ context.Context, r slog.Record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var b strings.Builder
+	b.WriteString(r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		val := a.Value.Resolve()
+		b.WriteString(" ")
+		b.WriteString(a.Key)
+		b.WriteString("=")
+		b.WriteString(fmt.Sprintf("%v", val.Any()))
+		return true
+	})
+	s.records = append(s.records, b.String())
+	return nil
+}
+func (s *testLogSpy) WithAttrs(attrs []slog.Attr) slog.Handler { return s }
+func (s *testLogSpy) WithGroup(name string) slog.Handler       { return s }
+
+func (s *testLogSpy) Contains(substr string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, rec := range s.records {
+		if strings.Contains(rec, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *testLogSpy) Count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.records)
+}
+
+// TestResponseContext_SessionHeaders_ParityWithCanonical tests Requirements 14.6 and 18.2:
+// A wire-executed session returns the exact same session/resume headers as canonical execution.
+func TestResponseContext_SessionHeaders_ParityWithCanonical(t *testing.T) {
+	t.Parallel()
+
+	prof := minimalValidProofProfile()
+	proofOut, err := prof.CompileProof(context.Background(), frontendpipe.ProofInput{
+		BodyBytes: 1024,
+		Source:    &mockSource{data: []byte("test-source-data")},
+	})
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	t.Run("NewSession", func(t *testing.T) {
+		const (
+			sessID      = "sess_parity_new_1"
+			aLegID      = "aleg_parity_new_1"
+			resumeToken = "secret_resume_token_parity_new_1"
+		)
+
+		// Canonical path: sessionwire.WriteResponseCarriers from lipapi.Call
+		canonicalCall := &lipapi.Call{
+			Session: lipapi.SessionRef{
+				AuthoritativeSessionID: sessID,
+				ALegID:                 aLegID,
+				ResumeToken:            resumeToken,
+			},
+		}
+		recCanonical := httptest.NewRecorder()
+		sessionwire.WriteResponseCarriers(recCanonical, canonicalCall)
+
+		// Wire path: ResponseContext.WriteSessionHeaders
+		rc := frontendpipe.NewResponseContext(proofOut.State, largebody.ExecutionResult{
+			Stream: &mockStream{},
+			Session: largebody.SessionResponseCarrier{
+				AuthoritativeSessionID: sessID,
+				ALegID:                 aLegID,
+				ResumeToken:            largebody.NewSensitiveString(resumeToken),
+			},
+		})
+		recWire := httptest.NewRecorder()
+		rc.WriteSessionHeaders(recWire)
+
+		// Assert exact parity
+		if got, want := recWire.Header().Get(sessionwire.HeaderAuthoritativeSessionID), recCanonical.Header().Get(sessionwire.HeaderAuthoritativeSessionID); got != want || got != sessID {
+			t.Errorf("AuthoritativeSessionID header: got %q, want %q", got, want)
+		}
+		if got, want := recWire.Header().Get(sessionwire.HeaderALegID), recCanonical.Header().Get(sessionwire.HeaderALegID); got != want || got != aLegID {
+			t.Errorf("ALegID header: got %q, want %q", got, want)
+		}
+		if got, want := recWire.Header().Get(sessionwire.HeaderResumeToken), recCanonical.Header().Get(sessionwire.HeaderResumeToken); got != want || got != resumeToken {
+			t.Errorf("ResumeToken header: got %q, want %q", got, want)
+		}
+		if !reflect.DeepEqual(recWire.Header(), recCanonical.Header()) {
+			t.Errorf("Header map mismatch:\nwire:      %+v\ncanonical: %+v", recWire.Header(), recCanonical.Header())
+		}
+
+		// Also test WriteSessionHeadersTo(h)
+		h := make(http.Header)
+		rc.WriteSessionHeadersTo(h)
+		if !reflect.DeepEqual(h, recCanonical.Header()) {
+			t.Errorf("WriteSessionHeadersTo header mismatch:\ngot:  %+v\nwant: %+v", h, recCanonical.Header())
+		}
+	})
+
+	t.Run("ResumedSession", func(t *testing.T) {
+		const (
+			sessID = "sess_parity_resumed_1"
+			aLegID = "aleg_parity_resumed_1"
+		)
+
+		// Resumed session does NOT emit a new resume token
+		canonicalCall := &lipapi.Call{
+			Session: lipapi.SessionRef{
+				AuthoritativeSessionID: sessID,
+				ALegID:                 aLegID,
+				ResumeToken:            "",
+			},
+		}
+		recCanonical := httptest.NewRecorder()
+		sessionwire.WriteResponseCarriers(recCanonical, canonicalCall)
+
+		rc := frontendpipe.NewResponseContext(proofOut.State, largebody.ExecutionResult{
+			Stream: &mockStream{},
+			Session: largebody.SessionResponseCarrier{
+				AuthoritativeSessionID: sessID,
+				ALegID:                 aLegID,
+				ResumeToken:            largebody.SensitiveString{},
+			},
+		})
+		recWire := httptest.NewRecorder()
+		rc.WriteSessionHeaders(recWire)
+
+		if got, want := recWire.Header().Get(sessionwire.HeaderAuthoritativeSessionID), recCanonical.Header().Get(sessionwire.HeaderAuthoritativeSessionID); got != want || got != sessID {
+			t.Errorf("AuthoritativeSessionID header: got %q, want %q", got, want)
+		}
+		if got, want := recWire.Header().Get(sessionwire.HeaderALegID), recCanonical.Header().Get(sessionwire.HeaderALegID); got != want || got != aLegID {
+			t.Errorf("ALegID header: got %q, want %q", got, want)
+		}
+		if got := recWire.Header().Get(sessionwire.HeaderResumeToken); got != "" {
+			t.Errorf("ResumeToken header must be absent on resumed session, got %q", got)
+		}
+		if !reflect.DeepEqual(recWire.Header(), recCanonical.Header()) {
+			t.Errorf("Header map mismatch:\nwire:      %+v\ncanonical: %+v", recWire.Header(), recCanonical.Header())
+		}
+	})
+
+	t.Run("EmptySession", func(t *testing.T) {
+		canonicalCall := &lipapi.Call{}
+		recCanonical := httptest.NewRecorder()
+		sessionwire.WriteResponseCarriers(recCanonical, canonicalCall)
+
+		rc := frontendpipe.NewResponseContext(proofOut.State, largebody.ExecutionResult{
+			Stream: &mockStream{},
+		})
+		recWire := httptest.NewRecorder()
+		rc.WriteSessionHeaders(recWire)
+
+		if len(recWire.Header()) != 0 {
+			t.Errorf("expected 0 headers on empty session, got %+v", recWire.Header())
+		}
+		if !reflect.DeepEqual(recWire.Header(), recCanonical.Header()) {
+			t.Errorf("Header map mismatch on empty session:\nwire:      %+v\ncanonical: %+v", recWire.Header(), recCanonical.Header())
+		}
+	})
+}
+
+// TestResponseContext_SessionHeaders_NextRequestResumes tests Requirements 14.1, 14.6, 18.2:
+// Headers returned by a wire-executed first turn are accepted by follow-up requests,
+// which resume the session with the same session ID and A-leg ID.
+func TestResponseContext_SessionHeaders_NextRequestResumes(t *testing.T) {
+	t.Parallel()
+
+	prof := minimalValidProofProfile()
+	proofOut, err := prof.CompileProof(context.Background(), frontendpipe.ProofInput{
+		BodyBytes: 1024,
+		Source:    &mockSource{data: []byte("test-source-data")},
+	})
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	const (
+		initialSessionID = "sess_resume_e2e_001"
+		initialALegID    = "aleg_resume_e2e_001"
+		initialSecret    = "super_secret_resume_token_xyz"
+	)
+
+	// Turn 1: Wire execution of new session produces response carrier headers
+	rcTurn1 := frontendpipe.NewResponseContext(proofOut.State, largebody.ExecutionResult{
+		Stream: &mockStream{},
+		Session: largebody.SessionResponseCarrier{
+			AuthoritativeSessionID: initialSessionID,
+			ALegID:                 initialALegID,
+			ResumeToken:            largebody.NewSensitiveString(initialSecret),
+		},
+	})
+	recTurn1 := httptest.NewRecorder()
+	rcTurn1.WriteSessionHeaders(recTurn1)
+
+	sid := strings.TrimSpace(recTurn1.Header().Get(sessionwire.HeaderAuthoritativeSessionID))
+	aLeg := strings.TrimSpace(recTurn1.Header().Get(sessionwire.HeaderALegID))
+	tok := strings.TrimSpace(recTurn1.Header().Get(sessionwire.HeaderResumeToken))
+
+	if sid != initialSessionID {
+		t.Fatalf("Turn 1 session ID: got %q, want %q", sid, initialSessionID)
+	}
+	if aLeg != initialALegID {
+		t.Fatalf("Turn 1 A-leg ID: got %q, want %q", aLeg, initialALegID)
+	}
+	if tok != initialSecret {
+		t.Fatalf("Turn 1 resume token: got %q, want %q", tok, initialSecret)
+	}
+
+	// Turn 2: Follow-up request carrying the emitted session and resume headers
+	reqTurn2 := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"turn 2"}`))
+	reqTurn2.Header.Set(sessionwire.HeaderAuthoritativeSessionID, sid)
+	reqTurn2.Header.Set(sessionwire.HeaderResumeToken, tok)
+
+	// Verify canonical frontend extraction receives exact session ID and resume token
+	var canonicalRef lipapi.SessionRef
+	sessionwire.ApplyAuthoritativeHeaders(&canonicalRef, reqTurn2.Header)
+	if canonicalRef.AuthoritativeSessionID != initialSessionID {
+		t.Errorf("Canonical resume session ID: got %q, want %q", canonicalRef.AuthoritativeSessionID, initialSessionID)
+	}
+	if canonicalRef.ResumeToken != initialSecret {
+		t.Errorf("Canonical resume token: got %q, want %q", canonicalRef.ResumeToken, initialSecret)
+	}
+
+	// Verify wire frontend extraction receives exact session ID and resume token
+	wireInput, err := sessionwire.BuildSessionInput(reqTurn2.Header, nil, sessionwire.SessionInputOptions{
+		MaxFactBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("BuildSessionInput failed: %v", err)
+	}
+	if wireInput.AuthoritativeSessionID != initialSessionID {
+		t.Errorf("Wire resume session ID: got %q, want %q", wireInput.AuthoritativeSessionID, initialSessionID)
+	}
+	if wireInput.ResumeToken.Reveal() != initialSecret {
+		t.Errorf("Wire resume token: got %q, want %q", wireInput.ResumeToken.Reveal(), initialSecret)
+	}
+
+	// Turn 2 response: resumed session retains authoritative IDs and omits resume token
+	rcTurn2 := frontendpipe.NewResponseContext(proofOut.State, largebody.ExecutionResult{
+		Stream: &mockStream{},
+		Session: largebody.SessionResponseCarrier{
+			AuthoritativeSessionID: sid,
+			ALegID:                 aLeg,
+			ResumeToken:            largebody.SensitiveString{}, // empty on resume
+		},
+	})
+	recTurn2 := httptest.NewRecorder()
+	rcTurn2.WriteSessionHeaders(recTurn2)
+
+	if got := recTurn2.Header().Get(sessionwire.HeaderAuthoritativeSessionID); got != initialSessionID {
+		t.Errorf("Turn 2 AuthoritativeSessionID: got %q, want %q", got, initialSessionID)
+	}
+	if got := recTurn2.Header().Get(sessionwire.HeaderALegID); got != initialALegID {
+		t.Errorf("Turn 2 ALegID: got %q, want %q", got, initialALegID)
+	}
+	if got := recTurn2.Header().Get(sessionwire.HeaderResumeToken); got != "" {
+		t.Errorf("Turn 2 ResumeToken must not be set on resumed session, got %q", got)
+	}
+}
+
+// TestResponseContext_SensitiveToken_NeverReachesLoggingMetricsDebug tests Requirements 14.1, 14.7, 18.2, 22.2, 22.3:
+// Sensitive resume token never reaches general logging, metrics, debug formatting, or JSON/text representations.
+func TestResponseContext_SensitiveToken_NeverReachesLoggingMetricsDebug(t *testing.T) {
+	t.Parallel()
+
+	prof := minimalValidProofProfile()
+	proofOut, err := prof.CompileProof(context.Background(), frontendpipe.ProofInput{
+		BodyBytes: 1024,
+		Source:    &mockSource{data: []byte("test-source-data")},
+	})
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	const rawSecret = "super_secret_resume_token_classified_never_log_me"
+
+	tok := largebody.NewSensitiveString(rawSecret)
+	carrier := largebody.SessionResponseCarrier{
+		AuthoritativeSessionID: "sess_secret_test_001",
+		ALegID:                 "aleg_secret_test_001",
+		ResumeToken:            tok,
+	}
+	rc := frontendpipe.NewResponseContext(proofOut.State, largebody.ExecutionResult{
+		Stream:  &mockStream{},
+		Session: carrier,
+	})
+
+	t.Run("SensitiveStringRedaction", func(t *testing.T) {
+		assertNoSecret := func(label, got string) {
+			t.Helper()
+			if strings.Contains(got, rawSecret) {
+				t.Fatalf("%s leaked sensitive secret: %q", label, got)
+			}
+		}
+
+		assertNoSecret("String()", tok.String())
+		assertNoSecret("GoString()", tok.GoString())
+		assertNoSecret("fmt %v", fmt.Sprintf("%v", tok))
+		assertNoSecret("fmt %+v", fmt.Sprintf("%+v", tok))
+		assertNoSecret("fmt %#v", fmt.Sprintf("%#v", tok))
+		assertNoSecret("fmt %s", fmt.Sprintf("%s", tok))
+		assertNoSecret("fmt %q", fmt.Sprintf("%q", tok))
+
+		rawJSON, err := json.Marshal(tok)
+		if err != nil {
+			t.Fatalf("json.Marshal failed: %v", err)
+		}
+		assertNoSecret("json.Marshal", string(rawJSON))
+		if string(rawJSON) != `"[redacted]"` {
+			t.Errorf("json.Marshal: got %s, want %s", string(rawJSON), `"[redacted]"`)
+		}
+
+		rawText, err := tok.MarshalText()
+		if err != nil {
+			t.Fatalf("MarshalText failed: %v", err)
+		}
+		assertNoSecret("MarshalText", string(rawText))
+		if string(rawText) != "[redacted]" {
+			t.Errorf("MarshalText: got %s, want [redacted]", string(rawText))
+		}
+	})
+
+	t.Run("SessionResponseCarrierRedaction", func(t *testing.T) {
+		assertNoSecret := func(label, got string) {
+			t.Helper()
+			if strings.Contains(got, rawSecret) {
+				t.Fatalf("%s leaked sensitive secret: %q", label, got)
+			}
+		}
+
+		assertNoSecret("carrier.String()", carrier.String())
+		assertNoSecret("carrier.GoString()", carrier.GoString())
+		assertNoSecret("carrier %v", fmt.Sprintf("%v", carrier))
+		assertNoSecret("carrier %+v", fmt.Sprintf("%+v", carrier))
+		assertNoSecret("carrier %#v", fmt.Sprintf("%#v", carrier))
+		assertNoSecret("carrier %s", fmt.Sprintf("%s", carrier))
+
+		// Also confirm that session ID and A-leg ID do not appear in presence string
+		if strings.Contains(carrier.String(), "sess_secret_test_001") {
+			t.Errorf("carrier.String() contains session ID: %s", carrier.String())
+		}
+		if strings.Contains(carrier.String(), "aleg_secret_test_001") {
+			t.Errorf("carrier.String() contains A-leg ID: %s", carrier.String())
+		}
+	})
+
+	t.Run("ResponseContextRedaction", func(t *testing.T) {
+		assertNoSecret := func(label, got string) {
+			t.Helper()
+			if strings.Contains(got, rawSecret) {
+				t.Fatalf("%s leaked sensitive secret: %q", label, got)
+			}
+		}
+
+		// Interface conformance checks ensuring methods are load-bearing (Requirements 14.7, 18.2, 22.3)
+		if _, ok := any(rc).(fmt.Stringer); !ok {
+			t.Errorf("ResponseContext does not implement fmt.Stringer")
+		}
+		if _, ok := any(rc).(fmt.GoStringer); !ok {
+			t.Errorf("ResponseContext does not implement fmt.GoStringer")
+		}
+		if _, ok := any(rc).(fmt.Formatter); !ok {
+			t.Errorf("ResponseContext does not implement fmt.Formatter")
+		}
+		if _, ok := any(rc).(slog.LogValuer); !ok {
+			t.Errorf("ResponseContext does not implement slog.LogValuer")
+		}
+
+		wantString := fmt.Sprintf("ResponseContext{ProfileID:%q CallID:%q RouteSelector:%q ClientModel:%q EffectiveModel:%q Stream:%t Session:%s}",
+			rc.ProfileID(), rc.CallID(), rc.RouteSelector(), rc.ClientModel(), rc.EffectiveModel(), rc.IsStream(), carrier.String())
+
+		// Assert exact safe presence-only rendering on all formatting verbs (Requirements 14.7, 18.2, 22.3)
+		if got := rc.String(); got != wantString {
+			t.Errorf("rc.String():\ngot:  %s\nwant: %s", got, wantString)
+		}
+		if got := rc.GoString(); got != wantString {
+			t.Errorf("rc.GoString():\ngot:  %s\nwant: %s", got, wantString)
+		}
+		if got := fmt.Sprintf("%v", rc); got != wantString {
+			t.Errorf("rc %%v:\ngot:  %s\nwant: %s", got, wantString)
+		}
+		if got := fmt.Sprintf("%+v", rc); got != wantString {
+			t.Errorf("rc %%+v:\ngot:  %s\nwant: %s", got, wantString)
+		}
+		if got := fmt.Sprintf("%#v", rc); got != wantString {
+			t.Errorf("rc %%#v:\ngot:  %s\nwant: %s", got, wantString)
+		}
+		if got := fmt.Sprintf("%s", rc); got != wantString {
+			t.Errorf("rc %%s:\ngot:  %s\nwant: %s", got, wantString)
+		}
+		wantQuoted := fmt.Sprintf("%q", wantString)
+		if got := fmt.Sprintf("%q", rc); got != wantQuoted {
+			t.Errorf("rc %%q:\ngot:  %s\nwant: %s", got, wantQuoted)
+		}
+
+		assertNoSecret("rc.String()", rc.String())
+		assertNoSecret("rc.GoString()", rc.GoString())
+		assertNoSecret("rc %v", fmt.Sprintf("%v", rc))
+		assertNoSecret("rc %+v", fmt.Sprintf("%+v", rc))
+		assertNoSecret("rc %#v", fmt.Sprintf("%#v", rc))
+		assertNoSecret("rc %s", fmt.Sprintf("%s", rc))
+		assertNoSecret("rc %q", fmt.Sprintf("%q", rc))
+
+		// Resumed context rendering check: has_resume_token:false
+		carrierResumed := largebody.SessionResponseCarrier{
+			AuthoritativeSessionID: "sess_secret_test_001",
+			ALegID:                 "aleg_secret_test_001",
+			ResumeToken:            largebody.SensitiveString{},
+		}
+		rcResumed := frontendpipe.NewResponseContext(proofOut.State, largebody.ExecutionResult{
+			Stream:  &mockStream{},
+			Session: carrierResumed,
+		})
+		wantResumedString := fmt.Sprintf("ResponseContext{ProfileID:%q CallID:%q RouteSelector:%q ClientModel:%q EffectiveModel:%q Stream:%t Session:SessionResponseCarrier{has_session_id:true has_aleg_id:true has_resume_token:false}}",
+			rcResumed.ProfileID(), rcResumed.CallID(), rcResumed.RouteSelector(), rcResumed.ClientModel(), rcResumed.EffectiveModel(), rcResumed.IsStream())
+		if got := rcResumed.String(); got != wantResumedString {
+			t.Errorf("rcResumed.String():\ngot:  %s\nwant: %s", got, wantResumedString)
+		}
+		if got := fmt.Sprintf("%+v", rcResumed); got != wantResumedString {
+			t.Errorf("rcResumed %%+v:\ngot:  %s\nwant: %s", got, wantResumedString)
+		}
+		if !strings.Contains(rcResumed.String(), "has_resume_token:false") {
+			t.Errorf("rcResumed.String() missing has_resume_token:false: %s", rcResumed.String())
+		}
+
+		// Empty session context rendering check: has_session_id:false has_aleg_id:false has_resume_token:false
+		rcEmpty := frontendpipe.NewResponseContext(proofOut.State, largebody.ExecutionResult{
+			Stream: &mockStream{},
+		})
+		wantEmptyString := fmt.Sprintf("ResponseContext{ProfileID:%q CallID:%q RouteSelector:%q ClientModel:%q EffectiveModel:%q Stream:%t Session:SessionResponseCarrier{has_session_id:false has_aleg_id:false has_resume_token:false}}",
+			rcEmpty.ProfileID(), rcEmpty.CallID(), rcEmpty.RouteSelector(), rcEmpty.ClientModel(), rcEmpty.EffectiveModel(), rcEmpty.IsStream())
+		if got := rcEmpty.String(); got != wantEmptyString {
+			t.Errorf("rcEmpty.String():\ngot:  %s\nwant: %s", got, wantEmptyString)
+		}
+		if got := fmt.Sprintf("%+v", rcEmpty); got != wantEmptyString {
+			t.Errorf("rcEmpty %%+v:\ngot:  %s\nwant: %s", got, wantEmptyString)
+		}
+		if !strings.Contains(rcEmpty.String(), "has_resume_token:false") {
+			t.Errorf("rcEmpty.String() missing has_resume_token:false: %s", rcEmpty.String())
+		}
+	})
+
+	t.Run("StructuredLoggingNoSecret", func(t *testing.T) {
+		spy := &testLogSpy{}
+		logger := slog.New(spy)
+
+		// Direct LogValue() discrimination check (Requirements 14.7, 22.3)
+		logVal := rc.LogValue()
+		if logVal.Kind() != slog.KindGroup {
+			t.Fatalf("rc.LogValue().Kind(): got %v, want %v", logVal.Kind(), slog.KindGroup)
+		}
+		groupAttrs := logVal.Group()
+		wantAttrs := []slog.Attr{
+			slog.String("profile_id", rc.ProfileID()),
+			slog.String("call_id", rc.CallID()),
+			slog.String("route_selector", rc.RouteSelector()),
+			slog.String("client_model", rc.ClientModel()),
+			slog.String("effective_model", rc.EffectiveModel()),
+			slog.Bool("stream", rc.IsStream()),
+			slog.String("session", carrier.String()),
+		}
+		if len(groupAttrs) != len(wantAttrs) {
+			t.Fatalf("rc.LogValue().Group() len: got %d, want %d", len(groupAttrs), len(wantAttrs))
+		}
+		for i, want := range wantAttrs {
+			if groupAttrs[i].Key != want.Key || groupAttrs[i].Value.String() != want.Value.String() {
+				t.Errorf("LogValue attr[%d]: got %s=%s, want %s=%s", i, groupAttrs[i].Key, groupAttrs[i].Value, want.Key, want.Value)
+			}
+		}
+
+		logger.Info("audit turn event",
+			"response_context", rc,
+			"carrier", carrier,
+			"sensitive_token", tok,
+			"token_string", tok.String(),
+			"token_gostring", tok.GoString(),
+		)
+
+		if spy.Contains(rawSecret) {
+			t.Fatalf("structured log records leaked sensitive resume token: %+v", spy.records)
+		}
+		if spy.Count() == 0 {
+			t.Fatalf("expected at least 1 log record")
+		}
+
+		// Discriminating check: record must contain the bounded LogValue group attrs rather than only secret-absence
+		record := spy.records[0]
+		wantGroupStr := fmt.Sprintf("response_context=[profile_id=%s call_id=%s route_selector=%s client_model=%s effective_model=%s stream=%t session=%s]",
+			rc.ProfileID(), rc.CallID(), rc.RouteSelector(), rc.ClientModel(), rc.EffectiveModel(), rc.IsStream(), carrier.String())
+		if !strings.Contains(record, wantGroupStr) {
+			t.Errorf("structured log record missing expected LogValue group rendering:\ngot:  %s\nwant: %s", record, wantGroupStr)
+		}
+	})
+
+	t.Run("WriteSessionHeadersSilentNoLogging", func(t *testing.T) {
+		spy := &testLogSpy{}
+		rec := httptest.NewRecorder()
+
+		initialCount := spy.Count()
+		rc.WriteSessionHeaders(rec)
+		h := make(http.Header)
+		rc.WriteSessionHeadersTo(h)
+
+		if count := spy.Count(); count != initialCount {
+			t.Fatalf("WriteSessionHeaders generated %d log records; expected 0 (silent execution)", count-initialCount)
+		}
+	})
+
+	t.Run("WithoutSensitiveToken", func(t *testing.T) {
+		msg := "operation failed with token " + rawSecret + " in trace"
+		cleaned := sessionwire.WithoutSensitiveToken(msg, rawSecret)
+		if strings.Contains(cleaned, rawSecret) {
+			t.Fatalf("WithoutSensitiveToken failed to redact secret: %q", cleaned)
+		}
+		if !strings.Contains(cleaned, "[REDACTED]") {
+			t.Fatalf("WithoutSensitiveToken did not contain [REDACTED]: %q", cleaned)
+		}
+	})
+}
+
+// TestResponseContext_WireExecution_SessionHeadersAndRedactionE2E tests Requirement 14.6, 18.2, 22.3:
+// End-to-end wire execution via ServeHTTP returns exact session/resume headers on Turn 1,
+// resumes with the same session on Turn 2, and never leaks the resume token into body or logs.
+func TestResponseContext_WireExecution_SessionHeadersAndRedactionE2E(t *testing.T) {
+	t.Parallel()
+
+	const (
+		expectedSessID = "sess_wire_e2e_turn1"
+		expectedALegID = "aleg_wire_e2e_turn1"
+		secretToken    = "secret_wire_e2e_token_super_safe"
+	)
+
+	spy := &testLogSpy{}
+	logger := slog.New(spy)
+
+	exec := &testAssessorExecutor{}
+	exec.assessFunc = func(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
+		return makeAcceptedAssessment(proof)
+	}
+
+	var currentTurn int
+	exec.executeLargeFunc = func(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error) {
+		currentTurn++
+		carrier := largebody.SessionResponseCarrier{
+			AuthoritativeSessionID: expectedSessID,
+			ALegID:                 expectedALegID,
+		}
+		if currentTurn == 1 {
+			carrier.ResumeToken = largebody.NewSensitiveString(secretToken)
+		}
+		return largebody.ExecutionResult{
+			Stream: &mockStream{},
+			Facts: largebody.ResponseFacts{
+				RequestID:       accepted.Stamp.GenerationID(),
+				TraceID:         "trace_e2e_001",
+				ALegID:          expectedALegID,
+				SessionID:       expectedSessID,
+				Operation:       accepted.WireRequest.Operation,
+				Delivery:        accepted.WireRequest.Delivery,
+				EffectiveModel:  "gpt-4o",
+				Source:          accepted.Stamp.SourceDigest(),
+				BodyBytes:       src.Size(),
+				RewrittenLength: 100,
+			},
+			Session: carrier,
+		}, nil
+	}
+
+	spec := frontendpipe.Spec[struct{}]{
+		Config: frontendpipe.Config{
+			Exec:                 exec,
+			Log:                  logger,
+			DefaultRouteSelector: "gpt-4o",
+			MaxRequestBodyBytes:  10 * 1024 * 1024,
+			LargePayload: frontendpipe.LargePayloadConfig{
+				Enabled:        true,
+				ThresholdBytes: 1024,
+			},
+		},
+		Wire:    frontendpipe.OpenAIWire{},
+		Profile: minimalValidProofProfile(),
+		MatchPath: func(path string) (frontendpipe.PathMatch, bool) {
+			return frontendpipe.PathMatch{}, true
+		},
+		WireWriteNonStream: func(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, stream lipapi.EventStream) error {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok","session_id":"` + rc.SessionID() + `"}`))
+			return nil
+		},
+	}
+
+	// ------------------------------------------------------------------------
+	// TURN 1: Wire execution of new session
+	// ------------------------------------------------------------------------
+	payload1 := buildJSONPayload(1200 * 1024)
+	req1 := httptest.NewRequest(http.MethodPost, "/v1/create", bytes.NewReader(payload1))
+	req1.Header.Set("Content-Type", "application/json")
+	rec1 := httptest.NewRecorder()
+
+	frontendpipe.ServeHTTP(&spec, rec1, req1)
+
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("Turn 1 HTTP status = %d: %s", rec1.Code, rec1.Body.String())
+	}
+
+	gotSess1 := rec1.Header().Get(sessionwire.HeaderAuthoritativeSessionID)
+	gotALeg1 := rec1.Header().Get(sessionwire.HeaderALegID)
+	gotTok1 := rec1.Header().Get(sessionwire.HeaderResumeToken)
+
+	if gotSess1 != expectedSessID {
+		t.Errorf("Turn 1 AuthoritativeSessionID: got %q, want %q", gotSess1, expectedSessID)
+	}
+	if gotALeg1 != expectedALegID {
+		t.Errorf("Turn 1 ALegID: got %q, want %q", gotALeg1, expectedALegID)
+	}
+	if gotTok1 != secretToken {
+		t.Errorf("Turn 1 ResumeToken: got %q, want %q", gotTok1, secretToken)
+	}
+
+	// Verify response body does not contain secret token
+	if strings.Contains(rec1.Body.String(), secretToken) {
+		t.Fatalf("Turn 1 response body leaked resume token: %s", rec1.Body.String())
+	}
+
+	// Verify logs do not contain secret token
+	if spy.Contains(secretToken) {
+		t.Fatalf("Turn 1 logs leaked resume token: %+v", spy.records)
+	}
+
+	// ------------------------------------------------------------------------
+	// TURN 2: Follow-up request resumes session
+	// ------------------------------------------------------------------------
+	payload2 := buildJSONPayload(1200 * 1024)
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/create", bytes.NewReader(payload2))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set(sessionwire.HeaderAuthoritativeSessionID, gotSess1)
+	req2.Header.Set(sessionwire.HeaderResumeToken, gotTok1)
+	rec2 := httptest.NewRecorder()
+
+	frontendpipe.ServeHTTP(&spec, rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("Turn 2 HTTP status = %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	gotSess2 := rec2.Header().Get(sessionwire.HeaderAuthoritativeSessionID)
+	gotALeg2 := rec2.Header().Get(sessionwire.HeaderALegID)
+	gotTok2 := rec2.Header().Get(sessionwire.HeaderResumeToken)
+
+	if gotSess2 != expectedSessID {
+		t.Errorf("Turn 2 AuthoritativeSessionID: got %q, want %q", gotSess2, expectedSessID)
+	}
+	if gotALeg2 != expectedALegID {
+		t.Errorf("Turn 2 ALegID: got %q, want %q", gotALeg2, expectedALegID)
+	}
+	if gotTok2 != "" {
+		t.Errorf("Turn 2 ResumeToken must not be set on resumed session, got %q", gotTok2)
+	}
+
+	// Verify response body does not contain secret token
+	if strings.Contains(rec2.Body.String(), secretToken) {
+		t.Fatalf("Turn 2 response body leaked resume token: %s", rec2.Body.String())
+	}
+
+	// Verify logs do not contain secret token
+	if spy.Contains(secretToken) {
+		t.Fatalf("Turn 2 logs leaked resume token: %+v", spy.records)
 	}
 }

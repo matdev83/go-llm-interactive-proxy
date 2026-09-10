@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -295,6 +297,41 @@ func (c ResponseContext) WriteSessionHeadersTo(h http.Header) {
 		return
 	}
 	sessionwire.WriteSessionResponseCarrierHeaders(h, c.Session)
+}
+
+// String returns a safe, non-sensitive string representation of ResponseContext (Requirements 14.7, 18.2, 22.3).
+// Sensitive resume tokens are never exposed in string renderings.
+func (c ResponseContext) String() string {
+	return fmt.Sprintf("ResponseContext{ProfileID:%q CallID:%q RouteSelector:%q ClientModel:%q EffectiveModel:%q Stream:%t Session:%s}",
+		c.ProfileID(), c.CallID(), c.RouteSelector(), c.ClientModel(), c.EffectiveModel(), c.IsStream(), c.Session)
+}
+
+// GoString returns a safe Go syntax representation of ResponseContext.
+func (c ResponseContext) GoString() string {
+	return c.String()
+}
+
+// Format formats the response context safely for all verbs (%v, %+v, %#v, %s, %q).
+func (c ResponseContext) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 'q':
+		_, _ = io.WriteString(f, fmt.Sprintf("%q", c.String()))
+	default:
+		_, _ = io.WriteString(f, c.String())
+	}
+}
+
+// LogValue implements slog.LogValuer to ensure structured logging never exposes sensitive tokens (Requirements 14.7, 22.3).
+func (c ResponseContext) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("profile_id", c.ProfileID()),
+		slog.String("call_id", c.CallID()),
+		slog.String("route_selector", c.RouteSelector()),
+		slog.String("client_model", c.ClientModel()),
+		slog.String("effective_model", c.EffectiveModel()),
+		slog.Bool("stream", c.IsStream()),
+		slog.String("session", c.Session.String()),
+	)
 }
 
 // Validate validates the response context under the given semantic-fact budget.
