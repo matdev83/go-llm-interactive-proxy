@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 // DefaultMaxSemanticFactBytes is the default ceiling on profile-derived facts (256 KiB; Requirement 4, design section 3).
@@ -576,10 +577,12 @@ func replayCandidate[Opts any](
 			}
 		}
 
+		isStream := proofOut.Seeds().Stream || proofOut.Proof().Delivery == lipapi.DeliveryModeStreaming
+
 		var execRes largebody.ExecutionResult
 		var execErr error
 		if wireExec != nil {
-			execRes, execErr = wireExec.ExecuteLargeBody(ctx, assessment, capRes.Completed)
+			execRes, execErr = spec.executeLargeBody(ctx, w, wireExec, assessment, capRes.Completed, isStream)
 		} else {
 			execErr = errors.New("frontendpipe: wire executor not available for accepted assessment")
 		}
@@ -631,7 +634,7 @@ func replayCandidate[Opts any](
 			}
 		}
 
-		isStream := respCtx.IsStream()
+		isStream = respCtx.IsStream()
 		var writeErr error
 		if isStream {
 			if spec.WireWriteStream != nil {

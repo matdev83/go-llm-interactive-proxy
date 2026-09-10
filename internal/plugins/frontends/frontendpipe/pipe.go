@@ -182,6 +182,23 @@ func (c Config) execute(ctx context.Context, w http.ResponseWriter, call *lipapi
 	})
 }
 
+func (c Config) executeLargeBody(
+	ctx context.Context,
+	w http.ResponseWriter,
+	wireExec largebody.LargeBodyWireExecutor,
+	assessment largebody.Assessment,
+	src largebody.Source,
+	stream bool,
+) (largebody.ExecutionResult, error) {
+	if !stream {
+		return wireExec.ExecuteLargeBody(ctx, assessment, src)
+	}
+	hcfg := holdalive.Config{Enabled: c.PreRequestKeepalive.Enabled, Interval: c.PreRequestKeepalive.Interval}
+	return holdalive.Wait(ctx, w, hcfg, func(ctx context.Context) (largebody.ExecutionResult, error) {
+		return wireExec.ExecuteLargeBody(ctx, assessment, src)
+	})
+}
+
 // ServeHTTP runs the shared decode → execute → encode pipeline.
 func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
