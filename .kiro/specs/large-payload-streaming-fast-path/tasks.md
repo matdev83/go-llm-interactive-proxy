@@ -475,7 +475,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Measure assessment duration under held decode permit.
   - _Requirements: 6, 21, 22_
 
-- [ ] 11.3 Consume frozen authority summary + current dependency census
+- [x] 11.3 Consume frozen authority summary + current dependency census
   - Verify all typed planes/hooks/non-plane ports/callbacks are wire-safe or blockers.
   - Unknown => decline.
   - Re-check static summary defensively; do not redo hot-path reflection/census.
@@ -859,3 +859,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 10.5 VERIFIED (review subagent APPROVED): stock billing/exposure on bounded facts with shared exact credit/identity/closure helpers, WireBounded identity contract with custom-callback blockers, adapter bounded fallbacks, exactly-once post-commit reservation/settlement, shared account-fallback helper + comment fix; runtime + billing + compose + admission suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.1 VERIFIED (review subagent APPROVED): split LargeBodyAssessor/WireExecutor ports with bare-Proof assessment, opaque generation-bound stamp + bounded facts Assessment with strict Validate + constructors, generation binding moved assessor-side, public ExecutorView untouched; largebody + frontendpipe + archtest suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.2 VERIFIED (review subagent APPROVED): fail-closed panic sentinel harness for all 8 side-effect surfaces + held-permit duration measurement with ceiling and single-decision enforcement, test-only, no production change; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 11.3 VERIFIED (re-review subagent APPROVED after empty-generation fail-open fix): authority assessment gate over frozen summary + census with unknown=>decline, defensive sealed/pinned/blocker recheck, manifest round-trip parity, no hot-path reflection, sentinel-untouched; empty-generation regression test added; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
