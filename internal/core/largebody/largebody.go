@@ -636,6 +636,8 @@ const (
 	DeclineReasonCountingUnsupported
 	// DeclineReasonGenerationMismatch means execution disagrees with the stamp.
 	DeclineReasonGenerationMismatch
+	// DeclineReasonCanceled means assessment observed a canceled context.
+	DeclineReasonCanceled
 )
 
 // String returns a bounded static label for metrics/diagnostics.
@@ -661,6 +663,8 @@ func (r DeclineReason) String() string {
 		return "counting_unsupported"
 	case DeclineReasonGenerationMismatch:
 		return "generation_mismatch"
+	case DeclineReasonCanceled:
+		return "canceled"
 	default:
 		return "unknown"
 	}

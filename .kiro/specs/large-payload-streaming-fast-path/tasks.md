@@ -481,7 +481,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Re-check static summary defensively; do not redo hot-path reflection/census.
   - _Requirements: 5, 13, 14, 15, 19_
 
-- [ ] 11.4 Prove exact initial route candidate set
+- [x] 11.4 Prove exact initial route candidate set
   - Reuse current alias/default backend/execution composition/native model rules.
   - Preserve sequential/fallback/weighted/race candidate order and membership exactly.
   - Do not prune incompatible candidates: any possible incompatible candidate declines the whole wire request.
@@ -860,3 +860,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 11.1 VERIFIED (review subagent APPROVED): split LargeBodyAssessor/WireExecutor ports with bare-Proof assessment, opaque generation-bound stamp + bounded facts Assessment with strict Validate + constructors, generation binding moved assessor-side, public ExecutorView untouched; largebody + frontendpipe + archtest suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.2 VERIFIED (review subagent APPROVED): fail-closed panic sentinel harness for all 8 side-effect surfaces + held-permit duration measurement with ceiling and single-decision enforcement, test-only, no production change; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.3 VERIFIED (re-review subagent APPROVED after empty-generation fail-open fix): authority assessment gate over frozen summary + census with unknown=>decline, defensive sealed/pinned/blocker recheck, manifest round-trip parity, no hot-path reflection, sentinel-untouched; empty-generation regression test added; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 11.4 VERIFIED (re-review subagent APPROVED after thinker-role fix): exact initial candidate set via canonical composition reuse with planner-identical thinker/executor role+key tagging, whole-request decline on any incompatibility without pruning, DeclineReasonCanceled taxonomy addition; routing + largebody suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
