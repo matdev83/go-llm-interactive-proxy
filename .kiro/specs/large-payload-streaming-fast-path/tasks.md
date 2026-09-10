@@ -560,7 +560,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 13. No custom miniature executor
 
-- [ ] 13.1 Cross one-way commit and begin one logical turn
+- [x] 13.1 Cross one-way commit and begin one logical turn
   - Validate assessment stamp/source ownership.
   - Perform wire secure-session preparation and exactly one `BeginTurn`/A-leg lifecycle.
   - Read live route override only now, constrained to assessed domain.
@@ -872,3 +872,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 12.4 VERIFIED (review subagent APPROVED): Local Turn + Secret Guard non-negotiable canonical blockers with compile-time static bits, assessment-time census decline, anti-tamper weakened-access proofs, SDK declaration pinning; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 12.5 VERIFIED (review subagent APPROVED): terminal-decision default-block via exact-ID + census + substring triple coverage with anti-tamper proofs, no DecisionContinue semantic change; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 12.6 VERIFIED (review subagent APPROVED): type/dataflow archtest boundary (go/packages+go/types, rename-resistant) with explicit whitelists wired into all scans, RED mutations proven, no body-double for legacy resolver; archtest + runtime + frontendpipe suites PASS, vet/gofmt clean; -race unavailable cgo limitation; full-suite archtest failures pre-existing at base.
+- Task 13.1 VERIFIED (review subagent APPROVED): one-way wire commit with stamp/source validation, shared prep + single BeginTurn/A-leg, domain-constrained live override, shared authority/economic admission with release discipline, authoritative response/session facts, no Execute fallback; runtime + largebody suites PASS, vet/gofmt clean; -race unavailable cgo limitation; carry to 13.2/13.3: propagate admitted BillingCallID, body-size request exposure, mandatory per-request WireIdentity, consume BindSession view.

@@ -1,6 +1,7 @@
 package largebody
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -155,4 +156,61 @@ func SessionInputFromRef(ref lipapi.SessionRef) SessionInput {
 		ResumeToken:            NewSensitiveString(resume),
 		NewSessionRequested:    authID == "" && resume == "",
 	}
+}
+
+type (
+	wireSessionCtxKey   struct{}
+	wireTurnShapeCtxKey struct{}
+	wireIdentityCtxKey  struct{}
+)
+
+// WireIdentity carries logical RequestID and TraceID for wire execution.
+type WireIdentity struct {
+	RequestID string
+	TraceID   string
+}
+
+// WithWireIdentity attaches a WireIdentity to ctx for wire execution.
+func WithWireIdentity(ctx context.Context, requestID, traceID string) context.Context {
+	return context.WithValue(ctx, wireIdentityCtxKey{}, WireIdentity{
+		RequestID: requestID,
+		TraceID:   traceID,
+	})
+}
+
+// WireIdentityFromContext extracts WireIdentity from ctx if attached.
+func WireIdentityFromContext(ctx context.Context) (WireIdentity, bool) {
+	if ctx == nil {
+		return WireIdentity{}, false
+	}
+	id, ok := ctx.Value(wireIdentityCtxKey{}).(WireIdentity)
+	return id, ok
+}
+
+// WithWireSessionInput attaches a bounded SessionInput to ctx for wire execution (Requirement 14).
+func WithWireSessionInput(ctx context.Context, in SessionInput) context.Context {
+	return context.WithValue(ctx, wireSessionCtxKey{}, in)
+}
+
+// WireSessionInputFromContext extracts SessionInput from ctx if attached.
+func WireSessionInputFromContext(ctx context.Context) (SessionInput, bool) {
+	if ctx == nil {
+		return SessionInput{}, false
+	}
+	in, ok := ctx.Value(wireSessionCtxKey{}).(SessionInput)
+	return in, ok
+}
+
+// WithWireClientTurnShape attaches a ClientTurnShape to ctx for wire execution (Requirement 14).
+func WithWireClientTurnShape(ctx context.Context, shape ClientTurnShape) context.Context {
+	return context.WithValue(ctx, wireTurnShapeCtxKey{}, shape)
+}
+
+// WireClientTurnShapeFromContext extracts ClientTurnShape from ctx if attached.
+func WireClientTurnShapeFromContext(ctx context.Context) (ClientTurnShape, bool) {
+	if ctx == nil {
+		return ClientTurnShape{}, false
+	}
+	shape, ok := ctx.Value(wireTurnShapeCtxKey{}).(ClientTurnShape)
+	return shape, ok
 }

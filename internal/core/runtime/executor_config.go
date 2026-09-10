@@ -96,6 +96,10 @@ type CoreRuntime struct {
 	ConversationViewTagger ConversationViewTagger
 	// SteeringWriterFactory constructs an authoritative steering writer for a given A-leg.
 	SteeringWriterFactory SteeringWriterFactory
+	// LargeBodyGenerationID is the optional generation identity for largebody execution validation.
+	LargeBodyGenerationID string
+	// LargeBodyCandidateDomainGeneration is the optional generation identity for late-route proof validation.
+	LargeBodyCandidateDomainGeneration string
 }
 
 // ConversationViewObserver is optional narrow diagnostics for bounded conversation-view
