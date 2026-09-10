@@ -410,7 +410,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - `BeginTurn` still happens only after wire commit.
   - _Requirements: 6, 14, 19_
 
-- [ ] 9.3 Add bounded recorder input from `ClientTurnShape`
+- [x] 9.3 Add bounded recorder input from `ClientTurnShape`
   - Match canonical normalized item/part role/ordinal/kind semantics without prompt text.
   - Semantic-fact budget overflow => pre-commit canonical.
   - Differential tests canonical vs wire recorder input.
@@ -850,3 +850,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 8.5 VERIFIED (review subagent APPROVED): backend-owned outbound headers, auth/session/framing stripping with Connection-token awareness, exact rewritten Content-Length, cleared trailers, shared-client HTTP/1.1+HTTP/2/cancel/reuse/redirect conformance; openaicompat suite PASS, vet/gofmt clean; dead redirect probe variable removed; -race unavailable cgo limitation.
 - Task 9.1 VERIFIED (review subagent APPROVED): exact bounded SessionInput with header-over-body precedence, fail-closed body-metadata rejection, SensitiveString resume wrapping with String/GoString/Format/LogValue/JSON redaction, no session/token fields in backend facts; largebody + sessionwire suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 9.2 VERIFIED (review subagent APPROVED): shared fact-based PrepareSecureSession/PreparedSecureSession seam, BeginTurn strictly post-commit via ExecuteBeginTurn, canonical parity + no-early-turn + resume/denial + workspace fail-closed proofs, dead helper removed; runtime suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 9.3 VERIFIED (review subagent APPROVED): bounded ClientTurnShape recorder input with canonical NormalizedItems parity, no prompt-text retention, budget overflow => ErrSemanticFactBudgetExceeded pre-commit canonical; largebody + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.

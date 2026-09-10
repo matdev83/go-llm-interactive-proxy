@@ -175,6 +175,57 @@ func (p *PreparedSecureSession) ResponseCarrier(br app.BeginResult) largebody.Se
 	}
 }
 
+// RecordClientTurnWithShape records accepted client turn facts directly from
+// a bounded ClientTurnShape without prompt text materialization (Requirements 14.3, 14.5).
+// Semantic-fact budget overflow returns an error wrapping largebody.ErrSemanticFactBudgetExceeded
+// so the caller can trigger pre-commit canonical fallback (Requirement 14.4).
+func (p *PreparedSecureSession) RecordClientTurnWithShape(
+	ctx context.Context,
+	br app.BeginResult,
+	shape largebody.ClientTurnShape,
+	maxFactBytes int64,
+) error {
+	if p == nil || p.executor == nil {
+		return fmt.Errorf("executor: executor is required")
+	}
+	in, err := BuildClientTurnRecordInputFromShape(p.executor.now(), p.traceID, br, shape, maxFactBytes)
+	if err != nil {
+		return err
+	}
+	if p.executor.SecureSessionRecorder == nil {
+		return nil
+	}
+	execCtx := p.outCtx
+	if ctx != nil {
+		execCtx = ctx
+	}
+	if err := p.executor.SecureSessionRecorder.RecordClientTurnAfterGate(execCtx, in); err != nil {
+		if p.executor.SecureSessionMetrics != nil {
+			p.executor.SecureSessionMetrics.ObserveRecorderClientTurnFailed(p.executor.SecureSessionRecordingMandatory)
+		}
+		if p.executor.SecureSessionRecordingMandatory {
+			return fmt.Errorf("executor: secure session recording: %w", err)
+		}
+		if p.executor.Log != nil {
+			p.executor.Log.DebugContext(execCtx, "secure_session recorder client turn", "error", err)
+		}
+	}
+	return nil
+}
+
+// BuildClientTurnRecordInput builds an app.ClientTurnRecordInput from this prepared session
+// and a ClientTurnShape under maxFactBytes without materializing prompt text (Requirements 14.3, 14.5).
+func (p *PreparedSecureSession) BuildClientTurnRecordInput(
+	br app.BeginResult,
+	shape largebody.ClientTurnShape,
+	maxFactBytes int64,
+) (app.ClientTurnRecordInput, error) {
+	if p == nil || p.executor == nil {
+		return app.ClientTurnRecordInput{}, fmt.Errorf("executor: executor is required")
+	}
+	return BuildClientTurnRecordInputFromShape(p.executor.now(), p.traceID, br, shape, maxFactBytes)
+}
+
 // PrepareSecureSession prepares fact-based inputs for secure-session execution.
 // It executes scope resolution, session openers, and workspace resolution, but
 // strictly DOES NOT call BeginTurn or mutate session/store state (Requirements 6.2, 14.1, 19).

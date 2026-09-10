@@ -359,20 +359,33 @@ func (it ClientTurnItemShape) Validate(maxFactBytes int64) error {
 	default:
 		return fmt.Errorf("largebody: unknown turn item kind %q", string(it.Kind))
 	}
-	switch it.Role {
-	case lipapi.RoleSystem,
-		lipapi.RoleDeveloper,
-		lipapi.RoleUser,
-		lipapi.RoleAssistant,
-		lipapi.RoleTool:
-	default:
-		return fmt.Errorf("largebody: unknown turn role %q", string(it.Role))
+	if it.Kind == lipapi.ItemKindMessage {
+		switch it.Role {
+		case lipapi.RoleSystem,
+			lipapi.RoleDeveloper,
+			lipapi.RoleUser,
+			lipapi.RoleAssistant,
+			lipapi.RoleTool:
+		default:
+			return fmt.Errorf("largebody: unknown turn role %q", string(it.Role))
+		}
+	} else if it.Role != "" {
+		switch it.Role {
+		case lipapi.RoleSystem,
+			lipapi.RoleDeveloper,
+			lipapi.RoleUser,
+			lipapi.RoleAssistant,
+			lipapi.RoleTool,
+			lipapi.Role(it.Kind):
+		default:
+			return fmt.Errorf("largebody: unknown turn role %q", string(it.Role))
+		}
 	}
 	if it.Ordinal < 0 {
 		return fmt.Errorf("largebody: turn ordinal must be >= 0, got %d", it.Ordinal)
 	}
 	if int64(len(it.Parts)) > maxFactBytes {
-		return fmt.Errorf("largebody: turn part count exceeds %d", maxFactBytes)
+		return fmt.Errorf("%w: turn part count (%d) exceeds budget %d", ErrSemanticFactBudgetExceeded, len(it.Parts), maxFactBytes)
 	}
 	for i := range it.Parts {
 		if err := it.Parts[i].Validate(); err != nil {
@@ -400,7 +413,10 @@ func (s ClientTurnShape) Validate(maxFactBytes int64) error {
 		return fmt.Errorf("largebody: total content bytes must be >= 0, got %d", s.TotalContentBytes)
 	}
 	if int64(len(s.Items)) > maxFactBytes {
-		return fmt.Errorf("largebody: turn item count exceeds %d", maxFactBytes)
+		return fmt.Errorf("%w: turn item count (%d) exceeds budget %d", ErrSemanticFactBudgetExceeded, len(s.Items), maxFactBytes)
+	}
+	if s.MetadataBytes() > maxFactBytes {
+		return fmt.Errorf("%w: turn metadata bytes (%d) exceeds budget %d", ErrSemanticFactBudgetExceeded, s.MetadataBytes(), maxFactBytes)
 	}
 	for i := range s.Items {
 		if err := s.Items[i].Validate(maxFactBytes); err != nil {
