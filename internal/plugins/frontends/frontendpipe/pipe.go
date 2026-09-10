@@ -116,6 +116,12 @@ type Spec[Opts any] struct {
 	BuildEncodeOpts      func(decoded *Decoded) Opts
 	WriteStream          func(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts Opts) error
 	WriteNonStream       func(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts Opts) error
+	// WireWrapStream optionally wraps the canonical event stream on wire execution using bounded ResponseContext (Requirement 18.4).
+	WireWrapStream func(ctx context.Context, rc ResponseContext, inner lipapi.EventStream) (lipapi.EventStream, error)
+	// WireWriteStream writes streaming responses on wire execution using bounded ResponseContext (Requirement 18.4).
+	WireWriteStream func(ctx context.Context, w http.ResponseWriter, rc ResponseContext, es lipapi.EventStream) error
+	// WireWriteNonStream writes non-streaming responses on wire execution using bounded ResponseContext (Requirement 18.4).
+	WireWriteNonStream func(ctx context.Context, w http.ResponseWriter, rc ResponseContext, es lipapi.EventStream) error
 	// RouteFromBodyModel defaults route selector from JSON model field when header absent.
 	RouteFromBodyModel bool
 }

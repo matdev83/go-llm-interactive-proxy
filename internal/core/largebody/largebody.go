@@ -1170,6 +1170,11 @@ type ExecutionResult struct {
 	Session SessionResponseCarrier
 }
 
+// ResponseFacts returns the bounded provider-neutral response facts (Requirement 18.2).
+func (r ExecutionResult) ResponseFacts() ResponseFacts {
+	return r.Facts
+}
+
 // Validate requires the canonical stream and valid bounded facts.
 func (r ExecutionResult) Validate(maxFactBytes int64) error {
 	if err := checkBudget(maxFactBytes); err != nil {

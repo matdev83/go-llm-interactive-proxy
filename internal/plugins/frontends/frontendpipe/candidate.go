@@ -585,12 +585,15 @@ func replayCandidate[Opts any](
 		}
 		wireCommitted = true
 
+		respCtx := NewResponseContext(proofOut.State, execRes)
+
 		if spec.OnWireCommit != nil {
 			spec.OnWireCommit(r, WireCommitResult{
-				Assessment: assessment,
-				Result:     execRes,
-				PermitHeld: !released,
-				Err:        execErr,
+				Assessment:      assessment,
+				Result:          execRes,
+				ResponseContext: respCtx,
+				PermitHeld:      !released,
+				Err:             execErr,
 			})
 		}
 
@@ -610,6 +613,44 @@ func replayCandidate[Opts any](
 			}()
 		}
 		_ = capRes.Completed.Close()
+
+		// Task 14.1: Write sensitive session carrier headers to response (Requirement 14.6, 18.2).
+		respCtx.WriteSessionHeaders(w)
+
+		es := execRes.Stream
+		if spec.WireWrapStream != nil {
+			var wrapErr error
+			es, wrapErr = spec.WireWrapStream(ctx, respCtx, es)
+			if wrapErr != nil {
+				out := classifyExecute(spec, wrapErr)
+				if out.Kind == execerr.KindInternalError && spec.Log != nil && out.Err != nil {
+					diag.LogError(ctx, spec.Log, "wire stream wrap failed", diag.AttrOpts{CallID: respCtx.CallID()}, out.Err)
+				}
+				spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecuteError(w, out))
+				return nil, nil, false, nil
+			}
+		}
+
+		isStream := respCtx.IsStream()
+		var writeErr error
+		if isStream {
+			if spec.WireWriteStream != nil {
+				writeErr = spec.WireWriteStream(ctx, w, respCtx, es)
+			}
+		} else {
+			if spec.WireWriteNonStream != nil {
+				writeErr = spec.WireWriteNonStream(ctx, w, respCtx, es)
+			}
+		}
+		if writeErr != nil {
+			if spec.Log != nil {
+				diag.LogError(ctx, spec.Log, "wire response encode failed", diag.AttrOpts{CallID: respCtx.CallID()}, writeErr)
+			}
+			if !isStream {
+				spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteEncodeFailed(w))
+			}
+			return nil, nil, false, nil
+		}
 
 		if w.Header().Get("Content-Type") == "" {
 			w.WriteHeader(http.StatusOK)

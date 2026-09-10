@@ -80,6 +80,8 @@ type WireCommitResult struct {
 	Assessment largebody.Assessment
 	// Result is the outcome returned by LargeBodyWireExecutor.ExecuteLargeBody.
 	Result largebody.ExecutionResult
+	// ResponseContext is the bounded frontend response context constructed on wire execution (Task 14.1).
+	ResponseContext ResponseContext
 	// PermitHeld reports whether the decode-admission permit was held during ExecuteLargeBody (must be false).
 	PermitHeld bool
 	// Err is any error returned by ExecuteLargeBody.
