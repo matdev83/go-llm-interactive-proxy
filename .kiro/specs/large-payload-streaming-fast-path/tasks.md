@@ -547,7 +547,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - If implementation chooses to support it, it must prove bounded terminal evidence **and** continuation reconstruction from approved source/bounded facts, with full differential tests. Do not support only `DecisionStop` while silently changing potential `DecisionContinue` semantics unless provider capability is statically constrained to stop-only and certified.
   - _Requirements: 5, 13, 19_
 
-- [ ] 12.6 Replace stale textual ratchet with real architecture boundary
+- [x] 12.6 Replace stale textual ratchet with real architecture boundary
   - Wire post-commit packages/functions must not accept/dereference `lipapi.Call`, `*lipapi.Call`, or invoke `lipapi.CloneCall` except explicitly whitelisted response-only adapters.
   - Catch `prep.call`, ingress/baseline/terminal clones and future renames through type/import/dataflow-oriented tests, not grep for `preparedRequest.call`.
   - Frontend candidate code cannot materialize a second whole body solely for legacy route resolver.
@@ -871,3 +871,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 12.3 VERIFIED (review subagent APPROVED): metadata-only bounded views, content/trajectory blockers, response-only on canonical events, census additions, wire response-evidence helper (production wiring deferred; secure-turn/identity-fallback gaps recorded for 12.4/14); largebody + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 12.4 VERIFIED (review subagent APPROVED): Local Turn + Secret Guard non-negotiable canonical blockers with compile-time static bits, assessment-time census decline, anti-tamper weakened-access proofs, SDK declaration pinning; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 12.5 VERIFIED (review subagent APPROVED): terminal-decision default-block via exact-ID + census + substring triple coverage with anti-tamper proofs, no DecisionContinue semantic change; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 12.6 VERIFIED (review subagent APPROVED): type/dataflow archtest boundary (go/packages+go/types, rename-resistant) with explicit whitelists wired into all scans, RED mutations proven, no body-double for legacy resolver; archtest + runtime + frontendpipe suites PASS, vet/gofmt clean; -race unavailable cgo limitation; full-suite archtest failures pre-existing at base.
