@@ -80,6 +80,7 @@ func (c BoundedRouteDomainContract) ToWireDomainFacts(proof Proof) WireDomainFac
 		Operation:       proof.Operation,
 		Delivery:        proof.Delivery,
 		BodyMode:        proof.Mode,
+		Rewrite:         proof.Rewrite,
 		UniversalModel:  c.UniversalModel,
 		CandidateModels: models,
 	}
@@ -211,6 +212,47 @@ func NewLateSelectorAssessmentGate(
 		gate.KnownBackends = val.KnownBackends
 	}
 	return gate
+}
+
+// CandidateBackends returns the sorted set of all backend IDs targeted by
+// configured certified late selector authorities.
+func (g *LateSelectorAssessmentGate) CandidateBackends() []string {
+	if g == nil {
+		return nil
+	}
+	backendMap := make(map[string]struct{})
+	for _, p := range g.RouteHints {
+		if auth, ok := p.(BoundedRouteDomainAuthority); ok {
+			if contract, valid := auth.BoundedRouteDomainContract(); valid {
+				for _, be := range contract.TargetBackends {
+					backendMap[be] = struct{}{}
+				}
+			}
+		}
+	}
+	for _, r := range g.RouteHintAuthorities {
+		if !r.HasFullCallAccess && r.Contract != nil {
+			for _, be := range r.Contract.TargetBackends {
+				backendMap[be] = struct{}{}
+			}
+		}
+	}
+	for _, m := range g.SelectorMutators {
+		if !m.HasFullCallAccess && m.Contract != nil {
+			for _, be := range m.Contract.TargetBackends {
+				backendMap[be] = struct{}{}
+			}
+		}
+	}
+	if len(backendMap) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(backendMap))
+	for be := range backendMap {
+		result = append(result, be)
+	}
+	sort.Strings(result)
+	return result
 }
 
 // Evaluate evaluates all configured route hints and selector mutators.
@@ -373,6 +415,7 @@ func (g *LateSelectorAssessmentGate) Evaluate(ctx context.Context, proof Proof) 
 		Operation:       proof.Operation,
 		Delivery:        proof.Delivery,
 		BodyMode:        proof.Mode,
+		Rewrite:         proof.Rewrite,
 		UniversalModel:  universalModel,
 		CandidateModels: allTargetModels,
 	}
@@ -419,8 +462,16 @@ func unionWireDomainFacts(ctx context.Context, a, b WireDomainFacts) (WireDomain
 	if b.ProfileID == "" {
 		return a, DeclineReasonNone, true
 	}
+	if a.Rewrite != b.Rewrite {
+		// Rewrite contracts must match exactly: the zero value is certified
+		// no-rewrite, so any difference (including unset vs certified) declines
+		// rather than silently adopting the other side's contract.
+		return WireDomainFacts{}, DeclineReasonProofUncertain, false
+	}
+	rewrite := a.Rewrite
 	if a.UniversalModel && b.UniversalModel {
 		out := a
+		out.Rewrite = rewrite
 		out.CandidateModels = nil
 		return out, DeclineReasonNone, true
 	}
@@ -432,6 +483,7 @@ func unionWireDomainFacts(ctx context.Context, a, b WireDomainFacts) (WireDomain
 		return WireDomainFacts{}, DeclineReasonProofUncertain, false
 	}
 	out := a
+	out.Rewrite = rewrite
 	out.CandidateModels = models
 	return out, DeclineReasonNone, true
 }
@@ -466,11 +518,26 @@ func (a *LateSelectorAssessor) AssessLargeBody(ctx context.Context, proof Proof)
 		return NewDeclinedAssessment(DeclineReasonProofUncertain)
 	}
 
+	wireReq := a.AcceptWireReq
+
 	// 1. Initial route candidate set evaluation (if configured)
 	if a.InitialGate != nil {
-		decision, reason, _ := a.InitialGate.Evaluate(ctx, proof)
+		decision, reason, cands := a.InitialGate.Evaluate(ctx, proof)
 		if decision == AssessmentDecisionDecline {
 			return NewDeclinedAssessment(reason)
+		}
+		if wireReq.ProfileID == "" && len(cands) > 0 {
+			candModel := cands[0].Primary.WireModel()
+			wireReq = WireRequestFacts{
+				ProfileID:       proof.ProfileID,
+				Operation:       proof.Operation,
+				Delivery:        proof.Delivery,
+				BodyMode:        proof.Mode,
+				Rewrite:         proof.Rewrite,
+				ClientModel:     proof.ClientModel,
+				CandidateModel:  candModel,
+				MaxOutputTokens: proof.MaxOutputTokens,
+			}
 		}
 	}
 
@@ -505,7 +572,7 @@ func (a *LateSelectorAssessor) AssessLargeBody(ctx context.Context, proof Proof)
 		return NewDeclinedAssessment(DeclineReasonProofUncertain)
 	}
 
-	accepted, err := NewAcceptedAssessment(a.AcceptStamp, a.AcceptWireReq, domainFacts)
+	accepted, err := NewAcceptedAssessment(a.AcceptStamp, wireReq, domainFacts)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("largebody: accepted assessment construction failed: %w", err)
 	}

@@ -916,6 +916,7 @@ type WireDomainFacts struct {
 	Operation       lipapi.Operation
 	Delivery        lipapi.DeliveryMode
 	BodyMode        BodyMode
+	Rewrite         RewriteSemantics
 	UniversalModel  bool
 	CandidateModels []string
 }
@@ -937,6 +938,9 @@ func (f WireDomainFacts) Validate(maxFactBytes int64) error {
 		return fmt.Errorf("largebody: wire domain delivery mode %q is unknown", string(f.Delivery))
 	}
 	if err := f.BodyMode.Validate(); err != nil {
+		return err
+	}
+	if err := f.Rewrite.Validate(); err != nil {
 		return err
 	}
 	if int64(len(f.ProfileID)) > maxFactBytes || int64(len(f.Operation)) > maxFactBytes {

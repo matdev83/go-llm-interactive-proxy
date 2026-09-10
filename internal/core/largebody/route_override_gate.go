@@ -125,6 +125,7 @@ func (g *RouteOverrideAssessmentGate) Evaluate(ctx context.Context, proof Proof)
 		Operation:       proof.Operation,
 		Delivery:        proof.Delivery,
 		BodyMode:        proof.Mode,
+		Rewrite:         proof.Rewrite,
 		UniversalModel:  isUniversal,
 		CandidateModels: g.CandidateModels,
 	}
@@ -193,11 +194,26 @@ func (a *RouteOverrideAssessor) AssessLargeBody(ctx context.Context, proof Proof
 		return NewDeclinedAssessment(DeclineReasonProofUncertain)
 	}
 
+	wireReq := a.AcceptWireReq
+
 	// 1. Initial route candidate set evaluation (if configured)
 	if a.InitialGate != nil {
-		decision, reason, _ := a.InitialGate.Evaluate(ctx, proof)
+		decision, reason, cands := a.InitialGate.Evaluate(ctx, proof)
 		if decision == AssessmentDecisionDecline {
 			return NewDeclinedAssessment(reason)
+		}
+		if wireReq.ProfileID == "" && len(cands) > 0 {
+			candModel := cands[0].Primary.WireModel()
+			wireReq = WireRequestFacts{
+				ProfileID:       proof.ProfileID,
+				Operation:       proof.Operation,
+				Delivery:        proof.Delivery,
+				BodyMode:        proof.Mode,
+				Rewrite:         proof.Rewrite,
+				ClientModel:     proof.ClientModel,
+				CandidateModel:  candModel,
+				MaxOutputTokens: proof.MaxOutputTokens,
+			}
 		}
 	}
 
@@ -226,7 +242,7 @@ func (a *RouteOverrideAssessor) AssessLargeBody(ctx context.Context, proof Proof
 		return NewDeclinedAssessment(DeclineReasonProofUncertain)
 	}
 
-	accepted, err := NewAcceptedAssessment(a.AcceptStamp, a.AcceptWireReq, domainFacts)
+	accepted, err := NewAcceptedAssessment(a.AcceptStamp, wireReq, domainFacts)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("largebody: accepted assessment construction failed: %w", err)
 	}

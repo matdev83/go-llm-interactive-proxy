@@ -498,7 +498,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Separate from frontend legacy full-body resolver, already gated before capture.
   - _Requirements: 5, 7, 13, 19_
 
-- [ ] 11.7 Prove exact + domain backend wire support
+- [x] 11.7 Prove exact + domain backend wire support
   - Pass immutable body/rewrite facts to every resolver.
   - Any candidate/domain member incompatibility => decline.
   - Test homogeneous same-wire vs heterogeneous incompatible domains and actual post-BeginTurn override changes inside accepted domain.
@@ -863,3 +863,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 11.4 VERIFIED (re-review subagent APPROVED after thinker-role fix): exact initial candidate set via canonical composition reuse with planner-identical thinker/executor role+key tagging, whole-request decline on any incompatibility without pruning, DeclineReasonCanceled taxonomy addition; routing + largebody suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.5 VERIFIED (re-review subagent APPROVED after nil-validator fail-open fix): late route-override envelope from shared generation validator without live-store reads, reader presence never blocks alone, unbounded domain requires AnyAcceptedModel, nil validator fails closed with regression test; routing + largebody + runtimebundle suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.6 VERIFIED (re-review subagent APPROVED after envelope-composition fixes): late selector authorities fail closed without bounded contracts, per-backend universal proof for mixed envelopes, union (never replace) envelope composition across assessors, legacy resolver out of scope; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 11.7 VERIFIED (review subagent APPROVED): exact+domain backend proof gate with immutable body/rewrite facts to every resolver, whole-request decline without pruning, homogeneous accept vs heterogeneous decline, post-BeginTurn inside-domain override proof, strict rewrite-mismatch union rule; largebody + routing + execbackend suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
