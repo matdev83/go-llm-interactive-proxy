@@ -112,7 +112,17 @@ func (g *InitialRouteAssessmentGate) Evaluate(ctx context.Context, proof Proof) 
 		return AssessmentDecisionDecline, DeclineReasonRouteIncompatible, nil
 	}
 
-	// 3. Prove wire support for every candidate in the set (NO PRUNING)
+	// 3. Request-size constraints check (Requirements 7, 8, 19):
+	// Content-dependent estimator/requirement without exact source contract
+	// declines. Proof-level assessment carries no source reader, so an exact
+	// token contract cannot be evaluated at this layer (replay-level counting
+	// with exact semantics lives in the 10.4 wire-counter gate where the
+	// immutable source is available).
+	if routing.SelectorHasRequestSizeConstraints(sel) {
+		return AssessmentDecisionDecline, DeclineReasonCountingUnsupported, nil
+	}
+
+	// 4. Prove wire support for every candidate in the set (NO PRUNING)
 	for _, cand := range cands {
 		backendID := strings.TrimSpace(cand.Primary.Backend)
 		if backendID == "" {
@@ -156,6 +166,39 @@ func (g *InitialRouteAssessmentGate) Evaluate(ctx context.Context, proof Proof) 
 	}
 
 	return AssessmentDecisionAccept, DeclineReasonNone, cands
+}
+
+// EvaluateRouteFacts evaluates routing candidates directly from Task 12.1 bounded wire facts.
+func (g *InitialRouteAssessmentGate) EvaluateRouteFacts(
+	ctx context.Context,
+	route WireRouteFacts,
+	protocol WireProtocolFacts,
+	rewrite WireRewriteFacts,
+	source WireSourceFacts,
+	maxOutput WireMaxOutputFacts,
+) (AssessmentDecision, DeclineReason, []routing.AttemptCandidate) {
+	proof := Proof{
+		ProfileID:       route.ProfileID,
+		RouteSelector:   route.RouteSelector,
+		ClientModel:     route.ClientModel,
+		Operation:       protocol.Operation,
+		Delivery:        protocol.Delivery,
+		MaxOutputTokens: maxOutput.MaxOutputTokens,
+		Source:          source.SourceDigest,
+		BodyBytes:       source.BodyBytes,
+		Mode:            source.BodyMode,
+		Rewrite:         rewrite.Semantics,
+		ModelSpan:       rewrite.ModelSpan,
+	}
+	return g.Evaluate(ctx, proof)
+}
+
+// EvaluateTurnFacts evaluates routing candidates directly from WireTurnFacts.
+func (g *InitialRouteAssessmentGate) EvaluateTurnFacts(
+	ctx context.Context,
+	facts WireTurnFacts,
+) (AssessmentDecision, DeclineReason, []routing.AttemptCandidate) {
+	return g.EvaluateRouteFacts(ctx, facts.Route, facts.Protocol, facts.Rewrite, facts.Source, facts.MaxOutput)
 }
 
 // ProveCandidateSet verifies that expected matches the canonical composition output in exact order

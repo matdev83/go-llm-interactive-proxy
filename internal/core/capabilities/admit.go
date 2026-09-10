@@ -47,6 +47,12 @@ func NewFailoverRequirementSet(call lipapi.Call) FailoverRequirementSet {
 	return FailoverRequirementSet{Required: lipapi.DeriveProtocolRequirements(call)}
 }
 
+// NewFailoverRequirementSetFromRequirements constructs a FailoverRequirementSet directly
+// from static metadata ProtocolRequirements without requiring a lipapi.Call (Requirements 7, 8, 19).
+func NewFailoverRequirementSetFromRequirements(req lipapi.ProtocolRequirements) FailoverRequirementSet {
+	return FailoverRequirementSet{Required: req}
+}
+
 // CandidateMatchesFailoverRequirements reports whether candidate support satisfies the baseline requirement set.
 func (f FailoverRequirementSet) CandidateMatchesFailoverRequirements(supported lipapi.ProtocolRequirements, replay lipapi.ReasoningReplaySupport) bool {
 	res := lipapi.MatchRequirements(f.Required, supported, replay)

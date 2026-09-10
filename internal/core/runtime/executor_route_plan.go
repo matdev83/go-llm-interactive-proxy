@@ -59,23 +59,19 @@ type routePlanState struct {
 
 func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*routePlanState, error) {
 	e.noteSelectorAuthority(ctx, prep.identity.traceID, prep.identity.routeAuth)
-	sel, err := routing.CompileSelector(prep.call.Route.Selector, e.SelectorAliases, e.DefaultBackend)
+	sel, err := routing.PrepareSelector(
+		prep.call.Route.Selector,
+		e.SelectorAliases,
+		e.DefaultBackend,
+		e.BackendExecutionResolver,
+		e.ExecutionCompositionPolicy,
+		prep.nativeResolver,
+	)
 	if err != nil {
 		if errors.Is(err, lipapi.ErrUnresolvedModelOnlySelector) {
 			return nil, fmt.Errorf("executor: %w", err)
 		}
 		return nil, fmt.Errorf("executor: parse route selector: %w", err)
-	}
-	if err := routing.ValidateExecutionComposition(sel, e.BackendExecutionResolver, e.ExecutionCompositionPolicy); err != nil {
-		return nil, fmt.Errorf("executor: %w", err)
-	}
-	// Typed facts are authoritative; resolver is frozen at preparation and
-	// projected into context only for compatibility hooks. Never read live
-	// context here; missing resolver is supported pass-through.
-	if resolver := prep.nativeResolver; resolver != nil {
-		if err := routing.BindNativeModelIDs(sel, resolver); err != nil {
-			return nil, fmt.Errorf("executor: bind native model ids: %w", err)
-		}
 	}
 	affinityKey, affinityKeyOK, err := e.resolveAffinityKey(sel, prep.recvViews, prep.recvViewsOK)
 	if err != nil {

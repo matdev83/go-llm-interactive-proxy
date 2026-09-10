@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
@@ -147,5 +148,32 @@ func TestBuildRoutePlan_sharesCompileSelectorHelper(t *testing.T) {
 	}
 	if got != compiled.Alternatives[0].Primary.Backend {
 		t.Fatalf("buildRoutePlan drifted from CompileSelector: got %q want %q", got, compiled.Alternatives[0].Primary.Backend)
+	}
+}
+
+func TestBuildRoutePlan_sharesPrepareSelectorHelper(t *testing.T) {
+	t.Parallel()
+	aliases, err := routing.NewAliasResolver([]routing.ModelAliasRule{
+		{Pattern: `^alias$`, Replacement: "backendB:model-x"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := routing.PrepareSelector("alias", aliases, "backendA", nil, config.ExecutionCompositionSafe, nil)
+	if err != nil {
+		t.Fatalf("PrepareSelector must succeed: %v", err)
+	}
+	if prepared == nil || len(prepared.Alternatives) == 0 || prepared.Alternatives[0].Primary == nil {
+		t.Fatal("prepared selector missing primary")
+	}
+	ex := runtime.TestExecutor()
+	ex.SelectorAliases = aliases
+	ex.DefaultBackend = "backendA"
+	got, err := ex.BuildRoutePlanPrimaryBackendForTest(context.Background(), "alias")
+	if err != nil {
+		t.Fatalf("buildRoutePlan: %v", err)
+	}
+	if got != prepared.Alternatives[0].Primary.Backend {
+		t.Fatalf("buildRoutePlan drifted from PrepareSelector: got %q want %q", got, prepared.Alternatives[0].Primary.Backend)
 	}
 }

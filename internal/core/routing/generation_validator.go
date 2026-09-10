@@ -68,3 +68,23 @@ func (v *GenerationSelectorValidator) LegalCandidateBackends() []string {
 	sort.Strings(backends)
 	return backends
 }
+
+// HasRequestSizeConstraints reports whether the compiled and validated selector
+// contains any context min/max request-size filters (Requirements 7, 8, 19).
+// A nil validator fails closed and returns an error.
+func (v *GenerationSelectorValidator) HasRequestSizeConstraints(raw string) (bool, error) {
+	if v == nil {
+		return false, fmt.Errorf("routing: generation selector validator is not configured")
+	}
+	sel, err := CompileSelector(raw, v.Aliases, v.DefaultBackend)
+	if err != nil {
+		return false, err
+	}
+	if err := RejectUnknownBackends(sel, v.KnownBackends); err != nil {
+		return false, err
+	}
+	if err := ValidateExecutionComposition(sel, v.BackendExecutionResolver, v.ExecutionCompositionPolicy); err != nil {
+		return false, err
+	}
+	return SelectorHasRequestSizeConstraints(sel), nil
+}

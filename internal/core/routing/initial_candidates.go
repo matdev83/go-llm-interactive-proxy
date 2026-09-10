@@ -121,6 +121,34 @@ func CandidateSetsEqual(a, b []AttemptCandidate) bool {
 	return true
 }
 
+// PrepareSelector compiles the selector, validates execution composition under the
+// active policy, and binds native model IDs if a resolver is configured.
+// It is the shared pure preparation logic for both canonical route planning
+// (Executor.buildRoutePlan) and wire assessment (ComposeInitialCandidates,
+// InitialRouteAssessmentGate) to eliminate any risk of routing drift (Requirements 7, 8, 19).
+func PrepareSelector(
+	raw string,
+	aliases *AliasResolver,
+	defaultBackend string,
+	classes BackendExecutionResolver,
+	policy config.ExecutionCompositionPolicy,
+	resolver NativeModelResolver,
+) (*Selector, error) {
+	sel, err := CompileSelector(raw, aliases, defaultBackend)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateExecutionComposition(sel, classes, policy); err != nil {
+		return nil, err
+	}
+	if resolver != nil {
+		if err := BindNativeModelIDs(sel, resolver); err != nil {
+			return nil, err
+		}
+	}
+	return sel, nil
+}
+
 // ComposeInitialCandidates runs the full canonical routing composition sequence:
 // 1. Selector compile (trim, alias resolution, parse, model-only defaulting, and unresolved-model-only rejection).
 // 2. Execution composition validation under the active generation policy.
@@ -136,17 +164,9 @@ func ComposeInitialCandidates(
 	policy config.ExecutionCompositionPolicy,
 	resolver NativeModelResolver,
 ) ([]AttemptCandidate, *Selector, error) {
-	sel, err := CompileSelector(raw, aliases, defaultBackend)
+	sel, err := PrepareSelector(raw, aliases, defaultBackend, classes, policy, resolver)
 	if err != nil {
 		return nil, nil, err
-	}
-	if err := ValidateExecutionComposition(sel, classes, policy); err != nil {
-		return nil, nil, err
-	}
-	if resolver != nil {
-		if err := BindNativeModelIDs(sel, resolver); err != nil {
-			return nil, nil, err
-		}
 	}
 	cands := InitialCandidates(sel)
 	return cands, sel, nil
