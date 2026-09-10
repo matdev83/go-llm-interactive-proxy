@@ -445,7 +445,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Do this before adding optional wire token counter complexity.
   - _Requirements: 15, 21_
 
-- [ ] 10.4 Add exact wire token counting only where support is real
+- [x] 10.4 Add exact wire token counting only where support is real
   - If accounting/context preflight requires tokens and only `CountCall` exists, dynamic assessment declines under same permit.
   - `WireCounter`/equivalent may scan replay only when exact profile/tokenizer semantics exist **before commit**; do not substitute bytes.
   - Keep permit-hold CPU bounded and measured; if exact counting is expensive/unbounded, leave that composition canonical.
@@ -855,3 +855,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 10.1 VERIFIED (review subagent APPROVED): wire-native frontend-ingress checkpoint with shared exact identity/quantity builders, canonical field-by-field parity, zero Call clone/retention, post-BeginTurn A-leg/session correlation, unused quantity field removed; checkpoint + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 10.2 VERIFIED (review subagent APPROVED): wire-native backend-attempt checkpoint with shared public builder, attempt/B-leg/backend/model correlation + source/rewrite/attempt digests, widening refactored to shared exact helper + bounded evidence assert, zero Call retention, dead snapshot method + stale comment removed; checkpoint + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 10.3 VERIFIED (review subagent APPROVED): no-accounting + standard metering composition reaches wire mode with FE/BE fact persistence, accounting-enabled correctly declines wire pre-Counter, wire snapshots skip deferred counting, ctx-holder fallback, zero Call retention; runtime + checkpoint suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 10.4 VERIFIED (review subagent APPROVED): exact WireCounter gate with pre-commit tokenizer semantics, CountCall-only/inexact/unbounded/timeout decline under same permit, 5MiB/250ms bounded measured counting, CheckWire limit parity, zero Call retention; largebody + runtime + preflight suites PASS, vet/gofmt clean; -race unavailable cgo limitation; archtest docs-gate failure pre-existing at HEAD, unrelated.

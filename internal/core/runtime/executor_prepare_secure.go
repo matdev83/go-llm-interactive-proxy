@@ -286,6 +286,15 @@ func (p *PreparedSecureSession) PersistFrontendIngressFact(ctx context.Context, 
 	return p.executor.PersistFrontendIngressFact(execCtx, holder)
 }
 
+// EnrichWireFrontendIngressQuantities merges exact measured wire token counting results
+// into the stored FrontendIngress snapshot for this prepared session (Requirements 15.4, 15.5).
+func (p *PreparedSecureSession) EnrichWireFrontendIngressQuantities(holder *checkpoint.RequestHolder, count largebody.WireCountResult) {
+	if p == nil || p.executor == nil {
+		return
+	}
+	p.executor.EnrichWireFrontendIngressQuantities(holder, count)
+}
+
 // PrepareSecureSession prepares fact-based inputs for secure-session execution.
 // It executes scope resolution, session openers, and workspace resolution, but
 // strictly DOES NOT call BeginTurn or mutate session/store state (Requirements 6.2, 14.1, 19).

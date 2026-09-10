@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -476,4 +478,97 @@ func (e *Executor) persistBackendIngressFact(ctx context.Context, holder *checkp
 // If holder is nil, it falls back to the holder stored in ctx (Requirements 10, 15.1–15.3, 19).
 func (e *Executor) PersistBackendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder, attemptID string) (string, error) {
 	return e.persistBackendIngressFact(ctx, holder, attemptID)
+}
+
+// WirePreflightAssessmentArgs carries the inputs needed to evaluate token preflight
+// during dynamic assessment under the held decode permit (Requirements 6.1–6.3, 15.5, 21; Task 10.4).
+type WirePreflightAssessmentArgs struct {
+	Backend                  string
+	Model                    string
+	CallID                   string
+	ProfileID                string
+	Source                   largebody.Source
+	RequestedMaxOutputTokens *int
+	Facts                    modelcatalog.ModelFacts
+	Semantics                largebody.ExactTokenizerSemantics
+	MaxScanBytes             int64
+	MaxPermitHoldCPU         time.Duration
+}
+
+// AssessWirePreflight evaluates token preflight admission for a wire request under the
+// held decode permit without materializing prompt text or constructing a lipapi.Call.
+// If preflight is disabled or nil, it succeeds with AssessmentDecisionAccept.
+// If preflight requires counting and only CountCall is supported, or exact tokenizer
+// semantics do not exist, or counting is expensive/unbounded, it returns
+// (AssessmentDecisionDecline, DeclineReasonCountingUnsupported, decision).
+// If preflight token limits are exceeded, it returns
+// (AssessmentDecisionDecline, DeclineReasonAuthorityBlocker, decision).
+func (e *Executor) AssessWirePreflight(
+	ctx context.Context,
+	args WirePreflightAssessmentArgs,
+) (largebody.AssessmentDecision, largebody.DeclineReason, accountingpreflight.Decision) {
+	if e == nil || e.Preflight == nil || !e.Preflight.Enabled() {
+		return largebody.AssessmentDecisionAccept, largebody.DeclineReasonNone, accountingpreflight.Decision{
+			Allowed: true,
+			Reason:  accountingpreflight.ReasonDisabled,
+		}
+	}
+
+	decision := e.Preflight.CheckWire(ctx, accountingpreflight.WireInput{
+		Backend:                  args.Backend,
+		Model:                    args.Model,
+		CallID:                   args.CallID,
+		ProfileID:                args.ProfileID,
+		Source:                   args.Source,
+		RequestedMaxOutputTokens: args.RequestedMaxOutputTokens,
+		Facts:                    args.Facts,
+		Semantics:                args.Semantics,
+		MaxScanBytes:             args.MaxScanBytes,
+		MaxPermitHoldCPU:         args.MaxPermitHoldCPU,
+	})
+
+	if !decision.Allowed {
+		if decision.Reason == accountingpreflight.ReasonCountUnavailable {
+			return largebody.AssessmentDecisionDecline, largebody.DeclineReasonCountingUnsupported, decision
+		}
+		return largebody.AssessmentDecisionDecline, largebody.DeclineReasonAuthorityBlocker, decision
+	}
+
+	return largebody.AssessmentDecisionAccept, largebody.DeclineReasonNone, decision
+}
+
+// EnrichWireFrontendIngressQuantities merges exact measured wire token counting results
+// into the stored FrontendIngress snapshot without mutating or retaining a Call (Requirements 15.4, 15.5).
+func (e *Executor) EnrichWireFrontendIngressQuantities(holder *checkpoint.RequestHolder, count largebody.WireCountResult) {
+	if holder == nil || holder.FrontendIngress == nil {
+		return
+	}
+	if _, ok := checkpoint.QuantityComponentValue(holder.FrontendIngress.Public.Quantities, metering.ComponentInputToken); ok {
+		return
+	}
+	holder.MergeFrontendIngressQuantities(countedInputQuantities(accountingapp.CountResult{
+		InputTokens: count.InputTokens,
+		TotalTokens: count.TotalTokens,
+		Accounting:  count.Accounting,
+	}))
+}
+
+// EnrichWireBackendIngressQuantities merges exact measured wire token counting results
+// into the stored BackendIngress snapshot for attemptID without mutating or retaining a Call (Requirements 15.4, 15.5).
+func (e *Executor) EnrichWireBackendIngressQuantities(holder *checkpoint.RequestHolder, attemptID string, count largebody.WireCountResult) {
+	if holder == nil {
+		return
+	}
+	snap := holder.BackendIngressFor(attemptID)
+	if snap == nil {
+		return
+	}
+	if _, ok := checkpoint.QuantityComponentValue(snap.Public.Quantities, metering.ComponentInputToken); ok {
+		return
+	}
+	holder.MergeBackendIngressQuantities(attemptID, countedInputQuantities(accountingapp.CountResult{
+		InputTokens: count.InputTokens,
+		TotalTokens: count.TotalTokens,
+		Accounting:  count.Accounting,
+	}))
 }

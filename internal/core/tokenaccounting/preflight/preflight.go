@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -137,6 +139,104 @@ func (c *Checker) Check(ctx context.Context, in Input) Decision {
 	}
 	// Persist the exposure bound on Count.OutputTokens so authority spend
 	// reservations see non-zero future output when the client omitted max.
+	if effectiveOutput > 0 && out.Count.OutputTokens == 0 {
+		if effectiveOutput > int64(math.MaxInt) {
+			out.Count.OutputTokens = math.MaxInt
+		} else {
+			out.Count.OutputTokens = int(effectiveOutput)
+		}
+	}
+
+	contextLimit := effectiveLimitFact(in.Facts.ContextLimit, c.cfg.MaxContextTokens)
+	if limitPresent(contextLimit) && exceedsLimit(int64(count.InputTokens), effectiveOutput, contextLimit.Tokens) {
+		return Decision{Allowed: false, Reason: ReasonContextLimitExceeded, Count: count, Err: fmt.Errorf("context token limit exceeded")}
+	}
+	return out
+}
+
+// Enabled reports whether this preflight checker is non-nil and enabled.
+func (c *Checker) Enabled() bool {
+	return c != nil && c.cfg.Enabled
+}
+
+// WireInput supplies bounded wire facts and replay source to CheckWire (Task 10.4).
+type WireInput struct {
+	Backend                  string
+	Model                    string
+	CallID                   string
+	ProfileID                string
+	Source                   largebody.Source
+	RequestedMaxOutputTokens *int
+	Facts                    modelcatalog.ModelFacts
+	Semantics                largebody.ExactTokenizerSemantics
+	MaxScanBytes             int64
+	MaxPermitHoldCPU         time.Duration
+}
+
+// CheckWire evaluates token preflight over bounded wire facts and replay source without
+// constructing a full lipapi.Call or materializing prompt text (Requirements 6.2, 15.5, 21; Task 10.4).
+// If the counter only supports CountCall, or exact tokenizer semantics do not exist,
+// or counting is expensive/unbounded, CheckWire returns ReasonCountUnavailable,
+// signaling that dynamic assessment must decline to canonical processing under the same permit.
+func (c *Checker) CheckWire(ctx context.Context, in WireInput) Decision {
+	if c == nil || !c.cfg.Enabled {
+		return Decision{Allowed: true, Reason: ReasonDisabled}
+	}
+	if in.Source == nil {
+		return Decision{
+			Allowed:  false,
+			Reason:   ReasonCountUnavailable,
+			Err:      fmt.Errorf("token count unavailable: nil wire source"),
+			Warnings: []string{"token count unavailable: nil wire source"},
+		}
+	}
+
+	gateRes := largebody.EvaluateWireTokenCounting(ctx, largebody.WireTokenCountGateInput{
+		Source:            in.Source,
+		Model:             in.Model,
+		Backend:           in.Backend,
+		CallID:            in.CallID,
+		ProfileID:         in.ProfileID,
+		Counter:           c.counter,
+		Semantics:         in.Semantics,
+		MaxScanBytes:      in.MaxScanBytes,
+		MaxPermitHoldCPU:  in.MaxPermitHoldCPU,
+		AccountingEnabled: true,
+	})
+	if !gateRes.Proceed {
+		return Decision{
+			Allowed:  false,
+			Reason:   ReasonCountUnavailable,
+			Err:      gateRes.Err,
+			Warnings: []string{fmt.Sprintf("wire token count unavailable: %v", gateRes.Err)},
+		}
+	}
+
+	count := app.CountResult{
+		InputTokens:        gateRes.Count.InputTokens,
+		TotalTokens:        gateRes.Count.TotalTokens,
+		TotalTokensPresent: gateRes.Count.TotalTokens > 0 || gateRes.Count.InputTokens > 0,
+		Accounting:         gateRes.Count.Accounting,
+	}
+
+	out := Decision{Allowed: true, Reason: ReasonAllowed, Count: count}
+	if c.cfg.MaxInputTokens > 0 && int64(count.InputTokens) > c.cfg.MaxInputTokens {
+		return Decision{Allowed: false, Reason: ReasonInputLimitExceeded, Count: count, Err: fmt.Errorf("input token limit exceeded")}
+	}
+
+	modelOutputLimit := in.Facts.OutputLimit
+	outputLimit := effectiveLimitFact(modelOutputLimit, c.cfg.MaxOutputTokens)
+	effectiveOutput, adjusted, ok := c.evaluateOutputLimit(in.RequestedMaxOutputTokens, modelOutputLimit, outputLimit, count)
+	if !ok {
+		return adjusted
+	}
+	if adjusted.AdjustedMaxOutputTokens != nil {
+		out.AdjustedMaxOutputTokens = adjusted.AdjustedMaxOutputTokens
+		out.RequireMaxOutputEnforcement = adjusted.RequireMaxOutputEnforcement
+	}
+	if len(adjusted.Warnings) > 0 {
+		out.Warnings = append(out.Warnings, adjusted.Warnings...)
+	}
 	if effectiveOutput > 0 && out.Count.OutputTokens == 0 {
 		if effectiveOutput > int64(math.MaxInt) {
 			out.Count.OutputTokens = math.MaxInt
