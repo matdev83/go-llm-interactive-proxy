@@ -404,7 +404,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Resume token never enters backend facts/telemetry.
   - _Requirements: 14, 17_
 
-- [ ] 9.2 Refactor fact-based secure-session preparation shared by canonical/wire paths
+- [x] 9.2 Refactor fact-based secure-session preparation shared by canonical/wire paths
   - Preserve principal/scope/session opener/workspace/new/resume/denial semantics.
   - Do not split/reimplement the entire executor.
   - `BeginTurn` still happens only after wire commit.
@@ -849,3 +849,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 8.4 VERIFIED (review subagent APPROVED): shared credential/streampeek/wire-open primitives via refactor, behavior preserved, core retry ownership intact; 21 backend packages PASS, build/vet/gofmt/diff-check clean; follow-ups: DefaultSDKMaxRetries wiring, 8.5+ must consume helpers; -race unavailable cgo limitation.
 - Task 8.5 VERIFIED (review subagent APPROVED): backend-owned outbound headers, auth/session/framing stripping with Connection-token awareness, exact rewritten Content-Length, cleared trailers, shared-client HTTP/1.1+HTTP/2/cancel/reuse/redirect conformance; openaicompat suite PASS, vet/gofmt clean; dead redirect probe variable removed; -race unavailable cgo limitation.
 - Task 9.1 VERIFIED (review subagent APPROVED): exact bounded SessionInput with header-over-body precedence, fail-closed body-metadata rejection, SensitiveString resume wrapping with String/GoString/Format/LogValue/JSON redaction, no session/token fields in backend facts; largebody + sessionwire suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 9.2 VERIFIED (review subagent APPROVED): shared fact-based PrepareSecureSession/PreparedSecureSession seam, BeginTurn strictly post-commit via ExecuteBeginTurn, canonical parity + no-early-turn + resume/denial + workspace fail-closed proofs, dead helper removed; runtime suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
