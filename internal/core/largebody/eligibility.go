@@ -396,6 +396,12 @@ func compilePlaneBlockers(planes []PlaneEligibilityInput) (uint32, error) {
 				blockers |= 1 << uint(idx)
 			}
 		case PlaneAccessMetadataOnly, PlaneAccessResponseOnly, PlaneAccessWireContract:
+			// Task 12.4: Local Turn and Secret Guard occupied planes are non-negotiable static
+			// canonical blockers in V1 (Requirements 5.4, 13.4, 19.4). Attempting to weaken their access
+			// while occupied must never bypass the static blocker bit.
+			if p.Occupied && isV1NonNegotiableCanonicalPlane(p.ID) {
+				blockers |= 1 << uint(idx)
+			}
 			// Occupied metadata-only, response-only, and explicitly
 			// wire-contracted planes stay eligible for dynamic assessment;
 			// they never block statically.
@@ -411,6 +417,12 @@ func compilePlaneBlockers(planes []PlaneEligibilityInput) (uint32, error) {
 		}
 	}
 	return blockers, nil
+}
+
+// isV1NonNegotiableCanonicalPlane reports whether plane id names a non-negotiable
+// canonical plane in V1 (Requirements 5.4, 13.4, 19.4; Task 12.4).
+func isV1NonNegotiableCanonicalPlane(id string) bool {
+	return id == "local_turn_handlers" || id == "secret_guards" || id == "secret_guard_execution"
 }
 
 // compileHookChains records frozen bus occupancy and the occupied

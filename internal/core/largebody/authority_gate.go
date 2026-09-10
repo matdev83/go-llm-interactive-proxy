@@ -105,6 +105,9 @@ var standardNarrowPortCensus = map[string]DependencyClass{
 	"traffic.port_bundle":             DependencyClassBlocker,
 	"counting.token_rule":             DependencyClassBlocker,
 	"core.two_phase_executor":         DependencyClassBlocker, // Blocker when missing
+	"local_turn.handlers":             DependencyClassBlocker,
+	"secret_guard.execution":          DependencyClassBlocker,
+	"secret_guard.guards":             DependencyClassBlocker,
 }
 
 // standardPlaneV1Access records the V1 request-body access class in manifest
@@ -274,6 +277,14 @@ func (g *AuthorityAssessmentGate) Evaluate() (AssessmentDecision, DeclineReason)
 		if rid, ok := WireEligibilityPlaneID(idx); !ok || rid != p.ID {
 			return AssessmentDecisionDecline, DeclineReasonAuthorityBlocker
 		}
+		// Task 12.4: Local Turn and Secret Guard planes are non-negotiable static canonical blockers in V1
+		// (Requirements 5.4, 13.4, 19.2, 19.4). They cannot be made wire-safe incidentally: if occupied,
+		// or if their V1 canonical-required classification was weakened, assessment must decline.
+		if isV1NonNegotiableCanonicalPlane(p.ID) {
+			if p.Occupied || p.Access != PlaneAccessCanonicalRequired {
+				return AssessmentDecisionDecline, DeclineReasonAuthorityBlocker
+			}
+		}
 		if p.Access == PlaneAccessCanonicalRequired && p.Occupied {
 			// Occupied canonical-required plane -> decline
 			return AssessmentDecisionDecline, DeclineReasonAuthorityBlocker
@@ -328,6 +339,10 @@ func (g *AuthorityAssessmentGate) Evaluate() (AssessmentDecision, DeclineReason)
 		}
 		if ep.Class == DependencyClassBlocker && ep.Occupied {
 			// Occupied blocker -> decline
+			return AssessmentDecisionDecline, DeclineReasonAuthorityBlocker
+		}
+		// Task 12.4: Local Turn and Secret Guard cannot be marked wire-safe incidentally
+		if ep.Occupied && (strings.Contains(ep.Name, "local_turn") || strings.Contains(ep.Name, "secret_guard")) {
 			return AssessmentDecisionDecline, DeclineReasonAuthorityBlocker
 		}
 	}

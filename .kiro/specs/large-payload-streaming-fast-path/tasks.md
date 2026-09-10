@@ -537,7 +537,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Response-only uses remain on canonical events.
   - _Requirements: 13, 19_
 
-- [ ] 12.4 Keep Local Turn and Secret Guard canonical in V1
+- [x] 12.4 Keep Local Turn and Secret Guard canonical in V1
   - Do not attempt to make them wire-safe incidentally while closing generic dependencies.
   - Their occupied planes remain static blockers.
   - _Requirements: 5, 13, 19_
@@ -869,3 +869,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 12.1 VERIFIED (re-review subagent APPROVED after real-assertion fixes): explicit 8-domain bounded wire facts with mechanical consumer-coverage ratchet and structural no-shadow-Call assertion, census evidence doc; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 12.2 VERIFIED (review subagent APPROVED): shared PrepareSelector across canonical/wire (no drift), exact size-constraint blocker via canonical predicate, metadata-only failover-set seam, TurnFacts evaluation; routing + capabilities + runtime + largebody suites PASS, vet/gofmt clean; -race unavailable cgo limitation; TestFault_CancellationAndTimeout flake + archtest/qa failures proven pre-existing at base.
 - Task 12.3 VERIFIED (review subagent APPROVED): metadata-only bounded views, content/trajectory blockers, response-only on canonical events, census additions, wire response-evidence helper (production wiring deferred; secure-turn/identity-fallback gaps recorded for 12.4/14); largebody + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 12.4 VERIFIED (review subagent APPROVED): Local Turn + Secret Guard non-negotiable canonical blockers with compile-time static bits, assessment-time census decline, anti-tamper weakened-access proofs, SDK declaration pinning; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
