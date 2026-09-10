@@ -2,13 +2,69 @@
 package frontendpipe
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
+
+// OpenAICancellationPrefix is the prefix used for carrier-bound OpenAI Responses IDs (Requirement 18.6).
+const OpenAICancellationPrefix = "resp_lip_"
+
+type openAICancellationCarrier struct {
+	ALegID    string `json:"a"`
+	SessionID string `json:"s,omitempty"`
+}
+
+// FormatOpenAICancellationCarrier encodes authoritative A-leg and session identifiers
+// into an OpenAI Responses cancellation carrier string (Requirement 18.6).
+func FormatOpenAICancellationCarrier(aLegID, sessionID string) string {
+	aLegID = strings.TrimSpace(aLegID)
+	if aLegID == "" {
+		return ""
+	}
+	carrier := openAICancellationCarrier{
+		ALegID:    aLegID,
+		SessionID: strings.TrimSpace(sessionID),
+	}
+	raw, err := json.Marshal(carrier)
+	if err != nil {
+		return ""
+	}
+	return OpenAICancellationPrefix + base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// ParseOpenAICancellationCarrier parses an OpenAI Responses cancellation carrier string
+// and extracts the authoritative A-leg and session identifiers (Requirement 18.6).
+func ParseOpenAICancellationCarrier(carrierID string) (aLegID, sessionID string, ok bool) {
+	encoded, hasPrefix := strings.CutPrefix(strings.TrimSpace(carrierID), OpenAICancellationPrefix)
+	if !hasPrefix || encoded == "" {
+		return "", "", false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", "", false
+	}
+	var carrier openAICancellationCarrier
+	if err := json.Unmarshal(raw, &carrier); err == nil {
+		aLegID := strings.TrimSpace(carrier.ALegID)
+		if aLegID == "" {
+			return "", "", false
+		}
+		return aLegID, strings.TrimSpace(carrier.SessionID), true
+	}
+	aLegID = strings.TrimSpace(string(raw))
+	if aLegID == "" {
+		return "", "", false
+	}
+	return aLegID, "", true
+}
 
 // ResponseContext is the bounded shared frontend response context (Task 14.1, Requirement 18).
 // It couples frontend-owned proof state (FrontendWireState) with ExecutionResult (ResponseFacts,
@@ -122,9 +178,71 @@ func (c ResponseContext) IsStream() bool {
 	return c.State.Seeds.Stream || c.State.Proof.Delivery == lipapi.DeliveryModeStreaming
 }
 
-// CancellationID returns the frontend cancellation identifier seed.
+// DeterministicToken returns the 16-hex-character token derived from canonical semantic identity (Requirement 16.4).
+func (c ResponseContext) DeterministicToken() string {
+	if !c.State.Proof.Identity.IsZero() {
+		return c.State.Proof.Identity.Token()
+	}
+	if c.State.Seeds.DeterministicToken != "" {
+		return c.State.Seeds.DeterministicToken
+	}
+	if strings.HasPrefix(c.State.Seeds.DeterministicCallID, "call_") {
+		return strings.TrimPrefix(c.State.Seeds.DeterministicCallID, "call_")
+	}
+	return ""
+}
+
+// DeterministicTime returns the UTC time derived from canonical semantic identity (Requirement 16.4).
+func (c ResponseContext) DeterministicTime() time.Time {
+	return time.Unix(c.DeterministicTimestamp(), 0).UTC()
+}
+
+// ResponseID returns prefix followed by the deterministic token (Requirement 18.7).
+func (c ResponseContext) ResponseID(prefix string) string {
+	return prefix + c.DeterministicToken()
+}
+
+// OpenAIResponseID returns the OpenAI Responses response ID:
+// if an authoritative A-leg ID is present, it returns the cancellation carrier ID bound
+// to that A-leg and session (Requirement 18.6);
+// otherwise, it falls back to the deterministic "resp_" + DeterministicToken() (Requirement 18.7).
+func (c ResponseContext) OpenAIResponseID() string {
+	if aLegID := c.ALegID(); aLegID != "" {
+		if carrier := FormatOpenAICancellationCarrier(aLegID, c.SessionID()); carrier != "" {
+			return carrier
+		}
+	}
+	return "resp_" + c.DeterministicToken()
+}
+
+// OpenAIMessageID returns the OpenAI Responses message ID ("msg_" + OpenAIResponseID()).
+func (c ResponseContext) OpenAIMessageID() string {
+	return "msg_" + c.OpenAIResponseID()
+}
+
+// OpenAIChatCompletionID returns the OpenAI Chat completion ID ("chatcmpl_" + DeterministicToken()).
+func (c ResponseContext) OpenAIChatCompletionID() string {
+	return "chatcmpl_" + c.DeterministicToken()
+}
+
+// AnthropicMessageID returns the Anthropic message ID ("msg_" + DeterministicToken()).
+func (c ResponseContext) AnthropicMessageID() string {
+	return "msg_" + c.DeterministicToken()
+}
+
+// CancellationID returns the authoritative cancellation ID.
+// If an authoritative A-leg ID is present, it returns the carrier-bound cancellation ID (Requirement 18.6).
+// Otherwise, it falls back to any explicit seed cancellation ID or OpenAIResponseID().
 func (c ResponseContext) CancellationID() string {
-	return c.State.Seeds.CancellationID
+	if aLegID := c.ALegID(); aLegID != "" {
+		if carrier := FormatOpenAICancellationCarrier(aLegID, c.SessionID()); carrier != "" {
+			return carrier
+		}
+	}
+	if c.State.Seeds.CancellationID != "" {
+		return c.State.Seeds.CancellationID
+	}
+	return c.OpenAIResponseID()
 }
 
 // SessionID returns the authoritative session identifier.

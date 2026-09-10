@@ -191,6 +191,7 @@ func TestResponseStateSeeds_ValidationAndHelpers(t *testing.T) {
 		mutate func(s *frontendpipe.ResponseStateSeeds)
 	}{
 		{"DeterministicCallID", func(s *frontendpipe.ResponseStateSeeds) { s.DeterministicCallID = giantStr }},
+		{"DeterministicToken", func(s *frontendpipe.ResponseStateSeeds) { s.DeterministicToken = giantStr }},
 		{"ExplicitRequestID", func(s *frontendpipe.ResponseStateSeeds) { s.ExplicitRequestID = giantStr }},
 		{"RouteSelector", func(s *frontendpipe.ResponseStateSeeds) { s.RouteSelector = giantStr }},
 		{"ClientModel", func(s *frontendpipe.ResponseStateSeeds) { s.ClientModel = giantStr }},

@@ -96,6 +96,8 @@ type ResponseStateSeeds struct {
 	DeterministicCallID string
 	// DeterministicTimestamp is the Unix timestamp derived from canonical semantic identity.
 	DeterministicTimestamp int64
+	// DeterministicToken is the 16-hex-character token derived from canonical semantic identity.
+	DeterministicToken string
 	// ExplicitRequestID is any caller-provided or header-supplied request ID.
 	ExplicitRequestID string
 	// RouteSelector is the effective routing selector.
@@ -125,9 +127,11 @@ func NewResponseStateSeeds(
 ) ResponseStateSeeds {
 	callID := digest.CallID(explicitReqID)
 	ts := digest.Unix()
+	tok := digest.Token()
 	return ResponseStateSeeds{
 		DeterministicCallID:    callID,
 		DeterministicTimestamp: ts,
+		DeterministicToken:     tok,
 		ExplicitRequestID:      explicitReqID,
 		RouteSelector:          routeSelector,
 		ClientModel:            clientModel,
@@ -160,6 +164,7 @@ func (s ResponseStateSeeds) Validate(maxFactBytes int64) error {
 	}
 	for name, v := range map[string]string{
 		"deterministic call id": s.DeterministicCallID,
+		"deterministic token":   s.DeterministicToken,
 		"explicit request id":   s.ExplicitRequestID,
 		"route selector":        s.RouteSelector,
 		"client model":          s.ClientModel,

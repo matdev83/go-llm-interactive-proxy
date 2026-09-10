@@ -13,9 +13,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -512,5 +515,259 @@ func TestResponseContext_CoreDoesNotImportFrontendResponseState(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("failed to walk core root: %v", err)
+	}
+}
+
+// TestResponseContext_DeterministicIDsAndTimestamps_ParityWithCanonical tests Requirements 16 and 18.7:
+// Deterministic response ID, timestamp, time, token, chat completion ID, and Anthropic message ID
+// derivation from canonical semantic identity digest, matching diag.Stable* on canonical Call.
+func TestResponseContext_DeterministicIDsAndTimestamps_ParityWithCanonical(t *testing.T) {
+	t.Parallel()
+
+	canonicalCall := &lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello deterministic world")},
+		}},
+		Route: lipapi.RouteIntent{Selector: "gpt-4o"},
+		Session: lipapi.SessionRef{
+			AuthoritativeSessionID: "sess_parity_1",
+		},
+	}
+
+	digest := largebody.CanonicalCallIdentity(canonicalCall)
+	if digest.IsZero() {
+		t.Fatalf("expected non-zero identity digest")
+	}
+
+	seeds := frontendpipe.NewResponseStateSeeds(
+		digest,
+		"", // no explicit request ID
+		"gpt-4o",
+		"gpt-4o",
+		false,
+		largebody.SessionInput{AuthoritativeSessionID: "sess_parity_1"},
+		"",
+	)
+
+	state := frontendpipe.FrontendWireState{
+		ProfileID: "test_profile_parity",
+		Proof: largebody.Proof{
+			ProfileID:     "test_profile_parity",
+			Operation:     lipapi.OperationOpenAIChatCompletions,
+			Delivery:      lipapi.DeliveryModeNonStreaming,
+			RouteSelector: "gpt-4o",
+			ClientModel:   "gpt-4o",
+			Identity:      digest,
+		},
+		Seeds: seeds,
+	}
+
+	rc := frontendpipe.NewResponseContext(state, largebody.ExecutionResult{
+		Stream: &mockStream{},
+		Facts: largebody.ResponseFacts{
+			Operation:       lipapi.OperationOpenAIChatCompletions,
+			Delivery:        lipapi.DeliveryModeNonStreaming,
+			EffectiveModel:  "gpt-4o",
+			BodyBytes:       100,
+			RewrittenLength: 100,
+		},
+	})
+
+	wantCallID := diag.StableCallID(canonicalCall)
+	wantUnix := diag.StableUnix(canonicalCall)
+	wantTime := diag.StableTime(canonicalCall)
+	wantToken := diag.StableCallToken(canonicalCall)
+	wantChatCmplID := "chatcmpl_" + wantToken
+	wantAnthropicMsgID := "msg_" + wantToken
+	wantOpenAIRespID := "resp_" + wantToken
+	wantOpenAIMsgID := "msg_resp_" + wantToken
+
+	if got := rc.DeterministicCallID(); got != wantCallID {
+		t.Errorf("DeterministicCallID: got %q, want %q", got, wantCallID)
+	}
+	if got := rc.CallID(); got != wantCallID {
+		t.Errorf("CallID: got %q, want %q", got, wantCallID)
+	}
+	if got := rc.DeterministicTimestamp(); got != wantUnix {
+		t.Errorf("DeterministicTimestamp: got %d, want %d", got, wantUnix)
+	}
+	if got := rc.DeterministicTime(); !got.Equal(wantTime) {
+		t.Errorf("DeterministicTime: got %v, want %v", got, wantTime)
+	}
+	if got := rc.DeterministicToken(); got != wantToken {
+		t.Errorf("DeterministicToken: got %q, want %q", got, wantToken)
+	}
+	if got := rc.ResponseID("resp_"); got != wantOpenAIRespID {
+		t.Errorf("ResponseID(resp_): got %q, want %q", got, wantOpenAIRespID)
+	}
+	if got := rc.OpenAIChatCompletionID(); got != wantChatCmplID {
+		t.Errorf("OpenAIChatCompletionID: got %q, want %q", got, wantChatCmplID)
+	}
+	if got := rc.AnthropicMessageID(); got != wantAnthropicMsgID {
+		t.Errorf("AnthropicMessageID: got %q, want %q", got, wantAnthropicMsgID)
+	}
+	// When no A-leg ID is present, OpenAIResponseID falls back to deterministic resp_ + token
+	if got := rc.OpenAIResponseID(); got != wantOpenAIRespID {
+		t.Errorf("OpenAIResponseID (no A-leg): got %q, want %q", got, wantOpenAIRespID)
+	}
+	if got := rc.OpenAIMessageID(); got != wantOpenAIMsgID {
+		t.Errorf("OpenAIMessageID (no A-leg): got %q, want %q", got, wantOpenAIMsgID)
+	}
+
+	// Requirement 16.6: Explicit caller request ID retains precedence for CallID,
+	// while DeterministicCallID remains stable.
+	seedsExplicit := frontendpipe.NewResponseStateSeeds(
+		digest,
+		"req_explicit_caller_id_123",
+		"gpt-4o",
+		"gpt-4o",
+		false,
+		largebody.SessionInput{AuthoritativeSessionID: "sess_parity_1"},
+		"",
+	)
+	stateExplicit := state
+	stateExplicit.Seeds = seedsExplicit
+	rcExplicit := frontendpipe.NewResponseContext(stateExplicit, largebody.ExecutionResult{
+		Stream: &mockStream{},
+	})
+	if got := rcExplicit.CallID(); got != "req_explicit_caller_id_123" {
+		t.Errorf("CallID with explicit ID: got %q, want req_explicit_caller_id_123", got)
+	}
+	if got := rcExplicit.DeterministicCallID(); got != "req_explicit_caller_id_123" {
+		t.Errorf("DeterministicCallID with explicit ID: got %q, want req_explicit_caller_id_123", got)
+	}
+	if got := rcExplicit.DeterministicToken(); got != wantToken {
+		t.Errorf("DeterministicToken with explicit ID: got %q, want %q", got, wantToken)
+	}
+}
+
+type mockALegCanceler struct {
+	canceled lipapi.ALegCancelRequest
+}
+
+func (m *mockALegCanceler) Execute(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
+	return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+}
+
+func (m *mockALegCanceler) WallClock() func() time.Time { return nil }
+
+func (m *mockALegCanceler) CancelALeg(_ context.Context, req lipapi.ALegCancelRequest) error {
+	m.canceled = req
+	return nil
+}
+
+// TestResponseContext_OpenAICancellationCarrier_BoundToAuthoritativeALegAndSession tests Requirements 16 and 18.6:
+// OpenAI Responses cancellation IDs remain bound to authoritative A-leg and session semantics.
+// Wire requests must remain cancellable by the returned ID through openairesponses.Handler.
+func TestResponseContext_OpenAICancellationCarrier_BoundToAuthoritativeALegAndSession(t *testing.T) {
+	t.Parallel()
+
+	prof := minimalValidProofProfile()
+	proofOut, err := prof.CompileProof(context.Background(), frontendpipe.ProofInput{
+		BodyBytes: 1024,
+		Source:    &mockSource{data: []byte("test-source-data")},
+	})
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	// Case 1: Authoritative A-leg and session carrier present from wire execution result
+	facts := largebody.ResponseFacts{
+		RequestID:       proofOut.Seeds().DeterministicCallID,
+		TraceID:         "trace_001",
+		ALegID:          "a-leg-wire-auth-99",
+		SessionID:       "sess-wire-auth-99",
+		Operation:       lipapi.OperationOpenAIResponses,
+		Delivery:        lipapi.DeliveryModeStreaming,
+		EffectiveModel:  "gpt-4o",
+		Source:          proofOut.Proof().Source,
+		BodyBytes:       1024,
+		RewrittenLength: 1024,
+	}
+
+	carrier := largebody.SessionResponseCarrier{
+		AuthoritativeSessionID: "sess-wire-auth-99",
+		ALegID:                 "a-leg-wire-auth-99",
+		ResumeToken:            largebody.NewSensitiveString("secret_tok"),
+	}
+
+	rc := frontendpipe.NewResponseContext(proofOut.State, largebody.ExecutionResult{
+		Stream:  &mockStream{},
+		Facts:   facts,
+		Session: carrier,
+	})
+
+	respID := rc.OpenAIResponseID()
+	if !strings.HasPrefix(respID, frontendpipe.OpenAICancellationPrefix) {
+		t.Fatalf("OpenAIResponseID: got %q, want prefix %q", respID, frontendpipe.OpenAICancellationPrefix)
+	}
+	if got := rc.CancellationID(); got != respID {
+		t.Errorf("CancellationID: got %q, want %q (matches OpenAIResponseID)", got, respID)
+	}
+
+	// Verify ParseOpenAICancellationCarrier round-trips
+	aLegID, sessionID, ok := frontendpipe.ParseOpenAICancellationCarrier(respID)
+	if !ok {
+		t.Fatalf("ParseOpenAICancellationCarrier(%q) failed", respID)
+	}
+	if aLegID != "a-leg-wire-auth-99" || sessionID != "sess-wire-auth-99" {
+		t.Fatalf("parsed carrier = (%q, %q), want (a-leg-wire-auth-99, sess-wire-auth-99)", aLegID, sessionID)
+	}
+
+	// End-to-end cancellation proof: Send cancel request to openairesponses.Handler using returned ID
+	canceler := &mockALegCanceler{}
+	handler := &openairesponses.Handler{Exec: canceler}
+	cancelReq := httptest.NewRequest(http.MethodPost, "/v1/responses/"+respID+"/cancel", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, cancelReq)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel HTTP status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if canceler.canceled.ALegID != "a-leg-wire-auth-99" {
+		t.Errorf("CancelALeg ALegID: got %q, want a-leg-wire-auth-99", canceler.canceled.ALegID)
+	}
+	if canceler.canceled.SessionID != "sess-wire-auth-99" {
+		t.Errorf("CancelALeg SessionID: got %q, want sess-wire-auth-99", canceler.canceled.SessionID)
+	}
+
+	// Case 2: No A-leg ID (e.g. no session carrier)
+	stateNoALeg := proofOut.State
+	stateNoALeg.Seeds.ALegID = ""
+	stateNoALeg.Seeds.SessionID = ""
+	rcNoALeg := frontendpipe.NewResponseContext(stateNoALeg, largebody.ExecutionResult{
+		Stream: &mockStream{},
+		Facts: largebody.ResponseFacts{
+			Operation:       lipapi.OperationOpenAIResponses,
+			Delivery:        lipapi.DeliveryModeStreaming,
+			EffectiveModel:  "gpt-4o",
+			BodyBytes:       1024,
+			RewrittenLength: 1024,
+		},
+	})
+	noALegRespID := rcNoALeg.OpenAIResponseID()
+	wantFallback := "resp_" + rcNoALeg.DeterministicToken()
+	if noALegRespID != wantFallback {
+		t.Errorf("OpenAIResponseID without A-leg: got %q, want %q", noALegRespID, wantFallback)
+	}
+	if _, _, ok := frontendpipe.ParseOpenAICancellationCarrier(noALegRespID); ok {
+		t.Errorf("ParseOpenAICancellationCarrier should reject fallback ID %q", noALegRespID)
+	}
+
+	// Cancel endpoint rejects cancel request with unbound response ID
+	canceler2 := &mockALegCanceler{}
+	handler2 := &openairesponses.Handler{Exec: canceler2}
+	cancelReq2 := httptest.NewRequest(http.MethodPost, "/v1/responses/"+noALegRespID+"/cancel", nil)
+	rec2 := httptest.NewRecorder()
+
+	handler2.ServeHTTP(rec2, cancelReq2)
+
+	if rec2.Code != http.StatusBadRequest {
+		t.Fatalf("expected HTTP 400 for cancel on unbound ID, got %d", rec2.Code)
+	}
+	if canceler2.canceled.ALegID != "" {
+		t.Errorf("canceler should not be called for unbound ID")
 	}
 }
