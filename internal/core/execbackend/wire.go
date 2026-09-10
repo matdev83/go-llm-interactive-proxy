@@ -53,7 +53,7 @@ func EffectiveWireRequestSupport(
 			Reason:     largebody.WireSupportReasonUnsupported,
 		}
 	}
-	if err := facts.Validate(1024); err != nil {
+	if err := facts.Validate(largebody.SemanticFactBudget(ctx)); err != nil {
 		return largebody.WireRequestSupport{
 			Compatible: false,
 			Reason:     largebody.WireSupportReasonUnsupported,
@@ -111,7 +111,7 @@ func EffectiveWireDomainSupport(
 			Reason:     largebody.WireSupportReasonUnsupported,
 		}
 	}
-	if err := facts.Validate(1024); err != nil {
+	if err := facts.Validate(largebody.SemanticFactBudget(ctx)); err != nil {
 		return largebody.WireDomainSupport{
 			Compatible: false,
 			Reason:     largebody.WireSupportReasonUnsupported,

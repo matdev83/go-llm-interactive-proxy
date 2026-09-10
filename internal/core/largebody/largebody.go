@@ -1,6 +1,7 @@
 package largebody
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -1050,6 +1051,31 @@ func (r ExecutionResult) Validate(maxFactBytes int64) error {
 		return err
 	}
 	return nil
+}
+
+// DefaultMaxSemanticFactBytes is the default ceiling on profile-derived and
+// wire-resolution semantic facts (256 KiB; Requirement 4, design section 3).
+const DefaultMaxSemanticFactBytes int64 = 256 * 1024
+
+type factBudgetCtxKey struct{}
+
+// WithSemanticFactBudget attaches a configured semantic-fact budget to ctx.
+func WithSemanticFactBudget(ctx context.Context, budget int64) context.Context {
+	if budget <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, factBudgetCtxKey{}, budget)
+}
+
+// SemanticFactBudget returns the configured semantic-fact budget from ctx,
+// or DefaultMaxSemanticFactBytes if not set or non-positive.
+func SemanticFactBudget(ctx context.Context) int64 {
+	if ctx != nil {
+		if b, ok := ctx.Value(factBudgetCtxKey{}).(int64); ok && b > 0 {
+			return b
+		}
+	}
+	return DefaultMaxSemanticFactBytes
 }
 
 // checkBudget rejects a non-positive semantic-fact budget: validation

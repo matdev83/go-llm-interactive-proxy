@@ -373,7 +373,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - No second whole body.
   - _Requirements: 9_
 
-- [ ] 8.3 Prove exact/domain resolver purity
+- [x] 8.3 Prove exact/domain resolver purity
   - No provider I/O, stores, mutable session reads, unbounded plugin work.
   - Domain proof covers exact execution/model domain and same body/rewrite contract.
   - `NeedsModelRewrite=true` without certified span/semantics => incompatible.
@@ -845,3 +845,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 7.6 VERIFIED (re-review subagent APPROVED): proof-decline same-permit fallback saturation race proof, single TryAdmit, no second decision, vet fix; saturation-race suite PASS, vet/diff-check clean; -race unavailable cgo limitation.
 - Task 8.1 VERIFIED (review subagent APPROVED): additive pure ResolveWireRequest/ResolveWireDomain, fail-closed rewrite rule, nil=>canonical, no ABI change, budget + hexagonal baseline updates; execbackend + largebody + archtest PASS, vet/build/gofmt/diff-check clean; follow-ups: configured budget to replace 1024 magic, protocol binding proof in 8.3; -race unavailable cgo limitation.
 - Task 8.2 VERIFIED (review subagent APPROVED): streaming model splice, exact spans, checked length, duplicate rejection, budgets bump; largebody + jsonshape + budget gates PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 8.3 VERIFIED (review subagent APPROVED): resolver purity proofs, configured semantic-fact budget replacing 1024 magic, protocol binding, budgets bump; execbackend + largebody + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.

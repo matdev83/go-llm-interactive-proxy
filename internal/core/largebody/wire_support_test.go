@@ -172,3 +172,34 @@ func TestAsWireBackend_Probing(t *testing.T) {
 		t.Fatalf("ResolveWireRequest returned %v, calls = %d", res, stub.reqCalls)
 	}
 }
+
+func TestSemanticFactBudget(t *testing.T) {
+	if largebody.DefaultMaxSemanticFactBytes != 256*1024 {
+		t.Fatalf("DefaultMaxSemanticFactBytes = %d, want %d", largebody.DefaultMaxSemanticFactBytes, 256*1024)
+	}
+
+	// nil context returns default
+	if got := largebody.SemanticFactBudget(nil); got != largebody.DefaultMaxSemanticFactBytes {
+		t.Fatalf("SemanticFactBudget(nil) = %d, want default %d", got, largebody.DefaultMaxSemanticFactBytes)
+	}
+
+	// background context returns default
+	if got := largebody.SemanticFactBudget(context.Background()); got != largebody.DefaultMaxSemanticFactBytes {
+		t.Fatalf("SemanticFactBudget(Background) = %d, want default %d", got, largebody.DefaultMaxSemanticFactBytes)
+	}
+
+	// non-positive budget returns original context without modification
+	ctx := context.Background()
+	if gotCtx := largebody.WithSemanticFactBudget(ctx, 0); gotCtx != ctx {
+		t.Fatal("WithSemanticFactBudget(ctx, 0) must return original ctx")
+	}
+	if gotCtx := largebody.WithSemanticFactBudget(ctx, -5); gotCtx != ctx {
+		t.Fatal("WithSemanticFactBudget(ctx, -5) must return original ctx")
+	}
+
+	// positive budget is stored and retrieved
+	customCtx := largebody.WithSemanticFactBudget(ctx, 512*1024)
+	if got := largebody.SemanticFactBudget(customCtx); got != 512*1024 {
+		t.Fatalf("SemanticFactBudget(customCtx) = %d, want 512 KiB", got)
+	}
+}
