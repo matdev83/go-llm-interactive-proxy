@@ -451,7 +451,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Keep permit-hold CPU bounded and measured; if exact counting is expensive/unbounded, leave that composition canonical.
   - _Requirements: 6, 15, 21_
 
-- [ ] 10.5 Refactor stock billing/exposure bounded facts
+- [x] 10.5 Refactor stock billing/exposure bounded facts
   - Principal/account/pricing/charge/max-output/exposure/terminal identity.
   - Share exact fact helpers with canonical path.
   - Current/custom `BillingIdentity` Call callbacks remain blockers unless explicitly refactored/contracted.
@@ -856,3 +856,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 10.2 VERIFIED (review subagent APPROVED): wire-native backend-attempt checkpoint with shared public builder, attempt/B-leg/backend/model correlation + source/rewrite/attempt digests, widening refactored to shared exact helper + bounded evidence assert, zero Call retention, dead snapshot method + stale comment removed; checkpoint + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 10.3 VERIFIED (review subagent APPROVED): no-accounting + standard metering composition reaches wire mode with FE/BE fact persistence, accounting-enabled correctly declines wire pre-Counter, wire snapshots skip deferred counting, ctx-holder fallback, zero Call retention; runtime + checkpoint suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 10.4 VERIFIED (review subagent APPROVED): exact WireCounter gate with pre-commit tokenizer semantics, CountCall-only/inexact/unbounded/timeout decline under same permit, 5MiB/250ms bounded measured counting, CheckWire limit parity, zero Call retention; largebody + runtime + preflight suites PASS, vet/gofmt clean; -race unavailable cgo limitation; archtest docs-gate failure pre-existing at HEAD, unrelated.
+- Task 10.5 VERIFIED (review subagent APPROVED): stock billing/exposure on bounded facts with shared exact credit/identity/closure helpers, WireBounded identity contract with custom-callback blockers, adapter bounded fallbacks, exactly-once post-commit reservation/settlement, shared account-fallback helper + comment fix; runtime + billing + compose + admission suites PASS, vet/gofmt clean; -race unavailable cgo limitation.

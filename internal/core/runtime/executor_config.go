@@ -39,6 +39,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
@@ -50,6 +51,30 @@ type BillingIdentity struct {
 	CustomerPricingRef func(context.Context, lipapi.Call) billing.VersionRef
 	ChargePolicyRef    func(context.Context, lipapi.Call) billing.VersionRef
 	OperatorRateRef    func(context.Context, string, string) billing.VersionRef
+
+	// WireBounded indicates whether this identity bundle is backed by stock/bounded
+	// facts (such as PrincipalSessionIdentity) rather than custom Call-inspecting callbacks.
+	// Custom callbacks without an explicit bounded contract remain wire blockers (Requirements 15.6, 19).
+	WireBounded bool
+
+	// WireAccountID optionally resolves an account identity directly from bounded scope
+	// without constructing or inspecting a lipapi.Call.
+	WireAccountID func(context.Context, scope.PrincipalScopeView) string
+
+	// WireCustomerPricingRef optionally resolves the customer pricing snapshot ref from bounded facts.
+	WireCustomerPricingRef func(context.Context) billing.VersionRef
+
+	// WireChargePolicyRef optionally resolves the charge policy snapshot ref from bounded facts.
+	WireChargePolicyRef func(context.Context) billing.VersionRef
+}
+
+// HasCustomCallCallbacks reports whether BillingIdentity has Call-shaped callbacks
+// that are NOT certified as wire-bounded (Requirements 15.6, 19).
+func (b BillingIdentity) HasCustomCallCallbacks() bool {
+	if b.WireBounded {
+		return false
+	}
+	return b.AccountID != nil || b.CustomerPricingRef != nil || b.ChargePolicyRef != nil
 }
 
 // CoreRuntime carries continuity store, backends, lifecycle coordination, and clocks.

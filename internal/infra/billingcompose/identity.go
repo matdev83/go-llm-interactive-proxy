@@ -22,6 +22,25 @@ func PrincipalSessionIdentity(refs SnapshotRefFuncs) runtime.BillingIdentity {
 		CustomerPricingRef: refs.CustomerPricingRef,
 		ChargePolicyRef:    refs.ChargePolicyRef,
 		OperatorRateRef:    refs.OperatorRateRef,
+		WireBounded:        true,
+		WireAccountID: func(ctx context.Context, sc scope.PrincipalScopeView) string {
+			if sc.PrincipalID.IsKnown() {
+				return strings.TrimSpace(sc.PrincipalID.String())
+			}
+			return accountIDFromPrincipal(ctx, lipapi.Call{})
+		},
+		WireCustomerPricingRef: func(ctx context.Context) billing.VersionRef {
+			if refs.CustomerPricingRef != nil {
+				return refs.CustomerPricingRef(ctx, lipapi.Call{})
+			}
+			return billing.VersionRef{}
+		},
+		WireChargePolicyRef: func(ctx context.Context) billing.VersionRef {
+			if refs.ChargePolicyRef != nil {
+				return refs.ChargePolicyRef(ctx, lipapi.Call{})
+			}
+			return billing.VersionRef{}
+		},
 	}
 }
 
