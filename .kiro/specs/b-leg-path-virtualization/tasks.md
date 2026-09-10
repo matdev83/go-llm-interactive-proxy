@@ -49,23 +49,28 @@
   - _Depends: none_
   - _Validation: `go test -count=1 ./internal/plugins/features/pathvirtualization/...`_
 
-- [ ] 2.2 Implement deterministic alias derivation and inverse prefix mapping
-  - Defaults: POSIX `/.__lip_v1__/0/`; Windows drive `<drive>:\.__lip_v1__\0\`; UNC/extended model alias `\\.__lip_v1__\0\`.
-  - Require alias shorter than real root.
+- [ ] 2.2 Implement deterministic workspace-bound alias derivation and inverse prefix mapping
+  - Define the exact canonical root identity: flavor retained; POSIX case-sensitive with non-root trailing separator removal; Windows separator-normalized, ASCII-case-folded, non-volume trailing separator removal; no filesystem/dot-segment normalization.
+  - Derive `workspaceTag = lower(base32-no-padding(SHA-256("lip:path-virtualization:v1\x00" + flavorID + "\x00" + canonicalRootIdentity)[0:12]))`, yielding exactly 20 characters / 96 bits.
+  - Fixed aliases: POSIX `/.__lip_v1__/w_<tag>/`; drive `<UPPERCASE-DRIVE>:\.__lip_v1__\w_<tag>\`; UNC `\\.__lip_v1__\w_<tag>\`; extended drive `\\?\<UPPERCASE-DRIVE>:\.__lip_v1__\w_<tag>\`; extended UNC `\\?\UNC\.__lip_v1__\w_<tag>\`.
+  - Require the complete alias to be shorter than the real root.
   - Implement Windows case-insensitive/separator-aware matching and POSIX case-sensitive matching.
-  - Preserve original root spelling on expansion.
-  - Add idempotence and segment-boundary tests.
-  - Observable completion: round-trip property tests pass for supported path families.
-  - _Requirements: 1.4, 1.5, 1.6, 1.7, 6.1, 6.2, 9.1_
+  - Preserve original real-root spelling on expansion.
+  - Add deterministic-tag, idempotence, segment-boundary, and round-trip tests.
+  - Observable completion: same root/flavor always derives the same alias across process recreation and supported root changes derive different tags in fixtures.
+  - _Requirements: 1.4, 1.5, 1.6, 1.7, 1.10, 6.1, 6.2, 9.1_
   - _Boundary: feature plugin / domain policy_
   - _Depends: 2.1_
   - _Validation: feature unit + fuzz tests_
 
-- [ ] 2.3 Add collision and reserved-marker handling
-  - Validate marker as one bounded segment.
-  - Detect workspace roots/observed selected paths that already occupy the reserved alias namespace.
+- [ ] 2.3 Add reserved-namespace and stale-workspace handling
+  - Treat `.__lip_v1__` and its path-flavor forms as fixed V1 syntax, not operator configuration.
+  - Parse a recognized reserved alias before ordinary prefix matching; validate the exact 20-character workspace tag plus flavor/drive form.
+  - If a selected reserved alias tag does not equal the tag derived from the current authoritative root, return bounded `workspace_mismatch` and never expand it against the current root.
+  - Detect malformed reserved aliases and real workspace roots that collide with the reserved alias namespace.
+  - Add the critical regression: derive alias under root A, switch authoritative root to B, present A's alias, and assert rejection/no expansion to B.
   - Return bounded skip/reject reasons; never guess.
-  - _Requirements: 1.8, 4.4, 7.5_
+  - _Requirements: 1.8, 1.10, 1.11, 4.4, 6.5_
   - _Boundary: feature plugin / domain policy_
   - _Depends: 2.2_
   - _Validation: feature unit tests_
@@ -201,10 +206,11 @@
 
 - [ ] 8. Implement model→client path expansion
 - [ ] 8.1 Add path-expansion finalizer
-  - Derive mapping from `meta.Workspace.ProjectRoot`.
+  - Derive the current workspace-bound mapping from `meta.Workspace.ProjectRoot`.
   - Resolve selectors against exact tool name/tool schema.
-  - Expand only selected virtual-root-prefixed values.
-  - Reject selected unresolved reserved aliases.
+  - Recognize fixed V1 reserved alias forms before ordinary path matching.
+  - Expand only selected aliases whose workspace tag/flavor matches the current mapping.
+  - Reject malformed reserved aliases and selected aliases carrying a stale/different workspace tag.
   - Preserve non-selected fields and JSON validity.
   - Declare mandatory buffering with default 1 MiB and configurable bounded value.
   - _Requirements: 4.1, 4.3, 4.4, 4.7, 4.8, 4.9_
@@ -225,7 +231,8 @@
 - [ ] 9.1 Implement config decode/validation
   - Disabled by default.
   - Strict `audit|rewrite` mode.
-  - Validate marker, bounds, path keys, exact tool names, JSON Pointers, duplicate/conflicting profiles.
+  - Do not expose an alias-marker/version override in V1; `.__lip_v1__` and workspace-tag encoding are fixed compatibility contracts.
+  - Validate bounds, path keys, exact tool names, JSON Pointers, duplicate/conflicting profiles.
   - No regex configuration in V1.
   - _Requirements: 7.1, 7.2, 7.4, 7.5_
   - _Boundary: feature plugin / config_
@@ -252,11 +259,12 @@
   - _Validation: metrics/inventory tests_
 
 - [ ] 10. Certify continuity, protocol neutrality, and failure behavior (P)
-- [ ] 10.1 Add restart/reload and provider-continuation characterization
-  - Prove same root+config derives the same alias without stored mapping.
-  - Simulate a later turn after feature object/process recreation.
+- [ ] 10.1 Add restart/reload, stale-workspace, and provider-continuation characterization
+  - Prove the same root derives the same fixed-V1 workspace tag/alias without stored mapping after feature object/process recreation.
   - Cover provider-side continuation shape (`PreviousResponseID`) with consistent alias derivation.
-  - Cover workspace-root change as an explicit discontinuity/no-old-root inference.
+  - Derive alias A under root A, change the authoritative root to B, then inject a model tool call containing alias A and prove it is rejected as `workspace_mismatch`, never expanded to root B.
+  - Cover same-drive Windows root changes, different-drive changes, POSIX changes, and at least one UNC/extended-path stale-alias case.
+  - Assert that root B derives a different tag in the fixtures and that no mutable prior-root dictionary is consulted.
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
   - _Boundary: feature/runtime tests_
   - _Depends: 8.2, 9.2_
@@ -276,7 +284,7 @@
   - Disabled feature is byte/semantic neutral.
   - Unsupported/malformed root skips outbound mutation.
   - Unexpected outbound transform error before alias exposure preserves real path.
-  - Unresolved inbound alias fails closed.
+  - Unresolved or stale-workspace inbound alias fails closed.
   - Canonical validation holds after all rewrites.
   - _Requirements: 8.1, 8.2, 8.3, 8.5_
   - _Boundary: feature/runtime tests_
@@ -285,7 +293,7 @@
 
 - [ ] 11. Measure performance and realized savings (P)
 - [ ] 11.1 Add microbenchmarks and representative fixtures
-  - Benchmark path parsing/mapping, selector-guided argument mutation, idempotent second pass, and completed-call expansion.
+  - Benchmark path parsing/mapping including workspace-tag derivation, selector-guided argument mutation, idempotent second pass, and completed-call expansion.
   - Include long Windows worktree path and long POSIX monorepo/worktree path.
   - Include 10/100/1000 occurrence request fixtures.
   - _Requirements: 9.2, 9.3, 9.4, 9.6_
@@ -317,7 +325,7 @@
   - Confirm no concrete path feature import exists in core/runtime generic packages.
   - Confirm no broad substring replacement of opaque source/content exists.
   - Confirm no primary mutable mapping store was introduced.
-  - Confirm no selected virtual alias can reach client tool execution on overflow/error.
+  - Confirm no selected virtual alias can reach client tool execution on overflow/error, and no old workspace tag can expand against a changed `ProjectRoot`.
   - Confirm PTB/backend history is virtualized after all late shaping.
   - Confirm retry/failover/continuation alias stability.
   - Confirm all logs/metrics are path-content-free.

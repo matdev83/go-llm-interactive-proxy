@@ -8,8 +8,8 @@ The feature is a reversible namespace translation, not lossy compression. A-leg/
 
 ## Boundary Context
 
-- **In scope**: deterministic virtualization of the authoritative workspace project root; POSIX, Windows drive, Windows UNC, and Windows extended absolute-path forms; canonical tool-call argument rewriting; conservative tool-result rewriting on explicitly path-bearing surfaces; reverse expansion of model-emitted path-bearing tool arguments; audit mode; bounded metrics; retry/failover/continuation stability.
-- **Out of scope**: arbitrary semantic compression; relative-path rewriting; filesystem canonicalization/symlink resolution; URI rewriting; path discovery from ordinary chat/reasoning; arbitrary substring replacement inside source/file contents; dynamic discovery of additional roots; persistence of a general path dictionary; rewriting ordinary assistant prose in V1.
+- **In scope**: deterministic, workspace-bound virtualization of the authoritative workspace project root; POSIX, Windows drive, Windows UNC, and Windows extended absolute-path forms; canonical tool-call argument rewriting; conservative tool-result rewriting on explicitly path-bearing surfaces; reverse expansion of model-emitted path-bearing tool arguments; stateless stale-workspace alias rejection; audit mode; bounded metrics; retry/failover/continuation stability.
+- **Out of scope**: arbitrary semantic compression; relative-path rewriting; filesystem canonicalization/symlink resolution; URI rewriting; path discovery from ordinary chat/reasoning; arbitrary substring replacement inside source/file contents; dynamic discovery of additional roots; persistence of a general path dictionary; operator-configurable alias namespace/version in V1; rewriting ordinary assistant prose in V1.
 - **Adjacent expectations**: existing routing, B2BUA continuity, conversation-view projection, secure-session, capability negotiation, billing/accounting, and provider adapters retain their current ownership.
 - **Boundary ownership**: optional feature plugin plus narrowly additive SDK/runtime support required to make complete tool-call expansion safe.
 - **Optional hexagonal lens**: pure path-virtualization policy in the feature; runtime orchestration only exposes/reuses generic extension seams and complete-tool-call buffering metadata; adapters remain protocol translators.
@@ -25,11 +25,13 @@ The feature is a reversible namespace translation, not lossy compression. A-leg/
 2. The proxy shall support POSIX absolute paths, Windows drive-absolute paths, UNC paths, and Windows extended drive/UNC paths independently of the operating system on which the proxy process itself runs.
 3. The proxy shall use host-independent lexical path parsing and shall not depend on the proxy host's `filepath` semantics to interpret a client path from another operating system.
 4. The virtual root shall be shorter than the real root before rewrite is applied; otherwise the proxy shall leave the path unchanged.
-5. The virtual root shall preserve an OS-appropriate absolute-path shape and use a reserved proxy namespace that is deterministic for V1.
+5. The virtual root shall preserve an OS-appropriate absolute-path shape, use the fixed V1 reserved proxy namespace, and contain a deterministic workspace identity tag derived from the authoritative project root.
 6. When comparing a Windows root, the proxy shall use Windows-appropriate case-insensitive prefix comparison and separator-aware path boundaries while preserving the original suffix bytes used for reconstruction.
 7. When comparing a POSIX root, the proxy shall use case-sensitive prefix comparison and `/` segment boundaries.
 8. If the project root is relative, malformed, a Windows device path, unsupported, or collides with the reserved virtual namespace, the proxy shall disable rewriting for that mapping and record a bounded reason code rather than guessing.
 9. The proxy shall not resolve symlinks, access the filesystem, normalize through the host OS, or change path semantics beyond reversible prefix substitution.
+10. The workspace identity tag shall be derived from a versioned, path-flavor-aware canonical identity of `Workspace.ProjectRoot` using a collision-resistant digest of at least 96 bits; the tag shall not depend on B-leg ID, provider, model, retry ordinal, trace ID, or mutable process state.
+11. When a selected path uses the fixed V1 reserved alias namespace, the proxy shall parse and validate its workspace identity tag before expansion; a malformed tag, a tag derived from another project root, or an incompatible path flavor shall be treated as an unresolved reserved alias rather than expanded against the current root.
 
 ### Requirement 2: B-Leg-Only Tool Surface Virtualization
 **Objective:** As a coding-agent user, I want real paths preserved on the client side while the backend sees shorter equivalents only where filesystem paths are semantically expected.
@@ -65,7 +67,7 @@ The feature is a reversible namespace translation, not lossy compression. A-leg/
 1. When the backend emits a completed tool call containing the virtual root at a path-bearing argument selector, the proxy shall expand that value to the real project root before releasing the corresponding client-facing tool-call argument event.
 2. Reverse expansion shall operate on completed valid tool-call argument JSON, not independently on arbitrary streaming fragments.
 3. Expanded tool calls shall continue through existing tool policies/reactors using the real path representation.
-4. If a completed path-bearing tool argument contains the reserved virtual namespace but cannot be mapped unambiguously to the current workspace root, the proxy shall fail closed for that tool call and shall not release the virtual path to the client.
+4. If a completed path-bearing tool argument contains the fixed V1 reserved virtual namespace but has a malformed workspace tag, a workspace tag that does not match the current authoritative project root, an incompatible path flavor, or otherwise cannot be mapped unambiguously, the proxy shall fail closed for that tool call and shall not release the virtual path to the client.
 5. If complete argument reconstruction required for reverse expansion exceeds the configured mandatory expansion bound, the proxy shall fail closed for that tool call rather than bypass path expansion.
 6. A failure or limit in an unrelated optional tool-call finalizer shall not cause path expansion to be silently skipped for a call to which path virtualization applies.
 7. Tool calls containing no virtual root shall preserve existing finalization/pass-through behavior.
@@ -90,10 +92,10 @@ The feature is a reversible namespace translation, not lossy compression. A-leg/
 
 #### Acceptance Criteria
 1. V1 shall derive the primary mapping exclusively from the current authoritative `Workspace.ProjectRoot` and deterministic alias rules; it shall not require a mutable per-session dictionary for the primary root.
-2. Given the same supported project root and feature configuration, a later request shall derive the same virtual root after generation reload or process restart.
+2. Given the same supported project root, a later request shall derive the same workspace tag and virtual root after generation reload or process restart without reading prior mapping state; different supported project roots shall derive different workspace tags except with the explicitly bounded collision probability of the specified digest.
 3. Where a client replays full history, the proxy shall re-virtualize historical path-bearing tool surfaces idempotently before backend submission.
-4. Where provider-side continuation retains prior model-visible history, subsequent tool results/tool calls shall use the same deterministic V1 alias for the same workspace root.
-5. If the authoritative workspace root changes for an existing logical session, the proxy shall treat the mapping as discontinuous and shall not infer that the old alias refers to the new root.
+4. Where provider-side continuation retains prior model-visible history, subsequent tool results/tool calls shall use the same deterministic workspace-bound V1 alias for the same workspace root.
+5. If the authoritative workspace root changes for an existing logical session, the new root shall derive a different workspace tag, and any model-emitted alias carrying the prior root's tag shall be rejected as a stale-workspace alias rather than expanded against the new root.
 6. Dynamic discovery and persistence of arbitrary secondary roots shall be out of scope for V1 and shall require a later design with explicit durable mapping semantics.
 
 ### Requirement 7: Configuration, Audit Mode, and Observability
@@ -103,8 +105,8 @@ The feature is a reversible namespace translation, not lossy compression. A-leg/
 1. The feature shall be disabled by default and enabled through feature-owned typed configuration under the standard feature plugin configuration surface.
 2. The feature shall support at least `audit` and `rewrite` modes.
 3. In audit mode, the proxy shall perform candidate detection and savings estimation without mutating canonical requests or response tool calls.
-4. Configuration shall allow a bounded reserved alias marker, schema-assisted argument selection, explicit per-tool selectors, conservative result profiles, and a mandatory tool-call expansion byte bound.
-5. Invalid selectors, duplicate/conflicting tool profiles, invalid alias markers, unsupported bounds, or ambiguous configuration shall fail generation compilation before publication.
+4. Configuration shall allow schema-assisted argument selection, explicit per-tool selectors, conservative result profiles, and a mandatory tool-call expansion byte bound; the V1 reserved alias namespace/version and workspace-tag encoding shall be fixed implementation contracts rather than operator-configurable values.
+5. Invalid selectors, duplicate/conflicting tool profiles, unsupported bounds, or ambiguous configuration shall fail generation compilation before publication.
 6. Metrics shall expose bounded counters/histograms for eligible occurrences, rewritten occurrences, skipped occurrences by bounded reason, bytes-before, bytes-after, bytes-saved, expansion failures, and mandatory-buffer overflows.
 7. Logs/traces/metrics shall not include real paths, virtualized path suffixes, tool payload contents, source text, or high-cardinality path hashes.
 8. The feature shall provide diagnostics/inventory visibility sufficient to show enablement, mode, and bounded configuration shape without exposing path values.

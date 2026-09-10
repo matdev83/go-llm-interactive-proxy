@@ -2,263 +2,114 @@
 
 ## Overview
 
-B-Leg Path Virtualization is an opt-in feature that gives inference backends a shorter virtual filesystem namespace while preserving the real filesystem namespace on the client/A-leg. V1 maps only the authoritative `Workspace.ProjectRoot` to one deterministic OS-shaped alias. The mapping is pure and reconstructable; it does not require a durable path dictionary.
+B-Leg Path Virtualization is an opt-in feature that shortens repeated absolute workspace paths only on model-facing, path-bearing tool surfaces. The A-leg/client continues to use real filesystem paths. The B-leg/model may see a shorter virtual root. Model-emitted virtual paths are expanded back to real paths before existing tool policy/reactor processing and before client release.
 
-The feature deliberately operates on canonical **path-bearing tool surfaces**, not on arbitrary strings. Backend-bound historical tool calls/results are virtualized through feature-owned request shaping. Model-emitted path-bearing tool arguments are expanded from the virtual root back to the real workspace root only after complete JSON reconstruction and before existing tool policy/reactor processing and client release.
+V1 maps only the authoritative `Workspace.ProjectRoot`. The mapping is deterministic, stateless, cross-platform, and **workspace-bound**: every virtual root includes a collision-resistant tag derived from the originating project root. An alias from a previous project root therefore cannot be rebound to the current workspace after a root change.
 
-The current extension platform is reused wherever possible. Two small generic platform enhancements are required: completed-tool-call finalizers need read-only workspace/session/scope metadata, and the assembler needs a mandatory completeness/buffering contract so a required finalizer cannot be silently bypassed by the current shared 64 KiB overflow behavior.
+The feature remains provider-neutral and canonical. It does not rewrite arbitrary prompt/completion text, does not scan source/patch bodies for paths, and does not introduce a persistent general-purpose alias dictionary.
 
 ### Goals
-- Reduce backend-visible repeated absolute-path bytes/tokens without changing client filesystem truth.
-- Work for POSIX and Windows path families regardless of proxy host OS.
-- Preserve protocol neutrality and streaming-first architecture.
-- Prevent path alias leakage into executable client tool arguments.
-- Avoid semantic corruption of file/source/patch contents.
-- Make value measurable before rewrite rollout.
+- Reduce backend-visible repeated absolute-path bytes/tokens.
+- Preserve real-path A-leg/client truth.
+- Support POSIX, Windows drive, UNC, extended drive, and extended UNC paths independent of proxy host OS.
+- Restrict mutation to proven/configured path-bearing tool fields.
+- Fail closed before client execution when a model emits an unresolved, malformed, or stale reserved alias.
+- Preserve retry/failover/continuation safety without mutable mapping state.
+- Measure realized savings before broad rollout.
 
 ### Non-Goals
 - General prompt/tool-output compression.
-- Dynamic discovery of arbitrary repeated prefixes.
-- A durable general-purpose alias dictionary.
-- Relative path conversion.
-- Filesystem `realpath`, symlink, mount, or existence checks.
+- Dynamic secondary-root discovery in V1.
+- Relative-path shortening.
+- `realpath`, symlink, junction, filesystem existence, or mount resolution.
 - URI/URL rewriting.
-- Rewriting ordinary user messages, reasoning, or assistant prose in V1.
-- Provider-specific or frontend-specific implementations.
+- Arbitrary source/content/patch/script mutation.
+- Ordinary user, reasoning, or assistant-prose rewriting.
+- Provider/frontend-specific translation.
 
 ## Boundary Commitments
 
 ### This Spec Owns
-- Path flavor parsing and reversible root-prefix substitution policy.
-- Deterministic V1 virtual-root derivation.
-- Path-bearing tool selector/profile policy.
-- Feature configuration, audit/rewrite mode, metrics, diagnostics.
-- Backend-bound canonical virtualization on tool-call/result surfaces.
-- Model→client completed-tool-call expansion.
-- Narrow generic SDK/runtime support required for safe finalization.
+- Cross-platform lexical path flavor detection.
+- Deterministic workspace-bound alias derivation and inverse prefix substitution.
+- Path-bearing JSON selector/profile policy.
+- Canonical backend-bound virtualization.
+- Completed model-tool-call reverse expansion.
+- Feature config, audit mode, bounded metrics, and diagnostics.
+- Narrow generic SDK/runtime enhancements needed for safe complete-call expansion.
 
 ### Out of Boundary
-- Route planning/failover policy.
-- B2BUA identity allocation and commitment rules.
-- Provider adapters and wire formats.
-- Conversation-view message visibility policy.
-- Billing/rating semantics.
+- Routing/failover selection and B2BUA lifecycle ownership.
+- Output commitment/recovery rules.
+- Provider adapters/wire formats.
+- Conversation-view message visibility semantics.
+- Billing/rating authority.
 - Secure-session authority.
-- Filesystem access/sandboxing itself.
-- Dynamic multi-root persistence.
-- Textual alias cleanup in ordinary assistant output.
+- Filesystem sandbox enforcement itself.
+- Dynamic multi-root durable mapping.
 
 ### Allowed Dependencies
 - `pkg/lipapi` canonical calls/items/messages/tool definitions.
 - `pkg/lipsdk/workspace`, `session`, `scope`.
-- existing request attempt-transform and request-part-hook planes.
-- existing tool-call finalizer plane/assembler after narrow generic enhancement.
-- standard feature configuration/registration/composition.
-- bounded metrics/diagnostic infrastructure.
+- Existing candidate attempt-transform and request-part-hook planes.
+- Existing tool-call finalizer/assembler path, after the generic enhancements below.
+- Standard feature configuration/registration/metrics conventions.
 
 ### Revalidation Triggers
-- `toolcall.Finalizer` or assembler lifecycle changes.
-- ordering of attempt transforms, request-part hooks, conversation-view reassertion, PTB capture, or `Backend.Open`.
-- canonical representation of tool results or tool arguments.
-- `WorkspaceView` semantics.
-- provider-side continuation/materialization changes.
-- token-accounting backend-ingress checkpoint ordering.
+Re-check this design if any of these change: tool-call assembly/finalization, request-stage ordering, conversation-view final reassertion, PTB/`Backend.Open` ordering, canonical tool-result representation, `WorkspaceView`, provider-side continuation materialization, or backend-ingress accounting/preflight ordering.
 
-## Architecture
+## Existing Architecture and Placement
 
-### Existing Architecture Analysis
+Current runtime ordering relevant to this feature is:
 
-Current `main` is a streaming-first canonical proxy. Frontends decode to `lipapi.Call`; candidate attempts are cloned/shaped; backends consume canonical calls; response events pass through the shared stream pipeline before frontend encoding.
-
-Relevant existing seams:
-- `request.AttemptTransform`: candidate-aware request mutation with workspace/session/scope and `request.Services`.
-- `hooks.RequestPartHook`: late canonical request mutation with A-leg/B-leg/attempt/backend metadata.
-- `toolcall.Finalizer`: complete JSON tool-call mutation after stream assembly.
-- `ToolReactor`: downstream policy reaction after tool-event enrichment/finalization.
-- `WorkspaceView.ProjectRoot`: current authoritative feature-facing workspace path.
-
-Important ordering:
-1. baseline clone/interleaved shaping;
+1. baseline clone / interleaved shaping;
 2. candidate attempt transforms;
 3. candidate admission and preliminary eligibility/preflight;
 4. request-part hooks;
 5. post-hook rederivation;
-6. conversation-view final reassertion;
-7. clamps/backend-ingress accounting/final authorization;
+6. final conversation-view reassertion;
+7. clamps / backend-ingress accounting / final authorization;
 8. candidate adaptation;
 9. PTB capture;
 10. `Backend.Open`;
 11. response tool-call assembly/finalization;
-12. tool policy/reactors;
+12. tool policies/reactors;
 13. response-part hooks;
 14. client release.
 
-The design therefore uses an early attempt transform for sizing benefit and an idempotent request-part pass to preserve final B-leg tool-surface virtualization.
-
-### Architecture Pattern & Boundary Map
+Consequences:
+- one early `request.AttemptTransform` virtualizes eligible history so candidate sizing/context/preflight can observe savings;
+- one idempotent `hooks.RequestPartHook` reapplies the same pure rewrite after later request shaping;
+- runtime tests must prove conversation-view reassertion/adaptation do not restore real path-bearing history before PTB/backend open;
+- model→client expansion uses completed tool-call finalization, not raw `ToolCallArgsDelta` mutation;
+- expansion completes before existing tool policy/reactors.
 
 ```mermaid
 flowchart LR
-    C[Client / A-leg real paths]
-    FE[Frontend adapter]
-    CAN[Canonical A-leg call]
-    AT[PathVirtualizer AttemptTransform]
-    RP[PathVirtualizer RequestPartHook]
-    CV[Conversation-view reassertion]
-    AD[Candidate adaptation]
-    BE[Backend / model virtual paths]
-    ASM[Tool-call assembler]
-    EXP[PathExpansion Finalizer]
-    POL[Existing tool policies/reactors]
-    OUT[Frontend / Client real paths]
-
-    C --> FE --> CAN --> AT --> RP --> CV --> AD --> BE
-    BE --> ASM --> EXP --> POL --> OUT --> C
+    C[Client / real paths] --> FE[Frontend]
+    FE --> A[Canonical A-leg call]
+    A --> AT[AttemptTransform: virtualize]
+    AT --> RH[RequestPartHook: idempotent reapply]
+    RH --> CV[Conversation-view reassert]
+    CV --> AD[Candidate adaptation]
+    AD --> B[Backend / virtual paths]
+    B --> ASM[Complete tool-call assembler]
+    ASM --> EXP[Path-expansion finalizer]
+    EXP --> POL[Tool policy/reactors see real paths]
+    POL --> C
 ```
 
-**Architecture Integration**
-- **Selected pattern**: optional canonical feature plugin with a pure reversible transformation kernel.
-- **Domain/feature boundaries**: feature owns path semantics/config/profiles; core owns only generic stage execution and complete-call assembly.
-- **Existing patterns preserved**: canonical translation, typed feature planes, streaming-first response flow, no concrete feature imports in core.
-- **New components rationale**: one pure path kernel, one outbound call rewriter shared by two hooks, one completed-call expander, one optional generic buffering contract.
-- **Steering compliance**: optional UX/efficiency policy stays in a feature; provider adapters remain untouched.
+### Ownership
+- Concrete path policy/configuration lives under `internal/plugins/features/pathvirtualization`.
+- `internal/core` must not import the concrete feature.
+- Generic SDK/runtime changes are limited to finalizer metadata and mandatory buffering/completeness semantics.
+- No new canonical `Path` type is required; paths remain strings inside existing tool semantics.
 
-**Optional Hexagonal Lens**
-- **Domain policy**: path flavor detection, root/alias derivation, boundary-aware prefix replacement, selector resolution.
-- **App orchestration**: outbound request pass and inbound completed-call expansion.
-- **Driving adapters**: standard feature config decode.
-- **Driven adapters**: bounded metrics/diagnostics only.
-- **Composition root**: standard feature registration; generic featurehost only if metrics/process state truly require it.
-- **Ports/query seams**: existing request and toolcall SDK contracts.
+## Component Design
 
-**Project Boundary Questions**
-- **Core-owned or plugin-owned?** Plugin-owned. Only generic finalizer metadata/buffering support belongs in SDK/runtime.
-- **New canonical concept?** No. Paths remain strings inside existing tool semantics.
-- **Streaming-first preserved?** Yes. Complete-call buffering is already part of the stream path.
-- **Provider SDK leakage avoided?** Yes.
-- **No retry/failover after output preserved?** Yes; feature does not own recovery.
-- **Secure-session/startup posture affected?** No authority change; revalidate ordering only.
-- **Extension platform seam used or extended?** Existing planes used; generic tool-finalizer metadata/completeness contract widened.
+### 1. Path Mapper
 
-### Technology Stack
-
-| Layer | Choice | Role in Feature | Notes |
-|---|---|---|---|
-| Canonical API | `pkg/lipapi` | Tool call/result traversal and schema access | No new path type |
-| Feature SDK | existing request/hooks/toolcall/workspace contracts | Extension seams | Additive toolcall metadata + optional buffering contract |
-| Feature | `internal/plugins/features/pathvirtualization` | Policy/config/rewrites | No provider SDK |
-| Runtime | existing candidate/open and response assembler | Ordering and completed-call execution | No feature-specific branch |
-| Observability | existing bounded metrics/inventory conventions | Savings/failure evidence | No raw paths |
-
-## File Structure Plan
-
-### Directory Structure
-
-```text
-internal/plugins/features/pathvirtualization/
-├── config.go                 # typed feature config and validation
-├── bundle.go                 # contributes attempt transform, request-part hook, finalizer
-├── paths.go                  # host-independent path flavor parser + alias derivation
-├── selectors.go              # JSON Pointer/profile/schema-assisted selector resolution
-├── rewrite.go                # pure canonical outbound rewrite
-├── finalizer.go              # completed model tool-call reverse expansion
-├── metrics.go                # narrow feature observer contract/helpers if needed
-├── *_test.go                 # table/property/fuzz tests
-└── testdata/                 # bounded canonical fixtures only if needed
-```
-
-### Modified Files
-- `pkg/lipsdk/toolcall/finalizer.go` — enrich `Meta` with read-only scope/session/workspace views; define optional buffering/completeness capability without breaking existing finalizers.
-- `internal/core/runtime/tool_call_assembler.go` — honor optional mandatory completeness/buffering requirements; preserve current behavior for finalizers that do not opt in.
-- `internal/core/runtime/response_pipeline_observations.go` and/or request-facts plumbing — populate the enriched finalizer metadata from authoritative request views.
-- `pkg/lipsdk/feature/plane_manifest.go` only if a new generic scalar/plane is proven necessary; prefer an optional finalizer capability to avoid plane proliferation.
-- `internal/standardplugins/features_install.go` / standard feature table/config wiring — register the new feature by existing conventions.
-- relevant generated/parity files only when required by the existing feature-plane generator/registry.
-- docs/config examples only after feature behavior is stable; no steering update unless architecture rules change.
-
-## System Flows
-
-### Backend-bound request
-
-```mermaid
-sequenceDiagram
-    participant A as A-leg canonical truth
-    participant T as AttemptTransform
-    participant H as RequestPartHook
-    participant V as Conversation View
-    participant B as Backend
-
-    A->>T: attempt clone with real tool paths
-    T->>T: derive ProjectRoot -> virtualRoot
-    T->>T: rewrite eligible path-bearing tool surfaces
-    T-->>A: candidate-sized virtualized attempt
-    A->>H: late request-part shaping point
-    H->>H: reapply same idempotent rewrite
-    H->>V: virtualized tool history
-    V->>V: reassert message visibility/steering
-    V->>B: adapted canonical call with virtual tool paths
-```
-
-### Model-emitted tool call
-
-```mermaid
-sequenceDiagram
-    participant B as Backend/model
-    participant A as Tool-call assembler
-    participant X as PathExpansion finalizer
-    participant P as Tool policy/reactors
-    participant C as Client
-
-    B->>A: started + args deltas + finished
-    A->>A: bounded complete ArgsJSON
-    A->>X: CompletedCall + workspace metadata
-    X->>X: resolve configured path selectors
-    alt selected value starts with virtual root
-        X->>X: expand to real ProjectRoot
-        X-->>A: rewritten valid JSON
-    else unresolved reserved alias
-        X-->>A: typed reject/fail-closed
-    else no alias
-        X-->>A: pass
-    end
-    A->>P: real-path tool lifecycle
-    P->>C: existing policy-approved tool call
-```
-
-## Requirements Traceability
-
-| Requirement | Summary | Components | Interfaces / Flows |
-|---|---|---|---|
-| 1 | cross-platform deterministic namespace | `paths.go` | pure parser/alias rules |
-| 2 | B-leg-only tool virtualization | `rewrite.go` | AttemptTransform + RequestPartHook |
-| 3 | safe path-bearing selection | `selectors.go`, config | ToolDef schema + JSON Pointer profiles |
-| 4 | mandatory reverse expansion | `finalizer.go`, assembler enhancement | `toolcall.Finalizer` |
-| 5 | runtime/security ordering | runtime tests + shared hooks | candidate/open + response pipeline |
-| 6 | continuity/restart | deterministic mapping | WorkspaceView |
-| 7 | config/audit/observability | config/bundle/metrics | standard feature registration |
-| 8 | compatibility/failure | feature + assembler tests | repair/finalizer composition |
-| 9 | performance | pure kernel + benchmarks | audit counters/benchmarks |
-
-## Components and Interfaces
-
-### Feature Domain
-
-#### Path Mapper
-
-| Field | Detail |
-|---|---|
-| Intent | Derive and apply a reversible root alias independent of host OS |
-| Requirements | 1.1–1.9, 6.1–6.6, 9.1–9.4 |
-
-**Responsibilities & Constraints**
-- Pure; no filesystem access.
-- Accepts `Workspace.ProjectRoot` plus validated config.
-- Returns `Mapping{Flavor, RealRoot, VirtualRoot}` or a bounded skip reason.
-- Prefix replacement is segment-boundary-aware.
-- `VirtualizePath` and `ExpandPath` are inverse for eligible paths.
-- No path cleanup that changes suffix semantics.
-
-Conceptual API:
+Proposed feature-local value objects:
 
 ```go
 type PathFlavor uint8
@@ -273,48 +124,79 @@ const (
 )
 
 type Mapping struct {
-    Flavor      PathFlavor
-    RealRoot    string
-    VirtualRoot string
+    Flavor       PathFlavor
+    RealRoot     string
+    WorkspaceTag string
+    VirtualRoot  string
 }
 
-func DeriveMapping(projectRoot string, cfg AliasConfig) (Mapping, SkipReason)
-func (m Mapping) VirtualizePath(s string) (string, bool)
-func (m Mapping) ExpandPath(s string) (string, ExpandResult)
+func DeriveMapping(projectRoot string) (Mapping, SkipReason)
+func (m Mapping) VirtualizePath(path string) (string, bool)
+func (m Mapping) ExpandPath(path string) (string, ExpandResult)
 ```
 
-**Windows rules**
-- recognize drive absolute `^[A-Za-z]:[\\/].*`;
-- recognize UNC `\\server\share\...`;
-- recognize extended drive `\\?\C:\...`;
-- recognize extended UNC `\\?\UNC\server\share\...`;
-- reject device namespaces such as `\\.\...`;
-- compare root case-insensitively;
-- treat `\` and `/` as separators for matching;
-- preserve real-root spelling when expanding.
+The mapper is pure. It performs no filesystem I/O and must not use host `filepath` behavior as authority for a foreign client path.
 
-**POSIX rules**
-- leading `/`;
-- case-sensitive;
-- `/` separator only;
-- preserve repeated/special suffix bytes except the replaced prefix.
+#### Supported lexical flavors
+- POSIX: leading `/`.
+- Windows drive: `C:\...` and separator-equivalent `C:/...`.
+- UNC: `\\server\share\...`.
+- Extended drive: `\\?\C:\...`.
+- Extended UNC: `\\?\UNC\server\share\...`.
+- Reject device namespace such as `\\.\...`, relative paths, and malformed volume roots.
 
-**Reserved aliases**
-- POSIX default: `/.__lip_v1__/0/`
-- Windows drive default: `<original-drive>:\.__lip_v1__\0\`
-- Windows UNC/extended default model alias: `\\.__lip_v1__\0\`
-- aliases are backend-only tokens; expansion reconstructs the original root form.
-- config may override only the marker segment, not inject separators/control characters.
-- if the alias is not shorter than `RealRoot`, mapping is inactive.
+#### Match semantics
+- POSIX: case-sensitive; `/` is the separator.
+- Windows: ASCII case-insensitive for root identity/prefix matching; `/` and `\` are separators for matching.
+- Prefix replacement must end on a path-segment boundary.
+- Expansion reconstructs the current mapping's original `RealRoot` spelling plus the untouched suffix.
+- Do not resolve `.`/`..`, symlinks, junctions, short names, environment variables, Unicode equivalence, or filesystem state.
 
-#### Selector Resolver
+### 2. Workspace-Bound Alias Identity
 
-| Field | Detail |
-|---|---|
-| Intent | Identify only fields that semantically represent filesystem paths |
-| Requirements | 2.1–2.6, 3.1–3.8, 4.8–4.9 |
+A fixed path-flavor alias such as `/.__lip_v1__/0/` is unsafe: after `Workspace.ProjectRoot` changes, an old provider-visible alias would otherwise be indistinguishable and could expand against the new root. V1 therefore embeds a deterministic workspace-root tag.
 
-Conceptual types:
+The reserved V1 namespace marker is **fixed** as `.__lip_v1__`. It is not operator-configurable. Keeping the namespace/version fixed ensures an alias retained by provider-side continuation remains recognizable after config reload.
+
+#### Canonical root identity
+Compute `canonicalRootIdentity` as follows:
+- retain `PathFlavor` as a separate `flavorID`; normal and extended Windows forms are distinct;
+- POSIX: remove non-root trailing `/`; preserve case and all other bytes;
+- Windows: normalize `/` to `\`, ASCII-case-fold, remove non-volume trailing separators;
+- do not use optional `WorkspaceView.ID` as the V1 identity source.
+
+#### Exact tag algorithm
+
+```text
+digest = SHA-256("lip:path-virtualization:v1\x00" + flavorID + "\x00" + canonicalRootIdentity)
+workspaceTag = lower-case base32-no-padding(digest[0:12])
+```
+
+`digest[0:12]` is 96 bits and yields exactly 20 base32 characters. The tag is collision-resistant identity, not a secret.
+
+#### Exact V1 virtual-root forms
+- POSIX: `/.__lip_v1__/w_<workspaceTag>/`
+- Windows drive: `<UPPERCASE-DRIVE>:\.__lip_v1__\w_<workspaceTag>\`
+- Windows UNC: `\\.__lip_v1__\w_<workspaceTag>\`
+- Windows extended drive: `\\?\<UPPERCASE-DRIVE>:\.__lip_v1__\w_<workspaceTag>\`
+- Windows extended UNC: `\\?\UNC\.__lip_v1__\w_<workspaceTag>\`
+
+Outbound virtualization is active only if the complete virtual root is strictly shorter than `RealRoot`.
+
+#### Reserved-alias recognition and stale-root rule
+Reserved-alias parsing runs **before** ordinary real-root prefix matching. For any selected path with a syntactically recognized V1 reserved alias:
+1. parse alias flavor/drive form and the exact 20-character workspace tag;
+2. derive the current mapping from authoritative `Workspace.ProjectRoot`;
+3. expand only if alias flavor/drive semantics and tag match the current mapping;
+4. if malformed, return `malformed_reserved_alias`;
+5. if tag/flavor/drive does not match, return `workspace_mismatch`;
+6. never reinterpret the stale alias as an ordinary client path and never expand it against the current root.
+
+Thus an alias emitted under workspace A is rejected after the authoritative root becomes workspace B, including same-drive Windows root changes.
+
+### 3. Path-Bearing Selector Resolver
+
+The feature must never recursively rewrite arbitrary JSON strings. It mutates only path-bearing leaves identified through exact profiles or conservative schema inference.
 
 ```go
 type ToolProfile struct {
@@ -323,69 +205,55 @@ type ToolProfile struct {
     ResultJSONPointers []string
     OpaqueResultMode   OpaqueResultMode
 }
-
-type ResolvedSelectors struct {
-    ArgPointers        []Pointer
-    ResultJSONPointers []Pointer
-    OpaqueResultMode   OpaqueResultMode
-}
 ```
 
-Resolution order:
-1. exact operator profile for tool name;
+Selector resolution order:
+1. exact operator profile by tool name;
 2. exact built-in profile;
-3. optional schema-assisted top-level/declared-object inference;
+3. optional schema-assisted inference;
 4. otherwise no selector.
 
-Schema-assisted path key vocabulary is bounded/configurable but defaults to conservative names such as:
+Explicit selectors use validated JSON Pointer syntax and may resolve only to string or array-of-string leaves.
+
+Default conservative schema path-key vocabulary may include:
 `path`, `file_path`, `filepath`, `directory`, `dir`, `cwd`, `workdir`, `root`, `target_path`, `paths`.
 
-Denylisted payload concepts include:
+Schema inference must not infer through payload concepts such as:
 `content`, `contents`, `patch`, `diff`, `script`, `command`, `cmd`, `query`, `expression`, `replacement`, `body`, `data`, `text`.
 
-Inference rules:
-- inspect schema structure, not descriptions alone;
-- accept string or array-of-string leaves;
-- do not infer through `additionalProperties`;
-- cap depth/count;
-- duplicate pointers canonicalize and deduplicate;
-- invalid pointers fail config compilation for explicit profiles and become skip reasons for inferred candidates.
+Additional rules:
+- inspect declared schema structure, not description prose alone;
+- do not infer through arbitrary `additionalProperties`;
+- cap depth, path-key count, profiles, and pointers;
+- unknown/ambiguous tools are skipped rather than guessed;
+- tool-name matching is exact, never substring/prefix authority.
 
-#### Canonical Outbound Rewriter
+### 4. Canonical Outbound Rewriter
 
-| Field | Detail |
-|---|---|
-| Intent | Virtualize eligible historical tool surfaces in a `lipapi.Call` |
-| Requirements | 2, 3, 5.2–5.8, 7.3, 8.1–8.2 |
+One pure rewriter is shared by the attempt transform and request-part hook. Reapplication is idempotent.
 
-One pure implementation is shared by:
-- `request.AttemptTransform`: early pass;
-- `hooks.RequestPartHook`: late idempotent pass.
-
-The rewriter must support both canonical authorities:
+It supports both canonical authorities:
 - item-authoritative `ItemKindToolCall` / `ItemKindToolResult`;
-- legacy message parts `PartJSON` tool calls / `PartToolResult`.
+- legacy `PartJSON` tool calls / `PartToolResult` history.
 
 For tool-call arguments:
 - parse valid JSON;
-- mutate selected string/string-array values only;
-- preserve unrelated values;
-- marshal deterministic valid JSON; exact byte preservation of the full JSON is not required after a selected path mutation, but no semantic non-selected field may change.
+- mutate only selected string/string-array leaves;
+- replace only a segment-boundary real-root prefix with `VirtualRoot`;
+- preserve IDs, names, ordering, and every non-selected semantic value;
+- return valid JSON.
 
 For tool results:
-- structured JSON parts may use configured selectors;
-- opaque `Output`, `PartToolResult`, or text result data is unchanged unless a profile explicitly enables a bounded path-oriented mode;
-- V1 built-ins should prefer **no opaque result rewrite** unless a tool contract is clearly path-list-only.
+- structured JSON may use explicit result selectors;
+- opaque `Output`, `PartToolResult`, and text result payloads remain unchanged by default;
+- an opaque result may be rewritten only when an exact tool profile explicitly enables a bounded path-oriented mode;
+- V1 built-ins should not enable opaque rewriting unless the tool contract is clearly path-list-only.
 
-The rewriter returns stats:
-`eligible`, `rewritten`, `bytesBefore`, `bytesAfter`, `skipsByReason`.
-No raw path values escape this component.
+The rewriter returns content-free stats: eligible count, rewritten count, bytes before/after/saved, and bounded skip reasons.
 
-### SDK / Runtime Platform
+### 5. Completed Tool-Call Finalizer Metadata
 
-#### Enriched Finalizer Metadata
-
-Additive fields to `toolcall.Meta`:
+Extend generic `toolcall.Meta` additively:
 
 ```go
 type Meta struct {
@@ -400,15 +268,13 @@ type Meta struct {
 }
 ```
 
-Existing finalizers remain source compatible.
+Runtime populates these from the same authoritative request views already used for tool policy/reactor metadata. Existing finalizers remain source compatible. No client-provided raw metadata becomes authority.
 
-Runtime populates these values from the same authoritative request views already projected into tool-reactor metadata. No client-supplied raw metadata becomes authority.
+### 6. Mandatory Buffering / Completeness Contract
 
-#### Optional Mandatory Buffering Contract
+The current shared finalizer assembly limit can pass through an oversized tool call unchanged. That is unacceptable once a model-visible alias may require expansion.
 
-Do not add required methods to `toolcall.Finalizer`. Add an optional capability implemented only by finalizers that need stronger assembly guarantees.
-
-Conceptual contract:
+Do not add required methods to existing `toolcall.Finalizer`. Define an optional, generic capability:
 
 ```go
 type BufferingRequirement interface {
@@ -429,41 +295,35 @@ const (
 ```
 
 Semantics:
-- existing finalizers without this interface retain current behavior;
-- current `PlaneToolCallFinalizationMaxArgsBytes` continues to preserve legacy/default behavior for ordinary finalizers;
-- assembler determines an **effective assembly bound** sufficient for mandatory finalizers, capped at `lipapi.MaxEventDeltaBytes`;
-- path expansion uses `OverflowReject`;
-- path expansion default requested bound: 1 MiB; configurable `[64 KiB, MaxEventDeltaBytes]`;
-- if the applicable call exceeds its mandatory bound, emit a typed tool-call rejection before client release;
-- do not globally raise tool-call-repair's own repair budget; repair may choose to pass on large calls while expansion still runs;
-- if implementation proves the existing scalar plane cannot express this without semantic coupling, introduce the smallest new generic SDK contract/plane and update generated plane metadata. Do not special-case `pathvirtualization` in core.
+- finalizers without this interface retain existing behavior;
+- existing `PlaneToolCallFinalizationMaxArgsBytes` retains legacy/default behavior for ordinary finalizers;
+- assembler computes an effective assembly bound sufficient for mandatory finalizers, capped at `lipapi.MaxEventDeltaBytes`;
+- path expansion declares `OverflowReject`;
+- default requested bound is 1 MiB, configurable in `[64 KiB, MaxEventDeltaBytes]`;
+- if an applicable call exceeds that mandatory bound, reject before any alias-bearing argument reaches the client;
+- do not globally raise tool-call-repair's own repair budget;
+- if the current scalar plane cannot express this independently, add the smallest generic SDK contract/plane; never special-case `pathvirtualization` in core.
 
-This task must begin with characterization tests because it changes subtle stream buffering behavior.
+### 7. Path Expansion Finalizer
 
-#### Path Expansion Finalizer
-
-| Field | Detail |
-|---|---|
-| Intent | Convert virtual path-bearing model arguments back to real paths before tool policy/client execution |
-| Requirements | 4, 5.1, 8.3–8.5 |
-
-Algorithm:
-1. derive mapping from `meta.Workspace.ProjectRoot`;
-2. resolve selectors using exact tool name + current tool schema;
-3. if no active mapping/selectors: pass;
-4. parse completed ArgsJSON;
+Algorithm for a completed model tool call:
+1. derive current `Mapping` from `meta.Workspace.ProjectRoot`;
+2. resolve selectors using exact tool name and current tool schema;
+3. if there are no selectors, pass;
+4. parse completed `ArgsJSON`;
 5. visit selected leaves only;
-6. if selected path begins `VirtualRoot`, expand;
-7. if selected path begins reserved marker but cannot map: reject with bounded reason;
-8. validate JSON and return rewrite/pass;
-9. assembler synthesizes canonical lifecycle;
-10. existing tool policies/reactors receive real paths.
+6. if a selected value uses a V1 reserved alias form, parse flavor/tag before any expansion;
+7. if alias matches the current `VirtualRoot`, replace it with current `RealRoot`;
+8. if reserved alias is malformed or carries a different workspace tag/flavor/drive form, reject with bounded reason;
+9. validate rewritten JSON;
+10. assembler synthesizes the canonical rewritten lifecycle;
+11. existing tool policies/reactors receive real paths.
 
-The finalizer does not execute filesystem access and does not inspect source/content fields.
+No filesystem access occurs and content/patch/script fields are not inspected unless explicitly configured as path-bearing.
 
-### Configuration / Composition
+## Configuration and Composition
 
-Proposed feature node:
+Proposed feature configuration:
 
 ```yaml
 plugins:
@@ -471,7 +331,6 @@ plugins:
     path_virtualization:
       enabled: true
       mode: audit # audit | rewrite
-      alias_marker: ".__lip_v1__"
       schema_inference: true
       mandatory_max_args_bytes: 1048576
       path_keys:
@@ -492,156 +351,157 @@ plugins:
           opaque_result_mode: "none"
 ```
 
-Validation:
-- feature disabled by default;
-- mode enum strict;
-- marker must be one bounded path segment, no slash/backslash, no `.`/`..`, no control characters, length <= 64;
-- `mandatory_max_args_bytes` bounded;
-- tool names exact/non-empty;
-- JSON Pointers parse at generation compile;
-- duplicate exact tool profile definitions rejected;
-- profile counts/pointers/path-key counts bounded;
-- no arbitrary regexes in V1.
+Validation rules:
+- disabled by default;
+- strict `audit|rewrite` enum;
+- **no alias-marker/version override in V1**;
+- mandatory byte bound is validated;
+- exact non-empty tool names;
+- JSON Pointers parsed at generation compilation;
+- duplicate/conflicting exact profiles rejected;
+- all list/depth/count dimensions bounded;
+- no arbitrary regex configuration.
 
-### Observability
+Feature bundle contributes the attempt transform, request-part hook, and path-expansion finalizer through existing planes. Add a new generic plane only if the mandatory buffering contract demonstrably requires it. Standard registration follows existing feature conventions; generic runtime/core never imports the concrete feature.
 
-Metrics names should follow repository conventions; exact names may be adjusted during implementation but dimensions are fixed:
-- mode: audit/rewrite;
-- direction: virtualize/expand;
-- outcome: eligible/rewritten/skipped/rejected;
-- reason: closed bounded enum;
-- counters for bytes-before/after/saved;
-- mandatory overflow count.
+## Continuity and State
 
-Forbidden labels/data:
-- path;
-- suffix;
-- alias;
-- tool call ID;
-- A-leg/B-leg IDs;
-- hashes of paths;
-- command/source text.
+No persistent data model is introduced in V1.
 
-## Data Models
+The primary mapping is reconstructed on every request/attempt from the authoritative project root and fixed V1 algorithm. Therefore:
+- same root/flavor produces the same workspace tag and alias after restart/reload;
+- retries, races, and failover candidates derive the same alias;
+- provider-side continuation for an unchanged root continues to use the same alias;
+- a changed root derives a different tag, so a provider-retained old alias fails closed as `workspace_mismatch` rather than rebinding;
+- no prior-root dictionary is needed to identify a stale alias because the stale tag is carried in the alias itself.
 
-No persistent database model is introduced.
-
-### Feature-local value objects
-- `PathFlavor`
-- `Mapping`
-- `SkipReason`
-- `ToolProfile`
-- parsed `Pointer`
-- `RewriteStats`
-- `BufferingSpec`
-
-### Consistency & Integrity
-- mapping is derived per request/attempt from immutable workspace view;
-- mapping allocation has no mutable global/session state in V1;
-- retries/failover derive identical values;
-- configuration reload changes apply only through new immutable generation snapshots.
+Dynamic secondary roots are deferred because they require explicit durable mapping/lifecycle semantics.
 
 ## Error Handling
 
-### Error Strategy
-- **Outbound detection/rewrite before alias exposure**: fail open to real paths on unexpected internal transformation error, with bounded diagnostic.
-- **Config errors**: fail generation compilation.
-- **Inbound unresolved reserved alias on selected path field**: fail closed for the tool call.
-- **Mandatory buffering overflow**: fail closed for the tool call.
-- **Malformed model ArgsJSON**: existing repair/finalizer chain may repair first; if valid completed JSON cannot be obtained, preserve existing tool-call-repair/rejection policy, but never release a recognized virtual alias through an applicable selected path.
-- **Unsupported workspace root**: skip/disable mapping, no mutation.
+- Unsupported/malformed project root: skip mapping; no outbound mutation.
+- Unexpected outbound transformation error before alias exposure: fail open to the real path with bounded diagnostics.
+- Malformed reserved alias on a selected model path: fail closed for that tool call.
+- Stale/different workspace tag or incompatible alias flavor: fail closed with `workspace_mismatch`.
+- Mandatory assembly overflow: fail closed for that tool call.
+- Malformed model JSON: existing repair/finalizer policy may repair first; a recognized applicable alias must never bypass required expansion and reach the client.
+- Config errors: fail generation compilation before publication.
 
-### Ordering with tool-call repair
-Preferred order:
-1. syntax/tool-shape repair if needed;
-2. path expansion on valid completed JSON;
-3. existing tool policies/reactors.
-
-The implementation must not rely solely on numeric order if the assembler's fallback semantics could bypass expansion. Characterization tests define the invariant.
+Preferred complete-call order is syntax/tool-shape repair (if needed) → path expansion → existing tool policies/reactors. Numeric finalizer ordering alone is not sufficient if assembler fallback could bypass mandatory expansion; characterization tests define the required invariant.
 
 ## Security Considerations
 
-- Expansion occurs before filesystem safety/policy reacts to the tool call.
-- Aliases are not authority and cannot widen workspace access.
-- A model can construct paths outside the virtual root; such real/other absolute paths pass to existing policy unchanged.
-- A reserved alias that cannot be mapped is rejected, not treated as a real client path.
-- No raw paths in metrics/logs.
-- No filesystem probing to validate roots.
-- Schema inference is intentionally conservative to avoid turning content strings into paths.
+- Expansion occurs before filesystem safety/policy evaluates the tool call.
+- Virtual aliases are not authority and do not widen workspace access.
+- A model-provided real path outside the virtual root continues into existing policy unchanged.
+- Any syntactically recognized reserved V1 alias on a selected path must validate against the current workspace tag before expansion.
+- A stale alias cannot target the new workspace after `ProjectRoot` changes.
+- The 96-bit workspace tag is backend-visible collision-resistant identity, not a credential or secrecy boundary.
+- No raw paths, aliases, suffixes, path hashes, tool-call IDs, A/B-leg IDs, command text, or source text are metric labels/log payloads for this feature.
 
-## Performance & Scalability
+## Observability
 
-- Pure lexical prefix matching, no filesystem calls.
-- No regex required on hot rewrite paths; flavor detection may use bounded byte tests.
-- Selector traversal bounded by config/schema/canonical limits.
-- Outbound rewrite runs twice but is idempotent; second pass should fast-skip already virtual roots.
-- Mandatory completed-call buffering is the largest new memory risk. Default 1 MiB per active applicable call; upper bound is canonical event limit. Concurrency tests/benchmarks must quantify this before changing defaults.
-- Audit mode establishes real savings distribution before production rewrite rollout.
+Expose bounded dimensions only:
+- mode: `audit|rewrite`;
+- direction: `virtualize|expand`;
+- outcome: `eligible|rewritten|skipped|rejected`;
+- reason: closed enum including `workspace_mismatch`, `malformed_reserved_alias`, unsupported root, selector skip, and mandatory overflow;
+- counters for bytes-before, bytes-after, bytes-saved, eligible/rewritten/skipped counts, expansion failures, and mandatory overflows.
+
+Audit mode runs the same detector/mapping logic without canonical mutation so measured savings match rewrite-mode eligibility.
+
+## Performance
+
+- No filesystem I/O.
+- No regex required on hot path; bounded lexical byte tests are sufficient.
+- SHA-256 workspace-tag derivation occurs once per mapping derivation and uses only the project-root bytes.
+- Selector traversal is bounded by config/schema/canonical limits.
+- Second outbound pass fast-skips already virtualized roots.
+- Mandatory complete-call buffering is the main memory risk; default 1 MiB per active applicable call and canonical maximum cap require concurrency benchmarks before changing defaults.
+- Alias is applied only when shorter than real root, so workspace tagging cannot create negative savings.
 
 ## Testing Strategy
 
-### Unit Tests
-- path flavor table: POSIX, drive, slash-on-Windows, UNC, extended drive/UNC, device path reject, malformed/relative.
-- round-trip property: `Expand(Virtualize(realRoot+suffix)) == original`.
-- case/separator boundary behavior.
-- alias-shorter gate and collision detection.
-- JSON Pointer path-only mutation and denylist behavior.
-- idempotent repeated outbound rewrite.
+### Pure/unit/fuzz
+- Path flavor recognition for POSIX, drive, UNC, extended drive/UNC, device/relative/malformed rejects.
+- Deterministic 96-bit tag vectors.
+- Windows case/separator canonical-identity behavior and POSIX case sensitivity.
+- Round trip: `Expand(Virtualize(realRoot+suffix)) == original`.
+- Segment-boundary and alias-shorter gates.
+- **Critical stale-workspace test**: derive alias under root A; derive mapping for root B; present A alias to B expander; assert `workspace_mismatch` and prove output is never rooted under B.
+- Cover same-drive, different-drive, POSIX, UNC, and extended forms.
+- Malformed reserved tags fail closed.
+- JSON Pointer mutation touches only selected leaves; content denylist false-positive tests.
+- Fuzz parser/mutator for panic freedom, valid JSON, and no unmatched reserved-alias expansion.
 
-### Fuzz Tests
-- path parser never panics and never expands an unmatched reserved alias.
-- JSON selector mutator preserves valid JSON or returns a typed error.
-- round-trip mapping for bounded arbitrary suffixes.
-- no replacement when prefix match lacks a segment boundary.
+### Runtime/integration
+- Attempt transform makes preliminary sizing/preflight observe reduced history.
+- Request-part reapplication survives final conversation-view reassertion and candidate adaptation.
+- PTB/backend ingress receives virtualized eligible tool history.
+- Completed model call expands before tool policy observer.
+- Stale/unresolved alias and mandatory overflow never reach client events.
+- Tool-call repair plus path expansion on malformed/repaired JSON.
+- >64 KiB call proves mandatory expansion is not bypassed.
+- Retry/failover/race derive identical alias for unchanged root.
+- Restart/reload reconstruction uses no mutable mapping state.
+- Provider-side `PreviousResponseID` continuation with unchanged root preserves alias; root-change stale alias is rejected.
+- Non-streaming behavior collects the same canonical expanded stream.
 
-### Runtime/Integration Tests
-- attempt transform makes preliminary context/preflight observe reduced call.
-- request-part reapplication survives final conversation-view reassertion.
-- PTB/backend receives virtualized tool history.
-- completed model call is expanded before tool policy observes it.
-- unresolved alias and mandatory overflow never reach client.
-- tool-call repair + path expansion order on malformed then repaired JSON.
-- retry/failover/race derive same alias.
-- non-streaming collects the same expanded stream behavior.
+### Protocol/certification
+Use canonical/family evidence rather than Cartesian frontend×backend tests:
+- one legacy chat tool call/result round trip;
+- one item-authoritative/OpenResponses round trip;
+- one additional family sentinel only if needed to prove adapter neutrality.
 
-### Protocol/Family Tests
-- representative legacy chat tool-call/result round trip.
-- representative item-authoritative/OpenResponses round trip.
-- one Anthropic- or Gemini-family sentinel if needed to prove canonical adapter neutrality.
-- avoid Cartesian frontend×backend matrix.
+### Benchmarks
+- Mapping/path-prefix operations including workspace-tag derivation.
+- Selector-guided argument mutation.
+- Idempotent second outbound pass.
+- Completed-call expansion.
+- 10/100/1000 path occurrence fixtures.
+- Representative long Windows worktree and long POSIX monorepo/worktree roots.
+- 64 KiB and 1 MiB buffering boundaries.
 
-### Performance
-- benchmarks for mapping/prefix operations.
-- 10/100/1000 path-bearing occurrences.
-- long Windows worktree fixture.
-- long POSIX monorepo/worktree fixture.
-- 64 KiB boundary regression and mandatory >64 KiB expansion.
-- 1 MiB configured mandatory bound.
-- run `make test-cost` only if test infrastructure cost materially changes.
+## Requirements Traceability
 
-## Design Validation
+| Requirement | Primary design realization |
+|---|---|
+| 1 | Path Mapper + workspace-bound tag algorithm |
+| 2 | Canonical Outbound Rewriter |
+| 3 | Selector Resolver |
+| 4 | Path Expansion Finalizer + mandatory buffering |
+| 5 | Two outbound stages + expansion-before-policy runtime ordering |
+| 6 | Stateless deterministic workspace tag + stale-alias rejection |
+| 7 | Feature config, audit mode, observability |
+| 8 | Failure policy + repair/finalizer compatibility |
+| 9 | Shorter-only gate + benchmarks |
 
-### Brownfield validation result: GO
+## Brownfield Design Validation
 
-Checks performed:
-- feature remains plugin-owned;
-- no provider/frontend branching required;
-- no new canonical path type required;
-- request ordering accounts for post-attempt-transform stages;
-- conversation-view reassertion is explicitly tested;
+**Verdict: GO after repairs.**
+
+Validated invariants:
+- optional behavior remains feature-owned;
+- no provider/frontend branching or canonical path type is required;
+- current request ordering is explicitly accounted for;
+- final conversation-view reassertion/PTB behavior is covered by tests;
 - reverse expansion occurs before tool policy/client release;
-- 64 KiB finalizer bypass is explicitly repaired;
-- restart semantics do not rely on process-memory mapping state;
-- source/content corruption risk is mitigated by selectors and opaque-result default-off;
+- the existing shared 64 KiB finalizer bypass is explicitly repaired;
+- source/content corruption is prevented by selector-only mutation and opaque-result default-off;
+- restart/reload does not depend on process-memory mapping state;
+- workspace-root changes cannot rebind an old alias because every alias carries and validates a root-derived tag;
 - no B2BUA/retry/commitment ownership is duplicated.
 
-### Significant repaired defects
-1. Rejected global opaque-output replacement.
-2. Rejected dynamic session dictionary for V1.
-3. Added late idempotent outbound pass.
-4. Added workspace metadata to complete finalization.
-5. Added mandatory buffering/fail-closed semantics.
-6. Narrowed transparency claim to tool surfaces.
+Significant repaired defects discovered during brownfield/design review:
+1. rejected global opaque-output replacement;
+2. rejected a dynamic session dictionary for V1;
+3. added a late idempotent outbound pass because AttemptTransform is not the final PTB boundary;
+4. added authoritative workspace metadata to complete finalization;
+5. added mandatory buffering/fail-closed semantics so required expansion cannot be bypassed at 64 KiB;
+6. narrowed transparency to tool surfaces;
+7. after CodeRabbit review, replaced fixed per-flavor aliases with deterministic 96-bit workspace-bound aliases and fixed the V1 namespace/version, closing stale-alias cross-workspace retargeting.
+
+No unresolved architecture blocker remains.
 
 ## Supporting References
-See `research.md` for the inspected repository files and gap-analysis record.
+See `research.md` for the brownfield discovery record and inspected repository surfaces.

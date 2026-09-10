@@ -8,7 +8,7 @@
   - The proxy already has the canonical A-leg/B-leg split, canonical tool representations, workspace metadata, attempt/request shaping stages, and complete tool-call assembly needed for a reversible path namespace.
   - The initial idea of replacing absolute paths anywhere inside tool output is unsafe because opaque tool output can contain source/config data whose literal paths are semantically meaningful.
   - The existing complete-tool-call finalizer path is the correct direction for model→client expansion, but its metadata lacks workspace context and its shared default 64 KiB assembly behavior can bypass required expansion.
-  - V1 should avoid a durable dynamic alias table: deterministic `Workspace.ProjectRoot` virtualization makes restart, reload, retries, and provider-side continuation reconstructable.
+  - V1 should avoid a durable dynamic alias table: deterministic `Workspace.ProjectRoot` virtualization makes restart, reload, retries, and provider-side continuation reconstructable, but the alias must include a deterministic workspace-root identity tag so an old alias cannot be expanded against a changed workspace.
 
 ## Brownfield Gap Analysis
 
@@ -53,17 +53,19 @@
 | Shared 64 KiB assembler limit can bypass finalizers | P0 correctness/security | Virtual alias could reach client unresolved | Add mandatory buffering/completeness contract so path expansion cannot silently pass through |
 | Attempt transform is not final PTB boundary | P1 correctness | Later hooks could introduce/reintroduce unvirtualized tool surfaces | Reapply idempotently at request-part stage and assert final backend-effective state |
 | No durable general alias dictionary | P1 continuity | Dynamic aliases would be lost on restart | Keep V1 deterministic and workspace-root-only |
+| Fixed alias namespace was not bound to its originating workspace | P0 correctness/security | After `ProjectRoot` changes, an old model alias could expand against the new root and target the wrong workspace | Include a deterministic collision-resistant workspace tag in every alias and reject stale/mismatched tags before expansion |
 | No cross-OS path parser independent of host OS | P1 portability | Windows paths on Linux proxy or POSIX paths on Windows proxy mis-handle | Implement feature-owned lexical parser |
 | No measurements of actual savings | P1 product | Optimization value unknown | Add audit mode and content-free savings metrics |
 
 ### Requirements repair caused by gap analysis
 
-The initial product idea was amended in the requirements in four ways:
+The initial product idea was amended in the requirements in five ways:
 
 1. **Blind tool-output replacement was removed.** Only structured/configured/safely inferred path-bearing surfaces may be rewritten.
 2. **Transparency was narrowed to tool-boundary transparency.** Ordinary assistant prose remains untouched in V1; a model may therefore mention a virtual alias in prose.
 3. **Primary mapping became deterministic workspace-root-only.** Dynamic discovered roots are explicitly deferred.
 4. **Reverse expansion became mandatory/fail-closed once aliases are model-visible.** The existing 64 KiB pass-through behavior is not acceptable for this feature.
+5. **Aliases became workspace-bound.** The first design used one fixed alias per path flavor; review exposed that a root change could redirect an old alias into the new workspace. V1 now embeds a deterministic collision-resistant workspace tag derived from the flavor-aware project-root identity and rejects stale/mismatched tags. The V1 alias namespace/version is fixed rather than operator-configurable so reload cannot make old aliases unrecognizable.
 
 The requirements gate was re-run after these changes and is internally consistent.
 
@@ -126,7 +128,8 @@ The requirements gate was re-run after these changes and is internally consisten
   - Session-scoped feature state exists but the default store is in-memory.
   - `Workspace.ProjectRoot` is already available on every request.
 - **Implications**:
-  - V1 does not need mutable mapping state. The alias is a pure function of path flavor, workspace root, and feature configuration.
+  - V1 does not need mutable mapping state. The alias is a pure function of path flavor and the canonical identity of the workspace root under a fixed V1 namespace/version.
+  - The alias must carry a workspace tag; otherwise a provider-side stale alias is indistinguishable after `ProjectRoot` changes.
   - A later multi-root feature can introduce durable A-leg-scoped mapping semantics explicitly.
 
 ## Architecture Pattern Evaluation
@@ -138,7 +141,7 @@ The requirements gate was re-run after these changes and is internally consisten
 | Tool-reactor delta rewriting | Rewrite streamed args incrementally | Existing ToolMeta has workspace | Fragment-boundary complexity, stateful JSON rewrite | Reject |
 | Canonical feature + completed-call expansion | Attempt/request shaping outbound; complete finalizer inbound | Protocol-neutral, security ordering correct | Requires narrow SDK/assembler enhancement | Select |
 | Dynamic session dictionary | Learn arbitrary prefixes and assign aliases | Higher potential savings | Restart/provider-continuation persistence problem | Defer |
-| Deterministic workspace-root alias | Pure mapping from Workspace.ProjectRoot | Restart-safe, simple, no store | Only compresses one root | Select for V1 |
+| Deterministic workspace-bound root alias | Pure mapping from Workspace.ProjectRoot with collision-resistant root tag | Restart-safe, stale-root detectable, no store | Only compresses one root; tag consumes some savings | Select for V1 |
 
 ## Design Decisions
 
@@ -156,6 +159,14 @@ The requirements gate was re-run after these changes and is internally consisten
 - **Selected Approach**: deterministic project-root mapping.
 - **Rationale**: eliminates persistence/restart ambiguity and substantially covers worktree/repository-prefix repetition.
 - **Trade-offs**: misses secondary roots such as temp/cache/vendor directories.
+
+### Decision: Bind every V1 alias to the originating workspace root
+- **Context**: A fixed alias such as `/.__lip_v1__/0/` is unsafe after `Workspace.ProjectRoot` changes because an old provider-visible alias could otherwise be expanded against the new root.
+- **Selected Approach**: derive a 96-bit workspace tag from SHA-256 over a versioned, path-flavor-aware canonical root identity; encode the first 12 digest bytes as lower-case unpadded base32 and include that tag in the virtual root.
+- **Canonical identity**: POSIX preserves case and internal bytes while removing non-root trailing separators; Windows keeps the path flavor distinct, normalizes separators to `\`, ASCII-case-folds for the match identity, and removes non-volume trailing separators. No dot-segment, symlink, or filesystem resolution occurs.
+- **Expansion rule**: reserved V1 aliases are parsed before ordinary prefix matching. Only a tag/flavor compatible with the current derived mapping may expand. A malformed or different workspace tag is a fail-closed stale-workspace alias.
+- **Rationale**: preserves stateless restart/reload behavior while preventing cross-workspace retargeting.
+- **Trade-offs**: the 20-character base32 tag reduces compression savings; short roots therefore fail the existing “replacement must be shorter” gate.
 
 ### Decision: Use host-independent lexical path flavors
 - **Selected Approach**: feature-owned parser for POSIX, Windows drive, UNC, and extended paths.
@@ -186,7 +197,8 @@ The requirements gate was re-run after these changes and is internally consisten
 
 ## Risks & Mitigations
 
-- **Alias collision with a legitimate real path** — reserved namespace validation; disable/fail safely on collision evidence.
+- **Alias collision with a legitimate real path** — fixed reserved namespace validation; disable/fail safely on collision evidence.
+- **Stale alias after workspace-root change** — workspace-bound 96-bit tag; reject mismatched/malformed reserved aliases before expansion.
 - **Huge tool calls** — bounded mandatory expansion limit; fail closed if an applicable aliased path call exceeds it; do not silently pass through.
 - **Path inside source content** — never recurse through arbitrary strings; selector/profile-only rewriting.
 - **Cross-OS mismatch** — custom lexical parser independent of runtime OS.
@@ -200,10 +212,11 @@ The requirements gate was re-run after these changes and is internally consisten
 
 **GO after repairs.**
 
-The draft design was revalidated against current `main`. Two local design defects were repaired before task generation:
+The draft design was revalidated against current `main` and external review. Three local design defects were repaired before task generation/final readiness:
 
 1. The first draft assumed `AttemptTransform` was the final B-leg mutation boundary. Current runtime proves request-part hooks, conversation-view reassertion, accounting/admission, and candidate adaptation occur later. The design now specifies a second idempotent request-part pass and explicit PTB/backend-ingress invariants.
 2. The first draft reused the existing tool-call finalizer without addressing the 64 KiB shared assembler fallback. The design now requires a generic mandatory completeness/buffering contract and fail-closed overflow semantics for path expansion.
+3. The first workspace-root-only draft used one fixed alias per path flavor. CodeRabbit correctly identified that an old alias could then expand against a changed workspace root. The repaired design binds aliases to a deterministic 96-bit workspace-root tag, fixes the V1 namespace/version, and rejects mismatched stale aliases.
 
 No unresolved architecture blocker remains.
 
