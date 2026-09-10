@@ -531,7 +531,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Content-dependent estimator/requirement without exact source contract => blocker.
   - _Requirements: 7, 8, 19_
 
-- [ ] 12.3 Refactor receive/terminal/conversation/continuation/interleaved/compaction dependencies conservatively
+- [x] 12.3 Refactor receive/terminal/conversation/continuation/interleaved/compaction dependencies conservatively
   - Metadata-only uses => bounded view.
   - Content/trajectory uses => assessment blocker unless an explicit source-backed contract is implemented.
   - Response-only uses remain on canonical events.
@@ -868,3 +868,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 11.9 VERIFIED (review subagent APPROVED): same-permit assessment with release-once-then-commit on accept and same-permit canonical fallback on decline, saturation proofs of no second admission, execute-panic close safety; frontendpipe suite PASS, vet/gofmt clean; -race unavailable cgo limitation; archtest core-ratchet failures pre-existing, untouched by this task.
 - Task 12.1 VERIFIED (re-review subagent APPROVED after real-assertion fixes): explicit 8-domain bounded wire facts with mechanical consumer-coverage ratchet and structural no-shadow-Call assertion, census evidence doc; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 12.2 VERIFIED (review subagent APPROVED): shared PrepareSelector across canonical/wire (no drift), exact size-constraint blocker via canonical predicate, metadata-only failover-set seam, TurnFacts evaluation; routing + capabilities + runtime + largebody suites PASS, vet/gofmt clean; -race unavailable cgo limitation; TestFault_CancellationAndTimeout flake + archtest/qa failures proven pre-existing at base.
+- Task 12.3 VERIFIED (review subagent APPROVED): metadata-only bounded views, content/trajectory blockers, response-only on canonical events, census additions, wire response-evidence helper (production wiring deferred; secure-turn/identity-fallback gaps recorded for 12.4/14); largebody + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
