@@ -38,7 +38,7 @@ func ResolveEndpoint(baseURL string, flavor Flavor) (string, error) {
 // BuildOutboundHeaders constructs backend-owned outbound HTTP request headers.
 // It sets required Content-Type, Accept, and Authorization (if secret is non-empty).
 // Extra headers are sanitized to strip hop-by-hop framing, stale length/encoding,
-// and frontend session/control headers (Requirement 12.2).
+// client auth, and frontend session/control headers (Requirement 12.2).
 func BuildOutboundHeaders(apiSecret string, streaming bool, extraHeaders http.Header) http.Header {
 	h := make(http.Header)
 	h.Set("Content-Type", "application/json")
@@ -51,8 +51,9 @@ func BuildOutboundHeaders(apiSecret string, streaming bool, extraHeaders http.He
 		h.Set("Authorization", "Bearer "+secret)
 	}
 	if extraHeaders != nil {
+		connTokens := parseConnectionTokens(extraHeaders)
 		for k, vv := range extraHeaders {
-			if isRestrictedOutboundHeader(k) {
+			if isRestrictedOutboundHeader(k, connTokens) {
 				continue
 			}
 			for _, v := range vv {
@@ -63,26 +64,64 @@ func BuildOutboundHeaders(apiSecret string, streaming bool, extraHeaders http.He
 	return h
 }
 
-func isRestrictedOutboundHeader(key string) bool {
+func parseConnectionTokens(extraHeaders http.Header) map[string]struct{} {
+	if extraHeaders == nil {
+		return nil
+	}
+	rawValues := extraHeaders["Connection"]
+	if len(rawValues) == 0 {
+		return nil
+	}
+	tokens := make(map[string]struct{})
+	for _, raw := range rawValues {
+		for _, part := range strings.Split(raw, ",") {
+			token := strings.TrimSpace(part)
+			if token != "" {
+				tokens[strings.ToLower(token)] = struct{}{}
+			}
+		}
+	}
+	return tokens
+}
+
+func isRestrictedOutboundHeader(key string, connTokens map[string]struct{}) bool {
+	lower := strings.ToLower(strings.TrimSpace(key))
+	if connTokens != nil {
+		if _, ok := connTokens[lower]; ok {
+			return true
+		}
+	}
 	canonical := http.CanonicalHeaderKey(key)
 	switch canonical {
-	// Hop-by-hop headers:
+	// Hop-by-hop headers (RFC 7230 / RFC 9110):
 	case "Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization",
-		"Te", "Trailers", "Transfer-Encoding", "Upgrade":
+		"Te", "Trailers", "Trailer", "Transfer-Encoding", "Upgrade":
 		return true
 	// Transport / body framing headers (caller/writer controls these):
-	case "Content-Length", "Content-Encoding", "Expect":
+	case "Content-Length", "Content-Encoding", "Expect", "Host":
 		return true
-	// Backend auth is strictly owned:
-	case "Authorization":
+	// Backend-owned content headers:
+	case "Content-Type", "Accept":
+		return true
+	// Client auth must never leak upstream:
+	case "Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key":
 		return true
 	// Frontend session / control headers must not leak upstream:
 	case "X-Session-Id", "X-Resume-Token", "X-Aleg-Id", "X-Bleg-Id",
-		"X-Lip-Session-Id", "X-Lip-Resume-Token":
+		"X-Lip-Session-Id", "X-Lip-Resume-Token", "X-Lip-Route",
+		"X-Lip-A-Leg-Id", "X-Lip-Session-Hint", "X-Lip-Diagnostics-Secret",
+		"X-Trace-Id":
 		return true
 	default:
-		lower := strings.ToLower(key)
-		if strings.HasPrefix(lower, "x-session-") || strings.HasPrefix(lower, "x-resume-") {
+		if strings.HasPrefix(lower, "x-lip-") ||
+			strings.HasPrefix(lower, "x-session-") ||
+			strings.HasPrefix(lower, "x-resume-") ||
+			strings.HasPrefix(lower, "x-aleg-") ||
+			strings.HasPrefix(lower, "x-bleg-") ||
+			lower == "x-api-key" || lower == "api-key" || lower == "x-goog-api-key" ||
+			lower == "authorization" || lower == "proxy-authorization" ||
+			lower == "host" || lower == "expect" || lower == "trailer" || lower == "trailers" ||
+			lower == "content-type" || lower == "accept" {
 			return true
 		}
 		return false
@@ -184,6 +223,62 @@ func (p WireOpenPrimitives) ResolveURL() (string, error) {
 // BuildHeaders constructs the outbound headers for an attempt.
 func (p WireOpenPrimitives) BuildHeaders(apiSecret string, streaming bool) http.Header {
 	return BuildOutboundHeaders(apiSecret, streaming, nil)
+}
+
+// BuildHeadersWithExtra constructs the outbound headers including sanitized extra headers.
+func (p WireOpenPrimitives) BuildHeadersWithExtra(apiSecret string, streaming bool, extraHeaders http.Header) http.Header {
+	return BuildOutboundHeaders(apiSecret, streaming, extraHeaders)
+}
+
+// NewRequest constructs a secured outbound HTTP request using the resolved provider endpoint.
+func (p WireOpenPrimitives) NewRequest(
+	ctx context.Context,
+	body io.Reader,
+	contentLength int64,
+	apiSecret string,
+	streaming bool,
+	extraHeaders http.Header,
+) (*http.Request, error) {
+	targetURL, err := p.ResolveURL()
+	if err != nil {
+		return nil, err
+	}
+	return NewOutboundRequest(ctx, targetURL, body, contentLength, apiSecret, streaming, extraHeaders)
+}
+
+// NewOutboundRequest constructs a secured outbound HTTP request targeting targetURL for wire execution (Requirement 12).
+// It applies BuildOutboundHeaders, sets exact ContentLength when known (or -1 for streaming/chunked framing),
+// clears any request trailers, keeps connection reuse enabled (Close=false), and clears req.Host so transport
+// routes cleanly to targetURL without forwarding client Host.
+func NewOutboundRequest(
+	ctx context.Context,
+	targetURL string,
+	body io.Reader,
+	contentLength int64,
+	apiSecret string,
+	streaming bool,
+	extraHeaders http.Header,
+) (*http.Request, error) {
+	if ctx == nil {
+		return nil, lipapi.ErrNilContext
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header = BuildOutboundHeaders(apiSecret, streaming, extraHeaders)
+	if contentLength >= 0 {
+		req.ContentLength = contentLength
+	} else {
+		req.ContentLength = -1
+	}
+	// Never propagate request trailers (Requirement 12.2, 12.6).
+	req.Trailer = nil
+	// Maintain connection reuse with shared client.
+	req.Close = false
+	// Derive Host header from targetURL, not untrusted client headers.
+	req.Host = ""
+	return req, nil
 }
 
 // Client returns the effective HTTP client.
