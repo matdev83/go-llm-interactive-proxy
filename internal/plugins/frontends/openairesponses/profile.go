@@ -207,6 +207,18 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 				}
 				return frontendpipe.ProofOutput{}, fmt.Errorf("openairesponses: input[%d]: %w", i, err)
 			}
+			for _, part := range m.Parts {
+				if part.Kind != lipapi.PartToolResult {
+					continue
+				}
+				trimmedContent := bytes.TrimSpace(part.Content)
+				if len(trimmedContent) == 0 || trimmedContent[0] != '"' {
+					// Requirement 9/17: non-string function_call_output outputs are
+					// re-encoded as strings by the canonical backend while the wire
+					// path forwards raw bytes; keep that shape canonical-only.
+					return frontendpipe.ProofOutput{}, fmt.Errorf("openairesponses: input[%d]: non-string function_call_output output requires canonical encoding", i)
+				}
+			}
 			msgs = append(msgs, m)
 		}
 	default:

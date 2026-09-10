@@ -644,6 +644,10 @@ func TestOpenAIResponsesProfile_DeclineToCanonical(t *testing.T) {
 			body: `{"model":"gpt-4o","input":[{"type":"function_call_output","call_id":"","output":"done"}]}`,
 		},
 		{
+			name: "object-shaped function_call_output output requires canonical string encoding",
+			body: `{"model":"gpt-4o","input":[{"type":"function_call_output","call_id":"c1","output":{"temp":72}}]}`,
+		},
+		{
 			name: "empty model",
 			body: `{"model":"","input":"hello"}`,
 		},
