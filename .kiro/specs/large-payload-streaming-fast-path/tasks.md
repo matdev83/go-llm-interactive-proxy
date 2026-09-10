@@ -569,7 +569,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - No ordinary `Execute` fallback branch.
   - _Requirements: 6, 7, 14, 15, 18, 19_
 
-- [ ] 13.2 Reuse existing attempt/recovery ownership
+- [x] 13.2 Reuse existing attempt/recovery ownership
   - Same B-leg allocation, attempt budgets/order, affinity/weighted/interleaved/race, credential retry, TTFT, failure history, first-event commitment, terminal cleanup.
   - Each attempt opens source at zero and applies only approved candidate model splice.
   - Backend parser returns canonical EventStream.
@@ -873,3 +873,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 12.5 VERIFIED (review subagent APPROVED): terminal-decision default-block via exact-ID + census + substring triple coverage with anti-tamper proofs, no DecisionContinue semantic change; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 12.6 VERIFIED (review subagent APPROVED): type/dataflow archtest boundary (go/packages+go/types, rename-resistant) with explicit whitelists wired into all scans, RED mutations proven, no body-double for legacy resolver; archtest + runtime + frontendpipe suites PASS, vet/gofmt clean; -race unavailable cgo limitation; full-suite archtest failures pre-existing at base.
 - Task 13.1 VERIFIED (review subagent APPROVED): one-way wire commit with stamp/source validation, shared prep + single BeginTurn/A-leg, domain-constrained live override, shared authority/economic admission with release discipline, authoritative response/session facts, no Execute fallback; runtime + largebody suites PASS, vet/gofmt clean; -race unavailable cgo limitation; carry to 13.2/13.3: propagate admitted BillingCallID, body-size request exposure, mandatory per-request WireIdentity, consume BindSession view.
+- Task 13.2 VERIFIED (re-review subagent APPROVED after 4-findings remediation): real attempt execution reusing canonical ownership (B-leg/affinity/budgets/TTFT/failure-history/terminal legs), offset-zero bodies + approved splice only, winner-ctx survival, recoverability classification, per-leg BE checkpoints, terminal cleanup on all paths; runtime + largebody + execbackend suites PASS, vet/gofmt clean; -race unavailable cgo limitation; carry: winner-leg outcome-by-cause vs Failed-on-success, sequential-exhaustion last-cause in FinalError.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
@@ -128,6 +129,16 @@ func setupTestExecutor(t *testing.T) (*Executor, *testCountingMetricsSink, b2bua
 	ex.Now = func() time.Time { return time.Unix(1000, 0) }
 	ex.LargeBodyGenerationID = "gen-1"
 	ex.LargeBodyCandidateDomainGeneration = "dom-gen-1"
+	ex.DefaultBackend = "default"
+	ex.Backends = map[string]execbackend.Backend{
+		"default": {
+			OpenWire: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+				return lipapi.CloseOnlyManagedStream{Stream: lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseFinished},
+				})}, nil
+			},
+		},
+	}
 
 	return ex, metrics, b2
 }

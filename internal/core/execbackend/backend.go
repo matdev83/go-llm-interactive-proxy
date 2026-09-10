@@ -101,6 +101,10 @@ type Backend struct {
 
 	// WireBackend, when non-nil, provides the optional wire capability interface.
 	WireBackend largebody.WireBackend
+
+	// OpenWire, when set, opens a backend attempt directly from a wire request
+	// without constructing a lipapi.Call (design section 9, Requirement 8).
+	OpenWire func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error)
 }
 
 // CapabilityPreflight is an optional non-billable backend readiness probe result.

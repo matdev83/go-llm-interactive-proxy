@@ -3,8 +3,12 @@ package largebody
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 // WireSupportReason classifies the compatibility or decline reason for a backend
@@ -116,6 +120,70 @@ func AsWireBackend(v any) (WireBackend, bool) {
 		wb := p.AsWireBackend()
 		if wb != nil {
 			return wb, true
+		}
+	}
+	return nil, false
+}
+
+// WireOpenRequest carries bounded facts and a fresh offset-zero source reader
+// required by a backend to open an attempt without constructing a lipapi.Call (Requirement 8, 9, 10, 12).
+type WireOpenRequest struct {
+	Candidate     routing.AttemptCandidate
+	Body          io.ReadCloser
+	ContentLength int64
+	WireRequest   WireRequestFacts
+	TraceID       string
+	ALegID        string
+	BLegID        string
+	Header        http.Header
+}
+
+// Validate checks internal consistency of the wire open request.
+func (r WireOpenRequest) Validate() error {
+	if r.Candidate.Primary.Backend == "" {
+		return fmt.Errorf("largebody: candidate primary backend must not be empty")
+	}
+	if r.Body == nil {
+		return fmt.Errorf("largebody: wire open body must not be nil")
+	}
+	if r.ContentLength < 0 {
+		return fmt.Errorf("largebody: wire open content length must be >= 0, got %d", r.ContentLength)
+	}
+	if strings.TrimSpace(r.TraceID) == "" {
+		return fmt.Errorf("largebody: wire open trace id must not be empty")
+	}
+	if strings.TrimSpace(r.ALegID) == "" {
+		return fmt.Errorf("largebody: wire open a-leg id must not be empty")
+	}
+	if strings.TrimSpace(r.BLegID) == "" {
+		return fmt.Errorf("largebody: wire open b-leg id must not be empty")
+	}
+	return nil
+}
+
+// WireOpener is an optional internal interface implemented by backends
+// capable of opening a wire attempt without constructing a lipapi.Call (Requirement 8, 12).
+type WireOpener interface {
+	OpenWire(ctx context.Context, req WireOpenRequest) (lipapi.ManagedEventStream, error)
+}
+
+// WireOpenerProvider is an optional interface for types that adapt into a WireOpener.
+type WireOpenerProvider interface {
+	AsWireOpener() WireOpener
+}
+
+// AsWireOpener probes a value for the internal WireOpener capability.
+func AsWireOpener(v any) (WireOpener, bool) {
+	if v == nil {
+		return nil, false
+	}
+	if wo, ok := v.(WireOpener); ok && wo != nil {
+		return wo, true
+	}
+	if p, ok := v.(WireOpenerProvider); ok && p != nil {
+		wo := p.AsWireOpener()
+		if wo != nil {
+			return wo, true
 		}
 	}
 	return nil, false

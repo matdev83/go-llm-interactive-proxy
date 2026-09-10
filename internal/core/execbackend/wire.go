@@ -2,14 +2,20 @@ package execbackend
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 // WireBackend is the optional internal interface implemented by backends
 // supporting direct wire execution (design section 9, Requirements 7, 8, 9).
 type WireBackend = largebody.WireBackend
+
+// WireOpener is the optional internal interface implemented by backends
+// supporting opening direct wire attempts (design section 9, Requirement 8).
+type WireOpener = largebody.WireOpener
 
 // backendWireAdapter adapts a Backend value into largebody.WireBackend.
 type backendWireAdapter struct {
@@ -147,4 +153,35 @@ func EffectiveWireDomainSupport(
 
 	res.Reason = largebody.WireSupportReasonNone
 	return res
+}
+
+// EffectiveWireOpen opens a wire attempt on be, using OpenWire or WireBackend (design section 9, Requirement 8).
+func EffectiveWireOpen(ctx context.Context, be Backend, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if be.OpenWire != nil {
+		return be.OpenWire(ctx, req)
+	}
+	if opener, ok := largebody.AsWireOpener(be.WireBackend); ok {
+		return opener.OpenWire(ctx, req)
+	}
+	return nil, fmt.Errorf("execbackend: backend %q does not support OpenWire", req.Candidate.Primary.Backend)
+}
+
+// AsWireOpener adapts be into largebody.WireOpener if supported.
+func (be Backend) AsWireOpener() largebody.WireOpener {
+	if be.OpenWire != nil {
+		return wireOpenerFunc(be.OpenWire)
+	}
+	if opener, ok := largebody.AsWireOpener(be.WireBackend); ok {
+		return opener
+	}
+	return nil
+}
+
+type wireOpenerFunc func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error)
+
+func (f wireOpenerFunc) OpenWire(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+	return f(ctx, req)
 }
