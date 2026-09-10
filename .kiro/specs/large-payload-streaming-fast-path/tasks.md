@@ -470,7 +470,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Frontend cannot synthesize route/backend internals.
   - _Requirements: 6, 22_
 
-- [ ] 11.2 Add side-effect sentinels before real logic
+- [x] 11.2 Add side-effect sentinels before real logic
   - Panic/fail test doubles if assessment touches `BeginTurn`, A-leg, DB/store/route-override read, billing/accounting reservation, provider/network, replay bytes, client wait, or unbounded callback.
   - Measure assessment duration under held decode permit.
   - _Requirements: 6, 21, 22_
@@ -858,3 +858,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 10.4 VERIFIED (review subagent APPROVED): exact WireCounter gate with pre-commit tokenizer semantics, CountCall-only/inexact/unbounded/timeout decline under same permit, 5MiB/250ms bounded measured counting, CheckWire limit parity, zero Call retention; largebody + runtime + preflight suites PASS, vet/gofmt clean; -race unavailable cgo limitation; archtest docs-gate failure pre-existing at HEAD, unrelated.
 - Task 10.5 VERIFIED (review subagent APPROVED): stock billing/exposure on bounded facts with shared exact credit/identity/closure helpers, WireBounded identity contract with custom-callback blockers, adapter bounded fallbacks, exactly-once post-commit reservation/settlement, shared account-fallback helper + comment fix; runtime + billing + compose + admission suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.1 VERIFIED (review subagent APPROVED): split LargeBodyAssessor/WireExecutor ports with bare-Proof assessment, opaque generation-bound stamp + bounded facts Assessment with strict Validate + constructors, generation binding moved assessor-side, public ExecutorView untouched; largebody + frontendpipe + archtest suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 11.2 VERIFIED (review subagent APPROVED): fail-closed panic sentinel harness for all 8 side-effect surfaces + held-permit duration measurement with ceiling and single-decision enforcement, test-only, no production change; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
