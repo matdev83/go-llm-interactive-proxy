@@ -509,7 +509,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Execute disagreement => invariant failure, never canonical fallback.
   - _Requirements: 6, 8_
 
-- [ ] 11.9 Call assessment while SAME decode permit remains held
+- [x] 11.9 Call assessment while SAME decode permit remains held
   - Assessment decline owns same-permit fallback: canonical `Spec.Decode` from replay under the original permit still held, with no release/reacquire and no second `TryAdmit`/429/503 decision (proof-decline fallback is owned by Task 7.6 under the same rule).
   - Accept => release once then commit.
   - Saturation/concurrency tests prove no fallback-induced second admission decision.
@@ -865,3 +865,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 11.6 VERIFIED (re-review subagent APPROVED after envelope-composition fixes): late selector authorities fail closed without bounded contracts, per-backend universal proof for mixed envelopes, union (never replace) envelope composition across assessors, legacy resolver out of scope; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.7 VERIFIED (review subagent APPROVED): exact+domain backend proof gate with immutable body/rewrite facts to every resolver, whole-request decline without pruning, homogeneous accept vs heterogeneous decline, post-BeginTurn inside-domain override proof, strict rewrite-mismatch union rule; largebody + routing + execbackend suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.8 VERIFIED (review subagent APPROVED): 7-point stamp binding with execute-time revalidation as terminal invariant failure (never fallback), backward-compatible constructor, no sensitive leakage; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 11.9 VERIFIED (review subagent APPROVED): same-permit assessment with release-once-then-commit on accept and same-permit canonical fallback on decline, saturation proofs of no second admission, execute-panic close safety; frontendpipe suite PASS, vet/gofmt clean; -race unavailable cgo limitation; archtest core-ratchet failures pre-existing, untouched by this task.

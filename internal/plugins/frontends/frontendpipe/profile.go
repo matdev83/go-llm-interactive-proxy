@@ -64,6 +64,28 @@ type CandidateProofResult struct {
 	Err error
 }
 
+// CandidateAssessmentResult carries the outcome of candidate proof assessment under decode admission (Task 11.9).
+type CandidateAssessmentResult struct {
+	// Assessment is the outcome returned by LargeBodyAssessor.AssessLargeBody.
+	Assessment largebody.Assessment
+	// PermitHeld reports whether the decode-admission permit was held during assessment.
+	PermitHeld bool
+	// Err is any error returned by AssessLargeBody or assessor resolution.
+	Err error
+}
+
+// WireCommitResult carries the outcome of wire commit execution after decode admission permit release (Task 11.9).
+type WireCommitResult struct {
+	// Assessment is the accepted assessment that authorized the wire commit.
+	Assessment largebody.Assessment
+	// Result is the outcome returned by LargeBodyWireExecutor.ExecuteLargeBody.
+	Result largebody.ExecutionResult
+	// PermitHeld reports whether the decode-admission permit was held during ExecuteLargeBody (must be false).
+	PermitHeld bool
+	// Err is any error returned by ExecuteLargeBody.
+	Err error
+}
+
 // ResponseStateSeeds carries bounded seed facts derived during protocol proof
 // for constructing frontend response headers, IDs, timestamps, and session/cancellation
 // carriers after wire execution (Task 7.1, Requirement 18).

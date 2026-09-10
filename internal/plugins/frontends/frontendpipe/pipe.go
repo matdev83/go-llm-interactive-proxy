@@ -99,6 +99,10 @@ type Spec[Opts any] struct {
 	OnCandidateCapture func(r *http.Request, res CandidateCaptureResult)
 	// OnCandidateProof optionally observes candidate protocol proof outcomes (Task 7.5).
 	OnCandidateProof func(r *http.Request, res CandidateProofResult)
+	// OnCandidateAssessment optionally observes candidate assessment outcomes (Task 11.9).
+	OnCandidateAssessment func(r *http.Request, res CandidateAssessmentResult)
+	// OnWireCommit optionally observes wire commit execution outcomes (Task 11.9).
+	OnWireCommit func(r *http.Request, res WireCommitResult)
 	// MatchPath returns ok=false for 404. When AltServe is non-nil and invoked, the pipeline stops.
 	MatchPath func(path string) (pm PathMatch, ok bool)
 	AltServe  func(ctx context.Context, w http.ResponseWriter, r *http.Request) bool

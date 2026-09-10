@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonshape"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
 )
@@ -490,74 +492,159 @@ func replayCandidate[Opts any](
 		return nil, nil, false, nil
 	}
 
-	var decoded *Decoded
-	var body []byte
-	err := decodeqos.Guard(releaseDecode, func() error {
-		defer func() {
-			_ = capRes.Completed.Close()
-		}()
-
-		proofIn := ProofInput{
-			Ctx:                  ctx,
-			Headers:              r.Header,
-			URLPath:              r.URL.Path,
-			Path:                 pm,
-			RouteSelector:        sel,
-			RoutePrefixes:        spec.RoutePrefixes,
-			DefaultRouteSelector: spec.DefaultRouteSelector,
-			RouteFromBodyModel:   spec.RouteFromBodyModel,
-			Source:               capRes.Completed,
-			BodyBytes:            capRes.Completed.Size(),
-			AnthropicVersion:     strings.TrimSpace(r.Header.Get("anthropic-version")),
-		}
-
-		var proofOut ProofOutput
-		var proofErr error
-		if spec.Profile != nil {
-			proofOut, proofErr = spec.Profile.CompileProof(ctx, proofIn)
-			if proofErr == nil {
-				proofErr = proofOut.Validate(DefaultMaxSemanticFactBytes)
+	var released bool
+	releaseOnce := func() {
+		if !released {
+			released = true
+			if releaseDecode != nil {
+				releaseDecode()
 			}
+		}
+	}
+	defer releaseOnce()
+
+	var wireCommitted bool
+	defer func() {
+		if !wireCommitted {
+			_ = capRes.Completed.Close()
+		}
+	}()
+
+	proofIn := ProofInput{
+		Ctx:                  ctx,
+		Headers:              r.Header,
+		URLPath:              r.URL.Path,
+		Path:                 pm,
+		RouteSelector:        sel,
+		RoutePrefixes:        spec.RoutePrefixes,
+		DefaultRouteSelector: spec.DefaultRouteSelector,
+		RouteFromBodyModel:   spec.RouteFromBodyModel,
+		Source:               capRes.Completed,
+		BodyBytes:            capRes.Completed.Size(),
+		AnthropicVersion:     strings.TrimSpace(r.Header.Get("anthropic-version")),
+	}
+
+	var proofOut ProofOutput
+	var proofErr error
+	if spec.Profile != nil {
+		proofOut, proofErr = spec.Profile.CompileProof(ctx, proofIn)
+		if proofErr == nil {
+			proofErr = proofOut.Validate(DefaultMaxSemanticFactBytes)
+		}
+	} else {
+		proofErr = errors.New("frontendpipe: profile not configured")
+	}
+
+	if spec.OnCandidateProof != nil {
+		spec.OnCandidateProof(r, CandidateProofResult{
+			Output:     proofOut,
+			PermitHeld: !released,
+			Err:        proofErr,
+		})
+	}
+
+	// Task 11.9: Call assessment while SAME decode permit remains held (Requirement 6.1, 6.2).
+	var assessment largebody.Assessment
+	var assessErr error
+	if proofErr == nil {
+		assessor, aok := largebody.AsLargeBodyAssessor(spec.Exec)
+		if !aok || assessor == nil {
+			assessErr = errors.New("frontendpipe: large body assessor not configured")
 		} else {
-			proofErr = errors.New("frontendpipe: profile not configured")
+			assessment, assessErr = assessor.AssessLargeBody(ctx, proofOut.Proof())
 		}
 
-		if spec.OnCandidateProof != nil {
-			spec.OnCandidateProof(r, CandidateProofResult{
-				Output:     proofOut,
-				PermitHeld: true,
-				Err:        proofErr,
+		if spec.OnCandidateAssessment != nil {
+			spec.OnCandidateAssessment(r, CandidateAssessmentResult{
+				Assessment: assessment,
+				PermitHeld: !released,
+				Err:        assessErr,
+			})
+		}
+	}
+
+	// Task 11.9: Accept => release once then commit (Requirement 6.5, 6.6).
+	// wireCommitted is set only after ExecuteLargeBody returns so a panic
+	// inside execution still runs the deferred completion-source close.
+	if proofErr == nil && assessErr == nil && assessment.Accepted() {
+		releaseOnce()
+
+		wireExec, wok := spec.Exec.(largebody.LargeBodyWireExecutor)
+		if !wok || wireExec == nil {
+			if lbe, lok := largebody.AsLargeBodyExecutor(spec.Exec); lok && lbe != nil {
+				wireExec = lbe
+			}
+		}
+
+		var execRes largebody.ExecutionResult
+		var execErr error
+		if wireExec != nil {
+			execRes, execErr = wireExec.ExecuteLargeBody(ctx, assessment, capRes.Completed)
+		} else {
+			execErr = errors.New("frontendpipe: wire executor not available for accepted assessment")
+		}
+		wireCommitted = true
+
+		if spec.OnWireCommit != nil {
+			spec.OnWireCommit(r, WireCommitResult{
+				Assessment: assessment,
+				Result:     execRes,
+				PermitHeld: !released,
+				Err:        execErr,
 			})
 		}
 
-		// Read whole body for fallback Spec.Decode under the SAME held permit
-		var berr error
-		body, berr = readCompletedSource(capRes.Completed)
-		if berr != nil {
-			return berr
-		}
-		if sel == "" && spec.RouteFromBodyModel {
-			if proofErr == nil && proofOut.Proof().RouteSelector != "" {
-				sel = proofOut.Proof().RouteSelector
-			} else {
-				sel = spec.RoutePrefixes.FromModelOrDefault(body, spec.DefaultRouteSelector)
+		if execErr != nil {
+			_ = capRes.Completed.Close()
+			out := classifyExecute(spec, execErr)
+			if out.Kind == execerr.KindInternalError && spec.Log != nil && out.Err != nil {
+				diag.LogError(ctx, spec.Log, "execute large body failed", diag.AttrOpts{}, out.Err)
 			}
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecuteError(w, out))
+			return nil, nil, false, nil
 		}
-		dctx := DecodeContext{
-			Ctx:              ctx,
-			Body:             body,
-			RouteSelector:    sel,
-			Headers:          r.Header,
-			Path:             pm,
-			URLPath:          r.URL.Path,
-			AnthropicVersion: strings.TrimSpace(r.Header.Get("anthropic-version")),
+
+		if execRes.Stream != nil {
+			defer func() {
+				_ = execRes.Stream.Close()
+			}()
 		}
-		var derr error
-		decoded, derr = spec.Decode(dctx)
-		return derr
-	})
-	if err != nil {
-		return nil, body, false, err
+		_ = capRes.Completed.Close()
+
+		if w.Header().Get("Content-Type") == "" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		}
+		return nil, nil, false, nil
+	}
+
+	// Task 11.9 / Task 7.6: Proof or assessment decline owns same-permit fallback:
+	// canonical Spec.Decode from replay under the original permit still held,
+	// with no release/reacquire and no second TryAdmit/429/503 decision.
+	body, berr := readCompletedSource(capRes.Completed)
+	if berr != nil {
+		return nil, nil, false, berr
+	}
+	if sel == "" && spec.RouteFromBodyModel {
+		if proofErr == nil && proofOut.Proof().RouteSelector != "" {
+			sel = proofOut.Proof().RouteSelector
+		} else {
+			sel = spec.RoutePrefixes.FromModelOrDefault(body, spec.DefaultRouteSelector)
+		}
+	}
+	dctx := DecodeContext{
+		Ctx:              ctx,
+		Body:             body,
+		RouteSelector:    sel,
+		Headers:          r.Header,
+		Path:             pm,
+		URLPath:          r.URL.Path,
+		AnthropicVersion: strings.TrimSpace(r.Header.Get("anthropic-version")),
+	}
+	decoded, derr := spec.Decode(dctx)
+	releaseOnce()
+	if derr != nil {
+		return nil, body, false, derr
 	}
 	return decoded, body, true, nil
 }
