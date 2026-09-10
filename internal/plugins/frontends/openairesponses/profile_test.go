@@ -1,0 +1,783 @@
+package openairesponses_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+)
+
+// memSource wraps a byte slice as largebody.Source for testing.
+type memSource struct {
+	data []byte
+}
+
+func newMemSource(data []byte) *memSource {
+	return &memSource{data: data}
+}
+
+func (s *memSource) Size() int64 {
+	return int64(len(s.data))
+}
+
+func (s *memSource) Open() (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(s.data)), nil
+}
+
+func (s *memSource) Close() error {
+	return nil
+}
+
+var _ largebody.Source = (*memSource)(nil)
+
+func defaultProofInput(body []byte, routeSelector string, headers http.Header) frontendpipe.ProofInput {
+	if headers == nil {
+		headers = make(http.Header)
+	}
+	return frontendpipe.ProofInput{
+		Ctx:                  context.Background(),
+		Headers:              headers,
+		URLPath:              "/v1/responses",
+		RouteSelector:        routeSelector,
+		RoutePrefixes:        routeselect.NewPrefixSet([]string{"openai", "stub", "custom"}),
+		DefaultRouteSelector: "stub:default",
+		RouteFromBodyModel:   true,
+		Source:               newMemSource(body),
+		BodyBytes:            int64(len(body)),
+	}
+}
+
+// Requirement 13, 17.6: Confirm at implementation time: no legacy full-body resolver; RouteFromBodyModel=true.
+func TestOpenAIResponsesProfile_PrerequisitesAndIdentity(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+	if prof.ProfileID() != openairesponses.ProfileID {
+		t.Fatalf("ProfileID: got %q, want %q", prof.ProfileID(), openairesponses.ProfileID)
+	}
+	if prof.ProfileID() != "openai_responses_v1" {
+		t.Fatalf("ProfileID constant: got %q, want openai_responses_v1", prof.ProfileID())
+	}
+
+	// Verify Handler builds pipe with no legacy ResolveRouteSelector and RouteFromBodyModel=true
+	h := &openairesponses.Handler{}
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req) // triggers buildPipe via pipeOnce
+
+	spec := h.Spec()
+	if spec == nil {
+		t.Fatal("Handler.Spec() returned nil")
+	}
+	if spec.ResolveRouteSelector != nil {
+		t.Fatal("Handler must NOT configure legacy ResolveRouteSelector (Requirement 13.2, 17.6)")
+	}
+	if !spec.RouteFromBodyModel {
+		t.Fatal("Handler must configure RouteFromBodyModel=true (Requirement 4.8, 17.6)")
+	}
+	if spec.Profile == nil {
+		t.Fatal("Handler must wire certified Profile into pipe (Requirement 17.1)")
+	}
+	if spec.Profile.ProfileID() != "openai_responses_v1" {
+		t.Fatalf("Handler pipe profile ID: got %q, want openai_responses_v1", spec.Profile.ProfileID())
+	}
+}
+
+// Requirement 4, 14, 16, 17: Compile proof for simple string input.
+func TestOpenAIResponsesProfile_CompileProof_SimpleStringInput(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+	body := []byte(`{"model":"gpt-4o","input":"Hello, world!"}`)
+	in := defaultProofInput(body, "custom:gpt-4o", nil)
+
+	out, err := prof.CompileProof(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	proof := out.Proof()
+	if proof.ProfileID != "openai_responses_v1" {
+		t.Errorf("Proof.ProfileID: got %q, want openai_responses_v1", proof.ProfileID)
+	}
+	if proof.Operation != lipapi.OperationOpenAIResponses {
+		t.Errorf("Proof.Operation: got %v, want %v", proof.Operation, lipapi.OperationOpenAIResponses)
+	}
+	if proof.Delivery != lipapi.DeliveryModeNonStreaming {
+		t.Errorf("Proof.Delivery: got %v, want NonStreaming", proof.Delivery)
+	}
+	if proof.ClientModel != "gpt-4o" {
+		t.Errorf("Proof.ClientModel: got %q, want gpt-4o", proof.ClientModel)
+	}
+	if proof.RouteSelector != "custom:gpt-4o" {
+		t.Errorf("Proof.RouteSelector: got %q, want custom:gpt-4o", proof.RouteSelector)
+	}
+
+	// ModelSpan must point to `"gpt-4o"` in body
+	modelSpan := proof.ModelSpan
+	if modelSpan.Length != int64(len(`"gpt-4o"`)) {
+		t.Errorf("Proof.ModelSpan length: got %d, want %d", modelSpan.Length, len(`"gpt-4o"`))
+	}
+	extractedModel := string(body[modelSpan.Offset : modelSpan.Offset+modelSpan.Length])
+	if extractedModel != `"gpt-4o"` {
+		t.Errorf("extracted model from span: got %q, want %q", extractedModel, `"gpt-4o"`)
+	}
+
+	// Rewrite must be ModelToken rewrite with matching span
+	if proof.Rewrite.Kind() != largebody.RewriteKindModelToken {
+		t.Errorf("Proof.Rewrite.Kind: got %v, want ModelToken", proof.Rewrite.Kind())
+	}
+	if proof.Rewrite.Span() != modelSpan {
+		t.Errorf("Proof.Rewrite.Span: got %v, want %v", proof.Rewrite.Span(), modelSpan)
+	}
+
+	// BodyMode
+	if proof.Mode != largebody.BodyModeIdentityJSON {
+		t.Errorf("Proof.Mode: got %q, want %q", proof.Mode, largebody.BodyModeIdentityJSON)
+	}
+
+	// ProtocolFacts
+	if proof.Facts.RequirementsID != "openai_responses_v1" {
+		t.Errorf("Proof.Facts.RequirementsID: got %q, want openai_responses_v1", proof.Facts.RequirementsID)
+	}
+
+	// ClientTurnShape (Requirement 14.3)
+	if len(proof.Turn.Items) != 1 {
+		t.Fatalf("Proof.Turn.Items count: got %d, want 1", len(proof.Turn.Items))
+	}
+	it := proof.Turn.Items[0]
+	if it.Kind != lipapi.ItemKindMessage || it.Role != lipapi.RoleUser || it.Ordinal != 0 {
+		t.Errorf("Proof.Turn.Items[0]: got kind=%v role=%v ordinal=%d", it.Kind, it.Role, it.Ordinal)
+	}
+	if len(it.Parts) != 1 || it.Parts[0].Kind != lipapi.ContentPartText || it.Parts[0].ContentBytes != int64(len("Hello, world!")) {
+		t.Errorf("Proof.Turn.Items[0].Parts: got %v", it.Parts)
+	}
+	if proof.Turn.TotalContentBytes != int64(len("Hello, world!")) {
+		t.Errorf("Proof.Turn.TotalContentBytes: got %d, want %d", proof.Turn.TotalContentBytes, len("Hello, world!"))
+	}
+
+	// Exact Canonical Identity Parity (Requirement 16)
+	canonDecoded, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "custom:gpt-4o"})
+	if err != nil {
+		t.Fatalf("canonical DecodeCreateRequest failed: %v", err)
+	}
+	wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+	if proof.Identity.Sum() != wantDigest.Sum() {
+		t.Fatalf("Proof.Identity sum mismatch:\ngot:  %x\nwant: %x", proof.Identity.Sum(), wantDigest.Sum())
+	}
+
+	// ResponseStateSeeds (Requirement 18)
+	seeds := out.Seeds()
+	if seeds.Stream != false {
+		t.Errorf("Seeds.Stream: got %t, want false", seeds.Stream)
+	}
+	if seeds.RouteSelector != "custom:gpt-4o" {
+		t.Errorf("Seeds.RouteSelector: got %q, want custom:gpt-4o", seeds.RouteSelector)
+	}
+	if seeds.ClientModel != "gpt-4o" {
+		t.Errorf("Seeds.ClientModel: got %q, want gpt-4o", seeds.ClientModel)
+	}
+	if seeds.DeterministicCallID != wantDigest.CallID("") {
+		t.Errorf("Seeds.DeterministicCallID: got %q, want %q", seeds.DeterministicCallID, wantDigest.CallID(""))
+	}
+	if seeds.DeterministicTimestamp != wantDigest.Unix() {
+		t.Errorf("Seeds.DeterministicTimestamp: got %d, want %d", seeds.DeterministicTimestamp, wantDigest.Unix())
+	}
+	if seeds.DeterministicToken != wantDigest.Token() {
+		t.Errorf("Seeds.DeterministicToken: got %q, want %q", seeds.DeterministicToken, wantDigest.Token())
+	}
+
+	// Validate ProofOutput
+	if err := out.Validate(256 * 1024); err != nil {
+		t.Fatalf("out.Validate failed: %v", err)
+	}
+}
+
+// Requirement 4.8, 17.6: Header selector precedence over body-model derivation and default.
+func TestOpenAIResponsesProfile_CompileProof_RouteSelectorPrecedence(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+
+	// 1. Header route selector wins when non-empty
+	body1 := []byte(`{"model":"openai:gpt-4o","input":"Hello"}`)
+	in1 := defaultProofInput(body1, "custom:override-route", nil)
+	out1, err := prof.CompileProof(context.Background(), in1)
+	if err != nil {
+		t.Fatalf("case 1 failed: %v", err)
+	}
+	if out1.Proof().RouteSelector != "custom:override-route" {
+		t.Errorf("case 1 (header wins): got %q, want custom:override-route", out1.Proof().RouteSelector)
+	}
+
+	// 2. Header selector empty, model has recognized route prefix -> inline selector used
+	body2 := []byte(`{"model":"openai:gpt-4o","input":"Hello"}`)
+	in2 := defaultProofInput(body2, "", nil)
+	out2, err := prof.CompileProof(context.Background(), in2)
+	if err != nil {
+		t.Fatalf("case 2 failed: %v", err)
+	}
+	if out2.Proof().RouteSelector != "openai:gpt-4o" {
+		t.Errorf("case 2 (inline prefix): got %q, want openai:gpt-4o", out2.Proof().RouteSelector)
+	}
+
+	// 3. Header selector empty, model has no recognized prefix -> default route selector used
+	body3 := []byte(`{"model":"unknown-model-without-prefix","input":"Hello"}`)
+	in3 := defaultProofInput(body3, "", nil)
+	in3.DefaultRouteSelector = "stub:fallback-default"
+	out3, err := prof.CompileProof(context.Background(), in3)
+	if err != nil {
+		t.Fatalf("case 3 failed: %v", err)
+	}
+	if out3.Proof().RouteSelector != "stub:fallback-default" {
+		t.Errorf("case 3 (default selector): got %q, want stub:fallback-default", out3.Proof().RouteSelector)
+	}
+
+	// 4. Header selector empty, no inline prefix, no default selector -> decline
+	body4 := []byte(`{"model":"bare-model","input":"Hello"}`)
+	in4 := defaultProofInput(body4, "", nil)
+	in4.DefaultRouteSelector = ""
+	_, err = prof.CompileProof(context.Background(), in4)
+	if err == nil {
+		t.Fatal("case 4 (empty route selector): expected error/decline, got nil")
+	}
+}
+
+// Requirement 4.2, 17.1: Streaming delivery and max_output_tokens.
+func TestOpenAIResponsesProfile_CompileProof_StreamingAndMaxOutput(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+	body := []byte(`{"model":"gpt-4o","input":"Generate poem","stream":true,"max_output_tokens":4096}`)
+	in := defaultProofInput(body, "stub:gpt-4o", nil)
+
+	out, err := prof.CompileProof(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	proof := out.Proof()
+	if proof.Delivery != lipapi.DeliveryModeStreaming {
+		t.Errorf("Proof.Delivery: got %v, want Streaming", proof.Delivery)
+	}
+	if proof.MaxOutputTokens != 4096 {
+		t.Errorf("Proof.MaxOutputTokens: got %d, want 4096", proof.MaxOutputTokens)
+	}
+	if !out.Seeds().Stream {
+		t.Errorf("Seeds.Stream: got false, want true")
+	}
+
+	// Exact Canonical Identity Parity
+	canonDecoded, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o"})
+	if err != nil {
+		t.Fatalf("canonical DecodeCreateRequest failed: %v", err)
+	}
+	wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+	if proof.Identity.Sum() != wantDigest.Sum() {
+		t.Fatalf("Identity mismatch:\ngot:  %x\nwant: %x", proof.Identity.Sum(), wantDigest.Sum())
+	}
+}
+
+// Requirement 14.1, 14.6: Authoritative session headers and sensitive resume token.
+func TestOpenAIResponsesProfile_CompileProof_SessionHeaders(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+	body := []byte(`{"model":"gpt-4o","input":"Continue session"}`)
+	h := make(http.Header)
+	h.Set(sessionwire.HeaderAuthoritativeSessionID, "sess_auth_999")
+	h.Set(sessionwire.HeaderResumeToken, "secret_resume_token_abc")
+	h.Set(sessionwire.HeaderALegID, "aleg_wire_777")
+	in := defaultProofInput(body, "stub:gpt-4o", h)
+
+	out, err := prof.CompileProof(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	proof := out.Proof()
+	sess := proof.Session
+	if sess.AuthoritativeSessionID != "sess_auth_999" {
+		t.Errorf("Session.AuthoritativeSessionID: got %q, want sess_auth_999", sess.AuthoritativeSessionID)
+	}
+	if sess.ALegID != "aleg_wire_777" {
+		t.Errorf("Session.ALegID: got %q, want aleg_wire_777", sess.ALegID)
+	}
+	if sess.ResumeToken.Reveal() != "secret_resume_token_abc" {
+		t.Errorf("Session.ResumeToken.Reveal(): got %q, want secret_resume_token_abc", sess.ResumeToken.Reveal())
+	}
+	// Verify resume token renders as redacted in String() and json.Marshal()
+	if sess.ResumeToken.String() != "[redacted]" {
+		t.Errorf("ResumeToken.String(): got %q, want [redacted]", sess.ResumeToken.String())
+	}
+	sessJSON, _ := json.Marshal(sess)
+	if strings.Contains(string(sessJSON), "secret_resume_token_abc") {
+		t.Errorf("ResumeToken leaked into SessionInput JSON: %s", string(sessJSON))
+	}
+
+	// Seeds must carry CancellationID formatted carrier
+	seeds := out.Seeds()
+	expectedCarrier := frontendpipe.FormatOpenAICancellationCarrier("aleg_wire_777", "sess_auth_999")
+	if seeds.CancellationID != expectedCarrier {
+		t.Errorf("Seeds.CancellationID: got %q, want %q", seeds.CancellationID, expectedCarrier)
+	}
+	if seeds.SessionID != "sess_auth_999" {
+		t.Errorf("Seeds.SessionID: got %q, want sess_auth_999", seeds.SessionID)
+	}
+	if seeds.ALegID != "aleg_wire_777" {
+		t.Errorf("Seeds.ALegID: got %q, want aleg_wire_777", seeds.ALegID)
+	}
+
+	// Canonical Identity Parity
+	canonDecoded, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatalf("canonical DecodeCreateRequest failed: %v", err)
+	}
+	wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+	if proof.Identity.Sum() != wantDigest.Sum() {
+		t.Fatalf("Identity mismatch:\ngot:  %x\nwant: %x", proof.Identity.Sum(), wantDigest.Sum())
+	}
+}
+
+// Requirement 4, 14.3, 16: Instructions and message array input items.
+func TestOpenAIResponsesProfile_CompileProof_MessageArrayAndInstructions(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+	body := []byte(`{
+		"model": "gpt-4o",
+		"instructions": "You are a helpful assistant.",
+		"input": [
+			{"type": "message", "role": "system", "content": "Context setup"},
+			{"type": "message", "role": "user", "content": "Hello!"},
+			{"type": "message", "role": "assistant", "content": "Hi there!"}
+		]
+	}`)
+	in := defaultProofInput(body, "stub:gpt-4o", nil)
+
+	out, err := prof.CompileProof(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	proof := out.Proof()
+	// Turn shape must include instructions system message + 3 input messages
+	if len(proof.Turn.Items) != 4 {
+		t.Fatalf("Proof.Turn.Items count: got %d, want 4", len(proof.Turn.Items))
+	}
+	expectedRoles := []lipapi.Role{lipapi.RoleSystem, lipapi.RoleSystem, lipapi.RoleUser, lipapi.RoleAssistant}
+	for i, expectedRole := range expectedRoles {
+		if proof.Turn.Items[i].Role != expectedRole {
+			t.Errorf("Turn.Items[%d].Role: got %v, want %v", i, proof.Turn.Items[i].Role, expectedRole)
+		}
+		if proof.Turn.Items[i].Ordinal != int64(i) {
+			t.Errorf("Turn.Items[%d].Ordinal: got %d, want %d", i, proof.Turn.Items[i].Ordinal, i)
+		}
+	}
+
+	// Canonical Identity Parity
+	canonDecoded, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o"})
+	if err != nil {
+		t.Fatalf("canonical DecodeCreateRequest failed: %v", err)
+	}
+	wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+	if proof.Identity.Sum() != wantDigest.Sum() {
+		t.Fatalf("Identity mismatch:\ngot:  %x\nwant: %x", proof.Identity.Sum(), wantDigest.Sum())
+	}
+}
+
+// Requirement 4, 16, 17: Tools, tool_choice, temperature, top_p, parallel_tool_calls, text.
+func TestOpenAIResponsesProfile_CompileProof_ToolsAndOptions(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+	body := []byte(`{
+		"model": "gpt-4o",
+		"input": "Call tool",
+		"temperature": 0.5,
+		"top_p": 0.9,
+		"parallel_tool_calls": false,
+		"text": {"verbosity": "low"},
+		"tools": [
+			{
+				"type": "function",
+				"name": "lookup",
+				"description": "Look up data",
+				"parameters": {"type": "object", "properties": {"q": {"type": "string"}}}
+			}
+		],
+		"tool_choice": "auto"
+	}`)
+	in := defaultProofInput(body, "stub:gpt-4o", nil)
+
+	out, err := prof.CompileProof(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	proof := out.Proof()
+
+	// Canonical Identity Parity
+	canonDecoded, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o"})
+	if err != nil {
+		t.Fatalf("canonical DecodeCreateRequest failed: %v", err)
+	}
+	wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+	if proof.Identity.Sum() != wantDigest.Sum() {
+		t.Fatalf("Identity mismatch:\ngot:  %x\nwant: %x", proof.Identity.Sum(), wantDigest.Sum())
+	}
+}
+
+// Requirement 16.3, 17.1: Exact canonical identity differential corpus across all 9 canonical test cases.
+func TestOpenAIResponsesProfile_CompileProof_ExactIdentityDifferentialCorpus(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		body    string
+		headers http.Header
+	}{
+		{
+			name: "simple string input",
+			body: `{"model":"gpt-4o","input":"Hello, how are you today?"}`,
+		},
+		{
+			name: "message array with system instruction",
+			body: `{
+				"model": "gpt-4o",
+				"instructions": "You are a specialized code translation assistant.",
+				"input": [
+					{"type": "message", "role": "user", "content": "Translate this to Go"}
+				]
+			}`,
+		},
+		{
+			name: "instructions with multi-paragraph system prompt",
+			body: `{
+				"model": "gpt-4o",
+				"instructions": "System prompt paragraph 1.\n\nSystem prompt paragraph 2.",
+				"input": "User query"
+			}`,
+		},
+		{
+			name: "function call and output items",
+			body: `{
+				"model": "gpt-4o",
+				"input": [
+					{"type": "function_call", "name": "lookup_weather", "call_id": "call_abc123", "arguments": "{\"city\":\"Zurich\"}"},
+					{"type": "function_call_output", "call_id": "call_abc123", "output": "Sunny, 22C"}
+				]
+			}`,
+		},
+		{
+			name: "tools with complex schema and auto tool choice",
+			body: `{
+				"model": "gpt-4o",
+				"input": "Check stock price",
+				"tools": [
+					{
+						"type": "function",
+						"name": "get_stock_quote",
+						"description": "Fetch real-time stock quote",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"ticker": {"type": "string", "description": "Stock symbol"},
+								"extended_hours": {"type": "boolean"}
+							},
+							"required": ["ticker"]
+						},
+						"strict": true
+					}
+				],
+				"tool_choice": "auto"
+			}`,
+		},
+		{
+			name: "tools with specific function choice and parallel false",
+			body: `{
+				"model": "gpt-4o",
+				"input": "Run analysis",
+				"tools": [
+					{
+						"type": "function",
+						"name": "analyze",
+						"parameters": {"type": "object"}
+					}
+				],
+				"tool_choice": {"type": "function", "function": {"name": "analyze"}},
+				"parallel_tool_calls": false
+			}`,
+		},
+		{
+			name: "options and text verbosity",
+			body: `{
+				"model": "gpt-4o",
+				"input": "Provide concise summary",
+				"temperature": 0.3,
+				"top_p": 0.85,
+				"max_output_tokens": 1500,
+				"text": {"verbosity": "low"}
+			}`,
+		},
+		{
+			name: "metadata and authoritative session headers",
+			body: `{
+				"model": "gpt-4o",
+				"input": "Session continuation",
+				"metadata": {
+					"client_session_id": "client-sess-42",
+					"user_id": "usr-1234"
+				}
+			}`,
+			headers: func() http.Header {
+				h := make(http.Header)
+				h.Set(sessionwire.HeaderAuthoritativeSessionID, "auth-sess-99")
+				h.Set(sessionwire.HeaderALegID, "aleg-777")
+				return h
+			}(),
+		},
+		{
+			name: "multilingual unicode and html escapes in prompt",
+			body: `{
+				"model": "gpt-4o",
+				"input": "日本語: こんにちは世界! 中文: 你好，世界! العربية: مرحبا بالعالم! <div>HTML & safe \"quotes\" \\ backslash \u2028\u2029 🚀🌍🧪"
+			}`,
+		},
+	}
+
+	prof := openairesponses.NewProfile()
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			in := defaultProofInput([]byte(tc.body), "stub:gpt-4o", tc.headers)
+			out, err := prof.CompileProof(context.Background(), in)
+			if err != nil {
+				t.Fatalf("CompileProof failed: %v", err)
+			}
+
+			canonDecoded, err := openairesponses.DecodeCreateRequest([]byte(tc.body), openairesponses.DecodeOptions{
+				RouteSelector: "stub:gpt-4o",
+				Headers:       tc.headers,
+			})
+			if err != nil {
+				t.Fatalf("canonical DecodeCreateRequest failed: %v", err)
+			}
+
+			wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+			if out.Proof().Identity.Sum() != wantDigest.Sum() {
+				t.Fatalf("[%s] Identity sum mismatch:\ngot:  %x\nwant: %x", tc.name, out.Proof().Identity.Sum(), wantDigest.Sum())
+			}
+		})
+	}
+}
+
+// Requirement 4.4, 4.5, 4.6, 14.2, 17.2, 17.3, 17.5: Conservative decline cases.
+func TestOpenAIResponsesProfile_DeclineToCanonical(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+
+	testCases := []struct {
+		name    string
+		body    string
+		path    string
+		headers http.Header
+	}{
+		{
+			name: "duplicate top-level model field",
+			body: `{"model":"gpt-4o","model":"gpt-4o-mini","input":"hello"}`,
+		},
+		{
+			name: "duplicate top-level input field",
+			body: `{"model":"gpt-4o","input":"hello","input":"world"}`,
+		},
+		{
+			name: "unknown top-level body field",
+			body: `{"model":"gpt-4o","input":"hello","custom_unknown_field":"value"}`,
+		},
+		{
+			name: "body LIP authoritative session ID metadata",
+			body: `{"model":"gpt-4o","input":"hello","metadata":{"lip_session_id":"sess_client_1"}}`,
+		},
+		{
+			name: "body LIP resume token metadata",
+			body: `{"model":"gpt-4o","input":"hello","metadata":{"lip_resume_token":"tok_client_1"}}`,
+		},
+		{
+			name: "unsupported continuation previous_response_id",
+			body: `{"model":"gpt-4o","input":"hello","previous_response_id":"resp_prev_123"}`,
+		},
+		{
+			name: "unsupported store control",
+			body: `{"model":"gpt-4o","input":"hello","store":true}`,
+		},
+		{
+			name: "unsupported truncation control",
+			body: `{"model":"gpt-4o","input":"hello","truncation":"auto"}`,
+		},
+		{
+			name: "repair-sensitive malformed history function_call with empty name",
+			body: `{"model":"gpt-4o","input":[{"type":"function_call","name":"","call_id":"c1"}]}`,
+		},
+		{
+			name: "repair-sensitive malformed history function_call_output with empty call_id",
+			body: `{"model":"gpt-4o","input":[{"type":"function_call_output","call_id":"","output":"done"}]}`,
+		},
+		{
+			name: "empty model",
+			body: `{"model":"","input":"hello"}`,
+		},
+		{
+			name: "missing model",
+			body: `{"input":"hello"}`,
+		},
+		{
+			name: "empty input",
+			body: `{"model":"gpt-4o","input":""}`,
+		},
+		{
+			name: "missing input",
+			body: `{"model":"gpt-4o"}`,
+		},
+		{
+			name: "unsupported path",
+			body: `{"model":"gpt-4o","input":"hello"}`,
+			path: "/v1/chat/completions",
+		},
+		{
+			name: "malformed JSON",
+			body: `{"model":"gpt-4o","input":"hello"`,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := tc.path
+			if path == "" {
+				path = "/v1/responses"
+			}
+			in := defaultProofInput([]byte(tc.body), "stub:gpt-4o", tc.headers)
+			in.URLPath = path
+
+			_, err := prof.CompileProof(context.Background(), in)
+			if err == nil {
+				t.Fatalf("[%s] expected CompileProof to decline (return error), but got nil", tc.name)
+			}
+		})
+	}
+}
+
+// Requirement 1, 6, 17: Handler integration with candidate fast path and clean fallback.
+func TestOpenAIResponsesProfile_HandlerIntegration(t *testing.T) {
+	t.Parallel()
+
+	var candidateProofCalled bool
+	var proofOutcome frontendpipe.CandidateProofResult
+	var executedCall *lipapi.Call
+
+	exec := &testExecView{
+		onExecute: func(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) {
+			executedCall = call
+			return lipapi.NewFixedEventStream([]lipapi.Event{
+				{Kind: lipapi.EventResponseStarted},
+				{Kind: lipapi.EventMessageStarted},
+				{Kind: lipapi.EventResponseFinished},
+			}), nil
+		},
+	}
+
+	h := &openairesponses.Handler{
+		Exec:                 exec,
+		DefaultRouteSelector: "stub:gpt-4o",
+	}
+
+	// We verify that an eligible request runs candidate proof and a declining request
+	// executes canonically with no error.
+	spec := h.Spec()
+	spec.Config.LargePayload = frontendpipe.LargePayloadConfig{
+		Enabled:        true,
+		ThresholdBytes: 20, // low threshold for testing
+	}
+	spec.OnCandidateProof = func(r *http.Request, res frontendpipe.CandidateProofResult) {
+		candidateProofCalled = true
+		proofOutcome = res
+	}
+
+	// 1. Send request with duplicate keys: should decline proof and fallback to canonical
+	bodyDecline := `{"model":"gpt-4o","model":"gpt-4o-mini","input":"Hello fallback"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(bodyDecline))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	frontendpipe.ServeHTTP(spec, rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200 on fallback, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !candidateProofCalled {
+		t.Fatal("expected candidate proof to be called")
+	}
+	if proofOutcome.Err == nil {
+		t.Fatal("expected proof outcome to have error for duplicate keys")
+	}
+	if executedCall == nil {
+		t.Fatal("expected canonical Spec.Decode to execute call on fallback")
+	}
+}
+
+type testExecView struct {
+	onExecute func(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error)
+}
+
+func (e *testExecView) Execute(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) {
+	if e.onExecute != nil {
+		return e.onExecute(ctx, call)
+	}
+	return lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventResponseFinished},
+	}), nil
+}
+
+func (e *testExecView) CancelALeg(ctx context.Context, req lipapi.ALegCancelRequest) error {
+	return nil
+}
+
+func (e *testExecView) WallClock() func() time.Time {
+	return nil
+}
+
+func (e *testExecView) AssessLargeBody(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
+	return largebody.Assessment{}, nil
+}
+
+func (e *testExecView) ExecuteLargeBody(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error) {
+	return largebody.ExecutionResult{}, nil
+}
+
+var _ lipsdk.ExecutorView = (*testExecView)(nil)
+var _ largebody.LargeBodyExecutor = (*testExecView)(nil)
