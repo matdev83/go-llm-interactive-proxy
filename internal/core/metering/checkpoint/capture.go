@@ -39,6 +39,47 @@ type FrontendIngressInput struct {
 	Now          time.Time
 }
 
+func buildFrontendIngressPublicCheckpoint(
+	id string,
+	streamID string,
+	perspective metering.EconomicPerspective,
+	corr metering.Correlation,
+	sc scope.PrincipalScopeView,
+	frontendID string,
+	now time.Time,
+) (metering.Checkpoint, error) {
+	if id == "" {
+		return metering.Checkpoint{}, fmt.Errorf("metering/checkpoint: checkpoint_id required")
+	}
+	if streamID == "" || streamID == "customer-request:" {
+		return metering.Checkpoint{}, fmt.Errorf("metering/checkpoint: stream_id or call.id required")
+	}
+	if perspective == "" {
+		perspective = metering.PerspectiveCustomer
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	pub := metering.Checkpoint{
+		CheckpointID: id,
+		StreamID:     streamID,
+		Boundary:     metering.BoundaryFrontendIngress,
+		Lifecycle:    metering.LifecycleLogicalRequest,
+		Perspective:  perspective,
+		Correlation:  corr,
+		Scope:        sc.Clone(),
+		FrontendID:   strings.TrimSpace(frontendID),
+		Presence:     metering.PresenceUnknown,
+		Source:       metering.SourceObserved,
+		Authority:    metering.AuthorityEstimated,
+		CapturedAt:   now,
+	}
+	if err := pub.Validate(); err != nil {
+		return metering.Checkpoint{}, err
+	}
+	return pub, nil
+}
+
 // CaptureFrontendIngress clones the call before submit mutation, strips resume
 // secrets, and builds a public Checkpoint (requirements 2.1, 2.5–2.8).
 // It does not create usage-authority reservations.
@@ -54,14 +95,6 @@ func CaptureFrontendIngress(in FrontendIngressInput) (Snapshot, error) {
 	if streamID == "customer-request:" {
 		return Snapshot{}, fmt.Errorf("metering/checkpoint: stream_id or call.id required")
 	}
-	perspective := in.Perspective
-	if perspective == "" {
-		perspective = metering.PerspectiveCustomer
-	}
-	now := in.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
 	cloned := SanitizeCall(lipapi.CloneCall(in.Call))
 	traceID := strings.TrimSpace(in.TraceID)
 	if traceID == "" {
@@ -73,25 +106,88 @@ func CaptureFrontendIngress(in FrontendIngressInput) (Snapshot, error) {
 		SessionID: cloned.Session.CorrelationID(),
 		TraceID:   traceID,
 	}
-	pub := metering.Checkpoint{
-		CheckpointID: id,
-		StreamID:     streamID,
-		Boundary:     metering.BoundaryFrontendIngress,
-		Lifecycle:    metering.LifecycleLogicalRequest,
-		Perspective:  perspective,
-		Correlation:  corr,
-		Scope:        in.Scope.Clone(),
-		FrontendID:   strings.TrimSpace(in.FrontendID),
-		Presence:     metering.PresenceUnknown,
-		Source:       metering.SourceObserved,
-		Authority:    metering.AuthorityEstimated,
-		CapturedAt:   now,
-	}
-	if err := pub.Validate(); err != nil {
+	pub, err := buildFrontendIngressPublicCheckpoint(
+		id,
+		streamID,
+		in.Perspective,
+		corr,
+		in.Scope,
+		in.FrontendID,
+		in.Now,
+	)
+	if err != nil {
 		return Snapshot{}, err
 	}
 	snap := Snapshot{Public: pub, Call: cloned}
 	snap.DeriveAndApplyIngressQuantities()
+	return snap, nil
+}
+
+// WireFrontendIngressInput captures a logical-request frontend-ingress checkpoint
+// from bounded facts on the wire path without requiring or retaining a lipapi.Call
+// (Requirements 15.1–15.3, 16.1–16.6, 19).
+type WireFrontendIngressInput struct {
+	RequestID       string
+	TraceID         string // runtime trace; defaults to RequestID when empty
+	CheckpointID    string // defaults to "customer-request:" + RequestID
+	StreamID        string // defaults to "customer-request:" + RequestID
+	Scope           scope.PrincipalScopeView
+	FrontendID      string
+	ALegID          string
+	SessionID       string // authoritative session ID or correlation ID
+	MaxOutputTokens *int   // optional max output token bound
+	Perspective     metering.EconomicPerspective
+	Now             time.Time
+}
+
+// CaptureWireFrontendIngress builds an immutable frontend-ingress checkpoint strictly
+// from bounded wire facts, sharing exact quantity and checkpoint validation logic
+// with canonical execution while guaranteeing that no lipapi.Call is cloned or retained
+// (Requirements 15.1–15.3, 16.1–16.6, 19).
+func CaptureWireFrontendIngress(in WireFrontendIngressInput) (Snapshot, error) {
+	reqID := strings.TrimSpace(in.RequestID)
+	if reqID == "" {
+		return Snapshot{}, fmt.Errorf("metering/checkpoint: request_id required")
+	}
+	id := strings.TrimSpace(in.CheckpointID)
+	if id == "" {
+		id = "customer-request:" + reqID
+	}
+	streamID := strings.TrimSpace(in.StreamID)
+	if streamID == "" {
+		streamID = "customer-request:" + reqID
+	}
+	traceID := strings.TrimSpace(in.TraceID)
+	if traceID == "" {
+		traceID = reqID
+	}
+	corr := metering.Correlation{
+		RequestID: reqID,
+		ALegID:    strings.TrimSpace(in.ALegID),
+		SessionID: strings.TrimSpace(in.SessionID),
+		TraceID:   traceID,
+	}
+	pub, err := buildFrontendIngressPublicCheckpoint(
+		id,
+		streamID,
+		in.Perspective,
+		corr,
+		in.Scope,
+		in.FrontendID,
+		in.Now,
+	)
+	if err != nil {
+		return Snapshot{}, err
+	}
+
+	var maxOutput *int64
+	if in.MaxOutputTokens != nil {
+		v := int64(*in.MaxOutputTokens)
+		maxOutput = &v
+	}
+
+	snap := Snapshot{Public: pub, Call: lipapi.Call{}}
+	snap.ApplyQuantities(QuantitiesFromCountAndMaxOutput64(maxOutput))
 	return snap, nil
 }
 
@@ -161,6 +257,27 @@ func (h *RequestHolder) CaptureOrReuseFrontendIngress(in FrontendIngressInput) (
 		return *h.FrontendIngress, nil
 	}
 	snap, err := CaptureFrontendIngress(in)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	cp := snap
+	h.FrontendIngress = &cp
+	return snap, nil
+}
+
+// CaptureOrReuseWireFrontendIngress returns the existing FE ingress snapshot when set,
+// otherwise captures and stores a new wire-native one without retaining a Call
+// (Requirements 15.1–15.3, 16, 19).
+func (h *RequestHolder) CaptureOrReuseWireFrontendIngress(in WireFrontendIngressInput) (Snapshot, error) {
+	if h == nil {
+		return CaptureWireFrontendIngress(in)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.FrontendIngress != nil {
+		return *h.FrontendIngress, nil
+	}
+	snap, err := CaptureWireFrontendIngress(in)
 	if err != nil {
 		return Snapshot{}, err
 	}

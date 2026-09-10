@@ -81,6 +81,65 @@ func captureFrontendIngressBeforeSubmit(
 	return ctx, holder, nil
 }
 
+// WireFrontendIngressArgs carries the bounded facts required to capture an immutable
+// frontend-ingress checkpoint on the wire fast-path (Requirements 15.1–15.3, 16.1–16.6, 19).
+type WireFrontendIngressArgs struct {
+	RequestID       string
+	TraceID         string
+	Scope           scope.PrincipalScopeView
+	ALegID          string
+	SessionID       string
+	MaxOutputTokens *int
+	Now             time.Time
+}
+
+// captureWireFrontendIngress stores one immutable FE-ingress checkpoint from bounded
+// wire facts before backend attempt dispatch, sharing exact helpers with the canonical
+// path and never cloning or retaining a lipapi.Call (Requirements 15.1–15.3, 16.1–16.6, 19).
+func captureWireFrontendIngress(
+	ctx context.Context,
+	args WireFrontendIngressArgs,
+) (context.Context, *checkpoint.RequestHolder, error) {
+	holder := meteringHolderFrom(ctx)
+	if holder == nil {
+		holder = &checkpoint.RequestHolder{}
+		ctx = withMeteringHolder(ctx, holder)
+	}
+	id := strings.TrimSpace(args.RequestID)
+	if id == "" {
+		return ctx, holder, fmt.Errorf("executor: metering wire frontend ingress requires request id")
+	}
+	frontendID := ""
+	if fe, ok := execview.FrontendIDFromContext(ctx); ok {
+		frontendID = fe
+	}
+	traceID := strings.TrimSpace(args.TraceID)
+	if traceID == "" {
+		traceID = id
+	}
+	now := args.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	_, err := holder.CaptureOrReuseWireFrontendIngress(checkpoint.WireFrontendIngressInput{
+		RequestID:       id,
+		TraceID:         traceID,
+		CheckpointID:    "customer-request:" + id,
+		StreamID:        "customer-request:" + id,
+		Scope:           args.Scope,
+		FrontendID:      frontendID,
+		ALegID:          args.ALegID,
+		SessionID:       args.SessionID,
+		MaxOutputTokens: args.MaxOutputTokens,
+		Perspective:     metering.PerspectiveCustomer,
+		Now:             now,
+	})
+	if err != nil {
+		return ctx, holder, fmt.Errorf("executor: metering wire frontend ingress: %w", err)
+	}
+	return ctx, holder, nil
+}
+
 // appendMeteringFact appends a fact when a Recorder is configured; nil is a no-op.
 func (e *Executor) appendMeteringFact(ctx context.Context, fact metering.Fact) error {
 	if e == nil || e.MeteringRecorder == nil {
@@ -145,6 +204,9 @@ func (e *Executor) enrichFrontendIngressQuantities(ctx context.Context) error {
 		return nil
 	}
 	if _, ok := checkpoint.QuantityComponentValue(holder.FrontendIngress.Public.Quantities, metering.ComponentInputToken); ok {
+		return nil
+	}
+	if holder.FrontendIngress.IsWire() {
 		return nil
 	}
 	call := holder.FrontendIngress.Call

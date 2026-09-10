@@ -233,6 +233,46 @@ func (p *PreparedSecureSession) BuildClientTurnRecordInput(
 	return BuildClientTurnRecordInputFromShape(p.executor.now(), p.traceID, br, shape, maxFactBytes)
 }
 
+// CaptureFrontendIngressCheckpoint captures an immutable FE-ingress checkpoint
+// from bounded wire facts and post-BeginTurn session/a-leg correlation,
+// sharing exact canonical checkpoint helpers without cloning or retaining a lipapi.Call
+// (Requirements 15.1–15.3, 16.1–16.6, 19).
+func (p *PreparedSecureSession) CaptureFrontendIngressCheckpoint(
+	ctx context.Context,
+	requestID string,
+	br app.BeginResult,
+	aLeg b2bua.ALegRecord,
+	maxOutputTokens *int,
+) (context.Context, *checkpoint.RequestHolder, error) {
+	if p == nil || p.executor == nil {
+		return ctx, nil, fmt.Errorf("executor: executor is required")
+	}
+	execCtx := p.outCtx
+	if ctx != nil {
+		execCtx = ctx
+	}
+	sessionID := strings.TrimSpace(string(br.Record.SessionID))
+	if sessionID == "" {
+		sessionID = p.sessionInput.CorrelationID()
+	}
+	aLegID := strings.TrimSpace(aLeg.ALegID)
+	if aLegID == "" {
+		aLegID = strings.TrimSpace(br.Record.ALegID)
+	}
+	if aLegID == "" {
+		aLegID = strings.TrimSpace(p.sessionInput.ALegID)
+	}
+	return captureWireFrontendIngress(execCtx, WireFrontendIngressArgs{
+		RequestID:       requestID,
+		TraceID:         p.traceID,
+		Scope:           p.scope,
+		ALegID:          aLegID,
+		SessionID:       sessionID,
+		MaxOutputTokens: maxOutputTokens,
+		Now:             p.executor.now(),
+	})
+}
+
 // PrepareSecureSession prepares fact-based inputs for secure-session execution.
 // It executes scope resolution, session openers, and workspace resolution, but
 // strictly DOES NOT call BeginTurn or mutate session/store state (Requirements 6.2, 14.1, 19).

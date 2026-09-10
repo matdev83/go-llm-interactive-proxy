@@ -429,7 +429,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 10. Economic correctness must not re-materialize the request
 
-- [ ] 10.1 Add wire-native frontend-ingress checkpoint
+- [x] 10.1 Add wire-native frontend-ingress checkpoint
   - Same request identity, scope/frontend, count, max-output, timestamp, post-BeginTurn A-leg/session correlation as canonical path.
   - No hidden full Call clone/retention.
   - _Requirements: 15, 16, 19_
@@ -852,3 +852,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 9.2 VERIFIED (review subagent APPROVED): shared fact-based PrepareSecureSession/PreparedSecureSession seam, BeginTurn strictly post-commit via ExecuteBeginTurn, canonical parity + no-early-turn + resume/denial + workspace fail-closed proofs, dead helper removed; runtime suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 9.3 VERIFIED (review subagent APPROVED): bounded ClientTurnShape recorder input with canonical NormalizedItems parity, no prompt-text retention, budget overflow => ErrSemanticFactBudgetExceeded pre-commit canonical; largebody + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 9.4 VERIFIED (review subagent APPROVED): sensitive SessionResponseCarrier with IsNew-only raw token, canonical-delegated exact session/resume/A-leg headers, wire→canonical→wire E2E resume + denial, token absent from logs/metrics/body; runtime + sessionwire + openairesponses suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 10.1 VERIFIED (review subagent APPROVED): wire-native frontend-ingress checkpoint with shared exact identity/quantity builders, canonical field-by-field parity, zero Call clone/retention, post-BeginTurn A-leg/session correlation, unused quantity field removed; checkpoint + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
