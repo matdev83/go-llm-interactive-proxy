@@ -398,7 +398,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 9. Keep stock secure-session behavior eligible without prompt materialization
 
-- [ ] 9.1 Build exact bounded `SessionInput`
+- [x] 9.1 Build exact bounded `SessionInput`
   - Preserve current header/body/session/resume/client-session precedence.
   - Initial profiles may reject body-carried LIP metadata and support authoritative headers only.
   - Resume token never enters backend facts/telemetry.
@@ -848,3 +848,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 8.3 VERIFIED (review subagent APPROVED): resolver purity proofs, configured semantic-fact budget replacing 1024 magic, protocol binding, budgets bump; execbackend + largebody + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 8.4 VERIFIED (review subagent APPROVED): shared credential/streampeek/wire-open primitives via refactor, behavior preserved, core retry ownership intact; 21 backend packages PASS, build/vet/gofmt/diff-check clean; follow-ups: DefaultSDKMaxRetries wiring, 8.5+ must consume helpers; -race unavailable cgo limitation.
 - Task 8.5 VERIFIED (review subagent APPROVED): backend-owned outbound headers, auth/session/framing stripping with Connection-token awareness, exact rewritten Content-Length, cleared trailers, shared-client HTTP/1.1+HTTP/2/cancel/reuse/redirect conformance; openaicompat suite PASS, vet/gofmt clean; dead redirect probe variable removed; -race unavailable cgo limitation.
+- Task 9.1 VERIFIED (review subagent APPROVED): exact bounded SessionInput with header-over-body precedence, fail-closed body-metadata rejection, SensitiveString resume wrapping with String/GoString/Format/LogValue/JSON redaction, no session/token fields in backend facts; largebody + sessionwire suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
