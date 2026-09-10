@@ -719,6 +719,9 @@ func (s AssessmentStamp) Rewrite() RewriteSemantics { return s.rewrite }
 // IdentityDigest returns the bound canonical identity.
 func (s AssessmentStamp) IdentityDigest() IdentityDigest { return s.identity }
 
+// IsZero reports whether the stamp is the zero value.
+func (s AssessmentStamp) IsZero() bool { return s == AssessmentStamp{} }
+
 // Validate enforces the stamp binding under the semantic-fact budget.
 func (s AssessmentStamp) Validate(maxFactBytes int64) error {
 	if err := checkBudget(maxFactBytes); err != nil {
@@ -758,36 +761,94 @@ func (s AssessmentStamp) validateStructure() error {
 	return nil
 }
 
-// AssessmentResult is the bounded assessment outcome: an opaque stamp plus
-// bounded facts only (design section 8).
-type AssessmentResult struct {
-	Decision AssessmentDecision
-	Reason   DeclineReason
-	Stamp    AssessmentStamp
+// Assessment is the bounded assessment outcome containing an opaque
+// generation/proof-bound stamp and bounded facts only (design section 8, Task 11.1).
+// The frontend supplies proof only; it cannot synthesize route/backend internals
+// (Requirements 6, 22).
+type Assessment struct {
+	Decision    AssessmentDecision
+	Reason      DeclineReason
+	Stamp       AssessmentStamp
+	WireRequest WireRequestFacts
+	WireDomain  WireDomainFacts
 }
 
-// Validate enforces decision/reason/stamp consistency.
-func (r AssessmentResult) Validate(maxFactBytes int64) error {
+// AssessmentResult is an alias for Assessment for compatibility.
+type AssessmentResult = Assessment
+
+// Accepted reports whether the assessment accepted the wire turn.
+func (a Assessment) Accepted() bool {
+	return a.Decision == AssessmentDecisionAccept
+}
+
+// Declined reports whether the assessment declined to canonical processing.
+func (a Assessment) Declined() bool {
+	return a.Decision == AssessmentDecisionDecline
+}
+
+// Validate enforces decision/reason/stamp consistency and bounds on facts.
+func (a Assessment) Validate(maxFactBytes int64) error {
 	if err := checkBudget(maxFactBytes); err != nil {
 		return err
 	}
-	switch r.Decision {
+	switch a.Decision {
 	case AssessmentDecisionDecline:
-		if r.Reason == DeclineReasonNone || r.Reason.String() == "unknown" {
+		if a.Reason == DeclineReasonNone || a.Reason.String() == "unknown" {
 			return fmt.Errorf("largebody: decline requires a bounded reason")
+		}
+		if !a.Stamp.IsZero() {
+			return fmt.Errorf("largebody: decline must not carry an assessment stamp")
 		}
 		return nil
 	case AssessmentDecisionAccept:
-		if r.Reason != DeclineReasonNone {
+		if a.Reason != DeclineReasonNone {
 			return fmt.Errorf("largebody: accept must not carry a decline reason")
 		}
-		if err := r.Stamp.Validate(maxFactBytes); err != nil {
+		if a.Stamp.IsZero() {
+			return fmt.Errorf("largebody: accept requires a valid assessment stamp")
+		}
+		if err := a.Stamp.Validate(maxFactBytes); err != nil {
 			return fmt.Errorf("largebody: accept: %w", err)
+		}
+		if a.WireRequest.ProfileID != "" {
+			if err := a.WireRequest.Validate(maxFactBytes); err != nil {
+				return fmt.Errorf("largebody: accept wire request facts: %w", err)
+			}
+		}
+		if a.WireDomain.ProfileID != "" {
+			if err := a.WireDomain.Validate(maxFactBytes); err != nil {
+				return fmt.Errorf("largebody: accept wire domain facts: %w", err)
+			}
 		}
 		return nil
 	default:
-		return fmt.Errorf("largebody: unknown assessment decision %d", uint8(r.Decision))
+		return fmt.Errorf("largebody: unknown assessment decision %d", uint8(a.Decision))
 	}
+}
+
+// NewDeclinedAssessment creates a declined Assessment with a bounded decline reason.
+func NewDeclinedAssessment(reason DeclineReason) (Assessment, error) {
+	if reason == DeclineReasonNone || reason.String() == "unknown" {
+		return Assessment{}, fmt.Errorf("largebody: decline requires a valid bounded reason")
+	}
+	return Assessment{
+		Decision: AssessmentDecisionDecline,
+		Reason:   reason,
+	}, nil
+}
+
+// NewAcceptedAssessment creates an accepted Assessment with an opaque stamp and bounded facts.
+func NewAcceptedAssessment(stamp AssessmentStamp, wireReq WireRequestFacts, wireDomain WireDomainFacts) (Assessment, error) {
+	if stamp.IsZero() {
+		return Assessment{}, fmt.Errorf("largebody: accept requires a non-zero assessment stamp")
+	}
+	return Assessment{
+		Decision:    AssessmentDecisionAccept,
+		Reason:      DeclineReasonNone,
+		Stamp:       stamp,
+		WireRequest: wireReq,
+		WireDomain:  wireDomain,
+	}, nil
 }
 
 // WireRequestFacts is the immutable provider-neutral input to a backend

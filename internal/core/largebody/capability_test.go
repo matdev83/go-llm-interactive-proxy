@@ -38,15 +38,15 @@ type capableExecutor struct {
 	executeCalls int
 }
 
-func (e *capableExecutor) AssessLargeBody(_ context.Context, req largebody.AssessmentRequest) (largebody.AssessmentResult, error) {
+func (e *capableExecutor) AssessLargeBody(_ context.Context, _ largebody.Proof) (largebody.Assessment, error) {
 	e.assessCalls++
-	return largebody.AssessmentResult{
+	return largebody.Assessment{
 		Decision: largebody.AssessmentDecisionDecline,
 		Reason:   largebody.DeclineReasonAuthorityBlocker,
 	}, nil
 }
 
-func (e *capableExecutor) ExecuteLargeBody(_ context.Context, _ largebody.AssessmentStamp, _ largebody.Source) (largebody.ExecutionResult, error) {
+func (e *capableExecutor) ExecuteLargeBody(_ context.Context, _ largebody.Assessment, _ largebody.Source) (largebody.ExecutionResult, error) {
 	e.executeCalls++
 	return largebody.ExecutionResult{}, nil
 }
@@ -121,7 +121,7 @@ func TestAsLargeBodyExecutor_NilAndAbsentYieldCanonical(t *testing.T) {
 	if !ok || got == nil {
 		t.Fatalf("AsLargeBodyExecutor(capable) = (%v, %v), want (non-nil, true)", got, ok)
 	}
-	if _, err := got.AssessLargeBody(context.Background(), largebody.AssessmentRequest{}); err == nil && capable.assessCalls != 1 {
+	if _, err := got.AssessLargeBody(context.Background(), largebody.Proof{}); err == nil && capable.assessCalls != 1 {
 		t.Fatalf("assessCalls = %d, want 1 via asserted capability", capable.assessCalls)
 	}
 }

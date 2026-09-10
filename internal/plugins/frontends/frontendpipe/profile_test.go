@@ -37,11 +37,11 @@ type stubLargeBodyExecutor struct {
 	stubExecutor
 }
 
-func (s *stubLargeBodyExecutor) AssessLargeBody(ctx context.Context, req largebody.AssessmentRequest) (largebody.AssessmentResult, error) {
-	return largebody.AssessmentResult{}, nil
+func (s *stubLargeBodyExecutor) AssessLargeBody(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
+	return largebody.Assessment{}, nil
 }
 
-func (s *stubLargeBodyExecutor) ExecuteLargeBody(ctx context.Context, stamp largebody.AssessmentStamp, src largebody.Source) (largebody.ExecutionResult, error) {
+func (s *stubLargeBodyExecutor) ExecuteLargeBody(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error) {
 	return largebody.ExecutionResult{}, nil
 }
 

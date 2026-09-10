@@ -51,11 +51,11 @@ func (e *candidateGatesExec) Execute(ctx context.Context, call *lipapi.Call) (li
 func (e *candidateGatesExec) CancelALeg(context.Context, lipapi.ALegCancelRequest) error { return nil }
 func (e *candidateGatesExec) WallClock() func() time.Time                                { return nil }
 
-func (e *candidateGatesExec) AssessLargeBody(ctx context.Context, req largebody.AssessmentRequest) (largebody.AssessmentResult, error) {
-	return largebody.AssessmentResult{}, nil
+func (e *candidateGatesExec) AssessLargeBody(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
+	return largebody.Assessment{}, nil
 }
 
-func (e *candidateGatesExec) ExecuteLargeBody(ctx context.Context, stamp largebody.AssessmentStamp, src largebody.Source) (largebody.ExecutionResult, error) {
+func (e *candidateGatesExec) ExecuteLargeBody(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error) {
 	return largebody.ExecutionResult{}, nil
 }
 

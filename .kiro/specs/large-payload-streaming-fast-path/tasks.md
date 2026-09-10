@@ -464,7 +464,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 11. This is the last expected fallback point
 
-- [ ] 11.1 Implement optional internal assessor/executor interface
+- [x] 11.1 Implement optional internal assessor/executor interface
   - `AssessLargeBody(ctx, proof) -> Assessment` and `ExecuteLargeBody(ctx, accepted, source) -> ExecutionResult`.
   - Assessment contains opaque generation/proof-bound stamp and bounded facts only.
   - Frontend cannot synthesize route/backend internals.
@@ -857,3 +857,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 10.3 VERIFIED (review subagent APPROVED): no-accounting + standard metering composition reaches wire mode with FE/BE fact persistence, accounting-enabled correctly declines wire pre-Counter, wire snapshots skip deferred counting, ctx-holder fallback, zero Call retention; runtime + checkpoint suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 10.4 VERIFIED (review subagent APPROVED): exact WireCounter gate with pre-commit tokenizer semantics, CountCall-only/inexact/unbounded/timeout decline under same permit, 5MiB/250ms bounded measured counting, CheckWire limit parity, zero Call retention; largebody + runtime + preflight suites PASS, vet/gofmt clean; -race unavailable cgo limitation; archtest docs-gate failure pre-existing at HEAD, unrelated.
 - Task 10.5 VERIFIED (review subagent APPROVED): stock billing/exposure on bounded facts with shared exact credit/identity/closure helpers, WireBounded identity contract with custom-callback blockers, adapter bounded fallbacks, exactly-once post-commit reservation/settlement, shared account-fallback helper + comment fix; runtime + billing + compose + admission suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 11.1 VERIFIED (review subagent APPROVED): split LargeBodyAssessor/WireExecutor ports with bare-Proof assessment, opaque generation-bound stamp + bounded facts Assessment with strict Validate + constructors, generation binding moved assessor-side, public ExecutorView untouched; largebody + frontendpipe + archtest suites PASS, vet/gofmt clean; -race unavailable cgo limitation.

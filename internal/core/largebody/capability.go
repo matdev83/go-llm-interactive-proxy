@@ -6,9 +6,26 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
+// LargeBodyAssessor evaluates frontend proof and returns an Assessment
+// containing an opaque generation/proof-bound stamp and bounded facts only (Task 11.1).
+// The frontend supplies proof only; it cannot synthesize route/backend internals
+// (Requirements 6, 22).
+type LargeBodyAssessor interface {
+	// AssessLargeBody is side-effect-free proof assessment over bounded facts.
+	AssessLargeBody(ctx context.Context, proof Proof) (Assessment, error)
+}
+
+// LargeBodyWireExecutor runs an accepted wire turn from the bound assessment
+// and immutable replay source (Task 11.1, Requirements 6, 22).
+type LargeBodyWireExecutor interface {
+	// ExecuteLargeBody runs the accepted wire turn from the bound assessment and
+	// immutable replay source. It is reachable only after assessment accepts.
+	ExecuteLargeBody(ctx context.Context, accepted Assessment, src Source) (ExecutionResult, error)
+}
+
 // LargeBodyExecutor is the internal optional large-body capability for the
 // large-payload streaming fast path (design section 8, assessor/executor
-// interface).
+// interface, Task 11.1).
 //
 // It is deliberately NOT part of the public lipsdk.ExecutorView contract
 // (Requirements 1, 22): existing public ExecutorView remains supported and
@@ -22,11 +39,22 @@ import (
 // semantics stay in adapters/plugins. Core never imports concrete plugins or
 // provider SDKs here (stdlib plus pkg/lipsdk only).
 type LargeBodyExecutor interface {
-	// AssessLargeBody is side-effect-free proof assessment over bounded facts.
-	AssessLargeBody(ctx context.Context, req AssessmentRequest) (AssessmentResult, error)
-	// ExecuteLargeBody runs the accepted wire turn from the bound stamp and
-	// immutable replay source. It is reachable only after assessment accepts.
-	ExecuteLargeBody(ctx context.Context, stamp AssessmentStamp, src Source) (ExecutionResult, error)
+	LargeBodyAssessor
+	LargeBodyWireExecutor
+}
+
+// AsLargeBodyAssessor safely probes the executor for the internal large-body
+// assessor capability. A nil executor or an executor without the capability
+// reports ok=false so the caller continues on the canonical path.
+func AsLargeBodyAssessor(exec lipsdk.ExecutorView) (LargeBodyAssessor, bool) {
+	if exec == nil {
+		return nil, false
+	}
+	assessor, ok := exec.(LargeBodyAssessor)
+	if !ok || assessor == nil {
+		return nil, false
+	}
+	return assessor, true
 }
 
 // AsLargeBodyExecutor safely probes the standard frontend executor for the
