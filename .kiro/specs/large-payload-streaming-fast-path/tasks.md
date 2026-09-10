@@ -542,7 +542,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Their occupied planes remain static blockers.
   - _Requirements: 5, 13, 19_
 
-- [ ] 12.5 Terminal Decision: either block or implement complete source/continuation parity
+- [x] 12.5 Terminal Decision: either block or implement complete source/continuation parity
   - Default/simple implementation: occupied plane remains canonical blocker.
   - If implementation chooses to support it, it must prove bounded terminal evidence **and** continuation reconstruction from approved source/bounded facts, with full differential tests. Do not support only `DecisionStop` while silently changing potential `DecisionContinue` semantics unless provider capability is statically constrained to stop-only and certified.
   - _Requirements: 5, 13, 19_
@@ -870,3 +870,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 12.2 VERIFIED (review subagent APPROVED): shared PrepareSelector across canonical/wire (no drift), exact size-constraint blocker via canonical predicate, metadata-only failover-set seam, TurnFacts evaluation; routing + capabilities + runtime + largebody suites PASS, vet/gofmt clean; -race unavailable cgo limitation; TestFault_CancellationAndTimeout flake + archtest/qa failures proven pre-existing at base.
 - Task 12.3 VERIFIED (review subagent APPROVED): metadata-only bounded views, content/trajectory blockers, response-only on canonical events, census additions, wire response-evidence helper (production wiring deferred; secure-turn/identity-fallback gaps recorded for 12.4/14); largebody + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 12.4 VERIFIED (review subagent APPROVED): Local Turn + Secret Guard non-negotiable canonical blockers with compile-time static bits, assessment-time census decline, anti-tamper weakened-access proofs, SDK declaration pinning; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 12.5 VERIFIED (review subagent APPROVED): terminal-decision default-block via exact-ID + census + substring triple coverage with anti-tamper proofs, no DecisionContinue semantic change; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.

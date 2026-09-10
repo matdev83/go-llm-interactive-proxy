@@ -89,6 +89,8 @@ var standardNarrowPortCensus = map[string]DependencyClass{
 	"core.continuation":               DependencyClassBlocker,
 	"continuation.resolver":           DependencyClassBlocker,
 	"terminal.decision_provider":      DependencyClassBlocker,
+	"terminal_decision.provider":      DependencyClassBlocker,
+	"terminal_decision_provider":      DependencyClassBlocker,
 	"billing.exposure_admission":      DependencyClassBlocker,
 	"billing.identity_call_callbacks": DependencyClassBlocker,
 	"routing.caps_resolver":           DependencyClassBlocker,
@@ -341,8 +343,8 @@ func (g *AuthorityAssessmentGate) Evaluate() (AssessmentDecision, DeclineReason)
 			// Occupied blocker -> decline
 			return AssessmentDecisionDecline, DeclineReasonAuthorityBlocker
 		}
-		// Task 12.4: Local Turn and Secret Guard cannot be marked wire-safe incidentally
-		if ep.Occupied && (strings.Contains(ep.Name, "local_turn") || strings.Contains(ep.Name, "secret_guard")) {
+		// Task 12.4/12.5: Local Turn, Secret Guard, and Terminal Decision cannot be marked wire-safe incidentally
+		if ep.Occupied && (strings.Contains(ep.Name, "local_turn") || strings.Contains(ep.Name, "secret_guard") || strings.Contains(ep.Name, "terminal_decision") || strings.Contains(ep.Name, "terminal.decision")) {
 			return AssessmentDecisionDecline, DeclineReasonAuthorityBlocker
 		}
 	}

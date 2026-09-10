@@ -420,9 +420,9 @@ func compilePlaneBlockers(planes []PlaneEligibilityInput) (uint32, error) {
 }
 
 // isV1NonNegotiableCanonicalPlane reports whether plane id names a non-negotiable
-// canonical plane in V1 (Requirements 5.4, 13.4, 19.4; Task 12.4).
+// canonical plane in V1 (Requirements 5.4, 13.4, 13.5, 19.4; Tasks 12.4, 12.5).
 func isV1NonNegotiableCanonicalPlane(id string) bool {
-	return id == "local_turn_handlers" || id == "secret_guards" || id == "secret_guard_execution"
+	return id == "local_turn_handlers" || id == "secret_guards" || id == "secret_guard_execution" || id == "terminal_decision_provider"
 }
 
 // compileHookChains records frozen bus occupancy and the occupied
