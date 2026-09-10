@@ -575,7 +575,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Backend parser returns canonical EventStream.
   - _Requirements: 8, 9, 10, 12, 15_
 
-- [ ] 13.3 Retry/race/cancel/invariant tests
+- [x] 13.3 Retry/race/cancel/invariant tests
   - Attempt1 pre-output failure → attempt2 gets complete exact bytes.
   - Parallel readers independent.
   - No failover after first visible event.
@@ -874,3 +874,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 12.6 VERIFIED (review subagent APPROVED): type/dataflow archtest boundary (go/packages+go/types, rename-resistant) with explicit whitelists wired into all scans, RED mutations proven, no body-double for legacy resolver; archtest + runtime + frontendpipe suites PASS, vet/gofmt clean; -race unavailable cgo limitation; full-suite archtest failures pre-existing at base.
 - Task 13.1 VERIFIED (review subagent APPROVED): one-way wire commit with stamp/source validation, shared prep + single BeginTurn/A-leg, domain-constrained live override, shared authority/economic admission with release discipline, authoritative response/session facts, no Execute fallback; runtime + largebody suites PASS, vet/gofmt clean; -race unavailable cgo limitation; carry to 13.2/13.3: propagate admitted BillingCallID, body-size request exposure, mandatory per-request WireIdentity, consume BindSession view.
 - Task 13.2 VERIFIED (re-review subagent APPROVED after 4-findings remediation): real attempt execution reusing canonical ownership (B-leg/affinity/budgets/TTFT/failure-history/terminal legs), offset-zero bodies + approved splice only, winner-ctx survival, recoverability classification, per-leg BE checkpoints, terminal cleanup on all paths; runtime + largebody + execbackend suites PASS, vet/gofmt clean; -race unavailable cgo limitation; carry: winner-leg outcome-by-cause vs Failed-on-success, sequential-exhaustion last-cause in FinalError.
+- Task 13.3 VERIFIED (re-review subagent APPROVED after early-close + race fixes): full recovery matrix (exact-bytes failover, reader independence, first-event commitment, cancel cleanup with Canceled mapping, post-commit finalization without Execute, in/out-of-domain override), mutex-guarded stream error state, Cancel-path regression test; runtime suite PASS, vet/gofmt clean; -race unavailable cgo limitation.

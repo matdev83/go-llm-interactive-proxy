@@ -27,31 +27,80 @@ import (
 var _ largebody.LargeBodyWireExecutor = (*Executor)(nil)
 
 // wireLifecycleEventStream wraps an EventStream to release request authority
-// once when the stream is closed or consumed to EOF.
+// and execute terminal lifecycle and economic cleanup once when the stream
+// is closed, consumed to EOF, or canceled.
 type wireLifecycleEventStream struct {
 	lipapi.EventStream
-	cleanup func()
+	cleanup func(err error)
+	mu      sync.Mutex
+	lastErr error
 	once    sync.Once
 }
 
+var _ lipapi.ManagedEventStream = (*wireLifecycleEventStream)(nil)
+
+func (s *wireLifecycleEventStream) lastRecvErr() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastErr
+}
+
+func (s *wireLifecycleEventStream) noteRecvErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastErr = err
+}
+
 func (s *wireLifecycleEventStream) Close() error {
-	s.once.Do(s.cleanup)
+	var err error
 	if s.EventStream != nil {
-		return s.EventStream.Close()
+		err = s.EventStream.Close()
 	}
-	return nil
+	// A close with no prior Recv error is an early close before EOF, which
+	// canonical semantics classify as canceled (CommandClose), never Winner.
+	cause := s.lastRecvErr()
+	if cause == nil {
+		cause = context.Canceled
+	}
+	s.once.Do(func() {
+		if s.cleanup != nil {
+			s.cleanup(cause)
+		}
+	})
+	return err
 }
 
 func (s *wireLifecycleEventStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if s.EventStream == nil {
-		s.once.Do(s.cleanup)
+		s.once.Do(func() {
+			if s.cleanup != nil {
+				s.cleanup(io.EOF)
+			}
+		})
 		return lipapi.Event{}, io.EOF
 	}
 	ev, err := s.EventStream.Recv(ctx)
 	if err != nil {
-		s.once.Do(s.cleanup)
+		s.noteRecvErr(err)
+		s.once.Do(func() {
+			if s.cleanup != nil {
+				s.cleanup(err)
+			}
+		})
 	}
 	return ev, err
+}
+
+func (s *wireLifecycleEventStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	s.once.Do(func() {
+		if s.cleanup != nil {
+			s.cleanup(context.Canceled)
+		}
+	})
+	if ms, ok := s.EventStream.(lipapi.ManagedEventStream); ok {
+		return ms.Cancel(ctx, cause)
+	}
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 }
 
 // ExecuteLargeBody implements largebody.LargeBodyWireExecutor (Requirements 6, 7, 14, 15, 18, 19; Task 13.1).
@@ -65,6 +114,13 @@ func (e *Executor) ExecuteLargeBody(
 	accepted largebody.Assessment,
 	src largebody.Source,
 ) (largebody.ExecutionResult, error) {
+	turnFinished := false
+	defer func() {
+		if !turnFinished && src != nil {
+			_ = src.Close()
+		}
+	}()
+
 	if ctx != nil && ctx.Err() != nil {
 		return largebody.ExecutionResult{}, ctx.Err()
 	}
@@ -138,7 +194,6 @@ func (e *Executor) ExecuteLargeBody(
 	}
 	outCtx = execctx.WithSecureSessionTurn(outCtx, prep.SecureTurn(br))
 
-	turnFinished := false
 	defer func() {
 		if !turnFinished && e.SecureSession != nil {
 			_ = e.SecureSession.FinishTurn(context.WithoutCancel(outCtx), br.Record.SessionID, br.TurnID, app.TurnOutcome{
@@ -322,25 +377,43 @@ func (e *Executor) ExecuteLargeBody(
 
 	sessionCarrier := prep.ResponseCarrier(br)
 
-	turnFinished = true
-	committed = true
-
 	// Wrap canonical stream with request authority release and terminal leg append upon completion/close
 	cleanupStream := &wireLifecycleEventStream{
 		EventStream: attemptOut.stream,
-		cleanup: func() {
+		cleanup: func(causeErr error) {
 			if attemptOut.cancel != nil {
 				attemptOut.cancel()
 			}
+			if attemptOut.bodyCloser != nil {
+				_ = attemptOut.bodyCloser.Close()
+			}
+			if src != nil {
+				_ = src.Close()
+			}
 			_ = e.releaseRequestAuthority(outCtx)
-			e.appendPostOpenTerminalLeg(outCtx, billingState, aLeg.ALegID, attemptOut.bleg, attemptOut.cand.Primary, attemptOut.startedAt, e.now())
+
+			outcome := billing.LegOutcomeWinner
+			if causeErr != nil && !errors.Is(causeErr, io.EOF) {
+				if errors.Is(causeErr, context.Canceled) || errors.Is(causeErr, context.DeadlineExceeded) ||
+					(outCtx != nil && outCtx.Err() != nil) || (ctx != nil && ctx.Err() != nil) {
+					outcome = billing.LegOutcomeCanceled
+				} else {
+					outcome = billing.LegOutcomeFailed
+				}
+			}
+			e.appendIndependentTerminalLeg(outCtx, billingState, aLeg.ALegID, attemptOut.bleg, attemptOut.cand.Primary, attemptOut.startedAt, e.now(), outcome)
+
 			if aScope != nil {
 				aScope.ReleaseBLeg(attemptOut.bleg.BLegID)
 				aScope.End()
 			}
 			if e.SecureSession != nil {
+				turnOutcomeKind := app.TurnOutcomeSuccess
+				if outcome != billing.LegOutcomeWinner {
+					turnOutcomeKind = app.TurnOutcomeSurfacedFailure
+				}
 				_ = e.SecureSession.FinishTurn(context.WithoutCancel(outCtx), br.Record.SessionID, br.TurnID, app.TurnOutcome{
-					Kind: app.TurnOutcomeSuccess,
+					Kind: turnOutcomeKind,
 				})
 			}
 		},
@@ -528,11 +601,12 @@ type wireAttemptInput struct {
 
 // wireAttemptOutcome captures the winning attempt results.
 type wireAttemptOutcome struct {
-	stream    lipapi.ManagedEventStream
-	cand      routing.AttemptCandidate
-	bleg      b2bua.BLegRecord
-	startedAt time.Time
-	cancel    context.CancelFunc
+	stream     lipapi.ManagedEventStream
+	cand       routing.AttemptCandidate
+	bleg       b2bua.BLegRecord
+	startedAt  time.Time
+	cancel     context.CancelFunc
+	bodyCloser io.Closer
 }
 
 // executeWireAttempts runs the attempt-open and failover loop across expanded groups (Requirements 8, 9, 10, 12, 15).
@@ -628,11 +702,12 @@ func (e *Executor) executeWireAttempts(in wireAttemptInput) (wireAttemptOutcome,
 				}
 				if res.opened {
 					outcome = wireAttemptOutcome{
-						stream:    res.stream,
-						cand:      res.cand,
-						bleg:      res.bleg,
-						startedAt: res.startedAt,
-						cancel:    res.cancel,
+						stream:     res.stream,
+						cand:       res.cand,
+						bleg:       res.bleg,
+						startedAt:  res.startedAt,
+						cancel:     res.cancel,
+						bodyCloser: res.bodyCloser,
 					}
 					openedThisPass = true
 					break
@@ -968,11 +1043,12 @@ func (e *Executor) executeWireAttempts(in wireAttemptInput) (wireAttemptOutcome,
 			}
 
 			outcome = wireAttemptOutcome{
-				stream:    peekedStream,
-				cand:      c,
-				bleg:      bleg,
-				startedAt: attemptStarted,
-				cancel:    legCancel,
+				stream:     peekedStream,
+				cand:       c,
+				bleg:       bleg,
+				startedAt:  attemptStarted,
+				cancel:     legCancel,
+				bodyCloser: bodyReader,
 			}
 			openedThisPass = true
 			break
@@ -985,12 +1061,13 @@ func (e *Executor) executeWireAttempts(in wireAttemptInput) (wireAttemptOutcome,
 }
 
 type wireParallelRaceResult struct {
-	opened    bool
-	stream    lipapi.ManagedEventStream
-	cand      routing.AttemptCandidate
-	bleg      b2bua.BLegRecord
-	startedAt time.Time
-	cancel    context.CancelFunc
+	opened     bool
+	stream     lipapi.ManagedEventStream
+	cand       routing.AttemptCandidate
+	bleg       b2bua.BLegRecord
+	startedAt  time.Time
+	cancel     context.CancelFunc
+	bodyCloser io.Closer
 }
 
 type wireParallelLeg struct {
@@ -1232,6 +1309,9 @@ func (e *Executor) executeWireParallelRace(
 				loserStreams = append(loserStreams, res.stream)
 			}
 			leg := launched[res.idx]
+			if leg.bodyReader != nil {
+				_ = leg.bodyReader.Close()
+			}
 			leg.permit.Abort()
 			leg.cancel() // Cancel loser
 			reason := "lost parallel race"
@@ -1302,11 +1382,12 @@ func (e *Executor) executeWireParallelRace(
 	}
 
 	return wireParallelRaceResult{
-		opened:    true,
-		stream:    winner.stream,
-		cand:      winnerLeg.cand,
-		bleg:      winnerLeg.bleg,
-		startedAt: winnerLeg.startedAt,
-		cancel:    winnerLeg.cancel,
+		opened:     true,
+		stream:     winner.stream,
+		cand:       winnerLeg.cand,
+		bleg:       winnerLeg.bleg,
+		startedAt:  winnerLeg.startedAt,
+		cancel:     winnerLeg.cancel,
+		bodyCloser: winnerLeg.bodyReader,
 	}, nil
 }
