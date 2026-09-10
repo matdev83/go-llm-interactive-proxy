@@ -40,11 +40,13 @@ type BackendSpec struct {
 	// Native hosted backends must leave this false (dummy-credential policy).
 	CompatibleModeAuth bool
 
-	ClientOptions  func(lipapi.Call, routing.AttemptCandidate) []option.RequestOption
-	RequestOptions func(lipapi.Call) []option.RequestOption
-	ResolveModel   func(routing.AttemptCandidate, lipapi.Call) string
-	ResolveFlavor  func(lipapi.Call) Flavor
-	Inventory      modelinventory.Provider
+	ClientOptions              func(lipapi.Call, routing.AttemptCandidate) []option.RequestOption
+	RequestOptions             func(lipapi.Call) []option.RequestOption
+	ResolveModel               func(routing.AttemptCandidate, lipapi.Call) string
+	ResolveFlavor              func(lipapi.Call) Flavor
+	Flavor                     Flavor
+	WireDomainAnyAcceptedModel *bool
+	Inventory                  modelinventory.Provider
 }
 
 func HostedCaps() lipapi.BackendCaps {
@@ -60,7 +62,7 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 		return newConfigErrorBackend(spec.ID, fmt.Errorf("%s: credentials: %w", spec.ID, err))
 	}
 	prefixes := []string{spec.ID}
-	return execbackend.Backend{
+	be := execbackend.Backend{
 		Caps:          openaicaps.HostedFull,
 		ReplaySupport: lipapi.ReasoningReplaySupport{},
 		ResolveReplaySupport: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.ReasoningReplaySupport {
@@ -100,6 +102,11 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 			})
 		},
 	}
+	targetPool := pool
+	if noAuth {
+		targetPool = nil
+	}
+	return attachWireProof(be, spec, targetPool, spec.Inventory)
 }
 
 func buildCompatibleOrRequiredPool(spec BackendSpec) (*credpool.Pool, bool, error) {

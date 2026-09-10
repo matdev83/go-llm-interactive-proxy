@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/endpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
@@ -301,4 +302,82 @@ func (p WireOpenPrimitives) ParseAndPeekStream(ctx context.Context, resp *http.R
 		return nil, err
 	}
 	return PeekFirstEvent(ctx, es)
+}
+
+// OpenWire opens a backend attempt directly from a wire request (Requirement 8, 12).
+func (p WireOpenPrimitives) OpenWire(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+	if ctx == nil {
+		return nil, lipapi.ErrNilContext
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	targetURL, err := p.ResolveURL()
+	if err != nil {
+		return nil, err
+	}
+
+	var cred credpool.Credential
+	if p.Pool != nil {
+		now := time.Now()
+		c, aerr := p.Pool.Acquire(now, nil)
+		if aerr != nil {
+			if errors.Is(aerr, credpool.ErrNoUsableCredential) {
+				return nil, lipapi.RecoverablePreOutputError(aerr)
+			}
+			return nil, fmt.Errorf("%s: %w", p.ProviderID, aerr)
+		}
+		cred = c
+	}
+
+	streaming := req.WireRequest.Delivery == lipapi.DeliveryModeStreaming
+	httpReq, err := NewOutboundRequest(ctx, targetURL, req.Body, req.ContentLength, cred.Secret, streaming, req.Header)
+	if err != nil {
+		return nil, err
+	}
+
+	client := p.Client()
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		if p.Pool != nil && cred.ID != "" {
+			kind, retryAfter := openaicred.ClassifyOpenAIAPIError(err)
+			now := time.Now()
+			switch kind {
+			case openaicred.FailureAuthInvalid:
+				p.Pool.MarkAuthInvalid(cred.ID)
+			case openaicred.FailureRateLimited:
+				until := credpool.CooldownFromRetryAfterOrFallback(retryAfter, now, p.RateLimitFallback)
+				p.Pool.MarkRateLimited(cred.ID, until)
+			}
+		}
+		kind, _ := openaicred.ClassifyOpenAIAPIError(err)
+		if kind == openaicred.FailureRetryable || kind == openaicred.FailureRateLimited || kind == openaicred.FailureAuthInvalid {
+			return nil, lipapi.RecoverablePreOutputError(err)
+		}
+		return nil, err
+	}
+
+	stream, err := p.ParseAndPeekStream(ctx, resp)
+	if err != nil {
+		if p.Pool != nil && cred.ID != "" {
+			kind, retryAfter := openaicred.ClassifyOpenAIAPIError(err)
+			now := time.Now()
+			switch kind {
+			case openaicred.FailureAuthInvalid:
+				p.Pool.MarkAuthInvalid(cred.ID)
+			case openaicred.FailureRateLimited:
+				until := credpool.CooldownFromRetryAfterOrFallback(retryAfter, now, p.RateLimitFallback)
+				p.Pool.MarkRateLimited(cred.ID, until)
+			}
+		}
+		kind, _ := openaicred.ClassifyOpenAIAPIError(err)
+		if kind == openaicred.FailureRetryable || kind == openaicred.FailureRateLimited || kind == openaicred.FailureAuthInvalid {
+			return nil, lipapi.RecoverablePreOutputError(err)
+		}
+		return nil, err
+	}
+	return stream, nil
 }

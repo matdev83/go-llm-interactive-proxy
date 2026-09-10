@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"github.com/openai/openai-go/v3/option"
 	"gopkg.in/yaml.v3"
 )
@@ -69,23 +70,26 @@ func BuildCompatibleWithHeaders(
 		CanonicalPrefix:    cfg.BackendPrefix,
 		CompatibleModeAuth: true,
 	}
+	var invModel modelinventory.Provider = inventory
+	if staticInv, err := compatmode.ApplyStaticModelInventory(execbackend.Backend{}, cfg.Models); err != nil {
+		return execbackend.Backend{}, err
+	} else if staticInv.ModelInventory != nil {
+		invModel = staticInv.ModelInventory
+	}
 	be := NewBackend(BackendSpec{
 		ID:                 cfg.BackendPrefix,
+		Flavor:             flavor,
 		BaseURL:            base,
 		APIKey:             apiKey,
 		APIKeys:            ek,
 		HTTPClient:         client,
 		SDKMaxRetries:      sdkMaxRetriesOrDefault(nil),
-		Inventory:          inventory,
+		Inventory:          invModel,
 		CompatibleModeAuth: true,
 		ResolveFlavor:      func(lipapi.Call) Flavor { return flavor },
 		RequestOptions:     staticHeaderOptions(headers),
 	})
 	be.TransportCaps = transportCaps
-	be, err = compatmode.ApplyStaticModelInventory(be, cfg.Models)
-	if err != nil {
-		return execbackend.Backend{}, err
-	}
 	return compatmode.ApplyRuntimePolicy(be, cfg)
 }
 
