@@ -487,7 +487,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Do not prune incompatible candidates: any possible incompatible candidate declines the whole wire request.
   - _Requirements: 7, 8, 10_
 
-- [ ] 11.5 Build late route-override compatibility envelope
+- [x] 11.5 Build late route-override compatibility envelope
   - Do not block merely because `RouteOverrideReader` exists.
   - Use the same generation validator/known backend/execution policy to derive all legal outcomes **without reading the live store**.
   - Unbounded override model domain needs backend universal proof such as `AnyAcceptedModel`; otherwise decline.
@@ -861,3 +861,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 11.2 VERIFIED (review subagent APPROVED): fail-closed panic sentinel harness for all 8 side-effect surfaces + held-permit duration measurement with ceiling and single-decision enforcement, test-only, no production change; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.3 VERIFIED (re-review subagent APPROVED after empty-generation fail-open fix): authority assessment gate over frozen summary + census with unknown=>decline, defensive sealed/pinned/blocker recheck, manifest round-trip parity, no hot-path reflection, sentinel-untouched; empty-generation regression test added; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.4 VERIFIED (re-review subagent APPROVED after thinker-role fix): exact initial candidate set via canonical composition reuse with planner-identical thinker/executor role+key tagging, whole-request decline on any incompatibility without pruning, DeclineReasonCanceled taxonomy addition; routing + largebody suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 11.5 VERIFIED (re-review subagent APPROVED after nil-validator fail-open fix): late route-override envelope from shared generation validator without live-store reads, reader presence never blocks alone, unbounded domain requires AnyAcceptedModel, nil validator fails closed with regression test; routing + largebody + runtimebundle suites PASS, vet/gofmt clean; -race unavailable cgo limitation.

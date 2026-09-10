@@ -1,7 +1,6 @@
 package runtimebundle
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -12,25 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	adminov "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/routeoverride"
 )
-
-type generationSelectorValidator struct {
-	aliases        *routing.AliasResolver
-	defaultBackend string
-	knownBackends  map[string]struct{}
-	execResolver   routing.BackendExecutionResolver
-	policy         config.ExecutionCompositionPolicy
-}
-
-func (v generationSelectorValidator) ValidateSelector(_ context.Context, raw string) error {
-	sel, err := routing.CompileSelector(raw, v.aliases, v.defaultBackend)
-	if err != nil {
-		return err
-	}
-	if err := routing.RejectUnknownBackends(sel, v.knownBackends); err != nil {
-		return err
-	}
-	return routing.ValidateExecutionComposition(sel, v.execResolver, v.policy)
-}
 
 func knownBackendsOf(exec *runtime.Executor) map[string]struct{} {
 	if exec == nil {
@@ -50,13 +30,13 @@ func bindGenerationRouteOverride(ps *ProcessServices, cfg *config.Config, exec *
 	if ps == nil || ps.RouteOverrideStore == nil || exec == nil {
 		return nil, fmt.Errorf("runtimebundle: routing.override_admin.enabled requires a continuity store that implements routeoverride.Store")
 	}
-	svc, err := routeoverride.NewService(ps.RouteOverrideStore, generationSelectorValidator{
-		aliases:        exec.SelectorAliases,
-		defaultBackend: exec.DefaultBackend,
-		knownBackends:  knownBackendsOf(exec),
-		execResolver:   exec.BackendExecutionResolver,
-		policy:         exec.ExecutionCompositionPolicy,
-	}, nowFn)
+	svc, err := routeoverride.NewService(ps.RouteOverrideStore, routing.NewGenerationSelectorValidator(
+		exec.SelectorAliases,
+		exec.DefaultBackend,
+		knownBackendsOf(exec),
+		exec.BackendExecutionResolver,
+		exec.ExecutionCompositionPolicy,
+	), nowFn)
 	if err != nil {
 		return nil, err
 	}
