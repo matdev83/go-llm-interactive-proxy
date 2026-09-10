@@ -440,7 +440,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - No hidden Call retained for retry/rerate.
   - _Requirements: 10, 15, 19_
 
-- [ ] 10.3 Prove no-accounting + standard metering path first
+- [x] 10.3 Prove no-accounting + standard metering path first
   - With token accounting/preflight disabled, normal secure-session + metering composition must reach wire mode.
   - Do this before adding optional wire token counter complexity.
   - _Requirements: 15, 21_
@@ -854,3 +854,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 9.4 VERIFIED (review subagent APPROVED): sensitive SessionResponseCarrier with IsNew-only raw token, canonical-delegated exact session/resume/A-leg headers, wire→canonical→wire E2E resume + denial, token absent from logs/metrics/body; runtime + sessionwire + openairesponses suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 10.1 VERIFIED (review subagent APPROVED): wire-native frontend-ingress checkpoint with shared exact identity/quantity builders, canonical field-by-field parity, zero Call clone/retention, post-BeginTurn A-leg/session correlation, unused quantity field removed; checkpoint + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 10.2 VERIFIED (review subagent APPROVED): wire-native backend-attempt checkpoint with shared public builder, attempt/B-leg/backend/model correlation + source/rewrite/attempt digests, widening refactored to shared exact helper + bounded evidence assert, zero Call retention, dead snapshot method + stale comment removed; checkpoint + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 10.3 VERIFIED (review subagent APPROVED): no-accounting + standard metering composition reaches wire mode with FE/BE fact persistence, accounting-enabled correctly declines wire pre-Counter, wire snapshots skip deferred counting, ctx-holder fallback, zero Call retention; runtime + checkpoint suites PASS, vet/gofmt clean; -race unavailable cgo limitation.

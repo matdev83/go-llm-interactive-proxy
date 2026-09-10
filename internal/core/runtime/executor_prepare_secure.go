@@ -273,6 +273,19 @@ func (p *PreparedSecureSession) CaptureFrontendIngressCheckpoint(
 	})
 }
 
+// PersistFrontendIngressFact appends the customer FE-ingress journal fact
+// when a MeteringRecorder is configured and binds its FactID (Requirements 15.1–15.3, 19).
+func (p *PreparedSecureSession) PersistFrontendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder) (string, error) {
+	if p == nil || p.executor == nil {
+		return "", fmt.Errorf("executor: executor is required")
+	}
+	execCtx := p.outCtx
+	if ctx != nil {
+		execCtx = ctx
+	}
+	return p.executor.PersistFrontendIngressFact(execCtx, holder)
+}
+
 // PrepareSecureSession prepares fact-based inputs for secure-session execution.
 // It executes scope resolution, session openers, and workspace resolution, but
 // strictly DOES NOT call BeginTurn or mutate session/store state (Requirements 6.2, 14.1, 19).

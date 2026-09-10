@@ -290,6 +290,9 @@ func (e *Executor) appendMeteringFact(ctx context.Context, fact metering.Fact) e
 // FactID/SourceID/Sequence are deterministic from the logical request so retry
 // and process restart SameFactReplay without double-count (D6).
 func (e *Executor) persistFrontendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder) (string, error) {
+	if holder == nil {
+		holder = meteringHolderFrom(ctx)
+	}
 	if e == nil || holder == nil {
 		return "", nil
 	}
@@ -326,6 +329,13 @@ func (e *Executor) persistFrontendIngressFact(ctx context.Context, holder *check
 	}
 	holder.BindFrontendIngressFactID(factID)
 	return factID, nil
+}
+
+// PersistFrontendIngressFact appends the customer FE-ingress journal fact when a
+// MeteringRecorder is configured and binds its FactID for rating/admission.
+// If holder is nil, it falls back to the holder stored in ctx (Requirements 15.1–15.3, 19).
+func (e *Executor) PersistFrontendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder) (string, error) {
+	return e.persistFrontendIngressFact(ctx, holder)
 }
 
 // enrichFrontendIngressQuantities deferred-counts the immutable FE call via the
@@ -387,8 +397,12 @@ func countedInputQuantities(count accountingapp.CountResult) []metering.Quantity
 
 // enrichBackendIngressQuantities merges deferred operator counts into a stored
 // BE snapshot without replacing conservative output bounds (reqs 2.2, 5.1).
+// Wire snapshots are safely ignored because no token counting is performed (Req 15.4).
 func (e *Executor) enrichBackendIngressQuantities(holder *checkpoint.RequestHolder, attemptID string, count accountingapp.CountResult) {
 	if holder == nil {
+		return
+	}
+	if snap := holder.BackendIngressFor(attemptID); snap != nil && snap.IsWire() {
 		return
 	}
 	holder.MergeBackendIngressQuantities(attemptID, countedInputQuantities(count))
@@ -396,12 +410,16 @@ func (e *Executor) enrichBackendIngressQuantities(holder *checkpoint.RequestHold
 
 // enrichBackendIngressQuantitiesWithDecision merges counted inputs and the
 // conservative output assumption from the final preflight decision.
+// Wire snapshots are safely ignored because no token counting is performed (Req 15.4).
 func (e *Executor) enrichBackendIngressQuantitiesWithDecision(
 	holder *checkpoint.RequestHolder,
 	attemptID string,
 	decision accountingpreflight.Decision,
 ) {
 	if holder == nil {
+		return
+	}
+	if snap := holder.BackendIngressFor(attemptID); snap != nil && snap.IsWire() {
 		return
 	}
 	qs := countedInputQuantities(decision.Count)
@@ -416,6 +434,9 @@ func (e *Executor) enrichBackendIngressQuantitiesWithDecision(
 // FactID/SourceID/Sequence are deterministic per attempt so failover streams
 // stay distinct and Append-fail/restart SameFactReplay without double-count.
 func (e *Executor) persistBackendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder, attemptID string) (string, error) {
+	if holder == nil {
+		holder = meteringHolderFrom(ctx)
+	}
 	if e == nil || holder == nil {
 		return "", nil
 	}
@@ -448,4 +469,11 @@ func (e *Executor) persistBackendIngressFact(ctx context.Context, holder *checkp
 	}
 	holder.BindBackendIngressFactID(attemptID, factID)
 	return factID, nil
+}
+
+// PersistBackendIngressFact appends the operator BE-ingress journal fact for attemptID
+// when a MeteringRecorder is configured and binds its FactID for rating/admission.
+// If holder is nil, it falls back to the holder stored in ctx (Requirements 10, 15.1–15.3, 19).
+func (e *Executor) PersistBackendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder, attemptID string) (string, error) {
+	return e.persistBackendIngressFact(ctx, holder, attemptID)
 }
