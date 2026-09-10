@@ -15,8 +15,9 @@ import (
 // a sanitized Call clone used for recount/rerate. The Call body is never written
 // to the metering journal by default (requirement 2.7).
 type Snapshot struct {
-	Public metering.Checkpoint
-	Call   lipapi.Call
+	Public   metering.Checkpoint
+	Call     lipapi.Call
+	Evidence *WireAttemptEvidence
 }
 
 // BindScope updates Public.Scope without mutating the immutable Call clone.
@@ -302,6 +303,49 @@ type BackendIngressInput struct {
 	Now          time.Time
 }
 
+func buildBackendIngressPublicCheckpoint(
+	id string,
+	streamID string,
+	perspective metering.EconomicPerspective,
+	corr metering.Correlation,
+	sc scope.PrincipalScopeView,
+	backendID string,
+	model string,
+	now time.Time,
+) (metering.Checkpoint, error) {
+	if id == "" {
+		return metering.Checkpoint{}, fmt.Errorf("metering/checkpoint: checkpoint_id required")
+	}
+	if streamID == "" {
+		return metering.Checkpoint{}, fmt.Errorf("metering/checkpoint: stream_id required")
+	}
+	if perspective == "" {
+		perspective = metering.PerspectiveOperator
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	pub := metering.Checkpoint{
+		CheckpointID: id,
+		StreamID:     streamID,
+		Boundary:     metering.BoundaryBackendIngress,
+		Lifecycle:    metering.LifecycleBackendAttempt,
+		Perspective:  perspective,
+		Correlation:  corr,
+		Scope:        sc.Clone(),
+		BackendID:    strings.TrimSpace(backendID),
+		Model:        strings.TrimSpace(model),
+		Presence:     metering.PresenceUnknown,
+		Source:       metering.SourceObserved,
+		Authority:    metering.AuthorityEstimated,
+		CapturedAt:   now,
+	}
+	if err := pub.Validate(); err != nil {
+		return metering.Checkpoint{}, err
+	}
+	return pub, nil
+}
+
 // CaptureBackendIngress freezes the final provider-neutral attempt call
 // (requirements 2.2, 5.1). Callers must AssertNotWidened before Open if the
 // working call may still mutate.
@@ -336,13 +380,11 @@ func CaptureBackendIngress(in BackendIngressInput) (Snapshot, error) {
 	if traceID == "" {
 		traceID = strings.TrimSpace(cloned.ID)
 	}
-	pub := metering.Checkpoint{
-		CheckpointID: id,
-		StreamID:     streamID,
-		Boundary:     metering.BoundaryBackendIngress,
-		Lifecycle:    metering.LifecycleBackendAttempt,
-		Perspective:  perspective,
-		Correlation: metering.Correlation{
+	pub, err := buildBackendIngressPublicCheckpoint(
+		id,
+		streamID,
+		perspective,
+		metering.Correlation{
 			RequestID: strings.TrimSpace(cloned.ID),
 			ALegID:    aLeg,
 			BLegID:    bLegID,
@@ -350,15 +392,12 @@ func CaptureBackendIngress(in BackendIngressInput) (Snapshot, error) {
 			SessionID: cloned.Session.CorrelationID(),
 			TraceID:   traceID,
 		},
-		Scope:      in.Scope.Clone(),
-		BackendID:  strings.TrimSpace(in.BackendID),
-		Model:      strings.TrimSpace(in.Model),
-		Presence:   metering.PresenceUnknown,
-		Source:     metering.SourceObserved,
-		Authority:  metering.AuthorityEstimated,
-		CapturedAt: now,
-	}
-	if err := pub.Validate(); err != nil {
+		in.Scope,
+		in.BackendID,
+		in.Model,
+		now,
+	)
+	if err != nil {
 		return Snapshot{}, err
 	}
 	snap := Snapshot{Public: pub, Call: cloned}
@@ -366,9 +405,133 @@ func CaptureBackendIngress(in BackendIngressInput) (Snapshot, error) {
 	return snap, nil
 }
 
+// WireBackendIngressInput captures an immutable backend-attempt freeze from bounded
+// wire facts immediately before Open, without requiring or retaining a lipapi.Call
+// (Requirements 10, 15.1–15.3, 19).
+type WireBackendIngressInput struct {
+	RequestID       string
+	TraceID         string // runtime trace; defaults to RequestID when empty
+	AttemptID       string
+	BLegID          string // defaults to AttemptID when empty
+	ALegID          string
+	SessionID       string // authoritative session ID or correlation ID
+	Scope           scope.PrincipalScopeView
+	BackendID       string
+	Model           string
+	CheckpointID    string // defaults to "operator-attempt:" + AttemptID
+	StreamID        string // defaults to "operator-attempt:" + AttemptID
+	MaxOutputTokens *int   // optional max output token bound
+	Perspective     metering.EconomicPerspective
+	Now             time.Time
+
+	// Digest evidence (Req 15.3, Design 10):
+	SourceDigest  [32]byte // SHA-256 digest of captured source payload
+	RewriteDigest [32]byte // digest of model rewrite token / splice (or zero if no rewrite)
+	AttemptDigest [32]byte // composite attempt digest
+}
+
+// CaptureWireBackendIngress builds an immutable backend-attempt checkpoint strictly
+// from bounded wire facts, sharing exact quantity and checkpoint validation logic
+// with canonical execution while guaranteeing that no lipapi.Call is cloned or retained
+// (Requirements 10, 15.1–15.3, 19).
+func CaptureWireBackendIngress(in WireBackendIngressInput) (Snapshot, error) {
+	reqID := strings.TrimSpace(in.RequestID)
+	if reqID == "" {
+		return Snapshot{}, fmt.Errorf("metering/checkpoint: request_id required")
+	}
+	attemptID := strings.TrimSpace(in.AttemptID)
+	if attemptID == "" {
+		return Snapshot{}, fmt.Errorf("metering/checkpoint: attempt_id required")
+	}
+	bLegID := strings.TrimSpace(in.BLegID)
+	if bLegID == "" {
+		bLegID = attemptID
+	}
+	id := strings.TrimSpace(in.CheckpointID)
+	if id == "" {
+		id = "operator-attempt:" + attemptID
+	}
+	streamID := strings.TrimSpace(in.StreamID)
+	if streamID == "" {
+		streamID = "operator-attempt:" + attemptID
+	}
+	traceID := strings.TrimSpace(in.TraceID)
+	if traceID == "" {
+		traceID = reqID
+	}
+	perspective := in.Perspective
+	if perspective == "" {
+		perspective = metering.PerspectiveOperator
+	}
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	corr := metering.Correlation{
+		RequestID: reqID,
+		ALegID:    strings.TrimSpace(in.ALegID),
+		BLegID:    bLegID,
+		AttemptID: attemptID,
+		SessionID: strings.TrimSpace(in.SessionID),
+		TraceID:   traceID,
+	}
+	pub, err := buildBackendIngressPublicCheckpoint(
+		id,
+		streamID,
+		perspective,
+		corr,
+		in.Scope,
+		in.BackendID,
+		in.Model,
+		now,
+	)
+	if err != nil {
+		return Snapshot{}, err
+	}
+
+	attDigest := in.AttemptDigest
+	if attDigest == [32]byte{} && in.SourceDigest != [32]byte{} {
+		attDigest = ComputeAttemptDigest(in.SourceDigest, in.RewriteDigest, in.Model)
+	}
+
+	snap := Snapshot{
+		Public: pub,
+		Call:   lipapi.Call{},
+		Evidence: &WireAttemptEvidence{
+			SourceDigest:    in.SourceDigest,
+			RewriteDigest:   in.RewriteDigest,
+			AttemptDigest:   attDigest,
+			Model:           strings.TrimSpace(in.Model),
+			MaxOutputTokens: in.MaxOutputTokens,
+		},
+	}
+	snap.ApplyQuantities(QuantitiesFromCountAndMaxOutput(in.MaxOutputTokens))
+	return snap, nil
+}
+
 // StoreBackendIngress captures and retains a backend-ingress snapshot for an attempt.
 func (h *RequestHolder) StoreBackendIngress(in BackendIngressInput) (Snapshot, error) {
 	snap, err := CaptureBackendIngress(in)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if h == nil {
+		return snap, nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.BackendIngress == nil {
+		h.BackendIngress = make(map[string]*Snapshot)
+	}
+	cp := snap
+	h.BackendIngress[strings.TrimSpace(in.AttemptID)] = &cp
+	return snap, nil
+}
+
+// StoreWireBackendIngress captures and retains a wire-native backend-ingress snapshot for an attempt
+// (Requirements 10, 15.1–15.3, 19).
+func (h *RequestHolder) StoreWireBackendIngress(in WireBackendIngressInput) (Snapshot, error) {
+	snap, err := CaptureWireBackendIngress(in)
 	if err != nil {
 		return Snapshot{}, err
 	}

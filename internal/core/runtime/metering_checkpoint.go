@@ -140,6 +140,142 @@ func captureWireFrontendIngress(
 	return ctx, holder, nil
 }
 
+// WireBackendIngressArgs carries bounded facts required to freeze an immutable
+// backend-attempt checkpoint on the wire fast-path (Requirements 10, 15.1–15.3, 19).
+type WireBackendIngressArgs struct {
+	RequestID       string
+	TraceID         string
+	AttemptID       string
+	BLegID          string
+	ALegID          string
+	SessionID       string
+	Scope           scope.PrincipalScopeView
+	BackendID       string
+	Model           string
+	MaxOutputTokens *int
+	Now             time.Time
+
+	SourceDigest  [32]byte
+	RewriteDigest [32]byte
+	AttemptDigest [32]byte
+}
+
+// captureWireBackendIngress stores one immutable BE-ingress checkpoint from bounded
+// wire facts before backend attempt dispatch, sharing exact helpers with the canonical
+// path and never cloning or retaining a lipapi.Call (Requirements 10, 15.1–15.3, 19).
+func captureWireBackendIngress(
+	holder *checkpoint.RequestHolder,
+	args WireBackendIngressArgs,
+) (checkpoint.Snapshot, error) {
+	if holder == nil {
+		return checkpoint.Snapshot{}, fmt.Errorf("executor: metering holder required for wire backend ingress")
+	}
+	attemptID := strings.TrimSpace(args.AttemptID)
+	if attemptID == "" {
+		return checkpoint.Snapshot{}, fmt.Errorf("executor: metering wire backend ingress requires attempt id")
+	}
+	bLegID := strings.TrimSpace(args.BLegID)
+	if bLegID == "" {
+		bLegID = attemptID
+	}
+	reqID := strings.TrimSpace(args.RequestID)
+	if reqID == "" {
+		return checkpoint.Snapshot{}, fmt.Errorf("executor: metering wire backend ingress requires request id")
+	}
+	traceID := strings.TrimSpace(args.TraceID)
+	if traceID == "" {
+		traceID = reqID
+	}
+	now := args.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	snap, err := holder.StoreWireBackendIngress(checkpoint.WireBackendIngressInput{
+		RequestID:       reqID,
+		TraceID:         traceID,
+		AttemptID:       attemptID,
+		BLegID:          bLegID,
+		ALegID:          args.ALegID,
+		SessionID:       args.SessionID,
+		Scope:           args.Scope,
+		BackendID:       args.BackendID,
+		Model:           args.Model,
+		CheckpointID:    "operator-attempt:" + attemptID,
+		StreamID:        "operator-attempt:" + attemptID,
+		MaxOutputTokens: args.MaxOutputTokens,
+		Perspective:     metering.PerspectiveOperator,
+		Now:             now,
+		SourceDigest:    args.SourceDigest,
+		RewriteDigest:   args.RewriteDigest,
+		AttemptDigest:   args.AttemptDigest,
+	})
+	if err != nil {
+		return checkpoint.Snapshot{}, fmt.Errorf("executor: metering wire backend ingress: %w", err)
+	}
+	return snap, nil
+}
+
+// CaptureWireBackendIngress captures an immutable backend-attempt checkpoint
+// from bounded wire facts, inheriting correlated session/request facts from
+// holder.FrontendIngress when available (Requirements 10, 15.1–15.3, 19).
+func (e *Executor) CaptureWireBackendIngress(
+	ctx context.Context,
+	holder *checkpoint.RequestHolder,
+	args WireBackendIngressArgs,
+) (checkpoint.Snapshot, error) {
+	if holder == nil {
+		holder = meteringHolderFrom(ctx)
+	}
+	if holder == nil {
+		return checkpoint.Snapshot{}, fmt.Errorf("executor: metering holder required for wire backend ingress")
+	}
+	if args.Now.IsZero() && e != nil {
+		args.Now = e.now()
+	}
+	if holder.FrontendIngress != nil {
+		if args.Scope.PrincipalID.IsUnknown() && !holder.FrontendIngress.Public.Scope.PrincipalID.IsUnknown() {
+			args.Scope = holder.FrontendIngress.Public.Scope.Clone()
+		}
+		if strings.TrimSpace(args.RequestID) == "" {
+			args.RequestID = holder.FrontendIngress.Public.Correlation.RequestID
+		}
+		if strings.TrimSpace(args.TraceID) == "" {
+			args.TraceID = holder.FrontendIngress.Public.Correlation.TraceID
+		}
+		if strings.TrimSpace(args.ALegID) == "" {
+			args.ALegID = holder.FrontendIngress.Public.Correlation.ALegID
+		}
+		if strings.TrimSpace(args.SessionID) == "" {
+			args.SessionID = holder.FrontendIngress.Public.Correlation.SessionID
+		}
+	}
+	return captureWireBackendIngress(holder, args)
+}
+
+// AssertWireAttemptNotWidened verifies that current bounded attempt evidence has not
+// widened beyond the authorized backend-ingress freeze for attemptID (Requirements 10, 15.3, 19).
+func (e *Executor) AssertWireAttemptNotWidened(
+	holder *checkpoint.RequestHolder,
+	attemptID string,
+	current checkpoint.WireAttemptEvidence,
+) error {
+	if holder == nil {
+		return nil
+	}
+	snap := holder.BackendIngressFor(attemptID)
+	if snap == nil {
+		return nil
+	}
+	ev, ok := snap.WireAttemptEvidence()
+	if !ok {
+		return nil
+	}
+	if err := checkpoint.AssertWireNotWidened(ev, current); err != nil {
+		return fmt.Errorf("executor: %w", err)
+	}
+	return nil
+}
+
 // appendMeteringFact appends a fact when a Recorder is configured; nil is a no-op.
 func (e *Executor) appendMeteringFact(ctx context.Context, fact metering.Fact) error {
 	if e == nil || e.MeteringRecorder == nil {
