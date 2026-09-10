@@ -90,6 +90,7 @@ func (f EventHandlerFunc) OnEvent(e Event) error {
 type TopLevelSpanTracker struct {
 	selected map[string]struct{}
 	spans    map[string]Span
+	counts   map[string]int
 }
 
 // NewTopLevelSpanTracker creates a tracker for the provided top-level keys.
@@ -101,6 +102,7 @@ func NewTopLevelSpanTracker(keys ...string) *TopLevelSpanTracker {
 	return &TopLevelSpanTracker{
 		selected: selected,
 		spans:    make(map[string]Span),
+		counts:   make(map[string]int),
 	}
 }
 
@@ -112,6 +114,7 @@ func (t *TopLevelSpanTracker) OnEvent(e Event) error {
 	if _, ok := t.selected[e.Key]; ok {
 		switch e.Type {
 		case EventString, EventNumber, EventTrue, EventFalse, EventNull, EventObjectEnd, EventArrayEnd:
+			t.counts[e.Key]++
 			t.spans[e.Key] = e.Span
 		}
 	}
@@ -131,6 +134,16 @@ func (t *TopLevelSpanTracker) Spans() map[string]Span {
 		res[k] = v
 	}
 	return res
+}
+
+// Count returns the number of times a top-level value was recorded for the given key.
+func (t *TopLevelSpanTracker) Count(key string) int {
+	return t.counts[key]
+}
+
+// HasDuplicate reports whether more than one top-level value was encountered for the given key.
+func (t *TopLevelSpanTracker) HasDuplicate(key string) bool {
+	return t.counts[key] > 1
 }
 
 // Option configures a Scanner.

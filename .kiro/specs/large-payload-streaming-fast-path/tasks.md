@@ -367,7 +367,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - No external plugin ABI change in V1.
   - _Requirements: 7, 8, 9, 22_
 
-- [ ] 8.2 Implement streaming top-level model token splice
+- [x] 8.2 Implement streaming top-level model token splice
   - Exact scanner span + JSON encoded replacement + checked rewritten length.
   - Same/shorter/longer/escaped model, late model, nested misleading text, duplicate/invalid spans.
   - No second whole body.
@@ -844,3 +844,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 7.5 VERIFIED (review subagent APPROVED): single exact-weight permit post-EOF, proof replay under permit, same-permit decline fallback, legacy bypass, 429 parity; frontendpipe + largebody + decodeqos + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation; reviewer flags noted: capture-time materialization to revisit in 8+, partial 7.6 overlap, unreachable defensive branch.
 - Task 7.6 VERIFIED (re-review subagent APPROVED): proof-decline same-permit fallback saturation race proof, single TryAdmit, no second decision, vet fix; saturation-race suite PASS, vet/diff-check clean; -race unavailable cgo limitation.
 - Task 8.1 VERIFIED (review subagent APPROVED): additive pure ResolveWireRequest/ResolveWireDomain, fail-closed rewrite rule, nil=>canonical, no ABI change, budget + hexagonal baseline updates; execbackend + largebody + archtest PASS, vet/build/gofmt/diff-check clean; follow-ups: configured budget to replace 1024 magic, protocol binding proof in 8.3; -race unavailable cgo limitation.
+- Task 8.2 VERIFIED (review subagent APPROVED): streaming model splice, exact spans, checked length, duplicate rejection, budgets bump; largebody + jsonshape + budget gates PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.

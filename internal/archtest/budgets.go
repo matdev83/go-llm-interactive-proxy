@@ -160,7 +160,8 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 6.2 define profile hash-writer contract (streaming JSON-escaped identity digest without prompt retention); measured 88634, bump to 88659 with 25 headroom.
 	// Large-payload fast-path Task 6.5 prove economic identity parity; measured 88680, bump to 88705 with 25 headroom.
 	// Large-payload fast-path Task 8.1 additive execbackend.Backend wire support; measured 88966, bump to 88991 with 25 headroom.
-	{Dir: "internal/core", Max: 88991},
+	// Large-payload fast-path Task 8.2 streaming top-level model token splice (SpliceModelToken, SpliceReader, checked length); measured 89554, bump to 89579 with 25 headroom.
+	{Dir: "internal/core", Max: 89579},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12333},
