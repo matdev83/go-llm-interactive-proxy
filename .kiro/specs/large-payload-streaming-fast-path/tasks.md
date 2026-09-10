@@ -521,7 +521,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 12. Accepted wire execution cannot enter prompt-scale Call/CloneCall machinery
 
-- [ ] 12.1 Convert Task 1.8 inventory into explicit bounded runtime wire facts
+- [x] 12.1 Convert Task 1.8 inventory into explicit bounded runtime wire facts
   - Only facts with named consumers; no shadow Call schema.
   - Route/protocol/max-output/identity/session/source/rewrite/economic facts as required.
   - _Requirements: 19_
@@ -866,3 +866,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 11.7 VERIFIED (review subagent APPROVED): exact+domain backend proof gate with immutable body/rewrite facts to every resolver, whole-request decline without pruning, homogeneous accept vs heterogeneous decline, post-BeginTurn inside-domain override proof, strict rewrite-mismatch union rule; largebody + routing + execbackend suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.8 VERIFIED (review subagent APPROVED): 7-point stamp binding with execute-time revalidation as terminal invariant failure (never fallback), backward-compatible constructor, no sensitive leakage; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.9 VERIFIED (review subagent APPROVED): same-permit assessment with release-once-then-commit on accept and same-permit canonical fallback on decline, saturation proofs of no second admission, execute-panic close safety; frontendpipe suite PASS, vet/gofmt clean; -race unavailable cgo limitation; archtest core-ratchet failures pre-existing, untouched by this task.
+- Task 12.1 VERIFIED (re-review subagent APPROVED after real-assertion fixes): explicit 8-domain bounded wire facts with mechanical consumer-coverage ratchet and structural no-shadow-Call assertion, census evidence doc; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
