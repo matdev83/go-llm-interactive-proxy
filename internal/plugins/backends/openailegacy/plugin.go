@@ -2,10 +2,8 @@ package openailegacy
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -87,66 +85,19 @@ func New(cfg Config) execbackend.Backend {
 			if err != nil {
 				return nil, err
 			}
-			now := time.Now()
-			for {
-				if err := ctx.Err(); err != nil {
-					return nil, err
-				}
-				cred, aerr := pool.Acquire(now, nil)
-				if aerr != nil {
-					if errors.Is(aerr, credpool.ErrNoUsableCredential) {
-						return nil, lipapi.RecoverablePreOutputError(aerr)
-					}
-					return nil, fmt.Errorf("%s: %w", ID, aerr)
-				}
+			return openaicred.ExecuteWithCredentialPool(ctx, ID, pool, openAIRateLimitFallback, func(ctx context.Context, cred credpool.Credential) (lipapi.ManagedEventStream, error) {
 				cli := openaicred.NewClient(cfg.BaseURL, cred.Secret, cfg.HTTPClient, cfg.SDKMaxRetries)
 				if call.Invocation.TransportMode == lipapi.TransportModeNonStreaming {
 					comp, nerr := cli.Chat.Completions.New(ctx, p)
 					if nerr != nil {
-						kind, retryAfter := openaicred.ClassifyOpenAIAPIError(nerr)
-						now = time.Now()
-						switch kind {
-						case openaicred.FailureAuthInvalid:
-							pool.MarkAuthInvalid(cred.ID)
-						case openaicred.FailureRateLimited:
-							until := credpool.CooldownFromRetryAfterOrFallback(retryAfter, now, openAIRateLimitFallback)
-							pool.MarkRateLimited(cred.ID, until)
-						case openaicred.FailureRetryable:
-							return nil, lipapi.RecoverablePreOutputError(nerr)
-						default:
-							return nil, nerr
-						}
-						continue
+						return nil, nerr
 					}
 					return lipapi.NewFixedEventStream(CompletionEvents(*comp)), nil
 				}
 				raw := cli.Chat.Completions.NewStreaming(ctx, p)
 				es := NewChatStream(raw, call.MaxPendingWireEvents)
-				ev, rerr := es.Recv(ctx)
-				if rerr == nil {
-					return streampeek.NewManagedPrependFirst(ev, es), nil
-				}
-				_ = es.Close()
-				kind, retryAfter := openaicred.ClassifyOpenAIAPIError(rerr)
-				// Anchor pool "now" to the post-response instant. Using the iteration-start
-				// time for Retry-After math can expire the cooldown before MarkRateLimited if
-				// the upstream round trip was slower than the delta (flaky second attempt).
-				now = time.Now()
-				switch kind {
-				case openaicred.FailureAuthInvalid:
-					pool.MarkAuthInvalid(cred.ID)
-				case openaicred.FailureRateLimited:
-					until := credpool.CooldownFromRetryAfterOrFallback(retryAfter, now, openAIRateLimitFallback)
-					pool.MarkRateLimited(cred.ID, until)
-				case openaicred.FailureRetryable:
-					// First Recv failed before the stream was returned: still pre-output,
-					// so a transient upstream/transport failure is a core failover candidate.
-					// rerr already carries this backend's ID prefix from the stream layer.
-					return nil, lipapi.RecoverablePreOutputError(rerr)
-				default:
-					return nil, rerr
-				}
-			}
+				return streampeek.PeekFirst(ctx, es)
+			})
 		},
 	}
 }

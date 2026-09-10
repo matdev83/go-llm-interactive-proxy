@@ -379,7 +379,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - `NeedsModelRewrite=true` without certified span/semantics => incompatible.
   - _Requirements: 6, 8, 9_
 
-- [ ] 8.4 Build shared HTTP wire-open primitives by refactoring existing backend logic
+- [x] 8.4 Build shared HTTP wire-open primitives by refactoring existing backend logic
   - Reuse endpoint/base URL, credential pool/cooldown, shared client/TLS/proxy/HTTP2/redirect policy, first-recv/stream parser/error classification.
   - Core remains retry owner; prevent hidden SDK retry from creating different attempt economics.
   - _Requirements: 10, 12_
@@ -846,3 +846,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 8.1 VERIFIED (review subagent APPROVED): additive pure ResolveWireRequest/ResolveWireDomain, fail-closed rewrite rule, nil=>canonical, no ABI change, budget + hexagonal baseline updates; execbackend + largebody + archtest PASS, vet/build/gofmt/diff-check clean; follow-ups: configured budget to replace 1024 magic, protocol binding proof in 8.3; -race unavailable cgo limitation.
 - Task 8.2 VERIFIED (review subagent APPROVED): streaming model splice, exact spans, checked length, duplicate rejection, budgets bump; largebody + jsonshape + budget gates PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 8.3 VERIFIED (review subagent APPROVED): resolver purity proofs, configured semantic-fact budget replacing 1024 magic, protocol binding, budgets bump; execbackend + largebody + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
+- Task 8.4 VERIFIED (review subagent APPROVED): shared credential/streampeek/wire-open primitives via refactor, behavior preserved, core retry ownership intact; 21 backend packages PASS, build/vet/gofmt/diff-check clean; follow-ups: DefaultSDKMaxRetries wiring, 8.5+ must consume helpers; -race unavailable cgo limitation.

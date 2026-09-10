@@ -2,7 +2,6 @@ package openaicompat
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,7 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicaps"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicred"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"github.com/openai/openai-go/v3/option"
@@ -93,43 +91,13 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 			if spec.RequestOptions != nil {
 				req.SDKOptions = spec.RequestOptions(call)
 			}
+			targetPool := pool
 			if noAuth {
-				return openOnce(ctx, spec, req, call, cand, "")
+				targetPool = nil
 			}
-			now := time.Now()
-			for {
-				if err := ctx.Err(); err != nil {
-					return nil, err
-				}
-				cred, aerr := pool.Acquire(now, nil)
-				if aerr != nil {
-					if errors.Is(aerr, credpool.ErrNoUsableCredential) {
-						return nil, lipapi.RecoverablePreOutputError(aerr)
-					}
-					return nil, fmt.Errorf("%s: %w", spec.ID, aerr)
-				}
-				es, openErr := openOnce(ctx, spec, req, call, cand, cred.Secret)
-				if openErr == nil {
-					return es, nil
-				}
-				// openOnce returns either a prepended stream or a raw open/recv error.
-				kind, retryAfter := openaicred.ClassifyOpenAIAPIError(openErr)
-				now = time.Now()
-				switch kind {
-				case openaicred.FailureAuthInvalid:
-					pool.MarkAuthInvalid(cred.ID)
-				case openaicred.FailureRateLimited:
-					until := credpool.CooldownFromRetryAfterOrFallback(retryAfter, now, spec.RateLimitFallback)
-					pool.MarkRateLimited(cred.ID, until)
-				case openaicred.FailureRetryable:
-					// Open/first-Recv failed before the stream was returned: still pre-output,
-					// so a transient upstream/transport failure is a core failover candidate.
-					// openErr already carries this backend's ID prefix from the stream layer.
-					return nil, lipapi.RecoverablePreOutputError(openErr)
-				default:
-					return nil, openErr
-				}
-			}
+			return openaicred.ExecuteWithCredentialPool(ctx, spec.ID, targetPool, spec.RateLimitFallback, func(ctx context.Context, cred credpool.Credential) (lipapi.ManagedEventStream, error) {
+				return openOnce(ctx, spec, req, call, cand, cred.Secret)
+			})
 		},
 	}
 }
@@ -199,11 +167,7 @@ func openOnce(ctx context.Context, spec BackendSpec, req InvokeRequest, call lip
 	if openErr != nil {
 		return nil, openErr
 	}
-	ev, rerr := es.Recv(ctx)
-	if rerr == nil {
-		return streampeek.NewManagedPrependFirst(ev, es), nil
-	}
-	return nil, errors.Join(rerr, es.Close())
+	return PeekFirstEvent(ctx, es)
 }
 
 func newConfigErrorBackend(id string, err error) execbackend.Backend {
