@@ -359,7 +359,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 8. Backend support must be pure before commit and transport-owned after commit
 
-- [ ] 8.1 Extend internal `execbackend.Backend` additively
+- [x] 8.1 Extend internal `execbackend.Backend` additively
   - Optional pure exact `ResolveWireRequest` and late-domain `ResolveWireDomain` (equivalent names allowed).
   - Inputs: profile/operation/delivery/protocol/body mode/rewrite semantics + candidate/model/domain facts.
   - Output can declare rewrite need only if supplied rewrite semantics support it.
@@ -843,3 +843,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 7.4 VERIFIED (review subagent APPROVED): capture-to-EOF with scanner feed, parity, lossless continuation, below-threshold canonical-from-source; frontendpipe + largebody suites PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 7.5 VERIFIED (review subagent APPROVED): single exact-weight permit post-EOF, proof replay under permit, same-permit decline fallback, legacy bypass, 429 parity; frontendpipe + largebody + decodeqos + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation; reviewer flags noted: capture-time materialization to revisit in 8+, partial 7.6 overlap, unreachable defensive branch.
 - Task 7.6 VERIFIED (re-review subagent APPROVED): proof-decline same-permit fallback saturation race proof, single TryAdmit, no second decision, vet fix; saturation-race suite PASS, vet/diff-check clean; -race unavailable cgo limitation.
+- Task 8.1 VERIFIED (review subagent APPROVED): additive pure ResolveWireRequest/ResolveWireDomain, fail-closed rewrite rule, nil=>canonical, no ABI change, budget + hexagonal baseline updates; execbackend + largebody + archtest PASS, vet/build/gofmt/diff-check clean; follow-ups: configured budget to replace 1024 magic, protocol binding proof in 8.3; -race unavailable cgo limitation.

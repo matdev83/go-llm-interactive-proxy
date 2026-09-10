@@ -185,6 +185,7 @@
       "go_list_pattern": "./internal/core/execbackend",
       "classification": "aligned",
       "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
       ]
