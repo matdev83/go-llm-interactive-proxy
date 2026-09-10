@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -112,18 +113,40 @@ func WithoutSensitiveToken(s, rawToken string) string {
 	return strings.ReplaceAll(s, rawToken, "[REDACTED]")
 }
 
+// WriteSessionResponseCarrier sets LIP session response headers from largebody.SessionResponseCarrier
+// when fields are non-empty. It reveals the sensitive resume token only into the designated response
+// header at the frontend transport boundary (Requirements 14.6, 18.2, 22.3).
+func WriteSessionResponseCarrier(w http.ResponseWriter, carrier largebody.SessionResponseCarrier) {
+	if w == nil {
+		return
+	}
+	WriteSessionResponseCarrierHeaders(w.Header(), carrier)
+}
+
+// WriteSessionResponseCarrierHeaders sets LIP session response headers on h from carrier when fields are non-empty.
+func WriteSessionResponseCarrierHeaders(h http.Header, carrier largebody.SessionResponseCarrier) {
+	if h == nil {
+		return
+	}
+	if sid := strings.TrimSpace(carrier.AuthoritativeSessionID); sid != "" {
+		h.Set(HeaderAuthoritativeSessionID, sid)
+	}
+	if tok := strings.TrimSpace(carrier.ResumeToken.Reveal()); tok != "" {
+		h.Set(HeaderResumeToken, tok)
+	}
+	if aLegID := strings.TrimSpace(carrier.ALegID); aLegID != "" {
+		h.Set(HeaderALegID, aLegID)
+	}
+}
+
 // WriteResponseCarriers sets LIP session response headers from call.Session when fields are non-empty.
 func WriteResponseCarriers(w http.ResponseWriter, call *lipapi.Call) {
 	if w == nil || call == nil {
 		return
 	}
-	if sid := strings.TrimSpace(call.Session.AuthoritativeSessionID); sid != "" {
-		w.Header().Set(HeaderAuthoritativeSessionID, sid)
-	}
-	if tok := strings.TrimSpace(call.Session.ResumeToken); tok != "" {
-		w.Header().Set(HeaderResumeToken, tok)
-	}
-	if aLegID := strings.TrimSpace(call.Session.ALegID); aLegID != "" {
-		w.Header().Set(HeaderALegID, aLegID)
-	}
+	WriteSessionResponseCarrierHeaders(w.Header(), largebody.SessionResponseCarrier{
+		AuthoritativeSessionID: call.Session.AuthoritativeSessionID,
+		ALegID:                 call.Session.ALegID,
+		ResumeToken:            largebody.NewSensitiveString(call.Session.ResumeToken),
+	})
 }

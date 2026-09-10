@@ -164,13 +164,20 @@ func (p *PreparedSecureSession) SecureTurn(br app.BeginResult) execctx.SecureSes
 }
 
 func (p *PreparedSecureSession) ResponseCarrier(br app.BeginResult) largebody.SessionResponseCarrier {
+	if p == nil {
+		return largebody.SessionResponseCarrier{}
+	}
 	var token string
 	if br.IsNew && len(br.Response.ResumeToken) > 0 {
 		token = string(br.Response.ResumeToken)
 	}
+	aLegID := strings.TrimSpace(br.Record.ALegID)
+	if aLegID == "" {
+		aLegID = strings.TrimSpace(p.sessionInput.ALegID)
+	}
 	return largebody.SessionResponseCarrier{
 		AuthoritativeSessionID: string(br.Record.SessionID),
-		ALegID:                 strings.TrimSpace(br.Record.ALegID),
+		ALegID:                 aLegID,
 		ResumeToken:            largebody.NewSensitiveString(token),
 	}
 }

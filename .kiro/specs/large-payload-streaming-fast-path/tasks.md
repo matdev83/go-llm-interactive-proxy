@@ -416,7 +416,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Differential tests canonical vs wire recorder input.
   - _Requirements: 14, 21_
 
-- [ ] 9.4 Return sensitive session response carrier
+- [x] 9.4 Return sensitive session response carrier
   - Authoritative session ID, A-leg ID, raw new-session resume token.
   - Frontend emits exact current session/resume headers.
   - E2E: wire first turn → next canonical/wire request resumes successfully.
@@ -851,3 +851,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 9.1 VERIFIED (review subagent APPROVED): exact bounded SessionInput with header-over-body precedence, fail-closed body-metadata rejection, SensitiveString resume wrapping with String/GoString/Format/LogValue/JSON redaction, no session/token fields in backend facts; largebody + sessionwire suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 9.2 VERIFIED (review subagent APPROVED): shared fact-based PrepareSecureSession/PreparedSecureSession seam, BeginTurn strictly post-commit via ExecuteBeginTurn, canonical parity + no-early-turn + resume/denial + workspace fail-closed proofs, dead helper removed; runtime suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 9.3 VERIFIED (review subagent APPROVED): bounded ClientTurnShape recorder input with canonical NormalizedItems parity, no prompt-text retention, budget overflow => ErrSemanticFactBudgetExceeded pre-commit canonical; largebody + runtime suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 9.4 VERIFIED (review subagent APPROVED): sensitive SessionResponseCarrier with IsNew-only raw token, canonical-delegated exact session/resume/A-leg headers, wire→canonical→wire E2E resume + denial, token absent from logs/metrics/body; runtime + sessionwire + openairesponses suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
