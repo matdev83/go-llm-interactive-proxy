@@ -278,13 +278,16 @@ func (g *BackendWireProofGate) ComposeOverrideCandidate(
 	return cands, true, DeclineReasonNone
 }
 
-// BackendWireProofAssessor implements LargeBodyAssessor using BackendWireProofGate
-// (Task 11.7; Requirements 7, 8, 9, 21).
+// BackendWireProofAssessor implements LargeBodyAssessor and LargeBodyWireExecutor
+// using BackendWireProofGate (Task 11.7, 11.8; Requirements 6, 7, 8, 9, 21).
 type BackendWireProofAssessor struct {
-	Gate          BackendWireProofGate
-	AcceptStamp   AssessmentStamp
-	AcceptWireReq WireRequestFacts
-	AcceptDomain  WireDomainFacts
+	Gate                      BackendWireProofGate
+	GenerationID              string
+	CandidateDomainGeneration string
+	AcceptStamp               AssessmentStamp
+	AcceptWireReq             WireRequestFacts
+	AcceptDomain              WireDomainFacts
+	WireExecutor              LargeBodyWireExecutor
 }
 
 // NewBackendWireProofAssessor constructs a BackendWireProofAssessor.
@@ -305,7 +308,20 @@ func (a *BackendWireProofAssessor) AssessLargeBody(ctx context.Context, proof Pr
 		return NewDeclinedAssessment(reason)
 	}
 
-	if a.AcceptStamp.IsZero() {
+	stamp := a.AcceptStamp
+	if stamp.IsZero() && a.GenerationID != "" {
+		cGen := a.CandidateDomainGeneration
+		if cGen == "" {
+			cGen = a.GenerationID
+		}
+		bound, err := BindAssessmentStamp(a.GenerationID, proof, cGen)
+		if err != nil {
+			return NewDeclinedAssessment(DeclineReasonProofUncertain)
+		}
+		stamp = bound
+	}
+
+	if stamp.IsZero() {
 		return NewDeclinedAssessment(DeclineReasonProofUncertain)
 	}
 
@@ -316,12 +332,69 @@ func (a *BackendWireProofAssessor) AssessLargeBody(ctx context.Context, proof Pr
 		wireDomain = a.AcceptDomain
 	}
 
-	accepted, err := NewAcceptedAssessment(a.AcceptStamp, wireReq, wireDomain)
+	accepted, err := NewAcceptedAssessment(stamp, wireReq, wireDomain)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("largebody: accepted assessment construction failed: %w", err)
 	}
 	return accepted, nil
 }
+
+// ExecuteLargeBody implements LargeBodyWireExecutor (Requirement 6.7, Task 11.8).
+// It revalidates the assessment stamp against live facts (generation, profile, source,
+// size, mode, rewrite, and candidate/domain proof generation). Any disagreement is an
+// invariant failure, never fallback to canonical.
+func (a *BackendWireProofAssessor) ExecuteLargeBody(ctx context.Context, accepted Assessment, src Source) (ExecutionResult, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return ExecutionResult{}, ctx.Err()
+	}
+
+	cGen := a.CandidateDomainGeneration
+	if cGen == "" {
+		cGen = a.GenerationID
+	}
+
+	var srcDigest SourceDigest
+	var srcBytes int64
+	if src != nil {
+		if digester, ok := src.(interface{ Digest() SourceDigest }); ok {
+			srcDigest = digester.Digest()
+		} else if digester, ok := src.(interface{ SourceDigest() SourceDigest }); ok {
+			srcDigest = digester.SourceDigest()
+		} else {
+			srcDigest = accepted.Stamp.SourceDigest()
+		}
+		srcBytes = src.Size()
+	} else {
+		srcDigest = accepted.Stamp.SourceDigest()
+		srcBytes = accepted.Stamp.BodyBytes()
+	}
+
+	live := LiveExecutionFacts{
+		GenerationID:              a.GenerationID,
+		ProfileID:                 accepted.Stamp.ProfileID(),
+		Source:                    srcDigest,
+		BodyBytes:                 srcBytes,
+		Mode:                      accepted.Stamp.BodyMode(),
+		Rewrite:                   accepted.Stamp.Rewrite(),
+		CandidateDomainGeneration: cGen,
+	}
+
+	if err := ValidateExecuteLargeBody(accepted, src, live); err != nil {
+		return ExecutionResult{}, err
+	}
+
+	if a.WireExecutor != nil {
+		return a.WireExecutor.ExecuteLargeBody(ctx, accepted, src)
+	}
+
+	return ExecutionResult{}, nil
+}
+
+var (
+	_ LargeBodyAssessor     = (*BackendWireProofAssessor)(nil)
+	_ LargeBodyWireExecutor = (*BackendWireProofAssessor)(nil)
+	_ LargeBodyExecutor     = (*BackendWireProofAssessor)(nil)
+)
 
 // VerifyOverrideCandidate delegates candidate verification to the underlying gate.
 func (a *BackendWireProofAssessor) VerifyOverrideCandidate(

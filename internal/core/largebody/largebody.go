@@ -167,6 +167,14 @@ func (r RewriteSemantics) Span() Span { return r.span }
 // NeedsModelRewrite reports whether attempts must splice a replacement model.
 func (r RewriteSemantics) NeedsModelRewrite() bool { return r.kind == RewriteKindModelToken }
 
+// String returns a bounded description of the certified rewrite semantics.
+func (r RewriteSemantics) String() string {
+	if r.kind == RewriteKindModelToken {
+		return fmt.Sprintf("model_token(offset=%d,len=%d)", r.span.Offset, r.span.Length)
+	}
+	return r.kind.String()
+}
+
 // Validate rejects unknown kinds and invalid spans.
 func (r RewriteSemantics) Validate() error {
 	switch r.kind {
@@ -674,27 +682,42 @@ func (r DeclineReason) String() string {
 // (design sections 8, 11.8). Execution revalidates it and treats
 // disagreement as an invariant failure, never fallback (Requirement 6.7).
 type AssessmentStamp struct {
-	generationID string
-	profileID    string
-	source       SourceDigest
-	bodyBytes    int64
-	mode         BodyMode
-	rewrite      RewriteSemantics
-	identity     IdentityDigest
+	generationID              string
+	profileID                 string
+	source                    SourceDigest
+	bodyBytes                 int64
+	mode                      BodyMode
+	rewrite                   RewriteSemantics
+	identity                  IdentityDigest
+	candidateDomainGeneration string
 }
 
 // NewAssessmentStamp binds generation identity, profile/proof identity,
-// source digest/size, and the body/rewrite contract. Budget-bounded length
-// checks run in Validate; the constructor enforces structural binding only.
-func NewAssessmentStamp(generationID, profileID string, source SourceDigest, bodyBytes int64, mode BodyMode, rewrite RewriteSemantics, identity IdentityDigest) (AssessmentStamp, error) {
+// source digest/size, the body/rewrite contract, and candidate/domain proof generation.
+// Budget-bounded length checks run in Validate; the constructor enforces structural binding only.
+// If candidateDomainGen is omitted or empty, it defaults to generationID.
+func NewAssessmentStamp(
+	generationID, profileID string,
+	source SourceDigest,
+	bodyBytes int64,
+	mode BodyMode,
+	rewrite RewriteSemantics,
+	identity IdentityDigest,
+	candidateDomainGen ...string,
+) (AssessmentStamp, error) {
+	cGen := generationID
+	if len(candidateDomainGen) > 0 && strings.TrimSpace(candidateDomainGen[0]) != "" {
+		cGen = candidateDomainGen[0]
+	}
 	stamp := AssessmentStamp{
-		generationID: generationID,
-		profileID:    profileID,
-		source:       source,
-		bodyBytes:    bodyBytes,
-		mode:         mode,
-		rewrite:      rewrite,
-		identity:     identity,
+		generationID:              generationID,
+		profileID:                 profileID,
+		source:                    source,
+		bodyBytes:                 bodyBytes,
+		mode:                      mode,
+		rewrite:                   rewrite,
+		identity:                  identity,
+		candidateDomainGeneration: cGen,
 	}
 	if err := stamp.validateStructure(); err != nil {
 		return AssessmentStamp{}, err
@@ -723,6 +746,9 @@ func (s AssessmentStamp) Rewrite() RewriteSemantics { return s.rewrite }
 // IdentityDigest returns the bound canonical identity.
 func (s AssessmentStamp) IdentityDigest() IdentityDigest { return s.identity }
 
+// CandidateDomainGeneration returns the bound candidate/domain proof generation.
+func (s AssessmentStamp) CandidateDomainGeneration() string { return s.candidateDomainGeneration }
+
 // IsZero reports whether the stamp is the zero value.
 func (s AssessmentStamp) IsZero() bool { return s == AssessmentStamp{} }
 
@@ -734,7 +760,7 @@ func (s AssessmentStamp) Validate(maxFactBytes int64) error {
 	if err := s.validateStructure(); err != nil {
 		return err
 	}
-	if int64(len(s.generationID)) > maxFactBytes || int64(len(s.profileID)) > maxFactBytes {
+	if int64(len(s.generationID)) > maxFactBytes || int64(len(s.profileID)) > maxFactBytes || int64(len(s.candidateDomainGeneration)) > maxFactBytes {
 		return fmt.Errorf("largebody: stamp binding exceeds %d bytes", maxFactBytes)
 	}
 	return nil
@@ -762,7 +788,30 @@ func (s AssessmentStamp) validateStructure() error {
 	if s.identity.IsZero() {
 		return fmt.Errorf("largebody: stamp canonical identity digest must not be zero")
 	}
+	if strings.TrimSpace(s.candidateDomainGeneration) == "" {
+		return fmt.Errorf("largebody: stamp candidate/domain proof generation binding must not be empty")
+	}
 	return nil
+}
+
+// BindAssessmentStamp binds generation identity, profile/proof identity,
+// source digest/size, body mode/rewrite contract, canonical identity, and candidate/domain
+// proof generation from the proof and generation identifiers (Requirements 6.7, 8.5; Task 11.8).
+func BindAssessmentStamp(generationID string, proof Proof, candidateDomainGen ...string) (AssessmentStamp, error) {
+	cGen := generationID
+	if len(candidateDomainGen) > 0 && strings.TrimSpace(candidateDomainGen[0]) != "" {
+		cGen = candidateDomainGen[0]
+	}
+	return NewAssessmentStamp(
+		generationID,
+		proof.ProfileID,
+		proof.Source,
+		proof.BodyBytes,
+		proof.Mode,
+		proof.Rewrite,
+		proof.Identity,
+		cGen,
+	)
 }
 
 // Assessment is the bounded assessment outcome containing an opaque

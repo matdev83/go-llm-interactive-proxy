@@ -504,7 +504,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Test homogeneous same-wire vs heterogeneous incompatible domains and actual post-BeginTurn override changes inside accepted domain.
   - _Requirements: 7, 8, 9, 21_
 
-- [ ] 11.8 Bind and validate assessment stamp
+- [x] 11.8 Bind and validate assessment stamp
   - Stamp binds generation identity, profile/proof identity, source digest/size, body mode/rewrite contract, candidate/domain proof generation.
   - Execute disagreement => invariant failure, never canonical fallback.
   - _Requirements: 6, 8_
@@ -864,3 +864,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 11.5 VERIFIED (re-review subagent APPROVED after nil-validator fail-open fix): late route-override envelope from shared generation validator without live-store reads, reader presence never blocks alone, unbounded domain requires AnyAcceptedModel, nil validator fails closed with regression test; routing + largebody + runtimebundle suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.6 VERIFIED (re-review subagent APPROVED after envelope-composition fixes): late selector authorities fail closed without bounded contracts, per-backend universal proof for mixed envelopes, union (never replace) envelope composition across assessors, legacy resolver out of scope; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.7 VERIFIED (review subagent APPROVED): exact+domain backend proof gate with immutable body/rewrite facts to every resolver, whole-request decline without pruning, homogeneous accept vs heterogeneous decline, post-BeginTurn inside-domain override proof, strict rewrite-mismatch union rule; largebody + routing + execbackend suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 11.8 VERIFIED (review subagent APPROVED): 7-point stamp binding with execute-time revalidation as terminal invariant failure (never fallback), backward-compatible constructor, no sensitive leakage; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
