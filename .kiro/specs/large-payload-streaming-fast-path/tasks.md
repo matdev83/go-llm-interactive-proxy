@@ -347,7 +347,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Legacy full-body route resolver is **not** invoked here; it was a pre-capture canonical gate.
   - _Requirements: 4, 6, 13, 14, 16, 17_
 
-- [ ] 7.6 Canonical proof decline under SAME permit
+- [x] 7.6 Canonical proof decline under SAME permit
   - Proof decline owns same-permit fallback: materialize/decode from replay with existing `Spec.Decode` while the original admission permit remains held, with no release/reacquire and no second `TryAdmit`/429/503 decision.
   - Release only at today's post-decode boundary and continue normal Validate/AfterDecode/traffic/Execute.
   - Add decode-admission saturation race test proving no second 429/503 decision.
@@ -842,3 +842,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 7.3 VERIFIED (review subagent APPROVED): five cheap gates in order wired into ServeHTTP after outer checks, zero spool on decline, off/nil unchanged; frontendpipe suite PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 7.4 VERIFIED (review subagent APPROVED): capture-to-EOF with scanner feed, parity, lossless continuation, below-threshold canonical-from-source; frontendpipe + largebody suites PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation.
 - Task 7.5 VERIFIED (review subagent APPROVED): single exact-weight permit post-EOF, proof replay under permit, same-permit decline fallback, legacy bypass, 429 parity; frontendpipe + largebody + decodeqos + archtest PASS, vet/gofmt/diff-check clean; -race unavailable cgo limitation; reviewer flags noted: capture-time materialization to revisit in 8+, partial 7.6 overlap, unreachable defensive branch.
+- Task 7.6 VERIFIED (re-review subagent APPROVED): proof-decline same-permit fallback saturation race proof, single TryAdmit, no second decision, vet fix; saturation-race suite PASS, vet/diff-check clean; -race unavailable cgo limitation.
