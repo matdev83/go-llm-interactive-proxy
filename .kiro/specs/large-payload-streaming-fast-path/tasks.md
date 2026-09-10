@@ -493,7 +493,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Unbounded override model domain needs backend universal proof such as `AnyAcceptedModel`; otherwise decline.
   - _Requirements: 7, 8_
 
-- [ ] 11.6 Handle other late selector authorities conservatively
+- [x] 11.6 Handle other late selector authorities conservatively
   - Full-Call route hints/selector mutators are blockers unless explicit bounded route-domain contract.
   - Separate from frontend legacy full-body resolver, already gated before capture.
   - _Requirements: 5, 7, 13, 19_
@@ -862,3 +862,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 11.3 VERIFIED (re-review subagent APPROVED after empty-generation fail-open fix): authority assessment gate over frozen summary + census with unknown=>decline, defensive sealed/pinned/blocker recheck, manifest round-trip parity, no hot-path reflection, sentinel-untouched; empty-generation regression test added; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.4 VERIFIED (re-review subagent APPROVED after thinker-role fix): exact initial candidate set via canonical composition reuse with planner-identical thinker/executor role+key tagging, whole-request decline on any incompatibility without pruning, DeclineReasonCanceled taxonomy addition; routing + largebody suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
 - Task 11.5 VERIFIED (re-review subagent APPROVED after nil-validator fail-open fix): late route-override envelope from shared generation validator without live-store reads, reader presence never blocks alone, unbounded domain requires AnyAcceptedModel, nil validator fails closed with regression test; routing + largebody + runtimebundle suites PASS, vet/gofmt clean; -race unavailable cgo limitation.
+- Task 11.6 VERIFIED (re-review subagent APPROVED after envelope-composition fixes): late selector authorities fail closed without bounded contracts, per-backend universal proof for mixed envelopes, union (never replace) envelope composition across assessors, legacy resolver out of scope; largebody suite PASS, vet/gofmt clean; -race unavailable cgo limitation.

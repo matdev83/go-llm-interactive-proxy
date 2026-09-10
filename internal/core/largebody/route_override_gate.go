@@ -168,10 +168,11 @@ func (g *RouteOverrideAssessmentGate) Evaluate(ctx context.Context, proof Proof)
 // RouteOverrideAssessor implements LargeBodyAssessor using RouteOverrideAssessmentGate
 // and an optional InitialRouteAssessmentGate (Requirements 7, 8).
 type RouteOverrideAssessor struct {
-	InitialGate   *InitialRouteAssessmentGate
-	OverrideGate  RouteOverrideAssessmentGate
-	AcceptStamp   AssessmentStamp
-	AcceptWireReq WireRequestFacts
+	InitialGate      *InitialRouteAssessmentGate
+	OverrideGate     RouteOverrideAssessmentGate
+	LateSelectorGate *LateSelectorAssessmentGate
+	AcceptStamp      AssessmentStamp
+	AcceptWireReq    WireRequestFacts
 }
 
 // NewRouteOverrideAssessor constructs a RouteOverrideAssessor.
@@ -185,8 +186,8 @@ func NewRouteOverrideAssessor(
 	}
 }
 
-// AssessLargeBody evaluates proof through the initial route gate (if configured)
-// and the route override assessment gate.
+// AssessLargeBody evaluates proof through the initial route gate (if configured),
+// the route override assessment gate, and the late selector gate (if configured).
 func (a *RouteOverrideAssessor) AssessLargeBody(ctx context.Context, proof Proof) (Assessment, error) {
 	if proof.ProfileID == "" {
 		return NewDeclinedAssessment(DeclineReasonProofUncertain)
@@ -204,6 +205,21 @@ func (a *RouteOverrideAssessor) AssessLargeBody(ctx context.Context, proof Proof
 	ovDecision, ovReason, domainFacts := a.OverrideGate.Evaluate(ctx, proof)
 	if ovDecision == AssessmentDecisionDecline {
 		return NewDeclinedAssessment(ovReason)
+	}
+
+	// 3. Other late selector authorities evaluation (if configured).
+	// The late envelope unions (never replaces) the override envelope so every
+	// legal post-commit outcome stays covered (Requirement 7.4).
+	if a.LateSelectorGate != nil {
+		lsDecision, lsReason, lsDomain := a.LateSelectorGate.Evaluate(ctx, proof)
+		if lsDecision == AssessmentDecisionDecline {
+			return NewDeclinedAssessment(lsReason)
+		}
+		unioned, unionReason, ok := unionWireDomainFacts(ctx, domainFacts, lsDomain)
+		if !ok {
+			return NewDeclinedAssessment(unionReason)
+		}
+		domainFacts = unioned
 	}
 
 	if a.AcceptStamp.IsZero() {
