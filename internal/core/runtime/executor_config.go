@@ -20,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
@@ -96,6 +97,8 @@ type CoreRuntime struct {
 	ConversationViewTagger ConversationViewTagger
 	// SteeringWriterFactory constructs an authoritative steering writer for a given A-leg.
 	SteeringWriterFactory SteeringWriterFactory
+	// LargeBodyAssessor evaluates frontend proof for candidate fast-path execution.
+	LargeBodyAssessor largebody.LargeBodyAssessor
 	// LargeBodyGenerationID is the optional generation identity for largebody execution validation.
 	LargeBodyGenerationID string
 	// LargeBodyCandidateDomainGeneration is the optional generation identity for late-route proof validation.

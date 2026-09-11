@@ -24,7 +24,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
-var _ largebody.LargeBodyWireExecutor = (*Executor)(nil)
+var (
+	_ largebody.LargeBodyExecutor                  = (*Executor)(nil)
+	_ largebody.LargeBodyWireExecutor              = (*Executor)(nil)
+	_ largebody.LargeBodyStaticDispositionProvider = (*Executor)(nil)
+)
 
 // wireLifecycleEventStream wraps an EventStream to release request authority
 // and execute terminal lifecycle and economic cleanup once when the stream
@@ -110,6 +114,193 @@ type wireReadyAttempt struct {
 
 func (r wireReadyAttempt) lifecycleHandle() leglifecycle.BLegAttempt {
 	return r.stream
+}
+
+// AssessLargeBody evaluates frontend proof for candidate fast-path execution (Phase 4).
+// If LargeBodyAssessor is not configured, it returns a declined assessment (fail closed to canonical).
+func (e *Executor) AssessLargeBody(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
+	if e == nil || e.LargeBodyAssessor == nil {
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonAuthorityBlocker)
+		return dec, nil
+	}
+	return e.LargeBodyAssessor.AssessLargeBody(ctx, proof)
+}
+
+// LargeBodyStaticDisposition returns an O(1) static wire disposition for a profile (Phase 4).
+// If LargeBodyAssessor implements LargeBodyStaticDispositionProvider, it delegates to it.
+// Otherwise, it returns DefinitelyCanonical with StaticBlocker.
+func (e *Executor) LargeBodyStaticDisposition(profileID string) (largebody.StaticWireDisposition, largebody.StaticWireReason) {
+	if e == nil || e.LargeBodyAssessor == nil {
+		return largebody.StaticWireDefinitelyCanonical, largebody.StaticWireReasonStaticBlocker
+	}
+	if sdp, ok := e.LargeBodyAssessor.(largebody.LargeBodyStaticDispositionProvider); ok {
+		return sdp.LargeBodyStaticDisposition(profileID)
+	}
+	return largebody.StaticWireNeedsRequestAssessment, largebody.StaticWireReasonNone
+}
+
+// LaneDomainPolicy configures late-route domain constraints per frontend lane.
+type LaneDomainPolicy struct {
+	// UniversalOnly requires backend universal model certification (AnyAcceptedModel: true)
+	// and evaluates universal late-route domain proof (e.g. Lane 3 OpenResponses).
+	UniversalOnly bool
+	// CandidateModels lists finite candidate models certified for the lane when not UniversalOnly.
+	CandidateModels []string
+}
+
+// StandardLaneDomainPolicies returns the default domain policies for standard frontend lanes.
+func StandardLaneDomainPolicies() map[string]LaneDomainPolicy {
+	return map[string]LaneDomainPolicy{
+		"openai_responses_v1": {UniversalOnly: false},
+		"openai_chat_v1":      {UniversalOnly: false},
+		"openresponses_v1":    {UniversalOnly: true},
+	}
+}
+
+// ProductionLargeBodyAssessor unifies authority assessment, backend wire proof,
+// and route override/late selector gates into a side-effect-free proof assessor
+// for runtime.Executor (Phase 4, Requirements 5, 6, 7, 8, 9, 13, 14, 15, 19).
+type ProductionLargeBodyAssessor struct {
+	GenerationID              string
+	CandidateDomainGeneration string
+	AuthorityGate             *largebody.AuthorityAssessmentGate
+	WireProofGate             *largebody.BackendWireProofGate
+	LaneDomainPolicies        map[string]LaneDomainPolicy
+}
+
+var _ largebody.LargeBodyAssessor = (*ProductionLargeBodyAssessor)(nil)
+var _ largebody.LargeBodyStaticDispositionProvider = (*ProductionLargeBodyAssessor)(nil)
+
+// NewProductionLargeBodyAssessor constructs a ProductionLargeBodyAssessor.
+func NewProductionLargeBodyAssessor(
+	generationID string,
+	candidateDomainGen string,
+	authGate *largebody.AuthorityAssessmentGate,
+	wireProofGate *largebody.BackendWireProofGate,
+	lanePolicies map[string]LaneDomainPolicy,
+) *ProductionLargeBodyAssessor {
+	return &ProductionLargeBodyAssessor{
+		GenerationID:              generationID,
+		CandidateDomainGeneration: candidateDomainGen,
+		AuthorityGate:             authGate,
+		WireProofGate:             wireProofGate,
+		LaneDomainPolicies:        lanePolicies,
+	}
+}
+
+// AssessLargeBody evaluates frontend proof across authority and wire proof gates.
+// Invariants:
+//   - Streaming-only delivery gate (proof.Delivery == DeliveryModeStreaming; 15.4 carry).
+//   - Universal-vs-finite domain policy per lane.
+//   - Same-permit decline discipline: always returns (declined, nil) on decline, never an error,
+//     so caller continues canonical processing under held decode permit.
+func (a *ProductionLargeBodyAssessor) AssessLargeBody(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
+	if ctx != nil && ctx.Err() != nil {
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonCanceled)
+		return dec, nil
+	}
+	if strings.TrimSpace(proof.ProfileID) == "" {
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonProofUncertain)
+		return dec, nil
+	}
+	if proof.Delivery != lipapi.DeliveryModeStreaming {
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonAuthorityBlocker)
+		return dec, nil
+	}
+	if a == nil || a.AuthorityGate == nil {
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonAuthorityBlocker)
+		return dec, nil
+	}
+
+	authDecision, authReason := a.AuthorityGate.Evaluate()
+	if authDecision == largebody.AssessmentDecisionDecline {
+		dec, _ := largebody.NewDeclinedAssessment(authReason)
+		return dec, nil
+	}
+
+	if a.WireProofGate == nil {
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonAuthorityBlocker)
+		return dec, nil
+	}
+
+	wpGate := a.WireProofGate
+	if a.LaneDomainPolicies != nil {
+		if pol, ok := a.LaneDomainPolicies[proof.ProfileID]; ok && pol.UniversalOnly {
+			if wpGate.OverrideGate != nil && len(wpGate.OverrideGate.CandidateModels) > 0 {
+				cloned := *wpGate
+				ovClone := *wpGate.OverrideGate
+				ovClone.CandidateModels = nil
+				cloned.OverrideGate = &ovClone
+				wpGate = &cloned
+			}
+		}
+	}
+
+	wpDecision, wpReason, wireReq, wireDomain, cands := wpGate.Evaluate(ctx, proof)
+	if wpDecision == largebody.AssessmentDecisionDecline {
+		dec, _ := largebody.NewDeclinedAssessment(wpReason)
+		return dec, nil
+	}
+
+	if pol, ok := a.LaneDomainPolicies[proof.ProfileID]; ok && pol.UniversalOnly {
+		domainFacts := largebody.WireDomainFacts{
+			ProfileID:      proof.ProfileID,
+			Operation:      proof.Operation,
+			Delivery:       proof.Delivery,
+			BodyMode:       proof.Mode,
+			Rewrite:        proof.Rewrite,
+			UniversalModel: true,
+		}
+		for _, cand := range cands {
+			backendID := strings.TrimSpace(cand.Primary.Backend)
+			var wb largebody.WireBackend
+			var ok bool
+			if wpGate.BackendResolver != nil {
+				wb, ok = wpGate.BackendResolver.ResolveWireBackend(backendID)
+			}
+			if !ok || wb == nil {
+				dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonBackendIncompatible)
+				return dec, nil
+			}
+			support := wb.ResolveWireDomain(ctx, domainFacts)
+			if !support.Compatible || !support.AnyAcceptedModel {
+				dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonBackendIncompatible)
+				return dec, nil
+			}
+		}
+		wireDomain = domainFacts
+	}
+
+	cGen := a.CandidateDomainGeneration
+	if cGen == "" {
+		cGen = a.GenerationID
+	}
+	stamp, err := largebody.BindAssessmentStamp(a.GenerationID, proof, cGen)
+	if err != nil {
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonProofUncertain)
+		return dec, nil
+	}
+
+	accepted, err := largebody.NewAcceptedAssessment(stamp, wireReq, wireDomain)
+	if err != nil {
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonProofUncertain)
+		return dec, nil
+	}
+	return accepted, nil
+}
+
+// LargeBodyStaticDisposition returns an O(1) static wire disposition for a profile.
+func (a *ProductionLargeBodyAssessor) LargeBodyStaticDisposition(profileID string) (largebody.StaticWireDisposition, largebody.StaticWireReason) {
+	if a == nil || a.AuthorityGate == nil {
+		return largebody.StaticWireDefinitelyCanonical, largebody.StaticWireReasonStaticBlocker
+	}
+	if a.AuthorityGate.Summary.HasStaticBlocker() {
+		return largebody.StaticWireDefinitelyCanonical, largebody.StaticWireReasonStaticBlocker
+	}
+	if a.WireProofGate == nil || a.WireProofGate.BackendResolver == nil {
+		return largebody.StaticWireDefinitelyCanonical, largebody.StaticWireReasonStaticBlocker
+	}
+	return largebody.StaticWireNeedsRequestAssessment, largebody.StaticWireReasonNone
 }
 
 // ExecuteLargeBody implements largebody.LargeBodyWireExecutor (Requirements 6, 7, 14, 15, 18, 19; Task 13.1).

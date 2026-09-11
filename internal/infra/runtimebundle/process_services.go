@@ -36,21 +36,21 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 			in.PluginStagingDir = ""
 		}
 	}
-	if in.Cfg == nil {
-		releaseProcessInputOwnership(&in, releasePluginOwnership)
-		return nil, fmt.Errorf("runtimebundle: nil config")
-	}
-	if in.Log == nil {
-		releaseProcessInputOwnership(&in, releasePluginOwnership)
-		return nil, fmt.Errorf("runtimebundle: nil logger")
-	}
-	if in.Opts == nil || in.Opts.PluginRegistry == nil {
-		releaseProcessInputOwnership(&in, releasePluginOwnership)
-		return nil, fmt.Errorf("runtimebundle: nil PluginRegistry")
-	}
-	if err := validateRequiredAuthorityEvidenceWiring(in.Cfg); err != nil {
+	reject := func(err error) (*ProcessServices, error) {
 		releaseProcessInputOwnership(&in, releasePluginOwnership)
 		return nil, err
+	}
+	if in.Cfg == nil {
+		return reject(fmt.Errorf("runtimebundle: nil config"))
+	}
+	if in.Log == nil {
+		return reject(fmt.Errorf("runtimebundle: nil logger"))
+	}
+	if in.Opts == nil || in.Opts.PluginRegistry == nil {
+		return reject(fmt.Errorf("runtimebundle: nil PluginRegistry"))
+	}
+	if err := validateRequiredAuthorityEvidenceWiring(in.Cfg); err != nil {
+		return reject(err)
 	}
 
 	parent := ctx
@@ -231,12 +231,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 
 	var hostRegs []sdkfeaturehost.Registration
 	if in.Opts != nil {
-		if len(in.Opts.Production.FeatureHostRegistrations) > 0 {
-			hostRegs = append(hostRegs, in.Opts.Production.FeatureHostRegistrations...)
-		}
-		if len(in.Opts.Testing.FeatureHostRegistrations) > 0 {
-			hostRegs = append(hostRegs, in.Opts.Testing.FeatureHostRegistrations...)
-		}
+		hostRegs = append(append(hostRegs, in.Opts.Production.FeatureHostRegistrations...), in.Opts.Testing.FeatureHostRegistrations...)
 	}
 	var metricsRegistry featurehost.MetricsRegistry // generic Prometheus registry contribution
 	if ps.Metrics != nil && ps.Metrics.Registry != nil {
@@ -273,6 +268,10 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 
 	ps.DecodeAdmission = decodeqos.New(in.Cfg.Server.EffectiveMaxConcurrentDecodes(), in.Cfg.Server.EffectiveMaxInflightDecodeBytes())
 	ps.MeteringQuerier = in.Opts.Production.MeteringQuerier
+
+	if ps.SpoolLedger, err = buildProcessSpoolLedger(in.Cfg, ps.Metrics); err != nil {
+		return fail(err)
+	}
 
 	// One-time prune after all process-owned Open/Claim paths complete. Candidate
 	// compilation must remain read-only with respect to the process pool registry.

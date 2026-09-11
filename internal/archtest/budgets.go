@@ -31,7 +31,9 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// feature merge; measured 360 after extraction, retain 25-line headroom.
 	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 388},
 	{Path: "internal/stdhttp/request_plane.go", Max: 90},
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 317},
+	// Large-payload fast-path Phase 4 wires process-owned SpoolLedger and diagnostics;
+	// measured 316, bump to 341 with 25 headroom.
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 341},
 	{Path: "pkg/lipruntime/build.go", Max: 121},
 	{Path: "pkg/lipruntime/host.go", Max: 93},
 	{Path: "pkg/lipruntime/facade.go", Max: 97},
@@ -83,8 +85,9 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// projection, and opaque admin/metrics CorePorts members; re-measured 3255.
 	// Runtimebundle shrank in the same change (deleted keepwarm_http.go and
 	// secret_guard_runtime.go, emptied ExtensionsOptions), so this is movement
-	// of composition into its owner, not new scope.
-	{Tree: "internal/infra/runtimebundle", Max: 12333},
+	// Large-payload fast-path Phase 4 unifies ProductionLargeBodyAssessor composition,
+	// wire eligibility summary, and spool ledger wiring; measured 12501, bump to 12526 with 25 headroom.
+	{Tree: "internal/infra/runtimebundle", Max: 12526},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
 	{Tree: "internal/stdhttp", Max: 6693},
 	{Tree: "cmd/lipstd", Max: 979},
@@ -167,11 +170,12 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 8.3 configured semantic-fact budget helpers; measured 89580, bump to 89605 with 25 headroom.
 	// Large-payload fast-path Tasks 9-19 wire execution, facts, and accounting integration;
 	// Phase 1 streaming proof core in internal/core/largebody and jsonshape string streaming;
-	// measured 98015, bump to 98040 with 25 headroom.
-	{Dir: "internal/core", Max: 98040},
+	// Phase 4 adds production LargeBodyAssessor in internal/core/runtime;
+	// measured 98366, bump to 98391 with 25 headroom.
+	{Dir: "internal/core", Max: 98391},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
-	{Dir: "internal/infra/runtimebundle", Max: 12333},
+	{Dir: "internal/infra/runtimebundle", Max: 12526},
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},

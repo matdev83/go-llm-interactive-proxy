@@ -90,6 +90,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry",
