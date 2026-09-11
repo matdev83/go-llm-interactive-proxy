@@ -275,7 +275,7 @@ func CaptureCandidateBody[Opts any](
 						ResponseWriter: w,
 					})
 					if cerr != nil {
-						return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeReadError, Err: cerr}, nil, cerr
+						return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeTerminalError, Err: cerr}, nil, cerr
 					}
 					body, berr := drainContinuation(cont)
 					return CandidateCaptureResult{
@@ -316,7 +316,7 @@ func CaptureCandidateBody[Opts any](
 			ResponseWriter: w,
 		})
 		if cerr != nil {
-			return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeReadError, Err: cerr}, nil, cerr
+			return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeTerminalError, Err: cerr}, nil, cerr
 		}
 		body, berr := drainContinuation(cont)
 		return CandidateCaptureResult{Outcome: largebody.CaptureOutcomeDeclined, Continuation: cont, Err: err}, body, berr
@@ -353,8 +353,22 @@ func CaptureCandidateBody[Opts any](
 			Err:       captureRes.Err,
 		}, nil, captureRes.Err
 
+	case largebody.CaptureOutcomeTerminalError:
+		return CandidateCaptureResult{
+			Outcome:   largebody.CaptureOutcomeTerminalError,
+			BytesRead: captureRes.BytesRead,
+			Err:       captureRes.Err,
+		}, nil, captureRes.Err
+
 	case largebody.CaptureOutcomeDeclined:
 		cont := captureRes.Continuation
+		if cont == nil {
+			return CandidateCaptureResult{
+				Outcome:   largebody.CaptureOutcomeTerminalError,
+				BytesRead: captureRes.BytesRead,
+				Err:       captureRes.Err,
+			}, nil, captureRes.Err
+		}
 		body, berr := drainContinuation(cont)
 		return CandidateCaptureResult{
 			Outcome:      largebody.CaptureOutcomeDeclined,
@@ -380,12 +394,11 @@ func CaptureCandidateBody[Opts any](
 			return res, body, berr
 		}
 		threshold := spec.LargePayload.EffectiveThresholdBytes()
-		if compSrc != nil && compSrc.Size() < threshold {
+		if compSrc == nil || compSrc.Size() < threshold {
 			body, berr := readCompletedSource(compSrc)
 			return res, body, berr
 		}
-		body, berr := readCompletedSource(compSrc)
-		return res, body, berr
+		return res, nil, nil
 
 	default:
 		body, berr := reqbody.ReadAll(w, r, maxBytes)

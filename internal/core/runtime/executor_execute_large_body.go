@@ -5,9 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -18,10 +24,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 var (
@@ -105,15 +113,6 @@ func (s *wireLifecycleEventStream) Cancel(ctx context.Context, cause lipapi.Canc
 		return ms.Cancel(ctx, cause)
 	}
 	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
-}
-
-// wireReadyAttempt provides the ready lifecycle handle adapter for wire launch permit commit.
-type wireReadyAttempt struct {
-	stream lipapi.ManagedEventStream
-}
-
-func (r wireReadyAttempt) lifecycleHandle() leglifecycle.BLegAttempt {
-	return r.stream
 }
 
 // AssessLargeBody evaluates frontend proof for candidate fast-path execution (Phase 4).
@@ -712,53 +711,6 @@ func (e *Executor) resolveWireTurnFacts(
 	}
 }
 
-// wirePrependFirstStream yields one buffered event already peeked from the upstream,
-// then delegates to rest for subsequent events (Requirements 10.4, 12.5).
-type wirePrependFirstStream struct {
-	first    lipapi.Event
-	hasFirst bool
-	rest     lipapi.ManagedEventStream
-}
-
-func (s *wirePrependFirstStream) Recv(ctx context.Context) (lipapi.Event, error) {
-	if s.hasFirst {
-		s.hasFirst = false
-		return s.first, nil
-	}
-	if s.rest == nil {
-		return lipapi.Event{}, io.EOF
-	}
-	return s.rest.Recv(ctx)
-}
-
-func (s *wirePrependFirstStream) Close() error {
-	if s.rest == nil {
-		return nil
-	}
-	return s.rest.Close()
-}
-
-func (s *wirePrependFirstStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
-	if s.rest == nil {
-		return lipapi.CancelResult{}
-	}
-	return s.rest.Cancel(ctx, cause)
-}
-
-// peekFirstWireEvent peeks the first event from a managed stream and returns a prepended
-// stream. If the first Recv fails, the stream is closed and the error returned (Requirement 10.4).
-func peekFirstWireEvent(ctx context.Context, es lipapi.ManagedEventStream) (lipapi.ManagedEventStream, lipapi.Event, error) {
-	if es == nil {
-		return nil, lipapi.Event{}, io.EOF
-	}
-	ev, err := es.Recv(ctx)
-	if err != nil {
-		_ = es.Close()
-		return nil, lipapi.Event{}, err
-	}
-	return &wirePrependFirstStream{first: ev, hasFirst: true, rest: es}, ev, nil
-}
-
 // openFreshWireBody opens an independent offset-zero reader over src, applying
 // candidate model splicing only if approved by the assessment rewrite (Requirements 9, 10.1, 10.2).
 func openFreshWireBody(src largebody.Source, accepted largebody.Assessment, candidateModel string) (io.ReadCloser, int64, error) {
@@ -779,6 +731,320 @@ func openFreshWireBody(src largebody.Source, accepted largebody.Assessment, cand
 		return nil, 0, fmt.Errorf("largebody: open source: %w", err)
 	}
 	return rc, src.Size(), nil
+}
+
+// wireAttemptPayload carries wire-mode payload facts through canonical candidate evaluation and attempt transactions.
+type wireAttemptPayload struct {
+	src             largebody.Source
+	accepted        largebody.Assessment
+	turnFacts       largebody.WireTurnFacts
+	requestID       string
+	sessionID       string
+	maxOutputTokens *int
+}
+
+// wireBodyClosingStream ensures the fresh wire body reader is closed whenever the stream terminates.
+type wireBodyClosingStream struct {
+	lipapi.ManagedEventStream
+	closer io.Closer
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func (s *wireBodyClosingStream) Close() error {
+	var closeErr error
+	s.once.Do(func() {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		if s.closer != nil {
+			closeErr = s.closer.Close()
+		}
+	})
+	streamErr := s.ManagedEventStream.Close()
+	if closeErr != nil {
+		return closeErr
+	}
+	return streamErr
+}
+
+func (s *wireBodyClosingStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	s.once.Do(func() {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		if s.closer != nil {
+			_ = s.closer.Close()
+		}
+	})
+	return s.ManagedEventStream.Cancel(ctx, cause)
+}
+
+func (e *Executor) openWireAttemptTx(
+	ctx context.Context,
+	tx *attemptTx,
+	be execbackend.Backend,
+	beOK bool,
+	c routing.AttemptCandidate,
+	cPlan candidatePlan,
+) error {
+	if tx.budget != nil {
+		if !tx.budget.tryAcquire() {
+			return fmt.Errorf("executor: %w", lipapi.ErrMaxRouteAttempts)
+		}
+		tx.budgetAcquired = true
+	}
+
+	if !beOK {
+		err := fmt.Errorf("executor: backend %q not configured", c.Primary.Backend)
+		tx.recordFailure(ctx, lipapi.AttemptSwallowedFailure, err.Error(), err)
+		tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeNeverStarted, err, "")
+		return nil
+	}
+
+	parentCtx := ctx
+	if cPlan.parallel && cPlan.parentCtx != nil {
+		parentCtx = cPlan.parentCtx
+	}
+	legCtx, legCancel := context.WithCancel(parentCtx)
+	openedOK := false
+	defer func() {
+		if !openedOK {
+			legCancel()
+		}
+	}()
+
+	var cancelOpen context.CancelFunc = func() {}
+	ttftDeadline := ttftContextDeadline{}
+	openCtx := legCtx
+	if tx.failures != nil && tx.failures.progress != nil && tx.failures.progress.ttft != nil {
+		openCtx, cancelOpen, ttftDeadline = tx.failures.progress.ttft.scopedContext(legCtx, e.now(), c.Key, c.Primary.TTFTTimeout)
+	}
+	defer cancelOpen()
+
+	var stopWatcher func() bool
+	if ttftDeadline.scope != ttftTimeoutNone {
+		stopWatcher = context.AfterFunc(openCtx, legCancel)
+	}
+
+	var stopArmWatcher func() bool
+	if cPlan.parallel {
+		stopArmWatcher = context.AfterFunc(ctx, legCancel)
+	}
+
+	baseOpenCtx := legCtx
+	if tx.reqFacts.aScope != nil {
+		permitCtx, permit, perr := tx.reqFacts.aScope.BeginBLegLaunch(legCtx, tx.bleg.BLegID)
+		if perr != nil {
+			if stopWatcher != nil {
+				stopWatcher()
+			}
+			if stopArmWatcher != nil {
+				stopArmWatcher()
+			}
+			legCancel()
+			if errors.Is(perr, leglifecycle.ErrALegCanceled) {
+				tx.recordFailure(ctx, lipapi.AttemptCancelled, "a-leg canceled before launch", perr)
+				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, perr, "a-leg canceled before launch")
+				return nil
+			}
+			return perr
+		}
+		tx.launchPermit = permit
+		baseOpenCtx = permitCtx
+	}
+
+	wp := tx.reqFacts.wirePayload
+	openStart := e.now()
+	tx.openStartedAt = openStart
+
+	holder := tx.reqFacts.metering
+	if holder == nil {
+		holder = meteringHolderFrom(ctx)
+	}
+	if holder != nil {
+		_, ingErr := e.CaptureWireBackendIngress(baseOpenCtx, holder, WireBackendIngressArgs{
+			RequestID:       wp.requestID,
+			TraceID:         tx.reqFacts.traceID,
+			AttemptID:       tx.bleg.BLegID,
+			BLegID:          tx.bleg.BLegID,
+			ALegID:          tx.reqFacts.aLegID,
+			SessionID:       wp.sessionID,
+			Scope:           tx.reqFacts.recvViews.Scope,
+			BackendID:       c.Primary.Backend,
+			Model:           c.Primary.Model,
+			MaxOutputTokens: wp.maxOutputTokens,
+			Now:             openStart,
+			SourceDigest:    wp.turnFacts.Source.SourceDigest.Sum(),
+		})
+		if ingErr != nil {
+			tx.abortLaunchPermit()
+			tx.recordFailure(ctx, lipapi.AttemptSurfacedFailure, ingErr.Error(), ingErr)
+			tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeFailed, ingErr, "")
+			return fmt.Errorf("executor: backend ingress checkpoint: %w", ingErr)
+		}
+	}
+
+	bodyReader, contentLength, openErr := openFreshWireBody(wp.src, wp.accepted, c.Primary.Model)
+	if openErr != nil {
+		tx.abortLaunchPermit()
+		tx.recordFailure(ctx, lipapi.AttemptSwallowedFailure, openErr.Error(), openErr)
+		tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeNeverStarted, openErr, "")
+		return nil
+	}
+
+	op := wp.turnFacts.Protocol.Operation
+	if op == "" {
+		op = wp.accepted.WireRequest.Operation
+	}
+	del := wp.turnFacts.Protocol.Delivery
+	if del == "" {
+		del = wp.accepted.WireRequest.Delivery
+	}
+
+	wireReq := largebody.WireOpenRequest{
+		Candidate:     c,
+		Body:          bodyReader,
+		ContentLength: contentLength,
+		WireRequest: largebody.WireRequestFacts{
+			ProfileID:       wp.turnFacts.Route.ProfileID,
+			Operation:       op,
+			Delivery:        del,
+			BodyMode:        wp.turnFacts.Source.BodyMode,
+			Rewrite:         wp.turnFacts.Rewrite.Semantics,
+			ClientModel:     wp.turnFacts.Route.ClientModel,
+			CandidateModel:  c.Primary.Model,
+			MaxOutputTokens: wp.turnFacts.MaxOutput.MaxOutputTokens,
+		},
+		TraceID: tx.reqFacts.traceID,
+		ALegID:  tx.reqFacts.aLegID,
+		BLegID:  tx.bleg.BLegID,
+	}
+
+	openSpanCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(
+		baseOpenCtx, "lip.executor.backend_wire_open",
+		trace.WithAttributes(
+			attribute.String("lip.backend", c.Primary.Backend),
+			attribute.Int("lip.b_leg_seq", int(tx.bleg.Seq)),
+		),
+	)
+	defer openSpan.End()
+
+	tx.openInvoked = true
+	tx.backendAttempted = true
+
+	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
+		return execbackend.EffectiveWireOpen(openSpanCtx, be, wireReq)
+	})
+	openDur := time.Since(openStart).Seconds()
+	if e.Metrics != nil {
+		e.Metrics.OnBackendOpenDuration(c.Primary.Backend, openDur)
+	}
+
+	if err != nil {
+		if stopWatcher != nil {
+			stopWatcher()
+		}
+		if stopArmWatcher != nil {
+			stopArmWatcher()
+		}
+		legCancel()
+		_ = bodyReader.Close()
+		tx.abortLaunchPermit()
+		var pe *safety.PanicError
+		if errors.As(err, &pe) {
+			err = mapBackendPanic(pe, false, c.Key)
+		}
+		isTTFT := (ttftDeadline.scope != ttftTimeoutNone) &&
+			(ttftDeadline.expired(openCtx, err) || (openCtx.Err() == context.DeadlineExceeded && (parentCtx == nil || parentCtx.Err() == nil)))
+		if isTTFT {
+			tf := ttftFailure(ttftDeadline.scope, c.Key)
+			if ttftDeadline.scope == ttftTimeoutLeaf {
+				tx.recordFailure(ctx, lipapi.AttemptSwallowedFailure, ttftAttemptReason(ttftDeadline.scope), tf)
+				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeNeverStarted, nil, "")
+				return nil
+			}
+			tx.recordFailure(ctx, lipapi.AttemptSurfacedFailure, ttftAttemptReason(ttftDeadline.scope), tf)
+			tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindLosing, billing.LegOutcomeNeverStarted, nil, "")
+			return fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, lipapi.ErrTTFTTimeout)
+		}
+		openSpan.RecordError(err)
+		openSpan.SetStatus(codes.Error, "backend open failed")
+		if lipapi.IsRecoverablePreOutput(err) {
+			if cPlan.stickyBinding && c.Primary.Backend == cPlan.stickyBackendID {
+				if cPlan.parallel {
+					if tx.failures != nil {
+						tx.failures.AffinityReset = "recoverable_pre_output_open"
+					}
+				} else {
+					e.clearAffinityBinding(ctx, tx.reqFacts.traceID, tx.routeFacts.affinityKey, tx.routeFacts.affinitySet, "recoverable_pre_output_open")
+				}
+			}
+			tx.recordFailure(ctx, lipapi.AttemptSwallowedFailure, "recoverable pre-output (open)", err)
+			diag.LogDecision(
+				ctx, e.Log, "recoverable_pre_output_swallowed",
+				diag.AttrOpts{CallID: tx.reqFacts.traceID, BLegID: tx.bleg.BLegID},
+				slog.String("candidate_key", c.Key),
+				slog.String("phase", "open"),
+			)
+			tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeNeverStarted, err, "recoverable pre-output (open)")
+			return nil
+		}
+		recordOutcome := lipapi.AttemptSurfacedFailure
+		recordReason := attemptReasonDetail(err)
+		releaseKind := authorityapp.ReleaseKindLosing
+		legOutcome := billing.LegOutcomeNeverStarted
+		if errors.Is(err, context.Canceled) && legCtx.Err() == nil {
+			releaseKind = authorityapp.ReleaseKindAdmissionFailure
+		} else if cPlan.parallel && errors.Is(err, context.Canceled) {
+			parentCanceled := cPlan.parentCtx != nil && cPlan.parentCtx.Err() != nil
+			if !parentCanceled {
+				recordOutcome = lipapi.AttemptCancelled
+				recordReason = "parallel race loser"
+				releaseKind = authorityapp.ReleaseKindAdmissionFailure
+				tx.backendAttempted = false
+				legOutcome = billing.LegOutcomeCanceled
+			}
+		} else if cPlan.parallel {
+			legOutcome = billing.LegOutcomeFailed
+		}
+		tx.recordFailure(ctx, recordOutcome, recordReason, err)
+		tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, releaseKind, legOutcome, nil, "")
+		return fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, err)
+	}
+
+	if stopWatcher != nil {
+		stopWatcher()
+	}
+	if stopArmWatcher != nil {
+		stopArmWatcher()
+	}
+
+	if m := e.secureSessionForAttempt(); m != nil {
+		if tx.reqFacts.secureTurnOK {
+			tr := buildAttemptTrace(tx.reqFacts.secureTurn, tx.reqFacts.aLegID, tx.bleg, c, lipapi.Call{}, openStart)
+			persistCtx := context.WithoutCancel(openSpanCtx)
+			if rerr := m.RecordAttemptOpened(persistCtx, tr); rerr != nil && e.Log != nil {
+				e.Log.DebugContext(persistCtx, "secure_session_attempt_trace_failed", "error", rerr)
+			}
+		}
+	}
+
+	tx.stream = &wireBodyClosingStream{
+		ManagedEventStream: stream,
+		closer:             bodyReader,
+		cancel:             legCancel,
+	}
+	tx.accounting = newAttemptAccountingTracker(openStart)
+	tx.recordAttemptLoggedFn = e.recordAttemptLogged
+
+	if c.MarkedFirst && !cPlan.parallel {
+		if err := e.Store.SetWeightedFirstConsumed(ctx, tx.reqFacts.aLegID, true); err != nil {
+			return fmt.Errorf("executor: set weighted first consumed: %w", err)
+		}
+	}
+	openedOK = true
+	return nil
 }
 
 // wireAttemptInput bundles arguments for executing wire attempts under existing attempt ownership.
@@ -809,10 +1075,58 @@ type wireAttemptOutcome struct {
 	bodyCloser io.Closer
 }
 
-// executeWireAttempts runs the attempt-open and failover loop across expanded groups (Requirements 8, 9, 10, 12, 15).
-func (e *Executor) executeWireAttempts(in wireAttemptInput) (wireAttemptOutcome, error) {
+func (e *Executor) newWireRecoveryController(
+	budget *attemptBudget,
+	ttft *ttftBudget,
+	sessionState *routing.SessionRoutingState,
+	requestSize routing.RequestSizeEstimate,
+	affinityKey affinity.Key,
+	affinityKeyOK bool,
+	excluded map[string]struct{},
+	rng routing.Rng,
+	sel *routing.Selector,
+) *recoveryController {
+	var recIn recoveryControllerInput
+	recIn.e = e
+	recIn.affinityStore = e.AffinityStore
+	recIn.log = e.Log
+	recIn.budget = budget
+	recIn.ttft = ttft
+	recIn.sel = sel
+	recIn.requestSize = requestSize
+	recIn.session = sessionState
+	recIn.excluded = excluded
+	recIn.rng = rng
+	recIn.affinityKey = affinityKey
+	recIn.affinitySet = affinityKeyOK
+	return newRecoveryController(recIn)
+}
+
+func makeWireRequestFacts(wireIn wireAttemptInput, views execctx.Views, pOK bool, st execctx.SecureSessionTurn, stOK bool) requestFacts {
+	var rf requestFacts
+	rf.traceID = wireIn.traceID
+	rf.aLegID = wireIn.aLegID
+	rf.billingCallState = wireIn.billingState
+	rf.recvViews = views
+	rf.recvViewsOK = pOK
+	rf.secureTurn = st
+	rf.secureTurnOK = stOK
+	rf.aScope = wireIn.aScope
+	rf.wirePayload = &wireAttemptPayload{
+		src:             wireIn.src,
+		accepted:        wireIn.accepted,
+		turnFacts:       wireIn.turnFacts,
+		requestID:       wireIn.requestID,
+		sessionID:       wireIn.sessionID,
+		maxOutputTokens: wireIn.maxOutputTokens,
+	}
+	return rf
+}
+
+// executeWireAttempts executes attempts using canonical openNext routing machinery.
+func (e *Executor) executeWireAttempts(wireIn wireAttemptInput) (wireAttemptOutcome, error) {
 	_, sel, err := routing.ComposeInitialCandidates(
-		in.effectiveModel,
+		wireIn.effectiveModel,
 		e.SelectorAliases,
 		e.DefaultBackend,
 		e.BackendExecutionResolver,
@@ -824,7 +1138,7 @@ func (e *Executor) executeWireAttempts(in wireAttemptInput) (wireAttemptOutcome,
 	}
 
 	views := execctx.Views{}
-	p, pOK := execview.PrincipalFromContext(in.outCtx)
+	p, pOK := execview.PrincipalFromContext(wireIn.outCtx)
 	if pOK {
 		views.Principal = p
 	}
@@ -840,424 +1154,73 @@ func (e *Executor) executeWireAttempts(in wireAttemptInput) (wireAttemptOutcome,
 		failures: failures,
 	}
 	ttft := newTTFTBudget(e.now(), sel)
-	sessionState := &routing.SessionRoutingState{FirstRequestConsumed: in.weightedFirstConsumed}
+	sessionState := &routing.SessionRoutingState{FirstRequestConsumed: wireIn.weightedFirstConsumed}
 	excluded := map[string]struct{}{}
 	rng := e.rng()
+	requestSize := routing.RequestSizeEstimate{Available: true, Tokens: wireIn.turnFacts.Source.BodyBytes, Basis: "wire_body_bytes"}
 
-	stickyBackendID, stickyBinding, err := e.lookupAffinityBinding(in.outCtx, in.traceID, sel, affinityKey, affinityKeyOK)
-	if err != nil {
-		return wireAttemptOutcome{}, err
+	progress := e.newWireRecoveryController(budget, ttft, sessionState, requestSize, affinityKey, affinityKeyOK, excluded, rng, sel)
+
+	st, stOK := execctx.SecureSessionTurnFromContext(wireIn.outCtx)
+	rf := makeWireRequestFacts(wireIn, views, pOK, st, stOK)
+
+	route := routeFacts{
+		sel:         sel,
+		requestSize: requestSize,
+		affinityKey: affinityKey,
+		affinitySet: affinityKeyOK,
+		rng:         rng,
 	}
 
 	for {
-		if in.outCtx != nil && in.outCtx.Err() != nil {
-			return wireAttemptOutcome{}, in.outCtx.Err()
+		if wireIn.outCtx != nil && wireIn.outCtx.Err() != nil {
+			return wireAttemptOutcome{}, wireIn.outCtx.Err()
 		}
-		if in.aScope != nil && in.aScope.Err() != nil {
+		if wireIn.aScope != nil && wireIn.aScope.Err() != nil {
 			return wireAttemptOutcome{}, leglifecycle.ErrALegCanceled
 		}
 
-		opts := routing.PlanOptions{
-			Excluded:        excluded,
-			Unhealthy:       e.mergePlannerHealth(),
-			RequestSize:     routing.RequestSizeEstimate{Available: true, Tokens: in.turnFacts.Source.BodyBytes, Basis: "wire_body_bytes"},
-			Session:         sessionState,
-			StickyBackendID: stickyBackendID,
-			Rand:            rng,
-			IsRetryPath:     budget.usedNow() > 0,
-		}
-
-		groups, err := routing.ExpandFailoverGroups(sel, opts)
-		if stickyBinding && stickyBackendID != "" &&
-			(err != nil || len(groups) == 0 || len(groups[0].Candidates) == 0 || groups[0].Candidates[0].Primary.Backend != stickyBackendID) {
-			e.clearAffinityBinding(in.outCtx, in.traceID, affinityKey, affinityKeyOK, "ineligible")
-			stickyBackendID = ""
-			stickyBinding = false
-			opts.StickyBackendID = ""
-			groups, err = routing.ExpandFailoverGroups(sel, opts)
-		}
-
+		openOut, err := e.openNext(wireIn.outCtx, openNextRequest{
+			reqFacts:   rf,
+			routeFacts: route,
+			progress:   progress,
+			mode:       openModeInitial,
+		})
 		if err != nil {
-			if errors.Is(err, routing.ErrNoEligibleCandidate) {
-				if finalErr := failures.FinalError(err); finalErr != err {
-					return wireAttemptOutcome{}, finalErr
-				}
-			}
-			return wireAttemptOutcome{}, fmt.Errorf("executor: expand failover: %w", err)
+			return wireAttemptOutcome{}, err
+		}
+		if openOut.ready == nil {
+			continue
 		}
 
-		var openedThisPass bool
-		var outcome wireAttemptOutcome
-
-		for _, group := range groups {
-			candidates := group.Candidates
-			if len(candidates) == 0 {
-				continue
-			}
-
-			if candidates[0].IsParallel {
-				res, err := e.executeWireParallelRace(in, candidates, budget, failures, excluded, ttft, affinityKey, affinityKeyOK)
-				if err != nil {
-					return wireAttemptOutcome{}, err
-				}
-				if res.opened {
-					outcome = wireAttemptOutcome{
-						stream:     res.stream,
-						cand:       res.cand,
-						bleg:       res.bleg,
-						startedAt:  res.startedAt,
-						cancel:     res.cancel,
-						bodyCloser: res.bodyCloser,
-					}
-					openedThisPass = true
-					break
-				}
-				continue
-			}
-
-			c := candidates[0]
-			if failures != nil {
-				failures.ParallelFailure = nil
-			}
-			if !budget.tryAcquire() {
-				return wireAttemptOutcome{}, fmt.Errorf("executor: %w", lipapi.ErrMaxRouteAttempts)
-			}
-
-			bleg, err := e.Store.NextBLeg(in.outCtx, in.aLegID)
-			if err != nil {
-				budget.release()
-				return wireAttemptOutcome{}, fmt.Errorf("executor: next b-leg: %w", err)
-			}
-			if in.billingState != nil {
-				in.billingState.noteAllocatedBLeg(bleg.BLegID, bleg.Seq)
-			}
-
-			launchCtx, permit, err := in.aScope.BeginBLegLaunch(in.outCtx, bleg.BLegID)
-			if err != nil {
-				budget.release()
-				e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-					ALegID:    in.aLegID,
-					BLeg:      bleg,
-					Cand:      c,
-					Outcome:   lipapi.AttemptSwallowedFailure,
-					Reason:    err.Error(),
-					DetailErr: err,
-				}, diag.AttrOpts{CallID: in.traceID})
-				e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, e.now(), e.now(), billing.LegOutcomeNeverStarted)
-				excluded[c.Key] = struct{}{}
-				continue
-			}
-
-			if m := e.secureSessionForAttempt(); m != nil {
-				if st, ok := execctx.SecureSessionTurnFromContext(in.outCtx); ok {
-					tr := buildAttemptTrace(st, in.aLegID, bleg, c, lipapi.Call{}, e.now())
-					persistCtx := context.WithoutCancel(in.outCtx)
-					if rerr := m.RecordAttemptOpened(persistCtx, tr); rerr != nil && e.Log != nil {
-						e.Log.DebugContext(persistCtx, "secure_session_attempt_trace_failed", "error", rerr)
-					}
-				}
-			}
-
-			legCtx, legCancel := context.WithCancel(launchCtx)
-			openCtx, cancelOpen, ttftDeadline := ttft.scopedContext(legCtx, e.now(), c.Key, c.Primary.TTFTTimeout)
-			var stopWatcher func() bool
-			if ttftDeadline.scope != ttftTimeoutNone {
-				stopWatcher = context.AfterFunc(openCtx, legCancel)
-			}
-
-			attemptStarted := e.now()
-
-			if holder := meteringHolderFrom(in.outCtx); holder != nil {
-				_, ingErr := e.CaptureWireBackendIngress(openCtx, holder, WireBackendIngressArgs{
-					RequestID:       in.requestID,
-					TraceID:         in.traceID,
-					AttemptID:       bleg.BLegID,
-					BLegID:          bleg.BLegID,
-					ALegID:          in.aLegID,
-					SessionID:       in.sessionID,
-					Scope:           scope.PrincipalScopeView{},
-					BackendID:       c.Primary.Backend,
-					Model:           c.Primary.Model,
-					MaxOutputTokens: in.maxOutputTokens,
-					Now:             attemptStarted,
-					SourceDigest:    in.turnFacts.Source.SourceDigest.Sum(),
-				})
-				if ingErr != nil {
-					if stopWatcher != nil {
-						stopWatcher()
-					}
-					cancelOpen()
-					legCancel()
-					permit.Abort()
-					e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-						ALegID:    in.aLegID,
-						BLeg:      bleg,
-						Cand:      c,
-						Outcome:   lipapi.AttemptSurfacedFailure,
-						Reason:    ingErr.Error(),
-						DetailErr: ingErr,
-					}, diag.AttrOpts{CallID: in.traceID})
-					e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeFailed)
-					return wireAttemptOutcome{}, fmt.Errorf("executor: backend ingress checkpoint: %w", ingErr)
-				}
-			}
-
-			bodyReader, contentLength, openErr := openFreshWireBody(in.src, in.accepted, c.Primary.Model)
-			if openErr != nil {
-				if stopWatcher != nil {
-					stopWatcher()
-				}
-				cancelOpen()
-				legCancel()
-				permit.Abort()
-				budget.release()
-				e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-					ALegID:    in.aLegID,
-					BLeg:      bleg,
-					Cand:      c,
-					Outcome:   lipapi.AttemptSwallowedFailure,
-					Reason:    openErr.Error(),
-					DetailErr: openErr,
-				}, diag.AttrOpts{CallID: in.traceID})
-				e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeNeverStarted)
-				excluded[c.Key] = struct{}{}
-				continue
-			}
-
-			wireReq := largebody.WireOpenRequest{
-				Candidate:     c,
-				Body:          bodyReader,
-				ContentLength: contentLength,
-				WireRequest: largebody.WireRequestFacts{
-					ProfileID:       in.turnFacts.Route.ProfileID,
-					Operation:       in.turnFacts.Protocol.Operation,
-					Delivery:        in.turnFacts.Protocol.Delivery,
-					BodyMode:        in.turnFacts.Source.BodyMode,
-					Rewrite:         in.turnFacts.Rewrite.Semantics,
-					ClientModel:     in.turnFacts.Route.ClientModel,
-					CandidateModel:  c.Primary.Model,
-					MaxOutputTokens: in.turnFacts.MaxOutput.MaxOutputTokens,
-				},
-				TraceID: in.traceID,
-				ALegID:  in.aLegID,
-				BLegID:  bleg.BLegID,
-			}
-
-			be, beOK := e.Backends[c.Primary.Backend]
-			if !beOK {
-				if stopWatcher != nil {
-					stopWatcher()
-				}
-				cancelOpen()
-				legCancel()
-				_ = bodyReader.Close()
-				permit.Abort()
-				err := fmt.Errorf("executor: backend %q not configured", c.Primary.Backend)
-				e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-					ALegID:    in.aLegID,
-					BLeg:      bleg,
-					Cand:      c,
-					Outcome:   lipapi.AttemptSwallowedFailure,
-					Reason:    err.Error(),
-					DetailErr: err,
-				}, diag.AttrOpts{CallID: in.traceID})
-				e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeFailed)
-				excluded[c.Key] = struct{}{}
-				continue
-			}
-
-			stream, openErr := execbackend.EffectiveWireOpen(legCtx, be, wireReq)
-			if openErr != nil {
-				if stopWatcher != nil {
-					stopWatcher()
-				}
-				cancelOpen()
-				legCancel()
-				_ = bodyReader.Close()
-				permit.Abort()
-
-				isTTFT := (ttftDeadline.scope != ttftTimeoutNone) && (ttftDeadline.expired(openCtx, openErr) || openCtx.Err() == context.DeadlineExceeded)
-				if isTTFT {
-					tf := ttftFailure(ttftDeadline.scope, c.Key)
-					if ttftDeadline.scope == ttftTimeoutGlobal {
-						e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-							ALegID:    in.aLegID,
-							BLeg:      bleg,
-							Cand:      c,
-							Outcome:   lipapi.AttemptSurfacedFailure,
-							Reason:    ttftAttemptReason(ttftDeadline.scope),
-							DetailErr: tf,
-						}, diag.AttrOpts{CallID: in.traceID})
-						e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeNeverStarted)
-						return wireAttemptOutcome{}, fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, lipapi.ErrTTFTTimeout)
-					}
-					// Leaf timeout
-					e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-						ALegID:    in.aLegID,
-						BLeg:      bleg,
-						Cand:      c,
-						Outcome:   lipapi.AttemptSwallowedFailure,
-						Reason:    ttftAttemptReason(ttftDeadline.scope),
-						DetailErr: tf,
-					}, diag.AttrOpts{CallID: in.traceID})
-					e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeFailed)
-					excluded[c.Key] = struct{}{}
-					continue
-				}
-
-				if !lipapi.IsRecoverablePreOutput(openErr) {
-					e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-						ALegID:    in.aLegID,
-						BLeg:      bleg,
-						Cand:      c,
-						Outcome:   lipapi.AttemptSurfacedFailure,
-						Reason:    attemptReasonDetail(openErr),
-						DetailErr: openErr,
-					}, diag.AttrOpts{CallID: in.traceID})
-					e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeFailed)
-					return wireAttemptOutcome{}, fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, openErr)
-				}
-
-				if stickyBinding {
-					e.clearAffinityBinding(in.outCtx, in.traceID, affinityKey, affinityKeyOK, "recoverable_pre_output_open")
-					stickyBackendID = ""
-					stickyBinding = false
-				}
-				e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-					ALegID:    in.aLegID,
-					BLeg:      bleg,
-					Cand:      c,
-					Outcome:   lipapi.AttemptSwallowedFailure,
-					Reason:    attemptReasonDetail(openErr),
-					DetailErr: openErr,
-				}, diag.AttrOpts{CallID: in.traceID})
-				e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeFailed)
-				excluded[c.Key] = struct{}{}
-				continue
-			}
-
-			peekedStream, _, peekErr := peekFirstWireEvent(openCtx, stream)
-			if peekErr != nil {
-				if stopWatcher != nil {
-					stopWatcher()
-				}
-				cancelOpen()
-				legCancel()
-				_ = bodyReader.Close()
-				permit.Abort()
-
-				isTTFT := (ttftDeadline.scope != ttftTimeoutNone) && (ttftDeadline.expired(openCtx, peekErr) || openCtx.Err() == context.DeadlineExceeded)
-				if isTTFT {
-					tf := ttftFailure(ttftDeadline.scope, c.Key)
-					if ttftDeadline.scope == ttftTimeoutGlobal {
-						e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-							ALegID:    in.aLegID,
-							BLeg:      bleg,
-							Cand:      c,
-							Outcome:   lipapi.AttemptSurfacedFailure,
-							Reason:    ttftAttemptReason(ttftDeadline.scope),
-							DetailErr: tf,
-						}, diag.AttrOpts{CallID: in.traceID})
-						e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeNeverStarted)
-						return wireAttemptOutcome{}, fmt.Errorf("executor: backend peek %q: %w", c.Primary.Backend, lipapi.ErrTTFTTimeout)
-					}
-					e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-						ALegID:    in.aLegID,
-						BLeg:      bleg,
-						Cand:      c,
-						Outcome:   lipapi.AttemptSwallowedFailure,
-						Reason:    ttftAttemptReason(ttftDeadline.scope),
-						DetailErr: tf,
-					}, diag.AttrOpts{CallID: in.traceID})
-					e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeFailed)
-					excluded[c.Key] = struct{}{}
-					continue
-				}
-
-				if !lipapi.IsRecoverablePreOutput(peekErr) {
-					e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-						ALegID:    in.aLegID,
-						BLeg:      bleg,
-						Cand:      c,
-						Outcome:   lipapi.AttemptSurfacedFailure,
-						Reason:    attemptReasonDetail(peekErr),
-						DetailErr: peekErr,
-					}, diag.AttrOpts{CallID: in.traceID})
-					e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeFailed)
-					return wireAttemptOutcome{}, fmt.Errorf("executor: backend peek %q: %w", c.Primary.Backend, peekErr)
-				}
-
-				if stickyBinding {
-					e.clearAffinityBinding(in.outCtx, in.traceID, affinityKey, affinityKeyOK, "recoverable_pre_output_open")
-					stickyBackendID = ""
-					stickyBinding = false
-				}
-				e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-					ALegID:    in.aLegID,
-					BLeg:      bleg,
-					Cand:      c,
-					Outcome:   lipapi.AttemptSwallowedFailure,
-					Reason:    attemptReasonDetail(peekErr),
-					DetailErr: peekErr,
-				}, diag.AttrOpts{CallID: in.traceID})
-				e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, c.Primary, attemptStarted, e.now(), billing.LegOutcomeFailed)
-				excluded[c.Key] = struct{}{}
-				continue
-			}
-
-			if stopWatcher != nil {
-				stopWatcher()
-			}
-			cancelOpen()
-
-			ready := wireReadyAttempt{stream: peekedStream}
-			commitRes, commitErr := permit.Commit(ready.lifecycleHandle())
-			if commitRes.Canceled || errors.Is(commitErr, leglifecycle.ErrALegCanceled) {
-				_ = peekedStream.Close()
-				legCancel()
-				permit.Abort()
-				return wireAttemptOutcome{}, leglifecycle.ErrALegCanceled
-			}
-			if commitErr != nil {
-				_ = peekedStream.Close()
-				legCancel()
-				return wireAttemptOutcome{}, commitErr
-			}
-
-			ttft.markCommitted()
-
-			e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-				ALegID:  in.aLegID,
-				BLeg:    bleg,
-				Cand:    c,
-				Outcome: lipapi.AttemptSuccess,
-			}, diag.AttrOpts{CallID: in.traceID})
-
-			if affinityKeyOK && affinityKey.Valid() && e.AffinityStore != nil {
-				binding := affinity.BindingFromCandidate(affinityKey, c, e.now(), "output_committed")
-				_ = e.AffinityStore.Set(context.WithoutCancel(in.outCtx), binding)
-				e.noteRouteDecision(context.WithoutCancel(in.outCtx), in.traceID, "affinity_bind", binding.BackendID)
-			}
-
-			if c.MarkedFirst && !c.IsParallel {
-				_ = e.Store.SetWeightedFirstConsumed(in.outCtx, in.aLegID, true)
-			}
-
-			outcome = wireAttemptOutcome{
-				stream:     peekedStream,
-				cand:       c,
-				bleg:       bleg,
-				startedAt:  attemptStarted,
-				cancel:     legCancel,
-				bodyCloser: bodyReader,
-			}
-			openedThisPass = true
-			break
+		cand := openOut.ready.Candidate()
+		bleg := openOut.ready.BLeg()
+		stream, startedAt, err := openOut.ready.WireTakeStream()
+		if err != nil {
+			return wireAttemptOutcome{}, err
 		}
 
-		if openedThisPass {
-			return outcome, nil
+		progress.ttft.markCommitted()
+
+		e.recordAttemptLogged(wireIn.outCtx, recordAttemptParams{
+			ALegID:  wireIn.aLegID,
+			BLeg:    bleg,
+			Cand:    cand,
+			Outcome: lipapi.AttemptSuccess,
+		}, diag.AttrOpts{CallID: wireIn.traceID})
+
+		if affinityKeyOK && affinityKey.Valid() && e.AffinityStore != nil {
+			binding := affinity.BindingFromCandidate(affinityKey, cand, e.now(), "output_committed")
+			_ = e.AffinityStore.Set(context.WithoutCancel(wireIn.outCtx), binding)
+			e.noteRouteDecision(context.WithoutCancel(wireIn.outCtx), wireIn.traceID, "affinity_bind", binding.BackendID)
 		}
+
+		return wireAttemptOutcome{
+			stream:    stream,
+			cand:      cand,
+			bleg:      bleg,
+			startedAt: startedAt,
+		}, nil
 	}
 }
 
@@ -1271,20 +1234,9 @@ type wireParallelRaceResult struct {
 	bodyCloser io.Closer
 }
 
-type wireParallelLeg struct {
-	cand       routing.AttemptCandidate
-	bleg       b2bua.BLegRecord
-	permit     *leglifecycle.LaunchPermit
-	launchCtx  context.Context
-	cancel     context.CancelFunc
-	bodyReader io.ReadCloser
-	contentLen int64
-	startedAt  time.Time
-}
-
-// executeWireParallelRace executes a parallel race across candidates with independent offset-zero readers (Requirement 10.3).
+// executeWireParallelRace executes a parallel race across candidates by delegating to the canonical tryOpenParallelGroup.
 func (e *Executor) executeWireParallelRace(
-	in wireAttemptInput,
+	wireIn wireAttemptInput,
 	candidates []routing.AttemptCandidate,
 	budget *attemptBudget,
 	failures *candidateFailureHistory,
@@ -1293,303 +1245,76 @@ func (e *Executor) executeWireParallelRace(
 	affinityKey affinity.Key,
 	affinityKeyOK bool,
 ) (wireParallelRaceResult, error) {
-	var launched []wireParallelLeg
-
-	for _, cand := range candidates {
-		if _, isExcluded := excluded[cand.Key]; isExcluded {
-			continue
-		}
-		if !budget.tryAcquire() {
-			break
-		}
-
-		bleg, err := e.Store.NextBLeg(in.outCtx, in.aLegID)
-		if err != nil {
-			budget.release()
-			break
-		}
-		if in.billingState != nil {
-			in.billingState.noteAllocatedBLeg(bleg.BLegID, bleg.Seq)
-		}
-
-		launchCtx, permit, err := in.aScope.BeginBLegLaunch(in.outCtx, bleg.BLegID)
-		if err != nil {
-			budget.release()
-			e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-				ALegID:    in.aLegID,
-				BLeg:      bleg,
-				Cand:      cand,
-				Outcome:   lipapi.AttemptSwallowedFailure,
-				Reason:    err.Error(),
-				DetailErr: err,
-			}, diag.AttrOpts{CallID: in.traceID})
-			e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, cand.Primary, e.now(), e.now(), billing.LegOutcomeNeverStarted)
-			excluded[cand.Key] = struct{}{}
-			continue
-		}
-
-		if m := e.secureSessionForAttempt(); m != nil {
-			if st, ok := execctx.SecureSessionTurnFromContext(in.outCtx); ok {
-				tr := buildAttemptTrace(st, in.aLegID, bleg, cand, lipapi.Call{}, e.now())
-				persistCtx := context.WithoutCancel(in.outCtx)
-				if rerr := m.RecordAttemptOpened(persistCtx, tr); rerr != nil && e.Log != nil {
-					e.Log.DebugContext(persistCtx, "secure_session_attempt_trace_failed", "error", rerr)
-				}
-			}
-		}
-
-		bodyReader, contentLen, openErr := openFreshWireBody(in.src, in.accepted, cand.Primary.Model)
-		if openErr != nil {
-			permit.Abort()
-			budget.release()
-			e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-				ALegID:    in.aLegID,
-				BLeg:      bleg,
-				Cand:      cand,
-				Outcome:   lipapi.AttemptSwallowedFailure,
-				Reason:    openErr.Error(),
-				DetailErr: openErr,
-			}, diag.AttrOpts{CallID: in.traceID})
-			e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, bleg, cand.Primary, e.now(), e.now(), billing.LegOutcomeNeverStarted)
-			excluded[cand.Key] = struct{}{}
-			continue
-		}
-
-		legCtx, legCancel := context.WithCancel(launchCtx)
-
-		launched = append(launched, wireParallelLeg{
-			cand:       cand,
-			bleg:       bleg,
-			permit:     permit,
-			launchCtx:  legCtx,
-			cancel:     legCancel,
-			bodyReader: bodyReader,
-			contentLen: contentLen,
-			startedAt:  e.now(),
-		})
+	views := execctx.Views{}
+	p, pOK := execview.PrincipalFromContext(wireIn.outCtx)
+	if pOK {
+		views.Principal = p
 	}
 
-	if len(launched) == 0 {
-		if budget.usedNow() >= budget.max {
-			return wireParallelRaceResult{}, fmt.Errorf("executor: %w", lipapi.ErrMaxRouteAttempts)
-		}
+	if budget != nil && budget.failures == nil && failures != nil {
+		budget.failures = failures
+	}
+
+	sessionState := &routing.SessionRoutingState{FirstRequestConsumed: wireIn.weightedFirstConsumed}
+	rng := e.rng()
+	requestSize := routing.RequestSizeEstimate{Available: true, Tokens: wireIn.turnFacts.Source.BodyBytes, Basis: "wire_body_bytes"}
+
+	progress := e.newWireRecoveryController(budget, ttft, sessionState, requestSize, affinityKey, affinityKeyOK, excluded, rng, nil)
+
+	st, stOK := execctx.SecureSessionTurnFromContext(wireIn.outCtx)
+	rf := makeWireRequestFacts(wireIn, views, pOK, st, stOK)
+
+	route := routeFacts{
+		requestSize: requestSize,
+		affinityKey: affinityKey,
+		affinitySet: affinityKeyOK,
+		rng:         rng,
+	}
+
+	req := openNextRequest{
+		reqFacts:   rf,
+		routeFacts: route,
+		progress:   progress,
+		mode:       openModeInitial,
+	}
+
+	openOut, err := e.tryOpenParallelGroup(wireIn.outCtx, req, candidates, nil, "", false)
+	if err != nil {
+		return wireParallelRaceResult{}, err
+	}
+	if openOut.ready == nil {
 		return wireParallelRaceResult{opened: false}, nil
 	}
 
-	type outcomeMsg struct {
-		idx    int
-		stream lipapi.ManagedEventStream
-		err    error
+	cand := openOut.ready.Candidate()
+	bleg := openOut.ready.BLeg()
+	stream, startedAt, err := openOut.ready.WireTakeStream()
+	if err != nil {
+		return wireParallelRaceResult{}, err
 	}
 
-	ch := make(chan outcomeMsg, len(launched))
-	var wg sync.WaitGroup
-
-	for i := range launched {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			leg := launched[idx]
-
-			be, beOK := e.Backends[leg.cand.Primary.Backend]
-			if !beOK {
-				_ = leg.bodyReader.Close()
-				leg.cancel()
-				ch <- outcomeMsg{idx: idx, err: fmt.Errorf("backend %q not configured", leg.cand.Primary.Backend)}
-				return
-			}
-
-			// Apply TTFT scoped context to worker
-			openCtx, cancelOpen, ttftDeadline := ttft.scopedContext(leg.launchCtx, e.now(), leg.cand.Key, leg.cand.Primary.TTFTTimeout)
-			var stopWatcher func() bool
-			if ttftDeadline.scope != ttftTimeoutNone {
-				stopWatcher = context.AfterFunc(openCtx, leg.cancel)
-			}
-			defer cancelOpen()
-
-			// BE-ingress checkpoint (Finding 3 & Suggestion 5)
-			if holder := meteringHolderFrom(in.outCtx); holder != nil {
-				_, ingErr := e.CaptureWireBackendIngress(openCtx, holder, WireBackendIngressArgs{
-					RequestID:       in.requestID,
-					TraceID:         in.traceID,
-					AttemptID:       leg.bleg.BLegID,
-					BLegID:          leg.bleg.BLegID,
-					ALegID:          in.aLegID,
-					SessionID:       in.sessionID,
-					Scope:           scope.PrincipalScopeView{},
-					BackendID:       leg.cand.Primary.Backend,
-					Model:           leg.cand.Primary.Model,
-					MaxOutputTokens: in.maxOutputTokens,
-					Now:             leg.startedAt,
-					SourceDigest:    in.turnFacts.Source.SourceDigest.Sum(),
-				})
-				if ingErr != nil {
-					if stopWatcher != nil {
-						stopWatcher()
-					}
-					_ = leg.bodyReader.Close()
-					leg.cancel()
-					ch <- outcomeMsg{idx: idx, err: ingErr}
-					return
-				}
-			}
-
-			wireReq := largebody.WireOpenRequest{
-				Candidate:     leg.cand,
-				Body:          leg.bodyReader,
-				ContentLength: leg.contentLen,
-				WireRequest: largebody.WireRequestFacts{
-					ProfileID:       in.turnFacts.Route.ProfileID,
-					Operation:       in.turnFacts.Protocol.Operation,
-					Delivery:        in.turnFacts.Protocol.Delivery,
-					BodyMode:        in.turnFacts.Source.BodyMode,
-					Rewrite:         in.turnFacts.Rewrite.Semantics,
-					ClientModel:     in.turnFacts.Route.ClientModel,
-					CandidateModel:  leg.cand.Primary.Model,
-					MaxOutputTokens: in.turnFacts.MaxOutput.MaxOutputTokens,
-				},
-				TraceID: in.traceID,
-				ALegID:  in.aLegID,
-				BLegID:  leg.bleg.BLegID,
-			}
-
-			stream, err := execbackend.EffectiveWireOpen(leg.launchCtx, be, wireReq)
-			if err != nil {
-				if stopWatcher != nil {
-					stopWatcher()
-				}
-				_ = leg.bodyReader.Close()
-				leg.cancel()
-				ch <- outcomeMsg{idx: idx, err: err}
-				return
-			}
-
-			peeked, _, err := peekFirstWireEvent(openCtx, stream)
-			if err != nil {
-				if stopWatcher != nil {
-					stopWatcher()
-				}
-				_ = leg.bodyReader.Close()
-				leg.cancel()
-				ch <- outcomeMsg{idx: idx, err: err}
-				return
-			}
-
-			if stopWatcher != nil {
-				stopWatcher()
-			}
-			// Winner candidate reached first event - do NOT cancel leg.launchCtx!
-			ch <- outcomeMsg{idx: idx, stream: peeked}
-		}(i)
+	if ttft != nil {
+		ttft.markCommitted()
 	}
 
-	// Close ch when all goroutines finish
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	var winner *outcomeMsg
-	var loserStreams []lipapi.ManagedEventStream
-	var firstArmErr error
-
-	for res := range ch {
-		if winner == nil && res.err == nil && res.stream != nil {
-			// Winner found!
-			w := res
-			winner = &w
-			// Cancel other legs promptly
-			for j, l := range launched {
-				if j != res.idx {
-					l.cancel()
-				}
-			}
-		} else {
-			// Loser or error
-			if res.stream != nil {
-				loserStreams = append(loserStreams, res.stream)
-			}
-			leg := launched[res.idx]
-			if leg.bodyReader != nil {
-				_ = leg.bodyReader.Close()
-			}
-			leg.permit.Abort()
-			leg.cancel() // Cancel loser
-			reason := "lost parallel race"
-			outcomeKind := lipapi.AttemptCancelled
-			terminalOutcome := billing.LegOutcomeCanceled
-			var detailErr error
-			isLoserCancellation := winner != nil && errors.Is(res.err, context.Canceled) && (in.outCtx == nil || in.outCtx.Err() == nil)
-			if res.err != nil && !isLoserCancellation {
-				if firstArmErr == nil {
-					firstArmErr = res.err
-				}
-				reason = attemptReasonDetail(res.err)
-				outcomeKind = lipapi.AttemptSwallowedFailure
-				terminalOutcome = billing.LegOutcomeFailed
-				detailErr = res.err
-				excluded[leg.cand.Key] = struct{}{}
-			}
-			e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-				ALegID:    in.aLegID,
-				BLeg:      leg.bleg,
-				Cand:      leg.cand,
-				Outcome:   outcomeKind,
-				Reason:    reason,
-				DetailErr: detailErr,
-			}, diag.AttrOpts{CallID: in.traceID})
-			e.appendIndependentTerminalLeg(in.outCtx, in.billingState, in.aLegID, leg.bleg, leg.cand.Primary, leg.startedAt, e.now(), terminalOutcome)
-		}
-	}
-
-	for _, s := range loserStreams {
-		_ = s.Close()
-	}
-
-	if winner == nil {
-		if failures != nil && failures.ParallelFailure == nil && firstArmErr != nil {
-			failures.ParallelFailure = fmt.Errorf("executor: parallel race arm failed: %w", firstArmErr)
-		}
-		return wireParallelRaceResult{opened: false}, nil
-	}
-
-	winnerLeg := launched[winner.idx]
-	ready := wireReadyAttempt{stream: winner.stream}
-	commitRes, commitErr := winnerLeg.permit.Commit(ready.lifecycleHandle())
-	if commitRes.Canceled || errors.Is(commitErr, leglifecycle.ErrALegCanceled) {
-		_ = winner.stream.Close()
-		winnerLeg.cancel()
-		winnerLeg.permit.Abort()
-		return wireParallelRaceResult{}, leglifecycle.ErrALegCanceled
-	}
-	if commitErr != nil {
-		_ = winner.stream.Close()
-		winnerLeg.cancel()
-		return wireParallelRaceResult{}, commitErr
-	}
-
-	ttft.markCommitted()
-
-	e.recordAttemptLogged(in.outCtx, recordAttemptParams{
-		ALegID:  in.aLegID,
-		BLeg:    winnerLeg.bleg,
-		Cand:    winnerLeg.cand,
+	e.recordAttemptLogged(wireIn.outCtx, recordAttemptParams{
+		ALegID:  wireIn.aLegID,
+		BLeg:    bleg,
+		Cand:    cand,
 		Outcome: lipapi.AttemptSuccess,
-	}, diag.AttrOpts{CallID: in.traceID})
+	}, diag.AttrOpts{CallID: wireIn.traceID})
 
 	if affinityKeyOK && affinityKey.Valid() && e.AffinityStore != nil {
-		binding := affinity.BindingFromCandidate(affinityKey, winnerLeg.cand, e.now(), "output_committed")
-		_ = e.AffinityStore.Set(context.WithoutCancel(in.outCtx), binding)
-		e.noteRouteDecision(context.WithoutCancel(in.outCtx), in.traceID, "affinity_bind", binding.BackendID)
+		binding := affinity.BindingFromCandidate(affinityKey, cand, e.now(), "output_committed")
+		_ = e.AffinityStore.Set(context.WithoutCancel(wireIn.outCtx), binding)
+		e.noteRouteDecision(context.WithoutCancel(wireIn.outCtx), wireIn.traceID, "affinity_bind", binding.BackendID)
 	}
 
 	return wireParallelRaceResult{
-		opened:     true,
-		stream:     winner.stream,
-		cand:       winnerLeg.cand,
-		bleg:       winnerLeg.bleg,
-		startedAt:  winnerLeg.startedAt,
-		cancel:     winnerLeg.cancel,
-		bodyCloser: winnerLeg.bodyReader,
+		opened:    true,
+		stream:    stream,
+		cand:      cand,
+		bleg:      bleg,
+		startedAt: startedAt,
 	}, nil
 }

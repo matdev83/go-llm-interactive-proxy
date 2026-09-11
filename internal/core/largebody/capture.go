@@ -325,6 +325,10 @@ const (
 	// CaptureOutcomeReadError indicates reading from the client socket failed
 	// with a non-recoverable error (e.g. client cancellation or disconnect).
 	CaptureOutcomeReadError
+
+	// CaptureOutcomeTerminalError indicates capture could not continue or fall back
+	// due to an unrecoverable failure (such as failure to construct the lossless continuation reader).
+	CaptureOutcomeTerminalError
 )
 
 // String returns a bounded diagnostic representation.
@@ -338,6 +342,8 @@ func (o CaptureOutcome) String() string {
 		return "limit_exceeded"
 	case CaptureOutcomeReadError:
 		return "read_error"
+	case CaptureOutcomeTerminalError:
+		return "terminal_error"
 	default:
 		return "unknown"
 	}
@@ -360,6 +366,9 @@ type CaptureResult struct {
 //   - If a recoverable decline occurs (reservation exhausted, spill failure, etc.),
 //     it constructs and returns a lossless CaptureReader (canonical continuation)
 //     composing retained prefix + unwritten suffix + remaining client body.
+//     Declined ⇒ non-nil continuation is enforced by construction. If continuation
+//     reader construction fails, it returns CaptureOutcomeTerminalError instead of
+//     CaptureOutcomeDeclined, releasing all resources.
 //   - If body exceeds maxBytes, it returns CaptureOutcomeLimitExceeded with *http.MaxBytesError.
 //   - If reading from body fails, it returns CaptureOutcomeReadError with the read error.
 //   - Consumes any unwritten suffix from spillBuffer before retrying new writes
@@ -377,10 +386,16 @@ func CaptureRequestBody(body io.ReadCloser, spill *SpillBuffer, cfg CaptureConfi
 			MaxBytes:       cfg.MaxBytes,
 			ResponseWriter: cfg.ResponseWriter,
 		})
+		if err != nil {
+			_ = body.Close()
+			return CaptureResult{
+				Outcome: CaptureOutcomeTerminalError,
+				Err:     err,
+			}
+		}
 		return CaptureResult{
 			Outcome:      CaptureOutcomeDeclined,
 			Continuation: cont,
-			Err:          err,
 		}
 	}
 
@@ -409,13 +424,22 @@ func CaptureRequestBody(body io.ReadCloser, spill *SpillBuffer, cfg CaptureConfi
 			nw, wErr := spill.Write(suffix)
 			if wErr != nil {
 				unwritten := spill.TakeUnwrittenSuffix()
-				cont, _ := NewCaptureReader(CaptureReaderConfig{
+				cont, cErr := NewCaptureReader(CaptureReaderConfig{
 					Spill:           spill,
 					UnwrittenSuffix: unwritten,
 					Remaining:       body,
 					MaxBytes:        cfg.MaxBytes,
 					ResponseWriter:  cfg.ResponseWriter,
 				})
+				if cErr != nil {
+					_ = body.Close()
+					_ = spill.Close()
+					return CaptureResult{
+						Outcome:   CaptureOutcomeTerminalError,
+						BytesRead: totalRead,
+						Err:       errors.Join(wErr, cErr),
+					}
+				}
 				return CaptureResult{
 					Outcome:      CaptureOutcomeDeclined,
 					Continuation: cont,
@@ -448,13 +472,22 @@ func CaptureRequestBody(body io.ReadCloser, spill *SpillBuffer, cfg CaptureConfi
 			if cfg.OnChunk != nil {
 				if err := cfg.OnChunk(chunk); err != nil {
 					// Callback declined capture: chunk is unwritten suffix
-					cont, _ := NewCaptureReader(CaptureReaderConfig{
+					cont, cErr := NewCaptureReader(CaptureReaderConfig{
 						Spill:           spill,
 						UnwrittenSuffix: chunk,
 						Remaining:       body,
 						MaxBytes:        cfg.MaxBytes,
 						ResponseWriter:  cfg.ResponseWriter,
 					})
+					if cErr != nil {
+						_ = body.Close()
+						_ = spill.Close()
+						return CaptureResult{
+							Outcome:   CaptureOutcomeTerminalError,
+							BytesRead: totalRead,
+							Err:       errors.Join(err, cErr),
+						}
+					}
 					return CaptureResult{
 						Outcome:      CaptureOutcomeDeclined,
 						Continuation: cont,
@@ -469,13 +502,22 @@ func CaptureRequestBody(body io.ReadCloser, spill *SpillBuffer, cfg CaptureConfi
 			if wErr != nil {
 				// Recoverable write failure: unwritten portion is in spill.UnwrittenSuffix()
 				unwritten := spill.TakeUnwrittenSuffix()
-				cont, _ := NewCaptureReader(CaptureReaderConfig{
+				cont, cErr := NewCaptureReader(CaptureReaderConfig{
 					Spill:           spill,
 					UnwrittenSuffix: unwritten,
 					Remaining:       body,
 					MaxBytes:        cfg.MaxBytes,
 					ResponseWriter:  cfg.ResponseWriter,
 				})
+				if cErr != nil {
+					_ = body.Close()
+					_ = spill.Close()
+					return CaptureResult{
+						Outcome:   CaptureOutcomeTerminalError,
+						BytesRead: totalRead,
+						Err:       errors.Join(wErr, cErr),
+					}
+				}
 				return CaptureResult{
 					Outcome:      CaptureOutcomeDeclined,
 					Continuation: cont,

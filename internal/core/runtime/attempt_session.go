@@ -846,6 +846,38 @@ func (r *readyAttempt) Consume() (*attemptSession, error) {
 	return sess, nil
 }
 
+// WireTakeStream extracts the opened attempt's stream and accounting start time
+// for wire execution, marking the ready capability consumed without requiring
+// response pipeline preparation.
+func (r *readyAttempt) WireTakeStream() (lipapi.ManagedEventStream, time.Time, error) {
+	if r == nil {
+		return nil, time.Time{}, errors.New("runtime: nil readyAttempt")
+	}
+	r.mu.Lock()
+	cond := r.getCond()
+	for r.opInFlight {
+		cond.Wait()
+	}
+	if r.state == readyStateConsumed || r.state == readyStateDisposed || r.pendingInvalidation != nil {
+		r.mu.Unlock()
+		return nil, time.Time{}, errors.New("runtime: readyAttempt already consumed or disposed")
+	}
+	sess := r.session
+	if sess == nil {
+		r.mu.Unlock()
+		return nil, time.Time{}, errors.New("runtime: nil session for readyAttempt")
+	}
+	stream := sess.takeInner()
+	startedAt := sess.accountingStartedAt()
+	r.state = readyStateConsumed
+	r.session = nil
+	r.pending = pendingSelectionEffects{}
+	sess.streamDisposed = true
+	cond.Broadcast()
+	r.mu.Unlock()
+	return stream, startedAt, nil
+}
+
 func (r *readyAttempt) markStreamDisposed() {
 	if r == nil {
 		return
