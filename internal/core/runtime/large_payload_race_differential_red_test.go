@@ -127,7 +127,7 @@ func (s *faultStore) SetWeightedFirstConsumed(ctx context.Context, aLegID string
 // it emits non-empty EventTextDelta or EventReasoningDelta. Leading metadata events (MessageStarted)
 // are pre-buffered and do NOT decide the race.
 //
-// Current wire defect:
+// Original wire defect (regression guard):
 // executor_execute_large_body.go:1467 calls peekFirstWireEvent and lines 1496-1506 pick the FIRST
 // arm to emit ANY event (even MessageStarted) as the winner.
 //
@@ -189,7 +189,7 @@ func TestFindingB2a_RaceWinnerRequiresTextOrReasoningDeltaNotMessageStarted(t *t
 // Canonical parallel race (parallel_race.go:185-192, 258-273) sorts arms by handicap and enforces
 // delay timers (delay = maxHandicap - cand.Handicap).
 //
-// Current wire defect:
+// Original wire defect (regression guard):
 // executeWireParallelRace (executor_execute_large_body.go:1286-1370) completely ignores cand.Handicap,
 // launching all candidates simultaneously with zero delay.
 //
@@ -242,7 +242,7 @@ func TestFindingB2b_ParallelRaceHonorsHandicapDelays(t *testing.T) {
 // to decisionCh and detaches loser cleanup asynchronously. The caller gets the winner without waiting
 // for unresponsive losers.
 //
-// Current wire defect:
+// Original wire defect (regression guard):
 // executor_execute_large_body.go:1486-1496 does `wg.Wait(); close(ch)` and loops `for res := range ch`.
 // When a loser hangs and ignores context cancellation, wg.Wait() blocks forever, holding the winner
 // hostage to the hanging loser.
@@ -292,9 +292,10 @@ func TestFindingB2c_WinnerNotHostageToLoserCancellation(t *testing.T) {
 	select {
 	case <-done:
 		require.NoError(t, execErr)
+		close(loserBlock)
 		_ = res.Stream.Close()
 	case <-time.After(300 * time.Millisecond):
-		t.Fatal("ExecuteLargeBody timed out: winner is held hostage to hanging loser (wg.Wait() blocks until losers exit in executeWireParallelRace)")
+		t.Fatal("ExecuteLargeBody timed out: winner is held hostage to hanging loser (loser cleanup not detached from winner return)")
 	}
 }
 
@@ -302,7 +303,7 @@ func TestFindingB2c_WinnerNotHostageToLoserCancellation(t *testing.T) {
 // Canonical parallel race (parallel_race.go:329-337, 454-470) wraps arm execution in `recover()`
 // and captures the panic with safety.Capture, isolating it so other arms survive and the process stays alive.
 //
-// Current wire defect:
+// Original wire defect (regression guard):
 // executor_execute_large_body.go:1390-1483 launches bare `go func(idx int)` around OpenWire and Recv
 // with NO panic recovery. A backend panic in any parallel arm crashes the entire process.
 func TestFindingB2d_BackendPanicInParallelArmIsolated(t *testing.T) {
@@ -352,7 +353,7 @@ func runPanicIsolationHelper(t *testing.T) {
 // When a route candidate has [first] / MarkedFirst, winning the attempt must authoritative commit
 // SetWeightedFirstConsumed(ctx, aLegID, true).
 //
-// Current wire defect:
+// Original wire defect (regression guard):
 // 1. executor_execute_large_body.go:1242 only calls SetWeightedFirstConsumed if `!c.IsParallel`.
 // 2. executeWireParallelRace NEVER calls SetWeightedFirstConsumed on the parallel race winner.
 // As a result, subsequent turns on the same session see WeightedFirstConsumed=false and route
@@ -374,10 +375,10 @@ func TestFindingH3_WeightedFirstTwoTurnSequentialAndParallel(t *testing.T) {
 			},
 			"alt_be": {
 				OpenWire: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
-					return makeStreamWithEvents(
-						lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "alt-response"},
-						lipapi.Event{Kind: lipapi.EventResponseFinished},
-					), nil
+					return makeDelayedManagedStream(ctx, []scheduledEvent{
+						{delay: 40 * time.Millisecond, event: lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "alt-response"}},
+						{delay: 10 * time.Millisecond, event: lipapi.Event{Kind: lipapi.EventResponseFinished}},
+					}), nil
 				},
 			},
 		}
@@ -506,7 +507,7 @@ func TestFindingH3_WeightedFirstTwoTurnSequentialAndParallel(t *testing.T) {
 // In canonical execution (executor_open_attempt.go:914, parallel_race.go:788), an error from
 // Store.SetWeightedFirstConsumed is treated as authoritative and causes the attempt to abort.
 //
-// Current wire defect:
+// Original wire defect (regression guard):
 // executor_execute_large_body.go:1243 does `_ = e.Store.SetWeightedFirstConsumed(...)` which swallows
 // the store error and commits the attempt anyway.
 func TestFindingH3_StoreSetWeightedFirstConsumedFailureAborts(t *testing.T) {

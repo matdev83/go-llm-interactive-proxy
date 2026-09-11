@@ -46,7 +46,13 @@ type requestFacts struct {
 	aScope              *leglifecycle.ALeg
 	suppressThinker     bool
 	suppressVisibleMemo bool
+	wirePayload         *wireAttemptPayload
 }
+
+func (rf requestFacts) isWire() bool {
+	return rf.wirePayload != nil && rf.wirePayload.src != nil
+}
+
 type openMode int
 
 const (
@@ -377,6 +383,22 @@ func (e *Executor) evaluateCandidate(
 	interleaved interleavedstate.State,
 ) (candidateEvaluationOutcome, error) {
 	var zero candidateEvaluationOutcome
+	// Full admission negotiation is bypassed for wire attempts:
+	// (a) Wire eligibility is owned by the assessment layer (ProductionLargeBodyAssessor
+	//     plus route-domain policy, already merged and reviewed).
+	// (b) Admission negotiation operates on lipapi.Call, and wire has no Call by design —
+	//     synthesizing one would reintroduce the payload-sized materialization that Phase 1
+	//     (candidate.go, return res, nil, nil) eliminated.
+	// (c) This preserves pre-collapse wire behavior (the legacy wire execution engine in
+	//     executor_execute_large_body.go never ran candidate admission negotiation).
+	if rf.isWire() {
+		if _, ok := e.Backends[plan.cand.Primary.Backend]; !ok {
+			return zero, fmt.Errorf("executor: unknown backend %q", plan.cand.Primary.Backend)
+		}
+		return candidateEvaluationOutcome{
+			accepted: true,
+		}, nil
+	}
 	attempt := lipapi.CloneCall(rf.baseline)
 	if e.MaxPendingWireEvents > 0 {
 		attempt.MaxPendingWireEvents = e.MaxPendingWireEvents
@@ -578,7 +600,10 @@ func (e *Executor) openAttemptTx(
 ) error {
 	c := plan.cand
 	attempt := evalOutcome.attempt
-	be := e.Backends[c.Primary.Backend]
+	be, beOK := e.Backends[c.Primary.Backend]
+	if tx.reqFacts.isWire() {
+		return e.openWireAttemptTx(ctx, tx, be, beOK, c, plan)
+	}
 	if tx.budget != nil {
 		if !tx.budget.tryAcquire() {
 			return fmt.Errorf("executor: %w", lipapi.ErrMaxRouteAttempts)
