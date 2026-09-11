@@ -668,7 +668,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 17. Do not treat default OpenResponses create as stateless
 
-- [ ] 17.1 Characterize/refactor only bounded no-store frontend state
+- [x] 17.1 Characterize/refactor only bounded no-store frontend state
   - Initial subset: HTTP create, **explicit `store:false`**, no `previous_response_id`, no compaction, no WebSocket.
   - Missing `store` stays canonical because current decode defaults true.
   - Preserve outer auth + JSON content-type ordering.
@@ -886,3 +886,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 16.1 VERIFIED (review subagent APPROVED, 15.1-mirror precedent, no per-task evidence file): conservative Chat profile (no legacy resolver, RouteFromBodyModel=true, canonical-parser normalization parity, wide canonical-only declines incl. non-string tool content/arguments, exact span + digest parity x3, session facts, chatcmpl_ carrier); openailegacy + frontendpipe suites PASS, vet/gofmt/diff-check clean; CARRY to 16.3: session-hint identity parity vs decline, OpenRouter-headers identity corpus.
 - Task 16.2 VERIFIED (review subagent APPROVED; reviewer-generated RED, no evidence file): Chat exact/domain wire proof mirroring 15.2 (operation/profile/streaming/model/inventory/rewrite gates), attachWireProof flavor dispatch with byte-identical Responses behavior, Flavor de-hardcoded in prims (chat maps to /chat/completions + ChatCompletionChunk), Chat CancellationID fallback gated on operation; openaicompat + frontendpipe + execbackend suites PASS, vet/gofmt/diff-check clean; CARRY: streaming-only assessor re-encode still open (rollout gate).
 - Task 16.3 VERIFIED (review subagent APPROVED): 7 Chat differential + 14 lane-2 E2E green (21/21), both 16.1 carries closed (pre-commit session-hint decline + E2E fallback proof, two-leg OpenRouter-header identity parity); lane-1 session-hint decline remediated in same commit (reviewer carry, mutation-proven); suites PASS (openaicompat/openailegacy/openairesponses/frontendpipe), vet/gofmt/diff-check clean.
+- Task 17.1 VERIFIED (review subagent APPROVED; old-vs-new field proof): bounded no-store characterization (explicit store:false + no prev_id; missing-store/store:true/prev_id/compaction/WebSocket stay canonical), behavior-preserving short-circuit (only unreachable store/scope fields differ), zero store I/O proven via failing store, outer auth/media ordering pinned; openresponses + frontendpipe suites PASS, vet/gofmt/diff-check clean; minor gap: no dedicated cancelled-context test.
