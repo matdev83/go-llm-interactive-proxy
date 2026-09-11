@@ -79,10 +79,21 @@ Configured under `server.large_payload_fast_path`:
 
 ### 4.3 Measured Tradeoffs (Production Evidence)
 
-From empirical benchmarks (Tasks 19.2–19.7):
+From empirical benchmarks (Tasks 19.2–19.7 and Remediation Phases 3/6):
 
-- **Retained Go Heap:** On accepted wire requests, post-commit retained Go heap during provider streaming is approximately **35.6 KiB with a flat 0.000% slope** across 1 MiB, 5 MiB, and 20 MiB payloads (compared to multi-megabyte retained heaps and 7–9 Call clones on the canonical path).
-- **Latency Impact:** Fast-path end-to-end latency is approximately **1.4x to 1.6x higher** than canonical transport (~38.9 ms vs 26.9 ms at 1 MiB; ~184.4 ms vs 116.0 ms at 5 MiB). This overhead stems from disk spill I/O, streaming SHA-256 calculation, and proof compilation before upstream connection establishment.
+- **Retained Go Heap:**
+  - *Pre-Remediation Baseline (Task 19.3):* On accepted wire requests, post-commit retained Go heap during provider streaming was approximately **35.6 KiB (35,656 B/op, 12 allocs/op) with a flat 0.000% slope** across 1 MiB, 5 MiB, and 20 MiB payloads (compared to multi-megabyte retained heaps and 7–9 Call clones on the canonical path).
+  - *Post-Remediation (Streaming Proof, Phase 3/6):* Confirmed flat at **35,622–35,632 B/op (11 allocs/op) with a 0.000% slope** (35,627 B/op @1 MiB, 35,632 B/op @5 MiB, 35,622 B/op @20 MiB; `evidence/19.2-19.5-benchmarks.md` §5.1.2).
+- **Proof-Time Transient Heap (`CompileProof`):**
+  - *Pre-Remediation Baseline (`io.ReadAll`):* Allocated **6,877,983 B/op (252 allocs/op) @1 MiB**, **34,141,596 B/op (185 allocs/op) @5 MiB**, and **165,527,723 B/op (362 allocs/op) @20 MiB** (~6.5x–7.9x body size slope; strict 19.3 invariant failed).
+  - *Post-Remediation (Streaming Proof, Phase 3/6):* Transient proof allocations collapsed to **82,524 B/op (269 allocs/op) @1 MiB (-98.80%)**, **78,152 B/op (209 allocs/op) @5 MiB (-99.77%)**, and **88,225 B/op (452 allocs/op) @20 MiB (-99.95%)** (`evidence/19.2-19.5-benchmarks.md` §5.1.2). Across individual certified protocol lanes (`TestLargePayloadProof_TransientAllocBounded`, target ceiling 458,752 B/op; §5.1.3):
+    - OpenAI Responses: 78,569 B/op (1 MiB), 78,219 B/op (5 MiB), 89,408 B/op (20 MiB) (**PASS**).
+    - OpenAI Chat: 79,592 B/op (1 MiB), 79,702 B/op (5 MiB), 88,721 B/op (20 MiB) (**PASS**).
+    - OpenResponses: 77,423 B/op (1 MiB), 77,229 B/op (5 MiB), 87,791 B/op (20 MiB) (**PASS**).
+    Transient allocations are flat across 1→5→20 MiB, flipping Task 19.3 strict heap gate to **PASS**.
+- **Latency Impact:**
+  - *Pre-Remediation Baseline:* Fast-path end-to-end latency was approximately **1.4x to 1.6x higher** than canonical transport (~38.9 ms [38.88 ms] vs 26.9 ms at 1 MiB; ~184.4 ms [184.39 ms] vs 116.0 ms at 5 MiB; 1,078.60 ms vs ~450.0 ms at 20 MiB). This overhead stemmed from disk spill I/O, streaming SHA-256 calculation, and proof compilation via whole-body `io.ReadAll` before upstream connection establishment.
+  - *Post-Remediation (Streaming Proof, Phase 3/6):* End-to-end latency reduced to **30.43 ms at 1 MiB (+13% vs canonical ~26.9 ms)**, **142.00 ms at 5 MiB (+22% vs canonical ~116.0 ms)**, and **561.95 ms at 20 MiB (+25% vs canonical ~450.0 ms)** (`evidence/19.2-19.5-benchmarks.md` §5.1.2; `evidence/19.6-19.7-eligibility-roi.md` §5.1). The single-pass streaming scanner extracts tokens concurrently during capture without whole-body buffering.
 - **Disk I/O:** Requests exceeding `memory_spool_bytes` (64 KiB) incur sequential disk write and read operations. High-throughput deployments should ensure `spool_dir` resides on fast NVMe or ramdisk storage.
 
 ---
@@ -187,21 +198,38 @@ To immediately disable the fast path across all traffic:
 
 ## 7. Current Rollout Status and Canonical-Only Default
 
-Per Tasks 19.7 and 20.3, the fast path is **default-off and canonical-only in production**:
+### 7.1 Historical Pre-Remediation Baseline (Tasks 19.7 and 20.3)
 
-- `server.large_payload_fast_path.enabled` defaults to `false`.
-- No protocol lane advertises wire support in stock distributions (`lipstd`).
-- All certified protocol lanes (Lane 1: OpenAI Responses, Lane 2: OpenAI Chat, Lane 3: OpenResponses No-Store) currently decline to canonical execution in production builds.
+Prior to remediation, the fast path was **default-off and canonical-only in production**:
+- `server.large_payload_fast_path.enabled` defaulted to `false`.
+- No protocol lane advertised wire support in stock distributions (`lipstd`).
+- All certified protocol lanes (Lane 1: OpenAI Responses, Lane 2: OpenAI Chat, Lane 3: OpenResponses No-Store) declined to canonical execution in production builds due to the proof-time transient heap spike (Task 19.3 strict gate failure) and uncomposed production assessor.
 
-### 7.1 Activation Prerequisites
+### 7.2 Post-Remediation Status (Phases 0–6 Recertification, Phase 7 Rollout)
 
-Before any lane may advertise wire support and execute in production, the following follow-up workstreams must be implemented and certified:
+Following execution of the remediation plan (`evidence/remediation-19.3-proof-transient-and-production-assessor-plan.md`):
 
-1. **Streaming `CompileProof` Rework:** Replace transient `io.ReadAll` inside `CompileProof` with streaming token scanning and `CallIdentityWriter` to eliminate proof-time $O(\text{payload})$ heap allocation.
-2. **Production Assessor Composition:** Unify `AuthorityAssessor`, `BackendWireProofAssessor`, `RouteOverrideAssessor`, and `runtime.Executor` into a production `LargeBodyAssessor` composed in `runtimebundle.BuildHost`.
-3. **Enablement Wiring:** Formally link `server.large_payload_fast_path` configuration into `runtimebundle` and frontend specifications.
-4. **Detached-Session Execution (Req 19.8):** Detached execution stays canonical-only until its Call/lifecycle dependencies are separately represented and parity-tested.
-5. **Legacy `ResolveRouteSelector` Contract (Req 13.2):** A configured full-body route resolver stays canonical-only until a future bounded route-resolution contract preserves the same ordering, precedence, and selector semantics.
+- **Per-Lane Advertisement Status:**
+  All three certified protocol lanes are now **ADVERTISE-CAPABLE** (`evidence/19.6-19.7-eligibility-roi.md` §5.3):
+  - **Lane 1 (OpenAI Responses → OpenAI Responses):** **ADVERTISE-CAPABLE** (Default-Off). Condition (a) PASS (78,219–89,408 B/op transient heap); Condition (b) PASS (production assessor composed in `runtimebundle.BuildHost`); Condition (c) PASS (streaming-only policy enforced in production; non-streaming declines to canonical).
+  - **Lane 2 (OpenAI Chat → OpenAI Chat):** **ADVERTISE-CAPABLE** (Default-Off). Condition (a) PASS (79,592–88,721 B/op transient heap); Condition (b) PASS (production assessor composed); Condition (c) PASS (streaming-only policy enforced).
+  - **Lane 3 (OpenResponses → OpenResponses):** **ADVERTISE-CAPABLE** (Scoped to `store: false` no-continuation subset; Default-Off). Condition (a) PASS (77,229–87,791 B/op transient heap); Condition (b) PASS (production assessor composed); Condition (c) PASS (streaming-only policy enforced; `store: true` or continuations decline to canonical).
+- **Default Configuration Remains Disabled:**
+  `server.large_payload_fast_path.enabled` strictly defaults to `false` (Requirement 22.1).
+- **Non-Advertisement in Stock Binaries:**
+  Wire support is **NOT advertised** in default stock distribution responses (`TestLane1E2E_WireSupportNotAdvertised`, `TestLane2E2E_WireSupportNotAdvertised`, `TestLane3E2E_WireSupportNotAdvertised` all pass).
+- **Enablement Gate and Issue #532 Policy:**
+  Per governance rules, **NO enablement in production until Task 19.7 per-lane gates pass**. Following Phase 6 recertification, the Task 19.7 per-lane gates **now pass** across all three lanes (all three are certified advertise-capable). However, configuration remains default-off in stock binaries, and GitHub issue **#532 stays open** until formal end-to-end rollout and PR delivery are completed (issue #532 is tracked externally and cannot be modified or closed from this repository environment; it remains open per plan).
+
+### 7.3 Activation Prerequisites and Follow-Up Status
+
+Status of prerequisite workstreams and intentional V1 boundaries:
+
+1. **Streaming `CompileProof` Rework:** **COMPLETED** (Remediation Phases 1–3). Replaced `io.ReadAll` with streaming token scanning and `CallIdentityWriter`. Proof-time transient allocation collapsed to ~78–89 KiB flat across 1, 5, and 20 MiB; Task 19.3 strict heap gate is PASS.
+2. **Production Assessor Composition:** **COMPLETED** (Remediation Phase 4). Unified `AuthorityAssessmentGate`, `BackendWireProofGate`, `runtime.StandardLaneDomainPolicies()`, and `runtime.Executor` into `ProductionLargeBodyAssessor` composed in `runtimebundle.BuildHost` via `build_large_body_assessor.go`.
+3. **Enablement Wiring:** **COMPLETED** (Remediation Phase 5). Formally linked `server.large_payload_fast_path` configuration to `runtimebundle` and frontend specifications while preserving `enabled: false` default and invalid-reload last-good semantics.
+4. **Detached-Session Execution (Req 19.8):** **Intentionally Canonical-Only in V1.** Detached execution stays canonical-only until its Call/lifecycle dependencies are separately represented and parity-tested.
+5. **Legacy `ResolveRouteSelector` Contract (Req 13.2):** **Intentionally Canonical-Only in V1.** A configured full-body route resolver stays canonical-only until a future bounded route-resolution contract preserves the same ordering, precedence, and selector semantics.
 
 ---
 
@@ -211,8 +239,10 @@ For full verification artifacts and design details, consult:
 
 - **Specification Requirements:** `.kiro/specs/large-payload-streaming-fast-path/requirements.md` (Requirements 20, 21, 22)
 - **Technical Design:** `.kiro/specs/large-payload-streaming-fast-path/design.md` (Sections 3, 4, 7, 8, 15)
+- **Remediation Plan:** `.kiro/specs/large-payload-streaming-fast-path/evidence/remediation-19.3-proof-transient-and-production-assessor-plan.md`
 - **Call and Authority Census:** `.kiro/specs/large-payload-streaming-fast-path/evidence/1.8-call-census.md`
 - **Plane Census:** `.kiro/specs/large-payload-streaming-fast-path/evidence/1.9-plane-census.md`
 - **Benchmarks and Heap Analysis:** `.kiro/specs/large-payload-streaming-fast-path/evidence/19.2-19.5-benchmarks.md`
 - **Eligibility Matrix and Lane ROI:** `.kiro/specs/large-payload-streaming-fast-path/evidence/19.6-19.7-eligibility-roi.md`
-- **Rollout and Artifact Audit:** `.kiro/specs/large-payload-streaming-fast-path/evidence/20.3-20.4-rollout.md`
+- **Initial Rollout Evidence:** `.kiro/specs/large-payload-streaming-fast-path/evidence/20.3-20.4-rollout.md`
+- **Remediation Closeout Delta:** `.kiro/specs/large-payload-streaming-fast-path/evidence/20.5-remediation-closeout.md`
