@@ -51,8 +51,9 @@ flowchart TD
     Backend --> Upstream[Upstream provider]
     Backend --> Capture[Neutral evidence collector]
     Runtime --> Capture
+    Capture --> Journal[Metering journal and observations]
     Capture --> Terminal[Existing terminal handoff]
-    Terminal --> Journal[Metering journal and closure]
+    Terminal --> Journal
     Journal --> LocalRating[Local expected rating]
     Journal --> ProviderRating[Provider quantity rating]
     Journal --> Retail[Customer rating]
