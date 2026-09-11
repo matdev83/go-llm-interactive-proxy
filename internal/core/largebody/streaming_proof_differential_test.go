@@ -1,9 +1,11 @@
 package largebody_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"runtime"
@@ -618,5 +620,64 @@ func TestWholeMessageMarshalMutation(t *testing.T) {
 	// Streaming AddMessage must not allocate proportional to the 1 MiB text (must be well under 128 KiB)
 	if streamingAllocs > 128*1024 {
 		t.Fatalf("streaming AddMessage allocated %d bytes (exceeded 128 KiB bound), whole-message marshal regression detected", streamingAllocs)
+	}
+}
+
+func TestTrimSpaceWriter_NormalTrimming(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	w := largebody.NewTrimSpaceWriter(&buf)
+
+	chunks := [][]byte{
+		[]byte("   \n\t  "),
+		[]byte("hello "),
+		[]byte("world"),
+		[]byte("   \r\n  "),
+	}
+	for _, c := range chunks {
+		if _, err := w.Write(c); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	got := buf.String()
+	want := "hello world"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if w.TrimmedBytes() != int64(len(want)) {
+		t.Fatalf("TrimmedBytes: got %d, want %d", w.TrimmedBytes(), len(want))
+	}
+}
+
+func TestTrimSpaceWriter_TrailingWhitespaceBounded(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	w := largebody.NewTrimSpaceWriter(&buf)
+
+	// Write non-whitespace start
+	if _, err := w.Write([]byte("hello")); err != nil {
+		t.Fatalf("Write hello: %v", err)
+	}
+
+	// Write whitespace within budget (e.g. 32 KiB)
+	withinBudget := bytes.Repeat([]byte(" "), 32*1024)
+	if _, err := w.Write(withinBudget); err != nil {
+		t.Fatalf("Write within budget: %v", err)
+	}
+
+	// Write additional whitespace exceeding the 64 KiB default budget
+	exceedingBudget := bytes.Repeat([]byte(" "), 40*1024)
+	_, err := w.Write(exceedingBudget)
+	if err == nil {
+		t.Fatal("expected error for trailing whitespace exceeding budget, got nil")
+	}
+	if !errors.Is(err, largebody.ErrSemanticFactBudgetExceeded) {
+		t.Fatalf("expected ErrSemanticFactBudgetExceeded, got: %v", err)
 	}
 }

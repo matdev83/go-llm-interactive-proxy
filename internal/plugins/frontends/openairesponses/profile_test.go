@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -560,6 +562,13 @@ func TestOpenAIResponsesProfile_CompileProof_ExactIdentityDifferentialCorpus(t *
 				"input": "日本語: こんにちは世界! 中文: 你好，世界! العربية: مرحبا بالعالم! <div>HTML & safe \"quotes\" \\ backslash \u2028\u2029 🚀🌍🧪"
 			}`,
 		},
+		{
+			name: "padded string input with leading and trailing whitespace",
+			body: `{
+				"model": "gpt-4o",
+				"input": "  \n\t  Hello, padded and trimmed differential!  \r\n  "
+			}`,
+		},
 	}
 
 	prof := openairesponses.NewProfile()
@@ -677,6 +686,70 @@ func TestOpenAIResponsesProfile_DeclineToCanonical(t *testing.T) {
 			body:    `{"model":"gpt-4o","input":"hello"}`,
 			headers: http.Header{"X-Lip-Session-Hint": []string{"client-hint-123"}},
 		},
+		{
+			name: "non-string instructions number declines",
+			body: `{"model":"gpt-4o","input":"hello","instructions":12345}`,
+		},
+		{
+			name: "non-string instructions boolean declines",
+			body: `{"model":"gpt-4o","input":"hello","instructions":true}`,
+		},
+		{
+			name: "non-string instructions array declines",
+			body: `{"model":"gpt-4o","input":"hello","instructions":["invalid"]}`,
+		},
+		{
+			name: "scalar tools string declines",
+			body: `{"model":"gpt-4o","input":"hello","tools":"tool1"}`,
+		},
+		{
+			name: "scalar tools number declines",
+			body: `{"model":"gpt-4o","input":"hello","tools":42}`,
+		},
+		{
+			name: "scalar text string declines",
+			body: `{"model":"gpt-4o","input":"hello","text":"plain"}`,
+		},
+		{
+			name: "scalar text number declines",
+			body: `{"model":"gpt-4o","input":"hello","text":42}`,
+		},
+		{
+			name: "scalar tool_choice number declines",
+			body: `{"model":"gpt-4o","input":"hello","tool_choice":123}`,
+		},
+		{
+			name: "scalar tool_choice boolean declines",
+			body: `{"model":"gpt-4o","input":"hello","tool_choice":false}`,
+		},
+		{
+			name: "wrong-typed stream string declines",
+			body: `{"model":"gpt-4o","input":"hello","stream":"true"}`,
+		},
+		{
+			name: "wrong-typed stream number declines",
+			body: `{"model":"gpt-4o","input":"hello","stream":1}`,
+		},
+		{
+			name: "wrong-typed parallel_tool_calls string declines",
+			body: `{"model":"gpt-4o","input":"hello","parallel_tool_calls":"false"}`,
+		},
+		{
+			name: "wrong-typed temperature string declines",
+			body: `{"model":"gpt-4o","input":"hello","temperature":"warm"}`,
+		},
+		{
+			name: "wrong-typed top_p string declines",
+			body: `{"model":"gpt-4o","input":"hello","top_p":"high"}`,
+		},
+		{
+			name: "wrong-typed max_output_tokens string declines",
+			body: `{"model":"gpt-4o","input":"hello","max_output_tokens":"1000"}`,
+		},
+		{
+			name: "wrong-typed max_output_tokens float declines",
+			body: `{"model":"gpt-4o","input":"hello","max_output_tokens":100.5}`,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -790,3 +863,309 @@ func (e *testExecView) ExecuteLargeBody(ctx context.Context, accepted largebody.
 
 var _ lipsdk.ExecutorView = (*testExecView)(nil)
 var _ largebody.LargeBodyExecutor = (*testExecView)(nil)
+
+func test1MiBResponsesBody(tb testing.TB, target int) []byte {
+	tb.Helper()
+	const prefix = `{"model":"gpt-4o","input":"`
+	const suffix = `"}`
+	pad := target - len(prefix) - len(suffix)
+	if pad < 0 {
+		tb.Fatalf("target %d smaller than envelope", target)
+	}
+	var b strings.Builder
+	b.Grow(target)
+	b.WriteString(prefix)
+	b.WriteString(strings.Repeat("a", pad))
+	b.WriteString(suffix)
+	return []byte(b.String())
+}
+
+// Task 19.3 / Remediation Phase 2 (Lane 1):
+// Proof-time transient allocation (B/op) must be bounded by
+// memory_spool_bytes (64 KiB) + max_semantic_fact_bytes (256 KiB) + fixed buffers (128 KiB) = 448 KiB.
+func TestOpenAIResponsesProfile_CompileProof_TransientAllocBounded(t *testing.T) {
+	const target = 1 << 20 // 1 MiB
+	body := test1MiBResponsesBody(t, target)
+
+	spoolDir := t.TempDir()
+	spill, err := largebody.NewSpillBuffer(largebody.SpillConfig{
+		SpoolDir:         spoolDir,
+		MemorySpoolBytes: 64 << 10,
+		CopyBufferSize:   32 << 10,
+	})
+	if err != nil {
+		t.Fatalf("spill buffer init: %v", err)
+	}
+	if _, err := spill.Write(body); err != nil {
+		t.Fatalf("spill write: %v", err)
+	}
+	src, err := spill.Complete()
+	if err != nil {
+		t.Fatalf("spill complete: %v", err)
+	}
+	t.Cleanup(func() { _ = src.Close() })
+
+	prof := openairesponses.NewProfile()
+	proofIn := frontendpipe.ProofInput{
+		Ctx:                  context.Background(),
+		Headers:              make(http.Header),
+		URLPath:              "/v1/responses",
+		RouteSelector:        "stub:gpt-4o",
+		RoutePrefixes:        routeselect.NewPrefixSet([]string{"stub", "openai"}),
+		DefaultRouteSelector: "stub:gpt-4o",
+		RouteFromBodyModel:   true,
+		Source:               src,
+		BodyBytes:            src.Size(),
+	}
+
+	var proofSink frontendpipe.ProofOutput
+	benchRes := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			out, perr := prof.CompileProof(b.Context(), proofIn)
+			if perr != nil {
+				b.Fatalf("CompileProof failed: %v", perr)
+			}
+			proofSink = out
+		}
+	})
+	_ = proofSink
+
+	allocBytesPerOp := benchRes.AllocedBytesPerOp()
+	const maxAllowedProofBytesPerOp = int64(64<<10) + int64(256<<10) + int64(128<<10) // 448 KiB
+
+	t.Logf("[openai_responses/1MiB] proof-time transient: %d B/op (ceiling: %d B/op)",
+		allocBytesPerOp, maxAllowedProofBytesPerOp)
+
+	if allocBytesPerOp > maxAllowedProofBytesPerOp {
+		t.Fatalf("proof-time B/op (%d B) must be bounded by %d B, but exceeded target invariant by %d B",
+			allocBytesPerOp, maxAllowedProofBytesPerOp, allocBytesPerOp-maxAllowedProofBytesPerOp)
+	}
+}
+
+// Item 2: Large array differential with mixed roles (system, user, assistant).
+// Payload exceeds 2*DefaultMaxSemanticFactBytes (512 KiB) to trigger the streaming large array path.
+func TestOpenAIResponsesProfile_CompileProof_MixedRoleLargeArrayDifferential(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+	// Build an array with mixed roles exceeding 512 KiB
+	chunkU := strings.Repeat("u", 280*1024)
+	chunkV := strings.Repeat("v", 280*1024)
+
+	var sb strings.Builder
+	sb.WriteString(`{"model":"gpt-4o","input":[`)
+	sb.WriteString(`{"type":"message","role":"system","content":"System prompt initialization."}`)
+	sb.WriteString(`,{"type":"message","role":"user","content":"` + chunkU + `"}`)
+	sb.WriteString(`,{"type":"message","role":"assistant","content":"Understood, processing your data."}`)
+	sb.WriteString(`,{"type":"message","role":"user","content":"` + chunkV + `"}`)
+	sb.WriteString(`]}`)
+
+	body := []byte(sb.String())
+	in := defaultProofInput(body, "stub:gpt-4o", nil)
+
+	out, err := prof.CompileProof(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompileProof failed for mixed-role large array: %v", err)
+	}
+
+	proof := out.Proof()
+
+	// Verify roles in ClientTurnShape
+	if len(proof.Turn.Items) != 4 {
+		t.Fatalf("Proof.Turn.Items count: got %d, want 4", len(proof.Turn.Items))
+	}
+	expectedRoles := []lipapi.Role{
+		lipapi.RoleSystem,
+		lipapi.RoleUser,
+		lipapi.RoleAssistant,
+		lipapi.RoleUser,
+	}
+	for i, expectedRole := range expectedRoles {
+		if proof.Turn.Items[i].Role != expectedRole {
+			t.Errorf("Turn.Items[%d].Role: got %v, want %v", i, proof.Turn.Items[i].Role, expectedRole)
+		}
+	}
+
+	// Compare with canonical decode
+	canonDecoded, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o",
+	})
+	if err != nil {
+		t.Fatalf("canonical DecodeCreateRequest failed: %v", err)
+	}
+	wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+	if proof.Identity.Sum() != wantDigest.Sum() {
+		t.Fatalf("Identity mismatch for mixed-role large array:\ngot:  %x\nwant: %x", proof.Identity.Sum(), wantDigest.Sum())
+	}
+}
+
+// Item 4: Envelope field (instructions) exceeding DefaultMaxSemanticFactBytes (256 KiB)
+// must be bounded and return ErrSemanticFactBudgetExceeded.
+func TestOpenAIResponsesProfile_CompileProof_EnvelopeFactBudget(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+	// Create instructions larger than 256 KiB budget (e.g. 270 KiB)
+	largeInstructions := strings.Repeat("i", 270*1024)
+	body := []byte(fmt.Sprintf(`{"model":"gpt-4o","instructions":"%s","input":"Hello"}`, largeInstructions))
+	in := defaultProofInput(body, "stub:gpt-4o", nil)
+
+	_, err := prof.CompileProof(context.Background(), in)
+	if err == nil {
+		t.Fatal("expected error for instructions exceeding fact budget, got nil")
+	}
+	if !errors.Is(err, largebody.ErrSemanticFactBudgetExceeded) {
+		t.Fatalf("expected ErrSemanticFactBudgetExceeded, got: %v", err)
+	}
+}
+
+// MF-1: Padded array content differential.
+// Large array payload (> 512 KiB) where content strings have leading and trailing whitespace.
+// Canonical decode trims whitespace via strings.TrimSpace; streaming proof must match byte-for-byte.
+func TestOpenAIResponsesProfile_CompileProof_PaddedLargeArrayDifferential(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+	// Large array exceeding 512 KiB with padded message contents
+	chunkU := "  \\n\\t  " + strings.Repeat("u", 280*1024) + "  \\r\\n  "
+	chunkV := " \\t " + strings.Repeat("v", 280*1024) + " \\n "
+
+	var sb strings.Builder
+	sb.WriteString(`{"model":"gpt-4o","input":[`)
+	sb.WriteString(`{"type":"message","role":"system","content":"  \\nSystem prompt initialization.  \\t"}`)
+	sb.WriteString(`,{"type":"message","role":"user","content":"` + chunkU + `"}`)
+	sb.WriteString(`,{"type":"message","role":"assistant","content":"  Understood, processing your data.  \\r\\n"}`)
+	sb.WriteString(`,{"type":"message","role":"user","content":"` + chunkV + `"}`)
+	sb.WriteString(`]}`)
+
+	body := []byte(sb.String())
+	in := defaultProofInput(body, "stub:gpt-4o", nil)
+
+	out, err := prof.CompileProof(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompileProof failed for padded large array: %v", err)
+	}
+
+	proof := out.Proof()
+
+	canonDecoded, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o",
+	})
+	if err != nil {
+		t.Fatalf("canonical DecodeCreateRequest failed: %v", err)
+	}
+	wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+	if proof.Identity.Sum() != wantDigest.Sum() {
+		t.Fatalf("Identity mismatch for padded large array:\ngot:  %x\nwant: %x", proof.Identity.Sum(), wantDigest.Sum())
+	}
+
+	// Also verify that turn content bytes count trimmed bytes
+	wantTurnShape, err := largebody.ClientTurnShapeFromCall(canonDecoded.Call, frontendpipe.DefaultMaxSemanticFactBytes)
+	if err != nil {
+		t.Fatalf("canonical ClientTurnShapeFromCall failed: %v", err)
+	}
+	if proof.Turn.TotalContentBytes != wantTurnShape.TotalContentBytes {
+		t.Fatalf("Turn.TotalContentBytes mismatch: got %d, want %d", proof.Turn.TotalContentBytes, wantTurnShape.TotalContentBytes)
+	}
+	for i := range proof.Turn.Items {
+		if proof.Turn.Items[i].Parts[0].ContentBytes != wantTurnShape.Items[i].Parts[0].ContentBytes {
+			t.Fatalf("Turn.Items[%d].Parts[0].ContentBytes mismatch: got %d, want %d",
+				i, proof.Turn.Items[i].Parts[0].ContentBytes, wantTurnShape.Items[i].Parts[0].ContentBytes)
+		}
+	}
+}
+
+// MF-2: Number tokens spanning the 32 KiB chunk boundary.
+// Tests that options (max_output_tokens, temperature, top_p) whose number tokens straddle
+// offset 32768 are correctly extracted and match canonical identity.
+func TestOpenAIResponsesProfile_CompileProof_ChunkBoundaryNumbersDifferential(t *testing.T) {
+	t.Parallel()
+
+	prof := openairesponses.NewProfile()
+
+	cases := []struct {
+		name       string
+		optionKey  string
+		numLiteral string
+		verify     func(t *testing.T, proof largebody.Proof, canon *lipapi.Call)
+	}{
+		{
+			name:       "max_output_tokens straddling 32768",
+			optionKey:  "max_output_tokens",
+			numLiteral: "1500",
+			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				if proof.MaxOutputTokens != 1500 {
+					t.Fatalf("MaxOutputTokens dropped: got %d, want 1500", proof.MaxOutputTokens)
+				}
+			},
+		},
+		{
+			name:       "temperature straddling 32768",
+			optionKey:  "temperature",
+			numLiteral: "0.7",
+			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				// Verified via identity match
+			},
+		},
+		{
+			name:       "top_p straddling 32768",
+			optionKey:  "top_p",
+			numLiteral: "0.85",
+			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				// Verified via identity match
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Target offset for number start: 32766 (straddling 32768 chunk boundary)
+			targetOffset := 32766
+			prefix1 := `{"model":"gpt-4o","instructions":"`
+			suffix1 := `","` + tc.optionKey + `":`
+			padLen := targetOffset - len(prefix1) - len(suffix1)
+			if padLen < 0 {
+				t.Fatalf("padLen %d < 0", padLen)
+			}
+			pad := strings.Repeat("x", padLen)
+			tail := `,"input":"hello"}`
+
+			body := []byte(prefix1 + pad + suffix1 + tc.numLiteral + tail)
+
+			// Verify that the number token actually straddles offset 32768:
+			numStart := len(prefix1) + padLen + len(suffix1)
+			numEnd := numStart + len(tc.numLiteral)
+			if numStart >= 32768 || numEnd <= 32768 {
+				t.Fatalf("test setup error: number span [%d, %d] does not straddle 32768", numStart, numEnd)
+			}
+
+			in := defaultProofInput(body, "stub:gpt-4o", nil)
+			out, err := prof.CompileProof(context.Background(), in)
+			if err != nil {
+				t.Fatalf("CompileProof failed: %v", err)
+			}
+
+			proof := out.Proof()
+
+			canonDecoded, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+				RouteSelector: "stub:gpt-4o",
+			})
+			if err != nil {
+				t.Fatalf("canonical DecodeCreateRequest failed: %v", err)
+			}
+
+			wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+			if proof.Identity.Sum() != wantDigest.Sum() {
+				t.Fatalf("Identity mismatch for %s:\ngot:  %x\nwant: %x", tc.name, proof.Identity.Sum(), wantDigest.Sum())
+			}
+			if tc.verify != nil {
+				tc.verify(t, proof, canonDecoded.Call)
+			}
+		})
+	}
+}

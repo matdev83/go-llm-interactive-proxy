@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonshape"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -133,7 +135,11 @@ func CompileStreamingProof(ctx context.Context, cfg StreamingProofConfig) (Strea
 				if err != nil {
 					return nil, err
 				}
-				return mw.BeginTextPart()
+				pw, err := mw.BeginTextPart()
+				if err != nil {
+					return nil, err
+				}
+				return NewTrimSpaceWriter(pw), nil
 			}
 			return nil, nil
 		}),
@@ -168,4 +174,141 @@ func CompileStreamingProof(ctx context.Context, cfg StreamingProofConfig) (Strea
 		BodyHash:  readRes.BodyHash,
 		Digest:    digest,
 	}, nil
+}
+
+// DefaultMaxTrailingWhitespaceBytes is the maximum buffer size for pending trailing whitespace
+// in TrimSpaceWriter to preserve bounded memory (Requirement 19.3 O(facts+buffers) invariant).
+const DefaultMaxTrailingWhitespaceBytes = 64 * 1024
+
+// TrimSpaceWriter wraps an io.Writer and trims leading and trailing Unicode whitespace
+// in a streaming manner with bounded memory.
+type TrimSpaceWriter struct {
+	out                        io.Writer
+	maxTrailingWhitespaceBytes int
+	seenNonSpace               bool
+	trailingWS                 []byte
+	pendingRune                []byte
+	trimmedBytes               int64
+}
+
+// NewTrimSpaceWriter returns an initialized TrimSpaceWriter wrapping out.
+func NewTrimSpaceWriter(out io.Writer) *TrimSpaceWriter {
+	return &TrimSpaceWriter{
+		out:                        out,
+		maxTrailingWhitespaceBytes: DefaultMaxTrailingWhitespaceBytes,
+	}
+}
+
+// TrimmedBytes returns the total number of bytes written to the underlying writer
+// after trimming leading and trailing whitespace.
+func (w *TrimSpaceWriter) TrimmedBytes() int64 {
+	return w.trimmedBytes
+}
+
+func (w *TrimSpaceWriter) Write(p []byte) (int, error) {
+	origLen := len(p)
+	if origLen == 0 {
+		return 0, nil
+	}
+
+	maxCap := w.maxTrailingWhitespaceBytes
+	if maxCap <= 0 {
+		maxCap = DefaultMaxTrailingWhitespaceBytes
+	}
+
+	data := p
+	if len(w.pendingRune) > 0 {
+		data = append(w.pendingRune, p...)
+		w.pendingRune = nil
+	}
+
+	// 1. Skip leading whitespace if non-space not yet seen
+	if !w.seenNonSpace {
+		for len(data) > 0 {
+			r, size := utf8.DecodeRune(data)
+			if r == utf8.RuneError && size == 1 && !utf8.FullRune(data) {
+				w.pendingRune = append(w.pendingRune[:0], data...)
+				return origLen, nil
+			}
+			if !unicode.IsSpace(r) {
+				w.seenNonSpace = true
+				break
+			}
+			data = data[size:]
+		}
+		if len(data) == 0 {
+			return origLen, nil
+		}
+	}
+
+	// 2. Check incomplete rune at end of data
+	if !utf8.FullRune(data) {
+		_, size := utf8.DecodeLastRune(data)
+		if size > 0 && !utf8.FullRune(data[len(data)-size:]) {
+			w.pendingRune = append(w.pendingRune[:0], data[len(data)-size:]...)
+			data = data[:len(data)-size]
+		}
+	}
+
+	// 3. Find the last non-space rune in data
+	lastNonSpaceEnd := -1
+	idx := 0
+	sub := data
+	for len(sub) > 0 {
+		r, size := utf8.DecodeRune(sub)
+		if !unicode.IsSpace(r) {
+			lastNonSpaceEnd = idx + size
+		}
+		idx += size
+		sub = sub[size:]
+	}
+
+	if lastNonSpaceEnd == -1 {
+		// All runes in this chunk are whitespace: buffer them in trailingWS
+		if len(w.trailingWS)+len(data) > maxCap {
+			return 0, fmt.Errorf("%w: trailing whitespace exceeds buffer limit (%d > %d)",
+				ErrSemanticFactBudgetExceeded, len(w.trailingWS)+len(data), maxCap)
+		}
+		w.trailingWS = append(w.trailingWS, data...)
+		return origLen, nil
+	}
+
+	// Flush any previously buffered trailingWS
+	if len(w.trailingWS) > 0 {
+		if _, err := w.out.Write(w.trailingWS); err != nil {
+			return 0, err
+		}
+		w.trimmedBytes += int64(len(w.trailingWS))
+		w.trailingWS = w.trailingWS[:0]
+	}
+
+	// Write up to lastNonSpaceEnd in one call
+	toWrite := data[:lastNonSpaceEnd]
+	if len(toWrite) > 0 {
+		if _, err := w.out.Write(toWrite); err != nil {
+			return 0, err
+		}
+		w.trimmedBytes += int64(len(toWrite))
+	}
+
+	// Buffer trailing whitespace of this chunk
+	if lastNonSpaceEnd < len(data) {
+		tail := data[lastNonSpaceEnd:]
+		if len(w.trailingWS)+len(tail) > maxCap {
+			return 0, fmt.Errorf("%w: trailing whitespace exceeds buffer limit (%d > %d)",
+				ErrSemanticFactBudgetExceeded, len(w.trailingWS)+len(tail), maxCap)
+		}
+		w.trailingWS = append(w.trailingWS, tail...)
+	}
+
+	return origLen, nil
+}
+
+func (w *TrimSpaceWriter) Close() error {
+	w.trailingWS = nil
+	w.pendingRune = nil
+	if c, ok := w.out.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
 }
