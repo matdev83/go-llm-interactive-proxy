@@ -782,14 +782,14 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Do not dismiss unrelated existing failure as caused by this feature without evidence; record baseline-vs-branch distinction.
   - _Requirements: 22_
 
-- [ ] 20.3 Default-off production rollout
+- [x] 20.3 Default-off production rollout
   - Config default remains disabled.
   - Only lanes whose Task 15/16/17 certification and Task 19 ROI gate pass advertise support.
   - Unknown/new runtime authority => canonical.
   - Documentation explains full-body prevalidation, spool confidentiality, memory-vs-I/O tradeoff, metrics/decline reasons, and rollback toggle.
   - _Requirements: 20, 21, 22_
 
-- [ ] 20.4 Completion evidence for #532/#503
+- [x] 20.4 Completion evidence for #532/#503
   - Checked-in current-start SHA + canonical baselines.
   - Current authority/Call dependency census.
   - Plane/non-plane eligibility matrix.
@@ -896,3 +896,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Tasks 19.2-19.5 VERIFIED (review subagent APPROVED, adversarial re-runs match to <1%): full stage/shape benchmarks + honest MIXED 19.3 verdict (strict proof-time invariant FAILED ~6.5-7.9x transient via CompileProof io.ReadAll; post-commit retained heap PASS flat 35,656 B/op), negligible blocker overhead with zero temp files, saturation all-200 with cancel cleanup; evidence/19.2-19.5-benchmarks.md; bench + evidence files only, no production diff; follow-ups: deterministic cancel-trigger proof, Phase-B relabel, preflight/capture pairing footnote.
 - Tasks 19.6-19.7 VERIFIED (review subagent APPROVED after controller citation fixes: SupportsWire naming, 2 test-path citations, 1.10 latency/heap numbers with corrected ~1.4-1.6x ratio): full 26-plane/46-port eligibility matrix with quantified blockers, honest wire-mode statement (candidate-path proven, zero production-runtime wire execution — group 20 gap), all-lanes-canonical-only ROI with activation conditions; evidence/19.6-19.7-eligibility-roi.md only, no code diff.
 - Tasks 20.1-20.2 VERIFIED (review subagent APPROVED): all 10 ratchets PASS; budget overruns properly attributed to feature code (merge-base archtests green) and repaired per procedure (pipe.go 455->480, internal/core 97324->97349, boundary-test compaction, AST/hexagonal baseline regens, lifecycle-handle adapter + goroutine allowlist); full repo suite green except 2 upstream doc-marker artifacts failing identically at merge-base (fixed on main in 96803666); pkg/ surface purely additive from approved 3.1 (report zero-change wording corrected); fuzz smoke 703,992 execs clean; race skipped per Windows policy.
+- Tasks 20.3-20.4 VERIFIED (review subagent APPROVED after docs-only remediation: complete 7-item follow-up list, exact 5-gate enumeration, management-listener prerequisites + Unix-only SIGHUP, fixed citations): operator guide docs/large-payload-fast-path.md (config/rollback/metrics/declines/spool confidentiality) + evidence/20.3-20.4-rollout.md (default-off, non-advertisement, fail-closed, full artifact audit, #532 readiness with canonical-only follow-ups); targeted suites PASS; DELIVERY NOTE: main moved (1022e47f steering anchor) — merge/rebase main before PR or qa marker test blocks CI.
