@@ -657,7 +657,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Reuse Task 8 transport; preserve completion ID/timestamp/model/session, retry/failover/errors/keepalive.
   - _Requirements: 8, 10, 12, 18_
 
-- [ ] 16.3 Differential/E2E certification
+- [x] 16.3 Differential/E2E certification
   - Same economic/secure-session/route/transport/response criteria as Lane 1.
   - Do not enable until its own corpus is green.
   - _Requirements: 17, 18, 21_
@@ -885,3 +885,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 15.4 VERIFIED (review subagent APPROVED; test-only, no production diff, no RED file by design): 14 lane-1 E2E tests green driving real Handler/frontendpipe/OpenWire with executor double at production seam (selector, stream modes, errors, event parity, identity, cancel, resume, recorder, metering, retry/race/credential economics incl. 15.2 carry, keepalive, saturation fallback, HTTP/1.1+HTTP/2, not-advertised); openairesponses suite PASS, vet/gofmt clean; CARRY to rollout gate: streaming-only lane policy must be re-encoded in production assessor, metering-egress/saturation-test naming hardening, harness retry loop replaced by real runtime executor before advertising.
 - Task 16.1 VERIFIED (review subagent APPROVED, 15.1-mirror precedent, no per-task evidence file): conservative Chat profile (no legacy resolver, RouteFromBodyModel=true, canonical-parser normalization parity, wide canonical-only declines incl. non-string tool content/arguments, exact span + digest parity x3, session facts, chatcmpl_ carrier); openailegacy + frontendpipe suites PASS, vet/gofmt/diff-check clean; CARRY to 16.3: session-hint identity parity vs decline, OpenRouter-headers identity corpus.
 - Task 16.2 VERIFIED (review subagent APPROVED; reviewer-generated RED, no evidence file): Chat exact/domain wire proof mirroring 15.2 (operation/profile/streaming/model/inventory/rewrite gates), attachWireProof flavor dispatch with byte-identical Responses behavior, Flavor de-hardcoded in prims (chat maps to /chat/completions + ChatCompletionChunk), Chat CancellationID fallback gated on operation; openaicompat + frontendpipe + execbackend suites PASS, vet/gofmt/diff-check clean; CARRY: streaming-only assessor re-encode still open (rollout gate).
+- Task 16.3 VERIFIED (review subagent APPROVED): 7 Chat differential + 14 lane-2 E2E green (21/21), both 16.1 carries closed (pre-commit session-hint decline + E2E fallback proof, two-leg OpenRouter-header identity parity); lane-1 session-hint decline remediated in same commit (reviewer carry, mutation-proven); suites PASS (openaicompat/openailegacy/openairesponses/frontendpipe), vet/gofmt/diff-check clean.

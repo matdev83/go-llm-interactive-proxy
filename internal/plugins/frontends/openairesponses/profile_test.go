@@ -672,6 +672,11 @@ func TestOpenAIResponsesProfile_DeclineToCanonical(t *testing.T) {
 			name: "malformed JSON",
 			body: `{"model":"gpt-4o","input":"hello"`,
 		},
+		{
+			name:    "session hint requires canonical decode",
+			body:    `{"model":"gpt-4o","input":"hello"}`,
+			headers: http.Header{"X-Lip-Session-Hint": []string{"client-hint-123"}},
+		},
 	}
 
 	for _, tc := range testCases {

@@ -227,6 +227,13 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		return frontendpipe.ProofOutput{}, fmt.Errorf("openailegacy: session input: %w", err)
 	}
 
+	// Requirement 16.2, 16.7: X-LIP-Session-Hint feeds ClientSessionID into wire digest
+	// while canonical pre-core decode never sets it. To prevent identity divergence,
+	// requests carrying a client session hint must decline to canonical processing.
+	if sessIn.ClientSessionID != "" {
+		return frontendpipe.ProofOutput{}, errors.New("openailegacy: session hint requires canonical decode")
+	}
+
 	// 11. Build turn shape
 	turnShape, err := largebody.ClientTurnShapeFromCall(&lipapi.Call{
 		Messages: msgs,

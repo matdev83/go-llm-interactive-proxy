@@ -367,6 +367,7 @@ func TestOpenAIChatProfile_DeclinesToCanonical(t *testing.T) {
 		body        string
 		urlPath     string
 		source      largebody.Source
+		headers     http.Header
 		wantErrSub  string
 		errIsTarget error
 	}{
@@ -485,6 +486,13 @@ func TestOpenAIChatProfile_DeclinesToCanonical(t *testing.T) {
 			urlPath:    "/v1/chat/completions",
 			wantErrSub: "json scanner",
 		},
+		{
+			name:       "session hint requires canonical decode",
+			body:       `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
+			urlPath:    "/v1/chat/completions",
+			headers:    http.Header{"X-Lip-Session-Hint": []string{"client-hint-123"}},
+			wantErrSub: "session hint requires canonical decode",
+		},
 	}
 
 	for _, tc := range cases {
@@ -500,6 +508,7 @@ func TestOpenAIChatProfile_DeclinesToCanonical(t *testing.T) {
 
 			in := frontendpipe.ProofInput{
 				Ctx:                  context.Background(),
+				Headers:              tc.headers,
 				URLPath:              tc.urlPath,
 				RouteSelector:        "stub:default",
 				RoutePrefixes:        routeselect.NewPrefixSet([]string{"stub"}),
