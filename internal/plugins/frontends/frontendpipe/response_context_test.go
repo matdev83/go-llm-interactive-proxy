@@ -1463,3 +1463,62 @@ func TestResponseContext_WireExecution_SessionHeadersAndRedactionE2E(t *testing.
 		t.Fatalf("Turn 2 logs leaked resume token: %+v", spy.records)
 	}
 }
+
+// TestResponseContext_ChatResponseBridge proves Task 16.2 / Requirement 18:
+// Chat response bridge preserves completion ID ("chatcmpl_" + DeterministicToken),
+// timestamp (DeterministicTimestamp / DeterministicTime), effective model, session headers,
+// and ensures CancellationID falls back to OpenAIChatCompletionID when seeds/aLegID are empty.
+func TestResponseContext_ChatResponseBridge(t *testing.T) {
+	t.Parallel()
+
+	prof := minimalValidProofProfile()
+	proofOut, err := prof.CompileProof(context.Background(), frontendpipe.ProofInput{
+		BodyBytes: 1024,
+		Source:    &mockSource{data: []byte("test-source-data")},
+	})
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	token := proofOut.State.Proof.Identity.Token()
+
+	// Clear seeds cancellation ID and ALegID to test Chat fallback
+	state := proofOut.State
+	state.Proof.Operation = lipapi.OperationOpenAIChatCompletions
+	state.Seeds.CancellationID = ""
+	state.Seeds.ALegID = ""
+	state.Seeds.DeterministicTimestamp = 1726000000
+
+	execRes := largebody.ExecutionResult{
+		Facts: largebody.ResponseFacts{
+			EffectiveModel: "gpt-4o-mini",
+		},
+	}
+
+	rc := frontendpipe.NewResponseContext(state, execRes)
+
+	// Verify completion ID has chatcmpl_ prefix and matches deterministic token
+	expectedCompletionID := "chatcmpl_" + token
+	if got := rc.OpenAIChatCompletionID(); got != expectedCompletionID {
+		t.Errorf("OpenAIChatCompletionID() = %q, want %q", got, expectedCompletionID)
+	}
+
+	// Verify timestamp
+	if got := rc.DeterministicTimestamp(); got != 1726000000 {
+		t.Errorf("DeterministicTimestamp() = %d, want 1726000000", got)
+	}
+	expectedTime := time.Unix(1726000000, 0).UTC()
+	if got := rc.DeterministicTime(); !got.Equal(expectedTime) {
+		t.Errorf("DeterministicTime() = %v, want %v", got, expectedTime)
+	}
+
+	// Verify effective model
+	if got := rc.EffectiveModel(); got != "gpt-4o-mini" {
+		t.Errorf("EffectiveModel() = %q, want gpt-4o-mini", got)
+	}
+
+	// Verify cancellation ID falls back to OpenAIChatCompletionID (not OpenAIResponseID!)
+	if got := rc.CancellationID(); got != expectedCompletionID {
+		t.Errorf("CancellationID() = %q, want %q", got, expectedCompletionID)
+	}
+}

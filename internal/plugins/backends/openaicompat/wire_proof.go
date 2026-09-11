@@ -15,6 +15,9 @@ import (
 // OpenAIResponsesProfileID is the certified profile identifier for OpenAI Responses (Requirement 4, 8).
 const OpenAIResponsesProfileID = "openai_responses_v1"
 
+// OpenAIChatProfileID is the certified profile identifier for OpenAI Chat (Requirements 4, 8, 17).
+const OpenAIChatProfileID = "openai_chat_v1"
+
 func staticModelsFromInventory(inv modelinventory.Provider) (map[string]struct{}, bool) {
 	if inv == nil {
 		return nil, false
@@ -221,6 +224,184 @@ func resolveResponsesWireDomain(
 	}
 }
 
+func resolveChatWireRequest(
+	ctx context.Context,
+	spec BackendSpec,
+	inv modelinventory.Provider,
+	facts largebody.WireRequestFacts,
+	cand routing.AttemptCandidate,
+) largebody.WireRequestSupport {
+	if ctx != nil && ctx.Err() != nil {
+		return largebody.WireRequestSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonUnsupported,
+		}
+	}
+	if specFlavor(spec) != FlavorChat {
+		return largebody.WireRequestSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonOperationUnsupported,
+		}
+	}
+	if facts.Operation != lipapi.OperationOpenAIChatCompletions {
+		return largebody.WireRequestSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonOperationUnsupported,
+		}
+	}
+	if facts.ProfileID != OpenAIChatProfileID {
+		return largebody.WireRequestSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonProfileUnsupported,
+		}
+	}
+	if facts.Delivery != lipapi.DeliveryModeStreaming {
+		return largebody.WireRequestSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonDeliveryUnsupported,
+		}
+	}
+	if facts.BodyMode != largebody.BodyModeIdentityJSON {
+		return largebody.WireRequestSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonBodyModeUnsupported,
+		}
+	}
+
+	targetModel := strings.TrimSpace(facts.CandidateModel)
+	if targetModel == "" {
+		targetModel = strings.TrimSpace(cand.Primary.WireModel())
+	}
+	if targetModel == "" {
+		targetModel = strings.TrimSpace(cand.Primary.Model)
+	}
+	if targetModel == "" {
+		targetModel = strings.TrimSpace(facts.ClientModel)
+	}
+	if targetModel == "" {
+		return largebody.WireRequestSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonModelUnsupported,
+		}
+	}
+
+	staticModels, hasStatic := staticModelsFromInventory(inv)
+	if hasStatic {
+		if _, ok := staticModels[targetModel]; !ok {
+			return largebody.WireRequestSupport{
+				Compatible: false,
+				Reason:     largebody.WireSupportReasonModelUnsupported,
+			}
+		}
+	}
+
+	needsRewrite := targetModel != strings.TrimSpace(facts.ClientModel)
+	if needsRewrite && !facts.Rewrite.NeedsModelRewrite() {
+		return largebody.WireRequestSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonRewriteUnsupported,
+		}
+	}
+
+	return largebody.WireRequestSupport{
+		Compatible:        true,
+		NeedsModelRewrite: needsRewrite,
+		Reason:            largebody.WireSupportReasonNone,
+	}
+}
+
+func resolveChatWireDomain(
+	ctx context.Context,
+	spec BackendSpec,
+	inv modelinventory.Provider,
+	facts largebody.WireDomainFacts,
+) largebody.WireDomainSupport {
+	if ctx != nil && ctx.Err() != nil {
+		return largebody.WireDomainSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonUnsupported,
+		}
+	}
+	if specFlavor(spec) != FlavorChat {
+		return largebody.WireDomainSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonOperationUnsupported,
+		}
+	}
+	if facts.Operation != lipapi.OperationOpenAIChatCompletions {
+		return largebody.WireDomainSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonOperationUnsupported,
+		}
+	}
+	if facts.ProfileID != OpenAIChatProfileID {
+		return largebody.WireDomainSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonProfileUnsupported,
+		}
+	}
+	if facts.Delivery != lipapi.DeliveryModeStreaming {
+		return largebody.WireDomainSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonDeliveryUnsupported,
+		}
+	}
+	if facts.BodyMode != largebody.BodyModeIdentityJSON {
+		return largebody.WireDomainSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonBodyModeUnsupported,
+		}
+	}
+	if facts.Rewrite.Kind() != largebody.RewriteKindNone && facts.Rewrite.Kind() != largebody.RewriteKindModelToken {
+		return largebody.WireDomainSupport{
+			Compatible: false,
+			Reason:     largebody.WireSupportReasonRewriteUnsupported,
+		}
+	}
+
+	universal := isBackendUniversal(spec, inv)
+	if facts.UniversalModel {
+		if !universal {
+			return largebody.WireDomainSupport{
+				Compatible:       false,
+				AnyAcceptedModel: false,
+				Reason:           largebody.WireSupportReasonModelUnsupported,
+			}
+		}
+		return largebody.WireDomainSupport{
+			Compatible:       true,
+			AnyAcceptedModel: true,
+			Reason:           largebody.WireSupportReasonNone,
+		}
+	}
+
+	// Finite model domain: check every candidate model against declared static inventory
+	if !universal {
+		staticModels, _ := staticModelsFromInventory(inv)
+		for _, m := range facts.CandidateModels {
+			m = strings.TrimSpace(m)
+			if _, ok := staticModels[m]; !ok {
+				return largebody.WireDomainSupport{
+					Compatible:       false,
+					AnyAcceptedModel: false,
+					Reason:           largebody.WireSupportReasonModelUnsupported,
+				}
+			}
+		}
+		return largebody.WireDomainSupport{
+			Compatible:       true,
+			AnyAcceptedModel: false,
+			Reason:           largebody.WireSupportReasonNone,
+		}
+	}
+
+	return largebody.WireDomainSupport{
+		Compatible:       true,
+		AnyAcceptedModel: true,
+		Reason:           largebody.WireSupportReasonNone,
+	}
+}
+
 func specFlavor(spec BackendSpec) Flavor {
 	if spec.Flavor != "" {
 		return spec.Flavor
@@ -236,7 +417,7 @@ func specFlavor(spec BackendSpec) Flavor {
 
 func attachWireProof(be execbackend.Backend, spec BackendSpec, pool *credpool.Pool, inv modelinventory.Provider) execbackend.Backend {
 	flavor := specFlavor(spec)
-	if flavor != FlavorResponses {
+	if flavor != FlavorResponses && flavor != FlavorChat {
 		be.ResolveWireRequest = func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
 			return largebody.WireRequestSupport{
 				Compatible: false,
@@ -252,11 +433,20 @@ func attachWireProof(be execbackend.Backend, spec BackendSpec, pool *credpool.Po
 		return be
 	}
 
-	be.ResolveWireRequest = func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
-		return resolveResponsesWireRequest(ctx, spec, inv, facts, cand)
-	}
-	be.ResolveWireDomain = func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport {
-		return resolveResponsesWireDomain(ctx, spec, inv, facts)
+	if flavor == FlavorResponses {
+		be.ResolveWireRequest = func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
+			return resolveResponsesWireRequest(ctx, spec, inv, facts, cand)
+		}
+		be.ResolveWireDomain = func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport {
+			return resolveResponsesWireDomain(ctx, spec, inv, facts)
+		}
+	} else {
+		be.ResolveWireRequest = func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
+			return resolveChatWireRequest(ctx, spec, inv, facts, cand)
+		}
+		be.ResolveWireDomain = func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport {
+			return resolveChatWireDomain(ctx, spec, inv, facts)
+		}
 	}
 
 	fallback := spec.RateLimitFallback
@@ -266,7 +456,7 @@ func attachWireProof(be execbackend.Backend, spec BackendSpec, pool *credpool.Po
 	prims := WireOpenPrimitives{
 		ProviderID:        spec.ID,
 		BaseURL:           spec.BaseURL,
-		Flavor:            FlavorResponses,
+		Flavor:            flavor,
 		Pool:              pool,
 		HTTPClient:        spec.HTTPClient,
 		RateLimitFallback: fallback,

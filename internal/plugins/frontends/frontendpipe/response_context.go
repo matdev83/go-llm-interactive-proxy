@@ -234,7 +234,8 @@ func (c ResponseContext) AnthropicMessageID() string {
 
 // CancellationID returns the authoritative cancellation ID.
 // If an authoritative A-leg ID is present, it returns the carrier-bound cancellation ID (Requirement 18.6).
-// Otherwise, it falls back to any explicit seed cancellation ID or OpenAIResponseID().
+// Otherwise, it falls back to any explicit seed cancellation ID, or OpenAIChatCompletionID() for
+// Chat completions, or OpenAIResponseID().
 func (c ResponseContext) CancellationID() string {
 	if aLegID := c.ALegID(); aLegID != "" {
 		if carrier := FormatOpenAICancellationCarrier(aLegID, c.SessionID()); carrier != "" {
@@ -243,6 +244,9 @@ func (c ResponseContext) CancellationID() string {
 	}
 	if c.State.Seeds.CancellationID != "" {
 		return c.State.Seeds.CancellationID
+	}
+	if c.State.Proof.Operation == lipapi.OperationOpenAIChatCompletions {
+		return c.OpenAIChatCompletionID()
 	}
 	return c.OpenAIResponseID()
 }
