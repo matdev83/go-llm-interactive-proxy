@@ -206,4 +206,4 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
         shell: bash
         run: |
-          echo "Full QA bypassed: no runtime/test-relevant changes detected."
+          echo "QA bypassed: no test-relevant changes detected."
