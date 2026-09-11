@@ -72,28 +72,28 @@ jobs:
           exit 1
 
       - name: Fail closed if database parity failed
-        if: always() && needs.db-parity.result != 'success'
+        if: always() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && needs.db-parity.result != 'success'
         shell: bash
         run: |
           echo "Database parity check failed or was cancelled; refusing to satisfy required repo hygiene status." >&2
           exit 1
 
       - name: Check out repository
-        if: needs.changes.result == 'success'
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Go
-        if: needs.changes.result == 'success' && github.event_name == 'pull_request'
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: false
 
       - name: Check change size
-        if: needs.changes.result == 'success' && github.event_name == 'pull_request'
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -135,7 +135,7 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.code != 'true'
         shell: bash
         run: |
-          echo "Repo hygiene manifest check bypassed: documentation-only changes detected."
+          echo "Repo hygiene manifest/change-size checks bypassed: no code-relevant changes detected."
 
   test:
     name: Test (${{ matrix.os }})
@@ -277,9 +277,10 @@ jobs:
   db-parity:
     name: Database parity
     needs: changes
-    if: always()
-    # Required status check: see repo-hygiene above. Always run the job so it
-    # reports success (not skip) on docs-only PRs; guard steps.
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true')
+    # This check is not required directly. Skip the entire job on docs/spec-only
+    # PRs so GitHub does not provision PostgreSQL just to execute a bypass step.
+    # Repo hygiene only requires successful database parity when test scope is on.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -370,9 +371,3 @@ jobs:
           LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
           LIP_TEST_PARALLEL: '4'
         run: make test-db-parity
-
-      - name: Report unrelated PR bypass
-        if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
-        shell: bash
-        run: |
-          echo "Database parity bypassed: documentation-only changes detected."
