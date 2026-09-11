@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonshape"
@@ -38,6 +39,8 @@ type LargePayloadConfig struct {
 	SpoolDir string
 	// CopyBufferSize is the chunk size used for reading from the client body.
 	CopyBufferSize int
+	// Diagnostics optionally supplies a diagnostic observer (Task 19.1).
+	Diagnostics largebody.DiagnosticsObserver
 }
 
 // EffectiveThresholdBytes returns ThresholdBytes if > 0, else DefaultThresholdBytes (1 MiB).
@@ -530,6 +533,7 @@ func replayCandidate[Opts any](
 		AnthropicVersion:     strings.TrimSpace(r.Header.Get("anthropic-version")),
 	}
 
+	proofStart := time.Now()
 	var proofOut ProofOutput
 	var proofErr error
 	if spec.Profile != nil {
@@ -539,6 +543,17 @@ func replayCandidate[Opts any](
 		}
 	} else {
 		proofErr = errors.New("frontendpipe: profile not configured")
+	}
+	spec.diagnostics().OnStageDuration("proof", time.Since(proofStart))
+
+	if proofErr == nil {
+		spec.diagnostics().OnPipelineStage(largebody.StageProfileProven)
+	} else {
+		// Decline-reason coarseness note (Task 19.1 review finding 3):
+		// All profile proof compilation failures map to DeclineReasonProofUncertain
+		// because any validation error at the profile boundary indicates wire equivalence
+		// cannot be proven, falling back to canonical parsing.
+		spec.diagnostics().OnDecline(largebody.DeclineReasonProofUncertain.String())
 	}
 
 	if spec.OnCandidateProof != nil {
@@ -553,11 +568,32 @@ func replayCandidate[Opts any](
 	var assessment largebody.Assessment
 	var assessErr error
 	if proofErr == nil {
+		assessStart := time.Now()
 		assessor, aok := largebody.AsLargeBodyAssessor(spec.Exec)
 		if !aok || assessor == nil {
 			assessErr = errors.New("frontendpipe: large body assessor not configured")
 		} else {
 			assessment, assessErr = assessor.AssessLargeBody(ctx, proofOut.Proof())
+		}
+		spec.diagnostics().OnStageDuration("assessment", time.Since(assessStart))
+
+		if assessErr == nil && assessment.Accepted() {
+			spec.diagnostics().OnPipelineStage(largebody.StageAssessmentEligible)
+		} else {
+			if assessErr != nil {
+				// Decline-reason coarseness note (Task 19.1 review finding 3):
+				// Cancellation/timeout during assessment maps to DeclineReasonCanceled.
+				// Other assessor failures (unconfigured assessor, authority reject) map to
+				// DeclineReasonAuthorityBlocker because the assessor is the side-effect-free
+				// authority blocker for wire execution.
+				if errors.Is(assessErr, context.Canceled) || errors.Is(assessErr, context.DeadlineExceeded) || ctx.Err() != nil {
+					spec.diagnostics().OnDecline(largebody.DeclineReasonCanceled.String())
+				} else {
+					spec.diagnostics().OnDecline(largebody.DeclineReasonAuthorityBlocker.String())
+				}
+			} else {
+				spec.diagnostics().OnDecline(assessment.Reason.String())
+			}
 		}
 
 		if spec.OnCandidateAssessment != nil {
@@ -584,10 +620,19 @@ func replayCandidate[Opts any](
 
 		isStream := proofOut.Seeds().Stream || proofOut.Proof().Delivery == lipapi.DeliveryModeStreaming
 
+		observer := spec.diagnostics()
+		observer.OnPipelineStage(largebody.StageWire)
+		observer.OnReplay()
+		if assessment.WireRequest.Rewrite.NeedsModelRewrite() || assessment.WireDomain.Rewrite.NeedsModelRewrite() {
+			observer.OnRewrite()
+		}
+
 		var execRes largebody.ExecutionResult
 		var execErr error
 		if wireExec != nil {
+			execStart := time.Now()
 			execRes, execErr = spec.executeLargeBody(ctx, w, wireExec, assessment, capRes.Completed, isStream)
+			observer.OnStageDuration("execution", time.Since(execStart))
 		} else {
 			execErr = errors.New("frontendpipe: wire executor not available for accepted assessment")
 		}
@@ -670,6 +715,7 @@ func replayCandidate[Opts any](
 	// Task 11.9 / Task 7.6: Proof or assessment decline owns same-permit fallback:
 	// canonical Spec.Decode from replay under the original permit still held,
 	// with no release/reacquire and no second TryAdmit/429/503 decision.
+	spec.diagnostics().OnPipelineStage(largebody.StageCanonical)
 	body, berr := readCompletedSource(capRes.Completed)
 	if berr != nil {
 		return nil, nil, false, berr

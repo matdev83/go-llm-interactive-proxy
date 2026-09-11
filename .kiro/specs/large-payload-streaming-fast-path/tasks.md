@@ -714,7 +714,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 19. Prove material value on current main, not just correctness
 
-- [ ] 19.1 Add bounded diagnostics
+- [x] 19.1 Add bounded diagnostics
   - considered / static-canonical / captured / profile-proven / assessment-eligible / wire / canonical counts.
   - Static decline enum including local_turn, secret_guard, terminal_decision, frontend_route_resolver, traffic, accounting/counting, custom_call_callback, backend_domain, etc.
   - Size bucket, memory/file spill, replay/rewrite counts, stage latencies, active spool bytes.
@@ -892,3 +892,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 17.4 VERIFIED (controller scope audit, no code change): storage/continuation left as separate future certification — 17.1-17.3 diffs contain zero store reservations, response-ID persistence, recorder writes, cleanup, lineage, or trajectory machinery on the wire path (only reference is the failing-store fixture asserting zero store I/O); store:true/missing-store/prev_id/compaction all decline to canonical; future certification requires exact reservation/response-ID/recorder/cleanup/lineage/trajectory parity per Req 17/19.
 - Task 18.1 VERIFIED (review subagent APPROVED, reviewer-proven RED via old-logic replication): Header.Get-to-Values multi-line gzip detection fix in isRequestGzip/isRequestCompressed/isGzipEncoded (single-value identical, degenerate case more correct), gzip bypasses capture/profile/reservation with compressed-Length never a threshold fact, decoded limits/errors unchanged, no remaining request-path holes; frontendpipe + reqbody suites PASS, vet/gofmt/diff-check clean.
 - Task 18.2 DEFERRED by its own gate (controller decision, no code change): lanes certified test-only but not advertised and no Req 21 ROI evidence justifies decoded-gzip replay cost; gzip stays canonical via 18.1 bypass. Future work requires decoded-bytes threshold/reservation, explicit decoded body mode, stale-framing removal, and rerun of scanner/profile/identity/backend/transport differentials.
+- Task 19.1 VERIFIED (review subagent APPROVED after 1 remediation round: seq-ordered spool observer gauge fix + genuine RED evidence in `evidence/19.1-red-phase.md`): bounded stage/decline/size/spill/latency/spool diagnostics via closed-enum observer + prom sink, zero production wiring (default-off consistent); largebody + metrics + frontendpipe suites PASS, vet/gofmt/diff-check clean; single unexplained frontendpipe FAIL not attributable (7 consecutive green runs).

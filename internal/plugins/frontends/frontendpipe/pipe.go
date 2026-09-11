@@ -126,6 +126,13 @@ type Spec[Opts any] struct {
 	RouteFromBodyModel bool
 }
 
+func (s *Spec[Opts]) diagnostics() largebody.DiagnosticsObserver {
+	if s != nil && s.LargePayload.Diagnostics != nil {
+		return s.LargePayload.Diagnostics
+	}
+	return largebody.NoopDiagnosticsObserver{}
+}
+
 func (c Config) maxBodyLimit() int64 {
 	if c.MaxRequestBodyBytes > 0 {
 		return c.MaxRequestBodyBytes
@@ -218,7 +225,16 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 		http.NotFound(w, r)
 		return
 	}
+	dobs := spec.diagnostics()
+	var gateStart time.Time
+	if spec.LargePayload.Enabled {
+		dobs.OnPipelineStage(largebody.StageConsidered)
+		gateStart = time.Now()
+	}
 	gateRes := EvaluatePreCaptureGates(spec, r)
+	if spec.LargePayload.Enabled {
+		dobs.OnStageDuration("pre_capture_gates", time.Since(gateStart))
+	}
 	if spec.OnPreCaptureGate != nil {
 		spec.OnPreCaptureGate(r, gateRes)
 	}
@@ -228,11 +244,47 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 	var err error
 	var capRes CandidateCaptureResult
 	if !gateRes.Candidate {
+		if spec.LargePayload.Enabled {
+			dobs.OnPipelineStage(largebody.StageStaticCanonical)
+			declineReason := largebody.ResolveStaticDeclineReason(spec.LargePayload.WireEligibility, gateRes.Reason)
+			dobs.OnDecline(declineReason)
+		}
 		body, err = reqbody.ReadAll(w, r, limits.MaxBytes)
 	} else {
+		captureStart := time.Now()
 		capRes, body, err = CaptureCandidateBody(ctx, spec, w, r, limits.MaxBytes)
+		dobs.OnStageDuration("capture", time.Since(captureStart))
 		if spec.OnCandidateCapture != nil {
 			spec.OnCandidateCapture(r, capRes)
+		}
+		switch capRes.Outcome {
+		case largebody.CaptureOutcomeCompleted:
+			dobs.OnPipelineStage(largebody.StageCaptured)
+			storage := largebody.StorageMemory
+			if capRes.Completed != nil && capRes.Completed.HasSpilled() {
+				storage = largebody.StorageFile
+			}
+			var size int64
+			if capRes.Completed != nil {
+				size = capRes.Completed.Size()
+			} else {
+				size = capRes.BytesRead
+			}
+			dobs.OnCapture(largebody.SizeBucket(size), storage)
+			threshold := spec.LargePayload.EffectiveThresholdBytes()
+			if capRes.Completed != nil && capRes.Completed.Size() < threshold {
+				dobs.OnDecline(largebody.DeclineReasonBelowThreshold)
+			}
+		case largebody.CaptureOutcomeLimitExceeded:
+			dobs.OnDecline(largebody.DeclineReasonLimitExceeded)
+		case largebody.CaptureOutcomeReadError:
+			dobs.OnDecline(largebody.DeclineReasonReadError)
+		case largebody.CaptureOutcomeDeclined:
+			if largebody.IsSpoolBudgetExhausted(capRes.Err) {
+				dobs.OnDecline(largebody.DeclineReasonSpoolBudgetExhausted)
+			} else {
+				dobs.OnDecline(largebody.DeclineReasonReadError)
+			}
 		}
 	}
 	if err != nil {
@@ -265,6 +317,9 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 			return
 		}
 	} else {
+		if spec.LargePayload.Enabled {
+			dobs.OnPipelineStage(largebody.StageCanonical)
+		}
 		if capRes.Completed != nil {
 			_ = capRes.Completed.Close()
 		}

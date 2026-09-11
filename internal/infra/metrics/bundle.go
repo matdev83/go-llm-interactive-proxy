@@ -5,6 +5,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -29,9 +30,11 @@ type Bundle struct {
 	Reload              *ReloadProm
 	GeoIP               *GeoIPProm
 	ConversationView    *ConversationViewProm
+	LargePayload        *LargePayloadProm
 	sink                runtime.MetricsSink
 	tokenAccountingSink *TokenAccountingPromSink
 	conversationSink    ConversationViewObserver
+	largePayloadSink    largebody.DiagnosticsObserver
 }
 
 // NewBundle builds a registry with Go/process, inbound HTTP, executor, and upstream series.
@@ -53,6 +56,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	reload := RegisterReloadProm(r)
 	geoip := RegisterGeoIPProm(r)
 	cv := RegisterConversationViewProm(r)
+	lp := RegisterLargePayloadProm(r)
 	return &Bundle{
 		Registry:            r,
 		HTTP:                httpm,
@@ -68,9 +72,11 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 		Reload:              reload,
 		GeoIP:               geoip,
 		ConversationView:    cv,
+		LargePayload:        lp,
 		sink:                NewExecutorPromSink(exec),
 		tokenAccountingSink: NewTokenAccountingPromSink(tok),
 		conversationSink:    NewConversationViewSink(cv),
+		largePayloadSink:    NewLargePayloadPromSink(lp),
 	}
 }
 
@@ -128,6 +134,19 @@ func (b *Bundle) ConversationViewObserver() ConversationViewObserver {
 		return nil
 	}
 	return b.conversationSink
+}
+
+// LargePayloadDiagnostics returns a bounded large-payload diagnostics observer.
+//
+// Unwired-production note (Task 19.1 review finding 3):
+// Bundle.LargePayloadDiagnostics and SpoolLedger.SetObserver have no production callers
+// yet in server setup because the large payload fast path is default-off. Wiring them
+// into production HTTP runtime startup is the obligation of the enablement task.
+func (b *Bundle) LargePayloadDiagnostics() largebody.DiagnosticsObserver {
+	if b == nil {
+		return largebody.NoopDiagnosticsObserver{}
+	}
+	return b.largePayloadSink
 }
 
 var _ interface {

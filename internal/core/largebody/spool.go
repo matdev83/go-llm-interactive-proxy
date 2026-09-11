@@ -49,6 +49,24 @@ type SpoolLedger struct {
 	maxInflightSpoolBytes int64
 	inflightBytes         int64
 	activeReservations    int64
+	observer              SpoolObserver
+	seq                   uint64
+}
+
+// SetObserver sets an optional observer to receive active spool byte updates.
+// If obs is non-nil, it is immediately notified of the current active spool bytes.
+func (l *SpoolLedger) SetObserver(obs SpoolObserver) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.observer = obs
+	seq := l.seq
+	inflight := l.inflightBytes
+	l.mu.Unlock()
+	if obs != nil {
+		obs.OnActiveSpoolBytes(seq, inflight)
+	}
 }
 
 // NewSpoolLedger validates budget configuration and constructs a SpoolLedger.
@@ -138,18 +156,26 @@ func (l *SpoolLedger) Reserve(knownBytes int64) (*SpoolReservation, error) {
 	}
 
 	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	newInflight, err := checkedAdd(l.inflightBytes, knownBytes)
 	if err != nil {
+		l.mu.Unlock()
 		return nil, fmt.Errorf("%w: reservation overflows int64: %v", ErrInvalidReservation, err)
 	}
 	if newInflight > l.maxInflightSpoolBytes {
+		l.mu.Unlock()
 		return nil, ErrSpoolBudgetExhausted
 	}
 
+	l.seq++
+	seq := l.seq
 	l.inflightBytes = newInflight
 	l.activeReservations++
+	obs := l.observer
+	l.mu.Unlock()
+	if obs != nil {
+		obs.OnActiveSpoolBytes(seq, newInflight)
+	}
 
 	return &SpoolReservation{
 		ledger:           l,
@@ -256,18 +282,26 @@ func (r *SpoolReservation) ReserveMore(additionalBytes int64) error {
 	}
 
 	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	newInflight, err := checkedAdd(l.inflightBytes, additionalBytes)
 	if err != nil {
+		l.mu.Unlock()
 		return fmt.Errorf("%w: inflight bytes overflow int64: %v", ErrInvalidReservation, err)
 	}
 	if newInflight > l.maxInflightSpoolBytes {
+		l.mu.Unlock()
 		return ErrSpoolBudgetExhausted
 	}
 
+	l.seq++
+	seq := l.seq
 	l.inflightBytes = newInflight
 	r.reserved = newReserved
+	obs := l.observer
+	l.mu.Unlock()
+	if obs != nil {
+		obs.OnActiveSpoolBytes(seq, newInflight)
+	}
 	return nil
 }
 
@@ -301,11 +335,18 @@ func (r *SpoolReservation) ShrinkTo(finalBytes int64) error {
 	l := r.ledger
 	if l != nil {
 		l.mu.Lock()
+		l.seq++
+		seq := l.seq
 		l.inflightBytes -= delta
 		if l.inflightBytes < 0 {
 			l.inflightBytes = 0
 		}
+		inflight := l.inflightBytes
+		obs := l.observer
 		l.mu.Unlock()
+		if obs != nil {
+			obs.OnActiveSpoolBytes(seq, inflight)
+		}
 	}
 
 	r.reserved = finalBytes
@@ -337,6 +378,8 @@ func (r *SpoolReservation) Release() int64 {
 	l := r.ledger
 	if l != nil {
 		l.mu.Lock()
+		l.seq++
+		seq := l.seq
 		l.inflightBytes -= freed
 		if l.inflightBytes < 0 {
 			l.inflightBytes = 0
@@ -345,7 +388,12 @@ func (r *SpoolReservation) Release() int64 {
 		if l.activeReservations < 0 {
 			l.activeReservations = 0
 		}
+		inflight := l.inflightBytes
+		obs := l.observer
 		l.mu.Unlock()
+		if obs != nil {
+			obs.OnActiveSpoolBytes(seq, inflight)
+		}
 	}
 
 	return freed
