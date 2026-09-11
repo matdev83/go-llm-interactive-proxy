@@ -13,15 +13,9 @@ is_kiro_spec_path() {
 
 is_documentation_path() {
   case "$1" in
-    # Markdown is documentation regardless of where it lives. A Markdown-only
-    # PR must never trigger Go/runtime/test analysis merely because the file is
-    # outside docs/.
-    *.md|*.markdown)
-      return 0
-      ;;
     docs/*)
       case "$1" in
-        *.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
+        *.md|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
           return 0
           ;;
         *)
@@ -30,11 +24,11 @@ is_documentation_path() {
       esac
       ;;
     .kiro/specs/*)
-      # Kiro SDD metadata/visuals are specification inputs, not runtime/test
+      # Canonical Kiro SDD artifacts are specification inputs, not runtime/test
       # inputs. Keep executable or otherwise unexpected files fail-closed so
       # the spec tree can never become a generic CI bypass bucket.
       case "$1" in
-        *.json|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
+        *.md|*.markdown|*.json|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
           return 0
           ;;
         *)
@@ -42,7 +36,7 @@ is_documentation_path() {
           ;;
       esac
       ;;
-    LICENSE|LICENSE.*)
+    README.md|README.*.md|CHANGELOG.md|CHANGELOG.*.md|LICENSE|LICENSE.*)
       return 0
       ;;
     *)
@@ -76,9 +70,6 @@ file_matches() {
       is_kiro_spec_path "$file"
       ;;
     go)
-      if is_documentation_path "$file"; then
-        return 1
-      fi
       case "$file" in
         scripts/ci-scope.sh|scripts/openresponses-compliance-scope.sh)
           return 1
@@ -96,9 +87,6 @@ file_matches() {
       esac
       ;;
     openresponses_coverage)
-      if is_documentation_path "$file"; then
-        return 1
-      fi
       case "$file" in
         internal/**|pkg/**|tools/coverage-gate/**|testdata/**|\
         .github/workflows/openresponses-coverage.yml|scripts/ci-scope.sh|Makefile|\
@@ -109,9 +97,6 @@ file_matches() {
       esac
       ;;
     test_cost)
-      if is_documentation_path "$file"; then
-        return 1
-      fi
       case "$file" in
         scripts/test-cost-*|tools/testcost/**|internal/qa/test_cost_policy_test.go)
           return 0
@@ -183,29 +168,22 @@ self_test() {
     file_matches test "$relevant" || { echo "test scope missed $relevant" >&2; return 1; }
   done
 
-  # Markdown is documentation everywhere, including paths that otherwise map
-  # to code/coverage scopes. Kiro JSON is also a non-runtime spec artifact.
+  # Preserve the existing conservative policy outside canonical documentation
+  # locations, while treating canonical Kiro SDD artifacts as non-runtime.
   for unrelated in \
     docs/README.md \
     README.md \
     CHANGELOG.md \
-    notes/README.md \
-    internal/design.md \
-    pkg/lipapi/README.md \
-    .github/workflows/README.md \
-    testdata/fixture.md \
     .kiro/specs/example/requirements.md \
+    .kiro/specs/example/design.md \
+    .kiro/specs/example/research.md \
+    .kiro/specs/example/tasks.md \
     .kiro/specs/example/spec.json; do
     file_matches code "$unrelated" && { echo "code scope included $unrelated" >&2; return 1; }
-    file_matches go "$unrelated" && { echo "go scope included $unrelated" >&2; return 1; }
     file_matches test "$unrelated" && { echo "test scope included $unrelated" >&2; return 1; }
-    file_matches openresponses_coverage "$unrelated" && { echo "coverage scope included $unrelated" >&2; return 1; }
-    file_matches test_cost "$unrelated" && { echo "test-cost scope included $unrelated" >&2; return 1; }
   done
 
-  # Non-Markdown artifacts outside explicitly documentation-only locations stay
-  # fail-closed because configs/fixtures can affect runtime or test semantics.
-  for relevant in docs/backend-plugins/docs_test.go assets/example.txt testdata/fixture.json scripts/helper.sh; do
+  for relevant in docs/backend-plugins/docs_test.go notes/README.md assets/example.txt testdata/fixture.json scripts/helper.sh; do
     file_matches test "$relevant" || { echo "test scope missed $relevant" >&2; return 1; }
   done
 
@@ -215,15 +193,16 @@ self_test() {
     .kiro/specs/archive/example/tasks.md; do
     file_matches kiro "$relevant" || { echo "kiro scope missed $relevant" >&2; return 1; }
   done
-  for unrelated in docs/README.md internal/core/runtime.go; do
+  for unrelated in docs/README.md internal/core/runtime.go notes/README.md; do
     file_matches kiro "$unrelated" && { echo "kiro scope included $unrelated" >&2; return 1; }
   done
 
   # Unexpected executable content beneath .kiro/specs must still trigger the
-  # ordinary code/test path in addition to the Kiro policy scope.
-  relevant=.kiro/specs/example/check.sh
+  # ordinary code/test/Go path in addition to the Kiro policy scope.
+  relevant=.kiro/specs/example/check.go
   file_matches code "$relevant" || { echo "code scope missed executable Kiro artifact $relevant" >&2; return 1; }
   file_matches test "$relevant" || { echo "test scope missed executable Kiro artifact $relevant" >&2; return 1; }
+  file_matches go "$relevant" || { echo "go scope missed executable Kiro artifact $relevant" >&2; return 1; }
   file_matches kiro "$relevant" || { echo "kiro scope missed executable Kiro artifact $relevant" >&2; return 1; }
 
   for safe_scope in scripts/ci-scope.sh scripts/openresponses-compliance-scope.sh; do
@@ -283,32 +262,35 @@ self_test() {
     echo "NUL-delimited coverage path was not detected" >&2
     return 1
   }
+  rm -rf "$tmp"
+  trap - RETURN
 
-  # Lock the original regression: a canonical Kiro spec-only diff containing
-  # Markdown plus spec.json must not enable any runtime/test scope.
-  git -C "$tmp" reset --hard -q "$base"
-  git -C "$tmp" clean -fdq
+  # Lock the regression that motivated this scope: a canonical Kiro SDD-only
+  # diff must retain Kiro policy validation without enabling runtime/test work.
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' RETURN
+  git -C "$tmp" init -q
+  git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit --allow-empty -qm base
+  base="$(git -C "$tmp" rev-parse HEAD)"
   mkdir -p "$tmp/.kiro/specs/example"
   printf '# Requirements\n' > "$tmp/.kiro/specs/example/requirements.md"
-  printf '{"phase":"requirements"}\n' > "$tmp/.kiro/specs/example/spec.json"
+  printf '{"phase":"requirements-generated"}\n' > "$tmp/.kiro/specs/example/spec.json"
   git -C "$tmp" add -A
   git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm spec-only
   head="$(git -C "$tmp" rev-parse HEAD)"
   output="$(cd "$tmp" && bash "$script_path" --outputs "$base" "$head")"
-  for expected in \
+  for relevant in \
     code=false \
     go=false \
     test=false \
     kiro=true \
     openresponses_coverage=false \
     test_cost=false; do
-    grep -qx "$expected" <<< "$output" || {
-      echo "Kiro spec-only regression classified incorrectly; missing $expected" >&2
-      printf '%s\n' "$output" >&2
+    grep -qx "$relevant" <<< "$output" || {
+      echo "spec-only scope regression: expected $relevant, got: $output" >&2
       return 1
     }
   done
-
   rm -rf "$tmp"
   trap - RETURN
 
