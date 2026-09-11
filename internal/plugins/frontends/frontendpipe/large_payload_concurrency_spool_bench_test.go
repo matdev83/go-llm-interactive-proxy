@@ -298,6 +298,37 @@ func TestLargePayloadConcurrent_SpoolBudgetIsOptimizationBudgetNotOOM(t *testing
 // Verification: Cancellation Cleans Up Spill Files and Releases Reservations
 // -----------------------------------------------------------------------------
 
+type pausingSpillReader struct {
+	data       []byte
+	offset     int
+	spillBytes int
+	spilledCh  chan struct{}
+	once       sync.Once
+	ctx        context.Context
+}
+
+func (r *pausingSpillReader) Read(p []byte) (int, error) {
+	if r.ctx.Err() != nil {
+		return 0, r.ctx.Err()
+	}
+	if r.offset >= len(r.data) {
+		return 0, io.EOF
+	}
+	// Once we have read past spillBytes (written to disk), signal and wait for cancellation
+	if r.offset >= r.spillBytes {
+		r.once.Do(func() {
+			close(r.spilledCh)
+		})
+		<-r.ctx.Done()
+		return 0, r.ctx.Err()
+	}
+	// Read in 32 KiB chunks so threshold crossing is staged
+	n := min(len(p), min(32<<10, len(r.data)-r.offset))
+	copy(p, r.data[r.offset:r.offset+n])
+	r.offset += n
+	return n, nil
+}
+
 func TestLargePayloadConcurrent_CancellationCleansUpSpillFiles(t *testing.T) {
 	const target = 1 << 20 // 1 MiB
 	body := baselineResponsesBody(t, target)
@@ -316,32 +347,59 @@ func TestLargePayloadConcurrent_CancellationCleansUpSpillFiles(t *testing.T) {
 	spec.LargePayload.SpoolLedger = ledger
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Reader that cancels context halfway through upload
-	halfwayReader := &slowChunkReader{
-		data:      body,
-		chunkSize: 32 << 10,
-		delay:     0,
+	spilledCh := make(chan struct{})
+	// Pause after 96 KiB (> 64 KiB MemorySpoolBytes so spill file is flushed to disk)
+	spillReader := &pausingSpillReader{
+		data:       body,
+		spillBytes: 96 << 10,
+		spilledCh:  spilledCh,
+		ctx:        ctx,
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", halfwayReader).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", spillReader).WithContext(ctx)
 	req.ContentLength = int64(len(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
-	// Cancel after brief moment
+	serveDone := make(chan struct{})
 	go func() {
-		time.Sleep(2 * time.Millisecond)
-		cancel()
+		defer close(serveDone)
+		frontendpipe.ServeHTTP(spec, rec, req)
 	}()
 
-	frontendpipe.ServeHTTP(spec, rec, req)
+	// 1. Wait for upload to cross memory spool threshold and write to disk
+	select {
+	case <-spilledCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for disk spill threshold to be crossed")
+	}
 
-	// Wait for any deferred closes
-	time.Sleep(10 * time.Millisecond)
-
-	// Verify no temporary files remain in spoolDir
+	// 2. Deterministically assert that temporary spill file exists on disk BEFORE cancellation
 	entries, rerr := os.ReadDir(spoolDir)
+	if rerr != nil {
+		t.Fatalf("ReadDir: %v", rerr)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected spill file to exist in spoolDir while upload was paused")
+	}
+	if ledger.ActiveReservations() == 0 {
+		t.Fatal("expected active spool reservation while upload was paused")
+	}
+
+	// 3. Cancel context to trigger cancel-cleanup path
+	cancel()
+
+	// 4. Wait for ServeHTTP to exit
+	select {
+	case <-serveDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for ServeHTTP to return after cancellation")
+	}
+
+	// 5. Verify spill files were removed strictly as a consequence of cancellation
+	entries, rerr = os.ReadDir(spoolDir)
 	if rerr != nil {
 		t.Fatalf("ReadDir: %v", rerr)
 	}
@@ -349,8 +407,8 @@ func TestLargePayloadConcurrent_CancellationCleansUpSpillFiles(t *testing.T) {
 		t.Fatalf("expected 0 leftover temp files after cancellation, found %d", len(entries))
 	}
 
-	// Verify spool ledger in-flight bytes returned to zero
+	// 6. Verify spool ledger reservation was completely released
 	if ledger.ActiveReservations() != 0 {
-		t.Fatalf("expected 0 active reservations, got %d", ledger.ActiveReservations())
+		t.Fatalf("expected 0 active reservations after cancellation, got %d", ledger.ActiveReservations())
 	}
 }

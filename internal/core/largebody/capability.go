@@ -23,6 +23,11 @@ type LargeBodyWireExecutor interface {
 	ExecuteLargeBody(ctx context.Context, accepted Assessment, src Source) (ExecutionResult, error)
 }
 
+// LargeBodyStaticDispositionProvider provides an O(1) static wire disposition for a given profile.
+type LargeBodyStaticDispositionProvider interface {
+	LargeBodyStaticDisposition(profileID string) (StaticWireDisposition, StaticWireReason)
+}
+
 // LargeBodyExecutor is the internal optional large-body capability for the
 // large-payload streaming fast path (design section 8, assessor/executor
 // interface, Task 11.1).
@@ -38,11 +43,6 @@ type LargeBodyWireExecutor interface {
 // provider-neutral DTOs and this seam live in internal core; provider/frontend
 // semantics stay in adapters/plugins. Core never imports concrete plugins or
 // provider SDKs here (stdlib plus pkg/lipsdk only).
-// LargeBodyStaticDispositionProvider provides an O(1) static wire disposition for a given profile.
-type LargeBodyStaticDispositionProvider interface {
-	LargeBodyStaticDisposition(profileID string) (StaticWireDisposition, StaticWireReason)
-}
-
 type LargeBodyExecutor interface {
 	LargeBodyAssessor
 	LargeBodyWireExecutor

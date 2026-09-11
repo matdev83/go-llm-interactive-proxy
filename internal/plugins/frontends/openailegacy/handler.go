@@ -34,6 +34,8 @@ type Handler struct {
 	StreamKeepaliveInterval time.Duration
 	// Profile optionally overrides the large-payload fast-path profile (defaults to NewProfile()).
 	Profile frontendpipe.FrontendProfile
+	// LargePayload configures the large-payload fast-path candidate limits.
+	LargePayload frontendpipe.LargePayloadConfig
 
 	// pipeOnce serializes the first spec() build; handlers serve concurrent requests.
 	pipeOnce sync.Once
@@ -70,6 +72,7 @@ func (h *Handler) buildPipe() {
 			FrontendID:              ID,
 			HTTPHeaders:             h.HTTPHeaders,
 			StreamKeepaliveInterval: h.StreamKeepaliveInterval,
+			LargePayload:            h.LargePayload,
 		},
 		Wire:               frontendpipe.OpenAIWire{},
 		Profile:            prof,

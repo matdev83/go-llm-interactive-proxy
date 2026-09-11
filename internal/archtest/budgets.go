@@ -86,10 +86,12 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// Runtimebundle shrank in the same change (deleted keepwarm_http.go and
 	// secret_guard_runtime.go, emptied ExtensionsOptions), so this is movement
 	// Large-payload fast-path Phase 4 unifies ProductionLargeBodyAssessor composition,
-	// wire eligibility summary, and spool ledger wiring; measured 12501, bump to 12526 with 25 headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 12526},
+	// wire eligibility summary, and spool ledger wiring;
+	// Phase 5 links server.large_payload_fast_path config through runtimebundle to stdhttp and frontend Specs;
+	// measured 12542 (runtimebundle) and 6753 (stdhttp), bump to 12567 and 6778 with 25 headroom.
+	{Tree: "internal/infra/runtimebundle", Max: 12567},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
-	{Tree: "internal/stdhttp", Max: 6693},
+	{Tree: "internal/stdhttp", Max: 6778},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -174,8 +176,8 @@ var LineBudgets = []LineBudget{
 	// measured 98366, bump to 98391 with 25 headroom.
 	{Dir: "internal/core", Max: 98391},
 	{Dir: "internal/pluginreg", Max: 1174},
-	{Dir: "internal/stdhttp", Max: 6693},
-	{Dir: "internal/infra/runtimebundle", Max: 12526},
+	{Dir: "internal/stdhttp", Max: 6778},
+	{Dir: "internal/infra/runtimebundle", Max: 12567},
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},

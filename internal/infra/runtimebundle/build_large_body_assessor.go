@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 )
 
 // buildProcessSpoolLedger constructs and binds the process-owned large payload spool ledger.
@@ -173,4 +174,36 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 	)
 
 	return assessor, genID, nil
+}
+
+// buildStandardLargePayloadConfig compiles the frontend fast-path candidate configuration
+// from the frozen server config and candidate process references.
+func buildStandardLargePayloadConfig(cand *candidateAssembly, frozen *config.Config) httpcontract.LargePayloadInput {
+	if frozen == nil || !frozen.Server.LargePayloadFastPath.Enabled {
+		return httpcontract.LargePayloadInput{}
+	}
+	fpCfg := frozen.Server.LargePayloadFastPath
+	var spoolLedger *largebody.SpoolLedger
+	var diag largebody.DiagnosticsObserver = largebody.NoopDiagnosticsObserver{}
+	var wireElig largebody.WireEligibilitySummary
+	if cand != nil {
+		spoolLedger = cand.process.spoolLedger
+		if cand.process.metrics != nil {
+			diag = cand.process.metrics.LargePayloadDiagnostics()
+		}
+		if cand.execution.executor != nil {
+			if pa, ok := cand.execution.executor.LargeBodyAssessor.(*runtime.ProductionLargeBodyAssessor); ok && pa != nil && pa.AuthorityGate != nil {
+				wireElig = pa.AuthorityGate.Summary
+			}
+		}
+	}
+	return httpcontract.LargePayloadInput{
+		Enabled:          true,
+		ThresholdBytes:   fpCfg.EffectiveThresholdBytes(),
+		MemorySpoolBytes: fpCfg.EffectiveMemorySpoolBytes(),
+		SpoolDir:         fpCfg.EffectiveSpoolDir(),
+		SpoolLedger:      spoolLedger,
+		Diagnostics:      diag,
+		WireEligibility:  wireElig,
+	}
 }

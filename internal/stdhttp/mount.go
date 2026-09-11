@@ -76,6 +76,7 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 					StreamKeepaliveInterval: fe.StreamKeepaliveInterval,
 					GenerationContext:       fe.GenerationContext, ContinuationWiringFactory: fe.ContinuationWiringFactory,
 					FrontendInstanceID: p.InstanceID(),
+					LargePayload:       fe.LargePayload,
 				},
 			); err != nil {
 				return err

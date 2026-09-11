@@ -137,11 +137,8 @@ func (b *Bundle) ConversationViewObserver() ConversationViewObserver {
 }
 
 // LargePayloadDiagnostics returns a bounded large-payload diagnostics observer.
-//
-// Unwired-production note (Task 19.1 review finding 3):
-// Bundle.LargePayloadDiagnostics and SpoolLedger.SetObserver have no production callers
-// yet in server setup because the large payload fast path is default-off. Wiring them
-// into production HTTP runtime startup is the obligation of the enablement task.
+// Wired into production HTTP runtime startup via buildProcessSpoolLedger and
+// buildStandardLargePayloadConfig.
 func (b *Bundle) LargePayloadDiagnostics() largebody.DiagnosticsObserver {
 	if b == nil {
 		return largebody.NoopDiagnosticsObserver{}

@@ -117,6 +117,9 @@ type FrontendMountOptions struct {
 	// StreamKeepaliveInterval is the recovery SSE keepalive interval. Zero uses
 	// the stream package default (12s).
 	StreamKeepaliveInterval time.Duration
+	// LargePayload carries optional large-payload fast-path candidate configuration
+	// for supported frontends.
+	LargePayload any
 }
 
 type FrontendKeepaliveConfig struct {

@@ -3,10 +3,14 @@ package runtimebundle_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -15,7 +19,11 @@ import (
 	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -90,13 +98,13 @@ func TestLargePayloadHost_StockHost_ExecutorRoutesCanonical(t *testing.T) {
 // TestLargePayloadHost_StockHost_CandidatePrerequisites_TypeAssertionOnly characterizes that
 // BuildHost's runtime.Executor satisfies largebody.LargeBodyExecutor for frontendpipe.CandidatePrerequisites.
 //
-// Deferral note (Phase 5): Full BuildHost-level wire eligibility and candidate-path execution
-// cannot be verified at the host level in Phase 4 because runtimebundle's production composition
-// occupies blocker-class full-Call ports (such as RoutingRT.CapsResolver in build_executor.go).
-// As a result, the production census correctly reports static blockers, keeping stock hosts 100%
-// canonical (zero spooling). Genuine enabled-config/eligible-generation candidate-path execution
-// is characterized in TestLargePayload_EnabledConfig_PreCaptureGatesAndExecution.
-// Wire eligibility enablement at the BuildHost level is deferred to Phase 5.
+// Phase 5 Census & Wiring Invariant: BuildHost links server.large_payload_fast_path into
+// frontendpipe.LargePayloadConfig on all frontend Specs. In stock composition, standard census
+// compilation (largebody.compilePortBlockers) occupies content authority ports lacking a non-Call
+// wire alternative (such as RoutingRT.CapsResolver in build_executor.go). As a result, the production
+// census correctly compiles HasStaticBlocker() == true, proving that stock hosts remain 100% canonical
+// (zero spooling) even when fast-path is enabled. Candidate-path wire execution in an eligible census
+// environment is characterized in TestLargePayload_EnabledConfig_PreCaptureGatesAndExecution.
 func TestLargePayloadHost_StockHost_CandidatePrerequisites_TypeAssertionOnly(t *testing.T) {
 	t.Parallel()
 
@@ -237,10 +245,10 @@ func validCharTestProof(profileID string, op lipapi.Operation, delivery lipapi.D
 // TestLargePayload_EnabledConfig_PreCaptureGatesAndExecution provides genuine
 // enabled-config and eligible-generation candidate-path characterization.
 //
-// Deferral note (Phase 5): Full BuildHost-level wire eligibility is blocked in Phase 4 because
-// runtimebundle unconditionally constructs and assigns blocker-class full-Call ports (such as
-// RoutingRT.CapsResolver in build_executor.go). Enabling BuildHost-level fast-path config and
-// wire eligibility is deferred to Phase 5.
+// Note: BuildHost-level fast-path config linkage is established in Phase 5
+// (see TestLargePayloadHost_EnabledConfig_LinkageToFrontendSpecs). This test
+// characterizes candidate-path gate evaluation and wire execution on an assessor
+// configured with an eligible dependency census.
 func TestLargePayload_EnabledConfig_PreCaptureGatesAndExecution(t *testing.T) {
 	t.Parallel()
 
@@ -352,5 +360,205 @@ func TestLargePayload_EnabledConfig_PreCaptureGatesAndExecution(t *testing.T) {
 	_, err = ex.ExecuteLargeBody(context.Background(), declined, nil)
 	if err == nil {
 		t.Fatal("ExecuteLargeBody must fail closed for non-accepted assessment")
+	}
+}
+
+func TestLargePayloadHost_EnabledConfig_LinkageToFrontendSpecs(t *testing.T) {
+	t.Parallel()
+
+	basePath := runtimebundle.MaterializeExampleConfigForTest(
+		t,
+		filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"),
+	)
+	raw, err := os.ReadFile(basePath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	spoolDir := t.TempDir()
+	// Inject large_payload_fast_path config and openresponses frontend
+	customYAML := strings.Replace(
+		string(raw),
+		"server:\n  address: \"127.0.0.1:18080\"",
+		fmt.Sprintf("server:\n  address: \"127.0.0.1:18080\"\n  large_payload_fast_path:\n    enabled: true\n    threshold_bytes: 4096\n    memory_spool_bytes: 32768\n    max_inflight_spool_bytes: 1048576\n    max_semantic_fact_bytes: 16384\n    spool_dir: %q", spoolDir),
+		1,
+	)
+	customYAML = strings.Replace(
+		customYAML,
+		"    - id: gemini\n      enabled: true\n      config: {}",
+		"    - id: gemini\n      enabled: true\n      config: {}\n    - id: openresponses\n      enabled: true\n      config: {}",
+		1,
+	)
+
+	cfgPath := filepath.Join(t.TempDir(), "enabled-fast-path.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var capturedInput httpcontract.StandardHTTPInput
+	interceptComposer := func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+		capturedInput = in
+		return stdhttp.ComposeStandardHTTP(ctx, cfg, log, in)
+	}
+
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: interceptComposer,
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	hostServeCleanup(t, host)
+
+	// 1. Verify that StandardHTTPInput received LargePayloadConfig with enabled settings and process bindings
+	lpCfg := capturedInput.Frontends.LargePayload
+	if !lpCfg.Enabled {
+		t.Fatal("expected LargePayloadConfig.Enabled to be true")
+	}
+	if lpCfg.ThresholdBytes != 4096 {
+		t.Fatalf("expected ThresholdBytes == 4096, got %d", lpCfg.ThresholdBytes)
+	}
+	if lpCfg.MemorySpoolBytes != 32768 {
+		t.Fatalf("expected MemorySpoolBytes == 32768, got %d", lpCfg.MemorySpoolBytes)
+	}
+	if lpCfg.SpoolDir != spoolDir {
+		t.Fatalf("expected SpoolDir == %q, got %q", spoolDir, lpCfg.SpoolDir)
+	}
+	if lpCfg.SpoolLedger == nil || lpCfg.SpoolLedger != host.SpoolLedger() {
+		t.Fatalf("expected SpoolLedger to match host.SpoolLedger(), got %v vs %v", lpCfg.SpoolLedger, host.SpoolLedger())
+	}
+	if lpCfg.Diagnostics == nil || lpCfg.Diagnostics != host.LargePayloadDiagnostics() {
+		t.Fatalf("expected Diagnostics to match host.LargePayloadDiagnostics(), got %v vs %v", lpCfg.Diagnostics, host.LargePayloadDiagnostics())
+	}
+
+	// 2. Mount bundled frontends to inspect handlers and specs
+	testMux := http.NewServeMux()
+	if err := stdhttp.MountBundledFrontends(stdhttp.MountBundledFrontendsInput{
+		Mux:       testMux,
+		Frontends: capturedInput.Frontends,
+	}); err != nil {
+		t.Fatalf("MountBundledFrontends: %v", err)
+	}
+
+	// OpenAI Responses handler
+	hResp, _ := testMux.Handler(httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	respHandler, ok := hResp.(*openairesponses.Handler)
+	if !ok {
+		t.Fatalf("expected *openairesponses.Handler at /v1/responses, got %T", hResp)
+	}
+	specResp := respHandler.Spec()
+	if !specResp.Config.LargePayload.Enabled {
+		t.Error("expected openairesponses Spec.Config.LargePayload.Enabled == true")
+	}
+	if specResp.Config.LargePayload.ThresholdBytes != 4096 {
+		t.Errorf("expected openairesponses ThresholdBytes == 4096, got %d", specResp.Config.LargePayload.ThresholdBytes)
+	}
+	if specResp.Config.LargePayload.MemorySpoolBytes != 32768 {
+		t.Errorf("expected openairesponses MemorySpoolBytes == 32768, got %d", specResp.Config.LargePayload.MemorySpoolBytes)
+	}
+	if specResp.Config.LargePayload.SpoolLedger != host.SpoolLedger() {
+		t.Errorf("expected openairesponses SpoolLedger to match host.SpoolLedger()")
+	}
+
+	// OpenAI Legacy handler
+	hLegacy, _ := testMux.Handler(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
+	legacyHandler, ok := hLegacy.(*openailegacy.Handler)
+	if !ok {
+		t.Fatalf("expected *openailegacy.Handler at /v1/chat/completions, got %T", hLegacy)
+	}
+	specLegacy := legacyHandler.Spec()
+	if !specLegacy.Config.LargePayload.Enabled {
+		t.Error("expected openailegacy Spec.Config.LargePayload.Enabled == true")
+	}
+	if specLegacy.Config.LargePayload.ThresholdBytes != 4096 {
+		t.Errorf("expected openailegacy ThresholdBytes == 4096, got %d", specLegacy.Config.LargePayload.ThresholdBytes)
+	}
+
+	// OpenResponses handler
+	hOpenResp, _ := testMux.Handler(httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", nil))
+	openRespHandler, ok := hOpenResp.(*openresponses.Handler)
+	if !ok {
+		t.Fatalf("expected *openresponses.Handler at /responses, got %T", hOpenResp)
+	}
+	specOpenResp := openRespHandler.Spec()
+	if !specOpenResp.Config.LargePayload.Enabled {
+		t.Error("expected openresponses Spec.Config.LargePayload.Enabled == true")
+	}
+	if specOpenResp.Config.LargePayload.ThresholdBytes != 4096 {
+		t.Errorf("expected openresponses ThresholdBytes == 4096, got %d", specOpenResp.Config.LargePayload.ThresholdBytes)
+	}
+}
+
+func TestLargePayloadHost_DisabledConfig_LeavesFrontendSpecsDisabled(t *testing.T) {
+	t.Parallel()
+
+	basePath := runtimebundle.MaterializeExampleConfigForTest(
+		t,
+		filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"),
+	)
+	raw, err := os.ReadFile(basePath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	customYAML := strings.Replace(
+		string(raw),
+		"    - id: gemini\n      enabled: true\n      config: {}",
+		"    - id: gemini\n      enabled: true\n      config: {}\n    - id: openresponses\n      enabled: true\n      config: {}",
+		1,
+	)
+	cfgPath := filepath.Join(t.TempDir(), "disabled-fast-path.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var capturedInput httpcontract.StandardHTTPInput
+	interceptComposer := func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+		capturedInput = in
+		return stdhttp.ComposeStandardHTTP(ctx, cfg, log, in)
+	}
+
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: interceptComposer,
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	hostServeCleanup(t, host)
+
+	// Captured LargePayload has Enabled == false
+	if capturedInput.Frontends.LargePayload.Enabled {
+		t.Fatal("expected LargePayload.Enabled to be false when config disabled")
+	}
+
+	testMux := http.NewServeMux()
+	if err := stdhttp.MountBundledFrontends(stdhttp.MountBundledFrontendsInput{
+		Mux:       testMux,
+		Frontends: capturedInput.Frontends,
+	}); err != nil {
+		t.Fatalf("MountBundledFrontends: %v", err)
+	}
+
+	hResp, _ := testMux.Handler(httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	if respHandler, ok := hResp.(*openairesponses.Handler); ok {
+		if respHandler.Spec().Config.LargePayload.Enabled {
+			t.Error("expected openairesponses spec.Config.LargePayload.Enabled == false")
+		}
+	}
+	hLegacy, _ := testMux.Handler(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
+	if legacyHandler, ok := hLegacy.(*openailegacy.Handler); ok {
+		if legacyHandler.Spec().Config.LargePayload.Enabled {
+			t.Error("expected openailegacy spec.Config.LargePayload.Enabled == false")
+		}
+	}
+	hOpenResp, _ := testMux.Handler(httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", nil))
+	if openRespHandler, ok := hOpenResp.(*openresponses.Handler); ok {
+		if openRespHandler.Spec().Config.LargePayload.Enabled {
+			t.Error("expected openresponses spec.Config.LargePayload.Enabled == false")
+		}
 	}
 }

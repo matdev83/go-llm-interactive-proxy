@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -23,49 +24,7 @@ const DefaultMaxSemanticFactBytes int64 = 256 * 1024
 
 // LargePayloadConfig parameterizes the large-payload fast path for a frontend create pipeline
 // (Task 7.3, 7.4, Requirements 1, 2, 20; design section 3, 5).
-type LargePayloadConfig struct {
-	// Enabled gates fast-path candidate evaluation. Default false.
-	Enabled bool
-	// ThresholdBytes is the decoded-size consideration gate. When <= 0,
-	// largebody.DefaultThresholdBytes (1 MiB) is used.
-	ThresholdBytes int64
-	// WireEligibility optionally supplies the generation-frozen WireEligibilitySummary.
-	WireEligibility largebody.WireEligibilitySummary
-	// SpoolLedger optionally supplies the shared in-flight logical spool ledger (Task 4.1).
-	SpoolLedger *largebody.SpoolLedger
-	// MemorySpoolBytes bounds retained bytes in Go heap per capture before spilling.
-	MemorySpoolBytes int64
-	// SpoolDir is the directory where temporary spill files are created.
-	SpoolDir string
-	// CopyBufferSize is the chunk size used for reading from the client body.
-	CopyBufferSize int
-	// Diagnostics optionally supplies a diagnostic observer (Task 19.1).
-	Diagnostics largebody.DiagnosticsObserver
-}
-
-// EffectiveThresholdBytes returns ThresholdBytes if > 0, else DefaultThresholdBytes (1 MiB).
-func (c LargePayloadConfig) EffectiveThresholdBytes() int64 {
-	if c.ThresholdBytes > 0 {
-		return c.ThresholdBytes
-	}
-	return largebody.DefaultThresholdBytes
-}
-
-// EffectiveMemorySpoolBytes returns MemorySpoolBytes if > 0, else DefaultMemorySpoolBytes (64 KiB).
-func (c LargePayloadConfig) EffectiveMemorySpoolBytes() int64 {
-	if c.MemorySpoolBytes > 0 {
-		return c.MemorySpoolBytes
-	}
-	return largebody.DefaultMemorySpoolBytes
-}
-
-// EffectiveCopyBufferSize returns CopyBufferSize if > 0, else DefaultCopyBufferSize (32 KiB).
-func (c LargePayloadConfig) EffectiveCopyBufferSize() int {
-	if c.CopyBufferSize > 0 {
-		return c.CopyBufferSize
-	}
-	return largebody.DefaultCopyBufferSize
-}
+type LargePayloadConfig = httpcontract.LargePayloadInput
 
 // StaticDispositionProvider is the optional interface an executor may implement
 // to supply an O(1) generation-frozen pre-capture disposition (design section 4, 8; Task 3.6, 7.3).

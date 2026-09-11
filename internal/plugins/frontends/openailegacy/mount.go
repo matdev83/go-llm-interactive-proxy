@@ -3,6 +3,7 @@ package openailegacy
 import (
 	"net/http"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -17,6 +18,10 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 	if err != nil {
 		return err
 	}
+	var lpCfg frontendpipe.LargePayloadConfig
+	if c, ok := opts.LargePayload.(frontendpipe.LargePayloadConfig); ok {
+		lpCfg = c
+	}
 	for _, claim := range claims {
 		mux.Handle(claim.Path, &Handler{
 			Exec:                    opts.Exec,
@@ -29,6 +34,7 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 			HTTPHeaders:             opts.HTTPHeaders,
 			StreamKeepaliveInterval: opts.StreamKeepaliveInterval,
 			Config:                  cfg,
+			LargePayload:            lpCfg,
 		})
 	}
 	return nil
