@@ -352,9 +352,9 @@ func TestTask12_3_ContentTrajectory_TerminalDecision_Declines(t *testing.T) {
 	}
 }
 
-// Test 11: Response-only compaction observation, response terminal snapshot, and
-// response-only observers remain on canonical events and do NOT block assessment (Requirements 13.6, 19.4).
-func TestTask12_3_ResponseOnly_CompactionAndTerminal_Accepts(t *testing.T) {
+// Test 11: Under Blocker 2 conservative fail-safe, occupied response-only planes
+// cause assessment to decline because wire streaming bypasses response machinery.
+func TestTask12_3_ResponseOnly_CompactionAndTerminal_DeclinesUnderBlocker2(t *testing.T) {
 	genID := "gen-task12-3"
 	summary := buildValidSummary(genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -378,8 +378,8 @@ func TestTask12_3_ResponseOnly_CompactionAndTerminal_Accepts(t *testing.T) {
 	dep.HasCompactionPreserver = false
 
 	dec, reason := gate.Evaluate(dep)
-	if dec != largebody.AssessmentDecisionAccept || reason != largebody.DeclineReasonNone {
-		t.Fatalf("expected response-only observation to accept, got %v / %v", dec, reason)
+	if dec != largebody.AssessmentDecisionDecline || reason != largebody.DeclineReasonAuthorityBlocker {
+		t.Fatalf("expected response-only observation to decline under Blocker 2, got %v / %v", dec, reason)
 	}
 }
 

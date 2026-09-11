@@ -420,25 +420,41 @@ func TestWireEligibility_NonNegotiablePlaneBlockers(t *testing.T) {
 			t.Fatalf("plane blocker mask must name %s (idx %d), got %#x", id, idx, sum.PlaneBlockers())
 		}
 	}
+	// Blocker 2: Response-only planes are static blockers under the conservative fail-safe.
 	for _, id := range []string{
 		"response_part_hooks",
 		"completion_gates",
 		"stream_observer_factories",
 		"usage_observers",
+	} {
+		sum := compile35(t, occupy35Plane(eligible35Input("gen-7"), id))
+		if !sum.HasStaticBlocker() {
+			t.Fatalf("occupied response-only plane %s must statically block under Blocker 2, got %v", id, sum)
+		}
+		idx, ok := largebody.WireEligibilityPlaneIndex(id)
+		if !ok {
+			t.Fatalf("plane index missing for %q", id)
+		}
+		if sum.PlaneBlockers()&(1<<uint(idx)) == 0 {
+			t.Fatalf("plane blocker mask must name %s (idx %d), got %#x", id, idx, sum.PlaneBlockers())
+		}
+	}
+	// Metadata-only planes stay eligible for dynamic assessment without static blocking.
+	for _, id := range []string{
 		"session_openers",
 		"workspace_resolvers",
 		"tool_call_finalization_max_args_bytes",
 	} {
 		sum := compile35(t, occupy35Plane(eligible35Input("gen-7"), id))
 		if sum.HasStaticBlocker() {
-			t.Fatalf("occupied metadata/response-only plane %s must not statically block, got %v", id, sum)
+			t.Fatalf("occupied metadata-only plane %s must not statically block, got %v", id, sum)
 		}
 	}
 }
 
-// TestWireEligibility_HookBusBlockers pins the Task 3.3 verdicts inside the
-// summary: occupied submit/request-part/tool chains block without a wire
-// contract; the response-only chain is recorded but never blocks statically.
+// TestWireEligibility_HookBusBlockers pins the verdicts inside the summary:
+// occupied submit/request-part/tool chains and (under Blocker 2 conservative fail-safe)
+// response-part chains statically block wire eligibility.
 func TestWireEligibility_HookBusBlockers(t *testing.T) {
 	t.Parallel()
 
@@ -449,6 +465,7 @@ func TestWireEligibility_HookBusBlockers(t *testing.T) {
 	}{
 		{"submit", func(h *largebody.HookEligibilityInput) { h.SubmitOccupied = true }, largebody.HookChainSubmit},
 		{"requestParts", func(h *largebody.HookEligibilityInput) { h.RequestPartOccupied = true }, largebody.HookChainRequestPart},
+		{"responseParts", func(h *largebody.HookEligibilityInput) { h.ResponsePartOccupied = true }, largebody.HookChainResponsePart},
 		{"tools", func(h *largebody.HookEligibilityInput) { h.ToolOccupied = true }, largebody.HookChainTool},
 	}
 	for _, tc := range blocking {
@@ -465,14 +482,14 @@ func TestWireEligibility_HookBusBlockers(t *testing.T) {
 	in := eligible35Input("gen-7")
 	in.Hooks.ResponsePartOccupied = true
 	sum := compile35(t, in)
-	if sum.HasStaticBlocker() {
-		t.Fatalf("occupied response-only hook chain must not statically block, got %v", sum)
+	if !sum.HasStaticBlocker() {
+		t.Fatalf("occupied response-only hook chain must statically block under Blocker 2, got %v", sum)
 	}
 	if largebody.HookChain(sum.HookOccupancy())&largebody.HookChainResponsePart == 0 {
 		t.Fatalf("hook occupancy must record the response chain, got %#x", sum.HookOccupancy())
 	}
-	if largebody.HookChain(sum.HookBlockers())&largebody.HookChainResponsePart != 0 {
-		t.Fatalf("hook blockers must never name the response chain, got %#x", sum.HookBlockers())
+	if largebody.HookChain(sum.HookBlockers())&largebody.HookChainResponsePart == 0 {
+		t.Fatalf("hook blockers must name the response chain under Blocker 2, got %#x", sum.HookBlockers())
 	}
 }
 

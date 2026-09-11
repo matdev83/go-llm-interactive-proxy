@@ -846,9 +846,51 @@ func (r *readyAttempt) Consume() (*attemptSession, error) {
 	return sess, nil
 }
 
-// WireTakeStream extracts the opened attempt's stream and accounting start time
-// for wire execution, marking the ready capability consumed without requiring
-// response pipeline preparation.
+// wireAttemptStream forwards EventStream and ManagedEventStream operations
+// to an attemptSession that retains stream ownership for lifecycle cancellation,
+// while tracking output commitment across received events.
+type wireAttemptStream struct {
+	sess      *attemptSession
+	committed atomic.Bool
+}
+
+func newWireAttemptStream(sess *attemptSession) lipapi.ManagedEventStream {
+	return &wireAttemptStream{sess: sess}
+}
+
+func (s *wireAttemptStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s == nil || s.sess == nil {
+		return lipapi.Event{}, io.EOF
+	}
+	committed := s.committed.Load()
+	ev, err := s.sess.receive(ctx, committed)
+	if err == nil && !committed && (lipapi.OutputCommitted(ev) || ev.Kind == lipapi.EventResponseFinished) {
+		s.committed.Store(true)
+	}
+	return ev, err
+}
+
+func (s *wireAttemptStream) Close() error {
+	if s == nil || s.sess == nil {
+		return nil
+	}
+	inner := s.sess.takeInner()
+	if inner != nil {
+		return inner.Close()
+	}
+	return nil
+}
+
+func (s *wireAttemptStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	if s == nil || s.sess == nil {
+		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
+	}
+	return s.sess.cancelViaLifecycle(ctx, cause)
+}
+
+// WireTakeStream returns a managed event stream forwarding to the opened attempt's session,
+// marking the ready capability consumed with the canonical terminal-default reset,
+// while leaving physical stream ownership with attemptSession for lifecycle cancellation.
 func (r *readyAttempt) WireTakeStream() (lipapi.ManagedEventStream, time.Time, error) {
 	if r == nil {
 		return nil, time.Time{}, errors.New("runtime: nil readyAttempt")
@@ -867,15 +909,16 @@ func (r *readyAttempt) WireTakeStream() (lipapi.ManagedEventStream, time.Time, e
 		r.mu.Unlock()
 		return nil, time.Time{}, errors.New("runtime: nil session for readyAttempt")
 	}
-	stream := sess.takeInner()
 	startedAt := sess.accountingStartedAt()
 	r.state = readyStateConsumed
 	r.session = nil
 	r.pending = pendingSelectionEffects{}
-	sess.streamDisposed = true
+	sess.releaseKind = ""
+	sess.defaultCommand = sdkterminal.CommandCancel
+	sess.defaultLegOutcome = billing.LegOutcomeCanceled
 	cond.Broadcast()
 	r.mu.Unlock()
-	return stream, startedAt, nil
+	return newWireAttemptStream(sess), startedAt, nil
 }
 
 func (r *readyAttempt) markStreamDisposed() {
@@ -1383,6 +1426,26 @@ func (a *attemptSession) terminalizeSwallowed(ctx context.Context, facts recvTur
 	ev.LegOutcome = billing.LegOutcomeSwallowed
 	ev.ObsOutcome = response.OutcomeReplaced
 	ev.RecordOutcome = lipapi.AttemptSwallowedFailure
+	a.TerminalizeAttempt(ctx, IntentSwallowedFailure, ev)
+}
+
+func (a *attemptSession) terminalizeWireSwallowed(ctx context.Context, traceID, aLegID string, startedAt time.Time, reason string, err error) {
+	if a == nil {
+		return
+	}
+	ev := attemptEvidence{
+		ReleaseKind:   authorityapp.ReleaseKindSwallowed,
+		TraceID:       traceID,
+		ALegID:        aLegID,
+		RecordReason:  reason,
+		Err:           err,
+		StartedAt:     startedAt,
+		Committed:     false,
+		Command:       sdkterminal.CommandSwallowedAttempt,
+		LegOutcome:    billing.LegOutcomeSwallowed,
+		ObsOutcome:    response.OutcomeReplaced,
+		RecordOutcome: lipapi.AttemptSwallowedFailure,
+	}
 	a.TerminalizeAttempt(ctx, IntentSwallowedFailure, ev)
 }
 

@@ -67,7 +67,10 @@ var standardNarrowPortCensus = map[string]DependencyClass{
 	"routing.route_override_reader":             DependencyClassWireSafe,
 	"routing.execution_policy_resolvers":        DependencyClassWireSafe,
 	"security.session_manager":                  DependencyClassWireSafe,
-	"security.session_recorder":                 DependencyClassWireSafe,
+	// Blocker 2: security.session_recorder is bypassed during wire streaming
+	// (RecordPostHookStreamEvent / recordClientFacing not invoked). Conservative fail-safe:
+	// occupied session recorder blocks wire eligibility until deferred pipeline reuse.
+	"security.session_recorder":                 DependencyClassBlocker,
 	"security.flags_metrics_audit":              DependencyClassWireSafe,
 	"accounting.token_observability":            DependencyClassWireSafe,
 	"accounting.usage_authority":                DependencyClassWireSafe,
@@ -287,17 +290,17 @@ func (g *AuthorityAssessmentGate) Evaluate() (AssessmentDecision, DeclineReason)
 				return AssessmentDecisionDecline, DeclineReasonAuthorityBlocker
 			}
 		}
-		if p.Access == PlaneAccessCanonicalRequired && p.Occupied {
-			// Occupied canonical-required plane -> decline
+		if (p.Access == PlaneAccessCanonicalRequired || p.Access == PlaneAccessResponseOnly) && p.Occupied {
+			// Blocker 2: Occupied canonical-required or response-only plane -> decline
 			return AssessmentDecisionDecline, DeclineReasonAuthorityBlocker
 		}
 	}
 
 	// -------------------------------------------------------------------------
 	// 3. Hook chain census verification (Requirements 5.7, 13.3):
-	// Mutating chains (submit, request_part, tool) block when occupied.
+	// Mutating chains (submit, request_part, tool) and response_part block when occupied (Blocker 2).
 	// -------------------------------------------------------------------------
-	if g.Census.Hooks.SubmitOccupied || g.Census.Hooks.RequestPartOccupied || g.Census.Hooks.ToolOccupied {
+	if g.Census.Hooks.SubmitOccupied || g.Census.Hooks.RequestPartOccupied || g.Census.Hooks.ToolOccupied || g.Census.Hooks.ResponsePartOccupied {
 		return AssessmentDecisionDecline, DeclineReasonAuthorityBlocker
 	}
 

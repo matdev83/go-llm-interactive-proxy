@@ -580,11 +580,15 @@ func (e *Executor) ExecuteLargeBody(
 	cleanupStream := &wireLifecycleEventStream{
 		EventStream: attemptOut.stream,
 		cleanup: func(causeErr error) {
-			if attemptOut.cancel != nil {
-				attemptOut.cancel()
+			activeAttempt := attemptOut
+			if op, ok := attemptOut.stream.(wireOutcomeProvider); ok {
+				activeAttempt = op.currentOutcome()
 			}
-			if attemptOut.bodyCloser != nil {
-				_ = attemptOut.bodyCloser.Close()
+			if activeAttempt.cancel != nil {
+				activeAttempt.cancel()
+			}
+			if activeAttempt.bodyCloser != nil {
+				_ = activeAttempt.bodyCloser.Close()
 			}
 			if src != nil {
 				_ = src.Close()
@@ -600,10 +604,12 @@ func (e *Executor) ExecuteLargeBody(
 					outcome = billing.LegOutcomeFailed
 				}
 			}
-			e.appendIndependentTerminalLeg(outCtx, billingState, aLeg.ALegID, attemptOut.bleg, attemptOut.cand.Primary, attemptOut.startedAt, e.now(), outcome)
+			if activeAttempt.session == nil || activeAttempt.session.claimBillingLegRecord() {
+				e.appendIndependentTerminalLeg(outCtx, billingState, aLeg.ALegID, activeAttempt.bleg, activeAttempt.cand.Primary, activeAttempt.startedAt, e.now(), outcome)
+			}
 
 			if aScope != nil {
-				aScope.ReleaseBLeg(attemptOut.bleg.BLegID)
+				aScope.ReleaseBLeg(activeAttempt.bleg.BLegID)
 				aScope.End()
 			}
 			if e.SecureSession != nil {
@@ -1073,6 +1079,7 @@ type wireAttemptOutcome struct {
 	startedAt  time.Time
 	cancel     context.CancelFunc
 	bodyCloser io.Closer
+	session    *attemptSession
 }
 
 func (e *Executor) newWireRecoveryController(
@@ -1195,6 +1202,8 @@ func (e *Executor) executeWireAttempts(wireIn wireAttemptInput) (wireAttemptOutc
 
 		cand := openOut.ready.Candidate()
 		bleg := openOut.ready.BLeg()
+		// boundSess is write-once at construction in attempt_session.go before publication; all other accesses under r.mu; no concurrent writer exists, open->wire handoff provides happens-before.
+		session := openOut.ready.boundSess
 		stream, startedAt, err := openOut.ready.WireTakeStream()
 		if err != nil {
 			return wireAttemptOutcome{}, err
@@ -1215,11 +1224,21 @@ func (e *Executor) executeWireAttempts(wireIn wireAttemptInput) (wireAttemptOutc
 			e.noteRouteDecision(context.WithoutCancel(wireIn.outCtx), wireIn.traceID, "affinity_bind", binding.BackendID)
 		}
 
-		return wireAttemptOutcome{
+		initialAttempt := wireAttemptOutcome{
 			stream:    stream,
 			cand:      cand,
 			bleg:      bleg,
 			startedAt: startedAt,
+			session:   session,
+		}
+		recStream := e.newWireRecoveryStream(wireIn, rf, route, progress, affinityKey, affinityKeyOK, initialAttempt)
+
+		return wireAttemptOutcome{
+			stream:    recStream,
+			cand:      cand,
+			bleg:      bleg,
+			startedAt: startedAt,
+			session:   session,
 		}, nil
 	}
 }
@@ -1232,6 +1251,7 @@ type wireParallelRaceResult struct {
 	startedAt  time.Time
 	cancel     context.CancelFunc
 	bodyCloser io.Closer
+	session    *attemptSession
 }
 
 // executeWireParallelRace executes a parallel race across candidates by delegating to the canonical tryOpenParallelGroup.
@@ -1288,6 +1308,8 @@ func (e *Executor) executeWireParallelRace(
 
 	cand := openOut.ready.Candidate()
 	bleg := openOut.ready.BLeg()
+	// boundSess is write-once at construction in attempt_session.go before publication; all other accesses under r.mu; no concurrent writer exists, open->wire handoff provides happens-before.
+	session := openOut.ready.boundSess
 	stream, startedAt, err := openOut.ready.WireTakeStream()
 	if err != nil {
 		return wireParallelRaceResult{}, err
@@ -1310,11 +1332,262 @@ func (e *Executor) executeWireParallelRace(
 		e.noteRouteDecision(context.WithoutCancel(wireIn.outCtx), wireIn.traceID, "affinity_bind", binding.BackendID)
 	}
 
-	return wireParallelRaceResult{
-		opened:    true,
+	initialAttempt := wireAttemptOutcome{
 		stream:    stream,
 		cand:      cand,
 		bleg:      bleg,
 		startedAt: startedAt,
+		session:   session,
+	}
+	recStream := e.newWireRecoveryStream(wireIn, rf, route, progress, affinityKey, affinityKeyOK, initialAttempt)
+
+	return wireParallelRaceResult{
+		opened:    true,
+		stream:    recStream,
+		cand:      cand,
+		bleg:      bleg,
+		startedAt: startedAt,
+		session:   session,
 	}, nil
+}
+
+type wireOutcomeProvider interface {
+	currentOutcome() wireAttemptOutcome
+}
+
+type wireRecoveryStream struct {
+	e             *Executor
+	wireIn        wireAttemptInput
+	rf            requestFacts
+	route         routeFacts
+	progress      *recoveryController
+	affinityKey   affinity.Key
+	affinityKeyOK bool
+
+	mu            sync.Mutex
+	activeAttempt wireAttemptOutcome
+	committed     bool
+	closed        bool
+}
+
+var _ lipapi.ManagedEventStream = (*wireRecoveryStream)(nil)
+var _ wireOutcomeProvider = (*wireRecoveryStream)(nil)
+
+func (e *Executor) newWireRecoveryStream(
+	wireIn wireAttemptInput,
+	rf requestFacts,
+	route routeFacts,
+	progress *recoveryController,
+	affinityKey affinity.Key,
+	affinityKeyOK bool,
+	initial wireAttemptOutcome,
+) *wireRecoveryStream {
+	return &wireRecoveryStream{
+		e:             e,
+		wireIn:        wireIn,
+		rf:            rf,
+		route:         route,
+		progress:      progress,
+		affinityKey:   affinityKey,
+		affinityKeyOK: affinityKeyOK,
+		activeAttempt: initial,
+	}
+}
+
+func (s *wireRecoveryStream) currentOutcome() wireAttemptOutcome {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.activeAttempt
+}
+
+func (s *wireRecoveryStream) Close() error {
+	s.mu.Lock()
+	s.closed = true
+	active := s.activeAttempt
+	s.mu.Unlock()
+
+	if active.stream != nil {
+		return active.stream.Close()
+	}
+	return nil
+}
+
+func (s *wireRecoveryStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	s.mu.Lock()
+	active := s.activeAttempt
+	s.mu.Unlock()
+
+	if active.stream != nil {
+		return active.stream.Cancel(ctx, cause)
+	}
+	return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
+}
+
+func (s *wireRecoveryStream) terminalizeSwallowed(ctx context.Context, attempt wireAttemptOutcome, reason string, err error) {
+	if attempt.session != nil {
+		attempt.session.terminalizeWireSwallowed(ctx, s.wireIn.traceID, s.wireIn.aLegID, attempt.startedAt, reason, err)
+	}
+	if attempt.cancel != nil {
+		attempt.cancel()
+	}
+	if attempt.bodyCloser != nil {
+		_ = attempt.bodyCloser.Close()
+	}
+}
+
+func (s *wireRecoveryStream) openNextCandidate(ctx context.Context) (wireAttemptOutcome, error) {
+	for {
+		s.mu.Lock()
+		closed := s.closed
+		s.mu.Unlock()
+		if closed {
+			return wireAttemptOutcome{}, io.EOF
+		}
+
+		if ctx != nil && ctx.Err() != nil {
+			return wireAttemptOutcome{}, ctx.Err()
+		}
+		if s.wireIn.outCtx != nil && s.wireIn.outCtx.Err() != nil {
+			return wireAttemptOutcome{}, s.wireIn.outCtx.Err()
+		}
+		if s.wireIn.aScope != nil && s.wireIn.aScope.Err() != nil {
+			return wireAttemptOutcome{}, leglifecycle.ErrALegCanceled
+		}
+
+		openOut, err := s.e.openNext(s.wireIn.outCtx, openNextRequest{
+			reqFacts:   s.rf,
+			routeFacts: s.route,
+			progress:   s.progress,
+			mode:       openModeRetry,
+		})
+		if err != nil {
+			return wireAttemptOutcome{}, err
+		}
+		if openOut.ready == nil {
+			continue
+		}
+
+		cand := openOut.ready.Candidate()
+		bleg := openOut.ready.BLeg()
+		// boundSess is write-once at construction in attempt_session.go before publication; all other accesses under r.mu; no concurrent writer exists, open->wire handoff provides happens-before.
+		session := openOut.ready.boundSess
+		stream, startedAt, err := openOut.ready.WireTakeStream()
+		if err != nil {
+			return wireAttemptOutcome{}, err
+		}
+
+		s.mu.Lock()
+		closed = s.closed
+		s.mu.Unlock()
+		if closed {
+			if session != nil {
+				session.terminalizeWireSwallowed(ctx, s.wireIn.traceID, s.wireIn.aLegID, startedAt, "stream closed during recovery", io.EOF)
+			}
+			return wireAttemptOutcome{}, io.EOF
+		}
+
+		if s.progress != nil && s.progress.ttft != nil {
+			s.progress.ttft.markCommitted()
+		}
+
+		if s.e != nil {
+			s.e.recordAttemptLogged(s.wireIn.outCtx, recordAttemptParams{
+				ALegID:  s.wireIn.aLegID,
+				BLeg:    bleg,
+				Cand:    cand,
+				Outcome: lipapi.AttemptSuccess,
+			}, diag.AttrOpts{CallID: s.wireIn.traceID})
+		}
+
+		if s.affinityKeyOK && s.affinityKey.Valid() && s.e != nil && s.e.AffinityStore != nil {
+			binding := affinity.BindingFromCandidate(s.affinityKey, cand, s.e.now(), "output_committed")
+			_ = s.e.AffinityStore.Set(context.WithoutCancel(s.wireIn.outCtx), binding)
+			s.e.noteRouteDecision(context.WithoutCancel(s.wireIn.outCtx), s.wireIn.traceID, "affinity_bind", binding.BackendID)
+		}
+
+		return wireAttemptOutcome{
+			stream:    stream,
+			cand:      cand,
+			bleg:      bleg,
+			startedAt: startedAt,
+			session:   session,
+		}, nil
+	}
+}
+
+func (s *wireRecoveryStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	for {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return lipapi.Event{}, io.EOF
+		}
+		active := s.activeAttempt
+		s.mu.Unlock()
+
+		if active.stream == nil {
+			return lipapi.Event{}, io.EOF
+		}
+
+		ev, err := active.stream.Recv(ctx)
+		if err == nil {
+			s.mu.Lock()
+			if !s.committed && (lipapi.OutputCommitted(ev) || ev.Kind == lipapi.EventResponseFinished) {
+				s.committed = true
+			}
+			s.mu.Unlock()
+			return ev, nil
+		}
+
+		if errors.Is(err, io.EOF) {
+			return lipapi.Event{}, io.EOF
+		}
+
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (ctx != nil && ctx.Err() != nil) {
+			return lipapi.Event{}, err
+		}
+
+		s.mu.Lock()
+		committed := s.committed
+		s.mu.Unlock()
+
+		if !committed && lipapi.IsRecoverablePreOutput(err) {
+			s.mu.Lock()
+			closed := s.closed
+			s.mu.Unlock()
+			if closed {
+				s.terminalizeSwallowed(ctx, active, "stream closed during recovery", err)
+				return lipapi.Event{}, io.EOF
+			}
+
+			s.terminalizeSwallowed(ctx, active, "recoverable pre-output (recv)", err)
+			s.progress.exclude(active.cand.Key)
+
+			nextAttempt, nextErr := s.openNextCandidate(ctx)
+			if nextErr != nil {
+				return lipapi.Event{}, nextErr
+			}
+
+			s.mu.Lock()
+			if s.closed {
+				s.mu.Unlock()
+				s.terminalizeSwallowed(ctx, nextAttempt, "stream closed during recovery", io.EOF)
+				return lipapi.Event{}, io.EOF
+			}
+			s.activeAttempt = nextAttempt
+			s.mu.Unlock()
+			continue
+		}
+
+		if committed && lipapi.IsRecoverablePreOutput(err) {
+			return lipapi.Event{}, &lipapi.UpstreamFailureError{
+				Phase:        lipapi.PhasePostOutput,
+				Recoverable:  false,
+				Reason:       attemptReasonDetail(err),
+				CandidateKey: active.cand.Key,
+			}
+		}
+
+		return lipapi.Event{}, err
+	}
 }

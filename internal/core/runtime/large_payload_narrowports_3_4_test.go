@@ -78,7 +78,7 @@ var lp34NarrowPortTable = []lp34PortClass{
 	{Port: "routing.execution_policy_resolvers", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.3: ExecutionCompositionPolicy/BackendExecutionResolver are bounded generation policy"},
 	// SecurityRuntime (executor_config.go:182-193; 1.8 section 3.4).
 	{Port: "security.session_manager", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.4: bounded BeginInput fact shape (session wire IDs, principal/workspace refs, policy, hint); assessment performs no BeginTurn/A-leg/store work (req 6.2)"},
-	{Port: "security.session_recorder", NilState: lp34NoOp, OccupiedState: lp34WireCapable, Refs: "req 14.3-14.5, 1.8 3.4: nil means no recording; occupied GateRecording is wire-capable via bounded ClientTurnRecordInput (Lines carry role/ordinal/part-kinds only, no prompt text); semantic-fact overflow selects canonical pre-commit (Task 9.3)"},
+	{Port: "security.session_recorder", NilState: lp34NoOp, OccupiedState: lp34Blocker, Refs: "req 14.3-14.5, 1.8 3.4: nil means no recording; occupied GateRecording blocks under Blocker 2 conservative fail-safe because session recording is bypassed during wire streaming until deferred pipeline reuse; semantic-fact overflow selects canonical pre-commit (Task 9.3)"},
 	{Port: "security.flags_metrics_audit", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.4: synthetic-principal/recording-mandatory/denial-mapper(func(error)error)/metrics/workspace/audit flags are bounded; the session-start emitter Call parameter is the separate blocker until refactored to bounded session/views facts"},
 	// AccountingRuntime (executor_config.go:196-224; 1.8 sections 3.5/4.6).
 	{Port: "accounting.preflight", NilState: lp34WireCapable, OccupiedState: lp34Blocker, Refs: "req 15.5, 1.8 3.5/4.6: nil/disabled checker reports ReasonDisabled (bounded, wire-safe); enabled CountCall-only checker is a blocker until an exact WireCounter exists (Task 10.4)"},
@@ -91,7 +91,7 @@ var lp34NarrowPortTable = []lp34PortClass{
 	{Port: "accounting.coordinators_snapshot_terminal", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.5: Request/AttemptCoordinator (nil-safe allow/disabled), SnapshotGeneration, TerminalWork carry bounded DTOs/refs/intents; content-dependent slot preview is the quantities-path blocker, not the plumbing"},
 	// ObservabilityRuntime + ExtensionRuntime (executor_config.go:236-263; 1.8 section 3.6).
 	{Port: "observability.logging_metrics", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.6: bounded labels/buffers; prompt/paths/tokens excluded by policy (response/diagnostic-only)"},
-	{Port: "extension.hook_bus", NilState: lp34NoOp, OccupiedState: lp34Blocker, Refs: "req 5.7/13.6, 1.8 3.6: nil/empty bus is no-op; occupied submit/request-part/tool chains block unless a typed wire contract exists; response-only chains are wire-capable only with the Task 3.3 no-request-content proof"},
+	{Port: "extension.hook_bus", NilState: lp34NoOp, OccupiedState: lp34Blocker, Refs: "req 5.7/13.6, 1.8 3.6: nil/empty bus is no-op; occupied submit/request-part/tool chains block unless a typed wire contract exists; occupied response-part hooks block under Blocker 2 conservative fail-safe because response machinery is bypassed during wire streaming"},
 	{Port: "extension.runtime_snapshot", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.6: frozen generation composition facts, no per-request content; occupied content planes are individually blockers"},
 	{Port: "extension.terminal_policy_reader", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.6: nil keeps the generation default (bounded); occupied reader maps a bounded session/A-leg query to {enabled, revision} with no Call"},
 	{Port: "extension.toolcall_finalization_cap", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.6: bounded int assembler buffer cap"},
@@ -450,8 +450,8 @@ func TestLargePayload34_SecureRecorderInputIsBounded(t *testing.T) {
 	if !ok {
 		t.Fatal("security.session_recorder row missing from the Task 3.4 table")
 	}
-	if row.NilState != lp34NoOp || row.OccupiedState != lp34WireCapable {
-		t.Fatalf("security.session_recorder must freeze no-op/blocker-free (nil=no-op, occupied=wire-capable), got %q/%q", row.NilState, row.OccupiedState)
+	if row.NilState != lp34NoOp || row.OccupiedState != lp34Blocker {
+		t.Fatalf("security.session_recorder must freeze nil=no-op occupied=blocker under Blocker 2 conservative fail-safe, got %q/%q", row.NilState, row.OccupiedState)
 	}
 	if !strings.Contains(row.Refs, "overflow") {
 		t.Fatal("security.session_recorder must document the semantic-fact overflow canonical rule")
