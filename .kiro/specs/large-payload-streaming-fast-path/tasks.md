@@ -747,13 +747,13 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Spool budget is optimization budget, not global OOM admission.
   - _Requirements: 20, 21_
 
-- [ ] 19.6 Publish current-runtime eligibility matrix
+- [x] 19.6 Publish current-runtime eligibility matrix
   - All 26 planes; hook categories; Local Turn/Secret Guard/Terminal Decision; traffic; secure recorder; metering; accounting; billing; conversation/steering; route override homogeneous/heterogeneous; sequential/fallback/race; each protocol lane; legacy resolver; static disposition.
   - At least one normal secure-session + metering production-like configuration must actually execute wire mode.
   - Quantify blockers rather than hiding them.
   - _Requirements: 5, 7, 13, 14, 15, 21_
 
-- [ ] 19.7 ROI decision per lane
+- [x] 19.7 ROI decision per lane
   - Report CPU/file-I/O tradeoff separately from heap savings.
   - If a lane cannot show worthwhile multi-MiB benefit under realistic concurrency, leave it canonical-only; do not weaken correctness or enable for benchmark optics.
   - _Requirements: 21_
@@ -894,3 +894,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 18.2 DEFERRED by its own gate (controller decision, no code change): lanes certified test-only but not advertised and no Req 21 ROI evidence justifies decoded-gzip replay cost; gzip stays canonical via 18.1 bypass. Future work requires decoded-bytes threshold/reservation, explicit decoded body mode, stale-framing removal, and rerun of scanner/profile/identity/backend/transport differentials.
 - Task 19.1 VERIFIED (review subagent APPROVED after 1 remediation round: seq-ordered spool observer gauge fix + genuine RED evidence in `evidence/19.1-red-phase.md`): bounded stage/decline/size/spill/latency/spool diagnostics via closed-enum observer + prom sink, zero production wiring (default-off consistent); largebody + metrics + frontendpipe suites PASS, vet/gofmt/diff-check clean; single unexplained frontendpipe FAIL not attributable (7 consecutive green runs).
 - Tasks 19.2-19.5 VERIFIED (review subagent APPROVED, adversarial re-runs match to <1%): full stage/shape benchmarks + honest MIXED 19.3 verdict (strict proof-time invariant FAILED ~6.5-7.9x transient via CompileProof io.ReadAll; post-commit retained heap PASS flat 35,656 B/op), negligible blocker overhead with zero temp files, saturation all-200 with cancel cleanup; evidence/19.2-19.5-benchmarks.md; bench + evidence files only, no production diff; follow-ups: deterministic cancel-trigger proof, Phase-B relabel, preflight/capture pairing footnote.
+- Tasks 19.6-19.7 VERIFIED (review subagent APPROVED after controller citation fixes: SupportsWire naming, 2 test-path citations, 1.10 latency/heap numbers with corrected ~1.4-1.6x ratio): full 26-plane/46-port eligibility matrix with quantified blockers, honest wire-mode statement (candidate-path proven, zero production-runtime wire execution — group 20 gap), all-lanes-canonical-only ROI with activation conditions; evidence/19.6-19.7-eligibility-roi.md only, no code diff.
