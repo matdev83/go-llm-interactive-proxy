@@ -21,9 +21,9 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
 
 - [ ] 1.2 Add red retail-selection tests
   - Characterize retry, failover, loser, winner, surfaced and cost-pass-through cases before changing retail rating.
-  - Prove operator COGS and customer inference usage intentionally use different B-leg selectors.
+  - Prove operator COGS and customer inference usage intentionally use different B-leg selectors, and normal retail need not settle until call-level selection is stable.
   - Completion: normal retail does not bill internal retry/loser usage, while COGS still includes operator-payable attempts.
-  - _Requirements: 2.3, 5.1, 5.2, 5.3, 5.4, 5.5_
+  - _Requirements: 2.3, 4.3, 5.1, 5.2, 5.3, 5.4, 5.5_
   - _Boundary: tests: billing domain_
   - _Depends: 1.1_
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingcompose/..._
@@ -40,7 +40,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
 - [ ] 2. Refine canonical multimodal component identity
 
 - [ ] 2.1 Add explicit economic direction to V2 component identity
-  - Make input/output/request/resource/gauge direction part of the canonical key, serializer and fingerprint.
+  - Make input/output/none direction part of the canonical key, serializer and fingerprint; non-directional request/resource/gauge scope remains in subject/component identity rather than fake flow directions.
   - Provide lossless adapters for existing component names that already imply direction; do not reinterpret historical V1 hashes.
   - Completion: identical modality/unit values in opposite directions cannot collide or select the same rate accidentally.
   - _Requirements: 1.1, 1.2, 1.3_
@@ -114,11 +114,12 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 4.1_
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/..._
 
-- [ ] 4.3 Support configured incremental financial deltas without A-leg finality
-  - Where policy settles incrementally, reuse parent selected-cost heads/operation keys to post only the difference from the previously posted selected valuation.
-  - Where settlement is deferred to call/B-leg checkpoint, expose accrued valuation without waiting for A-leg retirement.
-  - Completion: both modes survive replay and late correction with no duplicate posting or session-final trigger.
-  - _Requirements: 4.3, 4.4, 4.5_
+- [ ] 4.3 Apply incremental settlement only at economically stable scopes
+  - Permit operator/provider-cost posting or accrual to advance per authoritative B-leg/provider-charge revision using parent selected-cost heads and delta/fencing rules.
+  - Keep default independent-retail customer settlement at BillingCallID closure when surfaced/winning B-leg selection is stable; do not wait for A-leg/session retirement.
+  - If an explicit retail policy enables provisional pre-closure settlement, selection changes must post idempotent compensating deltas rather than leaving speculative retry usage charged.
+  - Completion: operator economics can advance before call closure, normal retail does not need speculative customer debits, and neither path depends on session finality.
+  - _Requirements: 4.3, 4.4, 4.5, 5.1, 5.2, 5.3_
   - _Boundary: billing posting domain and driven store_
   - _Depends: 4.2_
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/...; make test-db-parity_
