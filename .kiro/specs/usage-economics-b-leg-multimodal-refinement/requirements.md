@@ -87,7 +87,7 @@ The central model is:
 
 4.2. The system shall support revision-triggered provisional valuation and reconciliation over the latest durable B-leg evidence without performing rating or financial journal mutation inside the stream receive callback.
 
-4.3. Where monetary policy permits incremental posting, the system shall post only the difference from the previously posted selected valuation under revision/fence identity; where policy defers posting, the current accrued valuation shall remain queryable without waiting for A-leg finality.
+4.3. Operator/provider-cost accounting may apply idempotent valuation/posting deltas as authoritative B-leg evidence advances; default independent-retail customer settlement may wait until BillingCallID closure makes its selected B-leg set stable, and any explicitly provisional customer posting shall be reversible by revision-aware compensating deltas rather than depending on A-leg/session finality.
 
 4.4. Terminal processing shall act as an execution checkpoint/completeness transition for the current call or B-leg and may trigger final-at-that-time valuation, but shall not be the only path that makes usage economically visible.
 
