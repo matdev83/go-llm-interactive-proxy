@@ -23,7 +23,8 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       test: ${{ steps.filter.outputs.test }}
-      profile: ${{ steps.filter.outputs.profile }}
+      kiro: ${{ steps.filter.outputs.kiro }}
+      profile: ${{ steps.surface.outputs.profile }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -35,7 +36,18 @@ jobs:
         shell: bash
         run: bash scripts/ci-scope.sh --self-test
 
-      - name: Setup Go
+      - name: Classify changed files
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
+
+      # The architecture change-surface reporter is Go-based. Do not provision
+      # Go merely to classify Markdown/spec-only pull requests.
+      - name: Setup Go for architecture change-surface classification
+        if: steps.filter.outputs.code == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -51,16 +63,13 @@ jobs:
             testdata/external_feature_sdk/go.sum
             tools/**/go.sum
 
-      - name: Classify changed files
-        id: filter
+      - name: Classify architecture change surface
+        id: surface
+        if: steps.filter.outputs.code == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
-          # The Go reporter is the sole change-surface policy owner. It emits
-          # code/profile directly; the shell classifier supplies the scoped test
-          # output used to avoid running QA for documentation-only changes.
           go run ./internal/archtest/tools/changesurface/cmd \
             -base "$BASE_SHA" \
             -github-output "$GITHUB_OUTPUT" \
@@ -69,11 +78,10 @@ jobs:
   qa:
     name: qa
     needs: changes
-    if: always()
-    # Not currently a required check, but keep the same convention as the
-    # required jobs (ci.yml repo-hygiene): always run the job and guard the
-    # steps so it reports success (not skip) on docs-only PRs, and would not
-    # block merges if ever added to branch protection.
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true' || needs.changes.outputs.kiro == 'true' || needs.changes.outputs.profile == 'true')
+    # QA is not currently a required check. Do not allocate a second runner for
+    # unrelated Markdown-only PRs; Kiro spec-only PRs retain their targeted
+    # lifecycle policy check without running runtime/build/database QA.
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -85,21 +93,28 @@ jobs:
           exit 1
 
       - name: Checkout
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && (needs.changes.outputs.test == 'true' || needs.changes.outputs.kiro == 'true' || needs.changes.outputs.profile == 'true')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Go
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && (needs.changes.outputs.test == 'true' || needs.changes.outputs.kiro == 'true' || needs.changes.outputs.profile == 'true')
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           # The shared setup-go cache is a first-write-wins partial snapshot saved
-          # by whichever job finishes first; this job restores a dedicated full
-          # Go cache below instead, so the heavy archtest never cold-loads.
+          # by whichever job finishes first; full QA restores a dedicated cache.
           cache: false
+
+      # Kiro specification changes still need the repository's lifecycle policy,
+      # but spec-only PRs must not pay for formatting, fixture tidies, vet,
+      # architecture package loading, runtime tests, or database parity.
+      - name: Kiro lifecycle policy
+        if: needs.changes.result == 'success' && needs.changes.outputs.kiro == 'true' && needs.changes.outputs.test != 'true'
+        shell: bash
+        run: go test -count=1 -tags=precommit ./internal/qa -run '^TestQAFastPreflight_KiroLifecycle$'
 
       # The QA job runs the full-repo archtest package load, which needs the
       # complete module graph and build cache. A dedicated per-job cache avoids
@@ -187,7 +202,7 @@ jobs:
             ~/go/pkg/mod
           key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}
 
-      - name: Report unrelated PR bypass
+      - name: Report full QA bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
         shell: bash
         run: |
