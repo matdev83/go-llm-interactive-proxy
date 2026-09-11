@@ -2,16 +2,16 @@
 
 ## Introduction
 
-Establish pre-OSS, extensible usage economics and reconciliation for the existing B2BUA proxy. Local measurements and provider claims must coexist. Component quantities and charges must remain queryable and immutable. Customer charging is independent of supplier cost, while attributable supplier charges roll up across every executed B-leg.
+Establish pre-OSS, extensible usage economics and reconciliation for the existing B2BUA proxy. Local measurements and provider claims must coexist. Component quantities and charges must remain queryable and immutable. Request-scoped inference usage is rooted in B-leg execution; the A-leg/session is a resumable continuity and aggregation container, never an economic finality boundary. Customer charging is independent of supplier cost, while attributable supplier charges roll up across every executed B-leg.
 
-**Baseline:** `3da34d7875443355d65cb9d7df649555dfad3edb`, rechecked on 2026-09-09. This is a brownfield change, not a replacement proxy or a new price-discovery service.
+**Baseline:** original discovery was pinned to `3da34d7875443355d65cb9d7df649555dfad3edb`; the B2BUA/resumability/multimodal repair was revalidated against `5a8174161a2d4d502ee55692b9c0121ae8c74800` on 2026-09-11. This is a brownfield change, not a replacement proxy or a new price-discovery service.
 
 ## Boundary Context
 
 - **In scope:** canonical evidence, field normalization, measurement hooks, per-component rating and storage, independent retail policy, allowance observations, all-leg COGS, discrepancy detection, generic statement import, idempotent adjustments, stable external bindings, migration and certification.
 - **Out of scope:** obtaining or maintaining universal provider price lists; vendor invoice parsers; taxes, invoice generation and payment collection; new inference modalities or new provider connectivity; the actual repository/product split and rebrand.
 - **Adjacent work:** preserve #532/#503 fast-path fallback, #394 measurement discipline, #429 naming revalidation and #398 release gating. Completed ownership and provider-expansion specs are historical baselines, not new blockers.
-- **Product interpretation:** A-leg operator cost is the sum of attributable supplier costs; A-leg customer charge is a separate contractual result. Local cache/hidden-compute estimates may be unknown. Account utilization is a gauge, not an additive request debit.
+- **Product interpretation:** Request-scoped inference usage originates from B-leg execution evidence. A-leg/session and BillingCallID provide continuity, grouping, attribution and settlement coordination but are not independent provider-usage meters. A-leg operator cost is the sum of attributable supplier costs; customer charge is a separate contractual result over policy-selected B-leg usage plus separately declared call/submission/proxy-service charges. Local cache/hidden-compute estimates may be unknown. Account utilization is a gauge, not an additive request debit.
 - **Ownership:** core lifecycle captures neutral evidence; provider adapters normalize their wire evidence; metering owns quantities and source identity; billing owns policy and postings; infrastructure owns persistence; explicit host binding owns optional monetary composition.
 
 Acceptance criteria use `N.M` identifiers. Requirements describe observable contracts; design choices and exact package placement are specified in `design.md`.
@@ -43,13 +43,13 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 #### Acceptance Criteria
 
-2.1. The accounting system shall durably represent uncached input, cache reads, cache writes, output, and any separately meaningful reasoning or modality components with independent quantity, unit, presence, and optional component charge.
+2.1. The accounting system shall durably represent uncached input, cache reads, cache writes, output, and separately meaningful text, image, audio, video, file/document, reasoning, tool, or other modality components with explicit economic direction, independent quantity, unit, presence, and optional component charge.
 
-2.2. The accounting system shall represent requests, user submissions, tool invocations, images, audio or video duration, compute duration, storage-duration products, credits, and other schema-qualified quantities without adding a database column for each component.
+2.2. The accounting system shall represent requests, user submissions, tool invocations, image counts or pixels, audio/video duration or frames, media tokens, pages/files/bytes, compute duration, storage-duration products, credits, and other schema-qualified quantities without adding a database column for each component or coercing them into text-token equivalents.
 
 2.3. The accounting system shall represent fractional quantities and monetary evidence with bounded exact decimal arithmetic and shall reject overflow, invalid units, and unsupported precision explicitly rather than round them silently.
 
-2.4. When two quantities differ in unit, modality, cache lifetime, billing account or allowance pool, resource, or other price-relevant qualifiers, the accounting system shall preserve their distinct identity.
+2.4. When two quantities differ in economic direction (input, output, resource, or account), unit, modality, cache lifetime, quality/resolution, billing account or allowance pool, resource, or other price-relevant qualifiers, the accounting system shall preserve their distinct identity; input-image usage and output-image usage shall never collide merely because both use the same physical unit.
 
 2.5. The accounting system shall keep monetary currency, nonmonetary credits, and allowance percentages distinct; an optional economic allocation shall not turn a nonmonetary unit into an upstream monetary charge.
 
@@ -81,9 +81,9 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 #### Acceptance Criteria
 
-4.1. When a provider attempt is prepared, the accounting system shall measure the final provider-bound representation after applicable rewrites and distinguish prepared, transport-attempted, and provider-accepted work.
+4.1. When a provider attempt is prepared, the accounting system shall measure the final provider-bound representation after applicable rewrites, including media resize/transcode/normalization or document transformation, and distinguish prepared, transport-attempted, and provider-accepted work.
 
-4.2. When backend content is received, the accounting system shall measure it before customer-side filtering, compression, or projection and shall separately record what is delivered at the customer boundary.
+4.2. When backend content is received, the accounting system shall measure provider-side output before customer-side filtering, compression, transcoding, trimming, projection, or other media transformation and shall separately record what is delivered at the customer boundary.
 
 4.3. If exact provider tokenization, hidden reasoning, internal tool work, cache disposition, or compute usage cannot be observed locally, the accounting system shall mark the corresponding local measurement unavailable or estimated with its method and limitations.
 
@@ -100,7 +100,7 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 #### Acceptance Criteria
 
-5.1. When a supported provider returns usage or cost in response fields, headers, trailers, stream events, finalization, or host-only sideband data, the adapter shall capture the supported economic fields with request and charge correlation.
+5.1. When a supported provider returns text or multimodal usage or cost in response fields, headers, trailers, stream events, finalization, or host-only sideband data, the adapter shall capture the supported economic fields, direction, modality/unit qualifiers, request identity, and charge correlation without collapsing media usage into generic text tokens.
 
 5.2. When stream, sideband, finalizer, or duplicate delivery refer to the same provider charge, the accounting system shall preserve their evidence relationship without charging that provider event twice.
 
@@ -119,9 +119,9 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 #### Acceptance Criteria
 
-6.1. The accounting system shall preserve separate identities for A-leg or session, logical billing call, submission, B-leg or attempt, provider request, provider charge, and auxiliary workload.
+6.1. The accounting system shall preserve separate identities for A-leg/session continuity, logical BillingCallID invocation, submission, B-leg/attempt, provider request, provider charge, and auxiliary workload; one resumable A-leg may contain arbitrarily many later BillingCallIDs and their B-legs.
 
-6.2. When reporting operator cost for a call or A-leg, the accounting system shall include all attributable executed B-leg costs, including failed attempts, canceled work, race losers, retries, and attributable auxiliary work, without duplicating a shared charge.
+6.2. Every request-scoped provider inference usage observation and charge shall attach to a concrete B-leg identified by `BLegID`, which is the mandatory accounting ownership root. `AttemptSeq` shall identify ordered child execution lineage within the call/A-leg context and shall not act as an alternative accounting subject or standalone ownership key. When reporting operator cost for a call or A-leg, the accounting system shall include all operator-payable costs attributable to every executed B-leg, including failed attempts, canceled work, race losers, retries, and attributable auxiliary work, without duplicating a shared charge; genuine resource/account-period costs remain non-B-leg subjects until explicitly allocated.
 
 6.3. If any included cost is missing or unresolved, the accounting system shall return known subtotal and completeness information instead of labelling the subtotal the complete cost.
 
@@ -157,9 +157,9 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 #### Acceptance Criteria
 
-8.1. The customer rater shall select its input basis explicitly from customer-boundary usage, provider quantities for selected attempts, or an explicitly declared provider-cost pass-through policy.
+8.1. For request-scoped inference charging, the customer rater shall derive usage from explicitly policy-selected normalized B-leg quantities; it may use customer-boundary measurements only for separately declared proxy/service charges and may use provider cost only through an explicitly declared cost-pass-through policy. Internal retries, losers, and failed B-legs shall not become customer-billable merely because they contributed to operator COGS.
 
-8.2. The customer rater shall support separate uncached, cache-read, cache-write, and output rates and non-token charges without reducing them to one blended input rate.
+8.2. The customer rater shall support separate uncached, cache-read, cache-write, text/media input and output, image/audio/video/document, and other non-token rates or charges without reducing them to one blended token rate or losing input/output direction.
 
 8.3. Where charging is per user submission, the system shall count a trusted new submission once and shall not charge its tool continuations, replayed history, or transport retries as additional submissions.
 
@@ -197,11 +197,11 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 10.1. When the same source event identity and revision are delivered again, the system shall perform an idempotent replay; if its semantic payload differs, the system shall report an identity conflict.
 
-10.2. When applying delta or cumulative evidence, the system shall respect source stream identity, sequence, and explicitly present fields; absence shall not erase a previous known component.
+10.2. When applying delta or cumulative evidence, the system shall respect source stream identity, sequence, and explicitly present fields; absence shall not erase a previous known component, and B-leg economic observations may become durable/reducible while that B-leg is active rather than waiting for any session-final marker.
 
 10.3. When evidence is corrected, the system shall append a revision or adjustment referencing the prior evidence and shall not mutate previously sealed facts.
 
-10.4. When an attempt terminates, the system shall close its observed execution state exactly once while permitting explicitly identified later economic evidence.
+10.4. When a B-leg/attempt or BillingCallID invocation receives terminal/DONE/EOF semantics, the system shall seal only that execution checkpoint exactly once while permitting explicitly identified later economic evidence; it shall not mark the parent A-leg/session economically final. Every later resume that resolves to the same A-leg shall allocate a fresh `BillingCallID` and new B-legs without reopening or rewriting earlier records. Any protocol/canonical `CallID` follows its owning protocol's continuation semantics and is not the billing grouping authority; whether it is reused or replaced shall not permit reuse of the prior `BillingCallID`.
 
 10.5. If evidence persistence fails, the runtime shall preserve a durable recoverable accounting intent where available, expose degraded completeness, and shall never retry upstream work after downstream output commitment.
 
@@ -214,7 +214,7 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 #### Acceptance Criteria
 
-11.1. The persistent model shall retain independent local and provider component quantities and optional costs at call, attempt, resource, or account-window scope as applicable, with source and pricing provenance.
+11.1. The persistent model shall retain independent local and provider component quantities and optional costs at B-leg/attempt, call projection, resource, or account-window scope as applicable, with source and pricing provenance; A-leg/session totals shall be derived projections over immutable lower-scope economics rather than independent mutable usage authority.
 
 11.2. The persistent model shall preserve an immutable canonical record and transactionally consistent query projections, without treating a mutable report table as an independent economic authority.
 
@@ -349,7 +349,7 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 18.1. The implementation shall provide red-first unit and contract tests for every requirement and shall certify component extensibility with a synthetic non-token meter without generic-core or schema changes.
 
-18.2. The implementation shall certify local/provider separation, inclusion arithmetic, absent-versus-zero, fractional units, idempotency, late corrections, partial costs, and all-leg attribution using deterministic fixtures.
+18.2. The implementation shall certify local/provider separation, inclusion arithmetic, absent-versus-zero, fractional units, multimodal input/output direction and transformations, idempotency, late corrections, resumptions after terminal markers, partial costs, B-leg-rooted retail selection, and all-leg operator attribution using deterministic fixtures.
 
 18.3. The implementation shall certify canonical streaming and non-streaming parity, connector negotiation, public external-module integration, and lifecycle races through bounded family-level tests rather than a frontend-by-backend Cartesian matrix.
 

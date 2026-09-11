@@ -27,7 +27,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 17.1, 15.1, 18.3_
 
 - [ ] 1.2 Lock in financial failure cases before implementation
-  - Add red tests for independent E/Q/P preservation, input/cache/reasoning double-count prevention, attempted-with-missing-evidence versus never-started zero, and fixed fee once per call.
+  - Add red tests for independent E/Q/P preservation, input/cache/reasoning double-count prevention, multimodal input/output direction and transformation boundaries, attempted-with-missing-evidence versus never-started zero, resumptions after DONE on the same A-leg, B-leg-rooted retail selection, and fixed fee once per call/submission.
   - Use the synthetic acceptance vectors in design.md; preserve existing historical-price policy tests as versioned legacy behavior rather than changing expected results indiscriminately.
   - Completion: each new regression fails for its intended semantic reason on the baseline, without production fixes in this task.
   - _Contracts: D3; Testing Strategy and Acceptance Vectors_
@@ -70,9 +70,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
 
 - [ ] 2.2 Implement full component identity and schema relationships
-  - Implement sorted unique qualifiers and canonical key/hash equality including unit and schema; reject duplicate keys and duplicate dimension names.
-  - Declare token aggregates, cache lifetime and modality relationships; unknown namespaced components persist without being automatically considered billable.
-  - Completion: same component with different unit/lifetime/modality cannot collide, and aggregate/subcomponent relationships are explicit.
+  - Implement economic direction plus sorted unique qualifiers and canonical key/hash equality including unit and schema; reject duplicate keys, contradictory direction/schema combinations and duplicate dimension names.
+  - Declare token aggregates, cache lifetime and multimodal input/output relationships; unknown namespaced components persist without being automatically considered billable.
+  - Completion: image/audio/video input and output with different units/quality/lifetime cannot collide, and aggregate/subcomponent/transform relationships are explicit.
   - _Contracts: D2–D3_
   - _Boundary: SDK/public metering schemas_
   - _Depends: 2.1_
@@ -80,9 +80,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 2.1, 2.2, 2.4, 3.1, 3.4, 3.5, 15.5_
 
 - [ ] 2.3 Implement observation, subject and provenance contracts
-  - Implement V2 observation identity, source revision, acquisition/origin, subject union, timestamps, measure presence/quality, safe evidence fields, typed charge kinds, typed inclusive/additive coverage relations and store-scoped charge references.
-  - Validate account-window/resource/attempt distinctions and provider-versus-runtime attribution authority; split different acquisition provenance rather than broaden record-wide authority. Reject local self/cyclic/contradictory coverage shapes before they can become rateable.
-  - Completion: local/provider/statement records coexist, aggregate-only money is legal, and malformed source/scope/coverage combinations are rejected.
+  - Implement V2 observation identity, source revision, acquisition/origin, subject union, timestamps, measure presence/quality, safe evidence fields and typed charge coverage using store-scoped charge references.
+  - Validate account-window/resource/B-leg distinctions, provider-versus-runtime attribution authority, resumable A-leg versus per-invocation CallID lineage, and coverage-reference scope; split different acquisition provenance rather than broaden record-wide authority.
+  - Completion: local/provider/statement records coexist, aggregate-only money is legal, an A-leg can accept later calls without reopening prior B-legs, and malformed source/scope/coverage combinations are rejected.
   - _Contracts: D1–D2_
   - _Boundary: SDK/public metering evidence_
   - _Depends: 2.2_
@@ -143,9 +143,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 1.4, 3.6, 5.2, 5.5, 10.1, 10.2, 10.3_
 
 - [ ] 3.4 Certify reusable schema and normalization TCK
-  - Create a bounded family TCK for exact values, input/cache partition, aggregate coverage, unknown fields, gauges and presence.
-  - Add a synthetic non-token meter with new schema/qualifiers without editing reducer switches.
-  - Completion: family adapters can supply fixtures to the shared contract without creating frontend-by-backend combinations.
+  - Create a bounded family TCK for exact values, input/cache partition, multimodal direction/unit/quality, aggregate coverage, unknown fields, gauges and presence.
+  - Add synthetic image-input, audio-output/video-output and non-token resource meters with new schema/qualifiers without editing reducer switches.
+  - Completion: family adapters can supply text/image/audio/video fixtures to the shared contract without creating frontend-by-backend combinations or coercing media into text tokens.
   - _Contracts: C2; Testing Strategy_
   - _Boundary: testkit contracts_
   - _Depends: 3.3_
@@ -199,9 +199,9 @@ Tests in this plan are required future implementation evidence. They were not ru
 - [ ] 5. Attach canonical evidence to B2BUA terminal ownership
 
 - [ ] 5.1 Implement call, attempt, provider charge and workload lineage
-  - Carry trusted CallID/ALeg/BLeg/AttemptSeq and provider account/request/charge identities without conflating them.
-  - Resolve store-scoped charge references and explicit parent-inclusive/additive-child coverage across the attributable graph. Reject cycles, contradictory/ambiguous overlap and non-conserved shared allocations before the graph becomes eligible for rating; do not invent per-request allocations.
-  - Completion: retries, losers, failed work and auxiliary charges have stable distinct owners, one economic leaf per actual charge, and no inclusive parent can be rolled up together with the child amount it already covers.
+  - Carry trusted CallID/ALeg/BLeg/AttemptSeq and provider account/request/charge identities without conflating them. Treat A-leg as resumable continuity, BillingCallID as one invocation/grouping scope, and B-leg as the root for every request-scoped inference usage observation/charge.
+  - Resolve store-scoped charge references and explicit parent-inclusive/additive-child coverage across the attributable graph. Reject cycles, contradictory/ambiguous overlap and non-conserved shared allocations before the graph becomes eligible for rating; keep genuine resource/account-period economics at their native subject until explicit allocation.
+  - Completion: retries, losers, failed work and auxiliary charges have stable distinct owners, one economic leaf per actual charge, no inclusive parent can be rolled up together with the child amount it already covers, and later calls on the same A-leg cannot mutate earlier economic records.
   - _Contracts: D1; C1_
   - _Boundary: core lifecycle and billing identity_
   - _Depends: 4.4_
@@ -209,9 +209,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 5.5, 10.4_
 
 - [ ] 5.2 Replace destructive terminal evidence selection with capture
-  - Extend the existing attempt-owned accumulator and terminal handoff to retain source-separated observations and references instead of merging authority/cost into one event.
-  - Reuse attempt snapshot/terminal claim ownership and drain final evidence on all exit paths; late callbacks cannot bind to a later current B-leg.
-  - Completion: stream/finalizer/sideband disagreement survives closure and no new monetary receive-loop operation appears.
+  - Extend the existing attempt-owned accumulator/journal and terminal handoff to retain source-separated observations and references instead of merging authority/cost into one event; allow bounded V2 observations to become durable as acquired without direct stream-time money mutation.
+  - Reuse attempt snapshot/terminal claim ownership and drain final evidence on all exit paths; late callbacks cannot bind to a later current B-leg. Treat terminal/DONE as a B-leg/call checkpoint only, never A-leg/session finality.
+  - Completion: stream/finalizer/sideband disagreement survives closure, a same-A-leg resume creates fresh CallID/B-legs, and no new monetary receive-loop operation appears.
   - _Contracts: C1; C6_
   - _Boundary: core/runtime terminal wiring_
   - _Depends: 5.1_
@@ -229,9 +229,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 10.5, 10.6, 11.2, 14.1, 14.4, 16.5_
 
 - [ ] 5.4 Certify all-leg COGS attribution independent of retail selection
-  - Exercise winner, retry, canceled/failed attempt, parallel loser, swallowed failure, compaction and maintenance lineage.
-  - Check inclusive parent/child dedupe, partial known subtotal, BYOK payer and resource allocation conservation.
-  - Completion: known 3+5+2 supplier costs roll up to 10 regardless of the retail scope; an unknown extra cost makes that subtotal partial.
+  - Exercise winner, retry, canceled/failed attempt, parallel loser, swallowed failure, compaction and maintenance lineage, including multiple BillingCallIDs on one resumed A-leg.
+  - Check inclusive parent/child dedupe, partial known subtotal, BYOK payer and resource allocation conservation; prove retail inference selection is independent from all-leg supplier COGS.
+  - Completion: known 3+5+2 supplier costs roll up to 10 regardless of retail selection, while the default surfaced-only retail policy can rate only the winning B-leg; an unknown extra cost makes the operator subtotal partial.
   - _Contracts: D1; C4; Acceptance Vectors_
   - _Boundary: tests: B2BUA and auxiliary contracts_
   - _Depends: 5.3_
@@ -242,9 +242,9 @@ Tests in this plan are required future implementation evidence. They were not ru
 - [ ] 6. Capture independent local measurements at actual boundaries
 
 - [ ] 6.1 Measure the final upstream representation
-  - Attach provider-neutral measurement summary after adapter payload construction and rewrites, before upstream byte commitment.
-  - Distinguish prepared/attempted/accepted status; preserve canonical estimate when exact adapter representation counting is unsupported.
-  - Completion: an adapter-added field changes the proper local modelled input evidence and is not invisible to a claimed exact count.
+  - Attach provider-neutral measurement summaries after adapter payload construction and rewrites, before upstream byte commitment, covering text plus media/document properties after resize, transcode, frame/rate or other provider-bound transformation.
+  - Distinguish prepared/attempted/accepted status; preserve canonical estimates when exact provider token/media metering is unsupported.
+  - Completion: an adapter-added field or image/audio/video transformation changes the proper local modelled B-leg input evidence and is not invisible to a claimed exact count.
   - _Contracts: C1 hook map_
   - _Boundary: backend attachment plus core neutral checkpoint_
   - _Depends: 5.4_
@@ -252,9 +252,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 4.1, 4.3, 4.4, 14.5_
 
 - [ ] 6.2 Measure provider output before customer transforms
-  - Capture provider-side content measurement separately from frontend-delivered output; keep tokenizer/version/coverage.
-  - Implement chunk-invariant counting via supported incremental counting or existing bounded reconstruction; do not sum arbitrary independently tokenized chunks.
-  - Completion: chunk partition and output-filter fixtures produce stable independent local evidence without retaining unbounded raw output.
+  - Capture provider-side text and generated-media measurement separately from frontend-delivered output; keep tokenizer/media meter/version/coverage and pre/post transform identity.
+  - Implement chunk-invariant text counting plus bounded media duration/frame/size accounting using supported incremental measurement or existing bounded reconstruction; do not sum arbitrary independently tokenized chunks or replace provider-side duration/quality with downstream-transcoded values.
+  - Completion: text chunking and image/audio/video transform fixtures produce stable independent B-leg evidence without retaining unbounded raw output.
   - _Contracts: C1; Error Handling, Security and Performance_
   - _Boundary: core metering and boundary accumulator_
   - _Depends: 6.1_
@@ -315,8 +315,8 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 5.4, 5.6, 14.5, 17.2, 18.3_
 
 - [ ] 7.4 Certify the canonical sideband family contract
-  - Extend the shared connector conformance TCK with presence, fractions, charge coverage, gauges, late revisions and secret-safe errors.
-  - Use a synthetic non-token provider fixture to prove root executor/schema independence.
+  - Extend the shared connector conformance TCK with presence, fractions, multimodal direction/unit/quality, charge coverage, gauges, late revisions and secret-safe errors.
+  - Use synthetic image/audio/video and other non-token provider fixtures to prove root executor/schema independence.
   - Completion: one reusable transport certification suite covers required V2 invariants without provider Cartesian tests.
   - _Contracts: C2; Testing Strategy_
   - _Boundary: testkit connector contracts_
@@ -338,9 +338,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 5.1, 5.2, 5.3_
 
 - [ ] 8.2 (P) Certify OpenAI and OpenResponses-family evidence
-  - Map cached and reasoning subsets, provider monetary aggregates when genuinely present, request IDs and returned service context.
-  - Preserve interrupted streams lacking final usage and use provider cost only as P when supplied; test host-only isolation.
-  - Completion: the OpenAI/OpenResponses family fixtures distinguish E, Q, P and missing final evidence.
+  - Map cached/reasoning subsets plus supported image/audio/video/document input or generated-media economics exposed by the current OpenAI/OpenResponses family, provider monetary aggregates when genuinely present, request IDs and returned service context.
+  - Preserve interrupted streams lacking final usage and use provider cost only as P when supplied; retain input/output media direction and test host-only isolation.
+  - Completion: the OpenAI/OpenResponses family fixtures distinguish E, Q, P, multimodal direction, and missing final evidence without text-token coercion.
   - _Contracts: C2; S02; S07_
   - _Boundary: backend plugin: OpenAI/OpenResponses families_
   - _Depends: 7.4_
@@ -348,9 +348,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 1.1, 3.1, 3.4, 5.1, 5.2, 5.3, 7.4_
 
 - [ ] 8.3 (P) Certify Gemini-family modality and cache evidence
-  - Map available modality, cache, reasoning/total and grounded-tool usage with versioned qualifiers; do not invent usage from a published price sheet.
+  - Map available text/image/audio/video modality, direction, cache, reasoning/total and grounded-tool usage with versioned units/quality qualifiers; do not invent usage from a published price sheet.
   - Route actual resource storage evidence through interval scope, preserving unavailable input when the response does not contain it.
-  - Completion: known modality/cache fields round-trip and non-observed storage charges are not falsely labelled provider-reported.
+  - Completion: known multimodal/cache fields round-trip with input/output separation and non-observed storage charges are not falsely labelled provider-reported.
   - _Contracts: C2; S03_
   - _Boundary: backend plugin: Gemini family_
   - _Depends: 7.4_
@@ -391,7 +391,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 7.1, 7.4, 7.5, 7.6, 17.2_
 
 - [ ] 9.2 Implement exact unit rates, fixed fees and rounding rules
-  - Implement line-level linear price, fixed fee at declared scope, block rounding and minimums with exact intermediate arithmetic.
+  - Implement line-level linear price across text and multimodal direction/unit keys, fixed fee at declared scope, block rounding and minimums with exact intermediate arithmetic.
   - Validate the resolved charge-coverage graph before rating. Reject overlapping additive aggregate/subcomponent rules unless an explicit surcharge applies, reject inclusive-parent plus covered-child double counting, and require conserved explicit allocation for shared ownership; persist pre-round and rounded values.
   - Completion: synthetic cached-token, fixed-once and fractional unit vectors produce their exact expected values.
   - _Contracts: D3–D4; C3_
@@ -421,9 +421,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 4.3, 7.2, 7.4, 7.5_
 
 - [ ] 9.5 Certify generic non-token and unsupported-rate behavior
-  - Use request, submission, time, storage-product and credit fixtures plus a new namespaced synthetic meter.
-  - Test rate missing, currency mismatch, explicit free rate, unsupported precision and incomplete quantity; no case defaults to zero cost.
-  - Completion: adding a component changes only its schema/rule/adapter fixture, not executor or SQL schema.
+  - Use image input/output, audio input/output, video input/output, document/page, request, submission, time, storage-product and credit fixtures plus a new namespaced synthetic meter.
+  - Test modality/direction-specific rates, rate missing, currency mismatch, explicit free rate, unsupported precision and incomplete quantity; no case defaults to zero cost.
+  - Completion: adding a media component or unit changes only its schema/rule/adapter fixture, not executor or SQL schema, and unlike modalities/directions never collapse into one rated line.
   - _Contracts: C3; Acceptance Vectors_
   - _Boundary: tests: economics reference contract_
   - _Depends: 9.4_
@@ -434,9 +434,9 @@ Tests in this plan are required future implementation evidence. They were not ru
 - [ ] 10. Implement independent customer policies and submission charging
 
 - [ ] 10.1 Separate retail basis and attempt-scope selection
-  - Implement customer-boundary, selected-provider-quantity and explicit cost-pass-through inputs as distinct declared offer bases.
-  - Keep supplier COGS all-leg attribution independent; migrate existing retail offers with their previous scope instead of silently applying the new-offer default.
-  - Completion: provider rate or cost readiness is absent from independent customer rating inputs.
+  - Implement request-scoped retail inference usage over an explicit B-leg selection policy (for example surfaced/winner only, selected attempts, or explicitly all attempts), with explicit cost-pass-through as a separate commercial basis. Customer-boundary quantities may feed separately declared proxy/service charges but are not a competing inference-usage source.
+  - Keep supplier COGS all-leg attribution independent; migrate existing retail offers with their previous scope instead of silently applying the new B-leg-rooted default.
+  - Completion: provider rate/cost readiness is absent from independent retail quantity rating, internal retries are customer-billable only when the frozen retail policy says so, and all request-scoped inference quantity lines reference B-leg observations.
   - _Contracts: C3_
   - _Boundary: billing domain customer policy_
   - _Depends: 9.5_
@@ -445,8 +445,8 @@ Tests in this plan are required future implementation evidence. They were not ru
 
 - [ ] 10.2 Establish trusted submission identity and continuation rules
   - Bind submission identity from authenticated current-turn/continuation authority or a supported harness adapter; reject untrusted overrides.
-  - Test tool continuation, historical replay, new follow-up, local command and transport retry. Unsupported attribution is explicit, not last-role heuristic.
-  - Completion: one prompt plus multiple tool calls contributes one submission fee.
+  - Test tool continuation, historical replay, new follow-up after DONE on the same A-leg, local command and transport retry. Unsupported attribution is explicit, not last-role heuristic.
+  - Completion: one prompt plus multiple tool continuations contributes one submission fee, while a genuine resumed/new submission can create a new BillingCallID and fee without reopening prior B-leg usage.
   - _Contracts: C1; C3_
   - _Boundary: frontend authority adapter and neutral identity contract_
   - _Depends: 10.1_
@@ -454,9 +454,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 6.1, 8.3, 8.4, 16.3_
 
 - [ ] 10.3 Apply fees once at their declared customer scope
-  - Move call/submission fixed-fee evaluation outside the B-leg loop and retain explicit failure/local-command/race-loser rules.
-  - Persist cache-specific retail lines and caller-visible usage separately from supplier line items.
-  - Completion: customer fees do not multiply by number of selected B-legs and summary charge equals its rounded detail lines.
+  - Move call/submission fixed-fee evaluation outside the B-leg loop and retain explicit failure/local-command/race-loser rules; fixed commercial fees remain distinct from inference usage.
+  - Persist text/cache/media B-leg retail lines and optional customer-boundary proxy-service lines separately from supplier line items.
+  - Completion: customer fixed fees do not multiply by number of selected B-legs, media direction remains visible, and summary charge equals its rounded detail lines.
   - _Contracts: C3; D4_
   - _Boundary: billing domain retail line rating_
   - _Depends: 10.2_
@@ -584,9 +584,8 @@ Tests in this plan are required future implementation evidence. They were not ru
 
 - [ ] 13.3 Implement selected-cost heads and balanced delta corrections
   - Persist selected/posted valuation revision and compare-and-swap it in the same transaction as an adjustment operation and balanced journal.
-  - Before subtraction, require the old/new selected valuations to share native currency or the same explicit frozen FX conversion basis. A currency mismatch without frozen FX remains pending/incomparable and performs no valuation-link, journal, or head mutation.
-  - Compute new selected minus previously posted comparable amount; support downward corrections with debit/credit reversal rather than invalid negative gross amounts.
-  - Completion: 10 to 8 in the same currency posts only a -2 adjustment; a USD-to-EUR replacement without frozen FX posts nothing; replay and racing revisions produce no duplicate effects.
+  - Validate currency comparability before computing a monetary delta. Compute new selected minus previously posted amount only for the same native currency or the same explicit frozen FX basis; otherwise keep the correction pending/incomparable and do not insert a valuation link, journal delta or cost-head transition. Support downward corrections with debit/credit reversal rather than invalid negative gross amounts.
+  - Completion: 10 USD to 8 USD posts only a -2 USD adjustment, while 10 USD to 8 EUR without frozen FX posts nothing; replay and racing revisions produce no duplicate effects.
   - _Contracts: C5; D5_
   - _Boundary: billing domain posting intent and driven SQL adapter_
   - _Depends: 13.2_
@@ -604,7 +603,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 10.6, 13.3, 13.5, 14.6, 16.5_
 
 - [ ] 13.5 Certify correction and dispute-like recovery scenarios
-  - Test late evidence after closure, corrected quantities, aggregate statement adjustments, duplicate imports, unmatched statements and native-currency mismatch. Prove mismatched native currencies cannot advance `billing_cost_heads` or post a delta without an explicit frozen FX basis.
+  - Test late evidence after closure, corrected quantities, aggregate statement adjustments, duplicate imports, unmatched statements and native-currency mismatch, including a no-FX mismatch that cannot post or advance the selected-cost head.
   - Test customer no-rebill default and explicit provisional pass-through adjustment policy.
   - Completion: economic history remains immutable and pending comparison does not erase incurred COGS or customer settlement.
   - _Contracts: C5; Acceptance Vectors_
@@ -783,7 +782,7 @@ Tests in this plan are required future implementation evidence. They were not ru
 
 - [ ] 19.1 Certify the complete independent-economics lifecycle
   - Run local/provider capture through storage, E/Q/P/R rating, discrepancy, COGS/customer settlement and query using real-family fixtures.
-  - Include all-leg/auxiliary, missing/zero, aggregate-only money, trusted submission, credits and synthetic non-token extensibility.
+  - Include all-leg/auxiliary, B-leg-rooted retail selection, same-A-leg resume after DONE, missing/zero, aggregate-only money, trusted submission, credits, image/audio/video input-output transformations and synthetic non-token extensibility.
   - Completion: every design acceptance vector exercised by this integrated lifecycle task has a passing named test and every requirement listed on this task has implementation evidence; migration/cutover and remaining release-wide criteria are completed by 19.2–20.1.
   - _Contracts: Testing Strategy and Acceptance Vectors_
   - _Boundary: tests: bounded integrated contracts_
@@ -792,7 +791,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 18.1, 18.2, 18.3_
 
 - [ ] 19.2 Certify database, restart and lifecycle races
-  - Run canonical dual-dialect/pooler contracts plus repeated terminal, late evidence, cancellation, loser callbacks, adjustment races and cutover crashes.
+  - Run canonical dual-dialect/pooler contracts plus repeated terminal/DONE followed by same-A-leg resume, late evidence, cancellation, loser callbacks, adjustment races and cutover crashes.
   - Use repository race targets on a supported environment; Windows-only skips are not substitutes for scoped race evidence.
   - Completion: correctness survives restart and concurrent worker/call lifecycles without duplicate financial effects.
   - _Contracts: C6; Migration Strategy; Testing Strategy_

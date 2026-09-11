@@ -2,15 +2,15 @@
 
 ## Overview
 
-Replace the financial path's single selected token/cost evidence with a versioned, component-oriented evidence and valuation model. Independently retain what the proxy measured, what its frozen tariff predicts, what the provider reported, and what a later statement claims. Reconciliation compares those records; it does not destroy disagreement by choosing a winner.
+Replace the financial path's single selected token/cost evidence with a versioned, component-oriented evidence and valuation model. Independently retain what the proxy measured, what its frozen tariff predicts, what the provider reported, and what a later statement claims. Request-scoped inference economics are B-leg-rooted; A-leg/session continuity and BillingCallID remain grouping and projection scopes rather than independent inference-usage authorities. Reconciliation compares those records; it does not destroy disagreement by choosing a winner.
 
 This design extends the current metering journal, B2BUA terminal lifecycle, billing store and host injection. It does not build another executor, event bus, accounting database service, or price-discovery system. The reference implementation must be useful end to end before release, not merely contain unused extensibility interfaces.
 
-**Baseline:** `3da34d7875443355d65cb9d7df649555dfad3edb`. Paths marked **existing** were inspected in the source investigation. Paths marked **new** are proposed implementation locations, not claims about existing code. Full evidence and gap analysis are in `research.md`.
+**Baseline:** original discovery was pinned to `3da34d7875443355d65cb9d7df649555dfad3edb`; current B2BUA/resumability/multimodal assumptions were revalidated against `5a8174161a2d4d502ee55692b9c0121ae8c74800` on 2026-09-11. Paths marked **existing** were inspected in the source investigation. Paths marked **new** are proposed implementation locations, not claims about existing code. Full evidence and gap analysis are in `research.md`.
 
 ### Goals
 
-Preserve independent evidence; store quantities and charges per component; support non-token units and exact arithmetic; independently rate customers; reconcile provider discrepancies; roll up all attributable B-leg COGS; permit a separately compiled billing integration; migrate without duplicate debits or permanent parallel rating engines.
+Preserve independent evidence; store quantities and charges per component; support multimodal input/output and non-token units with exact arithmetic; root request-scoped inference usage in B-leg execution; independently rate customers from policy-selected B-leg usage plus explicitly separate commercial/service charges; reconcile provider discrepancies; roll up all attributable B-leg COGS; permit a separately compiled billing integration; migrate without duplicate debits or permanent parallel rating engines.
 
 ### Non-goals
 
@@ -51,8 +51,9 @@ flowchart TD
     Backend --> Upstream[Upstream provider]
     Backend --> Capture[Neutral evidence collector]
     Runtime --> Capture
+    Capture --> Journal[Metering journal and observations]
     Capture --> Terminal[Existing terminal handoff]
-    Terminal --> Journal[Metering journal and closure]
+    Terminal --> Journal
     Journal --> LocalRating[Local expected rating]
     Journal --> ProviderRating[Provider quantity rating]
     Journal --> Retail[Customer rating]
@@ -130,7 +131,9 @@ Use these separate axes, never a single overloaded `source` or `cost` flag:
 | Valuation basis | local_expected, provider_quantity_local, provider_reported, statement_reported, customer_policy, allocated_cost |
 | State | evidence completeness; comparison status; posting status are separate fields |
 
-`BillingCallID` is not an A-leg identifier. One A-leg/session may contain multiple calls; one call may contain multiple B-legs; a B-leg may contain several provider charge events. Keep `RequestID`, `CallID`, `ALegID`, `BLegID`, `AttemptSeq`, `SubmissionID`, `ProviderAccountKey`, `ProviderRequestID`, `ProviderChargeID`, `ParentWorkID`, `ResourceID` and `PeriodID` separate. Adapter-supplied provider IDs are namespaced by provider account and endpoint family. The runtime owns client/tenant/call/B-leg attribution; an untrusted header cannot override it.
+`BillingCallID` is not an A-leg identifier. One A-leg/session may contain arbitrarily many calls over time, including calls created after an earlier provider or protocol `DONE`; one call may contain multiple B-legs; a B-leg may contain several provider charge events. `DONE`, EOF, terminal, or call-closure semantics seal only that execution scope and never prove the A-leg/session can no longer progress. Keep `RequestID`, `CallID`, `ALegID`, `BLegID`, `AttemptSeq`, `SubmissionID`, `ProviderAccountKey`, `ProviderRequestID`, `ProviderChargeID`, `ParentWorkID`, `ResourceID` and `PeriodID` separate. Adapter-supplied provider IDs are namespaced by provider account and endpoint family. The runtime owns client/tenant/call/B-leg attribution; an untrusted header cannot override it.
+
+**Economic ownership invariant:** every request-scoped provider inference quantity or charge is attached to a B-leg (and, where useful, to a provider charge event beneath that B-leg). BillingCallID groups B-legs created by one invocation and provides admission/settlement coordination; A-leg/session provides continuity and aggregate reporting. Neither is an independent provider-usage source. Genuine non-request economics such as cache storage, reserved capacity, subscription/account-period fees or other shared resources retain their resource/account-period subject and may contribute to calls only through explicit conserved allocation.
 
 For brokered providers, the direct upstream charge and a reported underlying inference cost are different economic layers; an underlying-cost detail is not an additional payable unless an explicit payer/coverage contract says so. Cost is recorded once for its economic owner. An attribution edge references that charge; an aggregate never becomes another additive leaf. A charge can be inclusive of children, or children can be additive, but not both in the same rollup. Shared allocations carry a policy/version and exact weights that sum to one, including an explicit unallocated remainder. A resource cost lacking reliable allocation stays resource-scoped.
 
@@ -145,11 +148,19 @@ type Decimal struct {
     Coefficient string `json:"coefficient"` // signed base-10 integer, canonical
     Scale       uint8  `json:"scale"`       // value = coefficient * 10^-scale
 }
+type EconomicDirection string
+const (
+    DirectionInput    EconomicDirection = "input"
+    DirectionOutput   EconomicDirection = "output"
+    DirectionResource EconomicDirection = "resource"
+    DirectionAccount  EconomicDirection = "account"
+)
 type Dimension struct { Name, Value string }
 type ComponentKey struct {
-    Component string
-    Unit      string
-    SchemaID  string
+    Direction  EconomicDirection
+    Component  string
+    Unit       string
+    SchemaID   string
     Dimensions []Dimension
 }
 type Measure struct {
@@ -214,11 +225,26 @@ Decimal constraints: at most 38 coefficient digits and scale 0–18; normalize i
 
 Existing `economics.Money`/billing nano-money remains the ledger posting unit. Rating retains exact pre-round decimal/rational values and explicitly rounds at the configured line, call or period boundary into checked integer nano-units. No float arithmetic in evidence, rating, comparison or FX. Reuse current checked arithmetic where compatible. Arbitrary precision math is post-turn and operand-bounded; hot capture uses integer counters wherever exact.
 
-Component key = component + unit + schema + sorted unique dimensions. Reject duplicate dimension names and duplicate measures for the same key in an observation. Standard bounded qualifiers include modality, cache lifetime, service tier, region, quality/resolution, resource class and billing pool. Arbitrary customer text is not a qualifier. Namespaces permit future components without a SQL migration. The normalization schema defines aggregate/subset/partition relationships; it is not inferred from component names.
+Component key = economic direction + component + unit + schema + sorted unique dimensions. Direction is economically significant: `image/input/token` and `image/output/token`, or `audio/input/second` and `audio/output/second`, are different keys even when the physical unit matches. Reject contradictory direction/schema combinations, duplicate dimension names and duplicate measures for the same key in an observation. Standard bounded qualifiers include modality/media kind, cache lifetime, service tier, region, quality/resolution, frame rate, resource class and billing pool. Arbitrary customer text is not a qualifier. Namespaces permit future components without a SQL migration. The normalization schema defines aggregate/subset/partition/transform relationships; it is not inferred from component names.
 
 ### D3. Canonical token and non-token definitions
 
-Required normalized meters: `input_token_uncached`, `cache_read_input_token`, `cache_write_input_token`, `output_token`, plus informational `input_token_total`, `total_token` and separately meaningful `reasoning_output_token`. Cache-write lifetime is a qualifier, so 5-minute and 1-hour writes do not collapse. Non-text tokens use modality qualifiers; image counts, seconds, byte-seconds, token-seconds, requests, submissions, tool calls, provider credits and allowance gauges have separate units and schemas.
+Required text-token meters include `input_token_uncached`, `cache_read_input_token`, `cache_write_input_token`, `output_token`, plus informational `input_token_total`, `total_token` and separately meaningful `reasoning_output_token`. Cache-write lifetime is a qualifier, so 5-minute and 1-hour writes do not collapse. Text-token names may retain their legacy semantic names, but V2 still records direction explicitly and validation rejects contradictory keys.
+
+Multimodal economics are first-class rather than a generic afterthought:
+
+| Direction | Component examples | Legitimate units/qualifiers | Boundary rule |
+|---|---|---|---|
+| input | image | image, token, tile, megapixel; detail/quality/resolution | Measure the representation actually sent to the provider after resize/re-encode. |
+| output | image | image, token, megapixel; quality/resolution | Measure/provider-report generated media before customer-side conversion; separately observe delivered media if needed. |
+| input | audio | token, millisecond/second, byte | Measure post-transcode provider-bound audio, not merely client upload duration. |
+| output | audio | token, millisecond/second | Preserve generated duration/tokens before trim/transcode and customer-delivered form separately. |
+| input | video | token, millisecond/second, frame, megapixel-second | Preserve provider-bound frame/rate/resolution semantics after transformation. |
+| output | video | token, millisecond/second, frame, megapixel-second | Preserve generated duration/frame/quality semantics before downstream transformation. |
+| input | file/document | page, byte, token, document | Provider-family mapping states whether billing follows raw bytes, parsed pages/tokens, or another unit. |
+| resource | provider tool/compute/storage | request/query, second, byte-second, token-second | Do not coerce resource economics into media or text-token usage. |
+
+A provider may report one or several of these units for the same media object. They coexist when economically meaningful; conversion between tokens, seconds, pixels, frames, bytes, pages or counts requires an explicit versioned schema/rating rule and is never inferred merely to make unlike providers look uniform. Requests, submissions, tool calls, provider credits and allowance gauges likewise have separate units and schemas.
 
 For an inclusive input schema: `uncached = input_total - cache_read - cache_write` **only when the complete declared partition is known**. For Anthropic's documented separate counters, `input_tokens` is the uncached component; total input is derived by adding cache fields when present. For an OpenAI-compatible cached-subset schema, cached input is subtracted once; a provider with no cache-write billing dimension declares it not applicable, not a fabricated reported zero. Missing fields stay missing.
 
@@ -274,9 +300,9 @@ The collector is request/attempt-owned; it holds local and remote observations i
 | Hook | Attachment and rule |
 |---|---|
 | Frontend ingress | After authenticated identity/current-turn classification, before request mutation; freeze customer measurement/submission context. Local commands can remain non-inference traffic. |
-| Final backend payload | After provider payload construction and all applicable rewrites, before the first upstream body byte. An adapter returns a neutral measurement summary/tokenizer context of that exact representation. Canonical-call token estimates remain estimates if adapters add invisible fields. |
+| Final backend payload | After provider payload construction and all applicable rewrites, before the first upstream body byte. An adapter returns neutral measurement summaries for the exact text/media/document representation, including post-resize/transcode properties where billing-relevant. Canonical-call token/media estimates remain estimates if adapters add or transform invisible fields. |
 | Upstream headers and status | Adapter captures safe charge/usage identifiers and account gauges; transport-attempted does not imply provider acceptance. |
-| Backend stream ingress | Measure provider content before customer transforms; keep independent local output measurement and provider-reported economic events separate. |
+| Backend stream ingress | Measure/provider-observe text and generated media before customer transforms such as filter, compression, transcode, trim, resize or projection; keep provider-side B-leg output economics, independent local output measurement and customer-delivered observation separate. |
 | Sideband drain | Extend `UsageEvidenceSource`/backend-plugin accounting drain with negotiated V2 neutral payload; drain on open failure, normal receive, terminal, cancel and close. Never expose sideband as client content. |
 | Finalization | Replace destructive `mergeStreamCostOntoLeg` behavior for V2 with append/revision correlation. Retain all source records and explicit conflicts. |
 | Attempt terminal | Reuse `claimBillingLegRecord` and the captured attempt owner; produce exactly one closure with evidence references. Never look up the new current attempt to attribute late callbacks. |
@@ -318,7 +344,7 @@ type ReconciliationReader interface {
 
 The default rater is a small deterministic rule evaluator over typed snapshots: linear quantity price, once-per-specified-scope fixed fee, ceiling-to-block quantity, minimum charge, conditional rule selection and ordered all-units or graduated tiers. Declare whether threshold selection uses the entire request context or only billable uncached tokens. Conflict/overlap validation occurs at snapshot publication. An aggregate observation cannot be added alongside its priced children unless a named surcharge explicitly requires that. Monthly shared tiers/minimums require a period-scoped valuation job or custom rater; do not approximate them by repeating the monthly rule per B-leg.
 
-Retail policy declares one basis: customer-boundary quantities (new-offer default), selected supplier quantities (explicit legacy-compatible offer), or cost pass-through. Scope selection is separate from supplier cost attribution. Fixed fee per call or submission runs once at that scope, never inside the selected-leg loop. Failed/race-loser and local-command inclusion are explicit offer rules. Existing customer policies are migrated with their previous scope and semantics; **do not silently change historic retail pricing to the new default**.
+Retail inference policy declares a **B-leg selection policy** plus component rating rules. Request-scoped inference quantities always come from normalized B-leg observations; the policy decides which B-legs are customer-billable (for example surfaced/winner only, selected attempts, or explicitly all attempts). Supplier COGS remains all attributable operator-payable B-leg/resource economics regardless of retail selection. Customer-boundary measurements may be priced only as separately declared proxy/service charges (for example upload/download/transformation service), not as a competing inference-usage truth. Cost pass-through is an explicit alternative commercial basis. Fixed fee per call or submission runs once at that scope, never inside the selected-leg loop. Failed/race-loser and local-command inclusion are explicit offer rules. Existing customer policies are migrated with their previous scope and semantics; **do not silently change historic retail pricing to the new default**.
 
 Submission identity comes from trusted frontend current-turn/continuation authority or a supported harness integration. Repeated historical user messages are not new submissions. A backend agent loop may contain many tool turns; it does not thereby create many human submissions. Unreliable attribution disables prompt-priced strict offers, not all inference. This work supplies the identity contract and reference adapter coverage, not a universal natural-language classifier.
 
@@ -357,28 +383,30 @@ A statement that covers several already-posted charges compares against their su
 
 ### C6. Lifecycle and durable work
 
-Capture is bounded in-memory measurement/evidence work, not rating. Existing attempt closure remains exactly once. An economic observation can arrive later and is identified by its own revision, not by reopening the attempt.
+Capture is bounded measurement/evidence work, not stream-time financial mutation. A-leg/session has no accounting-final state: it is a resumable continuity container and may receive a new BillingCallID and new B-legs after any prior response/DONE marker. Existing B-leg/attempt and BillingCallID closure remain exactly-once checkpoints for their own execution scope only. Economic observations may be appended/reduced while a B-leg is active and may also arrive later by revision; neither case reopens an earlier execution checkpoint or depends on the parent session becoming impossible to resume.
 
 ```mermaid
 sequenceDiagram
     participant R as Runtime
+    participant J as Economic journal
     participant T as Terminal sink
     participant D as Local database
     participant W as Economic workers
-    R->>R: Freeze call and attempt identity
-    R->>R: Capture local and provider evidence separately
-    R->>T: Append immutable terminal envelope
-    T->>D: Evidence plus closure plus work in one transaction
+    R->>R: Freeze call and B-leg identity
+    R->>J: Append bounded source observations as acquired
+    J->>D: Persist immutable observation revision
+    W->>D: Claim available revision work with fence
+    W->>W: Reduce rate and reconcile frozen inputs
+    W->>D: Persist provisional or final valuation intent
+    R->>T: Append B-leg or call closure checkpoint
+    T->>D: Closure plus remaining work in one transaction
     D-->>T: Durable acknowledgement
-    T-->>R: Acknowledge envelope
-    W->>D: Claim revision work with fence
-    W->>W: Rate and reconcile frozen inputs
-    W->>D: Persist valuation and idempotent posting intent
+    Note over R,D: Later resume reuses A-leg but creates a new BillingCallID and B-legs
 ```
 
-Use the existing terminal handoff and operational exposure record for recovery. Do not recreate a separate runtime usage-append outbox. A failure to append after output cannot be repaired by generating another provider completion. Mark host accounting health degraded, stop new strict monetary admissions when durability is unavailable, retain recoverable intent, and let recovery mark the affected attempt incomplete until reconciled. A crash before terminal capture cannot promise to recover unreceived provider evidence; the design preserves the uncertainty and supports later provider import.
+Use the existing terminal handoff and operational exposure record for execution closure/recovery; do not recreate a second terminal usage outbox. Incremental V2 observations use the canonical metering/economic journal path and revision identity, not a parallel monetary writer. Financial rating/posting still occurs through bounded host-owned workers rather than directly inside receive callbacks. A failure to append after output cannot be repaired by generating another provider completion. Mark host accounting health degraded, stop new strict monetary admissions when required durability is unavailable, retain recoverable intent, and let recovery mark the affected B-leg incomplete until reconciled. A crash cannot promise to recover provider evidence never received; the design preserves the uncertainty and supports later provider import.
 
-Post-turn work uses bounded batches and existing host-owned workers with durable revision cursors, retry scheduling and claim leases/fences. Processing can be retried, but business effects are idempotent database transactions. Rating/reconciliation calculation does not hold customer balance locks. Supplier jobs do not mutate customer balances. Store arbitrary correction histories durably, not in an ever-growing per-session map.
+Economic workers use bounded batches and durable revision cursors, retry scheduling and claim leases/fences. Newly durable observations may be reduced and used for provisional economics while a B-leg is active, but authoritative monetary settlement occurs only at the applicable frozen B-leg/call/commercial checkpoint required by policy; **it never waits for A-leg/session finality**. Call closure is therefore a settlement coordination checkpoint, not an inference-usage source and not a declaration that the session cannot resume. Processing can be retried, but business effects are idempotent database transactions. Rating/reconciliation calculation does not hold customer balance locks. Supplier jobs do not mutate customer balances. Store arbitrary correction histories durably, not in an ever-growing per-session map.
 
 ### C7. Public binding and Open Core boundary
 
@@ -498,6 +526,11 @@ Reference tests are deterministic; all prices below are synthetic test fixtures,
 | Crash between canonical append/projection/work insertion; stale worker after cutover | Atomic rollback or fully committed envelope; stale writer fenced; no duplicate posting. |
 | Local tokenizer result vs provider count API | Distinct acquisition provenance; no false independent match. |
 | More than one source measurement channel, partial snapshots and late resets | Component/source streams stay isolated; gauge resets are not negative usage refunds. |
+| 4K client image resized to 1024px before provider input | Customer-boundary and provider-bound observations differ; provider inference rating uses the B-leg/provider-bound image quantity and qualifiers. |
+| Provider returns 12s audio, proxy trims/transcodes to 10s delivered audio | Supplier/output evidence preserves provider-side 12s or reported tokens; customer-delivered 10s is a separate service observation, not a replacement. |
+| Mixed text + image + audio request and image output | Direction/modality/unit keys remain disjoint; no text-token coercion or input/output collision; each tariff line rates only compatible components. |
+| Response reaches DONE, same A-leg resumes later | Earlier BillingCallID/B-legs remain sealed and posted; resume creates a new BillingCallID/B-legs, with A-leg total increasing only as a projection. |
+| Call has failed retry + race loser + surfaced winner | Operator COGS includes all payable B-legs; ordinary retail inference usage includes only B-legs selected by the frozen customer policy. |
 
 Unit tests cover decimal/schema/normalization/reduction/rating/reconciliation. Contract tests cover public external-module binding, connector V2 negotiation, provider-family field mapping and existing authority projections. Integration tests cover complete terminal-to-storage-to-valuation-to-posting-to-report flow and all-leg/auxiliary lineage. Database tests use `dbparity.DefaultCatalog()` and canonical commands. Race tests cover late callbacks, parallel losers, dedupe, epoch changes and cleanup. Performance tests compare frozen baseline and bounded enabled/disabled capture; use Windows `make test-cost` evidence for test infrastructure impact.
 
