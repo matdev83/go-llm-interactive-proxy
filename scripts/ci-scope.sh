@@ -4,11 +4,31 @@
 #        ci-scope.sh --self-test
 set -euo pipefail
 
+is_kiro_spec_path() {
+  case "$1" in
+    .kiro/specs/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 is_documentation_path() {
   case "$1" in
     docs/*)
       case "$1" in
         *.md|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
+          return 0
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+      ;;
+    .kiro/specs/*)
+      # Kiro SDD artifacts are specification/policy inputs, not runtime/test
+      # inputs. Keep executable or otherwise unexpected files fail-closed so
+      # the spec tree can never become a generic CI bypass bucket.
+      case "$1" in
+        *.md|*.json|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
           return 0
           ;;
         *)
@@ -45,6 +65,9 @@ file_matches() {
         return 1
       fi
       return 0
+      ;;
+    kiro)
+      is_kiro_spec_path "$file"
       ;;
     go)
       case "$file" in
@@ -94,6 +117,7 @@ classify_diff() {
   local code=false
   local go=false
   local test=false
+  local kiro=false
   local coverage=false
   local test_cost=false
   local file diff_file
@@ -101,7 +125,7 @@ classify_diff() {
   # Non-PR events and manual dispatches have no base SHA. Run every scope
   # rather than risking a false bypass.
   if [[ -z "$base" ]]; then
-    printf 'code=true\ngo=true\ntest=true\nopenresponses_coverage=true\ntest_cost=true\n'
+    printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\n'
     return 0
   fi
 
@@ -115,18 +139,19 @@ classify_diff() {
     file_matches code "$file" && code=true
     file_matches go "$file" && go=true
     file_matches test "$file" && test=true
+    file_matches kiro "$file" && kiro=true
     file_matches openresponses_coverage "$file" && coverage=true
     file_matches test_cost "$file" && test_cost=true
   done < "$diff_file"
   rm -f "$diff_file"
 
-  for value in "$code" "$go" "$test" "$coverage" "$test_cost"; do
+  for value in "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost"; do
     case "$value" in
       true|false) ;;
       *) echo "invalid CI scope value: $value" >&2; return 1 ;;
     esac
   done
-  printf 'code=%s\ngo=%s\ntest=%s\nopenresponses_coverage=%s\ntest_cost=%s\n' "$code" "$go" "$test" "$coverage" "$test_cost"
+  printf 'code=%s\ngo=%s\ntest=%s\nkiro=%s\nopenresponses_coverage=%s\ntest_cost=%s\n' "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost"
 }
 
 self_test() {
@@ -142,14 +167,35 @@ self_test() {
     file_matches go "$relevant" || { echo "go scope missed $relevant" >&2; return 1; }
     file_matches test "$relevant" || { echo "test scope missed $relevant" >&2; return 1; }
   done
-  for unrelated in docs/README.md README.md CHANGELOG.md; do
+  for unrelated in \
+    docs/README.md \
+    README.md \
+    CHANGELOG.md \
+    .kiro/specs/example/requirements.md \
+    .kiro/specs/example/spec.json; do
     file_matches code "$unrelated" && { echo "code scope included $unrelated" >&2; return 1; }
     file_matches go "$unrelated" && { echo "go scope included $unrelated" >&2; return 1; }
     file_matches test "$unrelated" && { echo "test scope included $unrelated" >&2; return 1; }
   done
-  for relevant in docs/backend-plugins/docs_test.go .kiro/specs/example/requirements.md notes/README.md assets/example.txt; do
+  for relevant in docs/backend-plugins/docs_test.go notes/README.md assets/example.txt; do
     file_matches test "$relevant" || { echo "test scope missed $relevant" >&2; return 1; }
   done
+  for relevant in \
+    .kiro/specs/example/requirements.md \
+    .kiro/specs/example/spec.json \
+    .kiro/specs/archive/example/tasks.md; do
+    file_matches kiro "$relevant" || { echo "kiro scope missed $relevant" >&2; return 1; }
+  done
+  for unrelated in docs/README.md internal/core/runtime.go; do
+    file_matches kiro "$unrelated" && { echo "kiro scope included $unrelated" >&2; return 1; }
+  done
+  # Unexpected executable content beneath .kiro/specs must still trigger the
+  # ordinary code/test path in addition to the Kiro policy scope.
+  relevant=.kiro/specs/example/check.sh
+  file_matches code "$relevant" || { echo "code scope missed executable Kiro artifact $relevant" >&2; return 1; }
+  file_matches test "$relevant" || { echo "test scope missed executable Kiro artifact $relevant" >&2; return 1; }
+  file_matches kiro "$relevant" || { echo "kiro scope missed executable Kiro artifact $relevant" >&2; return 1; }
+
   for relevant in testdata/fixture.json scripts/helper.sh; do
     file_matches test "$relevant" || { echo "test scope missed $relevant" >&2; return 1; }
   done
