@@ -55,15 +55,7 @@ The existing B2BUA hierarchy remains: one A-leg may host arbitrarily many later 
 
 ### Revalidation Triggers
 
-Re-check this refinement if implementation changes:
-
-- whether a continuation reuses or allocates a B-leg;
-- BillingCallID allocation semantics;
-- provider sideband/finalization evidence delivery;
-- supported media representation in canonical APIs;
-- the parent SDD's V2 component identity;
-- call closure ownership or expected B-leg freezing;
-- fast-path evidence availability.
+Re-check this refinement if implementation changes B-leg reuse semantics, BillingCallID allocation, connector usage sideband/finalization, canonical media representation, V2 component identity, call closure ownership, or fast-path evidence capability.
 
 ## Architecture
 
@@ -131,17 +123,15 @@ flowchart TD
 
 ### Refined Component Identity
 
-The parent `ComponentKey` is refined so economic direction cannot be implicit or lost:
+The parent `ComponentKey` is refined so input/output direction cannot be implicit or lost:
 
 ```go
 type FlowDirection string
 
 const (
-    DirectionInput    FlowDirection = "input"
-    DirectionOutput   FlowDirection = "output"
-    DirectionRequest  FlowDirection = "request"
-    DirectionResource FlowDirection = "resource"
-    DirectionGauge    FlowDirection = "gauge"
+    DirectionNone   FlowDirection = "none"
+    DirectionInput  FlowDirection = "input"
+    DirectionOutput FlowDirection = "output"
 )
 
 type ComponentKey struct {
@@ -153,7 +143,7 @@ type ComponentKey struct {
 }
 ```
 
-`Direction` is part of the canonical key/fingerprint. Existing canonical component names that already encode direction may map losslessly, but the V2 semantic identity must expose the direction explicitly to rating and reconciliation.
+`Direction` is part of the canonical key/fingerprint. `DirectionNone` is for non-directional quantities such as request counts, account gauges, or resource storage; their **subject** and component identity carry scope. Do not encode request/resource/gauge scope as a fake flow direction.
 
 Examples:
 
@@ -167,8 +157,8 @@ Examples:
 | video | input | second | resolution=720p, fps_class=provider_billing |
 | video | output | frame | quality=standard |
 | document | input | page | parser_class=provider_native |
-| tool_query | request | count | tool=grounding |
-| cache_storage | resource | byte_second | cache_class=provider_native |
+| tool_query | none | count | tool=grounding |
+| cache_storage | none | byte_second | cache_class=provider_native |
 
 Canonical components preserve provider-native economic units. A rate rule may derive another billable quantity only when the frozen provider schema defines that transformation. The core does not equate one image, one second, and one token.
 
@@ -236,12 +226,7 @@ RetailInferenceUsage(call) =
     normalized quantities from policy-selected surfaced/winning B-leg evidence
 ```
 
-The frozen retail policy may instead select:
-
-- surfaced/winning B-legs;
-- a named subset by attempt outcome/type;
-- all attributable B-legs for an explicit retry-inclusive offer;
-- operator selected provider cost for explicit cost pass-through.
+The frozen retail policy may instead select surfaced/winning B-legs, a named subset by attempt outcome/type, all attributable B-legs for an explicit retry-inclusive offer, or operator selected provider cost for explicit cost pass-through.
 
 The policy must not silently inherit new retry/failover behavior from runtime changes.
 
@@ -278,27 +263,28 @@ sequenceDiagram
     participant F as Financial store
     B->>J: usage checkpoint revision 1
     J-->>W: revision work
-    W->>F: valuation head revision 1
+    W->>F: accrued valuation revision 1
     B->>J: usage checkpoint revision 2
     J-->>W: revision work
-    W->>F: valuation head revision 2 and optional delta
+    W->>F: accrued valuation revision 2
     B->>J: execution terminal checkpoint
-    J-->>W: completeness revision
+    J-->>W: call selection and completeness revision
     B->>J: late provider correction
     J-->>W: correction revision
-    W->>F: idempotent adjustment delta
+    W->>F: idempotent adjustment delta where policy permits
 ```
 
 Stable usage evidence can become durable before terminal. The implementation may coalesce/batch checkpoints; the contract does not require one write per stream frame.
 
 ### Posting Policy
 
-Two modes are valid under the same evidence model:
+Evidence capture and valuation are always revision-driven. Financial settlement depends on the local economic scope, **not** on A-leg/session finality.
 
-1. **Accrue then settle at call/B-leg checkpoint:** ratings become queryable as evidence arrives, financial posting waits for the configured local settlement scope.
-2. **Incremental settlement:** selected valuation head is posted as deltas under revision identity.
+- **Operator COGS:** provider costs may be posted/accrued per B-leg or provider-charge revision as they become sufficiently authoritative, with later adjustments using the parent delta/fencing rules.
+- **Default independent-retail customer settlement:** may wait until BillingCallID closure makes surfaced/winning B-leg selection stable. This is call-level finality only; no A-leg/session finality is required.
+- **Explicit provisional/incremental retail policies:** may post before call closure only if the frozen policy defines reversible/provisional behavior and selection changes post compensating deltas idempotently.
 
-Neither mode waits for A-leg/session finality. Incremental settlement must reuse the parent cost-head/adjustment invariants and transaction fencing.
+Therefore “on the fly accounting” means usage evidence and economic valuation do not wait for session end; it does **not** require speculative customer debits for transient retry candidates.
 
 ## Components and Interfaces
 
@@ -311,7 +297,7 @@ Responsibilities:
 - own B-leg correlation and provider charge identity;
 - coalesce safe local/provider measurement checkpoints;
 - never merge customer-boundary measurements into provider inference truth;
-- emit durable observations through the parent terminal/journal durability family;
+- emit durable observations through the parent journal/durability family;
 - tolerate late economic revisions after execution closure.
 
 No monetary posting occurs from the receive callback.
@@ -320,32 +306,15 @@ No monetary posting occurs from the receive callback.
 
 **Intent:** convert frozen customer policy into the B-leg set and component quantities eligible for retail inference rating.
 
-Inputs:
+Inputs: BillingCallID, immutable B-leg outcomes/surfaced state, normalized V2 observations, frozen retail policy/version, and trusted submission/commercial scope.
 
-- BillingCallID;
-- immutable B-leg outcomes/surfaced state;
-- normalized V2 observations;
-- frozen retail policy/version;
-- trusted submission/commercial scope.
-
-Output:
-
-- selected B-leg/observation references;
-- selection reason/policy version;
-- completeness/capability status.
+Output: selected B-leg/observation references, selection reason/policy version, and completeness/capability status.
 
 The selector does not calculate provider COGS.
 
 ### Rolling Economic Query
 
-A-leg/session query results are explicitly `as_of` views. Return:
-
-- all BillingCallIDs in scope;
-- B-leg/provider contribution lineage;
-- current known COGS and completeness;
-- current customer charges and commercial basis;
-- unresolved/late revisions;
-- native-currency totals.
+A-leg/session query results are explicitly `as_of` views. Return BillingCallIDs in scope, B-leg/provider contribution lineage, current known COGS/completeness, current customer charges/commercial basis, unresolved/late revisions, and native-currency totals.
 
 Never expose a boolean implying permanent economic finality of the A-leg.
 
@@ -367,16 +336,7 @@ If implementation text in the parent conflicts with this table, this refinement 
 
 ## Error Handling
 
-Add/refine typed failure states:
-
-- unsupported modality economic capability;
-- ambiguous media direction;
-- unsupported provider-bound transform measurement;
-- incomplete B-leg retail selection;
-- stale or duplicate incremental revision;
-- resumed-call identity conflict;
-- attempted B-leg with missing economics;
-- resource cost lacking conserved allocation.
+Add/refine typed failure states for unsupported modality economic capability, ambiguous media direction, unsupported provider-bound transform measurement, incomplete B-leg retail selection, stale/duplicate incremental revision, resumed-call identity conflict, attempted B-leg with missing economics, and resource cost lacking conserved allocation.
 
 Missing multimodal detail remains missing/partial; never coerce to zero or text-token equivalents.
 
@@ -385,30 +345,30 @@ Missing multimodal detail remains missing/partial; never coerce to zero or text-
 - No raw-media duplication solely for accounting.
 - Prefer metadata and existing representation sizes/durations already known at adapters.
 - Incremental observations are bounded/coalesced; no per-token write requirement.
-- Existing 1,024-observation/attempt and payload limits from the parent remain upper bounds unless Task 1 revalidation proves a lower transport limit.
-- Disabled monetary mode must retain the parent's zero-extra-I/O expectation.
+- Existing parent observation/payload bounds remain upper bounds unless Task 1 revalidation proves a lower transport limit.
+- Disabled monetary mode retains the parent's zero-extra-I/O expectation.
 - Long-lived/resumed A-legs must not accumulate unbounded in-memory economic histories; durable queries reconstruct rolling history.
 
 ## Testing Strategy
 
-### Required acceptance vectors
+### Required Acceptance Vectors
 
 | Vector | Required result |
 |---|---|
 | input image resized before provider | customer image measurement differs from B-leg provider representation; supplier expected rating uses B-leg representation |
 | provider image output transcoded before client | provider-origin image output and customer-visible output remain separate |
-| 12.5s input audio and 8.0s output audio with different rates | distinct direction-qualified lines, no merged `audio_second` total |
+| 12.5s input audio and 8.0s output audio with different rates | distinct direction-qualified lines, no merged audio-second total |
 | video input reported in tokens, video output billed per generated second | preserve native units; no forced common unit |
 | document input billed per page | page quantity rates without token conversion unless provider schema explicitly supplies one |
 | call with failed B1, loser B2, winner B3 | COGS includes all payable B-legs; normal retail inference usage selects B3 only |
 | retry-inclusive retail policy | customer selector explicitly includes configured retry B-legs; policy version retained |
 | same A-leg: call 1 DONE, call 2 later resume | second call receives new BillingCallID/B-legs; rolling A-leg totals include both |
-| B-leg usage revision before terminal | provisional valuation visible without A-leg/session completion |
+| B-leg usage revision before terminal | accrued valuation visible without A-leg/session completion |
 | late correction after terminal | adjustment posts only delta; B-leg execution is not reopened |
 | prompt-cache subscription/resource cost | remains resource/account subject; allocation optional/conserved; no fake B-leg |
 | A-leg TTL retirement | no new financial effect created by retirement itself |
 
-### Required gates
+### Required Gates
 
 - focused metering/economics unit tests;
 - runtime B2BUA resume tests;
