@@ -1,0 +1,55 @@
+{
+  "feature_name": "usage-economics-b-leg-multimodal-refinement",
+  "created_at": "2026-09-11T10:53:00Z",
+  "updated_at": "2026-09-11T10:53:00Z",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "baseline_commit": "bc7e5ce664c51d68bee771d477c53ce5de6265e1",
+  "spec_type": "brownfield_refinement",
+  "parent_spec": "extensible-usage-economics-reconciliation",
+  "execution_issue": 620,
+  "review_mode": "continuous_author_review",
+  "implementation_status": "not_started",
+  "requirement_count": 36,
+  "task_count": 26,
+  "workstream_count": 8,
+  "parallel_task_groups": [
+    [
+      "7.1",
+      "7.2",
+      "7.3"
+    ]
+  ],
+  "normative_precedence": {
+    "scope": [
+      "multimodal economic identity",
+      "B-leg-rooted inference usage",
+      "session and terminal finality",
+      "incremental economic processing",
+      "customer retail B-leg selection"
+    ],
+    "rule": "this refinement overrides conflicting parent wording only within the listed scope"
+  },
+  "validation": {
+    "brownfield_revalidation": "passed",
+    "requirements_review": "passed_after_repairs",
+    "design_review": "passed_after_repairs",
+    "task_traceability": "passed_author_check",
+    "production_tests": "not_run_spec_only"
+  }
+}
