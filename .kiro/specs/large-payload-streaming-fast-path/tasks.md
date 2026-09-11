@@ -701,7 +701,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Compressed Content-Length never used as decoded threshold/reservation fact.
   - _Requirements: 2, 11_
 
-- [ ] 18.2 Optional later decoded-gzip replay source
+- [x] 18.2 Optional later decoded-gzip replay source
   - Reuse exact current bounded decompression semantics.
   - Threshold/reservation in decoded bytes; remove stale outbound encoding/framing.
   - Represent decoded body mode explicitly; rerun scanner/profile/identity/backend/transport differential suites.
@@ -891,3 +891,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 17.3 VERIFIED (review subagent APPROVED; test-only, no production diff): 6 differential + 15 E2E green (21/21) with wire-boundary hard gate (missing/true store, prev_id, compaction never reach OpenWire/ExecuteLargeBody via dual counters), parsed-JSON differential + full criteria parity with lanes 1-2; suites PASS, vet/gofmt/diff-check clean.
 - Task 17.4 VERIFIED (controller scope audit, no code change): storage/continuation left as separate future certification — 17.1-17.3 diffs contain zero store reservations, response-ID persistence, recorder writes, cleanup, lineage, or trajectory machinery on the wire path (only reference is the failing-store fixture asserting zero store I/O); store:true/missing-store/prev_id/compaction all decline to canonical; future certification requires exact reservation/response-ID/recorder/cleanup/lineage/trajectory parity per Req 17/19.
 - Task 18.1 VERIFIED (review subagent APPROVED, reviewer-proven RED via old-logic replication): Header.Get-to-Values multi-line gzip detection fix in isRequestGzip/isRequestCompressed/isGzipEncoded (single-value identical, degenerate case more correct), gzip bypasses capture/profile/reservation with compressed-Length never a threshold fact, decoded limits/errors unchanged, no remaining request-path holes; frontendpipe + reqbody suites PASS, vet/gofmt/diff-check clean.
+- Task 18.2 DEFERRED by its own gate (controller decision, no code change): lanes certified test-only but not advertised and no Req 21 ROI evidence justifies decoded-gzip replay cost; gzip stays canonical via 18.1 bypass. Future work requires decoded-bytes threshold/reservation, explicit decoded body mode, stale-framing removal, and rerun of scanner/profile/identity/backend/transport differentials.
