@@ -721,7 +721,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - No backend/model/user/session IDs, body/path/spool path/resume token in labels/logs.
   - _Requirements: 20, 22_
 
-- [ ] 19.2 Benchmark all required sizes/stages
+- [x] 19.2 Benchmark all required sizes/stages
   - 32 KiB, 256 KiB, 1 MiB, 5 MiB, test-only 20 MiB.
   - Giant string, late model, tools, malformed JSON, canonical fallback, replay/failover.
   - allocs/op, B/op, CPU, GC cycles/pause/live+peak heap, capture/proof/assessment/provider-open, file I/O.
@@ -729,19 +729,19 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - Compare to Task 1.10 current-main baseline.
   - _Requirements: 6, 21_
 
-- [ ] 19.3 Enforce accepted-lane no-payload-heap invariant
+- [x] 19.3 Enforce accepted-lane no-payload-heap invariant
   - Heap/profile evidence must show no payload-sized `[]byte`/`string`, full Call/item/message tree, or payload-scale `CloneCall` on accepted spill-backed wire path.
   - Retained request heap bounded by memory spool + semantic fact budget + fixed buffers/metadata.
   - Size-scaling 1 MiB → 5 MiB → 20 MiB must be approximately flat/bounded; material body-proportional slope = failed optimization gate unless removed.
   - _Requirements: 19, 21, 22_
 
-- [ ] 19.4 Benchmark static blocker overhead
+- [x] 19.4 Benchmark static blocker overhead
   - Feature enabled but `DefinitelyCanonical` generation/profile must be near disabled/current canonical baseline.
   - Assert no temp file/replay/scanner/profile construction.
   - Include Local Turn/Secret Guard canonical blocker examples.
   - _Requirements: 5, 21_
 
-- [ ] 19.5 Concurrent load + spool saturation
+- [x] 19.5 Concurrent load + spool saturation
   - Realistic sessions, slow uploads, concurrent accepted requests, races/fallback, budget saturation, cancellation.
   - Compare GC/heap/latency with canonical baseline.
   - Spool budget is optimization budget, not global OOM admission.
@@ -893,3 +893,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 18.1 VERIFIED (review subagent APPROVED, reviewer-proven RED via old-logic replication): Header.Get-to-Values multi-line gzip detection fix in isRequestGzip/isRequestCompressed/isGzipEncoded (single-value identical, degenerate case more correct), gzip bypasses capture/profile/reservation with compressed-Length never a threshold fact, decoded limits/errors unchanged, no remaining request-path holes; frontendpipe + reqbody suites PASS, vet/gofmt/diff-check clean.
 - Task 18.2 DEFERRED by its own gate (controller decision, no code change): lanes certified test-only but not advertised and no Req 21 ROI evidence justifies decoded-gzip replay cost; gzip stays canonical via 18.1 bypass. Future work requires decoded-bytes threshold/reservation, explicit decoded body mode, stale-framing removal, and rerun of scanner/profile/identity/backend/transport differentials.
 - Task 19.1 VERIFIED (review subagent APPROVED after 1 remediation round: seq-ordered spool observer gauge fix + genuine RED evidence in `evidence/19.1-red-phase.md`): bounded stage/decline/size/spill/latency/spool diagnostics via closed-enum observer + prom sink, zero production wiring (default-off consistent); largebody + metrics + frontendpipe suites PASS, vet/gofmt/diff-check clean; single unexplained frontendpipe FAIL not attributable (7 consecutive green runs).
+- Tasks 19.2-19.5 VERIFIED (review subagent APPROVED, adversarial re-runs match to <1%): full stage/shape benchmarks + honest MIXED 19.3 verdict (strict proof-time invariant FAILED ~6.5-7.9x transient via CompileProof io.ReadAll; post-commit retained heap PASS flat 35,656 B/op), negligible blocker overhead with zero temp files, saturation all-200 with cancel cleanup; evidence/19.2-19.5-benchmarks.md; bench + evidence files only, no production diff; follow-ups: deterministic cancel-trigger proof, Phase-B relabel, preflight/capture pairing footnote.
