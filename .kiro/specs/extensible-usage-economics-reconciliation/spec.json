@@ -1,7 +1,7 @@
 {
   "feature_name": "extensible-usage-economics-reconciliation",
   "created_at": "2026-09-09T15:01:04Z",
-  "updated_at": "2026-09-09T17:53:00Z",
+  "updated_at": "2026-09-11T09:43:00Z",
   "language": "en",
   "phase": "tasks-generated",
   "approvals": {
@@ -19,7 +19,7 @@
     }
   },
   "ready_for_implementation": true,
-  "baseline_commit": "3da34d7875443355d65cb9d7df649555dfad3edb",
+  "baseline_commit": "5a8174161a2d4d502ee55692b9c0121ae8c74800",
   "spec_type": "brownfield",
   "review_mode": "continuous_author_review",
   "implementation_status": "not_started",
@@ -39,14 +39,20 @@
     "generic_statement_import": "in_scope",
     "vendor_invoice_parsers": "out_of_scope",
     "public_runtime_options": "remain_non_money",
-    "public_monetary_entrypoint": "explicit BuildWithBilling using the existing Host"
+    "public_monetary_entrypoint": "explicit BuildWithBilling using the existing Host",
+    "request_scoped_inference_usage": "b_leg_rooted",
+    "a_leg_session_finality": "resumable_continuity_never_financial_finality",
+    "multimodal_accounting": "input_output_direction_and_provider_transform_boundaries_in_scope"
   },
   "validation": {
     "requirements_gap_review": "passed",
     "design_review": "passed_after_repairs",
     "brownfield_design_validation": "passed_after_repairs",
     "task_graph_and_coverage": "passed_local_check",
-    "production_tests": "not_run_spec_only",
-    "external_pr_review": "passed_after_repairs"
+    "production_tests": "not_run_spec_only_followup",
+    "external_pr_review": "passed_after_repairs",
+    "b2bua_resumability_review": "passed_after_repairs",
+    "multimodal_accounting_review": "passed_after_repairs",
+    "retail_usage_authority_review": "passed_after_repairs"
   }
 }
