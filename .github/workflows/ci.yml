@@ -72,7 +72,7 @@ jobs:
           exit 1
 
       - name: Fail closed if database parity failed
-        if: always() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && needs.db-parity.result != 'success'
+        if: always() && needs.db-parity.result != 'success'
         shell: bash
         run: |
           echo "Database parity check failed or was cancelled; refusing to satisfy required repo hygiene status." >&2
@@ -135,7 +135,7 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.code != 'true'
         shell: bash
         run: |
-          echo "Repo hygiene manifest/change-size checks bypassed: no code-relevant changes detected."
+          echo "Repo hygiene manifest check bypassed: no code-relevant changes detected."
 
   test:
     name: Test (${{ matrix.os }})
@@ -277,10 +277,9 @@ jobs:
   db-parity:
     name: Database parity
     needs: changes
-    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true')
-    # This check is not required directly. Skip the entire job on docs/spec-only
-    # PRs so GitHub does not provision PostgreSQL just to execute a bypass step.
-    # Repo hygiene only requires successful database parity when test scope is on.
+    if: always()
+    # Required status check: see repo-hygiene above. Always run the job so it
+    # reports success (not skip) on docs-only PRs; guard steps.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -371,3 +370,9 @@ jobs:
           LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
           LIP_TEST_PARALLEL: '4'
         run: make test-db-parity
+
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
+        shell: bash
+        run: |
+          echo "Database parity bypassed: documentation-only changes detected."
