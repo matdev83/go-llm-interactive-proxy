@@ -3,7 +3,9 @@ package openresponses_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
+	frontendlimits "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/limits"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
@@ -622,6 +625,653 @@ func TestOpenResponsesProfile_SelectorDifferential(t *testing.T) {
 			if wireProof.Identity.Sum() != canonDigest.Sum() {
 				t.Fatalf("Identity digest differential mismatch (Req 16.2):\n wire:      %x\n canonical: %x",
 					wireProof.Identity.Sum(), canonDigest.Sum())
+			}
+		})
+	}
+}
+
+func test1MiBOpenResponsesBody(tb testing.TB, target int) []byte {
+	tb.Helper()
+	const prefix = `{"model":"gpt-4o","input":"`
+	const suffix = `","store":false}`
+	pad := target - len(prefix) - len(suffix)
+	if pad < 0 {
+		tb.Fatalf("target %d smaller than envelope", target)
+	}
+	var b strings.Builder
+	b.Grow(target)
+	b.WriteString(prefix)
+	b.WriteString(strings.Repeat("a", pad))
+	b.WriteString(suffix)
+	return []byte(b.String())
+}
+
+// Task 19.3 / Remediation Phase 2 (Lane 3):
+// Proof-time transient allocation (B/op) must be bounded by
+// memory_spool_bytes (64 KiB) + max_semantic_fact_bytes (256 KiB) + fixed buffers (128 KiB) = 448 KiB.
+func TestOpenResponsesProfile_CompileProof_TransientAllocBounded(t *testing.T) {
+	const target = 1 << 20 // 1 MiB
+	body := test1MiBOpenResponsesBody(t, target)
+
+	spoolDir := t.TempDir()
+	spill, err := largebody.NewSpillBuffer(largebody.SpillConfig{
+		SpoolDir:         spoolDir,
+		MemorySpoolBytes: 64 << 10,
+		CopyBufferSize:   32 << 10,
+	})
+	if err != nil {
+		t.Fatalf("spill buffer init: %v", err)
+	}
+	if _, err := spill.Write(body); err != nil {
+		t.Fatalf("spill write: %v", err)
+	}
+	src, err := spill.Complete()
+	if err != nil {
+		t.Fatalf("spill complete: %v", err)
+	}
+	t.Cleanup(func() { _ = src.Close() })
+
+	prof := openresponses.NewProfile()
+	proofIn := frontendpipe.ProofInput{
+		Ctx:                  context.Background(),
+		Headers:              make(http.Header),
+		URLPath:              "/openresponses/v1/responses",
+		RouteSelector:        "stub:gpt-4o",
+		RoutePrefixes:        routeselect.NewPrefixSet([]string{"stub", "openai"}),
+		DefaultRouteSelector: "stub:gpt-4o",
+		RouteFromBodyModel:   true,
+		Source:               src,
+		BodyBytes:            src.Size(),
+	}
+
+	var proofSink frontendpipe.ProofOutput
+	benchRes := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			out, perr := prof.CompileProof(b.Context(), proofIn)
+			if perr != nil {
+				b.Fatalf("CompileProof failed: %v", perr)
+			}
+			proofSink = out
+		}
+	})
+	_ = proofSink
+
+	allocBytesPerOp := benchRes.AllocedBytesPerOp()
+	const maxAllowedProofBytesPerOp = int64(64<<10) + int64(256<<10) + int64(128<<10) // 448 KiB
+
+	t.Logf("[openresponses/1MiB] proof-time transient: %d B/op (ceiling: %d B/op)",
+		allocBytesPerOp, maxAllowedProofBytesPerOp)
+
+	if allocBytesPerOp > maxAllowedProofBytesPerOp {
+		t.Fatalf("proof-time B/op (%d B) must be bounded by %d B, but exceeded target invariant by %d B",
+			allocBytesPerOp, maxAllowedProofBytesPerOp, allocBytesPerOp-maxAllowedProofBytesPerOp)
+	}
+}
+
+// Item 4: Envelope field (model) exceeding DefaultMaxSemanticFactBytes (256 KiB)
+// must be bounded and return ErrSemanticFactBudgetExceeded.
+func TestOpenResponsesProfile_CompileProof_EnvelopeFactBudget(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+	// Create model larger than 256 KiB budget (e.g. 270 KiB)
+	largeModel := strings.Repeat("m", 270*1024)
+	body := []byte(fmt.Sprintf(`{"model":"%s","input":"Hello","store":false}`, largeModel))
+	in := defaultOpenResponsesProofInput(body, "stub:gpt-4o", nil)
+
+	_, err := prof.CompileProof(context.Background(), in)
+	if err == nil {
+		t.Fatal("expected error for model exceeding fact budget, got nil")
+	}
+	if !errors.Is(err, largebody.ErrSemanticFactBudgetExceeded) {
+		t.Fatalf("expected ErrSemanticFactBudgetExceeded, got: %v", err)
+	}
+}
+
+// Item 1: Padded string differential.
+func TestOpenResponsesProfile_CompileProof_PaddedStringDifferential(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+	body := []byte(`{"model":"gpt-4o","input":"  \n\t  Hello, padded string differential!  \r\n  ","store":false}`)
+	in := defaultOpenResponsesProofInput(body, "stub:gpt-4o", nil)
+
+	out, err := prof.CompileProof(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompileProof failed: %v", err)
+	}
+
+	canonDecoded, err := openresponses.AuthenticateAndDecodeCreate(context.Background(), body, openresponses.DecodeCreateOptions{
+		RouteSelector: "stub:gpt-4o",
+	})
+	if err != nil {
+		t.Fatalf("canonical AuthenticateAndDecodeCreate failed: %v", err)
+	}
+	wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+	if out.State.Proof.Identity.Sum() != wantDigest.Sum() {
+		t.Fatalf("Identity mismatch for padded string:\ngot:  %x\nwant: %x", out.State.Proof.Identity.Sum(), wantDigest.Sum())
+	}
+
+	wantTurnShape, err := largebody.ClientTurnShapeFromCall(canonDecoded.Call, frontendpipe.DefaultMaxSemanticFactBytes)
+	if err != nil {
+		t.Fatalf("canonical ClientTurnShapeFromCall failed: %v", err)
+	}
+	if out.State.Proof.Turn.TotalContentBytes != wantTurnShape.TotalContentBytes {
+		t.Fatalf("Turn.TotalContentBytes mismatch: got %d, want %d", out.State.Proof.Turn.TotalContentBytes, wantTurnShape.TotalContentBytes)
+	}
+}
+
+// Item 1 & 2: Large array differential with mixed roles (system, user, assistant).
+// Payload exceeds 2*DefaultMaxSemanticFactBytes (512 KiB) to trigger the streaming large array path.
+func TestOpenResponsesProfile_CompileProof_MixedRoleLargeArrayDifferential(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+	chunkU := strings.Repeat("u", 280*1024)
+	chunkV := strings.Repeat("v", 280*1024)
+
+	var sb strings.Builder
+	sb.WriteString(`{"model":"gpt-4o","store":false,"input":[`)
+	sb.WriteString(`{"type":"message","role":"system","content":"System prompt initialization."}`)
+	sb.WriteString(`,{"type":"message","role":"user","content":"` + chunkU + `"}`)
+	sb.WriteString(`,{"type":"message","role":"assistant","content":"Understood, processing your data."}`)
+	sb.WriteString(`,{"type":"message","role":"user","content":"` + chunkV + `"}`)
+	sb.WriteString(`]}`)
+
+	body := []byte(sb.String())
+	in := defaultOpenResponsesProofInput(body, "stub:gpt-4o", nil)
+
+	out, err := prof.CompileProof(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompileProof failed for mixed-role large array: %v", err)
+	}
+
+	proof := out.State.Proof
+
+	// Verify roles in ClientTurnShape
+	if len(proof.Turn.Items) != 4 {
+		t.Fatalf("Proof.Turn.Items count: got %d, want 4", len(proof.Turn.Items))
+	}
+	expectedRoles := []lipapi.Role{
+		lipapi.RoleSystem,
+		lipapi.RoleUser,
+		lipapi.RoleAssistant,
+		lipapi.RoleUser,
+	}
+	for i, expectedRole := range expectedRoles {
+		if proof.Turn.Items[i].Role != expectedRole {
+			t.Errorf("Turn.Items[%d].Role: got %v, want %v", i, proof.Turn.Items[i].Role, expectedRole)
+		}
+	}
+
+	// Compare with canonical decode
+	canonDecoded, err := openresponses.AuthenticateAndDecodeCreate(context.Background(), body, openresponses.DecodeCreateOptions{
+		RouteSelector: "stub:gpt-4o",
+	})
+	if err != nil {
+		t.Fatalf("canonical AuthenticateAndDecodeCreate failed: %v", err)
+	}
+	wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+	if proof.Identity.Sum() != wantDigest.Sum() {
+		t.Fatalf("Identity mismatch for mixed-role large array:\ngot:  %x\nwant: %x", proof.Identity.Sum(), wantDigest.Sum())
+	}
+}
+
+// Item 1: Padded large array differential.
+// Large array payload (> 512 KiB) where content strings have leading and trailing whitespace.
+func TestOpenResponsesProfile_CompileProof_PaddedLargeArrayDifferential(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+	// Large array exceeding 512 KiB with padded message contents
+	chunkU := "  \\n\\t  " + strings.Repeat("u", 280*1024) + "  \\r\\n  "
+	chunkV := " \\t " + strings.Repeat("v", 280*1024) + " \\n "
+
+	var sb strings.Builder
+	sb.WriteString(`{"model":"gpt-4o","store":false,"input":[`)
+	sb.WriteString(`{"type":"message","role":"system","content":"  \\nSystem prompt initialization.  \\t"}`)
+	sb.WriteString(`,{"type":"message","role":"user","content":"` + chunkU + `"}`)
+	sb.WriteString(`,{"type":"message","role":"assistant","content":"  Understood, processing your data.  \\r\\n"}`)
+	sb.WriteString(`,{"type":"message","role":"user","content":"` + chunkV + `"}`)
+	sb.WriteString(`]}`)
+
+	body := []byte(sb.String())
+	in := defaultOpenResponsesProofInput(body, "stub:gpt-4o", nil)
+
+	out, err := prof.CompileProof(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompileProof failed for padded large array: %v", err)
+	}
+
+	proof := out.State.Proof
+
+	canonDecoded, err := openresponses.AuthenticateAndDecodeCreate(context.Background(), body, openresponses.DecodeCreateOptions{
+		RouteSelector: "stub:gpt-4o",
+	})
+	if err != nil {
+		t.Fatalf("canonical AuthenticateAndDecodeCreate failed: %v", err)
+	}
+	wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+	if proof.Identity.Sum() != wantDigest.Sum() {
+		t.Fatalf("Identity mismatch for padded large array:\ngot:  %x\nwant: %x", proof.Identity.Sum(), wantDigest.Sum())
+	}
+
+	// Verify that turn content bytes match canonical
+	wantTurnShape, err := largebody.ClientTurnShapeFromCall(canonDecoded.Call, frontendpipe.DefaultMaxSemanticFactBytes)
+	if err != nil {
+		t.Fatalf("canonical ClientTurnShapeFromCall failed: %v", err)
+	}
+	if proof.Turn.TotalContentBytes != wantTurnShape.TotalContentBytes {
+		t.Fatalf("Turn.TotalContentBytes mismatch: got %d, want %d", proof.Turn.TotalContentBytes, wantTurnShape.TotalContentBytes)
+	}
+	for i := range proof.Turn.Items {
+		if proof.Turn.Items[i].Parts[0].ContentBytes != wantTurnShape.Items[i].Parts[0].ContentBytes {
+			t.Fatalf("Turn.Items[%d].Parts[0].ContentBytes mismatch: got %d, want %d",
+				i, proof.Turn.Items[i].Parts[0].ContentBytes, wantTurnShape.Items[i].Parts[0].ContentBytes)
+		}
+	}
+}
+
+// Item 5: Number tokens spanning the 32 KiB chunk boundary.
+func TestOpenResponsesProfile_CompileProof_ChunkBoundaryNumbersDifferential(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+
+	cases := []struct {
+		name       string
+		optionKey  string
+		numLiteral string
+		verify     func(t *testing.T, proof largebody.Proof, canon *lipapi.Call)
+	}{
+		{
+			name:       "max_output_tokens straddling 32768",
+			optionKey:  "max_output_tokens",
+			numLiteral: "1500",
+			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				if proof.MaxOutputTokens != 1500 {
+					t.Fatalf("MaxOutputTokens dropped: got %d, want 1500", proof.MaxOutputTokens)
+				}
+			},
+		},
+		{
+			name:       "temperature straddling 32768",
+			optionKey:  "temperature",
+			numLiteral: "0.7",
+		},
+		{
+			name:       "top_p straddling 32768",
+			optionKey:  "top_p",
+			numLiteral: "0.85",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Target offset for number start: 32766 (straddling 32768 chunk boundary)
+			targetOffset := 32766
+			prefix1 := `{"model":"gpt-4o","store":false,"metadata":{"pad":"`
+			suffix1 := `"},"` + tc.optionKey + `":`
+			padLen := targetOffset - len(prefix1) - len(suffix1)
+			if padLen < 0 {
+				t.Fatalf("padLen %d < 0", padLen)
+			}
+			pad := strings.Repeat("x", padLen)
+			tail := `,"input":"hello"}`
+
+			body := []byte(prefix1 + pad + suffix1 + tc.numLiteral + tail)
+
+			// Verify that the number token actually straddles offset 32768:
+			numStart := len(prefix1) + padLen + len(suffix1)
+			numEnd := numStart + len(tc.numLiteral)
+			if numStart >= 32768 || numEnd <= 32768 {
+				t.Fatalf("test setup error: number span [%d, %d] does not straddle 32768", numStart, numEnd)
+			}
+
+			in := defaultOpenResponsesProofInput(body, "stub:gpt-4o", nil)
+			out, err := prof.CompileProof(context.Background(), in)
+			if err != nil {
+				t.Fatalf("CompileProof failed: %v", err)
+			}
+
+			proof := out.State.Proof
+
+			canonDecoded, err := openresponses.AuthenticateAndDecodeCreate(context.Background(), body, openresponses.DecodeCreateOptions{
+				RouteSelector: "stub:gpt-4o",
+			})
+			if err != nil {
+				t.Fatalf("canonical AuthenticateAndDecodeCreate failed: %v", err)
+			}
+
+			wantDigest := largebody.CanonicalCallIdentity(canonDecoded.Call)
+			if proof.Identity.Sum() != wantDigest.Sum() {
+				t.Fatalf("Identity mismatch for %s:\ngot:  %x\nwant: %x", tc.name, proof.Identity.Sum(), wantDigest.Sum())
+			}
+			if tc.verify != nil {
+				tc.verify(t, proof, canonDecoded.Call)
+			}
+		})
+	}
+}
+
+// Item 3: Fail-open decline corpus testing all scalar/wrong-typed envelope options and controls.
+func TestOpenResponsesProfile_CompileProof_DeclineCorpus(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+
+	cases := []struct {
+		name       string
+		body       string
+		wantErrSub string
+	}{
+		{
+			name:       "stream wrong type string",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"stream":"true"}`,
+			wantErrSub: "stream must be a boolean",
+		},
+		{
+			name:       "stream wrong type number",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"stream":1}`,
+			wantErrSub: "stream must be a boolean",
+		},
+		{
+			name:       "parallel_tool_calls wrong type string",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"parallel_tool_calls":"false"}`,
+			wantErrSub: "parallel_tool_calls must be a boolean",
+		},
+		{
+			name:       "temperature wrong type string",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"temperature":"0.7"}`,
+			wantErrSub: "temperature must be a number",
+		},
+		{
+			name:       "top_p wrong type string",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"top_p":"0.9"}`,
+			wantErrSub: "top_p must be a number",
+		},
+		{
+			name:       "max_output_tokens wrong type string",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"max_output_tokens":"100"}`,
+			wantErrSub: "max_output_tokens must be an integer",
+		},
+		{
+			name:       "max_output_tokens float value",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"max_output_tokens":100.5}`,
+			wantErrSub: "max_output_tokens must be an integer",
+		},
+		{
+			name:       "instructions wrong type array",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"instructions":["be helpful"]}`,
+			wantErrSub: "instructions must be a string",
+		},
+		{
+			name:       "tools wrong type object",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"tools":{"name":"f"}}`,
+			wantErrSub: "tools must be an array",
+		},
+		{
+			name:       "tool_choice wrong type number",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"tool_choice":123}`,
+			wantErrSub: "tool_choice must be a string or object",
+		},
+		{
+			name:       "metadata wrong type string",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"metadata":"meta"}`,
+			wantErrSub: "metadata must be an object",
+		},
+		{
+			name:       "reasoning wrong type string",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"reasoning":"high"}`,
+			wantErrSub: "reasoning must be an object",
+		},
+		{
+			name:       "reasoning unsupported field",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"reasoning":{"effort":"high","unsupported":true}}`,
+			wantErrSub: "reasoning field \"unsupported\" is unsupported",
+		},
+		{
+			name:       "reasoning invalid effort",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"reasoning":{"effort":"maximum"}}`,
+			wantErrSub: "reasoning.effort \"maximum\" is not supported",
+		},
+		{
+			name:       "reasoning empty effort",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"reasoning":{"effort":""}}`,
+			wantErrSub: "reasoning.effort must not be empty",
+		},
+		{
+			name:       "input wrong type number",
+			body:       `{"model":"gpt-4o","input":12345,"store":false}`,
+			wantErrSub: "input must be a string or array",
+		},
+		{
+			name:       "input array item not object",
+			body:       `{"model":"gpt-4o","input":["string item"],"store":false}`,
+			wantErrSub: "input array item must be an object",
+		},
+		{
+			name:       "large array with reasoning item declines to canonical",
+			body:       fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"reasoning","summary":[]},{"type":"message","role":"user","content":"%s"}]}`, strings.Repeat("x", 550*1024)),
+			wantErrSub: "requires canonical decode",
+		},
+		{
+			name:       "large array with function_call item declines to canonical",
+			body:       fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"function_call","name":"f","arguments":"{}"},{"type":"message","role":"user","content":"%s"}]}`, strings.Repeat("x", 550*1024)),
+			wantErrSub: "requires canonical decode",
+		},
+		{
+			name:       "large array with unsupported role declines to canonical",
+			body:       fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"custom_role","content":"%s"}]}`, strings.Repeat("x", 550*1024)),
+			wantErrSub: "requires canonical decode",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			in := defaultOpenResponsesProofInput([]byte(tc.body), "stub:gpt-4o", nil)
+			_, err := prof.CompileProof(context.Background(), in)
+			if err == nil {
+				t.Fatal("expected CompileProof to fail and decline to canonical, got nil error")
+			}
+			if tc.wantErrSub != "" && !strings.Contains(err.Error(), tc.wantErrSub) {
+				t.Fatalf("expected error containing %q, got %q", tc.wantErrSub, err.Error())
+			}
+		})
+	}
+}
+
+func TestOpenResponsesProfile_Limits(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+
+	// MaxMessages exceeded
+	items := make([]map[string]string, frontendlimits.MaxMessages+1)
+	for i := range items {
+		items[i] = map[string]string{"type": "message", "role": "user", "content": "hi"}
+	}
+	body, _ := json.Marshal(map[string]any{
+		"model": "gpt-4o",
+		"store": false,
+		"input": items,
+	})
+	in := defaultOpenResponsesProofInput(body, "stub:default", nil)
+	_, err := prof.CompileProof(context.Background(), in)
+	if err == nil || !strings.Contains(err.Error(), "maximum is") {
+		t.Fatalf("expected input messages limit error, got %v", err)
+	}
+}
+
+func TestOpenResponsesProfile_MF1_ToolChoiceParityAndDeclines(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+
+	// 1. Decline cases matching canonical decode
+	declineCases := []struct {
+		name       string
+		body       string
+		wantErrSub string
+	}{
+		{
+			name:       "empty string tool_choice declined",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"tool_choice":""}`,
+			wantErrSub: "unknown string tool_choice",
+		},
+		{
+			name:       "padded string tool_choice declined",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"tool_choice":" auto "}`,
+			wantErrSub: "unknown string tool_choice",
+		},
+		{
+			name:       "allowed_tools missing tools array declined",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"tool_choice":{"type":"allowed_tools"}}`,
+			wantErrSub: "allowed_tools requires a tools array",
+		},
+		{
+			name:       "allowed_tools empty tools array declined",
+			body:       `{"model":"gpt-4o","input":"hi","store":false,"tool_choice":{"type":"allowed_tools","tools":[]}}`,
+			wantErrSub: "allowed_tools tools must not be empty",
+		},
+	}
+
+	for _, tc := range declineCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := []byte(tc.body)
+			in := defaultOpenResponsesProofInput(body, "stub:gpt-4o", nil)
+			_, err := prof.CompileProof(context.Background(), in)
+			if err == nil {
+				t.Fatalf("expected CompileProof to decline with error containing %q, got nil", tc.wantErrSub)
+			}
+			if !strings.Contains(err.Error(), tc.wantErrSub) {
+				t.Fatalf("expected error containing %q, got %q", tc.wantErrSub, err.Error())
+			}
+		})
+	}
+
+	// 2. Parity cases: allowed_tools with refs and allowed_tools with mode "required"
+	parityCases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "allowed_tools with tool references",
+			body: `{"model":"gpt-4o","input":"hi","store":false,"tools":[{"type":"function","name":"search"}],"tool_choice":{"type":"allowed_tools","mode":"auto","tools":[{"type":"function","name":"search"}]}}`,
+		},
+		{
+			name: "allowed_tools with mode required maps to Any",
+			body: `{"model":"gpt-4o","input":"hi","store":false,"tools":[{"type":"function","name":"search"}],"tool_choice":{"type":"allowed_tools","mode":"required","tools":[{"type":"function","name":"search"}]}}`,
+		},
+	}
+
+	for _, tc := range parityCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := []byte(tc.body)
+			in := defaultOpenResponsesProofInput(body, "stub:gpt-4o", nil)
+			out, err := prof.CompileProof(context.Background(), in)
+			if err != nil {
+				t.Fatalf("CompileProof failed: %v", err)
+			}
+
+			_, canonCall, err := proto.DecodeRequest(body, proto.DefaultLimits())
+			if err != nil {
+				t.Fatalf("canonical DecodeRequest failed: %v", err)
+			}
+			canonCall.Route = lipapi.RouteIntent{Selector: out.State.Proof.RouteSelector}
+			canonCall.Invocation = lipapi.Invocation{
+				Operation:    lipapi.OperationOpenResponsesCreate,
+				DeliveryMode: out.State.Proof.Delivery,
+			}
+			wantDigest := largebody.CanonicalCallIdentity(&canonCall)
+			if out.State.Proof.Identity.Sum() != wantDigest.Sum() {
+				t.Fatalf("Identity digest mismatch:\n got:  %x\n want: %x", out.State.Proof.Identity.Sum(), wantDigest.Sum())
+			}
+		})
+	}
+}
+
+func TestOpenResponsesProfile_MF2_LargeArrayExplicitIDDeclined(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+
+	largeContent := strings.Repeat("x", 550*1024)
+	body := fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"message","id":"msg_explicit_123","role":"user","content":"%s"}]}`, largeContent)
+
+	in := defaultOpenResponsesProofInput([]byte(body), "stub:gpt-4o", nil)
+	_, err := prof.CompileProof(context.Background(), in)
+	if err == nil {
+		t.Fatal("expected CompileProof to decline large array with explicit id, got nil error")
+	}
+	if !strings.Contains(err.Error(), "requires canonical decode") {
+		t.Fatalf("expected decline error containing 'requires canonical decode', got %q", err.Error())
+	}
+}
+
+func TestOpenResponsesProfile_MF3_SmallArrayValidationDeclines(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+
+	cases := []struct {
+		name       string
+		body       string
+		wantErrSub string
+	}{
+		{
+			name:       "orphan function_call_output rejected",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"function_call_output","call_id":"orphan_call_999","output":"done"}]}`,
+			wantErrSub: "orphan tool result",
+		},
+		{
+			name:       "duplicate item ID rejected",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"message","id":"dup_id_1","role":"user","content":"hello"},{"type":"message","id":"dup_id_1","role":"user","content":"world"}]}`,
+			wantErrSub: "duplicate item ID",
+		},
+		{
+			name:       "empty item_reference ID rejected",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"item_reference","id":""}]}`,
+			wantErrSub: "reference ID is required",
+		},
+		{
+			name: "continuation ref count exceeded rejected",
+			body: func() string {
+				var items []string
+				for i := 0; i < 101; i++ {
+					items = append(items, fmt.Sprintf(`{"type":"item_reference","id":"ref_%d"}`, i))
+				}
+				items = append(items, `{"type":"message","role":"user","content":"hi"}`)
+				return fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[%s]}`, strings.Join(items, ","))
+			}(),
+			wantErrSub: "continuation reference count exceeds limit",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := []byte(tc.body)
+			in := defaultOpenResponsesProofInput(body, "stub:gpt-4o", nil)
+			_, err := prof.CompileProof(context.Background(), in)
+			if err == nil {
+				t.Fatalf("expected CompileProof to fail with %q, got nil error", tc.wantErrSub)
+			}
+			if !strings.Contains(err.Error(), tc.wantErrSub) {
+				t.Fatalf("expected error containing %q, got %q", tc.wantErrSub, err.Error())
 			}
 		})
 	}

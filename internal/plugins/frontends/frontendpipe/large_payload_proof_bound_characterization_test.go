@@ -90,6 +90,44 @@ func bench20MiBChatBody(tb testing.TB, target int) []byte {
 	return out
 }
 
+func bench20MiBOpenResponsesBody(tb testing.TB, target int) []byte {
+	tb.Helper()
+	const numParts = 4
+	const prefix = `{"model":"stub:bench","store":false,"input":[`
+	const msgPrefix = `{"role":"user","content":"`
+	const msgSuffix = `"}`
+	const suffix = `]}`
+	fixedLen := len(prefix) + len(suffix) + numParts*(len(msgPrefix)+len(msgSuffix)) + (numParts - 1)
+	totalPad := target - fixedLen
+	if totalPad < 0 {
+		tb.Fatalf("target %d too small", target)
+	}
+	padPerPart := totalPad / numParts
+	remainder := totalPad % numParts
+
+	var b strings.Builder
+	b.Grow(target)
+	b.WriteString(prefix)
+	for i := 0; i < numParts; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(msgPrefix)
+		p := padPerPart
+		if i == 0 {
+			p += remainder
+		}
+		b.WriteString(strings.Repeat("a", p))
+		b.WriteString(msgSuffix)
+	}
+	b.WriteString(suffix)
+	out := []byte(b.String())
+	if len(out) != target {
+		tb.Fatalf("openresponses chunked body len=%d want %d", len(out), target)
+	}
+	return out
+}
+
 func TestLargePayloadProof_TransientAllocBounded(t *testing.T) {
 	type sizeCase struct {
 		name   string
@@ -147,11 +185,16 @@ func TestLargePayloadProof_TransientAllocBounded(t *testing.T) {
 			},
 		},
 		{
-			laneID:      "openresponses",
-			profile:     openresponses.NewProfile(),
-			urlPath:     "/openresponses/v1/responses",
-			sizes:       stdSizes,
-			bodyBuilder: baselineOpenResponsesBody,
+			laneID:  "openresponses",
+			profile: openresponses.NewProfile(),
+			urlPath: "/openresponses/v1/responses",
+			sizes:   fullSizes,
+			bodyBuilder: func(tb testing.TB, target int) []byte {
+				if target > (8 << 20) {
+					return bench20MiBOpenResponsesBody(tb, target)
+				}
+				return baselineOpenResponsesBody(tb, target)
+			},
 		},
 	}
 
