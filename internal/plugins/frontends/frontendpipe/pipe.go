@@ -279,6 +279,8 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 			dobs.OnDecline(largebody.DeclineReasonLimitExceeded)
 		case largebody.CaptureOutcomeReadError:
 			dobs.OnDecline(largebody.DeclineReasonReadError)
+		case largebody.CaptureOutcomeTerminalError:
+			dobs.OnDecline(largebody.DeclineReasonReadError)
 		case largebody.CaptureOutcomeDeclined:
 			if largebody.IsSpoolBudgetExhausted(capRes.Err) {
 				dobs.OnDecline(largebody.DeclineReasonSpoolBudgetExhausted)
@@ -293,6 +295,19 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 		}
 		if reqbody.TooLarge(err) {
 			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteBodyTooLarge(w))
+			return
+		}
+		if capRes.Outcome == largebody.CaptureOutcomeTerminalError {
+			out := execerr.Outcome{
+				Status:  http.StatusInternalServerError,
+				Kind:    execerr.KindInternalError,
+				Message: execerr.InternalWireMessage,
+				Err:     err,
+			}
+			if spec.Log != nil {
+				diag.LogError(ctx, spec.Log, "terminal capture error", diag.AttrOpts{}, err)
+			}
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecuteError(w, out))
 			return
 		}
 		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteReadBodyFailed(w))

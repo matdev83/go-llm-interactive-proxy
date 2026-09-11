@@ -122,12 +122,11 @@ type SpillBuffer struct {
 	// Unwritten suffix from a failed or partial write (Requirement 20.6).
 	unwrittenSuffix []byte
 
-	activeReaders   int
-	deletePending   bool
 	closed          bool
 	completed       bool
 	completedSource *CompletedSource
 
+	lifecycle  *spillLifecycle
 	createFile func(dir string) (SpillFile, string, error)
 	openFile   func(path string) (io.ReadCloser, error)
 	removeFile func(path string) error
@@ -188,6 +187,7 @@ func NewSpillBuffer(cfg SpillConfig) (*SpillBuffer, error) {
 		createFile:       createFile,
 		openFile:         openFile,
 		removeFile:       removeFile,
+		lifecycle:        newSpillLifecycle("", removeFile),
 	}, nil
 }
 
@@ -301,6 +301,7 @@ func (b *SpillBuffer) Write(p []byte) (int, error) {
 		}
 		b.file = f
 		b.filePath = path
+		b.lifecycle.setFilePath(path)
 
 		// Write toSpill to file
 		nw, err := b.file.Write(toSpill)
@@ -333,6 +334,7 @@ func (b *SpillBuffer) Write(p []byte) (int, error) {
 		}
 		b.file = f
 		b.filePath = path
+		b.lifecycle.setFilePath(path)
 	}
 
 	nw, err := b.file.Write(p)
@@ -427,14 +429,24 @@ func (b *SpillBuffer) FileBytes() int64 {
 func (b *SpillBuffer) HasSpilled() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.filePath != ""
+	return b.lifecycle.HasSpilled()
 }
 
 // FilePath reports the spill file path, or empty string if not spilled.
 func (b *SpillBuffer) FilePath() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.filePath
+	return b.lifecycle.FilePath()
+}
+
+// ActiveReaders reports the current count of open readers.
+func (b *SpillBuffer) ActiveReaders() int {
+	return b.lifecycle.ActiveReaders()
+}
+
+// IsDeletePending reports whether file deletion is deferred until all readers close.
+func (b *SpillBuffer) IsDeletePending() bool {
+	return b.lifecycle.DeletePending()
 }
 
 // UnwrittenSuffix returns any unwritten portion of the last chunk from a failed
@@ -518,12 +530,13 @@ func (b *SpillBuffer) Open() (io.ReadCloser, error) {
 		return b.completedSource.Open()
 	}
 
-	if b.filePath == "" {
+	path := b.lifecycle.FilePath()
+	if path == "" {
 		// All data resides in memory
-		b.activeReaders++
+		b.lifecycle.addReader()
 		return &spillReader{
-			buf: b,
-			r:   bytes.NewReader(b.mem),
+			lifecycle: b.lifecycle,
+			r:         bytes.NewReader(b.mem),
 		}, nil
 	}
 
@@ -532,25 +545,25 @@ func (b *SpillBuffer) Open() (io.ReadCloser, error) {
 		_ = b.file.Sync()
 	}
 
-	rc, err := b.openFile(b.filePath)
+	rc, err := b.openFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	b.activeReaders++
+	b.lifecycle.addReader()
 	if len(b.mem) > 0 {
 		multi := io.MultiReader(bytes.NewReader(b.mem), rc)
 		return &spillReader{
-			buf: b,
-			r:   multi,
-			f:   rc,
+			lifecycle: b.lifecycle,
+			r:         multi,
+			f:         rc,
 		}, nil
 	}
 
 	return &spillReader{
-		buf: b,
-		r:   rc,
-		f:   rc,
+		lifecycle: b.lifecycle,
+		r:         rc,
+		f:         rc,
 	}, nil
 }
 
@@ -614,15 +627,12 @@ func (b *SpillBuffer) Complete() (*CompletedSource, error) {
 	b.completed = true
 
 	src := &CompletedSource{
-		mem:           b.mem,
-		filePath:      b.filePath,
-		size:          b.bytesWritten,
-		digest:        digest,
-		reservation:   b.reservation,
-		activeReaders: b.activeReaders,
-		deletePending: b.deletePending,
-		openFile:      b.openFile,
-		removeFile:    b.removeFile,
+		mem:         b.mem,
+		size:        b.bytesWritten,
+		digest:      digest,
+		reservation: b.reservation,
+		openFile:    b.openFile,
+		lifecycle:   b.lifecycle,
 	}
 	b.completedSource = src
 	return src, nil
@@ -645,54 +655,40 @@ func (b *SpillBuffer) IsCompleted() bool {
 //     occurs when the last reader closes (Windows open-file safety).
 func (b *SpillBuffer) Close() error {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	if b.closed {
+		b.mu.Unlock()
 		return nil
 	}
 	b.closed = true
 
 	if b.completed && b.completedSource != nil {
+		b.mu.Unlock()
 		return b.completedSource.Close()
 	}
 
-	if b.reservation != nil {
-		b.reservation.Release()
-	}
+	res := b.reservation
+	b.reservation = nil
 
 	var closeErr error
 	if b.file != nil {
 		closeErr = b.file.Close()
 		b.file = nil
 	}
+	b.mu.Unlock()
 
-	if b.filePath != "" {
-		if b.activeReaders == 0 {
-			if err := b.removeFile(b.filePath); err != nil && closeErr == nil {
-				closeErr = err
-			}
-			b.filePath = ""
-		} else {
-			b.deletePending = true
-		}
+	if res != nil {
+		res.Release()
+	}
+
+	if err := b.lifecycle.close(); err != nil && closeErr == nil {
+		closeErr = err
 	}
 
 	return closeErr
 }
 
 func (b *SpillBuffer) readerClosed() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.activeReaders--
-	if b.activeReaders < 0 {
-		b.activeReaders = 0
-	}
-
-	if b.deletePending && b.activeReaders == 0 && b.filePath != "" {
-		_ = b.removeFile(b.filePath)
-		b.filePath = ""
-	}
+	b.lifecycle.readerClosed()
 }
 
 // String returns a bounded diagnostic representation without leaking prompt
@@ -704,15 +700,15 @@ func (b *SpillBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return fmt.Sprintf("SpillBuffer{written=%d, mem=%d, fileBytes=%d, spilled=%t}",
-		b.bytesWritten, len(b.mem), b.fileBytes, b.filePath != "")
+		b.bytesWritten, len(b.mem), b.fileBytes, b.lifecycle.HasSpilled())
 }
 
 // spillReader wraps an io.Reader and tracks reader lifetime on the parent SpillBuffer.
 type spillReader struct {
-	buf  *SpillBuffer
-	r    io.Reader
-	f    io.Closer
-	once sync.Once
+	lifecycle *spillLifecycle
+	r         io.Reader
+	f         io.Closer
+	once      sync.Once
 }
 
 func (s *spillReader) Read(p []byte) (int, error) {
@@ -725,7 +721,7 @@ func (s *spillReader) Close() error {
 		if s.f != nil {
 			err = s.f.Close()
 		}
-		s.buf.readerClosed()
+		s.lifecycle.readerClosed()
 	})
 	return err
 }

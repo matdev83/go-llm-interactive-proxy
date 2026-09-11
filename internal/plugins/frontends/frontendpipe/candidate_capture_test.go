@@ -413,3 +413,46 @@ func TestCandidateCapture_SpillToDisk_LargePayload(t *testing.T) {
 		t.Fatalf("digest mismatch: got %s, want %x", capRes.Digest.String(), expectedHash)
 	}
 }
+
+func TestCandidateCapture_TerminalCaptureError_Returns500Never400(t *testing.T) {
+	t.Parallel()
+
+	exec := &candidateGatesExec{}
+	prof := &trackingCandidateProfile{profileID: "test_profile_v1"}
+
+	// Ledger with 100 KiB budget so 300 KiB Reserve fails with ErrSpoolBudgetExhausted
+	ledger, err := largebody.NewSpoolLedger(largebody.SpoolBudgetConfig{
+		MemorySpoolBytes:      64 * 1024,
+		MaxInflightSpoolBytes: 100 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("NewSpoolLedger failed: %v", err)
+	}
+
+	var captureRecord []frontendpipe.CandidateCaptureResult
+	spec := newCandidateCaptureSpec(exec, prof, frontendpipe.LargePayloadConfig{
+		Enabled:        true,
+		ThresholdBytes: 256 * 1024,
+		SpoolLedger:    ledger,
+	}, &captureRecord)
+
+	// Request with ContentLength > 0 to trigger Reserve, but nil Body to force NewCaptureReader failure
+	req := httptest.NewRequest(http.MethodPost, "/v1/create", nil)
+	req.Header.Set("Content-Type", "application/json")
+	req.ContentLength = 300 * 1024
+	req.Body = nil
+	rec := httptest.NewRecorder()
+
+	frontendpipe.ServeHTTP(&spec, rec, req)
+
+	// M5 requirement: terminal capture errors map to HTTP 500, never 400
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected HTTP 500 for terminal capture failure, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(captureRecord) != 1 {
+		t.Fatalf("expected 1 capture record, got %d", len(captureRecord))
+	}
+	if captureRecord[0].Outcome != largebody.CaptureOutcomeTerminalError {
+		t.Fatalf("expected OutcomeTerminalError, got %v", captureRecord[0].Outcome)
+	}
+}

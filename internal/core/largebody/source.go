@@ -53,21 +53,108 @@ type CompletedSourceConfig struct {
 //     and the spill file is removed only when the last active reader closes (Requirements 20.9, 20.10).
 //   - No background cleanup goroutines required.
 //   - Binds an immutable SourceDigest for replay/attempt evidence; explicitly not a substitute for canonical semantic identity (Requirements 15, 16.5).
+//
+// spillLifecycle manages the spill file path, reader refcount, deletion status, and removal.
+// It is shared between SpillBuffer and CompletedSource to maintain lifecycle equivalence
+// across transitions (Finding M4).
+type spillLifecycle struct {
+	mu            sync.Mutex
+	filePath      string
+	activeReaders int
+	deletePending bool
+	removeFile    func(path string) error
+}
+
+func newSpillLifecycle(filePath string, removeFile func(path string) error) *spillLifecycle {
+	if removeFile == nil {
+		removeFile = os.Remove
+	}
+	return &spillLifecycle{
+		filePath:   filePath,
+		removeFile: removeFile,
+	}
+}
+
+func (l *spillLifecycle) setFilePath(path string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.filePath = path
+}
+
+func (l *spillLifecycle) FilePath() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.filePath
+}
+
+func (l *spillLifecycle) HasSpilled() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.filePath != ""
+}
+
+func (l *spillLifecycle) ActiveReaders() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.activeReaders
+}
+
+func (l *spillLifecycle) DeletePending() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.deletePending
+}
+
+func (l *spillLifecycle) addReader() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.activeReaders++
+}
+
+func (l *spillLifecycle) readerClosed() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.activeReaders--
+	if l.activeReaders < 0 {
+		l.activeReaders = 0
+	}
+
+	if l.deletePending && l.activeReaders == 0 && l.filePath != "" {
+		_ = l.removeFile(l.filePath)
+		l.filePath = ""
+	}
+}
+
+func (l *spillLifecycle) close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var closeErr error
+	if l.filePath != "" {
+		if l.activeReaders == 0 {
+			if err := l.removeFile(l.filePath); err != nil {
+				closeErr = err
+			}
+			l.filePath = ""
+		} else {
+			l.deletePending = true
+		}
+	}
+	return closeErr
+}
+
 type CompletedSource struct {
 	mu sync.Mutex
 
 	mem         []byte
-	filePath    string
 	size        int64
 	digest      SourceDigest
 	reservation *SpoolReservation
+	closed      bool
 
-	activeReaders int
-	deletePending bool
-	closed        bool
-
-	openFile   func(path string) (io.ReadCloser, error)
-	removeFile func(path string) error
+	lifecycle *spillLifecycle
+	openFile  func(path string) (io.ReadCloser, error)
 }
 
 var _ Source = (*CompletedSource)(nil)
@@ -108,12 +195,11 @@ func NewCompletedSource(cfg CompletedSourceConfig) (*CompletedSource, error) {
 
 	return &CompletedSource{
 		mem:         mem,
-		filePath:    cfg.FilePath,
 		size:        size,
 		digest:      digest,
 		reservation: cfg.Reservation,
 		openFile:    openFile,
-		removeFile:  removeFile,
+		lifecycle:   newSpillLifecycle(cfg.FilePath, removeFile),
 	}, nil
 }
 
@@ -127,11 +213,11 @@ func NewMemorySource(data []byte) *CompletedSource {
 		digest = NewSourceDigest(sha256.Sum256(mem))
 	}
 	return &CompletedSource{
-		mem:        mem,
-		size:       int64(len(mem)),
-		digest:     digest,
-		openFile:   defaultOpenSpillFile,
-		removeFile: os.Remove,
+		mem:       mem,
+		size:      int64(len(mem)),
+		digest:    digest,
+		openFile:  defaultOpenSpillFile,
+		lifecycle: newSpillLifecycle("", os.Remove),
 	}
 }
 
@@ -152,33 +238,34 @@ func (s *CompletedSource) Open() (io.ReadCloser, error) {
 		return nil, ErrSourceClosed
 	}
 
-	if s.filePath == "" {
-		s.activeReaders++
+	path := s.lifecycle.FilePath()
+	if path == "" {
+		s.lifecycle.addReader()
 		return &completedSourceReader{
-			src: s,
-			r:   bytes.NewReader(s.mem),
+			lifecycle: s.lifecycle,
+			r:         bytes.NewReader(s.mem),
 		}, nil
 	}
 
-	rc, err := s.openFile(s.filePath)
+	rc, err := s.openFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	s.activeReaders++
+	s.lifecycle.addReader()
 	if len(s.mem) > 0 {
 		multi := io.MultiReader(bytes.NewReader(s.mem), rc)
 		return &completedSourceReader{
-			src: s,
-			r:   multi,
-			f:   rc,
+			lifecycle: s.lifecycle,
+			r:         multi,
+			f:         rc,
 		}, nil
 	}
 
 	return &completedSourceReader{
-		src: s,
-		r:   rc,
-		f:   rc,
+		lifecycle: s.lifecycle,
+		r:         rc,
+		f:         rc,
 	}, nil
 }
 
@@ -191,9 +278,8 @@ func (s *CompletedSource) Open() (io.ReadCloser, error) {
 //     occurs when the last reader closes (Windows open-file safety).
 func (s *CompletedSource) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.closed {
+		s.mu.Unlock()
 		return nil
 	}
 	s.closed = true
@@ -202,35 +288,13 @@ func (s *CompletedSource) Close() error {
 		s.reservation.Release()
 		s.reservation = nil
 	}
+	s.mu.Unlock()
 
-	var closeErr error
-	if s.filePath != "" {
-		if s.activeReaders == 0 {
-			if err := s.removeFile(s.filePath); err != nil {
-				closeErr = err
-			}
-			s.filePath = ""
-		} else {
-			s.deletePending = true
-		}
-	}
-
-	return closeErr
+	return s.lifecycle.close()
 }
 
 func (s *CompletedSource) readerClosed() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.activeReaders--
-	if s.activeReaders < 0 {
-		s.activeReaders = 0
-	}
-
-	if s.deletePending && s.activeReaders == 0 && s.filePath != "" {
-		_ = s.removeFile(s.filePath)
-		s.filePath = ""
-	}
+	s.lifecycle.readerClosed()
 }
 
 // MemoryBytes returns a copy of the in-memory portion of the source.
@@ -247,23 +311,17 @@ func (s *CompletedSource) MemoryBytes() []byte {
 
 // FilePath returns the spill file path, or empty string if not spilled.
 func (s *CompletedSource) FilePath() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.filePath
+	return s.lifecycle.FilePath()
 }
 
 // HasSpilled reports whether the source is backed by secondary spill storage.
 func (s *CompletedSource) HasSpilled() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.filePath != ""
+	return s.lifecycle.HasSpilled()
 }
 
 // ActiveReaders reports the current count of open readers.
 func (s *CompletedSource) ActiveReaders() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.activeReaders
+	return s.lifecycle.ActiveReaders()
 }
 
 // IsClosed reports whether root Close() has been called.
@@ -275,9 +333,7 @@ func (s *CompletedSource) IsClosed() bool {
 
 // IsDeletePending reports whether file deletion is deferred until all readers close.
 func (s *CompletedSource) IsDeletePending() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.deletePending
+	return s.lifecycle.DeletePending()
 }
 
 // Digest reports the bound source integrity digest (Requirements 15, 16, 20; design section 5).
@@ -303,15 +359,15 @@ func (s *CompletedSource) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return fmt.Sprintf("CompletedSource{size=%d, mem=%d, spilled=%t, readers=%d, closed=%t, digest=%s}",
-		s.size, len(s.mem), s.filePath != "", s.activeReaders, s.closed, s.digest.String())
+		s.size, len(s.mem), s.lifecycle.HasSpilled(), s.lifecycle.ActiveReaders(), s.closed, s.digest.String())
 }
 
 // completedSourceReader wraps an io.Reader and tracks reader lifetime on the parent CompletedSource.
 type completedSourceReader struct {
-	src  *CompletedSource
-	r    io.Reader
-	f    io.Closer
-	once sync.Once
+	lifecycle *spillLifecycle
+	r         io.Reader
+	f         io.Closer
+	once      sync.Once
 }
 
 func (r *completedSourceReader) Read(p []byte) (int, error) {
@@ -324,7 +380,7 @@ func (r *completedSourceReader) Close() error {
 		if r.f != nil {
 			err = r.f.Close()
 		}
-		r.src.readerClosed()
+		r.lifecycle.readerClosed()
 	})
 	return err
 }
