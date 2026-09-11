@@ -105,6 +105,7 @@ func newRatchetPipeSpec(
 			FrontendID:           "pipeline_memory_ratchet_test",
 			DefaultRouteSelector: "stub:bench",
 			RoutePrefixes:        routeselect.NewPrefixSet([]string{"stub", "openai"}),
+			MaxRequestBodyBytes:  32 << 20,
 			LargePayload: frontendpipe.LargePayloadConfig{
 				Enabled:          true,
 				ThresholdBytes:   targetInvariantMemorySpoolBytes, // 64 KiB
@@ -215,7 +216,7 @@ func TestFindingB1_CaptureCandidateBody_NoPayloadSizedMemorySlice(t *testing.T) 
 					req := httptest.NewRequest(http.MethodPost, lane.urlPath, bytes.NewReader(body))
 					rec := httptest.NewRecorder()
 
-					capRes, capturedBody, err := frontendpipe.CaptureCandidateBody(req.Context(), &spec, rec, req, 100<<20)
+					capRes, capturedBody, err := frontendpipe.CaptureCandidateBody(req.Context(), &spec, rec, req, spec.Config.MaxRequestBodyBytes)
 					require.NoError(t, err)
 					require.Equal(t, largebody.CaptureOutcomeCompleted, capRes.Outcome)
 					require.NotNil(t, capRes.Completed)
@@ -314,6 +315,8 @@ func TestFindingB1_RealPipeline_TransientAllocBounded(t *testing.T) {
 							}
 						}
 					})
+
+					require.True(t, benchRes.N > 0, "benchmark executed zero iterations — vacuous measurement")
 
 					allocBytesPerOp := benchRes.AllocedBytesPerOp()
 					allocsPerOp := benchRes.AllocsPerOp()

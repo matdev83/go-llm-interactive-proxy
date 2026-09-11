@@ -380,12 +380,11 @@ func CaptureCandidateBody[Opts any](
 			return res, body, berr
 		}
 		threshold := spec.LargePayload.EffectiveThresholdBytes()
-		if compSrc != nil && compSrc.Size() < threshold {
+		if compSrc == nil || compSrc.Size() < threshold {
 			body, berr := readCompletedSource(compSrc)
 			return res, body, berr
 		}
-		body, berr := readCompletedSource(compSrc)
-		return res, body, berr
+		return res, nil, nil
 
 	default:
 		body, berr := reqbody.ReadAll(w, r, maxBytes)
