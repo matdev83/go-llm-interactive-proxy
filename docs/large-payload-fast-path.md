@@ -84,7 +84,14 @@ From empirical benchmarks (Tasks 19.2–19.7 and Remediation Phases 3/6):
 - **Retained Go Heap:**
   - *Pre-Remediation Baseline (Task 19.3):* On accepted wire requests, post-commit retained Go heap during provider streaming was approximately **35.6 KiB (35,656 B/op, 12 allocs/op) with a flat 0.000% slope** across 1 MiB, 5 MiB, and 20 MiB payloads (compared to multi-megabyte retained heaps and 7–9 Call clones on the canonical path).
   - *Post-Remediation (Streaming Proof, Phase 3/6):* Confirmed flat at **35,622–35,632 B/op (11 allocs/op) with a 0.000% slope** (35,627 B/op @1 MiB, 35,632 B/op @5 MiB, 35,622 B/op @20 MiB; `evidence/19.2-19.5-benchmarks.md` §5.1.2).
-- **Proof-Time Transient Heap (`CompileProof`):**
+- **True End-to-End Pipeline Transient Heap (Capture-Through-Open, `frontendpipe.ServeHTTP`):**
+  - *Historical Defect (Finding B1, `candidate.go:387`):* While isolated `CompileProof` was flat (~77–89 KiB), candidate capture previously called `readCompletedSource(compSrc)` to materialize the whole spooled body into a memory `[]byte`. This caused real pipeline transient allocations to scale linearly with payload size: **~2.5 MB @1 MiB**, **~11.3 MB @5 MiB**, and **~50.4 MB @20 MiB**, violating the true end-to-end memory invariant despite isolated proof passes.
+  - *Post-Remediation (Source-Only Accepted Path, Phase 1–4):* `candidate.go` returns `res, nil, nil` directly, avoiding in-memory slice materialization. Measured capture-through-open transient allocations collapsed to a flat **~220–235 KiB across 1 MiB, 5 MiB, and 20 MiB** (ceiling: 458,752 B/op; `TestFindingB1_RealPipeline_TransientAllocBounded`):
+    - OpenAI Responses: 221,596 B/op (306 allocs/op) @1 MiB, 220,971 B/op (298 allocs/op) @5 MiB, 236,676 B/op (602 allocs/op) @20 MiB (**PASS**).
+    - OpenAI Chat: 222,568 B/op (361 allocs/op) @1 MiB, 222,584 B/op (363 allocs/op) @5 MiB, 234,565 B/op (595 allocs/op) @20 MiB (**PASS**).
+    - OpenResponses: 220,255 B/op (297 allocs/op) @1 MiB, 219,415 B/op (290 allocs/op) @5 MiB, 231,710 B/op (588 allocs/op) @20 MiB (**PASS**).
+    True capture-through-open transient heap is strictly bounded, consuming ~48–52% of the 458,752 B/op ceiling with flat $O(1)$ slope.
+- **Isolated Proof-Time Transient Heap (`CompileProof`):**
   - *Pre-Remediation Baseline (`io.ReadAll`):* Allocated **6,877,983 B/op (252 allocs/op) @1 MiB**, **34,141,596 B/op (185 allocs/op) @5 MiB**, and **165,527,723 B/op (362 allocs/op) @20 MiB** (~6.5x–7.9x body size slope; strict 19.3 invariant failed).
   - *Post-Remediation (Streaming Proof, Phase 3/6):* Transient proof allocations collapsed to **82,524 B/op (269 allocs/op) @1 MiB (-98.80%)**, **78,152 B/op (209 allocs/op) @5 MiB (-99.77%)**, and **88,225 B/op (452 allocs/op) @20 MiB (-99.95%)** (`evidence/19.2-19.5-benchmarks.md` §5.1.2). Across individual certified protocol lanes (`TestLargePayloadProof_TransientAllocBounded`, target ceiling 458,752 B/op; §5.1.3):
     - OpenAI Responses: 78,569 B/op (1 MiB), 78,219 B/op (5 MiB), 89,408 B/op (20 MiB) (**PASS**).
@@ -205,21 +212,27 @@ Prior to remediation, the fast path was **default-off and canonical-only in prod
 - No protocol lane advertised wire support in stock distributions (`lipstd`).
 - All certified protocol lanes (Lane 1: OpenAI Responses, Lane 2: OpenAI Chat, Lane 3: OpenResponses No-Store) declined to canonical execution in production builds due to the proof-time transient heap spike (Task 19.3 strict gate failure) and uncomposed production assessor.
 
-### 7.2 Post-Remediation Status (Phases 0–6 Recertification, Phase 7 Rollout)
+### 7.2 Post-Remediation and Execution Equivalence Status (Phases 0–4 Recertification)
 
-Following execution of the remediation plan (`evidence/remediation-19.3-proof-transient-and-production-assessor-plan.md`):
+Following execution of the remediation plan (`evidence/remediation-19.3-proof-transient-and-production-assessor-plan.md`) and the execution equivalence remediation (Phases 0–4):
 
 - **Per-Lane Advertisement Status:**
-  All three certified protocol lanes are now **ADVERTISE-CAPABLE** (`evidence/19.6-19.7-eligibility-roi.md` §5.3):
-  - **Lane 1 (OpenAI Responses → OpenAI Responses):** **ADVERTISE-CAPABLE** (Default-Off). Condition (a) PASS (78,219–89,408 B/op transient heap); Condition (b) PASS (production assessor composed in `runtimebundle.BuildHost`); Condition (c) PASS (streaming-only policy enforced in production; non-streaming declines to canonical).
-  - **Lane 2 (OpenAI Chat → OpenAI Chat):** **ADVERTISE-CAPABLE** (Default-Off). Condition (a) PASS (79,592–88,721 B/op transient heap); Condition (b) PASS (production assessor composed); Condition (c) PASS (streaming-only policy enforced).
-  - **Lane 3 (OpenResponses → OpenResponses):** **ADVERTISE-CAPABLE** (Scoped to `store: false` no-continuation subset; Default-Off). Condition (a) PASS (77,229–87,791 B/op transient heap); Condition (b) PASS (production assessor composed); Condition (c) PASS (streaming-only policy enforced; `store: true` or continuations decline to canonical).
+  All three certified protocol lanes remain **ADVERTISE-CAPABLE** (`evidence/19.6-19.7-eligibility-roi.md` §5.3):
+  - **Lane 1 (OpenAI Responses → OpenAI Responses):** **ADVERTISE-CAPABLE** (Default-Off). Condition (a) PASS (220,971–236,676 B/op real pipeline transient heap); Condition (b) PASS (production assessor composed in `runtimebundle.BuildHost`); Condition (c) PASS (streaming-only policy enforced in production; non-streaming declines to canonical).
+  - **Lane 2 (OpenAI Chat → OpenAI Chat):** **ADVERTISE-CAPABLE** (Default-Off). Condition (a) PASS (222,568–234,565 B/op real pipeline transient heap); Condition (b) PASS (production assessor composed); Condition (c) PASS (streaming-only policy enforced).
+  - **Lane 3 (OpenResponses → OpenResponses):** **ADVERTISE-CAPABLE** (Scoped to `store: false` no-continuation subset; Default-Off). Condition (a) PASS (219,415–231,710 B/op real pipeline transient heap); Condition (b) PASS (production assessor composed); Condition (c) PASS (streaming-only policy enforced; `store: true` or continuations decline to canonical).
+- **Execution Equivalence Gaps Closed (Findings B1, B2, H3, M4, M5):**
+  - **Finding B1 (Capture Body Materialization):** `frontendpipe/candidate.go` returns `res, nil, nil` directly for accepted candidates without whole-body `[]byte` slice materialization, ensuring flat ~220–235 KiB capture-through-open transient heap.
+  - **Finding B2 (Race Engine Equivalence):** Custom wire race engine collapsed onto canonical attempt machinery (`internal/core/runtime`, net -217 lines), delegating `executeWireParallelRace` to `tryOpenParallelGroup` and `executeWireAttempts` to `openNext`. Restores canonical winner criteria (delta required, not message started), honors handicap delays, loser cancellation isolation, and backend panic isolation.
+  - **Finding H3 (Routing State & Fail-Closed):** Two-turn weighted-first routing state advances correctly on parallel winner and store update failures abort cleanly.
+  - **Finding M4 (Spill Lifecycle Refcounting):** Shared spill lifecycle tracking across readers and completed sources (`internal/core/largebody`), eliminating spill file leaks on pre-existing reader closure.
+  - **Finding M5 (Truthful Terminal Capture Errors):** Added `CaptureOutcomeTerminalError` with truthful terminal error propagation on capture reader failures, preventing bogus canonical fallbacks on corrupt or unreadable spools.
 - **Default Configuration Remains Disabled:**
   `server.large_payload_fast_path.enabled` strictly defaults to `false` (Requirement 22.1).
 - **Non-Advertisement in Stock Binaries:**
   Wire support is **NOT advertised** in default stock distribution responses (`TestLane1E2E_WireSupportNotAdvertised`, `TestLane2E2E_WireSupportNotAdvertised`, `TestLane3E2E_WireSupportNotAdvertised` all pass).
 - **Enablement Gate and Issue #532 Policy:**
-  Per governance rules, **NO enablement in production until Task 19.7 per-lane gates pass**. Following Phase 6 recertification, the Task 19.7 per-lane gates **now pass** across all three lanes (all three are certified advertise-capable). However, configuration remains default-off in stock binaries, and GitHub issue **#532 stays open** until formal end-to-end rollout and PR delivery are completed (issue #532 is tracked externally and cannot be modified or closed from this repository environment; it remains open per plan).
+  Per governance rules, **NO enablement in production until Task 19.7 per-lane gates pass**. All per-lane gates pass and equivalence gaps are closed. Production configuration remains default-off in stock binaries, and GitHub issue **#532 stays open** until formal downstream PR delivery is completed.
 
 ### 7.3 Activation Prerequisites and Follow-Up Status
 
@@ -228,8 +241,9 @@ Status of prerequisite workstreams and intentional V1 boundaries:
 1. **Streaming `CompileProof` Rework:** **COMPLETED** (Remediation Phases 1–3). Replaced `io.ReadAll` with streaming token scanning and `CallIdentityWriter`. Proof-time transient allocation collapsed to ~78–89 KiB flat across 1, 5, and 20 MiB; Task 19.3 strict heap gate is PASS.
 2. **Production Assessor Composition:** **COMPLETED** (Remediation Phase 4). Unified `AuthorityAssessmentGate`, `BackendWireProofGate`, `runtime.StandardLaneDomainPolicies()`, and `runtime.Executor` into `ProductionLargeBodyAssessor` composed in `runtimebundle.BuildHost` via `build_large_body_assessor.go`.
 3. **Enablement Wiring:** **COMPLETED** (Remediation Phase 5). Formally linked `server.large_payload_fast_path` configuration to `runtimebundle` and frontend specifications while preserving `enabled: false` default and invalid-reload last-good semantics.
-4. **Detached-Session Execution (Req 19.8):** **Intentionally Canonical-Only in V1.** Detached execution stays canonical-only until its Call/lifecycle dependencies are separately represented and parity-tested.
-5. **Legacy `ResolveRouteSelector` Contract (Req 13.2):** **Intentionally Canonical-Only in V1.** A configured full-body route resolver stays canonical-only until a future bounded route-resolution contract preserves the same ordering, precedence, and selector semantics.
+4. **Execution Equivalence Remediation:** **COMPLETED** (Fix Phases 0–4). Resolved findings B1, B2, H3, M4, M5 across `frontendpipe`, `runtime`, and `largebody`, verified with 10 dedicated finding tests and repo-wide test suites.
+5. **Detached-Session Execution (Req 19.8):** **Intentionally Canonical-Only in V1.** Detached execution stays canonical-only until its Call/lifecycle dependencies are separately represented and parity-tested.
+6. **Legacy `ResolveRouteSelector` Contract (Req 13.2):** **Intentionally Canonical-Only in V1.** A configured full-body route resolver stays canonical-only until a future bounded route-resolution contract preserves the same ordering, precedence, and selector semantics.
 
 ---
 
@@ -246,3 +260,4 @@ For full verification artifacts and design details, consult:
 - **Eligibility Matrix and Lane ROI:** `.kiro/specs/large-payload-streaming-fast-path/evidence/19.6-19.7-eligibility-roi.md`
 - **Initial Rollout Evidence:** `.kiro/specs/large-payload-streaming-fast-path/evidence/20.3-20.4-rollout.md`
 - **Remediation Closeout Delta:** `.kiro/specs/large-payload-streaming-fast-path/evidence/20.5-remediation-closeout.md`
+- **Execution Equivalence Closeout Delta:** `.kiro/specs/large-payload-streaming-fast-path/evidence/20.6-execution-equivalence-closeout.md`
