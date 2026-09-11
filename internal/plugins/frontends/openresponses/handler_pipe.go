@@ -82,8 +82,9 @@ func (h *Handler) buildPipe() {
 			StreamKeepaliveInterval: h.cfg.StreamKeepaliveInterval,
 			LargePayload:            h.cfg.LargePayload,
 		},
-		Wire:    WireErrors{},
-		Profile: h.cfg.Profile,
+		Wire:               WireErrors{},
+		Profile:            h.cfg.Profile,
+		RouteFromBodyModel: true,
 		MatchPath: func(path string) (frontendpipe.PathMatch, bool) {
 			if isCompactPath(path) || isCreatePath(path) {
 				return frontendpipe.PathMatch{}, true
