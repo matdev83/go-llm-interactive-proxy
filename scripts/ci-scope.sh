@@ -283,6 +283,32 @@ self_test() {
     echo "NUL-delimited coverage path was not detected" >&2
     return 1
   }
+
+  # Lock the original regression: a canonical Kiro spec-only diff containing
+  # Markdown plus spec.json must not enable any runtime/test scope.
+  git -C "$tmp" reset --hard -q "$base"
+  git -C "$tmp" clean -fdq
+  mkdir -p "$tmp/.kiro/specs/example"
+  printf '# Requirements\n' > "$tmp/.kiro/specs/example/requirements.md"
+  printf '{"phase":"requirements"}\n' > "$tmp/.kiro/specs/example/spec.json"
+  git -C "$tmp" add -A
+  git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm spec-only
+  head="$(git -C "$tmp" rev-parse HEAD)"
+  output="$(cd "$tmp" && bash "$script_path" --outputs "$base" "$head")"
+  for expected in \
+    code=false \
+    go=false \
+    test=false \
+    kiro=true \
+    openresponses_coverage=false \
+    test_cost=false; do
+    grep -qx "$expected" <<< "$output" || {
+      echo "Kiro spec-only regression classified incorrectly; missing $expected" >&2
+      printf '%s\n' "$output" >&2
+      return 1
+    }
+  done
+
   rm -rf "$tmp"
   trap - RETURN
 
