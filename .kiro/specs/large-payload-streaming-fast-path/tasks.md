@@ -680,7 +680,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
   - `store:true`/continuation/unknown controls canonical.
   - _Requirements: 4, 8, 9, 12, 16, 17_
 
-- [ ] 17.3 Differential/E2E certification
+- [x] 17.3 Differential/E2E certification
   - Provider-effective JSON, response state/options/IDs, secure-session/metering, retry/failover/cancel/keepalive.
   - Assert missing/true store never reaches wire backend.
   - _Requirements: 17, 18_
@@ -888,3 +888,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 16.3 VERIFIED (review subagent APPROVED): 7 Chat differential + 14 lane-2 E2E green (21/21), both 16.1 carries closed (pre-commit session-hint decline + E2E fallback proof, two-leg OpenRouter-header identity parity); lane-1 session-hint decline remediated in same commit (reviewer carry, mutation-proven); suites PASS (openaicompat/openailegacy/openairesponses/frontendpipe), vet/gofmt/diff-check clean.
 - Task 17.1 VERIFIED (review subagent APPROVED; old-vs-new field proof): bounded no-store characterization (explicit store:false + no prev_id; missing-store/store:true/prev_id/compaction/WebSocket stay canonical), behavior-preserving short-circuit (only unreachable store/scope fields differ), zero store I/O proven via failing store, outer auth/media ordering pinned; openresponses + frontendpipe suites PASS, vet/gofmt/diff-check clean; minor gap: no dedicated cancelled-context test.
 - Task 17.2 VERIFIED (review subagent APPROVED after 1 remediation round: RouteFromBodyModel=true in pipe buildPipe + handler-sourced SelectorDifferential with identity parity, RED-proven): no-store OpenResponses profile (store gate, duplicate/unknown/controls declines, selector precedence, identity parity) + compatible backend exact/universal-only-domain proof reusing Task 8 transport; openresponses + openaicompat + frontendpipe suites PASS, vet/gofmt/diff-check clean.
+- Task 17.3 VERIFIED (review subagent APPROVED; test-only, no production diff): 6 differential + 15 E2E green (21/21) with wire-boundary hard gate (missing/true store, prev_id, compaction never reach OpenWire/ExecuteLargeBody via dual counters), parsed-JSON differential + full criteria parity with lanes 1-2; suites PASS, vet/gofmt/diff-check clean.
