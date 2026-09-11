@@ -696,7 +696,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 - [ ] 18. Compression remains canonical until separately proven
 
-- [ ] 18.1 Prove wave-1 gzip always bypasses candidate capture/profile
+- [x] 18.1 Prove wave-1 gzip always bypasses candidate capture/profile
   - Existing decoded-limit/error behavior unchanged.
   - Compressed Content-Length never used as decoded threshold/reservation fact.
   - _Requirements: 2, 11_
@@ -890,3 +890,4 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 - Task 17.2 VERIFIED (review subagent APPROVED after 1 remediation round: RouteFromBodyModel=true in pipe buildPipe + handler-sourced SelectorDifferential with identity parity, RED-proven): no-store OpenResponses profile (store gate, duplicate/unknown/controls declines, selector precedence, identity parity) + compatible backend exact/universal-only-domain proof reusing Task 8 transport; openresponses + openaicompat + frontendpipe suites PASS, vet/gofmt/diff-check clean.
 - Task 17.3 VERIFIED (review subagent APPROVED; test-only, no production diff): 6 differential + 15 E2E green (21/21) with wire-boundary hard gate (missing/true store, prev_id, compaction never reach OpenWire/ExecuteLargeBody via dual counters), parsed-JSON differential + full criteria parity with lanes 1-2; suites PASS, vet/gofmt/diff-check clean.
 - Task 17.4 VERIFIED (controller scope audit, no code change): storage/continuation left as separate future certification — 17.1-17.3 diffs contain zero store reservations, response-ID persistence, recorder writes, cleanup, lineage, or trajectory machinery on the wire path (only reference is the failing-store fixture asserting zero store I/O); store:true/missing-store/prev_id/compaction all decline to canonical; future certification requires exact reservation/response-ID/recorder/cleanup/lineage/trajectory parity per Req 17/19.
+- Task 18.1 VERIFIED (review subagent APPROVED, reviewer-proven RED via old-logic replication): Header.Get-to-Values multi-line gzip detection fix in isRequestGzip/isRequestCompressed/isGzipEncoded (single-value identical, degenerate case more correct), gzip bypasses capture/profile/reservation with compressed-Length never a threshold fact, decoded limits/errors unchanged, no remaining request-path holes; frontendpipe + reqbody suites PASS, vet/gofmt/diff-check clean.

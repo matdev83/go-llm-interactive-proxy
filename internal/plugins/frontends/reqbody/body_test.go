@@ -169,3 +169,21 @@ func TestReadAll_gzipSourceCloseErrorIsDistinguishable(t *testing.T) {
 		t.Fatalf("close error label = %q, want gzip source body", err.Error())
 	}
 }
+
+func TestReadAll_multiLineContentEncoding(t *testing.T) {
+	t.Parallel()
+	payload := []byte(`{"model":"openai-codex:gpt-5.4-mini","messages":[{"role":"user","content":"multiline"}]}`)
+	gz := gzipBytes(t, payload)
+	r := httptest.NewRequest("POST", "/", bytes.NewReader(gz))
+	r.Header.Add("Content-Encoding", "identity")
+	r.Header.Add("Content-Encoding", "gzip")
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	b, err := reqbody.ReadAll(w, r, int64(len(payload)+64))
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if !bytes.Equal(b, payload) {
+		t.Fatalf("expected decompressed JSON payload, got %q", string(b))
+	}
+}

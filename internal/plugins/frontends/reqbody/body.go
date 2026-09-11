@@ -63,13 +63,11 @@ func ReadAll(w http.ResponseWriter, r *http.Request, maxBytes int64) (data []byt
 }
 
 func isGzipEncoded(r *http.Request) bool {
-	h := strings.TrimSpace(r.Header.Get("Content-Encoding"))
-	if h == "" {
-		return false
-	}
-	for part := range strings.SplitSeq(h, ",") {
-		if strings.EqualFold(strings.TrimSpace(part), "gzip") {
-			return true
+	for _, h := range r.Header.Values("Content-Encoding") {
+		for part := range strings.SplitSeq(h, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), "gzip") {
+				return true
+			}
 		}
 	}
 	return false

@@ -233,21 +233,26 @@ func EvaluatePreCaptureGates[Opts any](spec *Spec[Opts], r *http.Request) PreCap
 }
 
 func isRequestGzip(r *http.Request) bool {
-	h := strings.TrimSpace(r.Header.Get("Content-Encoding"))
-	if h == "" {
-		return false
-	}
-	for part := range strings.SplitSeq(h, ",") {
-		if strings.EqualFold(strings.TrimSpace(part), "gzip") {
-			return true
+	for _, h := range r.Header.Values("Content-Encoding") {
+		for part := range strings.SplitSeq(h, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), "gzip") {
+				return true
+			}
 		}
 	}
 	return false
 }
 
 func isRequestCompressed(r *http.Request) bool {
-	h := strings.TrimSpace(r.Header.Get("Content-Encoding"))
-	return h != "" && !strings.EqualFold(h, "identity")
+	for _, h := range r.Header.Values("Content-Encoding") {
+		for part := range strings.SplitSeq(h, ",") {
+			p := strings.TrimSpace(part)
+			if p != "" && !strings.EqualFold(p, "identity") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // CandidateCaptureResult reports the outcome of candidate request body capture (Task 7.4).
