@@ -103,6 +103,15 @@ func (s *wireLifecycleEventStream) Cancel(ctx context.Context, cause lipapi.Canc
 	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 }
 
+// wireReadyAttempt provides the ready lifecycle handle adapter for wire launch permit commit.
+type wireReadyAttempt struct {
+	stream lipapi.ManagedEventStream
+}
+
+func (r wireReadyAttempt) lifecycleHandle() leglifecycle.BLegAttempt {
+	return r.stream
+}
+
 // ExecuteLargeBody implements largebody.LargeBodyWireExecutor (Requirements 6, 7, 14, 15, 18, 19; Task 13.1).
 // It crosses the one-way wire commit barrier, runs the wire secure-session preparation and exactly one
 // BeginTurn/A-leg lifecycle, reads the post-BeginTurn live route override constrained to the assessed domain,
@@ -1010,7 +1019,8 @@ func (e *Executor) executeWireAttempts(in wireAttemptInput) (wireAttemptOutcome,
 			}
 			cancelOpen()
 
-			commitRes, commitErr := permit.Commit(peekedStream)
+			ready := wireReadyAttempt{stream: peekedStream}
+			commitRes, commitErr := permit.Commit(ready.lifecycleHandle())
 			if commitRes.Canceled || errors.Is(commitErr, leglifecycle.ErrALegCanceled) {
 				_ = peekedStream.Close()
 				legCancel()
@@ -1353,7 +1363,8 @@ func (e *Executor) executeWireParallelRace(
 	}
 
 	winnerLeg := launched[winner.idx]
-	commitRes, commitErr := winnerLeg.permit.Commit(winner.stream)
+	ready := wireReadyAttempt{stream: winner.stream}
+	commitRes, commitErr := winnerLeg.permit.Commit(ready.lifecycleHandle())
 	if commitRes.Canceled || errors.Is(commitErr, leglifecycle.ErrALegCanceled) {
 		_ = winner.stream.Close()
 		winnerLeg.cancel()

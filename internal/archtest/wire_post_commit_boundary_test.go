@@ -49,8 +49,7 @@ func loadPackageForArchTest(t *testing.T, pkgPath string) *packages.Package {
 	}
 
 	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
+		Mode:  packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
 		Tests: false,
 	}
 	pkgs, err := packages.Load(cfg, pkgPath)
@@ -74,20 +73,12 @@ func isLipapiCallType(t types.Type) bool {
 		return false
 	}
 	for {
-		switch u := t.(type) {
-		case *types.Pointer:
+		if u, ok := t.(interface{ Elem() types.Type }); ok {
 			t = u.Elem()
-		case *types.Slice:
-			t = u.Elem()
-		case *types.Array:
-			t = u.Elem()
-		case *types.Map:
-			t = u.Elem()
-		default:
-			goto done
+			continue
 		}
+		break
 	}
-done:
 	if named, ok := t.(*types.Named); ok {
 		obj := named.Obj()
 		if obj != nil && obj.Pkg() != nil {
@@ -236,8 +227,7 @@ func isRuntimeWireFunction(fn *types.Func) bool {
 		return false
 	}
 	name := fn.Name()
-	if strings.Contains(name, "Wire") || strings.Contains(name, "wire") ||
-		strings.Contains(name, "LargeBody") || strings.Contains(name, "largeBody") {
+	if strings.Contains(name, "Wire") || strings.Contains(name, "wire") || strings.Contains(name, "LargeBody") || strings.Contains(name, "largeBody") {
 		return true
 	}
 	sig, ok := fn.Type().(*types.Signature)
@@ -248,12 +238,9 @@ func isRuntimeWireFunction(fn *types.Func) bool {
 	for i := 0; i < params.Len(); i++ {
 		p := params.At(i)
 		typeName := p.Type().String()
-		if strings.Contains(typeName, "largebody.Wire") ||
-			strings.Contains(typeName, "largebody.Assessment") ||
-			strings.Contains(typeName, "WireBilling") ||
-			strings.Contains(typeName, "WireExposure") ||
-			strings.Contains(typeName, "WireFrontendIngressInput") ||
-			strings.Contains(typeName, "WireBackendIngressInput") {
+		if strings.Contains(typeName, "largebody.Wire") || strings.Contains(typeName, "largebody.Assessment") ||
+			strings.Contains(typeName, "WireBilling") || strings.Contains(typeName, "WireExposure") ||
+			strings.Contains(typeName, "WireFrontendIngressInput") || strings.Contains(typeName, "WireBackendIngressInput") {
 			return true
 		}
 	}
@@ -498,10 +485,8 @@ func rogueCandidateFunction(s *Spec) {
 	var flaggedCall bool
 	ast.Inspect(file, func(n ast.Node) bool {
 		if call, ok := n.(*ast.CallExpr); ok {
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-				if sel.Sel != nil && sel.Sel.Name == "ResolveRouteSelector" {
-					flaggedCall = true
-				}
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel != nil && sel.Sel.Name == "ResolveRouteSelector" {
+				flaggedCall = true
 			}
 		}
 		return true

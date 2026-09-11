@@ -48,7 +48,10 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/core/runtime/authority_lifecycle_release.go", Max: 355},
 	{Path: "internal/plugins/protocols/openresponses/state_machine.go", Max: 708},
 	{Path: "internal/plugins/protocols/openresponses/state_machine_event_handlers.go", Max: 515},
-	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 383},
+	// Large-payload fast-path Tasks 7.1-19.1 wire execution pipeline (profile plumbing,
+	// pre-capture gates, capture to EOF, single-permit assessment, response context,
+	// keepalive bridge, and spool diagnostics); measured 455, bump to 480 with 25 headroom.
+	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 480},
 	{Path: "internal/plugins/features/keepwarm/manager.go", Max: 450},
 	{Path: "internal/plugins/features/keepwarm/scheduler.go", Max: 450},
 	// Ownership-closure facade caps (Task 11.3): measured final + 25 headroom
@@ -162,7 +165,10 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 8.1 additive execbackend.Backend wire support; measured 88966, bump to 88991 with 25 headroom.
 	// Large-payload fast-path Task 8.2 streaming top-level model token splice (SpliceModelToken, SpliceReader, checked length); measured 89554, bump to 89579 with 25 headroom.
 	// Large-payload fast-path Task 8.3 configured semantic-fact budget helpers; measured 89580, bump to 89605 with 25 headroom.
-	{Dir: "internal/core", Max: 89605},
+	// Large-payload fast-path Tasks 9-19 wire execution, facts, and accounting integration (session/turn facts,
+	// checkpoint/metering, split assessor/executor ports, narrow wire ports, real attempt execution, holdalive/keepalive bridge,
+	// profile/proof gates, and bounded diagnostics); measured 97324, bump to 97349 with 25 headroom.
+	{Dir: "internal/core", Max: 97349},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12333},
