@@ -38,10 +38,12 @@ Steering describes that promise and the rules that preserve it. It is intentiona
    - Secrets and provider diagnostics must not leak across the client boundary.
    - Unsafe exposure modes must be explicit and bounded.
 
-8. **Money is not stream orchestration**
+ 8. **Money is not stream orchestration**
    - Financial authorization, usage evidence, rating, settlement, and provider cost accounting remain separated from stream processing.
    - Runtime has two touchpoints: cheap credit screen before route expansion, then atomic operational exposure admission after quote; terminal ownership appends BillingCallID-scoped usage.
+   - Usage evidence is rated post-usage.
    - Public runtime composition stays non-money; hosts that need billing inject the required ports explicitly.
+   - No stream-time rating, journal I/O, or token-ledger money writes.
 
 ## Architectural Classes
 

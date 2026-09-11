@@ -246,17 +246,37 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		convObs = metricsObserverAdapter{inner: in.Observability.Bundle.ConversationViewObserver()}
 	}
 	convStore := in.ConversationStore
+	largeBodyAssessor, largeBodyGenID, err := buildLargeBodyAssessor(largeBodyAssessorInput{
+		Cfg:            cfg,
+		Bctx:           bctx,
+		Opts:           opts,
+		In:             in,
+		RoutingRT:      routingRT,
+		AccountingRT:   accountingRT,
+		Prod:           prod,
+		DefBE:          defBE,
+		AliasResolver:  aliasResolver,
+		ExecResolver:   execResolver,
+		ExecPolicy:     execPolicy,
+		OverrideReader: overrideReader,
+	})
+	if err != nil {
+		return nil, err
+	}
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
-			Store:                  in.Persistence.Store,
-			Backends:               in.Model.Backends,
-			ALegLifecycle:          aLeg,
-			Rand:                   routing.NewSeededRng(seed),
-			Now:                    in.NowFn,
-			MaxPendingWireEvents:   cfg.Server.EffectiveMaxPendingWireEvents(),
-			StreamRecovery:         streamRecovery,
-			ConversationViewReader: in.ConversationReader,
-			ConversationViewTagger: newConversationViewTaggerAdapter(convStore),
+			Store:                              in.Persistence.Store,
+			Backends:                           in.Model.Backends,
+			ALegLifecycle:                      aLeg,
+			Rand:                               routing.NewSeededRng(seed),
+			Now:                                in.NowFn,
+			MaxPendingWireEvents:               cfg.Server.EffectiveMaxPendingWireEvents(),
+			StreamRecovery:                     streamRecovery,
+			ConversationViewReader:             in.ConversationReader,
+			ConversationViewTagger:             newConversationViewTaggerAdapter(convStore),
+			LargeBodyAssessor:                  largeBodyAssessor,
+			LargeBodyGenerationID:              largeBodyGenID,
+			LargeBodyCandidateDomainGeneration: largeBodyGenID,
 			SteeringWriterFactory: func(ctx context.Context, aLegID string, resolver runtime.SteeringWriterResolver) (steering.Writer, error) {
 				if convStore == nil {
 					return nil, errors.New("runtimebundle: conversation store unavailable")

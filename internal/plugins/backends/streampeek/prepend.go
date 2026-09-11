@@ -2,11 +2,28 @@ package streampeek
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
+
+// PeekFirst peeks the first event from a managed stream and returns a prepended
+// stream. If the first Recv fails, the stream is closed and the error returned.
+func PeekFirst(ctx context.Context, es lipapi.ManagedEventStream) (lipapi.ManagedEventStream, error) {
+	if es == nil {
+		return nil, io.EOF
+	}
+	ev, rerr := es.Recv(ctx)
+	if rerr == nil {
+		return NewManagedPrependFirst(ev, es), nil
+	}
+	if closeErr := es.Close(); closeErr != nil {
+		return nil, errors.Join(rerr, closeErr)
+	}
+	return nil, rerr
+}
 
 // prependFirst yields one buffered event already read from the producer, then delegates
 // to rest for subsequent events (rest must not re-emit that first event).

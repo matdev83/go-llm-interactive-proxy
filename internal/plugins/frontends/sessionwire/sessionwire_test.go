@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -164,4 +165,129 @@ func TestWithoutSensitiveToken(t *testing.T) {
 	if strings.Count(got, "[REDACTED]") != 2 {
 		t.Fatalf("redactions: %q", got)
 	}
+}
+
+func TestWriteSessionResponseCarrier_ExactHeaderParityWithCanonical(t *testing.T) {
+	t.Parallel()
+
+	t.Run("new session with token matches canonical WriteResponseCarriers", func(t *testing.T) {
+		t.Parallel()
+		const (
+			sid    = "sid-parity-new"
+			alegID = "aleg-parity-new"
+			tok    = "token-parity-new"
+		)
+
+		// Canonical writer output
+		canonicalRec := httptest.NewRecorder()
+		sessionwire.WriteResponseCarriers(canonicalRec, &lipapi.Call{
+			Session: lipapi.SessionRef{
+				AuthoritativeSessionID: sid,
+				ALegID:                 alegID,
+				ResumeToken:            tok,
+			},
+		})
+
+		// Wire response carrier writer output
+		wireRec := httptest.NewRecorder()
+		carrier := largebody.SessionResponseCarrier{
+			AuthoritativeSessionID: sid,
+			ALegID:                 alegID,
+			ResumeToken:            largebody.NewSensitiveString(tok),
+		}
+		sessionwire.WriteSessionResponseCarrier(wireRec, carrier)
+
+		// Assert exact header key and value parity
+		for _, hdr := range []string{
+			sessionwire.HeaderAuthoritativeSessionID,
+			sessionwire.HeaderALegID,
+			sessionwire.HeaderResumeToken,
+		} {
+			cVal := canonicalRec.Header().Get(hdr)
+			wVal := wireRec.Header().Get(hdr)
+			if cVal == "" {
+				t.Fatalf("canonical header %q was empty", hdr)
+			}
+			if wVal != cVal {
+				t.Fatalf("header %q mismatch: canonical=%q wire=%q", hdr, cVal, wVal)
+			}
+		}
+	})
+
+	t.Run("resumed session without new token leaves resume header absent", func(t *testing.T) {
+		t.Parallel()
+		const (
+			sid    = "sid-parity-resumed"
+			alegID = "aleg-parity-resumed"
+		)
+
+		// Canonical writer output on resume
+		canonicalRec := httptest.NewRecorder()
+		sessionwire.WriteResponseCarriers(canonicalRec, &lipapi.Call{
+			Session: lipapi.SessionRef{
+				AuthoritativeSessionID: sid,
+				ALegID:                 alegID,
+				ResumeToken:            "",
+			},
+		})
+
+		// Wire response carrier on resume (zero/empty SensitiveString)
+		wireRec := httptest.NewRecorder()
+		carrier := largebody.SessionResponseCarrier{
+			AuthoritativeSessionID: sid,
+			ALegID:                 alegID,
+			ResumeToken:            largebody.NewSensitiveString(""),
+		}
+		sessionwire.WriteSessionResponseCarrier(wireRec, carrier)
+
+		for _, hdr := range []string{
+			sessionwire.HeaderAuthoritativeSessionID,
+			sessionwire.HeaderALegID,
+		} {
+			cVal := canonicalRec.Header().Get(hdr)
+			wVal := wireRec.Header().Get(hdr)
+			if wVal != cVal {
+				t.Fatalf("header %q mismatch: canonical=%q wire=%q", hdr, cVal, wVal)
+			}
+		}
+		if got := wireRec.Header().Get(sessionwire.HeaderResumeToken); got != "" {
+			t.Fatalf("resumed turn must not emit resume header, got %q", got)
+		}
+		if got := canonicalRec.Header().Get(sessionwire.HeaderResumeToken); got != "" {
+			t.Fatalf("canonical resumed turn must not emit resume header, got %q", got)
+		}
+	})
+
+	t.Run("WriteSessionResponseCarrierHeaders directly into http.Header", func(t *testing.T) {
+		t.Parallel()
+		h := http.Header{}
+		carrier := largebody.SessionResponseCarrier{
+			AuthoritativeSessionID: "sid-direct",
+			ALegID:                 "aleg-direct",
+			ResumeToken:            largebody.NewSensitiveString("tok-direct"),
+		}
+		sessionwire.WriteSessionResponseCarrierHeaders(h, carrier)
+		if h.Get(sessionwire.HeaderAuthoritativeSessionID) != "sid-direct" {
+			t.Fatalf("session id: got %q", h.Get(sessionwire.HeaderAuthoritativeSessionID))
+		}
+		if h.Get(sessionwire.HeaderALegID) != "aleg-direct" {
+			t.Fatalf("aleg id: got %q", h.Get(sessionwire.HeaderALegID))
+		}
+		if h.Get(sessionwire.HeaderResumeToken) != "tok-direct" {
+			t.Fatalf("resume token: got %q", h.Get(sessionwire.HeaderResumeToken))
+		}
+	})
+
+	t.Run("nil safety and zero values", func(t *testing.T) {
+		t.Parallel()
+		// Must not panic
+		sessionwire.WriteSessionResponseCarrier(nil, largebody.SessionResponseCarrier{})
+		sessionwire.WriteSessionResponseCarrierHeaders(nil, largebody.SessionResponseCarrier{})
+
+		h := http.Header{}
+		sessionwire.WriteSessionResponseCarrierHeaders(h, largebody.SessionResponseCarrier{})
+		if len(h) != 0 {
+			t.Fatalf("zero carrier should not set any headers, got %+v", h)
+		}
+	})
 }

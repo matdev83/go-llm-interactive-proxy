@@ -36,12 +36,13 @@ func GenerationExecutorOf(g GenerationRuntime) *runtime.Executor {
 }
 
 func GenerationSelectorValidatorForTest(aliases *routing.AliasResolver, defaultBackend string, knownBackends map[string]struct{}) routeoverride.SelectorValidator {
-	return generationSelectorValidator{
-		aliases:        aliases,
-		defaultBackend: defaultBackend,
-		knownBackends:  knownBackends,
-		policy:         config.ExecutionCompositionSafe,
-	}
+	return routing.NewGenerationSelectorValidator(
+		aliases,
+		defaultBackend,
+		knownBackends,
+		nil,
+		config.ExecutionCompositionSafe,
+	)
 }
 
 func GenerationSelectorValidatorWithExecutionForTest(
@@ -51,13 +52,13 @@ func GenerationSelectorValidatorWithExecutionForTest(
 	execResolver routing.BackendExecutionResolver,
 	policy config.ExecutionCompositionPolicy,
 ) routeoverride.SelectorValidator {
-	return generationSelectorValidator{
-		aliases:        aliases,
-		defaultBackend: defaultBackend,
-		knownBackends:  knownBackends,
-		execResolver:   execResolver,
-		policy:         policy,
-	}
+	return routing.NewGenerationSelectorValidator(
+		aliases,
+		defaultBackend,
+		knownBackends,
+		execResolver,
+		policy,
+	)
 }
 
 func NewGenerationBundleForTest(models *modelregistry.Runtime, catalog *modelcatalog.CatalogRuntime) *GenerationBundle {

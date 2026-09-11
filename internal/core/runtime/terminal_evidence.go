@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
@@ -133,6 +134,26 @@ func (f recvTurnFacts) responseEvidence() responseRequestEvidence {
 		sessionID:    f.baseline.Session.AuthoritativeSessionID,
 		secureTurn:   f.secureTurn,
 		secureTurnOK: f.secureTurnOK,
+	}
+}
+
+// responseEvidenceFromWire constructs bounded response evidence directly from
+// WireTurnFacts without requiring a full lipapi.Call (Requirements 13.7, 19.4).
+func responseEvidenceFromWire(facts largebody.WireTurnFacts) responseRequestEvidence {
+	sessID := facts.Session.Input.AuthoritativeSessionID
+	if sessID == "" {
+		sessID = facts.Identity.RequestID
+	}
+	alegID := facts.Session.Input.ALegID
+	if alegID == "" {
+		alegID = facts.Identity.RequestID
+	}
+	return responseRequestEvidence{
+		traceID:      facts.Identity.TraceID,
+		aLegID:       alegID,
+		sessionID:    sessID,
+		secureTurn:   execctx.SecureSessionTurn{},
+		secureTurnOK: false,
 	}
 }
 

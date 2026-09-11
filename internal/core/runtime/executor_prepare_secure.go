@@ -12,10 +12,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
@@ -40,23 +42,269 @@ const (
 	syntheticLocalPrincipalIssuer = "lip-localhost"
 )
 
-func (e *Executor) prepareSubmitAndALegSecure(
-	ctx context.Context,
-	bus *hooks.Bus,
-	call *lipapi.Call,
-) (
-	ibt *identityBoundTurn,
-	workingCall *lipapi.Call,
-	outCtx context.Context,
-	err error,
-) {
-	snap := e.RuntimeSnapshot
-	work := *call
-	traceID := strings.TrimSpace(work.ID)
-	if traceID == "" {
-		traceID = diag.StableCallID(&work)
+// SecureSessionPrepInput carries fact-based inputs required to prepare a secure-session turn
+// for either canonical or wire execution without requiring a canonical lipapi.Call.
+type SecureSessionPrepInput struct {
+	TraceID       string
+	Session       largebody.SessionInput
+	ContinuityKey string
+}
+
+// PreparedSecureSession holds the pre-turn resolution state before BeginTurn commit.
+// Preparation performs scope/principal resolution, context diagnostic binding, session openers,
+// and workspace resolution, but strictly DOES NOT invoke BeginTurn or mutate session/store state
+// (Requirements 6.2, 14.1, 19).
+type PreparedSecureSession struct {
+	executor     *Executor
+	outCtx       context.Context
+	traceID      string
+	sessionInput largebody.SessionInput
+	principal    execview.PrincipalView
+	hasPrincipal bool
+	scope        scope.PrincipalScopeView
+	wsView       lipworkspace.WorkspaceView
+	preSession   session.SessionView
+	beginIn      app.BeginInput
+}
+
+func (p *PreparedSecureSession) Context() context.Context              { return p.outCtx }
+func (p *PreparedSecureSession) TraceID() string                       { return p.traceID }
+func (p *PreparedSecureSession) SessionInput() largebody.SessionInput  { return p.sessionInput }
+func (p *PreparedSecureSession) Principal() execview.PrincipalView     { return p.principal }
+func (p *PreparedSecureSession) HasPrincipal() bool                    { return p.hasPrincipal }
+func (p *PreparedSecureSession) Scope() scope.PrincipalScopeView       { return p.scope }
+func (p *PreparedSecureSession) Workspace() lipworkspace.WorkspaceView { return p.wsView }
+func (p *PreparedSecureSession) PreSession() session.SessionView       { return p.preSession }
+func (p *PreparedSecureSession) BeginInput() app.BeginInput            { return p.beginIn }
+
+func (p *PreparedSecureSession) ExecuteBeginTurn(ctx context.Context) (app.BeginResult, error) {
+	if p == nil || p.executor == nil || p.executor.SecureSession == nil {
+		return app.BeginResult{}, fmt.Errorf("executor: secure session manager is required")
 	}
-	work.ID, call.ID, outCtx = traceID, traceID, ctx
+	e := p.executor
+	execCtx := p.outCtx
+	if ctx != nil {
+		execCtx = ctx
+	}
+	br, err := e.SecureSession.BeginTurn(execCtx, p.beginIn)
+	if err != nil {
+		mapped := err
+		if e != nil && e.SessionDenialMapper != nil {
+			mapped = e.SessionDenialMapper(err)
+		}
+		if e != nil && e.SecureSessionMetrics != nil {
+			if errors.Is(err, domain.ErrStorageUnavailable) {
+				e.SecureSessionMetrics.ObserveStorageUnavailable()
+			}
+			code := lipapi.SessionDenialPublicCode(mapped)
+			if code == "" {
+				code = "unknown"
+			}
+			e.SecureSessionMetrics.ObserveBeginTurnDenied(code)
+		}
+		if e != nil && e.Log != nil {
+			logCode := lipapi.SessionDenialPublicCode(mapped)
+			if logCode == "" {
+				logCode = "unknown"
+			}
+			e.Log.InfoContext(execCtx, "secure_session: begin turn denied", "code", logCode, "trace_id", strings.TrimSpace(p.traceID), "client_session_id", HashOpaqueIDForLog(p.sessionInput.ClientSessionID))
+		}
+		return app.BeginResult{}, fmt.Errorf("executor: secure session: %w", mapped)
+	}
+	if e != nil && e.SecureSessionMetrics != nil {
+		if br.IsNew {
+			e.SecureSessionMetrics.ObserveBeginTurnNew()
+		} else {
+			e.SecureSessionMetrics.ObserveBeginTurnResume()
+		}
+	}
+	return br, nil
+}
+
+func (p *PreparedSecureSession) ResolveALeg(ctx context.Context, alegID string) (b2bua.ALegRecord, routeAuthoritySnapshot, error) {
+	if p == nil || p.executor == nil || p.executor.Store == nil {
+		return b2bua.ALegRecord{}, routeAuthoritySnapshot{}, fmt.Errorf("executor: store is required to fetch a-leg")
+	}
+	e := p.executor
+	execCtx := p.outCtx
+	if ctx != nil {
+		execCtx = ctx
+	}
+	aLeg, err := e.Store.FetchALeg(execCtx, alegID)
+	if err != nil {
+		return b2bua.ALegRecord{}, routeAuthoritySnapshot{}, fmt.Errorf("executor: fetch a-leg after secure session: %w", err)
+	}
+	routeAuth, err := e.snapshotRouteOverride(execCtx, aLeg.ALegID)
+	if err != nil {
+		return b2bua.ALegRecord{}, routeAuthoritySnapshot{}, err
+	}
+	if err := waitRouteAuthoritySnapshotBarrier(execCtx, aLeg.ALegID); err != nil {
+		return b2bua.ALegRecord{}, routeAuthoritySnapshot{}, fmt.Errorf("executor: route authority snapshot barrier: %w", err)
+	}
+	return aLeg, routeAuth, nil
+}
+
+func (p *PreparedSecureSession) BindSession(br app.BeginResult, aLeg b2bua.ALegRecord) session.SessionView {
+	s := p.preSession
+	s.ALegID = aLeg.ALegID
+	s.AuthoritativeSessionID = string(br.Record.SessionID)
+	s.IsNew = br.IsNew
+	s.ResumeEligible = br.Record.ResumeEligible
+	s.TurnID = string(br.TurnID)
+	s.WorkspaceID = strings.TrimSpace(p.wsView.ID)
+	return s
+}
+
+func (p *PreparedSecureSession) SecureTurn(br app.BeginResult) execctx.SecureSessionTurn {
+	return execctx.SecureSessionTurn{
+		SessionID: br.Record.SessionID,
+		TurnID:    br.TurnID,
+		Policy:    br.EffectivePolicy,
+	}
+}
+
+func (p *PreparedSecureSession) ResponseCarrier(br app.BeginResult) largebody.SessionResponseCarrier {
+	if p == nil {
+		return largebody.SessionResponseCarrier{}
+	}
+	var token string
+	if br.IsNew && len(br.Response.ResumeToken) > 0 {
+		token = string(br.Response.ResumeToken)
+	}
+	aLegID := strings.TrimSpace(br.Record.ALegID)
+	if aLegID == "" {
+		aLegID = strings.TrimSpace(p.sessionInput.ALegID)
+	}
+	return largebody.SessionResponseCarrier{
+		AuthoritativeSessionID: string(br.Record.SessionID),
+		ALegID:                 aLegID,
+		ResumeToken:            largebody.NewSensitiveString(token),
+	}
+}
+
+// RecordClientTurnWithShape records accepted client turn facts directly from
+// a bounded ClientTurnShape without prompt text materialization (Requirements 14.3, 14.5).
+// Semantic-fact budget overflow returns an error wrapping largebody.ErrSemanticFactBudgetExceeded
+// so the caller can trigger pre-commit canonical fallback (Requirement 14.4).
+func (p *PreparedSecureSession) RecordClientTurnWithShape(
+	ctx context.Context,
+	br app.BeginResult,
+	shape largebody.ClientTurnShape,
+	maxFactBytes int64,
+) error {
+	if p == nil || p.executor == nil {
+		return fmt.Errorf("executor: executor is required")
+	}
+	in, err := BuildClientTurnRecordInputFromShape(p.executor.now(), p.traceID, br, shape, maxFactBytes)
+	if err != nil {
+		return err
+	}
+	if p.executor.SecureSessionRecorder == nil {
+		return nil
+	}
+	execCtx := p.outCtx
+	if ctx != nil {
+		execCtx = ctx
+	}
+	if err := p.executor.SecureSessionRecorder.RecordClientTurnAfterGate(execCtx, in); err != nil {
+		if p.executor.SecureSessionMetrics != nil {
+			p.executor.SecureSessionMetrics.ObserveRecorderClientTurnFailed(p.executor.SecureSessionRecordingMandatory)
+		}
+		if p.executor.SecureSessionRecordingMandatory {
+			return fmt.Errorf("executor: secure session recording: %w", err)
+		}
+		if p.executor.Log != nil {
+			p.executor.Log.DebugContext(execCtx, "secure_session recorder client turn", "error", err)
+		}
+	}
+	return nil
+}
+
+// BuildClientTurnRecordInput builds an app.ClientTurnRecordInput from this prepared session
+// and a ClientTurnShape under maxFactBytes without materializing prompt text (Requirements 14.3, 14.5).
+func (p *PreparedSecureSession) BuildClientTurnRecordInput(
+	br app.BeginResult,
+	shape largebody.ClientTurnShape,
+	maxFactBytes int64,
+) (app.ClientTurnRecordInput, error) {
+	if p == nil || p.executor == nil {
+		return app.ClientTurnRecordInput{}, fmt.Errorf("executor: executor is required")
+	}
+	return BuildClientTurnRecordInputFromShape(p.executor.now(), p.traceID, br, shape, maxFactBytes)
+}
+
+// CaptureFrontendIngressCheckpoint captures an immutable FE-ingress checkpoint
+// from bounded wire facts and post-BeginTurn session/a-leg correlation,
+// sharing exact canonical checkpoint helpers without cloning or retaining a lipapi.Call
+// (Requirements 15.1–15.3, 16.1–16.6, 19).
+func (p *PreparedSecureSession) CaptureFrontendIngressCheckpoint(
+	ctx context.Context,
+	requestID string,
+	br app.BeginResult,
+	aLeg b2bua.ALegRecord,
+	maxOutputTokens *int,
+) (context.Context, *checkpoint.RequestHolder, error) {
+	if p == nil || p.executor == nil {
+		return ctx, nil, fmt.Errorf("executor: executor is required")
+	}
+	execCtx := p.outCtx
+	if ctx != nil {
+		execCtx = ctx
+	}
+	sessionID := strings.TrimSpace(string(br.Record.SessionID))
+	if sessionID == "" {
+		sessionID = p.sessionInput.CorrelationID()
+	}
+	aLegID := strings.TrimSpace(aLeg.ALegID)
+	if aLegID == "" {
+		aLegID = strings.TrimSpace(br.Record.ALegID)
+	}
+	if aLegID == "" {
+		aLegID = strings.TrimSpace(p.sessionInput.ALegID)
+	}
+	return captureWireFrontendIngress(execCtx, WireFrontendIngressArgs{
+		RequestID:       requestID,
+		TraceID:         p.traceID,
+		Scope:           p.scope,
+		ALegID:          aLegID,
+		SessionID:       sessionID,
+		MaxOutputTokens: maxOutputTokens,
+		Now:             p.executor.now(),
+	})
+}
+
+// PersistFrontendIngressFact appends the customer FE-ingress journal fact
+// when a MeteringRecorder is configured and binds its FactID (Requirements 15.1–15.3, 19).
+func (p *PreparedSecureSession) PersistFrontendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder) (string, error) {
+	if p == nil || p.executor == nil {
+		return "", fmt.Errorf("executor: executor is required")
+	}
+	execCtx := p.outCtx
+	if ctx != nil {
+		execCtx = ctx
+	}
+	return p.executor.PersistFrontendIngressFact(execCtx, holder)
+}
+
+// EnrichWireFrontendIngressQuantities merges exact measured wire token counting results
+// into the stored FrontendIngress snapshot for this prepared session (Requirements 15.4, 15.5).
+func (p *PreparedSecureSession) EnrichWireFrontendIngressQuantities(holder *checkpoint.RequestHolder, count largebody.WireCountResult) {
+	if p == nil || p.executor == nil {
+		return
+	}
+	p.executor.EnrichWireFrontendIngressQuantities(holder, count)
+}
+
+// PrepareSecureSession prepares fact-based inputs for secure-session execution.
+// It executes scope resolution, session openers, and workspace resolution, but
+// strictly DOES NOT call BeginTurn or mutate session/store state (Requirements 6.2, 14.1, 19).
+func (e *Executor) PrepareSecureSession(ctx context.Context, in SecureSessionPrepInput) (*PreparedSecureSession, error) {
+	if e == nil || e.SecureSession == nil {
+		return nil, fmt.Errorf("executor: secure session manager is required")
+	}
+
+	traceID := strings.TrimSpace(in.TraceID)
+	outCtx := ctx
 	var principal execview.PrincipalView
 	hasPrincipal := false
 	var reqScope scope.PrincipalScopeView
@@ -64,13 +312,16 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		reqScope, principal, hasPrincipal, outCtx = s, p, true, scope.WithScope(execview.WithPrincipal(outCtx, p), s)
 	}
 	outCtx = diag.WithCallDiag(outCtx, traceID, "")
+
 	preSession := session.SessionView{
-		AuthoritativeSessionID: strings.TrimSpace(work.Session.AuthoritativeSessionID),
-		ClientSessionHint:      strings.TrimSpace(work.Session.ClientSessionID),
+		AuthoritativeSessionID: strings.TrimSpace(in.Session.AuthoritativeSessionID),
+		ClientSessionHint:      strings.TrimSpace(in.Session.ClientSessionID),
 		ALegID:                 "",
 		IsNew:                  false,
 		ResumeEligible:         false,
 	}
+
+	snap := e.RuntimeSnapshot
 	if snap != nil {
 		openIn := session.OpenInput{TraceID: traceID, Principal: principal, Session: preSession}
 		openRes := extensions.RunSessionOpenStage(
@@ -87,6 +338,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			preSession.Labels[k] = v
 		}
 	}
+
 	var wsView lipworkspace.WorkspaceView
 	if snap != nil {
 		wsStart := time.Now()
@@ -118,7 +370,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 				if e.Log != nil {
 					e.Log.InfoContext(outCtx, "secure_session: workspace resolve denied", "code", lipapi.SessionDenialPublicCode(mapped), "trace_id", strings.TrimSpace(traceID), "error", werr)
 				}
-				return nil, nil, outCtx, fmt.Errorf("executor: secure session: %w", mapped)
+				return nil, fmt.Errorf("executor: secure session: %w", mapped)
 			}
 			outcome = "fail_open"
 			if e.Log != nil {
@@ -135,80 +387,89 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			e.ExtensionMetrics.ObserveStage(extensions.MetricsStageWorkspaceResolve, outcome, time.Since(wsStart).Seconds())
 		}
 	}
+
 	beginIn := app.BeginInput{
-		Now:                    e.now(),
-		TraceID:                traceID,
-		Session:                secureSessionWireFromLipAPI(work.Session),
+		Now:     e.now(),
+		TraceID: traceID,
+		Session: app.SessionWire{
+			ClientSessionID: in.Session.ClientSessionID,
+			ContinuityKey:   in.ContinuityKey,
+			ALegID:          in.Session.ALegID,
+			SessionID:       in.Session.AuthoritativeSessionID,
+			ResumeToken:     in.Session.ResumeToken.Reveal(),
+		},
 		Principal:              principalRefFromScope(principal, reqScope),
 		Workspace:              domain.WorkspaceRef{ID: strings.TrimSpace(wsView.ID)},
 		GlobalPolicy:           app.DefaultGlobalPolicy(),
-		ClientHints:            domain.ClientHints{ClientSessionID: strings.TrimSpace(work.Session.ClientSessionID)},
+		ClientHints:            domain.ClientHints{ClientSessionID: strings.TrimSpace(in.Session.ClientSessionID)},
 		FirstMessageDigest:     "",
 		WorkspaceMatchRequired: e != nil && e.SecureSessionRequireWorkspaceID,
 	}
-	br, err := e.SecureSession.BeginTurn(outCtx, beginIn)
+
+	return &PreparedSecureSession{
+		executor:     e,
+		outCtx:       outCtx,
+		traceID:      traceID,
+		sessionInput: in.Session,
+		principal:    principal,
+		hasPrincipal: hasPrincipal,
+		scope:        reqScope,
+		wsView:       wsView,
+		preSession:   preSession,
+		beginIn:      beginIn,
+	}, nil
+}
+
+func (e *Executor) prepareSubmitAndALegSecure(
+	ctx context.Context,
+	bus *hooks.Bus,
+	call *lipapi.Call,
+) (
+	ibt *identityBoundTurn,
+	workingCall *lipapi.Call,
+	outCtx context.Context,
+	err error,
+) {
+	snap := e.RuntimeSnapshot
+	work := *call
+	traceID := strings.TrimSpace(work.ID)
+	if traceID == "" {
+		traceID = diag.StableCallID(&work)
+	}
+	work.ID, call.ID = traceID, traceID
+
+	prep, err := e.PrepareSecureSession(ctx, SecureSessionPrepInput{
+		TraceID:       traceID,
+		Session:       largebody.SessionInputFromRef(work.Session),
+		ContinuityKey: work.Session.ContinuityKey,
+	})
 	if err != nil {
-		mapped := err
-		if e != nil && e.SessionDenialMapper != nil {
-			mapped = e.SessionDenialMapper(err)
-		}
-		if e != nil && e.SecureSessionMetrics != nil {
-			if errors.Is(err, domain.ErrStorageUnavailable) {
-				e.SecureSessionMetrics.ObserveStorageUnavailable()
-			}
-			code := lipapi.SessionDenialPublicCode(mapped)
-			if code == "" {
-				code = "unknown"
-			}
-			e.SecureSessionMetrics.ObserveBeginTurnDenied(code)
-		}
-		if e != nil && e.Log != nil {
-			logCode := lipapi.SessionDenialPublicCode(mapped)
-			if logCode == "" {
-				logCode = "unknown"
-			}
-			e.Log.InfoContext(outCtx, "secure_session: begin turn denied", "code", logCode, "trace_id", strings.TrimSpace(traceID), "client_session_id", HashOpaqueIDForLog(work.Session.ClientSessionID))
-		}
-		return nil, nil, outCtx, fmt.Errorf("executor: secure session: %w", mapped)
+		return nil, nil, ctx, err
 	}
-	if e != nil && e.SecureSessionMetrics != nil {
-		if br.IsNew {
-			e.SecureSessionMetrics.ObserveBeginTurnNew()
-		} else {
-			e.SecureSessionMetrics.ObserveBeginTurnResume()
-		}
-	}
-	work.Session.AuthoritativeSessionID = string(br.Record.SessionID)
-	work.Session.ALegID = strings.TrimSpace(br.Record.ALegID)
-	work.Session.ResumeToken = ""
-	aLeg, err := e.Store.FetchALeg(outCtx, br.Record.ALegID)
-	if err != nil {
-		return nil, nil,
-			outCtx,
-			fmt.Errorf("executor: fetch a-leg after secure session: %w", err)
-	}
-	work.Session.ContinuityKey = strings.TrimSpace(aLeg.ContinuityKey)
-	work.Session.ALegID = aLeg.ALegID
-	routeAuth, err := e.snapshotRouteOverride(outCtx, aLeg.ALegID)
+	outCtx = prep.Context()
+
+	br, err := prep.ExecuteBeginTurn(outCtx)
 	if err != nil {
 		return nil, nil, outCtx, err
 	}
-	if err := waitRouteAuthoritySnapshotBarrier(outCtx, aLeg.ALegID); err != nil {
-		return nil, nil, outCtx, fmt.Errorf("executor: route authority snapshot barrier: %w", err)
+
+	work.Session.AuthoritativeSessionID = string(br.Record.SessionID)
+	work.Session.ALegID = strings.TrimSpace(br.Record.ALegID)
+	work.Session.ResumeToken = ""
+
+	aLeg, routeAuth, err := prep.ResolveALeg(outCtx, br.Record.ALegID)
+	if err != nil {
+		return nil, nil, outCtx, err
 	}
-	preSession.ALegID = aLeg.ALegID
-	preSession.AuthoritativeSessionID = string(br.Record.SessionID)
-	preSession.IsNew = br.IsNew
-	preSession.ResumeEligible = br.Record.ResumeEligible
-	preSession.TurnID = string(br.TurnID)
-	preSession.WorkspaceID = strings.TrimSpace(wsView.ID)
-	secureTurn := execctx.SecureSessionTurn{
-		SessionID: br.Record.SessionID,
-		TurnID:    br.TurnID,
-		Policy:    br.EffectivePolicy,
-	}
+
+	work.Session.ContinuityKey = strings.TrimSpace(aLeg.ContinuityKey)
+	work.Session.ALegID = aLeg.ALegID
+
+	preSession := prep.BindSession(br, aLeg)
+	secureTurn := prep.SecureTurn(br)
 	secureTurnOK := true
-	ibt, err = newIdentityBoundTurn(traceID, &work, principal, reqScope, hasPrincipal, wsView, aLeg, routeAuth, secureTurn, secureTurnOK, preSession)
+
+	ibt, err = newIdentityBoundTurn(traceID, &work, prep.Principal(), prep.Scope(), prep.HasPrincipal(), prep.Workspace(), aLeg, routeAuth, secureTurn, secureTurnOK, preSession)
 	if err != nil {
 		return nil, nil, outCtx, fmt.Errorf("executor: create identity bound turn: %w", err)
 	}
@@ -486,10 +747,6 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		return failAfterRequestAdmit(err)
 	}
 	return ibt, workingCall, outCtx, nil
-}
-
-func secureSessionWireFromLipAPI(s lipapi.SessionRef) app.SessionWire {
-	return app.SessionWire{ClientSessionID: s.ClientSessionID, ContinuityKey: s.ContinuityKey, ALegID: s.ALegID, SessionID: s.AuthoritativeSessionID, ResumeToken: s.ResumeToken}
 }
 
 func policyLabelsFromMetadata(p domain.PolicyMetadata) map[string]string {

@@ -343,7 +343,7 @@ func TestPlaneGenerator_PrivilegeAcceptedForms(t *testing.T) {
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 var PlaneA = Plane[[]toolpolicy.Policy]{
 	ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilReject, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
+	NilPolicy: NilReject, RequestAccess: RequestBodyCanonicalRequired, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
 	Validate: func(v []toolpolicy.Policy) error { return nil },
 	Combine: func(s SourceKind, c, in []toolpolicy.Policy) ([]toolpolicy.Policy, error) { return append(c, in...), nil },
 	Diagnostics: DiagnosticDescriptor[[]toolpolicy.Policy]{
@@ -363,7 +363,7 @@ var StandardPlanes = []any{PlaneA}
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 var PlaneA = Plane[[]toolpolicy.Policy]{
 	ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilReject, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
+	NilPolicy: NilReject, RequestAccess: RequestBodyCanonicalRequired, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
 	Validate: func(v []toolpolicy.Policy) error { return nil },
 	Combine: func(s SourceKind, c, in []toolpolicy.Policy) ([]toolpolicy.Policy, error) { return append(c, in...), nil },
 	Diagnostics: DiagnosticDescriptor[[]toolpolicy.Policy]{

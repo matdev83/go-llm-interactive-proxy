@@ -43,6 +43,10 @@ type Handler struct {
 	Config                  Config
 	HTTPHeaders             lipsdk.HTTPHeaders
 	StreamKeepaliveInterval time.Duration
+	// Profile optionally overrides the large-payload fast-path profile (defaults to NewProfile()).
+	Profile frontendpipe.FrontendProfile
+	// LargePayload configures the large-payload fast-path candidate limits.
+	LargePayload frontendpipe.LargePayloadConfig
 
 	// pipeOnce serializes the first spec() build; handlers serve concurrent requests.
 	pipeOnce sync.Once
@@ -65,7 +69,16 @@ func (h *Handler) spec() *frontendpipe.Spec[EncodeOptions] {
 	return &h.pipe
 }
 
+// Spec returns the configured frontendpipe.Spec for this handler.
+func (h *Handler) Spec() *frontendpipe.Spec[EncodeOptions] {
+	return h.spec()
+}
+
 func (h *Handler) buildPipe() {
+	prof := h.Profile
+	if prof == nil {
+		prof = NewProfile()
+	}
 	h.pipe = frontendpipe.Spec[EncodeOptions]{
 		Config: frontendpipe.Config{
 			Exec:                    h.Exec,
@@ -79,8 +92,10 @@ func (h *Handler) buildPipe() {
 			FrontendID:              ID,
 			HTTPHeaders:             h.HTTPHeaders,
 			StreamKeepaliveInterval: h.StreamKeepaliveInterval,
+			LargePayload:            h.LargePayload,
 		},
 		Wire:               frontendpipe.OpenAIWire{},
+		Profile:            prof,
 		RouteFromBodyModel: true,
 		MatchPath: func(path string) (frontendpipe.PathMatch, bool) {
 			if strings.HasSuffix(path, "/responses") || path == "/responses" {

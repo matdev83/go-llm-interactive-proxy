@@ -128,6 +128,9 @@ type HTTPFrontendInput struct {
 	// Frontends without a provider participate in no route-ownership
 	// validation, so the seam stays fully generic plugin architecture.
 	FrontendRouteClaims map[string]FrontendRouteClaims
+	// LargePayload carries optional large-payload fast-path candidate configuration
+	// for supported frontends.
+	LargePayload LargePayloadInput
 }
 
 // FrontendRouteClaims computes the normalized owner-aware route claims for one

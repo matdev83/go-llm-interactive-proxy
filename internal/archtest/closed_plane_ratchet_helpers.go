@@ -21,6 +21,7 @@ var directPolicyFieldMapping = map[string]string{
 	"requestMaterializer":    "RequestMaterializer",
 	"requestBorrow":          "RequestBorrow",
 	"hookTarget":             "HookTarget",
+	"requestAccess":          "RequestAccess",
 }
 
 var diagPolicyFieldMapping = map[string]string{
@@ -44,6 +45,7 @@ var expectedPolicyFieldsList = []string{
 	"requestMaterializer",
 	"requestBorrow",
 	"hookTarget",
+	"requestAccess",
 	"diagStageID",
 	"diagCoalesceGroup",
 	"diagOrder",

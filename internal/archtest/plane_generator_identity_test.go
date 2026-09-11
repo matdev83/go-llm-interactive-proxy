@@ -24,6 +24,7 @@ var PlaneSyntheticReplace = Plane[[]toolpolicy.Policy]{
 		GenerationBinder: CombReplaceByIdentity,
 	},
 	NilPolicy: NilReject,
+	RequestAccess: RequestBodyCanonicalRequired,
 	Identity: func(v []toolpolicy.Policy) (string, bool) {
 		if len(v) > 0 && v[0] != nil {
 			return v[0].ID(), true

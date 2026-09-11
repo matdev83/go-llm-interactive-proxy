@@ -36,8 +36,11 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if AtomicOwnedResourceLifecycleOverlayMax != 92 {
 		t.Fatalf("atomic owned resource lifecycle overlay cap drift: %d", AtomicOwnedResourceLifecycleOverlayMax)
 	}
-	if len(pathMarkerOverlaySpecs) != 8 {
-		t.Fatalf("path-marker overlay table drift: got %d specs, want 8", len(pathMarkerOverlaySpecs))
+	if len(pathMarkerOverlaySpecs) != 9 {
+		t.Fatalf("path-marker overlay table drift: got %d specs, want 9", len(pathMarkerOverlaySpecs))
+	}
+	if LargePayloadHostCompositionOverlayMax != 291 {
+		t.Fatalf("large payload host composition overlay cap drift: %d", LargePayloadHostCompositionOverlayMax)
 	}
 	if GeoIPIngressOverlayMax != 700 {
 		t.Fatalf("GeoIP ingress overlay cap drift: %d", GeoIPIngressOverlayMax)
@@ -145,6 +148,38 @@ func TestShrinkage_BackendResourcePoolOverlaySelectsOnlyPoolFile(t *testing.T) {
 	}
 	if overlay.Lines != 1 {
 		t.Fatalf("overlay lines = %d, want 1", overlay.Lines)
+	}
+}
+
+func TestShrinkage_LargePayloadHostCompositionOverlaySelectsAssessor(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	selected := filepath.Join(root, "internal", "infra", "runtimebundle", "build_large_body_assessor.go")
+	selected2 := filepath.Join(root, "internal", "stdhttp", "contract", "large_payload_input.go")
+	testFile := filepath.Join(root, "internal", "infra", "runtimebundle", "build_large_body_assessor_test.go")
+	unrelated := filepath.Join(root, "internal", "infra", "runtimebundle", "build_persistence.go")
+	for _, path := range []string{selected, selected2, testFile, unrelated} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package p\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	overlay := pathOverlayByName(t, root, "Large payload host composition")
+	if overlay.Max != 291 {
+		t.Fatalf("overlay max = %d, want 291", overlay.Max)
+	}
+	want := []string{
+		"internal/infra/runtimebundle/build_large_body_assessor.go",
+		"internal/stdhttp/contract/large_payload_input.go",
+	}
+	if len(overlay.Files) != len(want) || overlay.Files[0] != want[0] || overlay.Files[1] != want[1] {
+		t.Fatalf("overlay files = %v, want %v", overlay.Files, want)
+	}
+	if overlay.Lines != 2 {
+		t.Fatalf("overlay lines = %d, want 2", overlay.Lines)
 	}
 }
 
@@ -263,6 +298,7 @@ func TestShrinkage_ReportSectionIncludesVerdict(t *testing.T) {
 		"Backend resource pool overlay lines:",
 		"GeoIP ingress overlay lines:",
 		"Terminal decision feature extension overlay lines:",
+		"Large payload host composition overlay lines:",
 		"Convergence delta (raw − overlays):",
 		"Required: convergence delta ≤ -800",
 	} {

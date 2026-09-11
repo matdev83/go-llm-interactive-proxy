@@ -26,8 +26,8 @@ func authDecisionFromContext(ctx context.Context) sdkauth.Decision {
 	return d
 }
 
-// createEncodeState is per-request OpenResponses create state carried through Extra.
-type createEncodeState struct {
+// CreateEncodeState is per-request OpenResponses create state carried through Extra.
+type CreateEncodeState struct {
 	decoded    *DecodedCreate
 	compact    *DecodedCompact
 	responseID string
@@ -37,6 +37,8 @@ type createEncodeState struct {
 	owner      continuationReservationOwner
 	observer   lipcont.StreamObserver
 }
+
+type createEncodeState = CreateEncodeState
 
 type executorViewAdapter struct {
 	ExecutorView
@@ -78,8 +80,11 @@ func (h *Handler) buildPipe() {
 			FrontendID:              ID,
 			HTTPHeaders:             h.cfg.HTTPHeaders,
 			StreamKeepaliveInterval: h.cfg.StreamKeepaliveInterval,
+			LargePayload:            h.cfg.LargePayload,
 		},
-		Wire: WireErrors{},
+		Wire:               WireErrors{},
+		Profile:            h.cfg.Profile,
+		RouteFromBodyModel: true,
 		MatchPath: func(path string) (frontendpipe.PathMatch, bool) {
 			if isCompactPath(path) || isCreatePath(path) {
 				return frontendpipe.PathMatch{}, true
@@ -243,7 +248,55 @@ func (h *Handler) buildPipe() {
 	}
 }
 
+// IsEligibleNoStoreCreate reports whether the decoded request belongs to the
+// certified bounded no-store subset (Task 17.1, Requirement 17.4):
+//   - HTTP create (not compaction)
+//   - explicit store: false (ExplicitStore != nil && !*ExplicitStore)
+//   - no previous_response_id (PreviousResponseID == "")
+//
+// Missing store field returns false because current decode defaults store=true,
+// requiring canonical storage/reservation processing.
+func IsEligibleNoStoreCreate(decoded *DecodedCreate) bool {
+	if decoded == nil {
+		return false
+	}
+	if decoded.ExplicitStore == nil || *decoded.ExplicitStore {
+		return false
+	}
+	if decoded.PreviousResponseID != "" {
+		return false
+	}
+	return true
+}
+
+// prepareNoStoreState prepares the bounded, side-effect-free state for an
+// explicit store:false create request with no previous_response_id (Task 17.1).
+// It performs zero store reservations, zero parent lookups, and attaches zero
+// recorder observers, guaranteeing that no AfterDecode side effect or error
+// exists that could move after wire commit.
+func (h *Handler) prepareNoStoreState(decoded *DecodedCreate) *createEncodeState {
+	ids := h.cfg.ResponseIDSource
+	if ids == nil {
+		ids = systemResponseIDSource{}
+	}
+	return &createEncodeState{
+		decoded:    decoded,
+		responseID: ids.NewResponseID(),
+		store:      nil,
+		scope:      lipcont.Scope{},
+		isReserved: false,
+		observer:   nil,
+	}
+}
+
 func (h *Handler) prepareCreateState(ctx context.Context, decoded *DecodedCreate) (*createEncodeState, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if IsEligibleNoStoreCreate(decoded) {
+		return h.prepareNoStoreState(decoded), nil
+	}
+
 	var (
 		store       = h.getStore()
 		parent      lipcont.ContinuationRecord

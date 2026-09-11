@@ -192,6 +192,8 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte, importMap map[st
 	var planeID string
 	var multiplicity string
 	var hookTarget string
+	var hasRequestAccess bool
+	var requestAccess string
 	var hasRules bool
 	var hasFeatureRule bool
 	var featureRule string
@@ -236,6 +238,13 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte, importMap map[st
 				return planeInfo{}, err
 			}
 			hookTarget = target
+		case "RequestAccess":
+			access, err := parseRequestAccessExpr(varName, kv.Value)
+			if err != nil {
+				return planeInfo{}, err
+			}
+			hasRequestAccess = true
+			requestAccess = access
 		case "Identity":
 			hasIdentity = !isNilIdent(kv.Value)
 		case "ValidateIdentity":
@@ -409,6 +418,15 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte, importMap map[st
 		hookPkg = pkg
 	}
 
+	// Request access classification is required and checked last so planes
+	// that are invalid for another reason keep reporting that reason.
+	if !hasRequestAccess {
+		return planeInfo{}, fmt.Errorf("plane %s: request access class is required; declare RequestAccess with a non-Unclassified RequestBodyAccess identifier", varName)
+	}
+	if requestAccess == "RequestBodyAccessUnclassified" {
+		return planeInfo{}, fmt.Errorf("plane %s: request access class must not be Unclassified; classify the plane for wire eligibility", varName)
+	}
+
 	return planeInfo{
 		varName:                varName,
 		planeID:                planeID,
@@ -416,6 +434,7 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte, importMap map[st
 		typeExpr:               typeArgStr,
 		hookTarget:             hookTarget,
 		hookPkg:                hookPkg,
+		requestAccess:          requestAccess,
 		isExclusive:            isExclusive,
 		hasIdentity:            hasIdentity,
 		hasValidateIdentity:    hasValidateIdentity,

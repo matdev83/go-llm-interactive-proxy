@@ -264,6 +264,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			standardFeatures:      ps.StandardFeatures,
 			geoip:                 ps.GeoIP,
 			secureSessions:        ps.SecureSessions,
+			spoolLedger:           ps.SpoolLedger,
 		},
 		ledger: ledger,
 		terminalWorkReady: func() func(context.Context) error {

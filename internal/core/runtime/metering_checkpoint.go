@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -81,6 +83,201 @@ func captureFrontendIngressBeforeSubmit(
 	return ctx, holder, nil
 }
 
+// WireFrontendIngressArgs carries the bounded facts required to capture an immutable
+// frontend-ingress checkpoint on the wire fast-path (Requirements 15.1–15.3, 16.1–16.6, 19).
+type WireFrontendIngressArgs struct {
+	RequestID       string
+	TraceID         string
+	Scope           scope.PrincipalScopeView
+	ALegID          string
+	SessionID       string
+	MaxOutputTokens *int
+	Now             time.Time
+}
+
+// captureWireFrontendIngress stores one immutable FE-ingress checkpoint from bounded
+// wire facts before backend attempt dispatch, sharing exact helpers with the canonical
+// path and never cloning or retaining a lipapi.Call (Requirements 15.1–15.3, 16.1–16.6, 19).
+func captureWireFrontendIngress(
+	ctx context.Context,
+	args WireFrontendIngressArgs,
+) (context.Context, *checkpoint.RequestHolder, error) {
+	holder := meteringHolderFrom(ctx)
+	if holder == nil {
+		holder = &checkpoint.RequestHolder{}
+		ctx = withMeteringHolder(ctx, holder)
+	}
+	id := strings.TrimSpace(args.RequestID)
+	if id == "" {
+		return ctx, holder, fmt.Errorf("executor: metering wire frontend ingress requires request id")
+	}
+	frontendID := ""
+	if fe, ok := execview.FrontendIDFromContext(ctx); ok {
+		frontendID = fe
+	}
+	traceID := strings.TrimSpace(args.TraceID)
+	if traceID == "" {
+		traceID = id
+	}
+	now := args.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	_, err := holder.CaptureOrReuseWireFrontendIngress(checkpoint.WireFrontendIngressInput{
+		RequestID:       id,
+		TraceID:         traceID,
+		CheckpointID:    "customer-request:" + id,
+		StreamID:        "customer-request:" + id,
+		Scope:           args.Scope,
+		FrontendID:      frontendID,
+		ALegID:          args.ALegID,
+		SessionID:       args.SessionID,
+		MaxOutputTokens: args.MaxOutputTokens,
+		Perspective:     metering.PerspectiveCustomer,
+		Now:             now,
+	})
+	if err != nil {
+		return ctx, holder, fmt.Errorf("executor: metering wire frontend ingress: %w", err)
+	}
+	return ctx, holder, nil
+}
+
+// WireBackendIngressArgs carries bounded facts required to freeze an immutable
+// backend-attempt checkpoint on the wire fast-path (Requirements 10, 15.1–15.3, 19).
+type WireBackendIngressArgs struct {
+	RequestID       string
+	TraceID         string
+	AttemptID       string
+	BLegID          string
+	ALegID          string
+	SessionID       string
+	Scope           scope.PrincipalScopeView
+	BackendID       string
+	Model           string
+	MaxOutputTokens *int
+	Now             time.Time
+
+	SourceDigest  [32]byte
+	RewriteDigest [32]byte
+	AttemptDigest [32]byte
+}
+
+// captureWireBackendIngress stores one immutable BE-ingress checkpoint from bounded
+// wire facts before backend attempt dispatch, sharing exact helpers with the canonical
+// path and never cloning or retaining a lipapi.Call (Requirements 10, 15.1–15.3, 19).
+func captureWireBackendIngress(
+	holder *checkpoint.RequestHolder,
+	args WireBackendIngressArgs,
+) (checkpoint.Snapshot, error) {
+	if holder == nil {
+		return checkpoint.Snapshot{}, fmt.Errorf("executor: metering holder required for wire backend ingress")
+	}
+	attemptID := strings.TrimSpace(args.AttemptID)
+	if attemptID == "" {
+		return checkpoint.Snapshot{}, fmt.Errorf("executor: metering wire backend ingress requires attempt id")
+	}
+	bLegID := strings.TrimSpace(args.BLegID)
+	if bLegID == "" {
+		bLegID = attemptID
+	}
+	reqID := strings.TrimSpace(args.RequestID)
+	if reqID == "" {
+		return checkpoint.Snapshot{}, fmt.Errorf("executor: metering wire backend ingress requires request id")
+	}
+	traceID := strings.TrimSpace(args.TraceID)
+	if traceID == "" {
+		traceID = reqID
+	}
+	now := args.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	snap, err := holder.StoreWireBackendIngress(checkpoint.WireBackendIngressInput{
+		RequestID:       reqID,
+		TraceID:         traceID,
+		AttemptID:       attemptID,
+		BLegID:          bLegID,
+		ALegID:          args.ALegID,
+		SessionID:       args.SessionID,
+		Scope:           args.Scope,
+		BackendID:       args.BackendID,
+		Model:           args.Model,
+		CheckpointID:    "operator-attempt:" + attemptID,
+		StreamID:        "operator-attempt:" + attemptID,
+		MaxOutputTokens: args.MaxOutputTokens,
+		Perspective:     metering.PerspectiveOperator,
+		Now:             now,
+		SourceDigest:    args.SourceDigest,
+		RewriteDigest:   args.RewriteDigest,
+		AttemptDigest:   args.AttemptDigest,
+	})
+	if err != nil {
+		return checkpoint.Snapshot{}, fmt.Errorf("executor: metering wire backend ingress: %w", err)
+	}
+	return snap, nil
+}
+
+// CaptureWireBackendIngress captures an immutable backend-attempt checkpoint
+// from bounded wire facts, inheriting correlated session/request facts from
+// holder.FrontendIngress when available (Requirements 10, 15.1–15.3, 19).
+func (e *Executor) CaptureWireBackendIngress(
+	ctx context.Context,
+	holder *checkpoint.RequestHolder,
+	args WireBackendIngressArgs,
+) (checkpoint.Snapshot, error) {
+	if holder == nil {
+		holder = meteringHolderFrom(ctx)
+	}
+	if holder == nil {
+		return checkpoint.Snapshot{}, fmt.Errorf("executor: metering holder required for wire backend ingress")
+	}
+	if args.Now.IsZero() && e != nil {
+		args.Now = e.now()
+	}
+	if holder.FrontendIngress != nil {
+		if args.Scope.PrincipalID.IsUnknown() && !holder.FrontendIngress.Public.Scope.PrincipalID.IsUnknown() {
+			args.Scope = holder.FrontendIngress.Public.Scope.Clone()
+		}
+		if strings.TrimSpace(args.RequestID) == "" {
+			args.RequestID = holder.FrontendIngress.Public.Correlation.RequestID
+		}
+		if strings.TrimSpace(args.TraceID) == "" {
+			args.TraceID = holder.FrontendIngress.Public.Correlation.TraceID
+		}
+		if strings.TrimSpace(args.ALegID) == "" {
+			args.ALegID = holder.FrontendIngress.Public.Correlation.ALegID
+		}
+		if strings.TrimSpace(args.SessionID) == "" {
+			args.SessionID = holder.FrontendIngress.Public.Correlation.SessionID
+		}
+	}
+	return captureWireBackendIngress(holder, args)
+}
+
+// AssertWireAttemptNotWidened verifies that current bounded attempt evidence has not
+// widened beyond the authorized backend-ingress freeze for attemptID (Requirements 10, 15.3, 19).
+func (e *Executor) AssertWireAttemptNotWidened(
+	holder *checkpoint.RequestHolder,
+	attemptID string,
+	current checkpoint.WireAttemptEvidence,
+) error {
+	if holder == nil {
+		return nil
+	}
+	snap := holder.BackendIngressFor(attemptID)
+	if snap == nil {
+		return nil
+	}
+	ev, ok := snap.WireAttemptEvidence()
+	if !ok {
+		return nil
+	}
+	if err := checkpoint.AssertWireNotWidened(ev, current); err != nil {
+		return fmt.Errorf("executor: %w", err)
+	}
+	return nil
+}
+
 // appendMeteringFact appends a fact when a Recorder is configured; nil is a no-op.
 func (e *Executor) appendMeteringFact(ctx context.Context, fact metering.Fact) error {
 	if e == nil || e.MeteringRecorder == nil {
@@ -95,6 +292,9 @@ func (e *Executor) appendMeteringFact(ctx context.Context, fact metering.Fact) e
 // FactID/SourceID/Sequence are deterministic from the logical request so retry
 // and process restart SameFactReplay without double-count (D6).
 func (e *Executor) persistFrontendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder) (string, error) {
+	if holder == nil {
+		holder = meteringHolderFrom(ctx)
+	}
 	if e == nil || holder == nil {
 		return "", nil
 	}
@@ -133,6 +333,13 @@ func (e *Executor) persistFrontendIngressFact(ctx context.Context, holder *check
 	return factID, nil
 }
 
+// PersistFrontendIngressFact appends the customer FE-ingress journal fact when a
+// MeteringRecorder is configured and binds its FactID for rating/admission.
+// If holder is nil, it falls back to the holder stored in ctx (Requirements 15.1–15.3, 19).
+func (e *Executor) PersistFrontendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder) (string, error) {
+	return e.persistFrontendIngressFact(ctx, holder)
+}
+
 // enrichFrontendIngressQuantities deferred-counts the immutable FE call via the
 // existing AdminCountService (tiktoken/provider path) and merges input_token
 // without replacing a Present output_token bound (requirements 2.1, 4.1, 7.2).
@@ -145,6 +352,9 @@ func (e *Executor) enrichFrontendIngressQuantities(ctx context.Context) error {
 		return nil
 	}
 	if _, ok := checkpoint.QuantityComponentValue(holder.FrontendIngress.Public.Quantities, metering.ComponentInputToken); ok {
+		return nil
+	}
+	if holder.FrontendIngress.IsWire() {
 		return nil
 	}
 	call := holder.FrontendIngress.Call
@@ -189,8 +399,12 @@ func countedInputQuantities(count accountingapp.CountResult) []metering.Quantity
 
 // enrichBackendIngressQuantities merges deferred operator counts into a stored
 // BE snapshot without replacing conservative output bounds (reqs 2.2, 5.1).
+// Wire snapshots are safely ignored because no token counting is performed (Req 15.4).
 func (e *Executor) enrichBackendIngressQuantities(holder *checkpoint.RequestHolder, attemptID string, count accountingapp.CountResult) {
 	if holder == nil {
+		return
+	}
+	if snap := holder.BackendIngressFor(attemptID); snap != nil && snap.IsWire() {
 		return
 	}
 	holder.MergeBackendIngressQuantities(attemptID, countedInputQuantities(count))
@@ -198,12 +412,16 @@ func (e *Executor) enrichBackendIngressQuantities(holder *checkpoint.RequestHold
 
 // enrichBackendIngressQuantitiesWithDecision merges counted inputs and the
 // conservative output assumption from the final preflight decision.
+// Wire snapshots are safely ignored because no token counting is performed (Req 15.4).
 func (e *Executor) enrichBackendIngressQuantitiesWithDecision(
 	holder *checkpoint.RequestHolder,
 	attemptID string,
 	decision accountingpreflight.Decision,
 ) {
 	if holder == nil {
+		return
+	}
+	if snap := holder.BackendIngressFor(attemptID); snap != nil && snap.IsWire() {
 		return
 	}
 	qs := countedInputQuantities(decision.Count)
@@ -218,6 +436,9 @@ func (e *Executor) enrichBackendIngressQuantitiesWithDecision(
 // FactID/SourceID/Sequence are deterministic per attempt so failover streams
 // stay distinct and Append-fail/restart SameFactReplay without double-count.
 func (e *Executor) persistBackendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder, attemptID string) (string, error) {
+	if holder == nil {
+		holder = meteringHolderFrom(ctx)
+	}
 	if e == nil || holder == nil {
 		return "", nil
 	}
@@ -250,4 +471,104 @@ func (e *Executor) persistBackendIngressFact(ctx context.Context, holder *checkp
 	}
 	holder.BindBackendIngressFactID(attemptID, factID)
 	return factID, nil
+}
+
+// PersistBackendIngressFact appends the operator BE-ingress journal fact for attemptID
+// when a MeteringRecorder is configured and binds its FactID for rating/admission.
+// If holder is nil, it falls back to the holder stored in ctx (Requirements 10, 15.1–15.3, 19).
+func (e *Executor) PersistBackendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder, attemptID string) (string, error) {
+	return e.persistBackendIngressFact(ctx, holder, attemptID)
+}
+
+// WirePreflightAssessmentArgs carries the inputs needed to evaluate token preflight
+// during dynamic assessment under the held decode permit (Requirements 6.1–6.3, 15.5, 21; Task 10.4).
+type WirePreflightAssessmentArgs struct {
+	Backend                  string
+	Model                    string
+	CallID                   string
+	ProfileID                string
+	Source                   largebody.Source
+	RequestedMaxOutputTokens *int
+	Facts                    modelcatalog.ModelFacts
+	Semantics                largebody.ExactTokenizerSemantics
+	MaxScanBytes             int64
+	MaxPermitHoldCPU         time.Duration
+}
+
+// AssessWirePreflight evaluates token preflight admission for a wire request under the
+// held decode permit without materializing prompt text or constructing a lipapi.Call.
+// If preflight is disabled or nil, it succeeds with AssessmentDecisionAccept.
+// If preflight requires counting and only CountCall is supported, or exact tokenizer
+// semantics do not exist, or counting is expensive/unbounded, it returns
+// (AssessmentDecisionDecline, DeclineReasonCountingUnsupported, decision).
+// If preflight token limits are exceeded, it returns
+// (AssessmentDecisionDecline, DeclineReasonAuthorityBlocker, decision).
+func (e *Executor) AssessWirePreflight(
+	ctx context.Context,
+	args WirePreflightAssessmentArgs,
+) (largebody.AssessmentDecision, largebody.DeclineReason, accountingpreflight.Decision) {
+	if e == nil || e.Preflight == nil || !e.Preflight.Enabled() {
+		return largebody.AssessmentDecisionAccept, largebody.DeclineReasonNone, accountingpreflight.Decision{
+			Allowed: true,
+			Reason:  accountingpreflight.ReasonDisabled,
+		}
+	}
+
+	decision := e.Preflight.CheckWire(ctx, accountingpreflight.WireInput{
+		Backend:                  args.Backend,
+		Model:                    args.Model,
+		CallID:                   args.CallID,
+		ProfileID:                args.ProfileID,
+		Source:                   args.Source,
+		RequestedMaxOutputTokens: args.RequestedMaxOutputTokens,
+		Facts:                    args.Facts,
+		Semantics:                args.Semantics,
+		MaxScanBytes:             args.MaxScanBytes,
+		MaxPermitHoldCPU:         args.MaxPermitHoldCPU,
+	})
+
+	if !decision.Allowed {
+		if decision.Reason == accountingpreflight.ReasonCountUnavailable {
+			return largebody.AssessmentDecisionDecline, largebody.DeclineReasonCountingUnsupported, decision
+		}
+		return largebody.AssessmentDecisionDecline, largebody.DeclineReasonAuthorityBlocker, decision
+	}
+
+	return largebody.AssessmentDecisionAccept, largebody.DeclineReasonNone, decision
+}
+
+// EnrichWireFrontendIngressQuantities merges exact measured wire token counting results
+// into the stored FrontendIngress snapshot without mutating or retaining a Call (Requirements 15.4, 15.5).
+func (e *Executor) EnrichWireFrontendIngressQuantities(holder *checkpoint.RequestHolder, count largebody.WireCountResult) {
+	if holder == nil || holder.FrontendIngress == nil {
+		return
+	}
+	if _, ok := checkpoint.QuantityComponentValue(holder.FrontendIngress.Public.Quantities, metering.ComponentInputToken); ok {
+		return
+	}
+	holder.MergeFrontendIngressQuantities(countedInputQuantities(accountingapp.CountResult{
+		InputTokens: count.InputTokens,
+		TotalTokens: count.TotalTokens,
+		Accounting:  count.Accounting,
+	}))
+}
+
+// EnrichWireBackendIngressQuantities merges exact measured wire token counting results
+// into the stored BackendIngress snapshot for attemptID without mutating or retaining a Call (Requirements 15.4, 15.5).
+func (e *Executor) EnrichWireBackendIngressQuantities(holder *checkpoint.RequestHolder, attemptID string, count largebody.WireCountResult) {
+	if holder == nil {
+		return
+	}
+	snap := holder.BackendIngressFor(attemptID)
+	if snap == nil {
+		return
+	}
+	if _, ok := checkpoint.QuantityComponentValue(snap.Public.Quantities, metering.ComponentInputToken); ok {
+		return
+	}
+	holder.MergeBackendIngressQuantities(attemptID, countedInputQuantities(accountingapp.CountResult{
+		InputTokens: count.InputTokens,
+		TotalTokens: count.TotalTokens,
+		Accounting:  count.Accounting,
+	}))
 }

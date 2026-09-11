@@ -369,6 +369,12 @@ func toolResultString(p lipapi.Part) string {
 	if len(p.Content) == 0 {
 		return ""
 	}
+	if len(p.Content) >= 2 && p.Content[0] == '"' {
+		var s string
+		if err := json.Unmarshal(p.Content, &s); err == nil {
+			return s
+		}
+	}
 	return string(p.Content)
 }
 
@@ -488,7 +494,11 @@ func buildTools(tools []lipapi.ToolDef) ([]responses.ToolUnionParam, error) {
 		if schema == nil {
 			schema = map[string]any{}
 		}
-		out = append(out, responses.ToolParamOfFunction(t.Name, schema, true))
+		fn := responses.ToolParamOfFunction(t.Name, schema, true)
+		if t.Description != "" && fn.OfFunction != nil {
+			fn.OfFunction.Description = openai.String(t.Description)
+		}
+		out = append(out, fn)
 	}
 	return out, nil
 }

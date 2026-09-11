@@ -413,6 +413,7 @@ var PlaneOne = Plane[[]hooks.SubmitHook]{
 	ID: "duplicate_id",
 	Multiplicity: MultOrdered,
 	Rules: SourceRules{Feature: CombConcatenate},
+	RequestAccess: RequestBodyCanonicalRequired,
 	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
 }
 
@@ -420,6 +421,7 @@ var PlaneTwo = Plane[[]hooks.SubmitHook]{
 	ID: "duplicate_id",
 	Multiplicity: MultOrdered,
 	Rules: SourceRules{Feature: CombConcatenate},
+	RequestAccess: RequestBodyCanonicalRequired,
 	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
 }
 

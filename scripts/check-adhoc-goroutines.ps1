@@ -40,6 +40,7 @@ $allowed = @(
     "internal/infra/runtimehost/manager.go"
     "internal/core/stream/keepalive.go"
     "internal/core/runtime/parallel_race.go"
+    "internal/core/runtime/executor_execute_large_body.go"
     "internal/core/leglifecycle/coordinator.go"
     "internal/core/runtime/lease_heartbeat.go"
     "internal/core/billing/handoff_retry_worker.go"

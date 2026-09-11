@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -84,6 +85,7 @@ type candidateProcessRefs struct {
 	standardFeatures      *featurehost.Runtime
 	geoip                 *infraGeoIP.Service
 	secureSessions        ssessionapp.Store
+	spoolLedger           *largebody.SpoolLedger
 }
 type candidateAssembly struct {
 	execution                      candidateExecutionGroup

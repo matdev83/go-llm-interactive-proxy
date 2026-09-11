@@ -95,6 +95,7 @@ func BindGeneratedAccessForTest[T any](
 			combine:                p.Combine,
 			identity:               p.Identity,
 			exclusiveConflictError: p.ExclusiveConflictError,
+			requestAccess:          p.RequestAccess,
 		},
 	}
 	return p
@@ -459,4 +460,14 @@ func DeclaredHookTargetForTest(decl PlaneDeclaration) HookTarget {
 		return htp.declaredHookTarget()
 	}
 	return ""
+}
+
+// DeclaredRequestAccessForTest returns the declared request-body access class
+// of a PlaneDeclaration, or Unclassified when the declaration does not carry
+// access metadata.
+func DeclaredRequestAccessForTest(decl PlaneDeclaration) RequestBodyAccess {
+	if rap, ok := decl.(requestAccessProvider); ok {
+		return rap.declaredRequestAccess()
+	}
+	return RequestBodyAccessUnclassified
 }

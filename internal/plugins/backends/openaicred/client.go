@@ -33,3 +33,13 @@ func NewClientWithOptions(baseURL, apiSecret string, httpClient *http.Client, ma
 	opts = append(opts, extraOpts...)
 	return openai.NewClient(opts...)
 }
+
+// DefaultSDKMaxRetries returns v if non-nil, or a pointer to 0.
+// Retry policy above the HTTP round trip lives in credential-rotation loops
+// and core failover; disabling hidden SDK retries prevents differing attempt economics (Requirements 10, 12).
+func DefaultSDKMaxRetries(v *int) *int {
+	if v != nil {
+		return v
+	}
+	return new(int)
+}

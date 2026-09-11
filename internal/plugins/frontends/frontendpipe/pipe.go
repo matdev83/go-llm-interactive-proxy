@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
@@ -39,43 +40,6 @@ type Decoded struct {
 	RouteSelector string
 	// Extra holds per-request protocol state (continuation, response IDs).
 	Extra any
-}
-
-// StatusError is a protocol-mapped HTTP error returned from AfterDecode or WrapStream.
-type StatusError struct {
-	Status  int
-	Type    string
-	Code    string
-	Message string
-	Err     error
-}
-
-func (e *StatusError) Error() string {
-	if e == nil {
-		return ""
-	}
-	if e.Message != "" {
-		return e.Message
-	}
-	if e.Err != nil {
-		return e.Err.Error()
-	}
-	return "request failed"
-}
-
-func (e *StatusError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Err
-}
-
-// HTTPStatus returns a wire-safe status, never 0.
-func (e *StatusError) HTTPStatus() int {
-	if e == nil || e.Status < 100 || e.Status > 599 {
-		return http.StatusBadRequest
-	}
-	return e.Status
 }
 
 // HookErrorWriter optionally writes AfterDecode/WrapStream errors with protocol envelopes.
@@ -120,12 +84,25 @@ type Config struct {
 	FrontendID              string
 	HTTPHeaders             lipsdk.HTTPHeaders
 	StreamKeepaliveInterval time.Duration
+	LargePayload            LargePayloadConfig
 }
 
 // Spec parameterizes one frontend's create path.
 type Spec[Opts any] struct {
 	Config
 	Wire WireErrors
+	// Profile optionally enables large-payload fast-path candidate evaluation (Task 7.1).
+	Profile FrontendProfile
+	// OnPreCaptureGate optionally observes candidate gate decisions (Task 7.3).
+	OnPreCaptureGate func(r *http.Request, res PreCaptureResult)
+	// OnCandidateCapture optionally observes candidate capture outcomes (Task 7.4).
+	OnCandidateCapture func(r *http.Request, res CandidateCaptureResult)
+	// OnCandidateProof optionally observes candidate protocol proof outcomes (Task 7.5).
+	OnCandidateProof func(r *http.Request, res CandidateProofResult)
+	// OnCandidateAssessment optionally observes candidate assessment outcomes (Task 11.9).
+	OnCandidateAssessment func(r *http.Request, res CandidateAssessmentResult)
+	// OnWireCommit optionally observes wire commit execution outcomes (Task 11.9).
+	OnWireCommit func(r *http.Request, res WireCommitResult)
 	// MatchPath returns ok=false for 404. When AltServe is non-nil and invoked, the pipeline stops.
 	MatchPath func(path string) (pm PathMatch, ok bool)
 	AltServe  func(ctx context.Context, w http.ResponseWriter, r *http.Request) bool
@@ -139,8 +116,21 @@ type Spec[Opts any] struct {
 	BuildEncodeOpts      func(decoded *Decoded) Opts
 	WriteStream          func(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts Opts) error
 	WriteNonStream       func(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts Opts) error
+	// WireWrapStream optionally wraps the canonical event stream on wire execution using bounded ResponseContext (Requirement 18.4).
+	WireWrapStream func(ctx context.Context, rc ResponseContext, inner lipapi.EventStream) (lipapi.EventStream, error)
+	// WireWriteStream writes streaming responses on wire execution using bounded ResponseContext (Requirement 18.4).
+	WireWriteStream func(ctx context.Context, w http.ResponseWriter, rc ResponseContext, es lipapi.EventStream) error
+	// WireWriteNonStream writes non-streaming responses on wire execution using bounded ResponseContext (Requirement 18.4).
+	WireWriteNonStream func(ctx context.Context, w http.ResponseWriter, rc ResponseContext, es lipapi.EventStream) error
 	// RouteFromBodyModel defaults route selector from JSON model field when header absent.
 	RouteFromBodyModel bool
+}
+
+func (s *Spec[Opts]) diagnostics() largebody.DiagnosticsObserver {
+	if s != nil && s.LargePayload.Diagnostics != nil {
+		return s.LargePayload.Diagnostics
+	}
+	return largebody.NoopDiagnosticsObserver{}
 }
 
 func (c Config) maxBodyLimit() int64 {
@@ -160,13 +150,11 @@ func (c Config) logWriteJSONErr(ctx context.Context, msg string, werr error) {
 func writeHookError[Opts any](ctx context.Context, spec *Spec[Opts], w http.ResponseWriter, err error) {
 	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WritePreflightCanceled(w))
-		return
-	}
-	if hw, ok := spec.Wire.(HookErrorWriter); ok {
+	} else if hw, ok := spec.Wire.(HookErrorWriter); ok {
 		spec.logWriteJSONErr(ctx, "write error json failed", hw.WriteHookError(w, err))
-		return
+	} else {
+		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidRequest(w))
 	}
-	spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidRequest(w))
 }
 
 func rejectInvalidCall[Opts any](ctx context.Context, spec *Spec[Opts], w http.ResponseWriter, call *lipapi.Call) bool {
@@ -195,11 +183,26 @@ func (c Config) execute(ctx context.Context, w http.ResponseWriter, call *lipapi
 	if !stream {
 		return c.Exec.Execute(ctx, call)
 	}
-	return holdalive.Wait(ctx, w, holdalive.Config{
-		Enabled:  c.PreRequestKeepalive.Enabled,
-		Interval: c.PreRequestKeepalive.Interval,
-	}, func(ctx context.Context) (lipapi.EventStream, error) {
+	hcfg := holdalive.Config{Enabled: c.PreRequestKeepalive.Enabled, Interval: c.PreRequestKeepalive.Interval}
+	return holdalive.Wait(ctx, w, hcfg, func(ctx context.Context) (lipapi.EventStream, error) {
 		return c.Exec.Execute(ctx, call)
+	})
+}
+
+func (c Config) executeLargeBody(
+	ctx context.Context,
+	w http.ResponseWriter,
+	wireExec largebody.LargeBodyWireExecutor,
+	assessment largebody.Assessment,
+	src largebody.Source,
+	stream bool,
+) (largebody.ExecutionResult, error) {
+	if !stream {
+		return wireExec.ExecuteLargeBody(ctx, assessment, src)
+	}
+	hcfg := holdalive.Config{Enabled: c.PreRequestKeepalive.Enabled, Interval: c.PreRequestKeepalive.Interval}
+	return holdalive.Wait(ctx, w, hcfg, func(ctx context.Context) (largebody.ExecutionResult, error) {
+		return wireExec.ExecuteLargeBody(ctx, assessment, src)
 	})
 }
 
@@ -222,10 +225,72 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 		http.NotFound(w, r)
 		return
 	}
+	dobs := spec.diagnostics()
+	var gateStart time.Time
+	if spec.LargePayload.Enabled {
+		dobs.OnPipelineStage(largebody.StageConsidered)
+		gateStart = time.Now()
+	}
+	gateRes := EvaluatePreCaptureGates(spec, r)
+	if spec.LargePayload.Enabled {
+		dobs.OnStageDuration("pre_capture_gates", time.Since(gateStart))
+	}
+	if spec.OnPreCaptureGate != nil {
+		spec.OnPreCaptureGate(r, gateRes)
+	}
 
 	limits := jsonguard.Limits{MaxBytes: spec.maxBodyLimit()}
-	body, err := reqbody.ReadAll(w, r, limits.MaxBytes)
+	var body []byte
+	var err error
+	var capRes CandidateCaptureResult
+	if !gateRes.Candidate {
+		if spec.LargePayload.Enabled {
+			dobs.OnPipelineStage(largebody.StageStaticCanonical)
+			declineReason := largebody.ResolveStaticDeclineReason(spec.LargePayload.WireEligibility, gateRes.Reason)
+			dobs.OnDecline(declineReason)
+		}
+		body, err = reqbody.ReadAll(w, r, limits.MaxBytes)
+	} else {
+		captureStart := time.Now()
+		capRes, body, err = CaptureCandidateBody(ctx, spec, w, r, limits.MaxBytes)
+		dobs.OnStageDuration("capture", time.Since(captureStart))
+		if spec.OnCandidateCapture != nil {
+			spec.OnCandidateCapture(r, capRes)
+		}
+		switch capRes.Outcome {
+		case largebody.CaptureOutcomeCompleted:
+			dobs.OnPipelineStage(largebody.StageCaptured)
+			storage := largebody.StorageMemory
+			if capRes.Completed != nil && capRes.Completed.HasSpilled() {
+				storage = largebody.StorageFile
+			}
+			var size int64
+			if capRes.Completed != nil {
+				size = capRes.Completed.Size()
+			} else {
+				size = capRes.BytesRead
+			}
+			dobs.OnCapture(largebody.SizeBucket(size), storage)
+			threshold := spec.LargePayload.EffectiveThresholdBytes()
+			if capRes.Completed != nil && capRes.Completed.Size() < threshold {
+				dobs.OnDecline(largebody.DeclineReasonBelowThreshold)
+			}
+		case largebody.CaptureOutcomeLimitExceeded:
+			dobs.OnDecline(largebody.DeclineReasonLimitExceeded)
+		case largebody.CaptureOutcomeReadError:
+			dobs.OnDecline(largebody.DeclineReasonReadError)
+		case largebody.CaptureOutcomeDeclined:
+			if largebody.IsSpoolBudgetExhausted(capRes.Err) {
+				dobs.OnDecline(largebody.DeclineReasonSpoolBudgetExhausted)
+			} else {
+				dobs.OnDecline(largebody.DeclineReasonReadError)
+			}
+		}
+	}
 	if err != nil {
+		if capRes.Completed != nil {
+			_ = capRes.Completed.Close()
+		}
 		if reqbody.TooLarge(err) {
 			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteBodyTooLarge(w))
 			return
@@ -237,51 +302,71 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
-	if spec.Exec == nil {
-		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecutorNotConfigured(w))
-		return
-	}
 
-	sel := spec.HTTPHeaders.RouteSelector(r.Header)
-	if spec.ResolveRouteSelector != nil {
-		if v := strings.TrimSpace(spec.ResolveRouteSelector(r, body, pm)); v != "" {
-			sel = v
-		}
-	}
-	if _, err := jsonguard.PreflightWithContext(ctx, body, limits); err != nil {
-		if jsonguard.Classify(err) == jsonguard.KindCanceled {
-			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WritePreflightCanceled(w))
+	threshold := spec.LargePayload.EffectiveThresholdBytes()
+	isCandidateReplay := gateRes.Candidate &&
+		capRes.Outcome == largebody.CaptureOutcomeCompleted &&
+		capRes.Completed != nil &&
+		capRes.Completed.Size() >= threshold
+
+	var decoded *Decoded
+	if isCandidateReplay {
+		var ok bool
+		decoded, body, ok, err = replayCandidate(ctx, spec, w, r, pm, capRes)
+		if !ok && err == nil {
 			return
 		}
-		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidJSON(w))
-		return
+	} else {
+		if spec.LargePayload.Enabled {
+			dobs.OnPipelineStage(largebody.StageCanonical)
+		}
+		if capRes.Completed != nil {
+			_ = capRes.Completed.Close()
+		}
+		if spec.Exec == nil {
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecutorNotConfigured(w))
+			return
+		}
+		sel := spec.HTTPHeaders.RouteSelector(r.Header)
+		if spec.ResolveRouteSelector != nil {
+			if v := strings.TrimSpace(spec.ResolveRouteSelector(r, body, pm)); v != "" {
+				sel = v
+			}
+		}
+		if _, err := jsonguard.PreflightWithContext(ctx, body, limits); err != nil {
+			if jsonguard.Classify(err) == jsonguard.KindCanceled {
+				spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WritePreflightCanceled(w))
+				return
+			}
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidJSON(w))
+			return
+		}
+		releaseDecode, ok, aerr := decodeqos.TryAdmit(ctx, spec.DecodeAdmission, int64(len(body)))
+		if d := decodeqos.Decide(ok, aerr); d.Status != 0 {
+			if d.RetryAfter {
+				w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
+			}
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteAdmissionReject(w, d))
+			return
+		}
+		err = decodeqos.Guard(releaseDecode, func() error {
+			if sel == "" && spec.RouteFromBodyModel {
+				sel = spec.RoutePrefixes.FromModelOrDefault(body, spec.DefaultRouteSelector)
+			}
+			dctx := DecodeContext{
+				Ctx:              ctx,
+				Body:             body,
+				RouteSelector:    sel,
+				Headers:          r.Header,
+				Path:             pm,
+				URLPath:          r.URL.Path,
+				AnthropicVersion: strings.TrimSpace(r.Header.Get("anthropic-version")),
+			}
+			var derr error
+			decoded, derr = spec.Decode(dctx)
+			return derr
+		})
 	}
-	releaseDecode, ok, err := decodeqos.TryAdmit(ctx, spec.DecodeAdmission, int64(len(body)))
-	if d := decodeqos.Decide(ok, err); d.Status != 0 {
-		if d.RetryAfter {
-			w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
-		}
-		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteAdmissionReject(w, d))
-		return
-	}
-	var decoded *Decoded
-	err = decodeqos.Guard(releaseDecode, func() error {
-		if sel == "" && spec.RouteFromBodyModel {
-			sel = spec.RoutePrefixes.FromModelOrDefault(body, spec.DefaultRouteSelector)
-		}
-		dctx := DecodeContext{
-			Ctx:              ctx,
-			Body:             body,
-			RouteSelector:    sel,
-			Headers:          r.Header,
-			Path:             pm,
-			URLPath:          r.URL.Path,
-			AnthropicVersion: strings.TrimSpace(r.Header.Get("anthropic-version")),
-		}
-		var derr error
-		decoded, derr = spec.Decode(dctx)
-		return derr
-	})
 	if err != nil {
 		log := diag.LoggerOrDefault(spec.Log)
 		diag.LogError(ctx, log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))

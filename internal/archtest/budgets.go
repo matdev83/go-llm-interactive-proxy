@@ -31,7 +31,9 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// feature merge; measured 360 after extraction, retain 25-line headroom.
 	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 388},
 	{Path: "internal/stdhttp/request_plane.go", Max: 90},
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 317},
+	// Large-payload fast-path Phase 4 wires process-owned SpoolLedger and diagnostics;
+	// measured 316, bump to 341 with 25 headroom.
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 341},
 	{Path: "pkg/lipruntime/build.go", Max: 121},
 	{Path: "pkg/lipruntime/host.go", Max: 93},
 	{Path: "pkg/lipruntime/facade.go", Max: 97},
@@ -48,7 +50,10 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/core/runtime/authority_lifecycle_release.go", Max: 355},
 	{Path: "internal/plugins/protocols/openresponses/state_machine.go", Max: 708},
 	{Path: "internal/plugins/protocols/openresponses/state_machine_event_handlers.go", Max: 515},
-	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 383},
+	// Large-payload fast-path Tasks 7.1-19.1 wire execution pipeline (profile plumbing,
+	// pre-capture gates, capture to EOF, single-permit assessment, response context,
+	// keepalive bridge, and spool diagnostics); measured 455, bump to 480 with 25 headroom.
+	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 480},
 	{Path: "internal/plugins/features/keepwarm/manager.go", Max: 450},
 	{Path: "internal/plugins/features/keepwarm/scheduler.go", Max: 450},
 	// Ownership-closure facade caps (Task 11.3): measured final + 25 headroom
@@ -80,10 +85,13 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// projection, and opaque admin/metrics CorePorts members; re-measured 3255.
 	// Runtimebundle shrank in the same change (deleted keepwarm_http.go and
 	// secret_guard_runtime.go, emptied ExtensionsOptions), so this is movement
-	// of composition into its owner, not new scope.
-	{Tree: "internal/infra/runtimebundle", Max: 12333},
+	// Large-payload fast-path Phase 4 unifies ProductionLargeBodyAssessor composition,
+	// wire eligibility summary, and spool ledger wiring;
+	// Phase 5 links server.large_payload_fast_path config through runtimebundle to stdhttp and frontend Specs;
+	// measured 12542 (runtimebundle) and 6753 (stdhttp), bump to 12567 and 6778 with 25 headroom.
+	{Tree: "internal/infra/runtimebundle", Max: 12567},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
-	{Tree: "internal/stdhttp", Max: 6693},
+	{Tree: "internal/stdhttp", Max: 6778},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -144,10 +152,32 @@ var LineBudgets = []LineBudget{
 	// extension-plane-local-terminal: frozen identity accessor and turn-terminal carrier; measured 95070, bump to 95095 with 25 headroom.
 	// pre-oss-core-slimming race remediation: measured 89936 after synchronizing attempt accounting, sideband teardown, and terminal provider identity; retain 25 lines of headroom.
 	// Ownership closure (Task 11.3): measured 82565 after extracting compaction-continuity, conversation steering, interleaved UX, keep-warm and terminal policy; reset to 82590 with 25 headroom. Deleted feature LOC is not retained as growth allowance.
-	{Dir: "internal/core", Max: 82590},
+	// Large-payload fast-path Task 2.1 server config (typed LargePayloadFastPathConfig + validation + effective getters); measured 82712, bump to 82737 with 25 headroom.
+	// Large-payload fast-path Task 2.2 provider-neutral large-body DTOs (bounded source/span/rewrite/proof/session/turn/identity/assessment/wire/rewrite-plan/result/facts/sensitive-carrier contracts, zero behavior); measured 83801, bump to 83826 with 25 headroom.
+	// Large-payload fast-path Task 2.3 internal optional large-body capability (SDK-compat seam, type-assert helper, zero behavior); measured 83845, bump to 83870 with 25 headroom.
+	// Large-payload fast-path Task 3.5 generation-frozen WireEligibilitySummary (bounded leaf-pure compiler over frozen plane/hook/port facts, fixed bitsets/enums, no request data); measured 84326, bump to 84351 with 25 headroom.
+	// Large-payload fast-path Task 3.6 constant-time static pre-capture disposition (bounded leaf-pure gate over WireEligibilitySummary + cheap request facts, zero alloc); measured 84491, bump to 84516 with 25 headroom.
+	// Large-payload fast-path Task 4.1 logical spool reservation ledger (bounded logical spool accounting + checked int64 math + idempotent release); measured 84843, bump to 84868 with 25 headroom.
+	// Large-payload fast-path Task 4.2 bounded RAM + secure spill (fixed copy buffer + unpredictable 0600 file spill + unwritten suffix preservation + nonblocking root close); measured 85449, bump to 85474 with 25 headroom.
+	// Large-payload fast-path Task 4.3 lossless mid-capture canonical continuation (CaptureReader + unconsumed suffix guard + capture driver); measured 85960, bump to 85985 with 25 headroom.
+	// Large-payload fast-path Task 4.4 immutable completed source + independent readers (CompletedSource + offset-zero readers + Windows-safe pending deletion); measured 86347, bump to 86372 with 25 headroom.
+	// Large-payload fast-path Task 4.5 compute source integrity digest during capture (incremental SHA-256 during writes + CompletedSource digest binding); measured 86426, bump to 86451 with 25 headroom.
+	// Large-payload fast-path Task 5.1 incremental lexer/state machine (Feed chunks, UTF-8/escapes/surrogates/numbers/limits, fixed buffers, no giant string retention); measured 87467, bump to 87492 with 25 headroom.
+	// Large-payload fast-path Task 5.2 expose bounded token/path/span events (exact raw spans for selected top-level values, nested-key discrimination, TopLevelSpanTracker, Span Validate/End); measured 87639, bump to 87664 with 25 headroom.
+	// Large-payload fast-path Task 6.1 factor diag helpers around already-computed canonical sum; measured 87717, bump to 87742 with 25 headroom.
+	// Large-payload fast-path Task 6.2 define profile hash-writer contract (streaming JSON-escaped identity digest without prompt retention); measured 88634, bump to 88659 with 25 headroom.
+	// Large-payload fast-path Task 6.5 prove economic identity parity; measured 88680, bump to 88705 with 25 headroom.
+	// Large-payload fast-path Task 8.1 additive execbackend.Backend wire support; measured 88966, bump to 88991 with 25 headroom.
+	// Large-payload fast-path Task 8.2 streaming top-level model token splice (SpliceModelToken, SpliceReader, checked length); measured 89554, bump to 89579 with 25 headroom.
+	// Large-payload fast-path Task 8.3 configured semantic-fact budget helpers; measured 89580, bump to 89605 with 25 headroom.
+	// Large-payload fast-path Tasks 9-19 wire execution, facts, and accounting integration;
+	// Phase 1 streaming proof core in internal/core/largebody and jsonshape string streaming;
+	// Phase 4 adds production LargeBodyAssessor in internal/core/runtime;
+	// measured 98366, bump to 98391 with 25 headroom.
+	{Dir: "internal/core", Max: 98391},
 	{Dir: "internal/pluginreg", Max: 1174},
-	{Dir: "internal/stdhttp", Max: 6693},
-	{Dir: "internal/infra/runtimebundle", Max: 12333},
+	{Dir: "internal/stdhttp", Max: 6778},
+	{Dir: "internal/infra/runtimebundle", Max: 12567},
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},

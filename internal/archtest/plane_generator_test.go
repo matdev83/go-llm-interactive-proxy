@@ -66,7 +66,7 @@ import (
 )
 var PlaneTest = Plane[` + typeParam + `]{
 	ID: "test_policies", Multiplicity: ` + mult + `, Rules: SourceRules{Feature: ` + rules + `},
-	NilPolicy: NilReject,
+	NilPolicy: NilReject, RequestAccess: RequestBodyCanonicalRequired,
 	Identity: func(v ` + typeParam + `) (string, bool) { return "id", true },
 	ValidateIdentity: func(id string) error { return nil },
 	Validate: func(v ` + typeParam + `) error { return nil },
@@ -99,6 +99,7 @@ func TestPlaneGenerator_ValidateIdentityRequirement(t *testing.T) {
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 var PlaneEx = Plane[terminaldecision.Provider]{
 	ID: "test_id_plane", Multiplicity: ` + mult + `, Rules: SourceRules{` + rules + `},
+	RequestAccess: RequestBodyCanonicalRequired,
 	Identity: func(v terminaldecision.Provider) (string, bool) { return "id", true },` + extra + `
 	Combine: func(s SourceKind, c, in terminaldecision.Provider) (terminaldecision.Provider, error) { return in, nil },
 }
@@ -158,7 +159,7 @@ import (
 )
 var PlaneSyntheticSlice = Plane[[]toolpolicy.Policy]{
 	ID: "synthetic_slice", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilReject, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
+	NilPolicy: NilReject, RequestAccess: RequestBodyCanonicalRequired, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
 	Validate: func(v []toolpolicy.Policy) error { return nil },
 	Combine: func(s SourceKind, c, in []toolpolicy.Policy) ([]toolpolicy.Policy, error) { return append(c, in...), nil },
 	RequestMaterializer: func(v []toolpolicy.Policy) []toolpolicy.Policy { return v },
@@ -190,7 +191,7 @@ import (
 )
 var PlaneDisposableProbe = Plane[[]toolpolicy.Policy]{
 	ID: "disposable_probe", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilReject, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
+	NilPolicy: NilReject, RequestAccess: RequestBodyCanonicalRequired, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
 	Validate: func(v []toolpolicy.Policy) error { return nil },
 	Combine: func(s SourceKind, c, in []toolpolicy.Policy) ([]toolpolicy.Policy, error) { return append(c, in...), nil },
 	Diagnostics: DiagnosticDescriptor[[]toolpolicy.Policy]{
@@ -201,7 +202,7 @@ var PlaneDisposableProbe = Plane[[]toolpolicy.Policy]{
 }
 var PlaneNonDiag = Plane[[]toolpolicy.Policy]{
 	ID: "non_diag_plane", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilReject, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
+	NilPolicy: NilReject, RequestAccess: RequestBodyCanonicalRequired, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
 	Validate: func(v []toolpolicy.Policy) error { return nil },
 	Combine: func(s SourceKind, c, in []toolpolicy.Policy) ([]toolpolicy.Policy, error) { return append(c, in...), nil },
 }
@@ -254,14 +255,14 @@ import (
 )
 var PlaneA = Plane[[]toolpolicy.Policy]{
 	ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilReject, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
+	NilPolicy: NilReject, RequestAccess: RequestBodyCanonicalRequired, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
 	Validate: func(v []toolpolicy.Policy) error { return nil },
 	Combine: func(s SourceKind, c, in []toolpolicy.Policy) ([]toolpolicy.Policy, error) { return append(c, in...), nil },
 	Diagnostics: DiagnosticDescriptor[[]toolpolicy.Policy]{` + diagA + `},
 }
 var PlaneB = Plane[[]toolpolicy.Policy]{
 	ID: "plane_b", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilReject, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
+	NilPolicy: NilReject, RequestAccess: RequestBodyCanonicalRequired, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
 	Validate: func(v []toolpolicy.Policy) error { return nil },
 	Combine: func(s SourceKind, c, in []toolpolicy.Policy) ([]toolpolicy.Policy, error) { return append(c, in...), nil },
 	Diagnostics: DiagnosticDescriptor[[]toolpolicy.Policy]{` + diagB + `},
@@ -306,7 +307,7 @@ import (
 )
 var PlaneA = Plane[[]toolpolicy.Policy]{
 	ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
-	NilPolicy: NilReject, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
+	NilPolicy: NilReject, RequestAccess: RequestBodyCanonicalRequired, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
 	Validate: func(v []toolpolicy.Policy) error { return nil },
 	Combine: func(s SourceKind, c, in []toolpolicy.Policy) ([]toolpolicy.Policy, error) { return append(c, in...), nil },
 	Diagnostics: DiagnosticDescriptor[[]toolpolicy.Policy]{

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 
@@ -178,6 +179,10 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 		}
 		_ = context.AfterFunc(opts.GenerationContext, func() { _ = activeClose() })
 	}
+	var lpCfg frontendpipe.LargePayloadConfig
+	if c, ok := opts.LargePayload.(frontendpipe.LargePayloadConfig); ok {
+		lpCfg = c
+	}
 	handler := NewHandler(HandlerConfig{
 		Executor:                opts.Exec,
 		DefaultRouteSelector:    opts.DefaultRoute,
@@ -195,6 +200,7 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 		Config:                  cfg,
 		HTTPHeaders:             opts.HTTPHeaders,
 		StreamKeepaliveInterval: opts.StreamKeepaliveInterval,
+		LargePayload:            lpCfg,
 	})
 
 	if mux != nil {

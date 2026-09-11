@@ -93,6 +93,12 @@ func (a *Adapter) Admit(ctx context.Context, in coreruntime.BillingExposureAdmis
 		return billing.CallExposure{}, err
 	}
 	accountID := strings.TrimSpace(a.cfg.Identity.AccountID(ctx, in.Call))
+	if accountID == "" && in.AccountID != "" {
+		accountID = strings.TrimSpace(in.AccountID)
+	}
+	if accountID == "" && in.Scope.PrincipalID.IsKnown() {
+		accountID = strings.TrimSpace(in.Scope.PrincipalID.String())
+	}
 	if accountID == "" {
 		return billing.CallExposure{}, fmt.Errorf("%w: account identity is required", billing.ErrExposureInvalid)
 	}
@@ -113,6 +119,9 @@ func (a *Adapter) chargeRoutes(ctx context.Context, in coreruntime.BillingAdmiss
 	var clientMax *int64
 	if a.cfg.ClientMaxOutput != nil {
 		clientMax = a.cfg.ClientMaxOutput(ctx, in.Call)
+	} else if in.MaxOutputTokens != nil {
+		v := int64(*in.MaxOutputTokens)
+		clientMax = &v
 	} else if in.Call.Options.MaxOutputTokens != nil {
 		v := int64(*in.Call.Options.MaxOutputTokens)
 		clientMax = &v

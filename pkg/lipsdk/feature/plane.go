@@ -133,6 +133,48 @@ func (n NilPolicy) String() string {
 	}
 }
 
+// RequestBodyAccess classifies how a plane's content relates to the request
+// body for large-payload wire eligibility (Task 3.1 authority classification).
+// The zero value Unclassified fails generation and census CI so a new or
+// unannotated plane fails closed; Task 3.5+ consumes the classification in the
+// generation-frozen eligibility summary.
+type RequestBodyAccess uint8
+
+const (
+	// RequestBodyAccessUnclassified is the zero value: the plane has no wire
+	// classification and fails generation/CI.
+	RequestBodyAccessUnclassified RequestBodyAccess = iota
+	// RequestBodyCanonicalRequired marks planes that receive or mutate the
+	// full canonical request and block the wire lane when occupied.
+	RequestBodyCanonicalRequired
+	// RequestBodyMetadataOnly marks planes carrying only bounded
+	// session/workspace/int metadata.
+	RequestBodyMetadataOnly
+	// RequestBodyResponseOnly marks planes operating on canonical output
+	// events only.
+	RequestBodyResponseOnly
+	// RequestBodyWireContract marks planes carrying an explicit certified
+	// wire contract.
+	RequestBodyWireContract
+)
+
+func (a RequestBodyAccess) String() string {
+	switch a {
+	case RequestBodyAccessUnclassified:
+		return "unclassified"
+	case RequestBodyCanonicalRequired:
+		return "canonical_required"
+	case RequestBodyMetadataOnly:
+		return "metadata_only"
+	case RequestBodyResponseOnly:
+		return "response_only"
+	case RequestBodyWireContract:
+		return "wire_contract"
+	default:
+		return fmt.Sprintf("RequestBodyAccess(%d)", uint8(a))
+	}
+}
+
 // DiagnosticOccupant represents an occupant in the diagnostics inventory.
 type DiagnosticOccupant struct {
 	Label      string
@@ -194,6 +236,7 @@ type generatedPolicy[T any] struct {
 	requestMaterializer    func(T) T
 	requestBorrow          bool
 	hookTarget             HookTarget
+	requestAccess          RequestBodyAccess
 	diagStageID            string
 	diagCoalesceGroup      string
 	diagOrder              int
@@ -266,6 +309,11 @@ type Plane[T any] struct {
 	NilPolicy NilPolicy
 	// HookTarget defines the optional generated hook configuration target for this plane.
 	HookTarget HookTarget
+	// RequestAccess declares the request-body access class for large-payload
+	// wire eligibility. The zero value Unclassified is rejected by plane
+	// generation and census CI; declaration validation accepts it so
+	// synthetic test planes stay focused on the rule under test.
+	RequestAccess RequestBodyAccess
 	// IsNil is an optional predicate used to detect nil values for NilPolicy checks.
 	// For interface-valued planes (e.g. Plane[MyInterface]), Go's untyped nil check (anyVal == nil)
 	// returns false for typed nil pointers boxed in an interface (e.g. (*ConcreteStub)(nil)).
@@ -326,6 +374,11 @@ type PlaneDeclaration interface {
 // declaredHookTarget returns the optional generated hook configuration target of the plane.
 func (p Plane[T]) declaredHookTarget() HookTarget {
 	return p.HookTarget
+}
+
+// declaredRequestAccess returns the request-body access class of the plane.
+func (p Plane[T]) declaredRequestAccess() RequestBodyAccess {
+	return p.RequestAccess
 }
 
 // PlaneID returns the stable ID of the plane.
@@ -461,11 +514,19 @@ func (p Plane[T]) ValidateDeclaration() error {
 		return fmt.Errorf("%w: plane %q: unknown hook target %q", ErrInvalidPlane, p.ID, p.HookTarget)
 	}
 
+	if p.RequestAccess > RequestBodyWireContract {
+		return fmt.Errorf("%w: plane %q: invalid request access class %v", ErrInvalidPlane, p.ID, p.RequestAccess)
+	}
+
 	return nil
 }
 
 type hookTargetProvider interface {
 	declaredHookTarget() HookTarget
+}
+
+type requestAccessProvider interface {
+	declaredRequestAccess() RequestBodyAccess
 }
 
 // ValidateManifest checks that a collection of plane declarations contains no duplicate IDs,

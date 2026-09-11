@@ -47,6 +47,11 @@ const ReasoningSemanticCompressionOverlayMax = 366
 // The measured overlay is 597 lines; retain 25 lines of headroom.
 const TerminalDecisionFeatureExtensionOverlayMax = 622
 
+// LargePayloadHostCompositionOverlayMax is the measured large-payload streaming
+// fast-path host-composition overlay. Keep 25 lines of ratchet headroom over
+// the measured 266-line overlay.
+const LargePayloadHostCompositionOverlayMax = 291
+
 var genericCompatibleBackendOverlayPathMarkers = []string{
 	"/core/concurrencyauthority/compatible/",
 	"/compatible_admission.go",
@@ -100,6 +105,11 @@ var terminalDecisionFeatureExtensionOverlayPathMarkers = []string{
 	"/stdhttp/contract/terminal_decision_policy_input.go",
 }
 
+var largePayloadHostCompositionOverlayPathMarkers = []string{
+	"/runtimebundle/build_large_body_assessor.go",
+	"/stdhttp/contract/large_payload_input.go",
+}
+
 // pathMarkerOverlaySpec is one path-marker overlay allowance: a feature's new
 // production files are selected by path and ratcheted separately from the legacy
 // Req 11.5 convergence delta.
@@ -120,6 +130,7 @@ var pathMarkerOverlaySpecs = []pathMarkerOverlaySpec{
 	{name: "GeoIP ingress", max: GeoIPIngressOverlayMax, markers: geoIPIngressOverlayPathMarkers},
 	{name: "Reasoning semantic compression", max: ReasoningSemanticCompressionOverlayMax, markers: reasoningSemanticCompressionOverlayPathMarkers},
 	{name: "Terminal decision feature extension", max: TerminalDecisionFeatureExtensionOverlayMax, markers: terminalDecisionFeatureExtensionOverlayPathMarkers},
+	{name: "Large payload host composition", max: LargePayloadHostCompositionOverlayMax, markers: largePayloadHostCompositionOverlayPathMarkers},
 }
 
 // measurePathMarkerOverlays measures every path-marker overlay in table order.

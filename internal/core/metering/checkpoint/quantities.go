@@ -27,24 +27,42 @@ func QuantitiesFromTokenCounts(input, output, cacheRead, cacheWrite, reasoning, 
 	return out
 }
 
+// QuantitiesFromCountAndMaxOutput derives legal ingress quantities without a Call.
+// Always emits request/count=1. When maxOutputTokens is non-nil, emits output_token
+// with that value Present:true. Does not invent input_token (req 7.2).
+func QuantitiesFromCountAndMaxOutput(maxOutputTokens *int) []metering.Quantity {
+	var max64 *int64
+	if maxOutputTokens != nil {
+		v := int64(*maxOutputTokens)
+		max64 = &v
+	}
+	return QuantitiesFromCountAndMaxOutput64(max64)
+}
+
+// QuantitiesFromCountAndMaxOutput64 derives legal ingress quantities without a Call
+// using an int64 max output token bound.
+func QuantitiesFromCountAndMaxOutput64(maxOutputTokens *int64) []metering.Quantity {
+	out := []metering.Quantity{
+		{Component: metering.ComponentRequest, Unit: metering.UnitCount, Value: 1, Present: true},
+	}
+	if maxOutputTokens != nil {
+		out = append(out, metering.Quantity{
+			Component: metering.ComponentOutputToken,
+			Unit:      metering.UnitToken,
+			Value:     *maxOutputTokens,
+			Present:   true,
+		})
+	}
+	return out
+}
+
 // QuantitiesFromCall derives legal ingress quantities from a frozen Call WITHOUT
 // tokenization. Always emits request/count=1. When Options.MaxOutputTokens is
 // set, emits output_token with that value Present:true. Does not invent
 // input_token. Does not emit output_token=0 when max is omitted (req 7.2).
 // Deferred counting merges input_token later via MergeQuantities.
 func QuantitiesFromCall(call lipapi.Call) []metering.Quantity {
-	out := []metering.Quantity{
-		{Component: metering.ComponentRequest, Unit: metering.UnitCount, Value: 1, Present: true},
-	}
-	if call.Options.MaxOutputTokens != nil {
-		out = append(out, metering.Quantity{
-			Component: metering.ComponentOutputToken,
-			Unit:      metering.UnitToken,
-			Value:     int64(*call.Options.MaxOutputTokens),
-			Present:   true,
-		})
-	}
-	return out
+	return QuantitiesFromCountAndMaxOutput(call.Options.MaxOutputTokens)
 }
 
 // MergeQuantities merges additions into base by component while preserving

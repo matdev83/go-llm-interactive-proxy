@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
@@ -161,4 +162,20 @@ func (h *Host) currentExecutable() *snapshotgen.ExecutableGeneration {
 		return h.process.SnapshotGeneration.CurrentExecutable()
 	}
 	return nil
+}
+
+// SpoolLedger returns the process-owned large-payload spool ledger, or nil if unconfigured.
+func (h *Host) SpoolLedger() *largebody.SpoolLedger {
+	if h == nil || h.process == nil {
+		return nil
+	}
+	return h.process.SpoolLedger
+}
+
+// LargePayloadDiagnostics returns the process-owned diagnostics observer.
+func (h *Host) LargePayloadDiagnostics() largebody.DiagnosticsObserver {
+	if h == nil || h.process == nil || h.process.Metrics == nil {
+		return largebody.NoopDiagnosticsObserver{}
+	}
+	return h.process.Metrics.LargePayloadDiagnostics()
 }

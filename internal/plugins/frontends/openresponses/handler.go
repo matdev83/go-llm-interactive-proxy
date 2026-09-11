@@ -53,6 +53,10 @@ type HandlerConfig struct {
 	// RecorderFactory is the narrow seam for incremental terminal recording.
 	// A nil factory uses the standard core recorder.
 	RecorderFactory ContinuationRecorderFactory
+	// Profile optionally enables large-payload fast-path candidate evaluation (Task 17).
+	Profile frontendpipe.FrontendProfile
+	// LargePayload configures the large-payload fast-path candidate limits (Task 17).
+	LargePayload frontendpipe.LargePayloadConfig
 }
 
 // Handler wires OpenResponses HTTP requests to auth → decode → executor. Direct
@@ -62,6 +66,11 @@ type Handler struct {
 	cfg      HandlerConfig
 	pipeOnce sync.Once
 	pipe     frontendpipe.Spec[createEncodeState]
+}
+
+// Spec returns the configured frontendpipe.Spec for this handler.
+func (h *Handler) Spec() *frontendpipe.Spec[createEncodeState] {
+	return h.spec()
 }
 
 // NewHandler creates a new OpenResponses HTTP handler.

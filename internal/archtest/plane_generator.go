@@ -20,6 +20,7 @@ type planeInfo struct {
 	typeExpr               string // e.g. []hooks.SubmitHook
 	hookTarget             string // e.g. "SubmitHooks"
 	hookPkg                string // e.g. "hooks" or "sdkhooks"
+	requestAccess          string // e.g. "RequestBodyCanonicalRequired"
 	isExclusive            bool   // e.g. terminaldecision.Provider
 	hasIdentity            bool   // whether plane has an identity accessor
 	hasValidateIdentity    bool   // whether plane has a ValidateIdentity validator
@@ -54,6 +55,30 @@ var closedHookTargets = map[string]struct{}{
 	"RequestPartHooks":  {},
 	"ResponsePartHooks": {},
 	"ToolReactors":      {},
+}
+
+// closedRequestAccessClasses is the closed set of request-body access class
+// identifiers accepted as a Plane RequestAccess annotation. The zero
+// Unclassified value is syntactically valid but rejected as a plane
+// annotation so unclassified planes fail generation.
+var closedRequestAccessClasses = map[string]struct{}{
+	"RequestBodyAccessUnclassified": {},
+	"RequestBodyCanonicalRequired":  {},
+	"RequestBodyMetadataOnly":       {},
+	"RequestBodyResponseOnly":       {},
+	"RequestBodyWireContract":       {},
+}
+
+func parseRequestAccessExpr(varName string, expr ast.Expr) (string, error) {
+	expr = unwrapParen(expr)
+	ident, ok := expr.(*ast.Ident)
+	if !ok {
+		return "", fmt.Errorf("plane %s: unsupported RequestAccess expression (%T); must use a bare in-package RequestBodyAccess identifier", varName, expr)
+	}
+	if _, ok := closedRequestAccessClasses[ident.Name]; !ok {
+		return "", fmt.Errorf("plane %s: unknown request access class identifier %q (expected one of RequestBodyAccessUnclassified, RequestBodyCanonicalRequired, RequestBodyMetadataOnly, RequestBodyResponseOnly, RequestBodyWireContract)", varName, ident.Name)
+	}
+	return ident.Name, nil
 }
 
 var expectedHookTargetTypes = map[string]string{

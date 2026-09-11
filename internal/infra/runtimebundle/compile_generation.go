@@ -336,6 +336,7 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			GenerationContext:         genCtx,
 			ContinuationWiringFactory: standardplugins.StandardContinuationWiringFactory(frozen),
 			FrontendRouteClaims:       standardplugins.StandardFrontendRouteClaims(),
+			LargePayload:              buildStandardLargePayloadConfig(cand, frozen),
 		},
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -87,6 +88,23 @@ type Backend struct {
 	// PreflightCapability, when set, is an explicit non-billable readiness probe.
 	// It is never invoked automatically as a publication gate.
 	PreflightCapability func(context.Context) (CapabilityPreflight, error)
+
+	// ResolveWireRequest, when set, supplies candidate-aware pure exact wire
+	// capability proof for one candidate (design section 9, Requirements 8, 9).
+	// nil means wire execution unsupported (canonical fallback).
+	ResolveWireRequest func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport
+
+	// ResolveWireDomain, when set, supplies pure late-route domain wire
+	// capability proof (Requirement 7, design section 9).
+	// nil means wire execution unsupported (canonical fallback).
+	ResolveWireDomain func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport
+
+	// WireBackend, when non-nil, provides the optional wire capability interface.
+	WireBackend largebody.WireBackend
+
+	// OpenWire, when set, opens a backend attempt directly from a wire request
+	// without constructing a lipapi.Call (design section 9, Requirement 8).
+	OpenWire func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error)
 }
 
 // CapabilityPreflight is an optional non-billable backend readiness probe result.
