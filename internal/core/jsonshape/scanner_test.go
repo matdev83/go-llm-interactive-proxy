@@ -1,8 +1,10 @@
 package jsonshape_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"math"
 	"slices"
 	"strings"
@@ -964,5 +966,55 @@ func TestScanner_DifferentialPreflight(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type trackingBufferCloser struct {
+	bytes.Buffer
+	closed bool
+}
+
+func (t *trackingBufferCloser) Close() error {
+	t.closed = true
+	return nil
+}
+
+func TestScanner_StringWriterResolver(t *testing.T) {
+	t.Parallel()
+
+	jsonInput := `{"model":"gpt-4o","input":"Hello \n\t\u003cworld\u003e \uD83D\uDE80","other":"ignored"}`
+	var capturedInput trackingBufferCloser
+
+	resolver := jsonshape.StringWriterResolver(func(ctx jsonshape.StringContext) (io.Writer, error) {
+		if ctx.TopLevel && ctx.Key == "input" {
+			return &capturedInput, nil
+		}
+		return nil, nil
+	})
+
+	s := jsonshape.NewScanner(context.Background(), jsonshape.Limits{},
+		jsonshape.WithStringWriterResolver(resolver),
+	)
+
+	// Feed in 3-byte chunks to stress boundaries across escapes and UTF-8
+	data := []byte(jsonInput)
+	chunkSize := 3
+	for offset := 0; offset < len(data); offset += chunkSize {
+		end := min(offset+chunkSize, len(data))
+		if err := s.Feed(data[offset:end]); err != nil {
+			t.Fatalf("Feed failed at offset %d: %v", offset, err)
+		}
+	}
+	if _, err := s.Finish(); err != nil {
+		t.Fatalf("Finish failed: %v", err)
+	}
+
+	if !capturedInput.closed {
+		t.Error("expected captured writer to be closed")
+	}
+
+	expectedString := "Hello \n\t<world> 🚀"
+	if capturedInput.String() != expectedString {
+		t.Errorf("captured string mismatch:\ngot:  %q\nwant: %q", capturedInput.String(), expectedString)
 	}
 }

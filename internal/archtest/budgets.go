@@ -165,10 +165,10 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 8.1 additive execbackend.Backend wire support; measured 88966, bump to 88991 with 25 headroom.
 	// Large-payload fast-path Task 8.2 streaming top-level model token splice (SpliceModelToken, SpliceReader, checked length); measured 89554, bump to 89579 with 25 headroom.
 	// Large-payload fast-path Task 8.3 configured semantic-fact budget helpers; measured 89580, bump to 89605 with 25 headroom.
-	// Large-payload fast-path Tasks 9-19 wire execution, facts, and accounting integration (session/turn facts,
-	// checkpoint/metering, split assessor/executor ports, narrow wire ports, real attempt execution, holdalive/keepalive bridge,
-	// profile/proof gates, and bounded diagnostics); measured 97324, bump to 97349 with 25 headroom.
-	{Dir: "internal/core", Max: 97349},
+	// Large-payload fast-path Tasks 9-19 wire execution, facts, and accounting integration;
+	// Phase 1 streaming proof core in internal/core/largebody and jsonshape string streaming;
+	// measured 98015, bump to 98040 with 25 headroom.
+	{Dir: "internal/core", Max: 98040},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12333},

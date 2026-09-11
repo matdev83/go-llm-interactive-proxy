@@ -3,6 +3,7 @@ package jsonshape
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"slices"
 	"strings"
@@ -163,6 +164,25 @@ func WithTrackedTopLevelSpans(keys ...string) Option {
 	}
 }
 
+// StringContext describes the syntactic position of a string value being scanned.
+type StringContext struct {
+	Key      string
+	Path     []string
+	TopLevel bool
+}
+
+// StringWriterResolver resolves an optional io.Writer to receive unescaped string bytes
+// as they are decoded during scanning. If the resolved writer implements io.Closer,
+// it will be closed when the string ends or scanning terminates.
+type StringWriterResolver func(ctx StringContext) (io.Writer, error)
+
+// WithStringWriterResolver configures a resolver for streaming string values.
+func WithStringWriterResolver(r StringWriterResolver) Option {
+	return func(s *Scanner) {
+		s.strWriterResolver = r
+	}
+}
+
 type scanState uint8
 
 const (
@@ -232,12 +252,15 @@ type Scanner struct {
 	tokDepth       int
 
 	// String state
-	strDecodedBytes int
-	strIsKey        bool
-	keyBuf          []byte
-	strInEscape     bool
-	escapeBuf       [12]byte
-	escapeLen       int
+	strDecodedBytes   int
+	strIsKey          bool
+	keyBuf            []byte
+	strInEscape       bool
+	escapeBuf         [12]byte
+	escapeLen         int
+	strWriterResolver StringWriterResolver
+	activeStrWriter   io.Writer
+	activeStrCloser   io.Closer
 
 	// Number state
 	numState numSubState
@@ -415,6 +438,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 						s.strDecodedBytes++
 						if s.strIsKey {
 							s.keyBuf = append(s.keyBuf, esc)
+						} else {
+							if err := s.writeActiveStr([]byte{esc}); err != nil {
+								return s.err
+							}
 						}
 						s.strInEscape = false
 						s.escapeLen = 0
@@ -422,6 +449,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 						s.strDecodedBytes++
 						if s.strIsKey {
 							s.keyBuf = append(s.keyBuf, '\b')
+						} else {
+							if err := s.writeActiveStr([]byte{'\b'}); err != nil {
+								return s.err
+							}
 						}
 						s.strInEscape = false
 						s.escapeLen = 0
@@ -429,6 +460,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 						s.strDecodedBytes++
 						if s.strIsKey {
 							s.keyBuf = append(s.keyBuf, '\f')
+						} else {
+							if err := s.writeActiveStr([]byte{'\f'}); err != nil {
+								return s.err
+							}
 						}
 						s.strInEscape = false
 						s.escapeLen = 0
@@ -436,6 +471,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 						s.strDecodedBytes++
 						if s.strIsKey {
 							s.keyBuf = append(s.keyBuf, '\n')
+						} else {
+							if err := s.writeActiveStr([]byte{'\n'}); err != nil {
+								return s.err
+							}
 						}
 						s.strInEscape = false
 						s.escapeLen = 0
@@ -443,6 +482,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 						s.strDecodedBytes++
 						if s.strIsKey {
 							s.keyBuf = append(s.keyBuf, '\r')
+						} else {
+							if err := s.writeActiveStr([]byte{'\r'}); err != nil {
+								return s.err
+							}
 						}
 						s.strInEscape = false
 						s.escapeLen = 0
@@ -450,6 +493,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 						s.strDecodedBytes++
 						if s.strIsKey {
 							s.keyBuf = append(s.keyBuf, '\t')
+						} else {
+							if err := s.writeActiveStr([]byte{'\t'}); err != nil {
+								return s.err
+							}
 						}
 						s.strInEscape = false
 						s.escapeLen = 0
@@ -474,6 +521,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 								s.strDecodedBytes += 3
 								if s.strIsKey {
 									s.keyBuf = utf8.AppendRune(s.keyBuf, utf8.RuneError)
+								} else {
+									if err := s.writeActiveRune(utf8.RuneError); err != nil {
+										return s.err
+									}
 								}
 								s.strInEscape = false
 								s.escapeLen = 0
@@ -483,6 +534,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 							s.strDecodedBytes += rlen
 							if s.strIsKey {
 								s.keyBuf = utf8.AppendRune(s.keyBuf, r)
+							} else {
+								if err := s.writeActiveRune(r); err != nil {
+									return s.err
+								}
 							}
 							s.strInEscape = false
 							s.escapeLen = 0
@@ -493,6 +548,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 							s.strDecodedBytes += 3
 							if s.strIsKey {
 								s.keyBuf = utf8.AppendRune(s.keyBuf, utf8.RuneError)
+							} else {
+								if err := s.writeActiveRune(utf8.RuneError); err != nil {
+									return s.err
+								}
 							}
 							s.strInEscape = false
 							s.escapeLen = 0
@@ -503,6 +562,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 							s.strDecodedBytes += 3
 							if s.strIsKey {
 								s.keyBuf = utf8.AppendRune(s.keyBuf, utf8.RuneError)
+							} else {
+								if err := s.writeActiveRune(utf8.RuneError); err != nil {
+									return s.err
+								}
 							}
 							s.escapeBuf[0] = b
 							s.escapeLen = 1
@@ -513,6 +576,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 								s.strDecodedBytes++
 								if s.strIsKey {
 									s.keyBuf = append(s.keyBuf, b)
+								} else {
+									if err := s.writeActiveStr([]byte{b}); err != nil {
+										return s.err
+									}
 								}
 								s.strInEscape = false
 								s.escapeLen = 0
@@ -520,6 +587,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 								s.strDecodedBytes++
 								if s.strIsKey {
 									s.keyBuf = append(s.keyBuf, '\b')
+								} else {
+									if err := s.writeActiveStr([]byte{'\b'}); err != nil {
+										return s.err
+									}
 								}
 								s.strInEscape = false
 								s.escapeLen = 0
@@ -527,6 +598,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 								s.strDecodedBytes++
 								if s.strIsKey {
 									s.keyBuf = append(s.keyBuf, '\f')
+								} else {
+									if err := s.writeActiveStr([]byte{'\f'}); err != nil {
+										return s.err
+									}
 								}
 								s.strInEscape = false
 								s.escapeLen = 0
@@ -534,6 +609,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 								s.strDecodedBytes++
 								if s.strIsKey {
 									s.keyBuf = append(s.keyBuf, '\n')
+								} else {
+									if err := s.writeActiveStr([]byte{'\n'}); err != nil {
+										return s.err
+									}
 								}
 								s.strInEscape = false
 								s.escapeLen = 0
@@ -541,6 +620,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 								s.strDecodedBytes++
 								if s.strIsKey {
 									s.keyBuf = append(s.keyBuf, '\r')
+								} else {
+									if err := s.writeActiveStr([]byte{'\r'}); err != nil {
+										return s.err
+									}
 								}
 								s.strInEscape = false
 								s.escapeLen = 0
@@ -548,6 +631,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 								s.strDecodedBytes++
 								if s.strIsKey {
 									s.keyBuf = append(s.keyBuf, '\t')
+								} else {
+									if err := s.writeActiveStr([]byte{'\t'}); err != nil {
+										return s.err
+									}
 								}
 								s.strInEscape = false
 								s.escapeLen = 0
@@ -568,6 +655,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 							s.strDecodedBytes += 4
 							if s.strIsKey {
 								s.keyBuf = utf8.AppendRune(s.keyBuf, combined)
+							} else {
+								if err := s.writeActiveRune(combined); err != nil {
+									return s.err
+								}
 							}
 							s.strInEscape = false
 							s.escapeLen = 0
@@ -576,6 +667,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 							s.strDecodedBytes += 3
 							if s.strIsKey {
 								s.keyBuf = utf8.AppendRune(s.keyBuf, utf8.RuneError)
+							} else {
+								if err := s.writeActiveRune(utf8.RuneError); err != nil {
+									return s.err
+								}
 							}
 							s.escapeBuf[0] = 'u'
 							copy(s.escapeBuf[1:5], s.escapeBuf[7:11])
@@ -587,6 +682,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 									s.strDecodedBytes += 3
 									if s.strIsKey {
 										s.keyBuf = utf8.AppendRune(s.keyBuf, utf8.RuneError)
+									} else {
+										if err := s.writeActiveRune(utf8.RuneError); err != nil {
+											return s.err
+										}
 									}
 									s.strInEscape = false
 									s.escapeLen = 0
@@ -596,6 +695,10 @@ func (s *Scanner) Feed(chunk []byte) error {
 								s.strDecodedBytes += rlen
 								if s.strIsKey {
 									s.keyBuf = utf8.AppendRune(s.keyBuf, r2)
+								} else {
+									if err := s.writeActiveRune(r2); err != nil {
+										return s.err
+									}
 								}
 								s.strInEscape = false
 								s.escapeLen = 0
@@ -664,6 +767,14 @@ func (s *Scanner) Feed(chunk []byte) error {
 					frame.currentKey = keyStr
 					s.state = stateExpectColon
 				} else {
+					if s.activeStrCloser != nil {
+						if err := s.activeStrCloser.Close(); err != nil {
+							s.err = err
+							return s.err
+						}
+					}
+					s.activeStrWriter = nil
+					s.activeStrCloser = nil
 					if s.strDecodedBytes > s.limits.MaxStringBytes {
 						s.err = &Error{Kind: KindStringTooLong, Limit: s.limits.MaxStringBytes, Value: s.strDecodedBytes}
 						return s.err
@@ -684,20 +795,32 @@ func (s *Scanner) Feed(chunk []byte) error {
 			}
 
 			if b < 0x80 {
-				s.strDecodedBytes++
+				k := 0
+				for i+k < n && data[i+k] >= 0x20 && data[i+k] < 0x80 && data[i+k] != '\\' && data[i+k] != '"' {
+					k++
+				}
+				if k == 0 {
+					s.err = &Error{Kind: KindMalformed, Reason: MalformedSyntax, Msg: "malformed JSON"}
+					return s.err
+				}
+				run := data[i : i+k]
+				s.strDecodedBytes += k
 				if s.strIsKey {
-					s.keyBuf = append(s.keyBuf, b)
+					s.keyBuf = append(s.keyBuf, run...)
 					if len(s.keyBuf) > s.limits.MaxKeyBytes {
 						s.err = &Error{Kind: KindKeyTooLong, Limit: s.limits.MaxKeyBytes, Value: len(s.keyBuf)}
 						return s.err
 					}
 				} else {
+					if err := s.writeActiveStr(run); err != nil {
+						return s.err
+					}
 					if s.strDecodedBytes > s.limits.MaxStringBytes {
 						s.err = &Error{Kind: KindStringTooLong, Limit: s.limits.MaxStringBytes, Value: s.strDecodedBytes}
 						return s.err
 					}
 				}
-				i++
+				i += k
 				continue
 			}
 
@@ -720,6 +843,9 @@ func (s *Scanner) Feed(chunk []byte) error {
 					return s.err
 				}
 			} else {
+				if err := s.writeActiveStr(data[i : i+sz]); err != nil {
+					return s.err
+				}
 				if s.strDecodedBytes > s.limits.MaxStringBytes {
 					s.err = &Error{Kind: KindStringTooLong, Limit: s.limits.MaxStringBytes, Value: s.strDecodedBytes}
 					return s.err
@@ -1144,10 +1270,59 @@ func (s *Scanner) startString(isKey bool, remainingBytes int64) {
 	s.escapeLen = 0
 	s.keyBuf = s.keyBuf[:0]
 	s.state = stateInString
+	if !isKey && s.strWriterResolver != nil {
+		key, path, topLevel := s.valueContext()
+		var pathCopy []string
+		if len(path) > 0 {
+			pathCopy = slices.Clone(path)
+		}
+		w, err := s.strWriterResolver(StringContext{
+			Key:      key,
+			Path:     pathCopy,
+			TopLevel: topLevel,
+		})
+		if err != nil {
+			s.err = err
+			return
+		}
+		s.activeStrWriter = w
+		if c, ok := w.(io.Closer); ok {
+			s.activeStrCloser = c
+		} else {
+			s.activeStrCloser = nil
+		}
+	}
+}
+
+func (s *Scanner) writeActiveStr(p []byte) error {
+	if s.activeStrWriter != nil {
+		if _, err := s.activeStrWriter.Write(p); err != nil {
+			s.err = err
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Scanner) writeActiveRune(r rune) error {
+	if s.activeStrWriter != nil {
+		var buf [4]byte
+		n := utf8.EncodeRune(buf[:], r)
+		if _, err := s.activeStrWriter.Write(buf[:n]); err != nil {
+			s.err = err
+			return err
+		}
+	}
+	return nil
 }
 
 // Finish signals end-of-stream and validates that the JSON document is complete.
 func (s *Scanner) Finish() (Result, error) {
+	if s.activeStrCloser != nil {
+		_ = s.activeStrCloser.Close()
+		s.activeStrWriter = nil
+		s.activeStrCloser = nil
+	}
 	if err := s.ctx.Err(); err != nil {
 		s.err = canceledError(err)
 		return Result{}, s.err

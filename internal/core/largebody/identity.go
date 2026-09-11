@@ -216,6 +216,120 @@ func (s *StreamingEscapeWriter) Write(p []byte) (int, error) {
 	return origLen, nil
 }
 
+// WriteString processes incoming unescaped string and writes its JSON-escaped representation
+// without allocating heap byte slices.
+func (s *StreamingEscapeWriter) WriteString(str string) (int, error) {
+	if s.closed {
+		return 0, errors.New("largebody: write to closed StreamingEscapeWriter")
+	}
+	origLen := len(str)
+
+	if s.tailLen > 0 {
+		combined := make([]byte, s.tailLen+len(str))
+		copy(combined, s.tail[:s.tailLen])
+		copy(combined[s.tailLen:], str)
+		s.tailLen = 0
+		return s.Write(combined)
+	}
+
+	i := 0
+	n := len(str)
+	for i < n {
+		b := str[i]
+		if b < 0x80 {
+			switch b {
+			case '"':
+				if err := s.writeString(`\"`); err != nil {
+					return 0, err
+				}
+			case '\\':
+				if err := s.writeString(`\\`); err != nil {
+					return 0, err
+				}
+			case '<':
+				if err := s.writeString(`\u003c`); err != nil {
+					return 0, err
+				}
+			case '>':
+				if err := s.writeString(`\u003e`); err != nil {
+					return 0, err
+				}
+			case '&':
+				if err := s.writeString(`\u0026`); err != nil {
+					return 0, err
+				}
+			case '\n':
+				if err := s.writeString(`\n`); err != nil {
+					return 0, err
+				}
+			case '\r':
+				if err := s.writeString(`\r`); err != nil {
+					return 0, err
+				}
+			case '\t':
+				if err := s.writeString(`\t`); err != nil {
+					return 0, err
+				}
+			case '\b':
+				if err := s.writeString(`\b`); err != nil {
+					return 0, err
+				}
+			case '\f':
+				if err := s.writeString(`\f`); err != nil {
+					return 0, err
+				}
+			default:
+				if b < 0x20 {
+					esc := []byte{
+						'\\', 'u', '0', '0',
+						hexDigits[b>>4],
+						hexDigits[b&0x0F],
+					}
+					if err := s.writeDirect(esc); err != nil {
+						return 0, err
+					}
+				} else {
+					if err := s.writeByte(b); err != nil {
+						return 0, err
+					}
+				}
+			}
+			i++
+		} else {
+			remaining := str[i:]
+			if !utf8.FullRuneInString(remaining) {
+				if len(remaining) < utf8.UTFMax && utf8.RuneStart(b) {
+					s.tailLen = copy(s.tail[:], remaining)
+					break
+				}
+			}
+			r, size := utf8.DecodeRuneInString(remaining)
+			if r == utf8.RuneError && size == 1 {
+				if err := s.writeString(`\ufffd`); err != nil {
+					return 0, err
+				}
+			} else if r == '\u2028' {
+				if err := s.writeString(`\u2028`); err != nil {
+					return 0, err
+				}
+			} else if r == '\u2029' {
+				if err := s.writeString(`\u2029`); err != nil {
+					return 0, err
+				}
+			} else {
+				var runeBuf [4]byte
+				rn := utf8.EncodeRune(runeBuf[:], r)
+				if err := s.writeDirect(runeBuf[:rn]); err != nil {
+					return 0, err
+				}
+			}
+			i += size
+		}
+	}
+
+	return origLen, nil
+}
+
 // Close flushes buffered content and handles any incomplete trailing UTF-8 sequence.
 func (s *StreamingEscapeWriter) Close() error {
 	if s.closed {
@@ -314,6 +428,53 @@ func NewCallIdentityWriter(cfg CallIdentityConfig) (*CallIdentityWriter, error) 
 		hasher: sha256.New(),
 		cfg:    cfg,
 	}, nil
+}
+
+var useWholeMessageMarshalForTest bool
+
+// SetUseWholeMessageMarshalForTest configures whether AddMessage and AddItem fall back
+// to whole-message json.Marshal instead of streaming parts in fixed buffers.
+// Exported for mutation verification and testing only.
+func SetUseWholeMessageMarshalForTest(v bool) {
+	useWholeMessageMarshalForTest = v
+}
+
+// SetClientModel sets or overrides the client model in Extensions.
+// If extKeys is empty, it defaults to "openai.model".
+// This supports late-discovered models (e.g. model field appearing after messages in JSON).
+func (w *CallIdentityWriter) SetClientModel(model string, extKeys ...string) error {
+	if w.closed {
+		return errors.New("largebody: CallIdentityWriter already closed")
+	}
+	w.cfg.ClientModel = model
+	if w.cfg.Extensions == nil {
+		w.cfg.Extensions = make(map[string]json.RawMessage)
+	}
+	b, err := json.Marshal(model)
+	if err != nil {
+		return fmt.Errorf("largebody: marshal client model: %w", err)
+	}
+	if len(extKeys) == 0 {
+		w.cfg.Extensions["openai.model"] = b
+	} else {
+		for _, k := range extKeys {
+			w.cfg.Extensions[k] = b
+		}
+	}
+	return nil
+}
+
+// SetRouteSelector sets the route selector if the prefix has not yet been written.
+func (w *CallIdentityWriter) SetRouteSelector(sel string) error {
+	if w.closed {
+		return errors.New("largebody: CallIdentityWriter already closed")
+	}
+	if w.prefixDone {
+		return errors.New("largebody: cannot set route selector after prefix has been written")
+	}
+	w.cfg.RouteSelector = sel
+	w.cfg.Route.Selector = sel
+	return nil
 }
 
 func (w *CallIdentityWriter) ensurePrefix() error {
@@ -445,8 +606,20 @@ func (w *CallIdentityWriter) closeItems() error {
 	return nil
 }
 
-// AddMessage appends a fully formed Message to the identity stream.
-func (w *CallIdentityWriter) AddMessage(msg lipapi.Message) error {
+func isPlainStreamingTextPart(part lipapi.Part) bool {
+	return part.Kind == lipapi.PartText &&
+		part.ImageRef == "" &&
+		part.ImageMIME == "" &&
+		part.FileRef == "" &&
+		part.FileMIME == "" &&
+		part.FileName == "" &&
+		part.ToolCallID == "" &&
+		part.ToolName == "" &&
+		len(part.Content) == 0 &&
+		part.Reasoning == nil
+}
+
+func (w *CallIdentityWriter) addMessageWholeMarshal(msg lipapi.Message) error {
 	if w.currMsg != nil {
 		if err := w.currMsg.EndMessage(); err != nil {
 			return err
@@ -473,6 +646,86 @@ func (w *CallIdentityWriter) AddMessage(msg lipapi.Message) error {
 	}
 	_, err = w.hasher.Write(msgBytes)
 	return err
+}
+
+// AddMessage appends a fully formed Message to the identity stream.
+func (w *CallIdentityWriter) AddMessage(msg lipapi.Message) error {
+	if useWholeMessageMarshalForTest {
+		return w.addMessageWholeMarshal(msg)
+	}
+	if msg.Parts == nil {
+		if w.currMsg != nil {
+			if err := w.currMsg.EndMessage(); err != nil {
+				return err
+			}
+		}
+		if err := w.ensurePrefix(); err != nil {
+			return err
+		}
+		if !w.messagesStarted {
+			w.messagesStarted = true
+			if _, err := io.WriteString(w.hasher, `,"Messages":[`); err != nil {
+				return err
+			}
+		}
+		if w.msgCount > 0 {
+			if _, err := io.WriteString(w.hasher, `,`); err != nil {
+				return err
+			}
+		}
+		w.msgCount++
+		roleBytes, err := json.Marshal(msg.Role)
+		if err != nil {
+			return fmt.Errorf("largebody: marshal role: %w", err)
+		}
+		if _, err := io.WriteString(w.hasher, `{"Role":`); err != nil {
+			return err
+		}
+		if _, err := w.hasher.Write(roleBytes); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w.hasher, `,"Parts":null}`); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	mw, err := w.BeginMessage(msg.Role)
+	if err != nil {
+		return err
+	}
+	for _, part := range msg.Parts {
+		if isPlainStreamingTextPart(part) {
+			pw, err := mw.BeginTextPart()
+			if err != nil {
+				return err
+			}
+			const chunkSize = 32 * 1024
+			for offset := 0; offset < len(part.Text); offset += chunkSize {
+				end := min(offset+chunkSize, len(part.Text))
+				chunk := part.Text[offset:end]
+				if sw, ok := pw.(io.StringWriter); ok {
+					if _, err := sw.WriteString(chunk); err != nil {
+						_ = pw.Close()
+						return err
+					}
+				} else {
+					if _, err := io.WriteString(pw, chunk); err != nil {
+						_ = pw.Close()
+						return err
+					}
+				}
+			}
+			if err := pw.Close(); err != nil {
+				return err
+			}
+		} else {
+			if err := mw.AddPart(part); err != nil {
+				return err
+			}
+		}
+	}
+	return mw.EndMessage()
 }
 
 // BeginMessage opens a new message for streaming parts.
@@ -516,8 +769,34 @@ func (w *CallIdentityWriter) BeginMessage(role lipapi.Role) (*MessageIdentityWri
 	return w.currMsg, nil
 }
 
-// AddItem appends a fully formed Item to the identity stream.
-func (w *CallIdentityWriter) AddItem(item lipapi.Item) error {
+func isPlainMessageItem(item lipapi.Item) bool {
+	return item.Kind == lipapi.ItemKindMessage &&
+		item.Reference == nil &&
+		item.ToolCall == nil &&
+		item.ToolResult == nil &&
+		item.Reasoning == nil &&
+		item.Compaction == nil &&
+		item.Extension == nil
+}
+
+func isPlainContentPart(cp lipapi.ContentPart) bool {
+	return cp.ImageRef == "" &&
+		cp.ImageMIME == "" &&
+		cp.FileRef == "" &&
+		cp.FileData == "" &&
+		cp.FileMIME == "" &&
+		cp.FileName == "" &&
+		cp.VideoRef == "" &&
+		cp.VideoMIME == "" &&
+		cp.Refusal == "" &&
+		cp.Reasoning == nil &&
+		cp.Summary == "" &&
+		cp.Annotation == nil &&
+		cp.AssistantRef == "" &&
+		cp.Extension == nil
+}
+
+func (w *CallIdentityWriter) addItemWholeMarshal(item lipapi.Item) error {
 	if w.currItem != nil {
 		if err := w.currItem.EndItem(); err != nil {
 			return err
@@ -548,6 +827,52 @@ func (w *CallIdentityWriter) AddItem(item lipapi.Item) error {
 	}
 	_, err = w.hasher.Write(itemBytes)
 	return err
+}
+
+// AddItem appends a fully formed Item to the identity stream.
+func (w *CallIdentityWriter) AddItem(item lipapi.Item) error {
+	if useWholeMessageMarshalForTest {
+		return w.addItemWholeMarshal(item)
+	}
+	if isPlainMessageItem(item) {
+		iw, err := w.BeginMessageItem(item.ID, item.Status, item.Role, item.Phase)
+		if err != nil {
+			return err
+		}
+		for _, cp := range item.Content {
+			if cp.Kind == lipapi.ContentPartText && isPlainContentPart(cp) {
+				pw, err := iw.BeginTextContentPart()
+				if err != nil {
+					return err
+				}
+				const chunkSize = 32 * 1024
+				for offset := 0; offset < len(cp.Text); offset += chunkSize {
+					end := min(offset+chunkSize, len(cp.Text))
+					chunk := cp.Text[offset:end]
+					if sw, ok := pw.(io.StringWriter); ok {
+						if _, err := sw.WriteString(chunk); err != nil {
+							_ = pw.Close()
+							return err
+						}
+					} else {
+						if _, err := io.WriteString(pw, chunk); err != nil {
+							_ = pw.Close()
+							return err
+						}
+					}
+				}
+				if err := pw.Close(); err != nil {
+					return err
+				}
+			} else {
+				if err := iw.AddContentPart(cp); err != nil {
+					return err
+				}
+			}
+		}
+		return iw.EndItem()
+	}
+	return w.addItemWholeMarshal(item)
 }
 
 // BeginMessageItem opens a new message Item for streaming content parts.
@@ -840,6 +1165,10 @@ func (c *textPartCloser) Write(p []byte) (int, error) {
 	return c.sw.Write(p)
 }
 
+func (c *textPartCloser) WriteString(s string) (int, error) {
+	return c.sw.WriteString(s)
+}
+
 func (c *textPartCloser) Close() error {
 	if c.closed {
 		return nil
@@ -873,6 +1202,22 @@ func (c *itemTextPartCloser) Write(p []byte) (int, error) {
 		c.started = true
 	}
 	return c.sw.Write(p)
+}
+
+func (c *itemTextPartCloser) WriteString(s string) (int, error) {
+	if c.closed {
+		return 0, errors.New("largebody: write to closed item text part")
+	}
+	if len(s) == 0 {
+		return 0, nil
+	}
+	if !c.started {
+		if _, err := io.WriteString(c.parentHasher, `{"kind":"text","text":"`); err != nil {
+			return 0, err
+		}
+		c.started = true
+	}
+	return c.sw.WriteString(s)
 }
 
 func (c *itemTextPartCloser) Close() error {
