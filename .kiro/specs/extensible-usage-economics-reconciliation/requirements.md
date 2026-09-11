@@ -121,7 +121,7 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 6.1. The accounting system shall preserve separate identities for A-leg/session continuity, logical BillingCallID invocation, submission, B-leg/attempt, provider request, provider charge, and auxiliary workload; one resumable A-leg may contain arbitrarily many later BillingCallIDs and their B-legs.
 
-6.2. Every request-scoped provider inference usage observation and charge shall be rooted in a B-leg/attempt. When reporting operator cost for a call or A-leg, the accounting system shall include all operator-payable costs attributable to every executed B-leg, including failed attempts, canceled work, race losers, retries, and attributable auxiliary work, without duplicating a shared charge; genuine resource/account-period costs remain non-B-leg subjects until explicitly allocated.
+6.2. Every request-scoped provider inference usage observation and charge shall attach to a concrete B-leg identified by `BLegID`, which is the mandatory accounting ownership root. `AttemptSeq` shall identify ordered child execution lineage within the call/A-leg context and shall not act as an alternative accounting subject or standalone ownership key. When reporting operator cost for a call or A-leg, the accounting system shall include all operator-payable costs attributable to every executed B-leg, including failed attempts, canceled work, race losers, retries, and attributable auxiliary work, without duplicating a shared charge; genuine resource/account-period costs remain non-B-leg subjects until explicitly allocated.
 
 6.3. If any included cost is missing or unresolved, the accounting system shall return known subtotal and completeness information instead of labelling the subtotal the complete cost.
 
@@ -201,7 +201,7 @@ Acceptance criteria use `N.M` identifiers. Requirements describe observable cont
 
 10.3. When evidence is corrected, the system shall append a revision or adjustment referencing the prior evidence and shall not mutate previously sealed facts.
 
-10.4. When a B-leg/attempt or BillingCallID invocation receives terminal/DONE/EOF semantics, the system shall seal only that execution checkpoint exactly once while permitting explicitly identified later economic evidence; it shall not mark the parent A-leg/session economically final, and a later resume on the same A-leg shall create new call/B-leg accounting without reopening or rewriting earlier records.
+10.4. When a B-leg/attempt or BillingCallID invocation receives terminal/DONE/EOF semantics, the system shall seal only that execution checkpoint exactly once while permitting explicitly identified later economic evidence; it shall not mark the parent A-leg/session economically final. Every later resume that resolves to the same A-leg shall allocate a fresh `BillingCallID` and new B-legs without reopening or rewriting earlier records. Any protocol/canonical `CallID` follows its owning protocol's continuation semantics and is not the billing grouping authority; whether it is reused or replaced shall not permit reuse of the prior `BillingCallID`.
 
 10.5. If evidence persistence fails, the runtime shall preserve a durable recoverable accounting intent where available, expose degraded completeness, and shall never retry upstream work after downstream output commitment.
 
