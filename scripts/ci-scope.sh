@@ -13,9 +13,15 @@ is_kiro_spec_path() {
 
 is_documentation_path() {
   case "$1" in
+    # Markdown is documentation regardless of where it lives. A Markdown-only
+    # PR must never trigger Go/runtime/test analysis merely because the file is
+    # outside docs/.
+    *.md|*.markdown)
+      return 0
+      ;;
     docs/*)
       case "$1" in
-        *.md|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
+        *.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
           return 0
           ;;
         *)
@@ -24,11 +30,11 @@ is_documentation_path() {
       esac
       ;;
     .kiro/specs/*)
-      # Kiro SDD artifacts are specification/policy inputs, not runtime/test
+      # Kiro SDD metadata/visuals are specification inputs, not runtime/test
       # inputs. Keep executable or otherwise unexpected files fail-closed so
       # the spec tree can never become a generic CI bypass bucket.
       case "$1" in
-        *.md|*.json|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
+        *.json|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
           return 0
           ;;
         *)
@@ -36,7 +42,7 @@ is_documentation_path() {
           ;;
       esac
       ;;
-    README.md|README.*.md|CHANGELOG.md|CHANGELOG.*.md|LICENSE|LICENSE.*)
+    LICENSE|LICENSE.*)
       return 0
       ;;
     *)
@@ -70,6 +76,9 @@ file_matches() {
       is_kiro_spec_path "$file"
       ;;
     go)
+      if is_documentation_path "$file"; then
+        return 1
+      fi
       case "$file" in
         scripts/ci-scope.sh|scripts/openresponses-compliance-scope.sh)
           return 1
@@ -87,6 +96,9 @@ file_matches() {
       esac
       ;;
     openresponses_coverage)
+      if is_documentation_path "$file"; then
+        return 1
+      fi
       case "$file" in
         internal/**|pkg/**|tools/coverage-gate/**|testdata/**|\
         .github/workflows/openresponses-coverage.yml|scripts/ci-scope.sh|Makefile|\
@@ -97,6 +109,9 @@ file_matches() {
       esac
       ;;
     test_cost)
+      if is_documentation_path "$file"; then
+        return 1
+      fi
       case "$file" in
         scripts/test-cost-*|tools/testcost/**|internal/qa/test_cost_policy_test.go)
           return 0
@@ -167,19 +182,33 @@ self_test() {
     file_matches go "$relevant" || { echo "go scope missed $relevant" >&2; return 1; }
     file_matches test "$relevant" || { echo "test scope missed $relevant" >&2; return 1; }
   done
+
+  # Markdown is documentation everywhere, including paths that otherwise map
+  # to code/coverage scopes. Kiro JSON is also a non-runtime spec artifact.
   for unrelated in \
     docs/README.md \
     README.md \
     CHANGELOG.md \
+    notes/README.md \
+    internal/design.md \
+    pkg/lipapi/README.md \
+    .github/workflows/README.md \
+    testdata/fixture.md \
     .kiro/specs/example/requirements.md \
     .kiro/specs/example/spec.json; do
     file_matches code "$unrelated" && { echo "code scope included $unrelated" >&2; return 1; }
     file_matches go "$unrelated" && { echo "go scope included $unrelated" >&2; return 1; }
     file_matches test "$unrelated" && { echo "test scope included $unrelated" >&2; return 1; }
+    file_matches openresponses_coverage "$unrelated" && { echo "coverage scope included $unrelated" >&2; return 1; }
+    file_matches test_cost "$unrelated" && { echo "test-cost scope included $unrelated" >&2; return 1; }
   done
-  for relevant in docs/backend-plugins/docs_test.go notes/README.md assets/example.txt; do
+
+  # Non-Markdown artifacts outside explicitly documentation-only locations stay
+  # fail-closed because configs/fixtures can affect runtime or test semantics.
+  for relevant in docs/backend-plugins/docs_test.go assets/example.txt testdata/fixture.json scripts/helper.sh; do
     file_matches test "$relevant" || { echo "test scope missed $relevant" >&2; return 1; }
   done
+
   for relevant in \
     .kiro/specs/example/requirements.md \
     .kiro/specs/example/spec.json \
@@ -189,6 +218,7 @@ self_test() {
   for unrelated in docs/README.md internal/core/runtime.go; do
     file_matches kiro "$unrelated" && { echo "kiro scope included $unrelated" >&2; return 1; }
   done
+
   # Unexpected executable content beneath .kiro/specs must still trigger the
   # ordinary code/test path in addition to the Kiro policy scope.
   relevant=.kiro/specs/example/check.sh
@@ -196,9 +226,6 @@ self_test() {
   file_matches test "$relevant" || { echo "test scope missed executable Kiro artifact $relevant" >&2; return 1; }
   file_matches kiro "$relevant" || { echo "kiro scope missed executable Kiro artifact $relevant" >&2; return 1; }
 
-  for relevant in testdata/fixture.json scripts/helper.sh; do
-    file_matches test "$relevant" || { echo "test scope missed $relevant" >&2; return 1; }
-  done
   for safe_scope in scripts/ci-scope.sh scripts/openresponses-compliance-scope.sh; do
     file_matches test "$safe_scope" && { echo "safe scope script was classified as test-relevant: $safe_scope" >&2; return 1; }
   done
