@@ -588,7 +588,11 @@ func (e *Executor) ExecuteLargeBody(
 	rFactIn.secureTurn = st
 	rFactIn.secureTurnOK = stOK
 	rFactIn.metering = meteringHolderFrom(outCtx)
+	rFactIn.requestAuth = requestAuthorityFrom(outCtx)
 	rFactIn.billingAccountID = callExposure.AccountID
+	rFactIn.billingCustomerPricing = callExposure.PricingRef
+	rFactIn.billingChargePolicy = callExposure.ChargePolicyRef
+	rFactIn.billingIdentityStamped = strings.TrimSpace(callExposure.AccountID) != ""
 	rFactIn.billingCallID = billingCallID
 	rFactIn.billingCallState = billingState
 	rFactIn.wirePayload = wp
@@ -1234,6 +1238,8 @@ func (e *Executor) executeWireParallelRace(
 	rFactIn2.recvViewsOK = pOK
 	rFactIn2.secureTurn = st
 	rFactIn2.secureTurnOK = stOK
+	rFactIn2.metering = meteringHolderFrom(wireIn.outCtx)
+	rFactIn2.requestAuth = requestAuthorityFrom(wireIn.outCtx)
 	rFactIn2.billingCallState = wireIn.billingState
 	rFactIn2.wirePayload = wp
 	recvFacts := newRecvTurnFacts(wireIn.outCtx, rFactIn2)
