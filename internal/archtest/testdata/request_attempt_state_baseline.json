@@ -146,7 +146,7 @@
     "pointer_out_fields": null,
     "route_progress_duplicated_fields": null,
     "translation_sites": [
-      "internal/core/runtime/executor_route_plan.go:164"
+      "internal/core/runtime/executor_route_plan.go:168"
     ],
     "direct_field_copy_assignments": 323,
     "context_business_state_rereads": 17,

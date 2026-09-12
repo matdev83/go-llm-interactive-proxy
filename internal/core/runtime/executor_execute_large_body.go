@@ -570,6 +570,7 @@ func (e *Executor) ExecuteLargeBody(
 		sessionID:             string(br.Record.SessionID),
 		maxOutputTokens:       maxOutputTokens,
 		weightedFirstConsumed: aLeg.WeightedFirstConsumed,
+		selector:              sel,
 	}
 
 	views := execctx.Views{}
@@ -847,6 +848,7 @@ type wireAttemptPayload struct {
 	sessionID             string
 	maxOutputTokens       *int
 	weightedFirstConsumed bool
+	selector              *routing.Selector
 }
 
 // wireBodyClosingStream ensures the fresh wire body reader is closed whenever the stream terminates.
@@ -1183,6 +1185,17 @@ type wireParallelRaceResult struct {
 }
 
 // executeWireParallelRace executes a parallel race across candidates by delegating to the canonical tryOpenParallelGroup.
+// RATIONALE: This helper has no production callers within the normal ExecuteLargeBody pipeline (which executes
+// attempts via route plans). It is retained as a specialized test-only harness for differential and edge-case
+// testing of parallel race candidate execution under wire payloads (specifically exercised by
+// TestFindingH3_WeightedFirstTwoTurnSequentialAndParallel in large_payload_race_differential_red_test.go).
+// NOTE: this helper's wireAttemptPayload does not thread a prepared selector (it never
+// reaches buildRoutePlan); the route-plan fallback re-derives it identically if that changes.
+// The selector DSL parser (routing.Parse) deliberately rejects [first] or [weight] annotations on parallel
+// branches (!) with ErrInvalidSelector. Testing parallel race winner behavior with programmatic candidate
+// attributes (such as MarkedFirst=true) requires directly driving candidate groups through wire attempt
+// execution while preserving complete fidelity of recovery controller wiring (including streamRecovery,
+// budget, TTFT, and affinity) and canonical attempt session lifecycle ownership.
 func (e *Executor) executeWireParallelRace(
 	wireIn wireAttemptInput,
 	candidates []routing.AttemptCandidate,

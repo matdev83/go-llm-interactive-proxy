@@ -120,7 +120,7 @@ func (p *responsePipeline) observeCompactionRelease(ctx context.Context, facts r
 }
 
 func (p *responsePipeline) observeCompactionReleaseFinal(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev *lipapi.Event) compactionReleaseDispatch {
-	return p.observeCompactionReleaseFinalEvidence(ctx, responseRequestEvidence{traceID: facts.traceID, aLegID: facts.aLegID, sessionID: facts.baseline.Session.AuthoritativeSessionID}, attempt, ev)
+	return p.observeCompactionReleaseFinalEvidence(ctx, facts.responseEvidence(), attempt, ev)
 }
 
 func (p *responsePipeline) observeCompactionReleaseFinalEvidence(ctx context.Context, evidence responseRequestEvidence, attempt *attemptSession, ev *lipapi.Event) compactionReleaseDispatch {
