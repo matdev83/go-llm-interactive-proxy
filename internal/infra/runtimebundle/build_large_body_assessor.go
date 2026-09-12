@@ -145,9 +145,9 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 	census.Ports.CompactionDetectorOccupied = in.In.CompactionDetector != nil
 	census.Ports.TrafficCapturing = len(in.Prod.TrafficObservers) > 0 || hasTrafficPlanes
 
-	// Blocker 2: Register security.session_recorder port occupancy. Under conservative fail-safe,
-	// when session recording is active, wire execution is declined because ExecuteLargeBody bypasses
-	// recordClientFacing / RecordPostHookStreamEvent.
+	// Item 5: Register security.session_recorder port occupancy. Wire execution exercises
+	// the recorder through canonical retryRecvStream ownership (recordClientFacing /
+	// RecordPostHookStreamEvent), so an occupied recorder no longer blocks wire eligibility.
 	hasSecureRecorder := in.In.Persistence != nil &&
 		in.In.Persistence.SecureSession != nil &&
 		in.In.Persistence.SecureSession.recorder != nil

@@ -46,7 +46,6 @@ type requestFacts struct {
 	aScope              *leglifecycle.ALeg
 	suppressThinker     bool
 	suppressVisibleMemo bool
-	wirePayload         *wireAttemptPayload
 }
 
 func (rf requestFacts) isWire() bool {
@@ -1074,6 +1073,10 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 	ready := tx.HandoffReady(pendingSelectionEffects{
 		interleaved: req.interleaved,
 	})
+
+	if req.mode == openModeRetry {
+		ready.setDefaultEvidence(authorityapp.ReleaseKindSwallowed, sdkterminal.CommandSwallowedAttempt, billing.LegOutcomeSwallowed)
+	}
 
 	if err := tx.commitLaunchOrRegister(ctx, ready, req.reqFacts.aScope); err != nil {
 		if errors.Is(err, leglifecycle.ErrALegCanceled) {

@@ -84,6 +84,7 @@ type recvTurnFactsInput struct {
 	conversationFilteredBaseline lipapi.Call
 	ingressCall                  lipapi.Call
 	continuationIntent           continuationIntentFacts
+	wirePayload                  *wireAttemptPayload
 }
 
 // recvTurnFacts is the request-lifetime authority for facts needed after stream
@@ -128,34 +129,36 @@ type recvTurnFacts struct {
 	conversationFilteredBaseline lipapi.Call
 	ingressCall                  lipapi.Call
 	continuationIntent           continuationIntentFacts
+	wirePayload                  *wireAttemptPayload
 }
 
 func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts {
-	return newRecvTurnFacts(ctx, recvTurnFactsInput{
-		baseline:                     f.call,
-		traceID:                      f.traceID,
-		aLegID:                       f.aLegID,
-		secureTurn:                   f.secureTurn,
-		secureTurnOK:                 f.secureTurnOK,
-		terminalDecisionPolicy:       f.terminalDecisionPolicy,
-		terminalDecisionEnabled:      f.terminalDecisionEnabled,
-		billingCallID:                f.billingCallID,
-		billingCallState:             f.billingState,
-		billingAccountID:             f.accountID,
-		billingCustomerPricing:       f.pricing,
-		billingChargePolicy:          f.chargePolicy,
-		billingIdentityStamped:       f.identityStamped,
-		requestAuth:                  f.requestAuth,
-		routePrefs:                   slices.Clone(f.routePrefs),
-		recvViews:                    f.recvViews,
-		recvViewsOK:                  true,
-		metering:                     f.metering,
-		conversationSnapshot:         cloneSnapshot(f.conversationSnapshot),
-		conversationProvenance:       slices.Clone(f.conversationProvenance),
-		conversationFilteredBaseline: lipapi.CloneCall(f.conversationFilteredBaseline),
-		ingressCall:                  lipapi.CloneCall(f.ingressCall),
-		continuationIntent:           f.continuationIntent,
-	})
+	var input recvTurnFactsInput
+	input.baseline = f.call
+	input.traceID = f.traceID
+	input.aLegID = f.aLegID
+	input.secureTurn = f.secureTurn
+	input.secureTurnOK = f.secureTurnOK
+	input.terminalDecisionPolicy = f.terminalDecisionPolicy
+	input.terminalDecisionEnabled = f.terminalDecisionEnabled
+	input.billingCallID = f.billingCallID
+	input.billingCallState = f.billingState
+	input.billingAccountID = f.accountID
+	input.billingCustomerPricing = f.pricing
+	input.billingChargePolicy = f.chargePolicy
+	input.billingIdentityStamped = f.identityStamped
+	input.requestAuth = f.requestAuth
+	input.routePrefs = slices.Clone(f.routePrefs)
+	input.recvViews = f.recvViews
+	input.recvViewsOK = true
+	input.metering = f.metering
+	input.conversationSnapshot = cloneSnapshot(f.conversationSnapshot)
+	input.conversationProvenance = slices.Clone(f.conversationProvenance)
+	input.conversationFilteredBaseline = lipapi.CloneCall(f.conversationFilteredBaseline)
+	input.ingressCall = lipapi.CloneCall(f.ingressCall)
+	input.continuationIntent = f.continuationIntent
+	input.wirePayload = f.wirePayload
+	return newRecvTurnFacts(ctx, input)
 }
 
 func newRecvTurnFacts(ctx context.Context, in recvTurnFactsInput) recvTurnFacts {

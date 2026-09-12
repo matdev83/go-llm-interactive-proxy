@@ -41,6 +41,7 @@ type requestTerminalFacts struct {
 	conversationFilteredBaseline lipapi.Call
 	ingressCall                  lipapi.Call
 	continuationIntent           continuationIntentFacts
+	wirePayload                  *wireAttemptPayload
 }
 
 // attemptTerminalEvidence is a value snapshot of the current B-leg identity.
@@ -96,6 +97,7 @@ func (f recvTurnFacts) terminalFacts() requestTerminalFacts {
 		conversationFilteredBaseline: lipapi.CloneCall(f.conversationFilteredBaseline),
 		ingressCall:                  lipapi.CloneCall(f.ingressCall),
 		continuationIntent:           f.continuationIntent,
+		wirePayload:                  f.wirePayload,
 	}
 }
 
@@ -118,20 +120,28 @@ func cloneSnapshot(s conversationprojection.Snapshot) conversationprojection.Sna
 }
 
 func (f requestTerminalFacts) responseEvidence() responseRequestEvidence {
+	sessID := f.call.Session.AuthoritativeSessionID
+	if sessID == "" && f.wirePayload != nil {
+		sessID = f.wirePayload.sessionID
+	}
 	return responseRequestEvidence{
 		traceID:      f.traceID,
 		aLegID:       f.aLegID,
-		sessionID:    f.call.Session.AuthoritativeSessionID,
+		sessionID:    sessID,
 		secureTurn:   f.secureTurn,
 		secureTurnOK: f.secureTurnOK,
 	}
 }
 
 func (f recvTurnFacts) responseEvidence() responseRequestEvidence {
+	sessID := f.baseline.Session.AuthoritativeSessionID
+	if sessID == "" && f.wirePayload != nil {
+		sessID = f.wirePayload.sessionID
+	}
 	return responseRequestEvidence{
 		traceID:      f.traceID,
 		aLegID:       f.aLegID,
-		sessionID:    f.baseline.Session.AuthoritativeSessionID,
+		sessionID:    sessID,
 		secureTurn:   f.secureTurn,
 		secureTurnOK: f.secureTurnOK,
 	}

@@ -359,9 +359,9 @@ func TestBlocker2_UsageObserverPlane_DeclinesWireEligibility(t *testing.T) {
 	assert.Equal(t, largebody.DeclineReasonAuthorityBlocker, assessment.Reason)
 }
 
-// TestBlocker2_SecureSessionRecorderPort_DeclinesWireEligibility verifies that an occupied
-// security.session_recorder narrow port causes wire assessment to decline.
-func TestBlocker2_SecureSessionRecorderPort_DeclinesWireEligibility(t *testing.T) {
+// TestBlocker2_SecureSessionRecorderPort_AcceptsWireEligibility verifies that an occupied
+// security.session_recorder narrow port accepts wire assessment (lifted in Item 5).
+func TestBlocker2_SecureSessionRecorderPort_AcceptsWireEligibility(t *testing.T) {
 	ex, _, _ := setupTestExecutor(t)
 
 	census := largebody.NewStandardDependencyCensus("gen-1")
@@ -373,9 +373,9 @@ func TestBlocker2_SecureSessionRecorderPort_DeclinesWireEligibility(t *testing.T
 	assessment, err := ex.AssessLargeBody(context.Background(), proof)
 	require.NoError(t, err)
 
-	assert.Equal(t, largebody.AssessmentDecisionDecline, assessment.Decision,
-		"wire assessment must decline when security.session_recorder port is occupied")
-	assert.Equal(t, largebody.DeclineReasonAuthorityBlocker, assessment.Reason)
+	assert.Equal(t, largebody.AssessmentDecisionAccept, assessment.Decision,
+		"wire assessment must accept when only security.session_recorder port is occupied (lifted in item 5)")
+	assert.Equal(t, largebody.DeclineReasonNone, assessment.Reason)
 }
 
 // Unused dummy types to satisfy package references if needed
