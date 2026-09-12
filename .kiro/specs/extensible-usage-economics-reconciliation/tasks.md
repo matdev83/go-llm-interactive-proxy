@@ -57,9 +57,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 15.1, 15.3, 15.5, 17.3, 18.1_
 
 
-- [ ] 2. Introduce canonical V2 evidence and exact component contracts
+- [x] 2. Introduce canonical V2 evidence and exact component contracts
 
-- [ ] 2.1 Implement bounded exact decimal and unit validation
+- [x] 2.1 Implement bounded exact decimal and unit validation
   - Implement coefficient/scale normalization, integer meter constraints, bounded exponent parsing and checked conversion to ledger nanos; reuse established checked arithmetic where applicable.
   - Test zero/negative-zero, absent, large values, fractions, overflow, invalid units and precision limits without float conversion.
   - Completion: exact round-trip and deterministic canonical representation pass the synthetic fractional-credit and time fixtures.
@@ -69,7 +69,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./pkg/lipsdk/metering/... ./pkg/lipsdk/economics/..._
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
 
-- [ ] 2.2 Implement full component identity and schema relationships
+- [x] 2.2 Implement full component identity and schema relationships
   - Implement economic direction plus sorted unique qualifiers and canonical key/hash equality including unit and schema; reject duplicate keys, contradictory direction/schema combinations and duplicate dimension names.
   - Declare token aggregates, cache lifetime and multimodal input/output relationships; unknown namespaced components persist without being automatically considered billable.
   - Completion: image/audio/video input and output with different units/quality/lifetime cannot collide, and aggregate/subcomponent/transform relationships are explicit.
@@ -79,7 +79,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./pkg/lipsdk/metering/..._
   - _Requirements: 2.1, 2.2, 2.4, 3.1, 3.4, 3.5, 15.5_
 
-- [ ] 2.3 Implement observation, subject and provenance contracts
+- [x] 2.3 Implement observation, subject and provenance contracts
   - Implement V2 observation identity, source revision, acquisition/origin, subject union, timestamps, measure presence/quality, safe evidence fields and typed charge coverage using store-scoped charge references.
   - Validate account-window/resource/B-leg distinctions, provider-versus-runtime attribution authority, resumable A-leg versus per-invocation CallID lineage, and coverage-reference scope; split different acquisition provenance rather than broaden record-wide authority.
   - Completion: local/provider/statement records coexist, aggregate-only money is legal, an A-leg can accept later calls without reopening prior B-legs, and malformed source/scope/coverage combinations are rejected.
@@ -89,7 +89,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./pkg/lipsdk/metering/..._
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 5.3, 5.5, 6.1, 9.1, 10.1, 16.3_
 
-- [ ] 2.4 Implement valuation and line-item contracts
+- [x] 2.4 Implement valuation and line-item contracts
   - Implement immutable E/Q/P/S/R valuation DTOs, input references, line detail, snapshot/qualifier hashes, exact/rounded amounts and completeness. Define the public provider-neutral `Rater`/`Quoter` interfaces and their versioned input/output DTOs; statement-import and reconciliation DTOs share the same public observation/valuation identities without accepting provider-shaped raw payloads.
   - Keep reported aggregate cost separate from inferred line costs; support native currency and optional referenced reporting conversion without an implicit FX rate.
   - Completion: serialization preserves every required unit/cost pair, distinguishes locally derived Q from provider-reported P, and an external module can compile a typed custom rater/quoter using only public packages.
@@ -99,7 +99,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./pkg/lipsdk/economics/..._
   - _Requirements: 1.2, 1.6, 2.5, 2.6, 6.6, 7.1, 7.2, 7.6, 15.2_
 
-- [ ] 2.5 Implement explicit V1 reader and one-way projection adapters
+- [x] 2.5 Implement explicit V1 reader and one-way projection adapters
   - Decode V1 facts/usage without changing historic hashes or guessing lost provenance; map proven fields to V2 with legacy markers.
   - Provide lossless integer-token projections for existing protocol/nonfinancial authority consumers and reject required nonrepresentable measures.
   - Completion: V1 projections cannot be re-imported as independent observations; compatibility tests prove absent-versus-zero and historical replay.

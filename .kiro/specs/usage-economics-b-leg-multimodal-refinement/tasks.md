@@ -39,7 +39,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
 
 - [ ] 2. Refine canonical multimodal component identity
 
-- [ ] 2.1 Add explicit economic direction to V2 component identity
+- [x] 2.1 Add explicit economic direction to V2 component identity
   - Make input/output/none direction part of the canonical key, serializer and fingerprint; non-directional request/resource/gauge scope remains in subject/component identity rather than fake flow directions.
   - Provide lossless adapters for existing component names that already imply direction; do not reinterpret historical V1 hashes.
   - Completion: identical modality/unit values in opposite directions cannot collide or select the same rate accidentally.
@@ -48,7 +48,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 1.3_
   - _Validation: go test ./pkg/lipsdk/metering/... ./internal/core/metering/..._
 
-- [ ] 2.2 Define bounded multimodal qualifiers and native units
+- [x] 2.2 Define bounded multimodal qualifiers and native units
   - Support bill-relevant resolution/quality/dimensions/duration/sample-rate/channel/frame-rate/page/resource qualifiers without raw media retention.
   - Preserve provider-native tokens, counts, seconds, frames, pixels/products, pages, bytes, queries and schema-qualified units rather than converting everything to text tokens.
   - Completion: all synthetic media keys round-trip exactly and unsupported precision/unit combinations fail explicitly.
