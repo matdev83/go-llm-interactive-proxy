@@ -318,7 +318,7 @@ The implementation agent must audit all 26 planes, not copy this small list blin
 | `LocalTurnHandlers` | canonical required when occupied | `Match`/`Handle` receive full Call; can claim/short-circuit |
 | `TerminalDecisionProvider` | canonical required unless continuation-source parity implemented | bounded provider input is insufficient when decision can continue trajectory |
 | request/attempt transforms and request-part hooks | canonical required unless explicit wire contract | mutate/inspect canonical request |
-| response-only observers | potentially response-only | operate on canonical output events, subject to characterization |
+| response-only observers | potentially response-only (SUPERSEDED: Blocker 2 conservative fail-safe blocks when occupied; response pipeline reuse deferred; follow-up to PR #629 review) | operate on canonical output events, subject to characterization |
 | bounded metadata-only session/workspace authorities | potentially metadata-only | only after exact bounded input parity |
 
 ### Separate hook bus

@@ -216,7 +216,7 @@ func TestArch_StaticDisposition_PotentiallyEligibleNeverAuthorizesWire(t *testin
 		GenerationID: genID,
 		Planes:       planes,
 		Hooks: largebody.HookEligibilityInput{
-			ResponsePartOccupied: true, // response-only hooks allowed
+			ResponsePartOccupied: false, // Blocker 2: occupied response-part hook chain blocks wire eligibility
 		},
 		Ports: largebody.NarrowPortEligibilityInput{
 			BackendsEmpty: false,

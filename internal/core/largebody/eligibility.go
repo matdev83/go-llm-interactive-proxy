@@ -391,20 +391,23 @@ func compilePlaneBlockers(planes []PlaneEligibilityInput) (uint32, error) {
 		switch p.Access {
 		case PlaneAccessUnclassified:
 			return 0, fmt.Errorf("largebody: wire eligibility plane %q is unclassified", truncateEligibilityID(p.ID))
-		case PlaneAccessCanonicalRequired:
+		case PlaneAccessCanonicalRequired, PlaneAccessResponseOnly:
+			// Blocker 2: Response-only planes (completion_gates, stream_observer_factories,
+			// usage_observers, response_part_hooks) are bypassed by wire streaming.
+			// Conservative fail-safe: any occupied canonical-required or response-only plane
+			// statically blocks wire eligibility until deferred pipeline reuse is implemented.
 			if p.Occupied {
 				blockers |= 1 << uint(idx)
 			}
-		case PlaneAccessMetadataOnly, PlaneAccessResponseOnly, PlaneAccessWireContract:
+		case PlaneAccessMetadataOnly, PlaneAccessWireContract:
 			// Task 12.4: Local Turn and Secret Guard occupied planes are non-negotiable static
 			// canonical blockers in V1 (Requirements 5.4, 13.4, 19.4). Attempting to weaken their access
 			// while occupied must never bypass the static blocker bit.
 			if p.Occupied && isV1NonNegotiableCanonicalPlane(p.ID) {
 				blockers |= 1 << uint(idx)
 			}
-			// Occupied metadata-only, response-only, and explicitly
-			// wire-contracted planes stay eligible for dynamic assessment;
-			// they never block statically.
+			// Occupied metadata-only and explicitly wire-contracted planes stay eligible
+			// for dynamic assessment; they never block statically.
 		default:
 			return 0, fmt.Errorf("largebody: wire eligibility plane %q has unknown access %d",
 				truncateEligibilityID(p.ID), uint8(p.Access))
@@ -426,8 +429,9 @@ func isV1NonNegotiableCanonicalPlane(id string) bool {
 }
 
 // compileHookChains records frozen bus occupancy and the occupied
-// mutating-chain subset. The response-only chain is recorded but never a
-// blocker (Requirement 13.6; Task 3.3 proof gate).
+// mutating-chain subset. Under Blocker 2 conservative fail-safe, the
+// response-only chain also blocks when occupied because wire execution
+// bypasses response hooks.
 func compileHookChains(hooks HookEligibilityInput) (occupancy, blockers HookChain) {
 	if hooks.SubmitOccupied {
 		occupancy |= HookChainSubmit
@@ -439,6 +443,9 @@ func compileHookChains(hooks HookEligibilityInput) (occupancy, blockers HookChai
 	}
 	if hooks.ResponsePartOccupied {
 		occupancy |= HookChainResponsePart
+		// Blocker 2: Response part hooks are bypassed during wire streaming.
+		// Conservative fail-safe: occupied response part hooks block wire fast-path.
+		blockers |= HookChainResponsePart
 	}
 	if hooks.ToolOccupied {
 		occupancy |= HookChainTool

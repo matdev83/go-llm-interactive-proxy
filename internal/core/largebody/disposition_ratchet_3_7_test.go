@@ -374,7 +374,7 @@ func TestStaticDisposition_MissingTwoPhaseExecutorRatchet(t *testing.T) {
 }
 
 // TestStaticDisposition_NormalPotentiallyEligibleRatchet verifies that a standard
-// production-like composition (secure session, metering, response-only hooks, no static blockers)
+// production-like composition (secure session, metering, unoccupied response hooks, no static blockers)
 // reaches NeedsRequestAssessment on candidate requests and NEVER directly authorizes wire execution (Req 5.9, 21.6).
 func TestStaticDisposition_NormalPotentiallyEligibleRatchet(t *testing.T) {
 	t.Parallel()
@@ -382,7 +382,7 @@ func TestStaticDisposition_NormalPotentiallyEligibleRatchet(t *testing.T) {
 
 	// Standard production composition:
 	// - All 26 planes declared (unoccupied CanonicalRequired or ResponseOnly/MetadataOnly)
-	// - Response-only hooks active (ResponsePartOccupied: true is allowed and does NOT block)
+	// - Response-only hooks inactive (Blocker 2: ResponsePartOccupied: true statically blocks)
 	// - TwoPhaseExecutorAvailable: true
 	// - Backends present (BackendsEmpty: false)
 	planes := makeCleanPlanes()
@@ -403,7 +403,7 @@ func TestStaticDisposition_NormalPotentiallyEligibleRatchet(t *testing.T) {
 		GenerationID: genID,
 		Planes:       planes,
 		Hooks: largebody.HookEligibilityInput{
-			ResponsePartOccupied: true, // response-only hook chain does NOT block
+			ResponsePartOccupied: false, // Blocker 2: occupied response-part hook chain blocks wire eligibility
 		},
 		Ports: largebody.NarrowPortEligibilityInput{
 			BackendsEmpty: false,
