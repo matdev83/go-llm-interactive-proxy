@@ -1268,21 +1268,39 @@ func (r *readyAttempt) Dispose(ctx context.Context, err error) {
 				if err == nil {
 					err = errors.New("runtime: attempt aborted before return")
 				}
+				intent := IntentPreReturnAbort
+				cmd := sdkterminal.CommandBackendOpenFailure
 				outcome := billing.LegOutcomeFailed
+				var rel authorityapp.ReleaseKind
+				var obsOutcome response.StreamOutcome
+				var recOutcome lipapi.AttemptOutcome
+
 				if errors.Is(err, context.Canceled) {
 					outcome = billing.LegOutcomeCanceled
+					cmd = sdkterminal.CommandCancel
+				} else if err != nil && strings.Contains(err.Error(), "publication closed") {
+					intent = IntentSwallowedFailure
+					cmd = sdkterminal.CommandSwallowedAttempt
+					outcome = billing.LegOutcomeSwallowed
+					rel = authorityapp.ReleaseKindSwallowed
+					obsOutcome = response.OutcomeReplaced
+					recOutcome = lipapi.AttemptSwallowedFailure
 				}
+
 				evidence := attemptEvidence{
-					Command:      sdkterminal.CommandBackendOpenFailure,
-					LegOutcome:   outcome,
-					Usage:        emptyOperatorUsageShell(),
-					Err:          err,
-					RecordReason: err.Error(),
-					TraceID:      sess.traceID,
-					ALegID:       sess.bleg.ALegID,
-					StartedAt:    sess.accountingStartedAt(),
+					Command:       cmd,
+					LegOutcome:    outcome,
+					ReleaseKind:   rel,
+					ObsOutcome:    obsOutcome,
+					RecordOutcome: recOutcome,
+					Usage:         emptyOperatorUsageShell(),
+					Err:           err,
+					RecordReason:  err.Error(),
+					TraceID:       sess.traceID,
+					ALegID:        sess.bleg.ALegID,
+					StartedAt:     sess.accountingStartedAt(),
 				}
-				sess.TerminalizeAttempt(ctx, IntentPreReturnAbort, evidence)
+				sess.TerminalizeAttempt(ctx, intent, evidence)
 			}
 			return
 		}
@@ -1306,21 +1324,39 @@ func (r *readyAttempt) Dispose(ctx context.Context, err error) {
 		if err == nil {
 			err = errors.New("runtime: attempt aborted before return")
 		}
+		intent := IntentPreReturnAbort
+		cmd := sdkterminal.CommandBackendOpenFailure
 		outcome := billing.LegOutcomeFailed
+		var rel authorityapp.ReleaseKind
+		var obsOutcome response.StreamOutcome
+		var recOutcome lipapi.AttemptOutcome
+
 		if errors.Is(err, context.Canceled) {
 			outcome = billing.LegOutcomeCanceled
+			cmd = sdkterminal.CommandCancel
+		} else if err != nil && strings.Contains(err.Error(), "publication closed") {
+			intent = IntentSwallowedFailure
+			cmd = sdkterminal.CommandSwallowedAttempt
+			outcome = billing.LegOutcomeSwallowed
+			rel = authorityapp.ReleaseKindSwallowed
+			obsOutcome = response.OutcomeReplaced
+			recOutcome = lipapi.AttemptSwallowedFailure
 		}
+
 		evidence := attemptEvidence{
-			Command:      sdkterminal.CommandBackendOpenFailure,
-			LegOutcome:   outcome,
-			Usage:        emptyOperatorUsageShell(),
-			Err:          err,
-			RecordReason: err.Error(),
-			TraceID:      sess.traceID,
-			ALegID:       sess.bleg.ALegID,
-			StartedAt:    sess.accountingStartedAt(),
+			Command:       cmd,
+			LegOutcome:    outcome,
+			ReleaseKind:   rel,
+			ObsOutcome:    obsOutcome,
+			RecordOutcome: recOutcome,
+			Usage:         emptyOperatorUsageShell(),
+			Err:           err,
+			RecordReason:  err.Error(),
+			TraceID:       sess.traceID,
+			ALegID:        sess.bleg.ALegID,
+			StartedAt:     sess.accountingStartedAt(),
 		}
-		sess.TerminalizeAttempt(ctx, IntentPreReturnAbort, evidence)
+		sess.TerminalizeAttempt(ctx, intent, evidence)
 	}
 }
 
@@ -1426,26 +1462,6 @@ func (a *attemptSession) terminalizeSwallowed(ctx context.Context, facts recvTur
 	ev.LegOutcome = billing.LegOutcomeSwallowed
 	ev.ObsOutcome = response.OutcomeReplaced
 	ev.RecordOutcome = lipapi.AttemptSwallowedFailure
-	a.TerminalizeAttempt(ctx, IntentSwallowedFailure, ev)
-}
-
-func (a *attemptSession) terminalizeWireSwallowed(ctx context.Context, traceID, aLegID string, startedAt time.Time, reason string, err error) {
-	if a == nil {
-		return
-	}
-	ev := attemptEvidence{
-		ReleaseKind:   authorityapp.ReleaseKindSwallowed,
-		TraceID:       traceID,
-		ALegID:        aLegID,
-		RecordReason:  reason,
-		Err:           err,
-		StartedAt:     startedAt,
-		Committed:     false,
-		Command:       sdkterminal.CommandSwallowedAttempt,
-		LegOutcome:    billing.LegOutcomeSwallowed,
-		ObsOutcome:    response.OutcomeReplaced,
-		RecordOutcome: lipapi.AttemptSwallowedFailure,
-	}
 	a.TerminalizeAttempt(ctx, IntentSwallowedFailure, ev)
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -46,6 +47,7 @@ type wireLifecycleEventStream struct {
 	cleanup func(err error)
 	mu      sync.Mutex
 	lastErr error
+	closed  bool
 	once    sync.Once
 }
 
@@ -64,6 +66,10 @@ func (s *wireLifecycleEventStream) noteRecvErr(err error) {
 }
 
 func (s *wireLifecycleEventStream) Close() error {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+
 	var err error
 	if s.EventStream != nil {
 		err = s.EventStream.Close()
@@ -83,6 +89,13 @@ func (s *wireLifecycleEventStream) Close() error {
 }
 
 func (s *wireLifecycleEventStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return lipapi.Event{}, io.EOF
+	}
+	s.mu.Unlock()
+
 	if s.EventStream == nil {
 		s.once.Do(func() {
 			if s.cleanup != nil {
@@ -93,6 +106,12 @@ func (s *wireLifecycleEventStream) Recv(ctx context.Context) (lipapi.Event, erro
 	}
 	ev, err := s.EventStream.Recv(ctx)
 	if err != nil {
+		s.mu.Lock()
+		closed := s.closed
+		s.mu.Unlock()
+		if closed {
+			return lipapi.Event{}, io.EOF
+		}
 		s.noteRecvErr(err)
 		s.once.Do(func() {
 			if s.cleanup != nil {
@@ -104,6 +123,10 @@ func (s *wireLifecycleEventStream) Recv(ctx context.Context) (lipapi.Event, erro
 }
 
 func (s *wireLifecycleEventStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+
 	s.once.Do(func() {
 		if s.cleanup != nil {
 			s.cleanup(context.Canceled)
@@ -111,6 +134,9 @@ func (s *wireLifecycleEventStream) Cancel(ctx context.Context, cause lipapi.Canc
 	})
 	if ms, ok := s.EventStream.(lipapi.ManagedEventStream); ok {
 		return ms.Cancel(ctx, cause)
+	}
+	if s.EventStream != nil {
+		_ = s.EventStream.Close()
 	}
 	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 }
@@ -503,9 +529,19 @@ func (e *Executor) ExecuteLargeBody(
 		billingCallID = newID
 	}
 	turnFacts.Economic.BillingCallID = billingCallID.String()
+	turnFacts.Route.RouteSelector = effectiveModel
 
-	primary := routing.Primary{Model: effectiveModel}
-	sel := &routing.Selector{Alternatives: []routing.FailoverAlt{{Primary: &primary}}}
+	sel, err := routing.PrepareSelector(
+		effectiveModel,
+		e.SelectorAliases,
+		e.DefaultBackend,
+		e.BackendExecutionResolver,
+		e.ExecutionCompositionPolicy,
+		nil,
+	)
+	if err != nil {
+		return largebody.ExecutionResult{}, fmt.Errorf("executor: route selector: %w", err)
+	}
 
 	callExposure, err := e.AuthorizeWireBilling(outCtx, WireBillingExposureArgs{
 		BillingCallID:   billingCallID,
@@ -523,25 +559,98 @@ func (e *Executor) ExecuteLargeBody(
 
 	billingState := newBillingCallState(billingCallID)
 
-	// 10. Attempt execution under existing attempt ownership (Requirements 8, 9, 10, 12, 15)
+	// 10. Attempt execution under canonical attempt and stream assembly (Requirements 8, 9, 10, 12, 15)
 	aScope := e.lifecycleCoordinator().StartALeg(aLeg.ALegID)
-	attemptOut, err := e.executeWireAttempts(wireAttemptInput{
-		ctx:                   ctx,
-		outCtx:                outCtx,
-		accepted:              accepted,
+
+	wp := &wireAttemptPayload{
 		src:                   src,
+		accepted:              accepted,
 		turnFacts:             turnFacts,
-		traceID:               traceID,
 		requestID:             requestID,
-		aLegID:                aLeg.ALegID,
 		sessionID:             string(br.Record.SessionID),
-		effectiveModel:        effectiveModel,
 		maxOutputTokens:       maxOutputTokens,
-		aScope:                aScope,
-		billingState:          billingState,
 		weightedFirstConsumed: aLeg.WeightedFirstConsumed,
-	})
+	}
+
+	views := execctx.Views{}
+	p, pOK := execview.PrincipalFromContext(outCtx)
+	if pOK {
+		views.Principal = p
+	}
+
+	st, stOK := execctx.SecureSessionTurnFromContext(outCtx)
+
+	var rFactIn recvTurnFactsInput
+	rFactIn.traceID = traceID
+	rFactIn.aLegID = aLeg.ALegID
+	rFactIn.recvViews = views
+	rFactIn.recvViewsOK = pOK
+	rFactIn.secureTurn = st
+	rFactIn.secureTurnOK = stOK
+	rFactIn.metering = meteringHolderFrom(outCtx)
+	rFactIn.billingAccountID = callExposure.AccountID
+	rFactIn.billingCallID = billingCallID
+	rFactIn.billingCallState = billingState
+	rFactIn.wirePayload = wp
+	recvFacts := newRecvTurnFacts(outCtx, rFactIn)
+
+	bus := e.Bus
+	if bus == nil {
+		bus = hooks.New(hooks.Config{})
+	}
+
+	preparedReq := new(preparedRequest)
+	preparedReq.recvTurnFacts = recvFacts
+	preparedReq.bus = bus
+	preparedReq.aScope = aScope
+	preparedReq.billingCallID = billingCallID
+	preparedReq.billingCallState = billingState
+	preparedReq.billingExposure = callExposure
+
+	plan, err := e.buildRoutePlan(outCtx, preparedReq)
 	if err != nil {
+		if aScope != nil {
+			aScope.End()
+		}
+		if callExposure.AccountID != "" {
+			_ = e.AppendWireExposureAbort(outCtx, WireExposureAbortArgs{
+				BillingCallID:   billingCallID,
+				Exposure:        callExposure,
+				ALegID:          aLeg.ALegID,
+				SessionID:       string(br.Record.SessionID),
+				ExpectedBLegIDs: billingState.freezeAllocatedBLegs(),
+				Now:             e.now(),
+			})
+		}
+		return largebody.ExecutionResult{}, err
+	}
+
+	out, err := attemptOpenOwner{e}.openInitial(outCtx, preparedReq, plan)
+	if err != nil {
+		if aScope != nil {
+			aScope.End()
+		}
+		if callExposure.AccountID != "" {
+			_ = e.AppendWireExposureAbort(outCtx, WireExposureAbortArgs{
+				BillingCallID:   billingCallID,
+				Exposure:        callExposure,
+				ALegID:          aLeg.ALegID,
+				SessionID:       string(br.Record.SessionID),
+				ExpectedBLegIDs: billingState.freezeAllocatedBLegs(),
+				Now:             e.now(),
+			})
+		}
+		return largebody.ExecutionResult{}, err
+	}
+
+	stream, err := streamAssembler{e}.assemble(outCtx, preparedReq, plan, out)
+	if err != nil {
+		if out.ready != nil {
+			bleg := out.ready.BLeg()
+			if strings.TrimSpace(bleg.BLegID) != "" {
+				e.appendPostOpenTerminalLeg(outCtx, billingState, aLeg.ALegID, bleg, out.ready.Candidate().Primary, time.Time{}, time.Time{})
+			}
+		}
 		if aScope != nil {
 			aScope.End()
 		}
@@ -576,20 +685,10 @@ func (e *Executor) ExecuteLargeBody(
 
 	sessionCarrier := prep.ResponseCarrier(br)
 
-	// Wrap canonical stream with request authority release and terminal leg append upon completion/close
+	// Wrap canonical stream with request authority release and terminal lifecycle cleanup upon completion/close
 	cleanupStream := &wireLifecycleEventStream{
-		EventStream: attemptOut.stream,
+		EventStream: stream,
 		cleanup: func(causeErr error) {
-			activeAttempt := attemptOut
-			if op, ok := attemptOut.stream.(wireOutcomeProvider); ok {
-				activeAttempt = op.currentOutcome()
-			}
-			if activeAttempt.cancel != nil {
-				activeAttempt.cancel()
-			}
-			if activeAttempt.bodyCloser != nil {
-				_ = activeAttempt.bodyCloser.Close()
-			}
 			if src != nil {
 				_ = src.Close()
 			}
@@ -604,12 +703,8 @@ func (e *Executor) ExecuteLargeBody(
 					outcome = billing.LegOutcomeFailed
 				}
 			}
-			if activeAttempt.session == nil || activeAttempt.session.claimBillingLegRecord() {
-				e.appendIndependentTerminalLeg(outCtx, billingState, aLeg.ALegID, activeAttempt.bleg, activeAttempt.cand.Primary, activeAttempt.startedAt, e.now(), outcome)
-			}
 
 			if aScope != nil {
-				aScope.ReleaseBLeg(activeAttempt.bleg.BLegID)
 				aScope.End()
 			}
 			if e.SecureSession != nil {
@@ -741,12 +836,13 @@ func openFreshWireBody(src largebody.Source, accepted largebody.Assessment, cand
 
 // wireAttemptPayload carries wire-mode payload facts through canonical candidate evaluation and attempt transactions.
 type wireAttemptPayload struct {
-	src             largebody.Source
-	accepted        largebody.Assessment
-	turnFacts       largebody.WireTurnFacts
-	requestID       string
-	sessionID       string
-	maxOutputTokens *int
+	src                   largebody.Source
+	accepted              largebody.Assessment
+	turnFacts             largebody.WireTurnFacts
+	requestID             string
+	sessionID             string
+	maxOutputTokens       *int
+	weightedFirstConsumed bool
 }
 
 // wireBodyClosingStream ensures the fresh wire body reader is closed whenever the stream terminates.
@@ -1071,178 +1167,6 @@ type wireAttemptInput struct {
 	weightedFirstConsumed bool
 }
 
-// wireAttemptOutcome captures the winning attempt results.
-type wireAttemptOutcome struct {
-	stream     lipapi.ManagedEventStream
-	cand       routing.AttemptCandidate
-	bleg       b2bua.BLegRecord
-	startedAt  time.Time
-	cancel     context.CancelFunc
-	bodyCloser io.Closer
-	session    *attemptSession
-}
-
-func (e *Executor) newWireRecoveryController(
-	budget *attemptBudget,
-	ttft *ttftBudget,
-	sessionState *routing.SessionRoutingState,
-	requestSize routing.RequestSizeEstimate,
-	affinityKey affinity.Key,
-	affinityKeyOK bool,
-	excluded map[string]struct{},
-	rng routing.Rng,
-	sel *routing.Selector,
-) *recoveryController {
-	var recIn recoveryControllerInput
-	recIn.e = e
-	recIn.affinityStore = e.AffinityStore
-	recIn.log = e.Log
-	recIn.budget = budget
-	recIn.ttft = ttft
-	recIn.sel = sel
-	recIn.requestSize = requestSize
-	recIn.session = sessionState
-	recIn.excluded = excluded
-	recIn.rng = rng
-	recIn.affinityKey = affinityKey
-	recIn.affinitySet = affinityKeyOK
-	return newRecoveryController(recIn)
-}
-
-func makeWireRequestFacts(wireIn wireAttemptInput, views execctx.Views, pOK bool, st execctx.SecureSessionTurn, stOK bool) requestFacts {
-	var rf requestFacts
-	rf.traceID = wireIn.traceID
-	rf.aLegID = wireIn.aLegID
-	rf.billingCallState = wireIn.billingState
-	rf.recvViews = views
-	rf.recvViewsOK = pOK
-	rf.secureTurn = st
-	rf.secureTurnOK = stOK
-	rf.aScope = wireIn.aScope
-	rf.wirePayload = &wireAttemptPayload{
-		src:             wireIn.src,
-		accepted:        wireIn.accepted,
-		turnFacts:       wireIn.turnFacts,
-		requestID:       wireIn.requestID,
-		sessionID:       wireIn.sessionID,
-		maxOutputTokens: wireIn.maxOutputTokens,
-	}
-	return rf
-}
-
-// executeWireAttempts executes attempts using canonical openNext routing machinery.
-func (e *Executor) executeWireAttempts(wireIn wireAttemptInput) (wireAttemptOutcome, error) {
-	_, sel, err := routing.ComposeInitialCandidates(
-		wireIn.effectiveModel,
-		e.SelectorAliases,
-		e.DefaultBackend,
-		e.BackendExecutionResolver,
-		e.ExecutionCompositionPolicy,
-		nil,
-	)
-	if err != nil {
-		return wireAttemptOutcome{}, fmt.Errorf("executor: route selector: %w", err)
-	}
-
-	views := execctx.Views{}
-	p, pOK := execview.PrincipalFromContext(wireIn.outCtx)
-	if pOK {
-		views.Principal = p
-	}
-	affinityKey, affinityKeyOK, err := e.resolveAffinityKey(sel, views, pOK)
-	if err != nil {
-		return wireAttemptOutcome{}, fmt.Errorf("executor: affinity identity: %w", err)
-	}
-
-	failures := &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}}
-	budget := &attemptBudget{
-		max:      e.effectiveMaxAttempts(),
-		used:     0,
-		failures: failures,
-	}
-	ttft := newTTFTBudget(e.now(), sel)
-	sessionState := &routing.SessionRoutingState{FirstRequestConsumed: wireIn.weightedFirstConsumed}
-	excluded := map[string]struct{}{}
-	rng := e.rng()
-	requestSize := routing.RequestSizeEstimate{Available: true, Tokens: wireIn.turnFacts.Source.BodyBytes, Basis: "wire_body_bytes"}
-
-	progress := e.newWireRecoveryController(budget, ttft, sessionState, requestSize, affinityKey, affinityKeyOK, excluded, rng, sel)
-
-	st, stOK := execctx.SecureSessionTurnFromContext(wireIn.outCtx)
-	rf := makeWireRequestFacts(wireIn, views, pOK, st, stOK)
-
-	route := routeFacts{
-		sel:         sel,
-		requestSize: requestSize,
-		affinityKey: affinityKey,
-		affinitySet: affinityKeyOK,
-		rng:         rng,
-	}
-
-	for {
-		if wireIn.outCtx != nil && wireIn.outCtx.Err() != nil {
-			return wireAttemptOutcome{}, wireIn.outCtx.Err()
-		}
-		if wireIn.aScope != nil && wireIn.aScope.Err() != nil {
-			return wireAttemptOutcome{}, leglifecycle.ErrALegCanceled
-		}
-
-		openOut, err := e.openNext(wireIn.outCtx, openNextRequest{
-			reqFacts:   rf,
-			routeFacts: route,
-			progress:   progress,
-			mode:       openModeInitial,
-		})
-		if err != nil {
-			return wireAttemptOutcome{}, err
-		}
-		if openOut.ready == nil {
-			continue
-		}
-
-		cand := openOut.ready.Candidate()
-		bleg := openOut.ready.BLeg()
-		// boundSess is write-once at construction in attempt_session.go before publication; all other accesses under r.mu; no concurrent writer exists, open->wire handoff provides happens-before.
-		session := openOut.ready.boundSess
-		stream, startedAt, err := openOut.ready.WireTakeStream()
-		if err != nil {
-			return wireAttemptOutcome{}, err
-		}
-
-		progress.ttft.markCommitted()
-
-		e.recordAttemptLogged(wireIn.outCtx, recordAttemptParams{
-			ALegID:  wireIn.aLegID,
-			BLeg:    bleg,
-			Cand:    cand,
-			Outcome: lipapi.AttemptSuccess,
-		}, diag.AttrOpts{CallID: wireIn.traceID})
-
-		if affinityKeyOK && affinityKey.Valid() && e.AffinityStore != nil {
-			binding := affinity.BindingFromCandidate(affinityKey, cand, e.now(), "output_committed")
-			_ = e.AffinityStore.Set(context.WithoutCancel(wireIn.outCtx), binding)
-			e.noteRouteDecision(context.WithoutCancel(wireIn.outCtx), wireIn.traceID, "affinity_bind", binding.BackendID)
-		}
-
-		initialAttempt := wireAttemptOutcome{
-			stream:    stream,
-			cand:      cand,
-			bleg:      bleg,
-			startedAt: startedAt,
-			session:   session,
-		}
-		recStream := e.newWireRecoveryStream(wireIn, rf, route, progress, affinityKey, affinityKeyOK, initialAttempt)
-
-		return wireAttemptOutcome{
-			stream:    recStream,
-			cand:      cand,
-			bleg:      bleg,
-			startedAt: startedAt,
-			session:   session,
-		}, nil
-	}
-}
-
 type wireParallelRaceResult struct {
 	opened     bool
 	stream     lipapi.ManagedEventStream
@@ -1279,10 +1203,44 @@ func (e *Executor) executeWireParallelRace(
 	rng := e.rng()
 	requestSize := routing.RequestSizeEstimate{Available: true, Tokens: wireIn.turnFacts.Source.BodyBytes, Basis: "wire_body_bytes"}
 
-	progress := e.newWireRecoveryController(budget, ttft, sessionState, requestSize, affinityKey, affinityKeyOK, excluded, rng, nil)
+	var recIn recoveryControllerInput
+	recIn.e = e
+	recIn.affinityStore = e.AffinityStore
+	recIn.log = e.Log
+	recIn.streamRecovery = e.StreamRecovery
+	recIn.budget = budget
+	recIn.ttft = ttft
+	recIn.requestSize = requestSize
+	recIn.session = sessionState
+	recIn.excluded = excluded
+	recIn.rng = rng
+	recIn.affinityKey = affinityKey
+	recIn.affinitySet = affinityKeyOK
+	progress := newRecoveryController(recIn)
 
 	st, stOK := execctx.SecureSessionTurnFromContext(wireIn.outCtx)
-	rf := makeWireRequestFacts(wireIn, views, pOK, st, stOK)
+	wp := &wireAttemptPayload{
+		src:             wireIn.src,
+		accepted:        wireIn.accepted,
+		turnFacts:       wireIn.turnFacts,
+		requestID:       wireIn.requestID,
+		sessionID:       wireIn.sessionID,
+		maxOutputTokens: wireIn.maxOutputTokens,
+	}
+	var rFactIn2 recvTurnFactsInput
+	rFactIn2.traceID = wireIn.traceID
+	rFactIn2.aLegID = wireIn.aLegID
+	rFactIn2.recvViews = views
+	rFactIn2.recvViewsOK = pOK
+	rFactIn2.secureTurn = st
+	rFactIn2.secureTurnOK = stOK
+	rFactIn2.billingCallState = wireIn.billingState
+	rFactIn2.wirePayload = wp
+	recvFacts := newRecvTurnFacts(wireIn.outCtx, rFactIn2)
+	rf := requestFacts{
+		recvTurnFacts: recvFacts,
+		aScope:        wireIn.aScope,
+	}
 
 	route := routeFacts{
 		requestSize: requestSize,
@@ -1308,286 +1266,18 @@ func (e *Executor) executeWireParallelRace(
 
 	cand := openOut.ready.Candidate()
 	bleg := openOut.ready.BLeg()
-	// boundSess is write-once at construction in attempt_session.go before publication; all other accesses under r.mu; no concurrent writer exists, open->wire handoff provides happens-before.
 	session := openOut.ready.boundSess
 	stream, startedAt, err := openOut.ready.WireTakeStream()
 	if err != nil {
 		return wireParallelRaceResult{}, err
 	}
 
-	if ttft != nil {
-		ttft.markCommitted()
-	}
-
-	e.recordAttemptLogged(wireIn.outCtx, recordAttemptParams{
-		ALegID:  wireIn.aLegID,
-		BLeg:    bleg,
-		Cand:    cand,
-		Outcome: lipapi.AttemptSuccess,
-	}, diag.AttrOpts{CallID: wireIn.traceID})
-
-	if affinityKeyOK && affinityKey.Valid() && e.AffinityStore != nil {
-		binding := affinity.BindingFromCandidate(affinityKey, cand, e.now(), "output_committed")
-		_ = e.AffinityStore.Set(context.WithoutCancel(wireIn.outCtx), binding)
-		e.noteRouteDecision(context.WithoutCancel(wireIn.outCtx), wireIn.traceID, "affinity_bind", binding.BackendID)
-	}
-
-	initialAttempt := wireAttemptOutcome{
+	return wireParallelRaceResult{
+		opened:    true,
 		stream:    stream,
 		cand:      cand,
 		bleg:      bleg,
 		startedAt: startedAt,
 		session:   session,
-	}
-	recStream := e.newWireRecoveryStream(wireIn, rf, route, progress, affinityKey, affinityKeyOK, initialAttempt)
-
-	return wireParallelRaceResult{
-		opened:    true,
-		stream:    recStream,
-		cand:      cand,
-		bleg:      bleg,
-		startedAt: startedAt,
-		session:   session,
 	}, nil
-}
-
-type wireOutcomeProvider interface {
-	currentOutcome() wireAttemptOutcome
-}
-
-type wireRecoveryStream struct {
-	e             *Executor
-	wireIn        wireAttemptInput
-	rf            requestFacts
-	route         routeFacts
-	progress      *recoveryController
-	affinityKey   affinity.Key
-	affinityKeyOK bool
-
-	mu            sync.Mutex
-	activeAttempt wireAttemptOutcome
-	committed     bool
-	closed        bool
-}
-
-var _ lipapi.ManagedEventStream = (*wireRecoveryStream)(nil)
-var _ wireOutcomeProvider = (*wireRecoveryStream)(nil)
-
-func (e *Executor) newWireRecoveryStream(
-	wireIn wireAttemptInput,
-	rf requestFacts,
-	route routeFacts,
-	progress *recoveryController,
-	affinityKey affinity.Key,
-	affinityKeyOK bool,
-	initial wireAttemptOutcome,
-) *wireRecoveryStream {
-	return &wireRecoveryStream{
-		e:             e,
-		wireIn:        wireIn,
-		rf:            rf,
-		route:         route,
-		progress:      progress,
-		affinityKey:   affinityKey,
-		affinityKeyOK: affinityKeyOK,
-		activeAttempt: initial,
-	}
-}
-
-func (s *wireRecoveryStream) currentOutcome() wireAttemptOutcome {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.activeAttempt
-}
-
-func (s *wireRecoveryStream) Close() error {
-	s.mu.Lock()
-	s.closed = true
-	active := s.activeAttempt
-	s.mu.Unlock()
-
-	if active.stream != nil {
-		return active.stream.Close()
-	}
-	return nil
-}
-
-func (s *wireRecoveryStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
-	s.mu.Lock()
-	active := s.activeAttempt
-	s.mu.Unlock()
-
-	if active.stream != nil {
-		return active.stream.Cancel(ctx, cause)
-	}
-	return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
-}
-
-func (s *wireRecoveryStream) terminalizeSwallowed(ctx context.Context, attempt wireAttemptOutcome, reason string, err error) {
-	if attempt.session != nil {
-		attempt.session.terminalizeWireSwallowed(ctx, s.wireIn.traceID, s.wireIn.aLegID, attempt.startedAt, reason, err)
-	}
-	if attempt.cancel != nil {
-		attempt.cancel()
-	}
-	if attempt.bodyCloser != nil {
-		_ = attempt.bodyCloser.Close()
-	}
-}
-
-func (s *wireRecoveryStream) openNextCandidate(ctx context.Context) (wireAttemptOutcome, error) {
-	for {
-		s.mu.Lock()
-		closed := s.closed
-		s.mu.Unlock()
-		if closed {
-			return wireAttemptOutcome{}, io.EOF
-		}
-
-		if ctx != nil && ctx.Err() != nil {
-			return wireAttemptOutcome{}, ctx.Err()
-		}
-		if s.wireIn.outCtx != nil && s.wireIn.outCtx.Err() != nil {
-			return wireAttemptOutcome{}, s.wireIn.outCtx.Err()
-		}
-		if s.wireIn.aScope != nil && s.wireIn.aScope.Err() != nil {
-			return wireAttemptOutcome{}, leglifecycle.ErrALegCanceled
-		}
-
-		openOut, err := s.e.openNext(s.wireIn.outCtx, openNextRequest{
-			reqFacts:   s.rf,
-			routeFacts: s.route,
-			progress:   s.progress,
-			mode:       openModeRetry,
-		})
-		if err != nil {
-			return wireAttemptOutcome{}, err
-		}
-		if openOut.ready == nil {
-			continue
-		}
-
-		cand := openOut.ready.Candidate()
-		bleg := openOut.ready.BLeg()
-		// boundSess is write-once at construction in attempt_session.go before publication; all other accesses under r.mu; no concurrent writer exists, open->wire handoff provides happens-before.
-		session := openOut.ready.boundSess
-		stream, startedAt, err := openOut.ready.WireTakeStream()
-		if err != nil {
-			return wireAttemptOutcome{}, err
-		}
-
-		s.mu.Lock()
-		closed = s.closed
-		s.mu.Unlock()
-		if closed {
-			if session != nil {
-				session.terminalizeWireSwallowed(ctx, s.wireIn.traceID, s.wireIn.aLegID, startedAt, "stream closed during recovery", io.EOF)
-			}
-			return wireAttemptOutcome{}, io.EOF
-		}
-
-		if s.progress != nil && s.progress.ttft != nil {
-			s.progress.ttft.markCommitted()
-		}
-
-		if s.e != nil {
-			s.e.recordAttemptLogged(s.wireIn.outCtx, recordAttemptParams{
-				ALegID:  s.wireIn.aLegID,
-				BLeg:    bleg,
-				Cand:    cand,
-				Outcome: lipapi.AttemptSuccess,
-			}, diag.AttrOpts{CallID: s.wireIn.traceID})
-		}
-
-		if s.affinityKeyOK && s.affinityKey.Valid() && s.e != nil && s.e.AffinityStore != nil {
-			binding := affinity.BindingFromCandidate(s.affinityKey, cand, s.e.now(), "output_committed")
-			_ = s.e.AffinityStore.Set(context.WithoutCancel(s.wireIn.outCtx), binding)
-			s.e.noteRouteDecision(context.WithoutCancel(s.wireIn.outCtx), s.wireIn.traceID, "affinity_bind", binding.BackendID)
-		}
-
-		return wireAttemptOutcome{
-			stream:    stream,
-			cand:      cand,
-			bleg:      bleg,
-			startedAt: startedAt,
-			session:   session,
-		}, nil
-	}
-}
-
-func (s *wireRecoveryStream) Recv(ctx context.Context) (lipapi.Event, error) {
-	for {
-		s.mu.Lock()
-		if s.closed {
-			s.mu.Unlock()
-			return lipapi.Event{}, io.EOF
-		}
-		active := s.activeAttempt
-		s.mu.Unlock()
-
-		if active.stream == nil {
-			return lipapi.Event{}, io.EOF
-		}
-
-		ev, err := active.stream.Recv(ctx)
-		if err == nil {
-			s.mu.Lock()
-			if !s.committed && (lipapi.OutputCommitted(ev) || ev.Kind == lipapi.EventResponseFinished) {
-				s.committed = true
-			}
-			s.mu.Unlock()
-			return ev, nil
-		}
-
-		if errors.Is(err, io.EOF) {
-			return lipapi.Event{}, io.EOF
-		}
-
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (ctx != nil && ctx.Err() != nil) {
-			return lipapi.Event{}, err
-		}
-
-		s.mu.Lock()
-		committed := s.committed
-		s.mu.Unlock()
-
-		if !committed && lipapi.IsRecoverablePreOutput(err) {
-			s.mu.Lock()
-			closed := s.closed
-			s.mu.Unlock()
-			if closed {
-				s.terminalizeSwallowed(ctx, active, "stream closed during recovery", err)
-				return lipapi.Event{}, io.EOF
-			}
-
-			s.terminalizeSwallowed(ctx, active, "recoverable pre-output (recv)", err)
-			s.progress.exclude(active.cand.Key)
-
-			nextAttempt, nextErr := s.openNextCandidate(ctx)
-			if nextErr != nil {
-				return lipapi.Event{}, nextErr
-			}
-
-			s.mu.Lock()
-			if s.closed {
-				s.mu.Unlock()
-				s.terminalizeSwallowed(ctx, nextAttempt, "stream closed during recovery", io.EOF)
-				return lipapi.Event{}, io.EOF
-			}
-			s.activeAttempt = nextAttempt
-			s.mu.Unlock()
-			continue
-		}
-
-		if committed && lipapi.IsRecoverablePreOutput(err) {
-			return lipapi.Event{}, &lipapi.UpstreamFailureError{
-				Phase:        lipapi.PhasePostOutput,
-				Recoverable:  false,
-				Reason:       attemptReasonDetail(err),
-				CandidateKey: active.cand.Key,
-			}
-		}
-
-		return lipapi.Event{}, err
-	}
 }

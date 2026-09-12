@@ -67,10 +67,9 @@ var standardNarrowPortCensus = map[string]DependencyClass{
 	"routing.route_override_reader":             DependencyClassWireSafe,
 	"routing.execution_policy_resolvers":        DependencyClassWireSafe,
 	"security.session_manager":                  DependencyClassWireSafe,
-	// Blocker 2: security.session_recorder is bypassed during wire streaming
-	// (RecordPostHookStreamEvent / recordClientFacing not invoked). Conservative fail-safe:
-	// occupied session recorder blocks wire eligibility until deferred pipeline reuse.
-	"security.session_recorder":                 DependencyClassBlocker,
+	// Item 5: wire execution exercises the secure session recorder via canonical retryRecvStream
+	// (RecordPostHookStreamEvent / recordClientFacing). security.session_recorder is wire-safe when occupied.
+	"security.session_recorder":                 DependencyClassWireSafe,
 	"security.flags_metrics_audit":              DependencyClassWireSafe,
 	"accounting.token_observability":            DependencyClassWireSafe,
 	"accounting.usage_authority":                DependencyClassWireSafe,

@@ -858,6 +858,11 @@ func TestTask13_2_Finding4_TerminalCleanup_OpenFreshWireBodyFailure(t *testing.T
 		t.Fatalf("ExecuteLargeBody failed: %v", err)
 	}
 	defer res.Stream.Close()
+	for {
+		if _, rerr := res.Stream.Recv(context.Background()); rerr != nil {
+			break
+		}
+	}
 
 	// Verify attempt 1 was recorded as AttemptSwallowedFailure
 	recs := spyStore.Records()
@@ -1053,6 +1058,11 @@ func TestTask13_2_Suggestion6_RecordAttemptOutcome_RecordedOnSecureSession(t *te
 	res, err := ex.ExecuteLargeBody(ctx, acc, src)
 	if err != nil {
 		t.Fatalf("ExecuteLargeBody failed: %v", err)
+	}
+	for {
+		if _, rerr := res.Stream.Recv(context.Background()); rerr != nil {
+			break
+		}
 	}
 	_ = res.Stream.Close()
 

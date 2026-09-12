@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -58,26 +59,70 @@ type routePlanState struct {
 }
 
 func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*routePlanState, error) {
-	e.noteSelectorAuthority(ctx, prep.identity.traceID, prep.identity.routeAuth)
-	sel, err := routing.PrepareSelector(
-		prep.call.Route.Selector,
-		e.SelectorAliases,
-		e.DefaultBackend,
-		e.BackendExecutionResolver,
-		e.ExecutionCompositionPolicy,
-		prep.nativeResolver,
-	)
-	if err != nil {
-		if errors.Is(err, lipapi.ErrUnresolvedModelOnlySelector) {
-			return nil, fmt.Errorf("executor: %w", err)
+	var sel *routing.Selector
+	var requestSize routing.RequestSizeEstimate
+	var failoverReq capabilities.FailoverRequirementSet
+	var aLegID string
+	var weightedFirstConsumed bool
+	var recvViews execctx.Views
+	var recvViewsOK bool
+
+	if prep.wirePayload != nil {
+		wp := prep.wirePayload
+		var err error
+		selModel := wp.turnFacts.Route.RouteSelector
+		if selModel == "" {
+			selModel = wp.turnFacts.Route.CandidateModel
 		}
-		return nil, fmt.Errorf("executor: parse route selector: %w", err)
+		if selModel == "" {
+			selModel = wp.turnFacts.Route.ClientModel
+		}
+		sel, err = routing.PrepareSelector(
+			selModel,
+			e.SelectorAliases,
+			e.DefaultBackend,
+			e.BackendExecutionResolver,
+			e.ExecutionCompositionPolicy,
+			nil,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("executor: route selector: %w", err)
+		}
+		requestSize = routing.RequestSizeEstimate{Available: true, Tokens: wp.turnFacts.Source.BodyBytes, Basis: "wire_body_bytes"}
+		aLegID = prep.aLegID
+		weightedFirstConsumed = wp.weightedFirstConsumed
+		recvViews = prep.recvViews
+		recvViewsOK = prep.recvViewsOK
+	} else {
+		e.noteSelectorAuthority(ctx, prep.identity.traceID, prep.identity.routeAuth)
+		var err error
+		sel, err = routing.PrepareSelector(
+			prep.call.Route.Selector,
+			e.SelectorAliases,
+			e.DefaultBackend,
+			e.BackendExecutionResolver,
+			e.ExecutionCompositionPolicy,
+			prep.nativeResolver,
+		)
+		if err != nil {
+			if errors.Is(err, lipapi.ErrUnresolvedModelOnlySelector) {
+				return nil, fmt.Errorf("executor: %w", err)
+			}
+			return nil, fmt.Errorf("executor: parse route selector: %w", err)
+		}
+		requestSize = e.requestSizeEstimateForRouting(ctx, sel, *prep.call)
+		failoverReq = capabilities.NewFailoverRequirementSet(*prep.call)
+		aLegID = prep.identity.aLeg.ALegID
+		weightedFirstConsumed = prep.identity.aLeg.WeightedFirstConsumed
+		recvViews = prep.recvViews
+		recvViewsOK = prep.recvViewsOK
 	}
-	affinityKey, affinityKeyOK, err := e.resolveAffinityKey(sel, prep.recvViews, prep.recvViewsOK)
+
+	affinityKey, affinityKeyOK, err := e.resolveAffinityKey(sel, recvViews, recvViewsOK)
 	if err != nil {
 		return nil, fmt.Errorf("executor: affinity identity: %w", err)
 	}
-	interleaved, err := e.loadInterleavedState(ctx, prep.identity.aLeg.ALegID)
+	interleaved, err := e.loadInterleavedState(ctx, aLegID)
 	if err != nil {
 		return nil, fmt.Errorf("executor: load interleaved state: %w", err)
 	}
@@ -88,11 +133,9 @@ func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*
 		failures: failures,
 	}
 	ttft := newTTFTBudget(e.now(), sel)
-	sessionState := &routing.SessionRoutingState{FirstRequestConsumed: prep.identity.aLeg.WeightedFirstConsumed}
+	sessionState := &routing.SessionRoutingState{FirstRequestConsumed: weightedFirstConsumed}
 	excluded := map[string]struct{}{}
-	requestSize := e.requestSizeEstimateForRouting(ctx, sel, *prep.call)
 	rng := e.rng()
-	failoverReq := capabilities.NewFailoverRequirementSet(*prep.call)
 	progress := newRecoveryController(recoveryControllerInput{
 		e:              e,
 		affinityStore:  e.AffinityStore,

@@ -78,7 +78,7 @@ var lp34NarrowPortTable = []lp34PortClass{
 	{Port: "routing.execution_policy_resolvers", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.3: ExecutionCompositionPolicy/BackendExecutionResolver are bounded generation policy"},
 	// SecurityRuntime (executor_config.go:182-193; 1.8 section 3.4).
 	{Port: "security.session_manager", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.4: bounded BeginInput fact shape (session wire IDs, principal/workspace refs, policy, hint); assessment performs no BeginTurn/A-leg/store work (req 6.2)"},
-	{Port: "security.session_recorder", NilState: lp34NoOp, OccupiedState: lp34Blocker, Refs: "req 14.3-14.5, 1.8 3.4: nil means no recording; occupied GateRecording blocks under Blocker 2 conservative fail-safe because session recording is bypassed during wire streaming until deferred pipeline reuse; semantic-fact overflow selects canonical pre-commit (Task 9.3)"},
+	{Port: "security.session_recorder", NilState: lp34NoOp, OccupiedState: lp34WireCapable, Refs: "req 14.3-14.5, 1.8 3.4: nil means no recording; occupied GateRecording is wire-capable under Item 5 via canonical retryRecvStream response-pipeline recorder; semantic-fact overflow selects canonical pre-commit (Task 9.3)"},
 	{Port: "security.flags_metrics_audit", NilState: lp34WireCapable, OccupiedState: lp34WireCapable, Refs: "1.8 3.4: synthetic-principal/recording-mandatory/denial-mapper(func(error)error)/metrics/workspace/audit flags are bounded; the session-start emitter Call parameter is the separate blocker until refactored to bounded session/views facts"},
 	// AccountingRuntime (executor_config.go:196-224; 1.8 sections 3.5/4.6).
 	{Port: "accounting.preflight", NilState: lp34WireCapable, OccupiedState: lp34Blocker, Refs: "req 15.5, 1.8 3.5/4.6: nil/disabled checker reports ReasonDisabled (bounded, wire-safe); enabled CountCall-only checker is a blocker until an exact WireCounter exists (Task 10.4)"},
@@ -450,8 +450,8 @@ func TestLargePayload34_SecureRecorderInputIsBounded(t *testing.T) {
 	if !ok {
 		t.Fatal("security.session_recorder row missing from the Task 3.4 table")
 	}
-	if row.NilState != lp34NoOp || row.OccupiedState != lp34Blocker {
-		t.Fatalf("security.session_recorder must freeze nil=no-op occupied=blocker under Blocker 2 conservative fail-safe, got %q/%q", row.NilState, row.OccupiedState)
+	if row.NilState != lp34NoOp || row.OccupiedState != lp34WireCapable {
+		t.Fatalf("security.session_recorder must freeze nil=no-op occupied=wire-capable under Item 5 response-pipeline recorder parity, got %q/%q", row.NilState, row.OccupiedState)
 	}
 	if !strings.Contains(row.Refs, "overflow") {
 		t.Fatal("security.session_recorder must document the semantic-fact overflow canonical rule")
