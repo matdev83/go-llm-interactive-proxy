@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 )
@@ -547,4 +548,77 @@ func TestFindingH3_StoreSetWeightedFirstConsumedFailureAborts(t *testing.T) {
 	// Invariant: storage failure on SetWeightedFirstConsumed must abort execution
 	require.Error(t, err, "execution must abort when SetWeightedFirstConsumed fails, but wire swallowed error")
 	assert.ErrorIs(t, err, injectedErr, "expected returned error to wrap injected SetWeightedFirstConsumed failure")
+}
+
+// TestExecuteWireParallelRace_StreamRecoveryWiring verifies that executeWireParallelRace
+// properly plumbs e.StreamRecovery into recoveryControllerInput.streamRecovery.
+func TestExecuteWireParallelRace_StreamRecoveryWiring(t *testing.T) {
+	ex, _, store := setupTestExecutor(t)
+	expectedRecovery := streamrecovery.Config{
+		Enabled:                     true,
+		IdleTimeout:                 11 * time.Second,
+		GracePeriod:                 4 * time.Second,
+		EmitWarning:                 true,
+		PostOutputPolicy:            "test_abort",
+		AllowPostOutputContinuation: true,
+	}
+	ex.StreamRecovery = expectedRecovery
+
+	ex.Backends = map[string]execbackend.Backend{
+		"be1": {
+			OpenWire: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+				return makeStreamWithEvents(
+					lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "wire-stream-rec-delta"},
+					lipapi.Event{Kind: lipapi.EventResponseFinished},
+				), nil
+			},
+		},
+	}
+
+	src := newTestSource(`{"model":"gpt-4o"}`)
+	acc := makeTestAcceptedAssessment(t, "gen-1", "openai-chat", src, true)
+
+	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "usr-stream-rec"})
+	ctx = largebody.WithWireIdentity(ctx, "req-stream-rec", "trace-stream-rec")
+
+	aLegRecord, err := store.CreateALeg(ctx, "continuity-stream-rec")
+	require.NoError(t, err)
+
+	aScope := ex.lifecycleCoordinator().StartALeg(aLegRecord.ALegID)
+	defer aScope.End()
+
+	candidates := []routing.AttemptCandidate{
+		{
+			Primary:    routing.Primary{Backend: "be1", Model: "m"},
+			Key:        "be1:m",
+			IsParallel: true,
+		},
+	}
+
+	budget := &attemptBudget{max: 5}
+	failures := &candidateFailureHistory{}
+	excluded := map[string]struct{}{}
+	ttft := newTTFTBudget(time.Now(), nil)
+
+	in := wireAttemptInput{
+		ctx:                   ctx,
+		outCtx:                ctx,
+		accepted:              acc,
+		src:                   src,
+		traceID:               "trace-stream-rec",
+		aLegID:                aLegRecord.ALegID,
+		aScope:                aScope,
+		weightedFirstConsumed: false,
+	}
+
+	res, err := ex.executeWireParallelRace(in, candidates, budget, failures, excluded, ttft, affinity.Key{}, false)
+	require.NoError(t, err)
+	require.True(t, res.opened)
+	if res.stream != nil {
+		_ = res.stream.Close()
+	}
+
+	require.NotNil(t, failures.progress, "failures.progress must be set by executeWireParallelRace")
+	assert.Equal(t, expectedRecovery, failures.progress.streamRecovery,
+		"executeWireParallelRace must wire e.StreamRecovery into recoveryControllerInput.streamRecovery")
 }

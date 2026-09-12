@@ -299,4 +299,142 @@ func TestItem5_SecureRecorder_Differential(t *testing.T) {
 		}
 		require.NotEmpty(t, received, "wire execution must produce events with nil recorder")
 	})
+
+	t.Run("SecureRecorder_MandatoryFailure_PostCommitResponseFinishedAbortsIdentically", func(t *testing.T) {
+		recErr := errors.New("mandatory secure recorder post-commit ResponseFinished failure")
+		finishIndex := 4 // index of EventResponseFinished in testScript
+
+		// 1. Wire arm: post-commit mandatory failure at ResponseFinished
+		exWire, _, _ := setupTestExecutor(t)
+		spyWire := &item5RecordingSpy{recordErr: recErr, failOnIndex: finishIndex}
+		exWire.SecureSessionRecorder = spyWire
+		exWire.SecureSessionRecordingMandatory = true
+		exWire.Backends = map[string]execbackend.Backend{
+			"default": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				OpenWire: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+					return lipapi.CloseOnlyManagedStream{Stream: lipapi.NewFixedEventStream(testScript)}, nil
+				},
+			},
+		}
+
+		census := largebody.NewStandardDependencyCensus("gen-1")
+		census.AddPort("security.session_recorder", true)
+		exWire.LargeBodyAssessor = makeBlocker2Assessor(t, "gen-1", "dom-gen-1", census)
+
+		ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "usr-item5-postcommit"})
+		ctx = largebody.WithWireIdentity(ctx, "req-item5-postcommit", "trace-item5-postcommit")
+		rawJSON := `{"model":"gpt-4o","messages":[{"role":"user","content":"postcommit test"}]}`
+		proof := makeBlocker2ValidProof("openai-chat", lipapi.OperationOpenAIChatCompletions, lipapi.DeliveryModeStreaming)
+		proof.Source = largebody.NewSourceDigest(sha256.Sum256([]byte(rawJSON)))
+		proof.BodyBytes = int64(len(rawJSON))
+
+		assessment, err := exWire.AssessLargeBody(ctx, proof)
+		require.NoError(t, err)
+		require.Equal(t, largebody.AssessmentDecisionAccept, assessment.Decision)
+
+		src := newTestSource(rawJSON)
+		assessment.WireRequest.CandidateModel = "default:gpt-4o"
+		res, err := exWire.ExecuteLargeBody(ctx, assessment, src)
+		require.NoError(t, err)
+		defer res.Stream.Close()
+
+		var wireEvents []lipapi.Event
+		var wireRecvErr error
+		for {
+			var ev lipapi.Event
+			ev, wireRecvErr = res.Stream.Recv(ctx)
+			if wireRecvErr != nil {
+				break
+			}
+			wireEvents = append(wireEvents, ev)
+		}
+		require.Equal(t, len(testScript)-1, len(wireEvents), "wire must deliver all pre-finish events before aborting")
+		require.Error(t, wireRecvErr, "wire execution must abort on mandatory recorder failure at ResponseFinished")
+		require.ErrorIs(t, wireRecvErr, recErr)
+
+		// 2. Canonical arm: post-commit mandatory failure at ResponseFinished
+		exCanonical, _, _ := setupTestExecutor(t)
+		spyCanonical := &item5RecordingSpy{recordErr: recErr, failOnIndex: finishIndex}
+		exCanonical.SecureSessionRecorder = spyCanonical
+		exCanonical.SecureSessionRecordingMandatory = true
+		exCanonical.Backends = map[string]execbackend.Backend{
+			"default": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+					return lipapi.CloseOnlyManagedStream{Stream: lipapi.NewFixedEventStream(testScript)}, nil
+				},
+			},
+		}
+
+		cCall := &lipapi.Call{
+			Route: lipapi.RouteIntent{Selector: "default:gpt-4o"},
+			Messages: []lipapi.Message{{
+				Role:  lipapi.RoleUser,
+				Parts: []lipapi.Part{lipapi.TextPart("postcommit test")},
+			}},
+		}
+		cStream, err := exCanonical.Execute(ctx, cCall)
+		require.NoError(t, err)
+		defer cStream.Close()
+
+		var canonicalEvents []lipapi.Event
+		var canonicalRecvErr error
+		for {
+			var ev lipapi.Event
+			ev, canonicalRecvErr = cStream.Recv(ctx)
+			if canonicalRecvErr != nil {
+				break
+			}
+			canonicalEvents = append(canonicalEvents, ev)
+		}
+		require.Equal(t, len(testScript)-1, len(canonicalEvents), "canonical must deliver all pre-finish events before aborting")
+		require.Error(t, canonicalRecvErr, "canonical execution must abort on mandatory recorder failure at ResponseFinished")
+		require.ErrorIs(t, canonicalRecvErr, recErr)
+
+		// 3. Parity assertions: identical abort error
+		assert.Equal(t, canonicalRecvErr.Error(), wireRecvErr.Error(), "abort error must be identical between wire and canonical")
+
+		// 4. Parity assertions: identical recorded prefix
+		wireRecorded := spyWire.recordedEvents()
+		canonicalRecorded := spyCanonical.recordedEvents()
+		require.Equal(t, len(canonicalRecorded), len(wireRecorded),
+			"wire recorder call count must match canonical recorder call count on post-commit abort")
+		require.Equal(t, len(testScript)-1, len(wireRecorded),
+			"recorder must have recorded all pre-finish events successfully")
+
+		for i := range canonicalRecorded {
+			cRec := canonicalRecorded[i]
+			wRec := wireRecorded[i]
+			assert.Equal(t, cRec.EventKind, wRec.EventKind, "recorded event[%d] kind mismatch", i)
+			assert.Equal(t, cRec.EventPayloadJSON, wRec.EventPayloadJSON, "recorded event[%d] payload mismatch", i)
+			assert.Equal(t, cRec.BackendID, wRec.BackendID, "recorded event[%d] backend mismatch", i)
+			assert.Equal(t, cRec.Policy, wRec.Policy, "recorded event[%d] policy mismatch", i)
+		}
+
+		// 5. Parity assertions: identical settled and released posture
+		var wireRS *retryRecvStream
+		if ls, ok := res.Stream.(*wireLifecycleEventStream); ok {
+			wireRS, _ = ls.EventStream.(*retryRecvStream)
+		} else {
+			wireRS, _ = res.Stream.(*retryRecvStream)
+		}
+		require.NotNil(t, wireRS, "wire stream must unwrap to *retryRecvStream")
+		wireAttempt := testAttemptSession(wireRS)
+
+		canonicalRS, ok := cStream.(*retryRecvStream)
+		require.True(t, ok, "canonical stream must be *retryRecvStream")
+		canonicalAttempt := testAttemptSession(canonicalRS)
+
+		assert.Equal(t, canonicalAttempt.authority.Settled(), wireAttempt.authority.Settled(), "settled posture mismatch")
+		assert.Equal(t, canonicalRS.terminal.committed(), wireRS.terminal.committed(), "committed posture mismatch")
+		assert.Equal(t, canonicalRS.terminal.requestTerminal().Owner().State(), wireRS.terminal.requestTerminal().Owner().State(), "request terminal state mismatch")
+		assert.Equal(t, canonicalAttempt.terminal.Owner().State(), wireAttempt.terminal.Owner().State(), "attempt terminal state mismatch")
+
+		// After Close(), both arms must also maintain identical settled/released posture
+		_ = res.Stream.Close()
+		_ = cStream.Close()
+		assert.Equal(t, canonicalAttempt.authority.Settled(), wireAttempt.authority.Settled(), "post-close settled posture mismatch")
+		assert.Equal(t, canonicalAttempt.terminal.Owner().State(), wireAttempt.terminal.Owner().State(), "post-close attempt terminal state mismatch")
+	})
 }

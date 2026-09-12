@@ -271,7 +271,7 @@ func (p *responsePipeline) commitAffinityIfOutput(ctx context.Context, recovery 
 }
 
 func (p *responsePipeline) emitTrafficPTCFinal(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev *lipapi.Event, pm sdk.PartMeta) compactionReleaseDispatch {
-	return p.emitTrafficPTCFinalEvidence(ctx, responseRequestEvidence{traceID: facts.traceID, aLegID: facts.aLegID, sessionID: facts.baseline.Session.AuthoritativeSessionID}, attempt, ev, pm)
+	return p.emitTrafficPTCFinalEvidence(ctx, facts.responseEvidence(), attempt, ev, pm)
 }
 
 func (p *responsePipeline) emitTrafficPTCFinalEvidence(ctx context.Context, evidence responseRequestEvidence, attempt *attemptSession, ev *lipapi.Event, pm sdk.PartMeta) compactionReleaseDispatch {
@@ -318,7 +318,7 @@ func (p *responsePipeline) emitTraffic(ctx context.Context, attempt *attemptSess
 // terminal authority. Attempt identity is explicit so replacement evidence
 // cannot be attributed to the current slot accidentally.
 func (p *responsePipeline) emitUsage(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event) {
-	p.emitUsageEvidence(ctx, responseRequestEvidence{traceID: facts.traceID, aLegID: facts.aLegID, secureTurn: facts.secureTurn}, facts.baseline.Session.CorrelationID(), attempt, ev)
+	p.emitUsageEvidence(ctx, facts.responseEvidence(), facts.baseline.Session.CorrelationID(), attempt, ev)
 }
 
 func (p *responsePipeline) emitUsageTerminal(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, ev lipapi.Event) {

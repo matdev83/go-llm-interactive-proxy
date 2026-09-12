@@ -70,23 +70,27 @@ func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*
 	if prep.wirePayload != nil {
 		wp := prep.wirePayload
 		var err error
-		selModel := wp.turnFacts.Route.RouteSelector
-		if selModel == "" {
-			selModel = wp.turnFacts.Route.CandidateModel
-		}
-		if selModel == "" {
-			selModel = wp.turnFacts.Route.ClientModel
-		}
-		sel, err = routing.PrepareSelector(
-			selModel,
-			e.SelectorAliases,
-			e.DefaultBackend,
-			e.BackendExecutionResolver,
-			e.ExecutionCompositionPolicy,
-			nil,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("executor: route selector: %w", err)
+		if wp.selector != nil {
+			sel = wp.selector
+		} else {
+			selModel := wp.turnFacts.Route.RouteSelector
+			if selModel == "" {
+				selModel = wp.turnFacts.Route.CandidateModel
+			}
+			if selModel == "" {
+				selModel = wp.turnFacts.Route.ClientModel
+			}
+			sel, err = routing.PrepareSelector(
+				selModel,
+				e.SelectorAliases,
+				e.DefaultBackend,
+				e.BackendExecutionResolver,
+				e.ExecutionCompositionPolicy,
+				nil,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("executor: route selector: %w", err)
+			}
 		}
 		requestSize = routing.RequestSizeEstimate{Available: true, Tokens: wp.turnFacts.Source.BodyBytes, Basis: "wire_body_bytes"}
 		aLegID = prep.aLegID

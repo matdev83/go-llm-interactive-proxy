@@ -119,32 +119,26 @@ func cloneSnapshot(s conversationprojection.Snapshot) conversationprojection.Sna
 	return out
 }
 
-func (f requestTerminalFacts) responseEvidence() responseRequestEvidence {
-	sessID := f.call.Session.AuthoritativeSessionID
-	if sessID == "" && f.wirePayload != nil {
-		sessID = f.wirePayload.sessionID
+func newResponseRequestEvidence(traceID, aLegID, canonicalSessionID string, wirePayload *wireAttemptPayload, secureTurn execctx.SecureSessionTurn, secureTurnOK bool) responseRequestEvidence {
+	sessID := canonicalSessionID
+	if sessID == "" && wirePayload != nil {
+		sessID = wirePayload.sessionID
 	}
 	return responseRequestEvidence{
-		traceID:      f.traceID,
-		aLegID:       f.aLegID,
+		traceID:      traceID,
+		aLegID:       aLegID,
 		sessionID:    sessID,
-		secureTurn:   f.secureTurn,
-		secureTurnOK: f.secureTurnOK,
+		secureTurn:   secureTurn,
+		secureTurnOK: secureTurnOK,
 	}
 }
 
+func (f requestTerminalFacts) responseEvidence() responseRequestEvidence {
+	return newResponseRequestEvidence(f.traceID, f.aLegID, f.call.Session.AuthoritativeSessionID, f.wirePayload, f.secureTurn, f.secureTurnOK)
+}
+
 func (f recvTurnFacts) responseEvidence() responseRequestEvidence {
-	sessID := f.baseline.Session.AuthoritativeSessionID
-	if sessID == "" && f.wirePayload != nil {
-		sessID = f.wirePayload.sessionID
-	}
-	return responseRequestEvidence{
-		traceID:      f.traceID,
-		aLegID:       f.aLegID,
-		sessionID:    sessID,
-		secureTurn:   f.secureTurn,
-		secureTurnOK: f.secureTurnOK,
-	}
+	return newResponseRequestEvidence(f.traceID, f.aLegID, f.baseline.Session.AuthoritativeSessionID, f.wirePayload, f.secureTurn, f.secureTurnOK)
 }
 
 // responseEvidenceFromWire constructs bounded response evidence directly from
