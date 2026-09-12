@@ -153,9 +153,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 3.1, 5.6, 15.5, 18.1, 18.2, 18.3_
 
 
-- [ ] 4. Extend durable evidence and component storage
+- [x] 4. Extend durable evidence and component storage
 
-- [ ] 4.1 Add versioned metering envelopes and component projections
+- [x] 4.1 Add versioned metering envelopes and component projections
   - Add additive migrations for V2 metadata and generic component rows in the existing journal family; keep old canonical rows unchanged.
   - Implement transactional canonical append plus derived projection with store-scoped source/revision uniqueness and FK integrity.
   - Completion: arbitrary component quantity/charge detail can be stored and queried in SQLite and PostgreSQL without per-component DDL.
@@ -165,7 +165,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: make test-db-parity-sqlite; make test-db-parity-postgres-direct_
   - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6_
 
-- [ ] 4.2 Persist immutable valuations and reconciliation results
+- [x] 4.2 Persist immutable valuations and reconciliation results
   - Add valuation envelopes and line projections plus versioned comparison records; define indexed subject/basis/input-hash queries.
   - Persist pre-round and rounded amounts exactly, retaining explicit money presence and aggregate-only claims.
   - Completion: database round-trips reproduce the complete E/Q/P/S/R distinction and line-level costs.
@@ -175,7 +175,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/infra/billingstore/...; make test-db-parity_
   - _Requirements: 1.1, 1.2, 1.6, 2.6, 7.1, 11.1, 11.2, 11.3, 11.4_
 
-- [ ] 4.3 Add transactional append composition and rebuild support
+- [x] 4.3 Add transactional append composition and rebuild support
   - Expose an infra-only transaction writer so evidence, closure and work use one local transaction in monetary mode.
   - Implement projection-version detection/rebuild and stable bounded pagination; do not assume separate database handles participate atomically.
   - Completion: crash injection between writes yields all-or-nothing records, and rebuilt projections match canonical data.
@@ -185,7 +185,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: make test-db-parity; go test ./internal/infra/metering/journalstore/... ./internal/infra/billingstore/..._
   - _Requirements: 10.5, 11.2, 11.4, 11.5, 14.4, 18.4_
 
-- [ ] 4.4 Certify durable replay and topology isolation
+- [x] 4.4 Certify durable replay and topology isolation
   - Test same-key same-payload replay, conflicts, revisions, tenant isolation and old payload/hash preservation on both engines.
   - Exercise transaction-pooler constraints using existing repository topology targets; do not introduce session-pinned state.
   - Completion: persistence contracts are registered with the canonical dbparity catalog and fail closed when a required topology is unavailable.

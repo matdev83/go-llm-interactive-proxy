@@ -45,6 +45,8 @@ func registerMigrations() {
 		registerLegacyUsageRetirementMigration()
 		registerProviderMaintenanceMigration()
 		registerProviderMaintenanceIntegrityMigration()
+		registerBillingV2EconomicsMigration()
+		registerBillingV2LineBooleanRepairMigration()
 	})
 }
 

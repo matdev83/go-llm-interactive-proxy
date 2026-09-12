@@ -111,6 +111,11 @@ func DefaultCatalog() Catalog {
 						Evidence:  "internal/infra/billingstore/store_test.go",
 						Rationale: "SQLite executes against local in-memory or file-backed single-writer connections.",
 					},
+					{
+						ID:       "v2-valuations-reconciliations-atomic-projections",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/phase4_economics_store_test.go",
+					},
 				},
 			},
 			{
@@ -285,6 +290,11 @@ func DefaultCatalog() Catalog {
 						Class:     SQLiteSpecific,
 						Evidence:  "internal/infra/metering/journalstore/sqlite_retry_contract_test.go",
 						Rationale: "SQLite requires locked/busy error classification and backoff under concurrency.",
+					},
+					{
+						ID:       "v2-observation-components-replay-rebuild",
+						Class:    Common,
+						Evidence: "internal/infra/metering/journalstore/phase4_observation_store_test.go",
 					},
 				},
 			},

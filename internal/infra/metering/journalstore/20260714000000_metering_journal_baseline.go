@@ -23,6 +23,7 @@ func registerMigrations() {
 		registerStoreScopedSourceKeyMigration()
 		registerStoreScopedFiltersMigration()
 		registerSchemaV2Migration()
+		registerObservationProjectionMigration()
 	})
 }
 

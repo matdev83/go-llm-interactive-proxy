@@ -8,7 +8,8 @@
 - Phase 1 baseline/RED artifacts are reviewed; its broader unchecked task criteria and certification gaps remain explicit in `phase1-review.md`.
 - Three intentional billing/runtime regression failures remain for later implementation owners. Root-suite success is not claimed.
 - Parent tasks 3.1–3.4: root-reviewed and accepted; source-isolated normalization, reduction, replay and the family TCK pass focused verification.
-- Next implementation: parent 4.1–4.4, durable evidence and component storage.
+- Parent tasks 4.1–4.4: root-reviewed and accepted; durable V2 evidence, valuation/reconciliation projections, atomic composition and rebuild support pass focused dual-dialect evidence.
+- Next implementation: parent 5.1–5.4, B2BUA terminal evidence ownership.
 - The refinement has 8 groups and its required parent has 20. They overlap; do not report these as 28 independent phases or infer a completion percentage from group count.
 
 ## Process correction
@@ -37,3 +38,10 @@ This document changes execution discipline only. It does not remove requirements
 - Worker-owned Go files: 8; worker focused tests/vet: PASS.
 - Root review: started `2026-09-12T21:29:22Z`; one bounded review pass, zero repair handoffs.
 - Accepted tasks: parent 3.1–3.4.
+
+### Phase 4 measurement
+
+- Dispatch: `2026-09-12T22:38:21Z`; accepted worker completion after one repair: `2026-09-12T23:33:29Z`.
+- Worker-owned Go files: 21; worker focused tests/vet: PASS.
+- Root review completed `2026-09-12T23:35:33Z`; one consolidated repair handoff for PostgreSQL boolean parity.
+- Accepted tasks: parent 4.1–4.4.

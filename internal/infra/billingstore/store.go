@@ -15,7 +15,7 @@ import (
 
 const legacyReservedZeroMigrationName = "20260826000000"
 
-var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName, ProviderMaintenanceMigrationName, ProviderMaintenanceIntegrityMigrationName}
+var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName, ProviderMaintenanceMigrationName, ProviderMaintenanceIntegrityMigrationName, BillingV2EconomicsMigrationName, BillingV2LineBooleanRepairMigrationName}
 
 type Config struct {
 	StoreID string
@@ -24,6 +24,7 @@ type DurableStore struct {
 	db                  *bun.DB
 	storeID             string
 	settlementFaultHook func(string) error
+	economicFaultHook   func(string) error
 }
 
 var (
@@ -81,6 +82,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		"billing_accounts", "billing_account_openings", "billing_reconciliation_events", "billing_account_policy_events",
 		"usage_leg_records", "usage_call_records", "provider_cost_work", "call_exposures",
 		"journal_transactions", "journal_entries", "billing_operation_snapshots", "provider_maintenance_usage",
+		"billing_valuations", "billing_valuation_lines", "billing_reconciliations", "billing_economic_work",
 	} {
 		var probe int
 		if err := database.NewRaw("SELECT 1 FROM "+table+" WHERE 1 = 0").Scan(ctx, &probe); err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -110,7 +112,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		if accountSequenceNotNull != 0 {
 			return fmt.Errorf("billingstore: SQLite journal account_sequence must be nullable")
 		}
-		for _, index := range []string{"idx_billing_journal_account_sequence", "idx_billing_journal_source", journalReversalUniqueIndex, providerJournalOrderIndex, providerJournalBookOrderIndex, usageLegCallBLegIndex, usageLegCallAttemptSeqIndex, usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex, usageCallClaimPendingIndex, providerCostWorkStatusIndex, providerCostWorkPendingIndex, exposureAccountStatusIndex, providerMaintenanceFingerprintIndex} {
+		for _, index := range []string{"idx_billing_journal_account_sequence", "idx_billing_journal_source", journalReversalUniqueIndex, providerJournalOrderIndex, providerJournalBookOrderIndex, usageLegCallBLegIndex, usageLegCallAttemptSeqIndex, usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex, usageCallClaimPendingIndex, providerCostWorkStatusIndex, providerCostWorkPendingIndex, exposureAccountStatusIndex, providerMaintenanceFingerprintIndex, billingValuationInputIndex, billingValuationSubjectIndex, billingValuationLineItemIndex, billingReconciliationSubjectIdx, billingReconciliationInputIndex, billingEconomicWorkPendingIndex} {
 			var name string
 			if err := database.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`, index).Scan(ctx, &name); err != nil || name != index {
 				if err != nil {
@@ -132,6 +134,10 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 			"journal_entries":               {"CHECK", "side IN ('debit','credit')", "amount_nano > 0", "FOREIGN KEY(transaction_id) REFERENCES journal_transactions"},
 			"billing_operation_snapshots":   {"FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, operation_kind, source_key)", "integrity_fingerprint"},
 			"provider_maintenance_usage":    {"operation_id", "PRIMARY KEY", "a_leg_id", "target_id", "backend_id", "model_id", "recorded_at", "evidence_json", "fingerprint"},
+			"billing_valuations":            {"valuation_id", "valuation_version", "input_set_hash", "canonical_json", "fingerprint", "UNIQUE(store_id, valuation_id, valuation_version)"},
+			"billing_valuation_lines":       {"valuation_id", "valuation_version", "line_id", "amount_coefficient", "amount_scale", "amount_present", "rounded_nano", "rounded_currency", "rounded_present", "FOREIGN KEY(store_id, valuation_id, valuation_version) REFERENCES billing_valuations"},
+			"billing_reconciliations":       {"reconciliation_id", "reconciliation_version", "subject_json", "input_set_hash", "result_json", "canonical_json", "fingerprint", "UNIQUE(store_id, reconciliation_id, reconciliation_version)"},
+			"billing_economic_work":         {"work_id", "work_version", "payload_json", "fingerprint", "status", "UNIQUE(store_id, work_id, work_version)"},
 		}
 		for table, fragments := range tableFragments {
 			var ddl string
@@ -152,7 +158,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		if retiredReconciliationColumns != 0 {
 			return fmt.Errorf("billingstore: SQLite reconciliation events contain retired columns")
 		}
-		for _, trigger := range []string{"billing_exposure_immutable_update", "billing_exposure_immutable_delete", "billing_operation_snapshots_immutable_update", "billing_operation_snapshots_immutable_delete", "billing_account_openings_immutable_update", "billing_account_openings_immutable_delete", "billing_reconciliation_events_immutable_update", "billing_reconciliation_events_immutable_delete", "billing_policy_events_immutable_update", "billing_policy_events_immutable_delete", "billing_usage_leg_immutable_update", "billing_usage_leg_immutable_delete", "billing_usage_call_immutable_update", "billing_usage_call_immutable_delete", "billing_journal_tx_immutable_update", "billing_journal_tx_immutable_delete", "billing_journal_entry_immutable_update", "billing_journal_entry_immutable_delete", "billing_provider_maintenance_immutable_update", "billing_provider_maintenance_immutable_delete"} {
+		for _, trigger := range []string{"billing_exposure_immutable_update", "billing_exposure_immutable_delete", "billing_operation_snapshots_immutable_update", "billing_operation_snapshots_immutable_delete", "billing_account_openings_immutable_update", "billing_account_openings_immutable_delete", "billing_reconciliation_events_immutable_update", "billing_reconciliation_events_immutable_delete", "billing_policy_events_immutable_update", "billing_policy_events_immutable_delete", "billing_usage_leg_immutable_update", "billing_usage_leg_immutable_delete", "billing_usage_call_immutable_update", "billing_usage_call_immutable_delete", "billing_journal_tx_immutable_update", "billing_journal_tx_immutable_delete", "billing_journal_entry_immutable_update", "billing_journal_entry_immutable_delete", "billing_provider_maintenance_immutable_update", "billing_provider_maintenance_immutable_delete", "billing_v2_valuations_immutable_update", "billing_v2_valuations_immutable_delete", "billing_v2_reconciliations_immutable_update", "billing_v2_reconciliations_immutable_delete", "billing_v2_economic_work_immutable_update", "billing_v2_economic_work_immutable_delete"} {
 			var name string
 			if err := database.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?`, trigger).Scan(ctx, &name); err != nil || name != trigger {
 				return fmt.Errorf("billingstore: missing SQLite immutability trigger %s", trigger)
@@ -240,6 +246,23 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"exposure immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'call_exposures' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_exposure_immutable"}, []string{"billing_exposure_immutable"}},
 		{"journal transaction immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'journal_transactions' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_journal_tx_immutable"}, []string{"billing_journal_tx_immutable"}},
 		{"journal entry immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'journal_entries' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_journal_entry_immutable"}, []string{"billing_journal_entry_immutable"}},
+		{"V2 economics migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{BillingV2EconomicsMigrationName}, []string{BillingV2EconomicsMigrationName}},
+		{"billing valuations table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'billing_valuations' LIMIT 1`, nil, []string{"billing_valuations"}},
+		{"billing valuation lines table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'billing_valuation_lines' LIMIT 1`, nil, []string{"billing_valuation_lines"}},
+		{"billing reconciliations table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'billing_reconciliations' LIMIT 1`, nil, []string{"billing_reconciliations"}},
+		{"billing economic work table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'billing_economic_work' LIMIT 1`, nil, []string{"billing_economic_work"}},
+		{"billing valuation canonical JSON column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_valuations' AND column_name = 'canonical_json' LIMIT 1`, nil, []string{"canonical_json"}},
+		{"billing reconciliation canonical JSON column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_reconciliations' AND column_name = 'canonical_json' LIMIT 1`, nil, []string{"canonical_json"}},
+		{"billing valuation input identity index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingValuationInputIndex}, []string{"store_id", "input_set_hash", "rater_id", "rater_version", "policy_id", "policy_version", "tariff_id", "tariff_version", "basis"}},
+		{"billing valuation subject index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingValuationSubjectIndex}, []string{"store_id", "subject_kind", "subject_id", "created_at_unix", "valuation_id", "valuation_version", "id"}},
+		{"billing valuation line item index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingValuationLineItemIndex}, []string{"store_id", "item_id", "valuation_id", "valuation_version", "line_id"}},
+		{"billing reconciliation subject index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingReconciliationSubjectIdx}, []string{"store_id", "subject_kind", "subject_id", "created_at_unix", "reconciliation_id", "reconciliation_version", "id"}},
+		{"billing reconciliation basis/input index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingReconciliationInputIndex}, []string{"store_id", "basis", "input_set_hash", "created_at_unix", "reconciliation_id", "reconciliation_version", "id"}},
+		{"billing economic work pending index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingEconomicWorkPendingIndex}, []string{"store_id", "status", "created_at_unix", "work_id", "work_version", "id"}},
+		{"billing valuation lines foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'billing_valuation_lines' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "billing_valuations", "store_id", "valuation_id", "valuation_version"}},
+		{"billing valuation immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'billing_valuations' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_v2_valuations_immutable"}, []string{"billing_v2_valuations_immutable"}},
+		{"billing reconciliation immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'billing_reconciliations' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_v2_reconciliations_immutable"}, []string{"billing_v2_reconciliations_immutable"}},
+		{"billing economic work immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'billing_economic_work' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_v2_economic_work_immutable"}, []string{"billing_v2_economic_work_immutable"}},
 	}
 	for _, check := range checks {
 		if err := dbinfra.VerifyPostgresQueryRowContains(ctx, database, check.description, check.query, check.args, check.fragments...); err != nil {
@@ -295,3 +318,15 @@ func (s *DurableStore) StoreID() string {
 	}
 	return s.storeID
 }
+
+// DB exposes the owned Bun handle to infrastructure composition code only.
+// Public host/SDK contracts intentionally do not depend on Bun.
+func (s *DurableStore) DB() *bun.DB {
+	if s == nil {
+		return nil
+	}
+	return s.db
+}
+
+// Database is an explicit infra spelling used by composition checks.
+func (s *DurableStore) Database() *bun.DB { return s.DB() }
