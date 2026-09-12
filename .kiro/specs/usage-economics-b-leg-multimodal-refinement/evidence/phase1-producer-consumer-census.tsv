@@ -1,0 +1,70 @@
+category	path	symbol_anchor	symbols_or_boundary	protocol_family	owner	disposition
+token-contract	pkg/lipsdk/metering/quantity.go	Quantity	Quantity.Validate	canonical metering	Metering SDK	bridge-v1; parent 2.1-2.5
+token-contract	pkg/lipsdk/metering/fact.go	Fact	Fact.Validate	canonical metering	Metering SDK	bridge-v1; parent 2.1-2.5
+token-contract	pkg/lipsdk/metering/recorder.go	Recorder	Append/Record port	canonical metering	Metering SDK	bridge-v1; parent 2.5
+token-contract	internal/core/metering/checkpoint/fact.go	FactFromIngress	FactFromIngress/FactFromFrontendIngress	frontend ingress	Core metering	bridge-v1; parent 3.1-3.4
+token-contract	internal/core/metering/checkpoint/fact.go	FactFromEgress	FactFromEgress	backend/frontend egress	Core metering	bridge-v1; parent 3.1-3.4
+token-contract	internal/core/metering/plane/plane.go	QuantitiesFromUsageEvent	QuantitiesFromUsageEvent/MoneyFromUsageEvent	canonical usage event	Core metering	bridge-v1; parent 2.1-3.4
+token-reducer	internal/core/metering/aggregate/aggregate.go	Apply	Apply	canonical metering	Core metering	bridge-v1; parent 3.2-3.4
+token-reducer	internal/core/metering/reconcile/reconcile.go	Stream	Stream	canonical metering	Core metering	bridge-v1; parent 12
+token-runtime	internal/core/runtime/attempt_accounting.go	observeUsage	observeUsage	backend/client token accounting	Core runtime	bridge-v1; parent 3.2-3.4
+token-runtime	internal/core/runtime/attempt_usage_evidence.go	recordUsageEvidence	rememberUsageEvidenceOnce/recordUsageEvidence/drainStreamUsageEvidence	backend sideband	Core runtime	bridge-v1; parent 3.2-3.4
+token-runtime	internal/core/runtime/usage_quantities.go	usageEventQuantities	attemptRatingQuantities/usageEventQuantities	canonical usage event	Core runtime	bridge-v1; parent 3.2-3.4
+token-runtime	internal/core/runtime/response_pipeline.go	resolveCustomerUsage	resolveCustomerUsage/resolveCustomerUsageForTerminal	customer output	Core runtime	bridge-v1; parent 3.2-3.4
+token-runtime	internal/core/runtime/executor_settlement.go	authoritativeProviderUsageEvents	authoritativeProviderUsageEvents/tokenAccountingUsageEvents	settlement	Core runtime	bridge-v1; parent 3.2-3.4
+token-runtime	internal/core/runtime/metering_checkpoint.go	appendMeteringFact	appendMeteringFact/persistFrontendIngressFact/persistBackendIngressFact	metering journal	Core runtime	bridge-v1; parent 3.1-4.2
+provider-producer	internal/plugins/backends/openaiusage/usage.go	ChatUsageEvent	ChatUsageEvent/ResponsesUsageEvent	OpenAI/OpenResponses	Backend adapter	pending; parent 7.1
+provider-producer	internal/plugins/backends/openresponsescompat/response.go	usageEvent	usageEvent	OpenAI-compatible	Backend adapter	pending; parent 7.1
+provider-producer	internal/plugins/backends/protocols/anthropicmessages/map_events.go	usageFromMessageDelta	usageFromMessageDelta	Anthropic	Backend adapter	pending; parent 7.1
+provider-producer	internal/plugins/backends/protocols/geminigenerate/map_events.go	usageEvent	usageEvent	Gemini	Backend adapter	pending; parent 7.2
+provider-producer	internal/plugins/backends/bedrock/map_events.go	handleOutput	handleOutput	Bedrock	Backend adapter	unsupported; parent 7.2 V2 coverage pending
+provider-producer	internal/plugins/backends/localstub/stream.go	canonicalEvents	canonicalEvents	localstub/reference	Backend adapter	bridge fixture; parent 7.3 test-only reference
+provider-producer	connectors/codex/internal/codex/attempt.go	DrainUsageEvidence	DrainUsageEvidence/accountingEvidence	Codex connector	Connector owner	pending; parent 7.3
+provider-producer	connectors/codex/internal/codex/stream.go	usageEvent	completedResponse.usageEvent	Codex connector	Connector owner	pending; parent 7.3
+provider-producer	connectors/codex/internal/codex/usage_estimator.go	estimateUsage	estimateUsage	Codex local estimator	Connector owner	bridge estimated; parent 7.3
+provider-producer	connectors/commandcode-anthropic/internal/anthropic/client.go	parseNonStreamingResponse	parseNonStreamingResponse	Anthropic connector	Connector owner	pending; parent 7.3
+provider-producer	connectors/commandcode-anthropic/internal/anthropic/stream.go	handlePayload	handlePayload	Anthropic connector	Connector owner	pending; parent 7.3
+provider-producer	connectors/cursorsdk/internal/product/event_mapper.go	mapUsageEvent	mapUsageEvent	Cursor connector	Connector owner	pending; parent 7.3
+provider-producer	connectors/gitlabduo/internal/service/client.go	handlePayload	anthropicManagedSSEStream.handlePayload	GitLab Duo connector	Connector owner	pending; parent 7.3
+provider-producer	connectors/minimexoauth/internal/service/client.go	handlePayload	anthropicManagedSSEStream.handlePayload	MiniMax connector	Connector owner	pending; parent 7.3
+provider-producer	connectors/vertex/internal/service/client.go	usageEvent	usageEvent	Vertex connector	Connector owner	pending; parent 7.3
+provider-producer	connectors/localstub/internal/service/service.go	canonicalEvents	canonicalEvents	localstub connector	Connector owner	bridge fixture; parent 7.3 test-only reference
+sideband-finalizer	pkg/lipsdk/backendplugin/accounting.go	UsageEvidence	UsageEvidence.ValidatePresence	backend-plugin ABI	SDK ABI owner	pending; parent 7.1-8.5
+sideband-finalizer	pkg/lipsdk/backendplugin/host/session.go	FinalizeBilling	Session.FinalizeBilling	backend-plugin ABI	SDK ABI owner	bridge-v1; parent 8.1-8.5
+sideband-finalizer	internal/infra/backendplugins/adapter/finalize_billing.go	finalizeBillingResponseToEvent	finalizeBillingResponseToEvent	backend-plugin ABI	Infra adapter	bridge-v1; parent 8.1-8.5
+sideband-finalizer	internal/infra/backendplugins/adapter/stream.go	accountingEvidenceToEvent	accountingEvidenceToEvent	backend-plugin sideband	Infra adapter	bridge-v1; parent 8.1-8.5
+sideband-finalizer	internal/core/runtime/response_pipeline_observations.go	emitUsageEvidence	emitUsageEvidence/emitUsageTerminal/consumeBackendUsageEvidenceForAttempt	backend sideband	Core runtime	bridge-v1; parent 3.2-5.4
+sideband-finalizer	internal/core/runtime/operator_usage_evidence.go	operatorUsageEvidence	operatorUsageEvidence/operatorUsageOrShell	finalizer fallback	Core runtime	bridge-v1; parent 5.1-5.4
+sideband-finalizer	internal/core/runtime/billing_collector.go	callFinalizeBilling	callFinalizeBilling/finalizeOnce	finalizer cache	Core runtime	bridge-v1; parent 5.1-5.4
+sideband-finalizer	internal/core/runtime/billing_leg.go	billingLegRecord	billingLegRecord	terminal B-leg record	Core runtime	bridge-v1; parent 5.1-5.4
+sideband-finalizer	internal/core/runtime/billing_leg.go	mergeStreamCostOntoLeg	mergeStreamCostOntoLeg	terminal B-leg record	Core runtime	RED; parent 2.1-5.4
+prompt-cache	pkg/lipsdk/promptcache/accounting.go	AccountingEvidence	AccountingEvidence.Validate	prompt-cache ABI	SDK ABI owner	bridge-v1; parent 6.1-6.4
+prompt-cache	pkg/lipsdk/promptcache/types.go	Observation	Observation/ObservationBuffer	prompt-cache ABI	SDK ABI owner	bridge-v1; parent 6.1-6.4
+prompt-cache	internal/core/runtime/prompt_cache_maintenance.go	commitSuccessfulTurn	commitSuccessfulTurn	prompt-cache lifecycle	Core runtime	bridge-v1; parent 6.1-6.4
+compaction	internal/core/runtime/executor_compaction.go	observeCompactionReleaseFinalEvidence	observeCompactionReleaseFinalEvidence	compaction continuity	Core runtime	bridge-v1; parent 6.1-6.4
+compaction	internal/plugins/features/compactioncontinuity/plugin_response.go	AfterResponseRelease	BeforeResponseRelease/AfterResponseRelease	compaction continuity	Feature plugin	pending; parent 6.1-6.4
+prompt-cache	internal/standardplugins/featurehost/keepwarm.go	keepwarmAccountingHooks	keepwarmAccountingHooks/maintenanceEvidence	prompt-cache maintenance	Feature host	bridge-v1; parent 6.1-6.4
+prompt-cache	internal/infra/billingcompose/keepwarm.go	ObserveProviderMaintenance	ObserveProviderMaintenance	maintenance billing	Billing composition	bridge-v1; parent 6.1-6.4
+prompt-cache	internal/core/billing/maintenance.go	ProviderMaintenanceUsage	ProviderMaintenanceUsage/ProviderMaintenanceUsageObserver	maintenance billing	Core billing	bridge-v1; parent 6.1-6.4
+metering-journal	internal/infra/metering/journalstore/memory.go	Append	Append/List	metering journal	Infra journal	bridge-v1; parent 4.1-4.4
+metering-journal	internal/infra/metering/journalstore/durable.go	Append	Append/List	metering journal	Infra journal	bridge-v1; parent 4.1-4.4
+metering-journal	internal/infra/runtimebundle/metering.go	openDurableMeteringJournal	openDurableMeteringJournal	metering composition	Runtime bundle	bridge-v1; parent 4.1-4.4
+metering-journal	internal/core/controlplane/metering_usage_bridge.go	ListUsageRowsFromMeteringBounded	ListUsageRowsFromMeteringBounded/DualPlaneReportInputsFromMeteringBounded	control-plane query	Core control plane	bridge-v1; parent 15-16
+monetary-rating	internal/core/billing/call_rating.go	RateCall	RateCall	customer retail	Core billing	bridge-v1; parent 9.1-10.5
+monetary-rating	internal/core/billing/rating.go	selectCustomerLegs	selectCustomerLegs/chargeLeg	customer retail	Core billing	RED; parent 9.1-10.5 characterization
+monetary-rating	internal/core/billing/provider_cost.go	RateProviderCost	RateProviderCost	operator COGS	Core billing	RED; parent 9.1-10.5 characterization
+monetary-worker	internal/core/billing/call_post_usage_worker.go	ProcessOnce	CallPostUsageWorker.ProcessOnce	customer posting	Core billing	bridge-v1; parent 10.1-10.5
+monetary-worker	internal/core/billing/call_provider_cost_worker.go	ProcessOnce	CallProviderCostWorker.ProcessOnce	operator posting	Core billing	bridge-v1; parent 9.1-10.5
+monetary-store	internal/infra/billingstore/call_usage_store.go	AppendCallUsage	AppendCallUsage/ClaimCompleteCalls	customer usage durable store	Infra billing store	bridge-v1; parent 4.1-5.4
+monetary-store	internal/infra/billingstore/call_leg_usage_store.go	AppendCallLegUsage	AppendCallLegUsage/ListPendingProviderCostWork	B-leg usage durable store	Infra billing store	bridge-v1; parent 4.1-5.4
+monetary-store	internal/infra/billingstore/call_settlement.go	ApplyCallBillingResult	ApplyCallBillingResult	customer journal posting	Infra billing store	bridge-v1; parent 10.1-10.5
+monetary-store	internal/infra/billingstore/provider_cost_store.go	ApplyProviderCost	ApplyProviderCost	operator journal posting	Infra billing store	bridge-v1; parent 9.1-9.5
+monetary-store	internal/infra/billingstore/journal_store.go	postJournalTransaction	postJournalTransaction	journal authority	Infra billing store	bridge-v1; parent 10.1-10.5
+monetary-worker	internal/infra/runtimebundle/process_billing.go	buildProcessBillingRuntime	buildProcessBillingRuntime/configureProcessBilling	billing worker composition	Runtime bundle	bridge-v1; parent 9-10
+report	internal/core/billing/reports.go	SummarizeJournalForReport	SummarizeJournalForReport/ReportMargin	billing report domain	Core billing	bridge-v1; parent 15.1-16.5
+report	internal/infra/billingstore/reports.go	AccountReport	AccountReport/OperatorCostReport/TrialBalanceReport	billing reports	Infra billing store	bridge-v1; parent 15.1-16.5
+report	internal/infra/billingstore/reports_call_explanation.go	CallExplanation	CallExplanation	call explanation	Infra billing store	bridge-v1; parent 15.1-16.5
+report	internal/infra/billingstore/operator_queries.go	QueryReconcileRequired	QueryReconcileRequired	operator query	Infra billing store	bridge-v1; parent 15.1-16.5
+report	internal/core/controlplane/usage_projector.go	ProjectMeteringFact	ProjectMeteringFact/UsageRowsFromMeteringFacts	control-plane projection	Core control plane	bridge-v1; parent 15.1-16.5
+report	pkg/lipsdk/controlplane/economics_report_from_facts.go	DualPlaneReportInputsFromFacts	DualPlaneReportInputsFromFacts	public report binding	SDK binding	bridge-v1; parent 15.1-16.5
+report	internal/stdhttp/admin/billing/handler.go	handleAccountReport	handleAccountReport/operatorCostHandler	HTTP report surface	HTTP adapter	bridge-v1; parent 15.1-16.5
