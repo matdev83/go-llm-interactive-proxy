@@ -3,11 +3,12 @@
 ## Current state
 
 - Worktree: `go-llm-interactive-proxy-feat-b-leg-usage-economics`; branch: `feat/b-leg-usage-economics`.
-- Baseline checkpoint: `c985a102`; baseline source: `d1847d5e`.
+- Baseline checkpoints: `c985a102` (Phase 1) and `2bd80f25` (Phase 2); baseline source: `d1847d5e`.
 - Parent tasks 2.1–2.5 and refinement 2.1–2.2: reviewed and verified SDK contracts. No runtime or monetary integration is implied.
 - Phase 1 baseline/RED artifacts are reviewed; its broader unchecked task criteria and certification gaps remain explicit in `phase1-review.md`.
 - Three intentional billing/runtime regression failures remain for later implementation owners. Root-suite success is not claimed.
-- Next implementation: parent 3.1–3.4, source-isolated normalization, reduction, replay and family TCK.
+- Parent tasks 3.1–3.4: root-reviewed and accepted; source-isolated normalization, reduction, replay and the family TCK pass focused verification.
+- Next implementation: parent 4.1–4.4, durable evidence and component storage.
 - The refinement has 8 groups and its required parent has 20. They overlap; do not report these as 28 independent phases or infer a completion percentage from group count.
 
 ## Process correction
@@ -29,3 +30,10 @@ The initial phase suffered from broad assignments, incomplete behavioral tests, 
 For the next two implementation assignments record dispatch/completion times, changed Go-file count, worker verification result, root review duration, repair count and accepted task IDs. Use those measurements to adjust decomposition and provide a grounded estimate; do not promise an unmeasured total completion time.
 
 This document changes execution discipline only. It does not remove requirements, alter approved dependencies, waive phase review or certification, authorize parallel workers, or change the user's model/reasoning override.
+
+### Phase 3 measurement
+
+- Dispatch: `2026-09-12T20:39:04Z`; accepted worker completion: `2026-09-12T21:28:35.8697196Z` (includes one infrastructure stream-disconnect and same-agent resume).
+- Worker-owned Go files: 8; worker focused tests/vet: PASS.
+- Root review: started `2026-09-12T21:29:22Z`; one bounded review pass, zero repair handoffs.
+- Accepted tasks: parent 3.1–3.4.

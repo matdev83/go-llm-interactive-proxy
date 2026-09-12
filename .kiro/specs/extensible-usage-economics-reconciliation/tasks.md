@@ -110,9 +110,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 10.6, 11.6, 15.6, 17.2, 18.3_
 
 
-- [ ] 3. Implement source-isolated normalization and reduction
+- [x] 3. Implement source-isolated normalization and reduction
 
-- [ ] 3.1 Normalize token inclusion and disjoint charging partitions
+- [x] 3.1 Normalize token inclusion and disjoint charging partitions
   - Implement inclusive-input and separate-cache mappings, lifetime distinctions, reasoning-in-output semantics and unknown partition handling.
   - Add the 11.6 synthetic charge input partition fixture and inconsistent-negative residual fixtures; never infer missing operands as zero.
   - Completion: normalizations preserve original source fields and return partial when intersections or partitions are unknown.
@@ -122,7 +122,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/metering/..._
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [ ] 3.2 Reduce source streams with complete meter keys
+- [x] 3.2 Reduce source streams with complete meter keys
   - Upgrade the existing reducer owner to reduce V2 keys/decimals within source/subject/charge scope; use the V1 adapter for historical inputs.
   - Implement delta, present-field cumulative replacement, gauge and correction semantics; absence must not erase known unrelated components.
   - Completion: mixed-unit/source streams cannot merge and chunk/order fixtures reduce deterministically.
@@ -132,7 +132,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/metering/aggregate/..._
   - _Requirements: 2.4, 9.2, 10.2, 10.3, 10.6_
 
-- [ ] 3.3 Enforce semantic replay, corrections and provenance integrity
+- [x] 3.3 Enforce semantic replay, corrections and provenance integrity
   - Use source event/revision identity for replay and full payload equality for conflicts, including duplicate identities within one batch.
   - Validate supersession target scope, acyclic revision relationships, typed charge-coverage graph integrity and sequence ordering; preserve old evidence. Reject cross-store charge references, inclusive/additive contradictions, coverage cycles and unresolved ambiguous overlaps rather than selecting a payable graph by arrival order.
   - Completion: repeated frames are no-ops, changed payload under one identity conflicts, and legitimate corrections do not duplicate a charge.
@@ -142,7 +142,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/metering/... ./pkg/lipsdk/metering/..._
   - _Requirements: 1.4, 3.6, 5.2, 5.5, 10.1, 10.2, 10.3_
 
-- [ ] 3.4 Certify reusable schema and normalization TCK
+- [x] 3.4 Certify reusable schema and normalization TCK
   - Create a bounded family TCK for exact values, input/cache partition, multimodal direction/unit/quality, aggregate coverage, unknown fields, gauges and presence.
   - Add synthetic image-input, audio-output/video-output and non-token resource meters with new schema/qualifiers without editing reducer switches.
   - Completion: family adapters can supply text/image/audio/video fixtures to the shared contract without creating frontend-by-backend combinations or coercing media into text tokens.
