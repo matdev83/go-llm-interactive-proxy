@@ -165,6 +165,7 @@ func (e *Executor) newAttemptSession(in attemptSessionInput) *attemptSession {
 	sess := newAttemptSession(in)
 	if e != nil {
 		sess.recordCancellationFn = e.recordCancellation
+		sess.appendBillingLegStrict = e.appendIndependentCallLegStrict
 	}
 	return sess
 }
@@ -176,7 +177,7 @@ func (tx *attemptTx) createSession() *attemptSession {
 	if tx.session != nil {
 		return tx.session
 	}
-	tx.session = tx.e.newAttemptSession(attemptSessionInput{
+	tx.session = tx.e.newAttemptSession(withBillingStoreIDOnAttempt(attemptSessionInput{
 		inner:                 tx.stream,
 		streamDisposed:        tx.streamDisposed,
 		bleg:                  tx.bleg,
@@ -192,7 +193,7 @@ func (tx *attemptTx) createSession() *attemptSession {
 		promptCacheController: tx.promptCacheController,
 		finalStreamObs:        tx.finalStreamObs,
 		recordAttemptLoggedFn: tx.recordAttemptLoggedFn,
-	})
+	}, tx.reqFacts.billingStoreID))
 	return tx.session
 }
 
@@ -203,7 +204,7 @@ func (e *Executor) createSessionForParallelLeg(leg *parallelLeg, aScope *leglife
 	if leg.tx != nil {
 		return leg.tx.createSession()
 	}
-	return e.newAttemptSession(attemptSessionInput{
+	return e.newAttemptSession(withBillingStoreIDOnAttempt(attemptSessionInput{
 		inner:            leg.stream,
 		bleg:             leg.bleg,
 		cand:             leg.cand,
@@ -215,7 +216,7 @@ func (e *Executor) createSessionForParallelLeg(leg *parallelLeg, aScope *leglife
 				e.recordAttemptLogged(cctx, p, attrs)
 			}
 		},
-	})
+	}, leg.storeID))
 }
 
 func (tx *attemptTx) HandoffReady(pending pendingSelectionEffects) *readyAttempt {

@@ -249,6 +249,10 @@ func (e *Executor) stampExposureIdentity(ctx context.Context, prep *preparedRequ
 	if e == nil || prep == nil {
 		return
 	}
+	// Direct admission tests and alternate composition paths may stamp account
+	// identity without passing through prepareRequest. Preserve the same
+	// once-only trusted StoreID freeze for those paths.
+	e.stampBillingStoreID(ctx, prep)
 	fallbackAccount := ""
 	if e.BillingIdentity.AccountID != nil {
 		fallbackAccount = e.BillingIdentity.AccountID(ctx, *prep.call)

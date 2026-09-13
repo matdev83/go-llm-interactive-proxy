@@ -28,20 +28,23 @@ func (f BillingLegObserverFunc) ObserveBillingLeg(ctx context.Context, record bi
 }
 
 type billingLegDraft struct {
-	callID          billing.BillingCallID
-	aLegID          string
-	bLegID          string
-	seq             int
-	primary         routing.Primary
-	startedAt       time.Time
-	finishedAt      time.Time
-	command         sdkterminal.Command
-	outcome         billing.LegOutcome
-	surfaced        billing.SurfacedState
-	finalize        lipapi.Event
-	stream          lipapi.Event
-	operatorRateRef billing.VersionRef
-	workload        billing.WorkloadIdentity
+	callID            billing.BillingCallID
+	aLegID            string
+	storeID           string
+	bLegID            string
+	seq               int
+	primary           routing.Primary
+	startedAt         time.Time
+	finishedAt        time.Time
+	command           sdkterminal.Command
+	outcome           billing.LegOutcome
+	surfaced          billing.SurfacedState
+	finalize          lipapi.Event
+	stream            lipapi.Event
+	evidenceEvents    []capturedBillingEvidence
+	evidenceConflicts []billing.EvidenceConflict
+	operatorRateRef   billing.VersionRef
+	workload          billing.WorkloadIdentity
 }
 
 func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
@@ -57,13 +60,17 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	if bLegID == "" {
 		bLegID = billingSyntheticBLegID(draft.seq)
 	}
-	evidence := mergeStreamCostOntoLeg(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
+	// Evidence is captured source-by-source for V2. The scalar V1 value below
+	// is retained only as a compatibility projection for old stores/readers;
+	// it is deliberately not used as the terminal economic source of truth.
+	evidence := projectV1BillingEvidence(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
 	evidence = normalizeBillingEvidenceIdentity(evidence, draft.callID, bLegID)
+	observations, conflicts := observationsFromBillingEvidence(draft, draft.evidenceEvents)
 	outcome := draft.outcome
 	if outcome == "" {
 		outcome = legOutcomeFromCommand(draft.command)
 	}
-	return billing.CallLegUsageRecord{
+	record := billing.CallLegUsageRecord{
 		CallID:          draft.callID,
 		ALegID:          strings.TrimSpace(draft.aLegID),
 		BLegID:          bLegID,
@@ -79,6 +86,33 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 		Evidence:        evidence,
 		Workload:        draft.workload,
 	}
+	if len(observations) != 0 || len(conflicts) != 0 {
+		record.EvidenceVersion = billing.EvidenceFormatVersionV2
+		record.EvidenceProjection = billing.EvidenceProjectionV1
+		record.Observations = observations
+		record.EvidenceConflicts = appendBoundedEvidenceConflicts(conflicts, draft.evidenceConflicts)
+	}
+	return record
+}
+
+func appendBoundedEvidenceConflicts(existing, incoming []billing.EvidenceConflict) []billing.EvidenceConflict {
+	if len(existing) == 0 && len(incoming) == 0 {
+		return nil
+	}
+	out := make([]billing.EvidenceConflict, 0, min(billing.MaxCallLegEvidenceConflicts, len(existing)+len(incoming)))
+	for _, conflict := range existing {
+		out = appendBoundedEvidenceConflict(out, conflict)
+		if len(out) >= billing.MaxCallLegEvidenceConflicts {
+			return out
+		}
+	}
+	for _, conflict := range incoming {
+		out = appendBoundedEvidenceConflict(out, conflict)
+		if len(out) >= billing.MaxCallLegEvidenceConflicts {
+			break
+		}
+	}
+	return out
 }
 
 // normalizeBillingEvidenceIdentity keeps every independently accounted B-leg
@@ -140,26 +174,36 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 		surfaced = billing.SurfacedYes
 	}
 	streamEv = attempt.augmentBillingUsage(streamEv, lipapi.Event{})
+	evidenceEvents, evidenceConflicts := attempt.billingEvidenceDrain()
 	workloadCtx := request.toRecvTurnFacts(ctx).projectContext(ctx, nil)
 	legRecord := billingLegRecord(billingLegDraft{
-		callID:          request.billingCallID,
-		aLegID:          request.aLegID,
-		bLegID:          evidence.bleg.BLegID,
-		seq:             evidence.bleg.Seq,
-		primary:         evidence.candidate.Primary,
-		startedAt:       started,
-		finishedAt:      now,
-		command:         command,
-		surfaced:        surfaced,
-		finalize:        t.finalizeBillingEvidence(ctx, request, evidence, billingState, "record_leg", streamEv),
-		stream:          streamEv,
-		operatorRateRef: t.operatorRateRef(workloadCtx, evidence.candidate.Primary),
-		workload:        t.billingWorkload(workloadCtx, request.aLegID),
+		callID:            request.billingCallID,
+		aLegID:            request.aLegID,
+		storeID:           request.storeID,
+		bLegID:            evidence.bleg.BLegID,
+		seq:               evidence.bleg.Seq,
+		primary:           evidence.candidate.Primary,
+		startedAt:         started,
+		finishedAt:        now,
+		command:           command,
+		surfaced:          surfaced,
+		finalize:          t.finalizeBillingEvidence(ctx, request, evidence, billingState, "record_leg", streamEv),
+		stream:            streamEv,
+		evidenceEvents:    evidenceEvents,
+		evidenceConflicts: evidenceConflicts,
+		operatorRateRef:   t.operatorRateRef(workloadCtx, evidence.candidate.Primary),
+		workload:          t.billingWorkload(workloadCtx, request.aLegID),
 	})
 	if t.observeBillingLeg != nil {
 		t.observeBillingLeg(ctx, legRecord)
 	}
-	if t.appendBillingLeg != nil {
+	if t.appendBillingLegStrict != nil {
+		if err := t.appendBillingLegStrict(ctx, request.billingCallID, legRecord); err != nil {
+			if t.logBillingAppendFailure != nil {
+				t.logBillingAppendFailure(ctx, "billing_call_leg_append_critical", "billing call-leg append failed", err)
+			}
+		}
+	} else if t.appendBillingLeg != nil {
 		t.appendBillingLeg(ctx, request.billingCallID, legRecord)
 	}
 }
@@ -196,18 +240,46 @@ func lastUsageDeltaOrShell(events []lipapi.Event) lipapi.Event {
 	return emptyOperatorUsageShell()
 }
 
-func mergeStreamCostOntoLeg(finalize, stream billing.FinalBillingEvidence) billing.FinalBillingEvidence {
+// projectV1BillingEvidence keeps the old scalar contract readable while
+// refusing to combine values from incompatible source/authority planes. V2
+// source observations are always retained independently by billingLegRecord.
+func projectV1BillingEvidence(finalize, stream billing.FinalBillingEvidence) billing.FinalBillingEvidence {
 	if finalize.Cost.Present {
 		return finalize
 	}
 	if !stream.Cost.Present {
 		return finalize
 	}
-	finalize.Cost = stream.Cost
-	if stream.Authority != "" {
+	// A provider-authoritative stream cost is a valid compatibility projection
+	// when the finalizer only supplied non-economic provenance (the historical
+	// FinalizeBilling ABI does this for token totals). This selects one V1
+	// value; the V2 observations still retain the two source envelopes.
+	if stream.Authority == billing.EvidenceAuthorityAuthoritative {
+		finalize.Cost = stream.Cost
 		finalize.Authority = stream.Authority
+		return finalize
 	}
+	if !compatibleBillingEvidenceProjection(finalize, stream) {
+		return finalize
+	}
+	finalize.Cost = stream.Cost
 	return finalize
+}
+
+// mergeStreamCostOntoLeg is retained as a source-compatible helper for older
+// internal callers. It now applies the explicitly labelled V1 projection.
+func mergeStreamCostOntoLeg(finalize, stream billing.FinalBillingEvidence) billing.FinalBillingEvidence {
+	return projectV1BillingEvidence(finalize, stream)
+}
+
+func compatibleBillingEvidenceProjection(finalize, stream billing.FinalBillingEvidence) bool {
+	if finalize.Source == billing.EvidenceSourceUnknown || finalize.Authority == billing.EvidenceAuthorityUnknown {
+		return false
+	}
+	if stream.Source == billing.EvidenceSourceUnknown || stream.Authority == billing.EvidenceAuthorityUnknown {
+		return false
+	}
+	return finalize.Source == stream.Source && finalize.Authority == stream.Authority
 }
 
 func legOutcomeFromCommand(command sdkterminal.Command) billing.LegOutcome {
@@ -267,17 +339,30 @@ func finalBillingEvidenceFromEvent(ev lipapi.Event) billing.FinalBillingEvidence
 }
 
 func (e *Executor) appendIndependentCallLeg(ctx context.Context, callID billing.BillingCallID, leg billing.CallLegUsageRecord) {
+	if err := e.appendIndependentCallLegStrict(ctx, callID, leg); err != nil {
+		e.logBillingUsageAppendFailure(ctx, "billing_call_leg_append_critical", "billing call-leg append failed", err)
+	}
+}
+
+// appendIndependentCallLegStrict is the terminal durability seam. It returns
+// sink failures to the owning terminal effect while retaining the existing
+// validation diagnostics and void observer wrapper for optional callers.
+func (e *Executor) appendIndependentCallLegStrict(ctx context.Context, callID billing.BillingCallID, leg billing.CallLegUsageRecord) error {
 	if !e.hasTerminalSink() {
-		return
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	// AttemptSeq is the authoritative B2BUA financial fact; reject unknown
 	// sequences rather than deriving order. Legacy NULL rows remain readable,
 	// but order-dependent rating fails closed.
 	if leg.AttemptSeq <= 0 {
+		err := fmt.Errorf("%w: attempt sequence for B-leg %q", billing.ErrInvalidRecord, leg.BLegID)
 		if e.Log != nil {
-			e.Log.ErrorContext(ctx, "billing call-leg append rejected: attempt sequence missing", "error", fmt.Errorf("%w: attempt sequence for B-leg %q", billing.ErrInvalidRecord, leg.BLegID), "b_leg_id", leg.BLegID)
+			e.Log.ErrorContext(ctx, "billing call-leg append rejected: attempt sequence missing", "error", err, "b_leg_id", leg.BLegID)
 		}
-		return
+		return nil
 	}
 	leg.CallID = callID
 	leg.Evidence = normalizeBillingEvidenceIdentity(leg.Evidence, callID, leg.BLegID)
@@ -285,15 +370,16 @@ func (e *Executor) appendIndependentCallLeg(ctx context.Context, callID billing.
 		if e.Log != nil {
 			e.Log.ErrorContext(ctx, "billing call-leg append rejected: invalid independent leg", "error", err, "b_leg_id", leg.BLegID)
 		}
-		return
+		return nil
 	}
-	independent := leg
+	independent := leg.Clone()
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
 	err := e.TerminalUsageSink.AppendLeg(persistCtx, independent)
 	if err != nil {
-		e.logBillingUsageAppendFailure(persistCtx, "billing_call_leg_append_critical", "billing call-leg append failed", err)
+		return fmt.Errorf("billing call-leg append: %w", err)
 	}
+	return nil
 }
 
 func (e *Executor) logBillingUsageAppendFailure(ctx context.Context, criticalMsg, warnMsg string, err error) {
@@ -398,6 +484,7 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:          callID,
 		aLegID:          leg.bleg.ALegID,
+		storeID:         leg.storeID,
 		bLegID:          leg.bleg.BLegID,
 		seq:             leg.bleg.Seq,
 		primary:         leg.cand.Primary,
@@ -407,6 +494,7 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 		surfaced:        surfaced,
 		finalize:        finalizeEv,
 		stream:          fallback,
+		evidenceEvents:  []capturedBillingEvidence{{event: usage, role: billingEvidenceRoleStream}},
 		operatorRateRef: e.operatorRateRef(ctx, leg.cand.Primary),
 		workload:        e.billingWorkloadIdentityForALeg(ctx, leg.bleg.ALegID),
 	})

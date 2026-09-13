@@ -64,7 +64,7 @@ func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnF
 	}
 	at := p.nowTime()
 	attempt.observeAccountingBackendEvent(at, ev)
-	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !attempt.rememberUsageEvidenceOnce(ev) {
+	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleStream) {
 		prepared.swallowed = true
 		return prepared
 	}
@@ -366,7 +366,7 @@ func (p *responsePipeline) consumeBackendUsageEvidenceForAttempt(ctx context.Con
 		return
 	}
 	for _, ev := range source.DrainUsageEvidence() {
-		if ev.Kind != lipapi.EventUsageDelta || !attempt.rememberUsageEvidenceOnce(ev) {
+		if ev.Kind != lipapi.EventUsageDelta || !attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleSideband) {
 			continue
 		}
 		p.rememberInternalUsage(ev)

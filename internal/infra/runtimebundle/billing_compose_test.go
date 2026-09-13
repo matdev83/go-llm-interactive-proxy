@@ -185,6 +185,47 @@ func TestComposeBilling(t *testing.T) {
 	})
 }
 
+func TestComposeBillingUsesAuthoritativeStoreIDForBillingIdentity(t *testing.T) {
+	t.Parallel()
+	in, _, _, _ := validComposeInput(t)
+	store := &storeScopedCompleteJournal{storeID: " store-a "}
+	in.Store = store
+	in.TerminalUsageSink = store
+	prod, err := runtimebundle.ComposeBilling(in)
+	if err != nil {
+		t.Fatalf("ComposeBilling: %v", err)
+	}
+	if prod.BillingIdentity.StoreID == nil {
+		t.Fatal("stock composition did not install trusted StoreID resolver")
+	}
+	if got := prod.BillingIdentity.StoreID(context.Background()); got != "store-a" {
+		t.Fatalf("StoreID = %q, want trimmed authoritative store id", got)
+	}
+}
+
+func TestComposeBillingPreservesCustomStoreIDResolver(t *testing.T) {
+	t.Parallel()
+	in, _, _, _ := validComposeInput(t)
+	store := &storeScopedCompleteJournal{storeID: "stock-store"}
+	in.Store = store
+	in.TerminalUsageSink = store
+	want := "custom-store"
+	in.Identity = &coreRuntime.BillingIdentity{
+		AccountID: func(context.Context, lipapi.Call) string { return "custom-acct" },
+		StoreID:   func(context.Context) string { return want },
+	}
+	prod, err := runtimebundle.ComposeBilling(in)
+	if err != nil {
+		t.Fatalf("ComposeBilling: %v", err)
+	}
+	if prod.BillingIdentity.StoreID == nil {
+		t.Fatal("custom StoreID resolver was dropped")
+	}
+	if got := prod.BillingIdentity.StoreID(context.Background()); got != want {
+		t.Fatalf("custom StoreID = %q, want %q", got, want)
+	}
+}
+
 func assertCompleteProduction(t *testing.T, prod runtimebundle.ProductionOptions, store *completeJournal, in runtimebundle.ComposeBillingInput) {
 	t.Helper()
 	if prod.BillingStore != billing.AuthoritativeBilling(store) {
@@ -475,6 +516,18 @@ type completeJournal struct {
 	journalCallUsage
 	journalExposure
 	journalProvision
+}
+
+type storeScopedCompleteJournal struct {
+	completeJournal
+	storeID string
+}
+
+func (s *storeScopedCompleteJournal) StoreID() string {
+	if s == nil {
+		return ""
+	}
+	return s.storeID
 }
 
 type journalWithoutTerminalSink struct {

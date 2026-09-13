@@ -84,6 +84,9 @@ type attemptSession struct {
 
 	internalUsageKeys  map[string]struct{}
 	accumulatedUsage   []lipapi.Event
+	usageEvidence      map[string]capturedBillingEvidence
+	usageEvidenceOrder []string
+	usageConflicts     []billing.EvidenceConflict
 	billingLegRecorded bool
 
 	cancelResult lipapi.CancelResult
@@ -98,6 +101,7 @@ type attemptSession struct {
 	defaultLegOutcome billing.LegOutcome
 	traceID           string
 	billingCallID     billing.BillingCallID
+	billingStoreID    string
 	billingCallState  *billingCallState
 
 	accounting            attemptAccountingTracker
@@ -112,12 +116,13 @@ type attemptSession struct {
 	appendBillingLegFn  func(context.Context, b2bua.BLegRecord, routing.Primary, time.Time, time.Time, billing.LegOutcome)
 	now                 func() time.Time
 
-	billingEnabled    func() bool
-	operatorRateRef   func(context.Context, routing.Primary) billing.VersionRef
-	billingWorkload   func(context.Context, string) billing.WorkloadIdentity
-	observeBillingLeg func(context.Context, billing.CallLegUsageRecord)
-	appendBillingLeg  func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord)
-	finalizeBilling   func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
+	billingEnabled         func() bool
+	operatorRateRef        func(context.Context, routing.Primary) billing.VersionRef
+	billingWorkload        func(context.Context, string) billing.WorkloadIdentity
+	observeBillingLeg      func(context.Context, billing.CallLegUsageRecord)
+	appendBillingLeg       func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord)
+	appendBillingLegStrict func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord) error
+	finalizeBilling        func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
 }
 
 func (a *attemptSession) claimBillingLegRecord() bool {
@@ -217,6 +222,7 @@ type attemptSessionInput struct {
 
 	traceID               string
 	billingCallID         billing.BillingCallID
+	billingStoreID        string
 	billingCallState      *billingCallState
 	accounting            attemptAccountingTracker
 	toolFinal             *toolCallAssembler
@@ -237,13 +243,18 @@ type attemptSessionInput struct {
 	finalizeBilling   func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
 }
 
+func withBillingStoreIDOnAttempt(input attemptSessionInput, storeID string) attemptSessionInput {
+	input.billingStoreID = storeID
+	return input
+}
+
 func newAttemptSession(in attemptSessionInput) *attemptSession {
 	return &attemptSession{
 		inner: in.inner, streamDisposed: in.streamDisposed, bleg: in.bleg, cand: in.cand, authority: in.authority,
 		forceClose: make(chan struct{}),
 		terminal:   newStreamTerminal(sdkterminal.ScopeAttempt), aScope: in.aScope,
 		releaseKind: authorityapp.ReleaseKindSwallowed, defaultCommand: sdkterminal.CommandBackendOpenFailure, defaultLegOutcome: billing.LegOutcomeFailed,
-		traceID: in.traceID, billingCallID: in.billingCallID, billingCallState: in.billingCallState,
+		traceID: in.traceID, billingCallID: in.billingCallID, billingStoreID: in.billingStoreID, billingCallState: in.billingCallState,
 		accounting: in.accounting, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
 		promptCacheController: in.promptCacheController, finalStreamObs: in.finalStreamObs,
 		recordAttemptLoggedFn: in.recordAttemptLoggedFn, emitBackendEgressFn: in.emitBackendEgressFn,
@@ -1484,7 +1495,14 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if a == nil || a.terminal == nil {
+	if a == nil {
+		return attemptTerminalResult{Result: coreterm.Result{Err: sdkterminal.ErrInvalid}}
+	}
+	// Every terminal exit, including a competing claim or an invalid owner,
+	// must release the attempt-owned evidence; otherwise a construction/close
+	// failure can leave it available to a replacement invocation.
+	defer func() { _, _ = a.billingEvidenceDrain() }()
+	if a.terminal == nil {
 		return attemptTerminalResult{Result: coreterm.Result{Err: sdkterminal.ErrInvalid}}
 	}
 	a.terminalizing.Store(true)
@@ -1501,6 +1519,11 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 		}
 		return coreterm.NewAccumulatorSnapshot(nil, false)
 	}, func(cctx context.Context, out coreterm.Outcome) error {
+		// Every terminal callback owns the attempt accumulator. The normal leg
+		// append path drains it below; this defer also covers legacy callbacks,
+		// missing call identities, and a duplicate terminal callback that cannot
+		// claim a second leg record.
+		defer func() { _, _ = a.billingEvidenceDrain() }()
 		var errorsList []error
 		innerStream := a.takeInner()
 		var cancelRes lipapi.CancelResult
@@ -1771,6 +1794,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 					surfaced = billing.SurfacedYes
 				}
 				streamEv := a.augmentBillingUsage(evidence.StreamFallback, evidence.Usage)
+				evidenceEvents, evidenceConflicts := a.billingEvidenceDrain()
 				finalizeReason := "record_leg"
 				if evidence.BillingReason != "" {
 					finalizeReason = evidence.BillingReason
@@ -1801,28 +1825,37 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 					workload = a.billingWorkload(cctx, aLegID)
 				}
 				legRecord := billingLegRecord(billingLegDraft{
-					callID:          callID,
-					aLegID:          aLegID,
-					bLegID:          a.bleg.BLegID,
-					seq:             a.bleg.Seq,
-					primary:         a.cand.Primary,
-					startedAt:       started,
-					finishedAt:      finished,
-					command:         cmd,
-					outcome:         legOutcome,
-					surfaced:        surfaced,
-					finalize:        finalizeEv,
-					stream:          streamEv,
-					operatorRateRef: opRef,
-					workload:        workload,
+					callID:            callID,
+					aLegID:            aLegID,
+					storeID:           a.billingStoreID,
+					bLegID:            a.bleg.BLegID,
+					seq:               a.bleg.Seq,
+					primary:           a.cand.Primary,
+					startedAt:         started,
+					finishedAt:        finished,
+					command:           cmd,
+					outcome:           legOutcome,
+					surfaced:          surfaced,
+					finalize:          finalizeEv,
+					stream:            streamEv,
+					evidenceEvents:    evidenceEvents,
+					evidenceConflicts: evidenceConflicts,
+					operatorRateRef:   opRef,
+					workload:          workload,
 				})
 				if a.observeBillingLeg != nil {
 					a.observeBillingLeg(cctx, legRecord)
 				}
-				if a.appendBillingLeg != nil && callID != "" {
-					a.appendBillingLeg(cctx, callID, legRecord)
+				if callID != "" {
+					if a.appendBillingLegStrict != nil {
+						if err := a.appendBillingLegStrict(cctx, callID, legRecord); err != nil {
+							errorsList = append(errorsList, fmt.Errorf("runtime: terminal billing leg durability: %w", err))
+						}
+					} else if a.appendBillingLeg != nil {
+						a.appendBillingLeg(cctx, callID, legRecord)
+					}
 				}
-				if a.observeBillingLeg == nil && a.appendBillingLeg == nil && a.appendBillingLegFn != nil {
+				if a.observeBillingLeg == nil && a.appendBillingLeg == nil && a.appendBillingLegStrict == nil && a.appendBillingLegFn != nil {
 					a.appendBillingLegFn(cctx, a.bleg, a.cand.Primary, started, finished, legOutcome)
 				}
 			})

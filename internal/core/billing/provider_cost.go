@@ -35,6 +35,13 @@ func RateProviderCost(leg CallLegUsageRecord, rates OperatorRateSet, currency st
 		return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Nano: sealed.Evidence.Cost.NanoUnits, Currency: currency}, AmountPresent: true, Reconciled: true, Authoritative: true}, nil
 	}
 	if !providerAcceptedEvidence(sealed.Evidence) {
+		// A never-started shell has no provider exposure and can therefore be a
+		// known zero. An attempted leg with no accepted evidence is different:
+		// its payable amount is unknown and must remain explicitly incomplete.
+		if sealed.Outcome != LegOutcomeNeverStarted && sealed.Outcome != LegOutcomeRejected {
+			reason := "provider_evidence_unavailable"
+			return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Currency: currency}, UnreconciledReason: reason}, fmt.Errorf("%w: %s", ErrUnreconciledCost, reason)
+		}
 		return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Currency: currency}, AmountPresent: true, Reconciled: true}, nil
 	}
 	rate, found := rates.Resolve(sealed.OperatorRateRef)

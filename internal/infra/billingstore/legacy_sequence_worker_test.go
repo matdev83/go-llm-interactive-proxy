@@ -231,8 +231,8 @@ func TestLegacySequenceWorkerAmbiguity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.BalanceNano != account.BalanceNano-30 {
-		t.Fatalf("balance after settled Cases A and B = %d, want %d", after.BalanceNano, account.BalanceNano-30)
+	if after.BalanceNano != account.BalanceNano-20 {
+		t.Fatalf("balance after settled Cases A and B = %d, want %d (fixed fee once per call)", after.BalanceNano, account.BalanceNano-20)
 	}
 
 	// Verify Case C status

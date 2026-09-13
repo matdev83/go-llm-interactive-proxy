@@ -80,13 +80,29 @@ func rateCustomerCharge(legs []CallLegUsageRecord, outcome TurnOutcome, pricing 
 		return Money{}, err
 	}
 	var total int64
+	// Fixed and resource components are call-scoped commercial charges. They
+	// are applied once after per-B-leg usage, so retry/loser/winner selection
+	// cannot multiply a request fee by the number of executed legs.
+	legPolicy := policy
+	legPolicy.IncludeFixedCharges = false
+	legPolicy.IncludeResourceCharges = false
 	for _, leg := range selected {
 		legPricing, err := customerPricingForLeg(leg, pricing, modelPricing)
 		if err != nil {
 			return Money{}, err
 		}
 		strictEvidence := outcome == TurnOutcomeCompleted && leg.Surfaced == SurfacedYes
-		amount, err := chargeLeg(leg, legPricing, policy, strictEvidence)
+		amount, err := chargeLeg(leg, legPricing, legPolicy, strictEvidence)
+		if err != nil {
+			return Money{}, err
+		}
+		total, err = addNonNegative(total, amount)
+		if err != nil {
+			return Money{}, err
+		}
+	}
+	if len(selected) != 0 {
+		amount, err := chargeScopeComponents(pricing, policy)
 		if err != nil {
 			return Money{}, err
 		}
@@ -96,6 +112,34 @@ func rateCustomerCharge(legs []CallLegUsageRecord, outcome TurnOutcome, pricing 
 		}
 	}
 	return Money{Nano: total, Currency: pricing.Currency}, nil
+}
+
+func chargeScopeComponents(pricing PricingSnapshot, policy ChargePolicy) (int64, error) {
+	var total int64
+	addComponents := func(components []ChargeComponent) error {
+		for _, component := range components {
+			amount, err := componentAmount(component, pricing.Currency)
+			if err != nil {
+				return err
+			}
+			total, err = addNonNegative(total, amount)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if policy.IncludeFixedCharges {
+		if err := addComponents(pricing.FixedCharges); err != nil {
+			return 0, err
+		}
+	}
+	if policy.IncludeResourceCharges {
+		if err := addComponents(pricing.ResourceCharges); err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
 }
 
 func customerPricingForLeg(leg CallLegUsageRecord, defaultPricing PricingSnapshot, modelPricing []ModelCustomerPricing) (PricingSnapshot, error) {
@@ -130,14 +174,47 @@ func selectCustomerLegs(legs []CallLegUsageRecord, scope ChargePolicyScope, outc
 	return selected, nil
 }
 
+// SelectRetailBLegs exposes the narrow default retail selector without
+// coupling it to supplier COGS attribution. The default surfaced-turn policy
+// selects the surfaced B-leg for a completed call; interrupted calls retain
+// the existing one-logical-accepted-leg ordering rule.
+func SelectRetailBLegs(legs []CallLegUsageRecord, outcome TurnOutcome) ([]CallLegUsageRecord, error) {
+	selected, err := selectCustomerLegs(legs, ChargeSurfacedTurn, outcome)
+	if err != nil {
+		return nil, err
+	}
+	return append([]CallLegUsageRecord(nil), selected...), nil
+}
+
+// SelectRetailLegs is a descriptive alias for SelectRetailBLegs.
+func SelectRetailLegs(legs []CallLegUsageRecord, outcome TurnOutcome) ([]CallLegUsageRecord, error) {
+	return SelectRetailBLegs(legs, outcome)
+}
+
 func acceptedCustomerLegs(legs []CallLegUsageRecord) []CallLegUsageRecord {
 	accepted := make([]CallLegUsageRecord, 0, len(legs))
 	for _, leg := range legs {
-		if providerAcceptedEvidence(leg.Evidence) {
+		if leg.Outcome == LegOutcomeNeverStarted || leg.Outcome == LegOutcomeRejected {
+			continue
+		}
+		if providerAcceptedEvidence(leg.Evidence) || selectableV2Evidence(leg) {
 			accepted = append(accepted, leg)
 		}
 	}
 	return accepted
+}
+
+// selectableV2Evidence lets the narrow retail selector operate on a record
+// whose immutable V2 envelope is present even when the compatibility scalar
+// has no accepted V1 quantity. Rating the selected quantities remains the
+// responsibility of the later V2 rater; this helper only decides ownership.
+func selectableV2Evidence(leg CallLegUsageRecord) bool {
+	for _, observation := range leg.Observations {
+		if len(observation.Measures) != 0 || len(observation.Charges) != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // oneLogicalAcceptedTurn selects a single billable accepted leg for an

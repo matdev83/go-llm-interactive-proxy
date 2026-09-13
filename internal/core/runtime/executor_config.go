@@ -48,7 +48,11 @@ import (
 // BillingIdentity is the composition-root identity bundle shared by billing
 // exposure admission and terminal call-closure stamping so those seams cannot drift.
 type BillingIdentity struct {
-	AccountID          func(context.Context, lipapi.Call) string
+	AccountID func(context.Context, lipapi.Call) string
+	// StoreID resolves the trusted durable billing/metering store identity for a
+	// request. It is captured with the terminal billing facts and is intentionally
+	// absent from public runtime options.
+	StoreID            func(context.Context) string
 	CustomerPricingRef func(context.Context, lipapi.Call) billing.VersionRef
 	ChargePolicyRef    func(context.Context, lipapi.Call) billing.VersionRef
 	OperatorRateRef    func(context.Context, string, string) billing.VersionRef

@@ -37,6 +37,7 @@ func (e *Executor) logParallelRacePanic(ctx context.Context, pe *safety.PanicErr
 
 type parallelLeg struct {
 	billingCallState *billingCallState
+	storeID          string
 	cand             routing.AttemptCandidate
 	bleg             b2bua.BLegRecord
 	stream           lipapi.ManagedEventStream
@@ -372,6 +373,7 @@ func (e *Executor) tryOpenParallelGroup(
 
 			armLeg := &parallelLeg{
 				billingCallState: frozenReqFacts.billingCallState,
+				storeID:          frozenReqFacts.billingStoreID,
 				cand:             entry.cand,
 				bleg:             tx.bleg,
 				stream:           tx.stream,
@@ -694,6 +696,7 @@ func (r *parallelRoundReducer) Reduce(
 	for i, entry := range r.entries {
 		legs[i] = parallelLeg{
 			billingCallState: r.req.reqFacts.billingCallState,
+			storeID:          r.req.reqFacts.billingStoreID,
 			cand:             entry.cand,
 			delay:            entry.delay,
 		}
@@ -835,6 +838,7 @@ func (r *parallelRoundReducer) Reduce(
 		}
 		if winnerLeg == nil {
 			winnerLeg = &parallelLeg{
+				storeID:     r.req.reqFacts.billingStoreID,
 				cand:        winnerOut.cand,
 				bleg:        winnerOut.bleg,
 				interleaved: committedInterleaved,

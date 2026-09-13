@@ -137,9 +137,9 @@ func TestRateCallAllPotentialLegsSumsAccepted(t *testing.T) {
 		testLeg("b-1", SurfacedYes, 1_000_000, 1_000_000, MoneyEvidence{}, true),
 		testLeg("b-2", SurfacedNo, 1_000_000, 1_000_000, MoneyEvidence{}, true),
 	}, policy, 1000)
-	// two legs: 2*(100+200) + 2*3 fixed = 606
-	if result.CustomerCharge.Nano != 606 {
-		t.Fatalf("customer = %d, want 606", result.CustomerCharge.Nano)
+	// two legs: 2*(100+200) + one call-scoped 3 fixed = 603
+	if result.CustomerCharge.Nano != 603 {
+		t.Fatalf("customer = %d, want 603", result.CustomerCharge.Nano)
 	}
 }
 

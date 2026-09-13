@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -97,14 +98,26 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 }
 
 func stockOrOverrideIdentity(in ComposeBillingInput) runtimecore.BillingIdentity {
+	var identity runtimecore.BillingIdentity
 	if in.Identity != nil {
-		return *in.Identity
+		identity = *in.Identity
+	} else {
+		identity = billingcompose.PrincipalSessionIdentity(billingcompose.SnapshotRefFuncs{
+			CustomerPricingRef: in.Catalog.CustomerPricingRef,
+			ChargePolicyRef:    in.Catalog.ChargePolicyRef,
+			OperatorRateRef:    in.Catalog.OperatorRateRef,
+		})
 	}
-	return billingcompose.PrincipalSessionIdentity(billingcompose.SnapshotRefFuncs{
-		CustomerPricingRef: in.Catalog.CustomerPricingRef,
-		ChargePolicyRef:    in.Catalog.ChargePolicyRef,
-		OperatorRateRef:    in.Catalog.OperatorRateRef,
-	})
+	// The authoritative store is the only trusted source for durable lineage.
+	// Preserve an explicitly supplied custom resolver; stock composition fills
+	// the resolver only when the custom identity leaves it absent.
+	if identity.StoreID == nil {
+		if store, ok := in.Store.(interface{ StoreID() string }); ok {
+			storeID := strings.TrimSpace(store.StoreID())
+			identity.StoreID = func(context.Context) string { return storeID }
+		}
+	}
+	return identity
 }
 
 func copyMoney(m *billing.Money) *billing.Money {

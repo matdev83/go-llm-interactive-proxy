@@ -196,9 +196,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 10.1, 10.6, 11.4, 11.6, 17.2, 18.4_
 
 
-- [ ] 5. Attach canonical evidence to B2BUA terminal ownership
+- [x] 5. Attach canonical evidence to B2BUA terminal ownership
 
-- [ ] 5.1 Implement call, attempt, provider charge and workload lineage
+- [x] 5.1 Implement call, attempt, provider charge and workload lineage
   - Carry trusted CallID/ALeg/BLeg/AttemptSeq and provider account/request/charge identities without conflating them. Treat A-leg as resumable continuity, BillingCallID as one invocation/grouping scope, and B-leg as the root for every request-scoped inference usage observation/charge.
   - Resolve store-scoped charge references and explicit parent-inclusive/additive-child coverage across the attributable graph. Reject cycles, contradictory/ambiguous overlap and non-conserved shared allocations before the graph becomes eligible for rating; keep genuine resource/account-period economics at their native subject until explicit allocation.
   - Completion: retries, losers, failed work and auxiliary charges have stable distinct owners, one economic leaf per actual charge, no inclusive parent can be rolled up together with the child amount it already covers, and later calls on the same A-leg cannot mutate earlier economic records.
@@ -208,7 +208,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/core/runtime/..._
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 5.5, 10.4_
 
-- [ ] 5.2 Replace destructive terminal evidence selection with capture
+- [x] 5.2 Replace destructive terminal evidence selection with capture
   - Extend the existing attempt-owned accumulator/journal and terminal handoff to retain source-separated observations and references instead of merging authority/cost into one event; allow bounded V2 observations to become durable as acquired without direct stream-time money mutation.
   - Reuse attempt snapshot/terminal claim ownership and drain final evidence on all exit paths; late callbacks cannot bind to a later current B-leg. Treat terminal/DONE as a B-leg/call checkpoint only, never A-leg/session finality.
   - Completion: stream/finalizer/sideband disagreement survives closure, a same-A-leg resume creates fresh CallID/B-legs, and no new monetary receive-loop operation appears.
@@ -218,7 +218,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/runtime/... ./internal/archtest/..._
   - _Requirements: 1.1, 1.3, 1.4, 5.2, 10.4, 14.1, 15.1_
 
-- [ ] 5.3 Make strict terminal durability and recovery explicit
+- [x] 5.3 Make strict terminal durability and recovery explicit
   - Bind the transactional envelope writer through the existing TerminalUsageSink lifecycle, preserving separate optional observation mode.
   - On append failure, preserve recoverable intent/incomplete accounting health and block new strict work when durability is unavailable; never retry inference after output.
   - Completion: shutdown, crash and canceled-context tests preserve closure identity and expose missing evidence honestly.
@@ -228,7 +228,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/runtime/... ./internal/infra/billingstore/..._
   - _Requirements: 10.5, 10.6, 11.2, 14.1, 14.4, 16.5_
 
-- [ ] 5.4 Certify all-leg COGS attribution independent of retail selection
+- [x] 5.4 Certify all-leg COGS attribution independent of retail selection
   - Exercise winner, retry, canceled/failed attempt, parallel loser, swallowed failure, compaction and maintenance lineage, including multiple BillingCallIDs on one resumed A-leg.
   - Check inclusive parent/child dedupe, partial known subtotal, BYOK payer and resource allocation conservation; prove retail inference selection is independent from all-leg supplier COGS.
   - Completion: known 3+5+2 supplier costs roll up to 10 regardless of retail selection, while the default surfaced-only retail policy can rate only the winning B-leg; an unknown extra cost makes the operator subtotal partial.

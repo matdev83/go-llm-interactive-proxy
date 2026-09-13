@@ -89,7 +89,7 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 			ingress = lipapi.CloneCall(*prep.call)
 		}
 		savedWP := prep.recvTurnFacts.wirePayload
-		prep.recvTurnFacts = newRecvTurnFacts(ctx, recvTurnFactsInput{
+		prep.recvTurnFacts = newRecvTurnFacts(ctx, withBillingStoreID(recvTurnFactsInput{
 			baseline:                     *prep.call,
 			traceID:                      prep.identity.traceID,
 			aLegID:                       prep.identity.aLeg.ALegID,
@@ -101,7 +101,7 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 			conversationProvenance:       slices.Clone(prov),
 			conversationFilteredBaseline: lipapi.CloneCall(filtered),
 			ingressCall:                  ingress,
-		})
+		}, prep.billingStoreID, prep.billingStoreIDStamped))
 		prep.recvTurnFacts.wirePayload = savedWP
 	}
 }
@@ -242,6 +242,10 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		pr.finalize(err)
 		return nil, nil, noop, fmt.Errorf("executor: allocate billing call id: %w", err)
 	}
+	// Freeze trusted store lineage at the same request identity boundary as the
+	// BillingCallID. It is carried by terminal facts and never re-resolved per
+	// B-leg or terminal callback.
+	e.stampBillingStoreID(prepCtx, pr)
 	lifecycle := e.lifecycleCoordinator()
 	pr.aScope = lifecycle.StartALeg(pr.identity.aLeg.ALegID)
 	guard.aScope = pr.aScope
@@ -274,7 +278,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	} else {
 		ingress = lipapi.CloneCall(*workingCall)
 	}
-	pr.recvTurnFacts = newRecvTurnFacts(prepCtx, recvTurnFactsInput{
+	pr.recvTurnFacts = newRecvTurnFacts(prepCtx, withBillingStoreID(recvTurnFactsInput{
 		baseline:                     *workingCall,
 		traceID:                      ibt.traceID,
 		aLegID:                       ibt.aLeg.ALegID,
@@ -304,7 +308,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		conversationProvenance:       slices.Clone(prov),
 		conversationFilteredBaseline: lipapi.CloneCall(filtered),
 		ingressCall:                  ingress,
-	})
+	}, pr.billingStoreID, pr.billingStoreIDStamped))
 	return pr, prepCtx, guard.Close, nil
 }
 

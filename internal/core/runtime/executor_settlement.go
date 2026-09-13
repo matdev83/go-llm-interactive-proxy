@@ -123,6 +123,11 @@ func (t *turnTerminal) finalizeBillingAfterCancel(ctx context.Context, attempt *
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingFinalizeTimeout)
 	defer cancel()
+	// Cancellation finalization claims the call-level finalizer before the
+	// ordinary terminal record callback. Retain that provider source on this
+	// attempt so the later B-leg closure cannot silently fall back to the
+	// stream projection when finalizeOnce reports the claim is already spent.
+	attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleFinalizer)
 	attempt.observeAccountingUsage(ev)
 	p.rememberClientEvent(ev)
 	recording := p.recordClientFacingTerminal(persistCtx, request, attempt, ev, t.committed())
@@ -296,8 +301,7 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 			if err := t.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv, request, p); err != nil {
 				return err
 			}
-			t.handoffBillingTurn(cctx, request, terminalCommand)
-			return nil
+			return t.handoffBillingTurn(cctx, request, terminalCommand)
 		})
 	}
 	if !r.Won {

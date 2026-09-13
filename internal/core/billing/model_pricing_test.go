@@ -119,8 +119,9 @@ func TestRateCallMixedModelFailoverSettlesExpensiveWinner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Only the surfaced model-b leg is billed at model-b's effective card.
-	if got, want := result.CustomerCharge.Nano, int64(1000); got != want {
+	// Only the surfaced model-b leg is billed at model-b's effective card; the
+	// request-scoped fixed fee is applied once by the call-level selector.
+	if got, want := result.CustomerCharge.Nano, int64(1003); got != want {
 		t.Fatalf("failover customer = %d, want %d (settle expensive winner with its own card)", got, want)
 	}
 }

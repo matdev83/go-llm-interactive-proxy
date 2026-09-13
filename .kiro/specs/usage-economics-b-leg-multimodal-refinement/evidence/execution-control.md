@@ -9,7 +9,8 @@
 - Three intentional billing/runtime regression failures remain for later implementation owners. Root-suite success is not claimed.
 - Parent tasks 3.1–3.4: root-reviewed and accepted; source-isolated normalization, reduction, replay and the family TCK pass focused verification.
 - Parent tasks 4.1–4.4: root-reviewed and accepted; durable V2 evidence, valuation/reconciliation projections, atomic composition and rebuild support pass focused dual-dialect evidence.
-- Next implementation: parent 5.1–5.4, B2BUA terminal evidence ownership.
+- Parent tasks 5.1–5.4: root-reviewed and accepted; source-separated B-leg terminal evidence, strict durability propagation and independent all-leg COGS/retail selection pass focused verification.
+- Next implementation: parent 6.1–6.4, independent local boundary measurement.
 - The refinement has 8 groups and its required parent has 20. They overlap; do not report these as 28 independent phases or infer a completion percentage from group count.
 
 ## Process correction
@@ -45,3 +46,10 @@ This document changes execution discipline only. It does not remove requirements
 - Worker-owned Go files: 21; worker focused tests/vet: PASS.
 - Root review completed `2026-09-12T23:35:33Z`; one consolidated repair handoff for PostgreSQL boolean parity.
 - Accepted tasks: parent 4.1–4.4.
+
+### Phase 5 measurement
+
+- Dispatch: `2026-09-12T23:55:46Z`; accepted worker completion after one repair: `2026-09-13T02:49:20Z`.
+- Worker-owned Go files: 35; worker focused tests/vet: PASS.
+- Root review used one consolidated repair handoff for trusted store identity; no repeated audit loop.
+- Accepted tasks: parent 5.1–5.4.
