@@ -380,6 +380,89 @@ func TestWireBilling_AuthorizeExposure_Parity(t *testing.T) {
 	}
 }
 
+// TestWireBilling_AuthorizeExposure_NilAdmission_CanonicalParity proves that when
+// BillingExposureAdmission is nil, both wire AuthorizeWireBilling and canonical authorizeBillingOnce
+// return nil error, empty CallExposure, and skip identity stamping (billingIdentityStamped == false).
+func TestWireBilling_AuthorizeExposure_NilAdmission_CanonicalParity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	principalScope := scope.PrincipalScopeView{
+		PrincipalID: scope.Known("principal-wire-nil-admit"),
+	}
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ex := TestExecutor()
+	ex.BillingExposureAdmission = nil
+	ex.BillingIdentity = BillingIdentity{
+		WireBounded: true,
+		WireAccountID: func(_ context.Context, sc scope.PrincipalScopeView) string {
+			return sc.PrincipalID.String()
+		},
+		AccountID: func(_ context.Context, _ lipapi.Call) string {
+			return "principal-wire-nil-admit"
+		},
+	}
+
+	primary := routing.Primary{Backend: "backend-wire", Model: "model-wire"}
+	sel := &routing.Selector{Alternatives: []routing.FailoverAlt{{Primary: &primary}}}
+	maxOut := 2048
+
+	// 1. Wire path
+	wireExposure, err := ex.AuthorizeWireBilling(ctx, WireBillingExposureArgs{
+		BillingCallID:   callID,
+		TraceID:         "trace-nil-001",
+		ALegID:          "aleg-nil-001",
+		SessionID:       "sess-nil-001",
+		Scope:           principalScope,
+		Route:           sel,
+		RequestSize:     routing.RequestSizeEstimate{Available: true, Tokens: 512},
+		MaxOutputTokens: &maxOut,
+	})
+	if err != nil {
+		t.Fatalf("wire AuthorizeWireBilling failed: %v", err)
+	}
+	if wireExposure != (billing.CallExposure{}) {
+		t.Fatalf("expected empty CallExposure for nil BillingExposureAdmission, got %+v", wireExposure)
+	}
+	wireIdentityStamped := strings.TrimSpace(wireExposure.AccountID) != ""
+	if wireIdentityStamped {
+		t.Fatalf("expected wireIdentityStamped to be false for nil BillingExposureAdmission")
+	}
+
+	// 2. Canonical path
+	call := lipapi.Call{ID: "req-nil-001"}
+	prep := &preparedRequest{
+		call:          &call,
+		billingCallID: callID,
+	}
+	plan := &routePlanState{
+		routeFacts: routeFacts{
+			sel: sel,
+		},
+	}
+	if err := ex.authorizeBillingOnce(ctx, prep, plan); err != nil {
+		t.Fatalf("canonical authorizeBillingOnce failed: %v", err)
+	}
+	if prep.billingExposure != (billing.CallExposure{}) {
+		t.Fatalf("expected canonical billingExposure to be empty, got %+v", prep.billingExposure)
+	}
+	if prep.billingIdentityStamped {
+		t.Fatalf("expected canonical billingIdentityStamped to be false for nil BillingExposureAdmission")
+	}
+
+	// 3. Differential assertions
+	if wireExposure != prep.billingExposure {
+		t.Fatalf("exposure mismatch: wire=%+v, canonical=%+v", wireExposure, prep.billingExposure)
+	}
+	if wireIdentityStamped != prep.billingIdentityStamped {
+		t.Fatalf("identity stamped mismatch: wire=%v, canonical=%v", wireIdentityStamped, prep.billingIdentityStamped)
+	}
+}
+
 // TestWireBilling_AbortClosure_ExactlyOnce proves that wire exposure abort closure
 // appends exactly one sealed CallUsageRecord on post-admission failure (Requirements 15.6, 19).
 func TestWireBilling_AbortClosure_ExactlyOnce(t *testing.T) {

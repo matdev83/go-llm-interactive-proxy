@@ -136,4 +136,26 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 			t.Fatal("visible wrapper must set surfaceVisible")
 		}
 	})
+
+	t.Run("wire payload skips interleaved wrapper", func(t *testing.T) {
+		t.Parallel()
+		localPrep := newPrep()
+		wp := &wireAttemptPayload{}
+		localPrep.wirePayload = wp
+		localPrep.recvTurnFacts.wirePayload = wp
+		ex := TestExecutor()
+		ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{StreamToClient: "visible"}, interleavedthinking.NewMemoStore(1024))
+		wireOut := out
+		wireOut.ready = newReadyAttempt(&attemptSession{
+			inner: stream,
+			cand:  thinkerCand,
+		}, pendingSelectionEffects{})
+		got, err := ex.assembleExecutorStream(context.Background(), localPrep, newPlan(), wireOut)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := got.(*retryRecvStream); !ok {
+			t.Fatalf("want *retryRecvStream on wire payload even with interleaved enabled, got %T", got)
+		}
+	})
 }

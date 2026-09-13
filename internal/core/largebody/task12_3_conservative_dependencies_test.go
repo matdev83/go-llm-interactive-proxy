@@ -427,3 +427,74 @@ func buildValidSummary(genID string) largebody.WireEligibilitySummary {
 	}
 	return summary
 }
+
+func TestTask12_3_IdentityStamped_ParityWithCanonical(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name            string
+		accountID       string
+		pricingRef      string
+		policyRef       string
+		expectedStamped bool
+	}{
+		{
+			name:            "accountID present, pricing and policy empty -> stamped",
+			accountID:       "acct-123",
+			pricingRef:      "",
+			policyRef:       "",
+			expectedStamped: true,
+		},
+		{
+			name:            "accountID empty, pricing and policy present -> not stamped",
+			accountID:       "",
+			pricingRef:      "price-1",
+			policyRef:       "policy-1",
+			expectedStamped: false,
+		},
+		{
+			name:            "accountID whitespace only, pricing present -> not stamped",
+			accountID:       "   \t  ",
+			pricingRef:      "price-1",
+			policyRef:       "",
+			expectedStamped: false,
+		},
+		{
+			name:            "accountID present and pricing/policy present -> stamped",
+			accountID:       "acct-456",
+			pricingRef:      "price-2",
+			policyRef:       "policy-2",
+			expectedStamped: true,
+		},
+		{
+			name:            "all empty -> not stamped",
+			accountID:       "",
+			pricingRef:      "",
+			policyRef:       "",
+			expectedStamped: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			facts := largebody.WireTurnFacts{
+				Identity: largebody.WireIdentityFacts{RequestID: "req-1"},
+				Economic: largebody.WireEconomicFacts{
+					AccountID:          tc.accountID,
+					CustomerPricingRef: tc.pricingRef,
+					ChargePolicyRef:    tc.policyRef,
+				},
+			}
+
+			view := facts.ToReceiveView()
+			if view.IdentityStamped != tc.expectedStamped {
+				t.Errorf("ToReceiveView: IdentityStamped = %v, want %v", view.IdentityStamped, tc.expectedStamped)
+			}
+
+			term := facts.ToTerminalFacts()
+			if term.IdentityStamped != tc.expectedStamped {
+				t.Errorf("ToTerminalFacts: IdentityStamped = %v, want %v", term.IdentityStamped, tc.expectedStamped)
+			}
+		})
+	}
+}

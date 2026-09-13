@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
 
 // buildProcessSpoolLedger constructs and binds the process-owned large payload spool ledger.
@@ -106,9 +107,10 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 	)
 
 	census := largebody.NewStandardDependencyCensus(genID)
+	var contribs *lipfeature.ContributionSet
 	hasTrafficPlanes := false
 	if in.Opts != nil && !in.Opts.FeaturePlanes.IsZero() {
-		contribs := in.Opts.FeaturePlanes.ToContributions()
+		contribs = in.Opts.FeaturePlanes.ToContributions()
 		for i := range census.Planes {
 			if contribs.Has(census.Planes[i].ID) {
 				census.Planes[i].Occupied = true
@@ -126,10 +128,25 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 		census.Hooks.ToolOccupied = tl > 0
 	}
 
+	// Stock host reachability contracts: on a stock host, conversationStore and
+	// compactionDetector are unconditionally instantiated by featurehost/process.go.
+	// For wire execution:
+	// - ConversationViewReader: on a clean stock baseline (no local_turn_handlers contributing
+	//   NeverBackend tags), snapshotAndProject is an identity no-op matching wire semantics.
+	// - ConversationViewTagger: tagger is only invoked by local_turn_handlers, otherwise idle.
+	// - SteeringWriterFactory: steering writers are only invoked by interleaved turns or
+	//   terminal_decision_provider, otherwise idle.
+	// - CompactionDetector: without compaction_observers or compaction_preservers, response-side
+	//   PreviewResponse and ResponseReleased are called on released events identically for wire
+	//   and canonical, with zero request-side event dispatch.
+	hasLocalTurn := contribs != nil && contribs.Has("local_turn_handlers")
+	hasCompactionPlanes := contribs != nil && (contribs.Has("compaction_observers") || contribs.Has("compaction_preservers"))
+	hasSteeringPlanes := in.In.InterleavedProcessor != nil || (contribs != nil && contribs.Has("terminal_decision_provider"))
+
 	census.Ports.BackendsEmpty = len(in.In.Model.Backends) == 0
-	census.Ports.ConversationViewReaderOccupied = in.In.ConversationReader != nil
-	census.Ports.ConversationViewTaggerOccupied = in.In.ConversationStore != nil
-	census.Ports.SteeringWriterFactoryOccupied = in.In.ConversationStore != nil
+	census.Ports.ConversationViewReaderOccupied = in.In.ConversationReader != nil && hasLocalTurn
+	census.Ports.ConversationViewTaggerOccupied = in.In.ConversationStore != nil && hasLocalTurn
+	census.Ports.SteeringWriterFactoryOccupied = in.In.ConversationStore != nil && hasSteeringPlanes
 	census.Ports.ExposureAdmissionOccupied = in.Prod.BillingExposureAdmission != nil
 	census.Ports.BillingIdentityCustomCallbacks = in.Prod.BillingIdentity.HasCustomCallCallbacks()
 	census.Ports.CapsResolverOccupied = in.RoutingRT.CapsResolver != nil
@@ -142,7 +159,7 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 	census.Ports.StreamUsageOccupied = in.AccountingRT.StreamUsage != nil
 	census.Ports.AdminCountServiceOccupied = in.AccountingRT.AdminCountService != nil
 	census.Ports.InterleavedProcessorOccupied = in.In.InterleavedProcessor != nil
-	census.Ports.CompactionDetectorOccupied = in.In.CompactionDetector != nil
+	census.Ports.CompactionDetectorOccupied = in.In.CompactionDetector != nil && hasCompactionPlanes
 	census.Ports.TrafficCapturing = len(in.Prod.TrafficObservers) > 0 || hasTrafficPlanes
 
 	// Item 5: Register security.session_recorder port occupancy. Wire execution exercises

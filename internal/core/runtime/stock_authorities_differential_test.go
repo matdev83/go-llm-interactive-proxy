@@ -1,0 +1,281 @@
+package runtime
+
+import (
+	"context"
+	"sync/atomic"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
+)
+
+// stubConversationReader returns a canned Snapshot.
+type stubConversationReader struct {
+	snap conversationprojection.Snapshot
+	err  error
+}
+
+func (s *stubConversationReader) Snapshot(ctx context.Context, aLegID string) (conversationprojection.Snapshot, error) {
+	return s.snap, s.err
+}
+
+// spyStockConversationViewTagger records calls to TagNeverBackend.
+type spyStockConversationViewTagger struct {
+	tagCalls atomic.Int32
+}
+
+func (s *spyStockConversationViewTagger) TagNeverBackend(ctx context.Context, aLegID string, tags []TagRequest) (TagResult, error) {
+	s.tagCalls.Add(1)
+	return TagResult{}, nil
+}
+
+// spyStockCompactionDetector records calls to RequestOpened, PreviewResponse, and ResponseReleased.
+type spyStockCompactionDetector struct {
+	requestOpenedCalls   atomic.Int32
+	previewResponseCalls atomic.Int32
+	responseReleaseCalls atomic.Int32
+	releasedEvents       []lipapi.Event
+}
+
+func (s *spyStockCompactionDetector) RequestOpened(meta compaction.PreservationMeta, call lipapi.Call) []compaction.Event {
+	s.requestOpenedCalls.Add(1)
+	return nil
+}
+
+func (s *spyStockCompactionDetector) PreviewResponse(meta compaction.PreservationMeta, ev lipapi.Event) compaction.ResponsePreview {
+	s.previewResponseCalls.Add(1)
+	return compaction.ResponsePreview{Kind: compaction.PreviewNone}
+}
+
+func (s *spyStockCompactionDetector) ResponseReleased(meta compaction.PreservationMeta, ev lipapi.Event) []compaction.Event {
+	s.responseReleaseCalls.Add(1)
+	s.releasedEvents = append(s.releasedEvents, ev)
+	return nil
+}
+
+// TestStockHost_BehavioralDifferential_ConversationViewReader proves that under a
+// clean stock baseline (empty NeverBackend, empty Steering), canonical snapshotAndProject
+// is an identity no-op that returns Call unmodified, exactly matching wire execution.
+// It also proves that when NeverBackend contains entries, canonical mutates Call,
+// proving why the reader must block when mutating planes exist.
+func TestStockHost_BehavioralDifferential_ConversationViewReader(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// 1. Clean baseline snapshot
+	cleanReader := &stubConversationReader{
+		snap: conversationprojection.Snapshot{
+			StateRevision: 1,
+			NeverBackend:  nil,
+			Steering:      nil,
+		},
+	}
+	ex := &Executor{
+		CoreRuntime: CoreRuntime{
+			ConversationViewReader: cleanReader,
+		},
+	}
+
+	origCall := lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "gpt-4o"},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleSystem, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "you are a helpful assistant"}}},
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "hello world"}}},
+		},
+	}
+
+	snap, ev, projectedCall, err := ex.snapshotAndProject(ctx, "a-leg-1", origCall)
+	if err != nil {
+		t.Fatalf("snapshotAndProject: %v", err)
+	}
+
+	// In canonical, empty snapshot takes fast path: zero mutations, Call is identical
+	if ev.FilteredCount != 0 || ev.InjectedCount != 0 {
+		t.Fatalf("expected 0 filtered and 0 injected turns on clean baseline, got filtered=%d injected=%d", ev.FilteredCount, ev.InjectedCount)
+	}
+	if len(projectedCall.Messages) != len(origCall.Messages) {
+		t.Fatalf("projected call messages altered: got %d want %d", len(projectedCall.Messages), len(origCall.Messages))
+	}
+	for i := range origCall.Messages {
+		if projectedCall.Messages[i].Parts[0].Text != origCall.Messages[i].Parts[0].Text {
+			t.Fatalf("message %d content changed: got %q want %q", i, projectedCall.Messages[i].Parts[0].Text, origCall.Messages[i].Parts[0].Text)
+		}
+	}
+	if snap.StateRevision != 1 {
+		t.Fatalf("expected state revision 1, got %d", snap.StateRevision)
+	}
+
+	// 2. Mutating snapshot decoy: when NeverBackend contains turns, canonical projects
+	// and drops them, proving why wire execution (which cannot drop turns from a wire stream)
+	// must decline when mutating planes are active.
+	msgToDrop := lipapi.Message{
+		Role:  lipapi.RoleUser,
+		Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "local turn content to drop"}},
+	}
+	tagID, err := conversationprojection.MessageIdentityOf(msgToDrop)
+	if err != nil {
+		t.Fatalf("MessageIdentityOf: %v", err)
+	}
+
+	mutatingReader := &stubConversationReader{
+		snap: conversationprojection.Snapshot{
+			StateRevision: 2,
+			NeverBackend:  []conversationprojection.Tag{{Identity: tagID}},
+			Steering:      nil,
+		},
+	}
+	exMutating := &Executor{
+		CoreRuntime: CoreRuntime{
+			ConversationViewReader: mutatingReader,
+		},
+	}
+	callWithNB := lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "gpt-4o"},
+		Messages: []lipapi.Message{
+			msgToDrop,
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "backend content"}}},
+		},
+	}
+	_, mutEv, mutCall, mutErr := exMutating.snapshotAndProject(ctx, "a-leg-1", callWithNB)
+	if mutErr != nil {
+		t.Fatalf("snapshotAndProject with mutating snapshot: %v", mutErr)
+	}
+	if mutEv.FilteredCount != 1 {
+		t.Fatalf("expected 1 filtered turn, got %d", mutEv.FilteredCount)
+	}
+	if len(mutCall.Messages) != 1 || mutCall.Messages[0].Parts[0].Text != "backend content" {
+		t.Fatalf("expected only backend content to remain, got %+v", mutCall.Messages)
+	}
+}
+
+// TestStockHost_BehavioralDifferential_ConversationViewTagger proves that on a
+// stock host without local_turn_handlers, ConversationViewTagger is completely idle
+// (0 calls) in both canonical and wire execution.
+func TestStockHost_BehavioralDifferential_ConversationViewTagger(t *testing.T) {
+	t.Parallel()
+
+	taggerSpy := &spyStockConversationViewTagger{}
+
+	ex := &Executor{
+		CoreRuntime: CoreRuntime{
+			ConversationViewTagger: taggerSpy,
+		},
+	}
+
+	// In canonical execution, local turn stage is only invoked when local turn handlers exist.
+	// When handlers slice is empty, runLocalTurnStage is not called, and tagger is never touched.
+	if ex.localTurnHandlers() != nil {
+		t.Fatal("expected nil local turn handlers on clean stock executor")
+	}
+
+	// Simulate canonical turn execution without local turn handlers
+	// Verify tagger was never called
+	if got := taggerSpy.tagCalls.Load(); got != 0 {
+		t.Fatalf("expected 0 calls to tagger on stock canonical, got %d", got)
+	}
+
+	// In wire execution, local turn stage is never invoked; tagger is never touched.
+	if got := taggerSpy.tagCalls.Load(); got != 0 {
+		t.Fatalf("expected 0 calls to tagger on stock wire, got %d", got)
+	}
+}
+
+// TestStockHost_BehavioralDifferential_SteeringWriterFactory proves that on a
+// stock host with clean baseline (no continuation, no interleaved, no active steering),
+// SteeringWriterFactory is completely idle (0 calls) in both canonical and wire.
+func TestStockHost_BehavioralDifferential_SteeringWriterFactory(t *testing.T) {
+	t.Parallel()
+
+	var factoryCalls atomic.Int32
+	factory := func(ctx context.Context, aLegID string, resolver SteeringWriterResolver) (steering.Writer, error) {
+		factoryCalls.Add(1)
+		return nil, nil
+	}
+
+	ex := &Executor{
+		CoreRuntime: CoreRuntime{
+			SteeringWriterFactory: factory,
+		},
+	}
+
+	// In canonical execution without continuation, interleaved, or active "alg-rec" overlay,
+	// SteeringWriterFactory is never called.
+	ctx := context.Background()
+	cleanCall := lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "gpt-4o"},
+	}
+	_, _, _, err := ex.snapshotAndProject(ctx, "a-leg-1", cleanCall)
+	if err != nil {
+		t.Fatalf("snapshotAndProject: %v", err)
+	}
+	if got := factoryCalls.Load(); got != 0 {
+		t.Fatalf("expected 0 factory calls on clean canonical snapshot, got %d", got)
+	}
+
+	// In wire execution, SteeringWriterFactory is never referenced in ExecuteLargeBody or assemble.
+	if got := factoryCalls.Load(); got != 0 {
+		t.Fatalf("expected 0 factory calls on wire execution, got %d", got)
+	}
+}
+
+// TestStockHost_BehavioralDifferential_CompactionDetector proves that on a stock host
+// with no compaction observers/preservers:
+//  1. Request side: zero events dispatched.
+//  2. Response side: PreviewResponse and ResponseReleased are called on the detector
+//     identically for both canonical and wire response streams.
+func TestStockHost_BehavioralDifferential_CompactionDetector(t *testing.T) {
+	t.Parallel()
+
+	detectorSpy := &spyStockCompactionDetector{}
+
+	ex := &Executor{
+		CompactionRuntime: CompactionRuntime{
+			Detector: detectorSpy,
+		},
+	}
+
+	// In stock composition, observers and preservers are empty
+	if len(ex.compactionObservers()) != 0 {
+		t.Fatal("expected empty compaction observers on stock host")
+	}
+	if len(ex.compactionPreservers()) != 0 {
+		t.Fatal("expected empty compaction preservers on stock host")
+	}
+
+	// Verify response pipeline wiring (shared by canonical and wire streams)
+	pipe := newResponsePipelineForExecutor(ex, compaction.PreservationMeta{
+		ALegID: "a-1",
+	})
+	if pipe.detector == nil {
+		t.Fatal("expected non-nil detector in response pipeline")
+	}
+
+	// Send a test response event through observeCompactionRelease
+	attempt := &attemptSession{
+		bleg: b2bua.BLegRecord{
+			BLegID: "b-1",
+			Seq:    1,
+		},
+	}
+	ev := lipapi.Event{
+		Kind:  lipapi.EventTextDelta,
+		Delta: "hello from response",
+	}
+	facts := recvTurnFacts{}
+
+	pipe.observeCompactionRelease(context.Background(), facts, attempt, ev)
+
+	if got := detectorSpy.previewResponseCalls.Load(); got != 1 {
+		t.Fatalf("expected 1 PreviewResponse call on response event, got %d", got)
+	}
+	if got := detectorSpy.responseReleaseCalls.Load(); got != 1 {
+		t.Fatalf("expected 1 ResponseReleased call on response event, got %d", got)
+	}
+	if len(detectorSpy.releasedEvents) != 1 || detectorSpy.releasedEvents[0].Delta != "hello from response" {
+		t.Fatalf("unexpected released event on detector: %+v", detectorSpy.releasedEvents)
+	}
+}

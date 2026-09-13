@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
@@ -71,14 +72,15 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	// Determine candidate for wrapper selection without consuming ready.
 	cand := out.ready.Candidate()
 	turn := openedTurn(out)
-	if turn == nil && e != nil && e.interleavedEnabled() {
+	isWire := (prep != nil && prep.wirePayload != nil) || rsFacts.wirePayload != nil
+	if turn == nil && e != nil && e.interleavedEnabled() && !isWire {
 		turn, _ = e.getOrBeginInterleavedTurn(ctx, requestFacts{
 			recvTurnFacts: rsFacts,
 			bus:           prep.bus,
 			aScope:        prep.aScope,
 		}, cand)
 	}
-	if e.shouldWrapInterleavedThinker(cand, turn) {
+	if e.shouldWrapInterleavedThinker(cand, turn) && !isWire {
 		rs.terminal.setInterleavedThinker()
 		rs.terminal.deferALegEndToOuter()
 		stream = newInterleavedContinuationStream(rs, turn, out.interleaved)
@@ -107,7 +109,7 @@ func (tx *streamAssemblyTx) Commit() error {
 	}
 	if tx.slot != nil {
 		if _, published := tx.slot.publishReady(tx.ready); !published {
-			return errors.New("runtime: publication closed")
+			return fmt.Errorf("runtime: %w", errPublicationClosed)
 		}
 	}
 	tx.committed = true

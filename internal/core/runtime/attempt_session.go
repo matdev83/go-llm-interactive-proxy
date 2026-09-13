@@ -29,6 +29,8 @@ import (
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
+var errPublicationClosed = errors.New("publication closed")
+
 func (a *attemptSession) receive(ctx context.Context, committed bool) (lipapi.Event, error) {
 	if a == nil {
 		return lipapi.Event{}, io.EOF
@@ -1278,7 +1280,7 @@ func (r *readyAttempt) Dispose(ctx context.Context, err error) {
 				if errors.Is(err, context.Canceled) {
 					outcome = billing.LegOutcomeCanceled
 					cmd = sdkterminal.CommandCancel
-				} else if err != nil && strings.Contains(err.Error(), "publication closed") {
+				} else if err != nil && errors.Is(err, errPublicationClosed) {
 					intent = IntentSwallowedFailure
 					cmd = sdkterminal.CommandSwallowedAttempt
 					outcome = billing.LegOutcomeSwallowed
@@ -1334,7 +1336,7 @@ func (r *readyAttempt) Dispose(ctx context.Context, err error) {
 		if errors.Is(err, context.Canceled) {
 			outcome = billing.LegOutcomeCanceled
 			cmd = sdkterminal.CommandCancel
-		} else if err != nil && strings.Contains(err.Error(), "publication closed") {
+		} else if err != nil && errors.Is(err, errPublicationClosed) {
 			intent = IntentSwallowedFailure
 			cmd = sdkterminal.CommandSwallowedAttempt
 			outcome = billing.LegOutcomeSwallowed
