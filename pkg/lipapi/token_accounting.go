@@ -90,6 +90,16 @@ type UsageAccountingMetadata struct {
 	Source    UsageSource
 	Authority UsageAuthority
 	Tokenizer TokenizerRef
+	// Provider identifiers are opaque, bounded correlation values captured by
+	// an adapter. They are never credentials and do not grant runtime
+	// attribution authority; the host still supplies the trusted B-leg/store.
+	ProviderAccountKey string
+	ProviderRequestID  string
+	ProviderChargeID   string
+	// ServiceContext is an optional provider-returned context lexeme (for
+	// example a service tier or endpoint class). It is retained for host-side
+	// evidence diagnostics and is never interpreted as a tariff.
+	ServiceContext string
 	// DedupeKey is an internal accounting correlation key. It is never encoded
 	// by frontend adapters and is used only to apply provider evidence once.
 	DedupeKey string
@@ -116,6 +126,16 @@ func (m UsageAccountingMetadata) validate(field string) error {
 	}
 	if err := validateStringField(field+".Authority", string(m.Authority), MaxRefStringBytes); err != nil {
 		return err
+	}
+	for name, value := range map[string]string{
+		"ProviderAccountKey": m.ProviderAccountKey,
+		"ProviderRequestID":  m.ProviderRequestID,
+		"ProviderChargeID":   m.ProviderChargeID,
+		"ServiceContext":     m.ServiceContext,
+	} {
+		if err := validateStringField(field+"."+name, value, MaxRefStringBytes); err != nil {
+			return err
+		}
 	}
 	return m.Tokenizer.validate(field + ".Tokenizer")
 }

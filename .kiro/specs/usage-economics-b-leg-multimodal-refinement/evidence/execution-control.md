@@ -12,7 +12,9 @@
 - Parent tasks 5.1–5.4: root-reviewed and accepted; source-separated B-leg terminal evidence, strict durability propagation and independent all-leg COGS/retail selection pass focused verification.
 - Parent tasks 6.1–6.4 and refinement tasks 3.1–3.3: root-reviewed and accepted; final provider-tree input measurement, separate provider/customer output planes, honest unobservables and bounded fast-path behavior pass focused verification.
 - Parent tasks 7.1–7.4: root-reviewed and accepted; negotiated V2 connector evidence, V1 partial bridge, host drains, durable coverage dispositions and reusable conformance pass focused verification.
-- Next implementation: parent task group 8, real upstream economic evidence producers.
+- Parent tasks 8.1–8.5: root-reviewed and accepted; real provider evidence, negotiated V1/V2 authority, multimodal native units, Codex account gauges, auxiliary dispositions and the closed producer census pass focused verification.
+- Refinement group 7 remains open because its dependency on retail policy and non-request resource allocation is intentionally later; parent producer migration does not satisfy those downstream criteria by itself.
+- Next implementation: parent task group 9, reproducible component rating and immutable snapshot binding.
 - The refinement has 8 groups and its required parent has 20. They overlap; do not report these as 28 independent phases or infer a completion percentage from group count.
 
 ## Process correction
@@ -69,3 +71,11 @@ This document changes execution discipline only. It does not remove requirements
 - Root issued one consolidated repair for durable coverage-disposition preservation and empty-V2 old-peer compatibility.
 - Root fresh SDK, adapter, billing, billingstore, targeted runtime and vet verification passed; the broad runtime run reproduced only the recorded unrelated cancellation flake.
 - Accepted tasks: parent 7.1–7.4.
+
+### Phase 8 measurement
+
+- One Luna/max phase worker was dispatched and awaited only through blocking completion events.
+- Root issued three consolidated repair passes for replay/cumulative evidence, V1/V2 authority selection, and architecture-baseline/attempt-ownership regressions.
+- Root fresh provider/runtime/SDK/QA/architecture verification and all six changed connector-module suites passed.
+- Changed Go files: 85, below the 100-file gate.
+- Accepted tasks: parent 8.1–8.5. Refinement group 7 remains open pending its declared dependencies.

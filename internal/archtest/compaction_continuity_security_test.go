@@ -104,7 +104,7 @@ func TestCompactionContinuitySecurity_ContentFreePublicSurfaces(t *testing.T) {
 	assertExactFields(t, "observability.Observation", reflect.TypeFor[observability.Observation](), "CorrelationHash", "Count", "Duration", "Evidence", "FactCount", "Outcome", "Phase", "Revision", "RuleID", "SizeBytes", "Stage")
 	assertExactFields(t, "billing.WorkloadIdentity", reflect.TypeFor[billing.WorkloadIdentity](), "Class", "Role")
 	assertExactFields(t, "billing.CallUsageRecord", reflect.TypeFor[billing.CallUsageRecord](), "ALegID", "AccountID", "CallID", "ChargePolicyRef", "CustomerPricingRef", "ExpectedBLegIDs", "Fingerprint", "FinishedAt", "Key", "Outcome", "SchemaVersion", "SessionID", "StartedAt", "Workload")
-	assertExactFields(t, "billing.CallLegUsageRecord", reflect.TypeFor[billing.CallLegUsageRecord](), "ALegID", "AttemptSeq", "BackendID", "BLegID", "CallID", "Evidence", "EvidenceConflicts", "EvidenceProjection", "EvidenceVersion", "Fingerprint", "FinishedAt", "Key", "ModelID", "ObservationRefs", "Observations", "OperatorRateRef", "Outcome", "ProviderID", "StartedAt", "Surfaced", "Workload")
+	assertExactFields(t, "billing.CallLegUsageRecord", reflect.TypeFor[billing.CallLegUsageRecord](), "ALegID", "AttemptSeq", "BackendID", "BLegID", "CallID", "EconomicDispositions", "EconomicEvidenceVersion", "Evidence", "EvidenceConflicts", "EvidenceProjection", "EvidenceVersion", "Fingerprint", "FinishedAt", "Key", "ModelID", "ObservationRefs", "Observations", "OperatorRateRef", "Outcome", "ProviderID", "StartedAt", "Surfaced", "Workload")
 
 	for _, value := range []any{
 		compaction.Event{},

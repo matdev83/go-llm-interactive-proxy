@@ -194,8 +194,8 @@ func compactResourceToEvents(id string, resource *proto.WireCompactResource, lim
 		}
 	}
 
-	if usagePresent(resource.Usage) {
-		events = append(events, usageEvent(resource.Usage))
+	if resource.UsagePresent || usagePresent(resource.Usage) {
+		events = append(events, usageEventWithContext(resource.Usage, resource.ID, ""))
 	}
 
 	switch resource.Status {

@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicaps"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicred"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
@@ -97,7 +98,7 @@ func New(cfg Config) execbackend.Backend {
 					if evErr != nil {
 						return nil, evErr
 					}
-					return lipapi.NewFixedEventStream(events), nil
+					return openaiusage.NewProviderEvidenceStream(events, "openai.responses.v2"), nil
 				}
 				observePreparedInput(ctx, p)
 				raw := cli.Responses.NewStreaming(ctx, p)

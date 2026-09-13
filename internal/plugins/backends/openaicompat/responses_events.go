@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	responsesbackend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
@@ -30,6 +31,7 @@ type responsesStream struct {
 	mapper          *openairesponsestream.Mapper
 	terminalEmitted bool
 	closed          bool
+	*coremetering.ProviderEvidenceBuffer
 }
 
 func NewResponsesStream(provider string, s *ssestream.Stream[responses.ResponseStreamEventUnion], maxPending int) lipapi.ManagedEventStream {
@@ -37,9 +39,10 @@ func NewResponsesStream(provider string, s *ssestream.Stream[responses.ResponseS
 		return lipapi.NewFixedEventStream(nil)
 	}
 	st := &responsesStream{
-		provider: provider,
-		sdk:      s,
-		pending:  stream.NewPendingEventQueue(maxPending),
+		provider:               provider,
+		sdk:                    s,
+		pending:                stream.NewPendingEventQueue(maxPending),
+		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
 	}
 	st.mapper = openairesponsestream.New(&st.pending)
 	return st
@@ -47,7 +50,8 @@ func NewResponsesStream(provider string, s *ssestream.Stream[responses.ResponseS
 
 func newUnitResponsesStream() *responsesStream {
 	st := &responsesStream{
-		pending: stream.NewPendingEventQueue(0),
+		pending:                stream.NewPendingEventQueue(0),
+		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
 	}
 	st.mapper = openairesponsestream.New(&st.pending)
 	return st
@@ -91,8 +95,16 @@ func (s *responsesStream) handleUnion(cur responses.ResponseStreamEventUnion) er
 			return err
 		}
 		if usage := s.usageFromResponse(resp); usage != nil {
+			openaiusage.AnnotateProviderContext(usage, resp.ID, string(resp.ServiceTier))
 			if err := m.PushUsage(usage); err != nil {
 				return err
+			}
+			if s.ProviderEvidenceBuffer != nil {
+				sourceKey := "openai.responses.usage:stream"
+				if resp.ID != "" {
+					sourceKey = "openai.responses.usage:" + resp.ID
+				}
+				s.ProviderEvidenceBuffer.Add(openaiusage.ProviderEvidenceDraft(*usage, "openai.responses.v2", sourceKey))
 			}
 		}
 		if err := m.ResponseFinished(); err != nil {

@@ -90,12 +90,18 @@ func TestMapBridgeEvent_UsageOmitsIncompleteOrNegative(t *testing.T) {
 	runID := "run-u"
 	partial, next := mapBridgeEvent(eventFrame(runID, 1, protocol.KindUsage, `{"inputTokens":1}`), runID, 1, "")
 	require.NoError(t, partial.err)
-	assert.Empty(t, partial.events)
+	require.Len(t, partial.events, 1)
+	assert.True(t, partial.events[0].UsagePresence.InputTokens)
+	assert.False(t, partial.events[0].UsagePresence.OutputTokens)
+	assert.False(t, partial.events[0].UsagePresence.TotalTokens)
 	assert.Equal(t, int64(2), next)
 
 	neg, _ := mapBridgeEvent(eventFrame(runID, next, protocol.KindUsage, `{"inputTokens":-1,"outputTokens":1,"totalTokens":1}`), runID, next, "")
 	require.NoError(t, neg.err)
-	assert.Empty(t, neg.events)
+	require.Len(t, neg.events, 1)
+	assert.False(t, neg.events[0].UsagePresence.InputTokens)
+	assert.True(t, neg.events[0].UsagePresence.OutputTokens)
+	assert.True(t, neg.events[0].UsagePresence.TotalTokens)
 }
 
 func TestMapBridgeEvent_SequenceRegressionAndUnknownKind(t *testing.T) {

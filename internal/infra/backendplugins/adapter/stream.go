@@ -164,6 +164,19 @@ type managedStream struct {
 	promptCacheBuffer promptcache.ObservationBuffer
 }
 
+// AccountingEvidenceEnabled reports whether this adapter negotiated a typed
+// host-only accounting sideband that owns the canonical provider usage path.
+// Legacy V1 is deliberately not reported here: its six counters have no
+// source-role marker, so each connector must project its own canonical key
+// when V1 is authoritative. Keeping V1 false also preserves auxiliary/native
+// V1 evidence (for example Codex compaction) alongside primary usage.
+func (s *managedStream) AccountingEvidenceEnabled() bool {
+	if s == nil {
+		return false
+	}
+	return backendplugin.AccountingEvidenceV2Negotiated(s.opt.Negotiation)
+}
+
 func (s *managedStream) CancellationProgress() CancellationProgress {
 	prog := s.cancelState.snapshot()
 	prog.TerminalSeen = s.terminalSeen.Load()

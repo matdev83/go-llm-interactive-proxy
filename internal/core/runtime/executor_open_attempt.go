@@ -880,6 +880,23 @@ func (e *Executor) openAttemptTx(
 		return be.Open(openCtx, wireCall, routing.BackendFacingCandidate(c))
 	})
 	tx.stream = stream
+	// Provider adapters may capture native V2 evidence before the runtime has
+	// created a trusted B-leg binding. Supply that binding immediately after
+	// Open so evidence from the first pre-read event and from every terminal
+	// path is attributed to this attempt only. A missing store remains a
+	// fail-closed no-op in the provider buffer.
+	if err == nil && stream != nil {
+		if binder, ok := stream.(coremetering.ProviderEvidenceBinder); ok {
+			billingCallID := tx.reqFacts.billingCallID.String()
+			binder.BindEconomicEvidence(coremetering.ObservationIdentity{
+				StoreID: tx.reqFacts.billingStoreID, RequestID: wireCall.ID,
+				CallID: billingCallID, BillingCallID: billingCallID,
+				ALegID: tx.reqFacts.aLegID, BLegID: tx.bleg.BLegID,
+				AttemptID: tx.bleg.BLegID, AttemptSeq: uint64(maxInt(tx.bleg.Seq, 0)),
+				ObservedAt: openStart.UTC(), ReceivedAt: e.now().UTC(),
+			})
+		}
+	}
 	if tx.boundary != nil {
 		tx.boundary.MarkAccepted(err == nil && stream != nil)
 	}

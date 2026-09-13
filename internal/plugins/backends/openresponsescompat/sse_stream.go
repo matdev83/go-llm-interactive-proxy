@@ -8,6 +8,7 @@ import (
 	"io"
 	"sync"
 
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -35,6 +36,7 @@ type sseStream struct {
 	closed    bool
 	closeOnce sync.Once
 	deferred  []lipapi.Event
+	*coremetering.ProviderEvidenceBuffer
 }
 
 var (
@@ -49,12 +51,13 @@ func newSSEStream(id string, body io.ReadCloser, limits ResponseLimits, maxPendi
 		limits.MaxEventBytes = DefaultMaxResponseEventBytes
 	}
 	return &sseStream{
-		id:         id,
-		br:         bufio.NewReaderSize(body, sseReadBufferSize),
-		body:       body,
-		limits:     limits,
-		mapper:     newStreamMapper(id, limits),
-		maxPending: maxPending,
+		id:                     id,
+		br:                     bufio.NewReaderSize(body, sseReadBufferSize),
+		body:                   body,
+		limits:                 limits,
+		mapper:                 newStreamMapper(id, limits),
+		maxPending:             maxPending,
+		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
 	}
 }
 
@@ -122,6 +125,20 @@ func (s *sseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if s.closed {
 			s.mu.Unlock()
 			return lipapi.Event{}, io.EOF
+		}
+		if s.ProviderEvidenceBuffer != nil {
+			responseID := s.mapper.Native().ResponseID
+			for i := range events {
+				if events[i].Kind != lipapi.EventUsageDelta {
+					continue
+				}
+				annotateProviderContext(&events[i], responseID)
+				sourceKey := "openresponses.compat.usage:stream"
+				if responseID != "" {
+					sourceKey += ":" + responseID
+				}
+				s.ProviderEvidenceBuffer.Add(providerEvidenceDraft(events[i], "openresponses.compat.v2", sourceKey))
+			}
 		}
 		if s.maxPending > 0 && len(s.deferred)+len(events) > s.maxPending {
 			// The full mapped batch must fit atomically. Rejecting mid-batch

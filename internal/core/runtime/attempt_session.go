@@ -321,6 +321,16 @@ func (a *attemptSession) loadInner() lipapi.ManagedEventStream {
 	return a.inner
 }
 
+// hasHostOnlyEconomicEvidenceSource keeps lifecycle-sensitive stream access
+// inside the attempt owner while exposing only the neutral authority query
+// needed by response preparation.
+func (a *attemptSession) hasHostOnlyEconomicEvidenceSource() bool {
+	if a == nil {
+		return false
+	}
+	return hasHostOnlyEconomicEvidenceSource(a.loadInner())
+}
+
 func (a *attemptSession) storeInner(stream lipapi.ManagedEventStream) {
 	if a == nil {
 		return

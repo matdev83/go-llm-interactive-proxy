@@ -150,6 +150,12 @@ type nativeUsageSidebandStream struct {
 	hasErrReturned bool
 }
 
+// AccountingEvidenceEnabled reports whether this stream's sideband owns the
+// wrapped stream's canonical usage. Compaction evidence is auxiliary/native
+// maintenance evidence, so it must remain additive and cannot suppress the
+// primary response usage path in the host runtime.
+func (s *nativeUsageSidebandStream) AccountingEvidenceEnabled() bool { return false }
+
 func (s *nativeUsageSidebandStream) DrainUsageEvidence() []lipapi.Event {
 	if s == nil {
 		return nil
@@ -211,6 +217,13 @@ func (s *nativeUsageSidebandStream) Cancel(ctx context.Context, cause lipapi.Can
 		return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 	}
 	return s.ManagedEventStream.Cancel(ctx, cause)
+}
+
+func (s *nativeUsageSidebandStream) DrainAccountWindowSnapshots() []AccountWindowSnapshot {
+	if source, ok := s.ManagedEventStream.(AccountWindowSnapshotSource); ok {
+		return source.DrainAccountWindowSnapshots()
+	}
+	return nil
 }
 
 func newNativeUsageSidebandStream(inner lipapi.ManagedEventStream, usage *NativeUsageEvidence, openErr error) lipapi.ManagedEventStream {
@@ -394,7 +407,12 @@ func (a *codexOpenAttempt) openStream(resp *http.Response) (lipapi.ManagedEventS
 	if model == "" {
 		model = a.originalModel
 	}
-	st := newCodexStream(resp.Body, a.call.MaxPendingWireEvents)
+	accountID := ""
+	if a.cfg != nil {
+		accountID = a.cfg.AccountID
+	}
+	st := newCodexStream(resp.Body, a.call.MaxPendingWireEvents, accountID)
+	st.captureAccountWindowSnapshots(resp.Header, accountID, time.Now().UTC())
 	managed, err := openManagedFirstEvent(a.ctx, st, a.usageEst, a.call, model)
 	if err != nil {
 		return nil, err

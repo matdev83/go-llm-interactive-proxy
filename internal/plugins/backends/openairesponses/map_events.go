@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/openairesponsestream"
@@ -29,6 +30,7 @@ type sdkStream struct {
 	pending stream.PendingEventQueue
 	mapper  *openairesponsestream.Mapper
 	closed  bool
+	*coremetering.ProviderEvidenceBuffer
 }
 
 func NewSDKStream(s *ssestream.Stream[responses.ResponseStreamEventUnion], maxPending int) lipapi.ManagedEventStream {
@@ -36,8 +38,9 @@ func NewSDKStream(s *ssestream.Stream[responses.ResponseStreamEventUnion], maxPe
 		return lipapi.NewFixedEventStream(nil)
 	}
 	st := &sdkStream{
-		sdk:     s,
-		pending: stream.NewPendingEventQueue(maxPending),
+		sdk:                    s,
+		pending:                stream.NewPendingEventQueue(maxPending),
+		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
 	}
 	st.mapper = openairesponsestream.New(&st.pending)
 	return st
@@ -88,8 +91,16 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 			return err
 		}
 		if usage := usageFromResponse(resp); usage != nil {
+			openaiusage.AnnotateProviderContext(usage, resp.ID, string(resp.ServiceTier))
 			if err := m.PushUsage(usage); err != nil {
 				return err
+			}
+			if s.ProviderEvidenceBuffer != nil {
+				sourceKey := "openai.responses.usage:stream"
+				if resp.ID != "" {
+					sourceKey = "openai.responses.usage:" + resp.ID
+				}
+				s.ProviderEvidenceBuffer.Add(openaiusage.ProviderEvidenceDraft(*usage, "openai.responses.v2", sourceKey))
 			}
 		}
 		return m.ResponseFinished()

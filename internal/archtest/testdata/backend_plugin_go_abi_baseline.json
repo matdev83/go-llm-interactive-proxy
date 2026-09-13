@@ -2070,6 +2070,11 @@
   },
   {
     "category": "func",
+    "name": "AccountingEvidenceNegotiated",
+    "detail": "func AccountingEvidenceNegotiated(neg Negotiation) bool"
+  },
+  {
+    "category": "func",
     "name": "AccountingEvidenceV2FromProto",
     "detail": "func AccountingEvidenceV2FromProto(p *backendpluginv1.AccountingEvidenceV2) (AccountingEvidenceV2, error)"
   },
@@ -2372,6 +2377,11 @@
     "category": "func",
     "name": "NewGRPCServer",
     "detail": "func NewGRPCServer(offer ProtocolOffer, svc Service) *GRPCServer"
+  },
+  {
+    "category": "func",
+    "name": "NewUsageEvidenceBuffer",
+    "detail": "func NewUsageEvidenceBuffer() *UsageEvidenceBuffer"
   },
   {
     "category": "func",
@@ -2912,6 +2922,26 @@
   },
   {
     "category": "method",
+    "name": "UsageEvidenceBuffer.AccountingEvidenceEnabled",
+    "detail": "func (b *UsageEvidenceBuffer) AccountingEvidenceEnabled() bool"
+  },
+  {
+    "category": "method",
+    "name": "UsageEvidenceBuffer.AddUsageEvent",
+    "detail": "func (b *UsageEvidenceBuffer) AddUsageEvent(event lipapi.Event, fallbackDedupeKey string)"
+  },
+  {
+    "category": "method",
+    "name": "UsageEvidenceBuffer.DrainAccountingEvidence",
+    "detail": "func (b *UsageEvidenceBuffer) DrainAccountingEvidence() []AccountingEvidence"
+  },
+  {
+    "category": "method",
+    "name": "UsageEvidenceBuffer.SetEnabled",
+    "detail": "func (b *UsageEvidenceBuffer) SetEnabled(enabled bool)"
+  },
+  {
+    "category": "method",
     "name": "frameSequencer.Err",
     "detail": "func (s *frameSequencer) Err() error"
   },
@@ -3209,6 +3239,11 @@
     "category": "struct",
     "name": "UsageEvidence",
     "detail": "UsageEvidence struct {\n\tInputTokens      *int64\n\tOutputTokens     *int64\n\tCacheReadTokens  *int64\n\tCacheWriteTokens *int64\n\tReasoningTokens  *int64\n\tTotalTokens      *int64\n\tPresence         UsagePresence\n\tRawUsageJSON     RawJSON\n}"
+  },
+  {
+    "category": "struct",
+    "name": "UsageEvidenceBuffer",
+    "detail": "UsageEvidenceBuffer struct {\n\tmu               sync.Mutex\n\titems            []AccountingEvidence\n\tlastFingerprint  map[string]string\n\tfingerprintOrder []string\n\tenabled          bool\n}"
   },
   {
     "category": "struct",

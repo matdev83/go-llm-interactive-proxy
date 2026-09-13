@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -14,12 +15,13 @@ import (
 var _ lipapi.ManagedEventStream = (*wsStream)(nil)
 
 type wsStream struct {
-	mapper       *codexEventMapper
-	mu           sync.Mutex
-	conn         *websocket.Conn
-	closed       bool
-	release      func(closeConn bool)
-	releaseOnceF sync.Once
+	mapper         *codexEventMapper
+	mu             sync.Mutex
+	conn           *websocket.Conn
+	closed         bool
+	release        func(closeConn bool)
+	releaseOnceF   sync.Once
+	accountWindows []AccountWindowSnapshot
 }
 
 func newWSStream(conn *websocket.Conn, maxPending int) *wsStream {
@@ -34,6 +36,29 @@ func newWSStreamWithMapper(conn *websocket.Conn, mapper *codexEventMapper) *wsSt
 		mapper: mapper,
 		conn:   conn,
 	}
+}
+
+func (s *wsStream) captureAccountWindowSnapshots(headers http.Header, accountID string, observedAt time.Time) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.accountWindows = appendBoundedAccountWindowSnapshots(s.accountWindows, accountWindowSnapshots(headers, accountID, observedAt))
+}
+
+func (s *wsStream) DrainAccountWindowSnapshots() []AccountWindowSnapshot {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.accountWindows) == 0 {
+		return nil
+	}
+	out := append([]AccountWindowSnapshot(nil), s.accountWindows...)
+	s.accountWindows = nil
+	return out
 }
 
 func (s *wsStream) Recv(ctx context.Context) (lipapi.Event, error) {

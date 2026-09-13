@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"strings"
@@ -13,8 +14,10 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipsdkmetering "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 func TestHandleEvent_thinkingDeltaFromJSON(t *testing.T) {
@@ -342,7 +345,240 @@ func TestUsageFromMessageDelta_usageDetails(t *testing.T) {
 	assertUsageRawJSONContains(t, *ev, "cache_read_input_tokens")
 }
 
+func TestAnthropicUsageCountRejectsNegativeProviderValue(t *testing.T) {
+	t.Parallel()
+	if got, ok := anthropicUsageCount(-1, true); ok || got != 0 {
+		t.Fatalf("negative count = %d/%v, want unavailable", got, ok)
+	}
+	if got, ok := anthropicUsageCount(7, false); !ok || got != 7 {
+		t.Fatalf("non-zero typed value = %d/%v, want retained", got, ok)
+	}
+	if got, ok := anthropicUsageCount(0, false); ok || got != 0 {
+		t.Fatalf("absent zero count = %d/%v, want unavailable", got, ok)
+	}
+}
+
+func TestAnthropicSafeTotalRejectsOverflow(t *testing.T) {
+	t.Parallel()
+	maxInt := int(^uint(0) >> 1)
+	if got, ok := anthropicSafeTotal(maxInt, 1); ok || got != 0 {
+		t.Fatalf("overflow total = %d/%v, want unavailable", got, ok)
+	}
+}
+
+func TestAnthropicEvidenceMapsCacheLifetimeAndServerTools(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"message_start","message":{"id":"msg-anthropic","type":"message","role":"assistant","content":[],"model":"claude","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":11,"output_tokens":8,"cache_read_input_tokens":3,"cache_creation_input_tokens":4,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":6},"output_tokens_details":{"thinking_tokens":2},"server_tool_use":{"web_search_requests":1,"web_fetch_requests":0},"service_tier":"priority"}}}`
+	var union anthropic.MessageStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &union); err != nil {
+		t.Fatal(err)
+	}
+	start, ok := union.AsAny().(anthropic.MessageStartEvent)
+	if !ok {
+		t.Fatalf("event type: %T", union.AsAny())
+	}
+	ev := usageFromMessageStart(start)
+	if ev == nil {
+		t.Fatal("usage event is nil")
+	}
+	draft := anthropicEvidenceDraft(*ev, start.Message.Usage, "anthropic.messages.v2")
+	if len(draft.Measures) != 9 {
+		t.Fatalf("anthropic measures = %d, want five provider token/cache plus two lifetime and two server-tool entries", len(draft.Measures))
+	}
+	foundFive, foundHour, foundSearch, foundFetch := false, false, false, false
+	for _, measure := range draft.Measures {
+		for _, dimension := range measure.Key.Dimensions {
+			switch dimension.Value {
+			case "5m":
+				foundFive = true
+			case "1h":
+				foundHour = true
+			case "web_search":
+				foundSearch = true
+			case "web_fetch":
+				foundFetch = true
+			}
+		}
+	}
+	if !foundFive || !foundHour || !foundSearch || !foundFetch {
+		t.Fatalf("lifetime/server-tool measures missing: %+v", draft.Measures)
+	}
+}
+
+func TestAnthropicSafeUsageEvidenceRejectsMalformedCounts(t *testing.T) {
+	t.Parallel()
+	raw := `{"cache_creation":{"ephemeral_5m_input_tokens":-1,"ephemeral_1h_input_tokens":1e100},"server_tool_use":{"web_fetch_requests":"oops","web_search_requests":0}}`
+	var usage anthropic.Usage
+	if err := json.Unmarshal([]byte(raw), &usage); err != nil {
+		t.Fatal(err)
+	}
+	evidence := anthropicSafeUsageEvidence(usage)
+	if len(evidence) != 1 || evidence[0].Path != "$.usage.web_search_requests" || evidence[0].Lexeme != "0" {
+		t.Fatalf("safe evidence = %+v, want only valid present zero", evidence)
+	}
+}
+
+func TestAnthropicEvidenceRetainsOnlyNativeTotalWhenSurfaced(t *testing.T) {
+	t.Parallel()
+	withoutTotal := `{"input_tokens":3,"output_tokens":2}`
+	var delta anthropic.MessageDeltaUsage
+	if err := json.Unmarshal([]byte(withoutTotal), &delta); err != nil {
+		t.Fatal(err)
+	}
+	ev := usageFromMessageDelta(anthropic.MessageDeltaEvent{Usage: delta})
+	if ev == nil {
+		t.Fatal("usage event is nil")
+	}
+	draft := anthropicEvidenceDraft(*ev, delta, "anthropic.messages.v2")
+	for _, measure := range draft.Measures {
+		if measure.Key.Component == lipsdkmetering.ComponentTotalToken {
+			t.Fatalf("derived total crossed provider evidence seam: %+v", measure)
+		}
+	}
+
+	withTotal := `{"input_tokens":3,"output_tokens":2,"total_tokens":99}`
+	if err := json.Unmarshal([]byte(withTotal), &delta); err != nil {
+		t.Fatal(err)
+	}
+	ev = usageFromMessageDelta(anthropic.MessageDeltaEvent{Usage: delta})
+	draft = anthropicEvidenceDraft(*ev, delta, "anthropic.messages.v2")
+	found := false
+	for _, measure := range draft.Measures {
+		if measure.Key.Component == lipsdkmetering.ComponentTotalToken {
+			found = measure.Value != nil && measure.Value.Coefficient == "99"
+		}
+	}
+	if !found {
+		t.Fatalf("surfaced total_tokens was not retained: %+v", draft.Measures)
+	}
+}
+
 type errDecoderAnthropic struct{ err error }
+
+type sequenceDecoderAnthropic struct {
+	events []ssestream.Event
+	index  int
+}
+
+func (d *sequenceDecoderAnthropic) Event() ssestream.Event {
+	if d.index == 0 || d.index > len(d.events) {
+		return ssestream.Event{}
+	}
+	return d.events[d.index-1]
+}
+
+func (d *sequenceDecoderAnthropic) Next() bool {
+	if d.index >= len(d.events) {
+		return false
+	}
+	d.index++
+	return true
+}
+
+func (d *sequenceDecoderAnthropic) Close() error { return nil }
+
+func (d *sequenceDecoderAnthropic) Err() error { return nil }
+
+func TestMsgStream_ProviderUsageDeltaRetainsTypedValueWithoutSDKPresence(t *testing.T) {
+	t.Parallel()
+	dec := &sequenceDecoderAnthropic{events: []ssestream.Event{
+		{Type: "message_start", Data: []byte(`{"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}`)},
+		{Type: "content_block_start", Data: []byte(`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)},
+		{Type: "content_block_delta", Data: []byte(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`)},
+		{Type: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}`)},
+		{Type: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
+	}}
+	sdk := ssestream.NewStream[anthropic.MessageStreamEventUnion](dec, nil)
+	es := newMessageStream(sdk, "anthropic", 0)
+	var usage *lipapi.Event
+	for {
+		ev, err := es.Recv(context.Background())
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.Kind == lipapi.EventUsageDelta {
+			copy := ev
+			usage = &copy
+		}
+	}
+	if usage == nil || usage.OutputTokens != 2 {
+		t.Fatalf("usage=%+v, want output_tokens=2", usage)
+	}
+}
+
+func TestMsgStream_AnthropicSplitUsagePreservesCumulativeV2Evidence(t *testing.T) {
+	t.Parallel()
+	dec := &sequenceDecoderAnthropic{events: []ssestream.Event{
+		{Type: "message_start", Data: []byte(`{"type":"message_start","message":{"id":"m-split","type":"message","role":"assistant","model":"claude","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":11,"output_tokens":0,"cache_read_input_tokens":3}}}`)},
+		{Type: "message_delta", Data: []byte(`{"type":"message_delta","delta":{},"usage":{"output_tokens":8}}`)},
+		// A later cumulative snapshot repeats the fields already observed. It
+		// must not create a duplicate revision.
+		{Type: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":11,"output_tokens":8,"cache_read_input_tokens":3}}`)},
+		{Type: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
+	}}
+	sdk := ssestream.NewStream[anthropic.MessageStreamEventUnion](dec, nil)
+	es := newMessageStream(sdk, "anthropic", 0)
+	for {
+		_, err := es.Recv(context.Background())
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, ok := es.(*msgStream)
+	if !ok {
+		t.Fatalf("newMessageStream returned %T", es)
+	}
+	s.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BLegID: "b-leg"})
+	observations := s.DrainEconomicObservations()
+	if len(observations) != 2 {
+		t.Fatalf("split/cumulative observations=%d, want initial and final revision", len(observations))
+	}
+	final := observations[len(observations)-1]
+	if !hasAnthropicMeasure(final, lipsdkmetering.ComponentInputToken, "11") ||
+		!hasAnthropicMeasure(final, lipsdkmetering.ComponentOutputToken, "8") ||
+		!hasAnthropicMeasure(final, lipsdkmetering.ComponentCacheReadInputToken, "3") {
+		t.Fatalf("final cumulative measures=%+v", final.Measures)
+	}
+}
+
+func TestMsgStream_AnthropicPartialUsageSurvivesInterruptedStream(t *testing.T) {
+	t.Parallel()
+	dec := &sequenceDecoderAnthropic{events: []ssestream.Event{
+		{Type: "message_start", Data: []byte(`{"type":"message_start","message":{"id":"m-partial","type":"message","role":"assistant","model":"claude","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":11,"output_tokens":0,"cache_read_input_tokens":3}}}`)},
+	}}
+	sdk := ssestream.NewStream[anthropic.MessageStreamEventUnion](dec, nil)
+	es := newMessageStream(sdk, "anthropic", 0)
+	for {
+		_, err := es.Recv(context.Background())
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := es.(*msgStream)
+	s.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BLegID: "b-leg"})
+	observations := s.DrainEconomicObservations()
+	if len(observations) != 1 || !hasAnthropicMeasure(observations[0], lipsdkmetering.ComponentInputToken, "11") || !hasAnthropicMeasure(observations[0], lipsdkmetering.ComponentCacheReadInputToken, "3") {
+		t.Fatalf("partial observations=%+v, want input/cache evidence", observations)
+	}
+}
+
+func hasAnthropicMeasure(observation lipsdkmetering.Observation, component, coefficient string) bool {
+	for _, measure := range observation.Measures {
+		if measure.Key.Component == component && measure.Value != nil && measure.Value.Coefficient == coefficient {
+			return true
+		}
+	}
+	return false
+}
 
 func (d *errDecoderAnthropic) Event() ssestream.Event {
 	return ssestream.Event{Data: []byte(`{"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}`)}

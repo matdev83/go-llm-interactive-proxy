@@ -26,6 +26,7 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorCancellationHandshake,
 		PluginID: PluginID, Version: "0.1.0", BuildID: "localdev",
 		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureAccountingEvidence},
 			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		Factories: []backendplugin.FactoryDescriptor{{
@@ -63,7 +64,9 @@ func (s *Service) Configure(_ context.Context, req backendplugin.ConfigureReques
 	if err != nil {
 		return nil, err
 	}
-	sc := product.NewScaffold(normalized).WithInstanceID(req.InstanceID)
+	sc := product.NewScaffold(normalized).
+		WithInstanceID(req.InstanceID).
+		WithAccountingEvidenceV1(backendplugin.AccountingEvidenceNegotiated(req.Negotiation))
 	if s != nil && s.Starter != nil {
 		sc = sc.WithProcessStarter(s.Starter)
 	}

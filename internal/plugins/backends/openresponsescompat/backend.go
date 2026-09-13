@@ -159,7 +159,7 @@ func openCreate(ctx context.Context, id string, spec BackendSpec, call lipapi.Ca
 		if err != nil {
 			return nil, classifyCreateOpenError(err)
 		}
-		return lipapi.NewFixedEventStream(events), nil
+		return newProviderEventStream(events, "openresponses.compat.v2"), nil
 	default:
 		return nil, fmt.Errorf("%s: %w: transport mode %q is not supported", id, ErrUnrepresentable, call.Invocation.TransportMode)
 	}

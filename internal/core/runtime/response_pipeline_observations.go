@@ -67,7 +67,7 @@ func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnF
 	at := p.nowTime()
 	attempt.observeAccountingBackendEvent(at, ev)
 	attempt.observeLocalProviderEvent(ev)
-	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleStream) {
+	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !attempt.hasHostOnlyEconomicEvidenceSource() && !attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleStream) {
 		prepared.swallowed = true
 		return prepared
 	}
@@ -89,6 +89,27 @@ func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnF
 		}
 	}
 	return prepared
+}
+
+// hasHostOnlyEconomicEvidenceSource identifies streams whose provider-owned
+// host-only sideband (V1 or V2) is the authoritative durable evidence path.
+// Canonical usage events remain available to observers and clients, but must
+// not also enter the legacy V1 terminal accumulator for the same quantities.
+func hasHostOnlyEconomicEvidenceSource(inner lipapi.ManagedEventStream) bool {
+	if inner == nil {
+		return false
+	}
+	if state, ok := inner.(interface{ AccountingEvidenceEnabled() bool }); ok {
+		return state.AccountingEvidenceEnabled()
+	}
+	if _, ok := inner.(lipapi.UsageEvidenceSource); ok {
+		return true
+	}
+	if _, ok := inner.(execbackend.EconomicEvidenceSource); ok {
+		return true
+	}
+	_, ok := inner.(metering.ObservationSource)
+	return ok
 }
 
 // clientEventTransformation applies response-side tool policy/reactors and

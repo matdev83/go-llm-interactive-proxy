@@ -11,26 +11,31 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
 type managedSSEStream struct {
-	resp      *http.Response
-	sc        *bufio.Scanner
-	mu        sync.Mutex
-	closed    bool
-	started   bool
-	msgStart  bool
-	finished  bool
-	done      bool
-	pending   []lipapi.Event
-	toolCalls map[int]string
+	resp              *http.Response
+	sc                *bufio.Scanner
+	mu                sync.Mutex
+	closed            bool
+	started           bool
+	msgStart          bool
+	finished          bool
+	done              bool
+	pending           []lipapi.Event
+	toolCalls         map[int]string
+	providerRequestID string
+	providerUsage     lipapi.Event
+	providerUsageSeen bool
+	*backendplugin.UsageEvidenceBuffer
 }
 
 func newManagedSSEStream(resp *http.Response) *managedSSEStream {
 	sc := bufio.NewScanner(resp.Body)
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 1024*1024)
-	return &managedSSEStream{resp: resp, sc: sc, toolCalls: make(map[int]string)}
+	return &managedSSEStream{resp: resp, sc: sc, toolCalls: make(map[int]string), UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer()}
 }
 
 type ssePayload struct {
@@ -51,15 +56,10 @@ type ssePayload struct {
 		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
 	Message struct {
-		Usage struct {
-			InputTokens              int `json:"input_tokens"`
-			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-		} `json:"usage"`
+		ID    string      `json:"id"`
+		Usage usageFields `json:"usage"`
 	} `json:"message"`
-	Usage struct {
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage usageFields `json:"usage"`
 	Error struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
@@ -79,13 +79,14 @@ func (s *managedSSEStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if len(s.pending) > 0 {
 			ev := s.pending[0]
 			s.pending = s.pending[1:]
-			return ev, nil
+			return s.canonicalUsageEvent(ev), nil
 		}
 		if s.done {
 			return lipapi.Event{}, io.EOF
 		}
 		if !s.sc.Scan() {
 			if err := s.sc.Err(); err != nil {
+				s.flushUsage()
 				return lipapi.Event{}, err
 			}
 			s.done = true
@@ -93,7 +94,7 @@ func (s *managedSSEStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			if len(s.pending) > 0 {
 				ev := s.pending[0]
 				s.pending = s.pending[1:]
-				return ev, nil
+				return s.canonicalUsageEvent(ev), nil
 			}
 			return lipapi.Event{}, io.EOF
 		}
@@ -111,7 +112,7 @@ func (s *managedSSEStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			if len(s.pending) > 0 {
 				ev := s.pending[0]
 				s.pending = s.pending[1:]
-				return ev, nil
+				return s.canonicalUsageEvent(ev), nil
 			}
 			continue
 		}
@@ -125,7 +126,7 @@ func (s *managedSSEStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if len(s.pending) > 0 {
 			ev := s.pending[0]
 			s.pending = s.pending[1:]
-			return ev, nil
+			return s.canonicalUsageEvent(ev), nil
 		}
 	}
 }
@@ -142,6 +143,7 @@ func (s *managedSSEStream) ensureStarted() {
 }
 
 func (s *managedSSEStream) emitFinishIfStarted(reason string) {
+	s.flushUsage()
 	if s.finished || !s.started {
 		return
 	}
@@ -156,12 +158,10 @@ func (s *managedSSEStream) handlePayload(p ssePayload) error {
 			s.started = true
 			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
+		s.providerRequestID = strings.TrimSpace(p.Message.ID)
 		u := p.Message.Usage
-		if u.InputTokens > 0 || u.CacheReadInputTokens > 0 || u.CacheCreationInputTokens > 0 {
-			s.pending = append(s.pending, lipapi.Event{
-				Kind: lipapi.EventUsageDelta, InputTokens: u.InputTokens,
-				CacheReadTokens: u.CacheReadInputTokens, CacheWriteTokens: u.CacheCreationInputTokens,
-			})
+		if ev := commandcodeUsageEvent(&u, s.providerRequestID); ev != nil {
+			s.addUsage(*ev)
 		}
 	case "content_block_start":
 		s.ensureStarted()
@@ -196,10 +196,11 @@ func (s *managedSSEStream) handlePayload(p ssePayload) error {
 			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: toolID})
 		}
 	case "message_delta":
-		if p.Usage.OutputTokens > 0 {
-			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventUsageDelta, OutputTokens: p.Usage.OutputTokens})
+		if ev := commandcodeUsageEvent(&p.Usage, s.providerRequestID); ev != nil {
+			s.addUsage(*ev)
 		}
 		if p.Delta.StopReason != "" {
+			s.flushUsage()
 			if s.finished {
 				break
 			}
@@ -210,9 +211,40 @@ func (s *managedSSEStream) handlePayload(p ssePayload) error {
 		s.done = true
 		s.emitFinishIfStarted("")
 	case "error":
+		s.flushUsage()
 		return fmt.Errorf("anthropic stream error: %s (%s)", p.Error.Message, p.Error.Type)
 	}
 	return nil
+}
+
+func (s *managedSSEStream) addUsage(ev lipapi.Event) {
+	// Keep the provider key until Recv. A negotiated sideband then projects the
+	// canonical event as observer-only; an unnegotiated legacy host keeps the
+	// original V1 durable path.
+	s.pending = append(s.pending, ev)
+	if s.providerUsageSeen {
+		s.providerUsage = mergeAnthropicUsageEvent(s.providerUsage, ev)
+	} else {
+		s.providerUsage = ev
+		s.providerUsageSeen = true
+	}
+	if strings.TrimSpace(ev.RawUsageJSON) != "" {
+		s.providerUsage.RawUsageJSON = ev.RawUsageJSON
+	}
+}
+
+func (s *managedSSEStream) canonicalUsageEvent(ev lipapi.Event) lipapi.Event {
+	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+		ev.Accounting.DedupeKey = ""
+	}
+	return ev
+}
+
+func (s *managedSSEStream) flushUsage() {
+	if s == nil || !s.providerUsageSeen || s.UsageEvidenceBuffer == nil {
+		return
+	}
+	s.UsageEvidenceBuffer.AddUsageEvent(s.providerUsage, "commandcode.anthropic.usage:stream")
 }
 
 func (s *managedSSEStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {
@@ -227,6 +259,7 @@ func (s *managedSSEStream) Close() error {
 		return nil
 	}
 	s.closed = true
+	s.flushUsage()
 	if s.resp != nil && s.resp.Body != nil {
 		return s.resp.Body.Close()
 	}

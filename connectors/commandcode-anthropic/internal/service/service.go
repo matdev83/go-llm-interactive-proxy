@@ -21,6 +21,7 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 	return backendplugin.PluginDescriptor{
 		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorCancellationHandshake, PluginID: PluginID, Version: "0.1.0", BuildID: "localdev",
 		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureAccountingEvidence},
 			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		Factories: []backendplugin.FactoryDescriptor{{
@@ -59,17 +60,20 @@ func (s *Service) Configure(_ context.Context, req backendplugin.ConfigureReques
 	if err != nil {
 		return nil, err
 	}
-	return &instance{cfg: cfg, hc: hc, kind: FactoryKind}, nil
+	return &instance{cfg: cfg, hc: hc, kind: FactoryKind, accountingV1: backendplugin.AccountingEvidenceNegotiated(req.Negotiation)}, nil
 }
 
 type instance struct {
-	cfg  Config
-	hc   *http.Client
-	kind string
+	cfg          Config
+	hc           *http.Client
+	kind         string
+	accountingV1 bool
 }
 
 func (i *instance) client() *anthropic.Client {
-	return anthropic.NewClient(i.cfg.BaseURL, i.cfg.APIKey, i.hc)
+	client := anthropic.NewClient(i.cfg.BaseURL, i.cfg.APIKey, i.hc)
+	client.SetAccountingEvidenceEnabled(i.accountingV1)
+	return client
 }
 
 func (i *instance) Resolve(context.Context, *string) (backendplugin.ResolvedProfile, error) {

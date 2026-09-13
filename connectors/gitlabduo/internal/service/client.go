@@ -20,10 +20,11 @@ import (
 
 // Client handles GitLab Duo communication for a single configured generation.
 type Client struct {
-	Config              Config
-	TokenProvider       TokenProvider
-	DirectAccessManager DirectAccessManager
-	HTTPClient          *http.Client
+	Config               Config
+	TokenProvider        TokenProvider
+	DirectAccessManager  DirectAccessManager
+	HTTPClient           *http.Client
+	accountingEvidenceV1 bool
 
 	mu             sync.Mutex
 	cachedWorkflow []backendplugin.ModelDescriptor
@@ -504,10 +505,19 @@ func (c *Client) executeAnthropic(ctx context.Context, da DirectAccessToken, bac
 	}
 
 	if isStreaming {
-		return newAnthropicManagedSSEStream(resp), nil
+		stream := newAnthropicManagedSSEStream(resp)
+		stream.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+		return stream, nil
 	}
 
-	return newUnaryAnthropicStream(resp)
+	stream, err := newUnaryAnthropicStream(resp)
+	if err != nil {
+		return nil, err
+	}
+	if memory, ok := stream.(*memoryEventStream); ok {
+		memory.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+	}
+	return stream, nil
 }
 
 func (c *Client) executeOpenAI(ctx context.Context, da DirectAccessToken, backendModel string, inv backendplugin.Invocation, call lipapi.Call) (lipapi.ManagedEventStream, error) {
@@ -582,31 +592,59 @@ func (c *Client) executeOpenAI(ctx context.Context, da DirectAccessToken, backen
 	}
 
 	if isStreaming {
-		return newOpenAIManagedSSEStream(resp), nil
+		stream := newOpenAIManagedSSEStream(resp)
+		stream.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+		return stream, nil
 	}
 
-	return newUnaryOpenAIStream(resp)
+	stream, err := newUnaryOpenAIStream(resp)
+	if err != nil {
+		return nil, err
+	}
+	if memory, ok := stream.(*memoryEventStream); ok {
+		memory.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+	}
+	return stream, nil
 }
 
 // anthropicManagedSSEStream processes SSE chunks from Anthropic proxy.
 type anthropicManagedSSEStream struct {
-	resp      *http.Response
-	sc        *bufio.Scanner
-	mu        sync.Mutex
-	closed    bool
-	started   bool
-	msgStart  bool
-	finished  bool
-	done      bool
-	pending   []lipapi.Event
-	toolCalls map[int]string
+	resp              *http.Response
+	sc                *bufio.Scanner
+	mu                sync.Mutex
+	closed            bool
+	started           bool
+	msgStart          bool
+	finished          bool
+	done              bool
+	pending           []lipapi.Event
+	toolCalls         map[int]string
+	providerUsage     lipapi.Event
+	providerUsageSeen bool
+	*backendplugin.UsageEvidenceBuffer
 }
 
 func newAnthropicManagedSSEStream(resp *http.Response) *anthropicManagedSSEStream {
 	sc := bufio.NewScanner(resp.Body)
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 1024*1024)
-	return &anthropicManagedSSEStream{resp: resp, sc: sc, toolCalls: make(map[int]string)}
+	return &anthropicManagedSSEStream{
+		resp: resp, sc: sc, toolCalls: make(map[int]string),
+		UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer(),
+	}
+}
+
+type anthropicUsageFields struct {
+	InputTokens              *int                          `json:"input_tokens"`
+	OutputTokens             *int                          `json:"output_tokens"`
+	CacheCreationInputTokens *int                          `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int                          `json:"cache_read_input_tokens"`
+	ReasoningTokens          *int                          `json:"reasoning_tokens"`
+	ThinkingTokens           *int                          `json:"thinking_tokens"`
+	TotalTokens              *int                          `json:"total_tokens"`
+	CacheCreation            *anthropicCacheCreationFields `json:"cache_creation"`
+	ServerToolUse            *anthropicServerToolUseFields `json:"server_tool_use"`
+	ServiceTier              string                        `json:"service_tier"`
 }
 
 type anthropicSSEPayload struct {
@@ -627,19 +665,15 @@ type anthropicSSEPayload struct {
 		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
 	Message struct {
-		Usage struct {
-			InputTokens              int `json:"input_tokens"`
-			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-		} `json:"usage"`
+		ID    string               `json:"id"`
+		Usage anthropicUsageFields `json:"usage"`
 	} `json:"message"`
-	Usage struct {
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage anthropicUsageFields `json:"usage"`
 	Error struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
 	} `json:"error"`
+	usagePresent bool
 }
 
 func (s *anthropicManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -655,13 +689,14 @@ func (s *anthropicManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, err
 		if len(s.pending) > 0 {
 			ev := s.pending[0]
 			s.pending = s.pending[1:]
-			return ev, nil
+			return s.canonicalUsageEvent(ev), nil
 		}
 		if s.done {
 			return lipapi.Event{}, io.EOF
 		}
 		if !s.sc.Scan() {
 			if err := s.sc.Err(); err != nil {
+				s.flushUsage()
 				return lipapi.Event{}, err
 			}
 			s.done = true
@@ -669,7 +704,7 @@ func (s *anthropicManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, err
 			if len(s.pending) > 0 {
 				ev := s.pending[0]
 				s.pending = s.pending[1:]
-				return ev, nil
+				return s.canonicalUsageEvent(ev), nil
 			}
 			return lipapi.Event{}, io.EOF
 		}
@@ -687,7 +722,7 @@ func (s *anthropicManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, err
 			if len(s.pending) > 0 {
 				ev := s.pending[0]
 				s.pending = s.pending[1:]
-				return ev, nil
+				return s.canonicalUsageEvent(ev), nil
 			}
 			continue
 		}
@@ -695,13 +730,14 @@ func (s *anthropicManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, err
 		if err := json.Unmarshal([]byte(data), &p); err != nil {
 			continue
 		}
+		p.usagePresent = strings.Contains(data, `"usage"`)
 		if err := s.handlePayload(p); err != nil {
 			return lipapi.Event{}, err
 		}
 		if len(s.pending) > 0 {
 			ev := s.pending[0]
 			s.pending = s.pending[1:]
-			return ev, nil
+			return s.canonicalUsageEvent(ev), nil
 		}
 	}
 }
@@ -718,6 +754,7 @@ func (s *anthropicManagedSSEStream) ensureStarted() {
 }
 
 func (s *anthropicManagedSSEStream) emitFinishIfStarted(reason string) {
+	s.flushUsage()
 	if s.finished || !s.started {
 		return
 	}
@@ -732,14 +769,8 @@ func (s *anthropicManagedSSEStream) handlePayload(p anthropicSSEPayload) error {
 			s.started = true
 			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
-		u := p.Message.Usage
-		if u.InputTokens > 0 || u.CacheReadInputTokens > 0 || u.CacheCreationInputTokens > 0 {
-			s.pending = append(s.pending, lipapi.Event{
-				Kind:             lipapi.EventUsageDelta,
-				InputTokens:      u.InputTokens,
-				CacheReadTokens:  u.CacheReadInputTokens,
-				CacheWriteTokens: u.CacheCreationInputTokens,
-			})
+		if ev := gitlabAnthropicUsageEvent(p.Message.Usage, p.usagePresent, p.Message.ID); ev != nil {
+			s.addAnthropicUsage(*ev)
 		}
 	case "content_block_start":
 		s.ensureStarted()
@@ -782,10 +813,11 @@ func (s *anthropicManagedSSEStream) handlePayload(p anthropicSSEPayload) error {
 			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: toolID})
 		}
 	case "message_delta":
-		if p.Usage.OutputTokens > 0 {
-			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventUsageDelta, OutputTokens: p.Usage.OutputTokens})
+		if ev := gitlabAnthropicUsageEvent(p.Usage, p.usagePresent, p.Message.ID); ev != nil {
+			s.addAnthropicUsage(*ev)
 		}
 		if p.Delta.StopReason != "" {
+			s.flushUsage()
 			if s.finished {
 				break
 			}
@@ -796,9 +828,40 @@ func (s *anthropicManagedSSEStream) handlePayload(p anthropicSSEPayload) error {
 		s.done = true
 		s.emitFinishIfStarted("")
 	case "error":
+		s.flushUsage()
 		return fmt.Errorf("anthropic stream error: %s (%s)", p.Error.Message, p.Error.Type)
 	}
 	return nil
+}
+
+func (s *anthropicManagedSSEStream) addAnthropicUsage(ev lipapi.Event) {
+	// Keep the provider key until Recv. A negotiated sideband then projects the
+	// canonical event as observer-only; an unnegotiated legacy host keeps the
+	// original V1 durable path.
+	s.pending = append(s.pending, ev)
+	if s.providerUsageSeen {
+		s.providerUsage = mergeAnthropicUsageEvent(s.providerUsage, ev)
+	} else {
+		s.providerUsage = ev
+		s.providerUsageSeen = true
+	}
+	if strings.TrimSpace(ev.RawUsageJSON) != "" {
+		s.providerUsage.RawUsageJSON = ev.RawUsageJSON
+	}
+}
+
+func (s *anthropicManagedSSEStream) canonicalUsageEvent(ev lipapi.Event) lipapi.Event {
+	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+		ev.Accounting.DedupeKey = ""
+	}
+	return ev
+}
+
+func (s *anthropicManagedSSEStream) flushUsage() {
+	if s == nil || !s.providerUsageSeen || s.UsageEvidenceBuffer == nil {
+		return
+	}
+	s.UsageEvidenceBuffer.AddUsageEvent(s.providerUsage, "gitlabduo.anthropic:stream")
 }
 
 func (s *anthropicManagedSSEStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {
@@ -813,6 +876,7 @@ func (s *anthropicManagedSSEStream) Close() error {
 		return nil
 	}
 	s.closed = true
+	s.flushUsage()
 	if s.resp != nil && s.resp.Body != nil {
 		return s.resp.Body.Close()
 	}
@@ -828,15 +892,13 @@ func newUnaryAnthropicStream(resp *http.Response) (lipapi.ManagedEventStream, er
 	}
 
 	var res struct {
+		ID      string `json:"id"`
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		StopReason string `json:"stop_reason"`
-		Usage      struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-		} `json:"usage"`
+		StopReason string               `json:"stop_reason"`
+		Usage      anthropicUsageFields `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
 		return nil, fmt.Errorf("gitlab-duo: decode unary anthropic response: %w", err)
@@ -845,20 +907,17 @@ func newUnaryAnthropicStream(resp *http.Response) (lipapi.ManagedEventStream, er
 	var events []lipapi.Event
 	events = append(events, lipapi.Event{Kind: lipapi.EventResponseStarted})
 	events = append(events, lipapi.Event{Kind: lipapi.EventMessageStarted})
-	if res.Usage.InputTokens > 0 {
-		events = append(events, lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: res.Usage.InputTokens})
+	if ev := gitlabAnthropicUsageEvent(res.Usage, bytes.Contains(body, []byte(`"usage"`)), res.ID); ev != nil {
+		events = append(events, *ev)
 	}
 	for _, c := range res.Content {
 		if c.Type == "text" && c.Text != "" {
 			events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: c.Text})
 		}
 	}
-	if res.Usage.OutputTokens > 0 {
-		events = append(events, lipapi.Event{Kind: lipapi.EventUsageDelta, OutputTokens: res.Usage.OutputTokens})
-	}
 	events = append(events, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: res.StopReason})
 
-	return &memoryEventStream{events: events}, nil
+	return newMemoryEventStream(events), nil
 }
 
 // OpenAI SSE stream processing
@@ -872,13 +931,14 @@ type openAIManagedSSEStream struct {
 	finished bool
 	done     bool
 	pending  []lipapi.Event
+	*backendplugin.UsageEvidenceBuffer
 }
 
 func newOpenAIManagedSSEStream(resp *http.Response) *openAIManagedSSEStream {
 	sc := bufio.NewScanner(resp.Body)
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 1024*1024)
-	return &openAIManagedSSEStream{resp: resp, sc: sc}
+	return &openAIManagedSSEStream{resp: resp, sc: sc, UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer()}
 }
 
 func (s *openAIManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -894,7 +954,7 @@ func (s *openAIManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, error)
 		if len(s.pending) > 0 {
 			ev := s.pending[0]
 			s.pending = s.pending[1:]
-			return ev, nil
+			return s.canonicalUsageEvent(ev), nil
 		}
 		if s.done {
 			return lipapi.Event{}, io.EOF
@@ -909,7 +969,7 @@ func (s *openAIManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, error)
 				s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventResponseFinished})
 				ev := s.pending[0]
 				s.pending = s.pending[1:]
-				return ev, nil
+				return s.canonicalUsageEvent(ev), nil
 			}
 			return lipapi.Event{}, io.EOF
 		}
@@ -928,17 +988,20 @@ func (s *openAIManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, error)
 				s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventResponseFinished})
 				ev := s.pending[0]
 				s.pending = s.pending[1:]
-				return ev, nil
+				return s.canonicalUsageEvent(ev), nil
 			}
 			continue
 		}
 		var p struct {
-			Choices []struct {
+			ID          string `json:"id"`
+			ServiceTier string `json:"service_tier"`
+			Choices     []struct {
 				Delta struct {
 					Content string `json:"content"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
+			Usage *openAIUsageFields `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &p); err != nil {
 			continue
@@ -950,6 +1013,12 @@ func (s *openAIManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, error)
 		if !s.msgStart {
 			s.msgStart = true
 			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventMessageStarted})
+		}
+		if p.Usage != nil {
+			if ev := gitlabOpenAIUsageEvent(*p.Usage, p.ID, p.ServiceTier); ev != nil {
+				s.pending = append(s.pending, *ev)
+				s.UsageEvidenceBuffer.AddUsageEvent(*ev, "gitlabduo.openai:stream")
+			}
 		}
 		for _, ch := range p.Choices {
 			if ch.Delta.Content != "" {
@@ -963,9 +1032,16 @@ func (s *openAIManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, error)
 		if len(s.pending) > 0 {
 			ev := s.pending[0]
 			s.pending = s.pending[1:]
-			return ev, nil
+			return s.canonicalUsageEvent(ev), nil
 		}
 	}
+}
+
+func (s *openAIManagedSSEStream) canonicalUsageEvent(ev lipapi.Event) lipapi.Event {
+	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+		ev.Accounting.DedupeKey = ""
+	}
+	return ev
 }
 
 func (s *openAIManagedSSEStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {
@@ -995,16 +1071,15 @@ func newUnaryOpenAIStream(resp *http.Response) (lipapi.ManagedEventStream, error
 	}
 
 	var res struct {
-		Choices []struct {
+		ID          string `json:"id"`
+		ServiceTier string `json:"service_tier"`
+		Choices     []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
-		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-		} `json:"usage"`
+		Usage *openAIUsageFields `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
 		return nil, fmt.Errorf("gitlab-duo: decode unary openai response: %w", err)
@@ -1013,28 +1088,53 @@ func newUnaryOpenAIStream(resp *http.Response) (lipapi.ManagedEventStream, error
 	var events []lipapi.Event
 	events = append(events, lipapi.Event{Kind: lipapi.EventResponseStarted})
 	events = append(events, lipapi.Event{Kind: lipapi.EventMessageStarted})
-	if res.Usage.PromptTokens > 0 {
-		events = append(events, lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: res.Usage.PromptTokens})
+	if res.Usage != nil {
+		if ev := gitlabOpenAIUsageEvent(*res.Usage, res.ID, res.ServiceTier); ev != nil {
+			events = append(events, *ev)
+		}
 	}
 	if len(res.Choices) > 0 {
 		ch := res.Choices[0]
 		if ch.Message.Content != "" {
 			events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: ch.Message.Content})
 		}
-		if res.Usage.CompletionTokens > 0 {
-			events = append(events, lipapi.Event{Kind: lipapi.EventUsageDelta, OutputTokens: res.Usage.CompletionTokens})
-		}
 		events = append(events, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: ch.FinishReason})
 	} else {
 		events = append(events, lipapi.Event{Kind: lipapi.EventResponseFinished})
 	}
 
-	return &memoryEventStream{events: events}, nil
+	return newMemoryEventStream(events), nil
 }
 
 type memoryEventStream struct {
 	events []lipapi.Event
 	idx    int
+	*backendplugin.UsageEvidenceBuffer
+}
+
+func newMemoryEventStream(events []lipapi.Event) *memoryEventStream {
+	m := &memoryEventStream{events: append([]lipapi.Event(nil), events...), UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer()}
+	var anthropicUsage lipapi.Event
+	anthropicUsageSeen := false
+	for _, ev := range events {
+		if strings.HasPrefix(ev.Accounting.DedupeKey, "gitlabduo.anthropic:") {
+			if ev.Kind != lipapi.EventUsageDelta {
+				continue
+			}
+			if anthropicUsageSeen {
+				anthropicUsage = mergeAnthropicUsageEvent(anthropicUsage, ev)
+			} else {
+				anthropicUsage = ev
+				anthropicUsageSeen = true
+			}
+		} else {
+			m.UsageEvidenceBuffer.AddUsageEvent(ev, "gitlabduo.provider:stream")
+		}
+	}
+	if anthropicUsageSeen {
+		m.UsageEvidenceBuffer.AddUsageEvent(anthropicUsage, "gitlabduo.anthropic:stream")
+	}
+	return m
 }
 
 func (m *memoryEventStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -1046,6 +1146,9 @@ func (m *memoryEventStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 	ev := m.events[m.idx]
 	m.idx++
+	if ev.Kind == lipapi.EventUsageDelta && m.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+		ev.Accounting.DedupeKey = ""
+	}
 	return ev, nil
 }
 

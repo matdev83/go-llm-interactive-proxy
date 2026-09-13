@@ -325,9 +325,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 15.5, 16.1, 18.1, 18.2, 18.3_
 
 
-- [ ] 8. Migrate real upstream economic evidence producers
+- [x] 8. Migrate real upstream economic evidence producers
 
-- [ ] 8.1 (P) Certify Anthropic-family cache and output evidence
+- [x] 8.1 (P) Certify Anthropic-family cache and output evidence
   - Map input, cache read, cache creation and lifetime-specific creation fields using the documented family schema; retain safe original lexemes.
   - Cover streaming present-field updates, output/reasoning inclusion and server-side usage where actually surfaced; absent details remain absent.
   - Completion: shared normalization TCK plus real-family fixtures pass; changes stay inside the Anthropic family boundary.
@@ -337,7 +337,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/plugins/backends/anthropic/..._
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 5.1, 5.2, 5.3_
 
-- [ ] 8.2 (P) Certify OpenAI and OpenResponses-family evidence
+- [x] 8.2 (P) Certify OpenAI and OpenResponses-family evidence
   - Map cached/reasoning subsets plus supported image/audio/video/document input or generated-media economics exposed by the current OpenAI/OpenResponses family, provider monetary aggregates when genuinely present, request IDs and returned service context.
   - Preserve interrupted streams lacking final usage and use provider cost only as P when supplied; retain input/output media direction and test host-only isolation.
   - Completion: the OpenAI/OpenResponses family fixtures distinguish E, Q, P, multimodal direction, and missing final evidence without text-token coercion.
@@ -347,7 +347,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/plugins/backends/openairesponses/... ./internal/plugins/backends/openresponsescompat/..._
   - _Requirements: 1.1, 3.1, 3.4, 5.1, 5.2, 5.3, 7.4_
 
-- [ ] 8.3 (P) Certify Gemini-family modality and cache evidence
+- [x] 8.3 (P) Certify Gemini-family modality and cache evidence
   - Map available text/image/audio/video modality, direction, cache, reasoning/total and grounded-tool usage with versioned units/quality qualifiers; do not invent usage from a published price sheet.
   - Route actual resource storage evidence through interval scope, preserving unavailable input when the response does not contain it.
   - Completion: known multimodal/cache fields round-trip with input/output separation and non-observed storage charges are not falsely labelled provider-reported.
@@ -357,7 +357,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/plugins/backends/protocols/geminigenerate/..._
   - _Requirements: 2.2, 2.4, 3.1, 3.4, 3.5, 5.1, 6.5_
 
-- [ ] 8.4 (P) Certify Codex request usage and account-window snapshots
+- [x] 8.4 (P) Certify Codex request usage and account-window snapshots
   - Map request token evidence separately from primary/secondary/named-window utilization and credit snapshots using actual available fields.
   - Preserve resets, pool/account identities and gauge semantics; a response-associated gauge is not a request debit.
   - Completion: connector-local tests cover concurrent/out-of-order windows, multiple pools and missing request cost without fabricating a debit.
@@ -367,7 +367,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: Run connector-local go test ./... in connectors/codex; run the root connector conformance gate_
   - _Requirements: 5.1, 5.2, 9.1, 9.2, 9.3, 9.4, 9.5_
 
-- [ ] 8.5 Close the complete producer inventory including auxiliary paths
+- [x] 8.5 Close the complete producer inventory including auxiliary paths
   - Apply the Task 1 disposition criteria to remaining existing hosted/compatibility/executable producers. Use central lossless bridges where valid; implement remaining family mappings in separate bounded PRs.
   - Migrate keep-warm, prompt-cache renewal, compaction and nested agent evidence through the same contract, keeping additive/inclusive parent coverage explicit.
   - Completion: every inventoried producer is certified, losslessly bridged, or explicitly negotiated as unsupported advanced evidence; no unclassified producer remains.

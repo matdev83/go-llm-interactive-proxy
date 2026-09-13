@@ -420,9 +420,94 @@ func mergeUsageEvents(events []lipapi.Event) lipapi.Event {
 func authorityUsageEvent(events []lipapi.Event) lipapi.Event {
 	authoritative := authoritativeProviderUsageEvents(events)
 	if len(authoritative) > 0 {
-		return mergeUsageEventsForClient(authoritative, false)
+		return mergeUsageEventsForClient(coalesceAuthoritativeProviderSnapshots(authoritative), false)
 	}
 	return mergeUsageEvents(events)
+}
+
+// coalesceAuthoritativeProviderSnapshots keeps one source snapshot per stable
+// provider event key for the authority projection. Provider adapters use a
+// stable key for a cumulative stream source, while the host-only V2 path keeps
+// every immutable revision for durable replay. Overlaying only explicitly
+// present fields preserves start/cache fields when a later delta contains only
+// output and prevents a terminal cumulative snapshot from being counted again.
+// Events without a key, or with scoped usage, retain the ordinary additive
+// projection because their source semantics are not known at this boundary.
+func coalesceAuthoritativeProviderSnapshots(events []lipapi.Event) []lipapi.Event {
+	out := make([]lipapi.Event, 0, len(events))
+	indices := make(map[string]int, len(events))
+	for _, event := range events {
+		key := authoritativeProviderSnapshotKey(event)
+		if key == "" {
+			out = append(out, event)
+			continue
+		}
+		if index, ok := indices[key]; ok {
+			out[index] = mergeProviderUsageSnapshot(out[index], event)
+			continue
+		}
+		indices[key] = len(out)
+		out = append(out, event)
+	}
+	return out
+}
+
+func authoritativeProviderSnapshotKey(event lipapi.Event) string {
+	if event.Kind != lipapi.EventUsageDelta || len(event.UsageScopes) != 0 {
+		return ""
+	}
+	key := strings.TrimSpace(event.Accounting.DedupeKey)
+	if key == "" {
+		return ""
+	}
+	return strings.Join([]string{
+		key,
+		string(event.Accounting.Plane),
+		string(event.Accounting.Source),
+		string(event.Accounting.Authority),
+	}, "\x00")
+}
+
+func mergeProviderUsageSnapshot(previous, next lipapi.Event) lipapi.Event {
+	out := previous
+	copyCounter := func(present bool, value int, target *int, targetPresent *bool) {
+		if !present {
+			return
+		}
+		*target = value
+		*targetPresent = true
+	}
+	copyCounter(next.UsagePresence.InputTokens, next.InputTokens, &out.InputTokens, &out.UsagePresence.InputTokens)
+	copyCounter(next.UsagePresence.OutputTokens, next.OutputTokens, &out.OutputTokens, &out.UsagePresence.OutputTokens)
+	copyCounter(next.UsagePresence.CacheReadTokens, next.CacheReadTokens, &out.CacheReadTokens, &out.UsagePresence.CacheReadTokens)
+	copyCounter(next.UsagePresence.CacheWriteTokens, next.CacheWriteTokens, &out.CacheWriteTokens, &out.UsagePresence.CacheWriteTokens)
+	copyCounter(next.UsagePresence.ReasoningTokens, next.ReasoningTokens, &out.ReasoningTokens, &out.UsagePresence.ReasoningTokens)
+	copyCounter(next.UsagePresence.TotalTokens, next.TotalTokens, &out.TotalTokens, &out.UsagePresence.TotalTokens)
+	if next.CostPresent {
+		out.CostNanoUnits = next.CostNanoUnits
+		out.CostPresent = true
+		out.Currency = next.Currency
+		out.CostSource = next.CostSource
+	}
+	if next.RawUsageJSON != "" {
+		out.RawUsageJSON = next.RawUsageJSON
+	}
+	if next.Accounting.ProviderAccountKey != "" {
+		out.Accounting.ProviderAccountKey = next.Accounting.ProviderAccountKey
+	}
+	if next.Accounting.ProviderRequestID != "" {
+		out.Accounting.ProviderRequestID = next.Accounting.ProviderRequestID
+	}
+	if next.Accounting.ProviderChargeID != "" {
+		out.Accounting.ProviderChargeID = next.Accounting.ProviderChargeID
+	}
+	if next.Accounting.ServiceContext != "" {
+		out.Accounting.ServiceContext = next.Accounting.ServiceContext
+	}
+	if next.Accounting.Tokenizer != (lipapi.TokenizerRef{}) {
+		out.Accounting.Tokenizer = next.Accounting.Tokenizer
+	}
+	return out
 }
 
 // authoritativeProviderUsageEvents keeps only provider scopes whose metadata

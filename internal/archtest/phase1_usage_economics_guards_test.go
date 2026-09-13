@@ -334,6 +334,7 @@ func TestPhase1ProducerConsumerCensusIsExactAndDispositioned(t *testing.T) {
 	allowedStatuses := map[string]struct{}{
 		"bridge-v1": {}, "bridge estimated": {}, "bridge fixture": {},
 		"pending": {}, "unsupported": {}, "RED": {},
+		"v2-certified": {}, "lossless-v1-bridge": {}, "unsupported advanced evidence": {},
 	}
 	for lineNo, row := range rows[1:] {
 		if len(row) != 7 {
@@ -373,7 +374,10 @@ func TestPhase1ProducerConsumerCensusIsExactAndDispositioned(t *testing.T) {
 		if _, ok := allowedStatuses[status]; !ok {
 			t.Fatalf("census line %d disposition status %q is not explicit", lineNo+2, status)
 		}
-		if len(parts) != 2 || !strings.HasPrefix(strings.TrimSpace(parts[1]), "parent ") {
+		// The Phase 8 disposition may contain a bounded semicolon-delimited
+		// reason before the frozen parent-task marker. Keep the status in the
+		// first field while accepting the richer evidence text.
+		if len(parts) != 2 || !strings.Contains(disposition, "; parent ") {
 			t.Fatalf("census line %d disposition %q lacks parent task", lineNo+2, disposition)
 		}
 		if strings.TrimSpace(owner) == category {

@@ -1,6 +1,16 @@
 package backendplugin
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
+
+// AccountingEvidenceNegotiated reports whether the V1 host-only sideband is
+// available for the current session. It is intentionally separate from the
+// typed V2 negotiation gate: V1 carries only the six legacy token counters.
+func AccountingEvidenceNegotiated(neg Negotiation) bool {
+	return neg.Compatible && neg.NegotiatedMinor >= ProtocolMinorAccountingEvidence && slices.Contains(neg.EnabledFeatures, FeatureAccountingEvidence)
+}
 
 // ValidateAccountingEvidence validates the bounded, provider-billable sideband
 // payload. Presence is authoritative: a nil counter is omitted, not zero.

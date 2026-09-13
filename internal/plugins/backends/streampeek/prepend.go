@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipsdkmetering "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
@@ -84,6 +86,66 @@ func (e *managedPrependFirst) DrainPromptCacheObservations() []promptcache.Obser
 		return nil
 	}
 	return source.DrainPromptCacheObservations()
+}
+
+// DrainUsageEvidence forwards the legacy host-only V1 sideband through the
+// first-event adapter. The canonical first event is already buffered, so this
+// method only delegates the provider-owned evidence queue.
+func (e *managedPrependFirst) DrainUsageEvidence() []lipapi.Event {
+	if e == nil || e.rest == nil {
+		return nil
+	}
+	source, ok := e.rest.(lipapi.UsageEvidenceSource)
+	if !ok {
+		return nil
+	}
+	return source.DrainUsageEvidence()
+}
+
+// DrainEconomicObservations forwards provider-neutral V2 observations through
+// the first-event adapter. The wrapper must not hide an economic source from
+// the runtime terminal owner.
+func (e *managedPrependFirst) DrainEconomicObservations() []lipsdkmetering.Observation {
+	if e == nil || e.rest == nil {
+		return nil
+	}
+	source, ok := e.rest.(lipsdkmetering.ObservationSource)
+	if !ok {
+		return nil
+	}
+	return source.DrainEconomicObservations()
+}
+
+// AccountingEvidenceEnabled preserves the underlying stream's negotiation
+// state. The wrapper always exposes a drain method for composition, so the
+// runtime must not mistake an empty, disabled sideband for an authoritative
+// economic source.
+func (e *managedPrependFirst) AccountingEvidenceEnabled() bool {
+	if e == nil || e.rest == nil {
+		return false
+	}
+	if state, ok := e.rest.(interface{ AccountingEvidenceEnabled() bool }); ok {
+		return state.AccountingEvidenceEnabled()
+	}
+	if _, ok := e.rest.(lipsdkmetering.ObservationSource); ok {
+		return true
+	}
+	if _, ok := e.rest.(lipapi.UsageEvidenceSource); ok {
+		return true
+	}
+	return false
+}
+
+// BindEconomicEvidence forwards the trusted B-leg binding to the underlying
+// provider stream before its sideband is drained.
+func (e *managedPrependFirst) BindEconomicEvidence(identity coremetering.ObservationIdentity) {
+	if e == nil || e.rest == nil {
+		return
+	}
+	binder, ok := e.rest.(coremetering.ProviderEvidenceBinder)
+	if ok {
+		binder.BindEconomicEvidence(identity)
+	}
 }
 
 func (e *managedPrependFirst) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {

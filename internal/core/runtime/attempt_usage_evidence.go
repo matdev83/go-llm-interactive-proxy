@@ -366,24 +366,33 @@ func observationsFromBillingEvidence(draft billingLegDraft, captured []capturedB
 	inputs := make([]billingObservationInput, 0, len(captured)+2)
 	capturedKeys := make(map[string]struct{}, len(captured))
 	for i, evidence := range captured {
+		if directEvidenceCoveredByEconomicObservation(draft, evidence.event) {
+			continue
+		}
 		inputs = append(inputs, billingObservationInput{event: evidence.event, role: evidence.role, sequence: uint64(i + 1)})
 		if key := strings.TrimSpace(evidence.event.Accounting.DedupeKey); key != "" {
 			capturedKeys[key] = struct{}{}
 		}
 	}
 	// Keep direct stream/finalizer envelopes in the collection even when an
-	// adapter did not expose an attempt accumulator. Once an accumulator exists,
-	// its stream/sideband events are the source evidence and the stream field is
-	// only a derived V1 fallback; adding that aggregate would manufacture a
-	// conflict against its first source event. Exact source identity replay is
-	// removed below; changed payloads are surfaced as conflicts.
-	streamKey := strings.TrimSpace(draft.stream.Accounting.DedupeKey)
-	if draft.stream.Kind != "" && (streamKey == "" || !hasCapturedEvidenceKey(capturedKeys, streamKey)) {
-		inputs = append(inputs, billingObservationInput{event: draft.stream, role: billingEvidenceRoleStream, sequence: uint64(len(inputs) + 1)})
+	// adapter did not expose an attempt accumulator. Once an accumulator or
+	// negotiated V2 source exists, its source events are authoritative and the
+	// stream field is only a derived V1 fallback; adding that aggregate would
+	// manufacture a duplicate against the provider source. Exact source
+	// identity replay is removed below; changed payloads are surfaced as
+	// conflicts.
+	appendDirectEvidence := func(event lipapi.Event, role string) {
+		if event.Kind == "" || directEvidenceCoveredByEconomicObservation(draft, event) {
+			return
+		}
+		key := strings.TrimSpace(event.Accounting.DedupeKey)
+		if role == billingEvidenceRoleStream && key != "" && hasCapturedEvidenceKey(capturedKeys, key) {
+			return
+		}
+		inputs = append(inputs, billingObservationInput{event: event, role: role, sequence: uint64(len(inputs) + 1)})
 	}
-	if draft.finalize.Kind != "" {
-		inputs = append(inputs, billingObservationInput{event: draft.finalize, role: billingEvidenceRoleFinalizer, sequence: uint64(len(inputs) + 1)})
-	}
+	appendDirectEvidence(draft.stream, billingEvidenceRoleStream)
+	appendDirectEvidence(draft.finalize, billingEvidenceRoleFinalizer)
 
 	observations := make([]metering.Observation, 0, len(inputs))
 	conflicts := make([]billing.EvidenceConflict, 0)
@@ -417,6 +426,38 @@ func observationsFromBillingEvidence(draft billingLegDraft, captured []capturedB
 		observations = append(observations, observation)
 	}
 	return observations, conflicts
+}
+
+// directEvidenceCoveredByEconomicObservation prevents a canonical provider
+// usage fallback from becoming a second V2 observation when the same source
+// event already arrived through the negotiated host-only V2 seam. Matching is
+// deliberately limited to the same provider source key and trusted B-leg/store
+// subject; unrelated local/finalizer evidence remains eligible for mapping.
+func directEvidenceCoveredByEconomicObservation(draft billingLegDraft, event lipapi.Event) bool {
+	if event.Kind != lipapi.EventUsageDelta || event.Accounting.Plane != lipapi.UsagePlaneProviderBillable {
+		return false
+	}
+	key := strings.TrimSpace(event.Accounting.DedupeKey)
+	if key == "" || len(draft.economicObservations) == 0 {
+		return false
+	}
+	for _, evidence := range draft.economicObservations {
+		observation, err := evidence.Observation.Canonical()
+		if err != nil || strings.TrimSpace(observation.SourceEventKey) != key {
+			continue
+		}
+		if observation.Subject.Kind != metering.SubjectBLeg {
+			continue
+		}
+		if storeID := strings.TrimSpace(draft.storeID); storeID != "" && observation.Subject.StoreID != storeID {
+			continue
+		}
+		if bLegID := strings.TrimSpace(draft.bLegID); bLegID != "" && observation.Subject.BLegID != bLegID {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func hasCapturedEvidenceKey(keys map[string]struct{}, key string) bool {

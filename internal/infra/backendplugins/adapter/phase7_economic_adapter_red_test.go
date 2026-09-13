@@ -39,6 +39,26 @@ func TestPhase7Adapter_V2SidebandDrainDeduplicatesFrameReplay(t *testing.T) {
 	}
 }
 
+func TestPhase8Adapter_V1SidebandDoesNotClaimCanonicalAuthority(t *testing.T) {
+	t.Parallel()
+	s := &managedStream{opt: Options{Negotiation: backendplugin.Negotiation{
+		Compatible:      true,
+		NegotiatedMinor: backendplugin.ProtocolMinorAccountingEvidence,
+		EnabledFeatures: []string{backendplugin.FeatureAccountingEvidence},
+	}}}
+	if s.AccountingEvidenceEnabled() {
+		t.Fatal("legacy V1 sideband globally suppressed canonical usage; V1 producers must project authority per source")
+	}
+}
+
+func TestPhase8Adapter_V2SidebandClaimsCanonicalAuthority(t *testing.T) {
+	t.Parallel()
+	s := &managedStream{opt: Options{Negotiation: phase7Negotiation()}}
+	if !s.AccountingEvidenceEnabled() {
+		t.Fatal("negotiated V2 sideband did not claim canonical authority")
+	}
+}
+
 func TestPhase7Adapter_V2ConflictIsVisibleAndFailClosed(t *testing.T) {
 	t.Parallel()
 	s := &managedStream{ctx: contextBackground(), opt: Options{Negotiation: phase7Negotiation()}, maxFrame: int(backendplugin.DefaultMaxStreamFrameBytes)}

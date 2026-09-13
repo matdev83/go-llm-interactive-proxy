@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
 const (
@@ -35,13 +36,14 @@ type GenerationKiller interface {
 }
 
 type RunStreamOpts struct {
-	CancelTimeout    time.Duration
-	MaxPending       int
-	OnCancelTimeout  func(ctx context.Context) error
-	GenerationKiller GenerationKiller
-	APIKey           string
-	Diag             *Diag
-	Corr             DiagCorr
+	CancelTimeout               time.Duration
+	MaxPending                  int
+	OnCancelTimeout             func(ctx context.Context) error
+	GenerationKiller            GenerationKiller
+	DisableAccountingEvidenceV1 bool
+	APIKey                      string
+	Diag                        *Diag
+	Corr                        DiagCorr
 }
 
 // runDiagOutcome is the once-state for a run's terminal diagnostic. Locked
@@ -102,6 +104,7 @@ type RunStream struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+	*backendplugin.UsageEvidenceBuffer
 }
 
 func NewRunStream(parent context.Context, bridge RunBridge, lease *AgentLease, owner LeaseOwner, opts RunStreamOpts) *RunStream {
@@ -121,16 +124,20 @@ func NewRunStream(parent context.Context, bridge RunBridge, lease *AgentLease, o
 		maxPend = maxRunStreamPending
 	}
 	s := &RunStream{
-		bridge:    bridge,
-		owner:     owner,
-		lease:     lease,
-		runID:     runID,
-		opts:      opts,
-		maxPend:   maxPend,
-		pending:   NewPendingEventQueue(maxPend),
-		expectSeq: 1,
-		ctx:       ctx,
-		cancel:    cancel,
+		bridge:              bridge,
+		owner:               owner,
+		lease:               lease,
+		runID:               runID,
+		opts:                opts,
+		maxPend:             maxPend,
+		pending:             NewPendingEventQueue(maxPend),
+		expectSeq:           1,
+		ctx:                 ctx,
+		cancel:              cancel,
+		UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer(),
+	}
+	if opts.DisableAccountingEvidenceV1 {
+		s.UsageEvidenceBuffer.SetEnabled(false)
 	}
 	if bridge != nil && runID != "" {
 		ch, unsub, termErr := bridge.SubscribeRun(runID)
@@ -164,6 +171,7 @@ func (s *RunStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			if isClientVisibleEvent(ev) {
 				s.committed = true
 			}
+			ev = s.canonicalUsageEvent(ev)
 			s.mu.Unlock()
 			return ev, nil
 		}
@@ -219,6 +227,16 @@ func (s *RunStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 }
 
+// canonicalUsageEvent keeps the provider key exclusively in the negotiated V1
+// sideband. When V1 is unavailable, the key remains so the host's legacy
+// canonical capture path can retain the usage event.
+func (s *RunStream) canonicalUsageEvent(ev lipapi.Event) lipapi.Event {
+	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+		ev.Accounting.DedupeKey = ""
+	}
+	return ev
+}
+
 func isClientVisibleEvent(ev lipapi.Event) bool {
 	switch ev.Kind {
 	case lipapi.EventResponseStarted, lipapi.EventMessageStarted,
@@ -266,6 +284,9 @@ func (s *RunStream) ingestFrame(f *protocol.Frame) {
 		return
 	}
 	s.expectSeq = next
+	for _, ev := range res.events {
+		s.UsageEvidenceBuffer.AddUsageEvent(ev, "cursorsdk.usage:stream")
+	}
 
 	if res.terminal {
 		res = s.finishTerminalLocked(res)
