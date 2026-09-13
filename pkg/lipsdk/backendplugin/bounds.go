@@ -43,6 +43,16 @@ const (
 	// with observed outcome mode and deadline propagation.
 	ProtocolMinorCancellationHandshake = uint32(8)
 	FeatureCancellationHandshake       = "cancellation_handshake_v1"
+	// ProtocolMinorAccountingEvidenceV2 adds typed, host-only economic
+	// observations to the existing V1 accounting sideband/finalizer messages.
+	ProtocolMinorAccountingEvidenceV2 = uint32(9)
+	FeatureAccountingEvidenceV2       = "accounting_evidence_v2"
+	// Neutral aliases retain the same negotiated wire feature without creating
+	// a second capability or transport format.
+	FeatureEconomicsV2                 = FeatureAccountingEvidenceV2
+	FeatureEconomicEvidenceV2          = FeatureAccountingEvidenceV2
+	ProtocolMinorEconomicsV2           = ProtocolMinorAccountingEvidenceV2
+	ProtocolMinorEconomicEvidenceV2    = ProtocolMinorAccountingEvidenceV2
 	DefaultMaxAccountingDedupeKeyBytes = uint64(256)
 
 	// DefaultMaxMessageBytes is the default whole-message size ceiling.

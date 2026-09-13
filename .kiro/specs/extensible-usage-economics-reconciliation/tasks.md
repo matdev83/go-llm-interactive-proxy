@@ -282,9 +282,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 4.6, 14.1, 15.3, 18.3, 18.5_
 
 
-- [ ] 7. Extend the executable connector ABI without silent loss
+- [x] 7. Extend the executable connector ABI without silent loss
 
-- [ ] 7.1 Define and generate negotiated V2 economic payloads
+- [x] 7.1 Define and generate negotiated V2 economic payloads
   - Add new versioned sideband/finalization messages and capability flag without reusing field numbers or changing V1 wire meaning.
   - Generate transport code with the repository generator; define size and presence validation in public DTO conversions.
   - Completion: code generation is reproducible and both old and new fixture payloads decode with explicit capabilities.
@@ -294,7 +294,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./pkg/lipsdk/backendplugin/...; make quality-checks_
   - _Requirements: 5.1, 5.4, 5.5, 15.2, 18.3_
 
-- [ ] 7.2 Bridge host drains and finalization to V2 observations
+- [x] 7.2 Bridge host drains and finalization to V2 observations
   - Update host sessions/adapters to preserve sideband measure/charge detail, subject, provider identity and revision.
   - Drain on open failures, receive, normal terminal, cancel and close; do not encode host-only economics as canonical client content.
   - Completion: duplicate frame/finalizer reports remain one provider charge with retained source relationships.
@@ -304,7 +304,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/infra/backendplugins/... ./pkg/lipsdk/backendplugin/..._
   - _Requirements: 5.1, 5.2, 5.3, 10.4, 16.4_
 
-- [ ] 7.3 Enforce compatibility and evidence-capability policy
+- [x] 7.3 Enforce compatibility and evidence-capability policy
   - Implement explicit lossless V1 bridge and partial coverage reporting for old connectors; strict unsupported offers fail before execution.
   - Test unknown component/schema handling, unsupported money detail, maximum sizes and unexpected field types.
   - Completion: old/new host/connector combinations cannot silently claim full V2 coverage.
@@ -314,7 +314,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./pkg/lipsdk/backendplugin/... ./internal/infra/backendplugins/..._
   - _Requirements: 5.4, 5.6, 14.5, 17.2, 18.3_
 
-- [ ] 7.4 Certify the canonical sideband family contract
+- [x] 7.4 Certify the canonical sideband family contract
   - Extend the shared connector conformance TCK with presence, fractions, multimodal direction/unit/quality, charge coverage, gauges, late revisions and secret-safe errors.
   - Use synthetic image/audio/video and other non-token provider fixtures to prove root executor/schema independence.
   - Completion: one reusable transport certification suite covers required V2 invariants without provider Cartesian tests.

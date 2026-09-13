@@ -8,7 +8,7 @@ import (
 func (f ServerFrame) ValidateShape() error {
 	switch f.Kind {
 	case ServerFrameAccepted:
-		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
+		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.AccountingV2 != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return nil
@@ -19,17 +19,17 @@ func (f ServerFrame) ValidateShape() error {
 		if err := ValidateEventKind(f.Event.Kind); err != nil {
 			return err
 		}
-		if f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
+		if f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.AccountingV2 != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return nil
 	case ServerFrameDiagnostic:
-		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.PromptCacheObservation != nil {
+		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.AccountingV2 != nil || f.PromptCacheObservation != nil {
 			return ErrInvalidFrame
 		}
 		return ValidateSize(uint64(len(f.Diagnostic)), DefaultMaxDiagnosticBytes)
 	case ServerFrameCancelOutcome:
-		if f.CancelOutcome == nil || f.Event != nil || f.Terminal != nil || f.Accounting != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
+		if f.CancelOutcome == nil || f.Event != nil || f.Terminal != nil || f.Accounting != nil || f.AccountingV2 != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		if f.CancelOutcome.Reason == CancelReasonUnspecified {
@@ -45,17 +45,20 @@ func (f ServerFrame) ValidateShape() error {
 		if f.Terminal == nil || f.Terminal.Status == TerminalUnspecified {
 			return ErrUnknownEnum
 		}
-		if f.Event != nil || f.CancelOutcome != nil || f.Accounting != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
+		if f.Event != nil || f.CancelOutcome != nil || f.Accounting != nil || f.AccountingV2 != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return nil
 	case ServerFrameAccountingEvidence:
-		if f.Accounting == nil || f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
+		if (f.Accounting == nil && f.AccountingV2 == nil) || (f.Accounting != nil && f.AccountingV2 != nil) || f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
+		}
+		if f.AccountingV2 != nil {
+			return f.AccountingV2.Validate()
 		}
 		return ValidateAccountingEvidence(*f.Accounting)
 	case ServerFramePromptCacheObservation:
-		if f.PromptCacheObservation == nil || f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.Diagnostic != "" {
+		if f.PromptCacheObservation == nil || f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.AccountingV2 != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return f.PromptCacheObservation.Validate()
@@ -133,7 +136,7 @@ func ServerFrameConservativeBytes(f ServerFrame) uint64 {
 	case ServerFrameEvent:
 		return envelope + eventPayloadBytes(f.Event)
 	case ServerFrameAccountingEvidence:
-		return envelope + accountingEvidenceBytes(f.Accounting)
+		return envelope + accountingEvidenceBytes(f.Accounting) + accountingEvidenceV2Bytes(f.AccountingV2)
 	case ServerFramePromptCacheObservation:
 		if f.PromptCacheObservation == nil {
 			return envelope
@@ -163,6 +166,17 @@ func accountingEvidenceBytes(e *AccountingEvidence) uint64 {
 		return 0
 	}
 	return uint64(len(e.DedupeKey) + 64*6)
+}
+
+func accountingEvidenceV2Bytes(e *AccountingEvidenceV2) uint64 {
+	if e == nil {
+		return 0
+	}
+	b, err := e.Observation.CanonicalJSON()
+	if err != nil {
+		return DefaultMaxEconomicObservationBytes
+	}
+	return uint64(len(b) + len(e.CoverageReason) + 64)
 }
 
 // ValidateClientFrameBounds enforces client-frame wire size using protobuf encoding size.

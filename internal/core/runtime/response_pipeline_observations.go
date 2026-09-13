@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -14,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -366,17 +368,24 @@ func (p *responsePipeline) consumeBackendUsageEvidenceForAttempt(ctx context.Con
 	if p == nil || attempt == nil || inner == nil {
 		return
 	}
-	source, ok := inner.(lipapi.UsageEvidenceSource)
-	if !ok {
-		return
-	}
-	for _, ev := range source.DrainUsageEvidence() {
-		if ev.Kind != lipapi.EventUsageDelta || !attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleSideband) {
-			continue
+	if source, ok := inner.(lipapi.UsageEvidenceSource); ok {
+		for _, ev := range source.DrainUsageEvidence() {
+			if ev.Kind != lipapi.EventUsageDelta || !attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleSideband) {
+				continue
+			}
+			p.rememberInternalUsage(ev)
+			attempt.observeAccountingUsage(ev)
+			p.emitUsage(ctx, facts, attempt, ev)
 		}
-		p.rememberInternalUsage(ev)
-		attempt.observeAccountingUsage(ev)
-		p.emitUsage(ctx, facts, attempt, ev)
+	}
+	if source, ok := inner.(execbackend.EconomicEvidenceSource); ok {
+		for _, evidence := range source.DrainEconomicEvidenceRecords() {
+			attempt.rememberEconomicEvidenceOnce(evidence)
+		}
+	} else if source, ok := inner.(metering.ObservationSource); ok {
+		for _, observation := range source.DrainEconomicObservations() {
+			attempt.rememberEconomicObservationOnce(observation)
+		}
 	}
 }
 

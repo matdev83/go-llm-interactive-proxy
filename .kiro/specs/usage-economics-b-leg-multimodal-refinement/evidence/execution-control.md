@@ -11,7 +11,8 @@
 - Parent tasks 4.1–4.4: root-reviewed and accepted; durable V2 evidence, valuation/reconciliation projections, atomic composition and rebuild support pass focused dual-dialect evidence.
 - Parent tasks 5.1–5.4: root-reviewed and accepted; source-separated B-leg terminal evidence, strict durability propagation and independent all-leg COGS/retail selection pass focused verification.
 - Parent tasks 6.1–6.4 and refinement tasks 3.1–3.3: root-reviewed and accepted; final provider-tree input measurement, separate provider/customer output planes, honest unobservables and bounded fast-path behavior pass focused verification.
-- Next implementation: parent task group 7, executable connector ABI without silent loss.
+- Parent tasks 7.1–7.4: root-reviewed and accepted; negotiated V2 connector evidence, V1 partial bridge, host drains, durable coverage dispositions and reusable conformance pass focused verification.
+- Next implementation: parent task group 8, real upstream economic evidence producers.
 - The refinement has 8 groups and its required parent has 20. They overlap; do not report these as 28 independent phases or infer a completion percentage from group count.
 
 ## Process correction
@@ -61,3 +62,10 @@ This document changes execution discipline only. It does not remove requirements
 - Root issued one consolidated repair for actual provider-tree measurement, durable lifecycle state, disabled-path allocation proof, and no-transaction parallel lineage.
 - Root fresh package, adapter, architecture and vet verification passed.
 - Accepted tasks: parent 6.1–6.4 and refinement 3.1–3.3.
+
+### Phase 7 measurement
+
+- One Luna/max phase worker was dispatched and awaited only through blocking completion events.
+- Root issued one consolidated repair for durable coverage-disposition preservation and empty-V2 old-peer compatibility.
+- Root fresh SDK, adapter, billing, billingstore, targeted runtime and vet verification passed; the broad runtime run reproduced only the recorded unrelated cancellation flake.
+- Accepted tasks: parent 7.1–7.4.

@@ -74,7 +74,19 @@ func canonicalEvidenceConflicts(in []EvidenceConflict) []EvidenceConflict {
 		if out[i].ExistingHash != out[j].ExistingHash {
 			return out[i].ExistingHash < out[j].ExistingHash
 		}
-		return out[i].IncomingHash < out[j].IncomingHash
+		if out[i].IncomingHash != out[j].IncomingHash {
+			return out[i].IncomingHash < out[j].IncomingHash
+		}
+		if out[i].ExistingCoverage != out[j].ExistingCoverage {
+			return out[i].ExistingCoverage < out[j].ExistingCoverage
+		}
+		if out[i].ExistingCoverageReason != out[j].ExistingCoverageReason {
+			return out[i].ExistingCoverageReason < out[j].ExistingCoverageReason
+		}
+		if out[i].IncomingCoverage != out[j].IncomingCoverage {
+			return out[i].IncomingCoverage < out[j].IncomingCoverage
+		}
+		return out[i].IncomingCoverageReason < out[j].IncomingCoverageReason
 	})
 	return out
 }
@@ -144,6 +156,13 @@ func evidenceReplayFingerprint(observation metering.Observation) string {
 	return copy.Fingerprint()
 }
 
+// ObservationEvidenceHash returns the replay-stable source hash used by the
+// durable economic disposition carrier. It does not alter the observation or
+// its provider-owned fingerprint.
+func ObservationEvidenceHash(observation metering.Observation) string {
+	return evidenceReplayFingerprint(observation)
+}
+
 // Clone returns a deep, caller-owned copy suitable for a terminal snapshot or
 // a durable handoff. It is intentionally additive to the existing immutable
 // record contract and does not expose request payloads.
@@ -157,6 +176,7 @@ func (l CallLegUsageRecord) Clone() CallLegUsageRecord {
 	}
 	out.ObservationRefs = append([]metering.ObservationRef(nil), l.ObservationRefs...)
 	out.EvidenceConflicts = append([]EvidenceConflict(nil), l.EvidenceConflicts...)
+	out.EconomicDispositions = append([]EconomicEvidenceDisposition(nil), l.EconomicDispositions...)
 	return out
 }
 
@@ -181,5 +201,5 @@ func (l CallLegUsageRecord) V2ObservationRefs() []metering.ObservationRef {
 
 // HasV2Evidence reports whether the record carries an additive V2 envelope.
 func (l CallLegUsageRecord) HasV2Evidence() bool {
-	return l.EvidenceVersion >= EvidenceFormatVersionV2 && (len(l.Observations) != 0 || len(l.ObservationRefs) != 0 || len(l.EvidenceConflicts) != 0)
+	return l.EvidenceVersion >= EvidenceFormatVersionV2 && (len(l.Observations) != 0 || len(l.ObservationRefs) != 0 || len(l.EvidenceConflicts) != 0 || len(l.EconomicDispositions) != 0)
 }

@@ -23,6 +23,7 @@ func RunWith(ctx context.Context, svc backendplugin.Service, opts Options) Repor
 	rep.Results = append(rep.Results, caseLifecycle(ctx, svc, opts))
 	rep.Results = append(rep.Results, caseCapabilityHonesty(ctx, svc, opts))
 	rep.Results = append(rep.Results, caseProfileInventory(ctx, svc, opts))
+	rep.Results = append(rep.Results, caseEconomicV2Contract())
 	if !opts.SkipExecute {
 		rep.Results = append(rep.Results, caseExecuteOrdering(ctx, svc, opts))
 	}

@@ -80,6 +80,7 @@ type turnTerminal struct {
 	appendBillingCall       func(context.Context, billing.CallUsageRecord) error
 	logBillingAppendFailure func(context.Context, string, string, error)
 	finalizeBilling         func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
+	finalizeBillingV2       func(context.Context, execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error)
 	releaseRequestAuthority func(context.Context) error
 	settleRequestAuthority  func(context.Context, []metering.Fact) error
 	emitFrontendEgress      func(context.Context, string, lipapi.Event) (metering.Fact, bool)
@@ -135,6 +136,7 @@ func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
 	}
 	t.logBillingAppendFailure = e.logBillingUsageAppendFailure
 	t.finalizeBilling = e.callFinalizeBilling
+	t.finalizeBillingV2 = e.callFinalizeBillingResult
 	t.releaseRequestAuthority = e.releaseRequestAuthority
 	t.settleRequestAuthority = e.settleRequestAuthority
 	t.emitFrontendEgress = e.emitFrontendEgressMeteringFact

@@ -91,13 +91,34 @@ type FinalBillingEvidence struct {
 // payload is retained as a visible conflict instead of being silently merged.
 // The conflict is diagnostic evidence and never becomes a charge by itself.
 type EvidenceConflict struct {
-	Identity     string `json:"identity"`
-	ExistingHash string `json:"existing_hash"`
-	IncomingHash string `json:"incoming_hash"`
+	Identity               string                   `json:"identity"`
+	ExistingHash           string                   `json:"existing_hash"`
+	IncomingHash           string                   `json:"incoming_hash"`
+	ExistingCoverage       EconomicEvidenceCoverage `json:"existing_coverage,omitempty"`
+	ExistingCoverageReason string                   `json:"existing_coverage_reason,omitempty"`
+	IncomingCoverage       EconomicEvidenceCoverage `json:"incoming_coverage,omitempty"`
+	IncomingCoverageReason string                   `json:"incoming_coverage_reason,omitempty"`
 }
 
 func (c EvidenceConflict) valid() bool {
-	return strings.TrimSpace(c.Identity) != "" && strings.TrimSpace(c.ExistingHash) != "" && strings.TrimSpace(c.IncomingHash) != ""
+	if strings.TrimSpace(c.Identity) == "" || strings.TrimSpace(c.ExistingHash) == "" || strings.TrimSpace(c.IncomingHash) == "" {
+		return false
+	}
+	if c.ExistingCoverage != "" || c.ExistingCoverageReason != "" {
+		if err := validateEconomicEvidenceCoverage(c.ExistingCoverage, c.ExistingCoverageReason); err != nil {
+			return false
+		}
+	}
+	if c.IncomingCoverage != "" || c.IncomingCoverageReason != "" {
+		if err := validateEconomicEvidenceCoverage(c.IncomingCoverage, c.IncomingCoverageReason); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (c EvidenceConflict) HasCoverageMetadata() bool {
+	return c.ExistingCoverage != "" || c.ExistingCoverageReason != "" || c.IncomingCoverage != "" || c.IncomingCoverageReason != ""
 }
 
 type TurnOutcome string

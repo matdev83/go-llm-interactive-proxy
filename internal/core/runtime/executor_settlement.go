@@ -87,7 +87,7 @@ func (t *turnTerminal) settleCancellationAuthorityForAttempt(ctx context.Context
 }
 
 func (t *turnTerminal) finalizeBillingAfterCancel(ctx context.Context, attempt *attemptSession, reason string, request requestTerminalFacts, p *responsePipeline) bool {
-	if t == nil || t.finalizeBilling == nil {
+	if t == nil || (t.finalizeBilling == nil && t.finalizeBillingV2 == nil) {
 		return false
 	}
 	if attempt == nil {
@@ -108,19 +108,18 @@ func (t *turnTerminal) finalizeBillingAfterCancel(ctx context.Context, attempt *
 	if aLegID == "" {
 		aLegID = strings.TrimSpace(attempt.bleg.ALegID)
 	}
-	ev, ok := billingState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+	result, ok := t.finalizeOnceWithEvidence(ctx, billingState, execbackend.BillingFinalizationInput{
 		TraceID: traceID,
 		ALegID:  aLegID,
 		BLegID:  strings.TrimSpace(attempt.bleg.BLegID),
 		Backend: strings.TrimSpace(attempt.cand.Primary.Backend),
 		Model:   strings.TrimSpace(attempt.cand.Primary.Model),
 		Reason:  strings.TrimSpace(reason),
-	}, func(cctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-		return t.finalizeBilling(cctx, in)
 	})
 	if !ok {
 		return false
 	}
+	ev := result.Usage
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingFinalizeTimeout)
 	defer cancel()
 	// Cancellation finalization claims the call-level finalizer before the
@@ -129,6 +128,9 @@ func (t *turnTerminal) finalizeBillingAfterCancel(ctx context.Context, attempt *
 	// stream projection when finalizeOnce reports the claim is already spent.
 	attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleFinalizer)
 	attempt.observeAccountingUsage(ev)
+	for _, economic := range result.EconomicEvidence {
+		attempt.rememberEconomicEvidenceOnce(economic)
+	}
 	p.rememberClientEvent(ev)
 	recording := p.recordClientFacingTerminal(persistCtx, request, attempt, ev, t.committed())
 	if recording.err != nil && p.log != nil {

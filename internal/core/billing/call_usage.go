@@ -48,8 +48,13 @@ type CallLegUsageRecord struct {
 	Observations       []metering.Observation    `json:"observations,omitempty"`
 	ObservationRefs    []metering.ObservationRef `json:"observation_refs,omitempty"`
 	EvidenceConflicts  []EvidenceConflict        `json:"evidence_conflicts,omitempty"`
-	OperatorRateRef    VersionRef
-	Workload           WorkloadIdentity
+	// EconomicEvidenceVersion and EconomicDispositions are an additive,
+	// source-separated carrier for connector coverage. The observation payload
+	// remains unchanged and is still the only input to meter/charge semantics.
+	EconomicEvidenceVersion int                           `json:"economic_evidence_version,omitempty"`
+	EconomicDispositions    []EconomicEvidenceDisposition `json:"economic_dispositions,omitempty"`
+	OperatorRateRef         VersionRef
+	Workload                WorkloadIdentity
 }
 
 func CallUsageKey(callID BillingCallID) (string, error) {
@@ -134,8 +139,11 @@ func canonicalExpectedBLegIDs(ids []string) []string {
 func (l CallLegUsageRecord) Seal() (CallLegUsageRecord, error) {
 	prepared := l
 	prepared.BLegID = strings.TrimSpace(prepared.BLegID)
-	if prepared.EvidenceVersion == 0 && (len(prepared.Observations) != 0 || len(prepared.ObservationRefs) != 0 || len(prepared.EvidenceConflicts) != 0) {
+	if prepared.EvidenceVersion == 0 && (len(prepared.Observations) != 0 || len(prepared.ObservationRefs) != 0 || len(prepared.EvidenceConflicts) != 0 || len(prepared.EconomicDispositions) != 0) {
 		prepared.EvidenceVersion = EvidenceFormatVersionV2
+	}
+	if len(prepared.EconomicDispositions) != 0 && prepared.EconomicEvidenceVersion == 0 {
+		prepared.EconomicEvidenceVersion = EconomicEvidenceDispositionVersionV1
 	}
 	if prepared.EvidenceVersion >= EvidenceFormatVersionV2 && prepared.EvidenceProjection == "" {
 		prepared.EvidenceProjection = EvidenceProjectionV1
@@ -153,6 +161,7 @@ func (l CallLegUsageRecord) Seal() (CallLegUsageRecord, error) {
 	out.Observations = cloneAndCanonicalizeObservations(prepared.Observations)
 	out.ObservationRefs = canonicalObservationRefs(prepared.ObservationRefs)
 	out.EvidenceConflicts = canonicalEvidenceConflicts(prepared.EvidenceConflicts)
+	out.EconomicDispositions = canonicalEconomicEvidenceDispositions(prepared.EconomicDispositions)
 	key, err := CallLegUsageKey(out.CallID, out.BLegID)
 	if err != nil {
 		return CallLegUsageRecord{}, err
@@ -181,8 +190,11 @@ func (l CallLegUsageRecord) Seal() (CallLegUsageRecord, error) {
 // requires a positive sequence for every new record.
 func (l CallLegUsageRecord) SemanticFingerprint() (string, error) {
 	prepared := l
-	if prepared.EvidenceVersion == 0 && (len(prepared.Observations) != 0 || len(prepared.ObservationRefs) != 0 || len(prepared.EvidenceConflicts) != 0) {
+	if prepared.EvidenceVersion == 0 && (len(prepared.Observations) != 0 || len(prepared.ObservationRefs) != 0 || len(prepared.EvidenceConflicts) != 0 || len(prepared.EconomicDispositions) != 0) {
 		prepared.EvidenceVersion = EvidenceFormatVersionV2
+	}
+	if len(prepared.EconomicDispositions) != 0 && prepared.EconomicEvidenceVersion == 0 {
+		prepared.EconomicEvidenceVersion = EconomicEvidenceDispositionVersionV1
 	}
 	if prepared.EvidenceVersion >= EvidenceFormatVersionV2 && prepared.EvidenceProjection == "" {
 		prepared.EvidenceProjection = EvidenceProjectionV1
@@ -243,6 +255,24 @@ func (l CallLegUsageRecord) SemanticFingerprint() (string, error) {
 			c.string(conflict.Identity)
 			c.string(conflict.ExistingHash)
 			c.string(conflict.IncomingHash)
+			if conflict.HasCoverageMetadata() {
+				c.string("coverage-disposition")
+				c.string(string(conflict.ExistingCoverage))
+				c.string(conflict.ExistingCoverageReason)
+				c.string(string(conflict.IncomingCoverage))
+				c.string(conflict.IncomingCoverageReason)
+			}
+		}
+		dispositions := canonicalEconomicEvidenceDispositions(l.EconomicDispositions)
+		if len(dispositions) != 0 {
+			c.u64(uint64(l.EconomicEvidenceVersion))
+			c.u64(uint64(len(dispositions)))
+			for _, disposition := range dispositions {
+				c.string(disposition.ObservationIdentity)
+				c.string(disposition.ObservationHash)
+				c.string(string(disposition.Coverage))
+				c.string(disposition.CoverageReason)
+			}
 		}
 	}
 	if l.AttemptSeq > 0 {
@@ -391,7 +421,7 @@ func (l CallLegUsageRecord) validate() error {
 	if l.EvidenceVersion != 0 && l.EvidenceVersion != EvidenceFormatVersionV2 {
 		return fmt.Errorf("%w: unsupported evidence format version %d", ErrInvalidRecord, l.EvidenceVersion)
 	}
-	if l.EvidenceVersion == 0 && (len(l.Observations) != 0 || len(l.ObservationRefs) != 0 || len(l.EvidenceConflicts) != 0) {
+	if l.EvidenceVersion == 0 && (len(l.Observations) != 0 || len(l.ObservationRefs) != 0 || len(l.EvidenceConflicts) != 0 || len(l.EconomicDispositions) != 0) {
 		return fmt.Errorf("%w: V2 evidence requires format version %d", ErrInvalidRecord, EvidenceFormatVersionV2)
 	}
 	if l.EvidenceVersion == 0 && l.EvidenceProjection != "" {
@@ -399,6 +429,18 @@ func (l CallLegUsageRecord) validate() error {
 	}
 	if l.EvidenceVersion >= EvidenceFormatVersionV2 && l.EvidenceProjection != EvidenceProjectionV1 {
 		return fmt.Errorf("%w: V2 evidence requires projection label %q", ErrInvalidRecord, EvidenceProjectionV1)
+	}
+	if l.EconomicEvidenceVersion != 0 && l.EconomicEvidenceVersion != EconomicEvidenceDispositionVersionV1 {
+		return fmt.Errorf("%w: unsupported economic evidence disposition version %d", ErrInvalidRecord, l.EconomicEvidenceVersion)
+	}
+	if l.EconomicEvidenceVersion == 0 && len(l.EconomicDispositions) != 0 {
+		return fmt.Errorf("%w: economic dispositions require format version %d", ErrInvalidRecord, EconomicEvidenceDispositionVersionV1)
+	}
+	if l.EconomicEvidenceVersion == EconomicEvidenceDispositionVersionV1 && len(l.EconomicDispositions) == 0 {
+		return fmt.Errorf("%w: economic evidence disposition version requires dispositions", ErrInvalidRecord)
+	}
+	if len(l.EconomicDispositions) > MaxCallLegEvidenceObservations {
+		return fmt.Errorf("%w: economic evidence disposition bound exceeded", ErrInvalidRecord)
 	}
 	if len(l.Observations) > MaxCallLegEvidenceObservations {
 		return fmt.Errorf("%w: call-leg observation bound exceeded", ErrInvalidRecord)
@@ -410,6 +452,9 @@ func (l CallLegUsageRecord) validate() error {
 		return fmt.Errorf("%w: call-leg evidence conflict bound exceeded", ErrInvalidRecord)
 	}
 	if err := validateCallLegObservations(l); err != nil {
+		return err
+	}
+	if err := validateEconomicEvidenceDispositions(l); err != nil {
 		return err
 	}
 	seenRefs := make(map[string]struct{}, len(l.ObservationRefs))

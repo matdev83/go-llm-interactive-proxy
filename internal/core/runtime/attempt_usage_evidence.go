@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -121,6 +123,103 @@ func (a *attemptSession) billingEvidenceConflictsSnapshot() []billing.EvidenceCo
 	return append([]billing.EvidenceConflict(nil), a.usageConflicts...)
 }
 
+// rememberEconomicEvidenceOnce owns validated connector V2 observations until
+// the B-leg terminal owner builds its durable record. Exact source replays are
+// ignored; a changed payload under the same identity remains a bounded visible
+// conflict. Coverage metadata remains attached until the terminal handoff.
+func (a *attemptSession) rememberEconomicEvidenceOnce(evidence execbackend.EconomicEvidence) {
+	if a == nil {
+		return
+	}
+	canonical, err := evidence.Observation.Canonical()
+	if err != nil {
+		return
+	}
+	if evidence.Coverage == "" {
+		evidence.Coverage = "complete"
+	}
+	evidence.Observation = canonical
+	identity := canonical.IdentityKey()
+	hash := canonical.Fingerprint() + "\x00" + evidence.Coverage + "\x00" + evidence.CoverageReason
+	if identity == "" || hash == "" {
+		return
+	}
+	a.economicMu.Lock()
+	defer a.economicMu.Unlock()
+	if a.economicObservationHashes == nil {
+		a.economicObservationHashes = make(map[string]map[string]execbackend.EconomicEvidence)
+	}
+	fingerprints := a.economicObservationHashes[identity]
+	if fingerprints == nil {
+		fingerprints = make(map[string]execbackend.EconomicEvidence)
+		a.economicObservationHashes[identity] = fingerprints
+	}
+	if _, exists := fingerprints[hash]; exists {
+		return
+	}
+	if len(fingerprints) != 0 {
+		prior := ""
+		for candidate := range fingerprints {
+			if prior == "" || candidate < prior {
+				prior = candidate
+			}
+		}
+		priorEvidence := fingerprints[prior]
+		a.economicConflicts = appendBoundedEvidenceConflict(a.economicConflicts, billing.EvidenceConflict{
+			Identity:               identity,
+			ExistingHash:           prior,
+			IncomingHash:           hash,
+			ExistingCoverage:       billing.EconomicEvidenceCoverage(priorEvidence.Coverage),
+			ExistingCoverageReason: priorEvidence.CoverageReason,
+			IncomingCoverage:       billing.EconomicEvidenceCoverage(evidence.Coverage),
+			IncomingCoverageReason: evidence.CoverageReason,
+		})
+		fingerprints[hash] = evidence
+		return
+	}
+	if len(a.economicObservations) >= billing.MaxCallLegEvidenceObservations {
+		return
+	}
+	fingerprints[hash] = evidence
+	a.economicObservations = append(a.economicObservations, evidence)
+}
+
+func (a *attemptSession) rememberEconomicObservationOnce(observation metering.Observation) {
+	a.rememberEconomicEvidenceOnce(execbackend.EconomicEvidence{Observation: observation})
+}
+
+func (a *attemptSession) economicEvidenceDrain() ([]execbackend.EconomicEvidence, []billing.EvidenceConflict) {
+	if a == nil {
+		return nil, nil
+	}
+	a.economicMu.Lock()
+	defer a.economicMu.Unlock()
+	observations := make([]execbackend.EconomicEvidence, len(a.economicObservations))
+	for i, evidence := range a.economicObservations {
+		observations[i] = evidence
+		observations[i].Observation = evidence.Observation.Clone()
+	}
+	conflicts := append([]billing.EvidenceConflict(nil), a.economicConflicts...)
+	a.economicObservations = nil
+	a.economicObservationHashes = nil
+	a.economicConflicts = nil
+	return observations, conflicts
+}
+
+func (a *attemptSession) finalizeBillingResult(ctx context.Context, state *billingCallState, in execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, bool) {
+	if a == nil || state == nil {
+		return execbackend.BillingFinalizationResult{}, false
+	}
+	if a.finalizeBillingV2 != nil {
+		return state.finalizeOnceWithEvidence(ctx, in, a.finalizeBillingV2)
+	}
+	if a.finalizeBilling == nil {
+		return execbackend.BillingFinalizationResult{}, false
+	}
+	ev, ok := state.finalizeOnce(ctx, in, a.finalizeBilling)
+	return execbackend.BillingFinalizationResult{Usage: ev}, ok
+}
+
 func (a *attemptSession) aggregatedUsageEvidence() lipapi.Event {
 	if a == nil {
 		return lipapi.Event{}
@@ -140,7 +239,26 @@ func (a *attemptSession) drainStreamUsageEvidence(inner lipapi.ManagedEventStrea
 		return
 	}
 	source, ok := inner.(lipapi.UsageEvidenceSource)
+	economicSource, economicOK := inner.(execbackend.EconomicEvidenceSource)
+	if economicOK {
+		_ = safety.Call(safety.BoundaryBackend, "backend_stream_drain_economic", func() error {
+			for _, evidence := range economicSource.DrainEconomicEvidenceRecords() {
+				a.rememberEconomicEvidenceOnce(evidence)
+			}
+			return nil
+		})
+	}
 	if !ok {
+		if !economicOK {
+			if observationSource, observationOK := inner.(metering.ObservationSource); observationOK {
+				_ = safety.Call(safety.BoundaryBackend, "backend_stream_drain_economic", func() error {
+					for _, observation := range observationSource.DrainEconomicObservations() {
+						a.rememberEconomicObservationOnce(observation)
+					}
+					return nil
+				})
+			}
+		}
 		return
 	}
 	_ = safety.Call(safety.BoundaryBackend, "backend_stream_drain_usage", func() error {
@@ -154,6 +272,16 @@ func (a *attemptSession) drainStreamUsageEvidence(inner lipapi.ManagedEventStrea
 		}
 		return nil
 	})
+	if !economicOK {
+		if observationSource, observationOK := inner.(metering.ObservationSource); observationOK {
+			_ = safety.Call(safety.BoundaryBackend, "backend_stream_drain_economic", func() error {
+				for _, observation := range observationSource.DrainEconomicObservations() {
+					a.rememberEconomicObservationOnce(observation)
+				}
+				return nil
+			})
+		}
+	}
 }
 
 // usageOrAccumulated returns primary when it carries token or cost presence,

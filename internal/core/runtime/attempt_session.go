@@ -83,14 +83,18 @@ type attemptSession struct {
 	billingMu          sync.Mutex
 	accountingMu       sync.Mutex
 	sidebandMu         sync.Mutex
+	economicMu         sync.Mutex
 
-	internalUsageKeys  map[string]struct{}
-	accumulatedUsage   []lipapi.Event
-	usageEvidence      map[string]capturedBillingEvidence
-	usageEvidenceOrder []string
-	usageConflicts     []billing.EvidenceConflict
-	billingLegRecorded bool
-	boundaryDrained    bool
+	internalUsageKeys         map[string]struct{}
+	accumulatedUsage          []lipapi.Event
+	usageEvidence             map[string]capturedBillingEvidence
+	usageEvidenceOrder        []string
+	usageConflicts            []billing.EvidenceConflict
+	economicObservations      []execbackend.EconomicEvidence
+	economicObservationHashes map[string]map[string]execbackend.EconomicEvidence
+	economicConflicts         []billing.EvidenceConflict
+	billingLegRecorded        bool
+	boundaryDrained           bool
 
 	cancelResult lipapi.CancelResult
 
@@ -129,6 +133,7 @@ type attemptSession struct {
 	appendBillingLeg       func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord)
 	appendBillingLegStrict func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord) error
 	finalizeBilling        func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
+	finalizeBillingV2      func(context.Context, execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error)
 }
 
 func (a *attemptSession) claimBillingLegRecord() bool {
@@ -250,6 +255,7 @@ type attemptSessionInput struct {
 	observeBillingLeg func(context.Context, billing.CallLegUsageRecord)
 	appendBillingLeg  func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord)
 	finalizeBilling   func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
+	finalizeBillingV2 func(context.Context, execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error)
 }
 
 func withBillingStoreIDOnAttempt(input attemptSessionInput, storeID string) attemptSessionInput {
@@ -269,7 +275,7 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		recordAttemptLoggedFn: in.recordAttemptLoggedFn, emitBackendEgressFn: in.emitBackendEgressFn,
 		appendBillingLegFn: in.appendBillingLegFn, now: in.now, billingEnabled: in.billingEnabled,
 		operatorRateRef: in.operatorRateRef, billingWorkload: in.billingWorkload,
-		observeBillingLeg: in.observeBillingLeg, appendBillingLeg: in.appendBillingLeg, finalizeBilling: in.finalizeBilling,
+		observeBillingLeg: in.observeBillingLeg, appendBillingLeg: in.appendBillingLeg, finalizeBilling: in.finalizeBilling, finalizeBillingV2: in.finalizeBillingV2,
 	}
 }
 
@@ -1512,6 +1518,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 	// failure can leave it available to a replacement invocation.
 	defer func() {
 		_, _ = a.billingEvidenceDrain()
+		_, _ = a.economicEvidenceDrain()
 		_ = a.drainLocalBoundaryObservations(time.Now().UTC())
 	}()
 	if a.terminal == nil {
@@ -1535,7 +1542,10 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 		// append path drains it below; this defer also covers legacy callbacks,
 		// missing call identities, and a duplicate terminal callback that cannot
 		// claim a second leg record.
-		defer func() { _, _ = a.billingEvidenceDrain() }()
+		defer func() {
+			_, _ = a.billingEvidenceDrain()
+			_, _ = a.economicEvidenceDrain()
+		}()
 		var errorsList []error
 		innerStream := a.takeInner()
 		var cancelRes lipapi.CancelResult
@@ -1815,20 +1825,22 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 					finalizeReason = evidence.RecordReason
 				}
 				finalizeEv := streamEv
-				if billingState != nil && a.finalizeBilling != nil {
-					if ev, ok := billingState.finalizeOnce(cctx, execbackend.BillingFinalizationInput{
+				if billingState != nil && (a.finalizeBilling != nil || a.finalizeBillingV2 != nil) {
+					if result, ok := a.finalizeBillingResult(cctx, billingState, execbackend.BillingFinalizationInput{
 						TraceID: traceID,
 						ALegID:  aLegID,
 						BLegID:  strings.TrimSpace(a.bleg.BLegID),
 						Backend: strings.TrimSpace(a.cand.Primary.Backend),
 						Model:   strings.TrimSpace(a.cand.Primary.Model),
 						Reason:  finalizeReason,
-					}, func(cctx2 context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-						return a.finalizeBilling(cctx2, in)
 					}); ok {
-						finalizeEv = ev
+						finalizeEv = result.Usage
+						for _, economic := range result.EconomicEvidence {
+							a.rememberEconomicEvidenceOnce(economic)
+						}
 					}
 				}
+				economicObservations, economicConflicts := a.economicEvidenceDrain()
 				var opRef billing.VersionRef
 				if a.operatorRateRef != nil {
 					opRef = a.operatorRateRef(cctx, a.cand.Primary)
@@ -1838,24 +1850,26 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 					workload = a.billingWorkload(cctx, aLegID)
 				}
 				legRecord := billingLegRecord(billingLegDraft{
-					callID:            callID,
-					aLegID:            aLegID,
-					storeID:           a.billingStoreID,
-					bLegID:            a.bleg.BLegID,
-					seq:               a.bleg.Seq,
-					primary:           a.cand.Primary,
-					startedAt:         started,
-					finishedAt:        finished,
-					command:           cmd,
-					outcome:           legOutcome,
-					surfaced:          surfaced,
-					finalize:          finalizeEv,
-					stream:            streamEv,
-					evidenceEvents:    evidenceEvents,
-					evidenceConflicts: evidenceConflicts,
-					localObservations: localObservations,
-					operatorRateRef:   opRef,
-					workload:          workload,
+					callID:               callID,
+					aLegID:               aLegID,
+					storeID:              a.billingStoreID,
+					bLegID:               a.bleg.BLegID,
+					seq:                  a.bleg.Seq,
+					primary:              a.cand.Primary,
+					startedAt:            started,
+					finishedAt:           finished,
+					command:              cmd,
+					outcome:              legOutcome,
+					surfaced:             surfaced,
+					finalize:             finalizeEv,
+					stream:               streamEv,
+					evidenceEvents:       evidenceEvents,
+					evidenceConflicts:    evidenceConflicts,
+					economicObservations: economicObservations,
+					economicConflicts:    economicConflicts,
+					localObservations:    localObservations,
+					operatorRateRef:      opRef,
+					workload:             workload,
 				})
 				if a.observeBillingLeg != nil {
 					a.observeBillingLeg(cctx, legRecord)

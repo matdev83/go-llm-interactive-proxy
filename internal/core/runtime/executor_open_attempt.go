@@ -158,6 +158,7 @@ func (e *Executor) newAttemptSession(in attemptSessionInput) *attemptSession {
 		}
 		in.now = e.now
 		in.finalizeBilling = e.callFinalizeBilling
+		in.finalizeBillingV2 = e.callFinalizeBillingResult
 		in.billingEnabled = e.billingEnabled
 		in.operatorRateRef = e.operatorRateRef
 		in.billingWorkload = e.billingWorkloadIdentityForALeg

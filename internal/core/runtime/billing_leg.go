@@ -29,24 +29,26 @@ func (f BillingLegObserverFunc) ObserveBillingLeg(ctx context.Context, record bi
 }
 
 type billingLegDraft struct {
-	callID            billing.BillingCallID
-	aLegID            string
-	storeID           string
-	bLegID            string
-	seq               int
-	primary           routing.Primary
-	startedAt         time.Time
-	finishedAt        time.Time
-	command           sdkterminal.Command
-	outcome           billing.LegOutcome
-	surfaced          billing.SurfacedState
-	finalize          lipapi.Event
-	stream            lipapi.Event
-	evidenceEvents    []capturedBillingEvidence
-	evidenceConflicts []billing.EvidenceConflict
-	localObservations []metering.Observation
-	operatorRateRef   billing.VersionRef
-	workload          billing.WorkloadIdentity
+	callID               billing.BillingCallID
+	aLegID               string
+	storeID              string
+	bLegID               string
+	seq                  int
+	primary              routing.Primary
+	startedAt            time.Time
+	finishedAt           time.Time
+	command              sdkterminal.Command
+	outcome              billing.LegOutcome
+	surfaced             billing.SurfacedState
+	finalize             lipapi.Event
+	stream               lipapi.Event
+	evidenceEvents       []capturedBillingEvidence
+	evidenceConflicts    []billing.EvidenceConflict
+	economicObservations []execbackend.EconomicEvidence
+	economicConflicts    []billing.EvidenceConflict
+	localObservations    []metering.Observation
+	operatorRateRef      billing.VersionRef
+	workload             billing.WorkloadIdentity
 }
 
 func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
@@ -68,7 +70,9 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	evidence := projectV1BillingEvidence(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
 	evidence = normalizeBillingEvidenceIdentity(evidence, draft.callID, bLegID)
 	observations, conflicts := observationsFromBillingEvidence(draft, draft.evidenceEvents)
-	observations, conflicts = appendLocalBoundaryObservations(observations, conflicts, draft.localObservations)
+	observations, economicDispositions, conflicts := appendCanonicalEconomicObservations(observations, conflicts, draft.economicObservations)
+	observations, conflicts = appendCanonicalObservations(observations, conflicts, draft.localObservations)
+	conflicts = appendBoundedEvidenceConflicts(conflicts, draft.economicConflicts)
 	outcome := draft.outcome
 	if outcome == "" {
 		outcome = legOutcomeFromCommand(draft.command)
@@ -95,13 +99,17 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 		record.Observations = observations
 		record.EvidenceConflicts = appendBoundedEvidenceConflicts(conflicts, draft.evidenceConflicts)
 	}
+	if len(economicDispositions) != 0 {
+		record.EconomicEvidenceVersion = billing.EconomicEvidenceDispositionVersionV1
+		record.EconomicDispositions = economicDispositions
+	}
 	return record
 }
 
-// appendLocalBoundaryObservations retains local boundary evidence as its own
-// provenance plane. It validates and deep-copies observations at the terminal
-// handoff, and never converts or clones provider evidence into local evidence.
-func appendLocalBoundaryObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []metering.Observation) ([]metering.Observation, []billing.EvidenceConflict) {
+// appendCanonicalObservations retains each source's provenance plane. It
+// validates and deep-copies observations at the terminal handoff, and never
+// converts or clones provider evidence into local evidence.
+func appendCanonicalObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []metering.Observation) ([]metering.Observation, []billing.EvidenceConflict) {
 	if len(incoming) == 0 {
 		return existing, conflicts
 	}
@@ -129,6 +137,64 @@ func appendLocalBoundaryObservations(existing []metering.Observation, conflicts 
 		seen[identity] = hash
 	}
 	return existing, conflicts
+}
+
+func appendCanonicalEconomicObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []execbackend.EconomicEvidence) ([]metering.Observation, []billing.EconomicEvidenceDisposition, []billing.EvidenceConflict) {
+	if len(incoming) == 0 {
+		return existing, nil, conflicts
+	}
+	dispositions := make([]billing.EconomicEvidenceDisposition, 0, len(incoming))
+	seen := make(map[string]string, len(existing)+len(incoming))
+	for _, observation := range existing {
+		canonical, err := observation.Canonical()
+		if err != nil {
+			continue
+		}
+		seen[canonical.IdentityKey()] = billing.ObservationEvidenceHash(canonical)
+	}
+	seenDispositions := make(map[string]billing.EconomicEvidenceDisposition, len(incoming))
+	for _, evidence := range incoming {
+		observation, err := evidence.Observation.Canonical()
+		if err != nil {
+			continue
+		}
+		disposition, err := billing.NewEconomicEvidenceDisposition(observation, evidence.Coverage, evidence.CoverageReason)
+		if err != nil {
+			continue
+		}
+		identity := observation.IdentityKey()
+		hash := billing.ObservationEvidenceHash(observation)
+		if prior, ok := seen[identity]; ok {
+			if prior != hash {
+				conflicts = appendBoundedEvidenceConflicts(conflicts, []billing.EvidenceConflict{{
+					Identity: identity, ExistingHash: prior, IncomingHash: hash,
+					IncomingCoverage: disposition.Coverage, IncomingCoverageReason: disposition.CoverageReason,
+				}})
+				continue
+			}
+			if priorDisposition, hasDisposition := seenDispositions[identity]; hasDisposition {
+				if priorDisposition.Coverage != disposition.Coverage || priorDisposition.CoverageReason != disposition.CoverageReason {
+					conflicts = appendBoundedEvidenceConflicts(conflicts, []billing.EvidenceConflict{{
+						Identity: identity, ExistingHash: prior, IncomingHash: hash,
+						ExistingCoverage: priorDisposition.Coverage, ExistingCoverageReason: priorDisposition.CoverageReason,
+						IncomingCoverage: disposition.Coverage, IncomingCoverageReason: disposition.CoverageReason,
+					}})
+				}
+				continue
+			}
+			dispositions = append(dispositions, disposition)
+			seenDispositions[identity] = disposition
+			continue
+		}
+		if len(existing) >= billing.MaxCallLegEvidenceObservations {
+			break
+		}
+		existing = append(existing, observation)
+		seen[identity] = hash
+		dispositions = append(dispositions, disposition)
+		seenDispositions[identity] = disposition
+	}
+	return existing, dispositions, conflicts
 }
 
 func appendBoundedEvidenceConflicts(existing, incoming []billing.EvidenceConflict) []billing.EvidenceConflict {
@@ -213,24 +279,28 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 	evidenceEvents, evidenceConflicts := attempt.billingEvidenceDrain()
 	localObservations := attempt.drainLocalBoundaryObservations(now)
 	workloadCtx := request.toRecvTurnFacts(ctx).projectContext(ctx, nil)
+	finalizeEv := t.finalizeBillingEvidence(ctx, request, evidence, billingState, "record_leg", streamEv, attempt)
+	economicObservations, economicConflicts := attempt.economicEvidenceDrain()
 	legRecord := billingLegRecord(billingLegDraft{
-		callID:            request.billingCallID,
-		aLegID:            request.aLegID,
-		storeID:           request.storeID,
-		bLegID:            evidence.bleg.BLegID,
-		seq:               evidence.bleg.Seq,
-		primary:           evidence.candidate.Primary,
-		startedAt:         started,
-		finishedAt:        now,
-		command:           command,
-		surfaced:          surfaced,
-		finalize:          t.finalizeBillingEvidence(ctx, request, evidence, billingState, "record_leg", streamEv),
-		stream:            streamEv,
-		evidenceEvents:    evidenceEvents,
-		evidenceConflicts: evidenceConflicts,
-		localObservations: localObservations,
-		operatorRateRef:   t.operatorRateRef(workloadCtx, evidence.candidate.Primary),
-		workload:          t.billingWorkload(workloadCtx, request.aLegID),
+		callID:               request.billingCallID,
+		aLegID:               request.aLegID,
+		storeID:              request.storeID,
+		bLegID:               evidence.bleg.BLegID,
+		seq:                  evidence.bleg.Seq,
+		primary:              evidence.candidate.Primary,
+		startedAt:            started,
+		finishedAt:           now,
+		command:              command,
+		surfaced:             surfaced,
+		finalize:             finalizeEv,
+		stream:               streamEv,
+		evidenceEvents:       evidenceEvents,
+		evidenceConflicts:    evidenceConflicts,
+		economicObservations: economicObservations,
+		economicConflicts:    economicConflicts,
+		localObservations:    localObservations,
+		operatorRateRef:      t.operatorRateRef(workloadCtx, evidence.candidate.Primary),
+		workload:             t.billingWorkload(workloadCtx, request.aLegID),
 	})
 	if t.observeBillingLeg != nil {
 		t.observeBillingLeg(ctx, legRecord)
@@ -246,27 +316,39 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 	}
 }
 
-func (t *turnTerminal) finalizeBillingEvidence(ctx context.Context, request requestTerminalFacts, evidence attemptTerminalEvidence, billingState *billingCallState, reason string, fallback lipapi.Event) lipapi.Event {
-	if t == nil || t.finalizeBilling == nil {
+func (t *turnTerminal) finalizeBillingEvidence(ctx context.Context, request requestTerminalFacts, evidence attemptTerminalEvidence, billingState *billingCallState, reason string, fallback lipapi.Event, attempt *attemptSession) lipapi.Event {
+	if t == nil || billingState == nil || (t.finalizeBilling == nil && t.finalizeBillingV2 == nil) {
 		return fallback
 	}
-	if billingState == nil {
-		return fallback
-	}
-	ev, ok := billingState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+	in := execbackend.BillingFinalizationInput{
 		TraceID: strings.TrimSpace(request.traceID),
 		ALegID:  strings.TrimSpace(request.aLegID),
 		BLegID:  strings.TrimSpace(evidence.bleg.BLegID),
 		Backend: strings.TrimSpace(evidence.candidate.Primary.Backend),
 		Model:   strings.TrimSpace(evidence.candidate.Primary.Model),
 		Reason:  strings.TrimSpace(reason),
-	}, func(cctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-		return t.finalizeBilling(cctx, in)
-	})
+	}
+	result, ok := t.finalizeOnceWithEvidence(ctx, billingState, in)
 	if !ok {
 		return fallback
 	}
-	return ev
+	if attempt != nil {
+		for _, economic := range result.EconomicEvidence {
+			attempt.rememberEconomicEvidenceOnce(economic)
+		}
+	}
+	return result.Usage
+}
+
+func (t *turnTerminal) finalizeOnceWithEvidence(ctx context.Context, state *billingCallState, in execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, bool) {
+	if t == nil || state == nil || (t.finalizeBilling == nil && t.finalizeBillingV2 == nil) {
+		return execbackend.BillingFinalizationResult{}, false
+	}
+	if t.finalizeBillingV2 != nil {
+		return state.finalizeOnceWithEvidence(ctx, in, t.finalizeBillingV2)
+	}
+	ev, ok := state.finalizeOnce(ctx, in, t.finalizeBilling)
+	return execbackend.BillingFinalizationResult{Usage: ev}, ok
 }
 
 func lastUsageDeltaOrShell(events []lipapi.Event) lipapi.Event {
@@ -462,7 +544,7 @@ func (e *Executor) appendIndependentTerminalLegWithObservations(ctx context.Cont
 		Workload:        e.billingWorkloadIdentityForALeg(ctx, aLegID),
 	}
 	if len(localObservations) != 0 {
-		leg.Observations, _ = appendLocalBoundaryObservations(nil, nil, localObservations)
+		leg.Observations, _ = appendCanonicalObservations(nil, nil, localObservations)
 		if len(leg.Observations) != 0 {
 			leg.EvidenceVersion = billing.EvidenceFormatVersionV2
 			leg.EvidenceProjection = billing.EvidenceProjectionV1

@@ -38,6 +38,27 @@ var legacyProtoFields = map[string]LegacyProtoField{
 	"CanonicalEvent.reasoning_encrypted_content":        {Path: "CanonicalEvent", Name: "reasoning_encrypted_content", Number: 17, Type: "RawJSONValue"},
 }
 
+// economicV2ProtoMessages are the approved additive host-only message family
+// introduced after the frozen v1.3 protocol ABI. Their provider identity field
+// names must not be mistaken for provider-specific protocol extensions.
+var economicV2ProtoMessages = map[string]struct{}{
+	"AccountingEvidenceV2": {}, "EconomicDecimalV2": {}, "EconomicDimensionV2": {},
+	"EconomicComponentKeyV2": {}, "EconomicMeasureV2": {}, "EconomicSubjectV2": {},
+	"EconomicCorrelationV2": {}, "EconomicScopeValueV2": {}, "EconomicScopeV2": {},
+	"EconomicChargeRefV2": {}, "EconomicCoverageV2": {}, "EconomicPaymentPartyV2": {},
+	"EconomicChargeV2": {}, "EconomicObservationRefV2": {}, "EconomicEvidenceFieldV2": {},
+	"EconomicObservationV2": {},
+}
+
+func isEconomicV2ProtoPath(path string) bool {
+	for _, part := range strings.Split(path, ".") {
+		if _, ok := economicV2ProtoMessages[part]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func protoTokens(source string) []string {
 	var out []string
 	for i := 0; i < len(source); {
@@ -192,12 +213,12 @@ func ValidateProtoSchema(source string) error {
 		}
 	}
 	for path := range parsed.Messages {
-		if protocolName(path) {
+		if protocolName(path) && !isEconomicV2ProtoPath(path) {
 			return fmt.Errorf("protocol-specific message %q is not in v1.3 allowlist", path)
 		}
 	}
 	for path := range parsed.Enums {
-		if protocolName(path) {
+		if protocolName(path) && !isEconomicV2ProtoPath(path) {
 			return fmt.Errorf("protocol-specific enum %q is not in v1.3 allowlist", path)
 		}
 	}
@@ -205,7 +226,7 @@ func ValidateProtoSchema(source string) error {
 		if _, enum := parsed.Enums[field.Path]; enum {
 			continue
 		}
-		if protocolName(key) {
+		if protocolName(key) && !isEconomicV2ProtoPath(key) {
 			if _, allowed := legacyProtoFields[key]; !allowed {
 				return fmt.Errorf("protocol-specific field %q is not in v1.3 allowlist", key)
 			}

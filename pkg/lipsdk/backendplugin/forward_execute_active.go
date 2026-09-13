@@ -199,9 +199,9 @@ func effectiveCancellationTiming(streamCtx context.Context, req controlCancelReq
 
 // forwardActiveExecute coordinates bidirectional execution for a negotiated stream.
 // The calling goroutine acts as coordinator and is the sole sender through sequencer.
-func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms lipapi.ManagedEventStream) error {
+func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms lipapi.ManagedEventStream, negotiation Negotiation) error {
 	// Initial accounting evidence created while opening is sent before any canonical frames.
-	if err := forwardAccountingEvidence(sequencer, ms); err != nil {
+	if err := forwardAllAccountingEvidence(sequencer, ms, negotiation); err != nil {
 		return err
 	}
 
@@ -315,16 +315,21 @@ func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 		startCancellation()
 	}
 
-	sendCancelledTerminal := func() {
+	var execErr error
+	sendCancelledTerminal := func() error {
 		startCancellation()
 		// Cancellation can resolve before the upstream reader reports its
 		// terminal error. Drain any provider accounting evidence before the
 		// terminal so an early forced close cannot strand it.
-		_ = forwardAccountingEvidence(sequencer, ms)
-		if cancellation.needsOutcome() {
-			_ = cancellation.sendOutcome(sequencer)
+		if err := forwardAllAccountingEvidence(sequencer, ms, negotiation); err != nil {
+			return err
 		}
-		_ = sequencer.Send(ServerFrame{
+		if cancellation.needsOutcome() {
+			if err := cancellation.sendOutcome(sequencer); err != nil {
+				return err
+			}
+		}
+		return sequencer.Send(ServerFrame{
 			Kind:     ServerFrameTerminal,
 			Terminal: &Terminal{Status: TerminalCancelled},
 		})
@@ -332,8 +337,6 @@ func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 
 	streamCtxDoneCh := streamCtx.Done()
 	cancellationDoneCh := cancellation.doneCh()
-	var execErr error
-
 	// Coordinator select loop.
 coordinatorLoop:
 	for {
@@ -377,7 +380,11 @@ coordinatorLoop:
 		case obs := <-upstreamObsCh:
 			switch obs.kind {
 			case upstreamObsEvent:
-				_ = forwardAccountingEvidence(sequencer, ms)
+				if evidenceErr := forwardAllAccountingEvidence(sequencer, ms, negotiation); evidenceErr != nil {
+					execErr = evidenceErr
+					execCancel()
+					break coordinatorLoop
+				}
 				if sendErr := sequencer.Send(ServerFrame{
 					Kind:  ServerFrameEvent,
 					Event: CanonicalEventFromLipapi(obs.event),
@@ -387,7 +394,11 @@ coordinatorLoop:
 				}
 
 			case upstreamObsEOF:
-				_ = forwardAccountingEvidence(sequencer, ms)
+				if evidenceErr := forwardAllAccountingEvidence(sequencer, ms, negotiation); evidenceErr != nil {
+					execErr = evidenceErr
+					execCancel()
+					break coordinatorLoop
+				}
 				if !cancellation.requested() {
 					_ = forwardPromptCacheObservations(sequencer, ms)
 					_ = sequencer.Send(ServerFrame{
@@ -395,18 +406,26 @@ coordinatorLoop:
 						Terminal: &Terminal{Status: TerminalSuccess},
 					})
 				} else {
-					sendCancelledTerminal()
+					if terminalErr := sendCancelledTerminal(); terminalErr != nil {
+						execErr = terminalErr
+					}
 				}
 				execCancel()
 				break coordinatorLoop
 
 			case upstreamObsError:
-				_ = forwardAccountingEvidence(sequencer, ms)
+				if evidenceErr := forwardAllAccountingEvidence(sequencer, ms, negotiation); evidenceErr != nil {
+					execErr = evidenceErr
+					execCancel()
+					break coordinatorLoop
+				}
 				if cancellation.requested() || errors.Is(obs.err, context.Canceled) {
 					if !cancellation.requested() {
 						startFallbackCancellation()
 					}
-					sendCancelledTerminal()
+					if terminalErr := sendCancelledTerminal(); terminalErr != nil {
+						execErr = terminalErr
+					}
 					execCancel()
 					break coordinatorLoop
 				}

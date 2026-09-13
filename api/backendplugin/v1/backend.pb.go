@@ -1514,8 +1514,11 @@ type FactoryDescriptor struct {
 	Deprecated                bool                        `protobuf:"varint,13,opt,name=deprecated,proto3" json:"deprecated,omitempty"`
 	StaticCapabilities        *CapabilitySummary          `protobuf:"bytes,14,opt,name=static_capabilities,json=staticCapabilities,proto3" json:"static_capabilities,omitempty"`
 	TransportCapabilities     *TransportCapabilitySummary `protobuf:"bytes,15,opt,name=transport_capabilities,json=transportCapabilities,proto3" json:"transport_capabilities,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// supports_accounting_evidence_v2 advertises the lossless host-only
+	// observation sideband. It is additive; V1 fields retain their meaning.
+	SupportsAccountingEvidenceV2 bool `protobuf:"varint,16,opt,name=supports_accounting_evidence_v2,json=supportsAccountingEvidenceV2,proto3" json:"supports_accounting_evidence_v2,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *FactoryDescriptor) Reset() {
@@ -1651,6 +1654,13 @@ func (x *FactoryDescriptor) GetTransportCapabilities() *TransportCapabilitySumma
 		return x.TransportCapabilities
 	}
 	return nil
+}
+
+func (x *FactoryDescriptor) GetSupportsAccountingEvidenceV2() bool {
+	if x != nil {
+		return x.SupportsAccountingEvidenceV2
+	}
+	return false
 }
 
 type CapabilitySummary struct {
@@ -2425,8 +2435,10 @@ type ResolvedProfile struct {
 	ProfileVersion           string                      `protobuf:"bytes,11,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	DialectSupport           *DialectSupportWire         `protobuf:"bytes,12,opt,name=dialect_support,json=dialectSupport,proto3" json:"dialect_support,omitempty"`
 	PromptCacheProfile       *PromptCacheProfile         `protobuf:"bytes,13,opt,name=prompt_cache_profile,json=promptCacheProfile,proto3" json:"prompt_cache_profile,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	// Explicit capability bit for the negotiated V2 economic sideband.
+	SupportsAccountingEvidenceV2 bool `protobuf:"varint,14,opt,name=supports_accounting_evidence_v2,json=supportsAccountingEvidenceV2,proto3" json:"supports_accounting_evidence_v2,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *ResolvedProfile) Reset() {
@@ -2548,6 +2560,13 @@ func (x *ResolvedProfile) GetPromptCacheProfile() *PromptCacheProfile {
 		return x.PromptCacheProfile
 	}
 	return nil
+}
+
+func (x *ResolvedProfile) GetSupportsAccountingEvidenceV2() bool {
+	if x != nil {
+		return x.SupportsAccountingEvidenceV2
+	}
+	return false
 }
 
 type PromptCacheProfile struct {
@@ -3498,8 +3517,10 @@ type FinalizeBillingResponse struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Usage           *UsageEvidence         `protobuf:"bytes,1,opt,name=usage,proto3" json:"usage,omitempty"`
 	EvidenceQuality string                 `protobuf:"bytes,2,opt,name=evidence_quality,json=evidenceQuality,proto3" json:"evidence_quality,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// V2 observations are host-only and never become canonical client events.
+	AccountingEvidenceV2 []*AccountingEvidenceV2 `protobuf:"bytes,3,rep,name=accounting_evidence_v2,json=accountingEvidenceV2,proto3" json:"accounting_evidence_v2,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *FinalizeBillingResponse) Reset() {
@@ -3544,6 +3565,13 @@ func (x *FinalizeBillingResponse) GetEvidenceQuality() string {
 		return x.EvidenceQuality
 	}
 	return ""
+}
+
+func (x *FinalizeBillingResponse) GetAccountingEvidenceV2() []*AccountingEvidenceV2 {
+	if x != nil {
+		return x.AccountingEvidenceV2
+	}
+	return nil
 }
 
 type UsagePresence struct {
@@ -5951,8 +5979,12 @@ type ExecuteServerFrame struct {
 	Terminal               *Terminal               `protobuf:"bytes,6,opt,name=terminal,proto3" json:"terminal,omitempty"`
 	AccountingEvidence     *AccountingEvidence     `protobuf:"bytes,7,opt,name=accounting_evidence,json=accountingEvidence,proto3" json:"accounting_evidence,omitempty"`
 	PromptCacheObservation *PromptCacheObservation `protobuf:"bytes,8,opt,name=prompt_cache_observation,json=promptCacheObservation,proto3" json:"prompt_cache_observation,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// V2 keeps the V1 accounting frame kind and adds a distinct payload field.
+	// Old generated clients cannot interpret this field and therefore fail
+	// closed instead of silently dropping provider economics.
+	AccountingEvidenceV2 *AccountingEvidenceV2 `protobuf:"bytes,9,opt,name=accounting_evidence_v2,json=accountingEvidenceV2,proto3" json:"accounting_evidence_v2,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ExecuteServerFrame) Reset() {
@@ -6037,6 +6069,13 @@ func (x *ExecuteServerFrame) GetAccountingEvidence() *AccountingEvidence {
 func (x *ExecuteServerFrame) GetPromptCacheObservation() *PromptCacheObservation {
 	if x != nil {
 		return x.PromptCacheObservation
+	}
+	return nil
+}
+
+func (x *ExecuteServerFrame) GetAccountingEvidenceV2() *AccountingEvidenceV2 {
+	if x != nil {
+		return x.AccountingEvidenceV2
 	}
 	return nil
 }
@@ -6285,6 +6324,1584 @@ func (x *GracefulShutdownResponse) GetAccepted() bool {
 	return false
 }
 
+// AccountingEvidenceV2 is the versioned, host-only economic sideband. The
+// nested observation is the canonical metering.Observation envelope; this
+// transport wrapper carries an explicit coverage disposition so a V1 bridge
+// cannot claim complete V2 semantics. All fields are additive to the V1 ABI.
+type AccountingEvidenceV2 struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Observation    *EconomicObservationV2 `protobuf:"bytes,1,opt,name=observation,proto3" json:"observation,omitempty"`
+	Coverage       string                 `protobuf:"bytes,2,opt,name=coverage,proto3" json:"coverage,omitempty"`
+	CoverageReason string                 `protobuf:"bytes,3,opt,name=coverage_reason,json=coverageReason,proto3" json:"coverage_reason,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *AccountingEvidenceV2) Reset() {
+	*x = AccountingEvidenceV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountingEvidenceV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountingEvidenceV2) ProtoMessage() {}
+
+func (x *AccountingEvidenceV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountingEvidenceV2.ProtoReflect.Descriptor instead.
+func (*AccountingEvidenceV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *AccountingEvidenceV2) GetObservation() *EconomicObservationV2 {
+	if x != nil {
+		return x.Observation
+	}
+	return nil
+}
+
+func (x *AccountingEvidenceV2) GetCoverage() string {
+	if x != nil {
+		return x.Coverage
+	}
+	return ""
+}
+
+func (x *AccountingEvidenceV2) GetCoverageReason() string {
+	if x != nil {
+		return x.CoverageReason
+	}
+	return ""
+}
+
+type EconomicDecimalV2 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Signed base-10 coefficient. Floating point is deliberately not used.
+	Coefficient   string `protobuf:"bytes,1,opt,name=coefficient,proto3" json:"coefficient,omitempty"`
+	Scale         uint32 `protobuf:"varint,2,opt,name=scale,proto3" json:"scale,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicDecimalV2) Reset() {
+	*x = EconomicDecimalV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicDecimalV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicDecimalV2) ProtoMessage() {}
+
+func (x *EconomicDecimalV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicDecimalV2.ProtoReflect.Descriptor instead.
+func (*EconomicDecimalV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{66}
+}
+
+func (x *EconomicDecimalV2) GetCoefficient() string {
+	if x != nil {
+		return x.Coefficient
+	}
+	return ""
+}
+
+func (x *EconomicDecimalV2) GetScale() uint32 {
+	if x != nil {
+		return x.Scale
+	}
+	return 0
+}
+
+type EconomicDimensionV2 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicDimensionV2) Reset() {
+	*x = EconomicDimensionV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicDimensionV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicDimensionV2) ProtoMessage() {}
+
+func (x *EconomicDimensionV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicDimensionV2.ProtoReflect.Descriptor instead.
+func (*EconomicDimensionV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{67}
+}
+
+func (x *EconomicDimensionV2) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *EconomicDimensionV2) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+type EconomicComponentKeyV2 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Direction     string                 `protobuf:"bytes,1,opt,name=direction,proto3" json:"direction,omitempty"`
+	Component     string                 `protobuf:"bytes,2,opt,name=component,proto3" json:"component,omitempty"`
+	Unit          string                 `protobuf:"bytes,3,opt,name=unit,proto3" json:"unit,omitempty"`
+	SchemaId      string                 `protobuf:"bytes,4,opt,name=schema_id,json=schemaId,proto3" json:"schema_id,omitempty"`
+	Dimensions    []*EconomicDimensionV2 `protobuf:"bytes,5,rep,name=dimensions,proto3" json:"dimensions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicComponentKeyV2) Reset() {
+	*x = EconomicComponentKeyV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicComponentKeyV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicComponentKeyV2) ProtoMessage() {}
+
+func (x *EconomicComponentKeyV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicComponentKeyV2.ProtoReflect.Descriptor instead.
+func (*EconomicComponentKeyV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{68}
+}
+
+func (x *EconomicComponentKeyV2) GetDirection() string {
+	if x != nil {
+		return x.Direction
+	}
+	return ""
+}
+
+func (x *EconomicComponentKeyV2) GetComponent() string {
+	if x != nil {
+		return x.Component
+	}
+	return ""
+}
+
+func (x *EconomicComponentKeyV2) GetUnit() string {
+	if x != nil {
+		return x.Unit
+	}
+	return ""
+}
+
+func (x *EconomicComponentKeyV2) GetSchemaId() string {
+	if x != nil {
+		return x.SchemaId
+	}
+	return ""
+}
+
+func (x *EconomicComponentKeyV2) GetDimensions() []*EconomicDimensionV2 {
+	if x != nil {
+		return x.Dimensions
+	}
+	return nil
+}
+
+type EconomicMeasureV2 struct {
+	state protoimpl.MessageState  `protogen:"open.v1"`
+	Key   *EconomicComponentKeyV2 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	// A missing message is absent; coefficient "0", scale 0 is explicit zero.
+	Value         *EconomicDecimalV2 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Quality       string             `protobuf:"bytes,3,opt,name=quality,proto3" json:"quality,omitempty"`
+	MethodRef     string             `protobuf:"bytes,4,opt,name=method_ref,json=methodRef,proto3" json:"method_ref,omitempty"`
+	Reason        string             `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicMeasureV2) Reset() {
+	*x = EconomicMeasureV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[69]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicMeasureV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicMeasureV2) ProtoMessage() {}
+
+func (x *EconomicMeasureV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[69]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicMeasureV2.ProtoReflect.Descriptor instead.
+func (*EconomicMeasureV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{69}
+}
+
+func (x *EconomicMeasureV2) GetKey() *EconomicComponentKeyV2 {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+func (x *EconomicMeasureV2) GetValue() *EconomicDecimalV2 {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *EconomicMeasureV2) GetQuality() string {
+	if x != nil {
+		return x.Quality
+	}
+	return ""
+}
+
+func (x *EconomicMeasureV2) GetMethodRef() string {
+	if x != nil {
+		return x.MethodRef
+	}
+	return ""
+}
+
+func (x *EconomicMeasureV2) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type EconomicSubjectV2 struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Kind               string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	StoreId            string                 `protobuf:"bytes,2,opt,name=store_id,json=storeId,proto3" json:"store_id,omitempty"`
+	TenantId           string                 `protobuf:"bytes,3,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	AccountId          string                 `protobuf:"bytes,4,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	ALegId             string                 `protobuf:"bytes,5,opt,name=a_leg_id,json=aLegId,proto3" json:"a_leg_id,omitempty"`
+	RequestId          string                 `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	BillingCallId      string                 `protobuf:"bytes,7,opt,name=billing_call_id,json=billingCallId,proto3" json:"billing_call_id,omitempty"`
+	CallId             string                 `protobuf:"bytes,8,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	BLegId             string                 `protobuf:"bytes,9,opt,name=b_leg_id,json=bLegId,proto3" json:"b_leg_id,omitempty"`
+	AttemptId          string                 `protobuf:"bytes,10,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
+	AttemptSeq         uint64                 `protobuf:"varint,11,opt,name=attempt_seq,json=attemptSeq,proto3" json:"attempt_seq,omitempty"`
+	SubmissionId       string                 `protobuf:"bytes,12,opt,name=submission_id,json=submissionId,proto3" json:"submission_id,omitempty"`
+	ProviderAccountKey string                 `protobuf:"bytes,13,opt,name=provider_account_key,json=providerAccountKey,proto3" json:"provider_account_key,omitempty"`
+	ProviderRequestId  string                 `protobuf:"bytes,14,opt,name=provider_request_id,json=providerRequestId,proto3" json:"provider_request_id,omitempty"`
+	ProviderChargeId   string                 `protobuf:"bytes,15,opt,name=provider_charge_id,json=providerChargeId,proto3" json:"provider_charge_id,omitempty"`
+	ResourceId         string                 `protobuf:"bytes,16,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	PeriodId           string                 `protobuf:"bytes,17,opt,name=period_id,json=periodId,proto3" json:"period_id,omitempty"`
+	PoolId             string                 `protobuf:"bytes,18,opt,name=pool_id,json=poolId,proto3" json:"pool_id,omitempty"`
+	WindowId           string                 `protobuf:"bytes,19,opt,name=window_id,json=windowId,proto3" json:"window_id,omitempty"`
+	StatementId        string                 `protobuf:"bytes,20,opt,name=statement_id,json=statementId,proto3" json:"statement_id,omitempty"`
+	StatementLineId    string                 `protobuf:"bytes,21,opt,name=statement_line_id,json=statementLineId,proto3" json:"statement_line_id,omitempty"`
+	ResetAtUnixNanos   int64                  `protobuf:"varint,22,opt,name=reset_at_unix_nanos,json=resetAtUnixNanos,proto3" json:"reset_at_unix_nanos,omitempty"`
+	StartAtUnixNanos   int64                  `protobuf:"varint,23,opt,name=start_at_unix_nanos,json=startAtUnixNanos,proto3" json:"start_at_unix_nanos,omitempty"`
+	EndAtUnixNanos     int64                  `protobuf:"varint,24,opt,name=end_at_unix_nanos,json=endAtUnixNanos,proto3" json:"end_at_unix_nanos,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *EconomicSubjectV2) Reset() {
+	*x = EconomicSubjectV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[70]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicSubjectV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicSubjectV2) ProtoMessage() {}
+
+func (x *EconomicSubjectV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[70]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicSubjectV2.ProtoReflect.Descriptor instead.
+func (*EconomicSubjectV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{70}
+}
+
+func (x *EconomicSubjectV2) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetStoreId() string {
+	if x != nil {
+		return x.StoreId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetALegId() string {
+	if x != nil {
+		return x.ALegId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetBillingCallId() string {
+	if x != nil {
+		return x.BillingCallId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetCallId() string {
+	if x != nil {
+		return x.CallId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetBLegId() string {
+	if x != nil {
+		return x.BLegId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetAttemptId() string {
+	if x != nil {
+		return x.AttemptId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetAttemptSeq() uint64 {
+	if x != nil {
+		return x.AttemptSeq
+	}
+	return 0
+}
+
+func (x *EconomicSubjectV2) GetSubmissionId() string {
+	if x != nil {
+		return x.SubmissionId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetProviderAccountKey() string {
+	if x != nil {
+		return x.ProviderAccountKey
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetProviderRequestId() string {
+	if x != nil {
+		return x.ProviderRequestId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetProviderChargeId() string {
+	if x != nil {
+		return x.ProviderChargeId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetPeriodId() string {
+	if x != nil {
+		return x.PeriodId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetPoolId() string {
+	if x != nil {
+		return x.PoolId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetWindowId() string {
+	if x != nil {
+		return x.WindowId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetStatementId() string {
+	if x != nil {
+		return x.StatementId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetStatementLineId() string {
+	if x != nil {
+		return x.StatementLineId
+	}
+	return ""
+}
+
+func (x *EconomicSubjectV2) GetResetAtUnixNanos() int64 {
+	if x != nil {
+		return x.ResetAtUnixNanos
+	}
+	return 0
+}
+
+func (x *EconomicSubjectV2) GetStartAtUnixNanos() int64 {
+	if x != nil {
+		return x.StartAtUnixNanos
+	}
+	return 0
+}
+
+func (x *EconomicSubjectV2) GetEndAtUnixNanos() int64 {
+	if x != nil {
+		return x.EndAtUnixNanos
+	}
+	return 0
+}
+
+type EconomicCorrelationV2 struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	StoreId            string                 `protobuf:"bytes,1,opt,name=store_id,json=storeId,proto3" json:"store_id,omitempty"`
+	TenantId           string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	RequestId          string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	CallId             string                 `protobuf:"bytes,4,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	BillingCallId      string                 `protobuf:"bytes,5,opt,name=billing_call_id,json=billingCallId,proto3" json:"billing_call_id,omitempty"`
+	ALegId             string                 `protobuf:"bytes,6,opt,name=a_leg_id,json=aLegId,proto3" json:"a_leg_id,omitempty"`
+	BLegId             string                 `protobuf:"bytes,7,opt,name=b_leg_id,json=bLegId,proto3" json:"b_leg_id,omitempty"`
+	AttemptId          string                 `protobuf:"bytes,8,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
+	AttemptSeq         uint64                 `protobuf:"varint,9,opt,name=attempt_seq,json=attemptSeq,proto3" json:"attempt_seq,omitempty"`
+	SubmissionId       string                 `protobuf:"bytes,10,opt,name=submission_id,json=submissionId,proto3" json:"submission_id,omitempty"`
+	ProviderAccountKey string                 `protobuf:"bytes,11,opt,name=provider_account_key,json=providerAccountKey,proto3" json:"provider_account_key,omitempty"`
+	ProviderRequestId  string                 `protobuf:"bytes,12,opt,name=provider_request_id,json=providerRequestId,proto3" json:"provider_request_id,omitempty"`
+	ProviderChargeId   string                 `protobuf:"bytes,13,opt,name=provider_charge_id,json=providerChargeId,proto3" json:"provider_charge_id,omitempty"`
+	ParentWorkId       string                 `protobuf:"bytes,14,opt,name=parent_work_id,json=parentWorkId,proto3" json:"parent_work_id,omitempty"`
+	ResourceId         string                 `protobuf:"bytes,15,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	PeriodId           string                 `protobuf:"bytes,16,opt,name=period_id,json=periodId,proto3" json:"period_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *EconomicCorrelationV2) Reset() {
+	*x = EconomicCorrelationV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicCorrelationV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicCorrelationV2) ProtoMessage() {}
+
+func (x *EconomicCorrelationV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicCorrelationV2.ProtoReflect.Descriptor instead.
+func (*EconomicCorrelationV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{71}
+}
+
+func (x *EconomicCorrelationV2) GetStoreId() string {
+	if x != nil {
+		return x.StoreId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetCallId() string {
+	if x != nil {
+		return x.CallId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetBillingCallId() string {
+	if x != nil {
+		return x.BillingCallId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetALegId() string {
+	if x != nil {
+		return x.ALegId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetBLegId() string {
+	if x != nil {
+		return x.BLegId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetAttemptId() string {
+	if x != nil {
+		return x.AttemptId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetAttemptSeq() uint64 {
+	if x != nil {
+		return x.AttemptSeq
+	}
+	return 0
+}
+
+func (x *EconomicCorrelationV2) GetSubmissionId() string {
+	if x != nil {
+		return x.SubmissionId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetProviderAccountKey() string {
+	if x != nil {
+		return x.ProviderAccountKey
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetProviderRequestId() string {
+	if x != nil {
+		return x.ProviderRequestId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetProviderChargeId() string {
+	if x != nil {
+		return x.ProviderChargeId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetParentWorkId() string {
+	if x != nil {
+		return x.ParentWorkId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+func (x *EconomicCorrelationV2) GetPeriodId() string {
+	if x != nil {
+		return x.PeriodId
+	}
+	return ""
+}
+
+// EconomicScopeValueV2 preserves unknown versus known-empty attribution.
+type EconomicScopeValueV2 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Known         bool                   `protobuf:"varint,1,opt,name=known,proto3" json:"known,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicScopeValueV2) Reset() {
+	*x = EconomicScopeValueV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicScopeValueV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicScopeValueV2) ProtoMessage() {}
+
+func (x *EconomicScopeValueV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicScopeValueV2.ProtoReflect.Descriptor instead.
+func (*EconomicScopeValueV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{72}
+}
+
+func (x *EconomicScopeValueV2) GetKnown() bool {
+	if x != nil {
+		return x.Known
+	}
+	return false
+}
+
+func (x *EconomicScopeValueV2) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+type EconomicScopeV2 struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	SubjectKind    string                 `protobuf:"bytes,1,opt,name=subject_kind,json=subjectKind,proto3" json:"subject_kind,omitempty"`
+	PrincipalId    *EconomicScopeValueV2  `protobuf:"bytes,2,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	DisplayName    *EconomicScopeValueV2  `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	AuthMethod     *EconomicScopeValueV2  `protobuf:"bytes,4,opt,name=auth_method,json=authMethod,proto3" json:"auth_method,omitempty"`
+	CredentialId   *EconomicScopeValueV2  `protobuf:"bytes,5,opt,name=credential_id,json=credentialId,proto3" json:"credential_id,omitempty"`
+	Roles          []string               `protobuf:"bytes,6,rep,name=roles,proto3" json:"roles,omitempty"`
+	SafeClaims     map[string]string      `protobuf:"bytes,7,rep,name=safe_claims,json=safeClaims,proto3" json:"safe_claims,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	TenantId       *EconomicScopeValueV2  `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	OrganizationId *EconomicScopeValueV2  `protobuf:"bytes,9,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	WorkspaceId    *EconomicScopeValueV2  `protobuf:"bytes,10,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	ProjectId      *EconomicScopeValueV2  `protobuf:"bytes,11,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	DepartmentId   *EconomicScopeValueV2  `protobuf:"bytes,12,opt,name=department_id,json=departmentId,proto3" json:"department_id,omitempty"`
+	CostCenterId   *EconomicScopeValueV2  `protobuf:"bytes,13,opt,name=cost_center_id,json=costCenterId,proto3" json:"cost_center_id,omitempty"`
+	PolicyLabels   map[string]string      `protobuf:"bytes,14,rep,name=policy_labels,json=policyLabels,proto3" json:"policy_labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Origin         string                 `protobuf:"bytes,15,opt,name=origin,proto3" json:"origin,omitempty"`
+	ParentTraceId  *EconomicScopeValueV2  `protobuf:"bytes,16,opt,name=parent_trace_id,json=parentTraceId,proto3" json:"parent_trace_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *EconomicScopeV2) Reset() {
+	*x = EconomicScopeV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[73]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicScopeV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicScopeV2) ProtoMessage() {}
+
+func (x *EconomicScopeV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[73]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicScopeV2.ProtoReflect.Descriptor instead.
+func (*EconomicScopeV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{73}
+}
+
+func (x *EconomicScopeV2) GetSubjectKind() string {
+	if x != nil {
+		return x.SubjectKind
+	}
+	return ""
+}
+
+func (x *EconomicScopeV2) GetPrincipalId() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.PrincipalId
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetDisplayName() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.DisplayName
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetAuthMethod() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.AuthMethod
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetCredentialId() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.CredentialId
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetRoles() []string {
+	if x != nil {
+		return x.Roles
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetSafeClaims() map[string]string {
+	if x != nil {
+		return x.SafeClaims
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetTenantId() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.TenantId
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetOrganizationId() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetWorkspaceId() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetProjectId() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.ProjectId
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetDepartmentId() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.DepartmentId
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetCostCenterId() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.CostCenterId
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetPolicyLabels() map[string]string {
+	if x != nil {
+		return x.PolicyLabels
+	}
+	return nil
+}
+
+func (x *EconomicScopeV2) GetOrigin() string {
+	if x != nil {
+		return x.Origin
+	}
+	return ""
+}
+
+func (x *EconomicScopeV2) GetParentTraceId() *EconomicScopeValueV2 {
+	if x != nil {
+		return x.ParentTraceId
+	}
+	return nil
+}
+
+type EconomicChargeRefV2 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StoreId       string                 `protobuf:"bytes,1,opt,name=store_id,json=storeId,proto3" json:"store_id,omitempty"`
+	ObservationId string                 `protobuf:"bytes,2,opt,name=observation_id,json=observationId,proto3" json:"observation_id,omitempty"`
+	Revision      uint64                 `protobuf:"varint,3,opt,name=revision,proto3" json:"revision,omitempty"`
+	ChargeItemId  string                 `protobuf:"bytes,4,opt,name=charge_item_id,json=chargeItemId,proto3" json:"charge_item_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicChargeRefV2) Reset() {
+	*x = EconomicChargeRefV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[74]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicChargeRefV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicChargeRefV2) ProtoMessage() {}
+
+func (x *EconomicChargeRefV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[74]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicChargeRefV2.ProtoReflect.Descriptor instead.
+func (*EconomicChargeRefV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{74}
+}
+
+func (x *EconomicChargeRefV2) GetStoreId() string {
+	if x != nil {
+		return x.StoreId
+	}
+	return ""
+}
+
+func (x *EconomicChargeRefV2) GetObservationId() string {
+	if x != nil {
+		return x.ObservationId
+	}
+	return ""
+}
+
+func (x *EconomicChargeRefV2) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *EconomicChargeRefV2) GetChargeItemId() string {
+	if x != nil {
+		return x.ChargeItemId
+	}
+	return ""
+}
+
+type EconomicCoverageV2 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ref           *EconomicChargeRefV2   `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	Relation      string                 `protobuf:"bytes,2,opt,name=relation,proto3" json:"relation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicCoverageV2) Reset() {
+	*x = EconomicCoverageV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[75]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicCoverageV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicCoverageV2) ProtoMessage() {}
+
+func (x *EconomicCoverageV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[75]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicCoverageV2.ProtoReflect.Descriptor instead.
+func (*EconomicCoverageV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{75}
+}
+
+func (x *EconomicCoverageV2) GetRef() *EconomicChargeRefV2 {
+	if x != nil {
+		return x.Ref
+	}
+	return nil
+}
+
+func (x *EconomicCoverageV2) GetRelation() string {
+	if x != nil {
+		return x.Relation
+	}
+	return ""
+}
+
+type EconomicPaymentPartyV2 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicPaymentPartyV2) Reset() {
+	*x = EconomicPaymentPartyV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[76]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicPaymentPartyV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicPaymentPartyV2) ProtoMessage() {}
+
+func (x *EconomicPaymentPartyV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[76]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicPaymentPartyV2.ProtoReflect.Descriptor instead.
+func (*EconomicPaymentPartyV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{76}
+}
+
+func (x *EconomicPaymentPartyV2) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *EconomicPaymentPartyV2) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type EconomicChargeV2 struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	ChargeItemId  string                  `protobuf:"bytes,1,opt,name=charge_item_id,json=chargeItemId,proto3" json:"charge_item_id,omitempty"`
+	Component     *EconomicComponentKeyV2 `protobuf:"bytes,2,opt,name=component,proto3" json:"component,omitempty"`
+	Amount        *EconomicDecimalV2      `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`
+	Currency      string                  `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
+	Kind          string                  `protobuf:"bytes,5,opt,name=kind,proto3" json:"kind,omitempty"`
+	Payer         *EconomicPaymentPartyV2 `protobuf:"bytes,6,opt,name=payer,proto3" json:"payer,omitempty"`
+	Covers        []*EconomicCoverageV2   `protobuf:"bytes,7,rep,name=covers,proto3" json:"covers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicChargeV2) Reset() {
+	*x = EconomicChargeV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[77]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicChargeV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicChargeV2) ProtoMessage() {}
+
+func (x *EconomicChargeV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[77]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicChargeV2.ProtoReflect.Descriptor instead.
+func (*EconomicChargeV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{77}
+}
+
+func (x *EconomicChargeV2) GetChargeItemId() string {
+	if x != nil {
+		return x.ChargeItemId
+	}
+	return ""
+}
+
+func (x *EconomicChargeV2) GetComponent() *EconomicComponentKeyV2 {
+	if x != nil {
+		return x.Component
+	}
+	return nil
+}
+
+func (x *EconomicChargeV2) GetAmount() *EconomicDecimalV2 {
+	if x != nil {
+		return x.Amount
+	}
+	return nil
+}
+
+func (x *EconomicChargeV2) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *EconomicChargeV2) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *EconomicChargeV2) GetPayer() *EconomicPaymentPartyV2 {
+	if x != nil {
+		return x.Payer
+	}
+	return nil
+}
+
+func (x *EconomicChargeV2) GetCovers() []*EconomicCoverageV2 {
+	if x != nil {
+		return x.Covers
+	}
+	return nil
+}
+
+type EconomicObservationRefV2 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StoreId       string                 `protobuf:"bytes,1,opt,name=store_id,json=storeId,proto3" json:"store_id,omitempty"`
+	ObservationId string                 `protobuf:"bytes,2,opt,name=observation_id,json=observationId,proto3" json:"observation_id,omitempty"`
+	Revision      uint64                 `protobuf:"varint,3,opt,name=revision,proto3" json:"revision,omitempty"`
+	PayloadHash   string                 `protobuf:"bytes,4,opt,name=payload_hash,json=payloadHash,proto3" json:"payload_hash,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicObservationRefV2) Reset() {
+	*x = EconomicObservationRefV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[78]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicObservationRefV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicObservationRefV2) ProtoMessage() {}
+
+func (x *EconomicObservationRefV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[78]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicObservationRefV2.ProtoReflect.Descriptor instead.
+func (*EconomicObservationRefV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{78}
+}
+
+func (x *EconomicObservationRefV2) GetStoreId() string {
+	if x != nil {
+		return x.StoreId
+	}
+	return ""
+}
+
+func (x *EconomicObservationRefV2) GetObservationId() string {
+	if x != nil {
+		return x.ObservationId
+	}
+	return ""
+}
+
+func (x *EconomicObservationRefV2) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *EconomicObservationRefV2) GetPayloadHash() string {
+	if x != nil {
+		return x.PayloadHash
+	}
+	return ""
+}
+
+type EconomicEvidenceFieldV2 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Lexeme        string                 `protobuf:"bytes,3,opt,name=lexeme,proto3" json:"lexeme,omitempty"`
+	Value         string                 `protobuf:"bytes,4,opt,name=value,proto3" json:"value,omitempty"`
+	Present       bool                   `protobuf:"varint,5,opt,name=present,proto3" json:"present,omitempty"`
+	Null          bool                   `protobuf:"varint,6,opt,name=null,proto3" json:"null,omitempty"`
+	Acquisition   string                 `protobuf:"bytes,7,opt,name=acquisition,proto3" json:"acquisition,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EconomicEvidenceFieldV2) Reset() {
+	*x = EconomicEvidenceFieldV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[79]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicEvidenceFieldV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicEvidenceFieldV2) ProtoMessage() {}
+
+func (x *EconomicEvidenceFieldV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[79]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicEvidenceFieldV2.ProtoReflect.Descriptor instead.
+func (*EconomicEvidenceFieldV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{79}
+}
+
+func (x *EconomicEvidenceFieldV2) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *EconomicEvidenceFieldV2) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *EconomicEvidenceFieldV2) GetLexeme() string {
+	if x != nil {
+		return x.Lexeme
+	}
+	return ""
+}
+
+func (x *EconomicEvidenceFieldV2) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *EconomicEvidenceFieldV2) GetPresent() bool {
+	if x != nil {
+		return x.Present
+	}
+	return false
+}
+
+func (x *EconomicEvidenceFieldV2) GetNull() bool {
+	if x != nil {
+		return x.Null
+	}
+	return false
+}
+
+func (x *EconomicEvidenceFieldV2) GetAcquisition() string {
+	if x != nil {
+		return x.Acquisition
+	}
+	return ""
+}
+
+// EconomicObservationV2 mirrors metering.Observation field-for-field. Typed
+// nested messages preserve decimal/presence, component identity, provider
+// charge coverage, supersession and safe original lexemes.
+type EconomicObservationV2 struct {
+	state               protoimpl.MessageState      `protogen:"open.v1"`
+	Version             uint32                      `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	Id                  string                      `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	SourceEventKey      string                      `protobuf:"bytes,3,opt,name=source_event_key,json=sourceEventKey,proto3" json:"source_event_key,omitempty"`
+	Revision            uint64                      `protobuf:"varint,4,opt,name=revision,proto3" json:"revision,omitempty"`
+	StreamId            string                      `protobuf:"bytes,5,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	Sequence            uint64                      `protobuf:"varint,6,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	Origin              string                      `protobuf:"bytes,7,opt,name=origin,proto3" json:"origin,omitempty"`
+	Acquisition         string                      `protobuf:"bytes,8,opt,name=acquisition,proto3" json:"acquisition,omitempty"`
+	Authority           string                      `protobuf:"bytes,9,opt,name=authority,proto3" json:"authority,omitempty"`
+	Perspective         string                      `protobuf:"bytes,10,opt,name=perspective,proto3" json:"perspective,omitempty"`
+	Boundary            string                      `protobuf:"bytes,11,opt,name=boundary,proto3" json:"boundary,omitempty"`
+	Lifecycle           string                      `protobuf:"bytes,12,opt,name=lifecycle,proto3" json:"lifecycle,omitempty"`
+	Subject             *EconomicSubjectV2          `protobuf:"bytes,13,opt,name=subject,proto3" json:"subject,omitempty"`
+	Correlation         *EconomicCorrelationV2      `protobuf:"bytes,14,opt,name=correlation,proto3" json:"correlation,omitempty"`
+	Scope               *EconomicScopeV2            `protobuf:"bytes,15,opt,name=scope,proto3" json:"scope,omitempty"`
+	Semantics           string                      `protobuf:"bytes,16,opt,name=semantics,proto3" json:"semantics,omitempty"`
+	ObservedAtUnixNanos int64                       `protobuf:"varint,17,opt,name=observed_at_unix_nanos,json=observedAtUnixNanos,proto3" json:"observed_at_unix_nanos,omitempty"`
+	ReceivedAtUnixNanos int64                       `protobuf:"varint,18,opt,name=received_at_unix_nanos,json=receivedAtUnixNanos,proto3" json:"received_at_unix_nanos,omitempty"`
+	MappingRef          string                      `protobuf:"bytes,19,opt,name=mapping_ref,json=mappingRef,proto3" json:"mapping_ref,omitempty"`
+	Measures            []*EconomicMeasureV2        `protobuf:"bytes,20,rep,name=measures,proto3" json:"measures,omitempty"`
+	Charges             []*EconomicChargeV2         `protobuf:"bytes,21,rep,name=charges,proto3" json:"charges,omitempty"`
+	Supersedes          []*EconomicObservationRefV2 `protobuf:"bytes,22,rep,name=supersedes,proto3" json:"supersedes,omitempty"`
+	Evidence            []*EconomicEvidenceFieldV2  `protobuf:"bytes,23,rep,name=evidence,proto3" json:"evidence,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *EconomicObservationV2) Reset() {
+	*x = EconomicObservationV2{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[80]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EconomicObservationV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EconomicObservationV2) ProtoMessage() {}
+
+func (x *EconomicObservationV2) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[80]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EconomicObservationV2.ProtoReflect.Descriptor instead.
+func (*EconomicObservationV2) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{80}
+}
+
+func (x *EconomicObservationV2) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *EconomicObservationV2) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetSourceEventKey() string {
+	if x != nil {
+		return x.SourceEventKey
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *EconomicObservationV2) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *EconomicObservationV2) GetOrigin() string {
+	if x != nil {
+		return x.Origin
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetAcquisition() string {
+	if x != nil {
+		return x.Acquisition
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetAuthority() string {
+	if x != nil {
+		return x.Authority
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetPerspective() string {
+	if x != nil {
+		return x.Perspective
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetBoundary() string {
+	if x != nil {
+		return x.Boundary
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetLifecycle() string {
+	if x != nil {
+		return x.Lifecycle
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetSubject() *EconomicSubjectV2 {
+	if x != nil {
+		return x.Subject
+	}
+	return nil
+}
+
+func (x *EconomicObservationV2) GetCorrelation() *EconomicCorrelationV2 {
+	if x != nil {
+		return x.Correlation
+	}
+	return nil
+}
+
+func (x *EconomicObservationV2) GetScope() *EconomicScopeV2 {
+	if x != nil {
+		return x.Scope
+	}
+	return nil
+}
+
+func (x *EconomicObservationV2) GetSemantics() string {
+	if x != nil {
+		return x.Semantics
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetObservedAtUnixNanos() int64 {
+	if x != nil {
+		return x.ObservedAtUnixNanos
+	}
+	return 0
+}
+
+func (x *EconomicObservationV2) GetReceivedAtUnixNanos() int64 {
+	if x != nil {
+		return x.ReceivedAtUnixNanos
+	}
+	return 0
+}
+
+func (x *EconomicObservationV2) GetMappingRef() string {
+	if x != nil {
+		return x.MappingRef
+	}
+	return ""
+}
+
+func (x *EconomicObservationV2) GetMeasures() []*EconomicMeasureV2 {
+	if x != nil {
+		return x.Measures
+	}
+	return nil
+}
+
+func (x *EconomicObservationV2) GetCharges() []*EconomicChargeV2 {
+	if x != nil {
+		return x.Charges
+	}
+	return nil
+}
+
+func (x *EconomicObservationV2) GetSupersedes() []*EconomicObservationRefV2 {
+	if x != nil {
+		return x.Supersedes
+	}
+	return nil
+}
+
+func (x *EconomicObservationV2) GetEvidence() []*EconomicEvidenceFieldV2 {
+	if x != nil {
+		return x.Evidence
+	}
+	return nil
+}
+
 var File_backendplugin_v1_backend_proto protoreflect.FileDescriptor
 
 const file_backendplugin_v1_backend_proto_rawDesc = "" +
@@ -6324,7 +7941,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\aversion\x18\x04 \x01(\tR\aversion\x12\x19\n" +
 	"\bbuild_id\x18\x05 \x01(\tR\abuildId\x12;\n" +
 	"\bfeatures\x18\x06 \x03(\v2\x1f.golip.backendplugin.v1.FeatureR\bfeatures\x12G\n" +
-	"\tfactories\x18\a \x03(\v2).golip.backendplugin.v1.FactoryDescriptorR\tfactories\"\xf7\x06\n" +
+	"\tfactories\x18\a \x03(\v2).golip.backendplugin.v1.FactoryDescriptorR\tfactories\"\xbe\a\n" +
 	"\x11FactoryDescriptor\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12 \n" +
@@ -6343,7 +7960,8 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"deprecated\x18\r \x01(\bR\n" +
 	"deprecated\x12Z\n" +
 	"\x13static_capabilities\x18\x0e \x01(\v2).golip.backendplugin.v1.CapabilitySummaryR\x12staticCapabilities\x12i\n" +
-	"\x16transport_capabilities\x18\x0f \x01(\v22.golip.backendplugin.v1.TransportCapabilitySummaryR\x15transportCapabilities\"\xde\x04\n" +
+	"\x16transport_capabilities\x18\x0f \x01(\v22.golip.backendplugin.v1.TransportCapabilitySummaryR\x15transportCapabilities\x12E\n" +
+	"\x1fsupports_accounting_evidence_v2\x18\x10 \x01(\bR\x1csupportsAccountingEvidenceV2\"\xde\x04\n" +
 	"\x11CapabilitySummary\x12\x1c\n" +
 	"\tstreaming\x18\x01 \x01(\bR\tstreaming\x12\x14\n" +
 	"\x05tools\x18\x02 \x01(\bR\x05tools\x12\x16\n" +
@@ -6414,7 +8032,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\bmodel_id\x18\x02 \x01(\tH\x00R\amodelId\x88\x01\x01B\v\n" +
 	"\t_model_id\"[\n" +
 	"\x16ResolveProfileResponse\x12A\n" +
-	"\aprofile\x18\x01 \x01(\v2'.golip.backendplugin.v1.ResolvedProfileR\aprofile\"\xd8\x06\n" +
+	"\aprofile\x18\x01 \x01(\v2'.golip.backendplugin.v1.ResolvedProfileR\aprofile\"\x9f\a\n" +
 	"\x0fResolvedProfile\x12M\n" +
 	"\fcapabilities\x18\x01 \x01(\v2).golip.backendplugin.v1.CapabilitySummaryR\fcapabilities\x12i\n" +
 	"\x16transport_capabilities\x18\x02 \x01(\v22.golip.backendplugin.v1.TransportCapabilitySummaryR\x15transportCapabilities\x12<\n" +
@@ -6429,7 +8047,8 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	" \x01(\tR\x0eevidenceSource\x12'\n" +
 	"\x0fprofile_version\x18\v \x01(\tR\x0eprofileVersion\x12S\n" +
 	"\x0fdialect_support\x18\f \x01(\v2*.golip.backendplugin.v1.DialectSupportWireR\x0edialectSupport\x12\\\n" +
-	"\x14prompt_cache_profile\x18\r \x01(\v2*.golip.backendplugin.v1.PromptCacheProfileR\x12promptCacheProfileB\x14\n" +
+	"\x14prompt_cache_profile\x18\r \x01(\v2*.golip.backendplugin.v1.PromptCacheProfileR\x12promptCacheProfile\x12E\n" +
+	"\x1fsupports_accounting_evidence_v2\x18\x0e \x01(\bR\x1csupportsAccountingEvidenceV2B\x14\n" +
 	"\x12_max_output_tokens\"\xcd\x01\n" +
 	"\x12PromptCacheProfile\x123\n" +
 	"\x15observation_supported\x18\x01 \x01(\bR\x14observationSupported\x12+\n" +
@@ -6521,10 +8140,11 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\bb_leg_id\x18\x03 \x01(\tR\x06bLegId\x12\x19\n" +
 	"\bmodel_id\x18\x04 \x01(\tR\amodelId\x12\x16\n" +
 	"\x06reason\x18\x05 \x01(\tR\x06reason\x12'\n" +
-	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\"\x81\x01\n" +
+	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\"\xe5\x01\n" +
 	"\x17FinalizeBillingResponse\x12;\n" +
 	"\x05usage\x18\x01 \x01(\v2%.golip.backendplugin.v1.UsageEvidenceR\x05usage\x12)\n" +
-	"\x10evidence_quality\x18\x02 \x01(\tR\x0fevidenceQuality\"\xff\x01\n" +
+	"\x10evidence_quality\x18\x02 \x01(\tR\x0fevidenceQuality\x12b\n" +
+	"\x16accounting_evidence_v2\x18\x03 \x03(\v2,.golip.backendplugin.v1.AccountingEvidenceV2R\x14accountingEvidenceV2\"\xff\x01\n" +
 	"\rUsagePresence\x12!\n" +
 	"\finput_tokens\x18\x01 \x01(\bR\vinputTokens\x12#\n" +
 	"\routput_tokens\x18\x02 \x01(\bR\foutputTokens\x12*\n" +
@@ -6836,7 +8456,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\facknowledged\x18\x01 \x01(\bR\facknowledged\x12\x16\n" +
 	"\x06detail\x18\x02 \x01(\tR\x06detail\x12<\n" +
 	"\x06reason\x18\x03 \x01(\x0e2$.golip.backendplugin.v1.CancelReasonR\x06reason\x126\n" +
-	"\x04mode\x18\x04 \x01(\x0e2\".golip.backendplugin.v1.CancelModeR\x04mode\"\x9e\x04\n" +
+	"\x04mode\x18\x04 \x01(\x0e2\".golip.backendplugin.v1.CancelModeR\x04mode\"\x82\x05\n" +
 	"\x12ExecuteServerFrame\x12;\n" +
 	"\x04kind\x18\x01 \x01(\x0e2'.golip.backendplugin.v1.ServerFrameKindR\x04kind\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\x04R\bsequence\x12<\n" +
@@ -6847,7 +8467,8 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x0ecancel_outcome\x18\x05 \x01(\v2%.golip.backendplugin.v1.CancelOutcomeR\rcancelOutcome\x12<\n" +
 	"\bterminal\x18\x06 \x01(\v2 .golip.backendplugin.v1.TerminalR\bterminal\x12[\n" +
 	"\x13accounting_evidence\x18\a \x01(\v2*.golip.backendplugin.v1.AccountingEvidenceR\x12accountingEvidence\x12h\n" +
-	"\x18prompt_cache_observation\x18\b \x01(\v2..golip.backendplugin.v1.PromptCacheObservationR\x16promptCacheObservation\"\xa7\x01\n" +
+	"\x18prompt_cache_observation\x18\b \x01(\v2..golip.backendplugin.v1.PromptCacheObservationR\x16promptCacheObservation\x12b\n" +
+	"\x16accounting_evidence_v2\x18\t \x01(\v2,.golip.backendplugin.v1.AccountingEvidenceV2R\x14accountingEvidenceV2\"\xa7\x01\n" +
 	"\vPluginError\x125\n" +
 	"\x04code\x18\x01 \x01(\x0e2!.golip.backendplugin.v1.ErrorCodeR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1c\n" +
@@ -6860,7 +8481,176 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x17GracefulShutdownRequest\x12(\n" +
 	"\x10drain_timeout_ms\x18\x01 \x01(\x03R\x0edrainTimeoutMs\"6\n" +
 	"\x18GracefulShutdownResponse\x12\x1a\n" +
-	"\baccepted\x18\x01 \x01(\bR\baccepted*\xc2\x01\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\"\xac\x01\n" +
+	"\x14AccountingEvidenceV2\x12O\n" +
+	"\vobservation\x18\x01 \x01(\v2-.golip.backendplugin.v1.EconomicObservationV2R\vobservation\x12\x1a\n" +
+	"\bcoverage\x18\x02 \x01(\tR\bcoverage\x12'\n" +
+	"\x0fcoverage_reason\x18\x03 \x01(\tR\x0ecoverageReason\"K\n" +
+	"\x11EconomicDecimalV2\x12 \n" +
+	"\vcoefficient\x18\x01 \x01(\tR\vcoefficient\x12\x14\n" +
+	"\x05scale\x18\x02 \x01(\rR\x05scale\"?\n" +
+	"\x13EconomicDimensionV2\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\xd2\x01\n" +
+	"\x16EconomicComponentKeyV2\x12\x1c\n" +
+	"\tdirection\x18\x01 \x01(\tR\tdirection\x12\x1c\n" +
+	"\tcomponent\x18\x02 \x01(\tR\tcomponent\x12\x12\n" +
+	"\x04unit\x18\x03 \x01(\tR\x04unit\x12\x1b\n" +
+	"\tschema_id\x18\x04 \x01(\tR\bschemaId\x12K\n" +
+	"\n" +
+	"dimensions\x18\x05 \x03(\v2+.golip.backendplugin.v1.EconomicDimensionV2R\n" +
+	"dimensions\"\xe7\x01\n" +
+	"\x11EconomicMeasureV2\x12@\n" +
+	"\x03key\x18\x01 \x01(\v2..golip.backendplugin.v1.EconomicComponentKeyV2R\x03key\x12?\n" +
+	"\x05value\x18\x02 \x01(\v2).golip.backendplugin.v1.EconomicDecimalV2R\x05value\x12\x18\n" +
+	"\aquality\x18\x03 \x01(\tR\aquality\x12\x1d\n" +
+	"\n" +
+	"method_ref\x18\x04 \x01(\tR\tmethodRef\x12\x16\n" +
+	"\x06reason\x18\x05 \x01(\tR\x06reason\"\xd3\x06\n" +
+	"\x11EconomicSubjectV2\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x19\n" +
+	"\bstore_id\x18\x02 \x01(\tR\astoreId\x12\x1b\n" +
+	"\ttenant_id\x18\x03 \x01(\tR\btenantId\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x04 \x01(\tR\taccountId\x12\x18\n" +
+	"\ba_leg_id\x18\x05 \x01(\tR\x06aLegId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x06 \x01(\tR\trequestId\x12&\n" +
+	"\x0fbilling_call_id\x18\a \x01(\tR\rbillingCallId\x12\x17\n" +
+	"\acall_id\x18\b \x01(\tR\x06callId\x12\x18\n" +
+	"\bb_leg_id\x18\t \x01(\tR\x06bLegId\x12\x1d\n" +
+	"\n" +
+	"attempt_id\x18\n" +
+	" \x01(\tR\tattemptId\x12\x1f\n" +
+	"\vattempt_seq\x18\v \x01(\x04R\n" +
+	"attemptSeq\x12#\n" +
+	"\rsubmission_id\x18\f \x01(\tR\fsubmissionId\x120\n" +
+	"\x14provider_account_key\x18\r \x01(\tR\x12providerAccountKey\x12.\n" +
+	"\x13provider_request_id\x18\x0e \x01(\tR\x11providerRequestId\x12,\n" +
+	"\x12provider_charge_id\x18\x0f \x01(\tR\x10providerChargeId\x12\x1f\n" +
+	"\vresource_id\x18\x10 \x01(\tR\n" +
+	"resourceId\x12\x1b\n" +
+	"\tperiod_id\x18\x11 \x01(\tR\bperiodId\x12\x17\n" +
+	"\apool_id\x18\x12 \x01(\tR\x06poolId\x12\x1b\n" +
+	"\twindow_id\x18\x13 \x01(\tR\bwindowId\x12!\n" +
+	"\fstatement_id\x18\x14 \x01(\tR\vstatementId\x12*\n" +
+	"\x11statement_line_id\x18\x15 \x01(\tR\x0fstatementLineId\x12-\n" +
+	"\x13reset_at_unix_nanos\x18\x16 \x01(\x03R\x10resetAtUnixNanos\x12-\n" +
+	"\x13start_at_unix_nanos\x18\x17 \x01(\x03R\x10startAtUnixNanos\x12)\n" +
+	"\x11end_at_unix_nanos\x18\x18 \x01(\x03R\x0eendAtUnixNanos\"\xbc\x04\n" +
+	"\x15EconomicCorrelationV2\x12\x19\n" +
+	"\bstore_id\x18\x01 \x01(\tR\astoreId\x12\x1b\n" +
+	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\tR\trequestId\x12\x17\n" +
+	"\acall_id\x18\x04 \x01(\tR\x06callId\x12&\n" +
+	"\x0fbilling_call_id\x18\x05 \x01(\tR\rbillingCallId\x12\x18\n" +
+	"\ba_leg_id\x18\x06 \x01(\tR\x06aLegId\x12\x18\n" +
+	"\bb_leg_id\x18\a \x01(\tR\x06bLegId\x12\x1d\n" +
+	"\n" +
+	"attempt_id\x18\b \x01(\tR\tattemptId\x12\x1f\n" +
+	"\vattempt_seq\x18\t \x01(\x04R\n" +
+	"attemptSeq\x12#\n" +
+	"\rsubmission_id\x18\n" +
+	" \x01(\tR\fsubmissionId\x120\n" +
+	"\x14provider_account_key\x18\v \x01(\tR\x12providerAccountKey\x12.\n" +
+	"\x13provider_request_id\x18\f \x01(\tR\x11providerRequestId\x12,\n" +
+	"\x12provider_charge_id\x18\r \x01(\tR\x10providerChargeId\x12$\n" +
+	"\x0eparent_work_id\x18\x0e \x01(\tR\fparentWorkId\x12\x1f\n" +
+	"\vresource_id\x18\x0f \x01(\tR\n" +
+	"resourceId\x12\x1b\n" +
+	"\tperiod_id\x18\x10 \x01(\tR\bperiodId\"B\n" +
+	"\x14EconomicScopeValueV2\x12\x14\n" +
+	"\x05known\x18\x01 \x01(\bR\x05known\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\x9d\n" +
+	"\n" +
+	"\x0fEconomicScopeV2\x12!\n" +
+	"\fsubject_kind\x18\x01 \x01(\tR\vsubjectKind\x12O\n" +
+	"\fprincipal_id\x18\x02 \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\vprincipalId\x12O\n" +
+	"\fdisplay_name\x18\x03 \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\vdisplayName\x12M\n" +
+	"\vauth_method\x18\x04 \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\n" +
+	"authMethod\x12Q\n" +
+	"\rcredential_id\x18\x05 \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\fcredentialId\x12\x14\n" +
+	"\x05roles\x18\x06 \x03(\tR\x05roles\x12X\n" +
+	"\vsafe_claims\x18\a \x03(\v27.golip.backendplugin.v1.EconomicScopeV2.SafeClaimsEntryR\n" +
+	"safeClaims\x12I\n" +
+	"\ttenant_id\x18\b \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\btenantId\x12U\n" +
+	"\x0forganization_id\x18\t \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\x0eorganizationId\x12O\n" +
+	"\fworkspace_id\x18\n" +
+	" \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\vworkspaceId\x12K\n" +
+	"\n" +
+	"project_id\x18\v \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\tprojectId\x12Q\n" +
+	"\rdepartment_id\x18\f \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\fdepartmentId\x12R\n" +
+	"\x0ecost_center_id\x18\r \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\fcostCenterId\x12^\n" +
+	"\rpolicy_labels\x18\x0e \x03(\v29.golip.backendplugin.v1.EconomicScopeV2.PolicyLabelsEntryR\fpolicyLabels\x12\x16\n" +
+	"\x06origin\x18\x0f \x01(\tR\x06origin\x12T\n" +
+	"\x0fparent_trace_id\x18\x10 \x01(\v2,.golip.backendplugin.v1.EconomicScopeValueV2R\rparentTraceId\x1a=\n" +
+	"\x0fSafeClaimsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a?\n" +
+	"\x11PolicyLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x99\x01\n" +
+	"\x13EconomicChargeRefV2\x12\x19\n" +
+	"\bstore_id\x18\x01 \x01(\tR\astoreId\x12%\n" +
+	"\x0eobservation_id\x18\x02 \x01(\tR\robservationId\x12\x1a\n" +
+	"\brevision\x18\x03 \x01(\x04R\brevision\x12$\n" +
+	"\x0echarge_item_id\x18\x04 \x01(\tR\fchargeItemId\"o\n" +
+	"\x12EconomicCoverageV2\x12=\n" +
+	"\x03ref\x18\x01 \x01(\v2+.golip.backendplugin.v1.EconomicChargeRefV2R\x03ref\x12\x1a\n" +
+	"\brelation\x18\x02 \x01(\tR\brelation\"<\n" +
+	"\x16EconomicPaymentPartyV2\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"\x83\x03\n" +
+	"\x10EconomicChargeV2\x12$\n" +
+	"\x0echarge_item_id\x18\x01 \x01(\tR\fchargeItemId\x12L\n" +
+	"\tcomponent\x18\x02 \x01(\v2..golip.backendplugin.v1.EconomicComponentKeyV2R\tcomponent\x12A\n" +
+	"\x06amount\x18\x03 \x01(\v2).golip.backendplugin.v1.EconomicDecimalV2R\x06amount\x12\x1a\n" +
+	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12\x12\n" +
+	"\x04kind\x18\x05 \x01(\tR\x04kind\x12D\n" +
+	"\x05payer\x18\x06 \x01(\v2..golip.backendplugin.v1.EconomicPaymentPartyV2R\x05payer\x12B\n" +
+	"\x06covers\x18\a \x03(\v2*.golip.backendplugin.v1.EconomicCoverageV2R\x06covers\"\x9b\x01\n" +
+	"\x18EconomicObservationRefV2\x12\x19\n" +
+	"\bstore_id\x18\x01 \x01(\tR\astoreId\x12%\n" +
+	"\x0eobservation_id\x18\x02 \x01(\tR\robservationId\x12\x1a\n" +
+	"\brevision\x18\x03 \x01(\x04R\brevision\x12!\n" +
+	"\fpayload_hash\x18\x04 \x01(\tR\vpayloadHash\"\xbf\x01\n" +
+	"\x17EconomicEvidenceFieldV2\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
+	"\x06lexeme\x18\x03 \x01(\tR\x06lexeme\x12\x14\n" +
+	"\x05value\x18\x04 \x01(\tR\x05value\x12\x18\n" +
+	"\apresent\x18\x05 \x01(\bR\apresent\x12\x12\n" +
+	"\x04null\x18\x06 \x01(\bR\x04null\x12 \n" +
+	"\vacquisition\x18\a \x01(\tR\vacquisition\"\x9c\b\n" +
+	"\x15EconomicObservationV2\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\rR\aversion\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12(\n" +
+	"\x10source_event_key\x18\x03 \x01(\tR\x0esourceEventKey\x12\x1a\n" +
+	"\brevision\x18\x04 \x01(\x04R\brevision\x12\x1b\n" +
+	"\tstream_id\x18\x05 \x01(\tR\bstreamId\x12\x1a\n" +
+	"\bsequence\x18\x06 \x01(\x04R\bsequence\x12\x16\n" +
+	"\x06origin\x18\a \x01(\tR\x06origin\x12 \n" +
+	"\vacquisition\x18\b \x01(\tR\vacquisition\x12\x1c\n" +
+	"\tauthority\x18\t \x01(\tR\tauthority\x12 \n" +
+	"\vperspective\x18\n" +
+	" \x01(\tR\vperspective\x12\x1a\n" +
+	"\bboundary\x18\v \x01(\tR\bboundary\x12\x1c\n" +
+	"\tlifecycle\x18\f \x01(\tR\tlifecycle\x12C\n" +
+	"\asubject\x18\r \x01(\v2).golip.backendplugin.v1.EconomicSubjectV2R\asubject\x12O\n" +
+	"\vcorrelation\x18\x0e \x01(\v2-.golip.backendplugin.v1.EconomicCorrelationV2R\vcorrelation\x12=\n" +
+	"\x05scope\x18\x0f \x01(\v2'.golip.backendplugin.v1.EconomicScopeV2R\x05scope\x12\x1c\n" +
+	"\tsemantics\x18\x10 \x01(\tR\tsemantics\x123\n" +
+	"\x16observed_at_unix_nanos\x18\x11 \x01(\x03R\x13observedAtUnixNanos\x123\n" +
+	"\x16received_at_unix_nanos\x18\x12 \x01(\x03R\x13receivedAtUnixNanos\x12\x1f\n" +
+	"\vmapping_ref\x18\x13 \x01(\tR\n" +
+	"mappingRef\x12E\n" +
+	"\bmeasures\x18\x14 \x03(\v2).golip.backendplugin.v1.EconomicMeasureV2R\bmeasures\x12B\n" +
+	"\acharges\x18\x15 \x03(\v2(.golip.backendplugin.v1.EconomicChargeV2R\acharges\x12P\n" +
+	"\n" +
+	"supersedes\x18\x16 \x03(\v20.golip.backendplugin.v1.EconomicObservationRefV2R\n" +
+	"supersedes\x12K\n" +
+	"\bevidence\x18\x17 \x03(\v2/.golip.backendplugin.v1.EconomicEvidenceFieldV2R\bevidence*\xc2\x01\n" +
 	"\x0eCredentialMode\x12\x1f\n" +
 	"\x1bCREDENTIAL_MODE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16CREDENTIAL_MODE_STATIC\x10\x01\x12\x1c\n" +
@@ -7026,7 +8816,7 @@ func file_backendplugin_v1_backend_proto_rawDescGZIP() []byte {
 }
 
 var file_backendplugin_v1_backend_proto_enumTypes = make([]protoimpl.EnumInfo, 18)
-var file_backendplugin_v1_backend_proto_msgTypes = make([]protoimpl.MessageInfo, 67)
+var file_backendplugin_v1_backend_proto_msgTypes = make([]protoimpl.MessageInfo, 85)
 var file_backendplugin_v1_backend_proto_goTypes = []any{
 	(CredentialMode)(0),                 // 0: golip.backendplugin.v1.CredentialMode
 	(AccessScope)(0),                    // 1: golip.backendplugin.v1.AccessScope
@@ -7111,8 +8901,26 @@ var file_backendplugin_v1_backend_proto_goTypes = []any{
 	(*HealthResponse)(nil),              // 80: golip.backendplugin.v1.HealthResponse
 	(*GracefulShutdownRequest)(nil),     // 81: golip.backendplugin.v1.GracefulShutdownRequest
 	(*GracefulShutdownResponse)(nil),    // 82: golip.backendplugin.v1.GracefulShutdownResponse
-	nil,                                 // 83: golip.backendplugin.v1.SecretBundle.ValuesEntry
-	nil,                                 // 84: golip.backendplugin.v1.Invocation.SafeMetadataEntry
+	(*AccountingEvidenceV2)(nil),        // 83: golip.backendplugin.v1.AccountingEvidenceV2
+	(*EconomicDecimalV2)(nil),           // 84: golip.backendplugin.v1.EconomicDecimalV2
+	(*EconomicDimensionV2)(nil),         // 85: golip.backendplugin.v1.EconomicDimensionV2
+	(*EconomicComponentKeyV2)(nil),      // 86: golip.backendplugin.v1.EconomicComponentKeyV2
+	(*EconomicMeasureV2)(nil),           // 87: golip.backendplugin.v1.EconomicMeasureV2
+	(*EconomicSubjectV2)(nil),           // 88: golip.backendplugin.v1.EconomicSubjectV2
+	(*EconomicCorrelationV2)(nil),       // 89: golip.backendplugin.v1.EconomicCorrelationV2
+	(*EconomicScopeValueV2)(nil),        // 90: golip.backendplugin.v1.EconomicScopeValueV2
+	(*EconomicScopeV2)(nil),             // 91: golip.backendplugin.v1.EconomicScopeV2
+	(*EconomicChargeRefV2)(nil),         // 92: golip.backendplugin.v1.EconomicChargeRefV2
+	(*EconomicCoverageV2)(nil),          // 93: golip.backendplugin.v1.EconomicCoverageV2
+	(*EconomicPaymentPartyV2)(nil),      // 94: golip.backendplugin.v1.EconomicPaymentPartyV2
+	(*EconomicChargeV2)(nil),            // 95: golip.backendplugin.v1.EconomicChargeV2
+	(*EconomicObservationRefV2)(nil),    // 96: golip.backendplugin.v1.EconomicObservationRefV2
+	(*EconomicEvidenceFieldV2)(nil),     // 97: golip.backendplugin.v1.EconomicEvidenceFieldV2
+	(*EconomicObservationV2)(nil),       // 98: golip.backendplugin.v1.EconomicObservationV2
+	nil,                                 // 99: golip.backendplugin.v1.SecretBundle.ValuesEntry
+	nil,                                 // 100: golip.backendplugin.v1.Invocation.SafeMetadataEntry
+	nil,                                 // 101: golip.backendplugin.v1.EconomicScopeV2.SafeClaimsEntry
+	nil,                                 // 102: golip.backendplugin.v1.EconomicScopeV2.PolicyLabelsEntry
 }
 var file_backendplugin_v1_backend_proto_depIdxs = []int32{
 	18,  // 0: golip.backendplugin.v1.NegotiateRequest.host_features:type_name -> golip.backendplugin.v1.Feature
@@ -7129,7 +8937,7 @@ var file_backendplugin_v1_backend_proto_depIdxs = []int32{
 	58,  // 11: golip.backendplugin.v1.DialectSupportWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
 	58,  // 12: golip.backendplugin.v1.DialectSupportWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
 	59,  // 13: golip.backendplugin.v1.DialectSupportWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
-	83,  // 14: golip.backendplugin.v1.SecretBundle.values:type_name -> golip.backendplugin.v1.SecretBundle.ValuesEntry
+	99,  // 14: golip.backendplugin.v1.SecretBundle.values:type_name -> golip.backendplugin.v1.SecretBundle.ValuesEntry
 	28,  // 15: golip.backendplugin.v1.ConfigureRequest.secrets:type_name -> golip.backendplugin.v1.SecretBundle
 	29,  // 16: golip.backendplugin.v1.ConfigureRequest.runtime_policy:type_name -> golip.backendplugin.v1.RuntimePolicy
 	36,  // 17: golip.backendplugin.v1.ResolveProfileResponse.profile:type_name -> golip.backendplugin.v1.ResolvedProfile
@@ -7150,109 +8958,140 @@ var file_backendplugin_v1_backend_proto_depIdxs = []int32{
 	55,  // 32: golip.backendplugin.v1.CountTokensRequest.invocation:type_name -> golip.backendplugin.v1.Invocation
 	52,  // 33: golip.backendplugin.v1.CountTokensResponse.presence:type_name -> golip.backendplugin.v1.UsagePresence
 	53,  // 34: golip.backendplugin.v1.FinalizeBillingResponse.usage:type_name -> golip.backendplugin.v1.UsageEvidence
-	52,  // 35: golip.backendplugin.v1.UsageEvidence.presence:type_name -> golip.backendplugin.v1.UsagePresence
-	54,  // 36: golip.backendplugin.v1.UsageEvidence.raw_usage_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	68,  // 37: golip.backendplugin.v1.Invocation.instructions:type_name -> golip.backendplugin.v1.Message
-	68,  // 38: golip.backendplugin.v1.Invocation.messages:type_name -> golip.backendplugin.v1.Message
-	70,  // 39: golip.backendplugin.v1.Invocation.tools:type_name -> golip.backendplugin.v1.ToolDef
-	71,  // 40: golip.backendplugin.v1.Invocation.options:type_name -> golip.backendplugin.v1.GenerationOptions
-	84,  // 41: golip.backendplugin.v1.Invocation.safe_metadata:type_name -> golip.backendplugin.v1.Invocation.SafeMetadataEntry
-	60,  // 42: golip.backendplugin.v1.Invocation.items:type_name -> golip.backendplugin.v1.InvocationItem
-	57,  // 43: golip.backendplugin.v1.Invocation.protocol_requirements:type_name -> golip.backendplugin.v1.ProtocolRequirementsWire
-	56,  // 44: golip.backendplugin.v1.Invocation.semantic_extensions:type_name -> golip.backendplugin.v1.SemanticExtensionWire
-	17,  // 45: golip.backendplugin.v1.SemanticExtensionWire.presence:type_name -> golip.backendplugin.v1.SemanticExtensionWire.Presence
-	58,  // 46: golip.backendplugin.v1.ProtocolRequirementsWire.item_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	58,  // 47: golip.backendplugin.v1.ProtocolRequirementsWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	58,  // 48: golip.backendplugin.v1.ProtocolRequirementsWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	59,  // 49: golip.backendplugin.v1.ProtocolRequirementsWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
-	3,   // 50: golip.backendplugin.v1.InvocationItem.role:type_name -> golip.backendplugin.v1.Role
-	65,  // 51: golip.backendplugin.v1.InvocationItem.content:type_name -> golip.backendplugin.v1.InvocationContentPart
-	66,  // 52: golip.backendplugin.v1.InvocationItem.tool_call:type_name -> golip.backendplugin.v1.InvocationToolCall
-	67,  // 53: golip.backendplugin.v1.InvocationItem.tool_result:type_name -> golip.backendplugin.v1.InvocationToolResult
-	61,  // 54: golip.backendplugin.v1.InvocationItem.item_reference:type_name -> golip.backendplugin.v1.InvocationItemReference
-	62,  // 55: golip.backendplugin.v1.InvocationItem.reasoning:type_name -> golip.backendplugin.v1.InvocationReasoningItem
-	63,  // 56: golip.backendplugin.v1.InvocationItem.compaction:type_name -> golip.backendplugin.v1.InvocationCompactionItem
-	64,  // 57: golip.backendplugin.v1.InvocationItem.extension:type_name -> golip.backendplugin.v1.InvocationExtensionItem
-	54,  // 58: golip.backendplugin.v1.InvocationReasoningItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 59: golip.backendplugin.v1.InvocationReasoningItem.summary:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 60: golip.backendplugin.v1.InvocationReasoningItem.content:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 61: golip.backendplugin.v1.InvocationReasoningItem.encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 62: golip.backendplugin.v1.InvocationCompactionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 63: golip.backendplugin.v1.InvocationExtensionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	4,   // 64: golip.backendplugin.v1.InvocationContentPart.kind:type_name -> golip.backendplugin.v1.PartKind
-	54,  // 65: golip.backendplugin.v1.InvocationContentPart.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 66: golip.backendplugin.v1.InvocationContentPart.annotation_data:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 67: golip.backendplugin.v1.InvocationContentPart.extension_data:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 68: golip.backendplugin.v1.InvocationContentPart.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 69: golip.backendplugin.v1.InvocationContentPart.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 70: golip.backendplugin.v1.InvocationContentPart.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 71: golip.backendplugin.v1.InvocationToolCall.arguments:type_name -> golip.backendplugin.v1.RawJSONValue
-	65,  // 72: golip.backendplugin.v1.InvocationToolResult.structured_parts:type_name -> golip.backendplugin.v1.InvocationContentPart
-	3,   // 73: golip.backendplugin.v1.Message.role:type_name -> golip.backendplugin.v1.Role
-	69,  // 74: golip.backendplugin.v1.Message.parts:type_name -> golip.backendplugin.v1.Part
-	4,   // 75: golip.backendplugin.v1.Part.kind:type_name -> golip.backendplugin.v1.PartKind
-	54,  // 76: golip.backendplugin.v1.Part.tool_args_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 77: golip.backendplugin.v1.Part.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 78: golip.backendplugin.v1.Part.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 79: golip.backendplugin.v1.Part.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 80: golip.backendplugin.v1.Part.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 81: golip.backendplugin.v1.ToolDef.parameters_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 82: golip.backendplugin.v1.GenerationOptions.response_schema_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	8,   // 83: golip.backendplugin.v1.ExecuteClientFrame.kind:type_name -> golip.backendplugin.v1.ClientFrameKind
-	55,  // 84: golip.backendplugin.v1.ExecuteClientFrame.invocation:type_name -> golip.backendplugin.v1.Invocation
-	6,   // 85: golip.backendplugin.v1.ExecuteClientFrame.cancel_reason:type_name -> golip.backendplugin.v1.CancelReason
-	52,  // 86: golip.backendplugin.v1.AccountingEvidence.presence:type_name -> golip.backendplugin.v1.UsagePresence
-	10,  // 87: golip.backendplugin.v1.AccountingEvidence.source:type_name -> golip.backendplugin.v1.AccountingSource
-	11,  // 88: golip.backendplugin.v1.AccountingEvidence.authority:type_name -> golip.backendplugin.v1.AccountingAuthority
-	12,  // 89: golip.backendplugin.v1.AccountingEvidence.plane:type_name -> golip.backendplugin.v1.AccountingPlane
-	13,  // 90: golip.backendplugin.v1.CanonicalEvent.kind:type_name -> golip.backendplugin.v1.EventKind
-	53,  // 91: golip.backendplugin.v1.CanonicalEvent.usage:type_name -> golip.backendplugin.v1.UsageEvidence
-	78,  // 92: golip.backendplugin.v1.CanonicalEvent.error:type_name -> golip.backendplugin.v1.PluginError
-	54,  // 93: golip.backendplugin.v1.CanonicalEvent.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 94: golip.backendplugin.v1.CanonicalEvent.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	54,  // 95: golip.backendplugin.v1.CanonicalEvent.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	14,  // 96: golip.backendplugin.v1.Terminal.status:type_name -> golip.backendplugin.v1.TerminalStatus
-	78,  // 97: golip.backendplugin.v1.Terminal.error:type_name -> golip.backendplugin.v1.PluginError
-	6,   // 98: golip.backendplugin.v1.CancelOutcome.reason:type_name -> golip.backendplugin.v1.CancelReason
-	7,   // 99: golip.backendplugin.v1.CancelOutcome.mode:type_name -> golip.backendplugin.v1.CancelMode
-	9,   // 100: golip.backendplugin.v1.ExecuteServerFrame.kind:type_name -> golip.backendplugin.v1.ServerFrameKind
-	74,  // 101: golip.backendplugin.v1.ExecuteServerFrame.event:type_name -> golip.backendplugin.v1.CanonicalEvent
-	76,  // 102: golip.backendplugin.v1.ExecuteServerFrame.cancel_outcome:type_name -> golip.backendplugin.v1.CancelOutcome
-	75,  // 103: golip.backendplugin.v1.ExecuteServerFrame.terminal:type_name -> golip.backendplugin.v1.Terminal
-	73,  // 104: golip.backendplugin.v1.ExecuteServerFrame.accounting_evidence:type_name -> golip.backendplugin.v1.AccountingEvidence
-	40,  // 105: golip.backendplugin.v1.ExecuteServerFrame.prompt_cache_observation:type_name -> golip.backendplugin.v1.PromptCacheObservation
-	5,   // 106: golip.backendplugin.v1.PluginError.code:type_name -> golip.backendplugin.v1.ErrorCode
-	19,  // 107: golip.backendplugin.v1.BackendPlugin.Negotiate:input_type -> golip.backendplugin.v1.NegotiateRequest
-	21,  // 108: golip.backendplugin.v1.BackendPlugin.Describe:input_type -> golip.backendplugin.v1.DescribeRequest
-	30,  // 109: golip.backendplugin.v1.BackendPlugin.Configure:input_type -> golip.backendplugin.v1.ConfigureRequest
-	32,  // 110: golip.backendplugin.v1.BackendPlugin.CloseInstance:input_type -> golip.backendplugin.v1.CloseInstanceRequest
-	34,  // 111: golip.backendplugin.v1.BackendPlugin.ResolveProfile:input_type -> golip.backendplugin.v1.ResolveProfileRequest
-	45,  // 112: golip.backendplugin.v1.BackendPlugin.ListModels:input_type -> golip.backendplugin.v1.ListModelsRequest
-	48,  // 113: golip.backendplugin.v1.BackendPlugin.CountTokens:input_type -> golip.backendplugin.v1.CountTokensRequest
-	50,  // 114: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:input_type -> golip.backendplugin.v1.FinalizeBillingRequest
-	41,  // 115: golip.backendplugin.v1.BackendPlugin.RenewPromptCache:input_type -> golip.backendplugin.v1.RenewPromptCacheRequest
-	43,  // 116: golip.backendplugin.v1.BackendPlugin.ReleasePromptCache:input_type -> golip.backendplugin.v1.ReleasePromptCacheRequest
-	72,  // 117: golip.backendplugin.v1.BackendPlugin.Execute:input_type -> golip.backendplugin.v1.ExecuteClientFrame
-	79,  // 118: golip.backendplugin.v1.BackendPlugin.Health:input_type -> golip.backendplugin.v1.HealthRequest
-	81,  // 119: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:input_type -> golip.backendplugin.v1.GracefulShutdownRequest
-	20,  // 120: golip.backendplugin.v1.BackendPlugin.Negotiate:output_type -> golip.backendplugin.v1.NegotiateResponse
-	22,  // 121: golip.backendplugin.v1.BackendPlugin.Describe:output_type -> golip.backendplugin.v1.DescribeResponse
-	31,  // 122: golip.backendplugin.v1.BackendPlugin.Configure:output_type -> golip.backendplugin.v1.ConfigureResponse
-	33,  // 123: golip.backendplugin.v1.BackendPlugin.CloseInstance:output_type -> golip.backendplugin.v1.CloseInstanceResponse
-	35,  // 124: golip.backendplugin.v1.BackendPlugin.ResolveProfile:output_type -> golip.backendplugin.v1.ResolveProfileResponse
-	46,  // 125: golip.backendplugin.v1.BackendPlugin.ListModels:output_type -> golip.backendplugin.v1.ListModelsResponse
-	49,  // 126: golip.backendplugin.v1.BackendPlugin.CountTokens:output_type -> golip.backendplugin.v1.CountTokensResponse
-	51,  // 127: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:output_type -> golip.backendplugin.v1.FinalizeBillingResponse
-	42,  // 128: golip.backendplugin.v1.BackendPlugin.RenewPromptCache:output_type -> golip.backendplugin.v1.RenewPromptCacheResponse
-	44,  // 129: golip.backendplugin.v1.BackendPlugin.ReleasePromptCache:output_type -> golip.backendplugin.v1.ReleasePromptCacheResponse
-	77,  // 130: golip.backendplugin.v1.BackendPlugin.Execute:output_type -> golip.backendplugin.v1.ExecuteServerFrame
-	80,  // 131: golip.backendplugin.v1.BackendPlugin.Health:output_type -> golip.backendplugin.v1.HealthResponse
-	82,  // 132: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:output_type -> golip.backendplugin.v1.GracefulShutdownResponse
-	120, // [120:133] is the sub-list for method output_type
-	107, // [107:120] is the sub-list for method input_type
-	107, // [107:107] is the sub-list for extension type_name
-	107, // [107:107] is the sub-list for extension extendee
-	0,   // [0:107] is the sub-list for field type_name
+	83,  // 35: golip.backendplugin.v1.FinalizeBillingResponse.accounting_evidence_v2:type_name -> golip.backendplugin.v1.AccountingEvidenceV2
+	52,  // 36: golip.backendplugin.v1.UsageEvidence.presence:type_name -> golip.backendplugin.v1.UsagePresence
+	54,  // 37: golip.backendplugin.v1.UsageEvidence.raw_usage_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	68,  // 38: golip.backendplugin.v1.Invocation.instructions:type_name -> golip.backendplugin.v1.Message
+	68,  // 39: golip.backendplugin.v1.Invocation.messages:type_name -> golip.backendplugin.v1.Message
+	70,  // 40: golip.backendplugin.v1.Invocation.tools:type_name -> golip.backendplugin.v1.ToolDef
+	71,  // 41: golip.backendplugin.v1.Invocation.options:type_name -> golip.backendplugin.v1.GenerationOptions
+	100, // 42: golip.backendplugin.v1.Invocation.safe_metadata:type_name -> golip.backendplugin.v1.Invocation.SafeMetadataEntry
+	60,  // 43: golip.backendplugin.v1.Invocation.items:type_name -> golip.backendplugin.v1.InvocationItem
+	57,  // 44: golip.backendplugin.v1.Invocation.protocol_requirements:type_name -> golip.backendplugin.v1.ProtocolRequirementsWire
+	56,  // 45: golip.backendplugin.v1.Invocation.semantic_extensions:type_name -> golip.backendplugin.v1.SemanticExtensionWire
+	17,  // 46: golip.backendplugin.v1.SemanticExtensionWire.presence:type_name -> golip.backendplugin.v1.SemanticExtensionWire.Presence
+	58,  // 47: golip.backendplugin.v1.ProtocolRequirementsWire.item_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	58,  // 48: golip.backendplugin.v1.ProtocolRequirementsWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	58,  // 49: golip.backendplugin.v1.ProtocolRequirementsWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	59,  // 50: golip.backendplugin.v1.ProtocolRequirementsWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
+	3,   // 51: golip.backendplugin.v1.InvocationItem.role:type_name -> golip.backendplugin.v1.Role
+	65,  // 52: golip.backendplugin.v1.InvocationItem.content:type_name -> golip.backendplugin.v1.InvocationContentPart
+	66,  // 53: golip.backendplugin.v1.InvocationItem.tool_call:type_name -> golip.backendplugin.v1.InvocationToolCall
+	67,  // 54: golip.backendplugin.v1.InvocationItem.tool_result:type_name -> golip.backendplugin.v1.InvocationToolResult
+	61,  // 55: golip.backendplugin.v1.InvocationItem.item_reference:type_name -> golip.backendplugin.v1.InvocationItemReference
+	62,  // 56: golip.backendplugin.v1.InvocationItem.reasoning:type_name -> golip.backendplugin.v1.InvocationReasoningItem
+	63,  // 57: golip.backendplugin.v1.InvocationItem.compaction:type_name -> golip.backendplugin.v1.InvocationCompactionItem
+	64,  // 58: golip.backendplugin.v1.InvocationItem.extension:type_name -> golip.backendplugin.v1.InvocationExtensionItem
+	54,  // 59: golip.backendplugin.v1.InvocationReasoningItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 60: golip.backendplugin.v1.InvocationReasoningItem.summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 61: golip.backendplugin.v1.InvocationReasoningItem.content:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 62: golip.backendplugin.v1.InvocationReasoningItem.encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 63: golip.backendplugin.v1.InvocationCompactionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 64: golip.backendplugin.v1.InvocationExtensionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	4,   // 65: golip.backendplugin.v1.InvocationContentPart.kind:type_name -> golip.backendplugin.v1.PartKind
+	54,  // 66: golip.backendplugin.v1.InvocationContentPart.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 67: golip.backendplugin.v1.InvocationContentPart.annotation_data:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 68: golip.backendplugin.v1.InvocationContentPart.extension_data:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 69: golip.backendplugin.v1.InvocationContentPart.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 70: golip.backendplugin.v1.InvocationContentPart.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 71: golip.backendplugin.v1.InvocationContentPart.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 72: golip.backendplugin.v1.InvocationToolCall.arguments:type_name -> golip.backendplugin.v1.RawJSONValue
+	65,  // 73: golip.backendplugin.v1.InvocationToolResult.structured_parts:type_name -> golip.backendplugin.v1.InvocationContentPart
+	3,   // 74: golip.backendplugin.v1.Message.role:type_name -> golip.backendplugin.v1.Role
+	69,  // 75: golip.backendplugin.v1.Message.parts:type_name -> golip.backendplugin.v1.Part
+	4,   // 76: golip.backendplugin.v1.Part.kind:type_name -> golip.backendplugin.v1.PartKind
+	54,  // 77: golip.backendplugin.v1.Part.tool_args_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 78: golip.backendplugin.v1.Part.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 79: golip.backendplugin.v1.Part.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 80: golip.backendplugin.v1.Part.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 81: golip.backendplugin.v1.Part.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 82: golip.backendplugin.v1.ToolDef.parameters_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 83: golip.backendplugin.v1.GenerationOptions.response_schema_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	8,   // 84: golip.backendplugin.v1.ExecuteClientFrame.kind:type_name -> golip.backendplugin.v1.ClientFrameKind
+	55,  // 85: golip.backendplugin.v1.ExecuteClientFrame.invocation:type_name -> golip.backendplugin.v1.Invocation
+	6,   // 86: golip.backendplugin.v1.ExecuteClientFrame.cancel_reason:type_name -> golip.backendplugin.v1.CancelReason
+	52,  // 87: golip.backendplugin.v1.AccountingEvidence.presence:type_name -> golip.backendplugin.v1.UsagePresence
+	10,  // 88: golip.backendplugin.v1.AccountingEvidence.source:type_name -> golip.backendplugin.v1.AccountingSource
+	11,  // 89: golip.backendplugin.v1.AccountingEvidence.authority:type_name -> golip.backendplugin.v1.AccountingAuthority
+	12,  // 90: golip.backendplugin.v1.AccountingEvidence.plane:type_name -> golip.backendplugin.v1.AccountingPlane
+	13,  // 91: golip.backendplugin.v1.CanonicalEvent.kind:type_name -> golip.backendplugin.v1.EventKind
+	53,  // 92: golip.backendplugin.v1.CanonicalEvent.usage:type_name -> golip.backendplugin.v1.UsageEvidence
+	78,  // 93: golip.backendplugin.v1.CanonicalEvent.error:type_name -> golip.backendplugin.v1.PluginError
+	54,  // 94: golip.backendplugin.v1.CanonicalEvent.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 95: golip.backendplugin.v1.CanonicalEvent.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 96: golip.backendplugin.v1.CanonicalEvent.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	14,  // 97: golip.backendplugin.v1.Terminal.status:type_name -> golip.backendplugin.v1.TerminalStatus
+	78,  // 98: golip.backendplugin.v1.Terminal.error:type_name -> golip.backendplugin.v1.PluginError
+	6,   // 99: golip.backendplugin.v1.CancelOutcome.reason:type_name -> golip.backendplugin.v1.CancelReason
+	7,   // 100: golip.backendplugin.v1.CancelOutcome.mode:type_name -> golip.backendplugin.v1.CancelMode
+	9,   // 101: golip.backendplugin.v1.ExecuteServerFrame.kind:type_name -> golip.backendplugin.v1.ServerFrameKind
+	74,  // 102: golip.backendplugin.v1.ExecuteServerFrame.event:type_name -> golip.backendplugin.v1.CanonicalEvent
+	76,  // 103: golip.backendplugin.v1.ExecuteServerFrame.cancel_outcome:type_name -> golip.backendplugin.v1.CancelOutcome
+	75,  // 104: golip.backendplugin.v1.ExecuteServerFrame.terminal:type_name -> golip.backendplugin.v1.Terminal
+	73,  // 105: golip.backendplugin.v1.ExecuteServerFrame.accounting_evidence:type_name -> golip.backendplugin.v1.AccountingEvidence
+	40,  // 106: golip.backendplugin.v1.ExecuteServerFrame.prompt_cache_observation:type_name -> golip.backendplugin.v1.PromptCacheObservation
+	83,  // 107: golip.backendplugin.v1.ExecuteServerFrame.accounting_evidence_v2:type_name -> golip.backendplugin.v1.AccountingEvidenceV2
+	5,   // 108: golip.backendplugin.v1.PluginError.code:type_name -> golip.backendplugin.v1.ErrorCode
+	98,  // 109: golip.backendplugin.v1.AccountingEvidenceV2.observation:type_name -> golip.backendplugin.v1.EconomicObservationV2
+	85,  // 110: golip.backendplugin.v1.EconomicComponentKeyV2.dimensions:type_name -> golip.backendplugin.v1.EconomicDimensionV2
+	86,  // 111: golip.backendplugin.v1.EconomicMeasureV2.key:type_name -> golip.backendplugin.v1.EconomicComponentKeyV2
+	84,  // 112: golip.backendplugin.v1.EconomicMeasureV2.value:type_name -> golip.backendplugin.v1.EconomicDecimalV2
+	90,  // 113: golip.backendplugin.v1.EconomicScopeV2.principal_id:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	90,  // 114: golip.backendplugin.v1.EconomicScopeV2.display_name:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	90,  // 115: golip.backendplugin.v1.EconomicScopeV2.auth_method:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	90,  // 116: golip.backendplugin.v1.EconomicScopeV2.credential_id:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	101, // 117: golip.backendplugin.v1.EconomicScopeV2.safe_claims:type_name -> golip.backendplugin.v1.EconomicScopeV2.SafeClaimsEntry
+	90,  // 118: golip.backendplugin.v1.EconomicScopeV2.tenant_id:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	90,  // 119: golip.backendplugin.v1.EconomicScopeV2.organization_id:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	90,  // 120: golip.backendplugin.v1.EconomicScopeV2.workspace_id:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	90,  // 121: golip.backendplugin.v1.EconomicScopeV2.project_id:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	90,  // 122: golip.backendplugin.v1.EconomicScopeV2.department_id:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	90,  // 123: golip.backendplugin.v1.EconomicScopeV2.cost_center_id:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	102, // 124: golip.backendplugin.v1.EconomicScopeV2.policy_labels:type_name -> golip.backendplugin.v1.EconomicScopeV2.PolicyLabelsEntry
+	90,  // 125: golip.backendplugin.v1.EconomicScopeV2.parent_trace_id:type_name -> golip.backendplugin.v1.EconomicScopeValueV2
+	92,  // 126: golip.backendplugin.v1.EconomicCoverageV2.ref:type_name -> golip.backendplugin.v1.EconomicChargeRefV2
+	86,  // 127: golip.backendplugin.v1.EconomicChargeV2.component:type_name -> golip.backendplugin.v1.EconomicComponentKeyV2
+	84,  // 128: golip.backendplugin.v1.EconomicChargeV2.amount:type_name -> golip.backendplugin.v1.EconomicDecimalV2
+	94,  // 129: golip.backendplugin.v1.EconomicChargeV2.payer:type_name -> golip.backendplugin.v1.EconomicPaymentPartyV2
+	93,  // 130: golip.backendplugin.v1.EconomicChargeV2.covers:type_name -> golip.backendplugin.v1.EconomicCoverageV2
+	88,  // 131: golip.backendplugin.v1.EconomicObservationV2.subject:type_name -> golip.backendplugin.v1.EconomicSubjectV2
+	89,  // 132: golip.backendplugin.v1.EconomicObservationV2.correlation:type_name -> golip.backendplugin.v1.EconomicCorrelationV2
+	91,  // 133: golip.backendplugin.v1.EconomicObservationV2.scope:type_name -> golip.backendplugin.v1.EconomicScopeV2
+	87,  // 134: golip.backendplugin.v1.EconomicObservationV2.measures:type_name -> golip.backendplugin.v1.EconomicMeasureV2
+	95,  // 135: golip.backendplugin.v1.EconomicObservationV2.charges:type_name -> golip.backendplugin.v1.EconomicChargeV2
+	96,  // 136: golip.backendplugin.v1.EconomicObservationV2.supersedes:type_name -> golip.backendplugin.v1.EconomicObservationRefV2
+	97,  // 137: golip.backendplugin.v1.EconomicObservationV2.evidence:type_name -> golip.backendplugin.v1.EconomicEvidenceFieldV2
+	19,  // 138: golip.backendplugin.v1.BackendPlugin.Negotiate:input_type -> golip.backendplugin.v1.NegotiateRequest
+	21,  // 139: golip.backendplugin.v1.BackendPlugin.Describe:input_type -> golip.backendplugin.v1.DescribeRequest
+	30,  // 140: golip.backendplugin.v1.BackendPlugin.Configure:input_type -> golip.backendplugin.v1.ConfigureRequest
+	32,  // 141: golip.backendplugin.v1.BackendPlugin.CloseInstance:input_type -> golip.backendplugin.v1.CloseInstanceRequest
+	34,  // 142: golip.backendplugin.v1.BackendPlugin.ResolveProfile:input_type -> golip.backendplugin.v1.ResolveProfileRequest
+	45,  // 143: golip.backendplugin.v1.BackendPlugin.ListModels:input_type -> golip.backendplugin.v1.ListModelsRequest
+	48,  // 144: golip.backendplugin.v1.BackendPlugin.CountTokens:input_type -> golip.backendplugin.v1.CountTokensRequest
+	50,  // 145: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:input_type -> golip.backendplugin.v1.FinalizeBillingRequest
+	41,  // 146: golip.backendplugin.v1.BackendPlugin.RenewPromptCache:input_type -> golip.backendplugin.v1.RenewPromptCacheRequest
+	43,  // 147: golip.backendplugin.v1.BackendPlugin.ReleasePromptCache:input_type -> golip.backendplugin.v1.ReleasePromptCacheRequest
+	72,  // 148: golip.backendplugin.v1.BackendPlugin.Execute:input_type -> golip.backendplugin.v1.ExecuteClientFrame
+	79,  // 149: golip.backendplugin.v1.BackendPlugin.Health:input_type -> golip.backendplugin.v1.HealthRequest
+	81,  // 150: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:input_type -> golip.backendplugin.v1.GracefulShutdownRequest
+	20,  // 151: golip.backendplugin.v1.BackendPlugin.Negotiate:output_type -> golip.backendplugin.v1.NegotiateResponse
+	22,  // 152: golip.backendplugin.v1.BackendPlugin.Describe:output_type -> golip.backendplugin.v1.DescribeResponse
+	31,  // 153: golip.backendplugin.v1.BackendPlugin.Configure:output_type -> golip.backendplugin.v1.ConfigureResponse
+	33,  // 154: golip.backendplugin.v1.BackendPlugin.CloseInstance:output_type -> golip.backendplugin.v1.CloseInstanceResponse
+	35,  // 155: golip.backendplugin.v1.BackendPlugin.ResolveProfile:output_type -> golip.backendplugin.v1.ResolveProfileResponse
+	46,  // 156: golip.backendplugin.v1.BackendPlugin.ListModels:output_type -> golip.backendplugin.v1.ListModelsResponse
+	49,  // 157: golip.backendplugin.v1.BackendPlugin.CountTokens:output_type -> golip.backendplugin.v1.CountTokensResponse
+	51,  // 158: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:output_type -> golip.backendplugin.v1.FinalizeBillingResponse
+	42,  // 159: golip.backendplugin.v1.BackendPlugin.RenewPromptCache:output_type -> golip.backendplugin.v1.RenewPromptCacheResponse
+	44,  // 160: golip.backendplugin.v1.BackendPlugin.ReleasePromptCache:output_type -> golip.backendplugin.v1.ReleasePromptCacheResponse
+	77,  // 161: golip.backendplugin.v1.BackendPlugin.Execute:output_type -> golip.backendplugin.v1.ExecuteServerFrame
+	80,  // 162: golip.backendplugin.v1.BackendPlugin.Health:output_type -> golip.backendplugin.v1.HealthResponse
+	82,  // 163: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:output_type -> golip.backendplugin.v1.GracefulShutdownResponse
+	151, // [151:164] is the sub-list for method output_type
+	138, // [138:151] is the sub-list for method input_type
+	138, // [138:138] is the sub-list for extension type_name
+	138, // [138:138] is the sub-list for extension extendee
+	0,   // [0:138] is the sub-list for field type_name
 }
 
 func init() { file_backendplugin_v1_backend_proto_init() }
@@ -7287,7 +9126,7 @@ func file_backendplugin_v1_backend_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backendplugin_v1_backend_proto_rawDesc), len(file_backendplugin_v1_backend_proto_rawDesc)),
 			NumEnums:      18,
-			NumMessages:   67,
+			NumMessages:   85,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
