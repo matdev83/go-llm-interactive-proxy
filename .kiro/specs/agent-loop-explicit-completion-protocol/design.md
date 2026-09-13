@@ -351,7 +351,7 @@ The ALG control provider exposes exactly:
 
 ### Frozen Base Instruction
 
-Semantically equivalent stable text:
+Exact byte-stable base instruction (normative UTF-8 literal with LF line endings):
 
 ```text
 <task-completion-protocol>
@@ -370,7 +370,7 @@ approval, permission, or scope expansion.
 </task-completion-protocol>
 ```
 
-The implementation may polish wording before first merge only if tests pin the final bytes. After release, model-facing name/schema/base instruction changes require explicit compatibility review.
+The fenced literal above is normative. Both projection points shall reuse this exact UTF-8 byte sequence with LF line endings; implementations shall not independently reflow, trim, normalize, template, localize, or regenerate it. Any model-facing tool-name, schema, or base-instruction change requires explicit compatibility review and a specification update.
 
 ## Candidate Projection and Activation
 
@@ -414,10 +414,10 @@ This is analogous to the repository's existing need to freeze/reassert model-vis
 A generic pure helper inserts one complete control instruction into the backend-effective trajectory without conflicting authorities:
 
 - legacy/message authority: place the instruction in the stable system/developer instruction prefix;
-- item authority: materialize an equivalent leading system/developer message item before mutable user/assistant history;
+- item authority: materialize the same normative instruction text as a leading system/developer message item before mutable user/assistant history;
 - never mutate A-leg baseline/history;
 - never accumulate multiple copies within one candidate;
-- final reassertion produces the same semantic bytes/order as the post-hook projection.
+- final reassertion reproduces the exact approved instruction bytes, tool-definition bytes, and relative order from the post-hook projection.
 
 Tool definition is appended to the backend-effective tool catalog only after collision and ToolChoice checks pass. The client's original ToolChoice value is not rewritten.
 
@@ -806,6 +806,7 @@ Each implementation slice starts RED, then minimal GREEN, then refactor. Do not 
 - control spec validation and bounds;
 - exclusive plane merge/provider removal;
 - authority-neutral instruction projection for message and item authority;
+- exact byte identity of the normative base instruction across post-hook projection and final reassertion;
 - stable/idempotent projection;
 - ToolChoice eligibility matrix;
 - candidate capability eligibility;
@@ -819,7 +820,7 @@ Each implementation slice starts RED, then minimal GREEN, then refactor. Do not 
 ### Preferred ALG Tests
 
 - exact pinned tool name/schema/no-command field;
-- exact pinned base instruction semantics;
+- exact pinned base instruction bytes and LF normalization contract;
 - strict args parser: missing/extra/duplicate/wrong-type/trailing/oversize/invalid UTF-8;
 - valid completion decision;
 - completion-only result publication;
