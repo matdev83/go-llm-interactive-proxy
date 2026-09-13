@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -180,8 +179,9 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		return reconstructCustomerUsageForResponse(ctx, responsePipeline.streamUsage, responsePipeline.log, rs.facts, rs.attempt.snapshot(), text, events)
 	})
 	if _, published := rs.attempt.publishReady(out.ready); !published {
-		out.ready.Dispose(boundCtx, errors.New("publication closed"))
-		return nil, errors.New("publication closed")
+		pubErr := fmt.Errorf("interleaved open: %w", errPublicationClosed)
+		out.ready.Dispose(boundCtx, pubErr)
+		return nil, pubErr
 	}
 	return rs, nil
 }

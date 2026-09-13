@@ -88,6 +88,7 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 		} else if prep.call != nil {
 			ingress = lipapi.CloneCall(*prep.call)
 		}
+		savedWP := prep.recvTurnFacts.wirePayload
 		prep.recvTurnFacts = newRecvTurnFacts(ctx, recvTurnFactsInput{
 			baseline:                     *prep.call,
 			traceID:                      prep.identity.traceID,
@@ -101,6 +102,7 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 			conversationFilteredBaseline: lipapi.CloneCall(filtered),
 			ingressCall:                  ingress,
 		})
+		prep.recvTurnFacts.wirePayload = savedWP
 	}
 }
 

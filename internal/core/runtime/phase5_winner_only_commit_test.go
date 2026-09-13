@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -566,7 +567,7 @@ func TestPhase5_WinnerOnlyCommit_PublicationDeniedByClosedSlot(t *testing.T) {
 	}
 
 	// Caller disposes the unpublished ready attempt
-	ready.Dispose(ctx, errors.New("publication closed"))
+	ready.Dispose(ctx, fmt.Errorf("phase5 test: %w", errPublicationClosed))
 
 	if !ready.IsConsumed() {
 		t.Errorf("expected ready to be consumed/disposed")

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -740,7 +741,7 @@ func (t *turnTerminal) cleanupUnpublishedReplacement(ctx context.Context, next *
 	if next == nil {
 		return
 	}
-	next.Dispose(context.Background(), errors.New("publication closed"))
+	next.Dispose(context.Background(), fmt.Errorf("turn terminal: %w", errPublicationClosed))
 }
 
 // emitSynthesizedUsage is the terminal-owned handoff for usage reconstructed

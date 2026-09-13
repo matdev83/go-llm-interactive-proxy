@@ -284,6 +284,10 @@ func (e *Executor) AuthorizeWireBilling(ctx context.Context, args WireBillingExp
 	if e.BillingIdentity.HasCustomCallCallbacks() {
 		return billing.CallExposure{}, fmt.Errorf("%w: custom BillingIdentity Call callbacks cannot run on wire path", ErrBillingAdmissionDenied)
 	}
+	// When BillingExposureAdmission is nil, no admission check is performed and
+	// an empty CallExposure is returned. This matches canonical authorizeBillingOnce
+	// behavior (lines 206-208), which returns nil without calling stampExposureIdentity,
+	// leaving billingIdentityStamped = false and billingExposure empty on both paths.
 	if e.BillingExposureAdmission == nil {
 		return billing.CallExposure{}, nil
 	}

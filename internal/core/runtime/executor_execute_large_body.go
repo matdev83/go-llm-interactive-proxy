@@ -142,9 +142,10 @@ func (s *wireLifecycleEventStream) Cancel(ctx context.Context, cause lipapi.Canc
 }
 
 // AssessLargeBody evaluates frontend proof for candidate fast-path execution (Phase 4).
-// If LargeBodyAssessor is not configured, it returns a declined assessment (fail closed to canonical).
+// If LargeBodyAssessor is not configured or interleaved thinking is enabled,
+// it returns a declined assessment (fail closed to canonical; Item 4).
 func (e *Executor) AssessLargeBody(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
-	if e == nil || e.LargeBodyAssessor == nil {
+	if e == nil || e.LargeBodyAssessor == nil || e.interleavedEnabled() {
 		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonAuthorityBlocker)
 		return dec, nil
 	}
@@ -155,7 +156,7 @@ func (e *Executor) AssessLargeBody(ctx context.Context, proof largebody.Proof) (
 // If LargeBodyAssessor implements LargeBodyStaticDispositionProvider, it delegates to it.
 // Otherwise, it returns DefinitelyCanonical with StaticBlocker.
 func (e *Executor) LargeBodyStaticDisposition(profileID string) (largebody.StaticWireDisposition, largebody.StaticWireReason) {
-	if e == nil || e.LargeBodyAssessor == nil {
+	if e == nil || e.LargeBodyAssessor == nil || e.interleavedEnabled() {
 		return largebody.StaticWireDefinitelyCanonical, largebody.StaticWireReasonStaticBlocker
 	}
 	if sdp, ok := e.LargeBodyAssessor.(largebody.LargeBodyStaticDispositionProvider); ok {

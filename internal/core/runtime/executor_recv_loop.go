@@ -8,6 +8,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -529,7 +530,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			_, published := slot.swapIfOpen(ready)
 			if !published {
 				// Disposal of unconsumed ready attempt must invoke complete attempt terminalization
-				ready.Dispose(ctx, errors.New("publication closed"))
+				ready.Dispose(ctx, fmt.Errorf("recv loop replacement: %w", errPublicationClosed))
 				return p.keepaliveEvent(), nil
 			}
 

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -456,7 +457,7 @@ func TestPhase6_FaultMatrix_PublicationDenial_CloseWinsRace(t *testing.T) {
 	}
 
 	// 3. Clean up the denied ready replacement as runtime does in executor_recv_loop
-	ready.Dispose(ctx, errors.New("publication closed"))
+	ready.Dispose(ctx, fmt.Errorf("phase6 test: %w", errPublicationClosed))
 
 	// 4. Assert exact cleanup and state
 	if !ready.IsConsumed() {

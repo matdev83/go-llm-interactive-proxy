@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
@@ -157,7 +158,7 @@ func continuationTransactionWithOverlay(ctx context.Context, t *turnTerminal, s 
 	}
 	_, published := s.attempt.swapIfOpen(ready)
 	if !published {
-		ready.Dispose(ctx, errors.New("continuation publication closed"))
+		ready.Dispose(ctx, fmt.Errorf("continuation %w", errPublicationClosed))
 		return false, failure("continuation publication closed", nil)
 	}
 	// B2 is a continuation of the same client-facing logical response. The
