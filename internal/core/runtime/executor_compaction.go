@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
@@ -58,9 +59,13 @@ func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRe
 		return compaction.PreservationMeta{}
 	}
 	observers := e.compactionObservers()
+	sessionID := ""
+	if prep.identity.call != nil {
+		sessionID = prep.identity.call.Session.AuthoritativeSessionID
+	}
 	preservationMeta := compaction.PreservationMeta{
 		TraceID:    prep.identity.traceID,
-		SessionID:  prep.identity.call.Session.AuthoritativeSessionID,
+		SessionID:  sessionID,
 		ALegID:     prep.identity.aLeg.ALegID,
 		BLegID:     bleg.BLegID,
 		AttemptSeq: bleg.Seq,
@@ -89,13 +94,65 @@ func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRe
 	return preservationMeta
 }
 
+func (e *Executor) observeCompactionOpenedWire(
+	ctx context.Context,
+	prep *preparedRequest,
+	out openedAttempt,
+	facts compactionfacts.RequestFacts,
+) compaction.PreservationMeta {
+	if e == nil || e.Detector == nil || prep == nil || out.ready == nil {
+		return compaction.PreservationMeta{}
+	}
+	bleg := out.ready.BLeg()
+	if bleg.BLegID == "" {
+		return compaction.PreservationMeta{}
+	}
+	observers := e.compactionObservers()
+	sessionID := ""
+	traceID := ""
+	aLegID := ""
+	if prep.recvTurnFacts.wirePayload != nil {
+		sessionID = prep.recvTurnFacts.wirePayload.sessionID
+	}
+	if prep.recvTurnFacts.traceID != "" {
+		traceID = prep.recvTurnFacts.traceID
+	} else if prep.identity != nil {
+		traceID = prep.identity.traceID
+	}
+	if prep.recvTurnFacts.aLegID != "" {
+		aLegID = prep.recvTurnFacts.aLegID
+	} else if prep.identity != nil {
+		aLegID = prep.identity.aLeg.ALegID
+	}
+	preservationMeta := compaction.PreservationMeta{
+		TraceID:    traceID,
+		SessionID:  sessionID,
+		ALegID:     aLegID,
+		BLegID:     bleg.BLegID,
+		AttemptSeq: bleg.Seq,
+	}
+	events := safeCompactionRequestOpenedFacts(e.Detector, preservationMeta, facts)
+	if len(events) > 0 {
+		last := events[len(events)-1]
+		preservationMeta.TransactionID = last.TransactionID
+		preservationMeta.RuleID = string(last.RuleID)
+		preservationMeta.Evidence = last.Evidence
+	}
+	compaction.Dispatch(ctx, observers, events)
+	return preservationMeta
+}
+
 func (e *Executor) notifyCompactionOpenFailed(ctx context.Context, prep *preparedRequest) {
 	if e == nil || prep == nil {
 		return
 	}
+	sessionID := ""
+	if prep.identity.call != nil {
+		sessionID = prep.identity.call.Session.AuthoritativeSessionID
+	}
 	meta := compaction.PreservationMeta{
 		TraceID:   prep.identity.traceID,
-		SessionID: prep.identity.call.Session.AuthoritativeSessionID,
+		SessionID: sessionID,
 		ALegID:    prep.identity.aLeg.ALegID,
 	}
 	_ = extensions.RunCompactionPreserverRequestOpenFailed(
@@ -197,6 +254,17 @@ func safeCompactionRequestOpened(d CompactionDetector, meta compaction.Preservat
 		return nil
 	}
 	return d.RequestOpened(meta, call)
+}
+
+func safeCompactionRequestOpenedFacts(d CompactionDetector, meta compaction.PreservationMeta, facts compactionfacts.RequestFacts) (events []compaction.Event) {
+	defer func() { _ = recover() }()
+	if d == nil {
+		return nil
+	}
+	if wd, ok := d.(CompactionWireDetector); ok {
+		return wd.RequestOpenedFacts(meta, facts)
+	}
+	return nil
 }
 
 func safeCompactionResponseReleased(d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) (events []compaction.Event) {

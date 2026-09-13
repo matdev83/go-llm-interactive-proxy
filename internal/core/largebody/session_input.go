@@ -91,6 +91,16 @@ func BuildSessionInput(src SessionInputSource, maxFactBytes int64) (SessionInput
 	return res, nil
 }
 
+// ProvesFreshALeg reports whether the session input definitely proves a fresh, unresumed A-leg.
+// Returns true only when NewSessionRequested is true, AuthoritativeSessionID is empty,
+// ALegID is empty, and ResumeToken is zero or empty.
+func (s SessionInput) ProvesFreshALeg() bool {
+	return s.NewSessionRequested &&
+		strings.TrimSpace(s.AuthoritativeSessionID) == "" &&
+		strings.TrimSpace(s.ALegID) == "" &&
+		(s.ResumeToken.IsZero() || strings.TrimSpace(s.ResumeToken.Reveal()) == "")
+}
+
 // CorrelationID returns a stable identifier for diagnostics and traffic capture:
 // authoritative session ID when set, otherwise client session ID.
 func (s SessionInput) CorrelationID() string {

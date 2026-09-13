@@ -303,6 +303,11 @@ func (a *BackendWireProofAssessor) AssessLargeBody(ctx context.Context, proof Pr
 		return NewDeclinedAssessment(DeclineReasonProofUncertain)
 	}
 
+	budget := SemanticFactBudget(ctx)
+	if proof.AggregateFactBytes() > budget {
+		return NewDeclinedAssessment(DeclineReasonAuthorityBlocker)
+	}
+
 	decision, reason, wireReq, wireDomain, _ := a.Gate.Evaluate(ctx, proof)
 	if decision == AssessmentDecisionDecline {
 		return NewDeclinedAssessment(reason)
@@ -336,6 +341,8 @@ func (a *BackendWireProofAssessor) AssessLargeBody(ctx context.Context, proof Pr
 	if err != nil {
 		return Assessment{}, fmt.Errorf("largebody: accepted assessment construction failed: %w", err)
 	}
+	accepted.CompactionFacts = proof.CompactionFacts.Clone()
+	accepted.CompactionComplete = proof.CompactionComplete
 	return accepted, nil
 }
 

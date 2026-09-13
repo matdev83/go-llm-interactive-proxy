@@ -44,6 +44,7 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 			}
 			if overlay.CorePorts.ConversationReader != nil {
 				out.CorePorts.ConversationReader = overlay.CorePorts.ConversationReader
+				out.CorePorts.ConversationReaderStockOrigin = overlay.CorePorts.ConversationReaderStockOrigin
 			}
 			if overlay.CorePorts.CompactionDetector != nil {
 				out.CorePorts.CompactionDetector = overlay.CorePorts.CompactionDetector

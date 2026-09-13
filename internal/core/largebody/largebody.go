@@ -9,6 +9,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -498,6 +499,24 @@ type Proof struct {
 	Session         SessionInput
 	Source          SourceDigest
 	BodyBytes       int64
+
+	CompactionFacts    compactionfacts.RequestFacts
+	CompactionComplete bool
+}
+
+// CompactionDigest returns the deterministic digest of the compaction facts and completeness.
+func (p Proof) CompactionDigest() [32]byte {
+	return compactionfacts.Digest(p.CompactionFacts, p.CompactionComplete)
+}
+
+// AggregateFactBytes returns the aggregate in-memory byte size of proof metadata and compaction facts.
+func (p Proof) AggregateFactBytes() int64 {
+	total := int64(len(p.ProfileID) + len(p.Operation) + len(p.RouteSelector) + len(p.ClientModel) + len(p.Facts.RequirementsID))
+	total += p.Turn.MetadataBytes() + int64(len(p.Session.AuthoritativeSessionID)+len(p.Session.ClientSessionID)+len(p.Session.ALegID))
+	if p.CompactionComplete {
+		total += int64(len(p.CompactionFacts.ItemHashes)*compactionfacts.ItemHashSizeBytes + len(p.CompactionFacts.StartRuleID))
+	}
+	return total
 }
 
 // Validate enforces bounds and cross-field consistency: a recorded model
@@ -506,6 +525,11 @@ type Proof struct {
 func (p Proof) Validate(maxFactBytes int64) error {
 	if err := checkBudget(maxFactBytes); err != nil {
 		return err
+	}
+	if p.CompactionComplete {
+		if int64(len(p.CompactionFacts.ItemHashes)*compactionfacts.ItemHashSizeBytes) > maxFactBytes {
+			return fmt.Errorf("largebody: proof compaction fact hashes exceed %d bytes", maxFactBytes)
+		}
 	}
 	if strings.TrimSpace(p.ProfileID) == "" {
 		return fmt.Errorf("largebody: proof profile id must not be empty")
@@ -690,7 +714,11 @@ type AssessmentStamp struct {
 	rewrite                   RewriteSemantics
 	identity                  IdentityDigest
 	candidateDomainGeneration string
+	compactionDigest          [32]byte
 }
+
+// CompactionDigest returns the bound compaction facts digest.
+func (s AssessmentStamp) CompactionDigest() [32]byte { return s.compactionDigest }
 
 // NewAssessmentStamp binds generation identity, profile/proof identity,
 // source digest/size, the body/rewrite contract, and candidate/domain proof generation.
@@ -802,16 +830,12 @@ func BindAssessmentStamp(generationID string, proof Proof, candidateDomainGen ..
 	if len(candidateDomainGen) > 0 && strings.TrimSpace(candidateDomainGen[0]) != "" {
 		cGen = candidateDomainGen[0]
 	}
-	return NewAssessmentStamp(
-		generationID,
-		proof.ProfileID,
-		proof.Source,
-		proof.BodyBytes,
-		proof.Mode,
-		proof.Rewrite,
-		proof.Identity,
-		cGen,
-	)
+	stamp, err := NewAssessmentStamp(generationID, proof.ProfileID, proof.Source, proof.BodyBytes, proof.Mode, proof.Rewrite, proof.Identity, cGen)
+	if err != nil {
+		return AssessmentStamp{}, err
+	}
+	stamp.compactionDigest = proof.CompactionDigest()
+	return stamp, nil
 }
 
 // Assessment is the bounded assessment outcome containing an opaque
@@ -819,15 +843,29 @@ func BindAssessmentStamp(generationID string, proof Proof, candidateDomainGen ..
 // The frontend supplies proof only; it cannot synthesize route/backend internals
 // (Requirements 6, 22).
 type Assessment struct {
-	Decision    AssessmentDecision
-	Reason      DeclineReason
-	Stamp       AssessmentStamp
-	WireRequest WireRequestFacts
-	WireDomain  WireDomainFacts
+	Decision           AssessmentDecision
+	Reason             DeclineReason
+	Stamp              AssessmentStamp
+	WireRequest        WireRequestFacts
+	WireDomain         WireDomainFacts
+	CompactionFacts    compactionfacts.RequestFacts
+	CompactionComplete bool
 }
 
 // AssessmentResult is an alias for Assessment for compatibility.
 type AssessmentResult = Assessment
+
+// CompactionDigest returns the deterministic digest of the compaction facts and completeness.
+func (a Assessment) CompactionDigest() [32]byte {
+	return compactionfacts.Digest(a.CompactionFacts, a.CompactionComplete)
+}
+
+// WithCompactionFacts returns a copy of Assessment with the provided compaction facts.
+func (a Assessment) WithCompactionFacts(facts compactionfacts.RequestFacts, complete bool) Assessment {
+	a.CompactionFacts = facts.Clone()
+	a.CompactionComplete = complete
+	return a
+}
 
 // Accepted reports whether the assessment accepted the wire turn.
 func (a Assessment) Accepted() bool {
@@ -871,6 +909,11 @@ func (a Assessment) Validate(maxFactBytes int64) error {
 		if a.WireDomain.ProfileID != "" {
 			if err := a.WireDomain.Validate(maxFactBytes); err != nil {
 				return fmt.Errorf("largebody: accept wire domain facts: %w", err)
+			}
+		}
+		if a.CompactionComplete {
+			if int64(len(a.CompactionFacts.ItemHashes)*compactionfacts.ItemHashSizeBytes) > maxFactBytes {
+				return fmt.Errorf("largebody: accept compaction fact hashes exceed %d bytes", maxFactBytes)
 			}
 		}
 		return nil

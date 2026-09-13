@@ -308,12 +308,12 @@ func (g *AuthorityAssessmentGate) Evaluate() (AssessmentDecision, DeclineReason)
 	// -------------------------------------------------------------------------
 	ports := g.Census.Ports
 	if ports.BackendsEmpty ||
-		ports.ConversationViewReaderOccupied ||
+		(ports.ConversationViewReaderOccupied && !ports.ConversationReaderFreshALegSupported) ||
 		ports.ConversationViewTaggerOccupied ||
 		ports.SteeringWriterFactoryOccupied ||
 		ports.ExposureAdmissionOccupied ||
 		ports.BillingIdentityCustomCallbacks ||
-		ports.CapsResolverOccupied ||
+		(ports.CapsResolverOccupied && !ports.CapsResolverWireProofSubsumed) ||
 		ports.CatalogResolverOccupied ||
 		ports.EligibilityResolverOccupied ||
 		ports.RequestTokenEstimatorOccupied ||
@@ -321,7 +321,7 @@ func (g *AuthorityAssessmentGate) Evaluate() (AssessmentDecision, DeclineReason)
 		ports.StreamUsageOccupied ||
 		ports.AdminCountServiceOccupied ||
 		ports.InterleavedProcessorOccupied ||
-		ports.CompactionDetectorOccupied ||
+		(ports.CompactionDetectorOccupied && !ports.CompactionDetectorWireSupported) ||
 		ports.TrafficCapturing ||
 		(ports.TokenCountingRequired && !ports.TokenCountingHasExactCounter) ||
 		ports.CustomCallCallbacksPresent {

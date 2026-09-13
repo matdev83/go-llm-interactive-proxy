@@ -1,12 +1,9 @@
 package compactiondetect
 
 import (
-	"crypto/sha256"
-	"strconv"
-	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -49,72 +46,23 @@ type requestFingerprint struct {
 // uses the full hash list for the in-order tail-preservation check; only the
 // bounded tail/prefix hashes are retained on the stored fingerprint).
 func fingerprint(call lipapi.Call, at time.Time) (requestFingerprint, [][32]byte) {
-	items := lipapi.NormalizedItems(call)
-	hashes := make([][32]byte, 0, len(items))
-	for _, it := range items {
-		hashes = append(hashes, sha256.Sum256(itemCanonical(it)))
-	}
+	facts := compactionfacts.ExtractFactsFromCall(call)
 	fp := requestFingerprint{
-		EstimatedTokens: estimateTokens(call),
-		ItemCount:       len(items),
+		EstimatedTokens: facts.EstimatedTokens,
+		ItemCount:       facts.ItemCount,
+		TailHashes:      facts.TailHashes,
+		TailLen:         facts.TailLen,
+		PrefixHash:      facts.PrefixHash,
+		PrefixItems:     facts.PrefixItems,
 		SeenAt:          at,
 	}
-	nTail := min(len(hashes), heuristicTailItems)
-	for i := range nTail {
-		fp.TailHashes[i] = hashes[len(hashes)-nTail+i]
-	}
-	fp.TailLen = nTail
-	nPrefix := min(len(hashes), heuristicPrefixItems)
-	var prefix []byte
-	for i := range nPrefix {
-		prefix = append(prefix, hashes[i][:]...)
-	}
-	fp.PrefixHash = sha256.Sum256(prefix)
-	fp.PrefixItems = nPrefix
-	return fp, hashes
+	return fp, facts.ItemHashes
 }
 
 // estimateTokens is a deterministic local size estimate (characters/4). It
 // performs no provider or network call (requirement 5.7).
 func estimateTokens(call lipapi.Call) int {
-	total := 0
-	_ = lipapi.WalkCallTexts(call, func(_ string, text string) error {
-		total += utf8.RuneCountInString(text)
-		return nil
-	})
-	return total / 4
-}
-
-// itemCanonical renders the deterministic canonical bytes hashed for one item:
-// normalized role/kind plus content text. Tool-result output participates so a
-// rewritten history changes hashes when content is dropped.
-func itemCanonical(it lipapi.Item) []byte {
-	var b strings.Builder
-	writeField := func(name, value string) {
-		b.WriteString(name)
-		b.WriteByte('=')
-		b.WriteString(strconv.Itoa(len(value)))
-		b.WriteByte(':')
-		b.WriteString(value)
-		b.WriteByte('|')
-	}
-	writeField("kind", string(it.Kind))
-	writeField("role", string(it.Role))
-	for _, cp := range it.Content {
-		writeField("content.kind", string(cp.Kind))
-		writeField("content.text", cp.Text)
-		writeField("content.refusal", cp.Refusal)
-		writeField("content.summary", cp.Summary)
-	}
-	if it.ToolCall != nil {
-		writeField("tool_call", "present")
-		writeField("tool_call.name", it.ToolCall.Name)
-	}
-	if it.ToolResult != nil {
-		writeField("tool_result", "present")
-		writeField("tool_result.output", it.ToolResult.Output)
-	}
-	return []byte(b.String())
+	return compactionfacts.EstimateTokens(call)
 }
 
 // heuristicMatch requires ALL of: same authoritative A-leg (by construction),

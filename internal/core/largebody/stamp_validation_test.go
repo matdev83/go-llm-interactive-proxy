@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -540,4 +541,108 @@ func (m *mockWireExecutor) ExecuteLargeBody(ctx context.Context, accepted largeb
 		return m.executeFunc(ctx, accepted, src)
 	}
 	return largebody.ExecutionResult{}, nil
+}
+
+func TestBackendWireProofAssessor_StampTamperSwapCloneIsolation(t *testing.T) {
+	t.Parallel()
+	proof, _ := makeValidProof("gen-1")
+
+	// Attach initial compaction facts
+	h1 := sha256.Sum256([]byte("item-1"))
+	h2 := sha256.Sum256([]byte("item-2"))
+	proof.CompactionFacts = compactionfacts.RequestFacts{
+		Operation:   lipapi.OperationOpenAIChatCompletions,
+		ItemCount:   2,
+		ItemHashes:  [][32]byte{h1, h2},
+		StartRuleID: "codex.local_checkpoint.v1",
+	}
+	proof.CompactionComplete = true
+
+	stamp, err := largebody.BindAssessmentStamp("gen-1", proof, "domain-gen-1")
+	if err != nil {
+		t.Fatalf("BindAssessmentStamp error: %v", err)
+	}
+
+	wireReq := largebody.WireRequestFacts{
+		ProfileID:       "openai-chat",
+		Operation:       lipapi.OperationOpenAIChatCompletions,
+		Delivery:        lipapi.DeliveryModeStreaming,
+		BodyMode:        proof.Mode,
+		Rewrite:         proof.Rewrite,
+		ClientModel:     "gpt-4o",
+		CandidateModel:  "gpt-4o",
+		MaxOutputTokens: 4096,
+	}
+
+	wireDomain := largebody.WireDomainFacts{
+		ProfileID:       "openai-chat",
+		Operation:       lipapi.OperationOpenAIChatCompletions,
+		Delivery:        lipapi.DeliveryModeStreaming,
+		BodyMode:        proof.Mode,
+		Rewrite:         proof.Rewrite,
+		CandidateModels: []string{"gpt-4o"},
+	}
+
+	assessor := largebody.NewBackendWireProofAssessor(largebody.BackendWireProofGate{})
+	assessor.GenerationID = "gen-1"
+	assessor.CandidateDomainGeneration = "domain-gen-1"
+	assessor.AcceptStamp = stamp
+	assessor.AcceptWireReq = wireReq
+	assessor.AcceptDomain = wireDomain
+
+	// 1. Budget enforcement: when aggregate fact bytes exceed context budget, AssessLargeBody must decline with AuthorityBlocker
+	lowBudgetCtx := largebody.WithSemanticFactBudget(context.Background(), 10)
+	budgetDeclined, err := assessor.AssessLargeBody(lowBudgetCtx, proof)
+	if err != nil {
+		t.Fatalf("AssessLargeBody with low budget must not error: %v", err)
+	}
+	if !budgetDeclined.Declined() || budgetDeclined.Reason != largebody.DeclineReasonAuthorityBlocker {
+		t.Fatalf("expected decline with DeclineReasonAuthorityBlocker on budget overflow, got %v (reason=%v)", budgetDeclined.Decision, budgetDeclined.Reason)
+	}
+
+	// 2. Normal assess with adequate budget succeeds
+	accepted, err := assessor.AssessLargeBody(context.Background(), proof)
+	if err != nil {
+		t.Fatalf("AssessLargeBody error: %v", err)
+	}
+	if !accepted.Accepted() {
+		t.Fatalf("expected accepted assessment, got %v", accepted)
+	}
+
+	// 3. Clone isolation: mutating original proof compaction facts must not alter accepted facts
+	origHash := accepted.CompactionFacts.ItemHashes[0]
+	proof.CompactionFacts.ItemHashes[0][0] ^= 0xFF
+	if accepted.CompactionFacts.ItemHashes[0] != origHash {
+		t.Fatal("mutating proof facts after assessment must not affect accepted facts (clone isolation failure)")
+	}
+
+	// 4. Tamper detection: mutating accepted compaction facts causes ExecuteLargeBody to fail with ErrStampDisagreement
+	tampered := accepted
+	tampered.CompactionFacts = accepted.CompactionFacts.Clone()
+	tampered.CompactionFacts.ItemHashes[0][0] ^= 0xFF
+	_, err = assessor.ExecuteLargeBody(context.Background(), tampered, nil)
+	if err == nil || !errors.Is(err, largebody.ErrStampDisagreement) {
+		t.Fatalf("ExecuteLargeBody with tampered compaction facts must fail with ErrStampDisagreement, got %v", err)
+	}
+
+	// 5. Stamp swap detection: swapping stamp from another proof causes ExecuteLargeBody to fail with ErrStampDisagreement
+	swapped := accepted
+	swappedStamp, err := largebody.NewAssessmentStamp(
+		"gen-1",
+		"openai-chat",
+		largebody.NewSourceDigest(sha256Digest(0xee)),
+		proof.BodyBytes+1,
+		proof.Mode,
+		proof.Rewrite,
+		largebody.NewIdentityDigest(sha256Digest(0xff)),
+		"domain-gen-1",
+	)
+	if err != nil {
+		t.Fatalf("NewAssessmentStamp: %v", err)
+	}
+	swapped.Stamp = swappedStamp
+	_, err = assessor.ExecuteLargeBody(context.Background(), swapped, stubSource{size: proof.BodyBytes})
+	if err == nil || !errors.Is(err, largebody.ErrStampDisagreement) {
+		t.Fatalf("ExecuteLargeBody with swapped stamp must fail with ErrStampDisagreement, got %v", err)
+	}
 }

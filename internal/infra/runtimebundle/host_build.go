@@ -32,6 +32,8 @@ type BuildHostInput struct {
 	Production              ProductionOptions
 	EnforceMultiUserCLIGate bool
 	MultiUser               *bool
+	// RegistrySetup optionally configures plugins in reg before process services build.
+	RegistrySetup func(reg *pluginreg.Registry) error
 }
 
 func BuildHost(ctx context.Context, in BuildHostInput) (*Host, error) {
@@ -101,28 +103,25 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, hostEnv
 		return nil, joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
 	}
 
+	if in.RegistrySetup != nil {
+		if err := in.RegistrySetup(reg); err != nil {
+			return nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: registry setup: %w", err), nil, nil, shutTracing)
+		}
+	}
+
 	discInstall, err := installDiscoveredBackendExports(cfg, reg)
 	if err != nil {
 		return nil, joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
 	}
-	var pluginHost *processhost.Host
-	var pluginResourcePool *backendResourcePool
-	var pluginStaging string
-	var pluginArtifacts []*trust.VerifiedArtifact
-	if discInstall != nil {
-		pluginResourcePool = discInstall.ResourcePool
-		pluginHost, pluginStaging = discInstall.Host, discInstall.StagingDir
-		pluginArtifacts = discInstall.Artifacts
-	}
-
-	ps, err := ops.process(ctx, processBuildInput{
+	pInput := processBuildInput{
 		Cfg: cfg, Logger: logger, Registry: reg, HostEnv: hostEnv, Production: in.Production,
-		Tracing:            ProcessTracing{Shutdown: traceShutdown, Active: traceRes.Active},
-		PluginResourcePool: pluginResourcePool,
-		PluginHost:         pluginHost,
-		PluginArtifacts:    pluginArtifacts,
-		PluginStagingDir:   pluginStaging,
-	})
+		Tracing: ProcessTracing{Shutdown: traceShutdown, Active: traceRes.Active},
+	}
+	if discInstall != nil {
+		pInput.PluginResourcePool, pInput.PluginHost = discInstall.ResourcePool, discInstall.Host
+		pInput.PluginArtifacts, pInput.PluginStagingDir = discInstall.Artifacts, discInstall.StagingDir
+	}
+	ps, err := ops.process(ctx, pInput)
 	if err != nil {
 		return nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: process services: %w", err), nil, nil, shutTracing)
 	}

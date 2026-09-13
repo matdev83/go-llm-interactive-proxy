@@ -29,24 +29,25 @@ type Registration = sdkfeaturehost.Registration
 // in reverse acquisition order upon Close. Borrowed resources (BackgroundAux,
 // DB pools, etc.) are never closed by Runtime (Requirement 8.5, design §7).
 type Runtime struct {
-	logger               *slog.Logger
-	extState             lipstate.Store
-	bgAux                *auxreq.BackgroundScheduler // borrowed, never closed
-	terminalPolicy       *sessionpolicy.Store
-	compactionDetector   runtime.CompactionDetector
-	branchCoordinator    *state.BranchCoordinator
-	compactionParentPort *compaction.ParentPort
-	conversationStore    conversationview.Store
-	keepwarmPolicy       *keepwarm.PolicyStore
-	keepwarmRegistry     *keepwarm.ManagerRegistry
-	keepwarmMetrics      *keepwarm.PrometheusCollector
-	hostRegistrations    []sdkfeaturehost.Registration
-	boundReasoning       ReasoningCompressionOptions
-	boundSecretGuard     SecretGuardHostBinding
-	closers              []func() error
-	closeOnce            sync.Once
-	closeErr             error
-	closed               atomic.Bool
+	logger                 *slog.Logger
+	extState               lipstate.Store
+	bgAux                  *auxreq.BackgroundScheduler // borrowed, never closed
+	terminalPolicy         *sessionpolicy.Store
+	compactionDetector     runtime.CompactionDetector
+	branchCoordinator      *state.BranchCoordinator
+	compactionParentPort   *compaction.ParentPort
+	conversationStore      conversationview.Store
+	conversationStoreStock bool
+	keepwarmPolicy         *keepwarm.PolicyStore
+	keepwarmRegistry       *keepwarm.ManagerRegistry
+	keepwarmMetrics        *keepwarm.PrometheusCollector
+	hostRegistrations      []sdkfeaturehost.Registration
+	boundReasoning         ReasoningCompressionOptions
+	boundSecretGuard       SecretGuardHostBinding
+	closers                []func() error
+	closeOnce              sync.Once
+	closeErr               error
+	closed                 atomic.Bool
 }
 
 // BoundReasoningOptions returns the bound reasoning compression options.

@@ -16,6 +16,9 @@ type ForbiddenImportRule struct {
 
 // ForbiddenImports is the permanent package-level import deny-list.
 var ForbiddenImports = []ForbiddenImportRule{
+	{SourcePattern: "internal/compactionfacts", TargetPattern: "/internal/core", Reason: "compactionfacts must remain neutral and not import internal/core"},
+	{SourcePattern: "internal/compactionfacts", TargetPattern: "/internal/infra", Reason: "compactionfacts must remain neutral and not import internal/infra"},
+	{SourcePattern: "internal/compactionfacts", TargetPattern: "/internal/plugins", Reason: "compactionfacts must remain neutral and not import internal/plugins"},
 	{
 		SourcePattern: "internal/stdhttp/contract",
 		TargetPattern: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle",

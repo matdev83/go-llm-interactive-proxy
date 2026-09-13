@@ -19,11 +19,9 @@ func buildProcessSpoolLedger(cfg *config.Config, b *metrics.Bundle) (*largebody.
 	if cfg == nil {
 		return nil, fmt.Errorf("runtimebundle: nil config")
 	}
-	memSpool := cfg.Server.LargePayloadFastPath.EffectiveMemorySpoolBytes()
-	maxInflight := cfg.Server.LargePayloadFastPath.EffectiveMaxInflightSpoolBytes()
 	spoolLedger, err := largebody.NewSpoolLedger(largebody.SpoolBudgetConfig{
-		MemorySpoolBytes:      memSpool,
-		MaxInflightSpoolBytes: maxInflight,
+		MemorySpoolBytes:      cfg.Server.LargePayloadFastPath.EffectiveMemorySpoolBytes(),
+		MaxInflightSpoolBytes: cfg.Server.LargePayloadFastPath.EffectiveMaxInflightSpoolBytes(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: spool ledger: %w", err)
@@ -37,18 +35,19 @@ func buildProcessSpoolLedger(cfg *config.Config, b *metrics.Bundle) (*largebody.
 // largeBodyAssessorInput captures the dependencies needed to assemble the production
 // LargeBodyAssessor in runtimebundle (Phase 4).
 type largeBodyAssessorInput struct {
-	Cfg            *config.Config
-	Bctx           buildContext
-	Opts           *BuildOptions
-	In             executorBuildInput
-	RoutingRT      runtime.RoutingRuntime
-	AccountingRT   runtime.AccountingRuntime
-	Prod           ProductionOptions
-	DefBE          string
-	AliasResolver  *routing.AliasResolver
-	ExecResolver   routing.BackendExecutionResolver
-	ExecPolicy     config.ExecutionCompositionPolicy
-	OverrideReader routeoverride.Reader
+	Cfg                           *config.Config
+	Bctx                          buildContext
+	Opts                          *BuildOptions
+	In                            executorBuildInput
+	RoutingRT                     runtime.RoutingRuntime
+	AccountingRT                  runtime.AccountingRuntime
+	Prod                          ProductionOptions
+	DefBE                         string
+	AliasResolver                 *routing.AliasResolver
+	ExecResolver                  routing.BackendExecutionResolver
+	ExecPolicy                    config.ExecutionCompositionPolicy
+	OverrideReader                routeoverride.Reader
+	CapsResolverWireProofSubsumed bool
 }
 
 // buildLargeBodyAssessor compiles the generation wire eligibility summary, builds
@@ -61,47 +60,23 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 		}
 	}
 	if genID == "" {
-		nowUnix := time.Now().UnixNano()
+		now := time.Now
 		if in.In.NowFn != nil {
-			nowUnix = in.In.NowFn().UnixNano()
+			now = in.In.NowFn
 		}
-		genID = fmt.Sprintf("gen-%d", nowUnix)
+		genID = fmt.Sprintf("gen-%d", now().UnixNano())
 	}
 
 	wireBackendMap := make(largebody.WireBackendMap, len(in.In.Model.Backends))
+	knownBackends := make(map[string]struct{}, len(in.In.Model.Backends))
 	for id, be := range in.In.Model.Backends {
 		wireBackendMap[id] = be.AsWireBackend()
-	}
-
-	initialGate := largebody.NewInitialRouteAssessmentGate(
-		in.AliasResolver,
-		in.DefBE,
-		in.ExecResolver,
-		in.ExecPolicy,
-		nil,
-		wireBackendMap,
-	)
-
-	knownBackends := make(map[string]struct{}, len(in.In.Model.Backends))
-	for id := range in.In.Model.Backends {
 		knownBackends[id] = struct{}{}
 	}
-	validator := routing.NewGenerationSelectorValidator(
-		in.AliasResolver,
-		in.DefBE,
-		knownBackends,
-		in.ExecResolver,
-		in.ExecPolicy,
-	)
-	overrideGate := largebody.NewRouteOverrideAssessmentGate(
-		in.OverrideReader,
-		validator,
-		wireBackendMap,
-	)
-
+	validator := routing.NewGenerationSelectorValidator(in.AliasResolver, in.DefBE, knownBackends, in.ExecResolver, in.ExecPolicy)
 	wireProofGate := largebody.NewBackendWireProofGate(
-		initialGate,
-		overrideGate,
+		largebody.NewInitialRouteAssessmentGate(in.AliasResolver, in.DefBE, in.ExecResolver, in.ExecPolicy, nil, wireBackendMap),
+		largebody.NewRouteOverrideAssessmentGate(in.OverrideReader, validator, wireBackendMap),
 		nil,
 		wireBackendMap,
 	)
@@ -122,10 +97,7 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 	}
 	if in.Bctx.Bus != nil {
 		s, r, resp, tl := in.Bctx.Bus.HookChainLengths()
-		census.Hooks.SubmitOccupied = s > 0
-		census.Hooks.RequestPartOccupied = r > 0
-		census.Hooks.ResponsePartOccupied = resp > 0
-		census.Hooks.ToolOccupied = tl > 0
+		census.Hooks = largebody.HookEligibilityInput{SubmitOccupied: s > 0, RequestPartOccupied: r > 0, ResponsePartOccupied: resp > 0, ToolOccupied: tl > 0}
 	}
 
 	// Stock host reachability contracts: on a stock host, conversationStore and
@@ -135,31 +107,27 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 	//   NeverBackend tags), snapshotAndProject is an identity no-op matching wire semantics.
 	// - ConversationViewTagger: tagger is only invoked by local_turn_handlers, otherwise idle.
 	// - SteeringWriterFactory: steering writers are only invoked by interleaved turns or
-	//   terminal_decision_provider, otherwise idle.
-	// - CompactionDetector: without compaction_observers or compaction_preservers, response-side
-	//   PreviewResponse and ResponseReleased are called on released events identically for wire
-	//   and canonical, with zero request-side event dispatch.
 	hasLocalTurn := contribs != nil && contribs.Has("local_turn_handlers")
-	hasCompactionPlanes := contribs != nil && (contribs.Has("compaction_observers") || contribs.Has("compaction_preservers"))
 	hasSteeringPlanes := in.In.InterleavedProcessor != nil || (contribs != nil && contribs.Has("terminal_decision_provider"))
 
 	census.Ports.BackendsEmpty = len(in.In.Model.Backends) == 0
-	census.Ports.ConversationViewReaderOccupied = in.In.ConversationReader != nil && hasLocalTurn
+	census.Ports.ConversationViewReaderOccupied = in.In.ConversationReader != nil
+	census.Ports.ConversationReaderFreshALegSupported = in.In.ConversationReader != nil && in.In.ConversationReaderStockOrigin
 	census.Ports.ConversationViewTaggerOccupied = in.In.ConversationStore != nil && hasLocalTurn
 	census.Ports.SteeringWriterFactoryOccupied = in.In.ConversationStore != nil && hasSteeringPlanes
 	census.Ports.ExposureAdmissionOccupied = in.Prod.BillingExposureAdmission != nil
 	census.Ports.BillingIdentityCustomCallbacks = in.Prod.BillingIdentity.HasCustomCallCallbacks()
 	census.Ports.CapsResolverOccupied = in.RoutingRT.CapsResolver != nil
+	census.Ports.CapsResolverWireProofSubsumed = in.CapsResolverWireProofSubsumed
 	census.Ports.CatalogResolverOccupied = in.RoutingRT.CatalogResolver != nil
 	census.Ports.EligibilityResolverOccupied = in.RoutingRT.EligibilityResolver != nil
 	census.Ports.RequestTokenEstimatorOccupied = in.RoutingRT.RequestTokenEstimator != nil
-	if in.AccountingRT.Preflight != nil {
-		census.Ports.PreflightEnabled = true
-	}
+	census.Ports.PreflightEnabled = in.AccountingRT.Preflight != nil
 	census.Ports.StreamUsageOccupied = in.AccountingRT.StreamUsage != nil
 	census.Ports.AdminCountServiceOccupied = in.AccountingRT.AdminCountService != nil
 	census.Ports.InterleavedProcessorOccupied = in.In.InterleavedProcessor != nil
-	census.Ports.CompactionDetectorOccupied = in.In.CompactionDetector != nil && hasCompactionPlanes
+	census.Ports.CompactionDetectorOccupied = in.In.CompactionDetector != nil
+	_, census.Ports.CompactionDetectorWireSupported = in.In.CompactionDetector.(runtime.CompactionWireDetector)
 	census.Ports.TrafficCapturing = len(in.Prod.TrafficObservers) > 0 || hasTrafficPlanes
 
 	// Item 5: Register security.session_recorder port occupancy. Wire execution exercises
@@ -170,35 +138,20 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 		in.In.Persistence.SecureSession.recorder != nil
 	census.AddPort("security.session_recorder", hasSecureRecorder)
 
-	// TwoPhaseExecutorAvailable is true because buildExecutorRuntime always instantiates
-	// *runtime.Executor, which natively implements largebody.LargeBodyWireExecutor (ExecuteLargeBody)
-	// and largebody.LargeBodyAssessor (AssessLargeBody). The runtime bundle composition root
-	// therefore unconditionally supplies a two-phase capable executor.
 	census.TwoPhaseExecutorAvailable = true
-
-	maxFactBytes := in.Cfg.Server.LargePayloadFastPath.EffectiveMaxSemanticFactBytes()
 	summary, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
 		GenerationID:              genID,
 		Planes:                    census.Planes,
 		Hooks:                     census.Hooks,
 		Ports:                     census.Ports,
-		TwoPhaseExecutorAvailable: census.TwoPhaseExecutorAvailable,
-	}, maxFactBytes)
+		TwoPhaseExecutorAvailable: true,
+	}, in.Cfg.Server.LargePayloadFastPath.EffectiveMaxSemanticFactBytes())
 	if err != nil {
 		return nil, "", fmt.Errorf("runtimebundle: compile wire eligibility summary: %w", err)
 	}
 
 	authGate := largebody.NewAuthorityAssessmentGate(summary, census, genID)
-
-	assessor := runtime.NewProductionLargeBodyAssessor(
-		genID,
-		genID,
-		authGate,
-		wireProofGate,
-		runtime.StandardLaneDomainPolicies(),
-	)
-
-	return assessor, genID, nil
+	return runtime.NewProductionLargeBodyAssessor(genID, genID, authGate, wireProofGate, runtime.StandardLaneDomainPolicies()), genID, nil
 }
 
 // buildStandardLargePayloadConfig compiles the frontend fast-path candidate configuration
@@ -207,28 +160,24 @@ func buildStandardLargePayloadConfig(cand *candidateAssembly, frozen *config.Con
 	if frozen == nil || !frozen.Server.LargePayloadFastPath.Enabled {
 		return httpcontract.LargePayloadInput{}
 	}
-	fpCfg := frozen.Server.LargePayloadFastPath
-	var spoolLedger *largebody.SpoolLedger
-	var diag largebody.DiagnosticsObserver = largebody.NoopDiagnosticsObserver{}
-	var wireElig largebody.WireEligibilitySummary
+	out := httpcontract.LargePayloadInput{
+		Enabled:              true,
+		ThresholdBytes:       frozen.Server.LargePayloadFastPath.EffectiveThresholdBytes(),
+		MemorySpoolBytes:     frozen.Server.LargePayloadFastPath.EffectiveMemorySpoolBytes(),
+		MaxSemanticFactBytes: frozen.Server.LargePayloadFastPath.EffectiveMaxSemanticFactBytes(),
+		SpoolDir:             frozen.Server.LargePayloadFastPath.EffectiveSpoolDir(),
+		Diagnostics:          largebody.NoopDiagnosticsObserver{},
+	}
 	if cand != nil {
-		spoolLedger = cand.process.spoolLedger
+		out.SpoolLedger = cand.process.spoolLedger
 		if cand.process.metrics != nil {
-			diag = cand.process.metrics.LargePayloadDiagnostics()
+			out.Diagnostics = cand.process.metrics.LargePayloadDiagnostics()
 		}
-		if cand.execution.executor != nil {
-			if pa, ok := cand.execution.executor.LargeBodyAssessor.(*runtime.ProductionLargeBodyAssessor); ok && pa != nil && pa.AuthorityGate != nil {
-				wireElig = pa.AuthorityGate.Summary
+		if ex := cand.execution.executor; ex != nil {
+			if pa, ok := ex.LargeBodyAssessor.(*runtime.ProductionLargeBodyAssessor); ok && pa != nil && pa.AuthorityGate != nil {
+				out.WireEligibility = pa.AuthorityGate.Summary
 			}
 		}
 	}
-	return httpcontract.LargePayloadInput{
-		Enabled:          true,
-		ThresholdBytes:   fpCfg.EffectiveThresholdBytes(),
-		MemorySpoolBytes: fpCfg.EffectiveMemorySpoolBytes(),
-		SpoolDir:         fpCfg.EffectiveSpoolDir(),
-		SpoolLedger:      spoolLedger,
-		Diagnostics:      diag,
-		WireEligibility:  wireElig,
-	}
+	return out
 }

@@ -30,21 +30,29 @@ func (s ClientTurnShape) MetadataBytes() int64 {
 	return bytes
 }
 
-// ClientTurnShapeFromCall derives a bounded ClientTurnShape equivalent to
-// lipapi.NormalizedItems for the given call without retaining or materializing
-// prompt text (Requirements 14.3, 14.5).
-// If call is nil or has no items, an empty ClientTurnShape is returned.
-// If the derived shape exceeds maxFactBytes, it returns an error wrapping
-// ErrSemanticFactBudgetExceeded (Requirement 14.4).
-func ClientTurnShapeFromCall(call *lipapi.Call, maxFactBytes int64) (ClientTurnShape, error) {
+// ClientTurnShapeFromMessages derives a bounded ClientTurnShape from a message slice
+// without synthesizing a lipapi.Call.
+func ClientTurnShapeFromMessages(msgs []lipapi.Message, maxFactBytes int64) (ClientTurnShape, error) {
+	if len(msgs) == 0 {
+		return ClientTurnShapeFromItems(nil, maxFactBytes)
+	}
+	items := make([]lipapi.Item, len(msgs))
+	for i, m := range msgs {
+		parts := make([]lipapi.ContentPart, len(m.Parts))
+		for j, p := range m.Parts {
+			parts[j] = lipapi.ContentPart{Kind: lipapi.ContentPartKind(p.Kind), Text: p.Text}
+		}
+		items[i] = lipapi.Item{Kind: lipapi.ItemKindMessage, Role: m.Role, Content: parts}
+	}
+	return ClientTurnShapeFromItems(items, maxFactBytes)
+}
+
+// ClientTurnShapeFromItems derives a bounded ClientTurnShape from normalized items
+// without retaining or materializing prompt text.
+func ClientTurnShapeFromItems(items []lipapi.Item, maxFactBytes int64) (ClientTurnShape, error) {
 	if err := checkBudget(maxFactBytes); err != nil {
 		return ClientTurnShape{}, err
 	}
-	if call == nil {
-		return ClientTurnShape{}, nil
-	}
-
-	items := lipapi.NormalizedItems(*call)
 	if int64(len(items)) > maxFactBytes {
 		return ClientTurnShape{}, fmt.Errorf("%w: item count %d exceeds budget %d", ErrSemanticFactBudgetExceeded, len(items), maxFactBytes)
 	}
@@ -86,6 +94,19 @@ func ClientTurnShapeFromCall(call *lipapi.Call, maxFactBytes int64) (ClientTurnS
 		return ClientTurnShape{}, err
 	}
 	return shape, nil
+}
+
+// ClientTurnShapeFromCall derives a bounded ClientTurnShape equivalent to
+// lipapi.NormalizedItems for the given call without retaining or materializing
+// prompt text (Requirements 14.3, 14.5).
+// If call is nil or has no items, an empty ClientTurnShape is returned.
+// If the derived shape exceeds maxFactBytes, it returns an error wrapping
+// ErrSemanticFactBudgetExceeded (Requirement 14.4).
+func ClientTurnShapeFromCall(call *lipapi.Call, maxFactBytes int64) (ClientTurnShape, error) {
+	if call == nil {
+		return ClientTurnShapeFromItems(nil, maxFactBytes)
+	}
+	return ClientTurnShapeFromItems(lipapi.NormalizedItems(*call), maxFactBytes)
 }
 
 func contentPartByteSize(cp lipapi.ContentPart) int64 {

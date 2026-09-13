@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonshape"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
@@ -19,6 +20,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
+
+type chunkWriterFunc func([]byte) (int, error)
+
+func (f chunkWriterFunc) Write(p []byte) (int, error) {
+	return f(p)
+}
 
 // ProfileID is the static identifier for the certified OpenAI Responses fast-path profile (Requirements 4, 17).
 const ProfileID = "openai_responses_v1"
@@ -130,6 +137,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	if scanCtx == nil {
 		scanCtx = ctx
 	}
+	factBudget := largebody.SemanticFactBudget(scanCtx)
 
 	bodyBytes := in.BodyBytes
 	if bodyBytes <= 0 {
@@ -148,7 +156,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	//   - Track exact byte span for "model"
 	//   - Detect unknown top-level keys (canonical-only if unknown)
 	//   - Detect unsupported control keys: "store", "previous_response_id", "truncation" (canonical-only)
-	//   - Extract small envelope fields (model, stream, instructions, tools, etc.) bounded by DefaultMaxSemanticFactBytes
+	//   - Extract small envelope fields (model, stream, instructions, tools, etc.) bounded by factBudget
 	//   - Detect input presence and shape (string vs array) without materializing large input in memory
 	tracker := jsonshape.NewTopLevelSpanTracker("model", "input")
 	var unknownKey string
@@ -175,13 +183,13 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	var itemTypeBuf bytes.Buffer
 
 	// Composite field buffers (tools, text, metadata, tool_choice object, input array)
-	// Semantic-fact budget enforcement point 1: Bounded by DefaultMaxSemanticFactBytes (256 KiB).
+	// Semantic-fact budget enforcement point 1: Bounded by factBudget.
 	fieldBufs := make(map[string]*bytes.Buffer)
 	for _, k := range []string{"tools", "tool_choice", "text", "metadata"} {
 		fieldBufs[k] = &bytes.Buffer{}
 	}
 	var inputArrayBuf bytes.Buffer
-	inputArrayIsLarge := bodyBytes > 2*frontendpipe.DefaultMaxSemanticFactBytes
+	inputArrayIsLarge := bodyBytes > 2*factBudget
 	var totalFactBytes int64
 
 	var hasInput bool
@@ -365,7 +373,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 						end := e.Offset + e.Length
 						if start < end && end <= chunkStartOffset+int64(len(currentChunk)) {
 							slice := currentChunk[start-chunkStartOffset : end-chunkStartOffset]
-							if int64(inputArrayBuf.Len()+len(slice)) > frontendpipe.DefaultMaxSemanticFactBytes {
+							if int64(inputArrayBuf.Len()+len(slice)) > factBudget {
 								inputArrayIsLarge = true
 								inputArrayBuf.Reset()
 							} else {
@@ -381,10 +389,10 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 						slice := currentChunk[start-chunkStartOffset : end-chunkStartOffset]
 						capturingBuf.Write(slice)
 						totalFactBytes += int64(len(slice))
-						// Semantic-fact budget enforcement point 1: Bounded by DefaultMaxSemanticFactBytes
-						if totalFactBytes > frontendpipe.DefaultMaxSemanticFactBytes {
+						// Semantic-fact budget enforcement point 1: Bounded by factBudget
+						if totalFactBytes > factBudget {
 							return fmt.Errorf("%w: envelope fact budget exceeded (%d > %d)",
-								largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, frontendpipe.DefaultMaxSemanticFactBytes)
+								largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, factBudget)
 						}
 					}
 					capturingKey = ""
@@ -398,10 +406,10 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 						slice := currentChunk[start-chunkStartOffset : end-chunkStartOffset]
 						capturingBuf.Write(slice)
 						totalFactBytes += int64(len(slice))
-						// Semantic-fact budget enforcement point 1: Bounded by DefaultMaxSemanticFactBytes
-						if totalFactBytes > frontendpipe.DefaultMaxSemanticFactBytes {
+						// Semantic-fact budget enforcement point 1: Bounded by factBudget
+						if totalFactBytes > factBudget {
 							return fmt.Errorf("%w: envelope fact budget exceeded (%d > %d)",
-								largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, frontendpipe.DefaultMaxSemanticFactBytes)
+								largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, factBudget)
 						}
 					}
 					capturingKey = ""
@@ -481,11 +489,11 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		if sctx.TopLevel {
 			switch sctx.Key {
 			case "model":
-				return &budgetBoundedWriter{buf: &modelBuf, total: &totalFactBytes, maxBudget: frontendpipe.DefaultMaxSemanticFactBytes}, nil
+				return &budgetBoundedWriter{buf: &modelBuf, total: &totalFactBytes, maxBudget: factBudget}, nil
 			case "instructions":
-				return &budgetBoundedWriter{buf: &instructionsBuf, total: &totalFactBytes, maxBudget: frontendpipe.DefaultMaxSemanticFactBytes}, nil
+				return &budgetBoundedWriter{buf: &instructionsBuf, total: &totalFactBytes, maxBudget: factBudget}, nil
 			case "tool_choice":
-				return &budgetBoundedWriter{buf: &toolChoiceStrBuf, total: &totalFactBytes, maxBudget: frontendpipe.DefaultMaxSemanticFactBytes}, nil
+				return &budgetBoundedWriter{buf: &toolChoiceStrBuf, total: &totalFactBytes, maxBudget: factBudget}, nil
 			case "input":
 				inputIsString = true
 				return inputInspector, nil
@@ -527,10 +535,10 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 				slice := chunk[start-chunkStartOffset:]
 				capturingBuf.Write(slice)
 				totalFactBytes += int64(len(slice))
-				// Semantic-fact budget enforcement point 1: Bounded by DefaultMaxSemanticFactBytes
-				if totalFactBytes > frontendpipe.DefaultMaxSemanticFactBytes {
+				// Semantic-fact budget enforcement point 1: Bounded by factBudget
+				if totalFactBytes > factBudget {
 					return fmt.Errorf("%w: envelope fact budget exceeded (%d > %d)",
-						largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, frontendpipe.DefaultMaxSemanticFactBytes)
+						largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, factBudget)
 				}
 				capturingStart = chunkEndOffset
 			}
@@ -540,7 +548,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 			start := max(chunkStartOffset, inputArrayStart)
 			if start < chunkEndOffset {
 				slice := chunk[start-chunkStartOffset:]
-				if int64(inputArrayBuf.Len()+len(slice)) > frontendpipe.DefaultMaxSemanticFactBytes {
+				if int64(inputArrayBuf.Len()+len(slice)) > factBudget {
 					inputArrayIsLarge = true
 					inputArrayBuf.Reset()
 				} else {
@@ -713,7 +721,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	// Semantic-fact budget enforcement point 2: sessionwire enforces MaxFactBytes
 	sessIn, err := sessionwire.BuildSessionInput(in.Headers, metadata, sessionwire.SessionInputOptions{
 		RejectBodyMetadata: true,
-		MaxFactBytes:       frontendpipe.DefaultMaxSemanticFactBytes,
+		MaxFactBytes:       factBudget,
 	})
 	if err != nil {
 		return frontendpipe.ProofOutput{}, fmt.Errorf("openairesponses: session input: %w", err)
@@ -846,7 +854,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		ts, err := largebody.ClientTurnShapeFromCall(&lipapi.Call{
 			Instructions: instructions,
 			Messages:     msgs,
-		}, frontendpipe.DefaultMaxSemanticFactBytes)
+		}, factBudget)
 		if err != nil {
 			return frontendpipe.ProofOutput{}, fmt.Errorf("openairesponses: turn shape: %w", err)
 		}
@@ -1030,13 +1038,24 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		cancellationID,
 	)
 
+	var proofCompactionFacts compactionfacts.RequestFacts
+	var proofCompactionComplete bool
+	if len(turnShape.Items) > 0 {
+		if facts, complete, err := compileStreamingCompactionFacts(scanCtx, in.Source, bodyBytes, instructionsBuf.String(), tools, turnShape.Items, inputIsString, factBudget); err == nil && complete {
+			proofCompactionFacts = facts
+			proofCompactionComplete = complete
+		}
+	}
+
 	proof := largebody.Proof{
-		ProfileID:       ProfileID,
-		Operation:       lipapi.OperationOpenAIResponses,
-		Delivery:        lipapi.DeliveryModeFromClientStream(stream),
-		RouteSelector:   sel,
-		ClientModel:     model,
-		MaxOutputTokens: maxTokens,
+		ProfileID:          ProfileID,
+		Operation:          lipapi.OperationOpenAIResponses,
+		Delivery:           lipapi.DeliveryModeFromClientStream(stream),
+		RouteSelector:      sel,
+		ClientModel:        model,
+		MaxOutputTokens:    maxTokens,
+		CompactionFacts:    proofCompactionFacts,
+		CompactionComplete: proofCompactionComplete,
 		Facts: largebody.ProtocolFacts{
 			RequirementsID: ProfileID,
 			ControlCount:   int64(len(tools)),
@@ -1060,11 +1079,191 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	}
 
 	// Semantic-fact budget enforcement point 4: proofOut validates Turn and Facts budgets
-	if err := proofOut.Validate(frontendpipe.DefaultMaxSemanticFactBytes); err != nil {
+	if err := proofOut.Validate(factBudget); err != nil {
 		return frontendpipe.ProofOutput{}, fmt.Errorf("openairesponses: validate proof output: %w", err)
 	}
 
 	return proofOut, nil
+}
+
+func compileStreamingCompactionFacts(
+	ctx context.Context,
+	src largebody.Source,
+	bodyBytes int64,
+	instructionText string,
+	tools []lipapi.ToolDef,
+	items []largebody.ClientTurnItemShape,
+	inputIsString bool,
+	maxFactBytes int64,
+) (compactionfacts.RequestFacts, bool, error) {
+	if int64(len(items)*compactionfacts.ItemHashSizeBytes) > maxFactBytes {
+		return compactionfacts.RequestFacts{}, false, nil
+	}
+	factBuilder := compactionfacts.NewBuilderWithByteBudget(lipapi.OperationOpenAIResponses, int(maxFactBytes))
+	factBuilder.AddToolCount(len(tools))
+
+	trimmedInstr := strings.TrimSpace(instructionText)
+	if trimmedInstr != "" {
+		instHasher := compactionfacts.NewItemHasher(lipapi.ItemKindMessage, lipapi.RoleSystem)
+		pw := instHasher.BeginContentText(len(trimmedInstr))
+		_, _ = pw.Write([]byte(trimmedInstr))
+		instHasher.EndContentText()
+		factBuilder.FeedField(trimmedInstr)
+		if err := factBuilder.AddItemHash(instHasher.Sum()); err != nil {
+			return compactionfacts.RequestFacts{}, false, err
+		}
+	}
+
+	inputStartIdx := 0
+	if trimmedInstr != "" {
+		inputStartIdx = 1
+	}
+	inputItems := items[inputStartIdx:]
+	if len(inputItems) == 0 {
+		facts, err := factBuilder.Build()
+		return facts, err == nil, err
+	}
+
+	rc, err := src.Open()
+	if err != nil {
+		return compactionfacts.RequestFacts{}, false, err
+	}
+	defer rc.Close()
+
+	if inputIsString {
+		var trimmer *largebody.TrimSpaceWriter
+		var hasher *compactionfacts.ItemHasher
+		var factErr error
+		var streamed bool
+
+		resolver := func(sctx jsonshape.StringContext) (io.Writer, error) {
+			if sctx.TopLevel && sctx.Key == "input" {
+				partBytes := int(inputItems[0].Parts[0].ContentBytes)
+				hasher = compactionfacts.NewItemHasher(lipapi.ItemKindMessage, lipapi.RoleUser)
+				pw := hasher.BeginContentText(partBytes)
+				mw := io.MultiWriter(pw, chunkWriterFunc(func(p []byte) (int, error) {
+					factBuilder.FeedTextChunkBytes(p)
+					return len(p), nil
+				}))
+				trimmer = largebody.NewTrimSpaceWriter(mw)
+				return trimmer, nil
+			}
+			return nil, nil
+		}
+
+		handler := jsonshape.EventHandlerFunc(func(e jsonshape.Event) error {
+			if e.TopLevel && e.Type == jsonshape.EventString && e.Key == "input" {
+				if trimmer != nil {
+					_ = trimmer.Close()
+				}
+				if hasher != nil {
+					hasher.EndContentText()
+					factBuilder.EndField()
+					itemHash := hasher.Sum()
+					if err := factBuilder.AddItemHash(itemHash); err != nil {
+						factErr = err
+						return err
+					}
+					streamed = true
+				}
+			}
+			return nil
+		})
+
+		scanner := jsonshape.NewScanner(
+			ctx,
+			jsonshape.Limits{
+				RejectDuplicateNames: true,
+				MaxBytes:             bodyBytes,
+				MaxDepth:             128,
+			},
+			jsonshape.WithEventHandler(handler),
+			jsonshape.WithStringWriterResolver(resolver),
+		)
+
+		_, readErr := largebody.ProcessReplayChunks(largebody.ReplayChunkReaderConfig{
+			Reader:    rc,
+			MaxBytes:  bodyBytes,
+			ChunkSize: 32 * 1024,
+			Scanner:   scanner,
+		})
+		if readErr != nil || factErr != nil || !streamed {
+			return compactionfacts.RequestFacts{}, false, readErr
+		}
+	} else {
+		var msgIdx int
+		var trimmer *largebody.TrimSpaceWriter
+		var hasher *compactionfacts.ItemHasher
+		var factErr error
+
+		resolver := func(sctx jsonshape.StringContext) (io.Writer, error) {
+			if len(sctx.Path) >= 2 && sctx.Path[0] == "input" && sctx.Key == "content" {
+				if msgIdx >= len(inputItems) {
+					return nil, errors.New("openairesponses: unexpected extra input item in compaction pass")
+				}
+				itemShape := inputItems[msgIdx]
+				partBytes := 0
+				if len(itemShape.Parts) > 0 {
+					partBytes = int(itemShape.Parts[0].ContentBytes)
+				}
+				hasher = compactionfacts.NewItemHasher(lipapi.ItemKindMessage, itemShape.Role)
+				pw := hasher.BeginContentText(partBytes)
+				mw := io.MultiWriter(pw, chunkWriterFunc(func(p []byte) (int, error) {
+					factBuilder.FeedTextChunkBytes(p)
+					return len(p), nil
+				}))
+				trimmer = largebody.NewTrimSpaceWriter(mw)
+				return trimmer, nil
+			}
+			return nil, nil
+		}
+
+		handler := jsonshape.EventHandlerFunc(func(e jsonshape.Event) error {
+			if len(e.Path) >= 2 && e.Path[0] == "input" && e.Type == jsonshape.EventString && e.Key == "content" {
+				if trimmer != nil {
+					_ = trimmer.Close()
+				}
+				if hasher != nil {
+					hasher.EndContentText()
+					factBuilder.EndField()
+					itemHash := hasher.Sum()
+					if err := factBuilder.AddItemHash(itemHash); err != nil {
+						factErr = err
+						return err
+					}
+				}
+				msgIdx++
+			}
+			return nil
+		})
+
+		scanner := jsonshape.NewScanner(
+			ctx,
+			jsonshape.Limits{
+				RejectDuplicateNames: true,
+				MaxBytes:             bodyBytes,
+				MaxDepth:             128,
+			},
+			jsonshape.WithEventHandler(handler),
+			jsonshape.WithStringWriterResolver(resolver),
+		)
+
+		_, readErr := largebody.ProcessReplayChunks(largebody.ReplayChunkReaderConfig{
+			Reader:    rc,
+			MaxBytes:  bodyBytes,
+			ChunkSize: 32 * 1024,
+			Scanner:   scanner,
+		})
+		if readErr != nil || factErr != nil || msgIdx != len(inputItems) {
+			return compactionfacts.RequestFacts{}, false, readErr
+		}
+	}
+
+	facts, berr := factBuilder.Build()
+	if berr != nil {
+		return compactionfacts.RequestFacts{}, false, berr
+	}
+	return facts, true, nil
 }
 
 var _ frontendpipe.FrontendProfile = (*Profile)(nil)

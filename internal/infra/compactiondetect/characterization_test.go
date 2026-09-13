@@ -57,8 +57,9 @@ func TestCharacterize_CompactionDetect_MechanicalSourceAndLifecycleInvariants(t 
 		`"sync"`:            true,
 		`"time"`:            true,
 		`"unicode/utf8"`:    true,
-		`"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"`:            true,
-		`"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"`: true,
+		`"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"`:               true,
+		`"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"`:    true,
+		`"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"`: true,
 	}
 
 	for _, fileName := range prodFiles {

@@ -123,6 +123,29 @@ func (r *Registry) SetBackendReloadPolicy(factoryID string, policy BackendReload
 	return nil
 }
 
+// WrapLifecycleBackend decorates an already-registered lifecycle backend factory before construction.
+func (r *Registry) WrapLifecycleBackend(factoryID string, wrap func(orig LifecycleBackendFactory) LifecycleBackendFactory) error {
+	if r == nil {
+		return fmt.Errorf("pluginreg: nil registry")
+	}
+	if wrap == nil {
+		return fmt.Errorf("pluginreg: nil wrap function")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureMaps()
+	factoryID = strings.TrimSpace(factoryID)
+	if factoryID == "" {
+		return fmt.Errorf("pluginreg: WrapLifecycleBackend: empty id")
+	}
+	orig, ok := r.lifecycleBackends[factoryID]
+	if !ok {
+		return fmt.Errorf("pluginreg: WrapLifecycleBackend: unknown backend %q", factoryID)
+	}
+	r.lifecycleBackends[factoryID] = wrap(orig)
+	return nil
+}
+
 // BuildBackendWithLifecycle constructs a backend and optional cleanup for assembly.
 // instanceID is the configured backend instance id for the enabled row.
 func (r *Registry) BuildBackendWithLifecycle(

@@ -135,11 +135,13 @@ func TestTask11_1_Assessment_BoundedFactsOnly(t *testing.T) {
 	}
 
 	allowedFields := map[string]bool{
-		"Decision":    true,
-		"Reason":      true,
-		"Stamp":       true,
-		"WireRequest": true,
-		"WireDomain":  true,
+		"Decision":           true,
+		"Reason":             true,
+		"Stamp":              true,
+		"WireRequest":        true,
+		"WireDomain":         true,
+		"CompactionFacts":    true,
+		"CompactionComplete": true,
 	}
 
 	for i := 0; i < typ.NumField(); i++ {

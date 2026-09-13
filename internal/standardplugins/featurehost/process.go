@@ -124,6 +124,7 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 	} else {
 		r.conversationStore = newConversationStore()
 	}
+	r.conversationStoreStock = true
 	if in.ContinuityStore != nil {
 		for s := any(in.ContinuityStore); s != nil; {
 			if retired, ok := s.(b2bua.ALegRetirementObserver); ok {

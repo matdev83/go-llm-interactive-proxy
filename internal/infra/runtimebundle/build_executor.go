@@ -79,13 +79,14 @@ type executorBuildInput struct {
 	BackendIdentities  map[string]BackendStateIdentity
 	// CompactionDetector is the process-owned detector shared by all
 	// generations. Nil disables compaction observation.
-	CompactionDetector   runtime.CompactionDetector
-	BackgroundScheduler  *auxreq.BackgroundScheduler
-	GenerationRunner     *infraaux.GenerationExecutorRunner
-	TerminalPolicyReader runtime.TerminalPolicyReader
-	ConversationReader   conversationprojection.Reader
-	ConversationStore    conversationview.Store
-	InterleavedProcessor runtime.InterleavedProcessor
+	CompactionDetector            runtime.CompactionDetector
+	BackgroundScheduler           *auxreq.BackgroundScheduler
+	GenerationRunner              *infraaux.GenerationExecutorRunner
+	TerminalPolicyReader          runtime.TerminalPolicyReader
+	ConversationReader            conversationprojection.Reader
+	ConversationReaderStockOrigin bool
+	ConversationStore             conversationview.Store
+	InterleavedProcessor          runtime.InterleavedProcessor
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -247,18 +248,19 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	}
 	convStore := in.ConversationStore
 	largeBodyAssessor, largeBodyGenID, err := buildLargeBodyAssessor(largeBodyAssessorInput{
-		Cfg:            cfg,
-		Bctx:           bctx,
-		Opts:           opts,
-		In:             in,
-		RoutingRT:      routingRT,
-		AccountingRT:   accountingRT,
-		Prod:           prod,
-		DefBE:          defBE,
-		AliasResolver:  aliasResolver,
-		ExecResolver:   execResolver,
-		ExecPolicy:     execPolicy,
-		OverrideReader: overrideReader,
+		Cfg:                           cfg,
+		Bctx:                          bctx,
+		Opts:                          opts,
+		In:                            in,
+		RoutingRT:                     routingRT,
+		AccountingRT:                  accountingRT,
+		Prod:                          prod,
+		DefBE:                         defBE,
+		AliasResolver:                 aliasResolver,
+		ExecResolver:                  execResolver,
+		ExecPolicy:                    execPolicy,
+		OverrideReader:                overrideReader,
+		CapsResolverWireProofSubsumed: capMap != nil && isBackendCapsSubsumed(in.Bctx.Parent, in.Model.Backends),
 	})
 	if err != nil {
 		return nil, err
@@ -511,13 +513,19 @@ func (a *conversationViewTaggerAdapter) TagNeverBackend(ctx context.Context, aLe
 }
 
 func (a *conversationViewTaggerAdapter) DeleteALeg(ctx context.Context, aLegID string) error {
-	if a == nil || a.store == nil {
-		return nil
+	if a != nil && a.store != nil {
+		if d, ok := a.store.(interface {
+			DeleteALeg(context.Context, string) error
+		}); ok {
+			return d.DeleteALeg(ctx, aLegID)
+		}
 	}
-	if d, ok := a.store.(interface {
-		DeleteALeg(context.Context, string) error
-	}); ok {
-		return d.DeleteALeg(ctx, aLegID)
+	return nil
+}
+
+func (a *conversationViewTaggerAdapter) ConversationViewStore() conversationview.Store {
+	if a != nil {
+		return a.store
 	}
 	return nil
 }
@@ -540,4 +548,40 @@ func (a metricsObserverAdapter) OnAnchorFailure(p conversationprojection.AnchorM
 
 func (a metricsObserverAdapter) OnSteeringMutation(k conversationview.CacheDiscontinuityKind, p conversationprojection.PlacementKind) {
 	a.inner.OnSteeringMutation(metrics.CacheDiscontinuityKind(k), p)
+}
+
+func isBackendCapsSubsumed(ctx context.Context, backends map[string]execbackend.Backend) bool {
+	if len(backends) == 0 {
+		return false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for id, be := range backends {
+		if be.ResolveWireRequest == nil && be.WireBackend == nil {
+			continue
+		}
+		cand := routing.AttemptCandidate{Primary: routing.Primary{Backend: id}}
+		call := lipapi.Call{Route: lipapi.RouteIntent{Selector: id}}
+		if be.ResolveCaps != nil {
+			models := []string{""}
+			if be.ModelInventory != nil {
+				if snap, err := be.ModelInventory.LoadModels(ctx); err == nil && len(snap.Models) > 0 {
+					models = make([]string, len(snap.Models))
+					for i, m := range snap.Models {
+						models[i] = m.CanonicalID
+					}
+				}
+			}
+			for _, m := range models {
+				cand.Primary.Model = m
+				if _, ok := be.ResolveCaps(ctx, call, cand)[lipapi.CapabilityStreaming]; !ok {
+					return false
+				}
+			}
+		} else if _, ok := be.Caps[lipapi.CapabilityStreaming]; !ok {
+			return false
+		}
+	}
+	return true
 }

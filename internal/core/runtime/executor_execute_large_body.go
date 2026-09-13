@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -127,18 +128,22 @@ func (s *wireLifecycleEventStream) Cancel(ctx context.Context, cause lipapi.Canc
 	s.closed = true
 	s.mu.Unlock()
 
+	var res lipapi.CancelResult
+	if ms, ok := s.EventStream.(lipapi.ManagedEventStream); ok {
+		res = ms.Cancel(ctx, cause)
+	} else if s.EventStream != nil {
+		_ = s.EventStream.Close()
+		res = lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+	} else {
+		res = lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+	}
+
 	s.once.Do(func() {
 		if s.cleanup != nil {
 			s.cleanup(context.Canceled)
 		}
 	})
-	if ms, ok := s.EventStream.(lipapi.ManagedEventStream); ok {
-		return ms.Cancel(ctx, cause)
-	}
-	if s.EventStream != nil {
-		_ = s.EventStream.Close()
-	}
-	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+	return res
 }
 
 // AssessLargeBody evaluates frontend proof for candidate fast-path execution (Phase 4).
@@ -244,6 +249,23 @@ func (a *ProductionLargeBodyAssessor) AssessLargeBody(ctx context.Context, proof
 		return dec, nil
 	}
 
+	if a.AuthorityGate.Census.Ports.ConversationViewReaderOccupied && !proof.Session.ProvesFreshALeg() {
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonSessionUnsupported)
+		return dec, nil
+	}
+
+	budget := largebody.SemanticFactBudget(ctx)
+	if proof.AggregateFactBytes() > budget {
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonAuthorityBlocker)
+		return dec, nil
+	}
+	if a.AuthorityGate.Census.Ports.CompactionDetectorOccupied && a.AuthorityGate.Census.Ports.CompactionDetectorWireSupported {
+		if !proof.CompactionComplete {
+			dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonAuthorityBlocker)
+			return dec, nil
+		}
+	}
+
 	if a.WireProofGate == nil {
 		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonAuthorityBlocker)
 		return dec, nil
@@ -312,6 +334,8 @@ func (a *ProductionLargeBodyAssessor) AssessLargeBody(ctx context.Context, proof
 		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonProofUncertain)
 		return dec, nil
 	}
+	accepted.CompactionFacts = proof.CompactionFacts.Clone()
+	accepted.CompactionComplete = proof.CompactionComplete
 	return accepted, nil
 }
 
@@ -387,6 +411,9 @@ func (e *Executor) ExecuteLargeBody(
 	if err := largebody.ValidateExecuteLargeBody(accepted, src, live); err != nil {
 		return largebody.ExecutionResult{}, err
 	}
+	if _, ok := e.Detector.(CompactionWireDetector); ok && !accepted.CompactionComplete {
+		return largebody.ExecutionResult{}, fmt.Errorf("executor: large body accepted for wire execution but compaction facts are incomplete")
+	}
 
 	// 2. Resolve wire turn facts
 	turnFacts := e.resolveWireTurnFacts(ctx, accepted, src, srcDigest)
@@ -432,6 +459,20 @@ func (e *Executor) ExecuteLargeBody(
 	aLeg, routeAuth, err := prep.ResolveALeg(outCtx, br.Record.ALegID)
 	if err != nil {
 		return largebody.ExecutionResult{}, err
+	}
+
+	// Verify conversation projection invariant on fresh A-leg: snapshot must be clean
+	if reader := e.conversationViewReader(); reader != nil {
+		snap, serr := reader.Snapshot(outCtx, aLeg.ALegID)
+		if serr != nil {
+			if obs := e.conversationViewObserver(); obs != nil {
+				safeObserver{obs: obs}.OnProjectionFailure(conversationprojection.StageEarly)
+			}
+			return largebody.ExecutionResult{}, fmt.Errorf("executor: conversation view snapshot: %w", serr)
+		}
+		if len(snap.NeverBackend) > 0 || len(snap.Steering) > 0 {
+			return largebody.ExecutionResult{}, fmt.Errorf("executor: conversation projection invariant failure: unexpected non-empty projection in fresh session: %d never_backend, %d steering", len(snap.NeverBackend), len(snap.Steering))
+		}
 	}
 
 	// Bind session view and record client turn shape if present
@@ -647,6 +688,10 @@ func (e *Executor) ExecuteLargeBody(
 			})
 		}
 		return largebody.ExecutionResult{}, err
+	}
+
+	if e.Detector != nil && accepted.CompactionComplete {
+		preparedReq.compactionOpenMeta = e.observeCompactionOpenedWire(outCtx, preparedReq, out, accepted.CompactionFacts)
 	}
 
 	stream, err := streamAssembler{e}.assemble(outCtx, preparedReq, plan, out)

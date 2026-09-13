@@ -491,8 +491,11 @@ func replayCandidate[Opts any](
 		}
 	}()
 
+	factBudget := spec.LargePayload.EffectiveMaxSemanticFactBytes()
+	scanCtx := largebody.WithSemanticFactBudget(ctx, factBudget)
+
 	proofIn := ProofInput{
-		Ctx:                  ctx,
+		Ctx:                  scanCtx,
 		Headers:              r.Header,
 		URLPath:              r.URL.Path,
 		Path:                 pm,
@@ -509,9 +512,9 @@ func replayCandidate[Opts any](
 	var proofOut ProofOutput
 	var proofErr error
 	if spec.Profile != nil {
-		proofOut, proofErr = spec.Profile.CompileProof(ctx, proofIn)
+		proofOut, proofErr = spec.Profile.CompileProof(scanCtx, proofIn)
 		if proofErr == nil {
-			proofErr = proofOut.Validate(DefaultMaxSemanticFactBytes)
+			proofErr = proofOut.Validate(factBudget)
 		}
 	} else {
 		proofErr = errors.New("frontendpipe: profile not configured")

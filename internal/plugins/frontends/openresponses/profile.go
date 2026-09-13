@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonshape"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
@@ -19,6 +20,12 @@ import (
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
+
+type chunkWriterFunc func([]byte) (int, error)
+
+func (f chunkWriterFunc) Write(p []byte) (int, error) {
+	return f(p)
+}
 
 // ProfileID is the static identifier for the certified OpenResponses fast-path profile (Requirements 4, 17).
 const ProfileID = "openresponses_v1"
@@ -156,6 +163,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	if scanCtx == nil {
 		scanCtx = ctx
 	}
+	factBudget := largebody.SemanticFactBudget(scanCtx)
 
 	bodyBytes := in.BodyBytes
 	if bodyBytes <= 0 {
@@ -209,7 +217,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		fieldBufs[k] = &bytes.Buffer{}
 	}
 	var inputArrayBuf bytes.Buffer
-	inputArrayIsLarge := bodyBytes > 2*frontendpipe.DefaultMaxSemanticFactBytes
+	inputArrayIsLarge := bodyBytes > 2*factBudget
 	var totalFactBytes int64
 
 	var hasInput bool
@@ -471,7 +479,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 						end := e.Offset + e.Length
 						if start < end && end <= chunkStartOffset+int64(len(currentChunk)) {
 							slice := currentChunk[start-chunkStartOffset : end-chunkStartOffset]
-							if int64(inputArrayBuf.Len()+len(slice)) > frontendpipe.DefaultMaxSemanticFactBytes {
+							if int64(inputArrayBuf.Len()+len(slice)) > factBudget {
 								inputArrayIsLarge = true
 								inputArrayBuf.Reset()
 							} else {
@@ -487,9 +495,9 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 						slice := currentChunk[start-chunkStartOffset : end-chunkStartOffset]
 						capturingBuf.Write(slice)
 						totalFactBytes += int64(len(slice))
-						if totalFactBytes > frontendpipe.DefaultMaxSemanticFactBytes {
+						if totalFactBytes > factBudget {
 							return fmt.Errorf("%w: envelope fact budget exceeded (%d > %d)",
-								largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, frontendpipe.DefaultMaxSemanticFactBytes)
+								largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, factBudget)
 						}
 					}
 					capturingKey = ""
@@ -503,9 +511,9 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 						slice := currentChunk[start-chunkStartOffset : end-chunkStartOffset]
 						capturingBuf.Write(slice)
 						totalFactBytes += int64(len(slice))
-						if totalFactBytes > frontendpipe.DefaultMaxSemanticFactBytes {
+						if totalFactBytes > factBudget {
 							return fmt.Errorf("%w: envelope fact budget exceeded (%d > %d)",
-								largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, frontendpipe.DefaultMaxSemanticFactBytes)
+								largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, factBudget)
 						}
 					}
 					capturingKey = ""
@@ -598,11 +606,11 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		if sctx.TopLevel {
 			switch sctx.Key {
 			case "model":
-				return &budgetBoundedWriter{buf: &modelBuf, total: &totalFactBytes, maxBudget: frontendpipe.DefaultMaxSemanticFactBytes}, nil
+				return &budgetBoundedWriter{buf: &modelBuf, total: &totalFactBytes, maxBudget: factBudget}, nil
 			case "instructions":
-				return &budgetBoundedWriter{buf: &instructionsBuf, total: &totalFactBytes, maxBudget: frontendpipe.DefaultMaxSemanticFactBytes}, nil
+				return &budgetBoundedWriter{buf: &instructionsBuf, total: &totalFactBytes, maxBudget: factBudget}, nil
 			case "tool_choice":
-				return &budgetBoundedWriter{buf: &toolChoiceStrBuf, total: &totalFactBytes, maxBudget: frontendpipe.DefaultMaxSemanticFactBytes}, nil
+				return &budgetBoundedWriter{buf: &toolChoiceStrBuf, total: &totalFactBytes, maxBudget: factBudget}, nil
 			case "store":
 				storeBuf.Reset()
 				return &storeBuf, nil
@@ -651,9 +659,9 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 				slice := chunk[start-chunkStartOffset:]
 				capturingBuf.Write(slice)
 				totalFactBytes += int64(len(slice))
-				if totalFactBytes > frontendpipe.DefaultMaxSemanticFactBytes {
+				if totalFactBytes > factBudget {
 					return fmt.Errorf("%w: envelope fact budget exceeded (%d > %d)",
-						largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, frontendpipe.DefaultMaxSemanticFactBytes)
+						largebody.ErrSemanticFactBudgetExceeded, totalFactBytes, factBudget)
 				}
 				capturingStart = chunkEndOffset
 			}
@@ -663,7 +671,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 			start := max(chunkStartOffset, inputArrayStart)
 			if start < chunkEndOffset {
 				slice := chunk[start-chunkStartOffset:]
-				if int64(inputArrayBuf.Len()+len(slice)) > frontendpipe.DefaultMaxSemanticFactBytes {
+				if int64(inputArrayBuf.Len()+len(slice)) > factBudget {
 					inputArrayIsLarge = true
 					inputArrayBuf.Reset()
 				} else {
@@ -793,7 +801,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	// 9. Extract session input
 	sessIn, err := sessionwire.BuildSessionInput(in.Headers, metadata, sessionwire.SessionInputOptions{
 		RejectBodyMetadata: true,
-		MaxFactBytes:       frontendpipe.DefaultMaxSemanticFactBytes,
+		MaxFactBytes:       factBudget,
 	})
 	if err != nil {
 		return frontendpipe.ProofOutput{}, fmt.Errorf("openresponses: session input: %w", err)
@@ -856,6 +864,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 
 	instructionText := instructionsBuf.String()
 	hasInstructions := instructionsBuf.Len() > 0 && strings.TrimSpace(instructionText) != ""
+	var canonicalItems []lipapi.Item
 
 	if inputIsString {
 		// Pass 2: Stream input string directly through BeginMessageItem + BeginTextContentPart
@@ -978,7 +987,6 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 			return frontendpipe.ProofOutput{}, fmt.Errorf("openresponses: %w", err)
 		}
 
-		var canonicalItems []lipapi.Item
 		if hasInstructions {
 			canonicalItems = append(canonicalItems, lipapi.Item{
 				Kind:    lipapi.ItemKindMessage,
@@ -1008,7 +1016,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		callForShape := lipapi.Call{
 			Items: canonicalItems,
 		}
-		ts, err := largebody.ClientTurnShapeFromCall(&callForShape, frontendpipe.DefaultMaxSemanticFactBytes)
+		ts, err := largebody.ClientTurnShapeFromCall(&callForShape, factBudget)
 		if err != nil {
 			return frontendpipe.ProofOutput{}, fmt.Errorf("openresponses: turn shape: %w", err)
 		}
@@ -1189,13 +1197,36 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 
 	deliveryMode := lipapi.DeliveryModeFromClientStream(stream)
 
+	var proofCompactionFacts compactionfacts.RequestFacts
+	var proofCompactionComplete bool
+	if len(turnShape.Items) > 0 {
+		if facts, complete, err := compileStreamingCompactionFacts(
+			scanCtx,
+			in.Source,
+			bodyBytes,
+			instructionText,
+			canonicalTools,
+			turnShape.Items,
+			canonicalItems,
+			inputIsString,
+			inputArrayIsLarge,
+			largeArrayRoles,
+			factBudget,
+		); err == nil && complete {
+			proofCompactionFacts = facts
+			proofCompactionComplete = complete
+		}
+	}
+
 	proof := largebody.Proof{
-		ProfileID:       ProfileID,
-		Operation:       lipapi.OperationOpenResponsesCreate,
-		Delivery:        deliveryMode,
-		RouteSelector:   sel,
-		ClientModel:     model,
-		MaxOutputTokens: maxTokens,
+		ProfileID:          ProfileID,
+		Operation:          lipapi.OperationOpenResponsesCreate,
+		Delivery:           deliveryMode,
+		RouteSelector:      sel,
+		ClientModel:        model,
+		MaxOutputTokens:    maxTokens,
+		CompactionFacts:    proofCompactionFacts,
+		CompactionComplete: proofCompactionComplete,
 		Facts: largebody.ProtocolFacts{
 			RequirementsID: ProfileID,
 			ControlCount:   int64(len(canonicalTools)),
@@ -1218,7 +1249,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		},
 	}
 
-	if err := proofOut.Validate(frontendpipe.DefaultMaxSemanticFactBytes); err != nil {
+	if err := proofOut.Validate(factBudget); err != nil {
 		return frontendpipe.ProofOutput{}, fmt.Errorf("openresponses: validate proof output: %w", err)
 	}
 
@@ -1416,3 +1447,188 @@ func decodeReasoningControl(raw []byte) (string, error) {
 }
 
 var _ frontendpipe.FrontendProfile = (*Profile)(nil)
+
+func compileStreamingCompactionFacts(
+	ctx context.Context,
+	src largebody.Source,
+	bodyBytes int64,
+	instructionText string,
+	tools []lipapi.ToolDef,
+	items []largebody.ClientTurnItemShape,
+	canonicalItems []lipapi.Item,
+	inputIsString bool,
+	inputArrayIsLarge bool,
+	largeArrayRoles []lipapi.Role,
+	maxFactBytes int64,
+) (compactionfacts.RequestFacts, bool, error) {
+	if int64(len(items)*compactionfacts.ItemHashSizeBytes) > maxFactBytes {
+		return compactionfacts.RequestFacts{}, false, nil
+	}
+	factBuilder := compactionfacts.NewBuilderWithByteBudget(lipapi.OperationOpenResponsesCreate, int(maxFactBytes))
+	factBuilder.AddToolCount(len(tools))
+
+	// Fast path: small array input was already decoded into canonicalItems
+	if len(canonicalItems) > 0 {
+		for _, it := range canonicalItems {
+			if err := factBuilder.AddItem(it); err != nil {
+				return compactionfacts.RequestFacts{}, false, err
+			}
+		}
+		facts, err := factBuilder.Build()
+		return facts, err == nil, err
+	}
+
+	hasInstructions := strings.TrimSpace(instructionText) != ""
+	if hasInstructions {
+		instItem := lipapi.Item{
+			Kind:    lipapi.ItemKindMessage,
+			Status:  lipapi.ItemStatusCompleted,
+			Role:    lipapi.RoleSystem,
+			Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: instructionText}},
+		}
+		if err := factBuilder.AddItem(instItem); err != nil {
+			return compactionfacts.RequestFacts{}, false, err
+		}
+	}
+
+	inputStartIdx := 0
+	if hasInstructions {
+		inputStartIdx = 1
+	}
+	inputItems := items[inputStartIdx:]
+	if len(inputItems) == 0 {
+		facts, err := factBuilder.Build()
+		return facts, err == nil, err
+	}
+
+	rc, err := src.Open()
+	if err != nil {
+		return compactionfacts.RequestFacts{}, false, err
+	}
+	defer rc.Close()
+
+	if inputIsString {
+		var hasher *compactionfacts.ItemHasher
+		var factErr error
+		var streamed bool
+
+		resolver := func(sctx jsonshape.StringContext) (io.Writer, error) {
+			if sctx.TopLevel && sctx.Key == "input" {
+				partBytes := int(inputItems[0].Parts[0].ContentBytes)
+				hasher = compactionfacts.NewItemHasher(lipapi.ItemKindMessage, lipapi.RoleUser)
+				pw := hasher.BeginContentText(partBytes)
+				mw := io.MultiWriter(pw, chunkWriterFunc(func(p []byte) (int, error) {
+					factBuilder.FeedTextChunkBytes(p)
+					return len(p), nil
+				}))
+				return mw, nil
+			}
+			return nil, nil
+		}
+
+		handler := jsonshape.EventHandlerFunc(func(e jsonshape.Event) error {
+			if e.TopLevel && e.Type == jsonshape.EventString && e.Key == "input" {
+				if hasher != nil {
+					hasher.EndContentText()
+					factBuilder.EndField()
+					itemHash := hasher.Sum()
+					if err := factBuilder.AddItemHash(itemHash); err != nil {
+						factErr = err
+						return err
+					}
+					streamed = true
+				}
+			}
+			return nil
+		})
+
+		scanner := jsonshape.NewScanner(
+			ctx,
+			jsonshape.Limits{
+				RejectDuplicateNames: true,
+				MaxBytes:             bodyBytes,
+				MaxDepth:             128,
+			},
+			jsonshape.WithEventHandler(handler),
+			jsonshape.WithStringWriterResolver(resolver),
+		)
+
+		_, readErr := largebody.ProcessReplayChunks(largebody.ReplayChunkReaderConfig{
+			Reader:    rc,
+			MaxBytes:  bodyBytes,
+			ChunkSize: 32 * 1024,
+			Scanner:   scanner,
+		})
+		if readErr != nil || factErr != nil || !streamed {
+			return compactionfacts.RequestFacts{}, false, readErr
+		}
+	} else if inputArrayIsLarge {
+		var itemIndex int
+		var hasher *compactionfacts.ItemHasher
+		var factErr error
+
+		resolver := func(sctx jsonshape.StringContext) (io.Writer, error) {
+			if len(sctx.Path) >= 2 && sctx.Path[0] == "input" && sctx.Key == "content" {
+				if itemIndex >= len(inputItems) {
+					return nil, errors.New("openresponses: unexpected extra item in compaction pass")
+				}
+				role := lipapi.RoleUser
+				if itemIndex < len(largeArrayRoles) {
+					role = largeArrayRoles[itemIndex]
+				}
+				partBytes := int(inputItems[itemIndex].Parts[0].ContentBytes)
+				hasher = compactionfacts.NewItemHasher(lipapi.ItemKindMessage, role)
+				pw := hasher.BeginContentText(partBytes)
+				mw := io.MultiWriter(pw, chunkWriterFunc(func(p []byte) (int, error) {
+					factBuilder.FeedTextChunkBytes(p)
+					return len(p), nil
+				}))
+				return mw, nil
+			}
+			return nil, nil
+		}
+
+		handler := jsonshape.EventHandlerFunc(func(e jsonshape.Event) error {
+			if len(e.Path) >= 2 && e.Path[0] == "input" && e.Type == jsonshape.EventString && e.Key == "content" {
+				if hasher != nil {
+					hasher.EndContentText()
+					factBuilder.EndField()
+					itemHash := hasher.Sum()
+					if err := factBuilder.AddItemHash(itemHash); err != nil {
+						factErr = err
+						return err
+					}
+					itemIndex++
+				}
+			}
+			return nil
+		})
+
+		scanner := jsonshape.NewScanner(
+			ctx,
+			jsonshape.Limits{
+				RejectDuplicateNames: true,
+				MaxBytes:             bodyBytes,
+				MaxDepth:             128,
+			},
+			jsonshape.WithEventHandler(handler),
+			jsonshape.WithStringWriterResolver(resolver),
+		)
+
+		_, readErr := largebody.ProcessReplayChunks(largebody.ReplayChunkReaderConfig{
+			Reader:    rc,
+			MaxBytes:  bodyBytes,
+			ChunkSize: 32 * 1024,
+			Scanner:   scanner,
+		})
+		if readErr != nil || factErr != nil || itemIndex != len(inputItems) {
+			return compactionfacts.RequestFacts{}, false, readErr
+		}
+	}
+
+	facts, berr := factBuilder.Build()
+	if berr != nil {
+		return compactionfacts.RequestFacts{}, false, berr
+	}
+	return facts, true, nil
+}

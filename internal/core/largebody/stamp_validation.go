@@ -2,9 +2,12 @@ package largebody
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 )
 
 // ErrStampDisagreement is returned when live execution facts disagree with the
@@ -206,6 +209,15 @@ func ValidateExecuteLargeBody(accepted Assessment, src Source, live LiveExecutio
 				Field:      "body size",
 				BoundValue: fmt.Sprintf("%d", accepted.Stamp.BodyBytes()),
 				LiveValue:  fmt.Sprintf("%d", src.Size()),
+			}
+		}
+	}
+	if boundComp := accepted.Stamp.CompactionDigest(); boundComp != [32]byte{} {
+		if liveComp := compactionfacts.Digest(accepted.CompactionFacts, accepted.CompactionComplete); boundComp != liveComp {
+			return &StampInvariantError{
+				Field:      "compaction facts",
+				BoundValue: hex.EncodeToString(boundComp[:]),
+				LiveValue:  hex.EncodeToString(liveComp[:]),
 			}
 		}
 	}
