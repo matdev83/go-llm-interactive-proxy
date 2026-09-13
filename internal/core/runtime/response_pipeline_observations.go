@@ -64,6 +64,7 @@ func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnF
 	}
 	at := p.nowTime()
 	attempt.observeAccountingBackendEvent(at, ev)
+	attempt.observeLocalProviderEvent(ev)
 	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleStream) {
 		prepared.swallowed = true
 		return prepared
@@ -217,6 +218,10 @@ func (p *responsePipeline) observeClientFacing(ctx context.Context, ev lipapi.Ev
 	if in.attempt == nil {
 		return lipapi.Event{}, responseRecordingResult{}, errNilRetryRecvStream
 	}
+	// ev is already the post-hook/customer-projection event at this boundary.
+	// Capture only bounded properties; the provider-origin plane was captured in
+	// prepareRecvEvent before any customer transformation.
+	in.attempt.observeLocalCustomerEvent(ev)
 	if err := extensions.RunFinalStreamObservationStage(ctx, p.log, p.extensionMetrics, in.attempt.finalStreamObs, ev, in.committed); err != nil {
 		p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeFailed)
 		return lipapi.Event{}, responseRecordingResult{}, err

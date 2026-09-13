@@ -12,6 +12,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
@@ -458,7 +459,11 @@ func TestOpenWire_BackendIntegration(t *testing.T) {
 		BLegID:        "bleg-be-1",
 	}
 
-	stream, err := execbackend.EffectiveWireOpen(context.Background(), be, wireReq)
+	var observed coremetering.PreparedInputSummary
+	ctx := coremetering.WithPreparedInputObserver(context.Background(), func(summary coremetering.PreparedInputSummary) {
+		observed = summary
+	})
+	stream, err := execbackend.EffectiveWireOpen(ctx, be, wireReq)
 	if err != nil {
 		t.Fatalf("EffectiveWireOpen failed: %v", err)
 	}
@@ -470,6 +475,9 @@ func TestOpenWire_BackendIntegration(t *testing.T) {
 	}
 	if ev.Kind == "" {
 		t.Fatal("expected non-empty event kind from peeked stream")
+	}
+	if observed.MethodRef != "adapter:openaicompat.wire_payload.v1" || !observed.PayloadBytesPresent || observed.PayloadBytes != int64(len(reqPayload)) {
+		t.Fatalf("final wire boundary summary=%#v, want exact bounded payload metadata", observed)
 	}
 }
 

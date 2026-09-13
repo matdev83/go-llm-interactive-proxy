@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -121,6 +122,7 @@ type attemptTx struct {
 	launchPermit *leglifecycle.LaunchPermit
 
 	// attempt-local resources
+	boundary              *coremetering.BoundaryAccumulator
 	accounting            attemptAccountingTracker
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
@@ -188,6 +190,9 @@ func (tx *attemptTx) createSession() *attemptSession {
 		billingCallID:         tx.reqFacts.billingCallID,
 		billingCallState:      tx.reqFacts.billingCallState,
 		accounting:            tx.accounting,
+		boundary:              tx.boundary,
+		requestID:             attemptRequestID(tx.reqFacts),
+		boundaryScope:         tx.reqFacts.recvViews.Scope,
 		toolFinal:             tx.toolFinal,
 		promptCacheSource:     tx.promptCacheSource,
 		promptCacheController: tx.promptCacheController,
@@ -197,6 +202,16 @@ func (tx *attemptTx) createSession() *attemptSession {
 	return tx.session
 }
 
+func attemptRequestID(facts requestFacts) string {
+	if facts.wirePayload != nil && strings.TrimSpace(facts.wirePayload.requestID) != "" {
+		return strings.TrimSpace(facts.wirePayload.requestID)
+	}
+	if requestID := strings.TrimSpace(facts.baseline.ID); requestID != "" {
+		return requestID
+	}
+	return strings.TrimSpace(facts.traceID)
+}
+
 func (e *Executor) createSessionForParallelLeg(leg *parallelLeg, aScope *leglifecycle.ALeg) *attemptSession {
 	if leg == nil {
 		return nil
@@ -204,13 +219,25 @@ func (e *Executor) createSessionForParallelLeg(leg *parallelLeg, aScope *leglife
 	if leg.tx != nil {
 		return leg.tx.createSession()
 	}
+	boundary := leg.boundary
+	if boundary == nil {
+		boundary = e.newLocalBoundaryAccumulator()
+	}
+	billingCallID := leg.billingCallID
+	if billingCallID == "" && leg.billingCallState != nil {
+		billingCallID = leg.billingCallState.callID
+	}
 	return e.newAttemptSession(withBillingStoreIDOnAttempt(attemptSessionInput{
 		inner:            leg.stream,
 		bleg:             leg.bleg,
 		cand:             leg.cand,
 		authority:        leg.authority,
 		aScope:           aScope,
+		requestID:        leg.requestID,
+		boundaryScope:    leg.boundaryScope,
+		billingCallID:    billingCallID,
 		billingCallState: leg.billingCallState,
+		boundary:         boundary,
 		recordAttemptLoggedFn: func(cctx context.Context, p recordAttemptParams, attrs diag.AttrOpts) {
 			if e != nil {
 				e.recordAttemptLogged(cctx, p, attrs)
@@ -358,6 +385,7 @@ func (e *Executor) startAttemptTx(ctx context.Context, rf requestFacts, route ro
 		bleg:       bleg,
 		budget:     budget,
 		failures:   failures,
+		boundary:   e.newLocalBoundaryAccumulator(),
 	}, nil
 }
 
@@ -768,6 +796,12 @@ func (e *Executor) openAttemptTx(
 	wireCall.Session.ContinuityKey = ""
 	wireCall.Session.AuthoritativeSessionID = ""
 	wireCall.Session.ResumeToken = ""
+	if tx.boundary != nil {
+		// This is only a bounded canonical estimate. Essential adapters replace
+		// it through the context observer after constructing their final wire
+		// representation (including provider-specific transforms).
+		tx.boundary.PrepareCall(wireCall)
+	}
 	if e.RuntimeSnapshot != nil {
 		bundle := coretraffic.PortBundleFromSnapshot(e.RuntimeSnapshot)
 		if !bundle.EmitIsNoop() {
@@ -837,10 +871,17 @@ func (e *Executor) openAttemptTx(
 		ALegID: tx.reqFacts.aLegID, BLegID: tx.bleg.BLegID,
 		BackendInstanceID: c.Primary.Backend, CanonicalModelID: c.Primary.Model,
 	})
+	if tx.boundary != nil {
+		tx.boundary.MarkAttempted()
+		openCtx = coremetering.WithPreparedInputObserver(openCtx, tx.boundary.ObservePreparedInput)
+	}
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
 		return be.Open(openCtx, wireCall, routing.BackendFacingCandidate(c))
 	})
 	tx.stream = stream
+	if tx.boundary != nil {
+		tx.boundary.MarkAccepted(err == nil && stream != nil)
+	}
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {
 		tx.abortLaunchPermit()

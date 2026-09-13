@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/endpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
@@ -338,6 +339,13 @@ func (p WireOpenPrimitives) OpenWire(ctx context.Context, req largebody.WireOpen
 	if err != nil {
 		return nil, err
 	}
+	// The wire lane has no canonical Call. Record only the bounded final
+	// request-byte representation before the HTTP client commits upstream
+	// bytes; adapters with richer post-transform facts may replace this summary.
+	coremetering.ObservePreparedInput(ctx, coremetering.PreparedInputSummary{
+		PayloadBytes: req.ContentLength, PayloadBytesPresent: req.ContentLength >= 0,
+		MethodRef: "adapter:openaicompat.wire_payload.v1",
+	})
 
 	client := p.Client()
 	resp, err := client.Do(httpReq)

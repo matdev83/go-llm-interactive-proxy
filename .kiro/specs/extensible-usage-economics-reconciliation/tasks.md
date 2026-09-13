@@ -239,9 +239,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 18.2, 18.3_
 
 
-- [ ] 6. Capture independent local measurements at actual boundaries
+- [x] 6. Capture independent local measurements at actual boundaries
 
-- [ ] 6.1 Measure the final upstream representation
+- [x] 6.1 Measure the final upstream representation
   - Attach provider-neutral measurement summaries after adapter payload construction and rewrites, before upstream byte commitment, covering text plus media/document properties after resize, transcode, frame/rate or other provider-bound transformation.
   - Distinguish prepared/attempted/accepted status; preserve canonical estimates when exact provider token/media metering is unsupported.
   - Completion: an adapter-added field or image/audio/video transformation changes the proper local modelled B-leg input evidence and is not invisible to a claimed exact count.
@@ -251,7 +251,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/runtime/... ./internal/core/metering/... ./internal/plugins/backends/..._
   - _Requirements: 4.1, 4.3, 4.4, 14.5_
 
-- [ ] 6.2 Measure provider output before customer transforms
+- [x] 6.2 Measure provider output before customer transforms
   - Capture provider-side text and generated-media measurement separately from frontend-delivered output; keep tokenizer/media meter/version/coverage and pre/post transform identity.
   - Implement chunk-invariant text counting plus bounded media duration/frame/size accounting using supported incremental measurement or existing bounded reconstruction; do not sum arbitrary independently tokenized chunks or replace provider-side duration/quality with downstream-transcoded values.
   - Completion: text chunking and image/audio/video transform fixtures produce stable independent B-leg evidence without retaining unbounded raw output.
@@ -261,7 +261,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/runtime/... ./internal/core/metering/..._
   - _Requirements: 4.2, 4.3, 4.5, 16.1, 18.5_
 
-- [ ] 6.3 Represent unobservable local components honestly
+- [x] 6.3 Represent unobservable local components honestly
   - Handle cache disposition, hidden reasoning, provider tools and real compute as unavailable or method-labelled estimates where independently unknown.
   - Keep provider count API evidence provider-derived and prohibit local/remote cloning in conversion helpers.
   - Completion: no provider cache counter can produce a falsely independent matching local observation.
@@ -271,7 +271,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/metering/... ./internal/core/runtime/..._
   - _Requirements: 1.5, 3.5, 4.3, 4.4, 12.3_
 
-- [ ] 6.4 Preserve large-payload and no-money behavior
+- [x] 6.4 Preserve large-payload and no-money behavior
   - Integrate required evidence capability into canonical/fast-path eligibility; fall back before upstream commitment when a lane cannot prove bounded capture.
   - Test accounting-disabled zero additional I/O/allocations and independent optional observation mode; avoid new payload-sized clones.
   - Completion: affected #532/#503 contracts remain correct whether that implementation lands before or after this work.

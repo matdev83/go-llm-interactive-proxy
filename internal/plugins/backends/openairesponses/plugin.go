@@ -88,6 +88,7 @@ func New(cfg Config) execbackend.Backend {
 			return openaicred.ExecuteWithCredentialPool(ctx, ID, pool, openAIRateLimitFallback, func(ctx context.Context, cred credpool.Credential) (lipapi.ManagedEventStream, error) {
 				cli := openaicred.NewClient(cfg.BaseURL, cred.Secret, cfg.HTTPClient, cfg.SDKMaxRetries)
 				if call.Invocation.TransportMode == lipapi.TransportModeNonStreaming {
+					observePreparedInput(ctx, p)
 					resp, nerr := cli.Responses.New(ctx, p)
 					if nerr != nil {
 						return nil, nerr
@@ -98,6 +99,7 @@ func New(cfg Config) execbackend.Backend {
 					}
 					return lipapi.NewFixedEventStream(events), nil
 				}
+				observePreparedInput(ctx, p)
 				raw := cli.Responses.NewStreaming(ctx, p)
 				es := NewSDKStream(raw, call.MaxPendingWireEvents)
 				return streampeek.PeekFirst(ctx, es)

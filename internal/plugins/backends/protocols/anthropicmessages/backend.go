@@ -107,6 +107,7 @@ func NewBackend(cfg Config) execbackend.Backend {
 			cacheState := cacheRuntime.state(ctx, call, p, cand, id)
 			if noAuth {
 				cli := newSDKClientForSecret(cfg, "")
+				observePreparedInput(ctx, p)
 				stream := cli.Messages.NewStreaming(ctx, p, cacheEnrollmentOptions(cfg)...)
 				es := newMessageStreamWithCache(stream, id, call.MaxPendingWireEvents, cacheState)
 				ev, rerr := es.Recv(ctx)
@@ -141,6 +142,7 @@ func NewBackend(cfg Config) execbackend.Backend {
 				if cfg.ThinkingFromEffort && reasoningEffortEnablesThinking(call.Options.ReasoningEffort) {
 					requestOpts = append(requestOpts, option.WithHeader("anthropic-beta", "interleaved-thinking-2025-05-14"))
 				}
+				observePreparedInput(ctx, p)
 				stream := cli.Messages.NewStreaming(ctx, p, requestOpts...)
 				es := newMessageStreamWithCache(stream, id, call.MaxPendingWireEvents, cacheState)
 				ev, rerr := es.Recv(ctx)

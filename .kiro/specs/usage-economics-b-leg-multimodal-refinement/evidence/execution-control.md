@@ -10,7 +10,8 @@
 - Parent tasks 3.1–3.4: root-reviewed and accepted; source-isolated normalization, reduction, replay and the family TCK pass focused verification.
 - Parent tasks 4.1–4.4: root-reviewed and accepted; durable V2 evidence, valuation/reconciliation projections, atomic composition and rebuild support pass focused dual-dialect evidence.
 - Parent tasks 5.1–5.4: root-reviewed and accepted; source-separated B-leg terminal evidence, strict durability propagation and independent all-leg COGS/retail selection pass focused verification.
-- Next implementation: parent 6.1–6.4, independent local boundary measurement.
+- Parent tasks 6.1–6.4 and refinement tasks 3.1–3.3: root-reviewed and accepted; final provider-tree input measurement, separate provider/customer output planes, honest unobservables and bounded fast-path behavior pass focused verification.
+- Next implementation: parent task group 7, executable connector ABI without silent loss.
 - The refinement has 8 groups and its required parent has 20. They overlap; do not report these as 28 independent phases or infer a completion percentage from group count.
 
 ## Process correction
@@ -53,3 +54,10 @@ This document changes execution discipline only. It does not remove requirements
 - Worker-owned Go files: 35; worker focused tests/vet: PASS.
 - Root review used one consolidated repair handoff for trusted store identity; no repeated audit loop.
 - Accepted tasks: parent 5.1–5.4.
+
+### Phase 6 measurement
+
+- One Luna/max phase worker was dispatched and awaited only through blocking completion events.
+- Root issued one consolidated repair for actual provider-tree measurement, durable lifecycle state, disabled-path allocation proof, and no-transaction parallel lineage.
+- Root fresh package, adapter, architecture and vet verification passed.
+- Accepted tasks: parent 6.1–6.4 and refinement 3.1–3.3.

@@ -66,9 +66,9 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 2.2_
   - _Validation: go test ./internal/core/billing/... ./pkg/lipsdk/economics/..._
 
-- [ ] 3. Measure provider-facing multimodal boundaries
+- [x] 3. Measure provider-facing multimodal boundaries
 
-- [ ] 3.1 Capture final provider-bound input representation
+- [x] 3.1 Capture final provider-bound input representation
   - Extend the parent final-backend-payload hook to record bounded text/media measurements after resize/transcode/extraction/tiling/rewrites and before upstream commitment.
   - Keep customer-ingress measurements separate and retain method/quality when exact provider billing units cannot be reconstructed locally.
   - Completion: an input-image transform changes B-leg expected economics without rewriting customer-boundary evidence.
@@ -77,7 +77,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 2.3_
   - _Validation: go test ./internal/core/runtime/... ./internal/core/metering/... ./internal/plugins/backends/..._
 
-- [ ] 3.2 Capture provider-origin multimodal output before customer transforms
+- [x] 3.2 Capture provider-origin multimodal output before customer transforms
   - Measure available provider output units/metadata before projection, compression, trimming, resampling or frontend encoding.
   - Preserve customer-egress measurement separately for explicit service tariffs and reconciliation.
   - Completion: provider-origin output and customer-visible output can differ without changing provider usage identity.
@@ -86,7 +86,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 3.1_
   - _Validation: go test ./internal/core/runtime/... ./internal/core/metering/... ./internal/plugins/frontends/..._
 
-- [ ] 3.3 Preserve fast-path and raw-media safety
+- [x] 3.3 Preserve fast-path and raw-media safety
   - Keep accounting metadata bounded and avoid media-body duplication; use canonical fallback before commitment when required economic measurement is unavailable on a fast path.
   - Completion: disabled monetary mode adds no accounting I/O and enabled multimodal capture stays within configured observation/frame limits.
   - _Requirements: 1.3, 1.4, 1.5, 4.6_

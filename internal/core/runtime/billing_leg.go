@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -43,6 +44,7 @@ type billingLegDraft struct {
 	stream            lipapi.Event
 	evidenceEvents    []capturedBillingEvidence
 	evidenceConflicts []billing.EvidenceConflict
+	localObservations []metering.Observation
 	operatorRateRef   billing.VersionRef
 	workload          billing.WorkloadIdentity
 }
@@ -66,6 +68,7 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	evidence := projectV1BillingEvidence(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
 	evidence = normalizeBillingEvidenceIdentity(evidence, draft.callID, bLegID)
 	observations, conflicts := observationsFromBillingEvidence(draft, draft.evidenceEvents)
+	observations, conflicts = appendLocalBoundaryObservations(observations, conflicts, draft.localObservations)
 	outcome := draft.outcome
 	if outcome == "" {
 		outcome = legOutcomeFromCommand(draft.command)
@@ -93,6 +96,39 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 		record.EvidenceConflicts = appendBoundedEvidenceConflicts(conflicts, draft.evidenceConflicts)
 	}
 	return record
+}
+
+// appendLocalBoundaryObservations retains local boundary evidence as its own
+// provenance plane. It validates and deep-copies observations at the terminal
+// handoff, and never converts or clones provider evidence into local evidence.
+func appendLocalBoundaryObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []metering.Observation) ([]metering.Observation, []billing.EvidenceConflict) {
+	if len(incoming) == 0 {
+		return existing, conflicts
+	}
+	seen := make(map[string]string, len(existing)+len(incoming))
+	for _, observation := range existing {
+		seen[observation.IdentityKey()] = observation.Fingerprint()
+	}
+	for _, original := range incoming {
+		observation, err := original.Canonical()
+		if err != nil {
+			continue
+		}
+		identity := observation.IdentityKey()
+		hash := observation.Fingerprint()
+		if prior, ok := seen[identity]; ok {
+			if prior != hash {
+				conflicts = appendBoundedEvidenceConflicts(conflicts, []billing.EvidenceConflict{{Identity: identity, ExistingHash: prior, IncomingHash: hash}})
+			}
+			continue
+		}
+		if len(existing) >= billing.MaxCallLegEvidenceObservations {
+			break
+		}
+		existing = append(existing, observation)
+		seen[identity] = hash
+	}
+	return existing, conflicts
 }
 
 func appendBoundedEvidenceConflicts(existing, incoming []billing.EvidenceConflict) []billing.EvidenceConflict {
@@ -175,6 +211,7 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 	}
 	streamEv = attempt.augmentBillingUsage(streamEv, lipapi.Event{})
 	evidenceEvents, evidenceConflicts := attempt.billingEvidenceDrain()
+	localObservations := attempt.drainLocalBoundaryObservations(now)
 	workloadCtx := request.toRecvTurnFacts(ctx).projectContext(ctx, nil)
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:            request.billingCallID,
@@ -191,6 +228,7 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 		stream:            streamEv,
 		evidenceEvents:    evidenceEvents,
 		evidenceConflicts: evidenceConflicts,
+		localObservations: localObservations,
 		operatorRateRef:   t.operatorRateRef(workloadCtx, evidence.candidate.Primary),
 		workload:          t.billingWorkload(workloadCtx, request.aLegID),
 	})
@@ -394,6 +432,10 @@ func (e *Executor) logBillingUsageAppendFailure(ctx context.Context, criticalMsg
 }
 
 func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
+	e.appendIndependentTerminalLegWithObservations(ctx, state, aLegID, bleg, primary, started, finished, outcome, nil)
+}
+
+func (e *Executor) appendIndependentTerminalLegWithObservations(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome, localObservations []metering.Observation) {
 	if !e.hasTerminalSink() {
 		return
 	}
@@ -418,6 +460,13 @@ func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, state *bill
 		Evidence:        billing.FinalBillingEvidence{Source: billing.EvidenceSourceUnavailable, Authority: billing.EvidenceAuthorityUnavailable},
 		OperatorRateRef: e.operatorRateRef(ctx, primary),
 		Workload:        e.billingWorkloadIdentityForALeg(ctx, aLegID),
+	}
+	if len(localObservations) != 0 {
+		leg.Observations, _ = appendLocalBoundaryObservations(nil, nil, localObservations)
+		if len(leg.Observations) != 0 {
+			leg.EvidenceVersion = billing.EvidenceFormatVersionV2
+			leg.EvidenceProjection = billing.EvidenceProjectionV1
+		}
 	}
 	var callID billing.BillingCallID
 	if state != nil {

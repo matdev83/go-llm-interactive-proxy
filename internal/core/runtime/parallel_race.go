@@ -19,10 +19,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -38,6 +40,10 @@ func (e *Executor) logParallelRacePanic(ctx context.Context, pe *safety.PanicErr
 type parallelLeg struct {
 	billingCallState *billingCallState
 	storeID          string
+	requestID        string
+	boundaryScope    scope.PrincipalScopeView
+	billingCallID    billing.BillingCallID
+	boundary         *coremetering.BoundaryAccumulator
 	cand             routing.AttemptCandidate
 	bleg             b2bua.BLegRecord
 	stream           lipapi.ManagedEventStream
@@ -94,7 +100,7 @@ func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg,
 					cleanupErr = errors.Join(cleanupErr, res.Result.Err)
 				}
 			}
-		} else if leg.stream != nil || leg.authority.control != nil {
+		} else if leg.stream != nil || leg.authority.control != nil || leg.boundary != nil {
 			sess := e.createSessionForParallelLeg(leg, aScope)
 			res := sess.TerminalizeAttempt(ctx, IntentParallelLoser, evidence)
 			if res.Result.Err != nil && !errors.Is(res.Result.Err, context.Canceled) {
@@ -374,6 +380,10 @@ func (e *Executor) tryOpenParallelGroup(
 			armLeg := &parallelLeg{
 				billingCallState: frozenReqFacts.billingCallState,
 				storeID:          frozenReqFacts.billingStoreID,
+				requestID:        attemptRequestID(frozenReqFacts),
+				boundaryScope:    frozenReqFacts.recvViews.Scope,
+				billingCallID:    frozenReqFacts.billingCallID,
+				boundary:         tx.boundary,
 				cand:             entry.cand,
 				bleg:             tx.bleg,
 				stream:           tx.stream,
@@ -697,6 +707,9 @@ func (r *parallelRoundReducer) Reduce(
 		legs[i] = parallelLeg{
 			billingCallState: r.req.reqFacts.billingCallState,
 			storeID:          r.req.reqFacts.billingStoreID,
+			requestID:        attemptRequestID(r.req.reqFacts),
+			boundaryScope:    r.req.reqFacts.recvViews.Scope,
+			billingCallID:    r.req.reqFacts.billingCallID,
 			cand:             entry.cand,
 			delay:            entry.delay,
 		}
@@ -706,6 +719,10 @@ func (r *parallelRoundReducer) Reduce(
 					legs[i].stream = o.armLeg.stream
 					legs[i].bleg = o.armLeg.bleg
 					legs[i].authority = o.armLeg.authority
+					legs[i].requestID = o.armLeg.requestID
+					legs[i].boundaryScope = o.armLeg.boundaryScope
+					legs[i].billingCallID = o.armLeg.billingCallID
+					legs[i].boundary = o.armLeg.boundary
 					legs[i].tx = o.armLeg.tx
 					legs[i].ready = o.armLeg.ready
 					legs[i].interleaved = o.armLeg.interleaved
@@ -798,7 +815,7 @@ func (r *parallelRoundReducer) Reduce(
 			if i == winnerIdx {
 				continue
 			}
-			if legs[i].stream != nil && (legs[i].ready != nil || legs[i].tx == nil || !legs[i].tx.completed) {
+			if (legs[i].stream != nil || legs[i].boundary != nil || legs[i].authority.control != nil) && (legs[i].ready != nil || legs[i].tx == nil || !legs[i].tx.completed) {
 				legs[i].managedByMain = true
 				losers = append(losers, &legs[i])
 			}
@@ -883,6 +900,9 @@ func (r *parallelRoundReducer) Reduce(
 	var failedLegs []*parallelLeg
 	for i := range legs {
 		if legs[i].stream == nil {
+			if legs[i].boundary != nil || legs[i].authority.control != nil {
+				failedLegs = append(failedLegs, &legs[i])
+			}
 			parallelFailure = errors.Join(parallelFailure, fmt.Errorf("candidate %q did not open a stream", legs[i].cand.Key))
 			continue
 		}
@@ -959,7 +979,7 @@ func detachedCleanupContext(parent context.Context, timeout time.Duration) (cont
 func (r *parallelRoundReducer) releaseOpenedLegs(ctx context.Context, legs []parallelLeg) {
 	var opened []*parallelLeg
 	for i := range legs {
-		if legs[i].stream != nil && (legs[i].ready != nil || legs[i].tx == nil || !legs[i].tx.completed) {
+		if (legs[i].stream != nil || legs[i].boundary != nil || legs[i].authority.control != nil) && (legs[i].ready != nil || legs[i].tx == nil || !legs[i].tx.completed) {
 			legs[i].managedByMain = true
 			opened = append(opened, &legs[i])
 		}
@@ -984,7 +1004,7 @@ func (e *Executor) cleanUpParallelFailure(ctx context.Context, req openNextReque
 	}
 	var toClean []*parallelLeg
 	for i := range legs {
-		if i != winner && legs[i].stream != nil && (legs[i].ready != nil || legs[i].tx == nil || !legs[i].tx.completed) {
+		if i != winner && (legs[i].stream != nil || legs[i].boundary != nil || legs[i].authority.control != nil) && (legs[i].ready != nil || legs[i].tx == nil || !legs[i].tx.completed) {
 			toClean = append(toClean, &legs[i])
 		}
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
@@ -26,6 +27,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -88,6 +90,7 @@ type attemptSession struct {
 	usageEvidenceOrder []string
 	usageConflicts     []billing.EvidenceConflict
 	billingLegRecorded bool
+	boundaryDrained    bool
 
 	cancelResult lipapi.CancelResult
 
@@ -100,11 +103,14 @@ type attemptSession struct {
 	defaultCommand    sdkterminal.Command
 	defaultLegOutcome billing.LegOutcome
 	traceID           string
+	requestID         string
+	boundaryScope     scope.PrincipalScopeView
 	billingCallID     billing.BillingCallID
 	billingStoreID    string
 	billingCallState  *billingCallState
 
 	accounting            attemptAccountingTracker
+	boundary              *coremetering.BoundaryAccumulator
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
@@ -221,10 +227,13 @@ type attemptSessionInput struct {
 	aScope         *leglifecycle.ALeg
 
 	traceID               string
+	requestID             string
+	boundaryScope         scope.PrincipalScopeView
 	billingCallID         billing.BillingCallID
 	billingStoreID        string
 	billingCallState      *billingCallState
 	accounting            attemptAccountingTracker
+	boundary              *coremetering.BoundaryAccumulator
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
@@ -254,8 +263,8 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		forceClose: make(chan struct{}),
 		terminal:   newStreamTerminal(sdkterminal.ScopeAttempt), aScope: in.aScope,
 		releaseKind: authorityapp.ReleaseKindSwallowed, defaultCommand: sdkterminal.CommandBackendOpenFailure, defaultLegOutcome: billing.LegOutcomeFailed,
-		traceID: in.traceID, billingCallID: in.billingCallID, billingStoreID: in.billingStoreID, billingCallState: in.billingCallState,
-		accounting: in.accounting, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
+		traceID: in.traceID, requestID: in.requestID, boundaryScope: in.boundaryScope, billingCallID: in.billingCallID, billingStoreID: in.billingStoreID, billingCallState: in.billingCallState,
+		accounting: in.accounting, boundary: in.boundary, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
 		promptCacheController: in.promptCacheController, finalStreamObs: in.finalStreamObs,
 		recordAttemptLoggedFn: in.recordAttemptLoggedFn, emitBackendEgressFn: in.emitBackendEgressFn,
 		appendBillingLegFn: in.appendBillingLegFn, now: in.now, billingEnabled: in.billingEnabled,
@@ -1501,7 +1510,10 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 	// Every terminal exit, including a competing claim or an invalid owner,
 	// must release the attempt-owned evidence; otherwise a construction/close
 	// failure can leave it available to a replacement invocation.
-	defer func() { _, _ = a.billingEvidenceDrain() }()
+	defer func() {
+		_, _ = a.billingEvidenceDrain()
+		_ = a.drainLocalBoundaryObservations(time.Now().UTC())
+	}()
 	if a.terminal == nil {
 		return attemptTerminalResult{Result: coreterm.Result{Err: sdkterminal.ErrInvalid}}
 	}
@@ -1795,6 +1807,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 				}
 				streamEv := a.augmentBillingUsage(evidence.StreamFallback, evidence.Usage)
 				evidenceEvents, evidenceConflicts := a.billingEvidenceDrain()
+				localObservations := a.drainLocalBoundaryObservations(finished)
 				finalizeReason := "record_leg"
 				if evidence.BillingReason != "" {
 					finalizeReason = evidence.BillingReason
@@ -1840,6 +1853,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 					stream:            streamEv,
 					evidenceEvents:    evidenceEvents,
 					evidenceConflicts: evidenceConflicts,
+					localObservations: localObservations,
 					operatorRateRef:   opRef,
 					workload:          workload,
 				})
