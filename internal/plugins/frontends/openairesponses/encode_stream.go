@@ -8,8 +8,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -20,11 +22,35 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		model = "gpt-4o-mini"
 	}
 	opts = defaultEncodeOptions(call, opts)
-	rid := opts.ResponseID
-	mid := opts.MessageID
-	ts := opts.CreatedAt
+	return writeStreamSSECore(ctx, w, model, opts.ResponseID, opts.MessageID, opts.CreatedAt, opts.ExposeLipUsageExtensions, func(w http.ResponseWriter) {
+		sessionwire.WriteResponseCarriers(w, call)
+	}, es)
+}
 
-	sessionwire.WriteResponseCarriers(w, call)
+// WireWriteStreamSSE emits responses SSE events incrementally from the canonical stream for wire fast-path execution.
+func WireWriteStreamSSE(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream, exposeExt bool) error {
+	model := rc.ClientModel()
+	if model == "" {
+		model = rc.EffectiveModel()
+	}
+	if model == "" {
+		model = "gpt-4o-mini"
+	}
+	rid := rc.OpenAIResponseID()
+	mid := rc.OpenAIMessageID()
+	ts := rc.DeterministicTimestamp()
+	if ts == 0 {
+		ts = time.Now().Unix()
+	}
+	return writeStreamSSECore(ctx, w, model, rid, mid, ts, exposeExt, func(w http.ResponseWriter) {
+		rc.WriteSessionHeaders(w)
+	}, es)
+}
+
+func writeStreamSSECore(ctx context.Context, w http.ResponseWriter, model, rid, mid string, ts int64, exposeExt bool, writeCarriers func(w http.ResponseWriter), es lipapi.EventStream) error {
+	if writeCarriers != nil {
+		writeCarriers(w)
+	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
@@ -525,7 +551,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			completed.Response.Status = "completed"
 			completed.Response.Model = model
 			completed.Response.Output = out
-			completed.Response.Usage = wireResponsesUsage(usageCol, opts.ExposeLipUsageExtensions)
+			completed.Response.Usage = wireResponsesUsage(usageCol, exposeExt)
 			if err := stream.FlushSSEEventJSON(w, fl, "response.completed", completed); err != nil {
 				return false, err
 			}

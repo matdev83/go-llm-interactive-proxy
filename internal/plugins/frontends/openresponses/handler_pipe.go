@@ -245,7 +245,68 @@ func (h *Handler) buildPipe() {
 			_, _ = w.Write(resource)
 			return nil
 		},
+		WireWrapStream: func(_ context.Context, rc frontendpipe.ResponseContext, inner lipapi.EventStream) (lipapi.EventStream, error) {
+			if extra, ok := rc.Extra().(wireExtraState); ok {
+				return newAllowedToolsStreamFromChoice(extra.ToolChoice, inner), nil
+			}
+			return inner, nil
+		},
+		WireWriteStream: func(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+			rc.WriteSessionHeaders(w)
+			model := rc.ClientModel()
+			if model == "" {
+				model = rc.EffectiveModel()
+			}
+			responseID := rc.CallID()
+			var opts lipapi.GenerationOptions
+			if extra, ok := rc.Extra().(wireExtraState); ok {
+				opts = extra.Options
+			}
+			h.serveStreamingWithModel(ctx, w, es, nil, model, responseID, nil, lipcont.Scope{}, false, nil, opts)
+			return nil
+		},
+		WireWriteNonStream: func(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+			return h.writeWireNonStream(ctx, w, rc, es)
+		},
 	}
+}
+
+func (h *Handler) writeWireNonStream(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+	rc.WriteSessionHeaders(w)
+	clock := h.cfg.ResponseClock
+	if clock == nil {
+		clock = systemResponseClock{}
+	}
+	now := clock.Now()
+	storeVal := false
+	model := rc.ClientModel()
+	if model == "" {
+		model = rc.EffectiveModel()
+	}
+	meta := proto.EnvelopeMetadata{
+		ResponseID:  rc.CallID(),
+		CreatedAt:   now,
+		CompletedAt: &now,
+		Model:       model,
+		Store:       &storeVal,
+	}
+	var opts lipapi.GenerationOptions
+	if extra, ok := rc.Extra().(wireExtraState); ok {
+		opts = extra.Options
+	}
+	resource, collectErr := collectNonStreaming(ctx, es, meta, opts, h.cfg.ProtocolLimits)
+	if collectErr != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		status, typ, code, message := classifyExecutionError(collectErr)
+		writeWireError(w, status, typ, code, message)
+		return nil
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(resource)
+	return nil
 }
 
 // IsEligibleNoStoreCreate reports whether the decoded request belongs to the

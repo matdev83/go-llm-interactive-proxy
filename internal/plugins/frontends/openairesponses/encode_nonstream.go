@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -21,20 +23,46 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	return json.NewEncoder(w).Encode(resp)
 }
 
-func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) (wireResponse, error) {
-	order := &nonstreamOutputOrder{}
-	col, err := lipapi.Collect(ctx, &orderTeeStream{inner: es, order: order})
-	if err != nil {
-		return wireResponse{}, err
+// WireWriteNonStreamJSON encodes a completed canonical stream as OpenAI Responses JSON for wire fast-path execution.
+func WireWriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream, exposeExt bool) error {
+	model := rc.ClientModel()
+	if model == "" {
+		model = rc.EffectiveModel()
 	}
+	if model == "" {
+		model = "gpt-4o-mini"
+	}
+	rid := rc.OpenAIResponseID()
+	mid := rc.OpenAIMessageID()
+	ts := rc.DeterministicTimestamp()
+	if ts == 0 {
+		ts = time.Now().Unix()
+	}
+	resp, err := buildWireResponseInternal(ctx, es, model, rid, mid, ts, exposeExt)
+	if err != nil {
+		return err
+	}
+	rc.WriteSessionHeaders(w)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	return json.NewEncoder(w).Encode(resp)
+}
+
+func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) (wireResponse, error) {
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "gpt-4o-mini"
 	}
 	opts = defaultEncodeOptions(call, opts)
-	rid := opts.ResponseID
-	mid := opts.MessageID
-	ts := opts.CreatedAt
+	return buildWireResponseInternal(ctx, es, model, opts.ResponseID, opts.MessageID, opts.CreatedAt, opts.ExposeLipUsageExtensions)
+}
+
+func buildWireResponseInternal(ctx context.Context, es lipapi.EventStream, model, rid, mid string, ts int64, exposeExt bool) (wireResponse, error) {
+	order := &nonstreamOutputOrder{}
+	col, err := lipapi.Collect(ctx, &orderTeeStream{inner: es, order: order})
+	if err != nil {
+		return wireResponse{}, err
+	}
 	text := col.Text.String()
 	msgOut := map[string]any{
 		"type":    "message",
@@ -116,6 +144,6 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 		Model:     model,
 		Output:    out,
 	}
-	resp.Usage = wireResponsesUsage(col, opts.ExposeLipUsageExtensions)
+	resp.Usage = wireResponsesUsage(col, exposeExt)
 	return resp, nil
 }

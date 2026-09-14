@@ -64,6 +64,14 @@ func (s *sseResponseWriter) Flush() {
 }
 
 func (h *Handler) serveStreaming(ctx context.Context, w http.ResponseWriter, stream lipapi.EventStream, decoded *DecodedCreate, responseID string, store lipcont.Store, scope lipcont.Scope, isReserved bool, owner continuationReservationOwner) {
+	fallbackModel := ""
+	if decoded != nil {
+		fallbackModel = decoded.Model
+	}
+	h.serveStreamingWithModel(ctx, w, stream, decoded, fallbackModel, responseID, store, scope, isReserved, owner)
+}
+
+func (h *Handler) serveStreamingWithModel(ctx context.Context, w http.ResponseWriter, stream lipapi.EventStream, decoded *DecodedCreate, fallbackModel string, responseID string, store lipcont.Store, scope lipcont.Scope, isReserved bool, owner continuationReservationOwner, extraOpts ...lipapi.GenerationOptions) {
 	if stream == nil {
 		if isReserved && store != nil {
 			cleanupContinuationReservation(store, scope, responseID)
@@ -103,13 +111,31 @@ func (h *Handler) serveStreaming(ctx context.Context, w http.ResponseWriter, str
 	if clock == nil {
 		clock = systemResponseClock{}
 	}
+	model := fallbackModel
+	var storePtr *bool
+	var callOpts lipapi.GenerationOptions
+	var prevID string
+	if decoded != nil {
+		model = decoded.Model
+		storePtr = &decoded.Store
+		if decoded.Call != nil {
+			callOpts = decoded.Call.Options
+		}
+		prevID = decoded.PreviousResponseID
+	} else {
+		storeVal := false
+		storePtr = &storeVal
+		if len(extraOpts) > 0 {
+			callOpts = extraOpts[0]
+		}
+	}
 	sm = proto.NewStateMachine(proto.EnvelopeMetadata{
 		ResponseID:         responseID,
-		PreviousResponseID: decoded.PreviousResponseID,
+		PreviousResponseID: prevID,
 		CreatedAt:          clock.Now(),
-		Model:              decoded.Model,
-		Store:              &decoded.Store,
-	}, decoded.Call.Options, effectiveProtocolLimits(h.cfg.ProtocolLimits))
+		Model:              model,
+		Store:              storePtr,
+	}, callOpts, effectiveProtocolLimits(h.cfg.ProtocolLimits))
 	seam := &sseResponseWriter{w: w}
 	sse := proto.NewSSEWriter(seam)
 	committed := func() bool { return seam.committed }

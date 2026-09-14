@@ -466,7 +466,7 @@ func resolveOpenResponsesWireDomain(
 				}
 			}
 			for _, c := range facts.RequiredCapabilities {
-				if c != lipapi.CapabilityStreaming {
+				if c != lipapi.CapabilityStreaming && c != lipapi.CapabilityOrderedItems {
 					return largebody.WireDomainSupport{
 						Compatible:       false,
 						AnyAcceptedModel: false,

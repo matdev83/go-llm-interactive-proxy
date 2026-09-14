@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -225,6 +227,12 @@ func newAssessmentTestSpec(
 			return struct{}{}
 		},
 		WriteNonStream: func(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts struct{}) error {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+			return nil
+		},
+		WireWriteNonStream: func(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
 			return nil
@@ -554,4 +562,111 @@ func TestCandidateAssessment_AssessorPanic_SafelyReleasesPermit(t *testing.T) {
 	}()
 
 	frontendpipe.ServeHTTP(&spec, rec, req)
+}
+
+type trackingCloserStream struct {
+	lipapi.EventStream
+	closed atomic.Bool
+}
+
+func (s *trackingCloserStream) Next() (lipapi.Event, error) {
+	return lipapi.Event{}, io.EOF
+}
+
+func (s *trackingCloserStream) Close() error {
+	s.closed.Store(true)
+	if s.EventStream != nil {
+		return s.EventStream.Close()
+	}
+	return nil
+}
+
+// TestCandidateAssessment_MissingWriter_FailsExplicitly_NoStatusOkPlaceholder proves:
+// When execution is accepted, missing writers (in both stream and non-stream modes,
+// with either nil or non-nil stream) must fail explicitly with an encode failure (HTTP 500),
+// NEVER falling back to a 200 {"status":"ok"} placeholder, and properly cleaning up streams.
+func TestCandidateAssessment_MissingWriter_FailsExplicitly_NoStatusOkPlaceholder(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		isStream   bool
+		withStream bool
+	}{
+		{name: "non-stream with nil stream", isStream: false, withStream: false},
+		{name: "non-stream with non-nil stream", isStream: false, withStream: true},
+		{name: "stream with nil stream", isStream: true, withStream: false},
+		{name: "stream with non-nil stream", isStream: true, withStream: true},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			limiter := &trackingAdmissionLimiter{}
+			exec := &testAssessorExecutor{}
+			payload := buildJSONPayload(1200 * 1024)
+
+			exec.assessFunc = func(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
+				return makeAcceptedAssessment(proof)
+			}
+
+			streamTracker := &trackingCloserStream{}
+			exec.executeLargeFunc = func(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error) {
+				res := largebody.ExecutionResult{}
+				if tc.withStream {
+					res.Stream = streamTracker
+				}
+				return res, nil
+			}
+
+			prof := minimalValidProofProfile()
+			if tc.isStream {
+				origCompile := prof.compileFunc
+				prof.compileFunc = func(ctx context.Context, in frontendpipe.ProofInput) (frontendpipe.ProofOutput, error) {
+					out, err := origCompile(ctx, in)
+					if err != nil {
+						return out, err
+					}
+					out.State.Proof.Delivery = lipapi.DeliveryModeStreaming
+					out.State.Proof.RequiredCapabilities = append(out.State.Proof.RequiredCapabilities, lipapi.CapabilityStreaming)
+					out.State.Seeds.Stream = true
+					return out, nil
+				}
+			}
+
+			spec := newAssessmentTestSpec(
+				exec,
+				prof,
+				frontendpipe.LargePayloadConfig{
+					Enabled:        true,
+					ThresholdBytes: 1 << 20,
+				},
+				limiter,
+				nil,
+				nil,
+				nil,
+			)
+			// Deliberately leave writers nil to test fail-closed behavior
+			spec.WireWriteNonStream = nil
+			spec.WireWriteStream = nil
+
+			req := httptest.NewRequest(http.MethodPost, "/v1/create", bytes.NewReader(payload))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			frontendpipe.ServeHTTP(&spec, rec, req)
+
+			if rec.Code == http.StatusOK {
+				t.Fatalf("expected failure status code for missing writer, got HTTP %d with body %q", rec.Code, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), `{"status":"ok"}`) {
+				t.Fatalf("response body must NOT contain placeholder status ok, got %q", rec.Body.String())
+			}
+			if tc.withStream && !streamTracker.closed.Load() {
+				t.Fatal("expected execution stream to be closed on writer failure")
+			}
+		})
+	}
 }

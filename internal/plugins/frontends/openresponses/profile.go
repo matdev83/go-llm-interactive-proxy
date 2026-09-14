@@ -43,6 +43,12 @@ func (p *Profile) ProfileID() string {
 	return ProfileID
 }
 
+// wireExtraState carries frontend-owned extra state for wire response processing.
+type wireExtraState struct {
+	ToolChoice lipapi.ToolChoice
+	Options    lipapi.GenerationOptions
+}
+
 type stringInspector struct {
 	totalBytes       int64
 	hasNonWhitespace bool
@@ -968,6 +974,14 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 			TotalContentBytes: totalContentBytes,
 		}
 	} else if !inputArrayIsLarge {
+		// Enforce strict whitelist of simple text and text-tool shapes.
+		// Any unrepresented canonical protocol features (item_reference, compaction,
+		// assistant phase, reasoning, content part annotations, assistant_ref, non-text content,
+		// non-text tool result output, or unknown fields) decline precommit to canonical.
+		if err := validateWireInputArrayWhitelist(inputArrayBuf.Bytes()); err != nil {
+			return frontendpipe.ProofOutput{}, err
+		}
+
 		// Small array input: parse items into lipapi.Item using canonical proto.DecodeItem
 		var wireItems []proto.WireItem
 		if err := json.Unmarshal(inputArrayBuf.Bytes(), &wireItems); err != nil {
@@ -1266,6 +1280,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 			ProfileID: ProfileID,
 			Proof:     proof,
 			Seeds:     seeds,
+			Extra:     wireExtraState{ToolChoice: toolChoice, Options: idCfg.Options},
 		},
 	}
 
@@ -1651,4 +1666,150 @@ func compileStreamingCompactionFacts(
 		return compactionfacts.RequestFacts{}, false, berr
 	}
 	return facts, true, nil
+}
+
+func validateWireInputArrayWhitelist(raw []byte) error {
+	var rawItems []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rawItems); err != nil {
+		return fmt.Errorf("openresponses: invalid item array input: %w", err)
+	}
+	for i, rawItem := range rawItems {
+		var itemType string
+		if rawType, ok := rawItem["type"]; ok {
+			if err := json.Unmarshal(rawType, &itemType); err != nil {
+				return fmt.Errorf("openresponses: item[%d]: invalid type: %w", i, err)
+			}
+		}
+		itemType = strings.TrimSpace(itemType)
+		switch itemType {
+		case "", "message":
+			for k := range rawItem {
+				switch k {
+				case "id", "type", "status", "role", "content":
+					// allowed
+				default:
+					return fmt.Errorf("openresponses: item[%d]: unsupported field %q requires canonical decode", i, k)
+				}
+			}
+			if rawContent, ok := rawItem["content"]; ok {
+				if err := validateWireMessageContent(i, rawContent); err != nil {
+					return err
+				}
+			}
+		case "function_call":
+			for k := range rawItem {
+				switch k {
+				case "id", "type", "call_id", "name", "arguments", "status":
+					// allowed
+				default:
+					return fmt.Errorf("openresponses: item[%d]: unsupported function_call field %q requires canonical decode", i, k)
+				}
+			}
+		case "function_call_output", "function_output":
+			for k := range rawItem {
+				switch k {
+				case "id", "type", "call_id", "output", "status":
+					// allowed
+				default:
+					return fmt.Errorf("openresponses: item[%d]: unsupported tool result field %q requires canonical decode", i, k)
+				}
+			}
+			if rawOutput, ok := rawItem["output"]; ok {
+				if err := validateWireToolOutput(i, rawOutput); err != nil {
+					return err
+				}
+			}
+		default:
+			return fmt.Errorf("openresponses: item[%d]: unsupported item type %q requires canonical decode", i, itemType)
+		}
+	}
+	return nil
+}
+
+func validateWireMessageContent(itemIdx int, raw json.RawMessage) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return fmt.Errorf("openresponses: item[%d]: invalid content string: %w", itemIdx, err)
+		}
+		return nil
+	}
+	if trimmed[0] == '[' {
+		var parts []map[string]json.RawMessage
+		if err := json.Unmarshal(trimmed, &parts); err != nil {
+			return fmt.Errorf("openresponses: item[%d]: invalid content parts array: %w", itemIdx, err)
+		}
+		for partIdx, part := range parts {
+			var partType string
+			if rawPT, ok := part["type"]; ok {
+				if err := json.Unmarshal(rawPT, &partType); err != nil {
+					return fmt.Errorf("openresponses: item[%d].parts[%d]: invalid part type: %w", itemIdx, partIdx, err)
+				}
+			}
+			partType = strings.TrimSpace(partType)
+			switch partType {
+			case "text", "input_text", "output_text":
+				for pk := range part {
+					switch pk {
+					case "type", "text":
+						// allowed
+					default:
+						return fmt.Errorf("openresponses: item[%d].parts[%d]: unsupported content part field %q requires canonical decode", itemIdx, partIdx, pk)
+					}
+				}
+			default:
+				return fmt.Errorf("openresponses: item[%d].parts[%d]: unsupported content part type %q requires canonical decode", itemIdx, partIdx, partType)
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("openresponses: item[%d]: non-string, non-array content requires canonical decode", itemIdx)
+}
+
+func validateWireToolOutput(itemIdx int, raw json.RawMessage) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return fmt.Errorf("openresponses: item[%d]: invalid output string: %w", itemIdx, err)
+		}
+		return nil
+	}
+	if trimmed[0] == '[' {
+		var parts []map[string]json.RawMessage
+		if err := json.Unmarshal(trimmed, &parts); err != nil {
+			return fmt.Errorf("openresponses: item[%d]: invalid output parts array: %w", itemIdx, err)
+		}
+		for partIdx, part := range parts {
+			var partType string
+			if rawPT, ok := part["type"]; ok {
+				if err := json.Unmarshal(rawPT, &partType); err != nil {
+					return fmt.Errorf("openresponses: item[%d].output[%d]: invalid part type: %w", itemIdx, partIdx, err)
+				}
+			}
+			partType = strings.TrimSpace(partType)
+			switch partType {
+			case "text", "input_text", "output_text":
+				for pk := range part {
+					switch pk {
+					case "type", "text":
+						// allowed
+					default:
+						return fmt.Errorf("openresponses: item[%d].output[%d]: unsupported output part field %q requires canonical decode", itemIdx, partIdx, pk)
+					}
+				}
+			default:
+				return fmt.Errorf("openresponses: item[%d].output[%d]: unsupported output part type %q requires canonical decode", itemIdx, partIdx, partType)
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("openresponses: item[%d]: non-text tool output requires canonical decode", itemIdx)
 }

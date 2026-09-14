@@ -664,26 +664,26 @@ func replayCandidate[Opts any](
 		if isStream {
 			if spec.WireWriteStream != nil {
 				writeErr = spec.WireWriteStream(ctx, w, respCtx, es)
+			} else {
+				writeErr = errors.New("frontendpipe: wire write stream not configured")
 			}
 		} else {
 			if spec.WireWriteNonStream != nil {
 				writeErr = spec.WireWriteNonStream(ctx, w, respCtx, es)
+			} else {
+				writeErr = errors.New("frontendpipe: wire write non-stream not configured")
 			}
 		}
 		if writeErr != nil {
 			if spec.Log != nil {
 				diag.LogError(ctx, spec.Log, "wire response encode failed", diag.AttrOpts{CallID: respCtx.CallID()}, writeErr)
 			}
-			if !isStream {
+			if !isStream || w.Header().Get("Content-Type") == "" {
 				spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteEncodeFailed(w))
 			}
 			return nil, nil, false, nil
 		}
 
-		if w.Header().Get("Content-Type") == "" {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"ok"}`))
-		}
 		return nil, nil, false, nil
 	}
 

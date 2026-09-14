@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -200,10 +201,16 @@ func TestStockHost_BuildHost_WithFastPath_RealE2EReachability(t *testing.T) {
 		upstreamCalls      atomic.Int32
 		openWireCalls      atomic.Int32
 		openCanonicalCalls atomic.Int32
+		lastUpstreamBody   atomic.Pointer[string]
 	)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls.Add(1)
+		if r.Body != nil {
+			b, _ := io.ReadAll(r.Body)
+			s := string(b)
+			lastUpstreamBody.Store(&s)
+		}
 		if r.URL.Path == "/v1/models" {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o"}]}`)
@@ -234,6 +241,10 @@ func TestStockHost_BuildHost_WithFastPath_RealE2EReachability(t *testing.T) {
 routing:
   max_attempts: 3
   default_route: "wire-backend:gpt-4o"
+
+model_aliases:
+  - pattern: "^alias-chat$"
+    replacement: "wire-backend:gpt-4o"
 
 continuity:
   in_memory: true
@@ -267,63 +278,170 @@ plugins:
 	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-
-	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
-		ConfigPath:      cfgPath,
-		Mandatory:       lipsdk.StandardDistributionRequirements(),
-		LogWriter:       io.Discard,
-		HandlerComposer: stdhttp.ComposeStandardHTTP,
-		RegistrySetup: func(reg *pluginreg.Registry) error {
-			return reg.WrapLifecycleBackend("custom-openai-legacy-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
-				return func(instanceID string, n yaml.Node, upstreamHTTP *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
-					res, err := orig(instanceID, n, upstreamHTTP, deps)
-					if err != nil {
-						return pluginreg.BackendBuildResult{}, err
-					}
-					origOpenWire := res.Backend.OpenWire
-					if origOpenWire != nil {
-						res.Backend.OpenWire = func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
-							openWireCalls.Add(1)
-							return origOpenWire(ctx, req)
-						}
-					}
-					origOpen := res.Backend.Open
-					if origOpen != nil {
-						res.Backend.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-							openCanonicalCalls.Add(1)
-							return origOpen(ctx, call, cand)
-						}
-					}
-					return res, nil
-				}
-			})
-		},
-	})
-	if err != nil {
-		t.Fatalf("BuildHost: %v", err)
+	cfgPathOff := filepath.Join(t.TempDir(), "stock-wire-e2e-off.yaml")
+	if err := os.WriteFile(cfgPathOff, []byte(strings.Replace(customYAML, "enabled: true", "enabled: false", 1)), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
-	hostServeCleanup(t, host)
+
+	buildHostWithConfig := func(cpath string) *runtimebundle.Host {
+		h, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+			ConfigPath:      cpath,
+			Mandatory:       lipsdk.StandardDistributionRequirements(),
+			LogWriter:       io.Discard,
+			HandlerComposer: stdhttp.ComposeStandardHTTP,
+			RegistrySetup: func(reg *pluginreg.Registry) error {
+				return reg.WrapLifecycleBackend("custom-openai-legacy-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
+					return func(instanceID string, n yaml.Node, upstreamHTTP *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+						res, err := orig(instanceID, n, upstreamHTTP, deps)
+						if err != nil {
+							return pluginreg.BackendBuildResult{}, err
+						}
+						origOpenWire := res.Backend.OpenWire
+						if origOpenWire != nil {
+							res.Backend.OpenWire = func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+								openWireCalls.Add(1)
+								return origOpenWire(ctx, req)
+							}
+						}
+						origOpen := res.Backend.Open
+						if origOpen != nil {
+							res.Backend.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+								openCanonicalCalls.Add(1)
+								return origOpen(ctx, call, cand)
+							}
+						}
+						return res, nil
+					}
+				})
+			},
+		})
+		if err != nil {
+			t.Fatalf("BuildHost: %v", err)
+		}
+		hostServeCleanup(t, h)
+		return h
+	}
+
+	host := buildHostWithConfig(cfgPath)
+	hostOff := buildHostWithConfig(cfgPathOff)
 
 	padding := strings.Repeat("x", 1500)
 	bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"hello %s"}]}`, padding)
 
+	respIDRe := regexp.MustCompile(`"(id)":\s*"chatcmpl[-_][0-9a-zA-Z_-]+"`)
+	tsRe := regexp.MustCompile(`"(created)":\s*[0-9]+`)
+	normalizeBody := func(s string) string {
+		s = respIDRe.ReplaceAllString(s, `"$1":"chatcmpl-NORMALIZED"`)
+		s = tsRe.ReplaceAllString(s, `"$1":0`)
+		return s
+	}
+
 	// Case 1: Fresh session streaming request -> wire accepted, OpenWire == 1, canonical Open == 0
 	{
-		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
+		wireBefore := openWireCalls.Load()
+		canonBefore := openCanonicalCalls.Load()
 
-		host.HTTPHandler().ServeHTTP(rec, req)
+		reqOn := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
+		reqOn.Header.Set("Content-Type", "application/json")
+		recOn := httptest.NewRecorder()
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("fresh wire request failed with HTTP %d: %s", rec.Code, rec.Body.String())
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		if recOn.Code != http.StatusOK {
+			t.Fatalf("fresh wire request failed with HTTP %d: %s", recOn.Code, recOn.Body.String())
 		}
-		if got := openWireCalls.Load(); got != 1 {
-			t.Fatalf("expected OpenWire == 1, got %d", got)
+		require.Contains(t, recOn.Body.String(), "reachability-wire-ok")
+		require.Contains(t, recOn.Body.String(), "data: [DONE]")
+		require.NotContains(t, recOn.Body.String(), `{"status":"ok"}`)
+		require.Equal(t, "text/event-stream; charset=utf-8", recOn.Header().Get("Content-Type"))
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "expected OpenWire == 1")
+		require.Equal(t, canonBefore, openCanonicalCalls.Load(), "expected canonical Open == 0")
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
+		reqOff.Header.Set("Content-Type", "application/json")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "hostOff must not increment OpenWire")
+		require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "hostOff must increment canonical Open")
+		require.Contains(t, recOff.Body.String(), "reachability-wire-ok")
+		require.Contains(t, recOff.Body.String(), "data: [DONE]")
+		require.Equal(t, normalizeBody(recOff.Body.String()), normalizeBody(recOn.Body.String()), "plain response must match canonical oracle")
+	}
+
+	// Case 1b: Fresh session with options (temperature, top_p, max_tokens) -> wire accepted and matches canonical oracle
+	{
+		wireBefore := openWireCalls.Load()
+		canonBefore := openCanonicalCalls.Load()
+
+		bodyJSONOpts := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"temperature":0.2,"top_p":0.8,"max_tokens":256,"messages":[{"role":"user","content":"hello %s"}]}`, padding)
+		reqOn := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSONOpts))
+		reqOn.Header.Set("Content-Type", "application/json")
+		recOn := httptest.NewRecorder()
+
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		if recOn.Code != http.StatusOK {
+			t.Fatalf("options wire request failed with HTTP %d: %s", recOn.Code, recOn.Body.String())
 		}
-		if got := openCanonicalCalls.Load(); got != 0 {
-			t.Fatalf("expected canonical Open == 0, got %d", got)
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "options request must invoke wire fast-path")
+		require.Equal(t, canonBefore, openCanonicalCalls.Load(), "options wire request must not invoke canonical Open")
+		require.Contains(t, recOn.Body.String(), "reachability-wire-ok")
+		require.Contains(t, recOn.Body.String(), "data: [DONE]")
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSONOpts))
+		reqOff.Header.Set("Content-Type", "application/json")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "hostOff must not increment OpenWire")
+		require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "hostOff must increment canonical Open")
+		require.Contains(t, recOff.Body.String(), "reachability-wire-ok")
+		require.Contains(t, recOff.Body.String(), "data: [DONE]")
+		require.Equal(t, normalizeBody(recOff.Body.String()), normalizeBody(recOn.Body.String()), "options response must match canonical oracle")
+	}
+
+	// Case 1c: Model rewrite / route alias (client selector != backend native)
+	{
+		wireBefore := openWireCalls.Load()
+		canonBefore := openCanonicalCalls.Load()
+
+		clientModel := "alias-chat"
+		bodyJSONAlias := fmt.Sprintf(`{"model":"%s","stream":true,"messages":[{"role":"user","content":"hello %s"}]}`, clientModel, padding)
+		reqOn := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSONAlias))
+		reqOn.Header.Set("Content-Type", "application/json")
+		recOn := httptest.NewRecorder()
+
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		if recOn.Code != http.StatusOK {
+			t.Fatalf("alias wire request failed with HTTP %d: %s", recOn.Code, recOn.Body.String())
 		}
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "alias request must invoke wire fast-path")
+		require.Equal(t, canonBefore, openCanonicalCalls.Load(), "alias wire request must not invoke canonical Open")
+		require.NotNil(t, lastUpstreamBody.Load(), "upstream must receive request body")
+		require.Contains(t, *lastUpstreamBody.Load(), `"model":"gpt-4o"`, "backend body model must be rewritten to candidate model")
+		require.NotContains(t, *lastUpstreamBody.Load(), clientModel, "backend body must not contain original client alias")
+		require.Contains(t, recOn.Body.String(), `"model":"alias-chat"`, "downstream response must echo exact client model")
+		require.NotContains(t, recOn.Body.String(), `"model":"gpt-4o"`, "downstream response must not leak backend native model")
+		require.Contains(t, recOn.Body.String(), "reachability-wire-ok")
+		require.Contains(t, recOn.Body.String(), "data: [DONE]")
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSONAlias))
+		reqOff.Header.Set("Content-Type", "application/json")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "hostOff must not increment OpenWire")
+		require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "hostOff must increment canonical Open")
+		require.NotNil(t, lastUpstreamBody.Load(), "upstream must receive request body on hostOff")
+		require.Contains(t, *lastUpstreamBody.Load(), `"model":"gpt-4o"`, "canonical backend body model must be rewritten to candidate model")
+		require.NotContains(t, *lastUpstreamBody.Load(), clientModel, "canonical backend body must not contain original client alias")
+		require.Contains(t, recOff.Body.String(), `"model":"alias-chat"`, "canonical downstream response must echo exact client model")
+		require.NotContains(t, recOff.Body.String(), `"model":"gpt-4o"`, "canonical downstream response must not leak backend native model")
+		require.Contains(t, recOff.Body.String(), "reachability-wire-ok")
+		require.Contains(t, recOff.Body.String(), "data: [DONE]")
+		require.Equal(t, normalizeBody(recOff.Body.String()), normalizeBody(recOn.Body.String()), "model alias response must match canonical oracle with exact client model")
 	}
 
 	// Case 2: Resumed session request -> pre-commit decline to canonical, OpenWire remains 1, canonical Open increments
@@ -342,6 +460,7 @@ plugins:
 			t.Fatalf("expected non-empty X-LIP-Resume-Token from canonical init, got headers: %v", initRec.Header())
 		}
 
+		wireBefore := openWireCalls.Load()
 		canonBefore := openCanonicalCalls.Load()
 
 		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
@@ -360,8 +479,8 @@ plugins:
 		if !strings.Contains(rec.Body.String(), "reachability-wire-ok") {
 			t.Fatalf("expected streamed response containing reachability-wire-ok, got: %s", rec.Body.String())
 		}
-		if got := openWireCalls.Load(); got != 1 {
-			t.Fatalf("expected OpenWire to remain 1, got %d", got)
+		if got := openWireCalls.Load(); got != wireBefore {
+			t.Fatalf("expected OpenWire to remain %d, got %d", wireBefore, got)
 		}
 		if got := openCanonicalCalls.Load(); got != canonBefore+1 {
 			t.Fatalf("expected canonical Open to increment by 1 (got %d, want %d)", got, canonBefore+1)
@@ -1950,4 +2069,587 @@ func TestStockHost_ForgedConversationReaderStockOrigin_OverwrittenAndDeclined(t 
 	decision, reason := authGate.Evaluate()
 	require.Equal(t, largebody.AssessmentDecisionDecline, decision)
 	require.Equal(t, largebody.DeclineReasonAuthorityBlocker, reason)
+}
+
+// TestStockHost_OpenResponses_WireReachability_AndDeclineParity verifies that with a normal
+// BuildHost configured with the actual openresponses frontend and actual compatible responses backend,
+// a fresh no-store streaming request above threshold executes over the wire fast-path (OpenWire=1, Open=0)
+// delivering real downstream SSE without {"status":"ok"}, and paired advanced protocol shapes decline precommit
+// to canonical execution with exact parity against a feature-off canonical oracle host.
+func TestStockHost_OpenResponses_WireReachability_AndDeclineParity(t *testing.T) {
+	t.Parallel()
+
+	var (
+		openWireCalls         atomic.Int32
+		openCanonicalCalls    atomic.Int32
+		capturedCanonicalCall atomic.Pointer[lipapi.Call]
+		lastUpstreamBody      atomic.Pointer[string]
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			b, _ := io.ReadAll(r.Body)
+			s := string(b)
+			lastUpstreamBody.Store(&s)
+		}
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o"},{"id":"o1"}]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/responses") {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			_, _ = fmt.Fprint(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_prod\",\"model\":\"gpt-4o\",\"status\":\"in_progress\"}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello-from-upstream\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_prod\",\"model\":\"gpt-4o\",\"status\":\"completed\"}}\n\ndata: [DONE]\n\n")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	spoolDir := t.TempDir()
+	customYAML := fmt.Sprintf(`server:
+  address: "127.0.0.1:0"
+  large_payload_fast_path:
+    enabled: true
+    threshold_bytes: 1024
+    memory_spool_bytes: 32768
+    max_inflight_spool_bytes: 1048576
+    max_semantic_fact_bytes: 16384
+    spool_dir: %q
+
+routing:
+  max_attempts: 3
+  default_route: "wire-backend:gpt-4o"
+
+model_aliases:
+  - pattern: "^alias-openresponses$"
+    replacement: "wire-backend:gpt-4o"
+
+continuity:
+  in_memory: true
+  store: memory
+
+logging:
+  level: error
+  format: text
+
+diagnostics:
+  enabled: false
+
+plugins:
+  frontends:
+    - id: openresponses
+      enabled: true
+      config: {}
+  backends:
+    - kind: custom-openai-responses-compatible
+      id: wire-backend
+      enabled: true
+      config:
+        backend_prefix: wire-backend
+        base_url: %q
+  features:
+    - id: tool-call-repair
+      enabled: false
+`, spoolDir, upstream.URL+"/v1")
+
+	cfgPath := filepath.Join(t.TempDir(), "stock-wire-openresponses.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfgPathOff := filepath.Join(t.TempDir(), "stock-wire-openresponses-off.yaml")
+	if err := os.WriteFile(cfgPathOff, []byte(strings.Replace(customYAML, "enabled: true", "enabled: false", 1)), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	buildHostWithConfig := func(cpath string) *runtimebundle.Host {
+		h, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+			ConfigPath:      cpath,
+			Mandatory:       lipsdk.StandardDistributionRequirements(),
+			LogWriter:       io.Discard,
+			HandlerComposer: stdhttp.ComposeStandardHTTP,
+			RegistrySetup: func(reg *pluginreg.Registry) error {
+				return reg.WrapLifecycleBackend("custom-openai-responses-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
+					return func(instanceID string, n yaml.Node, upstreamHTTP *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+						res, err := orig(instanceID, n, upstreamHTTP, deps)
+						if err != nil {
+							return pluginreg.BackendBuildResult{}, err
+						}
+						origOpenWire := res.Backend.OpenWire
+						if origOpenWire != nil {
+							res.Backend.OpenWire = func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+								openWireCalls.Add(1)
+								return origOpenWire(ctx, req)
+							}
+						}
+						origOpen := res.Backend.Open
+						if origOpen != nil {
+							res.Backend.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+								openCanonicalCalls.Add(1)
+								callCopy := call
+								capturedCanonicalCall.Store(&callCopy)
+								return origOpen(ctx, call, cand)
+							}
+						}
+						return res, nil
+					}
+				})
+			},
+		})
+		if err != nil {
+			t.Fatalf("BuildHost: %v", err)
+		}
+		hostServeCleanup(t, h)
+		return h
+	}
+
+	host := buildHostWithConfig(cfgPath)
+	hostOff := buildHostWithConfig(cfgPathOff)
+
+	padding := strings.Repeat("x", 1500)
+	respIDRe := regexp.MustCompile(`"(id)":\s*"(resp_[0-9a-zA-Z_-]+|gen-[0-9a-zA-Z_-]+)"`)
+	tsRe := regexp.MustCompile(`"(created_at|completed_at)":\s*[0-9]+`)
+	normalizeBody := func(s string) string {
+		s = respIDRe.ReplaceAllString(s, `"$1":"resp_NORMALIZED"`)
+		s = tsRe.ReplaceAllString(s, `"$1":0`)
+		return s
+	}
+
+	// 1. Positive: Fresh no-store stream plain text above threshold -> OpenWire=1, Open=0 on host, OpenWire=0, Open=1 on hostOff
+	{
+		wireBefore := openWireCalls.Load()
+		canonBefore := openCanonicalCalls.Load()
+
+		bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"store":false,"input":"hello %s"}`, padding)
+		reqOn := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(bodyJSON))
+		reqOn.Header.Set("Content-Type", "application/json")
+		reqOn.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		recOn := httptest.NewRecorder()
+
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		if recOn.Code != http.StatusOK {
+			t.Fatalf("request failed with HTTP %d: %s", recOn.Code, recOn.Body.String())
+		}
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "wire fast-path must be invoked for valid plain text openresponses create")
+		require.Equal(t, canonBefore, openCanonicalCalls.Load(), "canonical Open must not be called")
+		require.Nil(t, capturedCanonicalCall.Load(), "no canonical call materialization for wire fast-path")
+		require.Contains(t, recOn.Body.String(), "response.created")
+		require.Contains(t, recOn.Body.String(), "hello-from-upstream")
+		require.Contains(t, recOn.Body.String(), "response.completed")
+		require.Contains(t, recOn.Body.String(), "data: [DONE]")
+		require.NotContains(t, recOn.Body.String(), `{"status":"ok"}`)
+		require.Equal(t, "text/event-stream", recOn.Header().Get("Content-Type"))
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(bodyJSON))
+		reqOff.Header.Set("Content-Type", "application/json")
+		reqOff.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "hostOff must not call wire fast-path")
+		require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "hostOff must call canonical Open")
+		require.Contains(t, recOff.Body.String(), "response.completed")
+		require.Contains(t, recOff.Body.String(), "data: [DONE]")
+		require.Equal(t, normalizeBody(recOff.Body.String()), normalizeBody(recOn.Body.String()), "plain response must match canonical oracle")
+	}
+
+	// 1b. Positive with options: temperature, top_p, max_output_tokens -> must match canonical oracle
+	{
+		wireBefore := openWireCalls.Load()
+		canonBefore := openCanonicalCalls.Load()
+
+		bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"store":false,"temperature":0.2,"top_p":0.8,"max_output_tokens":256,"input":"hello %s"}`, padding)
+		reqOn := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(bodyJSON))
+		reqOn.Header.Set("Content-Type", "application/json")
+		reqOn.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		recOn := httptest.NewRecorder()
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "options-carrying request must be accepted by wire fast-path")
+		require.Equal(t, canonBefore, openCanonicalCalls.Load(), "canonical Open must not be called")
+		require.Contains(t, recOn.Body.String(), "response.completed")
+		require.Contains(t, recOn.Body.String(), "data: [DONE]")
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(bodyJSON))
+		reqOff.Header.Set("Content-Type", "application/json")
+		reqOff.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "hostOff must not call wire fast-path")
+		require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "hostOff must call canonical Open")
+		require.Contains(t, recOff.Body.String(), "response.completed")
+		require.Contains(t, recOff.Body.String(), "data: [DONE]")
+		require.Equal(t, normalizeBody(recOff.Body.String()), normalizeBody(recOn.Body.String()), "options-carrying response must match canonical oracle")
+	}
+
+	// 1c. Positive with model alias / rewrite: client selector != backend native
+	{
+		wireBefore := openWireCalls.Load()
+		canonBefore := openCanonicalCalls.Load()
+
+		clientModel := "alias-openresponses"
+		bodyJSONAlias := fmt.Sprintf(`{"model":"%s","stream":true,"store":false,"input":"hello %s"}`, clientModel, padding)
+		reqOn := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(bodyJSONAlias))
+		reqOn.Header.Set("Content-Type", "application/json")
+		recOn := httptest.NewRecorder()
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		if recOn.Code != http.StatusOK {
+			t.Fatalf("alias wire request failed with HTTP %d: %s", recOn.Code, recOn.Body.String())
+		}
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "alias request must invoke wire fast-path")
+		require.Equal(t, canonBefore, openCanonicalCalls.Load(), "alias wire request must not invoke canonical Open")
+		require.NotNil(t, lastUpstreamBody.Load(), "upstream must receive request body")
+		require.Contains(t, *lastUpstreamBody.Load(), `"model":"gpt-4o"`, "backend body model must be rewritten to candidate model")
+		require.NotContains(t, *lastUpstreamBody.Load(), clientModel, "backend body must not contain original client alias")
+		require.Contains(t, recOn.Body.String(), `"model":"alias-openresponses"`, "downstream response must echo exact client model")
+		require.NotContains(t, recOn.Body.String(), `"model":"gpt-4o"`, "downstream response must not leak backend native model")
+		require.Contains(t, recOn.Body.String(), "response.created")
+		require.Contains(t, recOn.Body.String(), "response.completed")
+		require.Contains(t, recOn.Body.String(), "data: [DONE]")
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(bodyJSONAlias))
+		reqOff.Header.Set("Content-Type", "application/json")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "hostOff must not increment OpenWire")
+		require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "hostOff must increment canonical Open")
+		require.NotNil(t, lastUpstreamBody.Load(), "upstream must receive request body on hostOff")
+		require.Contains(t, *lastUpstreamBody.Load(), `"model":"gpt-4o"`, "canonical backend body model must be rewritten to candidate model")
+		require.NotContains(t, *lastUpstreamBody.Load(), clientModel, "canonical backend body must not contain original client alias")
+		require.Contains(t, recOff.Body.String(), `"model":"alias-openresponses"`, "canonical downstream response must echo exact client model")
+		require.NotContains(t, recOff.Body.String(), `"model":"gpt-4o"`, "canonical downstream response must not leak backend native model")
+		require.Contains(t, recOff.Body.String(), "response.created")
+		require.Contains(t, recOff.Body.String(), "response.completed")
+		require.Contains(t, recOff.Body.String(), "data: [DONE]")
+		require.Equal(t, normalizeBody(recOff.Body.String()), normalizeBody(recOn.Body.String()), "model alias response must match canonical oracle with exact client model")
+	}
+
+	testDeclineParity := func(name, bodyJSON string) {
+		t.Helper()
+		wireBefore := openWireCalls.Load()
+
+		reqOn := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(bodyJSON))
+		reqOn.Header.Set("Content-Type", "application/json")
+		reqOn.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		recOn := httptest.NewRecorder()
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(bodyJSON))
+		reqOff.Header.Set("Content-Type", "application/json")
+		reqOff.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore, openWireCalls.Load(), name+": must decline wire precommit")
+		require.Equal(t, recOff.Code, recOn.Code, name+": status code must match canonical oracle")
+		require.Equal(t, normalizeBody(recOff.Body.String()), normalizeBody(recOn.Body.String()), name+": body must match canonical oracle")
+	}
+
+	// 2. Negative: item_reference in input array -> declines precommit to canonical with oracle parity
+	testDeclineParity("item_reference in input array", fmt.Sprintf(`{"model":"gpt-4o","stream":true,"store":false,"input":[{"type":"item_reference","id":"item_ref_1"}, {"type":"message","role":"user","content":"msg %s"}]}`, padding))
+
+	// 3. Negative: compaction in input array -> declines precommit to canonical with oracle parity
+	testDeclineParity("compaction in input array", fmt.Sprintf(`{"model":"gpt-4o","stream":true,"store":false,"input":[{"type":"compaction","id":"c_1","dialect":"test","encrypted_content":"enc_blob"}, {"type":"message","role":"user","content":"msg %s"}]}`, padding))
+
+	// 4. Negative: assistant phase in message item -> declines precommit to canonical with oracle parity
+	testDeclineParity("assistant phase in message item", fmt.Sprintf(`{"model":"gpt-4o","stream":true,"store":false,"input":[{"type":"message","role":"assistant","phase":"commentary","content":"thought %s"}]}`, padding))
+
+	// 5. Negative: reasoning item -> declines precommit to canonical with oracle parity
+	testDeclineParity("reasoning item", fmt.Sprintf(`{"model":"gpt-4o","stream":true,"store":false,"input":[{"type":"reasoning","content":"thought"}, {"type":"message","role":"user","content":"msg %s"}]}`, padding))
+
+	// 6. Negative: content part annotations -> declines precommit to canonical with oracle parity
+	testDeclineParity("content part annotations", fmt.Sprintf(`{"model":"gpt-4o","stream":true,"store":false,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello %s","annotations":[{"type":"file_citation"}]}]}]}`, padding))
+
+	// 7. Negative: content part assistant_ref -> declines precommit to canonical with oracle parity
+	testDeclineParity("content part assistant_ref", fmt.Sprintf(`{"model":"gpt-4o","stream":true,"store":false,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello %s","assistant_ref":"msg_123"}]}]}`, padding))
+}
+
+// TestStockHost_OpenAIResponses_WireReachability_AndDeclineParity verifies that with a normal
+// BuildHost configured with the actual openai-responses frontend and actual compatible responses backend,
+// a fresh streaming request above threshold executes over the wire fast-path (OpenWire=1, Open=0)
+// delivering real downstream SSE without {"status":"ok"}, and a resumed session declines precommit
+// to canonical execution with exact parity against a feature-off canonical oracle host.
+func TestStockHost_OpenAIResponses_WireReachability_AndDeclineParity(t *testing.T) {
+	t.Parallel()
+
+	var (
+		openWireCalls         atomic.Int32
+		openCanonicalCalls    atomic.Int32
+		capturedCanonicalCall atomic.Pointer[lipapi.Call]
+		lastUpstreamBody      atomic.Pointer[string]
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			b, _ := io.ReadAll(r.Body)
+			s := string(b)
+			lastUpstreamBody.Store(&s)
+		}
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o"}]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/responses") {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_prod\",\"model\":\"gpt-4o\",\"status\":\"in_progress\"}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello-openai-responses-upstream\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_prod\",\"model\":\"gpt-4o\",\"status\":\"completed\"}}\n\ndata: [DONE]\n\n")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	spoolDir := t.TempDir()
+	customYAML := fmt.Sprintf(`server:
+  address: "127.0.0.1:0"
+  large_payload_fast_path:
+    enabled: true
+    threshold_bytes: 1024
+    memory_spool_bytes: 32768
+    max_inflight_spool_bytes: 1048576
+    max_semantic_fact_bytes: 16384
+    spool_dir: %q
+
+routing:
+  max_attempts: 3
+  default_route: "wire-backend:gpt-4o"
+
+model_aliases:
+  - pattern: "^alias-responses$"
+    replacement: "wire-backend:gpt-4o"
+
+continuity:
+  in_memory: true
+  store: memory
+
+logging:
+  level: error
+  format: text
+
+diagnostics:
+  enabled: false
+
+plugins:
+  frontends:
+    - id: openai-responses
+      enabled: true
+      config: {}
+  backends:
+    - kind: custom-openai-responses-compatible
+      id: wire-backend
+      enabled: true
+      config:
+        backend_prefix: wire-backend
+        base_url: %q
+  features:
+    - id: tool-call-repair
+      enabled: false
+`, spoolDir, upstream.URL+"/v1")
+
+	cfgPath := filepath.Join(t.TempDir(), "stock-wire-openairesponses.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfgPathOff := filepath.Join(t.TempDir(), "stock-wire-openairesponses-off.yaml")
+	if err := os.WriteFile(cfgPathOff, []byte(strings.Replace(customYAML, "enabled: true", "enabled: false", 1)), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	buildHostWithConfig := func(cpath string) *runtimebundle.Host {
+		h, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+			ConfigPath:      cpath,
+			Mandatory:       lipsdk.StandardDistributionRequirements(),
+			LogWriter:       io.Discard,
+			HandlerComposer: stdhttp.ComposeStandardHTTP,
+			RegistrySetup: func(reg *pluginreg.Registry) error {
+				return reg.WrapLifecycleBackend("custom-openai-responses-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
+					return func(instanceID string, n yaml.Node, upstreamHTTP *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+						res, err := orig(instanceID, n, upstreamHTTP, deps)
+						if err != nil {
+							return pluginreg.BackendBuildResult{}, err
+						}
+						origOpenWire := res.Backend.OpenWire
+						if origOpenWire != nil {
+							res.Backend.OpenWire = func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+								openWireCalls.Add(1)
+								return origOpenWire(ctx, req)
+							}
+						}
+						origOpen := res.Backend.Open
+						if origOpen != nil {
+							res.Backend.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+								openCanonicalCalls.Add(1)
+								callCopy := call
+								capturedCanonicalCall.Store(&callCopy)
+								return origOpen(ctx, call, cand)
+							}
+						}
+						return res, nil
+					}
+				})
+			},
+		})
+		if err != nil {
+			t.Fatalf("BuildHost: %v", err)
+		}
+		hostServeCleanup(t, h)
+		return h
+	}
+
+	host := buildHostWithConfig(cfgPath)
+	hostOff := buildHostWithConfig(cfgPathOff)
+
+	padding := strings.Repeat("x", 1500)
+	bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"input":"hello %s"}`, padding)
+
+	respIDRe := regexp.MustCompile(`"(id|response_id)":\s*"(resp_[0-9a-zA-Z_-]+|gen-[0-9a-zA-Z_-]+)"`)
+	msgIDRe := regexp.MustCompile(`"(item_id|id)":\s*"msg_[0-9a-zA-Z_-]+"`)
+	tsRe := regexp.MustCompile(`"(created_at|completed_at|created)":\s*[0-9]+`)
+	normalizeBody := func(s string) string {
+		s = respIDRe.ReplaceAllString(s, `"$1":"resp_NORMALIZED"`)
+		s = msgIDRe.ReplaceAllString(s, `"$1":"msg_NORMALIZED"`)
+		s = tsRe.ReplaceAllString(s, `"$1":0`)
+		return s
+	}
+
+	// 1. Positive: Fresh stream plain text above threshold -> OpenWire=1, Open=0
+	{
+		wireBefore := openWireCalls.Load()
+		canonBefore := openCanonicalCalls.Load()
+
+		reqOn := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(bodyJSON))
+		reqOn.Header.Set("Content-Type", "application/json")
+		reqOn.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		recOn := httptest.NewRecorder()
+
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		if recOn.Code != http.StatusOK {
+			t.Fatalf("request failed with HTTP %d: %s", recOn.Code, recOn.Body.String())
+		}
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "wire fast-path must be invoked for valid plain text openai-responses create")
+		require.Equal(t, canonBefore, openCanonicalCalls.Load(), "canonical Open must not be called")
+		require.Nil(t, capturedCanonicalCall.Load(), "no canonical call materialization for wire fast-path")
+		require.Contains(t, recOn.Body.String(), "response.created")
+		require.Contains(t, recOn.Body.String(), "hello-openai-responses-upstream")
+		require.Contains(t, recOn.Body.String(), "response.completed")
+		require.Contains(t, recOn.Body.String(), "data: [DONE]")
+		require.NotContains(t, recOn.Body.String(), `{"status":"ok"}`)
+		require.Equal(t, "text/event-stream; charset=utf-8", recOn.Header().Get("Content-Type"))
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(bodyJSON))
+		reqOff.Header.Set("Content-Type", "application/json")
+		reqOff.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "hostOff must not call wire fast-path")
+		require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "hostOff must call canonical Open")
+		require.Contains(t, recOff.Body.String(), "response.completed")
+		require.Contains(t, recOff.Body.String(), "data: [DONE]")
+		require.Equal(t, normalizeBody(recOff.Body.String()), normalizeBody(recOn.Body.String()), "plain response must match canonical oracle")
+	}
+
+	// 1b. Positive with options: temperature, top_p, max_output_tokens -> must match canonical oracle
+	{
+		wireBefore := openWireCalls.Load()
+		canonBefore := openCanonicalCalls.Load()
+
+		bodyJSONOpts := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"temperature":0.2,"top_p":0.8,"max_output_tokens":256,"input":"hello %s"}`, padding)
+		reqOn := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(bodyJSONOpts))
+		reqOn.Header.Set("Content-Type", "application/json")
+		reqOn.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		recOn := httptest.NewRecorder()
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "wire fast-path must be invoked for options-carrying request")
+		require.Equal(t, canonBefore, openCanonicalCalls.Load(), "canonical Open must not be called")
+		require.Contains(t, recOn.Body.String(), "response.completed")
+		require.Contains(t, recOn.Body.String(), "data: [DONE]")
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(bodyJSONOpts))
+		reqOff.Header.Set("Content-Type", "application/json")
+		reqOff.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "hostOff must not call wire fast-path")
+		require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "hostOff must call canonical Open")
+		require.Contains(t, recOff.Body.String(), "response.completed")
+		require.Contains(t, recOff.Body.String(), "data: [DONE]")
+		require.Equal(t, normalizeBody(recOff.Body.String()), normalizeBody(recOn.Body.String()), "options response must match canonical oracle")
+	}
+
+	// 1c. Positive with model alias / rewrite: client selector != backend native
+	{
+		wireBefore := openWireCalls.Load()
+		canonBefore := openCanonicalCalls.Load()
+
+		clientModel := "alias-responses"
+		bodyJSONAlias := fmt.Sprintf(`{"model":"%s","stream":true,"input":"hello %s"}`, clientModel, padding)
+		reqOn := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(bodyJSONAlias))
+		reqOn.Header.Set("Content-Type", "application/json")
+		recOn := httptest.NewRecorder()
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		if recOn.Code != http.StatusOK {
+			t.Fatalf("alias wire request failed with HTTP %d: %s", recOn.Code, recOn.Body.String())
+		}
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "alias request must invoke wire fast-path")
+		require.Equal(t, canonBefore, openCanonicalCalls.Load(), "alias wire request must not invoke canonical Open")
+		require.NotNil(t, lastUpstreamBody.Load(), "upstream must receive request body")
+		require.Contains(t, *lastUpstreamBody.Load(), `"model":"gpt-4o"`, "backend body model must be rewritten to candidate model")
+		require.NotContains(t, *lastUpstreamBody.Load(), clientModel, "backend body must not contain original client alias")
+		require.Contains(t, recOn.Body.String(), `"model":"alias-responses"`, "downstream response must echo exact client model")
+		require.NotContains(t, recOn.Body.String(), `"model":"gpt-4o"`, "downstream response must not leak backend native model")
+		require.Contains(t, recOn.Body.String(), "response.created")
+		require.Contains(t, recOn.Body.String(), "response.completed")
+		require.Contains(t, recOn.Body.String(), "data: [DONE]")
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(bodyJSONAlias))
+		reqOff.Header.Set("Content-Type", "application/json")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore+1, openWireCalls.Load(), "hostOff must not increment OpenWire")
+		require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "hostOff must increment canonical Open")
+		require.NotNil(t, lastUpstreamBody.Load(), "upstream must receive request body on hostOff")
+		require.Contains(t, *lastUpstreamBody.Load(), `"model":"gpt-4o"`, "canonical backend body model must be rewritten to candidate model")
+		require.NotContains(t, *lastUpstreamBody.Load(), clientModel, "canonical backend body must not contain original client alias")
+		require.Contains(t, recOff.Body.String(), `"model":"alias-responses"`, "canonical downstream response must echo exact client model")
+		require.NotContains(t, recOff.Body.String(), `"model":"gpt-4o"`, "canonical downstream response must not leak backend native model")
+		require.Contains(t, recOff.Body.String(), "response.created")
+		require.Contains(t, recOff.Body.String(), "response.completed")
+		require.Contains(t, recOff.Body.String(), "data: [DONE]")
+		require.Equal(t, normalizeBody(recOff.Body.String()), normalizeBody(recOn.Body.String()), "model alias response must match canonical oracle with exact client model")
+	}
+
+	// 2. Negative: Resumed session request -> declines precommit to canonical with oracle parity
+	{
+		wireBefore := openWireCalls.Load()
+
+		reqOn := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(bodyJSON))
+		reqOn.Header.Set("Content-Type", "application/json")
+		reqOn.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		reqOn.Header.Set("X-LIP-Resume-Token", "test-resume-token")
+		recOn := httptest.NewRecorder()
+		host.HTTPHandler().ServeHTTP(recOn, reqOn)
+
+		reqOff := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(bodyJSON))
+		reqOff.Header.Set("Content-Type", "application/json")
+		reqOff.Header.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		reqOff.Header.Set("X-LIP-Resume-Token", "test-resume-token")
+		recOff := httptest.NewRecorder()
+		hostOff.HTTPHandler().ServeHTTP(recOff, reqOff)
+
+		require.Equal(t, wireBefore, openWireCalls.Load(), "resumed session must decline wire precommit")
+		require.Equal(t, recOff.Code, recOn.Code, "status code must match canonical oracle")
+	}
 }

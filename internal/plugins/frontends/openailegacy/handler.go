@@ -1,6 +1,7 @@
 package openailegacy
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -104,6 +106,12 @@ func (h *Handler) buildPipe() {
 		},
 		WriteStream:    WriteStreamSSE,
 		WriteNonStream: WriteNonStreamJSON,
+		WireWriteStream: func(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+			return WireWriteStreamSSE(ctx, w, rc, es, h.Config.ExposeLipUsageExtensions)
+		},
+		WireWriteNonStream: func(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+			return WireWriteNonStreamJSON(ctx, w, rc, es, h.Config.ExposeLipUsageExtensions)
+		},
 	}
 }
 

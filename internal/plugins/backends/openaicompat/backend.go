@@ -78,7 +78,16 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 			return openaicaps.ForHostedModelCompatibleReplay(resolveModel(spec, cand, call), prefixes)
 		},
 		ResolveWireCaps: func(_ context.Context, cand routing.AttemptCandidate) lipapi.BackendCaps {
-			return openaicaps.ForHostedModelCompatibleReplay(cand.Primary.Model, prefixes)
+			caps := openaicaps.ForHostedModelCompatibleReplay(cand.Primary.Model, prefixes)
+			if spec.Flavor == FlavorResponses {
+				out := lipapi.NewBackendCaps()
+				for c := range caps {
+					out[c] = struct{}{}
+				}
+				out[lipapi.CapabilityOrderedItems] = struct{}{}
+				return out
+			}
+			return caps
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {

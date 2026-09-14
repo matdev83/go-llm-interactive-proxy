@@ -1244,7 +1244,7 @@ func TestOpenResponsesProfile_MF3_SmallArrayValidationDeclines(t *testing.T) {
 		{
 			name:       "empty item_reference ID rejected",
 			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"item_reference","id":""}]}`,
-			wantErrSub: "reference ID is required",
+			wantErrSub: "requires canonical decode",
 		},
 		{
 			name: "continuation ref count exceeded rejected",
@@ -1256,7 +1256,7 @@ func TestOpenResponsesProfile_MF3_SmallArrayValidationDeclines(t *testing.T) {
 				items = append(items, `{"type":"message","role":"user","content":"hi"}`)
 				return fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[%s]}`, strings.Join(items, ","))
 			}(),
-			wantErrSub: "continuation reference count exceeds limit",
+			wantErrSub: "requires canonical decode",
 		},
 	}
 
@@ -1275,4 +1275,250 @@ func TestOpenResponsesProfile_MF3_SmallArrayValidationDeclines(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOpenResponsesProfile_WhitelistDeclines_SmallArray(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+
+	cases := []struct {
+		name       string
+		body       string
+		wantErrSub string
+	}{
+		{
+			name:       "item_reference declined",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"item_reference","id":"ref_1"}]}`,
+			wantErrSub: "unsupported item type \"item_reference\" requires canonical decode",
+		},
+		{
+			name:       "compaction declined",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"compaction","id":"c_1","dialect":"test","encrypted_content":"enc"}]}`,
+			wantErrSub: "unsupported item type \"compaction\" requires canonical decode",
+		},
+		{
+			name:       "phase declined",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"assistant","phase":"commentary","content":"thought"}]}`,
+			wantErrSub: "unsupported field \"phase\" requires canonical decode",
+		},
+		{
+			name:       "reasoning declined",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"reasoning","content":"thought"}]}`,
+			wantErrSub: "unsupported item type \"reasoning\" requires canonical decode",
+		},
+		{
+			name:       "content part annotations declined",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi","annotations":[{"type":"file_citation"}]}]}]}`,
+			wantErrSub: "unsupported content part field \"annotations\" requires canonical decode",
+		},
+		{
+			name:       "content part assistant_ref declined",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi","assistant_ref":"ref_1"}]}]}`,
+			wantErrSub: "unsupported content part field \"assistant_ref\" requires canonical decode",
+		},
+		{
+			name:       "non-text content part type declined",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/img.png"}}]}]}`,
+			wantErrSub: "unsupported content part type \"image_url\" requires canonical decode",
+		},
+		{
+			name:       "unknown message field declined",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"user","content":"hi","unknown_key":"val"}]}`,
+			wantErrSub: "unsupported field \"unknown_key\" requires canonical decode",
+		},
+		{
+			name:       "unknown tool result field declined",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"user","content":"call"},{"type":"function_call","id":"fc_1","call_id":"c1","name":"fn","arguments":"{}"},{"type":"function_call_output","id":"fco_1","call_id":"c1","output":"ok","unknown_field":"val"}]}`,
+			wantErrSub: "unsupported tool result field \"unknown_field\" requires canonical decode",
+		},
+		{
+			name:       "non-text tool output declined",
+			body:       `{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"user","content":"call"},{"type":"function_call","id":"fc_1","call_id":"c1","name":"fn","arguments":"{}"},{"type":"function_call_output","id":"fco_1","call_id":"c1","output":[{"type":"image","data":"abc"}]}]}`,
+			wantErrSub: "unsupported output part type \"image\" requires canonical decode",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := defaultOpenResponsesProofInput([]byte(tc.body), "gpt-4o", nil)
+			_, err := prof.CompileProof(context.Background(), in)
+			if err == nil {
+				t.Fatalf("expected CompileProof to fail with %q, got nil", tc.wantErrSub)
+			}
+			if !strings.Contains(err.Error(), tc.wantErrSub) {
+				t.Fatalf("expected error containing %q, got %q", tc.wantErrSub, err.Error())
+			}
+		})
+	}
+}
+
+func TestOpenResponsesProfile_WhitelistDeclines_LargeArrayParity(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+	largeContent := strings.Repeat("x", 200*1024)
+
+	cases := []struct {
+		name       string
+		body       string
+		wantErrSub string
+	}{
+		{
+			name:       "large array item_reference declined",
+			body:       fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"item_reference","id":"ref_1"},{"type":"message","role":"user","content":"%s"}]}`, largeContent),
+			wantErrSub: "requires canonical decode",
+		},
+		{
+			name:       "large array compaction declined",
+			body:       fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"compaction","id":"c_1","dialect":"test","encrypted_content":"enc"},{"type":"message","role":"user","content":"%s"}]}`, largeContent),
+			wantErrSub: "requires canonical decode",
+		},
+		{
+			name:       "large array phase declined",
+			body:       fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"assistant","phase":"commentary","content":"%s"}]}`, largeContent),
+			wantErrSub: "requires canonical decode",
+		},
+		{
+			name:       "large array reasoning declined",
+			body:       fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"reasoning","content":"thought"},{"type":"message","role":"user","content":"%s"}]}`, largeContent),
+			wantErrSub: "requires canonical decode",
+		},
+		{
+			name:       "large array content part annotations declined",
+			body:       fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"%s","annotations":[{"type":"file_citation"}]}]}]}`, largeContent),
+			wantErrSub: "requires canonical decode",
+		},
+		{
+			name:       "large array content part assistant_ref declined",
+			body:       fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"%s","assistant_ref":"ref_1"}]}]}`, largeContent),
+			wantErrSub: "requires canonical decode",
+		},
+		{
+			name:       "large array unknown item field declined",
+			body:       fmt.Sprintf(`{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"user","content":"%s","unknown_field":"val"}]}`, largeContent),
+			wantErrSub: "requires canonical decode",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := defaultOpenResponsesProofInput([]byte(tc.body), "gpt-4o", nil)
+			_, err := prof.CompileProof(context.Background(), in)
+			if err == nil {
+				t.Fatalf("expected CompileProof to fail for large array parity, got nil error")
+			}
+			if !strings.Contains(err.Error(), tc.wantErrSub) {
+				t.Fatalf("expected error containing %q, got %q", tc.wantErrSub, err.Error())
+			}
+		})
+	}
+}
+
+func TestOpenResponsesProfile_WhitelistDeclines_FieldOrderPermutations(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+
+	t.Run("phase before role declines", func(t *testing.T) {
+		t.Parallel()
+		body := `{"model":"gpt-4o","store":false,"input":[{"phase":"commentary","type":"message","role":"assistant","content":"hello"}]}`
+		in := defaultOpenResponsesProofInput([]byte(body), "gpt-4o", nil)
+		_, err := prof.CompileProof(context.Background(), in)
+		if err == nil || !strings.Contains(err.Error(), "phase") {
+			t.Fatalf("expected error mentioning phase, got %v", err)
+		}
+	})
+
+	t.Run("content before type and role accepted", func(t *testing.T) {
+		t.Parallel()
+		body := `{"model":"gpt-4o","store":false,"input":[{"content":"hello","type":"message","role":"user"}]}`
+		in := defaultOpenResponsesProofInput([]byte(body), "gpt-4o", nil)
+		out, err := prof.CompileProof(context.Background(), in)
+		if err != nil {
+			t.Fatalf("expected valid message with reversed field order to succeed, got %v", err)
+		}
+		if out.State.Proof.Turn.TotalContentBytes != int64(len("hello")) {
+			t.Fatalf("expected content length %d, got %d", len("hello"), out.State.Proof.Turn.TotalContentBytes)
+		}
+	})
+
+	t.Run("annotations before text in part declines", func(t *testing.T) {
+		t.Parallel()
+		body := `{"model":"gpt-4o","store":false,"input":[{"type":"message","role":"user","content":[{"annotations":[{"type":"file_citation"}],"type":"input_text","text":"hello"}]}]}`
+		in := defaultOpenResponsesProofInput([]byte(body), "gpt-4o", nil)
+		_, err := prof.CompileProof(context.Background(), in)
+		if err == nil || !strings.Contains(err.Error(), "annotations") {
+			t.Fatalf("expected error mentioning annotations, got %v", err)
+		}
+	})
+
+	t.Run("unknown key before type declines", func(t *testing.T) {
+		t.Parallel()
+		body := `{"model":"gpt-4o","store":false,"input":[{"custom_field":"val","type":"message","role":"user","content":"hello"}]}`
+		in := defaultOpenResponsesProofInput([]byte(body), "gpt-4o", nil)
+		_, err := prof.CompileProof(context.Background(), in)
+		if err == nil || !strings.Contains(err.Error(), "custom_field") {
+			t.Fatalf("expected error mentioning custom_field, got %v", err)
+		}
+	})
+}
+
+func TestOpenResponsesProfile_Tools_RequiredCapabilities(t *testing.T) {
+	t.Parallel()
+
+	prof := openresponses.NewProfile()
+
+	hasCap := func(caps []lipapi.Capability, target lipapi.Capability) bool {
+		for _, c := range caps {
+			if c == target {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("tools in envelope", func(t *testing.T) {
+		t.Parallel()
+		body := `{"model":"gpt-4o","stream":true,"store":false,"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}],"input":"hello"}`
+		in := defaultOpenResponsesProofInput([]byte(body), "gpt-4o", nil)
+		out, err := prof.CompileProof(context.Background(), in)
+		if err != nil {
+			t.Fatalf("CompileProof failed: %v", err)
+		}
+		caps := out.State.Proof.RequiredCapabilities
+		if !hasCap(caps, lipapi.CapabilityStreaming) {
+			t.Errorf("expected CapabilityStreaming in %v", caps)
+		}
+		if !hasCap(caps, lipapi.CapabilityTools) {
+			t.Errorf("expected CapabilityTools in %v", caps)
+		}
+		if !hasCap(caps, lipapi.CapabilityOrderedItems) {
+			t.Errorf("expected CapabilityOrderedItems in %v", caps)
+		}
+	})
+
+	t.Run("tool call and output in input array", func(t *testing.T) {
+		t.Parallel()
+		body := `{"model":"gpt-4o","stream":true,"store":false,"input":[{"type":"message","role":"user","content":"call tool"},{"type":"function_call","id":"fc_1","call_id":"c1","name":"lookup","arguments":"{}"},{"type":"function_call_output","id":"fco_1","call_id":"c1","output":"result text"}]}`
+		in := defaultOpenResponsesProofInput([]byte(body), "gpt-4o", nil)
+		out, err := prof.CompileProof(context.Background(), in)
+		if err != nil {
+			t.Fatalf("CompileProof failed: %v", err)
+		}
+		caps := out.State.Proof.RequiredCapabilities
+		if !hasCap(caps, lipapi.CapabilityStreaming) {
+			t.Errorf("expected CapabilityStreaming in %v", caps)
+		}
+		if !hasCap(caps, lipapi.CapabilityTools) {
+			t.Errorf("expected CapabilityTools in %v", caps)
+		}
+		if !hasCap(caps, lipapi.CapabilityOrderedItems) {
+			t.Errorf("expected CapabilityOrderedItems in %v", caps)
+		}
+	})
 }
