@@ -1,6 +1,18 @@
 name: Pre-OSS core slimming race
 
 on:
+  pull_request:
+    paths:
+      - "internal/core/runtime/**"
+      - "internal/core/largebody/**"
+      - "internal/compactionfacts/**"
+      - "internal/infra/compactiondetect/**"
+      - "internal/plugins/frontends/frontendpipe/**"
+      - "internal/plugins/frontends/openailegacy/**"
+      - "internal/plugins/frontends/openairesponses/**"
+      - "internal/plugins/frontends/openresponses/**"
+      - "internal/infra/runtimebundle/**"
+      - ".github/workflows/pre-oss-core-slimming-race.yml"
   workflow_dispatch:
     inputs:
       ref:
@@ -12,6 +24,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pre-oss-core-slimming-race-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   exact-race:
     runs-on: ubuntu-latest
@@ -20,15 +36,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || '' }}
           persist-credentials: false
-          fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            connectors/**/go.sum
+            connector-support/**/go.sum
+            testdata/enterprise_module/go.sum
+            tools/**/go.sum
 
-      - name: Exact Linux race gate
-        run: go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/core/extensions ./internal/infra/runtimebundle ./internal/plugins/features/secretguard/... ./internal/standardplugins/featurehost/... ./internal/plugins/features/keepwarm/...
+      - name: Run targeted Linux races
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -race \
+            ./internal/core/runtime \
+            ./internal/core/largebody \
+            ./internal/compactionfacts \
+            ./internal/infra/compactiondetect \
+            ./internal/plugins/frontends/frontendpipe \
+            ./internal/plugins/frontends/openailegacy \
+            ./internal/plugins/frontends/openairesponses \
+            ./internal/plugins/frontends/openresponses \
+            ./internal/infra/runtimebundle \
+            ./internal/core/extensions \
+            ./internal/plugins/features/secretguard/... \
+            ./internal/standardplugins/featurehost/... \
+            ./internal/plugins/features/keepwarm/...

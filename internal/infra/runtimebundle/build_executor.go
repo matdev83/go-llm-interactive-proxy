@@ -524,10 +524,10 @@ func (a *conversationViewTaggerAdapter) DeleteALeg(ctx context.Context, aLegID s
 }
 
 func (a *conversationViewTaggerAdapter) ConversationViewStore() conversationview.Store {
-	if a != nil {
-		return a.store
+	if a == nil {
+		return nil
 	}
-	return nil
+	return a.store
 }
 
 type metricsObserverAdapter struct {
@@ -564,19 +564,21 @@ func isBackendCapsSubsumed(ctx context.Context, backends map[string]execbackend.
 		cand := routing.AttemptCandidate{Primary: routing.Primary{Backend: id}}
 		call := lipapi.Call{Route: lipapi.RouteIntent{Selector: id}}
 		if be.ResolveCaps != nil {
-			models := []string{""}
-			if be.ModelInventory != nil {
-				if snap, err := be.ModelInventory.LoadModels(ctx); err == nil && len(snap.Models) > 0 {
-					models = make([]string, len(snap.Models))
-					for i, m := range snap.Models {
-						models[i] = m.CanonicalID
-					}
-				}
+			if be.ModelInventory == nil {
+				return false
 			}
-			for _, m := range models {
-				cand.Primary.Model = m
-				if _, ok := be.ResolveCaps(ctx, call, cand)[lipapi.CapabilityStreaming]; !ok {
-					return false
+			snap, err := be.ModelInventory.LoadModels(ctx)
+			if err != nil || len(snap.Models) == 0 {
+				return false
+			}
+			for _, m := range snap.Models {
+				for _, mid := range []string{m.CanonicalID, m.NativeID} {
+					if mid != "" {
+						cand.Primary.Model = mid
+						if _, ok := be.ResolveCaps(ctx, call, cand)[lipapi.CapabilityStreaming]; !ok {
+							return false
+						}
+					}
 				}
 			}
 		} else if _, ok := be.Caps[lipapi.CapabilityStreaming]; !ok {

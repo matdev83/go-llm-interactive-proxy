@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -39,6 +40,7 @@ func newSpyCompactionDetector() *wireTestSpyCompactionDetector {
 func (s *wireTestSpyCompactionDetector) RequestOpened(meta compaction.PreservationMeta, call lipapi.Call) []compaction.Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.metas = append(s.metas, meta)
 	evs := s.inner.RequestOpened(meta, call)
 	s.eventsEmitted = append(s.eventsEmitted, evs...)
 	return evs
@@ -105,6 +107,11 @@ func setupWireCompactionExecutor(t *testing.T, detector CompactionDetector) (*Ex
 		"default": {
 			OpenWire: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
 				openWireCalls++
+				return lipapi.CloseOnlyManagedStream{Stream: lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseFinished},
+				})}, nil
+			},
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return lipapi.CloseOnlyManagedStream{Stream: lipapi.NewFixedEventStream([]lipapi.Event{
 					{Kind: lipapi.EventResponseFinished},
 				})}, nil
@@ -592,4 +599,105 @@ func TestCompaction_ResponseCompletion_RealDetector_StreamsEvents(t *testing.T) 
 	}
 	assert.True(t, hasStarted, "Detector must record PhaseStarted on request open")
 	assert.True(t, hasCompleted, "Detector must record PhaseCompleted on post marker response release")
+}
+
+// TestCompaction_PreservationMeta_SessionID_WireCanonicalParity pins that:
+//  1. Both canonical (observeCompactionOpened) and wire (observeCompactionOpenedWire) executions
+//     faithfully stamp the authoritative session ID into PreservationMeta.SessionID without loss.
+//  2. Both lanes yield identical PreservationMeta.SessionID for turns within the same session.
+//  3. The canonical AuthoritativeSessionID oracle is preserved and shared recorder real secureID
+//     isolation is unaffected.
+func TestCompaction_PreservationMeta_SessionID_WireCanonicalParity(t *testing.T) {
+	t.Parallel()
+
+	spyWire := newSpyCompactionDetector()
+	exWire, _ := setupWireCompactionExecutor(t, spyWire)
+
+	spyCanonical := newSpyCompactionDetector()
+	exCanonical, _ := setupWireCompactionExecutor(t, spyCanonical)
+
+	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "usr-compaction"})
+
+	// Turn 1: Fresh canonical request creates an authoritative session
+	call := lipapi.Call{
+		Invocation: lipapi.Invocation{
+			Operation: lipapi.OperationOpenAIChatCompletions,
+		},
+		Route: lipapi.RouteIntent{Selector: "default:gpt-4o"},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "canonical session turn 1"}}},
+		},
+	}
+	resCanonical, err := exCanonical.Execute(ctx, &call)
+	require.NoError(t, err)
+	_ = resCanonical.Close()
+
+	spyCanonical.mu.Lock()
+	canonicalMetas := spyCanonical.metas
+	spyCanonical.mu.Unlock()
+	require.NotEmpty(t, canonicalMetas, "canonical execution must capture preservation metadata")
+	canonicalSessionID := canonicalMetas[0].SessionID
+	require.NotEmpty(t, canonicalSessionID, "canonical PreservationMeta.SessionID must not be empty")
+
+	// Turn 2: Fresh wire request creates an authoritative session
+	facts := compactionfacts.ExtractFactsFromCall(call)
+	src := newTestSource(`{"model":"gpt-4o","messages":[{"role":"user","content":"wire session turn 1"}]}`)
+	acc := makeTestAcceptedAssessment(t, "gen-1", "openailegacy", src, true)
+	acc.CompactionFacts = facts
+	acc.CompactionComplete = true
+
+	resWire, err := exWire.ExecuteLargeBody(ctx, acc, src)
+	require.NoError(t, err)
+	_ = resWire.Stream.Close()
+
+	spyWire.mu.Lock()
+	wireMetas := spyWire.metas
+	spyWire.mu.Unlock()
+	require.NotEmpty(t, wireMetas, "wire execution must capture preservation metadata")
+	wireSessionID := wireMetas[0].SessionID
+	require.NotEmpty(t, wireSessionID, "wire PreservationMeta.SessionID must not be empty")
+
+	// 3. Resumed turn under established session: verify exact equality between canonical and wire
+	resumedCall := call
+	resumedCall.Session.AuthoritativeSessionID = canonicalSessionID
+	resumedFacts := compactionfacts.ExtractFactsFromCall(resumedCall)
+
+	// Canonical observation of resumed call
+	prepCanonical := &preparedRequest{
+		recvTurnFacts: recvTurnFacts{
+			traceID: "trace-resumed",
+			aLegID:  "aleg-resumed",
+		},
+		call: &resumedCall,
+		identity: &identityBoundTurn{
+			traceID: "trace-resumed",
+			aLeg:    b2bua.ALegRecord{ALegID: "aleg-resumed"},
+			call:    &resumedCall,
+		},
+	}
+	readyStub := newReadyAttempt(&attemptSession{
+		bleg: b2bua.BLegRecord{BLegID: "bleg-1", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "default", Model: "gpt-4o"}},
+	}, pendingSelectionEffects{})
+
+	canonicalResumedMeta := exCanonical.observeCompactionOpened(ctx, prepCanonical, openedAttempt{ready: readyStub})
+	assert.Equal(t, canonicalSessionID, canonicalResumedMeta.SessionID, "canonical resumed turn must preserve AuthoritativeSessionID")
+
+	// Wire observation of resumed turn under same session ID
+	wp := &wireAttemptPayload{
+		sessionID: canonicalSessionID,
+	}
+	prepWire := &preparedRequest{
+		recvTurnFacts: recvTurnFacts{
+			traceID:     "trace-resumed",
+			aLegID:      "aleg-resumed",
+			wirePayload: wp,
+		},
+	}
+	wireResumedMeta := exWire.observeCompactionOpenedWire(ctx, prepWire, openedAttempt{ready: readyStub}, resumedFacts)
+	assert.Equal(t, canonicalSessionID, wireResumedMeta.SessionID, "wire resumed turn must preserve authoritative sessionID from wirePayload")
+
+	// Exact differential parity pinned:
+	assert.Equal(t, canonicalResumedMeta.SessionID, wireResumedMeta.SessionID, "wire and canonical PreservationMeta.SessionID must be strictly equal")
+	assert.Equal(t, canonicalSessionID, wireResumedMeta.SessionID)
 }

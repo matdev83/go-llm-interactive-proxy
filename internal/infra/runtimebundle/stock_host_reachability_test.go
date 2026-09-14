@@ -2,6 +2,7 @@ package runtimebundle_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,9 +22,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -505,6 +510,14 @@ func (s *stubModelInventoryProvider) LoadModels(ctx context.Context) (modelinven
 	return modelinventory.Snapshot{Models: s.models}, nil
 }
 
+type stubModelInventoryProviderErr struct {
+	err error
+}
+
+func (s *stubModelInventoryProviderErr) LoadModels(ctx context.Context) (modelinventory.Snapshot, error) {
+	return modelinventory.Snapshot{}, s.err
+}
+
 func wireSupportStub(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
 	return largebody.WireRequestSupport{Compatible: true}
 }
@@ -589,6 +602,68 @@ func TestStockHost_IsBackendCapsSubsumed_AgreementAndDisagreement(t *testing.T) 
 	}
 	if !runtimebundle.IsBackendCapsSubsumedForTest(backendsNoWire) {
 		t.Error("expected non-wire backend to be skipped and return true")
+	}
+
+	// 7. Wire backend with ResolveCaps and nil ModelInventory -> false (fail closed!)
+	backendsNilInventory := map[string]execbackend.Backend{
+		"b1": {
+			ResolveWireRequest: wireSupportStub,
+			ModelInventory:     nil,
+			ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+				return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+			},
+		},
+	}
+	if runtimebundle.IsBackendCapsSubsumedForTest(backendsNilInventory) {
+		t.Error("expected nil inventory with ResolveCaps to return false (fail closed)")
+	}
+
+	// 8. Wire backend with ResolveCaps and inventory LoadModels returning error -> false (fail closed!)
+	backendsInventoryErr := map[string]execbackend.Backend{
+		"b1": {
+			ResolveWireRequest: wireSupportStub,
+			ModelInventory:     &stubModelInventoryProviderErr{err: errors.New("inventory fetch failed")},
+			ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+				return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+			},
+		},
+	}
+	if runtimebundle.IsBackendCapsSubsumedForTest(backendsInventoryErr) {
+		t.Error("expected inventory error with ResolveCaps to return false (fail closed)")
+	}
+
+	// 9. Wire backend with ResolveCaps and empty inventory snapshot -> false (fail closed!)
+	backendsEmptyInventory := map[string]execbackend.Backend{
+		"b1": {
+			ResolveWireRequest: wireSupportStub,
+			ModelInventory:     &stubModelInventoryProvider{models: []modelinventory.Model{}},
+			ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+				return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+			},
+		},
+	}
+	if runtimebundle.IsBackendCapsSubsumedForTest(backendsEmptyInventory) {
+		t.Error("expected empty inventory snapshot with ResolveCaps to return false (fail closed)")
+	}
+
+	// 10. Wire backend with ResolveCaps: model native ID lacks streaming -> false (fail closed!)
+	inventoryNativeID := &stubModelInventoryProvider{models: []modelinventory.Model{
+		{CanonicalID: "model-streaming", NativeID: "model-native-batch-only"},
+	}}
+	backendsNativeIDDisagree := map[string]execbackend.Backend{
+		"b1": {
+			ResolveWireRequest: wireSupportStub,
+			ModelInventory:     inventoryNativeID,
+			ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+				if cand.Primary.Model == "model-native-batch-only" {
+					return lipapi.NewBackendCaps()
+				}
+				return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+			},
+		},
+	}
+	if runtimebundle.IsBackendCapsSubsumedForTest(backendsNativeIDDisagree) {
+		t.Error("expected model native ID disagreement to return false (fail closed)")
 	}
 }
 
@@ -812,6 +887,300 @@ plugins:
 		}
 	}
 	require.True(t, hasSteering, "projected backend call must contain applied steering overlay in instructions or messages")
+}
+
+type testProducerLTHandler struct {
+	id          string
+	ord         int
+	matchTag    string
+	replyText   string
+	matchCalls  atomic.Int64
+	handleCalls atomic.Int64
+}
+
+func (h *testProducerLTHandler) ID() string                        { return h.id }
+func (h *testProducerLTHandler) Order() int                        { return h.ord }
+func (h *testProducerLTHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+
+func (h *testProducerLTHandler) Match(_ context.Context, call lipapi.Call, meta localturn.Meta) (localturn.MatchResult, error) {
+	h.matchCalls.Add(1)
+	for i, m := range call.Messages {
+		for _, p := range m.Parts {
+			if strings.Contains(p.Text, h.matchTag) {
+				return localturn.MatchResult{Claimed: true, Indexes: []int{i}, Reason: "test-producer-tag"}, nil
+			}
+		}
+	}
+	return localturn.MatchResult{Claimed: false}, nil
+}
+
+func (h *testProducerLTHandler) Handle(_ context.Context, _ localturn.HandleInput) (localturn.Reply, error) {
+	h.handleCalls.Add(1)
+	return localturn.Reply{Text: h.replyText}, nil
+}
+
+// TestStockHost_HistoricalFallback_ProducerTransition_ReloadAndResume proves that:
+//  1. In Generation 1, an active feature producer (PlaneLocalTurnHandlers) drives local turn tagging.
+//  2. A reload to Generation 2 disables the producer feature.
+//  3. A resumed request (> 1024 bytes threshold) declines wire precommit under the SAME permit identity
+//     (X-Lip-A-Leg-ID), executes canonically (Open1 / OpenWire0), and verifies the tagged message was removed
+//     and steering overlay applied.
+//  4. A subsequent fresh supported request on Generation 2 takes the wire fast-path (OpenWire1 / OpenCanonical0).
+func TestStockHost_HistoricalFallback_ProducerTransition_ReloadAndResume(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o"}]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-prod\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"upstream-ok\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	spoolDir := t.TempDir()
+	customYAML := fmt.Sprintf(`server:
+  address: "127.0.0.1:0"
+  large_payload_fast_path:
+    enabled: true
+    threshold_bytes: 1024
+    memory_spool_bytes: 32768
+    max_inflight_spool_bytes: 1048576
+    max_semantic_fact_bytes: 16384
+    spool_dir: %q
+
+routing:
+  max_attempts: 3
+  default_route: "wire-backend:gpt-4o"
+
+continuity:
+  in_memory: true
+  store: memory
+
+logging:
+  level: error
+  format: text
+
+diagnostics:
+  enabled: false
+
+plugins:
+  frontends:
+    - id: openai-legacy
+      enabled: true
+      config: {}
+  backends:
+    - kind: custom-openai-legacy-compatible
+      id: wire-backend
+      enabled: true
+      config:
+        backend_prefix: wire-backend
+        base_url: %q
+  features:
+    - id: tool-call-repair
+      enabled: false
+    - id: test-local-turn-producer
+      enabled: true
+      config: {}
+`, spoolDir, upstream.URL+"/v1")
+
+	cfgPath := filepath.Join(t.TempDir(), "stock-producer-trans-e2e.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var openWireCalls atomic.Int32
+	var openCanonicalCalls atomic.Int32
+	var capturedCall atomic.Pointer[lipapi.Call]
+
+	ltHandler := &testProducerLTHandler{
+		id:        "producer-lt-1",
+		ord:       10,
+		matchTag:  "producer-tagged-part",
+		replyText: "producer-turn-reply",
+	}
+
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+		RegistrySetup: func(reg *pluginreg.Registry) error {
+			if err := reg.RegisterFeature("test-local-turn-producer", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+				return testkit.FeatureBundle(t, "test-local-turn-producer", func(cs *lipfeature.ContributionSet) error {
+					return lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "test-local-turn-producer", []localturn.Handler{ltHandler})
+				}, nil), nil
+			}); err != nil {
+				return err
+			}
+
+			return reg.WrapLifecycleBackend("custom-openai-legacy-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
+				return func(instanceID string, n yaml.Node, upstreamHTTP *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+					res, err := orig(instanceID, n, upstreamHTTP, deps)
+					if err != nil {
+						return pluginreg.BackendBuildResult{}, err
+					}
+					origOpenWire := res.Backend.OpenWire
+					if origOpenWire != nil {
+						res.Backend.OpenWire = func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+							openWireCalls.Add(1)
+							return origOpenWire(ctx, req)
+						}
+					}
+					origOpen := res.Backend.Open
+					if origOpen != nil {
+						res.Backend.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+							openCanonicalCalls.Add(1)
+							clone := call
+							capturedCall.Store(&clone)
+							return origOpen(ctx, call, cand)
+						}
+					}
+					return res, nil
+				}
+			})
+		},
+	})
+	require.NoError(t, err)
+	hostServeCleanup(t, host)
+
+	// Verify Generation 1: PlaneLocalTurnHandlers and ConversationViewTagger are occupied in authority gate
+	ex1 := hostActiveExecutor(t, host)
+	pa1, ok := ex1.LargeBodyAssessor.(*coreruntime.ProductionLargeBodyAssessor)
+	require.True(t, ok)
+	require.True(t, pa1.AuthorityGate.Census.Ports.ConversationViewTaggerOccupied, "Generation 1 must have ConversationViewTaggerOccupied = true")
+	var g1LocalTurnOccupied bool
+	for _, p := range pa1.AuthorityGate.Census.Planes {
+		if p.ID == lipfeature.PlaneLocalTurnHandlers.ID {
+			g1LocalTurnOccupied = p.Occupied
+			break
+		}
+	}
+	require.True(t, g1LocalTurnOccupied, "Generation 1 must have PlaneLocalTurnHandlers occupied")
+
+	// Step 1 (Generation 1): Send request claimed and tagged by local turn handler
+	gen1Body := `{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"producer-tagged-part"}]}`
+	req1 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(gen1Body))
+	req1.Header.Set("Content-Type", "application/json")
+	rec1 := httptest.NewRecorder()
+	host.HTTPHandler().ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+	require.Contains(t, rec1.Body.String(), "producer-turn-reply")
+	require.Equal(t, int64(1), ltHandler.handleCalls.Load(), "producer local turn handler must be invoked")
+	require.Equal(t, int32(0), openWireCalls.Load(), "local turn handler short-circuits wire")
+	require.Equal(t, int32(0), openCanonicalCalls.Load(), "local turn handler short-circuits backend open")
+
+	resumeTok := rec1.Header().Get("X-LIP-Resume-Token")
+	sessionID := rec1.Header().Get("X-LIP-Session-ID")
+	aLegID := rec1.Header().Get("X-Lip-A-Leg-ID")
+	require.NotEmpty(t, resumeTok, "expected non-empty resume token")
+	require.NotEmpty(t, sessionID, "expected non-empty session ID")
+	require.NotEmpty(t, aLegID, "expected non-empty A-leg ID")
+
+	// Also attach a steering overlay to this session to verify overlay preservation
+	convStore, ok := conversationview.AsStore(ex1.ConversationViewTagger)
+	require.True(t, ok)
+	steeringText := "producer-transition-steering-overlay"
+	_, err = convStore.PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
+		OverlayID: "prod-steering-1",
+		Message: conversationview.StoredMessageV1{
+			Role: lipapi.RoleSystem,
+			Text: steeringText,
+		},
+		Placement: conversationview.StoredPlacement{
+			Kind: conversationview.PlacementStablePrefix,
+		},
+		AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+		Reason:              "test-producer-steering",
+	})
+	require.NoError(t, err)
+
+	// Step 2: Reload to Generation 2 disabling the producer feature
+	tmpPath := filepath.Join(t.TempDir(), "gen2.yaml")
+	gen2YAML := strings.Replace(customYAML, "id: test-local-turn-producer\n      enabled: true", "id: test-local-turn-producer\n      enabled: false", 1)
+	require.NoError(t, os.WriteFile(tmpPath, []byte(gen2YAML), 0o600))
+	require.NoError(t, replaceTestFile(tmpPath, cfgPath))
+
+	res := host.Reload(t.Context(), sdkreload.Trigger{
+		Kind:       sdkreload.TriggerAPI,
+		AcceptedAt: time.Now().UTC(),
+		SafeActor:  "test-producer-transition",
+	})
+	require.Equal(t, sdkreload.ResultPublished, res.Category, "reload must publish Generation 2: %s", res.ReasonCategory)
+
+	// Verify Generation 2: PlaneLocalTurnHandlers and ConversationViewTagger are now unoccupied
+	ex2 := hostActiveExecutor(t, host)
+	pa2, ok := ex2.LargeBodyAssessor.(*coreruntime.ProductionLargeBodyAssessor)
+	require.True(t, ok)
+	require.False(t, pa2.AuthorityGate.Census.Ports.ConversationViewTaggerOccupied, "Generation 2 must have ConversationViewTaggerOccupied = false")
+	var g2LocalTurnOccupied bool
+	for _, p := range pa2.AuthorityGate.Census.Planes {
+		if p.ID == lipfeature.PlaneLocalTurnHandlers.ID {
+			g2LocalTurnOccupied = p.Occupied
+			break
+		}
+	}
+	require.False(t, g2LocalTurnOccupied, "Generation 2 must have PlaneLocalTurnHandlers unoccupied")
+
+	// Step 3 (Generation 2): Resumed request exceeding threshold (> 1024 bytes)
+	// Must decline wire precommit under the SAME permit identity (X-Lip-A-Leg-ID),
+	// canonical execution must open backend exactly once (Open1 / OpenWire0),
+	// and the message tagged by the producer in Gen 1 must be removed and steering applied.
+	padding := strings.Repeat("z", 1500)
+	resumedBody := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"producer-tagged-part"},{"role":"user","content":"resumed-payload %s"}]}`, padding)
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(resumedBody))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-LIP-Resume-Token", resumeTok)
+	req2.Header.Set("X-LIP-Session-ID", sessionID)
+	rec2 := httptest.NewRecorder()
+
+	host.HTTPHandler().ServeHTTP(rec2, req2)
+	require.Equal(t, http.StatusOK, rec2.Code)
+	require.Equal(t, aLegID, rec2.Header().Get("X-Lip-A-Leg-ID"), "resumed turn must retain the same A-leg identity")
+	require.Equal(t, int32(0), openWireCalls.Load(), "wire must not be called for resumed request (OpenWire0)")
+	require.Equal(t, int32(1), openCanonicalCalls.Load(), "canonical open must be called exactly once (Open1)")
+
+	captured := capturedCall.Load()
+	require.NotNil(t, captured)
+	for _, msg := range captured.Messages {
+		for _, part := range msg.Parts {
+			if strings.Contains(part.Text, "producer-tagged-part") {
+				t.Fatalf("canonical call still contains producer-tagged turn: %q", part.Text)
+			}
+		}
+	}
+	hasSteering := false
+	for _, msgList := range [][]lipapi.Message{captured.Instructions, captured.Messages} {
+		for _, msg := range msgList {
+			for _, part := range msg.Parts {
+				if strings.Contains(part.Text, steeringText) {
+					hasSteering = true
+					break
+				}
+			}
+		}
+	}
+	require.True(t, hasSteering, "canonical call must contain applied steering overlay")
+
+	// Step 4 (Generation 2): Fresh supported request on the same host exceeds threshold (> 1024 bytes)
+	// Because producer is now disabled and this turn proves a fresh A-leg, wire fast-path must succeed.
+	freshBody := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"fresh-gen2-payload %s"}]}`, padding)
+	req3 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(freshBody))
+	req3.Header.Set("Content-Type", "application/json")
+	rec3 := httptest.NewRecorder()
+
+	host.HTTPHandler().ServeHTTP(rec3, req3)
+	require.Equal(t, http.StatusOK, rec3.Code)
+	require.Equal(t, int32(1), openWireCalls.Load(), "fresh request on generation 2 must reach wire streaming (OpenWire1)")
+	require.Equal(t, int32(1), openCanonicalCalls.Load(), "canonical open must not increment for fresh wire request")
 }
 
 // TestStockHost_CustomOverriddenConversationReader_Decline verifies that if a non-stock

@@ -189,3 +189,47 @@ func TestCompaction_Differential_LargeChunkedStream_ExactFacts(t *testing.T) {
 	assert.Equal(t, exactFacts.StartRuleMatched, proof.CompactionFacts.StartRuleMatched)
 	assert.Equal(t, exactFacts.StartRuleID, proof.CompactionFacts.StartRuleID)
 }
+
+func TestCompaction_Differential_UTF8SplitAt32KiB_LargeStream(t *testing.T) {
+	t.Parallel()
+
+	prefix := `{"model":"gpt-4o","instructions":"`
+	targetOffset := 32766
+	padLen := targetOffset - len(prefix)
+	require.Greater(t, padLen, 0)
+	padding := strings.Repeat("A", padLen)
+
+	utf8Char := "🌟" // 4 bytes: 0xf0, 0x9f, 0x8c, 0x9f
+	require.Equal(t, 4, len([]byte(utf8Char)))
+
+	suffixPadding := strings.Repeat("B", 16*1024)
+	suffix := ` and more instructions ` + suffixPadding + `","input":"hello"}`
+
+	body := prefix + padding + utf8Char + suffix
+
+	charStart := len(prefix) + len(padding)
+	charEnd := charStart + len([]byte(utf8Char))
+	require.Equal(t, 32766, charStart)
+	require.Equal(t, 32770, charEnd)
+	require.True(t, charStart < 32768 && charEnd > 32768, "UTF-8 sequence must straddle 32768 boundary")
+	require.Greater(t, len(body), 32768, "total body must be larger than 32 KiB")
+
+	// 1. Decode canonical
+	decoded, err := openairesponses.DecodeCreateRequest([]byte(body), openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o"})
+	require.NoError(t, err)
+	exactFacts := compactionfacts.ExtractFactsFromCall(*decoded.Call)
+
+	// 2. Compile proof via streaming
+	out, err := runResponsesCompileProof(t, body)
+	require.NoError(t, err)
+
+	proof := out.State.Proof
+	require.True(t, proof.CompactionComplete, "CompileProof must succeed and be complete")
+
+	// 3. Differential assertions
+	assert.Equal(t, exactFacts.ItemCount, proof.CompactionFacts.ItemCount)
+	assert.Equal(t, exactFacts.ItemHashes, proof.CompactionFacts.ItemHashes, "ItemHashes must match canonical exactly across 32KiB split")
+	assert.Equal(t, exactFacts.TailHashes, proof.CompactionFacts.TailHashes)
+	assert.Equal(t, exactFacts.PrefixHash, proof.CompactionFacts.PrefixHash)
+	assert.Equal(t, exactFacts.StartRuleMatched, proof.CompactionFacts.StartRuleMatched)
+}

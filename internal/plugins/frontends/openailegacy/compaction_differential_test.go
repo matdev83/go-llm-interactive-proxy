@@ -244,3 +244,52 @@ func TestCompaction_MemoryBudget_FlatAllocationsAcross1_5_20MiB(t *testing.T) {
 		})
 	}
 }
+
+func TestCompaction_Differential_UTF8SplitAt32KiB_LargeStream(t *testing.T) {
+	t.Parallel()
+
+	// 4-byte UTF-8 emoji: 🌟 = \xf0\x9f\x8c\x9f
+	// We construct a large JSON message body (> 32KiB, e.g. ~48KiB) where the 4-byte
+	// UTF-8 sequence straddles byte offset 32768 (bytes 32766..32770).
+	prefix := `{"model":"gpt-4o","messages":[{"role":"user","content":"`
+	targetOffset := 32766
+	padLen := targetOffset - len(prefix)
+	require.Greater(t, padLen, 0)
+	padding := strings.Repeat("A", padLen)
+
+	utf8Char := "🌟" // 4 bytes: 0xf0, 0x9f, 0x8c, 0x9f
+	require.Equal(t, 4, len([]byte(utf8Char)))
+
+	// Suffix with additional 16 KiB of content so stream is ~48 KiB (> 32KiB)
+	suffixPadding := strings.Repeat("B", 16*1024)
+	suffix := ` and more content ` + suffixPadding + `"}]}`
+
+	body := prefix + padding + utf8Char + suffix
+
+	// Verify UTF-8 character straddles 32768:
+	charStart := len(prefix) + len(padding)
+	charEnd := charStart + len([]byte(utf8Char))
+	require.Equal(t, 32766, charStart)
+	require.Equal(t, 32770, charEnd)
+	require.True(t, charStart < 32768 && charEnd > 32768, "UTF-8 sequence must straddle 32768 boundary")
+	require.Greater(t, len(body), 32768, "total body must be larger than 32 KiB")
+
+	// 1. Decode canonical
+	decoded, err := openailegacy.DecodeChatRequest([]byte(body), openailegacy.DecodeOptions{RouteSelector: "gpt-4o"})
+	require.NoError(t, err)
+	exactFacts := compactionfacts.ExtractFactsFromCall(*decoded.Call)
+
+	// 2. Compile proof via streaming
+	out, err := runCompileProof(t, body)
+	require.NoError(t, err)
+
+	proof := out.State.Proof
+	require.True(t, proof.CompactionComplete, "CompileProof must succeed and be complete")
+
+	// 3. Differential assertions
+	assert.Equal(t, exactFacts.ItemCount, proof.CompactionFacts.ItemCount)
+	assert.Equal(t, exactFacts.ItemHashes, proof.CompactionFacts.ItemHashes, "ItemHashes must match canonical exactly across 32KiB split")
+	assert.Equal(t, exactFacts.TailHashes, proof.CompactionFacts.TailHashes)
+	assert.Equal(t, exactFacts.PrefixHash, proof.CompactionFacts.PrefixHash)
+	assert.Equal(t, exactFacts.StartRuleMatched, proof.CompactionFacts.StartRuleMatched)
+}
