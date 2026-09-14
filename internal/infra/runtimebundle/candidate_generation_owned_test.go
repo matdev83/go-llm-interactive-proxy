@@ -29,9 +29,11 @@ func TestCandidateRuntime_GenerationOwnedClose_DoesNotCloseProcess(t *testing.T)
 	if err := m.Publish(g); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Publish(m.Prepare("next")); err != nil {
-		t.Fatal(err)
-	}
+	// BeginShutdown+DetachActive (not a replacing Publish) avoids racing
+	// Manager's automatic post-publish retirement scheduling against this
+	// test's manual BeginClose/Close calls.
+	m.BeginShutdown()
+	m.DetachActive()
 	<-g.Drained()
 	if err := g.BeginClose(); err != nil {
 		t.Fatal(err)
