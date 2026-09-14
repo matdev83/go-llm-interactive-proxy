@@ -101,8 +101,9 @@ func TestBindTokenAccountingRuntime_compatibleInstancesUseDistinctLocalCounts(t 
 	cfg := &config.Config{
 		Accounting: config.AccountingConfig{
 			Enabled:   true,
-			Mode:      "local_only",
-			Tokenizer: config.AccountingTokenizerConfig{DefaultEncoding: "cl100k_base"},
+			Mode:         "local_only",
+			CountTimeout: "5s",
+			Tokenizer:    config.AccountingTokenizerConfig{DefaultEncoding: "cl100k_base"},
 			Preflight: config.AccountingPreflightConfig{Mode: "advisory"},
 		},
 	}
