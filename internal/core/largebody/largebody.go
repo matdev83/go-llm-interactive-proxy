@@ -855,11 +855,6 @@ type Assessment struct {
 // AssessmentResult is an alias for Assessment for compatibility.
 type AssessmentResult = Assessment
 
-// CompactionDigest returns the deterministic digest of the compaction facts and completeness.
-func (a Assessment) CompactionDigest() [32]byte {
-	return compactionfacts.Digest(a.CompactionFacts, a.CompactionComplete)
-}
-
 // WithCompactionFacts returns a copy of Assessment with the provided compaction facts.
 func (a Assessment) WithCompactionFacts(facts compactionfacts.RequestFacts, complete bool) Assessment {
 	a.CompactionFacts = facts.Clone()

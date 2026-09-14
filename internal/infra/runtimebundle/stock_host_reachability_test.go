@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -21,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -1367,4 +1369,104 @@ plugins:
 	require.Equal(t, http.StatusOK, rec2.Code)
 	require.Equal(t, int32(2), openWireCalls.Load(), "post-reload request must also reach wire streaming")
 	require.Equal(t, int32(0), openCanonicalCalls.Load())
+}
+
+type forgedReaderForTest struct{}
+
+func (f *forgedReaderForTest) Snapshot(ctx context.Context, aLegID string) (conversationprojection.Snapshot, error) {
+	return conversationprojection.Snapshot{}, nil
+}
+
+// TestStockHost_ForgedConversationReaderStockOrigin_OverwrittenAndDeclined verifies that if a caller
+// injects a custom ConversationReader while asserting ConversationReaderStockOrigin: true, the candidate
+// composition boundary detects the discrepancy against standard features, overwrites ConversationReaderStockOrigin
+// to false, and declines wire execution.
+func TestStockHost_ForgedConversationReaderStockOrigin_OverwrittenAndDeclined(t *testing.T) {
+	t.Parallel()
+
+	forged := &forgedReaderForTest{}
+
+	// Case 1: Nil sf - custom reader asserting stock origin is declined
+	resolvedReader, stockOrigin := runtimebundle.ResolveCandidateConvReaderForTest(featurehost.CorePorts{
+		ConversationReader:            forged,
+		ConversationReaderStockOrigin: true,
+	}, nil)
+	require.Equal(t, forged, resolvedReader)
+	require.False(t, stockOrigin, "forged reader with nil standard features must have stock origin cleared to false")
+
+	// Case 2: Build a real host with standard features to get genuine stock reader
+	basePath := runtimebundle.MaterializeExampleConfigForTest(
+		t,
+		filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"),
+	)
+	raw, err := os.ReadFile(basePath)
+	require.NoError(t, err)
+
+	spoolDir := t.TempDir()
+	customYAML := strings.Replace(
+		string(raw),
+		"server:\n  address: \"127.0.0.1:18080\"",
+		fmt.Sprintf("server:\n  address: \"127.0.0.1:18080\"\n  large_payload_fast_path:\n    enabled: true\n    threshold_bytes: 4096\n    memory_spool_bytes: 32768\n    max_inflight_spool_bytes: 1048576\n    max_semantic_fact_bytes: 16384\n    spool_dir: %q", spoolDir),
+		1,
+	)
+	cfgPath := filepath.Join(t.TempDir(), "stock-forged-reader.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(customYAML), 0o600))
+
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+	})
+	require.NoError(t, err)
+	hostServeCleanup(t, host)
+
+	ps := runtimebundle.HostProcess(host)
+	require.NotNil(t, ps.StandardFeatures)
+
+	stockReader := ps.StandardFeatures.ConversationReader()
+	require.NotNil(t, stockReader)
+
+	// Forged reader -> stock origin overwritten to false
+	resForgedReader, resForgedOrigin := runtimebundle.ResolveCandidateConvReaderForTest(featurehost.CorePorts{
+		ConversationReader:            forged,
+		ConversationReaderStockOrigin: true,
+	}, ps.StandardFeatures)
+	require.Equal(t, forged, resForgedReader)
+	require.False(t, resForgedOrigin, "forged reader must be declined even when ConversationReaderStockOrigin=true")
+
+	// Genuine stock reader with StockOrigin=true -> accepted
+	resStockReader, resStockOrigin := runtimebundle.ResolveCandidateConvReaderForTest(featurehost.CorePorts{
+		ConversationReader:            stockReader,
+		ConversationReaderStockOrigin: true,
+	}, ps.StandardFeatures)
+	require.Equal(t, stockReader, resStockReader)
+	require.True(t, resStockOrigin, "genuine stock reader with ConversationReaderStockOrigin=true must be accepted")
+
+	// Unspecified reader (nil) with StandardFeatures present -> defaults to genuine stock reader and true
+	resNilReader, resNilOrigin := runtimebundle.ResolveCandidateConvReaderForTest(featurehost.CorePorts{
+		ConversationReader:            nil,
+		ConversationReaderStockOrigin: false,
+	}, ps.StandardFeatures)
+	require.Equal(t, stockReader, resNilReader)
+	require.True(t, resNilOrigin, "nil reader must resolve to stock reader with stock origin true")
+
+	// Verify that when stockOrigin is false, authority gate declines
+	census := largebody.NewStandardDependencyCensus("gen-forged-test")
+	census.AddPort("security.session_recorder", true)
+	census.Ports.BackendsEmpty = false
+	census.Ports.ConversationViewReaderOccupied = (resForgedReader != nil)
+	census.Ports.ConversationReaderFreshALegSupported = resForgedOrigin
+	summary, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+		GenerationID:              "gen-forged-test",
+		Planes:                    census.Planes,
+		Hooks:                     census.Hooks,
+		Ports:                     census.Ports,
+		TwoPhaseExecutorAvailable: true,
+	}, 4096)
+	require.NoError(t, err)
+	authGate := largebody.NewAuthorityAssessmentGate(summary, census, "gen-forged-test")
+	decision, reason := authGate.Evaluate()
+	require.Equal(t, largebody.AssessmentDecisionDecline, decision)
+	require.Equal(t, largebody.DeclineReasonAuthorityBlocker, reason)
 }

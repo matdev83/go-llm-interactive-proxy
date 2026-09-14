@@ -93,10 +93,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if bus == nil {
 		bus = hooks.New(hooks.Config{})
 	}
-	parent := opts.Startup.StartupContext
-	if parent == nil {
-		parent = ctx
-	}
+	parent := cmp.Or(opts.Startup.StartupContext, ctx)
 	if parent == nil {
 		return nil, fmt.Errorf("runtimebundle: nil compile context")
 	}
@@ -157,12 +154,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if err != nil {
 		return nil, fail(err)
 	}
-	convReader := opts.CorePorts.ConversationReader
-	stockConvReader := opts.CorePorts.ConversationReaderStockOrigin
-	if convReader == nil && ps.StandardFeatures != nil {
-		convReader = ps.StandardFeatures.ConversationReader()
-		stockConvReader = convReader != nil
-	}
+	convReader, stockConvReader := resolveCandidateConvReader(opts.CorePorts, ps.StandardFeatures)
 	execRun, err := buildExecutorRuntime(executorBuildInput{
 		Bctx:                          bctx,
 		Ledger:                        ledger,

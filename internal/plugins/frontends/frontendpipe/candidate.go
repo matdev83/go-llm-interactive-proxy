@@ -548,7 +548,7 @@ func replayCandidate[Opts any](
 		if !aok || assessor == nil {
 			assessErr = errors.New("frontendpipe: large body assessor not configured")
 		} else {
-			assessment, assessErr = assessor.AssessLargeBody(ctx, proofOut.Proof())
+			assessment, assessErr = assessor.AssessLargeBody(scanCtx, proofOut.Proof())
 		}
 		spec.diagnostics().OnStageDuration("assessment", time.Since(assessStart))
 

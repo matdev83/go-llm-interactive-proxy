@@ -1105,6 +1105,11 @@ func compileStreamingCompactionFacts(
 	if int64(len(items)*compactionfacts.ItemHashSizeBytes) > maxFactBytes {
 		return compactionfacts.RequestFacts{}, false, nil
 	}
+	for _, it := range items {
+		if len(it.Parts) != 1 || it.Parts[0].Kind != lipapi.ContentPartText {
+			return compactionfacts.RequestFacts{}, false, nil
+		}
+	}
 	rc, err := src.Open()
 	if err != nil {
 		return compactionfacts.RequestFacts{}, false, err

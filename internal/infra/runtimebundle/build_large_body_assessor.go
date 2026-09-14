@@ -2,13 +2,14 @@ package runtimebundle
 
 import (
 	"fmt"
-	"time"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -50,22 +51,19 @@ type largeBodyAssessorInput struct {
 	CapsResolverWireProofSubsumed bool
 }
 
+var fallbackAssessorGenSeq atomic.Uint64
+
+func resolveLargeBodyAssessorGenID(snapGen *snapshotgen.Publisher) string {
+	if snapGen != nil && snapGen.Current() != nil {
+		return fmt.Sprintf("gen-%d", snapGen.Current().ID)
+	}
+	return fmt.Sprintf("gen-fallback-%d", fallbackAssessorGenSeq.Add(1))
+}
+
 // buildLargeBodyAssessor compiles the generation wire eligibility summary, builds
 // the authority, initial, and route-override gates, and unifies them into a ProductionLargeBodyAssessor.
 func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLargeBodyAssessor, string, error) {
-	genID := ""
-	if in.In.SnapshotGeneration != nil {
-		if cur := in.In.SnapshotGeneration.Current(); cur != nil {
-			genID = fmt.Sprintf("gen-%d", cur.ID)
-		}
-	}
-	if genID == "" {
-		now := time.Now
-		if in.In.NowFn != nil {
-			now = in.In.NowFn
-		}
-		genID = fmt.Sprintf("gen-%d", now().UnixNano())
-	}
+	genID := resolveLargeBodyAssessorGenID(in.In.SnapshotGeneration)
 
 	wireBackendMap := make(largebody.WireBackendMap, len(in.In.Model.Backends))
 	knownBackends := make(map[string]struct{}, len(in.In.Model.Backends))
@@ -76,10 +74,7 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 	validator := routing.NewGenerationSelectorValidator(in.AliasResolver, in.DefBE, knownBackends, in.ExecResolver, in.ExecPolicy)
 	wireProofGate := largebody.NewBackendWireProofGate(
 		largebody.NewInitialRouteAssessmentGate(in.AliasResolver, in.DefBE, in.ExecResolver, in.ExecPolicy, nil, wireBackendMap),
-		largebody.NewRouteOverrideAssessmentGate(in.OverrideReader, validator, wireBackendMap),
-		nil,
-		wireBackendMap,
-	)
+		largebody.NewRouteOverrideAssessmentGate(in.OverrideReader, validator, wireBackendMap), nil, wireBackendMap)
 
 	census := largebody.NewStandardDependencyCensus(genID)
 	var contribs *lipfeature.ContributionSet
@@ -91,9 +86,7 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 				census.Planes[i].Occupied = true
 			}
 		}
-		hasTrafficPlanes = contribs.Has("traffic_observers") ||
-			contribs.Has("raw_capture_sinks") ||
-			contribs.Has("traffic_redactors")
+		hasTrafficPlanes = contribs.Has("traffic_observers") || contribs.Has("raw_capture_sinks") || contribs.Has("traffic_redactors")
 	}
 	if in.Bctx.Bus != nil {
 		s, r, resp, tl := in.Bctx.Bus.HookChainLengths()

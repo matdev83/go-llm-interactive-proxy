@@ -142,7 +142,11 @@ func (r *Registry) WrapLifecycleBackend(factoryID string, wrap func(orig Lifecyc
 	if !ok {
 		return fmt.Errorf("pluginreg: WrapLifecycleBackend: unknown backend %q", factoryID)
 	}
-	r.lifecycleBackends[factoryID] = wrap(orig)
+	wrapped := wrap(orig)
+	if wrapped == nil {
+		return fmt.Errorf("pluginreg: WrapLifecycleBackend: wrap returned nil factory for %q", factoryID)
+	}
+	r.lifecycleBackends[factoryID] = wrapped
 	return nil
 }
 

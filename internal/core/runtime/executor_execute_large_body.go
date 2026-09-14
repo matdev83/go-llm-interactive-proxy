@@ -128,6 +128,12 @@ func (s *wireLifecycleEventStream) Cancel(ctx context.Context, cause lipapi.Canc
 	s.closed = true
 	s.mu.Unlock()
 
+	defer s.once.Do(func() {
+		if s.cleanup != nil {
+			s.cleanup(context.Canceled)
+		}
+	})
+
 	var res lipapi.CancelResult
 	if ms, ok := s.EventStream.(lipapi.ManagedEventStream); ok {
 		res = ms.Cancel(ctx, cause)
@@ -138,11 +144,6 @@ func (s *wireLifecycleEventStream) Cancel(ctx context.Context, cause lipapi.Canc
 		res = lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 	}
 
-	s.once.Do(func() {
-		if s.cleanup != nil {
-			s.cleanup(context.Canceled)
-		}
-	})
 	return res
 }
 

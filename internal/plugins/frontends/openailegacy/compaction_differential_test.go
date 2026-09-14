@@ -2,7 +2,6 @@ package openailegacy_test
 
 import (
 	"context"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -218,23 +217,25 @@ func TestCompaction_MemoryBudget_FlatAllocationsAcross1_5_20MiB(t *testing.T) {
 			prof := openailegacy.NewProfile()
 			in := defaultChatProofInput(payloadBytes, "", nil)
 
-			// Warmup
-			_, err := prof.CompileProof(context.Background(), in)
-			require.NoError(t, err)
-
-			// Measure heap allocations of CompileProof only (fixtures excluded)
-			runtime.GC()
-			var m1, m2 runtime.MemStats
-			runtime.ReadMemStats(&m1)
-
+			// Correctness assertion executed outside the allocation measurement loop
 			out, err := prof.CompileProof(context.Background(), in)
 			require.NoError(t, err)
 			require.True(t, out.State.Proof.CompactionComplete)
 
-			runtime.ReadMemStats(&m2)
-			allocBytes := m2.TotalAlloc - m1.TotalAlloc
+			// Benchmark allocation measurement isolated to CompileProof (fixtures excluded)
+			benchRes := testing.Benchmark(func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					_, err := prof.CompileProof(context.Background(), in)
+					if err != nil {
+						b.Fatalf("CompileProof failed: %v", err)
+					}
+				}
+			})
 
-			t.Logf("Payload %d MiB: TotalAlloc = %d bytes (%.2f KiB)", tc.mb, allocBytes, float64(allocBytes)/1024.0)
+			allocBytes := uint64(benchRes.AllocedBytesPerOp())
+			t.Logf("Payload %d MiB: AllocedBytesPerOp = %d bytes (%.2f KiB)", tc.mb, allocBytes, float64(allocBytes)/1024.0)
 
 			// Flat O(chunkSize) requirement: must be strictly less than 448 KiB ceiling
 			const maxCeilingBytes = 448 * 1024
@@ -292,4 +293,21 @@ func TestCompaction_Differential_UTF8SplitAt32KiB_LargeStream(t *testing.T) {
 	assert.Equal(t, exactFacts.TailHashes, proof.CompactionFacts.TailHashes)
 	assert.Equal(t, exactFacts.PrefixHash, proof.CompactionFacts.PrefixHash)
 	assert.Equal(t, exactFacts.StartRuleMatched, proof.CompactionFacts.StartRuleMatched)
+}
+
+func TestCompaction_MultiPartAssistantMessage_SkipsStreamingFacts(t *testing.T) {
+	t.Parallel()
+
+	// Assistant message with reasoning_content creates a multi-part message (ReasoningPart + TextPart).
+	// The streaming compaction pass must NOT mark CompactionComplete, leaving it false for canonical handling.
+	body := `{"model":"gpt-4o","messages":[` +
+		`{"role":"user","content":"Hello"},` +
+		`{"role":"assistant","reasoning_content":"thinking carefully","content":"world"}` +
+		`]}`
+
+	out, err := runCompileProof(t, body)
+	require.NoError(t, err)
+
+	proof := out.State.Proof
+	assert.False(t, proof.CompactionComplete, "multi-part assistant message must leave CompactionComplete false")
 }

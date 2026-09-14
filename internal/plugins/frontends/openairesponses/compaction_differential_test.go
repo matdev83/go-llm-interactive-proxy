@@ -158,6 +158,7 @@ func TestCompaction_Differential_UTF8MultiByteSplit(t *testing.T) {
 	assert.Equal(t, exactFacts.ItemHashes, proof.CompactionFacts.ItemHashes)
 	assert.Equal(t, exactFacts.TailHashes, proof.CompactionFacts.TailHashes)
 	assert.Equal(t, exactFacts.PrefixHash, proof.CompactionFacts.PrefixHash)
+	assert.Equal(t, exactFacts.EstimatedTokens, proof.CompactionFacts.EstimatedTokens)
 	assert.Equal(t, exactFacts.StartRuleMatched, proof.CompactionFacts.StartRuleMatched)
 }
 
@@ -186,6 +187,7 @@ func TestCompaction_Differential_LargeChunkedStream_ExactFacts(t *testing.T) {
 	assert.Equal(t, exactFacts.ItemHashes, proof.CompactionFacts.ItemHashes)
 	assert.Equal(t, exactFacts.TailHashes, proof.CompactionFacts.TailHashes)
 	assert.Equal(t, exactFacts.PrefixHash, proof.CompactionFacts.PrefixHash)
+	assert.Equal(t, exactFacts.EstimatedTokens, proof.CompactionFacts.EstimatedTokens)
 	assert.Equal(t, exactFacts.StartRuleMatched, proof.CompactionFacts.StartRuleMatched)
 	assert.Equal(t, exactFacts.StartRuleID, proof.CompactionFacts.StartRuleID)
 }
@@ -231,5 +233,6 @@ func TestCompaction_Differential_UTF8SplitAt32KiB_LargeStream(t *testing.T) {
 	assert.Equal(t, exactFacts.ItemHashes, proof.CompactionFacts.ItemHashes, "ItemHashes must match canonical exactly across 32KiB split")
 	assert.Equal(t, exactFacts.TailHashes, proof.CompactionFacts.TailHashes)
 	assert.Equal(t, exactFacts.PrefixHash, proof.CompactionFacts.PrefixHash)
+	assert.Equal(t, exactFacts.EstimatedTokens, proof.CompactionFacts.EstimatedTokens)
 	assert.Equal(t, exactFacts.StartRuleMatched, proof.CompactionFacts.StartRuleMatched)
 }
