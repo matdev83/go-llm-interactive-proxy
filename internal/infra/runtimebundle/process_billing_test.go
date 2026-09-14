@@ -40,6 +40,15 @@ func (s *processBillingSink) Close() error { s.mu.Lock(); s.closes++; s.mu.Unloc
 
 type processBillingStore struct{}
 
+// customerOnlyProcessBillingStore deliberately exposes the customer settlement
+// and reporting ports without exposing provider-cost work. A store may be in
+// this state while supplier queue infrastructure is unavailable; independent
+// retail settlement must still be constructible and runnable.
+type customerOnlyProcessBillingStore struct {
+	billing.AuthoritativeBilling
+	billing.CallUsageStore
+}
+
 func (processBillingStore) ApplyCallBillingResult(context.Context, billing.ApplyCallBillingInput) (billing.CallSettlement, error) {
 	return billing.CallSettlement{}, nil
 }
@@ -168,5 +177,39 @@ func TestBuildProcessBillingRuntimeRequiresInjectedTerminalSink(t *testing.T) {
 	}
 	if len(closers) != 0 {
 		t.Fatalf("incomplete billing composition registered %d process resources", len(closers))
+	}
+}
+
+func TestBuildProcessBillingRuntimeAllowsIndependentRetailWithoutSupplierWorker(t *testing.T) {
+	t.Parallel()
+	sink := &processBillingSink{}
+	var closers []func() error
+	owner := &processResourceOwner{register: func(close func() error) { closers = append(closers, close) }}
+	t.Cleanup(func() {
+		for i := len(closers) - 1; i >= 0; i-- {
+			if err := closers[i](); err != nil {
+				t.Errorf("cleanup process resource: %v", err)
+			}
+		}
+	})
+	store := customerOnlyProcessBillingStore{
+		AuthoritativeBilling: processBillingStore{},
+		CallUsageStore:       processBillingStore{},
+	}
+	prod := ProductionOptions{
+		BillingStore:             store,
+		BillingTerminalUsageSink: sink,
+		BillingCreditGate:        processBillingCreditGate{},
+		BillingExposureAdmission: processBillingAdmission{},
+		BillingIdentity: runtimecore.BillingIdentity{
+			AccountID: func(context.Context, lipapi.Call) string { return "account" },
+		},
+		BillingCallRatingResolver: processBillingCallResolver{},
+	}
+	if _, err := buildProcessBillingRuntime(owner, "", prod); err != nil {
+		t.Fatalf("buildProcessBillingRuntime = %v, want independent customer runtime", err)
+	}
+	if len(closers) != 3 {
+		t.Fatalf("registered process resources = %d, want terminal sink plus customer worker only", len(closers))
 	}
 }

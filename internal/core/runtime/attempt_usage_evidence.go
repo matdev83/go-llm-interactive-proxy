@@ -542,6 +542,7 @@ func billingObservationFromEvent(draft billingLegDraft, input billingObservation
 		Subject: metering.SubjectRef{
 			Kind:          metering.SubjectBLeg,
 			StoreID:       storeID,
+			SubmissionID:  strings.TrimSpace(draft.submissionID),
 			ALegID:        aLegID,
 			BillingCallID: callID,
 			BLegID:        bLegID,
@@ -549,6 +550,7 @@ func billingObservationFromEvent(draft billingLegDraft, input billingObservation
 		},
 		Correlation: metering.CorrelationV2{
 			StoreID:       storeID,
+			SubmissionID:  strings.TrimSpace(draft.submissionID),
 			CallID:        callID,
 			BillingCallID: callID,
 			ALegID:        aLegID,

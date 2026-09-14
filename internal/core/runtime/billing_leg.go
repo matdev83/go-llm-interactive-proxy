@@ -30,6 +30,7 @@ func (f BillingLegObserverFunc) ObserveBillingLeg(ctx context.Context, record bi
 
 type billingLegDraft struct {
 	callID               billing.BillingCallID
+	submissionID         string
 	aLegID               string
 	storeID              string
 	bLegID               string
@@ -70,8 +71,11 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	evidence := projectV1BillingEvidence(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
 	evidence = normalizeBillingEvidenceIdentity(evidence, draft.callID, bLegID)
 	observations, conflicts := observationsFromBillingEvidence(draft, draft.evidenceEvents)
-	observations, economicDispositions, conflicts := appendCanonicalEconomicObservations(observations, conflicts, draft.economicObservations)
-	observations, conflicts = appendCanonicalObservations(observations, conflicts, draft.localObservations)
+	economicInput := stampEconomicSubmissionIdentity(draft.economicObservations, draft.submissionID)
+	observations, economicDispositions, conflicts := appendCanonicalEconomicObservations(observations, conflicts, economicInput)
+	localInput := stampSubmissionIdentity(draft.localObservations, draft.submissionID)
+	observations, conflicts = appendCanonicalObservations(observations, conflicts, localInput)
+	observations = stampSubmissionIdentity(observations, draft.submissionID)
 	conflicts = appendBoundedEvidenceConflicts(conflicts, draft.economicConflicts)
 	outcome := draft.outcome
 	if outcome == "" {
@@ -79,6 +83,7 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	}
 	record := billing.CallLegUsageRecord{
 		CallID:          draft.callID,
+		SubmissionID:    strings.TrimSpace(draft.submissionID),
 		ALegID:          strings.TrimSpace(draft.aLegID),
 		BLegID:          bLegID,
 		AttemptSeq:      draft.seq,
@@ -137,6 +142,37 @@ func appendCanonicalObservations(existing []metering.Observation, conflicts []bi
 		seen[identity] = hash
 	}
 	return existing, conflicts
+}
+
+// stampSubmissionIdentity projects the runtime-owned identity onto every
+// B-leg observation after source normalization. Provider/local payload values
+// cannot override the trusted submission authority. When that authority is
+// unavailable, clear any adapter-carried value so unsupported attribution
+// cannot become a durable submission claim.
+func stampSubmissionIdentity(observations []metering.Observation, submissionID string) []metering.Observation {
+	submissionID = strings.TrimSpace(submissionID)
+	if len(observations) == 0 {
+		return observations
+	}
+	out := append([]metering.Observation(nil), observations...)
+	for i := range out {
+		out[i].Subject.SubmissionID = submissionID
+		out[i].Correlation.SubmissionID = submissionID
+	}
+	return out
+}
+
+func stampEconomicSubmissionIdentity(incoming []execbackend.EconomicEvidence, submissionID string) []execbackend.EconomicEvidence {
+	submissionID = strings.TrimSpace(submissionID)
+	if len(incoming) == 0 {
+		return incoming
+	}
+	out := append([]execbackend.EconomicEvidence(nil), incoming...)
+	for i := range out {
+		out[i].Observation.Subject.SubmissionID = submissionID
+		out[i].Observation.Correlation.SubmissionID = submissionID
+	}
+	return out
 }
 
 func appendCanonicalEconomicObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []execbackend.EconomicEvidence) ([]metering.Observation, []billing.EconomicEvidenceDisposition, []billing.EvidenceConflict) {
@@ -283,6 +319,7 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 	economicObservations, economicConflicts := attempt.economicEvidenceDrain()
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:               request.billingCallID,
+		submissionID:         request.submissionID,
 		aLegID:               request.aLegID,
 		storeID:              request.storeID,
 		bLegID:               evidence.bleg.BLegID,
@@ -536,7 +573,8 @@ func (e *Executor) appendIndependentTerminalLegWithObservations(ctx context.Cont
 		model = "unknown"
 	}
 	leg := billing.CallLegUsageRecord{
-		ALegID: strings.TrimSpace(aLegID), BLegID: strings.TrimSpace(bleg.BLegID), AttemptSeq: bleg.Seq,
+		SubmissionID: billingSubmissionID(state),
+		ALegID:       strings.TrimSpace(aLegID), BLegID: strings.TrimSpace(bleg.BLegID), AttemptSeq: bleg.Seq,
 		BackendID: backend, ProviderID: billingProviderID(primary), ModelID: model,
 		StartedAt: started, FinishedAt: finished, Outcome: outcome, Surfaced: billing.SurfacedNo,
 		Evidence:        billing.FinalBillingEvidence{Source: billing.EvidenceSourceUnavailable, Authority: billing.EvidenceAuthorityUnavailable},
@@ -544,7 +582,9 @@ func (e *Executor) appendIndependentTerminalLegWithObservations(ctx context.Cont
 		Workload:        e.billingWorkloadIdentityForALeg(ctx, aLegID),
 	}
 	if len(localObservations) != 0 {
-		leg.Observations, _ = appendCanonicalObservations(nil, nil, localObservations)
+		localInput := stampSubmissionIdentity(localObservations, billingSubmissionID(state))
+		leg.Observations, _ = appendCanonicalObservations(nil, nil, localInput)
+		leg.Observations = stampSubmissionIdentity(leg.Observations, billingSubmissionID(state))
 		if len(leg.Observations) != 0 {
 			leg.EvidenceVersion = billing.EvidenceFormatVersionV2
 			leg.EvidenceProjection = billing.EvidenceProjectionV1
@@ -614,6 +654,7 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 	}
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:          callID,
+		submissionID:    billingSubmissionID(leg.billingCallState),
 		aLegID:          leg.bleg.ALegID,
 		storeID:         leg.storeID,
 		bLegID:          leg.bleg.BLegID,

@@ -137,7 +137,7 @@ func (c *SnapshotCatalog) PutPolicy(snapshot billing.ChargePolicy) error {
 		}
 		return ErrSnapshotImmutable
 	}
-	c.policies[key] = snapshot
+	c.policies[key] = snapshot.Clone()
 	return nil
 }
 
@@ -294,7 +294,7 @@ func (c *SnapshotCatalog) CustomerRatingSnapshots(call billing.CallUsageRecord, 
 	}
 	return CustomerRatingSnapshots{
 		DefaultPricing: clonePricing(pricing),
-		Policy:         policy,
+		Policy:         policy.Clone(),
 		ModelPricing:   modelPricing,
 		DefaultTariff:  tariff.Clone(),
 		ModelTariffs:   modelTariffs,
@@ -444,7 +444,7 @@ func (c *SnapshotCatalog) Policy(ctx context.Context, _ lipapi.Call) (billing.Ch
 	if !found {
 		return billing.ChargePolicy{}, lookupMiss("charge policy")
 	}
-	return policy, nil
+	return policy.Clone(), nil
 }
 
 func (c *SnapshotCatalog) CustomerPricingRef(_ context.Context, _ lipapi.Call) billing.VersionRef {
@@ -651,6 +651,9 @@ func pricingReplayEqual(a, b billing.PricingSnapshot) bool {
 }
 
 func policyReplayEqual(a, b billing.ChargePolicy) bool {
+	if !retailPolicyReplayEqual(a.Retail, b.Retail) {
+		return false
+	}
 	return keyOf(a.Ref) == keyOf(b.Ref) &&
 		keyOf(a.PricingRef) == keyOf(b.PricingRef) &&
 		a.Scope == b.Scope &&
@@ -658,6 +661,25 @@ func policyReplayEqual(a, b billing.ChargePolicy) bool {
 		a.IncludeOutputTokens == b.IncludeOutputTokens &&
 		a.IncludeFixedCharges == b.IncludeFixedCharges &&
 		a.IncludeResourceCharges == b.IncludeResourceCharges
+}
+
+func retailPolicyReplayEqual(a, b *billing.RetailSelectionPolicy) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Mode != b.Mode || a.Basis != b.Basis || !slices.Equal(a.OutcomeSubset, b.OutcomeSubset) {
+		return false
+	}
+	if a.CostPassThrough == nil || b.CostPassThrough == nil {
+		return a.CostPassThrough == b.CostPassThrough
+	}
+	if a.CostPassThrough.MissingCost != b.CostPassThrough.MissingCost || a.CostPassThrough.AllowLateAdjustment != b.CostPassThrough.AllowLateAdjustment {
+		return false
+	}
+	if a.CostPassThrough.SafeBound == nil || b.CostPassThrough.SafeBound == nil {
+		return a.CostPassThrough.SafeBound == b.CostPassThrough.SafeBound
+	}
+	return *a.CostPassThrough.SafeBound == *b.CostPassThrough.SafeBound
 }
 
 func operatorRateReplayEqual(a, b billing.OperatorRateSnapshot) bool {

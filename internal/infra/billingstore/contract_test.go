@@ -424,4 +424,6 @@ func runBillingStoreCallSettlementContract(t *testing.T, store *DurableStore, ac
 	if overStatus != "open" {
 		t.Fatalf("over-max exposure status = %q, want open", overStatus)
 	}
+
+	runCustomerUnitLedgerContract(t, store, accountID)
 }

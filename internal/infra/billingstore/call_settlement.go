@@ -26,12 +26,44 @@ func (s *DurableStore) ApplyCallBillingResult(ctx context.Context, input billing
 	if input.Result.CustomerCharge.Nano < 0 || input.Result.CustomerCharge.Currency == "" {
 		return billing.CallSettlement{}, billing.ErrSettlementInvalid
 	}
+	submissionClaim, hasSubmissionClaim, err := billing.SubmissionFeeClaimForValuation(call, input.Result.CustomerValuation)
+	if err != nil {
+		return billing.CallSettlement{}, fmt.Errorf("%w: %w", billing.ErrSettlementInvalid, err)
+	}
+	if hasSubmissionClaim && (submissionClaim.Amount.Currency != input.Result.CustomerCharge.Currency || submissionClaim.Amount.Nano > input.Result.CustomerCharge.Nano) {
+		return billing.CallSettlement{}, fmt.Errorf("%w: submission fee exceeds customer charge", billing.ErrSettlementInvalid)
+	}
+	if input.Result.CostPassThrough != nil {
+		state := input.Result.CostPassThrough
+		if err := state.Validate(input.Result.CustomerCharge.Currency); err != nil {
+			return billing.CallSettlement{}, err
+		}
+		if state.PolicyRef != call.ChargePolicyRef || state.PostedAmount != input.Result.CustomerCharge {
+			return billing.CallSettlement{}, fmt.Errorf("%w: cost pass-through state does not match call settlement", billing.ErrSettlementInvalid)
+		}
+	}
+	if input.Result.CustomerUnitOperation == nil && input.Result.CustomerUnitFallbackCharge != nil {
+		return billing.CallSettlement{}, fmt.Errorf("%w: customer-unit fallback charge has no operation", billing.ErrSettlementInvalid)
+	}
+	if input.Result.CustomerUnitOperation != nil {
+		if err := input.Result.CustomerUnitOperation.Validate(); err != nil {
+			return billing.CallSettlement{}, err
+		}
+		if input.Result.CustomerUnitOperation.Key.AccountID != call.AccountID {
+			return billing.CallSettlement{}, fmt.Errorf("%w: customer-unit account differs from settled call", billing.ErrSettlementInvalid)
+		}
+		if input.Result.CustomerUnitFallbackCharge != nil {
+			if err := input.Result.CustomerUnitFallbackCharge.Validate(); err != nil {
+				return billing.CallSettlement{}, err
+			}
+		}
+	}
 	return withAccountTx(ctx, accountTxRetry{Attempts: 40, Delay: 3 * time.Millisecond}, func() (billing.CallSettlement, error) {
-		return s.applyCallBillingAttempt(ctx, call, input)
+		return s.applyCallBillingAttempt(ctx, call, input, submissionClaim, hasSubmissionClaim)
 	})
 }
 
-func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing.CallUsageRecord, input billing.ApplyCallBillingInput) (billing.CallSettlement, error) {
+func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing.CallUsageRecord, input billing.ApplyCallBillingInput, submissionClaim billing.SubmissionFeeClaim, hasSubmissionClaim bool) (billing.CallSettlement, error) {
 	expected := input.Exposure
 	result := input.Result
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -46,14 +78,41 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 	if operationKind == "" {
 		operationKind = "customer_call_settlement"
 	}
+	settlementFingerprint := result.Fingerprint
+	if result.CostPassThrough != nil {
+		costFingerprint, fingerprintErr := result.CostPassThrough.SemanticFingerprint()
+		if fingerprintErr != nil {
+			return billing.CallSettlement{}, fingerprintErr
+		}
+		settlementFingerprint += ":cost-pass-through:" + costFingerprint
+	}
+	if result.CustomerUnitOperation != nil {
+		unitFingerprint, fingerprintErr := result.CustomerUnitOperation.SemanticFingerprint()
+		if fingerprintErr != nil {
+			return billing.CallSettlement{}, fingerprintErr
+		}
+		settlementFingerprint += ":customer-unit:" + unitFingerprint
+	}
 	sourceKey, err := billing.CustomerSettlementSourceKey(call.AccountID, call.CallID)
 	if err != nil {
 		return billing.CallSettlement{}, err
 	}
+	var existingSubmissionClaim submissionFeeClaimRow
+	var submissionClaimFound bool
+	if hasSubmissionClaim {
+		var lookupErr error
+		existingSubmissionClaim, submissionClaimFound, lookupErr = loadSubmissionFeeClaim(ctx, tx, s.storeID, call.AccountID, submissionClaim.SubmissionID)
+		if lookupErr != nil {
+			return billing.CallSettlement{}, lookupErr
+		}
+		if submissionClaimFound && !submissionFeeClaimMatches(existingSubmissionClaim, submissionClaim) {
+			return billing.CallSettlement{}, ErrOperationConflict
+		}
+	}
 	if existing, found, lookupErr := loadOperationSnapshot(ctx, tx, call.AccountID, operationKind, call.CallID.String()); lookupErr != nil {
 		return billing.CallSettlement{}, lookupErr
 	} else if found {
-		if existing.Fingerprint != result.Fingerprint {
+		if existing.Fingerprint != settlementFingerprint {
 			return billing.CallSettlement{}, ErrOperationConflict
 		}
 		if err := tx.Commit(); err != nil {
@@ -85,7 +144,17 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 	if account.Currency != result.CustomerCharge.Currency || account.Currency != exposure.Max.Currency {
 		return billing.CallSettlement{}, billing.ErrMoneyCurrencyMismatch
 	}
-	if result.CustomerCharge.Nano > exposure.Max.Nano {
+	effectiveCharge := result.CustomerCharge
+	if submissionClaimFound {
+		effectiveCharge, err = result.CustomerCharge.Sub(submissionClaim.Amount)
+		if err != nil {
+			return billing.CallSettlement{}, fmt.Errorf("%w: submission fee deduction: %v", billing.ErrSettlementInvalid, err)
+		}
+	}
+	if effectiveCharge.Nano < 0 {
+		return billing.CallSettlement{}, billing.ErrSettlementInvalid
+	}
+	if effectiveCharge.Nano > exposure.Max.Nano {
 		if err := setReconcileRequiredTx(ctx, tx, call.AccountID); err != nil {
 			return billing.CallSettlement{}, err
 		}
@@ -99,8 +168,8 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 		return billing.CallSettlement{}, err
 	}
 	after := account
-	if result.CustomerCharge.Nano > 0 {
-		after, err = account.ApplyBalanceDelta(billing.Money{Nano: -result.CustomerCharge.Nano, Currency: account.Currency})
+	if effectiveCharge.Nano > 0 {
+		after, err = account.ApplyBalanceDelta(billing.Money{Nano: -effectiveCharge.Nano, Currency: account.Currency})
 		if err != nil {
 			if errors.Is(err, billing.ErrInsufficientSpendable) {
 				if markErr := setReconcileRequiredTx(ctx, tx, call.AccountID); markErr != nil {
@@ -118,19 +187,42 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 		}
 		after.Version = account.Version + 1
 	}
+	var customerUnitResult *billing.CustomerUnitOperationResult
+	if result.CustomerUnitOperation != nil {
+		unitResult, unitErr := s.applyCustomerUnitOperationTx(ctx, tx, *result.CustomerUnitOperation)
+		if unitErr != nil {
+			return billing.CallSettlement{}, unitErr
+		}
+		if unitResult.FallbackRequired {
+			if result.CustomerUnitFallbackCharge == nil || unitResult.FallbackBound == nil {
+				return billing.CallSettlement{}, fmt.Errorf("%w: customer-unit fallback charge is required", billing.ErrSettlementInvalid)
+			}
+			if err := billing.ValidateCustomerMonetaryFallback(*result.CustomerUnitFallbackCharge, *unitResult.FallbackBound); err != nil {
+				return billing.CallSettlement{}, err
+			}
+		} else if result.CustomerUnitFallbackCharge != nil {
+			return billing.CallSettlement{}, fmt.Errorf("%w: customer-unit fallback charge is not authorized", billing.ErrSettlementInvalid)
+		}
+		customerUnitResult = &unitResult
+	}
+	if hasSubmissionClaim && !submissionClaimFound {
+		if err := insertSubmissionFeeClaim(ctx, tx, s.storeID, call.AccountID, call.CallID.String(), submissionClaim); err != nil {
+			return billing.CallSettlement{}, err
+		}
+	}
 	afterSnapshot, err := snapshotForAccount(after)
 	if err != nil {
 		return billing.CallSettlement{}, err
 	}
 	var posting billing.Posting
-	if result.CustomerCharge.Nano > 0 {
+	if effectiveCharge.Nano > 0 {
 		journal := billing.JournalTransaction{
 			ID: sourceKey, Book: billing.JournalBookFinancial, Currency: account.Currency, SourceKey: sourceKey,
 			AccountID: call.AccountID, TurnID: call.CallID.String(), ALegID: call.ALegID, OperationKind: operationKind,
 			BalanceBefore: before.BalanceNano, BalanceAfter: afterSnapshot.BalanceNano,
 			SpendableBefore: before.SpendableNano, SpendableAfter: afterSnapshot.SpendableNano, CreditFloor: afterSnapshot.CreditFloorNano, CreditLimit: afterSnapshot.CreditLimitNano,
 			Mode: string(afterSnapshot.Mode), SnapshotVersionBefore: before.Version, SnapshotVersionAfter: afterSnapshot.Version,
-			Entries: []billing.JournalEntry{{LedgerAccount: "customer_financial_account", Side: billing.JournalDebit, Amount: result.CustomerCharge}, {LedgerAccount: "usage_revenue", Side: billing.JournalCredit, Amount: result.CustomerCharge}},
+			Entries: []billing.JournalEntry{{LedgerAccount: "customer_financial_account", Side: billing.JournalDebit, Amount: effectiveCharge}, {LedgerAccount: "usage_revenue", Side: billing.JournalCredit, Amount: effectiveCharge}},
 		}
 		posted, replayed, postErr := s.postJournalInTx(ctx, tx, journal)
 		if postErr != nil || replayed {
@@ -147,7 +239,7 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 	if _, err := tx.NewRaw(`UPDATE call_exposures SET status = 'closed', closed_at = ? WHERE account_id = ? AND call_id = ? AND status = 'open'`, now, call.AccountID, call.CallID.String()).Exec(ctx); err != nil {
 		return billing.CallSettlement{}, err
 	}
-	if result.CustomerCharge.Nano > 0 {
+	if effectiveCharge.Nano > 0 {
 		accountResult, err := tx.NewRaw(`UPDATE billing_accounts SET balance_nano = ?, version = ?, updated_at = ? WHERE account_id = ? AND version = ?`, afterSnapshot.BalanceNano, afterSnapshot.Version, now, call.AccountID, before.Version).Exec(ctx)
 		if err != nil {
 			return billing.CallSettlement{}, err
@@ -159,8 +251,17 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 			return billing.CallSettlement{}, billing.ErrSettlementConflict
 		}
 	}
-	if err := insertOperationSnapshot(ctx, tx, operationSnapshotInput{OperationKey: sourceKey + ":" + operationKind, AccountID: call.AccountID, OperationKind: operationKind, SourceKey: call.CallID.String(), Fingerprint: result.Fingerprint, Before: before, After: afterSnapshot}); err != nil {
+	if err := insertOperationSnapshot(ctx, tx, operationSnapshotInput{OperationKey: sourceKey + ":" + operationKind, AccountID: call.AccountID, OperationKind: operationKind, SourceKey: call.CallID.String(), Fingerprint: settlementFingerprint, Before: before, After: afterSnapshot}); err != nil {
 		return billing.CallSettlement{}, err
+	}
+	if result.CostPassThrough != nil {
+		state := result.CostPassThrough.Clone()
+		// The durable settlement transaction is the sole authority for this
+		// linkage; never persist a caller-supplied original transaction ID.
+		state.OriginalTransactionID = posting.Transaction.ID
+		if err := persistCostPassThroughHeadInTx(ctx, tx, call, sourceKey, state, settlementFingerprint); err != nil {
+			return billing.CallSettlement{}, err
+		}
 	}
 	if _, err := tx.NewRaw(`UPDATE usage_call_records SET claim_status = 'processed' WHERE call_id = ? AND claim_status IN ('pending','claimed','reconcile_required')`, call.CallID.String()).Exec(ctx); err != nil {
 		return billing.CallSettlement{}, err
@@ -168,5 +269,11 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 	if err := tx.Commit(); err != nil {
 		return billing.CallSettlement{}, err
 	}
-	return billing.CallSettlement{CallID: call.CallID, Customer: posting}, nil
+	var state *billing.CostPassThroughSettlement
+	if result.CostPassThrough != nil {
+		copy := result.CostPassThrough.Clone()
+		copy.OriginalTransactionID = posting.Transaction.ID
+		state = &copy
+	}
+	return billing.CallSettlement{CallID: call.CallID, Customer: posting, CustomerUnitResult: customerUnitResult, CostPassThrough: state}, nil
 }

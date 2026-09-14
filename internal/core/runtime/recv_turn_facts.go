@@ -80,6 +80,7 @@ type recvTurnFactsInput struct {
 	billingIdentityStamped bool
 	billingCallID          billing.BillingCallID
 	billingCallState       *billingCallState
+	submissionID           string
 
 	conversationSnapshot         conversationprojection.Snapshot
 	conversationProvenance       []conversationprojection.OverlayProvenance
@@ -133,6 +134,7 @@ type recvTurnFacts struct {
 	billingIdentityStamped bool
 	billingCallID          billing.BillingCallID
 	billingCallState       *billingCallState
+	submissionID           string
 
 	conversationSnapshot         conversationprojection.Snapshot
 	conversationProvenance       []conversationprojection.OverlayProvenance
@@ -153,6 +155,7 @@ func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts
 		terminalDecisionEnabled:      f.terminalDecisionEnabled,
 		billingCallID:                f.billingCallID,
 		billingCallState:             f.billingState,
+		submissionID:                 f.submissionID,
 		billingAccountID:             f.accountID,
 		billingCustomerPricing:       f.pricing,
 		billingChargePolicy:          f.chargePolicy,

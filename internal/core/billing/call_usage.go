@@ -5,15 +5,20 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 type CallUsageRecord struct {
-	SchemaVersion      int
-	Key                string
-	Fingerprint        string
-	CallID             BillingCallID
+	SchemaVersion int
+	Key           string
+	Fingerprint   string
+	CallID        BillingCallID
+	// SubmissionID is optional trusted customer scope. It is independent from
+	// BillingCallID: one A-leg may resume with a new call/submission identity.
+	SubmissionID       string `json:"SubmissionID,omitempty"`
 	AccountID          string
 	ALegID             string
 	SessionID          string
@@ -29,17 +34,20 @@ type CallLegUsageRecord struct {
 	Key         string
 	Fingerprint string
 	CallID      BillingCallID
-	ALegID      string
-	BLegID      string
-	AttemptSeq  int
-	BackendID   string
-	ProviderID  string
-	ModelID     string
-	StartedAt   time.Time
-	FinishedAt  time.Time
-	Outcome     LegOutcome
-	Surfaced    SurfacedState
-	Evidence    FinalBillingEvidence
+	// SubmissionID is optional trusted customer scope and is never a provider
+	// usage meter. B-leg observations retain the same lineage separately.
+	SubmissionID string `json:"SubmissionID,omitempty"`
+	ALegID       string
+	BLegID       string
+	AttemptSeq   int
+	BackendID    string
+	ProviderID   string
+	ModelID      string
+	StartedAt    time.Time
+	FinishedAt   time.Time
+	Outcome      LegOutcome
+	Surfaced     SurfacedState
+	Evidence     FinalBillingEvidence
 	// EvidenceVersion is zero for legacy V1 rows. Version 2 carries the
 	// source-separated immutable observations captured for this concrete
 	// B-leg; Evidence remains the explicitly labelled V1 projection.
@@ -110,6 +118,10 @@ func (r CallUsageRecord) SemanticFingerprint() (string, error) {
 	c.string("cur")
 	c.u64(uint64(r.SchemaVersion))
 	c.string(r.CallID.String())
+	if strings.TrimSpace(r.SubmissionID) != "" {
+		c.string("submission")
+		c.string(r.SubmissionID)
+	}
 	c.string(r.AccountID)
 	c.string(r.ALegID)
 	c.string(r.SessionID)
@@ -206,6 +218,10 @@ func (l CallLegUsageRecord) SemanticFingerprint() (string, error) {
 	var c canonicalWriter
 	c.string("clur")
 	c.string(l.CallID.String())
+	if strings.TrimSpace(l.SubmissionID) != "" {
+		c.string("submission")
+		c.string(l.SubmissionID)
+	}
 	c.string(l.ALegID)
 	c.string(strings.TrimSpace(l.BLegID))
 	c.string(l.BackendID)
@@ -356,6 +372,9 @@ func (r CallUsageRecord) validate() error {
 	if err := r.CallID.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRecord, err)
 	}
+	if err := validateOptionalSubmissionID(r.SubmissionID); err != nil {
+		return err
+	}
 	for name, value := range map[string]string{
 		"account": r.AccountID, "A-leg": r.ALegID,
 	} {
@@ -391,6 +410,9 @@ func (r CallUsageRecord) validate() error {
 func (l CallLegUsageRecord) validate() error {
 	if err := l.CallID.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRecord, err)
+	}
+	if err := validateOptionalSubmissionID(l.SubmissionID); err != nil {
+		return err
 	}
 	if strings.TrimSpace(l.ALegID) == "" || strings.TrimSpace(l.BLegID) == "" {
 		return fmt.Errorf("%w: call-leg lineage is required", ErrInvalidRecord)
@@ -471,6 +493,21 @@ func (l CallLegUsageRecord) validate() error {
 	for i, conflict := range l.EvidenceConflicts {
 		if !conflict.valid() {
 			return fmt.Errorf("%w: invalid evidence conflict %d", ErrInvalidRecord, i)
+		}
+	}
+	return nil
+}
+
+func validateOptionalSubmissionID(id string) error {
+	if id == "" {
+		return nil
+	}
+	if id != strings.TrimSpace(id) || len(id) > 512 || !utf8.ValidString(id) {
+		return fmt.Errorf("%w: invalid submission identity", ErrInvalidRecord)
+	}
+	for _, r := range id {
+		if r < 0x20 || r == 0x7f || !unicode.IsPrint(r) {
+			return fmt.Errorf("%w: invalid submission identity", ErrInvalidRecord)
 		}
 	}
 	return nil

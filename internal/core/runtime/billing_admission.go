@@ -76,6 +76,7 @@ type WireBillingExposureArgs struct {
 // WireExposureAbortArgs carries bounded facts for recording an exposure abort closure (Req 15.6, 19).
 type WireExposureAbortArgs struct {
 	BillingCallID   billing.BillingCallID
+	SubmissionID    string
 	Exposure        billing.CallExposure
 	ALegID          string
 	SessionID       string
@@ -400,6 +401,7 @@ func (e *Executor) appendAbortClosureRecord(ctx context.Context, args WireExposu
 	record := billing.CallUsageRecord{
 		SchemaVersion:      billing.CurrentRecordSchemaVersion,
 		CallID:             args.BillingCallID,
+		SubmissionID:       strings.TrimSpace(args.SubmissionID),
 		AccountID:          accountID,
 		ALegID:             strings.TrimSpace(args.ALegID),
 		SessionID:          strings.TrimSpace(args.SessionID),
@@ -443,6 +445,7 @@ func (e *Executor) appendExposureAbortClosure(ctx context.Context, prep *prepare
 	}
 	_ = e.appendAbortClosureRecord(ctx, WireExposureAbortArgs{
 		BillingCallID:   prep.billingCallID,
+		SubmissionID:    submissionIDForBilling(prep.submission),
 		Exposure:        prep.billingExposure,
 		ALegID:          aLegID,
 		SessionID:       sessID,

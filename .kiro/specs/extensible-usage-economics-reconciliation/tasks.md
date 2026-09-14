@@ -431,9 +431,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 2.2, 2.3, 2.5, 7.5, 7.6, 15.5, 18.1, 18.2_
 
 
-- [ ] 10. Implement independent customer policies and submission charging
+- [x] 10. Implement independent customer policies and submission charging
 
-- [ ] 10.1 Separate retail basis and attempt-scope selection
+- [x] 10.1 Separate retail basis and attempt-scope selection
   - Implement request-scoped retail inference usage over an explicit B-leg selection policy (for example surfaced/winner only, selected attempts, or explicitly all attempts), with explicit cost-pass-through as a separate commercial basis. Customer-boundary quantities may feed separately declared proxy/service charges but are not a competing inference-usage source.
   - Keep supplier COGS all-leg attribution independent; migrate existing retail offers with their previous scope instead of silently applying the new B-leg-rooted default.
   - Completion: provider rate/cost readiness is absent from independent retail quantity rating, internal retries are customer-billable only when the frozen retail policy says so, and all request-scoped inference quantity lines reference B-leg observations.
@@ -443,7 +443,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingcompose/..._
   - _Requirements: 6.4, 7.2, 8.1, 8.2, 8.6_
 
-- [ ] 10.2 Establish trusted submission identity and continuation rules
+- [x] 10.2 Establish trusted submission identity and continuation rules
   - Bind submission identity from authenticated current-turn/continuation authority or a supported harness adapter; reject untrusted overrides.
   - Test tool continuation, historical replay, new follow-up after DONE on the same A-leg, local command and transport retry. Unsupported attribution is explicit, not last-role heuristic.
   - Completion: one prompt plus multiple tool continuations contributes one submission fee, while a genuine resumed/new submission can create a new BillingCallID and fee without reopening prior B-leg usage.
@@ -453,7 +453,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/runtime/... ./internal/plugins/frontends/..._
   - _Requirements: 6.1, 8.3, 8.4, 16.3_
 
-- [ ] 10.3 Apply fees once at their declared customer scope
+- [x] 10.3 Apply fees once at their declared customer scope
   - Move call/submission fixed-fee evaluation outside the B-leg loop and retain explicit failure/local-command/race-loser rules; fixed commercial fees remain distinct from inference usage.
   - Persist text/cache/media B-leg retail lines and optional customer-boundary proxy-service lines separately from supplier line items.
   - Completion: customer fixed fees do not multiply by number of selected B-legs, media direction remains visible, and summary charge equals its rounded detail lines.
@@ -463,7 +463,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/..._
   - _Requirements: 2.6, 8.1, 8.2, 8.3, 8.4_
 
-- [ ] 10.4 Implement customer credit operations and explicit included allowance
+- [x] 10.4 Implement customer credit operations and explicit included allowance
   - Add customer-owned unit balances/operations keyed by account/pool/period and integrate final credit debits with existing exposure/settlement authority.
   - For money plus included-credit plans, use pre-reserved entitlement or atomically evaluated settlement balance and a safe monetary bound; reject stale read-then-spend.
   - Completion: concurrent requests cannot spend the same included credits twice and supplier gauges cannot mutate customer entitlement.
@@ -473,7 +473,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/...; make test-db-parity_
   - _Requirements: 2.5, 8.5, 9.6, 11.1, 14.2, 14.4_
 
-- [ ] 10.5 Certify independent customer settlement under supplier lag
+- [x] 10.5 Certify independent customer settlement under supplier lag
   - Run customer completion while provider-cost/statement queues are unavailable; preserve normal independent settlement.
   - Test explicit cost-pass-through provisional/pending policy with bounded state and separately permitted late adjustment.
   - Completion: supplier backlog cannot accidentally hold customer admission locks or force independent retail rating to wait.

@@ -40,6 +40,7 @@ func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts requestTerm
 	record := billing.CallUsageRecord{
 		SchemaVersion:      billing.CurrentRecordSchemaVersion,
 		CallID:             facts.billingCallID,
+		SubmissionID:       strings.TrimSpace(facts.submissionID),
 		AccountID:          accountID,
 		ALegID:             strings.TrimSpace(facts.aLegID),
 		SessionID:          strings.TrimSpace(facts.sessionID),

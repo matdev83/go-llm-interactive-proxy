@@ -110,6 +110,7 @@ type attemptSession struct {
 	requestID         string
 	boundaryScope     scope.PrincipalScopeView
 	billingCallID     billing.BillingCallID
+	submissionID      string
 	billingStoreID    string
 	billingCallState  *billingCallState
 
@@ -235,6 +236,7 @@ type attemptSessionInput struct {
 	requestID             string
 	boundaryScope         scope.PrincipalScopeView
 	billingCallID         billing.BillingCallID
+	submissionID          string
 	billingStoreID        string
 	billingCallState      *billingCallState
 	accounting            attemptAccountingTracker
@@ -269,7 +271,7 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		forceClose: make(chan struct{}),
 		terminal:   newStreamTerminal(sdkterminal.ScopeAttempt), aScope: in.aScope,
 		releaseKind: authorityapp.ReleaseKindSwallowed, defaultCommand: sdkterminal.CommandBackendOpenFailure, defaultLegOutcome: billing.LegOutcomeFailed,
-		traceID: in.traceID, requestID: in.requestID, boundaryScope: in.boundaryScope, billingCallID: in.billingCallID, billingStoreID: in.billingStoreID, billingCallState: in.billingCallState,
+		traceID: in.traceID, requestID: in.requestID, boundaryScope: in.boundaryScope, billingCallID: in.billingCallID, submissionID: in.submissionID, billingStoreID: in.billingStoreID, billingCallState: in.billingCallState,
 		accounting: in.accounting, boundary: in.boundary, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
 		promptCacheController: in.promptCacheController, finalStreamObs: in.finalStreamObs,
 		recordAttemptLoggedFn: in.recordAttemptLoggedFn, emitBackendEgressFn: in.emitBackendEgressFn,
@@ -1861,6 +1863,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 				}
 				legRecord := billingLegRecord(billingLegDraft{
 					callID:               callID,
+					submissionID:         a.submissionID,
 					aLegID:               aLegID,
 					storeID:              a.billingStoreID,
 					bLegID:               a.bleg.BLegID,

@@ -78,8 +78,18 @@ func (r *ReferenceRater) Rate(ctx context.Context, input economics.PostUsageRati
 		return economics.Valuation{}, err
 	}
 	switch input.Basis {
-	case economics.BasisLocalExpected, economics.BasisCustomerPolicy:
+	case economics.BasisLocalExpected:
 		input = inputForPlane(input, isLocalQuantityObservation)
+	case economics.BasisCustomerPolicy:
+		// Customer retail rating consumes the frozen B-leg quantity envelope.
+		// Provider-origin observations remain valid here because the selector
+		// already established that they are normalized backend-attempt evidence;
+		// customer-boundary observations are rejected before this seam.
+		// Retain B-leg envelopes even when a quantity is unavailable so the
+		// resulting valuation carries the selected reference and a typed
+		// incomplete state rather than turning missing evidence into an empty
+		// input set.
+		input = inputForPlane(input, isRetailBLegObservation)
 	case economics.BasisProviderQuantityLocal:
 		input = inputForPlane(input, isProviderQuantityObservation)
 	case economics.BasisProviderReported:
@@ -301,10 +311,32 @@ type aggregateMeasure struct {
 }
 
 func (r *ReferenceRater) rateMeasures(input economics.PostUsageRatingInput, valuation economics.Valuation) (economics.Valuation, error) {
+	return r.rateMeasuresWithPredicate(input, valuation, true, nil)
+}
+
+func (r *ReferenceRater) rateMeasuresWithPredicate(input economics.PostUsageRatingInput, valuation economics.Valuation, includeFixed bool, predicate func(metering.Observation) bool) (economics.Valuation, error) {
+	return r.rateMeasuresWithPredicateAndFixedScope(input, valuation, includeFixed, predicate, "")
+}
+
+// rateMeasuresForFixedScope is used by customer retail composition when a
+// tariff carries more than one fixed-fee scope. It evaluates only the rules
+// declared for this scope, so a submission rule cannot make an otherwise valid
+// call valuation partial merely because it was intentionally deferred to the
+// submission pass.
+func (r *ReferenceRater) rateMeasuresForFixedScope(input economics.PostUsageRatingInput, valuation economics.Valuation, scope string) (economics.Valuation, error) {
+	return r.rateMeasuresWithPredicateAndFixedScope(input, valuation, true, nil, scope)
+}
+
+func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.PostUsageRatingInput, valuation economics.Valuation, includeFixed bool, predicate func(metering.Observation) bool, fixedScope string) (economics.Valuation, error) {
 	selected := func(observation metering.Observation) bool {
+		if predicate != nil {
+			return predicate(observation)
+		}
 		switch input.Basis {
 		case economics.BasisProviderQuantityLocal:
 			return observation.Origin == metering.OriginProvider
+		case economics.BasisCustomerPolicy:
+			return isRetailQuantityObservation(observation)
 		default:
 			return observation.Origin == metering.OriginLocal
 		}
@@ -347,7 +379,15 @@ func (r *ReferenceRater) rateMeasures(input economics.PostUsageRatingInput, valu
 			}
 		}
 	}
-	fixedLines, fixedErr := r.rateFixedLines(input, qualifiers, valuation.InputObservations)
+	var fixedLines []economics.LineItem
+	var fixedErr error
+	if includeFixed {
+		if fixedScope == "" {
+			fixedLines, fixedErr = r.rateFixedLines(input, qualifiers, valuation.InputObservations)
+		} else {
+			fixedLines, fixedErr = r.rateFixedLinesForScope(input, qualifiers, valuation.InputObservations, fixedScope)
+		}
+	}
 	valuation.Lines = append(valuation.Lines, fixedLines...)
 	if fixedErr != nil {
 		// A fixed fee can remain independently payable, but a failed sibling
@@ -381,6 +421,10 @@ func (r *ReferenceRater) rateMeasures(input economics.PostUsageRatingInput, valu
 }
 
 func (r *ReferenceRater) rateFixedLines(input economics.PostUsageRatingInput, qualifiers []metering.Dimension, inputRefs []metering.ObservationRef) ([]economics.LineItem, error) {
+	return r.rateFixedLinesForScope(input, qualifiers, inputRefs, "")
+}
+
+func (r *ReferenceRater) rateFixedLinesForScope(input economics.PostUsageRatingInput, qualifiers []metering.Dimension, inputRefs []metering.ObservationRef, scope string) ([]economics.LineItem, error) {
 	values := make(map[string]string, len(qualifiers))
 	for _, qualifier := range qualifiers {
 		values[qualifier.Name] = qualifier.Value
@@ -413,6 +457,9 @@ func (r *ReferenceRater) rateFixedLines(input economics.PostUsageRatingInput, qu
 	}
 	for _, rule := range r.snapshot.Rules {
 		if rule.FixedAmount == nil {
+			continue
+		}
+		if scope != "" && fixedFeeScopeKind(rule.FixedScope) != scope {
 			continue
 		}
 		missing := ""

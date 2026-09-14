@@ -25,10 +25,11 @@ type ProductionOptions struct {
 	BillingReports     billing.ReportingStore
 	BillingReportsPath string
 	BillingIdentity    runtimecore.BillingIdentity
-	// BillingCallRatingResolver resolves immutable call/exposure snapshots for
-	// post-usage customer settlement and never consults authorization holds.
-	BillingCallRatingResolver   billing.CallRatingResolver
-	BillingProviderCostResolver billing.ProviderCostResolver
+	// BillingCallRatingResolver resolves immutable call/exposure snapshots and never consults authorization holds.
+	BillingCallRatingResolver             billing.CallRatingResolver
+	BillingProviderCostResolver           billing.ProviderCostResolver
+	BillingCostPassThroughSettlementStore billing.CostPassThroughSettlementStore
+	BillingCustomerUnitLedger             billing.CustomerUnitLedger
 	// MaintenanceAccounting receives provider-authoritative maintenance usage on
 	// behalf of background maintenance operations (such as prompt cache keepwarm).
 	MaintenanceAccounting    billing.ProviderMaintenanceUsageObserver

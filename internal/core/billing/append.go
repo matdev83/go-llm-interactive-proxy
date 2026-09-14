@@ -45,6 +45,13 @@ type ProviderCostResolver interface {
 type CallSettlementStore interface {
 	ApplyCallBillingResult(context.Context, ApplyCallBillingInput) (CallSettlement, error)
 }
+
+// CostPassThroughSettlementStore is an optional late-adjustment seam. The
+// customer settlement store remains usable without it, preserving the
+// independent-retail path and older adapters.
+type CostPassThroughSettlementStore interface {
+	ApplyCostPassThroughRevision(context.Context, CostPassThroughRevisionInput) (CostPassThroughRevisionResult, error)
+}
 type CompleteCallClaimer interface {
 	ClaimCompleteCall(context.Context, BillingCallID) (CompleteCall, error)
 }

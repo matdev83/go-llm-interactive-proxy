@@ -78,22 +78,26 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("%w: provider-cost resolver: %w", ErrComposeBillingIncomplete, err)
 	}
+	customerUnitLedger, _ := in.Store.(billing.CustomerUnitLedger)
+	costPassThroughSettlement, _ := in.Store.(billing.CostPassThroughSettlementStore)
 	maintenanceObserver, err := billingcompose.ComposeMaintenanceAccounting(in.Store, in.MaintenanceAccounting)
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("%w: maintenance accounting: %w", ErrComposeBillingIncomplete, err)
 	}
 	return ProductionOptions{
-		BillingTerminalUsageSink:    in.TerminalUsageSink,
-		BillingCreditGate:           billing.CheapCreditScreen{Store: creditStore, Currency: in.Currency, MinPreRouteHeadroomNano: in.MinPreRouteHeadroomNano},
-		BillingExposureAdmission:    adapter,
-		BillingStore:                in.Store,
-		BillingReports:              in.Store,
-		BillingReportsPath:          in.ReportsPath,
-		BillingIdentity:             identity,
-		BillingCallRatingResolver:   callResolver,
-		BillingProviderCostResolver: providerCostResolver,
-		MaintenanceAccounting:       maintenanceObserver,
-		BillingPostTurnBatchSize:    in.PostTurnBatchSize,
+		BillingTerminalUsageSink:              in.TerminalUsageSink,
+		BillingCreditGate:                     billing.CheapCreditScreen{Store: creditStore, Currency: in.Currency, MinPreRouteHeadroomNano: in.MinPreRouteHeadroomNano},
+		BillingExposureAdmission:              adapter,
+		BillingStore:                          in.Store,
+		BillingReports:                        in.Store,
+		BillingReportsPath:                    in.ReportsPath,
+		BillingIdentity:                       identity,
+		BillingCallRatingResolver:             callResolver,
+		BillingProviderCostResolver:           providerCostResolver,
+		BillingCostPassThroughSettlementStore: costPassThroughSettlement,
+		BillingCustomerUnitLedger:             customerUnitLedger,
+		MaintenanceAccounting:                 maintenanceObserver,
+		BillingPostTurnBatchSize:              in.PostTurnBatchSize,
 	}, nil
 }
 

@@ -14,8 +14,9 @@
 - Parent tasks 7.1–7.4: root-reviewed and accepted; negotiated V2 connector evidence, V1 partial bridge, host drains, durable coverage dispositions and reusable conformance pass focused verification.
 - Parent tasks 8.1–8.5: root-reviewed and accepted; real provider evidence, negotiated V1/V2 authority, multimodal native units, Codex account gauges, auxiliary dispositions and the closed producer census pass focused verification.
 - Parent tasks 9.1–9.5 and refinement task 2.3: delegated-review accepted; immutable tariff snapshots, exact component rating, scope-safe tiers, independent E/Q/P valuations, asymmetric multimodal fixtures, replay-safe identities, and canonical effective-charge COGS pass focused verification.
+- Parent tasks 10.1–10.5 and refinement tasks 6.1–6.3: delegated-review accepted; frozen retail B-leg selection, trusted submission identity, once-scoped fees, separate proxy-service lines, atomic customer units, supplier isolation and explicit pass-through adjustment pass focused verification.
 - Refinement group 7 remains open because its dependency on retail policy and non-request resource allocation is intentionally later; parent producer migration does not satisfy those downstream criteria by itself.
-- Next implementation: parent task group 10, independent customer policies and submission charging.
+- Next implementation: parent task group 11, account-window and allocation economics.
 - The refinement has 8 groups and its required parent has 20. They overlap; do not report these as 28 independent phases or infer a completion percentage from group count.
 
 ## Process correction
@@ -88,3 +89,10 @@ This document changes execution discipline only. It does not remove requirements
 - The same delegated Phase 9 reviewer verified the five repairs together, found one retained-charge coverage composition defect, and approved the focused remediation.
 - Fresh affected-package tests, shuffled adversarial tests, `go vet`, SQLite parity, targeted architecture/QA, formatting and diff checks passed.
 - Accepted tasks: parent 9.1–9.5 and refinement 2.3.
+
+### Phase 10 measurement
+
+- The phase was split into seven sequential Luna/max implementation slices: retail selection, submission identity, retail rating/fees, credit domain, durable credit adapter, supplier isolation and explicit pass-through adjustment.
+- The delegated phase reviewer found one cross-call submission-fee idempotency blocker. A focused worker added a durable atomic claim, and the same reviewer approved the bounded remediation.
+- Fresh billing, runtime, frontend, billingstore, composition, SQLite parity, concurrency, vet, targeted architecture/QA, formatting and diff checks passed.
+- Accepted tasks: parent 10.1–10.5 and refinement 6.1–6.3.

@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/submission"
 )
 
 func (e *Executor) billingEnabled() bool {
@@ -73,7 +74,8 @@ func (e *Executor) callFinalizeBillingResult(ctx context.Context, in execbackend
 }
 
 type billingCallState struct {
-	callID billing.BillingCallID
+	callID       billing.BillingCallID
+	submissionID string
 
 	mu sync.Mutex
 
@@ -92,6 +94,36 @@ func newBillingCallState(callID billing.BillingCallID) *billingCallState {
 		allocated: make(map[string]int),
 		finalize:  make(map[string]*finalizeCacheEntry),
 	}
+}
+
+func (s *billingCallState) ensureSubmissionID(id string) error {
+	if s == nil {
+		return nil
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.submissionID != "" && s.submissionID != id {
+		return fmt.Errorf("%w: billing call already belongs to submission %q", submission.ErrScopeMismatch, s.submissionID)
+	}
+	s.submissionID = id
+	return nil
+}
+
+func (s *billingCallState) submissionIdentity() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.submissionID
+}
+
+func billingSubmissionID(s *billingCallState) string {
+	return s.submissionIdentity()
 }
 
 func (s *billingCallState) noteAllocatedBLeg(bLegID string, seq int) {

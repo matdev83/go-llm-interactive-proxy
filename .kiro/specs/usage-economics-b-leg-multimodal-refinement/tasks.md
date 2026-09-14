@@ -151,9 +151,9 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 5.2_
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/... ./internal/stdhttp/..._
 
-- [ ] 6. Refine retail inference usage to policy-selected B-legs
+- [x] 6. Refine retail inference usage to policy-selected B-legs
 
-- [ ] 6.1 Implement explicit retail B-leg selector
+- [x] 6.1 Implement explicit retail B-leg selector
   - Resolve the frozen policy to surfaced/winner, named outcome subset, all attributable attempts, or cost-pass-through basis.
   - Return immutable selected B-leg/observation refs plus policy/version/completeness; do not calculate COGS in this selector.
   - Completion: default independent retail selects surfaced/winner inference usage and does not inherit runtime retry count.
@@ -162,7 +162,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 5.3_
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingcompose/..._
 
-- [ ] 6.2 Rate selected B-leg quantities with independent customer prices
+- [x] 6.2 Rate selected B-leg quantities with independent customer prices
   - Apply the parent's generic customer rate rules, including modality-specific input/output rates, to selected B-leg quantities.
   - Keep submission/call/account fees outside B-leg iteration and preserve explicit customer credit/allowance handling.
   - Completion: retail amount changes with customer tariffs but not with provider tariff or unselected retry B-legs.
@@ -171,7 +171,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 6.1_
   - _Validation: go test ./internal/core/billing/... ./pkg/lipsdk/economics/..._
 
-- [ ] 6.3 Preserve explicit proxy-service customer-boundary tariffs
+- [x] 6.3 Preserve explicit proxy-service customer-boundary tariffs
   - Permit separately named customer-boundary media/byte/item service meters without labelling them provider inference usage or silently substituting them for B-leg quantities.
   - Completion: an offer can charge egress bandwidth/image service independently while inference usage remains B-leg-rooted.
   - _Requirements: 5.6_

@@ -189,6 +189,7 @@ func (tx *attemptTx) createSession() *attemptSession {
 		aScope:                tx.reqFacts.aScope,
 		traceID:               tx.reqFacts.traceID,
 		billingCallID:         tx.reqFacts.billingCallID,
+		submissionID:          tx.reqFacts.submissionID,
 		billingCallState:      tx.reqFacts.billingCallState,
 		accounting:            tx.accounting,
 		boundary:              tx.boundary,
@@ -237,6 +238,7 @@ func (e *Executor) createSessionForParallelLeg(leg *parallelLeg, aScope *leglife
 		requestID:        leg.requestID,
 		boundaryScope:    leg.boundaryScope,
 		billingCallID:    billingCallID,
+		submissionID:     billingSubmissionID(leg.billingCallState),
 		billingCallState: leg.billingCallState,
 		boundary:         boundary,
 		recordAttemptLoggedFn: func(cctx context.Context, p recordAttemptParams, attrs diag.AttrOpts) {

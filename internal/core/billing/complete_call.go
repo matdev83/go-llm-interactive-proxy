@@ -26,6 +26,9 @@ func JoinCompleteCall(closure CallUsageRecord, legs []CallLegUsageRecord) (Compl
 		if leg.CallID != closure.CallID {
 			continue
 		}
+		if closure.SubmissionID != "" && leg.SubmissionID != closure.SubmissionID {
+			continue
+		}
 		if !closure.Workload.IsZero() && leg.Workload != closure.Workload {
 			continue
 		}

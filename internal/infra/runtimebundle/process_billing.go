@@ -62,7 +62,7 @@ func buildProcessBillingRuntime(owner *processResourceOwner, cfgReportsPath stri
 	providerWork, providerWorkOK := prod.BillingStore.(billing.ProviderCostWorkReader)
 	providerStore, providerStoreOK := prod.BillingStore.(billing.ProviderCostStore)
 	if !providerWorkOK || !providerStoreOK || prod.BillingProviderCostResolver == nil {
-		return ProductionOptions{}, ErrAuthoritativeBillingRequired
+		return prod, nil // Supplier costing is optional; retail settlement is independent.
 	}
 	providerWorker, err := billing.NewCallProviderCostWorker(providerWork, providerStore, prod.BillingProviderCostResolver, prod.BillingPostTurnBatchSize)
 	if err != nil {

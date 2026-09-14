@@ -222,6 +222,33 @@ func isLocalQuantityObservation(observation metering.Observation) bool {
 	return observation.Origin == metering.OriginLocal && (len(observation.Measures) != 0 || observation.Authority == metering.AuthorityUnavailableClaim)
 }
 
+// isRetailBLegObservation identifies source-separated backend-attempt evidence
+// eligible for a frozen retail selection. It intentionally does not require a
+// present measure: a charge-only or unavailable envelope must reach the rater
+// and become typed incomplete evidence rather than being silently treated as a
+// zero quantity.
+func isRetailBLegObservation(observation metering.Observation) bool {
+	if observation.Subject.Kind != metering.SubjectBLeg || observation.Lifecycle != metering.LifecycleBackendAttempt {
+		return false
+	}
+	if observation.Boundary != metering.BoundaryBackendIngress && observation.Boundary != metering.BoundaryBackendEgress {
+		return false
+	}
+	if observation.Origin != metering.OriginLocal && observation.Origin != metering.OriginProvider {
+		return false
+	}
+	return true
+}
+
+// isRetailQuantityObservation is the source predicate for the customer R
+// plane. A frozen retail selection has already established B-leg ownership and
+// backend boundaries, so a normalized provider-origin quantity is eligible
+// alongside a locally measured quantity. Customer-boundary evidence is kept
+// out of this predicate and can only enter an explicit proxy-service tariff.
+func isRetailQuantityObservation(observation metering.Observation) bool {
+	return isRetailBLegObservation(observation) && (len(observation.Measures) != 0 || observation.Authority == metering.AuthorityUnavailableClaim)
+}
+
 func isProviderQuantityObservation(observation metering.Observation) bool {
 	return observation.Origin == metering.OriginProvider && (len(observation.Measures) != 0 || observation.Authority == metering.AuthorityUnavailableClaim)
 }

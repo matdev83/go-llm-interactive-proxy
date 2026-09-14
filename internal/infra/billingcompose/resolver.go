@@ -43,6 +43,8 @@ func (r *JoinRatingResolver) ResolveCallRating(_ context.Context, complete billi
 		CustomerPricing:   snapshots.DefaultPricing,
 		CustomerPolicy:    snapshots.Policy,
 		ModelPricing:      snapshots.ModelPricing,
+		CustomerTariff:    snapshots.DefaultTariff,
+		ModelTariffs:      snapshots.ModelTariffs,
 	})
 }
 

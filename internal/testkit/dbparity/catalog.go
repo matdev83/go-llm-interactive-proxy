@@ -84,6 +84,8 @@ func DefaultCatalog() Catalog {
 					"internal/core/billing.ProviderCostStore",
 					"internal/core/billing.ProviderCostWorkStore",
 					"internal/core/billing.ReportsStore",
+					"internal/core/billing.CustomerUnitLedger",
+					"internal/core/billing.CostPassThroughSettlementStore",
 				},
 				MigrationRoots: []string{
 					"internal/infra/billingstore",
@@ -115,6 +117,21 @@ func DefaultCatalog() Catalog {
 						ID:       "v2-valuations-reconciliations-atomic-projections",
 						Class:    Common,
 						Evidence: "internal/infra/billingstore/phase4_economics_store_test.go",
+					},
+					{
+						ID:       "customer-unit-atomic-replay-reservation",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/customer_unit_store_test.go",
+					},
+					{
+						ID:       "cost-pass-through-head-delta-replay",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/cost_pass_through_phase10_test.go",
+					},
+					{
+						ID:       "submission-fee-once-durable-claim",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/submission_fee_settlement_phase10_test.go",
 					},
 				},
 			},

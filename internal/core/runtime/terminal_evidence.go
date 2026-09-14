@@ -22,6 +22,7 @@ type requestTerminalFacts struct {
 	traceID                      string
 	aLegID                       string
 	billingCallID                billing.BillingCallID
+	submissionID                 string
 	storeID                      string
 	storeIDStamped               bool
 	billingState                 *billingCallState
@@ -81,6 +82,7 @@ func (f recvTurnFacts) terminalFacts() requestTerminalFacts {
 		traceID:                      f.traceID,
 		aLegID:                       f.aLegID,
 		billingCallID:                f.billingCallID,
+		submissionID:                 strings.TrimSpace(f.submissionID),
 		storeID:                      strings.TrimSpace(f.billingStoreID),
 		storeIDStamped:               f.billingStoreIDStamped,
 		billingState:                 f.billingCallState,
