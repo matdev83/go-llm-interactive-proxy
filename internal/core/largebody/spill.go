@@ -19,23 +19,21 @@ const (
 	// DefaultCopyBufferSize is the fixed size of the reusable copy buffer (32 KiB)
 	// used for streaming I/O. It bounds copy-buffer heap allocation (Requirement 20.1).
 	DefaultCopyBufferSize = 32 * 1024
-
 	// DefaultMemorySpoolBytes is the default per-capture in-memory ceiling (64 KiB)
 	// before spilling excess request bytes to disk (Requirement 20.1).
 	DefaultMemorySpoolBytes int64 = 64 * 1024
 )
 
-// ErrSpillClosed is returned when attempting an operation on a closed SpillBuffer.
-var ErrSpillClosed = errors.New("largebody: spill buffer is closed")
-
-// ErrSpillFileCreationFailed is returned when creating a temporary spill file fails.
-var ErrSpillFileCreationFailed = errors.New("largebody: failed to create spill file")
-
-// ErrSpillWriteFailed is returned when writing to the spill file fails.
-var ErrSpillWriteFailed = errors.New("largebody: spill file write failed")
-
-// ErrInvalidSpillConfig is returned when a SpillConfig parameter violates bounds.
-var ErrInvalidSpillConfig = errors.New("largebody: invalid spill configuration")
+var (
+	// ErrSpillClosed is returned when attempting an operation on a closed SpillBuffer.
+	ErrSpillClosed = errors.New("largebody: spill buffer is closed")
+	// ErrSpillFileCreationFailed is returned when creating a temporary spill file fails.
+	ErrSpillFileCreationFailed = errors.New("largebody: failed to create spill file")
+	// ErrSpillWriteFailed is returned when writing to the spill file fails.
+	ErrSpillWriteFailed = errors.New("largebody: spill file write failed")
+	// ErrInvalidSpillConfig is returned when a SpillConfig parameter violates bounds.
+	ErrInvalidSpillConfig = errors.New("largebody: invalid spill configuration")
+)
 
 // ErrUnconsumedSuffix is returned when attempting to Write to a SpillBuffer that
 // still holds an unwritten suffix from a previous failed or partial write.
@@ -702,6 +700,9 @@ func (b *SpillBuffer) String() string {
 	return fmt.Sprintf("SpillBuffer{written=%d, mem=%d, fileBytes=%d, spilled=%t}",
 		b.bytesWritten, len(b.mem), b.fileBytes, b.lifecycle.HasSpilled())
 }
+
+// GoString implements fmt.GoStringer without leaking internal fields, prompt content, or filesystem paths.
+func (b *SpillBuffer) GoString() string { return b.String() }
 
 // spillReader wraps an io.Reader and tracks reader lifetime on the parent SpillBuffer.
 type spillReader struct {

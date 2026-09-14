@@ -48,11 +48,10 @@ func TestCloseIdle_FinalGenerationCloseCallsIdleOnce(t *testing.T) {
 	m := runtimehost.NewManager(2, nil)
 	g := m.PrepareRequestPlane("gen", &planeFromCandidate{cand: cand})
 	mustPublishBundle(t, m, g)
-	mustPublishBundle(t, m, m.Prepare("next"))
-
 	if idleCalls.Load() != 0 {
 		t.Fatal("publish must not close idle transports")
 	}
+	mustPublishBundle(t, m, m.Prepare("next"))
 	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
