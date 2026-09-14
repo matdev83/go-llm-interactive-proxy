@@ -492,11 +492,11 @@ func TestKeepalive_LongAssessment_NoHoldaliveBeforeCommit(t *testing.T) {
 		streamMode: true,
 		preRequestKeepalive: lipsdk.FrontendKeepaliveConfig{
 			Enabled:  true,
-			Interval: 5 * time.Millisecond,
+			Interval: 50 * time.Millisecond,
 		},
 		assessFunc: func(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
-			// Assessment takes 30ms (longer than 5ms keepalive interval)
-			time.Sleep(30 * time.Millisecond)
+			// Assessment takes 100ms (longer than 50ms keepalive interval)
+			time.Sleep(100 * time.Millisecond)
 			statusesDuringAssess = w.Statuses()
 			return makeAcceptedAssessment(proof)
 		},
@@ -548,10 +548,10 @@ func TestKeepalive_LongAssessment_Declined_NoHoldaliveBeforeCommit(t *testing.T)
 		streamMode: true,
 		preRequestKeepalive: lipsdk.FrontendKeepaliveConfig{
 			Enabled:  true,
-			Interval: 5 * time.Millisecond,
+			Interval: 50 * time.Millisecond,
 		},
 		assessFunc: func(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
-			time.Sleep(30 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			statusesDuringAssess = w.Statuses()
 			return largebody.NewDeclinedAssessment(largebody.DeclineReasonRouteIncompatible)
 		},
