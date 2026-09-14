@@ -19,16 +19,11 @@ var ForbiddenImports = []ForbiddenImportRule{
 	{SourcePattern: "internal/compactionfacts", TargetPattern: "/internal/core", Reason: "compactionfacts must remain neutral and not import internal/core"},
 	{SourcePattern: "internal/compactionfacts", TargetPattern: "/internal/infra", Reason: "compactionfacts must remain neutral and not import internal/infra"},
 	{SourcePattern: "internal/compactionfacts", TargetPattern: "/internal/plugins", Reason: "compactionfacts must remain neutral and not import internal/plugins"},
-	{
-		SourcePattern: "internal/stdhttp/contract",
-		TargetPattern: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle",
-		Reason:        "contract package must stay cycle-neutral",
-	},
-	{
-		SourcePattern: "internal/stdhttp/contract",
-		TargetPattern: "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp",
-		Reason:        "contract must not import root stdhttp",
-	},
+	{SourcePattern: "internal/capabilityfacts", TargetPattern: "/internal/core", Reason: "capabilityfacts must remain neutral and not import internal/core"},
+	{SourcePattern: "internal/capabilityfacts", TargetPattern: "/internal/infra", Reason: "capabilityfacts must remain neutral and not import internal/infra"},
+	{SourcePattern: "internal/capabilityfacts", TargetPattern: "/internal/plugins", Reason: "capabilityfacts must remain neutral and not import internal/plugins"},
+	{SourcePattern: "internal/stdhttp/contract", TargetPattern: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle", Reason: "contract package must stay cycle-neutral"},
+	{SourcePattern: "internal/stdhttp/contract", TargetPattern: "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp", Reason: "contract must not import root stdhttp"},
 	{
 		SourcePattern: "internal/infra/runtimebundle",
 		TargetPattern: "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp",

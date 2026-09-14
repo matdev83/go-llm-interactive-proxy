@@ -758,6 +758,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 
 	var digest largebody.IdentityDigest
 	var turnShape largebody.ClientTurnShape
+	var msgs []lipapi.Message
 
 	if inputIsString {
 		// Pass 2: Stream input string directly through CompileStreamingProof without full body allocation.
@@ -825,7 +826,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		if err := frontendlimits.Count("input", len(items), frontendlimits.MaxMessages); err != nil {
 			return frontendpipe.ProofOutput{}, err
 		}
-		msgs := make([]lipapi.Message, 0, len(items))
+		msgs = make([]lipapi.Message, 0, len(items))
 		for i, it := range items {
 			m, err := parseInputItem(it)
 			if err != nil {
@@ -1047,15 +1048,26 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		}
 	}
 
+	hasTools := len(tools) > 0 || hasHistoryTools(msgs)
+	requiredCaps := largebody.DeriveRequiredCapabilities(turnShape, largebody.ControlRequirements{
+		Delivery:          lipapi.DeliveryModeFromClientStream(stream),
+		HasTools:          hasTools,
+		ParallelToolCalls: parallelTools,
+		ReasoningEffort:   "",
+		StructuredOutputs: false,
+		ItemAuthoritative: false,
+	})
+
 	proof := largebody.Proof{
-		ProfileID:          ProfileID,
-		Operation:          lipapi.OperationOpenAIResponses,
-		Delivery:           lipapi.DeliveryModeFromClientStream(stream),
-		RouteSelector:      sel,
-		ClientModel:        model,
-		MaxOutputTokens:    maxTokens,
-		CompactionFacts:    proofCompactionFacts,
-		CompactionComplete: proofCompactionComplete,
+		ProfileID:            ProfileID,
+		Operation:            lipapi.OperationOpenAIResponses,
+		Delivery:             lipapi.DeliveryModeFromClientStream(stream),
+		RouteSelector:        sel,
+		ClientModel:          model,
+		MaxOutputTokens:      maxTokens,
+		CompactionFacts:      proofCompactionFacts,
+		CompactionComplete:   proofCompactionComplete,
+		RequiredCapabilities: requiredCaps,
 		Facts: largebody.ProtocolFacts{
 			RequirementsID: ProfileID,
 			ControlCount:   int64(len(tools)),
@@ -1267,3 +1279,20 @@ func compileStreamingCompactionFacts(
 }
 
 var _ frontendpipe.FrontendProfile = (*Profile)(nil)
+
+func hasHistoryTools(msgs []lipapi.Message) bool {
+	for _, m := range msgs {
+		if m.Role == lipapi.RoleTool {
+			return true
+		}
+		for _, p := range m.Parts {
+			if p.Kind == lipapi.PartToolResult || (p.Kind == lipapi.PartJSON && p.ToolCallID != "") {
+				return true
+			}
+			if p.Kind == lipapi.PartJSON && bytes.Contains(p.Content, []byte(`"function_call"`)) {
+				return true
+			}
+		}
+	}
+	return false
+}

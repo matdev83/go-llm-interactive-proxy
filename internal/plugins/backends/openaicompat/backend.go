@@ -49,10 +49,6 @@ type BackendSpec struct {
 	Inventory                  modelinventory.Provider
 }
 
-func HostedCaps() lipapi.BackendCaps {
-	return openaicaps.HostedFull
-}
-
 func NewBackend(spec BackendSpec) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(spec.ID, "base_url", spec.BaseURL); err != nil {
 		return newConfigErrorBackend(spec.ID, err)
@@ -80,6 +76,9 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 		ModelInventory:                       spec.Inventory,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.ForHostedModelCompatibleReplay(resolveModel(spec, cand, call), prefixes)
+		},
+		ResolveWireCaps: func(_ context.Context, cand routing.AttemptCandidate) lipapi.BackendCaps {
+			return openaicaps.ForHostedModelCompatibleReplay(cand.Primary.Model, prefixes)
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {

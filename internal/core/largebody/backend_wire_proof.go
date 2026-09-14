@@ -93,14 +93,15 @@ func (g *BackendWireProofGate) Evaluate(
 		if len(cands) > 0 {
 			candModel := cands[0].Primary.WireModel()
 			wireReq = WireRequestFacts{
-				ProfileID:       proof.ProfileID,
-				Operation:       proof.Operation,
-				Delivery:        proof.Delivery,
-				BodyMode:        proof.Mode,
-				Rewrite:         proof.Rewrite,
-				ClientModel:     proof.ClientModel,
-				CandidateModel:  candModel,
-				MaxOutputTokens: proof.MaxOutputTokens,
+				ProfileID:            proof.ProfileID,
+				Operation:            proof.Operation,
+				Delivery:             proof.Delivery,
+				BodyMode:             proof.Mode,
+				Rewrite:              proof.Rewrite,
+				ClientModel:          proof.ClientModel,
+				CandidateModel:       candModel,
+				MaxOutputTokens:      proof.MaxOutputTokens,
+				RequiredCapabilities: proof.RequiredCapabilities,
 			}
 		}
 	}
@@ -198,14 +199,15 @@ func (g *BackendWireProofGate) VerifyOverrideCandidate(
 	}
 
 	candFacts := WireRequestFacts{
-		ProfileID:       acceptedDomain.ProfileID,
-		Operation:       acceptedDomain.Operation,
-		Delivery:        acceptedDomain.Delivery,
-		BodyMode:        acceptedDomain.BodyMode,
-		Rewrite:         acceptedDomain.Rewrite,
-		ClientModel:     candModel,
-		CandidateModel:  candModel,
-		MaxOutputTokens: 0,
+		ProfileID:            acceptedDomain.ProfileID,
+		Operation:            acceptedDomain.Operation,
+		Delivery:             acceptedDomain.Delivery,
+		BodyMode:             acceptedDomain.BodyMode,
+		Rewrite:              acceptedDomain.Rewrite,
+		ClientModel:          candModel,
+		CandidateModel:       candModel,
+		MaxOutputTokens:      0,
+		RequiredCapabilities: acceptedDomain.RequiredCapabilities,
 	}
 
 	backendCand := routing.BackendFacingCandidate(cand)

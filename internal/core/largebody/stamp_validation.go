@@ -221,6 +221,22 @@ func ValidateExecuteLargeBody(accepted Assessment, src Source, live LiveExecutio
 			}
 		}
 	}
+	if boundCaps := accepted.Stamp.RequiredCapabilitiesDigest(); boundCaps != [32]byte{} || len(accepted.Stamp.RequiredCapabilities()) > 0 {
+		if liveCaps := CapabilitiesDigest(accepted.WireRequest.RequiredCapabilities); boundCaps != liveCaps {
+			return &StampInvariantError{
+				Field:      "required capabilities",
+				BoundValue: hex.EncodeToString(boundCaps[:]),
+				LiveValue:  hex.EncodeToString(liveCaps[:]),
+			}
+		}
+		if liveDomainCaps := CapabilitiesDigest(accepted.WireDomain.RequiredCapabilities); boundCaps != liveDomainCaps {
+			return &StampInvariantError{
+				Field:      "wire domain required capabilities",
+				BoundValue: hex.EncodeToString(boundCaps[:]),
+				LiveValue:  hex.EncodeToString(liveDomainCaps[:]),
+			}
+		}
+	}
 	return ValidateAssessmentStamp(accepted.Stamp, live)
 }
 

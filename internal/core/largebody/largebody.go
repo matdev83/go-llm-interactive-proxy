@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/capabilityfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -213,6 +215,9 @@ func (s SensitiveString) Reveal() string { return s.value }
 // IsZero reports whether no value is wrapped.
 func (s SensitiveString) IsZero() bool { return s.value == "" }
 
+// ByteLen returns the length of the sensitive string in bytes without formatting or revealing it.
+func (s SensitiveString) ByteLen() int { return len(s.value) }
+
 // String redacts the value.
 func (s SensitiveString) String() string { return redactedSensitive }
 
@@ -313,127 +318,17 @@ func (s SessionInput) MarshalJSON() ([]byte, error) {
 // ClientTurnPartShape describes one normalized content part by kind and
 // attributed byte size only. Prompt text is never materialized for the
 // recorder (Requirement 14.5).
-type ClientTurnPartShape struct {
-	Kind         lipapi.ContentPartKind
-	ContentBytes int64
-}
+type (
+	ClientTurnPartShape = capabilityfacts.TurnPartShape
+	ClientTurnItemShape = capabilityfacts.TurnItemShape
+	ClientTurnShape     = capabilityfacts.TurnShape
+	ControlRequirements = capabilityfacts.ControlRequirements
+)
 
-// Validate enforces canonical vocabulary membership and non-negative sizes.
-func (p ClientTurnPartShape) Validate() error {
-	switch p.Kind {
-	case lipapi.ContentPartText,
-		lipapi.ContentPartImageRef,
-		lipapi.ContentPartFileRef,
-		lipapi.ContentPartVideoRef,
-		lipapi.ContentPartRefusal,
-		lipapi.ContentPartReasoning,
-		lipapi.ContentPartSummary,
-		lipapi.ContentPartAnnotation,
-		lipapi.ContentPartAssistantRef,
-		lipapi.ContentPartJSON,
-		lipapi.ContentPartToolResult,
-		lipapi.ContentPartExtension:
-	default:
-		return fmt.Errorf("largebody: unknown turn part kind %q", string(p.Kind))
-	}
-	if p.ContentBytes < 0 {
-		return fmt.Errorf("largebody: turn part content bytes must be >= 0, got %d", p.ContentBytes)
-	}
-	return nil
-}
-
-// ClientTurnItemShape describes one normalized turn item by kind, role,
-// ordinal, and part shapes only.
-type ClientTurnItemShape struct {
-	Kind    lipapi.ItemKind
-	Role    lipapi.Role
-	Ordinal int64
-	Parts   []ClientTurnPartShape
-}
-
-// Validate enforces canonical vocabulary membership and bounds part counts
-// under the semantic-fact budget.
-func (it ClientTurnItemShape) Validate(maxFactBytes int64) error {
-	if err := checkBudget(maxFactBytes); err != nil {
-		return err
-	}
-	switch it.Kind {
-	case lipapi.ItemKindMessage,
-		lipapi.ItemKindItemReference,
-		lipapi.ItemKindToolCall,
-		lipapi.ItemKindToolResult,
-		lipapi.ItemKindReasoning,
-		lipapi.ItemKindCompaction,
-		lipapi.ItemKindExtension:
-	default:
-		return fmt.Errorf("largebody: unknown turn item kind %q", string(it.Kind))
-	}
-	if it.Kind == lipapi.ItemKindMessage {
-		switch it.Role {
-		case lipapi.RoleSystem,
-			lipapi.RoleDeveloper,
-			lipapi.RoleUser,
-			lipapi.RoleAssistant,
-			lipapi.RoleTool:
-		default:
-			return fmt.Errorf("largebody: unknown turn role %q", string(it.Role))
-		}
-	} else if it.Role != "" {
-		switch it.Role {
-		case lipapi.RoleSystem,
-			lipapi.RoleDeveloper,
-			lipapi.RoleUser,
-			lipapi.RoleAssistant,
-			lipapi.RoleTool,
-			lipapi.Role(it.Kind):
-		default:
-			return fmt.Errorf("largebody: unknown turn role %q", string(it.Role))
-		}
-	}
-	if it.Ordinal < 0 {
-		return fmt.Errorf("largebody: turn ordinal must be >= 0, got %d", it.Ordinal)
-	}
-	if int64(len(it.Parts)) > maxFactBytes {
-		return fmt.Errorf("%w: turn part count (%d) exceeds budget %d", ErrSemanticFactBudgetExceeded, len(it.Parts), maxFactBytes)
-	}
-	for i := range it.Parts {
-		if err := it.Parts[i].Validate(); err != nil {
-			return fmt.Errorf("largebody: turn part %d: %w", i, err)
-		}
-	}
-	return nil
-}
-
-// ClientTurnShape is the bounded normalized client-turn shape equivalent to
-// lipapi.NormalizedItems for the certified subset: role/ordinal/content-part
-// kinds and other recorder-required non-content facts (Requirement 14.3).
-// Semantic-fact budget overflow selects canonical processing.
-type ClientTurnShape struct {
-	Items             []ClientTurnItemShape
-	TotalContentBytes int64
-}
-
-// Validate bounds item counts under the semantic-fact budget.
-func (s ClientTurnShape) Validate(maxFactBytes int64) error {
-	if err := checkBudget(maxFactBytes); err != nil {
-		return err
-	}
-	if s.TotalContentBytes < 0 {
-		return fmt.Errorf("largebody: total content bytes must be >= 0, got %d", s.TotalContentBytes)
-	}
-	if int64(len(s.Items)) > maxFactBytes {
-		return fmt.Errorf("%w: turn item count (%d) exceeds budget %d", ErrSemanticFactBudgetExceeded, len(s.Items), maxFactBytes)
-	}
-	if s.MetadataBytes() > maxFactBytes {
-		return fmt.Errorf("%w: turn metadata bytes (%d) exceeds budget %d", ErrSemanticFactBudgetExceeded, s.MetadataBytes(), maxFactBytes)
-	}
-	for i := range s.Items {
-		if err := s.Items[i].Validate(maxFactBytes); err != nil {
-			return fmt.Errorf("largebody: turn item %d: %w", i, err)
-		}
-	}
-	return nil
-}
+var (
+	CapabilitiesDigest         = capabilityfacts.CapabilitiesDigest
+	DeriveRequiredCapabilities = capabilityfacts.DeriveRequiredCapabilities
+)
 
 // IdentityDigest is the exact canonical semantic identity digest equivalent
 // to the post-frontend-decode/pre-core canonical Call identity for the
@@ -502,6 +397,8 @@ type Proof struct {
 
 	CompactionFacts    compactionfacts.RequestFacts
 	CompactionComplete bool
+
+	RequiredCapabilities []lipapi.Capability
 }
 
 // CompactionDigest returns the deterministic digest of the compaction facts and completeness.
@@ -512,9 +409,10 @@ func (p Proof) CompactionDigest() [32]byte {
 // AggregateFactBytes returns the aggregate in-memory byte size of proof metadata and compaction facts.
 func (p Proof) AggregateFactBytes() int64 {
 	total := int64(len(p.ProfileID) + len(p.Operation) + len(p.RouteSelector) + len(p.ClientModel) + len(p.Facts.RequirementsID))
-	total += p.Turn.MetadataBytes() + int64(len(p.Session.AuthoritativeSessionID)+len(p.Session.ClientSessionID)+len(p.Session.ALegID))
-	if p.CompactionComplete {
-		total += int64(len(p.CompactionFacts.ItemHashes)*compactionfacts.ItemHashSizeBytes + len(p.CompactionFacts.StartRuleID))
+	total += p.Turn.MetadataBytes() + int64(len(p.Session.AuthoritativeSessionID)+len(p.Session.ClientSessionID)+len(p.Session.ALegID)+p.Session.ResumeToken.ByteLen())
+	total += int64(len(p.CompactionFacts.ItemHashes)*compactionfacts.ItemHashSizeBytes + len(p.CompactionFacts.StartRuleID))
+	for _, c := range p.RequiredCapabilities {
+		total += int64(len(c))
 	}
 	return total
 }
@@ -526,10 +424,17 @@ func (p Proof) Validate(maxFactBytes int64) error {
 	if err := checkBudget(maxFactBytes); err != nil {
 		return err
 	}
-	if p.CompactionComplete {
-		if int64(len(p.CompactionFacts.ItemHashes)*compactionfacts.ItemHashSizeBytes) > maxFactBytes {
-			return fmt.Errorf("largebody: proof compaction fact hashes exceed %d bytes", maxFactBytes)
-		}
+	if int64(len(p.CompactionFacts.ItemHashes)*compactionfacts.ItemHashSizeBytes) > maxFactBytes {
+		return fmt.Errorf("largebody: proof compaction fact hashes exceed %d bytes", maxFactBytes)
+	}
+	if int64(len(p.CompactionFacts.StartRuleID)) > maxFactBytes {
+		return fmt.Errorf("largebody: proof compaction start rule id exceeds %d bytes", maxFactBytes)
+	}
+	if err := capabilityfacts.ValidateCapabilities(p.RequiredCapabilities, maxFactBytes); err != nil {
+		return err
+	}
+	if p.Delivery == lipapi.DeliveryModeStreaming && !slices.Contains(p.RequiredCapabilities, lipapi.CapabilityStreaming) {
+		return fmt.Errorf("largebody: proof delivery streaming requires CapabilityStreaming in RequiredCapabilities")
 	}
 	if strings.TrimSpace(p.ProfileID) == "" {
 		return fmt.Errorf("largebody: proof profile id must not be empty")
@@ -715,10 +620,20 @@ type AssessmentStamp struct {
 	identity                  IdentityDigest
 	candidateDomainGeneration string
 	compactionDigest          [32]byte
+	requiredCapabilities      []lipapi.Capability
+	requiredCapsDigest        [32]byte
 }
 
 // CompactionDigest returns the bound compaction facts digest.
 func (s AssessmentStamp) CompactionDigest() [32]byte { return s.compactionDigest }
+
+// RequiredCapabilities returns a copy of the bound required capabilities.
+func (s AssessmentStamp) RequiredCapabilities() []lipapi.Capability {
+	return append([]lipapi.Capability(nil), s.requiredCapabilities...)
+}
+
+// RequiredCapabilitiesDigest returns the bound required capabilities digest.
+func (s AssessmentStamp) RequiredCapabilitiesDigest() [32]byte { return s.requiredCapsDigest }
 
 // NewAssessmentStamp binds generation identity, profile/proof identity,
 // source digest/size, the body/rewrite contract, and candidate/domain proof generation.
@@ -746,6 +661,7 @@ func NewAssessmentStamp(
 		rewrite:                   rewrite,
 		identity:                  identity,
 		candidateDomainGeneration: cGen,
+		requiredCapsDigest:        CapabilitiesDigest(nil),
 	}
 	if err := stamp.validateStructure(); err != nil {
 		return AssessmentStamp{}, err
@@ -778,7 +694,9 @@ func (s AssessmentStamp) IdentityDigest() IdentityDigest { return s.identity }
 func (s AssessmentStamp) CandidateDomainGeneration() string { return s.candidateDomainGeneration }
 
 // IsZero reports whether the stamp is the zero value.
-func (s AssessmentStamp) IsZero() bool { return s == AssessmentStamp{} }
+func (s AssessmentStamp) IsZero() bool {
+	return s.generationID == "" && s.profileID == "" && s.bodyBytes == 0 && s.source.IsZero()
+}
 
 // Validate enforces the stamp binding under the semantic-fact budget.
 func (s AssessmentStamp) Validate(maxFactBytes int64) error {
@@ -835,6 +753,8 @@ func BindAssessmentStamp(generationID string, proof Proof, candidateDomainGen ..
 		return AssessmentStamp{}, err
 	}
 	stamp.compactionDigest = proof.CompactionDigest()
+	stamp.requiredCapabilities = append([]lipapi.Capability(nil), proof.RequiredCapabilities...)
+	stamp.requiredCapsDigest = CapabilitiesDigest(proof.RequiredCapabilities)
 	return stamp, nil
 }
 
@@ -946,14 +866,15 @@ func NewAcceptedAssessment(stamp AssessmentStamp, wireReq WireRequestFacts, wire
 // exact wire proof (design section 9). Outbound header construction stays
 // backend-owned; no client headers travel here.
 type WireRequestFacts struct {
-	ProfileID       string
-	Operation       lipapi.Operation
-	Delivery        lipapi.DeliveryMode
-	BodyMode        BodyMode
-	Rewrite         RewriteSemantics
-	ClientModel     string
-	CandidateModel  string
-	MaxOutputTokens int64
+	ProfileID            string
+	Operation            lipapi.Operation
+	Delivery             lipapi.DeliveryMode
+	BodyMode             BodyMode
+	Rewrite              RewriteSemantics
+	ClientModel          string
+	CandidateModel       string
+	MaxOutputTokens      int64
+	RequiredCapabilities []lipapi.Capability
 }
 
 // Validate enforces bounds under the semantic-fact budget.
@@ -988,6 +909,9 @@ func (f WireRequestFacts) Validate(maxFactBytes int64) error {
 			return fmt.Errorf("largebody: wire facts %s exceeds %d bytes", name, maxFactBytes)
 		}
 	}
+	if err := capabilityfacts.ValidateCapabilities(f.RequiredCapabilities, maxFactBytes); err != nil {
+		return err
+	}
 	if f.MaxOutputTokens < 0 {
 		return fmt.Errorf("largebody: wire facts max output tokens must be >= 0, got %d", f.MaxOutputTokens)
 	}
@@ -999,13 +923,14 @@ func (f WireRequestFacts) Validate(maxFactBytes int64) error {
 // (AnyAcceptedModel) must not also enumerate models, and a finite domain
 // must enumerate at least one proven model.
 type WireDomainFacts struct {
-	ProfileID       string
-	Operation       lipapi.Operation
-	Delivery        lipapi.DeliveryMode
-	BodyMode        BodyMode
-	Rewrite         RewriteSemantics
-	UniversalModel  bool
-	CandidateModels []string
+	ProfileID            string
+	Operation            lipapi.Operation
+	Delivery             lipapi.DeliveryMode
+	BodyMode             BodyMode
+	Rewrite              RewriteSemantics
+	UniversalModel       bool
+	CandidateModels      []string
+	RequiredCapabilities []lipapi.Capability
 }
 
 // Validate enforces universal/finite exclusivity and bounds.
@@ -1028,6 +953,9 @@ func (f WireDomainFacts) Validate(maxFactBytes int64) error {
 		return err
 	}
 	if err := f.Rewrite.Validate(); err != nil {
+		return err
+	}
+	if err := capabilityfacts.ValidateCapabilities(f.RequiredCapabilities, maxFactBytes); err != nil {
 		return err
 	}
 	if int64(len(f.ProfileID)) > maxFactBytes || int64(len(f.Operation)) > maxFactBytes {

@@ -125,13 +125,18 @@ func makeStreamingOrNonStreamingProofProfile(streamMode bool) *certifiedTestProf
 				return frontendpipe.ProofOutput{}, err
 			}
 			sourceDigest := largebody.NewSourceDigest([32]byte{1, 2, 3})
+			var reqCaps []lipapi.Capability
+			if streamMode {
+				reqCaps = []lipapi.Capability{lipapi.CapabilityStreaming}
+			}
 			proof := largebody.Proof{
-				ProfileID:       "test_keepalive_profile_v1",
-				Operation:       lipapi.OperationOpenAIChatCompletions,
-				Delivery:        delivery,
-				RouteSelector:   "gpt-4o",
-				ClientModel:     "gpt-4o",
-				MaxOutputTokens: 0,
+				ProfileID:            "test_keepalive_profile_v1",
+				Operation:            lipapi.OperationOpenAIChatCompletions,
+				Delivery:             delivery,
+				RouteSelector:        "gpt-4o",
+				ClientModel:          "gpt-4o",
+				MaxOutputTokens:      0,
+				RequiredCapabilities: reqCaps,
 				Facts: largebody.ProtocolFacts{
 					RequirementsID: "openai_chat_v1",
 				},
@@ -622,7 +627,11 @@ func TestKeepalive_StreamingExecuteLargeBody_Cancellation(t *testing.T) {
 		frontendpipe.ServeHTTP(&spec, w, req)
 	}()
 
-	<-ctxStarted
+	select {
+	case <-ctxStarted:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for ExecuteLargeBody")
+	}
 	// Cancel the context while ExecuteLargeBody is blocked
 	reqCancel()
 

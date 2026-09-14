@@ -739,6 +739,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	var turnShape largebody.ClientTurnShape
 	var proofCompactionFacts compactionfacts.RequestFacts
 	var proofCompactionComplete bool
+	var msgs []lipapi.Message
 
 	if !messagesArrayIsLarge {
 		var rawMsgs []json.RawMessage
@@ -752,7 +753,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 			return frontendpipe.ProofOutput{}, err
 		}
 
-		msgs := make([]lipapi.Message, 0, len(rawMsgs))
+		msgs = make([]lipapi.Message, 0, len(rawMsgs))
 		for i, rawMsg := range rawMsgs {
 			m, err := parseProfileMessage(rawMsg)
 			if err != nil {
@@ -941,6 +942,16 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		cancellationID,
 	)
 
+	hasTools := len(tools) > 0 || hasHistoryTools(msgs)
+	requiredCaps := largebody.DeriveRequiredCapabilities(turnShape, largebody.ControlRequirements{
+		Delivery:          lipapi.DeliveryModeFromClientStream(stream),
+		HasTools:          hasTools,
+		ParallelToolCalls: parallelTools,
+		ReasoningEffort:   reasoningEffortBuf.String(),
+		StructuredOutputs: false,
+		ItemAuthoritative: false,
+	})
+
 	proof := largebody.Proof{
 		ProfileID:       ProfileID,
 		Operation:       lipapi.OperationOpenAIChatCompletions,
@@ -952,16 +963,17 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 			RequirementsID: ProfileID,
 			ControlCount:   int64(len(tools)),
 		},
-		Mode:               largebody.BodyModeIdentityJSON,
-		Rewrite:            rewrite,
-		ModelSpan:          modelSpan,
-		Identity:           digest,
-		Turn:               turnShape,
-		Session:            sessIn,
-		Source:             sourceDigest,
-		BodyBytes:          bodyBytes,
-		CompactionFacts:    proofCompactionFacts,
-		CompactionComplete: proofCompactionComplete,
+		Mode:                 largebody.BodyModeIdentityJSON,
+		Rewrite:              rewrite,
+		ModelSpan:            modelSpan,
+		Identity:             digest,
+		Turn:                 turnShape,
+		Session:              sessIn,
+		Source:               sourceDigest,
+		BodyBytes:            bodyBytes,
+		CompactionFacts:      proofCompactionFacts,
+		CompactionComplete:   proofCompactionComplete,
+		RequiredCapabilities: requiredCaps,
 	}
 
 	proofOut := frontendpipe.ProofOutput{
@@ -1192,4 +1204,18 @@ func compileStreamingCompactionFacts(
 		return compactionfacts.RequestFacts{}, false, berr
 	}
 	return facts, true, nil
+}
+
+func hasHistoryTools(msgs []lipapi.Message) bool {
+	for _, m := range msgs {
+		if m.Role == lipapi.RoleTool {
+			return true
+		}
+		for _, p := range m.Parts {
+			if p.Kind == lipapi.PartToolResult || (p.Kind == lipapi.PartJSON && p.ToolCallID != "") {
+				return true
+			}
+		}
+	}
+	return false
 }

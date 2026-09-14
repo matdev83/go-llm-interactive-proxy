@@ -5,12 +5,15 @@ on:
     paths:
       - "internal/core/runtime/**"
       - "internal/core/largebody/**"
+      - "internal/core/execbackend/**"
+      - "internal/capabilityfacts/**"
       - "internal/compactionfacts/**"
       - "internal/infra/compactiondetect/**"
       - "internal/plugins/frontends/frontendpipe/**"
       - "internal/plugins/frontends/openailegacy/**"
       - "internal/plugins/frontends/openairesponses/**"
       - "internal/plugins/frontends/openresponses/**"
+      - "internal/plugins/backends/openaicompat/**"
       - "internal/infra/runtimebundle/**"
       - ".github/workflows/pre-oss-core-slimming-race.yml"
   workflow_dispatch:
@@ -58,12 +61,15 @@ jobs:
           go test -count=1 -race \
             ./internal/core/runtime \
             ./internal/core/largebody \
+            ./internal/core/execbackend \
+            ./internal/capabilityfacts \
             ./internal/compactionfacts \
             ./internal/infra/compactiondetect \
             ./internal/plugins/frontends/frontendpipe \
             ./internal/plugins/frontends/openailegacy \
             ./internal/plugins/frontends/openairesponses \
             ./internal/plugins/frontends/openresponses \
+            ./internal/plugins/backends/openaicompat \
             ./internal/infra/runtimebundle \
             ./internal/core/extensions \
             ./internal/plugins/features/secretguard/... \

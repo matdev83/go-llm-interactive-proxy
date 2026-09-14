@@ -4,30 +4,18 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/capabilityfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 // ErrSemanticFactBudgetExceeded indicates that normalized item/part metadata
 // or fact attributes exceeded the configured semantic-fact budget, requiring
 // pre-commit fallback to canonical processing (Requirement 14.4).
-var ErrSemanticFactBudgetExceeded = errors.New("largebody: semantic-fact budget exceeded (optimization decline)")
+var ErrSemanticFactBudgetExceeded = capabilityfacts.ErrSemanticFactBudgetExceeded
 
 // IsSemanticFactBudgetExceeded reports whether err is or wraps ErrSemanticFactBudgetExceeded.
 func IsSemanticFactBudgetExceeded(err error) bool {
 	return errors.Is(err, ErrSemanticFactBudgetExceeded)
-}
-
-// MetadataBytes returns the estimated in-memory metadata size of the turn shape
-// (excluding any payload prompt text, which is never retained).
-func (s ClientTurnShape) MetadataBytes() int64 {
-	var bytes int64
-	for _, it := range s.Items {
-		bytes += int64(len(it.Kind) + len(it.Role) + 8)
-		for _, p := range it.Parts {
-			bytes += int64(len(p.Kind) + 8)
-		}
-	}
-	return bytes
 }
 
 func buildTurnShape(count int, maxFactBytes int64, buildItem func(ord int) (lipapi.ItemKind, lipapi.Role, []ClientTurnPartShape, error)) (ClientTurnShape, error) {
@@ -84,6 +72,17 @@ func ClientTurnShapeFromItems(items []lipapi.Item, maxFactBytes int64) (ClientTu
 			}
 			parts = make([]ClientTurnPartShape, 0, len(it.Content))
 			for _, cp := range it.Content {
+				parts = append(parts, ClientTurnPartShape{
+					Kind:         cp.Kind,
+					ContentBytes: contentPartByteSize(cp),
+				})
+			}
+		} else if it.ToolResult != nil && len(it.ToolResult.Parts) > 0 {
+			if int64(len(it.ToolResult.Parts)) > maxFactBytes {
+				return "", "", nil, fmt.Errorf("%w: item %d tool result part count %d exceeds budget %d", ErrSemanticFactBudgetExceeded, ord, len(it.ToolResult.Parts), maxFactBytes)
+			}
+			parts = make([]ClientTurnPartShape, 0, len(it.ToolResult.Parts))
+			for _, cp := range it.ToolResult.Parts {
 				parts = append(parts, ClientTurnPartShape{
 					Kind:         cp.Kind,
 					ContentBytes: contentPartByteSize(cp),

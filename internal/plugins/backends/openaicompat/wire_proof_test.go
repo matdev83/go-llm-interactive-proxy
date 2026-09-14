@@ -635,3 +635,70 @@ func TestOpenWire_NoAuthCompatibleBackendSucceedsWithoutAuthorizationHeader(t *t
 		t.Fatalf("expected no Authorization header sent upstream, got %q", receivedAuth)
 	}
 }
+
+func TestCallDependentResolverDeclinesWireExecution(t *testing.T) {
+	t.Parallel()
+
+	callObserved := false
+	be := execbackend.Backend{
+		Caps: openaicompat.HostedCaps(),
+		ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+			if call.Route.Selector != "" {
+				callObserved = true
+			}
+			return lipapi.BackendCaps{lipapi.CapabilityStreaming: {}}
+		},
+		ResolveWireCaps: nil, // Arbitrary Call-dependent resolver not adapted for wire
+	}
+	spec := openaicompat.BackendSpec{
+		ID:      "test-compat-call-dependent",
+		BaseURL: "http://127.0.0.1:8080/v1",
+		Flavor:  openaicompat.FlavorResponses,
+	}
+	be = openaicompat.AttachWireProofForTest(be, spec, nil, nil)
+
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{
+			Backend: "test-compat-call-dependent",
+			Model:   "gpt-4o",
+		},
+	}
+
+	// 1. Request-level wire proof must decline
+	reqFacts := makeValidResponsesWireRequestFacts("gpt-4o", "gpt-4o", largebody.NewNoRewrite())
+	reqFacts.RequiredCapabilities = []lipapi.Capability{lipapi.CapabilityStreaming}
+	reqSupport := execbackend.EffectiveWireRequestSupport(context.Background(), be, reqFacts, cand)
+	if reqSupport.Compatible {
+		t.Fatal("expected request Compatible: false when ResolveCaps is set but ResolveWireCaps is nil")
+	}
+	if reqSupport.Reason != largebody.WireSupportReasonCapabilityUnsupported {
+		t.Fatalf("expected request Reason: WireSupportReasonCapabilityUnsupported, got %s", reqSupport.Reason)
+	}
+
+	// 2. Domain-level wire proof must decline
+	domFacts := makeValidResponsesWireDomainFacts(false, []string{"gpt-4o"})
+	domFacts.RequiredCapabilities = []lipapi.Capability{lipapi.CapabilityStreaming}
+	domSupport := execbackend.EffectiveWireDomainSupport(context.Background(), be, domFacts)
+	if domSupport.Compatible {
+		t.Fatal("expected domain Compatible: false when ResolveCaps is set but ResolveWireCaps is nil")
+	}
+	if domSupport.Reason != largebody.WireSupportReasonCapabilityUnsupported {
+		t.Fatalf("expected domain Reason: WireSupportReasonCapabilityUnsupported, got %s", domSupport.Reason)
+	}
+
+	// 3. Universal domain wire proof must decline
+	univFacts := makeValidResponsesWireDomainFacts(true, nil)
+	univFacts.RequiredCapabilities = []lipapi.Capability{lipapi.CapabilityStreaming}
+	univSupport := execbackend.EffectiveWireDomainSupport(context.Background(), be, univFacts)
+	if univSupport.Compatible {
+		t.Fatal("expected universal domain Compatible: false when ResolveCaps is set but ResolveWireCaps is nil")
+	}
+	if univSupport.Reason != largebody.WireSupportReasonCapabilityUnsupported {
+		t.Fatalf("expected universal domain Reason: WireSupportReasonCapabilityUnsupported, got %s", univSupport.Reason)
+	}
+
+	// 4. Invariant: no synthetic Call was passed to ResolveCaps
+	if callObserved {
+		t.Fatal("expected no synthetic Call to be passed to ResolveCaps")
+	}
+}

@@ -8,9 +8,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicaps"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
+
+type capsResolverFunc func(ctx context.Context, model string, cand routing.AttemptCandidate) lipapi.BackendCaps
 
 // OpenAIResponsesProfileID is the certified profile identifier for OpenAI Responses (Requirement 4, 8).
 const OpenAIResponsesProfileID = "openai_responses_v1"
@@ -55,6 +58,7 @@ func resolveResponsesWireRequest(
 	inv modelinventory.Provider,
 	facts largebody.WireRequestFacts,
 	cand routing.AttemptCandidate,
+	resolveCaps capsResolverFunc,
 ) largebody.WireRequestSupport {
 	if ctx != nil && ctx.Err() != nil {
 		return largebody.WireRequestSupport{
@@ -128,6 +132,16 @@ func resolveResponsesWireRequest(
 		}
 	}
 
+	if len(facts.RequiredCapabilities) > 0 && resolveCaps != nil {
+		backendCaps := resolveCaps(ctx, targetModel, cand)
+		if res := lipapi.Negotiate(facts.RequiredCapabilities, backendCaps); res.Kind != lipapi.NegotiationLossless {
+			return largebody.WireRequestSupport{
+				Compatible: false,
+				Reason:     largebody.WireSupportReasonCapabilityUnsupported,
+			}
+		}
+	}
+
 	return largebody.WireRequestSupport{
 		Compatible:        true,
 		NeedsModelRewrite: needsRewrite,
@@ -140,6 +154,7 @@ func resolveResponsesWireDomain(
 	spec BackendSpec,
 	inv modelinventory.Provider,
 	facts largebody.WireDomainFacts,
+	resolveCaps capsResolverFunc,
 ) largebody.WireDomainSupport {
 	if ctx != nil && ctx.Err() != nil {
 		return largebody.WireDomainSupport{
@@ -193,6 +208,41 @@ func resolveResponsesWireDomain(
 				Reason:           largebody.WireSupportReasonModelUnsupported,
 			}
 		}
+		if len(facts.RequiredCapabilities) > 0 {
+			staticModels, hasStatic := staticModelsFromInventory(inv)
+			if hasStatic && resolveCaps != nil {
+				for m := range staticModels {
+					backendCaps := resolveCaps(ctx, m, routing.AttemptCandidate{Primary: routing.Primary{Backend: spec.ID, Model: m}})
+					if res := lipapi.Negotiate(facts.RequiredCapabilities, backendCaps); res.Kind != lipapi.NegotiationLossless {
+						return largebody.WireDomainSupport{
+							Compatible:       false,
+							AnyAcceptedModel: false,
+							Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+						}
+					}
+				}
+			} else {
+				if resolveCaps != nil {
+					backendCaps := resolveCaps(ctx, "", routing.AttemptCandidate{Primary: routing.Primary{Backend: spec.ID}})
+					if backendCaps == nil || lipapi.Negotiate(facts.RequiredCapabilities, backendCaps).Kind != lipapi.NegotiationLossless {
+						return largebody.WireDomainSupport{
+							Compatible:       false,
+							AnyAcceptedModel: false,
+							Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+						}
+					}
+				}
+				for _, c := range facts.RequiredCapabilities {
+					if c != lipapi.CapabilityStreaming {
+						return largebody.WireDomainSupport{
+							Compatible:       false,
+							AnyAcceptedModel: false,
+							Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+						}
+					}
+				}
+			}
+		}
 		return largebody.WireDomainSupport{
 			Compatible:       true,
 			AnyAcceptedModel: true,
@@ -213,16 +263,23 @@ func resolveResponsesWireDomain(
 				}
 			}
 		}
-		return largebody.WireDomainSupport{
-			Compatible:       true,
-			AnyAcceptedModel: false,
-			Reason:           largebody.WireSupportReasonNone,
+	}
+	if len(facts.RequiredCapabilities) > 0 && resolveCaps != nil {
+		for _, m := range facts.CandidateModels {
+			m = strings.TrimSpace(m)
+			backendCaps := resolveCaps(ctx, m, routing.AttemptCandidate{Primary: routing.Primary{Backend: spec.ID, Model: m}})
+			if res := lipapi.Negotiate(facts.RequiredCapabilities, backendCaps); res.Kind != lipapi.NegotiationLossless {
+				return largebody.WireDomainSupport{
+					Compatible:       false,
+					AnyAcceptedModel: false,
+					Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+				}
+			}
 		}
 	}
-
 	return largebody.WireDomainSupport{
 		Compatible:       true,
-		AnyAcceptedModel: true,
+		AnyAcceptedModel: false,
 		Reason:           largebody.WireSupportReasonNone,
 	}
 }
@@ -233,6 +290,7 @@ func resolveOpenResponsesWireRequest(
 	inv modelinventory.Provider,
 	facts largebody.WireRequestFacts,
 	cand routing.AttemptCandidate,
+	resolveCaps capsResolverFunc,
 ) largebody.WireRequestSupport {
 	if ctx != nil && ctx.Err() != nil {
 		return largebody.WireRequestSupport{
@@ -306,6 +364,16 @@ func resolveOpenResponsesWireRequest(
 		}
 	}
 
+	if len(facts.RequiredCapabilities) > 0 && resolveCaps != nil {
+		backendCaps := resolveCaps(ctx, targetModel, cand)
+		if res := lipapi.Negotiate(facts.RequiredCapabilities, backendCaps); res.Kind != lipapi.NegotiationLossless {
+			return largebody.WireRequestSupport{
+				Compatible: false,
+				Reason:     largebody.WireSupportReasonCapabilityUnsupported,
+			}
+		}
+	}
+
 	return largebody.WireRequestSupport{
 		Compatible:        true,
 		NeedsModelRewrite: needsRewrite,
@@ -318,6 +386,7 @@ func resolveOpenResponsesWireDomain(
 	spec BackendSpec,
 	inv modelinventory.Provider,
 	facts largebody.WireDomainFacts,
+	resolveCaps capsResolverFunc,
 ) largebody.WireDomainSupport {
 	if ctx != nil && ctx.Err() != nil {
 		return largebody.WireDomainSupport{
@@ -372,6 +441,42 @@ func resolveOpenResponsesWireDomain(
 		}
 	}
 
+	if len(facts.RequiredCapabilities) > 0 {
+		staticModels, hasStatic := staticModelsFromInventory(inv)
+		if hasStatic && resolveCaps != nil {
+			for m := range staticModels {
+				backendCaps := resolveCaps(ctx, m, routing.AttemptCandidate{Primary: routing.Primary{Backend: spec.ID, Model: m}})
+				if res := lipapi.Negotiate(facts.RequiredCapabilities, backendCaps); res.Kind != lipapi.NegotiationLossless {
+					return largebody.WireDomainSupport{
+						Compatible:       false,
+						AnyAcceptedModel: false,
+						Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+					}
+				}
+			}
+		} else {
+			if resolveCaps != nil {
+				backendCaps := resolveCaps(ctx, "", routing.AttemptCandidate{Primary: routing.Primary{Backend: spec.ID}})
+				if backendCaps == nil || lipapi.Negotiate(facts.RequiredCapabilities, backendCaps).Kind != lipapi.NegotiationLossless {
+					return largebody.WireDomainSupport{
+						Compatible:       false,
+						AnyAcceptedModel: false,
+						Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+					}
+				}
+			}
+			for _, c := range facts.RequiredCapabilities {
+				if c != lipapi.CapabilityStreaming {
+					return largebody.WireDomainSupport{
+						Compatible:       false,
+						AnyAcceptedModel: false,
+						Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+					}
+				}
+			}
+		}
+	}
+
 	return largebody.WireDomainSupport{
 		Compatible:       true,
 		AnyAcceptedModel: true,
@@ -385,6 +490,7 @@ func resolveChatWireRequest(
 	inv modelinventory.Provider,
 	facts largebody.WireRequestFacts,
 	cand routing.AttemptCandidate,
+	resolveCaps capsResolverFunc,
 ) largebody.WireRequestSupport {
 	if ctx != nil && ctx.Err() != nil {
 		return largebody.WireRequestSupport{
@@ -458,6 +564,16 @@ func resolveChatWireRequest(
 		}
 	}
 
+	if len(facts.RequiredCapabilities) > 0 && resolveCaps != nil {
+		backendCaps := resolveCaps(ctx, targetModel, cand)
+		if res := lipapi.Negotiate(facts.RequiredCapabilities, backendCaps); res.Kind != lipapi.NegotiationLossless {
+			return largebody.WireRequestSupport{
+				Compatible: false,
+				Reason:     largebody.WireSupportReasonCapabilityUnsupported,
+			}
+		}
+	}
+
 	return largebody.WireRequestSupport{
 		Compatible:        true,
 		NeedsModelRewrite: needsRewrite,
@@ -470,6 +586,7 @@ func resolveChatWireDomain(
 	spec BackendSpec,
 	inv modelinventory.Provider,
 	facts largebody.WireDomainFacts,
+	resolveCaps capsResolverFunc,
 ) largebody.WireDomainSupport {
 	if ctx != nil && ctx.Err() != nil {
 		return largebody.WireDomainSupport{
@@ -523,6 +640,41 @@ func resolveChatWireDomain(
 				Reason:           largebody.WireSupportReasonModelUnsupported,
 			}
 		}
+		if len(facts.RequiredCapabilities) > 0 {
+			staticModels, hasStatic := staticModelsFromInventory(inv)
+			if hasStatic && resolveCaps != nil {
+				for m := range staticModels {
+					backendCaps := resolveCaps(ctx, m, routing.AttemptCandidate{Primary: routing.Primary{Backend: spec.ID, Model: m}})
+					if res := lipapi.Negotiate(facts.RequiredCapabilities, backendCaps); res.Kind != lipapi.NegotiationLossless {
+						return largebody.WireDomainSupport{
+							Compatible:       false,
+							AnyAcceptedModel: false,
+							Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+						}
+					}
+				}
+			} else {
+				if resolveCaps != nil {
+					backendCaps := resolveCaps(ctx, "", routing.AttemptCandidate{Primary: routing.Primary{Backend: spec.ID}})
+					if backendCaps == nil || lipapi.Negotiate(facts.RequiredCapabilities, backendCaps).Kind != lipapi.NegotiationLossless {
+						return largebody.WireDomainSupport{
+							Compatible:       false,
+							AnyAcceptedModel: false,
+							Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+						}
+					}
+				}
+				for _, c := range facts.RequiredCapabilities {
+					if c != lipapi.CapabilityStreaming {
+						return largebody.WireDomainSupport{
+							Compatible:       false,
+							AnyAcceptedModel: false,
+							Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+						}
+					}
+				}
+			}
+		}
 		return largebody.WireDomainSupport{
 			Compatible:       true,
 			AnyAcceptedModel: true,
@@ -543,16 +695,24 @@ func resolveChatWireDomain(
 				}
 			}
 		}
-		return largebody.WireDomainSupport{
-			Compatible:       true,
-			AnyAcceptedModel: false,
-			Reason:           largebody.WireSupportReasonNone,
+	}
+	if len(facts.RequiredCapabilities) > 0 && resolveCaps != nil {
+		for _, m := range facts.CandidateModels {
+			m = strings.TrimSpace(m)
+			backendCaps := resolveCaps(ctx, m, routing.AttemptCandidate{Primary: routing.Primary{Backend: spec.ID, Model: m}})
+			if res := lipapi.Negotiate(facts.RequiredCapabilities, backendCaps); res.Kind != lipapi.NegotiationLossless {
+				return largebody.WireDomainSupport{
+					Compatible:       false,
+					AnyAcceptedModel: false,
+					Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+				}
+			}
 		}
 	}
 
 	return largebody.WireDomainSupport{
 		Compatible:       true,
-		AnyAcceptedModel: true,
+		AnyAcceptedModel: false,
 		Reason:           largebody.WireSupportReasonNone,
 	}
 }
@@ -588,25 +748,41 @@ func attachWireProof(be execbackend.Backend, spec BackendSpec, pool *credpool.Po
 		return be
 	}
 
+	capsResolver := func(ctx context.Context, model string, cand routing.AttemptCandidate) lipapi.BackendCaps {
+		if model != "" {
+			cand.Primary.Model = model
+		}
+		if be.ResolveCaps != nil && be.ResolveWireCaps == nil {
+			return nil
+		}
+		if be.ResolveWireCaps != nil {
+			return be.ResolveWireCaps(ctx, cand)
+		}
+		if len(be.Caps) > 0 {
+			return be.Caps
+		}
+		return openaicaps.ForHostedModelCompatibleReplay(model, be.BackendPrefixes)
+	}
+
 	if flavor == FlavorResponses {
 		be.ResolveWireRequest = func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
 			if facts.Operation == lipapi.OperationOpenResponsesCreate {
-				return resolveOpenResponsesWireRequest(ctx, spec, inv, facts, cand)
+				return resolveOpenResponsesWireRequest(ctx, spec, inv, facts, cand, capsResolver)
 			}
-			return resolveResponsesWireRequest(ctx, spec, inv, facts, cand)
+			return resolveResponsesWireRequest(ctx, spec, inv, facts, cand, capsResolver)
 		}
 		be.ResolveWireDomain = func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport {
 			if facts.Operation == lipapi.OperationOpenResponsesCreate {
-				return resolveOpenResponsesWireDomain(ctx, spec, inv, facts)
+				return resolveOpenResponsesWireDomain(ctx, spec, inv, facts, capsResolver)
 			}
-			return resolveResponsesWireDomain(ctx, spec, inv, facts)
+			return resolveResponsesWireDomain(ctx, spec, inv, facts, capsResolver)
 		}
 	} else {
 		be.ResolveWireRequest = func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
-			return resolveChatWireRequest(ctx, spec, inv, facts, cand)
+			return resolveChatWireRequest(ctx, spec, inv, facts, cand, capsResolver)
 		}
 		be.ResolveWireDomain = func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport {
-			return resolveChatWireDomain(ctx, spec, inv, facts)
+			return resolveChatWireDomain(ctx, spec, inv, facts, capsResolver)
 		}
 	}
 

@@ -138,14 +138,15 @@ func (g *InitialRouteAssessmentGate) Evaluate(ctx context.Context, proof Proof) 
 
 		candModel := cand.Primary.WireModel()
 		candFacts := WireRequestFacts{
-			ProfileID:       proof.ProfileID,
-			Operation:       proof.Operation,
-			Delivery:        proof.Delivery,
-			BodyMode:        proof.Mode,
-			Rewrite:         proof.Rewrite,
-			ClientModel:     proof.ClientModel,
-			CandidateModel:  candModel,
-			MaxOutputTokens: proof.MaxOutputTokens,
+			ProfileID:            proof.ProfileID,
+			Operation:            proof.Operation,
+			Delivery:             proof.Delivery,
+			BodyMode:             proof.Mode,
+			Rewrite:              proof.Rewrite,
+			ClientModel:          proof.ClientModel,
+			CandidateModel:       candModel,
+			MaxOutputTokens:      proof.MaxOutputTokens,
+			RequiredCapabilities: proof.RequiredCapabilities,
 		}
 
 		backendCand := routing.BackendFacingCandidate(cand)

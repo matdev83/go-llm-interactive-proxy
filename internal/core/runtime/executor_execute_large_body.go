@@ -293,12 +293,13 @@ func (a *ProductionLargeBodyAssessor) AssessLargeBody(ctx context.Context, proof
 
 	if pol, ok := a.LaneDomainPolicies[proof.ProfileID]; ok && pol.UniversalOnly {
 		domainFacts := largebody.WireDomainFacts{
-			ProfileID:      proof.ProfileID,
-			Operation:      proof.Operation,
-			Delivery:       proof.Delivery,
-			BodyMode:       proof.Mode,
-			Rewrite:        proof.Rewrite,
-			UniversalModel: true,
+			ProfileID:            proof.ProfileID,
+			Operation:            proof.Operation,
+			Delivery:             proof.Delivery,
+			BodyMode:             proof.Mode,
+			Rewrite:              proof.Rewrite,
+			UniversalModel:       true,
+			RequiredCapabilities: append([]lipapi.Capability(nil), proof.RequiredCapabilities...),
 		}
 		for _, cand := range cands {
 			backendID := strings.TrimSpace(cand.Primary.Backend)
@@ -1062,14 +1063,15 @@ func (e *Executor) openWireAttemptTx(
 		Body:          bodyReader,
 		ContentLength: contentLength,
 		WireRequest: largebody.WireRequestFacts{
-			ProfileID:       wp.turnFacts.Route.ProfileID,
-			Operation:       op,
-			Delivery:        del,
-			BodyMode:        wp.turnFacts.Source.BodyMode,
-			Rewrite:         wp.turnFacts.Rewrite.Semantics,
-			ClientModel:     wp.turnFacts.Route.ClientModel,
-			CandidateModel:  c.Primary.Model,
-			MaxOutputTokens: wp.turnFacts.MaxOutput.MaxOutputTokens,
+			ProfileID:            wp.turnFacts.Route.ProfileID,
+			Operation:            op,
+			Delivery:             del,
+			BodyMode:             wp.turnFacts.Source.BodyMode,
+			Rewrite:              wp.turnFacts.Rewrite.Semantics,
+			ClientModel:          wp.turnFacts.Route.ClientModel,
+			CandidateModel:       c.Primary.Model,
+			MaxOutputTokens:      wp.turnFacts.MaxOutput.MaxOutputTokens,
+			RequiredCapabilities: wp.accepted.WireRequest.RequiredCapabilities,
 		},
 		TraceID: tx.reqFacts.traceID,
 		ALegID:  tx.reqFacts.aLegID,

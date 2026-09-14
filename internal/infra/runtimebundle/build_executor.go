@@ -260,7 +260,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		ExecResolver:                  execResolver,
 		ExecPolicy:                    execPolicy,
 		OverrideReader:                overrideReader,
-		CapsResolverWireProofSubsumed: capMap != nil && isBackendCapsSubsumed(in.Bctx.Parent, in.Model.Backends),
+		CapsResolverWireProofSubsumed: capMap != nil,
 	})
 	if err != nil {
 		return nil, err
@@ -548,42 +548,4 @@ func (a metricsObserverAdapter) OnAnchorFailure(p conversationprojection.AnchorM
 
 func (a metricsObserverAdapter) OnSteeringMutation(k conversationview.CacheDiscontinuityKind, p conversationprojection.PlacementKind) {
 	a.inner.OnSteeringMutation(metrics.CacheDiscontinuityKind(k), p)
-}
-
-func isBackendCapsSubsumed(ctx context.Context, backends map[string]execbackend.Backend) bool {
-	if len(backends) == 0 {
-		return false
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	for id, be := range backends {
-		if be.ResolveWireRequest == nil && be.WireBackend == nil {
-			continue
-		}
-		cand := routing.AttemptCandidate{Primary: routing.Primary{Backend: id}}
-		call := lipapi.Call{Route: lipapi.RouteIntent{Selector: id}}
-		if be.ResolveCaps != nil {
-			if be.ModelInventory == nil {
-				return false
-			}
-			snap, err := be.ModelInventory.LoadModels(ctx)
-			if err != nil || len(snap.Models) == 0 {
-				return false
-			}
-			for _, m := range snap.Models {
-				for _, mid := range []string{m.CanonicalID, m.NativeID} {
-					if mid != "" {
-						cand.Primary.Model = mid
-						if _, ok := be.ResolveCaps(ctx, call, cand)[lipapi.CapabilityStreaming]; !ok {
-							return false
-						}
-					}
-				}
-			}
-		} else if _, ok := be.Caps[lipapi.CapabilityStreaming]; !ok {
-			return false
-		}
-	}
-	return true
 }

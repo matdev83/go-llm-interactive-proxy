@@ -2,7 +2,6 @@ package runtimebundle_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -31,7 +29,6 @@ import (
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -372,6 +369,655 @@ plugins:
 	}
 }
 
+// TestStockHost_O1_ParallelToolCalls_DeclinesToCanonicalAndStrips verifies that o1 and o3 requests
+// requesting parallel_tool_calls: true decline the wire fast-path (because wire cannot strip
+// options from raw spooled bytes) and execute canonically, where ApplyNegotiatedDowngrades
+// soft-strips parallel_tool_calls (call.Options.ParallelToolCalls == nil).
+func TestStockHost_O1_ParallelToolCalls_DeclinesToCanonicalAndStrips(t *testing.T) {
+	t.Parallel()
+
+	var (
+		openWireCalls         atomic.Int32
+		openCanonicalCalls    atomic.Int32
+		capturedCanonicalCall atomic.Pointer[lipapi.Call]
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o"},{"id":"o1"},{"id":"o3-mini"}]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-o\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"o-ok\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	spoolDir := t.TempDir()
+	customYAML := fmt.Sprintf(`server:
+  address: "127.0.0.1:0"
+  large_payload_fast_path:
+    enabled: true
+    threshold_bytes: 1024
+    memory_spool_bytes: 32768
+    max_inflight_spool_bytes: 1048576
+    max_semantic_fact_bytes: 16384
+    spool_dir: %q
+
+routing:
+  max_attempts: 3
+  default_route: "wire-backend:o1"
+
+continuity:
+  in_memory: true
+  store: memory
+
+logging:
+  level: error
+  format: text
+
+diagnostics:
+  enabled: false
+
+plugins:
+  frontends:
+    - id: openai-legacy
+      enabled: true
+      config: {}
+  backends:
+    - kind: custom-openai-legacy-compatible
+      id: wire-backend
+      enabled: true
+      config:
+        backend_prefix: wire-backend
+        base_url: %q
+  features:
+    - id: tool-call-repair
+      enabled: false
+`, spoolDir, upstream.URL+"/v1")
+
+	cfgPath := filepath.Join(t.TempDir(), "stock-wire-o1.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+		RegistrySetup: func(reg *pluginreg.Registry) error {
+			return reg.WrapLifecycleBackend("custom-openai-legacy-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
+				return func(instanceID string, n yaml.Node, upstreamHTTP *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+					res, err := orig(instanceID, n, upstreamHTTP, deps)
+					if err != nil {
+						return pluginreg.BackendBuildResult{}, err
+					}
+					origOpenWire := res.Backend.OpenWire
+					if origOpenWire != nil {
+						res.Backend.OpenWire = func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+							openWireCalls.Add(1)
+							return origOpenWire(ctx, req)
+						}
+					}
+					origOpen := res.Backend.Open
+					if origOpen != nil {
+						res.Backend.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+							openCanonicalCalls.Add(1)
+							callCopy := call
+							capturedCanonicalCall.Store(&callCopy)
+							return origOpen(ctx, call, cand)
+						}
+					}
+					return res, nil
+				}
+			})
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	hostServeCleanup(t, host)
+
+	padding := strings.Repeat("x", 1500)
+	modelsToTest := []string{"o1", "o3-mini"}
+
+	for _, modelID := range modelsToTest {
+		wireBefore := openWireCalls.Load()
+		canonBefore := openCanonicalCalls.Load()
+
+		bodyJSON := fmt.Sprintf(`{"model":%q,"stream":true,"parallel_tool_calls":true,"messages":[{"role":"user","content":"hello %s"}]}`, modelID, padding)
+
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-LIP-Route", "wire-backend:"+modelID)
+		rec := httptest.NewRecorder()
+
+		host.HTTPHandler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s request failed with HTTP %d: %s", modelID, rec.Code, rec.Body.String())
+		}
+		require.Equal(t, wireBefore, openWireCalls.Load(), "wire fast-path must decline for %s with parallel_tool_calls", modelID)
+		require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "canonical Open must be called for %s", modelID)
+
+		captured := capturedCanonicalCall.Load()
+		require.NotNil(t, captured, "canonical call must be captured for %s", modelID)
+		require.Nil(t, captured.Options.ParallelToolCalls, "parallel_tool_calls must be stripped by ApplyNegotiatedDowngrades for %s", modelID)
+	}
+}
+
+// TestStockHost_MissingToolsCap_DeclinesWireAndCanonicalHardRejects verifies that when a backend
+// lacks CapabilityTools, a streaming request with tools declines the wire fast-path and canonical
+// execution rejects with a capability hard error.
+func TestStockHost_MissingToolsCap_DeclinesWireAndCanonicalHardRejects(t *testing.T) {
+	t.Parallel()
+
+	var (
+		openWireCalls      atomic.Int32
+		openCanonicalCalls atomic.Int32
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o"}]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-tool\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	spoolDir := t.TempDir()
+	customYAML := fmt.Sprintf(`server:
+  address: "127.0.0.1:0"
+  large_payload_fast_path:
+    enabled: true
+    threshold_bytes: 1024
+    memory_spool_bytes: 32768
+    max_inflight_spool_bytes: 1048576
+    max_semantic_fact_bytes: 16384
+    spool_dir: %q
+
+routing:
+  max_attempts: 3
+  default_route: "wire-backend:gpt-4o"
+
+continuity:
+  in_memory: true
+  store: memory
+
+logging:
+  level: error
+  format: text
+
+diagnostics:
+  enabled: false
+
+plugins:
+  frontends:
+    - id: openai-legacy
+      enabled: true
+      config: {}
+  backends:
+    - kind: custom-openai-legacy-compatible
+      id: wire-backend
+      enabled: true
+      config:
+        backend_prefix: wire-backend
+        base_url: %q
+  features:
+    - id: tool-call-repair
+      enabled: false
+`, spoolDir, upstream.URL+"/v1")
+
+	cfgPath := filepath.Join(t.TempDir(), "stock-wire-notools.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+		RegistrySetup: func(reg *pluginreg.Registry) error {
+			return reg.WrapLifecycleBackend("custom-openai-legacy-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
+				return func(instanceID string, n yaml.Node, upstreamHTTP *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+					res, err := orig(instanceID, n, upstreamHTTP, deps)
+					if err != nil {
+						return pluginreg.BackendBuildResult{}, err
+					}
+					// Narrow backend caps: supports streaming only, lacks tools
+					streamingOnly := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+					res.Backend.Caps = streamingOnly
+					res.Backend.ResolveCaps = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+						return streamingOnly
+					}
+					origOpenWire := res.Backend.OpenWire
+					if origOpenWire != nil {
+						res.Backend.OpenWire = func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+							openWireCalls.Add(1)
+							return origOpenWire(ctx, req)
+						}
+					}
+					origOpen := res.Backend.Open
+					if origOpen != nil {
+						res.Backend.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+							openCanonicalCalls.Add(1)
+							return origOpen(ctx, call, cand)
+						}
+					}
+					return res, nil
+				}
+			})
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	hostServeCleanup(t, host)
+
+	padding := strings.Repeat("x", 1500)
+	bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"tools":[{"type":"function","function":{"name":"test_fn","description":"test","parameters":{"type":"object"}}}],"messages":[{"role":"user","content":"hello %s"}]}`, padding)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	host.HTTPHandler().ServeHTTP(rec, req)
+
+	require.Equal(t, int32(0), openWireCalls.Load(), "wire fast-path must decline when backend lacks CapabilityTools")
+	require.Equal(t, int32(0), openCanonicalCalls.Load(), "canonical Open must not proceed due to hard-cap reject")
+	require.NotEqual(t, http.StatusOK, rec.Code, "request must fail with capability rejection")
+}
+
+// TestStockHost_DynamicUnprobedModel_NotInInitialInventory_DeclinesToCanonical verifies that
+// a model not present in the initial inventory snapshot at host build time declines wire
+// execution (due to WireSupportReasonModelUnsupported) and executes canonically, delivering
+// the actual provider response body.
+func TestStockHost_DynamicUnprobedModel_NotInInitialInventory_DeclinesToCanonical(t *testing.T) {
+	t.Parallel()
+
+	var (
+		openWireCalls      atomic.Int32
+		openCanonicalCalls atomic.Int32
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o"}]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-dyn\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"reachability-dyn-ok\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	spoolDir := t.TempDir()
+	customYAML := fmt.Sprintf(`server:
+  address: "127.0.0.1:0"
+  large_payload_fast_path:
+    enabled: true
+    threshold_bytes: 1024
+    memory_spool_bytes: 32768
+    max_inflight_spool_bytes: 1048576
+    max_semantic_fact_bytes: 16384
+    spool_dir: %q
+
+routing:
+  max_attempts: 3
+  default_route: "wire-backend:gpt-4o"
+
+continuity:
+  in_memory: true
+  store: memory
+
+logging:
+  level: error
+  format: text
+
+diagnostics:
+  enabled: false
+
+plugins:
+  frontends:
+    - id: openai-legacy
+      enabled: true
+      config: {}
+  backends:
+    - kind: custom-openai-legacy-compatible
+      id: wire-backend
+      enabled: true
+      config:
+        backend_prefix: wire-backend
+        base_url: %q
+        models:
+          source: inline
+          items:
+            - canonical_id: gpt-4o
+              native_id: gpt-4o
+  features:
+    - id: tool-call-repair
+      enabled: false
+`, spoolDir, upstream.URL+"/v1")
+
+	cfgPath := filepath.Join(t.TempDir(), "stock-wire-dyn.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+		RegistrySetup: func(reg *pluginreg.Registry) error {
+			return reg.WrapLifecycleBackend("custom-openai-legacy-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
+				return func(instanceID string, n yaml.Node, upstreamHTTP *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+					res, err := orig(instanceID, n, upstreamHTTP, deps)
+					if err != nil {
+						return pluginreg.BackendBuildResult{}, err
+					}
+					origOpenWire := res.Backend.OpenWire
+					if origOpenWire != nil {
+						res.Backend.OpenWire = func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+							openWireCalls.Add(1)
+							return origOpenWire(ctx, req)
+						}
+					}
+					origOpen := res.Backend.Open
+					if origOpen != nil {
+						res.Backend.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+							openCanonicalCalls.Add(1)
+							return origOpen(ctx, call, cand)
+						}
+					}
+					res.Backend.ResolveWireDomain = func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport {
+						return largebody.WireDomainSupport{
+							Compatible:       true,
+							AnyAcceptedModel: true,
+							Reason:           largebody.WireSupportReasonNone,
+						}
+					}
+					return res, nil
+				}
+			})
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	hostServeCleanup(t, host)
+
+	padding := strings.Repeat("x", 1500)
+
+	// Step 1: Request with probed inventory model ("gpt-4o") -> accepted by wire fast-path
+	{
+		bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"hello %s"}]}`, padding)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		host.HTTPHandler().ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, int32(1), openWireCalls.Load(), "initial inventory model must be accepted by wire")
+		require.Equal(t, int32(0), openCanonicalCalls.Load(), "canonical Open must not be called")
+	}
+
+	// Step 2: Request with unprobed model NOT in initial inventory ("gpt-4o-new") -> declines wire to canonical
+	{
+		bodyJSON := fmt.Sprintf(`{"model":"gpt-4o-new","stream":true,"messages":[{"role":"user","content":"hello %s"}]}`, padding)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-LIP-Route", "wire-backend:gpt-4o-new")
+		rec := httptest.NewRecorder()
+
+		host.HTTPHandler().ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Contains(t, rec.Body.String(), "reachability-dyn-ok")
+		require.Equal(t, int32(1), openWireCalls.Load(), "unprobed model must decline wire fast-path (openWireCalls stays 1)")
+		require.Equal(t, int32(1), openCanonicalCalls.Load(), "unprobed model must route canonically (openCanonicalCalls becomes 1)")
+	}
+}
+
+// TestStockHost_RuntimeCapabilityChanges_NoStaleBit_ToolsStreamingOnlyAndStockWire verifies:
+//  1. gpt4ostockwire: standard gpt-4o streaming request reaches wire fast-path.
+//  2. toolsstreamingonly: backend configured with streaming and tools capabilities only reaches wire fast-path for requests with tools.
+//  3. Runtime capability change after host build (no stale bit): dynamic change in capability resolution
+//     between host build and request dynamically declines or accepts without stale build-time bits.
+func TestStockHost_RuntimeCapabilityChanges_NoStaleBit_ToolsStreamingOnlyAndStockWire(t *testing.T) {
+	t.Parallel()
+
+	var (
+		openWireCalls      atomic.Int32
+		openCanonicalCalls atomic.Int32
+		currentCaps        atomic.Pointer[lipapi.BackendCaps]
+	)
+
+	// Initial runtime capabilities: streaming and tools only
+	initialCaps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools)
+	currentCaps.Store(&initialCaps)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o"}]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-dyn-cap\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"dyn-cap-ok\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	spoolDir := t.TempDir()
+	customYAML := fmt.Sprintf(`server:
+  address: "127.0.0.1:0"
+  large_payload_fast_path:
+    enabled: true
+    threshold_bytes: 1024
+    memory_spool_bytes: 32768
+    max_inflight_spool_bytes: 1048576
+    max_semantic_fact_bytes: 16384
+    spool_dir: %q
+
+routing:
+  max_attempts: 3
+  default_route: "wire-backend:gpt-4o"
+
+continuity:
+  in_memory: true
+  store: memory
+
+logging:
+  level: error
+  format: text
+
+diagnostics:
+  enabled: false
+
+plugins:
+  frontends:
+    - id: openai-legacy
+      enabled: true
+      config: {}
+  backends:
+    - kind: custom-openai-legacy-compatible
+      id: wire-backend
+      enabled: true
+      config:
+        backend_prefix: wire-backend
+        base_url: %q
+  features:
+    - id: tool-call-repair
+      enabled: false
+`, spoolDir, upstream.URL+"/v1")
+
+	cfgPath := filepath.Join(t.TempDir(), "stock-wire-runcaps.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+		RegistrySetup: func(reg *pluginreg.Registry) error {
+			return reg.WrapLifecycleBackend("custom-openai-legacy-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
+				return func(instanceID string, n yaml.Node, upstreamHTTP *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+					res, err := orig(instanceID, n, upstreamHTTP, deps)
+					if err != nil {
+						return pluginreg.BackendBuildResult{}, err
+					}
+					// Dynamic caps resolver reflecting currentCaps
+					res.Backend.Caps = initialCaps
+					res.Backend.ResolveWireCaps = func(ctx context.Context, cand routing.AttemptCandidate) lipapi.BackendCaps {
+						if p := currentCaps.Load(); p != nil {
+							return *p
+						}
+						return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+					}
+					res.Backend.ResolveCaps = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+						if p := currentCaps.Load(); p != nil {
+							return *p
+						}
+						return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+					}
+					origResolveWire := res.Backend.ResolveWireRequest
+					res.Backend.ResolveWireRequest = func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
+						caps := *currentCaps.Load()
+						if len(facts.RequiredCapabilities) > 0 {
+							if res := lipapi.Negotiate(facts.RequiredCapabilities, caps); res.Kind != lipapi.NegotiationLossless {
+								return largebody.WireRequestSupport{
+									Compatible: false,
+									Reason:     largebody.WireSupportReasonCapabilityUnsupported,
+								}
+							}
+						}
+						if origResolveWire != nil {
+							return origResolveWire(ctx, facts, cand)
+						}
+						return largebody.WireRequestSupport{Compatible: true}
+					}
+					res.Backend.ResolveWireDomain = func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport {
+						caps := *currentCaps.Load()
+						if len(facts.RequiredCapabilities) > 0 {
+							if res := lipapi.Negotiate(facts.RequiredCapabilities, caps); res.Kind != lipapi.NegotiationLossless {
+								return largebody.WireDomainSupport{
+									Compatible:       false,
+									AnyAcceptedModel: false,
+									Reason:           largebody.WireSupportReasonCapabilityUnsupported,
+								}
+							}
+						}
+						return largebody.WireDomainSupport{
+							Compatible:       true,
+							AnyAcceptedModel: true,
+							Reason:           largebody.WireSupportReasonNone,
+						}
+					}
+					origOpenWire := res.Backend.OpenWire
+					if origOpenWire != nil {
+						res.Backend.OpenWire = func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+							openWireCalls.Add(1)
+							return origOpenWire(ctx, req)
+						}
+					}
+					origOpen := res.Backend.Open
+					if origOpen != nil {
+						res.Backend.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+							openCanonicalCalls.Add(1)
+							return origOpen(ctx, call, cand)
+						}
+					}
+					return res, nil
+				}
+			})
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	hostServeCleanup(t, host)
+
+	padding := strings.Repeat("x", 1500)
+
+	// Step 1 (gpt4ostockwire): plain streaming request for gpt-4o reaches wire fast-path
+	{
+		bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"hello %s"}]}`, padding)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		host.HTTPHandler().ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, int32(1), openWireCalls.Load(), "stock gpt-4o request must reach wire fast-path")
+		require.Equal(t, int32(0), openCanonicalCalls.Load())
+	}
+
+	// Step 2 (toolsstreamingonly): backend has streaming and tools only; streaming request with tools reaches wire fast-path
+	{
+		bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"tools":[{"type":"function","function":{"name":"test_fn","description":"test","parameters":{"type":"object"}}}],"messages":[{"role":"user","content":"hello %s"}]}`, padding)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		host.HTTPHandler().ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, int32(2), openWireCalls.Load(), "request with tools and streaming must reach wire when backend has tools+streaming")
+		require.Equal(t, int32(0), openCanonicalCalls.Load())
+	}
+
+	// Step 3 (runtime capability change after host build, no stale bit):
+	// Backend dynamically drops CapabilityTools at runtime. The same request with tools must now decline wire to canonical.
+	{
+		streamingOnly := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+		currentCaps.Store(&streamingOnly)
+
+		bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"tools":[{"type":"function","function":{"name":"test_fn","description":"test","parameters":{"type":"object"}}}],"messages":[{"role":"user","content":"hello %s"}]}`, padding)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(bodyJSON))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		host.HTTPHandler().ServeHTTP(rec, req)
+
+		require.Equal(t, int32(2), openWireCalls.Load(), "wire fast-path must decline after dynamic capability drop (no stale bit)")
+		// Request proceeds to canonical path where capability check rejects
+		require.NotEqual(t, http.StatusOK, rec.Code, "canonical path rejects missing CapabilityTools")
+	}
+}
+
 // TestStockHost_Audit_PortsDeclineWhenActive verifies the audited ports
 // (ExposureAdmission, Preflight, StreamUsage, AdminCountService, etc.)
 // decline wire execution when they are actively occupied/configured.
@@ -501,171 +1147,6 @@ func TestStockHost_Audit_PortsDeclineWhenActive(t *testing.T) {
 				t.Fatalf("reason mismatch: got %v want %v", reason, tc.wantReas)
 			}
 		})
-	}
-}
-
-type stubModelInventoryProvider struct {
-	models []modelinventory.Model
-}
-
-func (s *stubModelInventoryProvider) LoadModels(ctx context.Context) (modelinventory.Snapshot, error) {
-	return modelinventory.Snapshot{Models: s.models}, nil
-}
-
-type stubModelInventoryProviderErr struct {
-	err error
-}
-
-func (s *stubModelInventoryProviderErr) LoadModels(ctx context.Context) (modelinventory.Snapshot, error) {
-	return modelinventory.Snapshot{}, s.err
-}
-
-func wireSupportStub(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
-	return largebody.WireRequestSupport{Compatible: true}
-}
-
-func TestStockHost_IsBackendCapsSubsumed_AgreementAndDisagreement(t *testing.T) {
-	t.Parallel()
-
-	// 1. Empty/nil backends -> false
-	if runtimebundle.IsBackendCapsSubsumedForTest(nil) {
-		t.Error("expected nil backends to return false")
-	}
-	if runtimebundle.IsBackendCapsSubsumedForTest(map[string]execbackend.Backend{}) {
-		t.Error("expected empty backends to return false")
-	}
-
-	// 2. Wire backend with Caps supporting CapabilityStreaming -> true
-	backendsAgree := map[string]execbackend.Backend{
-		"b1": {
-			ResolveWireRequest: wireSupportStub,
-			Caps:               lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-		},
-	}
-	if !runtimebundle.IsBackendCapsSubsumedForTest(backendsAgree) {
-		t.Error("expected agreeing caps to return true")
-	}
-
-	// 3. Wire backend with Caps lacking CapabilityStreaming -> false (disagreement rejection!)
-	backendsDisagree := map[string]execbackend.Backend{
-		"b1": {
-			ResolveWireRequest: wireSupportStub,
-			Caps:               lipapi.NewBackendCaps(lipapi.CapabilityTools),
-		},
-	}
-	if runtimebundle.IsBackendCapsSubsumedForTest(backendsDisagree) {
-		t.Error("expected disagreeing caps (missing streaming) to return false")
-	}
-
-	// 4. Wire backend with ResolveCaps: model inventory with models, one model lacks streaming -> false
-	inventory := &stubModelInventoryProvider{models: []modelinventory.Model{
-		{CanonicalID: "model-streaming"},
-		{CanonicalID: "model-batch-only"},
-	}}
-	backendsModelDepDisagree := map[string]execbackend.Backend{
-		"b1": {
-			ResolveWireRequest: wireSupportStub,
-			ModelInventory:     inventory,
-			ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
-				if cand.Primary.Model == "model-streaming" {
-					return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
-				}
-				return lipapi.NewBackendCaps()
-			},
-		},
-	}
-	if runtimebundle.IsBackendCapsSubsumedForTest(backendsModelDepDisagree) {
-		t.Error("expected model-dependent disagreement to return false")
-	}
-
-	// 5. Wire backend with ResolveCaps: all inventory models support streaming -> true
-	backendsModelDepAgree := map[string]execbackend.Backend{
-		"b1": {
-			ResolveWireRequest: wireSupportStub,
-			ModelInventory:     inventory,
-			ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
-				return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
-			},
-		},
-	}
-	if !runtimebundle.IsBackendCapsSubsumedForTest(backendsModelDepAgree) {
-		t.Error("expected all models supporting streaming to return true")
-	}
-
-	// 6. Backend without wire support -> skipped from wire check
-	backendsNoWire := map[string]execbackend.Backend{
-		"b-legacy": {
-			Caps: lipapi.NewBackendCaps(), // no streaming, but also no wire support
-		},
-		"b-wire": {
-			ResolveWireRequest: wireSupportStub,
-			Caps:               lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-		},
-	}
-	if !runtimebundle.IsBackendCapsSubsumedForTest(backendsNoWire) {
-		t.Error("expected non-wire backend to be skipped and return true")
-	}
-
-	// 7. Wire backend with ResolveCaps and nil ModelInventory -> false (fail closed!)
-	backendsNilInventory := map[string]execbackend.Backend{
-		"b1": {
-			ResolveWireRequest: wireSupportStub,
-			ModelInventory:     nil,
-			ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
-				return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
-			},
-		},
-	}
-	if runtimebundle.IsBackendCapsSubsumedForTest(backendsNilInventory) {
-		t.Error("expected nil inventory with ResolveCaps to return false (fail closed)")
-	}
-
-	// 8. Wire backend with ResolveCaps and inventory LoadModels returning error -> false (fail closed!)
-	backendsInventoryErr := map[string]execbackend.Backend{
-		"b1": {
-			ResolveWireRequest: wireSupportStub,
-			ModelInventory:     &stubModelInventoryProviderErr{err: errors.New("inventory fetch failed")},
-			ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
-				return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
-			},
-		},
-	}
-	if runtimebundle.IsBackendCapsSubsumedForTest(backendsInventoryErr) {
-		t.Error("expected inventory error with ResolveCaps to return false (fail closed)")
-	}
-
-	// 9. Wire backend with ResolveCaps and empty inventory snapshot -> false (fail closed!)
-	backendsEmptyInventory := map[string]execbackend.Backend{
-		"b1": {
-			ResolveWireRequest: wireSupportStub,
-			ModelInventory:     &stubModelInventoryProvider{models: []modelinventory.Model{}},
-			ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
-				return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
-			},
-		},
-	}
-	if runtimebundle.IsBackendCapsSubsumedForTest(backendsEmptyInventory) {
-		t.Error("expected empty inventory snapshot with ResolveCaps to return false (fail closed)")
-	}
-
-	// 10. Wire backend with ResolveCaps: model native ID lacks streaming -> false (fail closed!)
-	inventoryNativeID := &stubModelInventoryProvider{models: []modelinventory.Model{
-		{CanonicalID: "model-streaming", NativeID: "model-native-batch-only"},
-	}}
-	backendsNativeIDDisagree := map[string]execbackend.Backend{
-		"b1": {
-			ResolveWireRequest: wireSupportStub,
-			ModelInventory:     inventoryNativeID,
-			ResolveCaps: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
-				if cand.Primary.Model == "model-native-batch-only" {
-					return lipapi.NewBackendCaps()
-				}
-				return lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
-			},
-		},
-	}
-	if runtimebundle.IsBackendCapsSubsumedForTest(backendsNativeIDDisagree) {
-		t.Error("expected model native ID disagreement to return false (fail closed)")
 	}
 }
 

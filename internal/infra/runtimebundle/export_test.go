@@ -11,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
@@ -432,10 +431,6 @@ func (c *CandidateHTTPCompile) TerminalWorkMetrics() *terminalworkapp.MetricsObs
 	return CandidateTerminalWorkMetrics(c)
 }
 func (c *CandidateHTTPCompile) UpstreamHTTP() *http.Client { return CandidateUpstreamHTTP(c) }
-
-func IsBackendCapsSubsumedForTest(backends map[string]execbackend.Backend) bool {
-	return isBackendCapsSubsumed(context.Background(), backends)
-}
 
 func ResolveLargeBodyAssessorGenIDForTest(snapGen *snapshotgen.Publisher) string {
 	return resolveLargeBodyAssessorGenID(snapGen)

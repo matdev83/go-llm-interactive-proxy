@@ -121,13 +121,14 @@ func (g *RouteOverrideAssessmentGate) Evaluate(ctx context.Context, proof Proof)
 	// explicitly bounded by CandidateModels.
 	isUniversal := len(g.CandidateModels) == 0
 	domainFacts := WireDomainFacts{
-		ProfileID:       proof.ProfileID,
-		Operation:       proof.Operation,
-		Delivery:        proof.Delivery,
-		BodyMode:        proof.Mode,
-		Rewrite:         proof.Rewrite,
-		UniversalModel:  isUniversal,
-		CandidateModels: g.CandidateModels,
+		ProfileID:            proof.ProfileID,
+		Operation:            proof.Operation,
+		Delivery:             proof.Delivery,
+		BodyMode:             proof.Mode,
+		Rewrite:              proof.Rewrite,
+		UniversalModel:       isUniversal,
+		CandidateModels:      g.CandidateModels,
+		RequiredCapabilities: proof.RequiredCapabilities,
 	}
 
 	budget := SemanticFactBudget(ctx)

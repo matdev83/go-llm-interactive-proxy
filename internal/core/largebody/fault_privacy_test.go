@@ -480,7 +480,7 @@ func TestFault_CancellationAndTimeout(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		defer cancel()
-		time.Sleep(2 * time.Millisecond) // ensure expired
+		<-ctx.Done() // ensure expired
 
 		body := &faultyReader{
 			r:         bytes.NewReader(bytes.Repeat([]byte("t"), 100)),

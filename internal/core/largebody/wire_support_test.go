@@ -44,6 +44,7 @@ func TestWireSupportReason_StringsAndUnknown(t *testing.T) {
 		{largebody.WireSupportReasonModelUnsupported, "model_unsupported"},
 		{largebody.WireSupportReasonRewriteUnsupported, "rewrite_unsupported"},
 		{largebody.WireSupportReasonClampUnsupported, "clamp_unsupported"},
+		{largebody.WireSupportReasonCapabilityUnsupported, "capability_unsupported"},
 		{largebody.WireSupportReason(255), "unknown"},
 	}
 	for _, tc := range cases {

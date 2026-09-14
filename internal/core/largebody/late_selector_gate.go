@@ -76,13 +76,14 @@ func (c BoundedRouteDomainContract) ToWireDomainFacts(proof Proof) WireDomainFac
 		}
 	}
 	return WireDomainFacts{
-		ProfileID:       proof.ProfileID,
-		Operation:       proof.Operation,
-		Delivery:        proof.Delivery,
-		BodyMode:        proof.Mode,
-		Rewrite:         proof.Rewrite,
-		UniversalModel:  c.UniversalModel,
-		CandidateModels: models,
+		ProfileID:            proof.ProfileID,
+		Operation:            proof.Operation,
+		Delivery:             proof.Delivery,
+		BodyMode:             proof.Mode,
+		Rewrite:              proof.Rewrite,
+		UniversalModel:       c.UniversalModel,
+		CandidateModels:      models,
+		RequiredCapabilities: proof.RequiredCapabilities,
 	}
 }
 
@@ -411,13 +412,14 @@ func (g *LateSelectorAssessmentGate) Evaluate(ctx context.Context, proof Proof) 
 	}
 
 	combinedDomain := WireDomainFacts{
-		ProfileID:       proof.ProfileID,
-		Operation:       proof.Operation,
-		Delivery:        proof.Delivery,
-		BodyMode:        proof.Mode,
-		Rewrite:         proof.Rewrite,
-		UniversalModel:  universalModel,
-		CandidateModels: allTargetModels,
+		ProfileID:            proof.ProfileID,
+		Operation:            proof.Operation,
+		Delivery:             proof.Delivery,
+		BodyMode:             proof.Mode,
+		Rewrite:              proof.Rewrite,
+		UniversalModel:       universalModel,
+		CandidateModels:      allTargetModels,
+		RequiredCapabilities: proof.RequiredCapabilities,
 	}
 
 	return AssessmentDecisionAccept, DeclineReasonNone, combinedDomain
@@ -466,6 +468,9 @@ func unionWireDomainFacts(ctx context.Context, a, b WireDomainFacts) (WireDomain
 		// Rewrite contracts must match exactly: the zero value is certified
 		// no-rewrite, so any difference (including unset vs certified) declines
 		// rather than silently adopting the other side's contract.
+		return WireDomainFacts{}, DeclineReasonProofUncertain, false
+	}
+	if CapabilitiesDigest(a.RequiredCapabilities) != CapabilitiesDigest(b.RequiredCapabilities) {
 		return WireDomainFacts{}, DeclineReasonProofUncertain, false
 	}
 	rewrite := a.Rewrite

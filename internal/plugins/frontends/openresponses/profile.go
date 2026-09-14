@@ -1218,15 +1218,35 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		}
 	}
 
+	hasTools := len(canonicalTools) > 0
+	if !hasTools {
+		for _, it := range canonicalItems {
+			if it.Kind == lipapi.ItemKindToolCall || it.Kind == lipapi.ItemKindToolResult || it.Role == lipapi.RoleTool {
+				hasTools = true
+				break
+			}
+		}
+	}
+
+	requiredCaps := largebody.DeriveRequiredCapabilities(turnShape, largebody.ControlRequirements{
+		Delivery:          deliveryMode,
+		HasTools:          hasTools,
+		ParallelToolCalls: parallelTools,
+		ReasoningEffort:   reasoningEffort,
+		StructuredOutputs: responseMIME != "",
+		ItemAuthoritative: true,
+	})
+
 	proof := largebody.Proof{
-		ProfileID:          ProfileID,
-		Operation:          lipapi.OperationOpenResponsesCreate,
-		Delivery:           deliveryMode,
-		RouteSelector:      sel,
-		ClientModel:        model,
-		MaxOutputTokens:    maxTokens,
-		CompactionFacts:    proofCompactionFacts,
-		CompactionComplete: proofCompactionComplete,
+		ProfileID:            ProfileID,
+		Operation:            lipapi.OperationOpenResponsesCreate,
+		Delivery:             deliveryMode,
+		RouteSelector:        sel,
+		ClientModel:          model,
+		MaxOutputTokens:      maxTokens,
+		CompactionFacts:      proofCompactionFacts,
+		CompactionComplete:   proofCompactionComplete,
+		RequiredCapabilities: requiredCaps,
 		Facts: largebody.ProtocolFacts{
 			RequirementsID: ProfileID,
 			ControlCount:   int64(len(canonicalTools)),

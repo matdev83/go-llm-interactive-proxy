@@ -645,4 +645,84 @@ func TestBackendWireProofAssessor_StampTamperSwapCloneIsolation(t *testing.T) {
 	if err == nil || !errors.Is(err, largebody.ErrStampDisagreement) {
 		t.Fatalf("ExecuteLargeBody with swapped stamp must fail with ErrStampDisagreement, got %v", err)
 	}
+
+	// 6. Required capabilities tamper detection: tampering with wireReq.RequiredCapabilities causes ExecuteLargeBody to fail with ErrStampDisagreement
+	tamperedCaps := accepted
+	tamperedCaps.WireRequest.RequiredCapabilities = []lipapi.Capability{lipapi.CapabilityStreaming, lipapi.CapabilityTools}
+	_, err = assessor.ExecuteLargeBody(context.Background(), tamperedCaps, nil)
+	if err == nil || !errors.Is(err, largebody.ErrStampDisagreement) {
+		t.Fatalf("ExecuteLargeBody with tampered RequiredCapabilities must fail with ErrStampDisagreement, got %v", err)
+	}
+
+	// 7. WireDomain required capabilities tamper detection: tampering with WireDomain.RequiredCapabilities causes ExecuteLargeBody to fail with ErrStampDisagreement
+	tamperedDomainCaps := accepted
+	tamperedDomainCaps.WireDomain.RequiredCapabilities = []lipapi.Capability{lipapi.CapabilityStreaming, lipapi.CapabilityTools}
+	_, err = assessor.ExecuteLargeBody(context.Background(), tamperedDomainCaps, nil)
+	if err == nil || !errors.Is(err, largebody.ErrStampDisagreement) {
+		t.Fatalf("ExecuteLargeBody with tampered WireDomain.RequiredCapabilities must fail with ErrStampDisagreement, got %v", err)
+	}
+
+	// 8. Replacement assessment tamper detection: replacement assessments must also validate required capabilities
+	replacementStamp, err := largebody.BindAssessmentStamp("gen-1", proof, "domain-gen-2")
+	if err != nil {
+		t.Fatalf("BindAssessmentStamp: %v", err)
+	}
+	replacementAssessed, err := largebody.NewAcceptedAssessment(replacementStamp, wireReq, wireDomain)
+	if err != nil {
+		t.Fatalf("NewAcceptedAssessment: %v", err)
+	}
+	tamperedReplacement := replacementAssessed
+	tamperedReplacement.WireRequest.RequiredCapabilities = []lipapi.Capability{lipapi.CapabilityStreaming, lipapi.CapabilityDocuments}
+	_, err = assessor.ExecuteLargeBody(context.Background(), tamperedReplacement, nil)
+	if err == nil || !errors.Is(err, largebody.ErrStampDisagreement) {
+		t.Fatalf("ExecuteLargeBody with tampered replacement assessment must fail with ErrStampDisagreement, got %v", err)
+	}
+	tamperedReplacementDomain := replacementAssessed
+	tamperedReplacementDomain.WireDomain.RequiredCapabilities = []lipapi.Capability{lipapi.CapabilityStreaming, lipapi.CapabilityDocuments}
+	_, err = assessor.ExecuteLargeBody(context.Background(), tamperedReplacementDomain, nil)
+	if err == nil || !errors.Is(err, largebody.ErrStampDisagreement) {
+		t.Fatalf("ExecuteLargeBody with tampered replacement domain must fail with ErrStampDisagreement, got %v", err)
+	}
+}
+
+func TestUnionWireDomainFacts_RequiredCapabilitiesMismatchDeclines(t *testing.T) {
+	t.Parallel()
+
+	proof, _ := makeValidProof("gen-1")
+	proof.RequiredCapabilities = []lipapi.Capability{lipapi.CapabilityStreaming}
+
+	overrideGate := &largebody.RouteOverrideAssessmentGate{
+		KnownBackends: map[string]struct{}{"backend-1": {}},
+		BackendResolver: largebody.WireBackendResolverFunc(func(backendID string) (largebody.WireBackend, bool) {
+			return &stubWireBackend{
+				domainSupport: largebody.WireDomainSupport{
+					Compatible:       true,
+					AnyAcceptedModel: true,
+				},
+			}, true
+		}),
+	}
+
+	gate := largebody.NewLateSelectorAssessor(nil, overrideGate, largebody.LateSelectorAssessmentGate{})
+	// AcceptDomain has different capabilities than proof.RequiredCapabilities
+	gate.AcceptDomain = largebody.WireDomainFacts{
+		ProfileID:            proof.ProfileID,
+		Operation:            proof.Operation,
+		Delivery:             proof.Delivery,
+		BodyMode:             proof.Mode,
+		Rewrite:              proof.Rewrite,
+		UniversalModel:       true,
+		RequiredCapabilities: []lipapi.Capability{lipapi.CapabilityStreaming, lipapi.CapabilityTools},
+	}
+
+	decision, err := gate.AssessLargeBody(context.Background(), proof)
+	if err != nil {
+		t.Fatalf("AssessLargeBody unexpected error: %v", err)
+	}
+	if !decision.Declined() {
+		t.Fatalf("expected decline when domain required capabilities differ, got %v", decision)
+	}
+	if decision.Reason != largebody.DeclineReasonProofUncertain {
+		t.Fatalf("expected DeclineReasonProofUncertain, got %v", decision.Reason)
+	}
 }

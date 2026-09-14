@@ -66,8 +66,9 @@ func validProof() largebody.Proof {
 			ClientSessionID:        "client-1",
 			ALegID:                 "a-leg-1",
 		},
-		Source:    largebody.NewSourceDigest(digestOf(2)),
-		BodyBytes: 1 << 20,
+		Source:               largebody.NewSourceDigest(digestOf(2)),
+		BodyBytes:            1 << 20,
+		RequiredCapabilities: []lipapi.Capability{lipapi.CapabilityStreaming},
 	}
 }
 
@@ -290,6 +291,48 @@ func TestProof_Validate_Bounded(t *testing.T) {
 	rewriteMismatch.Rewrite = largebody.NewNoRewrite()
 	if err := rewriteMismatch.Validate(testFactBudget); err == nil {
 		t.Fatal("proof needing a rewrite span without rewrite semantics must be rejected")
+	}
+}
+
+func TestProof_AggregateFactBytes_IncludesResumeTokenAndIncompleteCompaction(t *testing.T) {
+	p := validProof()
+	baseBytes := p.AggregateFactBytes()
+
+	// 1. Adding resume token increments aggregate bytes
+	p.Session.ResumeToken = largebody.NewSensitiveString("secret-resume-token-123")
+	withTokenBytes := p.AggregateFactBytes()
+	if withTokenBytes != baseBytes+int64(len("secret-resume-token-123")) {
+		t.Fatalf("expected withTokenBytes=%d, got %d", baseBytes+int64(len("secret-resume-token-123")), withTokenBytes)
+	}
+
+	// 2. Compaction facts when CompactionComplete == false must be counted unconditionally
+	p.CompactionComplete = false
+	p.CompactionFacts.StartRuleID = "rule-abc"
+	p.CompactionFacts.ItemHashes = [][32]byte{digestOf(10), digestOf(20)}
+	withCompactionBytes := p.AggregateFactBytes()
+	expectedCompactionBytes := int64(len("rule-abc") + 2*32)
+	if withCompactionBytes != withTokenBytes+expectedCompactionBytes {
+		t.Fatalf("incomplete compaction facts must be counted unconditionally: expected %d, got %d", withTokenBytes+expectedCompactionBytes, withCompactionBytes)
+	}
+
+	// 3. Required capabilities bytes must be counted
+	p.RequiredCapabilities = append(p.RequiredCapabilities, lipapi.CapabilityTools)
+	withCapsBytes := p.AggregateFactBytes()
+	if withCapsBytes != withCompactionBytes+int64(len(lipapi.CapabilityTools)) {
+		t.Fatalf("required capabilities bytes must be counted: expected %d, got %d", withCompactionBytes+int64(len(lipapi.CapabilityTools)), withCapsBytes)
+	}
+}
+
+func TestProof_Validate_StreamingRequiresCapabilityStreaming(t *testing.T) {
+	p := validProof()
+	p.Delivery = lipapi.DeliveryModeStreaming
+	p.RequiredCapabilities = []lipapi.Capability{lipapi.CapabilityTools} // missing streaming
+	err := p.Validate(testFactBudget)
+	if err == nil {
+		t.Fatal("expected error when streaming delivery lacks CapabilityStreaming in RequiredCapabilities")
+	}
+	if !strings.Contains(err.Error(), "requires CapabilityStreaming") {
+		t.Fatalf("expected error message to mention CapabilityStreaming, got %v", err)
 	}
 }
 
