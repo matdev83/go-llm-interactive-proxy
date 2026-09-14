@@ -4,12 +4,9 @@
 package replay
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
@@ -98,8 +95,8 @@ func Sort(observations []metering.Observation) []metering.Observation {
 }
 
 // PayloadFingerprint returns the canonical semantic payload hash used for
-// replay comparison. ReceivedAt is replaced by a fixed non-zero value because
-// a late transport receipt must not turn the same source event into a conflict.
+// replay comparison. ReceivedAt is replaced by ObservedAt because a late
+// transport receipt must not turn the same source event into a conflict.
 func PayloadFingerprint(observation metering.Observation) (string, error) {
 	canonical, err := observation.Canonical()
 	if err != nil {
@@ -111,12 +108,5 @@ func PayloadFingerprint(observation metering.Observation) (string, error) {
 type entry struct{ hash string }
 
 func payloadFingerprint(observation metering.Observation) (string, error) {
-	canonical := observation.Clone()
-	canonical.ReceivedAt = time.Unix(0, 0).UTC()
-	bytes, err := canonical.CanonicalJSON()
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(bytes)
-	return hex.EncodeToString(sum[:]), nil
+	return observation.ReplayFingerprint()
 }

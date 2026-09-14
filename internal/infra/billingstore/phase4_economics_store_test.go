@@ -50,7 +50,7 @@ func phase4EconomicsObservation(store, id string, revision uint64) metering.Obse
 	}
 }
 
-func phase4EconomicsValuation(t *testing.T, observation metering.Observation, id string, createdAt time.Time, inputHash string) economics.Valuation {
+func phase4EconomicsValuation(t *testing.T, observation metering.Observation, id string, createdAt time.Time, _ string) economics.Valuation {
 	t.Helper()
 	ref, err := observation.Ref(observation.Subject.StoreID)
 	require.NoError(t, err)
@@ -67,11 +67,13 @@ func phase4EconomicsValuation(t *testing.T, observation metering.Observation, id
 		SourceObservationRefs: []metering.ObservationRef{ref},
 	}
 	totalAmount := metering.Decimal{Coefficient: "125", Scale: 3}
+	inputSetHash, err := economics.CanonicalInputSetHash(economics.BasisProviderReported, []metering.ObservationRef{ref})
+	require.NoError(t, err)
 	return economics.Valuation{
 		ID: id, Version: economics.ValuationVersionV2,
 		Perspective: metering.PerspectiveOperator, Basis: economics.BasisProviderReported,
 		Subject: observation.Subject, Scope: "call", InputObservations: []metering.ObservationRef{ref},
-		InputSetHash: inputHash, Lines: []economics.LineItem{line},
+		InputSetHash: inputSetHash, Lines: []economics.LineItem{line},
 		Totals:       []economics.CurrencyTotal{{Currency: "USD", Amount: &totalAmount, RoundedAmount: rounded}},
 		Completeness: economics.CompletenessComplete, CreatedAt: createdAt,
 	}
@@ -150,6 +152,9 @@ func TestPhase4ValuationBasesRoundTrip(t *testing.T) {
 	for i, basis := range bases {
 		valuation := phase4EconomicsValuation(t, observation, "valuation-"+string(basis), time.Unix(1_700_003_000+int64(i), 0).UTC(), fmt.Sprintf("%064x", i+1))
 		valuation.Basis = basis
+		inputSetHash, err := economics.CanonicalInputSetHash(valuation.Basis, valuation.InputObservations)
+		require.NoError(t, err)
+		valuation.InputSetHash = inputSetHash
 		if basis == economics.BasisLocalExpected || basis == economics.BasisProviderQuantityLocal || basis == economics.BasisCustomerPolicy {
 			valuation.Rater = economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "rater", Version: "v1"}, RaterID: "rater"}
 			valuation.RaterContent = &economics.SnapshotContentRef{ContentRef: "store://rater/v1", ContentHash: strings.Repeat("1", 64)}
@@ -212,7 +217,8 @@ func TestPhase4ValuationRebuildAndBoundedPagination(t *testing.T) {
 	observation := phase4EconomicsObservation("test", "obs-rebuild", 1)
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("valuation-page-%d", i)
-		valuation := phase4EconomicsValuation(t, observation, id, time.Unix(1_700_001_000+int64(i), 0).UTC(), fmt.Sprintf("%064x", i))
+		inputObservation := phase4EconomicsObservation("test", fmt.Sprintf("obs-rebuild-%d", i), 1)
+		valuation := phase4EconomicsValuation(t, inputObservation, id, time.Unix(1_700_001_000+int64(i), 0).UTC(), fmt.Sprintf("%064x", i))
 		require.NoError(t, store.AppendValuation(ctx, valuation))
 	}
 	query := ValuationQuery{StoreID: "test", SubjectKind: metering.SubjectBLeg, SubjectID: observation.Subject.BLegID, Limit: 1}

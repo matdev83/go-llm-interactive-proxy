@@ -13,15 +13,16 @@
 - Parent tasks 6.1–6.4 and refinement tasks 3.1–3.3: root-reviewed and accepted; final provider-tree input measurement, separate provider/customer output planes, honest unobservables and bounded fast-path behavior pass focused verification.
 - Parent tasks 7.1–7.4: root-reviewed and accepted; negotiated V2 connector evidence, V1 partial bridge, host drains, durable coverage dispositions and reusable conformance pass focused verification.
 - Parent tasks 8.1–8.5: root-reviewed and accepted; real provider evidence, negotiated V1/V2 authority, multimodal native units, Codex account gauges, auxiliary dispositions and the closed producer census pass focused verification.
+- Parent tasks 9.1–9.5 and refinement task 2.3: delegated-review accepted; immutable tariff snapshots, exact component rating, scope-safe tiers, independent E/Q/P valuations, asymmetric multimodal fixtures, replay-safe identities, and canonical effective-charge COGS pass focused verification.
 - Refinement group 7 remains open because its dependency on retail policy and non-request resource allocation is intentionally later; parent producer migration does not satisfy those downstream criteria by itself.
-- Next implementation: parent task group 9, reproducible component rating and immutable snapshot binding.
+- Next implementation: parent task group 10, independent customer policies and submission charging.
 - The refinement has 8 groups and its required parent has 20. They overlap; do not report these as 28 independent phases or infer a completion percentage from group count.
 
 ## Process correction
 
 The initial phase suffered from broad assignments, incomplete behavioral tests, repeated repair handoffs and redundant review dispatches. Scope mistakes included a lexical safe-field heuristic and an unsupported snapshot-reference inequality. Correctness review remains mandatory; redundant orchestration does not.
 
-1. The root orchestrator performs `kiro-review` directly, independently of the implementation author, as requested by the user. Do not dispatch a second Luna implementation-scale review by default. Consolidate concrete findings in one pass; re-review the repair delta and affected invariants, not unchanged code.
+1. A separate Luna/max reviewer performs `kiro-review` independently of the implementation author, per the user's later override. Reuse that phase reviewer for bounded remediation checks; re-review the repair delta and affected invariants, not unchanged code.
 2. Keep fresh Luna workers at `max`, blocking/sequential, no pool, no concurrent implementation and no interim micromanagement. One worker per phase by default; split a demonstrated oversized or struggling phase into bounded dependent tasks.
 3. Before dispatch, the root resolves architecture ownership and writes a compact brief: task IDs, exact ownership, observable acceptance cases, negative cases, dependencies, exclusions and tests. Do not push an unresolved design choice into a broad coding assignment.
 4. Freeze accepted shared contracts. Change them only when the next real consumer demonstrates a required defect or missing approved behavior. No speculative aliases, generic frameworks, convenience APIs or review-invented restrictions.
@@ -79,3 +80,11 @@ This document changes execution discipline only. It does not remove requirements
 - Root fresh provider/runtime/SDK/QA/architecture verification and all six changed connector-module suites passed.
 - Changed Go files: 85, below the 100-file gate.
 - Accepted tasks: parent 8.1–8.5. Refinement group 7 remains open pending its declared dependencies.
+
+### Phase 9 measurement
+
+- The initial rating assignment was too broad and required repeated repair/review cycles across rating, replay, correction graphs, COGS, identity and persistence.
+- The final unresolved COGS work was split into five sequential Luna/max assignments: effective coverage, correction taint, overlap validation, cardinality-independent supersession and normalized lineage.
+- The same delegated Phase 9 reviewer verified the five repairs together, found one retained-charge coverage composition defect, and approved the focused remediation.
+- Fresh affected-package tests, shuffled adversarial tests, `go vet`, SQLite parity, targeted architecture/QA, formatting and diff checks passed.
+- Accepted tasks: parent 9.1–9.5 and refinement 2.3.

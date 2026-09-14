@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 	"strings"
 	"time"
@@ -18,11 +19,12 @@ const (
 	// ValuationVersionV2 is the first version of the immutable valuation
 	// envelope. A valuation is a derived record and never replaces an input
 	// observation.
-	ValuationVersionV2    uint32 = 2
-	MaxValuationLines            = 128
-	MaxValuationTotals           = 32
-	MaxValuationRefs             = 1024
-	MaxValuationTextBytes        = 512
+	ValuationVersionV2         uint32 = 2
+	MaxValuationLines                 = 128
+	MaxValuationTotals                = 32
+	MaxValuationRefs                  = 1024
+	MaxValuationTextBytes             = 512
+	MaxValuationRationalDigits        = 128
 )
 
 var (
@@ -285,6 +287,33 @@ type FixedFeeIdentity struct {
 	Version string        `json:"version,omitempty"`
 }
 
+// RatingLineStatus records why a line is or is not economically usable. An
+// explicit free rule is intentionally distinct from missing/unsupported rate
+// evidence; neither missing state is represented as a zero amount.
+type RatingLineStatus string
+
+const (
+	RatingLineRated              RatingLineStatus = "rated"
+	RatingLineExplicitFree       RatingLineStatus = "explicit_free"
+	RatingLineProviderReported   RatingLineStatus = "provider_reported"
+	RatingLineRateMissing        RatingLineStatus = "rate_missing"
+	RatingLineRateUnsupported    RatingLineStatus = "rate_unsupported"
+	RatingLineCurrencyMismatch   RatingLineStatus = "currency_mismatch"
+	RatingLineQuantityIncomplete RatingLineStatus = "quantity_incomplete"
+	RatingLineCoverageIncomplete RatingLineStatus = "coverage_incomplete"
+)
+
+func (s RatingLineStatus) IsKnown() bool {
+	switch s {
+	case "", RatingLineRated, RatingLineExplicitFree, RatingLineProviderReported,
+		RatingLineRateMissing, RatingLineRateUnsupported, RatingLineCurrencyMismatch,
+		RatingLineQuantityIncomplete, RatingLineCoverageIncomplete:
+		return true
+	default:
+		return false
+	}
+}
+
 func (f FixedFeeIdentity) Validate() error {
 	if err := validatePublicRef("fixed fee id", f.ID); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidValuation, err)
@@ -379,21 +408,29 @@ func (r CurrencyConversionRef) Clone() CurrencyConversionRef {
 // LineItem is one exact economic line. Component and FixedFee are mutually
 // exclusive identities; no provider aggregate is decomposed by this DTO.
 type LineItem struct {
-	ID                    string                    `json:"id"`
-	RuleID                string                    `json:"rule_id"`
-	ItemID                string                    `json:"item_id"`
-	Component             *metering.ComponentKey    `json:"component,omitempty"`
-	FixedFee              *FixedFeeIdentity         `json:"fixed_fee,omitempty"`
-	Quantity              *metering.Decimal         `json:"quantity,omitempty"`
-	Unit                  string                    `json:"unit"`
-	UnitPrice             *metering.Decimal         `json:"unit_price,omitempty"`
-	RateNumerator         *metering.Decimal         `json:"rate_numerator,omitempty"`
-	RateDenominator       *metering.Decimal         `json:"rate_denominator,omitempty"`
-	Amount                *metering.Decimal         `json:"amount,omitempty"`
+	ID              string                 `json:"id"`
+	RuleID          string                 `json:"rule_id"`
+	ItemID          string                 `json:"item_id"`
+	Component       *metering.ComponentKey `json:"component,omitempty"`
+	FixedFee        *FixedFeeIdentity      `json:"fixed_fee,omitempty"`
+	Quantity        *metering.Decimal      `json:"quantity,omitempty"`
+	Unit            string                 `json:"unit"`
+	UnitPrice       *metering.Decimal      `json:"unit_price,omitempty"`
+	RateNumerator   *metering.Decimal      `json:"rate_numerator,omitempty"`
+	RateDenominator *metering.Decimal      `json:"rate_denominator,omitempty"`
+	Amount          *metering.Decimal      `json:"amount,omitempty"`
+	// AmountNumerator and AmountDenominator preserve an exact bounded rational
+	// when Amount cannot be represented as a terminating Decimal. They are
+	// mutually required and never contain a rounded approximation.
+	AmountNumerator       string                    `json:"amount_numerator,omitempty"`
+	AmountDenominator     string                    `json:"amount_denominator,omitempty"`
 	RoundedAmount         *Money                    `json:"rounded_amount,omitempty"`
 	RoundingScope         RoundingScope             `json:"rounding_scope,omitempty"`
 	RoundingPolicy        RoundingPolicy            `json:"rounding_policy,omitempty"`
 	IncludedUnit          bool                      `json:"included_unit,omitempty"`
+	Status                RatingLineStatus          `json:"status,omitempty"`
+	ReportedAggregate     bool                      `json:"reported_aggregate,omitempty"`
+	ChargeKind            string                    `json:"charge_kind,omitempty"`
 	SourceObservationRefs []metering.ObservationRef `json:"source_observation_refs,omitempty"`
 	AdjustmentRefs        []AdjustmentRef           `json:"adjustment_refs,omitempty"`
 }
@@ -404,8 +441,19 @@ func (l LineItem) Validate() error {
 			return fmt.Errorf("%w: %v", ErrInvalidValuation, err)
 		}
 	}
-	if (l.Component == nil) == (l.FixedFee == nil) {
+	if (l.Component == nil) == (l.FixedFee == nil) && !l.ReportedAggregate {
 		return fmt.Errorf("%w: line requires exactly one component or fixed-fee identity", ErrInvalidValuation)
+	}
+	if l.ReportedAggregate && (l.Component != nil || l.FixedFee != nil) {
+		return fmt.Errorf("%w: aggregate line cannot carry component/fixed-fee identity", ErrInvalidValuation)
+	}
+	if !l.Status.IsKnown() {
+		return fmt.Errorf("%w: unknown line status %q", ErrInvalidValuation, l.Status)
+	}
+	if l.ChargeKind != "" {
+		if err := validatePublicRef("line charge kind", l.ChargeKind); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidValuation, err)
+		}
 	}
 	if l.Component != nil {
 		if err := l.Component.Validate(); err != nil {
@@ -438,6 +486,17 @@ func (l LineItem) Validate() error {
 			}
 		}
 	}
+	if (l.AmountNumerator == "") != (l.AmountDenominator == "") {
+		return fmt.Errorf("%w: amount numerator and denominator must be supplied together", ErrInvalidValuation)
+	}
+	if l.AmountNumerator != "" {
+		if err := validateRationalParts("amount", l.AmountNumerator, l.AmountDenominator); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidValuation, err)
+		}
+	}
+	if l.Amount != nil && l.AmountNumerator != "" {
+		return fmt.Errorf("%w: decimal and rational amount are mutually exclusive", ErrInvalidValuation)
+	}
 	if l.UnitPrice != nil && (l.RateNumerator != nil || l.RateDenominator != nil) {
 		return fmt.Errorf("%w: unit price and rational rate are mutually exclusive", ErrInvalidValuation)
 	}
@@ -457,6 +516,9 @@ func (l LineItem) Validate() error {
 		if err := validateV2Money("rounded amount", *l.RoundedAmount); err != nil {
 			return fmt.Errorf("%w: rounded amount: %v", ErrInvalidValuation, err)
 		}
+		if l.RoundingScope != "" && l.RoundingScope != RoundingScopeLine {
+			return fmt.Errorf("%w: non-line rounding scope %q cannot carry rounded amount", ErrInvalidValuation, l.RoundingScope)
+		}
 	}
 	if l.RoundingScope != "" && !l.RoundingScope.IsKnown() {
 		return fmt.Errorf("%w: unknown rounding scope %q", ErrInvalidValuation, l.RoundingScope)
@@ -469,6 +531,9 @@ func (l LineItem) Validate() error {
 	}
 	if l.RoundingPolicy != RoundingUnspecified && l.RoundingScope == "" {
 		return fmt.Errorf("%w: rounding scope required with policy", ErrInvalidValuation)
+	}
+	if (l.Amount != nil || l.AmountNumerator != "") && (l.RoundingScope == "" || l.RoundingScope == RoundingScopeLine) && (l.RoundedAmount == nil || !l.RoundedAmount.Present) {
+		return fmt.Errorf("%w: line-scoped exact amount requires rounded amount", ErrInvalidValuation)
 	}
 	if len(l.SourceObservationRefs) > MaxValuationRefs || len(l.AdjustmentRefs) > MaxValuationRefs {
 		return fmt.Errorf("%w: line reference bound exceeded", ErrInvalidValuation)
@@ -524,14 +589,57 @@ func normalizeDecimal(in *metering.Decimal) (*metering.Decimal, error) {
 	return &n, nil
 }
 
+func validateRationalParts(name, numerator, denominator string) error {
+	if numerator == "" || denominator == "" {
+		return fmt.Errorf("%s numerator and denominator are required", name)
+	}
+	parse := func(part, label string, allowNegative bool) (*big.Int, error) {
+		if len(part) > MaxValuationRationalDigits+1 {
+			return nil, fmt.Errorf("%s %s exceeds %d digits", name, label, MaxValuationRationalDigits)
+		}
+		if !allowNegative && strings.HasPrefix(part, "-") {
+			return nil, fmt.Errorf("%s denominator must be positive", name)
+		}
+		value, ok := new(big.Int).SetString(part, 10)
+		if !ok || value.String() != part {
+			return nil, fmt.Errorf("%s %s must be a canonical integer", name, label)
+		}
+		digits := part
+		if strings.HasPrefix(digits, "-") {
+			digits = digits[1:]
+		}
+		if len(digits) > MaxValuationRationalDigits {
+			return nil, fmt.Errorf("%s %s exceeds %d digits", name, label, MaxValuationRationalDigits)
+		}
+		return value, nil
+	}
+	n, err := parse(numerator, "numerator", true)
+	if err != nil {
+		return err
+	}
+	d, err := parse(denominator, "denominator", false)
+	if err != nil {
+		return err
+	}
+	if d.Sign() <= 0 {
+		return fmt.Errorf("%s denominator must be positive", name)
+	}
+	if new(big.Int).GCD(nil, nil, n, d).Cmp(big.NewInt(1)) != 0 {
+		return fmt.Errorf("%s rational must be reduced", name)
+	}
+	return nil
+}
+
 // CurrencyTotal keeps exact native-currency value and checked rounded money
 // together. ReportingAmount is optional and requires Conversion.
 type CurrencyTotal struct {
-	Currency        string                 `json:"currency"`
-	Amount          *metering.Decimal      `json:"amount,omitempty"`
-	RoundedAmount   Money                  `json:"rounded_amount,omitzero"`
-	ReportingAmount Money                  `json:"reporting_amount,omitzero"`
-	Conversion      *CurrencyConversionRef `json:"conversion,omitempty"`
+	Currency          string                 `json:"currency"`
+	Amount            *metering.Decimal      `json:"amount,omitempty"`
+	AmountNumerator   string                 `json:"amount_numerator,omitempty"`
+	AmountDenominator string                 `json:"amount_denominator,omitempty"`
+	RoundedAmount     Money                  `json:"rounded_amount,omitzero"`
+	ReportingAmount   Money                  `json:"reporting_amount,omitzero"`
+	Conversion        *CurrencyConversionRef `json:"conversion,omitempty"`
 }
 
 func (t CurrencyTotal) Validate() error {
@@ -543,6 +651,17 @@ func (t CurrencyTotal) Validate() error {
 		if _, err := t.Amount.Normalize(); err != nil {
 			return fmt.Errorf("%w: total amount: %v", ErrInvalidValuation, err)
 		}
+	}
+	if (t.AmountNumerator == "") != (t.AmountDenominator == "") {
+		return fmt.Errorf("%w: total amount numerator and denominator must be supplied together", ErrInvalidValuation)
+	}
+	if t.AmountNumerator != "" {
+		if err := validateRationalParts("total amount", t.AmountNumerator, t.AmountDenominator); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidValuation, err)
+		}
+	}
+	if t.Amount != nil && t.AmountNumerator != "" {
+		return fmt.Errorf("%w: decimal and rational total amount are mutually exclusive", ErrInvalidValuation)
 	}
 	if err := validateV2Money("rounded total", t.RoundedAmount); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidValuation, err)
@@ -556,7 +675,7 @@ func (t CurrencyTotal) Validate() error {
 		return fmt.Errorf("%w: %v", ErrInvalidValuation, err)
 	}
 	if t.ReportingAmount.Present {
-		if t.Amount == nil {
+		if t.Amount == nil && t.AmountNumerator == "" {
 			return fmt.Errorf("%w: reporting total requires native amount", ErrInvalidValuation)
 		}
 		if t.ReportingAmount.Currency == cur || t.Conversion == nil {
@@ -572,6 +691,67 @@ func (t CurrencyTotal) Validate() error {
 		return fmt.Errorf("%w: conversion requires reporting amount", ErrInvalidValuation)
 	}
 	return nil
+}
+
+// ConvertReporting consumes the exact native total and applies the explicit
+// frozen conversion rate once at reporting nano-unit precision. A rational
+// native amount is preserved through multiplication; it is never converted
+// through a terminating decimal approximation first.
+func (t CurrencyTotal) ConvertReporting(policy RoundingPolicy) (Money, error) {
+	if t.Conversion == nil {
+		return Money{}, fmt.Errorf("%w: conversion required", ErrInvalidValuation)
+	}
+	if err := t.Conversion.Validate(); err != nil {
+		return Money{}, err
+	}
+	nativeCurrency, err := NormalizeCurrency(t.Currency)
+	if err != nil {
+		return Money{}, fmt.Errorf("%w: total currency: %v", ErrInvalidValuation, err)
+	}
+	if t.Conversion.FromCurrency != nativeCurrency {
+		return Money{}, fmt.Errorf("%w: reporting conversion source currency mismatch", ErrInvalidValuation)
+	}
+	targetCurrency, err := NormalizeCurrency(t.Conversion.ToCurrency)
+	if err != nil {
+		return Money{}, fmt.Errorf("%w: reporting conversion target currency: %v", ErrInvalidValuation, err)
+	}
+	native, err := t.nativeAmountRat()
+	if err != nil {
+		return Money{}, err
+	}
+	rate, err := t.Conversion.Rate.ToRat()
+	if err != nil {
+		return Money{}, fmt.Errorf("%w: conversion rate: %v", ErrInvalidValuation, err)
+	}
+	nanos := new(big.Rat).Mul(native, rate)
+	nanos.Mul(nanos, new(big.Rat).SetInt64(1_000_000_000))
+	units, err := RoundToInt64(nanos, policy)
+	if err != nil {
+		return Money{}, err
+	}
+	return Money{NanoUnits: units, Currency: targetCurrency, Present: true}, nil
+}
+
+func (t CurrencyTotal) nativeAmountRat() (*big.Rat, error) {
+	if t.Amount != nil && t.AmountNumerator != "" {
+		return nil, fmt.Errorf("%w: decimal and rational total amount are mutually exclusive", ErrInvalidValuation)
+	}
+	if t.Amount != nil {
+		value, err := t.Amount.ToRat()
+		if err != nil {
+			return nil, fmt.Errorf("%w: total amount: %v", ErrInvalidValuation, err)
+		}
+		return value, nil
+	}
+	if t.AmountNumerator == "" || t.AmountDenominator == "" {
+		return nil, fmt.Errorf("%w: exact native amount required", ErrInvalidValuation)
+	}
+	if err := validateRationalParts("total amount", t.AmountNumerator, t.AmountDenominator); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidValuation, err)
+	}
+	numerator, _ := new(big.Int).SetString(t.AmountNumerator, 10)
+	denominator, _ := new(big.Int).SetString(t.AmountDenominator, 10)
+	return new(big.Rat).SetFrac(numerator, denominator), nil
 }
 
 func (t CurrencyTotal) Clone() CurrencyTotal {
@@ -607,13 +787,17 @@ type Valuation struct {
 	PolicyContent        *SnapshotContentRef          `json:"policy_content,omitempty"`
 	QualifierSnapshot    string                       `json:"qualifier_snapshot,omitempty"`
 	QualifierSnapshotRef *SnapshotContentRef          `json:"qualifier_snapshot_ref,omitempty"`
-	Payer                metering.PaymentParty        `json:"payer,omitzero"`
-	Lines                []LineItem                   `json:"lines"`
-	Totals               []CurrencyTotal              `json:"totals"`
-	Completeness         Completeness                 `json:"completeness"`
-	MissingObservations  []metering.ObservationRef    `json:"missing_observations,omitempty"`
-	CoverageRefs         []metering.ChargeCoverageRef `json:"coverage_refs,omitempty"`
-	CreatedAt            time.Time                    `json:"created_at"`
+	// EffectiveQualifiers are the canonical values actually used for rule
+	// selection. They are immutable valuation identity, not merely retrieval
+	// metadata, because changing one can select a different rate.
+	EffectiveQualifiers []metering.Dimension         `json:"effective_qualifiers,omitempty"`
+	Payer               metering.PaymentParty        `json:"payer,omitzero"`
+	Lines               []LineItem                   `json:"lines"`
+	Totals              []CurrencyTotal              `json:"totals"`
+	Completeness        Completeness                 `json:"completeness"`
+	MissingObservations []metering.ObservationRef    `json:"missing_observations,omitempty"`
+	CoverageRefs        []metering.ChargeCoverageRef `json:"coverage_refs,omitempty"`
+	CreatedAt           time.Time                    `json:"created_at"`
 }
 
 func (v Valuation) Validate() error {
@@ -673,6 +857,12 @@ func (v Valuation) Validate() error {
 	if err := validateQualifierSnapshot(v.QualifierSnapshot, v.QualifierSnapshotRef, ErrInvalidValuation); err != nil {
 		return err
 	}
+	if err := validateDimensions(v.EffectiveQualifiers, ErrInvalidValuation); err != nil {
+		return err
+	}
+	if len(v.EffectiveQualifiers) > 0 && v.QualifierSnapshotRef == nil {
+		return fmt.Errorf("%w: effective qualifiers require qualifier snapshot content reference", ErrInvalidValuation)
+	}
 	if err := validateValuationSnapshotContext(v); err != nil {
 		return err
 	}
@@ -705,8 +895,12 @@ func (v Valuation) Validate() error {
 		if err := line.Validate(); err != nil {
 			return fmt.Errorf("%w: line %d: %v", ErrInvalidValuation, i, err)
 		}
-		if v.Completeness == CompletenessComplete && (line.Amount == nil || line.RoundedAmount == nil || !line.RoundedAmount.Present) {
-			return fmt.Errorf("%w: complete valuation line %d lacks exact and rounded amounts", ErrInvalidValuation, i)
+		if v.Completeness == CompletenessComplete && (line.Amount == nil && line.AmountNumerator == "") {
+			return fmt.Errorf("%w: complete valuation line %d lacks exact amount", ErrInvalidValuation, i)
+		}
+		lineNeedsRound := line.RoundingScope == "" || line.RoundingScope == RoundingScopeLine
+		if v.Completeness == CompletenessComplete && lineNeedsRound && (line.RoundedAmount == nil || !line.RoundedAmount.Present) {
+			return fmt.Errorf("%w: complete valuation line %d lacks line-rounded amount", ErrInvalidValuation, i)
 		}
 		if _, ok := seenLines[line.ID]; ok {
 			return fmt.Errorf("%w: duplicate line id %q", ErrInvalidValuation, line.ID)
@@ -729,7 +923,7 @@ func (v Valuation) Validate() error {
 		if err := total.Validate(); err != nil {
 			return fmt.Errorf("%w: total %d: %v", ErrInvalidValuation, i, err)
 		}
-		if v.Completeness == CompletenessComplete && (total.Amount == nil || !total.RoundedAmount.Present) {
+		if v.Completeness == CompletenessComplete && ((total.Amount == nil && total.AmountNumerator == "") || !total.RoundedAmount.Present) {
 			return fmt.Errorf("%w: complete valuation total %d lacks exact and rounded amounts", ErrInvalidValuation, i)
 		}
 		currency, _ := NormalizeCurrency(total.Currency)
@@ -802,6 +996,7 @@ func (v Valuation) Clone() Valuation {
 	out.TariffContent = cloneSnapshotContentRef(v.TariffContent)
 	out.PolicyContent = cloneSnapshotContentRef(v.PolicyContent)
 	out.QualifierSnapshotRef = cloneSnapshotContentRef(v.QualifierSnapshotRef)
+	out.EffectiveQualifiers = append([]metering.Dimension(nil), v.EffectiveQualifiers...)
 	out.InputObservations = append([]metering.ObservationRef(nil), v.InputObservations...)
 	out.MissingObservations = append([]metering.ObservationRef(nil), v.MissingObservations...)
 	out.CoverageRefs = append([]metering.ChargeCoverageRef(nil), v.CoverageRefs...)
@@ -867,6 +1062,12 @@ func (v Valuation) Canonical() (Valuation, error) {
 		}
 	}
 	slices.SortFunc(out.InputObservations, compareObservationRef)
+	slices.SortFunc(out.EffectiveQualifiers, func(a, b metering.Dimension) int {
+		if a.Name != b.Name {
+			return strings.Compare(a.Name, b.Name)
+		}
+		return strings.Compare(a.Value, b.Value)
+	})
 	slices.SortFunc(out.MissingObservations, compareObservationRef)
 	slices.SortFunc(out.CoverageRefs, func(a, b metering.ChargeCoverageRef) int {
 		return strings.Compare(coverageKey(a), coverageKey(b))

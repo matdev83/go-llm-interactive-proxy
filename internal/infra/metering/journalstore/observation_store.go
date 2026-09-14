@@ -323,6 +323,19 @@ func resolveObservationReplay(existing observationRow, payload []byte, observati
 	if existing.Payload == string(payload) && (existing.ObservationFingerprint == "" || existing.ObservationFingerprint == observation.Fingerprint()) {
 		return nil
 	}
+	// The durable row keeps the first full envelope and its full-envelope hash
+	// for audit/history. Replay identity, however, deliberately excludes the
+	// transport receipt timestamp. Compare the stored envelope's replay hash so
+	// an equivalent delivery with a different ReceivedAt remains idempotent
+	// without overwriting that historical record.
+	var stored metering.Observation
+	if err := json.Unmarshal([]byte(existing.Payload), &stored); err == nil {
+		storedHash, storedErr := stored.ReplayFingerprint()
+		incomingHash, incomingErr := observation.ReplayFingerprint()
+		if storedErr == nil && incomingErr == nil && storedHash == incomingHash {
+			return nil
+		}
+	}
 	return fmt.Errorf("%w: observation_id=%q revision=%d", ErrIdentityCollision, observation.ID, observation.Revision)
 }
 
@@ -683,8 +696,13 @@ func (s *DurableStore) GetObservationRef(ctx context.Context, ref metering.Obser
 	if err != nil {
 		return metering.Observation{}, err
 	}
+	// Accept both historical full-envelope refs and replay-stable refs. The
+	// latter intentionally normalize transport receipt metadata.
 	if ref.PayloadHash != "" && observation.Fingerprint() != ref.PayloadHash {
-		return metering.Observation{}, fmt.Errorf("%w: observation payload hash mismatch", ErrIdentityCollision)
+		replayHash, replayErr := observation.ReplayFingerprint()
+		if replayErr != nil || replayHash != ref.PayloadHash {
+			return metering.Observation{}, fmt.Errorf("%w: observation payload hash mismatch", ErrIdentityCollision)
+		}
 	}
 	return observation, nil
 }
@@ -962,14 +980,16 @@ func (s *DurableStore) RebuildObservationProjections(ctx context.Context) error 
 		return fmt.Errorf("metering/journalstore: rebuild begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.NewRaw(`DELETE FROM metering_components WHERE store_id = ?`, s.cfg.StoreID).Exec(ctx); err != nil {
-		return fmt.Errorf("metering/journalstore: rebuild delete projections: %w", err)
-	}
 	rows, err := tx.QueryContext(ctx, `SELECT id, payload_json, observation_fingerprint FROM metering_facts WHERE store_id = ? AND payload_kind = 'observation' ORDER BY id ASC`, s.cfg.StoreID)
 	if err != nil {
 		return fmt.Errorf("metering/journalstore: rebuild scan: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
+	type projectionRecord struct {
+		rowID       int64
+		observation metering.Observation
+	}
+	records := make([]projectionRecord, 0)
 	for rows.Next() {
 		var rowID int64
 		var payload, storedFingerprint string
@@ -987,15 +1007,28 @@ func (s *DurableStore) RebuildObservationProjections(ctx context.Context) error 
 		if string(canonicalJSON) != payload || (storedFingerprint != "" && storedFingerprint != canonical.Fingerprint()) {
 			return fmt.Errorf("%w: canonical observation payload drift for %q revision %d", ErrIdentityCollision, canonical.ID, canonical.Revision)
 		}
-		if err := insertObservationComponents(ctx, tx, s.cfg.StoreID, rowID, canonical, canonical.Fingerprint()); err != nil {
-			return err
-		}
+		records = append(records, projectionRecord{rowID: rowID, observation: canonical})
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("metering/journalstore: rebuild rows: %w", err)
 	}
 	if err := rows.Close(); err != nil {
 		return fmt.Errorf("metering/journalstore: rebuild rows close: %w", err)
+	}
+	observations := make([]metering.Observation, 0, len(records))
+	for _, record := range records {
+		observations = append(observations, record.observation)
+	}
+	if err := metering.ValidateSupersessionGraph(observations); err != nil {
+		return fmt.Errorf("metering/journalstore: rebuild supersession graph: %w", err)
+	}
+	if _, err := tx.NewRaw(`DELETE FROM metering_components WHERE store_id = ?`, s.cfg.StoreID).Exec(ctx); err != nil {
+		return fmt.Errorf("metering/journalstore: rebuild delete projections: %w", err)
+	}
+	for _, record := range records {
+		if err := insertObservationComponents(ctx, tx, s.cfg.StoreID, record.rowID, record.observation, record.observation.Fingerprint()); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("metering/journalstore: rebuild commit: %w", err)

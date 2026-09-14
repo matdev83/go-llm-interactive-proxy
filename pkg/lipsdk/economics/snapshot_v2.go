@@ -120,7 +120,11 @@ func derivedBasis(b ValuationBasis) bool {
 
 func validateRatingInputSnapshotContext(in RatingInput) error {
 	derived := derivedBasis(in.Basis)
-	if err := validateInputSetIdentity("rating input set hash", in.InputSetHash, derived, ErrInvalidRating); err != nil {
+	// The trusted post-usage rater owns input-set identity. It recomputes and
+	// fills an empty hash after canonical replay, while a supplied non-empty
+	// hash is verified at that boundary. Public input validation must therefore
+	// permit the pre-verification empty state.
+	if err := validateInputSetIdentity("rating input set hash", in.InputSetHash, false, ErrInvalidRating); err != nil {
 		return err
 	}
 	if err := validateSnapshotMaterial("rater", in.Rater.ID, in.RaterContent, derived, ErrInvalidRating); err != nil {

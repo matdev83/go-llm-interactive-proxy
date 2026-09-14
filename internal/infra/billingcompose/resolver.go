@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 type JoinRatingResolver struct {
@@ -16,6 +17,7 @@ type JoinRatingResolver struct {
 var (
 	_ billing.CallRatingResolver   = (*JoinRatingResolver)(nil)
 	_ billing.ProviderCostResolver = (*ProviderCostJoinResolver)(nil)
+	_ billing.PostUsageRater       = (*JoinRatingResolver)(nil)
 )
 
 func NewCallRatingResolver(catalog *SnapshotCatalog) (billing.CallRatingResolver, error) {
@@ -42,6 +44,28 @@ func (r *JoinRatingResolver) ResolveCallRating(_ context.Context, complete billi
 		CustomerPolicy:    snapshots.Policy,
 		ModelPricing:      snapshots.ModelPricing,
 	})
+}
+
+// Rate resolves and freezes the accepted tariff before invoking the billing
+// domain's post-usage evaluator. The resolver is intentionally separate from
+// ResolveCallRating: legacy scalar call settlement remains compatible while
+// component E/Q/P valuation uses the immutable tariff path.
+func (r *JoinRatingResolver) Rate(ctx context.Context, input economics.PostUsageRatingInput) (economics.Valuation, error) {
+	if input.Basis == economics.BasisProviderReported {
+		return billing.RateProviderReported(ctx, input)
+	}
+	if r == nil || r.catalog == nil {
+		return economics.Valuation{}, fmt.Errorf("billingcompose: tariff catalog is unavailable")
+	}
+	ref := billing.VersionRef{
+		ID: input.Tariff.ID, Version: input.Tariff.Version,
+		EffectiveAt: input.Tariff.EffectiveAt, FetchedAt: input.Tariff.FetchedAt,
+	}
+	tariff, err := r.catalog.ResolveTariff(ctx, ref)
+	if err != nil {
+		return economics.Valuation{}, fmt.Errorf("billingcompose: resolve tariff: %w", err)
+	}
+	return billing.RateWithTariff(ctx, input, tariff)
 }
 
 type ProviderCostJoinResolver struct {

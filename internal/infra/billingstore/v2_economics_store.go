@@ -426,6 +426,7 @@ type valuationRow struct {
 	StoreID          string `bun:"store_id"`
 	ValuationID      string `bun:"valuation_id"`
 	ValuationVersion int64  `bun:"valuation_version"`
+	InputSetHash     string `bun:"input_set_hash"`
 	CanonicalJSON    string `bun:"canonical_json"`
 	Fingerprint      string `bun:"fingerprint"`
 }
@@ -457,6 +458,53 @@ func canonicalValuationForStore(storeID string, valuation economics.Valuation) (
 	if valuation.Version != economics.ValuationVersionV2 {
 		return economics.Valuation{}, nil, fmt.Errorf("%w: valuation version %d want %d", economics.ErrInvalidValuation, valuation.Version, economics.ValuationVersionV2)
 	}
+	// Verify and fill the input identity before public valuation validation so
+	// a trusted durable append can accept the same empty-hash compatibility
+	// state as a direct post-usage rater. A non-empty caller hash is rejected
+	// before it can affect canonical JSON, lookup or uniqueness.
+	verifiedHash, err := economics.CanonicalInputSetHash(valuation.Basis, valuation.InputObservations)
+	if err != nil {
+		return economics.Valuation{}, nil, err
+	}
+	if valuation.InputSetHash != "" && valuation.InputSetHash != verifiedHash {
+		return economics.Valuation{}, nil, fmt.Errorf("%w: valuation basis=%q supplied=%q expected=%q", economics.ErrInputSetHashMismatch, valuation.Basis, valuation.InputSetHash, verifiedHash)
+	}
+	valuation.InputSetHash = verifiedHash
+	canonical, err := valuation.Canonical()
+	if err != nil {
+		return economics.Valuation{}, nil, err
+	}
+	// Durable lookup and uniqueness must use the same canonical observation
+	// preimage trusted by direct raters. New/legacy-compatible empty hashes are
+	// filled from retained refs; a supplied non-empty mismatch is rejected
+	// before it can influence either the identity query or persisted payload.
+	verifiedHash, err = economics.CanonicalInputSetHash(canonical.Basis, canonical.InputObservations)
+	if err != nil {
+		return economics.Valuation{}, nil, err
+	}
+	if canonical.InputSetHash != "" && canonical.InputSetHash != verifiedHash {
+		return economics.Valuation{}, nil, fmt.Errorf("%w: valuation basis=%q supplied=%q expected=%q", economics.ErrInputSetHashMismatch, canonical.Basis, canonical.InputSetHash, verifiedHash)
+	}
+	canonical.InputSetHash = verifiedHash
+	payload, err := canonical.CanonicalJSON()
+	if err != nil {
+		return economics.Valuation{}, nil, err
+	}
+	return canonical, payload, nil
+}
+
+// canonicalLegacyValuationForStore preserves the canonical payload shape of a
+// pre-input-hash V2 valuation. Empty InputSetHash is an explicit historical
+// compatibility state: it is valid only when replaying an existing durable
+// row that also has an empty stored hash. New rows still go through
+// canonicalValuationForStore, which verifies and fills the hash.
+func canonicalLegacyValuationForStore(storeID string, valuation economics.Valuation) (economics.Valuation, []byte, error) {
+	if valuation.Subject.StoreID != storeID {
+		return economics.Valuation{}, nil, fmt.Errorf("%w: valuation subject store", ErrEconomicsOutOfScope)
+	}
+	if valuation.Version != economics.ValuationVersionV2 {
+		return economics.Valuation{}, nil, fmt.Errorf("%w: valuation version %d want %d", economics.ErrInvalidValuation, valuation.Version, economics.ValuationVersionV2)
+	}
 	canonical, err := valuation.Canonical()
 	if err != nil {
 		return economics.Valuation{}, nil, err
@@ -468,23 +516,44 @@ func canonicalValuationForStore(storeID string, valuation economics.Valuation) (
 	return canonical, payload, nil
 }
 
+func valuationContextHash(valuation economics.Valuation) string {
+	return valuation.ContextHash()
+}
+
 func (s *DurableStore) AppendValuationInTx(ctx context.Context, tx bun.Tx, valuation economics.Valuation) error {
 	if err := s.validateContext(ctx); err != nil {
 		return err
+	}
+	var existing valuationRow
+	existingErr := sql.ErrNoRows
+	// Look up the immutable identity before strict hash verification so an
+	// empty-hash caller can replay a valid historical row byte-for-byte. This
+	// probe is deliberately limited to a structurally addressable identity;
+	// normal validation remains owned by canonicalValuationForStore below.
+	if valuation.ID != "" && valuation.Version != 0 {
+		existingErr = tx.NewRaw(`SELECT id, store_id, valuation_id, valuation_version, input_set_hash, canonical_json, fingerprint FROM billing_valuations WHERE store_id = ? AND valuation_id = ? AND valuation_version = ? LIMIT 1`, s.storeID, valuation.ID, int64(valuation.Version)).Scan(ctx, &existing)
+		if existingErr != nil && !errors.Is(existingErr, sql.ErrNoRows) {
+			return fmt.Errorf("billingstore: valuation identity lookup: %w", existingErr)
+		}
+		if existingErr == nil && valuation.InputSetHash == "" && existing.InputSetHash == "" {
+			legacy, payload, err := canonicalLegacyValuationForStore(s.storeID, valuation)
+			if err != nil {
+				return err
+			}
+			return resolveValuationReplay(existing, payload, legacy)
+		}
 	}
 	canonical, payload, err := canonicalValuationForStore(s.storeID, valuation)
 	if err != nil {
 		return err
 	}
 	fingerprint := canonical.Fingerprint()
-	var existing valuationRow
-	if err := tx.NewRaw(`SELECT id, store_id, valuation_id, valuation_version, canonical_json, fingerprint FROM billing_valuations WHERE store_id = ? AND valuation_id = ? AND valuation_version = ? LIMIT 1`, s.storeID, canonical.ID, int64(canonical.Version)).Scan(ctx, &existing); err == nil {
+	contextHash := valuationContextHash(canonical)
+	if existingErr == nil {
 		return resolveValuationReplay(existing, payload, canonical)
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("billingstore: valuation identity lookup: %w", err)
 	}
 	if canonical.InputSetHash != "" {
-		if err := tx.NewRaw(`SELECT id, store_id, valuation_id, valuation_version, canonical_json, fingerprint FROM billing_valuations WHERE store_id = ? AND input_set_hash = ? AND rater_id = ? AND rater_version = ? AND policy_id = ? AND policy_version = ? AND tariff_id = ? AND tariff_version = ? AND basis = ? LIMIT 1`, s.storeID, canonical.InputSetHash, canonical.Rater.RaterID, canonical.Rater.Version, canonical.Policy.PolicyID, canonical.Policy.Version, canonical.Tariff.ID, canonical.Tariff.Version, string(canonical.Basis)).Scan(ctx, &existing); err == nil {
+		if err := tx.NewRaw(`SELECT id, store_id, valuation_id, valuation_version, input_set_hash, canonical_json, fingerprint FROM billing_valuations WHERE store_id = ? AND input_set_hash = ? AND valuation_context_hash = ? AND rater_id = ? AND rater_version = ? AND policy_id = ? AND policy_version = ? AND tariff_id = ? AND tariff_version = ? AND basis = ? LIMIT 1`, s.storeID, canonical.InputSetHash, contextHash, canonical.Rater.RaterID, canonical.Rater.Version, canonical.Policy.PolicyID, canonical.Policy.Version, canonical.Tariff.ID, canonical.Tariff.Version, string(canonical.Basis)).Scan(ctx, &existing); err == nil {
 			if existing.CanonicalJSON == string(payload) {
 				return fmt.Errorf("%w: valuation identity is already used by %q", ErrIdentityConflict, existing.ValuationID)
 			}
@@ -496,15 +565,15 @@ func (s *DurableStore) AppendValuationInTx(ctx context.Context, tx bun.Tx, valua
 	if _, err := tx.NewRaw(`
 INSERT INTO billing_valuations(
 	store_id, valuation_id, valuation_version, perspective, basis, subject_kind, subject_id, tenant_id, scope, input_set_hash,
-	rater_id, rater_version, tariff_id, tariff_version, policy_id, policy_version, qualifier_snapshot, canonical_json, fingerprint, projection_version, created_at_unix
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING
+	rater_id, rater_version, tariff_id, tariff_version, policy_id, policy_version, qualifier_snapshot, canonical_json, fingerprint, projection_version, created_at_unix, valuation_context_hash
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING
 	`, s.storeID, canonical.ID, int64(canonical.Version), string(canonical.Perspective), string(canonical.Basis), string(canonical.Subject.Kind), subjectIDForEconomics(canonical.Subject), canonical.Subject.TenantID, canonical.Scope, canonical.InputSetHash,
-		canonical.Rater.RaterID, canonical.Rater.Version, canonical.Tariff.ID, canonical.Tariff.Version, canonical.Policy.PolicyID, canonical.Policy.Version, canonical.QualifierSnapshot, string(payload), fingerprint, BillingEconomicsProjectionVersion, canonical.CreatedAt.UnixNano()).Exec(ctx); err != nil {
+		canonical.Rater.RaterID, canonical.Rater.Version, canonical.Tariff.ID, canonical.Tariff.Version, canonical.Policy.PolicyID, canonical.Policy.Version, canonical.QualifierSnapshot, string(payload), fingerprint, BillingEconomicsProjectionVersion, canonical.CreatedAt.UnixNano(), contextHash).Exec(ctx); err != nil {
 		return fmt.Errorf("billingstore: insert valuation: %w", err)
 	}
-	if err := tx.NewRaw(`SELECT id, store_id, valuation_id, valuation_version, canonical_json, fingerprint FROM billing_valuations WHERE store_id = ? AND valuation_id = ? AND valuation_version = ? LIMIT 1`, s.storeID, canonical.ID, int64(canonical.Version)).Scan(ctx, &existing); err != nil {
+	if err := tx.NewRaw(`SELECT id, store_id, valuation_id, valuation_version, input_set_hash, canonical_json, fingerprint FROM billing_valuations WHERE store_id = ? AND valuation_id = ? AND valuation_version = ? LIMIT 1`, s.storeID, canonical.ID, int64(canonical.Version)).Scan(ctx, &existing); err != nil {
 		if errors.Is(err, sql.ErrNoRows) && canonical.InputSetHash != "" {
-			if inputErr := tx.NewRaw(`SELECT id, store_id, valuation_id, valuation_version, canonical_json, fingerprint FROM billing_valuations WHERE store_id = ? AND input_set_hash = ? AND rater_id = ? AND rater_version = ? AND policy_id = ? AND policy_version = ? AND tariff_id = ? AND tariff_version = ? AND basis = ? LIMIT 1`, s.storeID, canonical.InputSetHash, canonical.Rater.RaterID, canonical.Rater.Version, canonical.Policy.PolicyID, canonical.Policy.Version, canonical.Tariff.ID, canonical.Tariff.Version, string(canonical.Basis)).Scan(ctx, &existing); inputErr == nil {
+			if inputErr := tx.NewRaw(`SELECT id, store_id, valuation_id, valuation_version, input_set_hash, canonical_json, fingerprint FROM billing_valuations WHERE store_id = ? AND input_set_hash = ? AND valuation_context_hash = ? AND rater_id = ? AND rater_version = ? AND policy_id = ? AND policy_version = ? AND tariff_id = ? AND tariff_version = ? AND basis = ? LIMIT 1`, s.storeID, canonical.InputSetHash, contextHash, canonical.Rater.RaterID, canonical.Rater.Version, canonical.Policy.PolicyID, canonical.Policy.Version, canonical.Tariff.ID, canonical.Tariff.Version, string(canonical.Basis)).Scan(ctx, &existing); inputErr == nil {
 				return fmt.Errorf("%w: valuation input set identity is already used by %q", ErrIdentityConflict, existing.ValuationID)
 			} else if !errors.Is(inputErr, sql.ErrNoRows) {
 				return fmt.Errorf("billingstore: valuation input identity lookup after insert: %w", inputErr)
@@ -1193,22 +1262,28 @@ func (s *DurableStore) RebuildValuationProjections(ctx context.Context) error {
 	if _, err := tx.NewRaw(`DELETE FROM billing_valuation_lines WHERE store_id = ?`, s.storeID).Exec(ctx); err != nil {
 		return fmt.Errorf("billingstore: rebuild delete lines: %w", err)
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT valuation_id, valuation_version, canonical_json, fingerprint FROM billing_valuations WHERE store_id = ? ORDER BY id ASC`, s.storeID)
+	rows, err := tx.QueryContext(ctx, `SELECT valuation_id, valuation_version, input_set_hash, canonical_json, fingerprint FROM billing_valuations WHERE store_id = ? ORDER BY id ASC`, s.storeID)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
-		var id, payload, fingerprint string
+		var id, inputSetHash, payload, fingerprint string
 		var version int64
-		if err := rows.Scan(&id, &version, &payload, &fingerprint); err != nil {
+		if err := rows.Scan(&id, &version, &inputSetHash, &payload, &fingerprint); err != nil {
 			return err
 		}
 		var valuation economics.Valuation
 		if err := json.Unmarshal([]byte(payload), &valuation); err != nil {
 			return fmt.Errorf("billingstore: rebuild decode valuation: %w", err)
 		}
-		canonical, canonicalJSON, err := canonicalValuationForStore(s.storeID, valuation)
+		var canonical economics.Valuation
+		var canonicalJSON []byte
+		if inputSetHash == "" && valuation.InputSetHash == "" {
+			canonical, canonicalJSON, err = canonicalLegacyValuationForStore(s.storeID, valuation)
+		} else {
+			canonical, canonicalJSON, err = canonicalValuationForStore(s.storeID, valuation)
+		}
 		if err != nil {
 			return err
 		}

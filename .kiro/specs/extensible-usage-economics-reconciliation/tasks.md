@@ -378,9 +378,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 5.1, 5.4, 5.5, 5.6, 6.2, 15.1, 15.5, 17.1, 18.3_
 
 
-- [ ] 9. Implement reproducible component rating and snapshot binding
+- [x] 9. Implement reproducible component rating and snapshot binding
 
-- [ ] 9.1 Adapt existing tariff sources into immutable rule snapshots
+- [x] 9.1 Adapt existing tariff sources into immutable rule snapshots
   - Use the existing catalog and snapshot resolver as inputs; store immutable rule material/hash and effective qualifiers.
   - Map old scalar policies into named legacy semantics; do not crawl pricing sites or introduce a new tariff database.
   - Completion: replay resolves the originally accepted rate even after configuration reload or catalog refresh.
@@ -390,7 +390,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/infra/billingcompose/... ./pkg/lipsdk/economics/..._
   - _Requirements: 7.1, 7.4, 7.5, 7.6, 17.2_
 
-- [ ] 9.2 Implement exact unit rates, fixed fees and rounding rules
+- [x] 9.2 Implement exact unit rates, fixed fees and rounding rules
   - Implement line-level linear price across text and multimodal direction/unit keys, fixed fee at declared scope, block rounding and minimums with exact intermediate arithmetic.
   - Validate the resolved charge-coverage graph before rating. Reject overlapping additive aggregate/subcomponent rules unless an explicit surcharge applies, reject inclusive-parent plus covered-child double counting, and require conserved explicit allocation for shared ownership; persist pre-round and rounded values.
   - Completion: synthetic cached-token, fixed-once and fractional unit vectors produce their exact expected values.
@@ -400,7 +400,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./pkg/lipsdk/economics/..._
   - _Requirements: 2.6, 3.4, 7.3, 8.2_
 
-- [ ] 9.3 Implement context/tier conditions and scope-safe pricing
+- [x] 9.3 Implement context/tier conditions and scope-safe pricing
   - Compile conditional qualifiers and all-units/graduated tiers into immutable deterministic rule sets with conflict validation.
   - Distinguish whole-context threshold selection from uncached billable quantity; period-wide minimums/tiers require a period valuation or explicit custom rater.
   - Completion: context boundary, region/tier changes and missing qualifiers cannot select an unrelated rate silently.
@@ -410,7 +410,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingcompose/..._
   - _Requirements: 7.1, 7.3, 7.4, 7.5_
 
-- [ ] 9.4 Produce independent expected and provider-quantity valuations
+- [x] 9.4 Produce independent expected and provider-quantity valuations
   - Always calculate E and Q independently when their inputs exist, even when P is supplied; leave unavailable local partitions incomplete.
   - Preserve provider-reported aggregate or component charges and derived local charges as different bases; freeze context changes rather than retroactively editing E.
   - Completion: E/Q/P input refs and costs survive durable round-trip without fallback overwriting.
@@ -420,7 +420,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingcompose/... ./internal/infra/billingstore/..._
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 4.3, 7.2, 7.4, 7.5_
 
-- [ ] 9.5 Certify generic non-token and unsupported-rate behavior
+- [x] 9.5 Certify generic non-token and unsupported-rate behavior
   - Use image input/output, audio input/output, video input/output, document/page, request, submission, time, storage-product and credit fixtures plus a new namespaced synthetic meter.
   - Test modality/direction-specific rates, rate missing, currency mismatch, explicit free rate, unsupported precision and incomplete quantity; no case defaults to zero cost.
   - Completion: adding a media component or unit changes only its schema/rule/adapter fixture, not executor or SQL schema, and unlike modalities/directions never collapse into one rated line.

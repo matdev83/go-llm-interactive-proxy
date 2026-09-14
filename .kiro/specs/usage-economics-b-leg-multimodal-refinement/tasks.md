@@ -57,7 +57,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 2.1_
   - _Validation: go test ./pkg/lipsdk/metering/... ./pkg/lipsdk/economics/..._
 
-- [ ] 2.3 Extend generic rating fixtures for asymmetric media pricing
+- [x] 2.3 Extend generic rating fixtures for asymmetric media pricing
   - Add direction-specific media unit rates, fixed/image generation fees and mixed-native-unit rules using the parent exact arithmetic and snapshot contracts.
   - Ensure a provider-derived conversion is used only when its frozen schema explicitly defines it.
   - Completion: input image, output image, input audio, output audio, input video, output video and document/page vectors rate independently.

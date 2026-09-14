@@ -1049,13 +1049,36 @@ func (o Observation) Fingerprint() string {
 	return hex.EncodeToString(sum[:])
 }
 
+// ReplayFingerprint returns the canonical semantic payload hash used for
+// replay identity and immutable observation references. ReceivedAt records
+// transport arrival metadata and Subject/Correlation are approved alternate
+// lineage carriers, so both are normalized before hashing; equivalent source
+// evidence must retain one identity.
+func (o Observation) ReplayFingerprint() (string, error) {
+	canonical, err := o.Canonical()
+	if err != nil {
+		return "", err
+	}
+	canonical.ReceivedAt = canonical.ObservedAt
+	lineage := canonical.effectiveLineage()
+	canonical.Subject = lineage.Subject
+	canonical.Correlation = CorrelationV2{StoreID: canonical.Correlation.StoreID, ParentWorkID: lineage.ParentWorkID}
+	b, err := json.Marshal(observationWire(canonical))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 // IdentityKey returns a source-event identity preimage that excludes values;
 // replay equality uses the full canonical payload/fingerprint.
 func (o Observation) IdentityKey() string {
 	// Sequence is a semantic ordering member, not source-event identity. The
 	// source event key is explicit so two events with equal quantities cannot
 	// collide, while revision remains a separate replay member.
-	return fmt.Sprintf("v%d\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d", o.Version, o.Correlation.StoreID, o.Correlation.TenantID, o.Correlation.ProviderAccountKey, o.Origin, o.Acquisition, o.SubjectIdentity(), o.StreamID, o.SourceEventKey, o.Revision)
+	lineage := o.effectiveLineage()
+	return fmt.Sprintf("v%d\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d", o.Version, lineage.Subject.StoreID, lineage.Subject.TenantID, lineage.Subject.ProviderAccountKey, o.Origin, o.Acquisition, lineage.identity(), o.StreamID, o.SourceEventKey, o.Revision)
 }
 
 // SourceEventIdentity is an alias used by journal adapters.
@@ -1065,8 +1088,8 @@ func (o Observation) SourceEventIdentity() string { return o.IdentityKey() }
 func (o Observation) IdempotencyKey() string { return o.IdentityKey() }
 
 // Ref returns the immutable store-scoped reference for this observation. The
-// payload hash is computed from the canonical envelope, not from a raw
-// transport response.
+// payload hash is computed from the canonical semantic envelope with receipt
+// metadata normalized, not from a raw transport response.
 func (o Observation) Ref(storeID string) (ObservationRef, error) {
 	if err := validateIdentityText("observation ref store_id", storeID, MaxSchemaIDBytes); err != nil {
 		return ObservationRef{}, err
@@ -1077,12 +1100,55 @@ func (o Observation) Ref(storeID string) (ObservationRef, error) {
 	if o.Subject.StoreID != storeID {
 		return ObservationRef{}, fmt.Errorf("%w: observation/ref store mismatch", ErrInvalidObservation)
 	}
-	return ObservationRef{StoreID: storeID, ObservationID: o.ID, Revision: o.Revision, PayloadHash: o.Fingerprint()}, nil
+	hash, err := o.ReplayFingerprint()
+	if err != nil {
+		return ObservationRef{}, fmt.Errorf("%w: observation replay fingerprint: %v", ErrInvalidObservation, err)
+	}
+	return ObservationRef{StoreID: storeID, ObservationID: o.ID, Revision: o.Revision, PayloadHash: hash}, nil
 }
 
 func (o Observation) SubjectIdentity() string {
-	b, _ := json.Marshal(o.Subject)
+	b, _ := json.Marshal(o.effectiveLineage().Subject)
 	return string(b)
+}
+
+type effectiveLineage struct {
+	Subject      SubjectRef `json:"subject"`
+	ParentWorkID string     `json:"parent_work_id,omitempty"`
+}
+
+func (o Observation) effectiveLineage() effectiveLineage {
+	subject := o.Subject
+	subject.TenantID = firstNonEmpty(subject.TenantID, o.Correlation.TenantID)
+	subject.RequestID = firstNonEmpty(subject.RequestID, o.Correlation.RequestID)
+	subject.CallID = firstNonEmpty(subject.CallID, o.Correlation.CallID)
+	subject.BillingCallID = firstNonEmpty(subject.BillingCallID, o.Correlation.BillingCallID)
+	subject.ALegID = firstNonEmpty(subject.ALegID, o.Correlation.ALegID)
+	subject.BLegID = firstNonEmpty(subject.BLegID, o.Correlation.BLegID)
+	subject.AttemptID = firstNonEmpty(subject.AttemptID, o.Correlation.AttemptID)
+	subject.AttemptSeq = firstNonZero(subject.AttemptSeq, o.Correlation.AttemptSeq)
+	subject.SubmissionID = firstNonEmpty(subject.SubmissionID, o.Correlation.SubmissionID)
+	subject.ProviderAccountKey = firstNonEmpty(subject.ProviderAccountKey, o.Correlation.ProviderAccountKey)
+	subject.ProviderRequestID = firstNonEmpty(subject.ProviderRequestID, o.Correlation.ProviderRequestID)
+	subject.ProviderChargeID = firstNonEmpty(subject.ProviderChargeID, o.Correlation.ProviderChargeID)
+	subject.ResourceID = firstNonEmpty(subject.ResourceID, o.Correlation.ResourceID)
+	subject.PeriodID = firstNonEmpty(subject.PeriodID, o.Correlation.PeriodID)
+	return effectiveLineage{Subject: subject, ParentWorkID: o.Correlation.ParentWorkID}
+}
+
+func (l effectiveLineage) identity() string {
+	encoded, _ := json.Marshal(l)
+	return string(encoded)
+}
+
+// NormalizedLineageIdentity returns the canonical request/account/resource
+// lineage after merging fields that may be carried by either trusted Subject
+// or Correlation. The two carriers are intentionally accepted as a placement
+// detail; a value present in only one carrier has the same effective identity
+// as the equivalent value present in the other. Validation still rejects a
+// contradictory value when both carriers provide one.
+func (o Observation) NormalizedLineageIdentity() string {
+	return o.effectiveLineage().identity()
 }
 
 type observationWire Observation
@@ -1233,12 +1299,16 @@ func ValidateSupersessionGraph(observations []Observation) error {
 					return fmt.Errorf("%w: %w: legacy unknown supersession hash requires trusted V1 records", ErrInvalidRevision, ErrInvalidObservation)
 				}
 			} else if ref.PayloadHash != prior.Fingerprint() {
-				return fmt.Errorf("%w: %w: superseded payload hash mismatch", ErrInvalidRevision, ErrInvalidObservation)
+				// New references use the replay-stable payload hash, while the
+				// full canonical hash remains accepted for durable historical
+				// references created before receipt metadata was normalized.
+				replayHash, replayErr := prior.ReplayFingerprint()
+				if replayErr != nil || ref.PayloadHash != replayHash {
+					return fmt.Errorf("%w: %w: superseded payload hash mismatch", ErrInvalidRevision, ErrInvalidObservation)
+				}
 			}
-			if prior.Origin != observation.Origin || prior.SubjectIdentity() != observation.SubjectIdentity() ||
-				prior.Correlation.TenantID != observation.Correlation.TenantID ||
-				prior.Correlation.StoreID != observation.Correlation.StoreID {
-				return fmt.Errorf("%w: %w: supersession crosses subject or origin", ErrInvalidRevision, ErrInvalidObservation)
+			if !sameSupersessionScope(prior, observation) {
+				return fmt.Errorf("%w: %w: supersession crosses source or charge scope", ErrInvalidRevision, ErrInvalidObservation)
 			}
 			edges[from] = append(edges[from], to)
 		}
@@ -1276,4 +1346,82 @@ func ValidateSupersessionGraph(observations []Observation) error {
 		}
 	}
 	return nil
+}
+
+// supersessionScope is the complete trusted source and charge identity used
+// when a resolved correction/replacement points at a predecessor. It is built
+// from effective values because older records may carry lineage in Subject
+// while newer records carry the same lineage in Correlation.
+type supersessionScope struct {
+	storeID            string
+	tenantID           string
+	requestID          string
+	callID             string
+	billingCallID      string
+	aLegID             string
+	bLegID             string
+	attemptID          string
+	attemptSeq         uint64
+	submissionID       string
+	providerAccountKey string
+	providerRequestID  string
+	providerChargeID   string
+	parentWorkID       string
+	resourceID         string
+	periodID           string
+	origin             string
+	acquisition        string
+	perspective        EconomicPerspective
+	boundary           Boundary
+	lifecycle          LifecycleScope
+	subject            string
+	streamID           string
+}
+
+func sameSupersessionScope(left, right Observation) bool {
+	return supersessionScopeFor(left) == supersessionScopeFor(right)
+}
+
+func supersessionScopeFor(observation Observation) supersessionScope {
+	lineage := observation.effectiveLineage()
+	subject := lineage.Subject
+	return supersessionScope{
+		storeID:            subject.StoreID,
+		tenantID:           subject.TenantID,
+		requestID:          subject.RequestID,
+		callID:             subject.CallID,
+		billingCallID:      subject.BillingCallID,
+		aLegID:             subject.ALegID,
+		bLegID:             subject.BLegID,
+		attemptID:          subject.AttemptID,
+		attemptSeq:         subject.AttemptSeq,
+		submissionID:       subject.SubmissionID,
+		providerAccountKey: subject.ProviderAccountKey,
+		providerRequestID:  subject.ProviderRequestID,
+		providerChargeID:   subject.ProviderChargeID,
+		parentWorkID:       lineage.ParentWorkID,
+		resourceID:         subject.ResourceID,
+		periodID:           subject.PeriodID,
+		origin:             observation.Origin,
+		acquisition:        observation.Acquisition,
+		perspective:        observation.Perspective,
+		boundary:           observation.Boundary,
+		lifecycle:          observation.Lifecycle,
+		subject:            lineage.identity(),
+		streamID:           observation.StreamID,
+	}
+}
+
+func firstNonEmpty(primary, fallback string) string {
+	if primary != "" {
+		return primary
+	}
+	return fallback
+}
+
+func firstNonZero(primary, fallback uint64) uint64 {
+	if primary != 0 {
+		return primary
+	}
+	return fallback
 }

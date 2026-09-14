@@ -147,13 +147,15 @@ func validateCallLegObservations(leg CallLegUsageRecord) error {
 	return nil
 }
 
-// evidenceReplayFingerprint excludes receipt time, which is transport/store
-// metadata rather than source payload. It intentionally retains every other
-// canonical field so changed values under one source identity are conflicts.
+// evidenceReplayFingerprint delegates to the SDK replay preimage. That
+// preimage excludes receipt metadata and normalizes the approved Subject /
+// Correlation carrier placement while retaining every other source field.
 func evidenceReplayFingerprint(observation metering.Observation) string {
-	copy := observation.Clone()
-	copy.ReceivedAt = copy.ObservedAt
-	return copy.Fingerprint()
+	hash, err := observation.ReplayFingerprint()
+	if err != nil {
+		return ""
+	}
+	return hash
 }
 
 // ObservationEvidenceHash returns the replay-stable source hash used by the

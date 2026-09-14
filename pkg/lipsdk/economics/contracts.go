@@ -23,7 +23,8 @@ const (
 
 // Rater evaluates one explicit economic plane against an immutable input set.
 // Implementations may be supplied by an application or enterprise module; the
-// contract contains no provider SDK or persistence dependency.
+// contract contains no provider SDK or persistence dependency. Runtime stream
+// handlers do not invoke this post-usage seam.
 type Rater interface {
 	Rate(ctx context.Context, in RatingInput) (Valuation, error)
 }
@@ -54,6 +55,7 @@ type RatingInput struct {
 	Basis                ValuationBasis               `json:"basis"`
 	Subject              metering.SubjectRef          `json:"subject"`
 	Scope                string                       `json:"scope,omitempty"`
+	Payer                metering.PaymentParty        `json:"payer,omitzero"`
 	Observations         []metering.Observation       `json:"observations,omitempty"`
 	ObservationRefs      []metering.ObservationRef    `json:"observation_refs,omitempty"`
 	EffectiveQualifiers  []metering.Dimension         `json:"effective_qualifiers,omitempty"`
@@ -68,6 +70,13 @@ type RatingInput struct {
 	AsOf                 time.Time                    `json:"as_of,omitzero"`
 }
 
+// PostUsageRatingInput is the billing-owned spelling of the existing
+// provider-neutral rating input. Keeping this alias distinct at integration
+// boundaries prevents internal post-usage code from being mistaken for the
+// deleted stream-time customer-rating bridge while preserving wire and type
+// compatibility for callers that already construct RatingInput values.
+type PostUsageRatingInput = RatingInput
+
 func (in RatingInput) Validate() error {
 	if in.Version == 0 {
 		return fmt.Errorf("%w: version required", ErrInvalidRating)
@@ -80,6 +89,9 @@ func (in RatingInput) Validate() error {
 	}
 	if err := in.Subject.Validate(); err != nil {
 		return fmt.Errorf("%w: subject: %v", ErrInvalidRating, err)
+	}
+	if err := in.Payer.Validate(); err != nil {
+		return fmt.Errorf("%w: payer: %v", ErrInvalidRating, err)
 	}
 	if in.Scope != "" {
 		if err := validatePublicRef("rating scope", in.Scope); err != nil {

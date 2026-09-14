@@ -10,6 +10,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 var (
@@ -33,6 +35,7 @@ type routeKey struct {
 type SnapshotCatalog struct {
 	mu               sync.RWMutex
 	pricing          map[versionKey]billing.PricingSnapshot
+	tariffs          map[versionKey]economics.TariffSnapshot
 	policies         map[versionKey]billing.ChargePolicy
 	operatorRates    map[versionKey]billing.OperatorRateSnapshot
 	defaultPricing   versionKey
@@ -42,9 +45,12 @@ type SnapshotCatalog struct {
 	operatorBindings map[routeKey]versionKey
 }
 
+var _ economics.RatingSnapshotSource = (*SnapshotCatalog)(nil)
+
 func NewSnapshotCatalog() *SnapshotCatalog {
 	return &SnapshotCatalog{
 		pricing:          make(map[versionKey]billing.PricingSnapshot),
+		tariffs:          make(map[versionKey]economics.TariffSnapshot),
 		policies:         make(map[versionKey]billing.ChargePolicy),
 		operatorRates:    make(map[versionKey]billing.OperatorRateSnapshot),
 		routePricing:     make(map[routeKey]versionKey),
@@ -59,17 +65,59 @@ func (c *SnapshotCatalog) PutPricing(snapshot billing.PricingSnapshot) error {
 	if err := snapshot.Validate(snapshot.Currency); err != nil {
 		return fmt.Errorf("billingcompose: pricing snapshot: %w", err)
 	}
+	tariff, err := billing.PricingSnapshotToTariff(snapshot)
+	if err != nil {
+		return fmt.Errorf("billingcompose: legacy tariff snapshot: %w", err)
+	}
 	key := keyOf(snapshot.Ref)
 	cloned := clonePricing(snapshot)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if existingTariff, tariffOK := c.tariffs[key]; tariffOK &&
+		(existingTariff.ContentHash() != tariff.ContentHash() || existingTariff.Ref.RaterID != tariff.Ref.RaterID) {
+		return ErrSnapshotImmutable
+	}
 	if existing, ok := c.pricing[key]; ok {
 		if pricingReplayEqual(existing, cloned) {
+			if existingTariff, tariffOK := c.tariffs[key]; tariffOK && existingTariff.ContentHash() != tariff.ContentHash() {
+				return ErrSnapshotImmutable
+			}
 			return nil
 		}
 		return ErrSnapshotImmutable
 	}
 	c.pricing[key] = cloned
+	c.tariffs[key] = tariff
+	return nil
+}
+
+// PutTariff publishes a generic immutable tariff alongside the legacy scalar
+// catalog. The identity is the VersionRef portion of the rating snapshot;
+// content and rater identity remain part of the immutable body.
+func (c *SnapshotCatalog) PutTariff(snapshot economics.TariffSnapshot) error {
+	if c == nil {
+		return errNilSnapshotCatalog
+	}
+	canonical, err := snapshot.Canonical()
+	if err != nil {
+		return fmt.Errorf("billingcompose: tariff snapshot: %w", err)
+	}
+	// Publish only a rule set the billing reference evaluator can select
+	// deterministically. The catalog remains an input adapter; validation is
+	// delegated to the billing domain rather than duplicated in infrastructure.
+	if _, err := billing.NewReferenceRater(canonical); err != nil {
+		return fmt.Errorf("billingcompose: tariff rules: %w", err)
+	}
+	key := keyOfEconomicsRatingRef(canonical.Ref)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if existing, ok := c.tariffs[key]; ok {
+		if existing.ContentHash() == canonical.ContentHash() && existing.Ref.RaterID == canonical.Ref.RaterID {
+			return nil
+		}
+		return ErrSnapshotImmutable
+	}
+	c.tariffs[key] = canonical.Clone()
 	return nil
 }
 
@@ -201,6 +249,11 @@ type CustomerRatingSnapshots struct {
 	DefaultPricing billing.PricingSnapshot
 	Policy         billing.ChargePolicy
 	ModelPricing   []billing.ModelCustomerPricing
+	// DefaultTariff and ModelTariffs are the frozen component-rating material
+	// corresponding to the scalar cards above. They are additive so existing
+	// scalar callers continue to resolve exactly as before.
+	DefaultTariff economics.TariffSnapshot
+	ModelTariffs  []billing.ModelCustomerTariff
 }
 
 // CustomerRatingSnapshots resolves customer pricing/policy/model cards only.
@@ -231,10 +284,127 @@ func (c *SnapshotCatalog) CustomerRatingSnapshots(call billing.CallUsageRecord, 
 	if err != nil {
 		return CustomerRatingSnapshots{}, err
 	}
+	tariff, ok := c.tariffs[keyOf(call.CustomerPricingRef)]
+	if !ok {
+		return CustomerRatingSnapshots{}, lookupMiss("customer tariff")
+	}
+	modelTariffs, err := c.modelTariffsForLegs(legs, pricing)
+	if err != nil {
+		return CustomerRatingSnapshots{}, err
+	}
 	return CustomerRatingSnapshots{
 		DefaultPricing: clonePricing(pricing),
 		Policy:         policy,
 		ModelPricing:   modelPricing,
+		DefaultTariff:  tariff.Clone(),
+		ModelTariffs:   modelTariffs,
+	}, nil
+}
+
+// Tariff resolves immutable generic material by its stable ID/version. The
+// returned body is a deep copy; callers cannot mutate replay behavior.
+func (c *SnapshotCatalog) Tariff(ref billing.VersionRef) (economics.TariffSnapshot, error) {
+	if c == nil {
+		return economics.TariffSnapshot{}, errNilSnapshotCatalog
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	tariff, ok := c.tariffs[keyOf(ref)]
+	if !ok {
+		return economics.TariffSnapshot{}, lookupMiss("tariff")
+	}
+	return tariff.Clone(), nil
+}
+
+// ResolveTariff is the context-aware catalog port used by post-usage workers.
+// Context cancellation is checked before resolving immutable local material.
+func (c *SnapshotCatalog) ResolveTariff(ctx context.Context, ref billing.VersionRef) (economics.TariffSnapshot, error) {
+	if err := catalogCtxErr(ctx, c); err != nil {
+		return economics.TariffSnapshot{}, err
+	}
+	return c.Tariff(ref)
+}
+
+// RouteTariff resolves the generic tariff bound to a route, or the configured
+// default when no route override exists.
+func (c *SnapshotCatalog) RouteTariff(ctx context.Context, backend, model string) (economics.TariffSnapshot, error) {
+	if err := catalogCtxErr(ctx, c); err != nil {
+		return economics.TariffSnapshot{}, err
+	}
+	rk, err := parseRoute(backend, model)
+	if err != nil {
+		return economics.TariffSnapshot{}, err
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.hasDefaults {
+		return economics.TariffSnapshot{}, errCatalogDefaultsMissing
+	}
+	key := c.defaultPricing
+	if override, found := c.routePricing[rk]; found {
+		key = override
+	}
+	tariff, found := c.tariffs[key]
+	if !found {
+		return economics.TariffSnapshot{}, lookupMiss("route tariff")
+	}
+	return tariff.Clone(), nil
+}
+
+// DefaultTariff resolves the configured default component tariff. It is used
+// for direct provider-reported P valuations, whose amount does not depend on
+// local tariff arithmetic but still needs a stable evaluator instance.
+func (c *SnapshotCatalog) DefaultTariff(ctx context.Context) (economics.TariffSnapshot, error) {
+	if err := catalogCtxErr(ctx, c); err != nil {
+		return economics.TariffSnapshot{}, err
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.hasDefaults {
+		return economics.TariffSnapshot{}, errCatalogDefaultsMissing
+	}
+	tariff, ok := c.tariffs[c.defaultPricing]
+	if !ok {
+		return economics.TariffSnapshot{}, lookupMiss("customer tariff")
+	}
+	return tariff.Clone(), nil
+}
+
+// Snapshot implements the public rating source for the configured default
+// card. Refresh still belongs to the host snapshot controller; this method
+// only exposes a stable, content-addressable source view.
+func (c *SnapshotCatalog) Snapshot(ctx context.Context) (economics.Snapshot[economics.RatingCatalogView], error) {
+	if err := catalogCtxErr(ctx, c); err != nil {
+		return economics.Snapshot[economics.RatingCatalogView]{}, err
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.hasDefaults {
+		return economics.Snapshot[economics.RatingCatalogView]{State: economics.SnapshotUnavailable}, errCatalogDefaultsMissing
+	}
+	pricing, found := c.pricing[c.defaultPricing]
+	if !found {
+		return economics.Snapshot[economics.RatingCatalogView]{State: economics.SnapshotUnavailable}, lookupMiss("customer pricing")
+	}
+	tariff, found := c.tariffs[c.defaultPricing]
+	if !found {
+		return economics.Snapshot[economics.RatingCatalogView]{State: economics.SnapshotUnavailable}, lookupMiss("customer tariff")
+	}
+	tariff = tariff.Clone()
+	rules := make([]economics.RatingRule, len(tariff.Rules))
+	for i, rule := range tariff.Rules {
+		rules[i] = rule.Clone()
+	}
+	return economics.Snapshot[economics.RatingCatalogView]{
+		ID: tariff.Ref.ID, Version: tariff.Ref.Version,
+		EffectiveAt: tariff.Ref.EffectiveAt, FetchedAt: tariff.Ref.FetchedAt,
+		State: economics.SnapshotReady,
+		Value: economics.RatingCatalogView{
+			Currency: pricing.Currency, CatalogVersion: tariff.CatalogVersion,
+			Rules:               rules,
+			EffectiveQualifiers: append([]metering.Dimension(nil), tariff.EffectiveQualifiers...),
+			LegacySemantics:     tariff.LegacySemantics,
+		},
 	}, nil
 }
 
@@ -378,6 +548,42 @@ func (c *SnapshotCatalog) modelPricingForLegs(legs []billing.CallLegUsageRecord,
 	return cards, nil
 }
 
+func (c *SnapshotCatalog) modelTariffsForLegs(legs []billing.CallLegUsageRecord, customer billing.PricingSnapshot) ([]billing.ModelCustomerTariff, error) {
+	anyOverride := false
+	for _, leg := range legs {
+		if _, found := c.routePricing[routeOf(leg.BackendID, leg.ModelID)]; found {
+			anyOverride = true
+			break
+		}
+	}
+	if !anyOverride {
+		return nil, nil
+	}
+	defaultTariff, found := c.tariffs[keyOf(customer.Ref)]
+	if !found {
+		return nil, lookupMiss("customer tariff")
+	}
+	cards := make([]billing.ModelCustomerTariff, 0, len(legs))
+	seenRoutes := make(map[routeKey]struct{})
+	for _, leg := range legs {
+		rk := routeOf(leg.BackendID, leg.ModelID)
+		if _, seen := seenRoutes[rk]; seen {
+			continue
+		}
+		seenRoutes[rk] = struct{}{}
+		tariff := defaultTariff
+		if overrideKey, overridden := c.routePricing[rk]; overridden {
+			var ok bool
+			tariff, ok = c.tariffs[overrideKey]
+			if !ok {
+				return nil, lookupMiss("route tariff")
+			}
+		}
+		cards = append(cards, billing.ModelCustomerTariff{BackendID: rk.backend, ModelID: rk.model, Tariff: tariff.Clone()})
+	}
+	return cards, nil
+}
+
 func catalogCtxErr(ctx context.Context, c *SnapshotCatalog) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -399,6 +605,10 @@ func lookupMiss(kind string) error {
 }
 
 func keyOf(ref billing.VersionRef) versionKey {
+	return versionKey{id: strings.TrimSpace(ref.ID), version: strings.TrimSpace(ref.Version)}
+}
+
+func keyOfEconomicsRatingRef(ref economics.RatingSnapshotRef) versionKey {
 	return versionKey{id: strings.TrimSpace(ref.ID), version: strings.TrimSpace(ref.Version)}
 }
 

@@ -1,12 +1,12 @@
 package billing
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/aggregate"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
@@ -83,15 +83,6 @@ func AttributeOperatorCOGS(legs []CallLegUsageRecord, rates OperatorRateSet, cur
 		allObservations = append(allObservations, leg.V2Observations()...)
 	}
 	if len(allObservations) != 0 {
-		// The SDK owns graph semantics. Billing only interprets the validated
-		// result for operator attribution and does not duplicate a graph engine.
-		if err := metering.ValidateCoverageGraph(allObservations); err != nil {
-			return OperatorCOGSResult{Completeness: CostCompletenessPartial, Payable: false}, err
-		}
-		if err := metering.ValidateSupersessionGraph(allObservations); err != nil {
-			return OperatorCOGSResult{Completeness: CostCompletenessPartial, Payable: false}, err
-		}
-		markPendingSupersessionRefs(&result, allObservations)
 		if err := attributeV2Charges(&result, allObservations); err != nil {
 			return OperatorCOGSResult{Completeness: CostCompletenessPartial, Payable: false}, err
 		}
@@ -166,39 +157,6 @@ func AttributeOperatorCOGS(legs []CallLegUsageRecord, rates OperatorRateSet, cur
 	return result, nil
 }
 
-// markPendingSupersessionRefs closes the SDK validator's intentional late-
-// evidence allowance for this call-local attribution result. A correction
-// that names an observation outside the current immutable batch cannot be
-// treated as a settled charge until its prior revision is available; keeping
-// the owning B-leg unknown preserves that distinction without inventing a
-// zero or resolving across stores.
-func markPendingSupersessionRefs(result *OperatorCOGSResult, observations []metering.Observation) {
-	if result == nil || len(observations) == 0 {
-		return
-	}
-	type observationKey struct {
-		storeID  string
-		id       string
-		revision uint64
-	}
-	known := make(map[observationKey]struct{}, len(observations))
-	for _, observation := range observations {
-		known[observationKey{storeID: observation.Subject.StoreID, id: observation.ID, revision: observation.Revision}] = struct{}{}
-	}
-	for _, observation := range observations {
-		for _, ref := range observation.Supersedes {
-			if _, ok := known[observationKey{storeID: ref.StoreID, id: ref.ObservationID, revision: ref.Revision}]; ok {
-				continue
-			}
-			identity := observation.Correlation.BillingCallID + ":" + observation.Subject.BLegID
-			if strings.TrimSpace(observation.Correlation.BillingCallID) == "" {
-				identity = observation.Subject.BLegID
-			}
-			markCostPartial(result, identity)
-		}
-	}
-}
-
 // AttributeOperatorCost is a descriptive compatibility alias for callers
 // that use the existing provider-cost vocabulary.
 func AttributeOperatorCost(legs []CallLegUsageRecord, rates OperatorRateSet, currency string) (OperatorCOGSResult, error) {
@@ -214,76 +172,136 @@ func hasV2Charge(leg CallLegUsageRecord) bool {
 	return false
 }
 
-type operatorChargeKey struct {
-	storeID       string
-	observationID string
-	revision      uint64
-	itemID        string
+func markSnapshotIncomplete(result *OperatorCOGSResult, snapshot aggregate.SnapshotV2) {
+	for _, observation := range snapshot.Observations {
+		for _, unavailableID := range snapshot.Unavailable {
+			if observation.ID == unavailableID {
+				markObservationPartial(result, observationLegKey(observation))
+			}
+		}
+	}
+	for _, reduced := range snapshot.Charges {
+		if reduced.Complete {
+			continue
+		}
+		for _, observation := range snapshot.Observations {
+			if observation.ID == reduced.ObservationID && observation.Revision == reduced.Revision {
+				markObservationPartial(result, observationLegKey(observation))
+				break
+			}
+		}
+	}
+	for _, predecessor := range snapshot.UnusablePredecessors {
+		for _, observation := range snapshot.Observations {
+			for _, ref := range observation.Supersedes {
+				if ref == predecessor {
+					markObservationPartial(result, observationLegKey(observation))
+				}
+			}
+		}
+	}
+	for _, pending := range snapshot.PendingSupersedes {
+		for _, observation := range snapshot.Observations {
+			for _, ref := range observation.Supersedes {
+				if ref != pending {
+					continue
+				}
+				markObservationPartial(result, observationLegKey(observation))
+				break
+			}
+		}
+	}
+	for _, pending := range snapshot.PendingCoverage {
+		for _, observation := range snapshot.Observations {
+			for _, charge := range observation.Charges {
+				for _, coverage := range charge.Covers {
+					if coverage.Ref == pending.Ref && coverage.Relation == pending.Relation {
+						markObservationPartial(result, observationLegKey(observation))
+					}
+				}
+			}
+		}
+	}
 }
 
-func chargeKey(observation metering.Observation, charge metering.ReportedCharge) operatorChargeKey {
-	return operatorChargeKey{storeID: observation.Subject.StoreID, observationID: observation.ID, revision: observation.Revision, itemID: charge.ChargeItemID}
+func observationLegKey(observation metering.Observation) string {
+	callID := strings.TrimSpace(observation.Correlation.BillingCallID)
+	if callID == "" {
+		callID = strings.TrimSpace(observation.Subject.BillingCallID)
+	}
+	if callID == "" {
+		callID = strings.TrimSpace(observation.Correlation.CallID)
+	}
+	if callID == "" {
+		callID = strings.TrimSpace(observation.Subject.CallID)
+	}
+	bLegID := strings.TrimSpace(observation.Correlation.BLegID)
+	if bLegID == "" {
+		bLegID = strings.TrimSpace(observation.Subject.BLegID)
+	}
+	if callID == "" {
+		return bLegID
+	}
+	if bLegID == "" {
+		return callID
+	}
+	return callID + ":" + bLegID
 }
 
 func attributeV2Charges(result *OperatorCOGSResult, observations []metering.Observation) error {
-	// Keep effective charge selection aligned with the Phase 3 reducer. The
-	// immutable observations remain on the sealed leg, while a correction or
-	// replacement can replace one effective charge item without double-counting
-	// its superseded predecessor here. Graph validation remains owned by the
-	// SDK immediately before this attribution pass.
-	reducedCharges := reduceEffectiveV2Charges(observations)
-	known := make(map[operatorChargeKey]reducedV2Charge, len(reducedCharges))
-	for _, reduced := range reducedCharges {
-		known[chargeKey(reduced.observation, reduced.charge)] = reduced
+	// The reducer first derives the effective revision state and its coverage
+	// diagnostics. Build the strict coverage graph only from that projected
+	// state so superseded historical edges remain audit-only.
+	snapshot, err := aggregate.ApplyObservations(observations)
+	if err != nil {
+		return err
 	}
-	inclusiveCovered := make(map[operatorChargeKey]struct{})
-	for _, observation := range observations {
-		for _, charge := range observation.Charges {
-			for _, coverage := range charge.Covers {
-				child := operatorChargeKey{
-					storeID: coverage.Ref.StoreID, observationID: coverage.Ref.ObservationID,
-					revision: coverage.Ref.Revision, itemID: coverage.Ref.ChargeItemID,
-				}
-				if _, exists := known[child]; !exists {
-					appendUniquePendingCoverage(&result.PendingCoverage, coverage)
-					continue
-				}
-				if coverage.Relation == metering.CoverageInclusive {
-					inclusiveCovered[child] = struct{}{}
-				}
+	for _, coverage := range snapshot.PendingCoverage {
+		result.PendingCoverage = appendUniquePendingCoverage(result.PendingCoverage, coverage)
+	}
+	markSnapshotIncomplete(result, snapshot)
+
+	effective := aggregate.EffectiveChargeObservationsForCOGS(snapshot)
+	if len(effective) == 0 {
+		return nil
+	}
+	nodes, _, err := validateChargeCoverageGraph(effective)
+	if err != nil {
+		// Preserve both the billing classification and the canonical metering
+		// sentinel for callers that consume this COGS boundary directly.
+		return fmt.Errorf("%w: %w: %v", metering.ErrInvalidCoverage, err, err)
+	}
+	inclusiveCovered := make(map[string]struct{})
+	for _, node := range nodes {
+		for _, edge := range node.charge.Covers {
+			if edge.Relation == metering.CoverageInclusive {
+				inclusiveCovered[chargeRefKey(edge.Ref)] = struct{}{}
 			}
 		}
 	}
-	if len(result.PendingCoverage) != 0 {
-		result.Completeness = CostCompletenessPartial
-		result.Payable = false
+	keys := make([]string, 0, len(nodes))
+	for key := range nodes {
+		keys = append(keys, key)
 	}
-	for _, observation := range observations {
-		if observation.Authority == metering.AuthorityUnavailableClaim {
-			markObservationPartial(result, observation.ID)
-		}
-	}
-	for key, reduced := range known {
-		observation, charge := reduced.observation, reduced.charge
+	sort.Strings(keys)
+	for _, key := range keys {
 		if _, covered := inclusiveCovered[key]; covered {
 			continue
 		}
-		legKey := observation.Correlation.BillingCallID + ":" + observation.Subject.BLegID
-		if strings.TrimSpace(observation.Correlation.BillingCallID) == "" {
-			legKey = observation.Subject.BLegID
-		}
-		switch charge.Payer.Kind {
+		node := nodes[key]
+		legKey := observationLegKey(node.observation)
+		switch node.charge.Payer.Kind {
 		case metering.PaymentPartyOperator:
-			if charge.Amount == nil {
+			if node.charge.Amount == nil {
 				markCostPartial(result, legKey)
 				continue
 			}
-			amount, err := charge.Amount.ToNanoUnits()
+			amount, err := node.charge.Amount.ToNanoUnits()
 			if err != nil {
 				markCostPartial(result, legKey)
 				continue
 			}
-			if err := addOperatorSubtotal(result, Money{Nano: amount, Currency: charge.Currency}); err != nil {
+			if err := addOperatorSubtotal(result, Money{Nano: amount, Currency: node.charge.Currency}); err != nil {
 				return err
 			}
 			appendUniqueString(&result.IncludedLegKeys, legKey)
@@ -298,124 +316,13 @@ func attributeV2Charges(result *OperatorCOGSResult, observations []metering.Obse
 	return nil
 }
 
-type reducedV2Charge struct {
-	observation metering.Observation
-	charge      metering.ReportedCharge
-}
-
-// reduceEffectiveV2Charges mirrors only the Phase 3 reducer's effective
-// reported-charge rule. It is deliberately not a second graph validator: the
-// SDK validators above remain the authority for graph shape and references.
-func reduceEffectiveV2Charges(observations []metering.Observation) []reducedV2Charge {
-	ordered := append([]metering.Observation(nil), observations...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].Sequence != ordered[j].Sequence {
-			return ordered[i].Sequence < ordered[j].Sequence
-		}
-		if ordered[i].Revision != ordered[j].Revision {
-			return ordered[i].Revision < ordered[j].Revision
-		}
-		if ordered[i].SourceEventKey != ordered[j].SourceEventKey {
-			return ordered[i].SourceEventKey < ordered[j].SourceEventKey
-		}
-		return ordered[i].ID < ordered[j].ID
-	})
-	type entry struct {
-		scope       string
-		observation metering.Observation
-		charge      metering.ReportedCharge
-	}
-	entries := make(map[string]entry)
-	for _, observation := range ordered {
-		scope := v2ChargeScopeKey(observation)
-		for _, charge := range observation.Charges {
-			if (observation.Semantics == metering.SemanticsCorrection || observation.Semantics == metering.SemanticsReplacement) && !v2ChargeIsAdjustment(observation, charge) {
-				for key, prior := range entries {
-					if prior.scope != scope || prior.charge.ChargeItemID != charge.ChargeItemID {
-						continue
-					}
-					if v2SupersedesObservation(observation.Supersedes, prior.observation) {
-						delete(entries, key)
-					}
-				}
-			}
-			key := strings.Join([]string{scope, observation.ID, fmt.Sprint(observation.Revision), charge.ChargeItemID}, "\x00")
-			entries[key] = entry{scope: scope, observation: observation, charge: charge.Clone()}
+func appendUniquePendingCoverage(pending []metering.ChargeCoverageRef, coverage metering.ChargeCoverageRef) []metering.ChargeCoverageRef {
+	for _, prior := range pending {
+		if prior.Ref == coverage.Ref && prior.Relation == coverage.Relation {
+			return pending
 		}
 	}
-	keys := make([]string, 0, len(entries))
-	for key := range entries {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	out := make([]reducedV2Charge, 0, len(keys))
-	for _, key := range keys {
-		item := entries[key]
-		out = append(out, reducedV2Charge{observation: item.observation, charge: item.charge})
-	}
-	return out
-}
-
-func v2ChargeIsAdjustment(observation metering.Observation, charge metering.ReportedCharge) bool {
-	if observation.Semantics != metering.SemanticsCorrection {
-		return charge.Kind == metering.ChargeKindAdjustment || charge.Kind == metering.ChargeKindCredit
-	}
-	if charge.Kind == metering.ChargeKindAdjustment || charge.Kind == metering.ChargeKindCredit || observation.MappingRef == metering.LegacyV1MappingRef {
-		return true
-	}
-	if charge.Amount == nil {
-		return false
-	}
-	value, err := charge.Amount.Normalize()
-	return err == nil && strings.HasPrefix(value.Coefficient, "-")
-}
-
-func v2SupersedesObservation(refs []metering.ObservationRef, prior metering.Observation) bool {
-	for _, ref := range refs {
-		if ref.StoreID == prior.Subject.StoreID && ref.ObservationID == prior.ID && ref.Revision == prior.Revision {
-			return true
-		}
-	}
-	return false
-}
-
-func v2ChargeScopeKey(observation metering.Observation) string {
-	account := strings.TrimSpace(observation.Correlation.ProviderAccountKey)
-	if account == "" {
-		account = strings.TrimSpace(observation.Subject.ProviderAccountKey)
-	}
-	chargeScope := strings.TrimSpace(observation.Correlation.ProviderChargeID)
-	if chargeScope == "" {
-		chargeScope = strings.TrimSpace(observation.Subject.ProviderChargeID)
-	}
-	if chargeScope == "" && len(observation.Charges) == 1 {
-		chargeScope = strings.TrimSpace(observation.Charges[0].ChargeItemID)
-	}
-	subject, _ := json.Marshal(observation.Subject)
-	var c canonicalWriter
-	for _, value := range []string{
-		observation.Correlation.StoreID, observation.Correlation.TenantID, account,
-		observation.Origin, observation.Acquisition, string(observation.Perspective),
-		string(observation.Boundary), string(observation.Lifecycle), string(subject),
-		observation.StreamID, chargeScope,
-	} {
-		c.string(value)
-	}
-	return string(c.bytes())
-}
-
-func appendUniquePendingCoverage(pending *[]metering.ChargeCoverageRef, coverage metering.ChargeCoverageRef) {
-	if pending == nil {
-		return
-	}
-	for _, prior := range *pending {
-		if prior.Ref.StoreID == coverage.Ref.StoreID && prior.Ref.ObservationID == coverage.Ref.ObservationID &&
-			prior.Ref.Revision == coverage.Ref.Revision && prior.Ref.ChargeItemID == coverage.Ref.ChargeItemID &&
-			prior.Relation == coverage.Relation {
-			return
-		}
-	}
-	*pending = append(*pending, coverage)
+	return append(pending, coverage)
 }
 
 func appendUniqueString(values *[]string, value string) {

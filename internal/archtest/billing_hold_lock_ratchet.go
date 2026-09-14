@@ -37,7 +37,6 @@ func EvaluateBillingHoldAndStreamMoneyLock(root string) ([]RuleFinding, error) {
 		"internal/core/runtime:func:rateMonetaryExposure",
 		"pkg/lipsdk/economics:type:RatingRequest",
 		"pkg/lipsdk/economics:type:RatingResult",
-		"pkg/lipsdk/economics:type:Rater",
 	} {
 		if _, ok := inventory[required]; !ok {
 			out = append(out, billingCorrectnessRuleFinding(

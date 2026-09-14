@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 var (
@@ -64,6 +66,15 @@ type ModelCustomerPricing struct {
 	BackendID string
 	ModelID   string
 	Pricing   PricingSnapshot
+}
+
+// ModelCustomerTariff carries the immutable component tariff selected for a
+// backend/model route. It is separate from the legacy scalar pricing card so
+// callers cannot accidentally substitute one valuation basis for another.
+type ModelCustomerTariff struct {
+	BackendID string
+	ModelID   string
+	Tariff    economics.TariffSnapshot
 }
 type OperatorCostResult struct {
 	LURKey             string
