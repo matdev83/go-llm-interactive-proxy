@@ -33,9 +33,17 @@ run_module() {
   [[ -f "$dir/go.mod" ]] || return 0
   echo "== $module =="
   (
+    # This subshell runs inside a fresh `bash -c`, which does not inherit the
+    # parent script's errexit. Re-enable it here so a failing tidy, test, or
+    # command build is not absorbed by the trailing `if [[ -d cmd ]]`.
+    set -euo pipefail
     cd "$dir"
     GOWORK=off go mod tidy -diff
-    GOWORK=off go test ./...
+    # Bound each module's suite explicitly. The Go default is ten minutes, so a
+    # single module that blocks in teardown used to hold the job for the full
+    # default before reporting. Module suites here run in seconds; three minutes
+    # keeps a stuck module from dominating the job.
+    GOWORK=off go test -timeout=3m ./...
     if [[ -d cmd ]]; then
       for command_dir in cmd/*/; do
         [[ -d "$command_dir" ]] || continue
