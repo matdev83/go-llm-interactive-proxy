@@ -34,9 +34,82 @@ type Session struct {
 	instanceID string
 
 	negotiation backendplugin.Negotiation
+	// execMu serializes Execute calls on one session: a pooled session is
+	// shared across retained old-generation and new-generation execution, so
+	// a second Execute must not enter while the first is held. It is held
+	// across the RPC, but Close never takes it: Close waits for the active
+	// stream to drain while observing its own context, so a held Execute can
+	// no longer wedge Close past the caller's deadline.
+	execMu sync.Mutex
+	// lifecycleMu is intentionally short-lived: it only guards the lifecycle
+	// registration below, never an in-flight RPC.
 	lifecycleMu sync.Mutex
+	lifecycle   *sessionLifecycle
 	closeMu     sync.Mutex
 	closed      bool
+	connClosed  bool
+}
+
+// sessionLifecycle tracks in-flight Execute calls so Close can wait for the
+// active stream to drain without holding a mutex across the RPC. A Close whose
+// context expires first cancels the in-flight executes and tears down the
+// transport instead of waiting forever; the plugin instance itself is left to
+// a retrying Close because the server side keeps CloseInstance retryable.
+type sessionLifecycle struct {
+	changed   chan struct{}
+	inflight  int
+	cancels   map[*context.CancelFunc]struct{}
+	cancelled bool
+}
+
+func newSessionLifecycle() *sessionLifecycle {
+	return &sessionLifecycle{changed: make(chan struct{}), cancels: make(map[*context.CancelFunc]struct{})}
+}
+
+// ensureLifecycle initializes the execute registry for sessions built outside
+// the constructors. Both constructors initialize it eagerly; this only covers
+// direct struct literals.
+func (s *Session) ensureLifecycle() {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.lifecycle == nil {
+		s.lifecycle = newSessionLifecycle()
+	}
+}
+
+// awaitDrain blocks until no Execute is in flight, the context expires, or the
+// stream's own world ends. It never holds the session mutex while waiting.
+func (s *Session) awaitDrain(ctx context.Context) error {
+	for {
+		s.lifecycleMu.Lock()
+		empty := s.lifecycle.inflight == 0
+		changed := s.lifecycle.changed
+		s.lifecycleMu.Unlock()
+		if empty {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
+// cancelInflight cancels every registered in-flight Execute so a Close whose
+// context expired can still release the transport. Later Close calls observe
+// the cancelled executes draining and may proceed to CloseInstance.
+func (s *Session) cancelInflight() {
+	s.ensureLifecycle()
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.lifecycle.cancelled {
+		return
+	}
+	s.lifecycle.cancelled = true
+	for cancel := range s.lifecycle.cancels {
+		(*cancel)()
+	}
 }
 
 // NewSession binds an already-created gRPC client to a host session. It is
@@ -46,6 +119,7 @@ func NewSessionForTesting(client backendpluginv1.BackendPluginClient, conn *grpc
 	return &Session{
 		client: client, conn: conn, instanceID: instanceID,
 		negotiation: negotiation,
+		lifecycle:   newSessionLifecycle(),
 	}
 }
 
@@ -127,7 +201,7 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 	}
 	negotiatedEnabled := append([]string(nil), negotiated.EnabledFeatures...)
 	slices.Sort(negotiatedEnabled)
-	s := &Session{client: client, conn: gc, instanceID: instanceID, negotiation: backendplugin.Negotiation{
+	s := &Session{client: client, conn: gc, instanceID: instanceID, lifecycle: newSessionLifecycle(), negotiation: backendplugin.Negotiation{
 		Compatible: negotiated.Compatible, NegotiatedMinor: negotiated.NegotiatedMinor,
 		EnabledFeatures: negotiatedEnabled, PluginMajor: negotiated.PluginMajor,
 		PluginMinor: negotiated.PluginMinor, PluginFeatures: negotiated.PluginFeatures, TransportPolicy: negotiated.TransportPolicy,
@@ -165,13 +239,14 @@ func (s *Session) ListModels(ctx context.Context, maxModels uint32) (backendplug
 }
 
 // Execute forwards the public DTO stream through the gRPC host session.
+//
+// Executes serialize on one session and with Close through the session
+// lifecycle: Close waits for the active stream to drain before tearing down
+// the transport, and each Execute registers a cancellation that a
+// deadline-bound Close can trigger. The lifecycle mutex is only held for
+// registration, never across the RPC; the execMu serialization below is what
+// Close deliberately does not take.
 func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
-	// Serialize lifecycle operations so Close cannot tear down the transport
-	// underneath an active execute RPC. The optional stream closer still handles
-	// input-pump cleanup when Execute itself is ending.
-	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
-
 	s.closeMu.Lock()
 	closed := s.closed
 	s.closeMu.Unlock()
@@ -179,8 +254,30 @@ func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
 		return fmt.Errorf("host: session is closed")
 	}
 
+	s.execMu.Lock()
+	defer s.execMu.Unlock()
+
+	s.ensureLifecycle()
 	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
+	s.lifecycleMu.Lock()
+	if s.lifecycle.cancelled {
+		s.lifecycleMu.Unlock()
+		cancel()
+		return fmt.Errorf("host: session is closed")
+	}
+	s.lifecycle.inflight++
+	s.lifecycle.cancels[&cancel] = struct{}{}
+	s.lifecycleMu.Unlock()
+	defer func() {
+		cancel()
+		s.lifecycleMu.Lock()
+		s.lifecycle.inflight--
+		delete(s.lifecycle.cancels, &cancel)
+		notify := s.lifecycle.changed
+		s.lifecycle.changed = make(chan struct{})
+		s.lifecycleMu.Unlock()
+		close(notify)
+	}()
 
 	var (
 		streamCloseOnce sync.Once
@@ -313,22 +410,48 @@ func (s *Session) Cancel(ctx context.Context, invocation backendplugin.Invocatio
 }
 
 func (s *Session) Close(ctx context.Context) error {
-	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
-
+	// Close serializes with active executes: it waits for the in-flight
+	// stream to drain before entering the configured instance, so the
+	// transport is never torn down underneath a running Execute. Unlike the
+	// previous mutex-held design, the wait observes the caller's context: a
+	// Close whose deadline expires first cancels the in-flight executes,
+	// releases the transport, and returns the context error without closing
+	// the plugin instance. The server keeps CloseInstance retryable, so a
+	// later Close can still complete the instance close.
 	s.closeMu.Lock()
-	defer s.closeMu.Unlock()
 	if s.closed {
+		s.closeMu.Unlock()
 		return nil
+	}
+	s.closeMu.Unlock()
+
+	s.ensureLifecycle()
+	if err := s.awaitDrain(ctx); err != nil {
+		s.cancelInflight()
+		s.closeTransport()
+		return err
 	}
 	if _, err := s.client.CloseInstance(ctx, &backendpluginv1.CloseInstanceRequest{InstanceId: s.instanceID}); err != nil {
 		return err
 	}
+	s.closeMu.Lock()
 	s.closed = true
-	if s.conn != nil {
-		_ = s.conn.Close()
-	}
+	s.closeMu.Unlock()
+	s.closeTransport()
 	return nil
+}
+
+// closeTransport releases the gRPC client connection exactly once. It is safe
+// to call while RPCs are in flight: they fail with cancellation errors that
+// the session error mapping already handles.
+func (s *Session) closeTransport() {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	if s.connClosed || s.conn == nil {
+		return
+	}
+	s.connClosed = true
+	_ = s.conn.Close()
 }
 
 // CountTokens forwards the optional token-counting operation.

@@ -26,7 +26,10 @@ type Config struct {
 	// StartHost mounts service behind the supported host adapter and returns the
 	// host-facing session used by every certification operation.
 	StartHost func(ctx context.Context, service backendplugin.Service) (HostSession, func(), error)
-	// Timeout specifies per-scenario execution timeout.
+	// Timeout bounds the whole certification run. Each scenario additionally
+	// receives its own deadline derived from this budget (or a default when
+	// the budget is unset), so one stuck scenario fails fast instead of
+	// wedging the corpus until the go test timeout fires.
 	Timeout time.Duration
 	// FactoryKind and ConfigYAML are passed through the real Configure boundary.
 	FactoryKind string
@@ -176,9 +179,22 @@ func Run(t *testing.T, cfg Config) CertificationResult {
 	if host == nil {
 		t.Fatalf("contracttest: StartHost returned nil host for plugin %q", cfg.PluginID)
 	}
+	result, err := certify(t, cfg, ctx, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+// certify runs the scenario corpus and teardown without test control flow of
+// its own: setup failures and the final artifact validation surface as errors
+// so tests can drive a stuck plugin and assert fail-fast behavior directly.
+func certify(t *testing.T, cfg Config, ctx context.Context, host HostSession) (CertificationResult, error) {
+	t.Helper()
+
 	neg := host.Negotiation()
 	if !neg.Compatible {
-		t.Fatalf("contracttest: host negotiation rejected plugin %q: %v", cfg.PluginID, neg)
+		return CertificationResult{}, fmt.Errorf("contracttest: host negotiation rejected plugin %q: %v", cfg.PluginID, neg)
 	}
 	result := CertificationResult{
 		PluginID: cfg.PluginID, Version: cfg.Version,
@@ -186,7 +202,7 @@ func Run(t *testing.T, cfg Config) CertificationResult {
 	}
 	profile, err := host.Resolve(ctx, nil)
 	if err != nil {
-		t.Fatalf("contracttest: Resolve failed: %v", err)
+		return CertificationResult{}, fmt.Errorf("contracttest: Resolve failed: %w", err)
 	}
 	result.Passed = append(result.Passed, "configure-resolve")
 	result.Capabilities = capabilityList(profile.Capabilities)
@@ -203,7 +219,8 @@ func Run(t *testing.T, cfg Config) CertificationResult {
 			result.ScenarioResults = append(result.ScenarioResults, r)
 			continue
 		}
-		ms := &memoryStream{ctx: ctx, inbox: []backendplugin.ClientFrame{{Kind: backendplugin.ClientFrameStart, InstanceID: "contract", Invocation: &inv}}}
+		scenarioCtx, scenarioCancel := scenarioContext(ctx, cfg.Timeout)
+		ms := &memoryStream{ctx: scenarioCtx, inbox: []backendplugin.ClientFrame{{Kind: backendplugin.ClientFrameStart, InstanceID: "contract", Invocation: &inv}}}
 		if scenario.Feature == contract.FeatureCancellation {
 			ms.inbox = append(ms.inbox, backendplugin.ClientFrame{Kind: backendplugin.ClientFrameCancel, InstanceID: "contract", CancelReason: backendplugin.CancelReasonClient})
 		} else {
@@ -211,7 +228,7 @@ func Run(t *testing.T, cfg Config) CertificationResult {
 		}
 		var runErr error
 		if scenario.Feature == contract.FeatureCancellation {
-			runErr = host.Cancel(ctx, inv)
+			runErr = host.Cancel(scenarioCtx, inv)
 			r.Cancelled = runErr == nil
 			if executeErr := host.Execute(ms); executeErr == nil {
 				for _, frame := range ms.outbox {
@@ -276,18 +293,45 @@ func Run(t *testing.T, cfg Config) CertificationResult {
 			result.Failures = append(result.Failures, fmt.Sprintf("%s: cancellation was not observed", scenario.ID))
 		}
 		result.ScenarioResults = append(result.ScenarioResults, r)
+		scenarioCancel()
 	}
-	if err := host.Close(ctx); err != nil {
-		t.Fatalf("contracttest: close failed: %v", err)
+	// Close with its own deadline instead of the run context: the run budget
+	// may already be expired when the corpus finishes, and an unbounded close
+	// would then hang teardown the same way an unbounded scenario did.
+	closeCtx, closeCancel := scenarioContext(context.Background(), cfg.Timeout)
+	defer closeCancel()
+	if err := host.Close(closeCtx); err != nil {
+		return CertificationResult{}, fmt.Errorf("contracttest: close failed: %w", err)
 	}
-	if err := host.Close(ctx); err != nil {
-		t.Fatalf("contracttest: idempotent close failed: %v", err)
+	if err := host.Close(closeCtx); err != nil {
+		return CertificationResult{}, fmt.Errorf("contracttest: idempotent close failed: %w", err)
 	}
 	result.Passed = append(result.Passed, "execute-cancel-close")
 	if err := result.Validate(); err != nil {
-		t.Fatalf("contracttest: invalid certification artifact: %v", err)
+		return CertificationResult{}, fmt.Errorf("contracttest: invalid certification artifact: %w", err)
 	}
-	return result
+	return result, nil
+}
+
+// defaultScenarioTimeout bounds one certification scenario when the run
+// budget is unset. Scenarios complete in milliseconds against the in-memory
+// and bufconn harnesses; the bound only fires for a stuck stream.
+const defaultScenarioTimeout = 30 * time.Second
+
+// scenarioContext derives a per-scenario deadline from the run budget: a
+// tenth of the whole-run timeout, clamped to a floor that keeps loaded CI
+// runners green and a ceiling that keeps one stuck scenario from dominating
+// the run. The run context remains the parent so a cancelled run still
+// releases every scenario.
+func scenarioContext(parent context.Context, runTimeout time.Duration) (context.Context, context.CancelFunc) {
+	bound := runTimeout / 10
+	if bound < 5*time.Second {
+		bound = 5 * time.Second
+	}
+	if bound > defaultScenarioTimeout {
+		bound = defaultScenarioTimeout
+	}
+	return context.WithTimeout(parent, bound)
 }
 
 type memoryStream struct {

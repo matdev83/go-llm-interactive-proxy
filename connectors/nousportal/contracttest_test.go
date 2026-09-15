@@ -111,7 +111,19 @@ func bufconnHostWithOffer(factory string, config []byte, secrets backendplugin.S
 			_ = lis.Close()
 			return nil, nil, err
 		}
-		return sess, func() { _ = sess.Close(context.Background()); server.Stop(); _ = lis.Close() }, nil
+		// Bound the teardown close: an unbounded Background close wedged the
+		// whole module suite when a stream outlived the TCK budget. The host
+		// now cancels in-flight executes on deadline expiry, and the server
+		// keeps CloseInstance retryable, so this only bounds a stuck close.
+		// The timeout is created inside the cleanup closure: creating it here
+		// would cancel it on return, before teardown ever runs.
+		return sess, func() {
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer closeCancel()
+			_ = sess.Close(closeCtx)
+			server.Stop()
+			_ = lis.Close()
+		}, nil
 	}
 }
 
