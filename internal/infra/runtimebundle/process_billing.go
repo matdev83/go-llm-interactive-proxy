@@ -58,6 +58,9 @@ func buildProcessBillingRuntime(owner *processResourceOwner, cfgReportsPath stri
 	if err := startProcessBillingWorker(owner, callWorker); err != nil {
 		return ProductionOptions{}, fmt.Errorf("runtimebundle: start complete-call billing worker: %w", err)
 	}
+	if err := startEconomicRevisionWorkers(owner, prod); err != nil {
+		return ProductionOptions{}, err
+	}
 
 	providerWork, providerWorkOK := prod.BillingStore.(billing.ProviderCostWorkReader)
 	providerStore, providerStoreOK := prod.BillingStore.(billing.ProviderCostStore)
@@ -72,4 +75,28 @@ func buildProcessBillingRuntime(owner *processResourceOwner, cfgReportsPath stri
 		return ProductionOptions{}, fmt.Errorf("runtimebundle: start provider-cost worker: %w", err)
 	}
 	return prod, nil
+}
+
+func startEconomicRevisionWorkers(owner *processResourceOwner, prod ProductionOptions) error {
+	if prod.BillingEconomicRevisionRater == nil {
+		return nil
+	}
+	economicWork, workOK := prod.BillingStore.(billing.EconomicRevisionWorkReader)
+	economicResults, resultsOK := prod.BillingStore.(billing.EconomicRevisionResultStore)
+	if !workOK || !resultsOK {
+		return ErrAuthoritativeBillingRequired
+	}
+	for _, queue := range []billing.EconomicQueue{billing.EconomicQueueCustomer, billing.EconomicQueueProvider} {
+		economicWorker, workerErr := billing.NewEconomicRevisionWorkerWithReconciler(
+			economicWork, economicResults, prod.BillingEconomicRevisionRater,
+			prod.BillingEconomicRevisionReconciler, queue, prod.BillingPostTurnBatchSize,
+		)
+		if workerErr != nil {
+			return fmt.Errorf("runtimebundle: economic revision worker: %w", workerErr)
+		}
+		if workerErr := startProcessBillingWorker(owner, economicWorker); workerErr != nil {
+			return fmt.Errorf("runtimebundle: start %s economic revision worker: %w", queue, workerErr)
+		}
+	}
+	return nil
 }

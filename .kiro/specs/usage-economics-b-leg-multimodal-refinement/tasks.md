@@ -105,7 +105,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 3.3_
   - _Validation: go test ./internal/core/runtime/... ./internal/infra/metering/journalstore/..._
 
-- [ ] 4.2 Trigger pure valuation/reconciliation from durable revisions
+- [x] 4.2 Trigger pure valuation/reconciliation from durable revisions
   - Make economic worker identity include the latest evidence revision/input hash so pre-terminal, terminal and late-correction revisions are processed idempotently.
   - Preserve customer/provider queue isolation and avoid balance locks during pure computation.
   - Completion: repeated or reordered revisions produce one deterministic current valuation head.

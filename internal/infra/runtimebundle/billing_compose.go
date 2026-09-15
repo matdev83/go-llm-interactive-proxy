@@ -78,6 +78,12 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("%w: provider-cost resolver: %w", ErrComposeBillingIncomplete, err)
 	}
+	var economicRater billing.PostUsageRater
+	if _, ok := in.Store.(billing.EconomicRevisionWorkReader); ok {
+		if _, ok := in.Store.(billing.EconomicRevisionResultStore); ok {
+			economicRater, _ = callResolver.(billing.PostUsageRater)
+		}
+	}
 	customerUnitLedger, _ := in.Store.(billing.CustomerUnitLedger)
 	costPassThroughSettlement, _ := in.Store.(billing.CostPassThroughSettlementStore)
 	maintenanceObserver, err := billingcompose.ComposeMaintenanceAccounting(in.Store, in.MaintenanceAccounting)
@@ -94,6 +100,7 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		BillingIdentity:                       identity,
 		BillingCallRatingResolver:             callResolver,
 		BillingProviderCostResolver:           providerCostResolver,
+		BillingEconomicRevisionRater:          economicRater,
 		BillingCostPassThroughSettlementStore: costPassThroughSettlement,
 		BillingCustomerUnitLedger:             customerUnitLedger,
 		MaintenanceAccounting:                 maintenanceObserver,

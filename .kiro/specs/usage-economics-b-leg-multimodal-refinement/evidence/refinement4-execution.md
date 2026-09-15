@@ -278,3 +278,141 @@ the receive callback, and repeated capacity failures are coalesced per attempt.
 
 The focused race build remains unavailable on this Windows host because
 `runtime/cgo` cannot build `cgo.exe`; no race result is claimed.
+
+## Refinement 4.2 execution evidence: revision-keyed pure valuation
+
+The 4.2 seam reuses the immutable `billing_economic_work` queue and existing
+V2 valuation/reconciliation persistence. `EconomicRevisionWork` is normalized
+from a B-leg subject and provider-neutral rating input; its identity is the
+SHA-256 key over queue, head key, evidence revision, and canonical input-set
+hash. Valuation and reconciliation IDs derive from that key. A changed input
+hash or later evidence revision therefore creates a new immutable result, while
+repeated delivery of the same revision is a no-op (including transport-only
+receipt timestamp changes).
+
+Each pure worker is bound to exactly one queue (`customer` or `provider`). It
+rates and optionally reconciles outside persistence, then atomically appends
+only valuation, reconciliation, and the rebuildable current-head pointer. The
+result transaction does not call account, exposure, journal, settlement, or
+customer-unit APIs. A durable result/head probe prevents a restarted worker
+from re-rating an already complete revision and repairs a missing head by
+replaying the immutable result.
+
+The additive head projection is dual-dialect SQLite/PostgreSQL and stores the
+queue, head key, revision/input identity, result references, fingerprints,
+head version, and fence. A stale/reordered revision cannot regress a newer
+head; equal-revision corrections converge by canonical input-hash ordering.
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| RED compile state for the new revision worker/store tests | 1 | Tests were authored against the absent revision identity, queue, result, and head seams before implementation. |
+| `go test -count=1 ./internal/core/metering/replay ./internal/core/billing ./internal/infra/billingstore` | 0 | Core identity/worker and durable SQLite revision queue, valuation, reconciliation, replay, head, and no-balance-mutation tests pass. |
+| `go test -count=20 -shuffle=on ./internal/core/billing -run '^TestEconomicRevisionWorker_'` | 0 | Repeated worker tests pass for preterminal, terminal replay, late correction, queue isolation, and reordered/restart convergence. |
+| `go test -count=1 ./internal/infra/billingstore -run '^TestRefinement42'` | 0 | Durable duplicate/reordered revision and transport-metadata replay tests pass; pure results leave journal and unit-balance tables unchanged. |
+| `go test -count=1 ./internal/infra/runtimebundle -run 'TestBuild|TestCompose|ProcessBilling'` | 0 | Selected production composition and process-worker wiring tests pass. |
+| `go test -count=1 ./internal/core/metering/replay ./internal/core/billing ./internal/infra/billingstore ./internal/infra/runtimebundle` | 1 | Owned replay, billing, and billingstore packages pass; runtimebundle retains unrelated baseline malformed-import, owner-reachability, and three 10-second billing host-loop failures. |
+| `make test-db-parity-sqlite` | 0 | SQLite dialect parity passes, including billingstore migration/schema checks. |
+| `go vet ./internal/core/metering/replay ./internal/core/billing ./internal/infra/billingstore ./internal/infra/runtimebundle` | 0 | Vet passes for owned Go packages. |
+| `gofmt -d <owned Go files>` / `git diff --check` | 0 | Formatting and whitespace checks pass. |
+| `go test -race ...` | 1 | Windows `runtime/cgo` cannot build `cgo.exe`; no race result is claimed. |
+
+The direct PostgreSQL parity run reached the billingstore component
+successfully; the repository-wide run later failed in unrelated conversationview
+network setup. The queue intentionally retains immutable pending
+history and uses a result probe; mutable claim/retirement state is recorded in
+the revision queue state table. Upstream 4.1 evidence producers must
+enqueue a normalized revision through `AppendEconomicRevisionWork`; this task
+does not add stream-callback journal coupling or incremental monetary posting.
+
+## Refinement 4.2 queue-progress repair
+
+The bounded pure worker now keeps mutable delivery state in
+`billing_economic_revision_work_state`, separate from immutable
+`billing_economic_work`. A queue page excludes completed work and live leases,
+so completing an early page cannot starve later revisions or a newly appended
+late correction. Failed attempts return to `pending` with their error and are
+due immediately for retry. Claims carry a finite lease and monotonically
+increasing fence; completion/retry compare both owner and fence, allowing an
+expired claim to be recovered while rejecting stale workers. Results and heads
+remain durable if a process stops between result commit and state retirement.
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| Focused queue-progress/failure tests before state implementation | 1 | RED: bounded-page and retry tests failed because the durable state table did not exist. |
+| `go test -count=1 ./internal/infra/billingstore -run '^TestRefinement42RevisionQueue'` | 0 | GREEN: completed first page is retired, late correction is eventually rated/headed, failed work retries, and immutable rows/results remain present. |
+| `go test -count=20 -shuffle=on ./internal/core/billing -run '^TestEconomicRevisionWorker_'` / `go test -count=10 -shuffle=on ./internal/infra/billingstore -run '^TestRefinement42'` | 0 | Repeated and shuffled pure-worker/revision tests pass. |
+| `make test-db-parity-sqlite` | 0 | SQLite migration and schema parity pass for the queue-state table/index. |
+| `$env:LIP_REQUIRE_POSTGRES='1'; go test -tags integration -count=1 ./internal/infra/billingstore -run '^TestDBParity_PostgresDirect$'` | 0 | Focused direct PostgreSQL billingstore schema/contract parity passes. |
+| `go vet ./internal/core/metering/replay ./internal/core/billing ./internal/infra/billingstore ./internal/infra/runtimebundle` | 0 | Vet passes for the owned packages. |
+
+The focused direct PostgreSQL billingstore parity wrapper passes; the aggregate
+direct run later timed out in unrelated conversationview setup. The state DDL
+and queries use the existing SQLite/PostgreSQL migration pattern.
+The race build remains unavailable on this Windows host because `runtime/cgo`
+cannot build `cgo.exe`; no race result is claimed.
+
+## Refinement 4.2 review repair: reject valuation input-set mismatch at the worker boundary
+
+The review blocker regression was authored before the production repair as
+`TestEconomicRevisionWorker_RejectsMismatchedValuationInputBeforeReconcileOrPersist`.
+It supplies a valid rater valuation whose canonical observation references and
+matching supplied hash describe a different input set than `work.InputSetHash`.
+A permissive result store accepts any output, so the test proves the core
+worker—not a durable adapter—rejects the result. A stateful fake queue also
+requires one retry/release and no completion; reconciliation and persistence
+must both remain untouched.
+The companion
+`TestEconomicRevisionWorker_RejectsEmptyValuationInputReferences` regression
+confirms that an omitted reference set cannot use the approved empty-hash
+compatibility to bypass canonical comparison.
+
+The focused RED command was:
+
+`go test -count=1 ./internal/core/billing -run '^TestEconomicRevisionWorker_RejectsMismatchedValuationInputBeforeReconcileOrPersist$'`
+
+RED: the pre-repair worker returned nil and would have passed the mismatched
+valuation to the permissive result store.
+
+The minimal GREEN repair adds the core-domain
+`EconomicRevisionInputMismatchError`, which unwraps to the existing
+`ErrEconomicRevisionInputMismatch`, and compares the valuation's canonical
+input-set hash with normalized work before reconciliation or result-store
+append. Existing empty supplied hash behavior remains supported by the
+approved canonical-input helper; an empty or non-matching canonical reference
+set fails closed and is retried through the existing queue-state contract.
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `go test -count=1 ./internal/core/billing -run '^TestEconomicRevisionWorker_(RejectsMismatchedValuationInputBeforeReconcileOrPersist|RejectsEmptyValuationInputReferences)$'` | 0 | Typed mismatch is returned; reconciler/store are untouched; claim is retried and not completed for both supplied and omitted reference sets. |
+| `go test -count=1 ./internal/core/billing` | 0 | Full core billing package passes. |
+| `go test -count=20 -shuffle=on ./internal/core/billing -run '^TestEconomicRevisionWorker_'` | 0 | Repeated/shuffled worker regressions pass. |
+| `go vet ./internal/core/billing` | 0 | Vet passes. |
+| `gofmt -d internal/core/billing/economic_revision.go internal/core/billing/economic_revision_worker.go internal/core/billing/economic_revision_worker_test.go` | 0 | No formatting differences. |
+| `git diff --check` | 0 | No whitespace errors. |
+
+Compatibility impact is limited to rejecting previously-accepted malformed
+worker output whose canonical evidence set did not match the durable revision;
+the existing sentinel remains compatible through `errors.Is`, and typed
+details are available through `errors.As`.
+
+## Refinement 4.2 review repair: deterministic derived timestamps
+
+The review blocker regressions are `TestEconomicRevisionWorker_RetryConvergesAcrossDerivedTimestamps` and `TestEconomicRevisionWorker_DuplicateWorkersConvergeAcrossDerivedTimestamps`, with durable SQLite coverage in `TestRefinement42RevisionRetryConvergesAcrossDerivedTimestamps` and `TestRefinement42DuplicateWorkersConvergeAcrossDerivedTimestamps`. Each rater and reconciler invocation supplies a different nonzero wall-clock timestamp for the same immutable work identity. The retry sink commits the first result before returning an ambiguous error; the duplicate-worker reader presents the same pending marker to two independently constructed workers.
+
+The focused RED command was:
+
+`go test -count=1 ./internal/core/billing -run 'TestEconomicRevisionWorker_(RetryConvergesAcrossDerivedTimestamps|DuplicateWorkersConvergeAcrossDerivedTimestamps)$'`
+
+RED: the pre-repair worker preserved calculator-supplied `CreatedAt` values, so the second attempt failed with `billing: economic revision conflict` after the first result had been recorded.
+
+The minimal GREEN repair always assigns normalized `EconomicRevisionWork.CreatedAt` to both derived `Valuation.CreatedAt` and `EconomicReconciliation.CreatedAt` before validation and result persistence. This is the immutable work time for the revision; zero work times already normalize to the UTC Unix epoch. Snapshot `EffectiveAt`/`FetchedAt` fields remain untouched because they are source snapshot metadata under the approved contracts. Queue/head/revision/input-hash identity remains unchanged, so a later evidence revision still produces a distinct result.
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `go test -count=1 ./internal/core/billing -run 'TestEconomicRevisionWorker_(RetryConvergesAcrossDerivedTimestamps|DuplicateWorkersConvergeAcrossDerivedTimestamps)$'` | 0 | Core retry and duplicate-worker results converge byte-identically while both calculators vary timestamps. |
+| `go test -count=1 ./internal/infra/billingstore -run '^TestRefinement42(RevisionRetryConvergesAcrossDerivedTimestamps|DuplicateWorkersConvergeAcrossDerivedTimestamps)$'` | 0 | SQLite durable valuation/reconciliation replay converges; each immutable row remains single-instance and is anchored to work time. |
+| `go test -count=1 ./internal/core/metering/replay ./internal/core/billing ./internal/infra/billingstore` | 0 | Full owned replay, billing, and durable-store packages pass. |
+| `go test -count=20 -shuffle=on ./internal/core/billing -run '^TestEconomicRevisionWorker_'` / `go test -count=10 -shuffle=on ./internal/infra/billingstore -run '^TestRefinement42'` | 0 | Repeated and shuffled worker/revision regressions pass. |
+| `go vet ./internal/core/billing ./internal/infra/billingstore` | 0 | Vet passes for owned packages. |
+| `gofmt -d internal/core/billing/economic_revision.go internal/core/billing/economic_revision_worker.go internal/core/billing/economic_revision_worker_test.go internal/infra/billingstore/economic_revision_store.go internal/infra/billingstore/refinement4_2_revision_worker_test.go` | 0 | No formatting differences. |
+| `git diff --check` | 0 | No tracked whitespace errors. |

@@ -53,6 +53,7 @@ func registerMigrations() {
 		registerSubmissionFeeClaimMigration()
 		registerBillingAllocationMigration()
 		registerBillingAllocationTargetScopeMigration()
+		registerBillingEconomicRevisionHeadsMigration()
 	})
 }
 

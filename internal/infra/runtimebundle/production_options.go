@@ -27,8 +27,13 @@ type ProductionOptions struct {
 	BillingReportsPath string
 	BillingIdentity    runtimecore.BillingIdentity
 	// BillingCallRatingResolver resolves immutable call/exposure snapshots and never consults authorization holds.
-	BillingCallRatingResolver             billing.CallRatingResolver
-	BillingProviderCostResolver           billing.ProviderCostResolver
+	BillingCallRatingResolver   billing.CallRatingResolver
+	BillingProviderCostResolver billing.ProviderCostResolver
+	// BillingEconomicRevisionRater drives pure revision valuation from the
+	// durable evidence queue. It is intentionally separate from settlement and
+	// provider-cost stores; nil keeps the optional worker disabled.
+	BillingEconomicRevisionRater          billing.PostUsageRater
+	BillingEconomicRevisionReconciler     billing.EconomicRevisionReconciler
 	BillingCostPassThroughSettlementStore billing.CostPassThroughSettlementStore
 	BillingCustomerUnitLedger             billing.CustomerUnitLedger
 	// MaintenanceAccounting receives provider-authoritative maintenance usage on
