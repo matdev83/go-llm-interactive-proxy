@@ -36,6 +36,14 @@ func (f recvTurnFacts) logDecision(ctx context.Context, logger *slog.Logger, key
 	diag.LogDecision(ctx, logger, key, diag.AttrOpts{CallID: f.traceID, BLegID: f.aLegID}, attrs...)
 }
 
+func (f recvTurnFacts) logEconomicCheckpointCapacityRejection(ctx context.Context, logger *slog.Logger, attempt *attemptSession, diagnostic economicCheckpointCapacityDiagnostic) {
+	diag.LogDecision(ctx, logger, economicCheckpointCapacityRejectionLogMessage, f.attemptDiagAttrs(attempt),
+		slog.String("reason", economicCheckpointCapacityRejectionReason),
+		slog.String("checkpoint_semantics", string(diagnostic.semantics)),
+		slog.Uint64("checkpoint_revision", diagnostic.revision),
+	)
+}
+
 func (f recvTurnFacts) logRecoverablePreOutput(ctx context.Context, logger *slog.Logger, candidate string) {
 	f.logDecision(ctx, logger, "recoverable_pre_output_swallowed", slog.String("candidate_key", candidate), slog.String("phase", "recv"))
 }

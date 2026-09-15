@@ -96,7 +96,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
 
 - [ ] 4. Make evidence and valuation revision-driven rather than session-final-driven
 
-- [ ] 4.1 Append bounded pre-terminal B-leg economic checkpoints
+- [x] 4.1 Append bounded pre-terminal B-leg economic checkpoints
   - Extend existing V2 observation/journal ownership to persist stable usage deltas or cumulative snapshots before execution terminal where providers/local measurement expose them.
   - Coalesce/batch safely; no requirement for one observation per wire frame.
   - Completion: long-running B-leg usage becomes durably queryable before terminal without direct money mutation from receive callbacks.

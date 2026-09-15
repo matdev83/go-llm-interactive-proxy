@@ -247,6 +247,14 @@ type AccountingRuntime struct {
 	// MeteringRecorder is the optional Phase 3 metering journal port. Nil means
 	// checkpoints are retained in-request only (no durable append until Phase 5).
 	MeteringRecorder metering.Recorder
+	// MeteringObservationSink is the optional V2 evidence journal port. It is
+	// deliberately separate from MeteringRecorder because pre-terminal economic
+	// checkpoints persist immutable observations only; they never rate or mutate
+	// money from a receive callback. Runtime checkpoint flushing requires the
+	// sink to also implement metering.AtomicObservationSink; a plain
+	// ObservationSink is retained for source compatibility but is not retried or
+	// invoked by that path.
+	MeteringObservationSink metering.ObservationSink
 	// RequestCoordinator admits customer/logical-request authority once per request (Phase 6).
 	RequestCoordinator *authoritycoord.RequestCoordinator
 	// AttemptCoordinator admits operator/attempt authority per B-leg (Phase 6).

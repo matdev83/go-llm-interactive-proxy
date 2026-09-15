@@ -17,6 +17,14 @@ func (f *fakeRecorder) Append(ctx context.Context, fact metering.Fact) error {
 	return nil
 }
 
+type fakeObservationSink struct{}
+
+func (fakeObservationSink) Append(context.Context, metering.Observation) error { return nil }
+
+func (fakeObservationSink) AppendObservations(context.Context, []metering.Observation) error {
+	return nil
+}
+
 type fakeQuery struct {
 	page metering.Page
 }
@@ -40,5 +48,14 @@ func TestRecorderAndQueryCompileWithFakes(t *testing.T) {
 	}
 	if page.NextCursor != "" {
 		t.Fatalf("unexpected cursor %q", page.NextCursor)
+	}
+}
+
+func TestObservationSinkCompatibilityAndAtomicCapabilityCompile(t *testing.T) {
+	t.Parallel()
+	var compatibility metering.ObservationSink = fakeObservationSink{}
+	var atomic metering.AtomicObservationSink = fakeObservationSink{}
+	if compatibility == nil || atomic == nil {
+		t.Fatal("observation sink contracts must accept their declared fake")
 	}
 }

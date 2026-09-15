@@ -190,9 +190,46 @@ func (s *DurableStore) AppendObservation(ctx context.Context, observation meteri
 	return s.appendObservationWithSQLiteRetry(ctx, observation)
 }
 
+// AppendObservations appends a bounded batch of immutable V2 observations in
+// one local transaction. Exact replays remain no-ops; a changed payload for an
+// existing source identity is a collision; and any collision or projection
+// failure rolls the complete batch back. The operation is therefore safe to
+// retry after an error, including an ambiguous commit result, and satisfies
+// metering.AtomicObservationSink. An empty batch performs no durable operation.
+func (s *DurableStore) AppendObservations(ctx context.Context, observations []metering.Observation) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("metering/journalstore: nil store")
+	}
+	if ctx == nil {
+		return fmt.Errorf("metering/journalstore: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(observations) == 0 {
+		return nil
+	}
+	if len(observations) == 1 {
+		return s.AppendObservation(ctx, observations[0])
+	}
+	return s.appendObservationsWithSQLiteRetry(ctx, observations)
+}
+
 func (s *DurableStore) appendObservationWithSQLiteRetry(ctx context.Context, observation metering.Observation) error {
-	if s.db.Dialect().Name() != dialect.SQLite {
+	return s.appendObservationWithSQLiteRetryFunc(ctx, func(ctx context.Context) error {
 		return s.appendObservationAttempt(ctx, observation)
+	})
+}
+
+func (s *DurableStore) appendObservationsWithSQLiteRetry(ctx context.Context, observations []metering.Observation) error {
+	return s.appendObservationWithSQLiteRetryFunc(ctx, func(ctx context.Context) error {
+		return s.appendObservationsAttempt(ctx, observations)
+	})
+}
+
+func (s *DurableStore) appendObservationWithSQLiteRetryFunc(ctx context.Context, appendAttempt func(context.Context) error) error {
+	if s.db.Dialect().Name() != dialect.SQLite {
+		return appendAttempt(ctx)
 	}
 	now := sqliteRetryNow(s.cfg)
 	started := now()
@@ -207,7 +244,7 @@ func (s *DurableStore) appendObservationWithSQLiteRetry(ctx context.Context, obs
 			s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempted, Classification: "busy", TerminalOutcome: "budget_exhausted"})
 			return fmt.Errorf("%w after %d attempts: retry budget elapsed", ErrSQLiteBusyRetryExhausted, attempted)
 		}
-		err := s.appendObservationAttempt(ctx, observation)
+		err := appendAttempt(ctx)
 		if err == nil {
 			s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempt, Classification: "success", TerminalOutcome: "success"})
 			return nil
@@ -243,13 +280,19 @@ func (s *DurableStore) appendObservationWithSQLiteRetry(ctx context.Context, obs
 }
 
 func (s *DurableStore) appendObservationAttempt(ctx context.Context, observation metering.Observation) error {
+	return s.appendObservationsAttempt(ctx, []metering.Observation{observation})
+}
+
+func (s *DurableStore) appendObservationsAttempt(ctx context.Context, observations []metering.Observation) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("metering/journalstore: observation begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := s.AppendObservationInTx(ctx, tx, observation); err != nil {
-		return err
+	for _, observation := range observations {
+		if err := s.AppendObservationInTx(ctx, tx, observation); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("metering/journalstore: observation commit: %w", err)

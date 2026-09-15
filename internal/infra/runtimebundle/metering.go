@@ -18,9 +18,13 @@ import (
 )
 
 type meteringRuntime struct {
-	Recorder     metering.Recorder
-	StoreBacking string
-	checkReady   func(context.Context) error
+	Recorder metering.Recorder
+	// ObservationSink is a non-owning adapter over Recorder when Recorder is
+	// the process-owned durable journal. Generation runtimes borrow both refs;
+	// process cleanup remains the sole owner of the journal lifecycle.
+	ObservationSink metering.ObservationSink
+	StoreBacking    string
+	checkReady      func(context.Context) error
 }
 
 //nolint:revive // owner is the resource owner parameter
@@ -56,13 +60,25 @@ func buildMeteringRuntime(owner *processResourceOwner, parent context.Context, c
 			return nil, err
 		}
 		return &meteringRuntime{
-			Recorder:     rec,
-			StoreBacking: backing,
-			checkReady:   checkReady,
+			Recorder:        rec,
+			ObservationSink: observationSinkForRecorder(rec),
+			StoreBacking:    backing,
+			checkReady:      checkReady,
 		}, nil
 	default:
 		return nil, fmt.Errorf("runtimebundle: metering.journal.store %q is invalid", cfg.Metering.Journal.Store)
 	}
+}
+
+// observationSinkForRecorder only adapts an already-open durable recorder; it
+// never opens, closes, or otherwise owns storage. This preserves the
+// process-owner lifecycle for both SQLite and shared PostgreSQL journals.
+func observationSinkForRecorder(rec metering.Recorder) metering.ObservationSink {
+	store, ok := rec.(*journalstore.DurableStore)
+	if !ok || store == nil {
+		return nil
+	}
+	return journalstore.NewObservationSink(store)
 }
 
 //nolint:revive // owner is the resource owner parameter

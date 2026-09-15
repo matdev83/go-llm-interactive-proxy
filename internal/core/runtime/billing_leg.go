@@ -316,6 +316,9 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 	localObservations := attempt.drainLocalBoundaryObservations(now)
 	workloadCtx := request.toRecvTurnFacts(ctx).projectContext(ctx, nil)
 	finalizeEv := t.finalizeBillingEvidence(ctx, request, evidence, billingState, "record_leg", streamEv, attempt)
+	if err := attempt.flushEconomicCheckpointsAtTerminal(ctx); err != nil && t.logBillingAppendFailure != nil {
+		t.logBillingAppendFailure(ctx, "economic_checkpoint_append_critical", "economic checkpoint append failed", err)
+	}
 	economicObservations, economicConflicts := attempt.economicEvidenceDrain()
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:               request.billingCallID,

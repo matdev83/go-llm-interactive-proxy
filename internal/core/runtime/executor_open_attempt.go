@@ -164,6 +164,7 @@ func (e *Executor) newAttemptSession(in attemptSessionInput) *attemptSession {
 		in.billingWorkload = e.billingWorkloadIdentityForALeg
 		in.observeBillingLeg = e.observeBillingLeg
 		in.appendBillingLeg = e.appendIndependentCallLeg
+		in.observationSink = e.MeteringObservationSink
 	}
 	sess := newAttemptSession(in)
 	if e != nil {

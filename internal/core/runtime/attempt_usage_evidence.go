@@ -146,18 +146,16 @@ func (a *attemptSession) rememberEconomicEvidenceOnce(evidence execbackend.Econo
 	}
 	a.economicMu.Lock()
 	defer a.economicMu.Unlock()
-	if a.economicObservationHashes == nil {
-		a.economicObservationHashes = make(map[string]map[string]execbackend.EconomicEvidence)
-	}
+	// Keep the map allocation below the queue admission. A checkpoint
+	// rejection must leave no dedupe marker behind, so a later replay can
+	// retry after bounded capacity is released.
 	fingerprints := a.economicObservationHashes[identity]
-	if fingerprints == nil {
-		fingerprints = make(map[string]execbackend.EconomicEvidence)
-		a.economicObservationHashes[identity] = fingerprints
+	if fingerprints != nil {
+		if _, exists := fingerprints[hash]; exists {
+			return
+		}
 	}
-	if _, exists := fingerprints[hash]; exists {
-		return
-	}
-	if len(fingerprints) != 0 {
+	if fingerprints != nil && len(fingerprints) != 0 {
 		prior := ""
 		for candidate := range fingerprints {
 			if prior == "" || candidate < prior {
@@ -180,8 +178,24 @@ func (a *attemptSession) rememberEconomicEvidenceOnce(evidence execbackend.Econo
 	if len(a.economicObservations) >= billing.MaxCallLegEvidenceObservations {
 		return
 	}
+	// Queue admission precedes the terminal evidence dedupe marker. If the
+	// bounded checkpoint state is exhausted, this observation remains
+	// retryable rather than being irreversibly accepted and suppressed on
+	// replay. A nil sink reports Ignored, preserving the legacy terminal-only
+	// path.
+	if a.queueEconomicCheckpoint(canonical) == economicCheckpointRejected {
+		return
+	}
+	if a.economicObservationHashes == nil {
+		a.economicObservationHashes = make(map[string]map[string]execbackend.EconomicEvidence)
+	}
+	fingerprints = make(map[string]execbackend.EconomicEvidence)
+	a.economicObservationHashes[identity] = fingerprints
 	fingerprints[hash] = evidence
 	a.economicObservations = append(a.economicObservations, evidence)
+	// Keep the durable checkpoint queue separate from terminal billing
+	// evidence. The queue only persists immutable V2 observations; it never
+	// invokes valuation, authority, or money mutation paths.
 }
 
 func (a *attemptSession) rememberEconomicObservationOnce(observation metering.Observation) {

@@ -84,17 +84,33 @@ type attemptSession struct {
 	accountingMu       sync.Mutex
 	sidebandMu         sync.Mutex
 	economicMu         sync.Mutex
+	checkpointMu       sync.Mutex
+	checkpointFlushMu  sync.Mutex
+	checkpointLocalMu  sync.Mutex
 
-	internalUsageKeys         map[string]struct{}
-	accumulatedUsage          []lipapi.Event
-	usageEvidence             map[string]capturedBillingEvidence
-	usageEvidenceOrder        []string
-	usageConflicts            []billing.EvidenceConflict
-	economicObservations      []execbackend.EconomicEvidence
-	economicObservationHashes map[string]map[string]execbackend.EconomicEvidence
-	economicConflicts         []billing.EvidenceConflict
-	billingLegRecorded        bool
-	boundaryDrained           bool
+	internalUsageKeys                     map[string]struct{}
+	accumulatedUsage                      []lipapi.Event
+	usageEvidence                         map[string]capturedBillingEvidence
+	usageEvidenceOrder                    []string
+	usageConflicts                        []billing.EvidenceConflict
+	economicObservations                  []execbackend.EconomicEvidence
+	economicObservationHashes             map[string]map[string]execbackend.EconomicEvidence
+	economicConflicts                     []billing.EvidenceConflict
+	checkpointPending                     map[string]metering.Observation
+	checkpointOrder                       []string
+	checkpointDeferred                    map[string]metering.Observation
+	checkpointDeferredOrder               []string
+	checkpointDurableHeads                map[string]checkpointDurableHead
+	localCheckpointHeads                  map[string]metering.Observation
+	localCheckpointHashes                 map[string]string
+	checkpointLastFlush                   time.Time
+	checkpointErr                         error
+	checkpointCapacityDiagnosticPending   bool
+	checkpointCapacityDiagnosticEmitted   bool
+	checkpointCapacityDiagnosticSemantics string
+	checkpointCapacityDiagnosticRevision  uint64
+	billingLegRecorded                    bool
+	boundaryDrained                       bool
 
 	cancelResult lipapi.CancelResult
 
@@ -135,6 +151,7 @@ type attemptSession struct {
 	appendBillingLegStrict func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord) error
 	finalizeBilling        func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
 	finalizeBillingV2      func(context.Context, execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error)
+	observationSink        metering.ObservationSink
 }
 
 func (a *attemptSession) claimBillingLegRecord() bool {
@@ -258,6 +275,7 @@ type attemptSessionInput struct {
 	appendBillingLeg  func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord)
 	finalizeBilling   func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
 	finalizeBillingV2 func(context.Context, execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error)
+	observationSink   metering.ObservationSink
 }
 
 func withBillingStoreIDOnAttempt(input attemptSessionInput, storeID string) attemptSessionInput {
@@ -278,6 +296,7 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		appendBillingLegFn: in.appendBillingLegFn, now: in.now, billingEnabled: in.billingEnabled,
 		operatorRateRef: in.operatorRateRef, billingWorkload: in.billingWorkload,
 		observeBillingLeg: in.observeBillingLeg, appendBillingLeg: in.appendBillingLeg, finalizeBilling: in.finalizeBilling, finalizeBillingV2: in.finalizeBillingV2,
+		observationSink: in.observationSink,
 	}
 }
 
@@ -511,6 +530,15 @@ func (a *attemptSession) drainSidebandEvidence(ctx context.Context, facts recvTu
 		return
 	}
 	p.consumeBackendUsageEvidenceForAttempt(ctx, facts, a, inner)
+	if p.log != nil {
+		if diagnostic, ok := a.takeEconomicCheckpointCapacityDiagnostic(); ok {
+			facts.logEconomicCheckpointCapacityRejection(ctx, p.log, a, diagnostic)
+		}
+	}
+	a.checkpointLocalBoundaryObservations(a.economicCheckpointNow())
+	if err := a.flushEconomicCheckpoints(ctx, false); err != nil && p.log != nil {
+		p.log.DebugContext(ctx, "economic pre-terminal checkpoint append failed", "error", err)
+	}
 }
 
 // attemptSlot protects only the current attempt pointer. It never holds its
@@ -1532,6 +1560,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 		_, _ = a.billingEvidenceDrain()
 		_, _ = a.economicEvidenceDrain()
 		_ = a.drainLocalBoundaryObservations(time.Now().UTC())
+		_ = a.flushEconomicCheckpointsAtTerminal(ctx)
 	}()
 	if a.terminal == nil {
 		return attemptTerminalResult{Result: coreterm.Result{Err: sdkterminal.ErrInvalid}}
@@ -1791,6 +1820,10 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 					legOutcome = mapCommandToLegOutcome(cmd)
 				}
 				if evidence.BillingLegFn != nil {
+					a.checkpointLocalBoundaryObservations(finished)
+					if err := a.flushEconomicCheckpointsAtTerminal(cctx); err != nil {
+						errorsList = append(errorsList, err)
+					}
 					evidence.BillingLegFn(cctx, started, finished, legOutcome)
 					return
 				}
@@ -1851,6 +1884,9 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 							a.rememberEconomicEvidenceOnce(economic)
 						}
 					}
+				}
+				if err := a.flushEconomicCheckpointsAtTerminal(cctx); err != nil {
+					errorsList = append(errorsList, err)
 				}
 				economicObservations, economicConflicts := a.economicEvidenceDrain()
 				var opRef billing.VersionRef

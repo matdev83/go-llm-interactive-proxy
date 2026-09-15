@@ -13,17 +13,29 @@ import (
 // observation consumer. The accumulator is request/B-leg scoped and is never
 // allocated for ordinary no-accounting execution.
 func (e *Executor) localBoundaryCaptureEnabled() bool {
-	return e != nil && (e.MeteringRecorder != nil || e.BillingLegObserver != nil || e.TerminalUsageSink != nil)
+	if e == nil {
+		return false
+	}
+	return e.MeteringRecorder != nil || atomicObservationSinkConfigured(e.MeteringObservationSink) || e.BillingLegObserver != nil || e.TerminalUsageSink != nil
 }
 
 // localBoundaryCaptureRequired reports whether the canonical path must retain
 // final-boundary evidence before a provider fast lane may commit bytes.
 func (e *Executor) localBoundaryCaptureRequired() bool {
-	// The durable Phase 3 recorder is the explicit required local-evidence
-	// capability. Terminal billing sinks remain compatible with the wire lane;
-	// their attempt-owned records receive local observations when available,
-	// while the optional observer/no-op test sink must not alter eligibility.
-	return e != nil && e.MeteringRecorder != nil
+	// The durable Phase 3 recorder and V2 observation sink are explicit required
+	// local-evidence capabilities. Terminal billing sinks remain compatible with
+	// the wire lane; their attempt-owned records receive local observations when
+	// available, while the optional observer/no-op test sink must not alter
+	// eligibility.
+	return e != nil && (e.MeteringRecorder != nil || atomicObservationSinkConfigured(e.MeteringObservationSink))
+}
+
+func atomicObservationSinkConfigured(sink metering.ObservationSink) bool {
+	if sink == nil {
+		return false
+	}
+	_, ok := sink.(metering.AtomicObservationSink)
+	return ok
 }
 
 func (e *Executor) newLocalBoundaryAccumulator() *coremetering.BoundaryAccumulator {
@@ -37,12 +49,33 @@ func (a *attemptSession) drainLocalBoundaryObservations(now time.Time) []meterin
 	if a == nil {
 		return nil
 	}
+	return a.localBoundaryObservations(now, true)
+}
+
+// checkpointLocalBoundaryObservations snapshots the bounded local boundary
+// planes without retiring them from the terminal billing record. Each changed
+// cumulative snapshot receives the next revision and joins the same durable
+// checkpoint queue as provider observations.
+func (a *attemptSession) checkpointLocalBoundaryObservations(now time.Time) {
+	if a == nil || !atomicObservationSinkConfigured(a.observationSink) {
+		return
+	}
+	a.localBoundaryObservations(now, false)
+}
+
+func (a *attemptSession) localBoundaryObservations(now time.Time, drain bool) []metering.Observation {
 	a.billingMu.Lock()
-	if a.boundaryDrained {
+	if a.boundaryDrained && !drain {
 		a.billingMu.Unlock()
 		return nil
 	}
-	a.boundaryDrained = true
+	if drain && a.boundaryDrained {
+		a.billingMu.Unlock()
+		return nil
+	}
+	if drain {
+		a.boundaryDrained = true
+	}
 	boundary := a.boundary
 	identity := coremetering.ObservationIdentity{
 		StoreID:       strings.TrimSpace(a.billingStoreID),
@@ -61,7 +94,7 @@ func (a *attemptSession) drainLocalBoundaryObservations(now time.Time) []meterin
 	if boundary == nil {
 		return nil
 	}
-	return boundary.Observations(identity)
+	return a.versionLocalBoundaryObservations(boundary.Observations(identity))
 }
 
 func (a *attemptSession) observeLocalProviderEvent(event lipapi.Event, media ...coremetering.MediaSummary) {

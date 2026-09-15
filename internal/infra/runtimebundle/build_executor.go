@@ -171,7 +171,10 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		accountingRT.AdminCountService = tokenAccounting.Counter
 	}
 	if meteringRT != nil {
+		// Recorder and sink are process-owned and borrowed by this generation;
+		// keep them paired so the sink always writes the same durable journal.
 		accountingRT.MeteringRecorder = meteringRT.Recorder
+		accountingRT.MeteringObservationSink = meteringRT.ObservationSink
 	}
 	if in.UsageAuthority != nil {
 		accountingRT.UsageAuthority = in.UsageAuthority
