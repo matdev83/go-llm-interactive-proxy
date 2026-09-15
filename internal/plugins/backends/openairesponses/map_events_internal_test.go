@@ -206,6 +206,45 @@ func TestHandleUnion_toolCallStream_callIDOnlyOnDeltaDone(t *testing.T) {
 	}
 }
 
+// The typed event no longer exposes the function name, so the mapping reads it
+// from the raw payload. Without that, a done event that arrives without a
+// preceding output_item.added is dropped by the mapper's
+// never-surface-unnamed-tool-calls rule.
+func TestHandleUnion_toolCallStream_doneWithoutAddedKeepsName(t *testing.T) {
+	t.Parallel()
+	s := &sdkStream{}
+
+	raw := `{"type":"response.function_call_arguments.done","sequence_number":0,"item_id":"fc_raw","output_index":0,"name":"get_weather","arguments":"{\"city\":\"NYC\"}"}`
+	var u responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.handleUnion(u); err != nil {
+		t.Fatal(err)
+	}
+
+	var started, finished bool
+	var name string
+	for _, ev := range stream.DrainPending(&s.pending) {
+		switch ev.Kind {
+		case lipapi.EventToolCallStarted:
+			started = true
+			name = ev.ToolName
+		case lipapi.EventToolCallFinished:
+			finished = true
+		}
+	}
+	if !started {
+		t.Fatal("expected tool call started from the done event")
+	}
+	if name != "get_weather" {
+		t.Fatalf("tool name: %q", name)
+	}
+	if !finished {
+		t.Fatal("expected tool call finished")
+	}
+}
+
 func TestHandleUnion_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 	t.Parallel()
 	s := &sdkStream{}
