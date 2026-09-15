@@ -8,9 +8,9 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
 
 ## Tasks
 
-- [ ] 1. Rebaseline the parent plan against refined economic authority
+- [x] 1. Rebaseline the parent plan against refined economic authority
 
-- [ ] 1.1 Add red architecture tests for A-leg, call, and B-leg authority
+- [x] 1.1 Add red architecture tests for A-leg, call, and B-leg authority
   - Prove A-leg/session is continuity and rolling aggregation only, BillingCallID groups one invocation, and B-leg is the request-scoped inference-usage root.
   - Prove a normal terminal on one call cannot mark the parent A-leg economically final.
   - Completion: tests fail on any path that creates an authoritative A-leg inference meter or session-final bill.
@@ -19,7 +19,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: none_
   - _Validation: go test ./internal/core/runtime/... ./internal/core/billing/... ./internal/archtest/..._
 
-- [ ] 1.2 Add red retail-selection tests
+- [x] 1.2 Add red retail-selection tests
   - Characterize retry, failover, loser, winner, surfaced and cost-pass-through cases before changing retail rating.
   - Prove operator COGS and customer inference usage intentionally use different B-leg selectors, and normal retail need not settle until call-level selection is stable.
   - Completion: normal retail does not bill internal retry/loser usage, while COGS still includes operator-payable attempts.
@@ -28,7 +28,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 1.1_
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingcompose/..._
 
-- [ ] 1.3 Add red multimodal and continuation fixtures
+- [x] 1.3 Add red multimodal and continuation fixtures
   - Add synthetic input/output image, audio, video and document economics plus one A-leg with multiple BillingCallIDs separated by DONE/terminal events.
   - Include pre-terminal usage revision and post-terminal correction fixtures.
   - Completion: every new acceptance vector has a named failing test or contract fixture before implementation.
