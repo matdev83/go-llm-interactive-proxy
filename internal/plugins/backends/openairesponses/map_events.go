@@ -132,8 +132,9 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 		return m.ToolCallArgsDelta(id, d.Delta)
 	case "response.function_call_arguments.done":
 		d := cur.AsResponseFunctionCallArgumentsDone()
-		id := openairesponsestream.ToolCallIDFromRaw(d.ItemID, d.RawJSON())
-		return m.FinishToolCallArguments(id, d.Name, d.Arguments)
+		raw := d.RawJSON()
+		id := openairesponsestream.ToolCallIDFromRaw(d.ItemID, raw)
+		return m.FinishToolCallArguments(id, openairesponsestream.FunctionNameFromRawJSON(raw), d.Arguments)
 	case "response.output_item.done":
 		doneEv := cur.AsResponseOutputItemDone()
 		item := doneEv.Item
