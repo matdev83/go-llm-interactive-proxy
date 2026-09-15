@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -265,7 +264,6 @@ func TestParallelLoser_Strengthened(t *testing.T) {
 		Kind: lipapi.EventUsageDelta, InputTokens: 4, OutputTokens: 6, TotalTokens: 10,
 		CostNanoUnits: 99, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
 	}
-	ex.Log = slog.Default()
 	t.Logf("winner cand key: %s", out.ready.Candidate().Key)
 	t.Logf("winner authState: viaCoord=%t, stack=%+v", authState.viaCoordinator, authState.stack)
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {

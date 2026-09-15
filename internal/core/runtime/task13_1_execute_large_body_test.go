@@ -13,6 +13,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
@@ -197,8 +198,12 @@ func TestTask13_1_StampAndSourceValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success for valid accepted assessment, got %v", err)
 	}
-	if res.Facts.RequestID != "gen-1" {
-		t.Errorf("RequestID = %q, want gen-1", res.Facts.RequestID)
+	wantReqID := acc.Stamp.IdentityDigest().CallID("")
+	if res.Facts.RequestID != wantReqID {
+		t.Errorf("RequestID = %q, want canonical stamp-derived %q", res.Facts.RequestID, wantReqID)
+	}
+	if res.Facts.RequestID == "gen-1" {
+		t.Errorf("RequestID must never be generation-scoped, got %q", res.Facts.RequestID)
 	}
 
 	// 2. Declined assessment fails with invariant error
@@ -554,4 +559,183 @@ func TestTask13_1_ResponseFactsAndSessionCarrier(t *testing.T) {
 		t.Fatal("Stream must not be nil")
 	}
 	defer res.Stream.Close()
+}
+
+func TestTask13_1_ConversationViewReader_SnapshotFailure(t *testing.T) {
+	ex, _, _ := setupTestExecutor(t)
+	expectedErr := errors.New("reader storage unavailable")
+	reader := &stubConversationReader{err: expectedErr}
+	ex.ConversationViewReader = reader
+
+	var openWireCalls, openCanonicalCalls atomic.Int32
+	ex.Backends["default"] = execbackend.Backend{
+		OpenWire: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+			openWireCalls.Add(1)
+			return lipapi.CloseOnlyManagedStream{Stream: lipapi.NewFixedEventStream([]lipapi.Event{
+				{Kind: lipapi.EventResponseFinished},
+			})}, nil
+		},
+		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			openCanonicalCalls.Add(1)
+			return nil, nil
+		},
+	}
+
+	src := newTestSource(`{"model":"gpt-4o","prompt":"conv-test"}`)
+	acc := makeTestAcceptedAssessment(t, "gen-1", "openai-chat", src, true)
+	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "usr-conv"})
+
+	// Assessment itself is side-effect-free: reader must not be queried during assessment
+	if reader.callCount != 0 {
+		t.Fatalf("assessment must be side-effect-free, got reader calls %d", reader.callCount)
+	}
+
+	_, err := ex.ExecuteLargeBody(ctx, acc, src)
+	if err == nil {
+		t.Fatal("expected error on snapshot failure, got nil")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected errors.Is(err, expectedErr), got %v", err)
+	}
+	if !strings.Contains(err.Error(), "executor: conversation view snapshot:") {
+		t.Fatalf("expected conversation view snapshot error, got %v", err)
+	}
+	if reader.callCount != 1 {
+		t.Fatalf("expected reader callCount == 1, got %d", reader.callCount)
+	}
+	if got := openWireCalls.Load(); got != 0 {
+		t.Fatalf("expected zero OpenWire calls on reader failure, got %d", got)
+	}
+	if got := openCanonicalCalls.Load(); got != 0 {
+		t.Fatalf("expected zero Open calls on reader failure, got %d", got)
+	}
+}
+
+func TestTask13_1_ConversationViewReader_InvariantFailure_NonEmptyProjection(t *testing.T) {
+	ex, _, _ := setupTestExecutor(t)
+	reader := &stubConversationReader{
+		snap: conversationprojection.Snapshot{
+			NeverBackend: []conversationprojection.Tag{
+				{
+					Identity: conversationprojection.MessageIdentity("msg-1"),
+				},
+			},
+		},
+	}
+	ex.ConversationViewReader = reader
+
+	var openWireCalls, openCanonicalCalls atomic.Int32
+	ex.Backends["default"] = execbackend.Backend{
+		OpenWire: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+			openWireCalls.Add(1)
+			return lipapi.CloseOnlyManagedStream{Stream: lipapi.NewFixedEventStream([]lipapi.Event{
+				{Kind: lipapi.EventResponseFinished},
+			})}, nil
+		},
+		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			openCanonicalCalls.Add(1)
+			return nil, nil
+		},
+	}
+
+	src := newTestSource(`{"model":"gpt-4o","prompt":"conv-test"}`)
+	acc := makeTestAcceptedAssessment(t, "gen-1", "openai-chat", src, true)
+	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "usr-conv"})
+
+	_, err := ex.ExecuteLargeBody(ctx, acc, src)
+	if err == nil {
+		t.Fatal("expected error on non-empty projection in fresh session, got nil")
+	}
+	if !strings.Contains(err.Error(), "executor: conversation projection invariant failure:") {
+		t.Fatalf("expected conversation projection invariant failure, got %v", err)
+	}
+	if reader.callCount != 1 {
+		t.Fatalf("expected reader callCount == 1, got %d", reader.callCount)
+	}
+	if got := openWireCalls.Load(); got != 0 {
+		t.Fatalf("expected zero OpenWire calls on nonempty projection, got %d", got)
+	}
+	if got := openCanonicalCalls.Load(); got != 0 {
+		t.Fatalf("expected zero Open calls on nonempty projection, got %d", got)
+	}
+}
+
+type mockOrderTrackingStream struct {
+	events    *[]string
+	cancelRes lipapi.CancelResult
+}
+
+func (m *mockOrderTrackingStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	return lipapi.Event{}, io.EOF
+}
+
+func (m *mockOrderTrackingStream) Close() error {
+	*m.events = append(*m.events, "inner_close")
+	return nil
+}
+
+func (m *mockOrderTrackingStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	*m.events = append(*m.events, "inner_cancel")
+	return m.cancelRes
+}
+
+type mockSimpleOrderStream struct {
+	events *[]string
+}
+
+func (m *mockSimpleOrderStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	return lipapi.Event{}, io.EOF
+}
+
+func (m *mockSimpleOrderStream) Close() error {
+	*m.events = append(*m.events, "inner_close")
+	return nil
+}
+
+func TestTask13_1_WireLifecycleEventStream_Cancel_Ordering(t *testing.T) {
+	t.Run("ManagedEventStream cancels before cleanup", func(t *testing.T) {
+		var events []string
+		expectedRes := lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+		inner := &mockOrderTrackingStream{
+			events:    &events,
+			cancelRes: expectedRes,
+		}
+		stream := &wireLifecycleEventStream{
+			EventStream: inner,
+			cleanup: func(err error) {
+				events = append(events, "cleanup")
+			},
+		}
+
+		res := stream.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelClientGone})
+		if res != expectedRes {
+			t.Fatalf("expected cancel result %v, got %v", expectedRes, res)
+		}
+
+		if len(events) != 2 || events[0] != "inner_cancel" || events[1] != "cleanup" {
+			t.Fatalf("expected [inner_cancel, cleanup], got %v", events)
+		}
+	})
+
+	t.Run("Standard EventStream closes before cleanup", func(t *testing.T) {
+		var events []string
+		inner := &mockSimpleOrderStream{
+			events: &events,
+		}
+		stream := &wireLifecycleEventStream{
+			EventStream: inner,
+			cleanup: func(err error) {
+				events = append(events, "cleanup")
+			},
+		}
+
+		res := stream.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelClientGone})
+		if res.Mode != lipapi.CancelModeCloseOnly {
+			t.Fatalf("expected CloseOnly mode, got %v", res.Mode)
+		}
+
+		if len(events) != 2 || events[0] != "inner_close" || events[1] != "cleanup" {
+			t.Fatalf("expected [inner_close, cleanup], got %v", events)
+		}
+	})
 }

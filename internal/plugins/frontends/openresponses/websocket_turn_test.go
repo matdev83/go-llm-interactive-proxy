@@ -341,6 +341,16 @@ func TestWebSocketTurn_EventParityWithHTTPSSE(t *testing.T) {
 		sse := maps.Clone(sseEvents[i])
 		delete(ws, "completed_at")
 		delete(sse, "completed_at")
+		if resp, ok := ws["response"].(map[string]any); ok {
+			respCopy := maps.Clone(resp)
+			delete(respCopy, "completed_at")
+			ws["response"] = respCopy
+		}
+		if resp, ok := sse["response"].(map[string]any); ok {
+			respCopy := maps.Clone(resp)
+			delete(respCopy, "completed_at")
+			sse["response"] = respCopy
+		}
 		if canonicalJSON(ws) != canonicalJSON(sse) {
 			t.Fatalf("frame %d differs between WebSocket and SSE\nWS:  %s\nSSE: %s",
 				i, canonicalJSON(ws), canonicalJSON(sse))

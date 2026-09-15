@@ -187,8 +187,8 @@ func TestCandidateAssessment_SaturationRace_ConcurrentAccept_SingleAdmissionAndS
 
 		exec := &testAssessorExecutor{}
 		exec.assessFunc = func(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
-			// Small synthetic delay while permit is held
-			time.Sleep(10 * time.Millisecond)
+			// Synthetic delay while permit is held to ensure competing goroutines hit the capacity limiter
+			time.Sleep(50 * time.Millisecond)
 			return makeAcceptedAssessment(proof)
 		}
 

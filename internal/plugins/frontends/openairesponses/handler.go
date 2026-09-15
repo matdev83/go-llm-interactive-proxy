@@ -132,6 +132,12 @@ func (h *Handler) buildPipe() {
 		},
 		WriteStream:    WriteStreamSSE,
 		WriteNonStream: WriteNonStreamJSON,
+		WireWriteStream: func(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+			return WireWriteStreamSSE(ctx, w, rc, es, h.Config.ExposeLipUsageExtensions)
+		},
+		WireWriteNonStream: func(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+			return WireWriteNonStreamJSON(ctx, w, rc, es, h.Config.ExposeLipUsageExtensions)
+		},
 	}
 }
 

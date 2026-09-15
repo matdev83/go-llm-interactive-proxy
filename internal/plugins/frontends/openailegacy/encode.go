@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -169,17 +171,40 @@ func defaultEncodeOptions(call *lipapi.Call, opts EncodeOptions) EncodeOptions {
 
 // WriteNonStreamJSON encodes a completed canonical stream as chat.completion JSON.
 func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
-	col, err := lipapi.Collect(ctx, es)
-	if err != nil {
-		return err
-	}
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "gpt-4o-mini"
 	}
 	opts = defaultEncodeOptions(call, opts)
-	cid := opts.CompletionID
-	ts := opts.CreatedAt
+	return writeNonStreamJSONCore(ctx, w, model, opts.CompletionID, opts.CreatedAt, opts.ExposeLipUsageExtensions, func(w http.ResponseWriter) {
+		sessionwire.WriteResponseCarriers(w, call)
+	}, es)
+}
+
+// WireWriteNonStreamJSON encodes a completed canonical stream as chat.completion JSON for wire fast-path execution.
+func WireWriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream, exposeExt bool) error {
+	model := rc.ClientModel()
+	if model == "" {
+		model = rc.EffectiveModel()
+	}
+	if model == "" {
+		model = "gpt-4o-mini"
+	}
+	cid := rc.OpenAIChatCompletionID()
+	ts := rc.DeterministicTimestamp()
+	if ts == 0 {
+		ts = time.Now().Unix()
+	}
+	return writeNonStreamJSONCore(ctx, w, model, cid, ts, exposeExt, func(w http.ResponseWriter) {
+		rc.WriteSessionHeaders(w)
+	}, es)
+}
+
+func writeNonStreamJSONCore(ctx context.Context, w http.ResponseWriter, model string, cid string, ts int64, exposeExt bool, writeCarriers func(w http.ResponseWriter), es lipapi.EventStream) error {
+	col, err := lipapi.Collect(ctx, es)
+	if err != nil {
+		return err
+	}
 	tools := col.OrderedToolCalls()
 	stop := "stop"
 	if len(tools) > 0 {
@@ -213,8 +238,10 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 			FinishReason: &stop,
 		}},
 	}
-	out.Usage = wireLegacyUsage(col, opts.ExposeLipUsageExtensions)
-	sessionwire.WriteResponseCarriers(w, call)
+	out.Usage = wireLegacyUsage(col, exposeExt)
+	if writeCarriers != nil {
+		writeCarriers(w)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	return json.NewEncoder(w).Encode(out)
@@ -227,10 +254,34 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		model = "gpt-4o-mini"
 	}
 	opts = defaultEncodeOptions(call, opts)
-	cid := opts.CompletionID
-	ts := opts.CreatedAt
+	return writeStreamSSECore(ctx, w, model, opts.CompletionID, opts.CreatedAt, opts.ExposeLipUsageExtensions, func(w http.ResponseWriter) {
+		sessionwire.WriteResponseCarriers(w, call)
+	}, es)
+}
 
-	sessionwire.WriteResponseCarriers(w, call)
+// WireWriteStreamSSE emits chat.completion.chunk SSE events incrementally from the canonical stream for wire fast-path execution.
+func WireWriteStreamSSE(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream, exposeExt bool) error {
+	model := rc.ClientModel()
+	if model == "" {
+		model = rc.EffectiveModel()
+	}
+	if model == "" {
+		model = "gpt-4o-mini"
+	}
+	cid := rc.OpenAIChatCompletionID()
+	ts := rc.DeterministicTimestamp()
+	if ts == 0 {
+		ts = time.Now().Unix()
+	}
+	return writeStreamSSECore(ctx, w, model, cid, ts, exposeExt, func(w http.ResponseWriter) {
+		rc.WriteSessionHeaders(w)
+	}, es)
+}
+
+func writeStreamSSECore(ctx context.Context, w http.ResponseWriter, model string, cid string, ts int64, exposeExt bool, writeCarriers func(w http.ResponseWriter), es lipapi.EventStream) error {
+	if writeCarriers != nil {
+		writeCarriers(w)
+	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
@@ -317,7 +368,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			st.delta = wireDelta{}
 			st.choices[0].Delta = &st.delta
 			st.choices[0].FinishReason = &stop
-			st.chunk.Usage = wireLegacyUsage(usageCol, opts.ExposeLipUsageExtensions)
+			st.chunk.Usage = wireLegacyUsage(usageCol, exposeExt)
 			if err := stream.FlushSSEDataJSON(w, fl, st.chunk); err != nil {
 				return false, err
 			}

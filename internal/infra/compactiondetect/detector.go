@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 )
@@ -142,62 +143,42 @@ func New(cfg Config) *Detector {
 	}
 }
 
-// requestRecognition is the detector-owned, pure recognition result shared
-// by request previews and the committed RequestOpened boundary. Keeping the
-// canonical fingerprint and ordered start-rule match together prevents a
-// preservation preview from drifting from committed detection.
-type requestRecognition struct {
-	fingerprint requestFingerprint
-	curHashes   [][32]byte
-	startRule   rule
-	startOK     bool
-}
-
-func recognizeRequest(meta compaction.PreservationMeta, call lipapi.Call, at time.Time) requestRecognition {
-	text := collectCallText(call)
-	info := requestInfo{call: call, lower: strings.ToLower(text)}
-	fp, curHashes := fingerprint(call, at)
-	fp.TraceID = meta.TraceID
-	startRule, startOK := matchStartRule(info)
-	return requestRecognition{
-		fingerprint: fp,
-		curHashes:   curHashes,
-		startRule:   startRule,
-		startOK:     startOK,
-	}
-}
-
 func historyCandidate(ls *legState, fp requestFingerprint, curHashes [][32]byte) bool {
 	return ls != nil && !ls.lastFingerprintStrictComplete && ls.lastFP.ItemCount > 0 && heuristicMatch(ls.lastFP, fp, curHashes)
 }
 
-// PreviewRequest returns the request-side candidate that the shared detector
-// would recognize without recording a fingerprint, changing a transaction, or
-// emitting an event. It is safe to call before upstream Open. A strict start
-// takes precedence over the history heuristic, matching committed detection.
-func (d *Detector) PreviewRequest(meta compaction.PreservationMeta, call lipapi.Call) RequestPreview {
+// PreviewRequestFacts returns the request-side candidate that the shared detector
+// would recognize from exact facts without recording a fingerprint, changing a
+// transaction, or emitting an event.
+func (d *Detector) PreviewRequestFacts(meta compaction.PreservationMeta, facts compactionfacts.RequestFacts) RequestPreview {
 	if d == nil || strings.TrimSpace(meta.ALegID) == "" {
 		return RequestPreview{Kind: PreviewNone}
 	}
-	now := d.now()
-	recognition := recognizeRequest(meta, call, now)
+	fp := requestFingerprint{
+		TraceID:         meta.TraceID,
+		EstimatedTokens: facts.EstimatedTokens,
+		ItemCount:       facts.ItemCount,
+		TailHashes:      facts.TailHashes,
+		TailLen:         facts.TailLen,
+		PrefixHash:      facts.PrefixHash,
+		PrefixItems:     facts.PrefixItems,
+	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	ls := d.legs[meta.ALegID]
-	if recognition.startOK && recognition.startRule.mode != modeCompletionOnly {
-		r := recognition.startRule
+	if facts.StartRuleMatched && facts.StartRuleMode != compactionfacts.RuleModeCompletionOnly {
 		preview := RequestPreview{
-			Evidence: r.evidence,
-			RuleID:   r.id,
+			Evidence: facts.StartRuleEvidence,
+			RuleID:   facts.StartRuleID,
 			Kind:     PreviewStartCandidate,
 		}
-		if ls != nil && ls.active != nil && !ls.active.completed && ls.active.ruleID == r.id {
+		if ls != nil && ls.active != nil && !ls.active.completed && ls.active.ruleID == facts.StartRuleID {
 			preview.TransactionID = ls.active.id
 		}
 		return preview
 	}
-	if !historyCandidate(ls, recognition.fingerprint, recognition.curHashes) {
+	if !historyCandidate(ls, fp, facts.ItemHashes) {
 		return RequestPreview{Kind: PreviewNone}
 	}
 	if ls.active != nil && !ls.active.completed && ls.active.mode == modeSingle {
@@ -214,9 +195,17 @@ func (d *Detector) PreviewRequest(meta compaction.PreservationMeta, call lipapi.
 		preview.TransactionID = ls.active.id
 	}
 	if preview.TransactionID == "" {
-		preview.BoundaryFingerprint = boundaryFingerprint(meta.ALegID, recognition.fingerprint)
+		preview.BoundaryFingerprint = boundaryFingerprint(meta.ALegID, fp)
 	}
 	return preview
+}
+
+// PreviewRequest returns the request-side candidate that the shared detector
+// would recognize without recording a fingerprint, changing a transaction, or
+// emitting an event. It is safe to call before upstream Open. A strict start
+// takes precedence over the history heuristic, matching committed detection.
+func (d *Detector) PreviewRequest(meta compaction.PreservationMeta, call lipapi.Call) RequestPreview {
+	return d.PreviewRequestFacts(meta, ExactFactsFromCall(call))
 }
 
 // PreviewResponse returns the response-side completion candidate without
@@ -303,18 +292,24 @@ func boundaryFingerprint(aLegID string, fp requestFingerprint) string {
 	return hex.EncodeToString(h.Sum(nil)[:16])
 }
 
-// RequestOpened observes one logical request after its upstream B-leg opened
-// successfully. It records the bounded fingerprint (for the local heuristic),
-// runs the conservative same-A-leg history check, and matches strict
-// start rules. Returns derived events in emission order (old completed before
-// new started, requirement 6.6). Never called for locally rejected requests or
-// for replacement/failover B-legs of the same logical request.
-func (d *Detector) RequestOpened(meta compaction.PreservationMeta, call lipapi.Call) []compaction.Event {
+// RequestOpenedFacts observes one logical request using exact bounded semantic facts.
+// It records the bounded fingerprint, runs the conservative same-A-leg history check,
+// and matches strict start rules. Returns derived events in emission order.
+func (d *Detector) RequestOpenedFacts(meta compaction.PreservationMeta, facts compactionfacts.RequestFacts) []compaction.Event {
 	if d == nil || strings.TrimSpace(meta.ALegID) == "" {
 		return nil
 	}
 	now := d.now()
-	recognition := recognizeRequest(meta, call, now)
+	fp := requestFingerprint{
+		TraceID:         meta.TraceID,
+		EstimatedTokens: facts.EstimatedTokens,
+		ItemCount:       facts.ItemCount,
+		TailHashes:      facts.TailHashes,
+		TailLen:         facts.TailLen,
+		PrefixHash:      facts.PrefixHash,
+		PrefixItems:     facts.PrefixItems,
+		SeenAt:          now,
+	}
 
 	var events []compaction.Event
 
@@ -325,8 +320,8 @@ func (d *Detector) RequestOpened(meta compaction.PreservationMeta, call lipapi.C
 
 	// Conservative history heuristic (completion-only; strict post evidence
 	// suppresses a duplicate, requirement 5.6).
-	if historyCandidate(ls, recognition.fingerprint, recognition.curHashes) {
-		if ev, ok := d.heuristicCompletionLocked(meta, ls, recognition.fingerprint, recognition.curHashes, now); ok {
+	if historyCandidate(ls, fp, facts.ItemHashes) {
+		if ev, ok := d.heuristicCompletionLocked(meta, ls, fp, facts.ItemHashes, now); ok {
 			events = append(events, ev)
 		}
 	}
@@ -337,8 +332,12 @@ func (d *Detector) RequestOpened(meta compaction.PreservationMeta, call lipapi.C
 		ls.active = nil
 	}
 
-	if recognition.startOK {
-		r := recognition.startRule
+	if facts.StartRuleMatched {
+		r := rule{
+			id:       facts.StartRuleID,
+			mode:     ruleMode(facts.StartRuleMode),
+			evidence: facts.StartRuleEvidence,
+		}
 		switch r.mode {
 		case modeCompletionOnly:
 			// A completion-only rule never emits a start.
@@ -367,11 +366,22 @@ func (d *Detector) RequestOpened(meta compaction.PreservationMeta, call lipapi.C
 
 	// Record the new fingerprint; the next request compares against it. The
 	// strict-completion suppression flag resets for the new baseline.
-	ls.lastFP = recognition.fingerprint
+	ls.lastFP = fp
 	ls.lastFingerprintStrictComplete = false
 	ls.lastSeen = now
 
 	return events
+}
+
+// RequestOpened observes one logical request after its upstream B-leg opened
+// successfully. It delegates to RequestOpenedFacts using ExactFactsFromCall.
+func (d *Detector) RequestOpened(meta compaction.PreservationMeta, call lipapi.Call) []compaction.Event {
+	return d.RequestOpenedFacts(meta, ExactFactsFromCall(call))
+}
+
+// ExactFactsFromCall extracts exact bounded RequestFacts from a canonical Call.
+func ExactFactsFromCall(call lipapi.Call) compactionfacts.RequestFacts {
+	return compactionfacts.ExtractFactsFromCall(call)
 }
 
 // ResponseReleased observes one canonical event actually released by the retry
@@ -633,18 +643,6 @@ func terminalIsSuccessful(ev lipapi.Event) bool {
 	default:
 		return false
 	}
-}
-
-// collectCallText joins every canonical text payload in traversal order for
-// deterministic signature matching (lipapi traversal only, R4.1).
-func collectCallText(call lipapi.Call) string {
-	var sb strings.Builder
-	_ = lipapi.WalkCallTexts(call, func(_ string, text string) error {
-		sb.WriteString(text)
-		sb.WriteByte('\n')
-		return nil
-	})
-	return sb.String()
 }
 
 // releasedText extracts the canonical text of one released event (assistant

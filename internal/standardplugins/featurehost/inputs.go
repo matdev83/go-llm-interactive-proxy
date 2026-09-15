@@ -42,11 +42,9 @@ type ProcessInput struct {
 	ContinuityStore   b2bua.Store
 	BunDB             *bun.DB
 	HostRegistrations []sdkfeaturehost.Registration
-	// HostEnv is a generic process-environment capability. Featurehost
-	// synthesizes the default host binding from it when none is registered.
+	// HostEnv is a generic process-environment capability used when none is registered.
 	HostEnv HostEnvironment
-	// MetricsRegistry, when non-nil, receives the feature-owned keep-warm
-	// collector. Nil disables keep-warm metrics export.
+	// MetricsRegistry receives the feature-owned keep-warm collector (nil disables).
 	MetricsRegistry MetricsRegistry
 	// buildSteps carries staged construction actions for package-local tests
 	// only. It is unexported so no external caller (including generic
@@ -60,14 +58,15 @@ type ProcessInput struct {
 // TerminalPolicyProjection) are built by featurehost so generic runtimebundle
 // copies values without referencing concrete feature symbols.
 type CorePorts struct {
-	CompactionDetector       runtime.CompactionDetector
-	ConversationReader       conversationprojection.Reader
-	InterleavedProcessor     runtime.InterleavedProcessor
-	PromptCacheMaintenance   runtime.PromptCacheMaintenance
-	TerminalPolicyReader     runtime.TerminalPolicyReader
-	MetricsSwap              func()
-	KeepwarmAdmin            adminkeepwarm.Options
-	TerminalPolicyProjection TerminalPolicyProjectionFunc
+	CompactionDetector            runtime.CompactionDetector
+	ConversationReader            conversationprojection.Reader
+	ConversationReaderStockOrigin bool
+	InterleavedProcessor          runtime.InterleavedProcessor
+	PromptCacheMaintenance        runtime.PromptCacheMaintenance
+	TerminalPolicyReader          runtime.TerminalPolicyReader
+	MetricsSwap                   func()
+	KeepwarmAdmin                 adminkeepwarm.Options
+	TerminalPolicyProjection      TerminalPolicyProjectionFunc
 }
 
 // GenerationInput carries inputs for featurehost generation composition.

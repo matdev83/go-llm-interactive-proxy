@@ -342,6 +342,10 @@ func TestWebSocketUpgrade_ValidHandshakeEstablishesBoundedSession(t *testing.T) 
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","store":false}`)); err != nil {
 		t.Fatal(err)
 	}
+	eventually(t, 3*time.Second, func() bool {
+		calls, _, _, _ := runner.snapshot()
+		return calls >= 1
+	})
 	// Terminate from the client side; the server must close exactly once.
 	if err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
 		t.Fatal(err)

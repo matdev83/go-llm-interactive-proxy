@@ -38,17 +38,25 @@ var _ lipapi.EventStream = (*allowedToolsStream)(nil)
 // call carries a subset or explicitly selects ToolChoiceNone; otherwise it
 // returns the original stream.
 func newAllowedToolsStream(call *lipapi.Call, stream lipapi.EventStream) lipapi.EventStream {
-	if call == nil || stream == nil || (len(call.ToolChoice.AllowedTools) == 0 && call.ToolChoice.Mode != lipapi.ToolChoiceNone) {
+	if call == nil {
 		return stream
 	}
-	allowed := make(map[string]struct{}, len(call.ToolChoice.AllowedTools))
-	for _, name := range call.ToolChoice.AllowedTools {
+	return newAllowedToolsStreamFromChoice(call.ToolChoice, stream)
+}
+
+// newAllowedToolsStreamFromChoice wraps stream with the allowed_tools filter for a given ToolChoice.
+func newAllowedToolsStreamFromChoice(choice lipapi.ToolChoice, stream lipapi.EventStream) lipapi.EventStream {
+	if stream == nil || (len(choice.AllowedTools) == 0 && choice.Mode != lipapi.ToolChoiceNone) {
+		return stream
+	}
+	allowed := make(map[string]struct{}, len(choice.AllowedTools))
+	for _, name := range choice.AllowedTools {
 		allowed[name] = struct{}{}
 	}
 	return &allowedToolsStream{
 		stream:      stream,
 		allowed:     allowed,
-		suppressAll: call.ToolChoice.Mode == lipapi.ToolChoiceNone,
+		suppressAll: choice.Mode == lipapi.ToolChoiceNone,
 		suppressed:  make(map[string]struct{}),
 	}
 }

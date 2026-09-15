@@ -21,8 +21,10 @@ import (
 type Backend struct {
 	Caps lipapi.BackendCaps
 	// ResolveCaps, when set, supplies model/candidate-aware capabilities; otherwise Caps is used.
-	ResolveCaps   func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps
-	TransportCaps lipapi.BackendTransportCaps
+	ResolveCaps func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps
+	// ResolveWireCaps, when set, supplies candidate/model-aware capabilities for wire fast-path evaluation without requiring a synthesized lipapi.Call.
+	ResolveWireCaps func(ctx context.Context, cand routing.AttemptCandidate) lipapi.BackendCaps
+	TransportCaps   lipapi.BackendTransportCaps
 	// ResolveTransportCaps, when set, supplies model/candidate-aware transport capabilities; otherwise TransportCaps is used.
 	ResolveTransportCaps func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendTransportCaps
 	Open                 func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error)

@@ -24,16 +24,18 @@ var wantGenerationOutputShape = []string{
 
 // CorePorts members: five task-assigned consumer interfaces
 // (CompactionDetector, ConversationReader, InterleavedProcessor,
-// PromptCacheMaintenance, TerminalPolicyReader) plus three opaque
+// PromptCacheMaintenance, TerminalPolicyReader), ConversationReaderStockOrigin
+// which carries non-spoofable composition origin, plus three opaque
 // remediation ports, each carrying no concrete feature type across the
 // boundary: MetricsSwap is a bare func() invoked once per published
 // generation; KeepwarmAdmin is a process-stable stdhttp options value
 // copied opaquely; TerminalPolicyProjection is a factory func value
-// invoked with generic composition state. Adding a ninth member
+// invoked with generic composition state. Adding a tenth member
 // requires the same bar: opaque type, documented justification here.
 var wantCorePortsShape = []string{
 	"CompactionDetector:runtime.CompactionDetector",
 	"ConversationReader:conversationprojection.Reader",
+	"ConversationReaderStockOrigin:bool",
 	"InterleavedProcessor:runtime.InterleavedProcessor",
 	"PromptCacheMaintenance:runtime.PromptCacheMaintenance",
 	"TerminalPolicyReader:runtime.TerminalPolicyReader",
@@ -209,14 +211,15 @@ type GenerationOutput struct {
 `
 	fullCorePorts := `package featurehost
 type CorePorts struct {
-	CompactionDetector       runtime.CompactionDetector
-	ConversationReader       conversationprojection.Reader
-	InterleavedProcessor     runtime.InterleavedProcessor
-	PromptCacheMaintenance   runtime.PromptCacheMaintenance
-	TerminalPolicyReader     runtime.TerminalPolicyReader
-	MetricsSwap              func()
-	KeepwarmAdmin            adminkeepwarm.Options
-	TerminalPolicyProjection TerminalPolicyProjectionFunc
+	CompactionDetector            runtime.CompactionDetector
+	ConversationReader            conversationprojection.Reader
+	ConversationReaderStockOrigin bool
+	InterleavedProcessor          runtime.InterleavedProcessor
+	PromptCacheMaintenance        runtime.PromptCacheMaintenance
+	TerminalPolicyReader          runtime.TerminalPolicyReader
+	MetricsSwap                   func()
+	KeepwarmAdmin                 adminkeepwarm.Options
+	TerminalPolicyProjection      TerminalPolicyProjectionFunc
 `
 	cases := []struct {
 		name       string
@@ -238,14 +241,15 @@ type CorePorts struct {
 			structName: "CorePorts",
 			src: `package featurehost
 type CorePorts struct {
-	CompactionDetector       runtime.CompactionDetector
-	ConversationReader       conversationprojection.Reader
-	InterleavedProcessor     runtime.InterleavedProcessor
-	PromptCacheMaintenance   runtime.PromptCacheMaintenance
-	TerminalPolicyReader     runtime.TerminalPolicyReader
-	MetricsSwap              string
-	KeepwarmAdmin            adminkeepwarm.Options
-	TerminalPolicyProjection TerminalPolicyProjectionFunc
+	CompactionDetector            runtime.CompactionDetector
+	ConversationReader            conversationprojection.Reader
+	ConversationReaderStockOrigin bool
+	InterleavedProcessor          runtime.InterleavedProcessor
+	PromptCacheMaintenance        runtime.PromptCacheMaintenance
+	TerminalPolicyReader          runtime.TerminalPolicyReader
+	MetricsSwap                   string
+	KeepwarmAdmin                 adminkeepwarm.Options
+	TerminalPolicyProjection      TerminalPolicyProjectionFunc
 }
 `,
 			silent: false,

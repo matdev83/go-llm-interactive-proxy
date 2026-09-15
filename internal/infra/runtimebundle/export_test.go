@@ -9,6 +9,7 @@ import (
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
@@ -22,6 +23,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -429,3 +431,11 @@ func (c *CandidateHTTPCompile) TerminalWorkMetrics() *terminalworkapp.MetricsObs
 	return CandidateTerminalWorkMetrics(c)
 }
 func (c *CandidateHTTPCompile) UpstreamHTTP() *http.Client { return CandidateUpstreamHTTP(c) }
+
+func ResolveLargeBodyAssessorGenIDForTest(snapGen *snapshotgen.Publisher) string {
+	return resolveLargeBodyAssessorGenID(snapGen)
+}
+
+func ResolveCandidateConvReaderForTest(ports featurehost.CorePorts, sf *featurehost.Runtime) (conversationprojection.Reader, bool) {
+	return resolveCandidateConvReader(ports, sf)
+}

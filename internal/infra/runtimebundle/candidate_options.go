@@ -3,6 +3,8 @@ package runtimebundle
 import (
 	"slices"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
 
@@ -27,8 +29,7 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 		if overlay.ReplaceCandidateSurface {
 			out.FeatureLifecycles = slices.Clone(overlay.FeatureLifecycles)
 			out.Extensions = cloneExtensionsOptions(overlay.Extensions)
-			out.FeaturePlanes = overlay.FeaturePlanes
-			out.CorePorts = overlay.CorePorts
+			out.FeaturePlanes, out.CorePorts = overlay.FeaturePlanes, overlay.CorePorts
 		} else {
 			if overlay.FeatureLifecycles != nil {
 				out.FeatureLifecycles = slices.Clone(overlay.FeatureLifecycles)
@@ -39,14 +40,14 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 			if !overlay.FeaturePlanes.IsZero() {
 				out.FeaturePlanes = overlay.FeaturePlanes
 			}
-			if overlay.CorePorts.InterleavedProcessor != nil {
-				out.CorePorts.InterleavedProcessor = overlay.CorePorts.InterleavedProcessor
+			if p := overlay.CorePorts.InterleavedProcessor; p != nil {
+				out.CorePorts.InterleavedProcessor = p
 			}
-			if overlay.CorePorts.ConversationReader != nil {
-				out.CorePorts.ConversationReader = overlay.CorePorts.ConversationReader
+			if r := overlay.CorePorts.ConversationReader; r != nil {
+				out.CorePorts.ConversationReader, out.CorePorts.ConversationReaderStockOrigin = r, overlay.CorePorts.ConversationReaderStockOrigin
 			}
-			if overlay.CorePorts.CompactionDetector != nil {
-				out.CorePorts.CompactionDetector = overlay.CorePorts.CompactionDetector
+			if d := overlay.CorePorts.CompactionDetector; d != nil {
+				out.CorePorts.CompactionDetector = d
 			}
 		}
 		if overlay.WireModel != nil {
@@ -66,15 +67,8 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 	return &out
 }
 
-func hasExtensionOverlay(e ExtensionsOptions) bool {
-	// Extensions carry no overlay surfaces: every concrete feature state
-	// flows via ordinary planes, lifecycles, or fixed consumer ports.
-	return false
-}
-
-func cloneExtensionsOptions(in ExtensionsOptions) ExtensionsOptions {
-	return ExtensionsOptions{}
-}
+func hasExtensionOverlay(e ExtensionsOptions) bool                  { return false }
+func cloneExtensionsOptions(in ExtensionsOptions) ExtensionsOptions { return ExtensionsOptions{} }
 
 func prependGeneratedLifecycles(gen, overlay []lipplugin.Lifecycle) []lipplugin.Lifecycle {
 	if gen == nil && overlay == nil {
@@ -84,4 +78,24 @@ func prependGeneratedLifecycles(gen, overlay []lipplugin.Lifecycle) []lipplugin.
 	out = append(out, gen...)
 	out = append(out, overlay...)
 	return out
+}
+
+// resolveCandidateConvReader resolves the candidate conversation reader and certifies
+// stock origin only when the resolved reader is genuinely identical to the standard
+// features stock reader. Forged stock origin assertions on non-stock readers are declined.
+func resolveCandidateConvReader(ports featurehost.CorePorts, sf *featurehost.Runtime) (conversationprojection.Reader, bool) {
+	convReader, stockConvReader := ports.ConversationReader, false
+	if sf != nil {
+		if stockReader := sf.ConversationReader(); convReader == nil {
+			convReader, stockConvReader = stockReader, stockReader != nil
+		} else if isSameConversationReader(convReader, stockReader) {
+			stockConvReader = ports.ConversationReaderStockOrigin && stockReader != nil
+		}
+	}
+	return convReader, stockConvReader
+}
+
+func isSameConversationReader(a, b conversationprojection.Reader) bool {
+	defer func() { _ = recover() }()
+	return a == b
 }

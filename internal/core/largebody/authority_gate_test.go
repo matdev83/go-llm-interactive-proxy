@@ -434,3 +434,104 @@ func TestTask11_3_SentinelHarness_AllSentinelsUntouched(t *testing.T) {
 	}
 	harness.AssertUntouched(t)
 }
+
+func TestAuthorityGate_CapsResolver_Subsumption(t *testing.T) {
+	t.Parallel()
+
+	genID := "gen-caps-subsumption-test"
+
+	// 1. CapsResolver occupied without wire proof subsumption -> blocks statically and declines
+	censusBlocked := largebody.NewStandardDependencyCensus(genID)
+	censusBlocked.Ports.CapsResolverOccupied = true
+	censusBlocked.Ports.CapsResolverWireProofSubsumed = false
+
+	summaryBlocked, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+		GenerationID:              genID,
+		Planes:                    censusBlocked.Planes,
+		Hooks:                     censusBlocked.Hooks,
+		Ports:                     censusBlocked.Ports,
+		TwoPhaseExecutorAvailable: true,
+	}, 4096)
+	if err != nil {
+		t.Fatalf("CompileWireEligibilitySummary (blocked): %v", err)
+	}
+	if !summaryBlocked.HasStaticBlocker() {
+		t.Fatal("expected summaryBlocked to report HasStaticBlocker == true")
+	}
+	if summaryBlocked.PortBlockers()&largebody.WirePortCapsResolver == 0 {
+		t.Fatalf("expected WirePortCapsResolver bit set, got %#x", summaryBlocked.PortBlockers())
+	}
+	gateBlocked := largebody.NewAuthorityAssessmentGate(summaryBlocked, censusBlocked, genID)
+	decBlocked, reasBlocked := gateBlocked.Evaluate()
+	if decBlocked != largebody.AssessmentDecisionDecline || reasBlocked != largebody.DeclineReasonAuthorityBlocker {
+		t.Fatalf("expected decline with authority blocker, got dec=%v reas=%v", decBlocked, reasBlocked)
+	}
+
+	// 2. CapsResolver occupied with wire proof subsumption -> zero static blockers and accepts
+	censusSubsumed := largebody.NewStandardDependencyCensus(genID)
+	censusSubsumed.Ports.CapsResolverOccupied = true
+	censusSubsumed.Ports.CapsResolverWireProofSubsumed = true
+
+	summarySubsumed, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+		GenerationID:              genID,
+		Planes:                    censusSubsumed.Planes,
+		Hooks:                     censusSubsumed.Hooks,
+		Ports:                     censusSubsumed.Ports,
+		TwoPhaseExecutorAvailable: true,
+	}, 4096)
+	if err != nil {
+		t.Fatalf("CompileWireEligibilitySummary (subsumed): %v", err)
+	}
+	if summarySubsumed.HasStaticBlocker() {
+		t.Fatalf("subsumed CapsResolver must not have static blocker, got port_blockers=%#x", summarySubsumed.PortBlockers())
+	}
+	if summarySubsumed.PortBlockers()&largebody.WirePortCapsResolver != 0 {
+		t.Fatalf("expected WirePortCapsResolver bit CLEAR, got %#x", summarySubsumed.PortBlockers())
+	}
+	gateSubsumed := largebody.NewAuthorityAssessmentGate(summarySubsumed, censusSubsumed, genID)
+	decSubsumed, reasSubsumed := gateSubsumed.Evaluate()
+	if decSubsumed != largebody.AssessmentDecisionAccept || reasSubsumed != largebody.DeclineReasonNone {
+		t.Fatalf("expected accept with DeclineReasonNone, got dec=%v reas=%v", decSubsumed, reasSubsumed)
+	}
+}
+
+func TestAuthorityGate_CompactionPreservers_BlocksWireStatically(t *testing.T) {
+	t.Parallel()
+
+	genID := "gen-compaction-preservers-blocker"
+	census := largebody.NewStandardDependencyCensus(genID)
+	// compaction_preservers is occupied in planes census
+	idx, ok := largebody.WireEligibilityPlaneIndex("compaction_preservers")
+	if !ok {
+		t.Fatalf("missing plane index for compaction_preservers")
+	}
+	census.Planes[idx].Occupied = true
+
+	summary, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+		GenerationID:              genID,
+		Planes:                    census.Planes,
+		Hooks:                     census.Hooks,
+		Ports:                     census.Ports,
+		TwoPhaseExecutorAvailable: true,
+	}, 4096)
+	if err != nil {
+		t.Fatalf("CompileWireEligibilitySummary: %v", err)
+	}
+
+	// Prove that compaction_preservers has PlaneAccessCanonicalRequired and sets static plane blocker
+	if !summary.HasStaticBlocker() {
+		t.Fatal("expected compaction_preservers to produce static blocker")
+	}
+	if summary.PlaneBlockers() == 0 {
+		t.Fatal("expected non-zero PlaneBlockers for occupied compaction_preservers")
+	}
+
+	gate := largebody.NewAuthorityAssessmentGate(summary, census, genID)
+	decision, reason := gate.Evaluate()
+	if decision != largebody.AssessmentDecisionDecline {
+		t.Fatalf("expected decision Decline, got %v", decision)
+	}
+	if reason != largebody.DeclineReasonAuthorityBlocker {
+		t.Fatalf("expected reason DeclineReasonAuthorityBlocker, got %v", reason)
+	}
+}

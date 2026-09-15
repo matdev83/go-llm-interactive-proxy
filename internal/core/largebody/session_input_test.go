@@ -353,3 +353,90 @@ func TestSessionInput_ResumeTokenNeverEntersBackendFactsOrTelemetry(t *testing.T
 		}
 	})
 }
+
+func TestSessionInput_ProvesFreshALeg(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   largebody.SessionInput
+		want bool
+	}{
+		{
+			name: "fresh new session without any id or token",
+			in: largebody.SessionInput{
+				NewSessionRequested: true,
+			},
+			want: true,
+		},
+		{
+			name: "fresh new session with client session id only (hint)",
+			in: largebody.SessionInput{
+				NewSessionRequested: true,
+				ClientSessionID:     "client-hint-123",
+			},
+			want: true,
+		},
+		{
+			name: "fresh new session with whitespace-only fields",
+			in: largebody.SessionInput{
+				NewSessionRequested:    true,
+				AuthoritativeSessionID: "   ",
+				ALegID:                 " \t ",
+				ResumeToken:            largebody.NewSensitiveString("   "),
+			},
+			want: true,
+		},
+		{
+			name: "new session false",
+			in: largebody.SessionInput{
+				NewSessionRequested: false,
+			},
+			want: false,
+		},
+		{
+			name: "authoritative session id present",
+			in: largebody.SessionInput{
+				NewSessionRequested:    true,
+				AuthoritativeSessionID: "sess-auth-existing",
+			},
+			want: false,
+		},
+		{
+			name: "aleg id present",
+			in: largebody.SessionInput{
+				NewSessionRequested: true,
+				ALegID:              "aleg-existing",
+			},
+			want: false,
+		},
+		{
+			name: "resume token present",
+			in: largebody.SessionInput{
+				NewSessionRequested: true,
+				ResumeToken:         largebody.NewSensitiveString("secret-resume-token"),
+			},
+			want: false,
+		},
+		{
+			name: "all fields present",
+			in: largebody.SessionInput{
+				NewSessionRequested:    true,
+				AuthoritativeSessionID: "sess-auth",
+				ALegID:                 "aleg-1",
+				ResumeToken:            largebody.NewSensitiveString("resume-tok"),
+				ClientSessionID:        "client-1",
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.in.ProvesFreshALeg()
+			if got != tc.want {
+				t.Errorf("ProvesFreshALeg() = %v, want %v for %+v", got, tc.want, tc.in)
+			}
+		})
+	}
+}

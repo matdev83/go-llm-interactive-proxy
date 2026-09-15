@@ -298,10 +298,17 @@ func TestTask13_3_ParallelReaders_Independent(t *testing.T) {
 
 		var readWg sync.WaitGroup
 		readWg.Add(2)
+		be1Started := make(chan struct{})
+		be2Started := make(chan struct{})
 
 		be1 := &stubWireBackend{
 			openFunc: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
 				defer readWg.Done()
+				close(be1Started)
+				select {
+				case <-be2Started:
+				case <-ctx.Done():
+				}
 				// Slow to emit first event
 				time.Sleep(30 * time.Millisecond)
 				return makeStreamWithEvents(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "r1"}), nil
@@ -311,6 +318,11 @@ func TestTask13_3_ParallelReaders_Independent(t *testing.T) {
 		be2 := &stubWireBackend{
 			openFunc: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
 				defer readWg.Done()
+				close(be2Started)
+				select {
+				case <-be1Started:
+				case <-ctx.Done():
+				}
 				return makeStreamWithEvents(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "r2"}), nil
 			},
 		}

@@ -297,6 +297,21 @@ loop:
 			result = errWSAgeLimit
 			break loop
 		case r := <-doneCh:
+			for {
+				select {
+				case msg := <-messageCh:
+					if runner != nil {
+						if err := runner.HandleMessage(turnCtx, s, msg); err != nil {
+							result = err
+							break loop
+						}
+					}
+					budget.release(int64(len(msg)))
+				default:
+					goto donePump
+				}
+			}
+		donePump:
 			if r.fromRead && isReadTimeout(r.err) {
 				if s.counters != nil {
 					s.counters.idleClosed.Add(1)

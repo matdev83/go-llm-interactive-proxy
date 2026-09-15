@@ -79,13 +79,14 @@ type executorBuildInput struct {
 	BackendIdentities  map[string]BackendStateIdentity
 	// CompactionDetector is the process-owned detector shared by all
 	// generations. Nil disables compaction observation.
-	CompactionDetector   runtime.CompactionDetector
-	BackgroundScheduler  *auxreq.BackgroundScheduler
-	GenerationRunner     *infraaux.GenerationExecutorRunner
-	TerminalPolicyReader runtime.TerminalPolicyReader
-	ConversationReader   conversationprojection.Reader
-	ConversationStore    conversationview.Store
-	InterleavedProcessor runtime.InterleavedProcessor
+	CompactionDetector            runtime.CompactionDetector
+	BackgroundScheduler           *auxreq.BackgroundScheduler
+	GenerationRunner              *infraaux.GenerationExecutorRunner
+	TerminalPolicyReader          runtime.TerminalPolicyReader
+	ConversationReader            conversationprojection.Reader
+	ConversationReaderStockOrigin bool
+	ConversationStore             conversationview.Store
+	InterleavedProcessor          runtime.InterleavedProcessor
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -247,18 +248,19 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	}
 	convStore := in.ConversationStore
 	largeBodyAssessor, largeBodyGenID, err := buildLargeBodyAssessor(largeBodyAssessorInput{
-		Cfg:            cfg,
-		Bctx:           bctx,
-		Opts:           opts,
-		In:             in,
-		RoutingRT:      routingRT,
-		AccountingRT:   accountingRT,
-		Prod:           prod,
-		DefBE:          defBE,
-		AliasResolver:  aliasResolver,
-		ExecResolver:   execResolver,
-		ExecPolicy:     execPolicy,
-		OverrideReader: overrideReader,
+		Cfg:                           cfg,
+		Bctx:                          bctx,
+		Opts:                          opts,
+		In:                            in,
+		RoutingRT:                     routingRT,
+		AccountingRT:                  accountingRT,
+		Prod:                          prod,
+		DefBE:                         defBE,
+		AliasResolver:                 aliasResolver,
+		ExecResolver:                  execResolver,
+		ExecPolicy:                    execPolicy,
+		OverrideReader:                overrideReader,
+		CapsResolverWireProofSubsumed: capMap != nil,
 	})
 	if err != nil {
 		return nil, err
@@ -511,15 +513,21 @@ func (a *conversationViewTaggerAdapter) TagNeverBackend(ctx context.Context, aLe
 }
 
 func (a *conversationViewTaggerAdapter) DeleteALeg(ctx context.Context, aLegID string) error {
-	if a == nil || a.store == nil {
-		return nil
-	}
-	if d, ok := a.store.(interface {
-		DeleteALeg(context.Context, string) error
-	}); ok {
-		return d.DeleteALeg(ctx, aLegID)
+	if a != nil && a.store != nil {
+		if d, ok := a.store.(interface {
+			DeleteALeg(context.Context, string) error
+		}); ok {
+			return d.DeleteALeg(ctx, aLegID)
+		}
 	}
 	return nil
+}
+
+func (a *conversationViewTaggerAdapter) ConversationViewStore() conversationview.Store {
+	if a == nil {
+		return nil
+	}
+	return a.store
 }
 
 type metricsObserverAdapter struct {

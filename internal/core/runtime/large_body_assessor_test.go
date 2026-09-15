@@ -6,11 +6,18 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
+
+type stubOverrideReader struct{}
+
+func (stubOverrideReader) Snapshot(_ context.Context, _ string) (routeoverride.State, error) {
+	return routeoverride.State{}, nil
+}
 
 type testWireBackend struct {
 	reqSupport    largebody.WireRequestSupport
@@ -308,6 +315,306 @@ func TestProductionLargeBodyAssessor_StaticDisposition(t *testing.T) {
 		}
 		if reason != largebody.StaticWireReasonNone {
 			t.Fatalf("expected StaticWireReasonNone, got %v", reason)
+		}
+	})
+}
+
+func TestProductionLargeBodyAssessor_ConversationViewReader_FreshALegCertification(t *testing.T) {
+	t.Parallel()
+
+	genID := "gen-conv-reader-test"
+	census := largebody.NewStandardDependencyCensus(genID)
+	census.Ports.ConversationViewReaderOccupied = true
+	census.Ports.ConversationReaderFreshALegSupported = true
+
+	summary, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+		GenerationID:              genID,
+		Planes:                    census.Planes,
+		Hooks:                     census.Hooks,
+		Ports:                     census.Ports,
+		TwoPhaseExecutorAvailable: true,
+	}, 4096)
+	if err != nil {
+		t.Fatalf("CompileWireEligibilitySummary: %v", err)
+	}
+
+	if summary.HasStaticBlocker() {
+		t.Fatalf("conditionally wire-safe ConversationViewReader must not statically block, got port_blockers=%#x", summary.PortBlockers())
+	}
+
+	authGate := largebody.NewAuthorityAssessmentGate(summary, census, genID)
+	wb := testWireBackend{
+		reqSupport:    largebody.WireRequestSupport{Compatible: true},
+		domainSupport: largebody.WireDomainSupport{Compatible: true, AnyAcceptedModel: true},
+	}
+	resolver := largebody.WireBackendMap{"test-backend": wb}
+	execResolver := routing.BackendExecutionResolverFunc(func(string) (lipsdk.BackendExecutionClass, bool) {
+		return lipsdk.BackendExecutionInference, true
+	})
+	validator := routing.NewGenerationSelectorValidator(nil, "test-backend", map[string]struct{}{"test-backend": {}}, execResolver, config.ExecutionCompositionSafe)
+	initialGate := largebody.NewInitialRouteAssessmentGate(nil, "test-backend", execResolver, config.ExecutionCompositionSafe, nil, resolver)
+	overrideGate := largebody.NewRouteOverrideAssessmentGate(nil, validator, resolver)
+	wireGate := largebody.NewBackendWireProofGate(initialGate, overrideGate, nil, resolver)
+
+	assessor := coreruntime.NewProductionLargeBodyAssessor(
+		genID,
+		genID,
+		authGate,
+		wireGate,
+		coreruntime.StandardLaneDomainPolicies(),
+	)
+
+	// Resumed session proof -> pre-commit decline with DeclineReasonSessionUnsupported
+	resumedProof := validTestProof("openai_chat_v1", lipapi.OperationOpenAIChatCompletions, lipapi.DeliveryModeStreaming)
+	resumedProof.Session = largebody.SessionInput{
+		AuthoritativeSessionID: "existing-auth-sess",
+		NewSessionRequested:    false,
+	}
+
+	resumedAssessment, err := assessor.AssessLargeBody(context.Background(), resumedProof)
+	if err != nil {
+		t.Fatalf("AssessLargeBody returned error: %v", err)
+	}
+	if !resumedAssessment.Declined() {
+		t.Fatalf("expected resumed session to decline, got accepted")
+	}
+	if resumedAssessment.Reason != largebody.DeclineReasonSessionUnsupported {
+		t.Fatalf("expected DeclineReasonSessionUnsupported, got %v", resumedAssessment.Reason)
+	}
+
+	// Fresh session proof -> accepted!
+	freshProof := validTestProof("openai_chat_v1", lipapi.OperationOpenAIChatCompletions, lipapi.DeliveryModeStreaming)
+	freshProof.Session = largebody.SessionInput{
+		NewSessionRequested: true,
+	}
+
+	freshAssessment, err := assessor.AssessLargeBody(context.Background(), freshProof)
+	if err != nil {
+		t.Fatalf("AssessLargeBody returned error: %v", err)
+	}
+	if freshAssessment.Declined() {
+		t.Fatalf("expected fresh session to be accepted, got declined with %v", freshAssessment.Reason)
+	}
+}
+
+// TestProductionLargeBodyAssessor_Audit_DeclinePaths_RealGates verifies the four
+// adversarial audit decline paths through real gate objects (MAJOR F):
+// 1. Backend ResolveWireRequest.Compatible=false -> DeclineReasonBackendIncompatible
+// 2. NeedsModelRewrite without proof rewrite -> DeclineReasonRewriteUnsupported
+// 3. Incompatible late-override domain member -> DeclineReasonBackendIncompatible
+// 4. ComposeOverrideCandidate rejection path
+func TestProductionLargeBodyAssessor_Audit_DeclinePaths_RealGates(t *testing.T) {
+	t.Parallel()
+
+	genID := "gen-major-f"
+	proof := validTestProof("openai_chat_v1", lipapi.OperationOpenAIChatCompletions, lipapi.DeliveryModeStreaming)
+	proof.Session = largebody.SessionInput{NewSessionRequested: true}
+
+	t.Run("backend_resolve_wire_request_incompatible", func(t *testing.T) {
+		t.Parallel()
+		census := largebody.NewStandardDependencyCensus(genID)
+		summary, _ := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+			GenerationID:              genID,
+			Planes:                    census.Planes,
+			Hooks:                     census.Hooks,
+			Ports:                     census.Ports,
+			TwoPhaseExecutorAvailable: true,
+		}, 4096)
+		authGate := largebody.NewAuthorityAssessmentGate(summary, census, genID)
+
+		wb := testWireBackend{
+			reqSupport:    largebody.WireRequestSupport{Compatible: false},
+			domainSupport: largebody.WireDomainSupport{Compatible: true, AnyAcceptedModel: true},
+		}
+		resolver := largebody.WireBackendMap{"test-backend": wb}
+		execResolver := routing.BackendExecutionResolverFunc(func(string) (lipsdk.BackendExecutionClass, bool) {
+			return lipsdk.BackendExecutionInference, true
+		})
+		validator := routing.NewGenerationSelectorValidator(nil, "test-backend", map[string]struct{}{"test-backend": {}}, execResolver, config.ExecutionCompositionSafe)
+		initialGate := largebody.NewInitialRouteAssessmentGate(nil, "test-backend", execResolver, config.ExecutionCompositionSafe, nil, resolver)
+		overrideGate := largebody.NewRouteOverrideAssessmentGate(nil, validator, resolver)
+		wireGate := largebody.NewBackendWireProofGate(initialGate, overrideGate, nil, resolver)
+
+		assessor := coreruntime.NewProductionLargeBodyAssessor(genID, genID, authGate, wireGate, nil)
+		assessment, err := assessor.AssessLargeBody(context.Background(), proof)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !assessment.Declined() || assessment.Reason != largebody.DeclineReasonBackendIncompatible {
+			t.Fatalf("expected DeclineReasonBackendIncompatible, got %v (decision=%v)", assessment.Reason, assessment.Decision)
+		}
+	})
+
+	t.Run("needs_model_rewrite_unsupported", func(t *testing.T) {
+		t.Parallel()
+		census := largebody.NewStandardDependencyCensus(genID)
+		summary, _ := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+			GenerationID:              genID,
+			Planes:                    census.Planes,
+			Hooks:                     census.Hooks,
+			Ports:                     census.Ports,
+			TwoPhaseExecutorAvailable: true,
+		}, 4096)
+		authGate := largebody.NewAuthorityAssessmentGate(summary, census, genID)
+
+		wb := testWireBackend{
+			reqSupport:    largebody.WireRequestSupport{Compatible: true, NeedsModelRewrite: true},
+			domainSupport: largebody.WireDomainSupport{Compatible: true, AnyAcceptedModel: true},
+		}
+		resolver := largebody.WireBackendMap{"test-backend": wb}
+		execResolver := routing.BackendExecutionResolverFunc(func(string) (lipsdk.BackendExecutionClass, bool) {
+			return lipsdk.BackendExecutionInference, true
+		})
+		validator := routing.NewGenerationSelectorValidator(nil, "test-backend", map[string]struct{}{"test-backend": {}}, execResolver, config.ExecutionCompositionSafe)
+		initialGate := largebody.NewInitialRouteAssessmentGate(nil, "test-backend", execResolver, config.ExecutionCompositionSafe, nil, resolver)
+		overrideGate := largebody.NewRouteOverrideAssessmentGate(nil, validator, resolver)
+		wireGate := largebody.NewBackendWireProofGate(initialGate, overrideGate, nil, resolver)
+
+		assessor := coreruntime.NewProductionLargeBodyAssessor(genID, genID, authGate, wireGate, nil)
+		noRewriteProof := proof
+		noRewriteProof.Rewrite = largebody.NewNoRewrite()
+
+		assessment, err := assessor.AssessLargeBody(context.Background(), noRewriteProof)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !assessment.Declined() || assessment.Reason != largebody.DeclineReasonRewriteUnsupported {
+			t.Fatalf("expected DeclineReasonRewriteUnsupported, got %v (decision=%v)", assessment.Reason, assessment.Decision)
+		}
+	})
+
+	t.Run("incompatible_late_override_domain_member", func(t *testing.T) {
+		t.Parallel()
+		census := largebody.NewStandardDependencyCensus(genID)
+		summary, _ := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+			GenerationID:              genID,
+			Planes:                    census.Planes,
+			Hooks:                     census.Hooks,
+			Ports:                     census.Ports,
+			TwoPhaseExecutorAvailable: true,
+		}, 4096)
+		authGate := largebody.NewAuthorityAssessmentGate(summary, census, genID)
+
+		// Backend compatible for initial request, but incompatible for domain proof
+		wb := testWireBackend{
+			reqSupport:    largebody.WireRequestSupport{Compatible: true},
+			domainSupport: largebody.WireDomainSupport{Compatible: false},
+		}
+		resolver := largebody.WireBackendMap{"test-backend": wb}
+		execResolver := routing.BackendExecutionResolverFunc(func(string) (lipsdk.BackendExecutionClass, bool) {
+			return lipsdk.BackendExecutionInference, true
+		})
+		validator := routing.NewGenerationSelectorValidator(nil, "test-backend", map[string]struct{}{"test-backend": {}}, execResolver, config.ExecutionCompositionSafe)
+		initialGate := largebody.NewInitialRouteAssessmentGate(nil, "test-backend", execResolver, config.ExecutionCompositionSafe, nil, resolver)
+		overrideGate := largebody.NewRouteOverrideAssessmentGate(stubOverrideReader{}, validator, resolver)
+		wireGate := largebody.NewBackendWireProofGate(initialGate, overrideGate, nil, resolver)
+
+		assessor := coreruntime.NewProductionLargeBodyAssessor(genID, genID, authGate, wireGate, nil)
+		assessment, err := assessor.AssessLargeBody(context.Background(), proof)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !assessment.Declined() || assessment.Reason != largebody.DeclineReasonBackendIncompatible {
+			t.Fatalf("expected DeclineReasonBackendIncompatible, got %v (decision=%v)", assessment.Reason, assessment.Decision)
+		}
+	})
+
+	t.Run("compose_override_candidate_rejection_path", func(t *testing.T) {
+		t.Parallel()
+		wb := testWireBackend{
+			reqSupport:    largebody.WireRequestSupport{Compatible: false},
+			domainSupport: largebody.WireDomainSupport{Compatible: true, AnyAcceptedModel: true},
+		}
+		resolver := largebody.WireBackendMap{"test-backend": wb}
+		execResolver := routing.BackendExecutionResolverFunc(func(string) (lipsdk.BackendExecutionClass, bool) {
+			return lipsdk.BackendExecutionInference, true
+		})
+		validator := routing.NewGenerationSelectorValidator(nil, "test-backend", map[string]struct{}{"test-backend": {}}, execResolver, config.ExecutionCompositionSafe)
+		initialGate := largebody.NewInitialRouteAssessmentGate(nil, "test-backend", execResolver, config.ExecutionCompositionSafe, nil, resolver)
+		overrideGate := largebody.NewRouteOverrideAssessmentGate(nil, validator, resolver)
+		wireGate := largebody.NewBackendWireProofGate(initialGate, overrideGate, nil, resolver)
+
+		domain := largebody.WireDomainFacts{
+			ProfileID:       "openai_chat_v1",
+			Operation:       lipapi.OperationOpenAIChatCompletions,
+			Delivery:        lipapi.DeliveryModeStreaming,
+			UniversalModel:  true,
+			CandidateModels: nil,
+			Rewrite:         largebody.NewNoRewrite(),
+		}
+
+		cands, ok, reason := wireGate.ComposeOverrideCandidate(context.Background(), "test-backend:gpt-4o", domain)
+		if ok || len(cands) != 0 || reason != largebody.DeclineReasonBackendIncompatible {
+			t.Fatalf("expected ComposeOverrideCandidate to reject with DeclineReasonBackendIncompatible, got ok=%v reason=%v cands=%v", ok, reason, cands)
+		}
+	})
+
+	t.Run("missing_request_resolver", func(t *testing.T) {
+		t.Parallel()
+		census := largebody.NewStandardDependencyCensus(genID)
+		summary, _ := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+			GenerationID:              genID,
+			Planes:                    census.Planes,
+			Hooks:                     census.Hooks,
+			Ports:                     census.Ports,
+			TwoPhaseExecutorAvailable: true,
+		}, 4096)
+		authGate := largebody.NewAuthorityAssessmentGate(summary, census, genID)
+
+		// Empty resolver: backend not registered
+		resolver := largebody.WireBackendMap{}
+		execResolver := routing.BackendExecutionResolverFunc(func(string) (lipsdk.BackendExecutionClass, bool) {
+			return lipsdk.BackendExecutionInference, true
+		})
+		validator := routing.NewGenerationSelectorValidator(nil, "test-backend", map[string]struct{}{"test-backend": {}}, execResolver, config.ExecutionCompositionSafe)
+		initialGate := largebody.NewInitialRouteAssessmentGate(nil, "test-backend", execResolver, config.ExecutionCompositionSafe, nil, resolver)
+		overrideGate := largebody.NewRouteOverrideAssessmentGate(nil, validator, resolver)
+		wireGate := largebody.NewBackendWireProofGate(initialGate, overrideGate, nil, resolver)
+
+		assessor := coreruntime.NewProductionLargeBodyAssessor(genID, genID, authGate, wireGate, nil)
+		assessment, err := assessor.AssessLargeBody(context.Background(), proof)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !assessment.Declined() || assessment.Reason != largebody.DeclineReasonBackendIncompatible {
+			t.Fatalf("expected DeclineReasonBackendIncompatible on missing resolver, got %v (decision=%v)", assessment.Reason, assessment.Decision)
+		}
+	})
+
+	t.Run("late_override_outside_domain_no_wire", func(t *testing.T) {
+		t.Parallel()
+		wb := testWireBackend{
+			reqSupport:    largebody.WireRequestSupport{Compatible: true},
+			domainSupport: largebody.WireDomainSupport{Compatible: true, AnyAcceptedModel: false},
+		}
+		resolver := largebody.WireBackendMap{"test-backend": wb}
+		execResolver := routing.BackendExecutionResolverFunc(func(string) (lipsdk.BackendExecutionClass, bool) {
+			return lipsdk.BackendExecutionInference, true
+		})
+		validator := routing.NewGenerationSelectorValidator(nil, "test-backend", map[string]struct{}{"test-backend": {}}, execResolver, config.ExecutionCompositionSafe)
+		initialGate := largebody.NewInitialRouteAssessmentGate(nil, "test-backend", execResolver, config.ExecutionCompositionSafe, nil, resolver)
+		overrideGate := largebody.NewRouteOverrideAssessmentGate(nil, validator, resolver)
+		wireGate := largebody.NewBackendWireProofGate(initialGate, overrideGate, nil, resolver)
+
+		domain := largebody.WireDomainFacts{
+			ProfileID:       "openai_chat_v1",
+			Operation:       lipapi.OperationOpenAIChatCompletions,
+			Delivery:        lipapi.DeliveryModeStreaming,
+			UniversalModel:  false,
+			CandidateModels: []string{"gpt-4o"},
+			Rewrite:         largebody.NewNoRewrite(),
+		}
+
+		// Candidate with model outside domain ("claude-3-5-sonnet")
+		cand := routing.AttemptCandidate{
+			Primary: routing.Primary{
+				Backend: "test-backend",
+				Model:   "claude-3-5-sonnet",
+			},
+		}
+		ok, reason := wireGate.VerifyOverrideCandidate(context.Background(), domain, cand)
+		if ok || reason != largebody.DeclineReasonRouteIncompatible {
+			t.Fatalf("expected VerifyOverrideCandidate to reject with DeclineReasonRouteIncompatible for out-of-domain candidate, got ok=%v reason=%v", ok, reason)
 		}
 	})
 }

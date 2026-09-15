@@ -225,8 +225,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	if kwLife != nil {
 		outLifecycles = append(outLifecycles, kwLife)
 	}
-
-	out := GenerationOutput{
+	return GenerationOutput{
 		Bundle: lipfeature.FeatureBundle{
 			PlaneSet:   outPlanes,
 			Lifecycles: slices.Clone(outLifecycles),
@@ -234,16 +233,15 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		Planes:     outPlanes,
 		Lifecycles: outLifecycles,
 		CorePorts: CorePorts{
-			CompactionDetector:       r.compactionDetector,
-			ConversationReader:       r.ConversationReader(),
-			InterleavedProcessor:     interleavedProc,
-			PromptCacheMaintenance:   kwMaint,
-			TerminalPolicyReader:     r.TerminalPolicyReader(),
-			MetricsSwap:              kwSwap,
-			KeepwarmAdmin:            kwAdmin,
-			TerminalPolicyProjection: r.TerminalPolicyProjection(),
+			CompactionDetector:            r.compactionDetector,
+			ConversationReader:            r.ConversationReader(),
+			ConversationReaderStockOrigin: r.conversationStoreStock && r.conversationStore != nil,
+			InterleavedProcessor:          interleavedProc,
+			PromptCacheMaintenance:        kwMaint,
+			TerminalPolicyReader:          r.TerminalPolicyReader(),
+			MetricsSwap:                   kwSwap,
+			KeepwarmAdmin:                 kwAdmin,
+			TerminalPolicyProjection:      r.TerminalPolicyProjection(),
 		},
-	}
-
-	return out, nil
+	}, nil
 }

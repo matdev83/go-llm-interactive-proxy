@@ -22,6 +22,8 @@ type LargePayloadInput struct {
 	SpoolDir string
 	// CopyBufferSize is the chunk size used for reading from the client body.
 	CopyBufferSize int
+	// MaxSemanticFactBytes bounds profile-derived metadata such as normalized part shapes.
+	MaxSemanticFactBytes int64
 	// Diagnostics optionally supplies a diagnostic observer.
 	Diagnostics largebody.DiagnosticsObserver
 }
@@ -48,6 +50,14 @@ func (c LargePayloadInput) EffectiveCopyBufferSize() int {
 		return c.CopyBufferSize
 	}
 	return largebody.DefaultCopyBufferSize
+}
+
+// EffectiveMaxSemanticFactBytes returns MaxSemanticFactBytes if > 0, else DefaultMaxSemanticFactBytes (256 KiB).
+func (c LargePayloadInput) EffectiveMaxSemanticFactBytes() int64 {
+	if c.MaxSemanticFactBytes > 0 {
+		return c.MaxSemanticFactBytes
+	}
+	return largebody.DefaultMaxSemanticFactBytes
 }
 
 // EffectiveSpoolDir returns SpoolDir if not empty, else a temporary directory fallback.

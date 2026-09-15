@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
@@ -14,11 +15,13 @@ import (
 
 // stubConversationReader returns a canned Snapshot.
 type stubConversationReader struct {
-	snap conversationprojection.Snapshot
-	err  error
+	snap      conversationprojection.Snapshot
+	err       error
+	callCount int
 }
 
 func (s *stubConversationReader) Snapshot(ctx context.Context, aLegID string) (conversationprojection.Snapshot, error) {
+	s.callCount++
 	return s.snap, s.err
 }
 
@@ -277,5 +280,93 @@ func TestStockHost_BehavioralDifferential_CompactionDetector(t *testing.T) {
 	}
 	if len(detectorSpy.releasedEvents) != 1 || detectorSpy.releasedEvents[0].Delta != "hello from response" {
 		t.Fatalf("unexpected released event on detector: %+v", detectorSpy.releasedEvents)
+	}
+}
+
+// TestStockHost_BehavioralDifferential_CapsResolver_DisagreementRejection proves that
+// when a backend's canonical capabilities resolver disagrees with wire capability
+// (e.g. streaming capability is absent from canonical capability resolution),
+// CapsResolverWireProofSubsumed is false, causing the authority gate to reject the
+// fast path and decline precommit with DeclineReasonAuthorityBlocker, falling back to
+// canonical execution where capabilities are resolved dynamically.
+// Conversely, when canonical capabilities resolver and wire proof agree that streaming
+// is supported, CapsResolverWireProofSubsumed is true and the gate proceeds.
+func TestStockHost_BehavioralDifferential_CapsResolver_DisagreementRejection(t *testing.T) {
+	t.Parallel()
+
+	genID := "gen-stock-caps-diff"
+
+	// Case 1: Semantic capability disagreement (wire claimed, but canonical caps lacks streaming)
+	// CapsResolverWireProofSubsumed is false -> precommit declines with DeclineReasonAuthorityBlocker.
+	censusDisagreed := largebody.NewStandardDependencyCensus(genID)
+	censusDisagreed.Ports.CapsResolverOccupied = true
+	censusDisagreed.Ports.CapsResolverWireProofSubsumed = false
+
+	summaryDisagreed, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+		GenerationID:              genID,
+		Planes:                    censusDisagreed.Planes,
+		Hooks:                     censusDisagreed.Hooks,
+		Ports:                     censusDisagreed.Ports,
+		TwoPhaseExecutorAvailable: true,
+	}, 4096)
+	if err != nil {
+		t.Fatalf("CompileWireEligibilitySummary (disagreed): %v", err)
+	}
+	if !summaryDisagreed.HasStaticBlocker() {
+		t.Fatal("expected summaryDisagreed to report HasStaticBlocker == true")
+	}
+
+	gateDisagreed := largebody.NewAuthorityAssessmentGate(summaryDisagreed, censusDisagreed, genID)
+	dec, reas := gateDisagreed.Evaluate()
+	if dec != largebody.AssessmentDecisionDecline || reas != largebody.DeclineReasonAuthorityBlocker {
+		t.Fatalf("expected decline with authority blocker on caps disagreement, got dec=%v reas=%v", dec, reas)
+	}
+
+	assessorDisagreed := NewProductionLargeBodyAssessor(genID, genID, gateDisagreed, nil, StandardLaneDomainPolicies())
+	proof := largebody.Proof{
+		ProfileID:     "openailegacy",
+		Operation:     lipapi.OperationOpenAIChatCompletions,
+		Delivery:      lipapi.DeliveryModeStreaming,
+		RouteSelector: "gpt-4o",
+		Turn: largebody.ClientTurnShape{
+			Items: []largebody.ClientTurnItemShape{{
+				Kind:  lipapi.ItemKindMessage,
+				Role:  lipapi.RoleUser,
+				Parts: []largebody.ClientTurnPartShape{{Kind: lipapi.ContentPartText, ContentBytes: 100}},
+			}},
+		},
+	}
+	assessment, err := assessorDisagreed.AssessLargeBody(context.Background(), proof)
+	if err != nil {
+		t.Fatalf("AssessLargeBody failed: %v", err)
+	}
+	if !assessment.Declined() || assessment.Reason != largebody.DeclineReasonAuthorityBlocker {
+		t.Fatalf("expected declined with DeclineReasonAuthorityBlocker, got %v (%s)", assessment.Decision, assessment.Reason)
+	}
+
+	// Case 2: Semantic capability agreement (wire capability subsumed by canonical caps)
+	// CapsResolverWireProofSubsumed is true -> authority gate allows wire evaluation without blocker.
+	censusAgreed := largebody.NewStandardDependencyCensus(genID)
+	censusAgreed.Ports.CapsResolverOccupied = true
+	censusAgreed.Ports.CapsResolverWireProofSubsumed = true
+
+	summaryAgreed, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
+		GenerationID:              genID,
+		Planes:                    censusAgreed.Planes,
+		Hooks:                     censusAgreed.Hooks,
+		Ports:                     censusAgreed.Ports,
+		TwoPhaseExecutorAvailable: true,
+	}, 4096)
+	if err != nil {
+		t.Fatalf("CompileWireEligibilitySummary (agreed): %v", err)
+	}
+	if summaryAgreed.HasStaticBlocker() {
+		t.Fatal("expected summaryAgreed to report HasStaticBlocker == false")
+	}
+
+	gateAgreed := largebody.NewAuthorityAssessmentGate(summaryAgreed, censusAgreed, genID)
+	decAgreed, reasAgreed := gateAgreed.Evaluate()
+	if decAgreed != largebody.AssessmentDecisionAccept || reasAgreed != largebody.DeclineReasonNone {
+		t.Fatalf("expected accept on caps agreement, got dec=%v reas=%v", decAgreed, reasAgreed)
 	}
 }

@@ -137,17 +137,17 @@ func EffectiveWireDomainSupport(
 		}
 	}
 
-	// Universal domain requires backend universal model certification.
-	if facts.UniversalModel && !res.AnyAcceptedModel {
-		res.Compatible = false
-		res.Reason = largebody.WireSupportReasonModelUnsupported
-		return res
-	}
-
 	if !res.Compatible {
 		if res.Reason == largebody.WireSupportReasonNone {
 			res.Reason = largebody.WireSupportReasonUnsupported
 		}
+		return res
+	}
+
+	// Universal domain requires backend universal model certification.
+	if facts.UniversalModel && !res.AnyAcceptedModel {
+		res.Compatible = false
+		res.Reason = largebody.WireSupportReasonModelUnsupported
 		return res
 	}
 

@@ -549,6 +549,18 @@ func TestWireEligibility_NarrowPortBlockers(t *testing.T) {
 			p.TokenCountingRequired = true
 			p.TokenCountingHasExactCounter = true
 		}},
+		{"caps resolver with wire proof subsumption", func(p *largebody.NarrowPortEligibilityInput) {
+			p.CapsResolverOccupied = true
+			p.CapsResolverWireProofSubsumed = true
+		}},
+		{"conversation view reader fresh aleg supported", func(p *largebody.NarrowPortEligibilityInput) {
+			p.ConversationViewReaderOccupied = true
+			p.ConversationReaderFreshALegSupported = true
+		}},
+		{"compaction detector wire supported", func(p *largebody.NarrowPortEligibilityInput) {
+			p.CompactionDetectorOccupied = true
+			p.CompactionDetectorWireSupported = true
+		}},
 	} {
 		in := eligible35Input("gen-7")
 		tc.set(&in.Ports)
@@ -583,7 +595,7 @@ func TestWireEligibility_NarrowPortBlockers(t *testing.T) {
 func TestWireEligibility_InputModelStaysFixed(t *testing.T) {
 	t.Parallel()
 
-	if got := reflect.TypeOf(largebody.NarrowPortEligibilityInput{}).NumField(); got != 20 {
+	if got := reflect.TypeOf(largebody.NarrowPortEligibilityInput{}).NumField(); got != 23 {
 		t.Fatalf("narrow-port input model changed (%d fields): extend the compiler policy first", got)
 	}
 	if largebody.WireEligibilityPlaneCount != 26 {

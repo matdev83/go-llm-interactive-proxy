@@ -234,26 +234,13 @@ type HookEligibilityInput struct {
 // fact. Present-but-model-dependent backend compatibility stays dynamic and
 // is not represented here.
 type NarrowPortEligibilityInput struct {
-	BackendsEmpty                  bool
-	ConversationViewReaderOccupied bool
-	ConversationViewTaggerOccupied bool
-	SteeringWriterFactoryOccupied  bool
-	ExposureAdmissionOccupied      bool
-	BillingIdentityCustomCallbacks bool
-	CapsResolverOccupied           bool
-	CatalogResolverOccupied        bool
-	EligibilityResolverOccupied    bool
-	RequestTokenEstimatorOccupied  bool
-	PreflightEnabled               bool
-	PreflightHasExactCounter       bool
-	StreamUsageOccupied            bool
-	AdminCountServiceOccupied      bool
-	InterleavedProcessorOccupied   bool
-	CompactionDetectorOccupied     bool
-	TrafficCapturing               bool
-	TokenCountingRequired          bool
-	TokenCountingHasExactCounter   bool
-	CustomCallCallbacksPresent     bool
+	BackendsEmpty, ConversationViewReaderOccupied, ConversationReaderFreshALegSupported               bool
+	ConversationViewTaggerOccupied, SteeringWriterFactoryOccupied, ExposureAdmissionOccupied          bool
+	BillingIdentityCustomCallbacks, CapsResolverOccupied, CapsResolverWireProofSubsumed               bool
+	CatalogResolverOccupied, EligibilityResolverOccupied, RequestTokenEstimatorOccupied               bool
+	PreflightEnabled, PreflightHasExactCounter, StreamUsageOccupied, AdminCountServiceOccupied        bool
+	InterleavedProcessorOccupied, CompactionDetectorOccupied, CompactionDetectorWireSupported         bool
+	TrafficCapturing, TokenCountingRequired, TokenCountingHasExactCounter, CustomCallCallbacksPresent bool
 }
 
 // WireEligibilityInput is the complete frozen generation fact set compiled
@@ -466,12 +453,12 @@ func compilePortBlockers(ports NarrowPortEligibilityInput, twoPhaseAvailable boo
 		}
 	}
 	set(ports.BackendsEmpty, WirePortBackendsEmpty)
-	set(ports.ConversationViewReaderOccupied, WirePortConversationViewReader)
+	set(ports.ConversationViewReaderOccupied && !ports.ConversationReaderFreshALegSupported, WirePortConversationViewReader)
 	set(ports.ConversationViewTaggerOccupied, WirePortConversationViewTagger)
 	set(ports.SteeringWriterFactoryOccupied, WirePortSteeringWriterFactory)
 	set(ports.ExposureAdmissionOccupied, WirePortExposureAdmission)
 	set(ports.BillingIdentityCustomCallbacks, WirePortBillingIdentityCallbacks)
-	set(ports.CapsResolverOccupied, WirePortCapsResolver)
+	set(ports.CapsResolverOccupied && !ports.CapsResolverWireProofSubsumed, WirePortCapsResolver)
 	set(ports.CatalogResolverOccupied, WirePortCatalogResolver)
 	set(ports.EligibilityResolverOccupied, WirePortEligibilityResolver)
 	set(ports.RequestTokenEstimatorOccupied, WirePortRequestTokenEstimator)
@@ -479,7 +466,7 @@ func compilePortBlockers(ports NarrowPortEligibilityInput, twoPhaseAvailable boo
 	set(ports.StreamUsageOccupied, WirePortStreamUsage)
 	set(ports.AdminCountServiceOccupied, WirePortAdminCountService)
 	set(ports.InterleavedProcessorOccupied, WirePortInterleavedProcessor)
-	set(ports.CompactionDetectorOccupied, WirePortCompactionDetector)
+	set(ports.CompactionDetectorOccupied && !ports.CompactionDetectorWireSupported, WirePortCompactionDetector)
 	set(ports.TrafficCapturing, WirePortTrafficCapturing)
 	set(ports.TokenCountingRequired && !ports.TokenCountingHasExactCounter, WirePortTokenCounting)
 	set(ports.CustomCallCallbacksPresent, WirePortCustomCallCallbacks)

@@ -3,65 +3,64 @@ package compactiondetect
 import (
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 )
 
 // ruleMode declares the transaction behavior of a rule (requirement 6.1).
-type ruleMode int
+type ruleMode = compactionfacts.RuleMode
 
 const (
 	// modeSingle: the first matching opened request emits a start; a strict
 	// later completion closes it; otherwise the transaction closes silently.
-	modeSingle ruleMode = iota
+	modeSingle = compactionfacts.RuleModeSingle
 	// modeSeries: later matching utility subcalls reuse one active transaction
 	// and suppress repeated starts; the first strict/heuristic completion closes.
-	modeSeries
+	modeSeries = compactionfacts.RuleModeSeries
 	// modeCompletionOnly: no start is ever emitted; a post marker or heuristic
 	// creates one completed event transaction.
-	modeCompletionOnly
+	modeCompletionOnly = compactionfacts.RuleModeCompletionOnly
 )
 
-// requestInfo is the precomputed canonical view of one opened request used by
-// start predicates. Only normalized canonical role/kind/content data is used;
-// no provider DTO or wire payload is ever inspected. Text is folded once for
-// deterministic, case-insensitive marker matching.
-type requestInfo struct {
-	call  lipapi.Call
-	lower string
+// StartRuleMatchInput provides facts to MatchStartRule for wire or canonical requests.
+type StartRuleMatchInput struct {
+	Operation lipapi.Operation
+	ToolCount int
+	HasText   func(marker string) bool
 }
 
-func (r requestInfo) hasText(marker string) bool {
-	// Marker constants are stored lowercase; r.lower is the once-folded request
-	// text, so matching is an allocation-free strings.Contains.
-	return r.lower != "" && strings.Contains(r.lower, marker)
+// StartRuleMatchResult is the output of MatchStartRule.
+type StartRuleMatchResult struct {
+	Matched  bool
+	RuleID   string
+	Mode     compactionfacts.RuleMode
+	Evidence compaction.Evidence
 }
 
-func (r requestInfo) toolCount() int {
-	n := len(r.call.Tools)
-	_ = lipapi.WalkCallItems(r.call, func(item lipapi.Item) error {
-		if item.ToolCall != nil {
-			n++
-		}
-		return nil
-	})
-	return n
+// MatchStartRule evaluates the ordered compaction start-rule table against request facts.
+func MatchStartRule(in StartRuleMatchInput) StartRuleMatchResult {
+	hasText := in.HasText
+	if hasText == nil {
+		hasText = func(string) bool { return false }
+	}
+	sr, ok := compactionfacts.MatchStartRule(in.Operation, in.ToolCount, hasText)
+	if !ok {
+		return StartRuleMatchResult{}
+	}
+	return StartRuleMatchResult{
+		Matched:  true,
+		RuleID:   sr.ID,
+		Mode:     sr.Mode,
+		Evidence: sr.Evidence,
+	}
 }
 
-func (r requestInfo) noTools() bool {
-	return r.toolCount() == 0
-}
-
-// rule is one versioned detection rule from the surveyed-agent matrix
-// (research.md). Rules use explicit match functions over canonical roles,
-// items, and text; there is no regex DSL or provider branching.
+// rule is one versioned detection rule for response-side post-marker completion.
 type rule struct {
 	id       string
 	mode     ruleMode
 	evidence compaction.Evidence
-	// start matches the request side of a compaction utility call. Nil for
-	// completion-only rules (a completion-only rule never emits a start).
-	start func(requestInfo) bool
 	// complete matches a released installed-summary/post marker in the
 	// lowercased released-text window (folded once per chunk by the detector).
 	// Nil when the family exposes no response-side marker (the rule then
@@ -69,89 +68,64 @@ type rule struct {
 	complete func(string) bool
 }
 
-// Rule marker constants. They are implementation-owned versioned signatures:
-// updating one signature requires one focused rule/table/test change, never a
-// provider-adapter change (requirement 4.8). Markers are stored in lowercase:
-// the request text is folded once per request and the released-text window is
-// folded once per chunk, so matching is a plain allocation-free
-// strings.Contains and never re-folds accumulated text.
+// Rule marker constants consolidated under compactionfacts as shared owner.
 const (
-	markerCodexCheckpoint     = "context checkpoint compaction"
-	markerConversationTag     = "<conversation>"
-	markerPiSummaryCarrier    = "<summary>"
-	markerClineSummaryPost    = "context summary:"
-	markerSystemNotice        = "<system_notice>"
-	markerClineCompactedPost  = "earlier context was compacted"
-	markerOpenCodeHistoryHead = "the following is the conversation history:"
-	markerHermesRefOnly       = "[context compaction \u2014 reference only]"
-	markerHermesLegacySummary = "[context summary]:"
-	markerKiloObjective       = "objective"
-	markerKiloDetails         = "important details"
-	markerKiloWorkState       = "work state"
-	markerKiloNextMove        = "next move"
-	markerKiloFiles           = "relevant files"
-	markerAiderUserTag        = "# user"
-	markerAiderAssistantTag   = "# assistant"
+	markerCodexCheckpoint     = compactionfacts.MarkerCodexCheckpoint
+	markerConversationTag     = compactionfacts.MarkerConversationTag
+	markerPiSummaryCarrier    = compactionfacts.MarkerPiSummaryCarrier
+	markerClineSummaryPost    = compactionfacts.MarkerClineSummaryPost
+	markerSystemNotice        = compactionfacts.MarkerSystemNotice
+	markerClineCompactedPost  = compactionfacts.MarkerClineCompactedPost
+	markerOpenCodeHistoryHead = compactionfacts.MarkerOpenCodeHistoryHead
+	markerHermesRefOnly       = compactionfacts.MarkerHermesRefOnly
+	markerHermesLegacySummary = compactionfacts.MarkerHermesLegacySummary
+	markerKiloObjective       = compactionfacts.MarkerKiloObjective
+	markerKiloDetails         = compactionfacts.MarkerKiloDetails
+	markerKiloWorkState       = compactionfacts.MarkerKiloWorkState
+	markerKiloNextMove        = compactionfacts.MarkerKiloNextMove
+	markerKiloFiles           = compactionfacts.MarkerKiloFiles
+	markerAiderUserTag        = compactionfacts.MarkerAiderUserTag
+	markerAiderAssistantTag   = compactionfacts.MarkerAiderAssistantTag
 )
 
 var (
-	// protocolRule is matched before every signature rule so protocol-strict
-	// evidence takes precedence over text signatures when both are present
-	// (requirement 3.1; task 1.2). Its completion is the released compaction
-	// item or the successful terminal of an explicit compact operation.
+	// protocolRule is the response-side rule for explicit compact operations.
+	// Its completion is the released compaction item or the successful terminal.
 	protocolRule = rule{
-		id:       "protocol.context_compaction.v1",
+		id:       compactionfacts.RuleProtocolContextCompaction,
 		mode:     modeSingle,
 		evidence: compaction.EvidenceProtocolStrict,
-		start: func(r requestInfo) bool {
-			return r.call.Invocation.Operation == lipapi.OperationContextCompaction
-		},
 	}
 
-	// ruleTable is ordered: the first matching rule wins. The protocol rule
-	// must stay first so canonical semantics dominate text signatures.
+	// ruleTable specifies response completion rules.
 	ruleTable = []rule{
 		protocolRule,
 		{
-			id:       "codex.local_checkpoint.v1",
+			id:       compactionfacts.RuleCodexLocalCheckpoint,
 			mode:     modeSingle,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				return r.hasText(markerCodexCheckpoint)
-			},
 			complete: func(text string) bool {
 				return strings.Contains(text, markerCodexCheckpoint)
 			},
 		},
 		{
-			// One shared rule identity for Pi and OpenClaw: indistinguishable
-			// harnesses are never assigned an invented identity (R4.4).
-			id:       "pi_openclaw.compaction_summary.v1",
+			id:       compactionfacts.RulePiOpenClawCompactionSummary,
 			mode:     modeSeries,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				return r.hasText(markerConversationTag) &&
-					r.hasText("summar") &&
-					r.hasText("checkpoint")
-			},
 			complete: func(text string) bool {
 				return strings.Contains(text, markerPiSummaryCarrier)
 			},
 		},
 		{
-			id:       "cline.agentic_compaction.v1",
+			id:       compactionfacts.RuleClineAgenticCompaction,
 			mode:     modeSingle,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				return r.hasText("continuation-note") &&
-					r.hasText("summar")
-			},
 			complete: func(text string) bool {
 				return strings.Contains(text, markerClineSummaryPost)
 			},
 		},
 		{
-			id:       "cline.basic_compaction_post.v1",
+			id:       compactionfacts.RuleClineBasicCompactionPost,
 			mode:     modeCompletionOnly,
 			evidence: compaction.EvidenceSignatureStrict,
 			complete: func(text string) bool {
@@ -160,26 +134,17 @@ var (
 			},
 		},
 		{
-			id:       "opencode.anchored_summary.v1",
+			id:       compactionfacts.RuleOpenCodeAnchoredSummary,
 			mode:     modeSingle,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				return r.hasText(markerConversationTag) &&
-					r.hasText("summar") &&
-					r.hasText(markerKiloObjective) &&
-					r.hasText(markerKiloWorkState)
-			},
 		},
 		{
-			id:       "opencode.custom_compaction_history.v1",
+			id:       compactionfacts.RuleOpenCodeCustomCompactionHistory,
 			mode:     modeSingle,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				return r.hasText(markerOpenCodeHistoryHead)
-			},
 		},
 		{
-			id:       "hermes.local_compaction_post.v1",
+			id:       compactionfacts.RuleHermesLocalCompactionPost,
 			mode:     modeCompletionOnly,
 			evidence: compaction.EvidenceSignatureStrict,
 			complete: func(text string) bool {
@@ -187,7 +152,7 @@ var (
 			},
 		},
 		{
-			id:       "hermes.legacy_compaction_post.v1",
+			id:       compactionfacts.RuleHermesLegacyCompactionPost,
 			mode:     modeCompletionOnly,
 			evidence: compaction.EvidenceSignatureStrict,
 			complete: func(text string) bool {
@@ -195,92 +160,44 @@ var (
 			},
 		},
 		{
-			id:       "kilocode.anchored_summary.v1",
+			id:       compactionfacts.RuleKiloCodeAnchoredSummary,
 			mode:     modeSingle,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				return r.hasText(markerKiloObjective) &&
-					r.hasText(markerKiloDetails) &&
-					r.hasText(markerKiloWorkState) &&
-					r.hasText(markerKiloNextMove) &&
-					r.hasText(markerKiloFiles)
-			},
 		},
 		{
-			id:       "claude_code_2026_03.compaction.v1",
+			id:       compactionfacts.RuleClaudeCodeCompaction,
 			mode:     modeSingle,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				return r.noTools() &&
-					r.hasText("text only") &&
-					r.hasText("compaction") &&
-					r.hasText("conversation")
-			},
 			complete: func(text string) bool {
 				return strings.Contains(text, "continuation") &&
 					strings.Contains(text, "previous conversation")
 			},
 		},
 		{
-			id:       "gemini_cli.state_snapshot.v1",
+			id:       compactionfacts.RuleGeminiCLIStateSnapshot,
 			mode:     modeSeries,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				if !r.hasText("state snapshot") {
-					return false
-				}
-				return r.hasText("generate") || r.hasText("verify")
-			},
 		},
 		{
-			id:       "roo_code.condense.v1",
+			id:       compactionfacts.RuleRooCodeCondense,
 			mode:     modeSingle,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				return r.hasText("condense") &&
-					r.hasText("summar") &&
-					r.hasText("conversation")
-			},
 		},
 		{
-			id:       "aider.chat_summary.v1",
+			id:       compactionfacts.RuleAiderChatSummary,
 			mode:     modeSeries,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				return r.hasText(markerAiderUserTag) &&
-					r.hasText(markerAiderAssistantTag) &&
-					r.hasText("summar")
-			},
 			complete: func(text string) bool {
 				return strings.Contains(text, "previous conversation")
 			},
 		},
 		{
-			id:       "crush.session_summary.v1",
+			id:       compactionfacts.RuleCrushSessionSummary,
 			mode:     modeSingle,
 			evidence: compaction.EvidenceSignatureStrict,
-			start: func(r requestInfo) bool {
-				return r.hasText("session summary") &&
-					r.hasText("preserve") &&
-					r.hasText("context")
-			},
 		},
 	}
 )
-
-// matchStartRule returns the first rule whose request-side start predicate
-// matches. Completion-only rules never participate in start matching.
-func matchStartRule(info requestInfo) (rule, bool) {
-	for _, r := range ruleTable {
-		if r.mode == modeCompletionOnly || r.start == nil {
-			continue
-		}
-		if r.start(info) {
-			return r, true
-		}
-	}
-	return rule{}, false
-}
 
 // matchCompleteRule returns the first rule whose released-text post-marker
 // predicate matches. Start-bearing rules may complete only their active

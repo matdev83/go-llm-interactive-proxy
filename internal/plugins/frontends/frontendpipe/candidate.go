@@ -491,8 +491,11 @@ func replayCandidate[Opts any](
 		}
 	}()
 
+	factBudget := spec.LargePayload.EffectiveMaxSemanticFactBytes()
+	scanCtx := largebody.WithSemanticFactBudget(ctx, factBudget)
+
 	proofIn := ProofInput{
-		Ctx:                  ctx,
+		Ctx:                  scanCtx,
 		Headers:              r.Header,
 		URLPath:              r.URL.Path,
 		Path:                 pm,
@@ -509,9 +512,9 @@ func replayCandidate[Opts any](
 	var proofOut ProofOutput
 	var proofErr error
 	if spec.Profile != nil {
-		proofOut, proofErr = spec.Profile.CompileProof(ctx, proofIn)
+		proofOut, proofErr = spec.Profile.CompileProof(scanCtx, proofIn)
 		if proofErr == nil {
-			proofErr = proofOut.Validate(DefaultMaxSemanticFactBytes)
+			proofErr = proofOut.Validate(factBudget)
 		}
 	} else {
 		proofErr = errors.New("frontendpipe: profile not configured")
@@ -545,7 +548,7 @@ func replayCandidate[Opts any](
 		if !aok || assessor == nil {
 			assessErr = errors.New("frontendpipe: large body assessor not configured")
 		} else {
-			assessment, assessErr = assessor.AssessLargeBody(ctx, proofOut.Proof())
+			assessment, assessErr = assessor.AssessLargeBody(scanCtx, proofOut.Proof())
 		}
 		spec.diagnostics().OnStageDuration("assessment", time.Since(assessStart))
 
@@ -603,7 +606,8 @@ func replayCandidate[Opts any](
 		var execErr error
 		if wireExec != nil {
 			execStart := time.Now()
-			execRes, execErr = spec.executeLargeBody(ctx, w, wireExec, assessment, capRes.Completed, isStream)
+			wireCtx := largebody.ContextWithWireProof(ctx, proofOut.Proof(), proofOut.Seeds().ExplicitRequestID)
+			execRes, execErr = spec.executeLargeBody(wireCtx, w, wireExec, assessment, capRes.Completed, isStream)
 			observer.OnStageDuration("execution", time.Since(execStart))
 		} else {
 			execErr = errors.New("frontendpipe: wire executor not available for accepted assessment")
@@ -661,26 +665,26 @@ func replayCandidate[Opts any](
 		if isStream {
 			if spec.WireWriteStream != nil {
 				writeErr = spec.WireWriteStream(ctx, w, respCtx, es)
+			} else {
+				writeErr = errors.New("frontendpipe: wire write stream not configured")
 			}
 		} else {
 			if spec.WireWriteNonStream != nil {
 				writeErr = spec.WireWriteNonStream(ctx, w, respCtx, es)
+			} else {
+				writeErr = errors.New("frontendpipe: wire write non-stream not configured")
 			}
 		}
 		if writeErr != nil {
 			if spec.Log != nil {
 				diag.LogError(ctx, spec.Log, "wire response encode failed", diag.AttrOpts{CallID: respCtx.CallID()}, writeErr)
 			}
-			if !isStream {
+			if !isStream || w.Header().Get("Content-Type") == "" {
 				spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteEncodeFailed(w))
 			}
 			return nil, nil, false, nil
 		}
 
-		if w.Header().Get("Content-Type") == "" {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"ok"}`))
-		}
 		return nil, nil, false, nil
 	}
 

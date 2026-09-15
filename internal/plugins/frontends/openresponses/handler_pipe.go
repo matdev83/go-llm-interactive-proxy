@@ -245,7 +245,83 @@ func (h *Handler) buildPipe() {
 			_, _ = w.Write(resource)
 			return nil
 		},
+		WireWrapStream: func(_ context.Context, rc frontendpipe.ResponseContext, inner lipapi.EventStream) (lipapi.EventStream, error) {
+			if extra, ok := rc.Extra().(wireExtraState); ok {
+				return newAllowedToolsStreamFromChoice(extra.ToolChoice, inner), nil
+			}
+			return inner, nil
+		},
+		WireWriteStream: func(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+			rc.WriteSessionHeaders(w)
+			model := rc.ClientModel()
+			if model == "" {
+				model = rc.EffectiveModel()
+			}
+			// Frontend-owned response ID: fresh resp_* per wire response via the same
+			// ResponseIDSource semantics as canonical no-store. Internal RequestID
+			// (rc.CallID(), deterministic call_*) stays a distinct concept and must
+			// never surface as response.id. Generated once here and carried
+			// consistently through created/deltas/completed by serveStreamingWithModel.
+			ids := h.cfg.ResponseIDSource
+			if ids == nil {
+				ids = systemResponseIDSource{}
+			}
+			responseID := ids.NewResponseID()
+			var opts lipapi.GenerationOptions
+			if extra, ok := rc.Extra().(wireExtraState); ok {
+				opts = extra.Options
+			}
+			h.serveStreamingWithModel(ctx, w, es, nil, model, responseID, nil, lipcont.Scope{}, false, nil, opts)
+			return nil
+		},
+		WireWriteNonStream: func(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+			return h.writeWireNonStream(ctx, w, rc, es)
+		},
 	}
+}
+
+func (h *Handler) writeWireNonStream(ctx context.Context, w http.ResponseWriter, rc frontendpipe.ResponseContext, es lipapi.EventStream) error {
+	rc.WriteSessionHeaders(w)
+	clock := h.cfg.ResponseClock
+	if clock == nil {
+		clock = systemResponseClock{}
+	}
+	now := clock.Now()
+	storeVal := false
+	model := rc.ClientModel()
+	if model == "" {
+		model = rc.EffectiveModel()
+	}
+	// Same frontend-owned boundary as WireWriteStream: fresh resp_* per response,
+	// never the deterministic internal RequestID.
+	ids := h.cfg.ResponseIDSource
+	if ids == nil {
+		ids = systemResponseIDSource{}
+	}
+	meta := proto.EnvelopeMetadata{
+		ResponseID:  ids.NewResponseID(),
+		CreatedAt:   now,
+		CompletedAt: &now,
+		Model:       model,
+		Store:       &storeVal,
+	}
+	var opts lipapi.GenerationOptions
+	if extra, ok := rc.Extra().(wireExtraState); ok {
+		opts = extra.Options
+	}
+	resource, collectErr := collectNonStreaming(ctx, es, meta, opts, h.cfg.ProtocolLimits)
+	if collectErr != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		status, typ, code, message := classifyExecutionError(collectErr)
+		writeWireError(w, status, typ, code, message)
+		return nil
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(resource)
+	return nil
 }
 
 // IsEligibleNoStoreCreate reports whether the decoded request belongs to the

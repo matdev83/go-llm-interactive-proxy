@@ -91,6 +91,16 @@ func BuildSessionInput(src SessionInputSource, maxFactBytes int64) (SessionInput
 	return res, nil
 }
 
+// ProvesFreshALeg reports whether the session input definitely proves a fresh, unresumed A-leg.
+// Returns true only when NewSessionRequested is true, AuthoritativeSessionID is empty,
+// ALegID is empty, and ResumeToken is zero or empty.
+func (s SessionInput) ProvesFreshALeg() bool {
+	return s.NewSessionRequested &&
+		strings.TrimSpace(s.AuthoritativeSessionID) == "" &&
+		strings.TrimSpace(s.ALegID) == "" &&
+		(s.ResumeToken.IsZero() || strings.TrimSpace(s.ResumeToken.Reveal()) == "")
+}
+
 // CorrelationID returns a stable identifier for diagnostics and traffic capture:
 // authoritative session ID when set, otherwise client session ID.
 func (s SessionInput) CorrelationID() string {
@@ -213,4 +223,24 @@ func WireClientTurnShapeFromContext(ctx context.Context) (ClientTurnShape, bool)
 	}
 	shape, ok := ctx.Value(wireTurnShapeCtxKey{}).(ClientTurnShape)
 	return shape, ok
+}
+
+// ContextWithWireProof enriches ctx with assessed proof Session, Turn, and canonical
+// Request/Trace IDs in one pass so all frontend lanes cannot forget part of the handoff.
+// RequestID derives from proof.Identity.CallID(explicitRequestID) matching
+// diag.StableCallID (explicit ID or "call_"+token); TraceID equals RequestID under the
+// canonical single-identity contract. Overwrites any prior Wire* values so a stale or
+// conflicting caller ctx cannot replace assessed proof. No Call materialization, no
+// payload decode, no new IDs: only already-derived bounded proof facts are carried.
+// SessionInput strings are immutable; TurnShape shallow copy shares bounded read-only
+// slices consumed without mutation by PrepareSecureSession/RecordClientTurnWithShape.
+func ContextWithWireProof(ctx context.Context, proof Proof, explicitRequestID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqID := proof.Identity.CallID(strings.TrimSpace(explicitRequestID))
+	ctx = WithWireSessionInput(ctx, proof.Session)
+	ctx = WithWireClientTurnShape(ctx, proof.Turn)
+	ctx = WithWireIdentity(ctx, reqID, reqID)
+	return ctx
 }

@@ -23,26 +23,28 @@ const (
 
 func makeValidOpenResponsesWireRequestFacts(clientModel, candModel string, rewrite largebody.RewriteSemantics) largebody.WireRequestFacts {
 	return largebody.WireRequestFacts{
-		ProfileID:       testOpenResponsesProfile,
-		Operation:       lipapi.OperationOpenResponsesCreate,
-		Delivery:        lipapi.DeliveryModeStreaming,
-		BodyMode:        largebody.BodyModeIdentityJSON,
-		Rewrite:         rewrite,
-		ClientModel:     clientModel,
-		CandidateModel:  candModel,
-		MaxOutputTokens: 2048,
+		ProfileID:            testOpenResponsesProfile,
+		Operation:            lipapi.OperationOpenResponsesCreate,
+		Delivery:             lipapi.DeliveryModeStreaming,
+		BodyMode:             largebody.BodyModeIdentityJSON,
+		Rewrite:              rewrite,
+		ClientModel:          clientModel,
+		CandidateModel:       candModel,
+		MaxOutputTokens:      2048,
+		RequiredCapabilities: []lipapi.Capability{lipapi.CapabilityStreaming, lipapi.CapabilityOrderedItems},
 	}
 }
 
 func makeValidOpenResponsesWireDomainFacts(universal bool, candidateModels []string) largebody.WireDomainFacts {
 	return largebody.WireDomainFacts{
-		ProfileID:       testOpenResponsesProfile,
-		Operation:       lipapi.OperationOpenResponsesCreate,
-		Delivery:        lipapi.DeliveryModeStreaming,
-		BodyMode:        largebody.BodyModeIdentityJSON,
-		Rewrite:         testRewriteModelToken(),
-		UniversalModel:  universal,
-		CandidateModels: candidateModels,
+		ProfileID:            testOpenResponsesProfile,
+		Operation:            lipapi.OperationOpenResponsesCreate,
+		Delivery:             lipapi.DeliveryModeStreaming,
+		BodyMode:             largebody.BodyModeIdentityJSON,
+		Rewrite:              testRewriteModelToken(),
+		UniversalModel:       universal,
+		CandidateModels:      candidateModels,
+		RequiredCapabilities: []lipapi.Capability{lipapi.CapabilityStreaming, lipapi.CapabilityOrderedItems},
 	}
 }
 

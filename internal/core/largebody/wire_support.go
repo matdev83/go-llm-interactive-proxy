@@ -25,6 +25,7 @@ const (
 	WireSupportReasonModelUnsupported
 	WireSupportReasonRewriteUnsupported
 	WireSupportReasonClampUnsupported
+	WireSupportReasonCapabilityUnsupported
 )
 
 func (r WireSupportReason) String() string {
@@ -47,6 +48,8 @@ func (r WireSupportReason) String() string {
 		return "rewrite_unsupported"
 	case WireSupportReasonClampUnsupported:
 		return "clamp_unsupported"
+	case WireSupportReasonCapabilityUnsupported:
+		return "capability_unsupported"
 	default:
 		return "unknown"
 	}

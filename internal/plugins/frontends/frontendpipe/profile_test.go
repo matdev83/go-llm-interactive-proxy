@@ -243,9 +243,10 @@ func TestFrontendWireState_ValidationAndConsistency(t *testing.T) {
 		Turn: largebody.ClientTurnShape{
 			TotalContentBytes: 100,
 		},
-		Session:   sess,
-		Source:    srcDigest,
-		BodyBytes: 1024,
+		Session:              sess,
+		Source:               srcDigest,
+		BodyBytes:            1024,
+		RequiredCapabilities: []lipapi.Capability{lipapi.CapabilityStreaming},
 	}
 
 	seeds := frontendpipe.NewResponseStateSeeds(

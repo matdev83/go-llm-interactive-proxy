@@ -201,6 +201,7 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 		HTTPHeaders:             opts.HTTPHeaders,
 		StreamKeepaliveInterval: opts.StreamKeepaliveInterval,
 		LargePayload:            lpCfg,
+		Profile:                 NewProfile(),
 	})
 
 	if mux != nil {

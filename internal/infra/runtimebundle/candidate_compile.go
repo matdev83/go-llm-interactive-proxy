@@ -93,10 +93,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if bus == nil {
 		bus = hooks.New(hooks.Config{})
 	}
-	parent := opts.Startup.StartupContext
-	if parent == nil {
-		parent = ctx
-	}
+	parent := cmp.Or(opts.Startup.StartupContext, ctx)
 	if parent == nil {
 		return nil, fmt.Errorf("runtimebundle: nil compile context")
 	}
@@ -113,8 +110,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		ExplicitCandidate: in.Candidate != nil,
 	}
 	fail := func(err error) error {
-		rollErr := ledger.Rollback(parent)
-		if rollErr != nil {
+		if rollErr := ledger.Rollback(parent); rollErr != nil {
 			return errors.Join(err, rollErr)
 		}
 		return err
@@ -158,31 +154,33 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if err != nil {
 		return nil, fail(err)
 	}
+	convReader, stockConvReader := resolveCandidateConvReader(opts.CorePorts, ps.StandardFeatures)
 	execRun, err := buildExecutorRuntime(executorBuildInput{
-		Bctx:                 bctx,
-		Ledger:               ledger,
-		NowFn:                nowFn,
-		Ext:                  ext,
-		Model:                model,
-		Persistence:          ps.persistence,
-		Security:             sec,
-		Observability:        &obs,
-		ControlPlane:         ps.controlPlane,
-		UsageAuthority:       ps.UsageAuthority,
-		Concurrency:          ps.concurrencyRT,
-		SnapshotGeneration:   ps.SnapshotGeneration,
-		TerminalWork:         ps.terminalWorkRT,
-		SharedMutable:        ps.sharedMutable,
-		AccountingStores:     ps.accountingStores,
-		Metering:             ps.meteringRT,
-		BackendIdentities:    backendIDs,
-		CompactionDetector:   ps.StandardFeatures.CompactionDetector(),
-		BackgroundScheduler:  ps.BackgroundAux,
-		GenerationRunner:     in.GenerationRunner,
-		TerminalPolicyReader: opts.CorePorts.TerminalPolicyReader,
-		ConversationReader:   ps.StandardFeatures.ConversationReader(),
-		ConversationStore:    ps.StandardFeatures.ConversationStore(),
-		InterleavedProcessor: opts.CorePorts.InterleavedProcessor,
+		Bctx:                          bctx,
+		Ledger:                        ledger,
+		NowFn:                         nowFn,
+		Ext:                           ext,
+		Model:                         model,
+		Persistence:                   ps.persistence,
+		Security:                      sec,
+		Observability:                 &obs,
+		ControlPlane:                  ps.controlPlane,
+		UsageAuthority:                ps.UsageAuthority,
+		Concurrency:                   ps.concurrencyRT,
+		SnapshotGeneration:            ps.SnapshotGeneration,
+		TerminalWork:                  ps.terminalWorkRT,
+		SharedMutable:                 ps.sharedMutable,
+		AccountingStores:              ps.accountingStores,
+		Metering:                      ps.meteringRT,
+		BackendIdentities:             backendIDs,
+		CompactionDetector:            ps.StandardFeatures.CompactionDetector(),
+		BackgroundScheduler:           ps.BackgroundAux,
+		GenerationRunner:              in.GenerationRunner,
+		TerminalPolicyReader:          opts.CorePorts.TerminalPolicyReader,
+		ConversationReader:            convReader,
+		ConversationReaderStockOrigin: stockConvReader,
+		ConversationStore:             ps.StandardFeatures.ConversationStore(),
+		InterleavedProcessor:          opts.CorePorts.InterleavedProcessor,
 	})
 	if err != nil {
 		return nil, fail(err)
