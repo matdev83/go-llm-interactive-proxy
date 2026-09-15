@@ -72,10 +72,10 @@ func geminiNativeMeasures(u *genai.GenerateContentResponseUsageMetadata) []sdkme
 	appendMap(input, sdkmetering.DirectionInput, "prompt")
 	appendMap(output, sdkmetering.DirectionOutput, "candidates")
 	appendMap(cache, sdkmetering.DirectionInput, "cache")
-	// A non-nil usage object is the SDK's only presence signal for scalar
-	// counters (the generated type omits zero-valued fields on JSON marshal),
-	// so preserve an explicit zero consistently with usageEvent.
-	if u.ToolUsePromptTokenCount >= 0 {
+	// The generated SDK type has no presence bit for scalar counters. Only a
+	// non-zero value can be distinguished from an omitted field; the detail
+	// list is emitted independently below and must not imply an aggregate.
+	if u.ToolUsePromptTokenCount > 0 {
 		value := sdkmetering.Decimal{Coefficient: strconv.FormatInt(int64(u.ToolUsePromptTokenCount), 10)}
 		measures = append(measures, sdkmetering.Measure{
 			Key:   sdkmetering.ComponentKey{Direction: sdkmetering.DirectionInput, Component: "grounded_tool_token", Unit: sdkmetering.UnitToken, SchemaID: "gemini.usage.v2"},

@@ -323,7 +323,8 @@ func usagePresent(u proto.WireUsage) bool {
 		u.InputTokensDetails.CachedTokensPresent || u.InputTokensDetails.TextTokensPresent ||
 		u.InputTokensDetails.AudioTokensPresent || u.InputTokensDetails.ImagesPresent ||
 		u.OutputTokensDetails.ReasoningTokensPresent || u.OutputTokensDetails.TextTokensPresent ||
-		u.OutputTokensDetails.AudioTokensPresent || u.OutputTokensDetails.ImagesPresent
+		u.OutputTokensDetails.AudioTokensPresent || u.OutputTokensDetails.ImagesPresent ||
+		len(nativeUsageMeasures(string(u.RawJSON))) > 0
 }
 
 func errorFromResource(resource *proto.WireResponseResource) (code, message string) {

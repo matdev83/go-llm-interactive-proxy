@@ -420,13 +420,7 @@ func decodeNonStream(raw []byte) ([]lipapi.Event, error) {
 	msgStarted := false
 	for _, cand := range resp.Candidates {
 		for _, part := range cand.Content.Parts {
-			if part.Text != "" {
-				if !msgStarted {
-					events = append(events, lipapi.Event{Kind: lipapi.EventMessageStarted})
-					msgStarted = true
-				}
-				events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: part.Text})
-			}
+			appendVertexOutputPartEvents(&events, &msgStarted, part)
 		}
 	}
 
@@ -572,16 +566,43 @@ func decodeSSEData(raw []byte, started, msgStart *bool) ([]lipapi.Event, error) 
 
 	for _, cand := range resp.Candidates {
 		for _, part := range cand.Content.Parts {
-			if part.Text != "" {
-				if !*msgStart {
-					events = append(events, lipapi.Event{Kind: lipapi.EventMessageStarted})
-					*msgStart = true
-				}
-				events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: part.Text})
-			}
+			appendVertexOutputPartEvents(&events, msgStart, part)
 		}
 	}
 	return events, nil
+}
+
+// appendVertexOutputPartEvents preserves provider output references while
+// keeping raw inline media out of the canonical event stream. Vertex's
+// fileData URI is a reference the customer-facing API can carry; inlineData
+// is provider output bytes with no canonical output carrier and is therefore
+// deliberately unavailable here rather than copied or priced locally.
+func appendVertexOutputPartEvents(events *[]lipapi.Event, messageStarted *bool, part VertexPart) {
+	if part.Text != "" {
+		if !*messageStarted {
+			*events = append(*events, lipapi.Event{Kind: lipapi.EventMessageStarted})
+			*messageStarted = true
+		}
+		*events = append(*events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: part.Text})
+	}
+	if part.FileData == nil || strings.TrimSpace(part.FileData.FileURI) == "" {
+		return
+	}
+	if !*messageStarted {
+		*events = append(*events, lipapi.Event{Kind: lipapi.EventMessageStarted})
+		*messageStarted = true
+	}
+	uri := strings.TrimSpace(part.FileData.FileURI)
+	mime := strings.TrimSpace(part.FileData.MIMEType)
+	if strings.HasPrefix(strings.ToLower(mime), "image/") {
+		*events = append(*events, lipapi.Event{
+			Kind: lipapi.EventAssistantImageRef, AssistantRef: uri, AssistantMIME: mime,
+		})
+		return
+	}
+	*events = append(*events, lipapi.Event{
+		Kind: lipapi.EventAssistantFileRef, AssistantRef: uri, AssistantMIME: mime,
+	})
 }
 
 func usageEvent(u *VertexUsageMetadata) lipapi.Event {
@@ -623,9 +644,19 @@ func usageEvent(u *VertexUsageMetadata) lipapi.Event {
 		Accounting: lipapi.UsageAccountingMetadata{
 			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported,
 			Authority: lipapi.UsageAuthorityAuthoritative, DedupeKey: "vertex.generate.usage:stream",
-			ServiceContext: strings.TrimSpace(u.ServiceTier),
+			ServiceContext: vertexServiceContext(u),
 		},
 	}
+}
+
+func vertexServiceContext(u *VertexUsageMetadata) string {
+	if u == nil {
+		return ""
+	}
+	if traffic := strings.TrimSpace(u.TrafficType); traffic != "" {
+		return traffic
+	}
+	return strings.TrimSpace(u.ServiceTier)
 }
 
 func vertexCount(value int, explicit bool) (int, bool) {

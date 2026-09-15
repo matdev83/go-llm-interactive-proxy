@@ -27,7 +27,10 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 			RoutePrefixes: []string{FactoryKindGo}, SupportsDynamicInventory: true,
 			ProcessSharing: backendplugin.ProcessSharingPerInstance,
 			StaticCapabilities: backendplugin.CapabilitySummary{
-				Streaming: true, Tools: true, Vision: true, Documents: true, ParallelToolCalls: true,
+				// OpenCode's provider adapters currently serialize text-only
+				// requests; media is not a canonical capability until a lossless
+				// mapping is available for every advertised route.
+				Streaming: true, Tools: true, ParallelToolCalls: true,
 			},
 			TransportCapabilities: backendplugin.TransportCapabilitySummary{
 				Cancellation: true, BidirectionalStream: true,
@@ -38,7 +41,7 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 			RoutePrefixes: []string{FactoryKindZen}, SupportsDynamicInventory: true,
 			ProcessSharing: backendplugin.ProcessSharingPerInstance,
 			StaticCapabilities: backendplugin.CapabilitySummary{
-				Streaming: true, Tools: true, Vision: true, Documents: true, ParallelToolCalls: true,
+				Streaming: true, Tools: true, ParallelToolCalls: true,
 			},
 			TransportCapabilities: backendplugin.TransportCapabilitySummary{
 				Cancellation: true, BidirectionalStream: true,
@@ -100,7 +103,7 @@ type instance struct {
 func (i *instance) Resolve(context.Context, *string) (backendplugin.ResolvedProfile, error) {
 	return backendplugin.ResolvedProfile{
 		Capabilities: backendplugin.CapabilitySummary{
-			Streaming: true, Tools: true, Vision: true, Documents: true, ParallelToolCalls: true,
+			Streaming: true, Tools: true, ParallelToolCalls: true,
 		},
 		TransportCapabilities: backendplugin.TransportCapabilitySummary{
 			Cancellation: true, BidirectionalStream: true,

@@ -179,9 +179,9 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 6.2_
   - _Validation: go test ./internal/core/billing/... ./internal/core/metering/..._
 
-- [ ] 7. Migrate provider and resource producers under the refined model
+- [x] 7. Migrate provider and resource producers under the refined model
 
-- [ ] 7.1 (P) Extend OpenAI/OpenResponses and compatible fixtures for media economics
+- [x] 7.1 (P) Extend OpenAI/OpenResponses and compatible fixtures for media economics
   - Cover supported input media and assistant media output usage/cost fields or explicitly negotiated absence.
   - Test direction identity, provider-bound transforms and late/final usage semantics.
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 6.1, 6.2_
@@ -189,7 +189,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 6.3_
   - _Validation: go test ./internal/plugins/backends/openairesponses/... ./internal/plugins/backends/openresponsescompat/...; make parity-checks_
 
-- [ ] 7.2 (P) Extend Gemini/Vertex-family fixtures for multimodal native units
+- [x] 7.2 (P) Extend Gemini/Vertex-family fixtures for multimodal native units
   - Cover modality-specific input/output, media duration/resolution and resource/storage evidence actually exposed by supported APIs.
   - Preserve native units and negotiated unavailable fields rather than infer from price sheets.
   - _Requirements: 1.1, 1.2, 1.3, 1.6, 6.1, 6.2_
@@ -197,7 +197,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 6.3_
   - _Validation: go test ./internal/plugins/backends/protocols/geminigenerate/...; changed connector module tests_
 
-- [ ] 7.3 (P) Re-inventory remaining media-capable providers and connectors
+- [x] 7.3 (P) Re-inventory remaining media-capable providers and connectors
   - Mechanically identify image/audio/video/file-capable existing producers and assign certified, lossless bridge, or explicitly unsupported economic coverage.
   - Completion: no current media-capable producer silently claims complete economics without a fixture/capability disposition.
   - _Requirements: 1.1, 1.2, 1.6, 6.1_
@@ -205,7 +205,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 6.3_
   - _Validation: make parity-checks; focused module tests for changed connectors_
 
-- [ ] 7.4 Close non-request resource attribution
+- [x] 7.4 Close non-request resource attribution
   - Keep prompt-cache storage, reservations, subscription/account costs and shared resources on their real subjects; allocate only through explicit conserved policy.
   - Prohibit synthetic B-legs introduced solely to attach such costs.
   - Completion: resource/account costs remain payable and roll up when allocated without contaminating B-leg inference-usage totals.

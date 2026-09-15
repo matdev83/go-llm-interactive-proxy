@@ -110,7 +110,7 @@ func nativeUsageEvidence(raw string) []sdkmetering.SafeEvidenceField {
 	out := make([]sdkmetering.SafeEvidenceField, 0, len(nativeUsageFields))
 	seen := make(map[string]struct{}, len(nativeUsageFields))
 	for _, spec := range nativeUsageFields {
-		value, ok := usageField(fields, details, spec)
+		value, providerKey, ok := usageFieldWithKey(fields, details, spec)
 		if !ok {
 			continue
 		}
@@ -119,11 +119,19 @@ func nativeUsageEvidence(raw string) []sdkmetering.SafeEvidenceField {
 		if err != nil || strings.HasPrefix(lexeme, "-") || strings.HasPrefix(decimal.Coefficient, "-") || (spec.integer && decimal.Scale != 0) {
 			continue
 		}
-		if _, exists := seen[spec.path]; exists {
+		path := spec.path
+		if providerKey != "" {
+			path = "$.usage."
+			if spec.nested != "" {
+				path += spec.nested + "."
+			}
+			path += providerKey
+		}
+		if _, exists := seen[path]; exists {
 			continue
 		}
-		seen[spec.path] = struct{}{}
-		out = append(out, sdkmetering.SafeEvidenceField{Path: spec.path, Lexeme: lexeme, Present: true, Acquisition: sdkmetering.AcquisitionProviderResponse})
+		seen[path] = struct{}{}
+		out = append(out, sdkmetering.SafeEvidenceField{Path: path, Lexeme: lexeme, Present: true, Acquisition: sdkmetering.AcquisitionProviderResponse})
 	}
 	return out
 }
@@ -153,19 +161,24 @@ func decodeUsageFields(raw string) (map[string]json.RawMessage, map[string]map[s
 }
 
 func usageField(fields map[string]json.RawMessage, details map[string]map[string]json.RawMessage, spec nativeUsageField) (json.RawMessage, bool) {
-	if spec.nested != "" {
-		return firstUsageField(details[spec.nested], spec.keys)
-	}
-	return firstUsageField(fields, spec.keys)
+	value, _, ok := usageFieldWithKey(fields, details, spec)
+	return value, ok
 }
 
-func firstUsageField(fields map[string]json.RawMessage, keys []string) (json.RawMessage, bool) {
+func usageFieldWithKey(fields map[string]json.RawMessage, details map[string]map[string]json.RawMessage, spec nativeUsageField) (json.RawMessage, string, bool) {
+	if spec.nested != "" {
+		return firstUsageFieldWithKey(details[spec.nested], spec.keys)
+	}
+	return firstUsageFieldWithKey(fields, spec.keys)
+}
+
+func firstUsageFieldWithKey(fields map[string]json.RawMessage, keys []string) (json.RawMessage, string, bool) {
 	for _, key := range keys {
 		value, ok := fields[key]
 		if !ok || strings.TrimSpace(string(value)) == "" || strings.TrimSpace(string(value)) == "null" {
 			continue
 		}
-		return value, true
+		return value, key, true
 	}
-	return nil, false
+	return nil, "", false
 }

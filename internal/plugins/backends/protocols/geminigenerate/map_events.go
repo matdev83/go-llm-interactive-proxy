@@ -286,7 +286,19 @@ func usageEvent(resp *genai.GenerateContentResponse) *lipapi.Event {
 	}
 	if out == 0 && u.CandidatesTokenCount >= 0 && u.ThoughtsTokenCount >= 0 && totalPresent && inputPresent && total > in {
 		diff := int64(total) - int64(in)
-		if diff < 0 {
+		// Gemini's total includes tokens returned by grounded/server-side tool
+		// execution. Those are input-side native evidence, not generated output;
+		// remove a reported non-zero tool count before deriving the legacy output
+		// convenience counter.
+		if u.ToolUsePromptTokenCount > 0 {
+			tool := int64(u.ToolUsePromptTokenCount)
+			if diff < tool {
+				out, outputPresent = 0, false
+			} else {
+				diff -= tool
+			}
+		}
+		if !outputPresent || diff < 0 {
 			out = 0
 		} else {
 			out = safecast.IntFromInt64Clamp(diff)

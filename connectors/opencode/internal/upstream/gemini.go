@@ -137,6 +137,9 @@ func geminiEndpoint(baseURL, model string, stream bool) string {
 }
 
 func geminiRequestBody(call lipapi.Call) ([]byte, error) {
+	if err := validateTextOnlyCall(call); err != nil {
+		return nil, err
+	}
 	payload := map[string]any{
 		"contents": []map[string]any{{
 			"role":  "user",

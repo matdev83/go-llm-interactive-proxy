@@ -29,22 +29,27 @@ type AllocationStore interface {
 // rational; consumers must not treat this view as provider money or request
 // inference evidence.
 type AllocatedCostLine struct {
-	AllocationID      string
-	AllocationVersion uint64
-	Operation         economics.AllocationOperation
-	TargetID          string
-	SourceSubject     metering.SubjectRef
-	SourceBasis       economics.ValuationBasis
-	SourceAmount      *metering.Decimal
-	SourceQuantity    *metering.Decimal
-	Currency          string
-	Unit              string
-	Target            metering.SubjectRef
-	Unallocated       bool
-	Informational     bool
-	Weight            economics.AllocationFraction
-	Share             economics.AllocationFraction
-	RoundedAmount     *economics.AllocationRoundedAmount
+	AllocationID       string
+	AllocationVersion  uint64
+	AllocationRevision uint64
+	Operation          economics.AllocationOperation
+	// Policy is the immutable allocation policy that produced Weight/Share.
+	// Keeping it on every expanded line prevents a payable rollup from losing
+	// the policy/version that explains its conserved distribution.
+	Policy         economics.AllocationPolicyRef
+	TargetID       string
+	SourceSubject  metering.SubjectRef
+	SourceBasis    economics.ValuationBasis
+	SourceAmount   *metering.Decimal
+	SourceQuantity *metering.Decimal
+	Currency       string
+	Unit           string
+	Target         metering.SubjectRef
+	Unallocated    bool
+	Informational  bool
+	Weight         economics.AllocationFraction
+	Share          economics.AllocationFraction
+	RoundedAmount  *economics.AllocationRoundedAmount
 	// InferenceEligible is deliberately always false. A target B-leg is useful
 	// for an explicit allocation's informational linkage only when a real
 	// request exists; allocation alone never creates request evidence.
@@ -132,8 +137,9 @@ func RollupAllocatedCostsDetailed(records []economics.AllocationRecord) (Allocat
 	for _, record := range resolved.Effective {
 		for _, target := range record.Targets {
 			line := AllocatedCostLine{
-				AllocationID: record.ID, AllocationVersion: record.Version,
+				AllocationID: record.ID, AllocationVersion: record.Version, AllocationRevision: record.Revision,
 				Operation: record.Operation,
+				Policy:    record.Policy,
 				TargetID:  target.TargetID, SourceSubject: record.SourceSubject,
 				SourceBasis: record.SourceBasis, Currency: record.Currency, Unit: record.Unit,
 				Target: target.Target, Unallocated: target.Unallocated,

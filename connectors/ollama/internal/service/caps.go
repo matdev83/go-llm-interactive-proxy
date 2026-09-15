@@ -11,7 +11,9 @@ func capsFromOllama(caps []string) backendplugin.CapabilitySummary {
 		case "thinking":
 			out.Reasoning = true
 		case "vision":
-			out.Vision = true
+			// The OpenAI-compatible request mapper rejects canonical image and
+			// file parts, so Ollama's provider hint cannot be advertised as a
+			// route capability until that mapping is lossless.
 		}
 	}
 	return out

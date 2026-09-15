@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/aggregate"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
@@ -20,10 +21,11 @@ const (
 	CostCompletenessPartial CostCompleteness = "partial"
 )
 
-// OperatorCOGSResult is the small Phase 5 attribution result. It intentionally
+// OperatorCOGSResult is the operator COGS attribution result. It intentionally
 // contains a known subtotal and the identities that kept it incomplete rather
 // than converting an unknown attempted leg into zero. Subtotals are keyed by
-// native currency; no implicit FX conversion is performed.
+// native currency; no implicit FX conversion is performed. Optional
+// source-preserving allocation lines are kept separate from B-leg identities.
 type OperatorCOGSResult struct {
 	KnownSubtotalByCurrency map[string]Money
 	KnownSubtotal           Money
@@ -33,7 +35,30 @@ type OperatorCOGSResult struct {
 	UnknownLegKeys          []string
 	ExcludedLegKeys         []string
 	PendingCoverage         []metering.ChargeCoverageRef
+	// AllocatedCostLines are source-preserving resource/account cost lines.
+	// They are deliberately separate from B-leg keys and inference evidence;
+	// an allocation target never creates a synthetic leg.
+	AllocatedCostLines []AllocatedCostLine
+	// PendingAllocations keeps unresolved immutable allocation ancestry visible
+	// so a known subtotal is never mistaken for a complete payable result.
+	PendingAllocations []economics.AllocationRef
 }
+
+var (
+	// ErrAllocationTargetNotAttributable means an allocation names a target
+	// that is not represented by one of the concrete B-legs/calls supplied to
+	// the COGS attribution. Failing closed prevents a synthetic B-leg from
+	// being introduced solely to carry a shared-resource amount.
+	ErrAllocationTargetNotAttributable = errors.New("billing: allocation target is not an attributable executed call or B-leg")
+	// ErrAllocationRequestScoped prevents an already request-scoped provider
+	// charge from being added a second time through the non-request allocation
+	// seam. Provider-charge costs belong to the B-leg charge selector.
+	ErrAllocationRequestScoped = errors.New("billing: request-scoped provider charge cannot be allocated into B-leg COGS")
+	// ErrAllocationAmountUnavailable keeps a non-payable allocation from being
+	// presented as a payable monetary subtotal when its integer ledger amount
+	// is absent.
+	ErrAllocationAmountUnavailable = errors.New("billing: allocated monetary amount is unavailable")
+)
 
 // Subtotal returns a caller-owned native-currency subtotal. An absent
 // currency is represented by a zero amount with that currency and does not
@@ -161,6 +186,127 @@ func AttributeOperatorCOGS(legs []CallLegUsageRecord, rates OperatorRateSet, cur
 // that use the existing provider-cost vocabulary.
 func AttributeOperatorCost(legs []CallLegUsageRecord, rates OperatorRateSet, currency string) (OperatorCOGSResult, error) {
 	return AttributeOperatorCOGS(legs, rates, currency)
+}
+
+// AttributeOperatorCOGSWithAllocations attributes all operator-payable
+// provider costs and then adds explicit, conserved monetary allocations from
+// non-request resource or statement subjects. The supplied legs are the only
+// concrete call/B-leg targets eligible for attribution; allocation lines are
+// retained in full (including unallocated remainders), but never become
+// inference evidence or entries in IncludedLegKeys.
+//
+// Allocation records must already be scoped by the caller to the relevant
+// reporting set. A target that is neither an unallocated remainder nor a real
+// BillingCallID/B-leg in legs fails closed. Pending allocation supersession is
+// retained in PendingAllocations and makes the result non-payable while known
+// resolved lines remain visible for reporting.
+func AttributeOperatorCOGSWithAllocations(legs []CallLegUsageRecord, allocations []economics.AllocationRecord, rates OperatorRateSet, currency string) (OperatorCOGSResult, error) {
+	result, err := AttributeOperatorCOGS(legs, rates, currency)
+	if err != nil || len(allocations) == 0 {
+		return result, err
+	}
+
+	rolled, err := RollupAllocatedCostsDetailed(allocations)
+	if err != nil {
+		return OperatorCOGSResult{}, err
+	}
+	result.AllocatedCostLines = append([]AllocatedCostLine(nil), rolled.Lines...)
+	result.PendingAllocations = append([]economics.AllocationRef(nil), rolled.Pending...)
+	for _, pending := range rolled.PendingSupersedes {
+		if !containsAllocationRef(result.PendingAllocations, pending) {
+			result.PendingAllocations = append(result.PendingAllocations, pending)
+		}
+	}
+	if !rolled.Complete || !rolled.Payable {
+		result.Completeness = CostCompletenessPartial
+		result.Payable = false
+	}
+
+	for _, line := range rolled.Lines {
+		if line.Unallocated {
+			continue
+		}
+		if line.SourceSubject.Kind == metering.SubjectProviderCharge {
+			return OperatorCOGSResult{}, fmt.Errorf("%w: allocation %s", ErrAllocationRequestScoped, line.AllocationID)
+		}
+		if line.SourceSubject.Kind != metering.SubjectResource && line.SourceSubject.Kind != metering.SubjectStatementLine {
+			return OperatorCOGSResult{}, fmt.Errorf("%w: allocation %s source kind %q", ErrAllocationRequestScoped, line.AllocationID, line.SourceSubject.Kind)
+		}
+		if !allocationTargetMatchesLegs(line.Target, legs) {
+			return OperatorCOGSResult{}, fmt.Errorf("%w: allocation %s target %q", ErrAllocationTargetNotAttributable, line.AllocationID, line.TargetID)
+		}
+		if line.Informational {
+			continue
+		}
+		if line.SourceAmount == nil {
+			// Exact resource quantities remain source-preserving accounting
+			// evidence. They cannot become operator money without a separate
+			// valuation, so they do not change the COGS subtotal.
+			continue
+		}
+		if line.RoundedAmount == nil || !line.RoundedAmount.Present {
+			return OperatorCOGSResult{}, fmt.Errorf("%w: allocation %s", ErrAllocationAmountUnavailable, line.AllocationID)
+		}
+		if err := addOperatorSubtotal(&result, Money{Nano: line.RoundedAmount.NanoUnits, Currency: line.RoundedAmount.Currency}); err != nil {
+			return OperatorCOGSResult{}, err
+		}
+	}
+
+	result.KnownSubtotal = result.Subtotal(strings.TrimSpace(currency))
+	if result.Completeness == CostCompletenessPartial {
+		result.Payable = false
+	}
+	return result, nil
+}
+
+// AttributeOperatorCostWithAllocations is the allocation-aware counterpart of
+// the compatibility AttributeOperatorCost name.
+func AttributeOperatorCostWithAllocations(legs []CallLegUsageRecord, allocations []economics.AllocationRecord, rates OperatorRateSet, currency string) (OperatorCOGSResult, error) {
+	return AttributeOperatorCOGSWithAllocations(legs, allocations, rates, currency)
+}
+
+func allocationTargetMatchesLegs(target metering.SubjectRef, legs []CallLegUsageRecord) bool {
+	switch target.Kind {
+	case metering.SubjectBillingCall:
+		for _, leg := range legs {
+			if target.BillingCallID == leg.CallID.String() &&
+				(target.CallID == "" || target.CallID == leg.CallID.String()) &&
+				(target.ALegID == "" || target.ALegID == leg.ALegID) &&
+				(target.SubmissionID == "" || target.SubmissionID == leg.SubmissionID) &&
+				target.RequestID == "" && target.ProviderAccountKey == "" && target.ProviderRequestID == "" {
+				return true
+			}
+		}
+		return false
+	case metering.SubjectBLeg:
+		matches := 0
+		for _, leg := range legs {
+			if strings.TrimSpace(target.BLegID) != strings.TrimSpace(leg.BLegID) ||
+				(target.BillingCallID != "" && target.BillingCallID != leg.CallID.String()) ||
+				(target.CallID != "" && target.CallID != leg.CallID.String()) ||
+				(target.ALegID != "" && target.ALegID != leg.ALegID) ||
+				(target.SubmissionID != "" && target.SubmissionID != leg.SubmissionID) ||
+				(target.AttemptSeq != 0 && (leg.AttemptSeq <= 0 || target.AttemptSeq != uint64(leg.AttemptSeq))) {
+				continue
+			}
+			if target.RequestID != "" || target.AttemptID != "" || target.ProviderAccountKey != "" || target.ProviderRequestID != "" || target.ProviderChargeID != "" {
+				continue
+			}
+			matches++
+		}
+		return matches == 1
+	default:
+		return false
+	}
+}
+
+func containsAllocationRef(refs []economics.AllocationRef, wanted economics.AllocationRef) bool {
+	for _, ref := range refs {
+		if ref == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func hasV2Charge(leg CallLegUsageRecord) bool {
