@@ -783,26 +783,37 @@ func (e *Executor) ExecuteLargeBody(
 
 // resolveWireTurnFacts constructs bounded WireTurnFacts from accepted facts, source facts,
 // and request context (e.g. SessionInput and ClientTurnShape).
+// Production invariant: frontendpipe.replayCandidate enriches ctx via
+// largebody.ContextWithWireProof with assessed proof Session/Turn and canonical
+// Request/Trace IDs, overwriting any stale values. Missing handoff falls back to the
+// assessed stamp identity digest (call_+token), never the generation ID, so silent
+// gen-scoped IDs cannot hide a missing handoff. Direct test executors calling
+// ExecuteLargeBody with a stamp-bound assessment continue to work via the same
+// stamp-derived fallback; Session/Turn fallbacks remain for those callers.
 func (e *Executor) resolveWireTurnFacts(
 	ctx context.Context,
 	accepted largebody.Assessment,
 	src largebody.Source,
 	srcDigest largebody.SourceDigest,
 ) largebody.WireTurnFacts {
-	reqID := accepted.Stamp.GenerationID()
-	traceID := reqID
+	stampDigest := accepted.Stamp.IdentityDigest()
+	reqID := ""
+	traceID := ""
 	if wid, ok := largebody.WireIdentityFromContext(ctx); ok {
-		if wid.RequestID != "" {
-			reqID = wid.RequestID
-		}
-		if wid.TraceID != "" {
-			traceID = wid.TraceID
-		} else {
+		reqID = strings.TrimSpace(wid.RequestID)
+		traceID = strings.TrimSpace(wid.TraceID)
+		if traceID == "" {
 			traceID = reqID
 		}
 	}
 	if reqID == "" {
-		reqID = "wire-req"
+		if !stampDigest.IsZero() {
+			reqID = stampDigest.CallID("")
+		} else {
+			reqID = accepted.Stamp.GenerationID()
+		}
+	}
+	if traceID == "" {
 		traceID = reqID
 	}
 	candModel := accepted.WireRequest.CandidateModel
@@ -842,7 +853,7 @@ func (e *Executor) resolveWireTurnFacts(
 		Identity: largebody.WireIdentityFacts{
 			RequestID:       reqID,
 			TraceID:         traceID,
-			CanonicalDigest: largebody.NewIdentityDigest(srcDigest.Sum()),
+			CanonicalDigest: stampDigest,
 			CheckpointID:    "customer-request:" + reqID,
 		},
 		Session: largebody.WireSessionFacts{

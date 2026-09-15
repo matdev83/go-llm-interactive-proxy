@@ -606,7 +606,8 @@ func replayCandidate[Opts any](
 		var execErr error
 		if wireExec != nil {
 			execStart := time.Now()
-			execRes, execErr = spec.executeLargeBody(ctx, w, wireExec, assessment, capRes.Completed, isStream)
+			wireCtx := largebody.ContextWithWireProof(ctx, proofOut.Proof(), proofOut.Seeds().ExplicitRequestID)
+			execRes, execErr = spec.executeLargeBody(wireCtx, w, wireExec, assessment, capRes.Completed, isStream)
 			observer.OnStageDuration("execution", time.Since(execStart))
 		} else {
 			execErr = errors.New("frontendpipe: wire executor not available for accepted assessment")

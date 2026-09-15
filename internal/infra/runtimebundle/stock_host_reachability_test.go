@@ -2,6 +2,7 @@ package runtimebundle_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,9 +19,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	securedomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -2208,7 +2214,7 @@ plugins:
 	hostOff := buildHostWithConfig(cfgPathOff)
 
 	padding := strings.Repeat("x", 1500)
-	respIDRe := regexp.MustCompile(`"(id)":\s*"(resp_[0-9a-zA-Z_-]+|gen-[0-9a-zA-Z_-]+)"`)
+	respIDRe := regexp.MustCompile(`"(id)":\s*"(resp_[0-9a-zA-Z_-]+)"`)
 	tsRe := regexp.MustCompile(`"(created_at|completed_at)":\s*[0-9]+`)
 	normalizeBody := func(s string) string {
 		s = respIDRe.ReplaceAllString(s, `"$1":"resp_NORMALIZED"`)
@@ -2509,7 +2515,7 @@ plugins:
 	padding := strings.Repeat("x", 1500)
 	bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"input":"hello %s"}`, padding)
 
-	respIDRe := regexp.MustCompile(`"(id|response_id)":\s*"(resp_[0-9a-zA-Z_-]+|gen-[0-9a-zA-Z_-]+)"`)
+	respIDRe := regexp.MustCompile(`"(id|response_id)":\s*"(resp_[0-9a-zA-Z_-]+)"`)
 	msgIDRe := regexp.MustCompile(`"(item_id|id)":\s*"msg_[0-9a-zA-Z_-]+"`)
 	tsRe := regexp.MustCompile(`"(created_at|completed_at|created)":\s*[0-9]+`)
 	normalizeBody := func(s string) string {
@@ -2652,4 +2658,397 @@ plugins:
 		require.Equal(t, wireBefore, openWireCalls.Load(), "resumed session must decline wire precommit")
 		require.Equal(t, recOff.Code, recOn.Code, "status code must match canonical oracle")
 	}
+}
+
+// compileOpenResponsesProofOracle independently derives the certified proof for body
+// through the REAL openresponses profile (no pipeline internals), mirroring production
+// ProofInput construction in frontendpipe.replayCandidate (same route header, create path,
+// body-model routing, semantic-fact budget). It is the independent oracle that assessed
+// pipeline facts must equal.
+func compileOpenResponsesProofOracle(t *testing.T, body string, hdr http.Header) frontendpipe.ProofOutput {
+	t.Helper()
+	src, err := largebody.NewCompletedSource(largebody.CompletedSourceConfig{
+		Memory: []byte(body),
+		Size:   int64(len(body)),
+	})
+	require.NoError(t, err)
+	defer func() { _ = src.Close() }()
+	const factBudget = 16384
+	scanCtx := largebody.WithSemanticFactBudget(context.Background(), factBudget)
+	proofOut, err := openresponses.NewProfile().CompileProof(scanCtx, frontendpipe.ProofInput{
+		Ctx:                scanCtx,
+		Headers:            hdr,
+		URLPath:            "/openresponses/v1/responses",
+		RouteSelector:      "wire-backend:gpt-4o",
+		RoutePrefixes:      routeselect.NewPrefixSet(nil),
+		RouteFromBodyModel: true,
+		Source:             src,
+		BodyBytes:          int64(len(body)),
+	})
+	require.NoError(t, err, "oracle CompileProof must accept the fresh no-store fixture")
+	require.NoError(t, proofOut.Validate(factBudget))
+	return proofOut
+}
+
+// listStoredSessionIDs returns the set of session IDs in the ACTUAL process store
+// (read-only; no executor mutation).
+func listStoredSessionIDs(t *testing.T, store ssessionapp.Store) map[string]bool {
+	t.Helper()
+	require.NotNil(t, store)
+	rows, err := store.Summary(context.Background(), securedomain.SummaryQuery{Limit: 100})
+	require.NoError(t, err)
+	out := make(map[string]bool, len(rows))
+	for _, r := range rows {
+		out[string(r.SessionID)] = true
+	}
+	return out
+}
+
+type storedClientInput struct {
+	// One client.input transcript record from the ACTUAL process secure-session store.
+	SessionID string
+	TurnID    string
+	TraceID   string
+	Role      string
+	Ordinal   int
+	Parts     []string
+}
+
+// queryClientInputTranscript reads the ACTUAL process store (read-only via the existing
+// runtimebundle.HostProcess testing accessor; no executor mutation) for client.input
+// transcript records of one session.
+func queryClientInputTranscript(t *testing.T, store ssessionapp.Store, sessionID string) []storedClientInput {
+	t.Helper()
+	require.NotEmpty(t, sessionID, "session ID must be present to query the store")
+	require.NotNil(t, store, "process secure-session store must be present")
+	items, err := store.Transcript(context.Background(), securedomain.SessionID(sessionID), securedomain.ReadOptions{Limit: 100})
+	require.NoError(t, err)
+	var out []storedClientInput
+	for _, it := range items {
+		if it.EventKind != "client.input" {
+			continue
+		}
+		var payload struct {
+			TraceID string   `json:"trace_id"`
+			Role    string   `json:"role"`
+			Ordinal int      `json:"ordinal"`
+			Parts   []string `json:"parts"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(it.PayloadRef), &payload), "stored client.input payload must decode")
+		out = append(out, storedClientInput{
+			SessionID: string(it.SessionID),
+			TurnID:    string(it.TurnID),
+			TraceID:   payload.TraceID,
+			Role:      payload.Role,
+			Ordinal:   payload.Ordinal,
+			Parts:     payload.Parts,
+		})
+	}
+	return out
+}
+
+func extractWireResponseIDs(t *testing.T, body string) []string {
+	t.Helper()
+	re := regexp.MustCompile(`"(id)":\s*"(resp_[0-9a-zA-Z_-]+|gen-[0-9a-zA-Z_-]+|call_[0-9a-zA-Z_-]+)"`)
+	matches := re.FindAllStringSubmatch(body, -1)
+	ids := make([]string, 0, len(matches))
+	for _, m := range matches {
+		ids = append(ids, m[2])
+	}
+	return ids
+}
+
+// TestStockHost_WireProofHandoff_And_FreshRespIDs is the production-boundary proof for
+// BLOCKER1 (assessed proof Session/Turn/identity handoff) and BLOCKER2 (frontend-owned
+// fresh resp_* per response, distinct from deterministic internal RequestID).
+// It runs a real BuildHost production lane above threshold with fresh sessions enabled
+// and compares against a canonical-off oracle host.
+func TestStockHost_WireProofHandoff_And_FreshRespIDs(t *testing.T) {
+	t.Parallel()
+
+	var (
+		openWireCalls      atomic.Int32
+		openCanonicalCalls atomic.Int32
+		lastTrace          atomic.Pointer[string]
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o"}]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/responses") {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			_, _ = fmt.Fprint(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_prod\",\"model\":\"gpt-4o\",\"status\":\"in_progress\"}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello-from-upstream\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_prod\",\"model\":\"gpt-4o\",\"status\":\"completed\"}}\n\ndata: [DONE]\n\n")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	spoolDir := t.TempDir()
+	customYAML := fmt.Sprintf(`server:
+  address: "127.0.0.1:0"
+  large_payload_fast_path:
+    enabled: true
+    threshold_bytes: 1024
+    memory_spool_bytes: 32768
+    max_inflight_spool_bytes: 1048576
+    max_semantic_fact_bytes: 16384
+    spool_dir: %q
+
+routing:
+  max_attempts: 3
+  default_route: "wire-backend:gpt-4o"
+
+continuity:
+  in_memory: true
+  store: memory
+
+logging:
+  level: error
+  format: text
+
+diagnostics:
+  enabled: false
+
+plugins:
+  frontends:
+    - id: openresponses
+      enabled: true
+      config: {}
+  backends:
+    - kind: custom-openai-responses-compatible
+      id: wire-backend
+      enabled: true
+      config:
+        backend_prefix: wire-backend
+        base_url: %q
+  features:
+    - id: tool-call-repair
+      enabled: false
+`, spoolDir, upstream.URL+"/v1")
+
+	cfgPath := filepath.Join(t.TempDir(), "stock-wire-proof-handoff.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+		RegistrySetup: func(reg *pluginreg.Registry) error {
+			return reg.WrapLifecycleBackend("custom-openai-responses-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
+				return func(instanceID string, n yaml.Node, upstreamHTTP *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+					res, err := orig(instanceID, n, upstreamHTTP, deps)
+					if err != nil {
+						return pluginreg.BackendBuildResult{}, err
+					}
+					origOpenWire := res.Backend.OpenWire
+					if origOpenWire != nil {
+						res.Backend.OpenWire = func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+							openWireCalls.Add(1)
+							tr := req.TraceID
+							lastTrace.Store(&tr)
+							return origOpenWire(ctx, req)
+						}
+					}
+					origOpen := res.Backend.Open
+					if origOpen != nil {
+						res.Backend.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+							openCanonicalCalls.Add(1)
+							return origOpen(ctx, call, cand)
+						}
+					}
+					return res, nil
+				}
+			})
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	hostServeCleanup(t, host)
+
+	// Read-only handles: the actual process store via the existing HostProcess testing
+	// accessor plus OpenWire observation need no executor mutation.
+	store := runtimebundle.HostProcess(host).SecureSessions
+	require.NotNil(t, store)
+
+	padding := strings.Repeat("x", 1500)
+	bodyJSON := fmt.Sprintf(`{"model":"gpt-4o","stream":true,"store":false,"input":"hello %s"}`, padding)
+	inputText := "hello " + padding
+
+	wireHeaders := func() http.Header {
+		h := http.Header{}
+		h.Set("Content-Type", "application/json")
+		h.Set("X-LIP-Route", "wire-backend:gpt-4o")
+		return h
+	}
+	doWire := func(body string, hdr http.Header, ctx context.Context) (int, string, http.Header) {
+		req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(body))
+		req.Header = hdr.Clone()
+		if ctx != nil {
+			req = req.WithContext(ctx)
+		}
+		rec := httptest.NewRecorder()
+		host.HTTPHandler().ServeHTTP(rec, req)
+		return rec.Code, rec.Body.String(), rec.Header()
+	}
+
+	// Independent oracle for the fresh fixture through the REAL profile.
+	oracle := compileOpenResponsesProofOracle(t, bodyJSON, wireHeaders())
+	wantTrace := oracle.Proof().Identity.CallID("")
+	require.True(t, strings.HasPrefix(wantTrace, "call_"), "oracle identity must be canonical call_*, got %q", wantTrace)
+	wantTurn := oracle.Proof().Turn
+	require.NoError(t, wantTurn.Validate(16384), "oracle turn must stay within the semantic-fact budget")
+	require.True(t, oracle.Proof().Session.ProvesFreshALeg(), "fixture must assess as a fresh A-leg")
+	require.Len(t, wantTurn.Items, 1, "fixture pins a single user text item")
+	require.Equal(t, lipapi.RoleUser, wantTurn.Items[0].Role)
+	require.Equal(t, int64(0), wantTurn.Items[0].Ordinal)
+	require.Len(t, wantTurn.Items[0].Parts, 1)
+	require.Equal(t, lipapi.ContentPartText, wantTurn.Items[0].Parts[0].Kind)
+	require.Equal(t, int64(len(inputText)), wantTurn.Items[0].Parts[0].ContentBytes)
+	require.Equal(t, int64(len(inputText)), wantTurn.TotalContentBytes)
+
+	// A/B/C: fresh wire request executes via OpenWire with canonical identity and the
+	// assessed turn recorded in the ACTUAL store.
+	wireBefore := openWireCalls.Load()
+	canonBefore := openCanonicalCalls.Load()
+	code1, resp1, hdr1 := doWire(bodyJSON, wireHeaders(), nil)
+	require.Equal(t, http.StatusOK, code1, "fresh wire request must return 200")
+	require.Equal(t, wireBefore+1, openWireCalls.Load(), "fresh request must invoke OpenWire exactly once (single BeginTurn)")
+	require.Equal(t, canonBefore, openCanonicalCalls.Load(), "fresh wire request must not invoke canonical Open")
+	require.Contains(t, resp1, "response.created")
+	require.Contains(t, resp1, "hello-from-upstream")
+	require.Contains(t, resp1, "response.completed")
+	require.NotContains(t, resp1, "gen-", "wire response must never contain gen- IDs")
+	sess1 := hdr1.Get("X-LIP-Session-ID")
+	require.NotEmpty(t, sess1, "real BeginTurn must issue session headers")
+
+	trace1 := ""
+	if v := lastTrace.Load(); v != nil {
+		trace1 = *v
+	}
+	require.Equal(t, wantTrace, trace1, "OpenWire-observed TraceID must equal the independently derived canonical identity exactly")
+	require.NotContains(t, trace1, "gen-", "wire identity must NEVER be generation-scoped")
+
+	recs1 := queryClientInputTranscript(t, store, sess1)
+	require.Len(t, recs1, len(wantTurn.Items), "actual store must hold EXACTLY the assessed turn lines (a missing handoff records nothing)")
+	for i := range recs1 {
+		require.Equal(t, sess1, recs1[i].SessionID, "stored SessionID must match the actual response header")
+		require.NotEmpty(t, recs1[i].TurnID, "actual session turn ID must be recorded")
+		require.Equal(t, trace1, recs1[i].TraceID, "stored recorder TraceID must equal OpenWire-observed canonical identity exactly")
+		require.Equal(t, string(wantTurn.Items[i].Role), recs1[i].Role)
+		require.Equal(t, int(wantTurn.Items[i].Ordinal), recs1[i].Ordinal)
+		wantParts := make([]string, 0, len(wantTurn.Items[i].Parts))
+		for _, p := range wantTurn.Items[i].Parts {
+			wantParts = append(wantParts, string(p.Kind))
+		}
+		require.Equal(t, wantParts, recs1[i].Parts)
+	}
+
+	// D: two IDENTICAL requests on the same generation produce TWO distinct valid resp_* IDs,
+	// each constant through created/deltas/completed; internal RequestID stays deterministic.
+	code2, resp2, hdr2 := doWire(bodyJSON, wireHeaders(), nil)
+	require.Equal(t, http.StatusOK, code2, "second identical request must return 200")
+	require.Equal(t, wireBefore+2, openWireCalls.Load(), "second identical request must invoke OpenWire again")
+	ids1 := extractWireResponseIDs(t, resp1)
+	ids2 := extractWireResponseIDs(t, resp2)
+	require.NotEmpty(t, ids1, "first response must contain response IDs")
+	require.NotEmpty(t, ids2, "second response must contain response IDs")
+	for _, id := range append(append([]string{}, ids1...), ids2...) {
+		require.True(t, strings.HasPrefix(id, "resp_"), "every wire response ID must be valid resp_*, got %q", id)
+		require.False(t, strings.HasPrefix(id, "gen-"), "gen-* is never a valid response ID, got %q", id)
+	}
+	for _, id := range ids1 {
+		require.Equal(t, ids1[0], id, "response ID must stay constant through created/deltas/completed within one response")
+	}
+	for _, id := range ids2 {
+		require.Equal(t, ids2[0], id, "response ID must stay constant through created/deltas/completed within one response")
+	}
+	require.NotEqual(t, ids1[0], ids2[0], "two identical requests must yield TWO distinct resp_* IDs")
+	trace2 := ""
+	if v := lastTrace.Load(); v != nil {
+		trace2 = *v
+	}
+	require.Equal(t, trace1, trace2, "deterministic internal RequestID may repeat for identical payload (distinct from response ID)")
+	require.NotEqual(t, trace1, ids1[0], "internal RequestID (call_*) must stay a distinct concept from frontend response ID (resp_*)")
+	sess2 := hdr2.Get("X-LIP-Session-ID")
+	require.NotEmpty(t, sess2)
+	require.NotEqual(t, sess1, sess2, "fresh requests must mint distinct sessions")
+	recs2 := queryClientInputTranscript(t, store, sess2)
+	require.Len(t, recs2, len(wantTurn.Items))
+	for i := range recs2 {
+		require.Equal(t, trace2, recs2[i].TraceID)
+		require.Equal(t, recs1[i].Role, recs2[i].Role, "repeat requests must record identical lines (no cross-request carrier mutation)")
+		require.Equal(t, recs1[i].Ordinal, recs2[i].Ordinal)
+		require.Equal(t, recs1[i].Parts, recs2[i].Parts)
+	}
+
+	// Stale-carrier precedence THROUGH the real HTTP pipeline (not helper-only): a poisoned
+	// caller ctx carrying attacker Wire session/turn/identity plus a spoofed X-Trace-ID
+	// header must not replace assessed proof. There is deliberately NO explicit request-ID
+	// HTTP carrier in the canonical header set (pkg/lipsdk/httpheaders.go) and all three
+	// profiles pass explicit "" (openresponses/profile.go, openairesponses/profile.go,
+	// openailegacy/profile.go), so digest-derived call_* is the canonical contract; the
+	// attacker-req carrier below exercises the explicit-carrier precedence path at the
+	// pipeline boundary, where the stamp fallback can never mask it (fallback only applies
+	// when ctx carries no identity at all).
+	poisoned := largebody.WithWireSessionInput(context.Background(), largebody.SessionInput{
+		AuthoritativeSessionID: "attacker-session",
+		ClientSessionID:        "attacker-hint",
+		ALegID:                 "attacker-aleg",
+	})
+	poisoned = largebody.WithWireClientTurnShape(poisoned, largebody.ClientTurnShape{})
+	poisoned = largebody.WithWireIdentity(poisoned, "attacker-req", "attacker-trace")
+	hdr3 := wireHeaders()
+	hdr3.Set("X-Trace-ID", "attacker-trace")
+	code3, resp3, hdr3out := doWire(bodyJSON, hdr3, poisoned)
+	require.Equal(t, http.StatusOK, code3, "poisoned-ctx request must still return 200 via assessed proof")
+	require.Equal(t, wireBefore+3, openWireCalls.Load(), "assessment must be unaffected by poisoned ctx carriers")
+	require.Equal(t, canonBefore, openCanonicalCalls.Load(), "poisoned-ctx request must stay on the wire path")
+	trace3 := ""
+	if v := lastTrace.Load(); v != nil {
+		trace3 = *v
+	}
+	require.Equal(t, wantTrace, trace3, "assessed identity must win over stale ctx carriers through the pipeline")
+	require.NotContains(t, trace3, "attacker")
+	require.NotContains(t, resp3, "attacker", "wire response must never leak stale ctx carriers")
+	require.NotContains(t, resp3, "gen-")
+	sess3 := hdr3out.Get("X-LIP-Session-ID")
+	require.NotEmpty(t, sess3)
+	require.NotContains(t, sess3, "attacker")
+	require.NotEqual(t, "attacker-aleg", hdr3out.Get("X-LIP-A-Leg-Id"))
+	recs3 := queryClientInputTranscript(t, store, sess3)
+	require.Len(t, recs3, len(wantTurn.Items), "assessed turn must win over the poisoned empty turn shape")
+	for i := range recs3 {
+		require.Equal(t, wantTrace, recs3[i].TraceID)
+		require.Equal(t, string(wantTurn.Items[i].Role), recs3[i].Role)
+	}
+
+	// Client-session-hint THROUGH the pipeline: X-LIP-Session-Hint (canonical header
+	// pkg/lipsdk.HeaderSessionHint) is assessed canonical-only for openresponses, so the
+	// request must decline wire precommit and execute canonically with its turn in the store.
+	hdr4 := wireHeaders()
+	hdr4.Set("X-LIP-Session-Hint", "client-hint-test")
+	beforeSessions := listStoredSessionIDs(t, store)
+	code4, _, _ := doWire(bodyJSON, hdr4, nil)
+	require.Equal(t, http.StatusOK, code4, "hint request must return 200 via canonical")
+	require.Equal(t, wireBefore+3, openWireCalls.Load(), "hint must decline wire precommit")
+	require.Equal(t, canonBefore+1, openCanonicalCalls.Load(), "hint must execute canonically (single admission)")
+	afterSessions := listStoredSessionIDs(t, store)
+	var hintSessions []string
+	for id := range afterSessions {
+		if !beforeSessions[id] {
+			hintSessions = append(hintSessions, id)
+		}
+	}
+	require.Len(t, hintSessions, 1, "canonical decline path must begin exactly one real session in the actual store")
+	recs4 := queryClientInputTranscript(t, store, hintSessions[0])
+	require.NotEmpty(t, recs4, "canonical decline path must record the client turn in the actual store")
 }

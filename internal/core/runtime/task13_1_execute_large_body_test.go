@@ -198,8 +198,12 @@ func TestTask13_1_StampAndSourceValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success for valid accepted assessment, got %v", err)
 	}
-	if res.Facts.RequestID != "gen-1" {
-		t.Errorf("RequestID = %q, want gen-1", res.Facts.RequestID)
+	wantReqID := acc.Stamp.IdentityDigest().CallID("")
+	if res.Facts.RequestID != wantReqID {
+		t.Errorf("RequestID = %q, want canonical stamp-derived %q", res.Facts.RequestID, wantReqID)
+	}
+	if res.Facts.RequestID == "gen-1" {
+		t.Errorf("RequestID must never be generation-scoped, got %q", res.Facts.RequestID)
 	}
 
 	// 2. Declined assessment fails with invariant error
