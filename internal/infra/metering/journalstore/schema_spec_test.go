@@ -59,6 +59,11 @@ func MeteringJournalLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 					{Name: "observation_origin", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "''"},
 					{Name: "observation_acquisition", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "''"},
 					{Name: "observation_provider_account_key", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "''"},
+					{Name: "observation_pool_id", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "''"},
+					{Name: "observation_window_id", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "''"},
+					{Name: "observation_reset_at_unix", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false), Default: "0"},
+					{Name: "observation_observed_at_unix", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false), Default: "0"},
+					{Name: "observation_received_at_unix", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false), Default: "0"},
 				},
 				PrimaryKey: []string{"id"},
 				UniqueConstraints: []dbparity.UniqueConstraintSpec{
@@ -171,6 +176,12 @@ func MeteringJournalLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 				Table:   "metering_facts",
 				Columns: []string{"store_id", "perspective", "boundary", "lifecycle_scope"},
 				Unique:  false,
+			},
+			{
+				Name:      "idx_metering_facts_store_account_window",
+				Table:     "metering_facts",
+				Columns:   []string{"store_id", "observation_provider_account_key", "observation_pool_id", "observation_window_id", "observation_reset_at_unix", "observation_observed_at_unix", "observation_received_at_unix", "stream_id", "sequence", "observation_id", "observation_revision", "id"},
+				Predicate: "payload_kind = 'observation' AND observation_subject_kind = 'account_window'",
 			},
 			{
 				Name:    "idx_metering_fact_filters_field",

@@ -60,6 +60,7 @@ var RequiredMigrationNames = []string{
 	StoreScopedFiltersMigrationName,
 	SchemaV2MigrationName,
 	ObservationProjectionMigrationName,
+	AccountWindowProjectionMigrationName,
 }
 
 // VerifySchema checks required runtime relations without applying migrations.
@@ -72,7 +73,7 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 	}
 	if db.Dialect().Name() != dialect.PG {
 		for _, probe := range []string{
-			`SELECT identity_version, source_revision, source_event_kind, source_id, payload_kind, observation_id, observation_revision, observation_fingerprint, observation_subject_kind, observation_subject_id, observation_tenant_id, observation_origin, observation_acquisition, observation_provider_account_key FROM metering_facts WHERE 1 = 0`,
+			`SELECT identity_version, source_revision, source_event_kind, source_id, payload_kind, observation_id, observation_revision, observation_fingerprint, observation_subject_kind, observation_subject_id, observation_tenant_id, observation_origin, observation_acquisition, observation_provider_account_key, observation_pool_id, observation_window_id, observation_reset_at_unix, observation_observed_at_unix, observation_received_at_unix FROM metering_facts WHERE 1 = 0`,
 			`SELECT store_id FROM metering_fact_filters WHERE 1 = 0`,
 			`SELECT 1 FROM metering_fact_supersessions WHERE 1 = 0`,
 			`SELECT store_id, observation_row_id, item_kind, component_key, component_key_hash, coefficient, scale, value_present, money_present, charge_coverage_json, subject_kind, subject_id, tenant_id, provider_account_key, projection_version FROM metering_components WHERE 1 = 0`,
@@ -117,7 +118,7 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 		return nil
 	}
 	for _, probe := range []string{
-		`SELECT identity_version, source_revision, source_event_kind, source_id, payload_kind, observation_id, observation_revision, observation_fingerprint, observation_subject_kind, observation_subject_id, observation_tenant_id, observation_origin, observation_acquisition, observation_provider_account_key FROM metering_facts WHERE 1 = 0`,
+		`SELECT identity_version, source_revision, source_event_kind, source_id, payload_kind, observation_id, observation_revision, observation_fingerprint, observation_subject_kind, observation_subject_id, observation_tenant_id, observation_origin, observation_acquisition, observation_provider_account_key, observation_pool_id, observation_window_id, observation_reset_at_unix, observation_observed_at_unix, observation_received_at_unix FROM metering_facts WHERE 1 = 0`,
 		`SELECT * FROM metering_fact_filters WHERE 1 = 0`,
 		`SELECT * FROM metering_fact_supersessions WHERE 1 = 0`,
 		`SELECT * FROM metering_components WHERE 1 = 0`,
@@ -285,12 +286,18 @@ LIMIT 1`,
 			fragments:   []string{ObservationProjectionMigrationName},
 		},
 		{
+			description: AccountWindowProjectionMigrationName + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{AccountWindowProjectionMigrationName},
+			fragments:   []string{AccountWindowProjectionMigrationName},
+		},
+		{
 			description: "metering_facts V2 observation columns",
 			query: `SELECT lower(string_agg(column_name, ',' ORDER BY column_name)) FROM information_schema.columns
 WHERE table_schema = current_schema()
   AND table_name = 'metering_facts'
-  AND column_name IN ('payload_kind','observation_id','observation_revision','observation_fingerprint','observation_subject_kind','observation_subject_id','observation_tenant_id','observation_origin','observation_acquisition','observation_provider_account_key')`,
-			fragments: []string{"observation_acquisition", "observation_fingerprint", "observation_id", "observation_origin", "observation_provider_account_key", "observation_revision", "observation_subject_id", "observation_subject_kind", "observation_tenant_id", "payload_kind"},
+  AND column_name IN ('payload_kind','observation_id','observation_revision','observation_fingerprint','observation_subject_kind','observation_subject_id','observation_tenant_id','observation_origin','observation_acquisition','observation_provider_account_key','observation_pool_id','observation_window_id','observation_reset_at_unix','observation_observed_at_unix','observation_received_at_unix')`,
+			fragments: []string{"observation_acquisition", "observation_fingerprint", "observation_id", "observation_origin", "observation_observed_at_unix", "observation_pool_id", "observation_provider_account_key", "observation_received_at_unix", "observation_reset_at_unix", "observation_revision", "observation_subject_id", "observation_subject_kind", "observation_tenant_id", "observation_window_id", "payload_kind"},
 		},
 		{
 			description: "metering_components table",
@@ -316,6 +323,11 @@ WHERE table_schema = current_schema()
 			description: "metering_components provider-account index",
 			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_metering_components_store_provider_account' LIMIT 1`,
 			fragments:   []string{"store_id", "provider_account_key", "stream_id"},
+		},
+		{
+			description: "metering_facts account-window index",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'metering_facts' AND indexname = 'idx_metering_facts_store_account_window' LIMIT 1`,
+			fragments:   []string{"store_id", "observation_provider_account_key", "observation_pool_id", "observation_window_id", "observation_reset_at_unix", "observation_observed_at_unix", "observation_received_at_unix"},
 		},
 	}
 	for _, check := range checks {

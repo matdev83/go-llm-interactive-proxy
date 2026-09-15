@@ -24,12 +24,18 @@ func registerMigrations() {
 		registerStoreScopedFiltersMigration()
 		registerSchemaV2Migration()
 		registerObservationProjectionMigration()
+		registerAccountWindowProjectionMigration()
 	})
 }
 
 func runSchemaMigrate(ctx context.Context, db *bun.DB) error {
 	registerMigrations()
-	migrator := migrate.NewMigrator(db, migrations, migrate.WithTableName("bun_metering_journal_migrations"))
+	migrator := migrate.NewMigrator(db, migrations,
+		migrate.WithTableName("bun_metering_journal_migrations"),
+		// Do not record an upgrade until its backfill has completed. Invalid
+		// canonical observations must leave the migration retryable on reopen.
+		migrate.WithMarkAppliedOnSuccess(true),
+	)
 	if err := migrator.Init(ctx); err != nil {
 		return fmt.Errorf("migrator init: %w", err)
 	}

@@ -61,7 +61,7 @@ func validateObservationOwnership(o Observation, allowLegacyProviderRequest bool
 	}
 
 	switch o.Subject.Kind {
-	case SubjectBLeg, SubjectProviderCharge:
+	case SubjectBLeg, SubjectProviderCharge, SubjectProviderDebit:
 		if o.Subject.BLegID == "" || o.Correlation.BLegID == "" {
 			return fmt.Errorf("%w: request-scoped evidence requires BLegID on subject and correlation", ErrInvalidObservation)
 		}
@@ -96,6 +96,28 @@ func validateObservationSubjectSemantics(o Observation) error {
 			if measure.Key.Direction != DirectionNone {
 				return fmt.Errorf("%w: account-window measure[%d] must be nondirectional", ErrInvalidObservation, i)
 			}
+		}
+	case SubjectProviderDebit:
+		if o.Origin != OriginProvider {
+			return fmt.Errorf("%w: provider debit requires provider origin", ErrInvalidObservation)
+		}
+		if o.Authority != AuthorityObservedClaim {
+			return fmt.Errorf("%w: provider debit requires observed provider authority", ErrInvalidObservation)
+		}
+		if o.Semantics == SemanticsGauge {
+			return fmt.Errorf("%w: provider debit cannot use gauge semantics", ErrInvalidObservation)
+		}
+		if len(o.Measures) != 1 || len(o.Charges) != 0 {
+			return fmt.Errorf("%w: provider debit requires exactly one measure and no charges", ErrInvalidObservation)
+		}
+		if o.Measures[0].Key.Direction != DirectionNone {
+			return fmt.Errorf("%w: provider debit measure must be nondirectional", ErrInvalidObservation)
+		}
+		if o.Measures[0].Key.Unit == UnitPercent {
+			return fmt.Errorf("%w: provider debit cannot use percent gauges", ErrInvalidObservation)
+		}
+		if o.Measures[0].Quality != QualityObserved {
+			return fmt.Errorf("%w: provider debit requires observed measure quality", ErrInvalidObservation)
 		}
 	case SubjectResource:
 		for i, measure := range o.Measures {

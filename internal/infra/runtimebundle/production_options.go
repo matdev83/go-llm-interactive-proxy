@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	runtimecore "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
@@ -40,19 +41,23 @@ type ProductionOptions struct {
 	BillingCreditGate runtimecore.BillingCreditGate
 	// BillingExposureAdmission is the authoritative post-route operational
 	// exposure seam, normally constructed by ComposeBilling from BillingStore.
-	BillingExposureAdmission  runtimecore.BillingExposureAdmission
-	MeteringRecorder          metering.Recorder
-	RequestRegistrations      []authority.RequestRegistration
-	AttemptRegistrations      []authority.AttemptRegistration
-	ConcurrencyRegistration   *authority.ConcurrencyRegistration
-	UsageSnapshotSource       economics.RuleSnapshotSource
-	ConcurrencySnapshotSource economics.RuleSnapshotSource
-	RatingSnapshotSource      economics.RatingSnapshotSource
-	EvidenceSink              authority.EvidenceSink
-	MeteringQuerier           metering.Querier
-	TrafficObservers          []traffic.Observer
-	UsageObservers            []usage.Observer
-	PolicyObservers           []policydecision.Observer
+	BillingExposureAdmission runtimecore.BillingExposureAdmission
+	MeteringRecorder         metering.Recorder
+	// MeteringAccountWindowStore is the optional nonfinancial gauge query port
+	// used by an explicitly configured provider quota policy. It is separate
+	// from all billing and customer-unit seams.
+	MeteringAccountWindowStore coremetering.AccountWindowStore
+	RequestRegistrations       []authority.RequestRegistration
+	AttemptRegistrations       []authority.AttemptRegistration
+	ConcurrencyRegistration    *authority.ConcurrencyRegistration
+	UsageSnapshotSource        economics.RuleSnapshotSource
+	ConcurrencySnapshotSource  economics.RuleSnapshotSource
+	RatingSnapshotSource       economics.RatingSnapshotSource
+	EvidenceSink               authority.EvidenceSink
+	MeteringQuerier            metering.Querier
+	TrafficObservers           []traffic.Observer
+	UsageObservers             []usage.Observer
+	PolicyObservers            []policydecision.Observer
 	// Terminal-work processor ownership (tasks 4.4–4.5). When TerminalWorkStore is
 	// set, Build constructs processor/registry/intents, starts the processor, and
 	// injects IntentService into the executor.

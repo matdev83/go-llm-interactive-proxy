@@ -161,6 +161,9 @@ func (e *DeniedError) Error() string {
 type UnavailableError struct {
 	ProviderID string
 	Err        error
+	// Decision preserves a provider's fail-closed posture and safe evidence
+	// when its admission call returns both a decision and an error.
+	Decision authority.Decision
 }
 
 func (e *UnavailableError) Error() string {

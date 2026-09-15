@@ -21,11 +21,12 @@ func TestPhase3_FreshMigrate_ExactMigrationNamesOnceEach(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertExactMigrationCounts(t, bunDB, map[string]int{
-		journalstore.BaselineMigrationName:              1,
-		journalstore.StoreScopedSourceKeyMigrationName:  1,
-		journalstore.StoreScopedFiltersMigrationName:    1,
-		journalstore.SchemaV2MigrationName:              1,
-		journalstore.ObservationProjectionMigrationName: 1,
+		journalstore.BaselineMigrationName:                1,
+		journalstore.StoreScopedSourceKeyMigrationName:    1,
+		journalstore.StoreScopedFiltersMigrationName:      1,
+		journalstore.SchemaV2MigrationName:                1,
+		journalstore.ObservationProjectionMigrationName:   1,
+		journalstore.AccountWindowProjectionMigrationName: 1,
 	})
 	if err := journalstore.VerifySchema(ctx, bunDB); err != nil {
 		t.Fatalf("VerifySchema: %v", err)
@@ -53,11 +54,12 @@ func TestPhase3_UpgradeFromPrePhase3Baseline_AppliesStoreScopedAndV2(t *testing.
 		t.Fatalf("Migrate upgrade: %v", err)
 	}
 	assertExactMigrationCounts(t, bunDB, map[string]int{
-		journalstore.BaselineMigrationName:              1,
-		journalstore.StoreScopedSourceKeyMigrationName:  1,
-		journalstore.StoreScopedFiltersMigrationName:    1,
-		journalstore.SchemaV2MigrationName:              1,
-		journalstore.ObservationProjectionMigrationName: 1,
+		journalstore.BaselineMigrationName:                1,
+		journalstore.StoreScopedSourceKeyMigrationName:    1,
+		journalstore.StoreScopedFiltersMigrationName:      1,
+		journalstore.SchemaV2MigrationName:                1,
+		journalstore.ObservationProjectionMigrationName:   1,
+		journalstore.AccountWindowProjectionMigrationName: 1,
 	})
 
 	var filtersStoreID int
@@ -139,20 +141,22 @@ VALUES (?, 1, CURRENT_TIMESTAMP)`, journalstore.BaselineMigrationName); err != n
 		}
 	}
 	assertExactMigrationCounts(t, bunDB, map[string]int{
-		journalstore.BaselineMigrationName:              3,
-		journalstore.SchemaV2MigrationName:              1,
-		journalstore.ObservationProjectionMigrationName: 1,
+		journalstore.BaselineMigrationName:                3,
+		journalstore.SchemaV2MigrationName:                1,
+		journalstore.ObservationProjectionMigrationName:   1,
+		journalstore.AccountWindowProjectionMigrationName: 1,
 	})
 
 	if err := journalstore.Migrate(ctx, bunDB); err != nil {
 		t.Fatalf("recover Migrate: %v", err)
 	}
 	assertExactMigrationCounts(t, bunDB, map[string]int{
-		journalstore.BaselineMigrationName:              3,
-		journalstore.StoreScopedSourceKeyMigrationName:  1,
-		journalstore.StoreScopedFiltersMigrationName:    1,
-		journalstore.SchemaV2MigrationName:              1,
-		journalstore.ObservationProjectionMigrationName: 1,
+		journalstore.BaselineMigrationName:                3,
+		journalstore.StoreScopedSourceKeyMigrationName:    1,
+		journalstore.StoreScopedFiltersMigrationName:      1,
+		journalstore.SchemaV2MigrationName:                1,
+		journalstore.ObservationProjectionMigrationName:   1,
+		journalstore.AccountWindowProjectionMigrationName: 1,
 	})
 	if err := journalstore.VerifySchema(ctx, bunDB); err != nil {
 		t.Fatalf("VerifySchema after collapsed recovery: %v", err)
@@ -161,11 +165,12 @@ VALUES (?, 1, CURRENT_TIMESTAMP)`, journalstore.BaselineMigrationName); err != n
 		t.Fatalf("second Migrate must be idempotent: %v", err)
 	}
 	assertExactMigrationCounts(t, bunDB, map[string]int{
-		journalstore.BaselineMigrationName:              3,
-		journalstore.StoreScopedSourceKeyMigrationName:  1,
-		journalstore.StoreScopedFiltersMigrationName:    1,
-		journalstore.SchemaV2MigrationName:              1,
-		journalstore.ObservationProjectionMigrationName: 1,
+		journalstore.BaselineMigrationName:                3,
+		journalstore.StoreScopedSourceKeyMigrationName:    1,
+		journalstore.StoreScopedFiltersMigrationName:      1,
+		journalstore.SchemaV2MigrationName:                1,
+		journalstore.ObservationProjectionMigrationName:   1,
+		journalstore.AccountWindowProjectionMigrationName: 1,
 	})
 }
 

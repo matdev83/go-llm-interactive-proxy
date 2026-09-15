@@ -168,19 +168,25 @@ type ValuationBasis string
 const (
 	BasisLocalExpected         ValuationBasis = "local_expected"          // E
 	BasisProviderQuantityLocal ValuationBasis = "provider_quantity_local" // Q
-	BasisProviderReported      ValuationBasis = "provider_reported"       // P
-	BasisStatementReported     ValuationBasis = "statement_reported"      // S
-	BasisCustomerPolicy        ValuationBasis = "customer_policy"         // R
-	BasisAllocatedCost         ValuationBasis = "allocated_cost"
+	// BasisProviderUnitDebit is a provider-reported nonmonetary request debit
+	// (for example credits consumed). It is not provider money P and cannot be
+	// rated or converted without an explicit later rule.
+	BasisProviderUnitDebit ValuationBasis = "provider_unit_debit"
+	BasisProviderReported  ValuationBasis = "provider_reported"  // P
+	BasisStatementReported ValuationBasis = "statement_reported" // S
+	BasisCustomerPolicy    ValuationBasis = "customer_policy"    // R
+	BasisAllocatedCost     ValuationBasis = "allocated_cost"
 	// Short aliases are useful at adapter boundaries while preserving the
 	// descriptive wire values above.
 	BasisE          = BasisLocalExpected
 	BasisQ          = BasisProviderQuantityLocal
+	BasisD          = BasisProviderUnitDebit
 	BasisP          = BasisProviderReported
 	BasisS          = BasisStatementReported
 	BasisR          = BasisCustomerPolicy
 	ValuationBasisE = BasisLocalExpected
 	ValuationBasisQ = BasisProviderQuantityLocal
+	ValuationBasisD = BasisProviderUnitDebit
 	ValuationBasisP = BasisProviderReported
 	ValuationBasisS = BasisStatementReported
 	ValuationBasisR = BasisCustomerPolicy
@@ -188,7 +194,7 @@ const (
 
 func (b ValuationBasis) IsKnown() bool {
 	switch b {
-	case BasisLocalExpected, BasisProviderQuantityLocal, BasisProviderReported,
+	case BasisLocalExpected, BasisProviderQuantityLocal, BasisProviderUnitDebit, BasisProviderReported,
 		BasisStatementReported, BasisCustomerPolicy, BasisAllocatedCost:
 		return true
 	default:

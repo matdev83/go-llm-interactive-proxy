@@ -133,6 +133,11 @@ func DefaultCatalog() Catalog {
 						Class:    Common,
 						Evidence: "internal/infra/billingstore/submission_fee_settlement_phase10_test.go",
 					},
+					{
+						ID:       "explicit-conserved-allocation-replay",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/phase11_allocation_test.go",
+					},
 				},
 			},
 			{
@@ -275,6 +280,7 @@ func DefaultCatalog() Catalog {
 				StoreContracts: []string{
 					"pkg/lipsdk/metering.Querier",
 					"pkg/lipsdk/metering.Recorder",
+					"internal/core/metering.AccountWindowStore",
 				},
 				MigrationRoots: []string{
 					"internal/infra/metering/journalstore",
@@ -312,6 +318,11 @@ func DefaultCatalog() Catalog {
 						ID:       "v2-observation-components-replay-rebuild",
 						Class:    Common,
 						Evidence: "internal/infra/metering/journalstore/phase4_observation_store_test.go",
+					},
+					{
+						ID:       "account-window-gauge-history-current-asof",
+						Class:    Common,
+						Evidence: "internal/infra/metering/journalstore/phase11_account_window_test.go",
 					},
 				},
 			},

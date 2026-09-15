@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
@@ -36,6 +37,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
@@ -139,6 +141,21 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		if prod.MeteringRecorder != nil {
 			meteringRT = &meteringRuntime{Recorder: prod.MeteringRecorder, StoreBacking: "injected"}
 		}
+	}
+	var quotaStore coremetering.AccountWindowStore
+	if prod.MeteringAccountWindowStore != nil {
+		quotaStore = prod.MeteringAccountWindowStore
+	} else if meteringRT != nil {
+		quotaStore, _ = meteringRT.Recorder.(coremetering.AccountWindowStore)
+	}
+	quotaReg, err := quotaRequestRegistration(cfg, quotaStore, in.NowFn)
+	if err != nil {
+		return nil, err
+	}
+	if quotaReg != nil {
+		// Allocate a new slice so a candidate-local quota registration never
+		// mutates the caller-owned production options backing array.
+		prod.RequestRegistrations = append([]authority.RequestRegistration{*quotaReg}, prod.RequestRegistrations...)
 	}
 	interleaved := runtime.InterleavedRuntime{
 		Processor: in.InterleavedProcessor,

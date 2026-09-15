@@ -127,6 +127,8 @@ func restoreV2IndexSQL(name string) string {
 		return `CREATE INDEX IF NOT EXISTS idx_metering_facts_store_attempt ON metering_facts(store_id, attempt_id) WHERE attempt_id <> ''`
 	case "idx_metering_facts_store_recorded":
 		return `CREATE INDEX IF NOT EXISTS idx_metering_facts_store_recorded ON metering_facts(store_id, recorded_at_unix)`
+	case "idx_metering_facts_store_account_window":
+		return `CREATE INDEX IF NOT EXISTS idx_metering_facts_store_account_window ON metering_facts(store_id, observation_provider_account_key, observation_pool_id, observation_window_id, observation_reset_at_unix, observation_observed_at_unix, observation_received_at_unix, stream_id, sequence, observation_id, observation_revision, id) WHERE payload_kind = 'observation' AND observation_subject_kind = 'account_window'`
 	case "idx_metering_facts_store_plane":
 		return `CREATE INDEX IF NOT EXISTS idx_metering_facts_store_plane ON metering_facts(store_id, perspective, boundary, lifecycle_scope)`
 	case "idx_metering_fact_supersessions_to":

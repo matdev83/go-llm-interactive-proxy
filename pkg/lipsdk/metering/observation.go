@@ -108,9 +108,14 @@ const (
 	SubjectBLeg           SubjectKind = "b_leg"
 	SubjectSubmission     SubjectKind = "submission"
 	SubjectProviderCharge SubjectKind = "provider_charge"
-	SubjectResource       SubjectKind = "resource_interval"
-	SubjectAccountWindow  SubjectKind = "account_window"
-	SubjectStatementLine  SubjectKind = "statement_line"
+	// SubjectProviderDebit is a nonmonetary, provider-reported request debit.
+	// It carries the provider account/pool/window identity and one concrete
+	// request/B-leg owner; it is intentionally distinct from both
+	// SubjectAccountWindow gauges and SubjectProviderCharge money.
+	SubjectProviderDebit SubjectKind = "provider_debit"
+	SubjectResource      SubjectKind = "resource_interval"
+	SubjectAccountWindow SubjectKind = "account_window"
+	SubjectStatementLine SubjectKind = "statement_line"
 	// Common spelling aliases are intentionally the same tagged values.
 	SubjectAleg              = SubjectALeg
 	SubjectLogicalRequest    = SubjectRequest
@@ -125,7 +130,7 @@ const (
 
 func (k SubjectKind) IsKnown() bool {
 	switch k {
-	case SubjectALeg, SubjectRequest, SubjectBillingCall, SubjectBLeg, SubjectSubmission, SubjectProviderCharge, SubjectResource, SubjectAccountWindow, SubjectStatementLine:
+	case SubjectALeg, SubjectRequest, SubjectBillingCall, SubjectBLeg, SubjectSubmission, SubjectProviderCharge, SubjectProviderDebit, SubjectResource, SubjectAccountWindow, SubjectStatementLine:
 		return true
 	default:
 		return false
@@ -231,6 +236,16 @@ func (s SubjectRef) Validate() error {
 		}
 		if s.ResourceID != "" || s.PoolID != "" || s.WindowID != "" || s.StatementID != "" || s.StatementLineID != "" {
 			return fmt.Errorf("%w: provider charge carries foreign subject fields", ErrInvalidSubject)
+		}
+	case SubjectProviderDebit:
+		if s.ProviderAccountKey == "" || s.PoolID == "" || s.WindowID == "" || s.RequestID == "" || s.BillingCallID == "" || s.BLegID == "" {
+			return fmt.Errorf("%w: provider_account_key, pool_id, window_id, request_id, billing_call_id and b_leg_id required", ErrInvalidSubject)
+		}
+		if s.ResetAt.IsZero() {
+			return fmt.Errorf("%w: provider debit reset_at required", ErrInvalidSubject)
+		}
+		if s.SubmissionID != "" || s.ProviderChargeID != "" || s.ResourceID != "" || s.StatementID != "" || s.StatementLineID != "" {
+			return fmt.Errorf("%w: provider debit carries foreign subject fields", ErrInvalidSubject)
 		}
 	case SubjectResource:
 		if s.ResourceID == "" || s.PeriodID == "" {

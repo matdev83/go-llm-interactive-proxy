@@ -51,6 +51,8 @@ func registerMigrations() {
 		registerCustomerUnitLedgerMigration()
 		registerCostPassThroughHeadMigration()
 		registerSubmissionFeeClaimMigration()
+		registerBillingAllocationMigration()
+		registerBillingAllocationTargetScopeMigration()
 	})
 }
 

@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect"
 )
 
 const (
@@ -185,6 +187,62 @@ func (s *DurableStore) AppendObservation(ctx context.Context, observation meteri
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	return s.appendObservationWithSQLiteRetry(ctx, observation)
+}
+
+func (s *DurableStore) appendObservationWithSQLiteRetry(ctx context.Context, observation metering.Observation) error {
+	if s.db.Dialect().Name() != dialect.SQLite {
+		return s.appendObservationAttempt(ctx, observation)
+	}
+	now := sqliteRetryNow(s.cfg)
+	started := now()
+	deadline := started.Add(sqliteRetryBudget)
+	sleep := sqliteRetrySleep(s.cfg)
+	for attempt := 1; attempt <= sqliteRetryMaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("%w: %v", ErrSQLiteRetryCanceled, err)
+		}
+		if attempt > 1 && !now().Before(deadline) {
+			attempted := attempt - 1
+			s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempted, Classification: "busy", TerminalOutcome: "budget_exhausted"})
+			return fmt.Errorf("%w after %d attempts: retry budget elapsed", ErrSQLiteBusyRetryExhausted, attempted)
+		}
+		err := s.appendObservationAttempt(ctx, observation)
+		if err == nil {
+			s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempt, Classification: "success", TerminalOutcome: "success"})
+			return nil
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("%w: %v", ErrSQLiteRetryCanceled, ctx.Err())
+		}
+		if !isSQLiteBusy(s.db.Dialect().Name(), err) {
+			return err
+		}
+		if attempt == sqliteRetryMaxAttempts {
+			s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempt, Classification: "busy", TerminalOutcome: "attempt_limit"})
+			return fmt.Errorf("%w after %d attempts: %v", ErrSQLiteBusyRetryExhausted, attempt, err)
+		}
+		backoff := sqliteRetryBackoffs[attempt-1]
+		remaining := time.Until(deadline)
+		if s.cfg.SQLiteRetryNow != nil {
+			remaining = deadline.Sub(now())
+		}
+		if remaining <= 0 {
+			s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempt, Classification: "busy", TerminalOutcome: "budget_exhausted"})
+			return fmt.Errorf("%w after %d attempts: retry budget elapsed", ErrSQLiteBusyRetryExhausted, attempt)
+		}
+		if backoff > remaining {
+			backoff = remaining
+		}
+		s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempt, Classification: "busy", Backoff: backoff})
+		if err := sleep(ctx, backoff); err != nil {
+			return fmt.Errorf("%w: %v", ErrSQLiteRetryCanceled, err)
+		}
+	}
+	panic("unreachable")
+}
+
+func (s *DurableStore) appendObservationAttempt(ctx context.Context, observation metering.Observation) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("metering/journalstore: observation begin: %w", err)
@@ -356,8 +414,10 @@ INSERT INTO metering_facts(
 	identity_version, source_revision, source_event_kind, source_id,
 	payload_kind, observation_id, observation_revision, observation_fingerprint,
 	observation_subject_kind, observation_subject_id, observation_tenant_id,
-	observation_origin, observation_acquisition, observation_provider_account_key
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	observation_origin, observation_acquisition, observation_provider_account_key,
+	observation_pool_id, observation_window_id, observation_reset_at_unix,
+	observation_observed_at_unix, observation_received_at_unix
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT DO NOTHING
 	`, s.cfg.StoreID,
 		factID,
@@ -389,6 +449,11 @@ ON CONFLICT DO NOTHING
 		observation.Origin,
 		observation.Acquisition,
 		observationProviderAccount(observation),
+		observation.Subject.PoolID,
+		observation.Subject.WindowID,
+		observation.Subject.ResetAt.UTC().UnixNano(),
+		observation.ObservedAt.UTC().UnixNano(),
+		observation.ReceivedAt.UTC().UnixNano(),
 	).Exec(ctx); err != nil {
 		return fmt.Errorf("metering/journalstore: insert observation: %w", err)
 	}
@@ -412,6 +477,8 @@ func subjectID(subject metering.SubjectRef) string {
 		return subject.SubmissionID
 	case metering.SubjectProviderCharge:
 		return subject.ProviderChargeID
+	case metering.SubjectProviderDebit:
+		return subject.BLegID
 	case metering.SubjectResource:
 		return subject.ResourceID
 	case metering.SubjectAccountWindow:

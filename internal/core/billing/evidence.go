@@ -104,7 +104,7 @@ func validateCallLegObservations(leg CallLegUsageRecord) error {
 		// statement subjects stay native and must be allocated explicitly by a
 		// later economic owner; attaching one here would synthesize B-leg
 		// ownership and make a durable record ambiguous.
-		if observation.Subject.Kind != metering.SubjectBLeg && observation.Subject.Kind != metering.SubjectProviderCharge {
+		if observation.Subject.Kind != metering.SubjectBLeg && observation.Subject.Kind != metering.SubjectProviderCharge && observation.Subject.Kind != metering.SubjectProviderDebit {
 			return fmt.Errorf("%w: observation %d subject %q is not B-leg rooted", ErrInvalidRecord, i, observation.Subject.Kind)
 		}
 		if observation.Subject.BLegID != leg.BLegID {

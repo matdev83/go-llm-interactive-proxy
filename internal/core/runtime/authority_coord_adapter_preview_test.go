@@ -94,6 +94,28 @@ func TestAdmitAttemptRecordsEvidence(t *testing.T) {
 	}
 }
 
+func TestUsageAuthorityProviderAdapter_PreservesAdmissionDecisionOnError(t *testing.T) {
+	t.Parallel()
+	cause := errors.New("authority reader unavailable")
+	bound := economics.PolicySnapshotRef{VersionRef: economics.VersionRef{ID: "usage-authority", Version: "v1"}, PolicyID: "usage-authority"}
+	svc := &recordingAuthorityService{
+		admitResult: authorityapp.AdmissionResult{BoundVersion: bound},
+		admitErr:    cause,
+	}
+	adapter := newUsageAuthorityProviderAdapter(svc)
+
+	decision, err := adapter.AdmitRequest(context.Background(), authority.RequestAdmission{RequestID: "req-1", ALegID: "a-1"})
+	if !errors.Is(err, cause) {
+		t.Fatalf("error=%v want cause", err)
+	}
+	if decision.Kind != authority.DecisionDeny {
+		t.Fatalf("kind=%s want fail-closed deny from accompanying admission result", decision.Kind)
+	}
+	if len(decision.BoundVersions) != 1 || decision.BoundVersions[0] != bound {
+		t.Fatalf("bound versions=%+v want %+v", decision.BoundVersions, bound)
+	}
+}
+
 // Retired money clamp mapping has no implementation.
 // previewEvidenceSink proves SkipEvidence through the real usageauthority Service path.
 type previewEvidenceSink struct {

@@ -250,7 +250,12 @@ func isRetailQuantityObservation(observation metering.Observation) bool {
 }
 
 func isProviderQuantityObservation(observation metering.Observation) bool {
-	return observation.Origin == metering.OriginProvider && (len(observation.Measures) != 0 || observation.Authority == metering.AuthorityUnavailableClaim)
+	// Provider unit debits are a distinct nonmonetary evidence plane. They do
+	// not become locally rated Q quantities merely because they are provider
+	// observations with a measure; an explicit conversion/allocation owner is
+	// required before any customer/provider money path can consume them.
+	return observation.Origin == metering.OriginProvider && observation.Subject.Kind != metering.SubjectProviderDebit &&
+		(len(observation.Measures) != 0 || observation.Authority == metering.AuthorityUnavailableClaim)
 }
 
 func isProviderChargeObservation(observation metering.Observation) bool {

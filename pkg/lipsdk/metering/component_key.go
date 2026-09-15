@@ -139,8 +139,8 @@ var componentKeyUnits = map[string]string{
 // Dimension is a bounded price-relevant qualifier. Names are unique within a
 // ComponentKey; arbitrary customer text is not a supported qualifier.
 type Dimension struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	Name  string `json:"name" yaml:"name"`
+	Value string `json:"value" yaml:"value"`
 }
 
 func (d Dimension) Validate() error {
@@ -157,11 +157,11 @@ func (d Dimension) Validate() error {
 // Direction, unit and schema are all significant, while dimensions are a
 // sorted set for identity purposes.
 type ComponentKey struct {
-	Direction  FlowDirection `json:"direction"`
-	Component  string        `json:"component"`
-	Unit       string        `json:"unit"`
-	SchemaID   string        `json:"schema_id,omitempty"`
-	Dimensions []Dimension   `json:"dimensions,omitempty"`
+	Direction  FlowDirection `json:"direction" yaml:"direction"`
+	Component  string        `json:"component" yaml:"component"`
+	Unit       string        `json:"unit" yaml:"unit"`
+	SchemaID   string        `json:"schema_id,omitempty" yaml:"schema_id,omitempty"`
+	Dimensions []Dimension   `json:"dimensions,omitempty" yaml:"dimensions,omitempty"`
 }
 
 // Validate checks bounded identity and contradiction rules without changing

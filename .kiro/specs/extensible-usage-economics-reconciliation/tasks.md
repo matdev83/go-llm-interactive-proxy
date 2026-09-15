@@ -484,9 +484,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 8.6, 13.4, 14.6, 18.2_
 
 
-- [ ] 11. Implement account-window and allocation economics
+- [x] 11. Implement account-window and allocation economics
 
-- [ ] 11.1 Persist and query provider allowance windows as gauges
+- [x] 11.1 Persist and query provider allowance windows as gauges
   - Bind provider account, named pool, window/reset epoch and timestamps into account-window subjects; support partial fields and multiple windows.
   - Expose observation history without summing percentages or assigning them as per-request debit.
   - Completion: concurrent, out-of-order and reset fixtures remain correct.
@@ -496,7 +496,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/metering/... ./internal/infra/metering/journalstore/..._
   - _Requirements: 9.1, 9.2, 9.3, 11.1_
 
-- [ ] 11.2 Distinguish genuine request debits and local subscription allocation
+- [x] 11.2 Distinguish genuine request debits and local subscription allocation
   - Support additive provider credits only when a real request-scoped debit is supplied; otherwise keep the request association informational.
   - Implement optional explicit allocation records with original period/resource ownership, method/version and conserved weights.
   - Completion: amortized cost, actual upstream money and account gauge observations cannot be confused.
@@ -506,7 +506,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/core/metering/..._
   - _Requirements: 2.5, 6.5, 9.3, 9.4, 9.5_
 
-- [ ] 11.3 Keep provider telemetry separate from admission authority
+- [x] 11.3 Keep provider telemetry separate from admission authority
   - Integrate optional quota observations through existing nonfinancial authority rules without creating a money ledger or direct customer credit debit.
   - Require explicit pool/freshness/reset policy before a gauge influences admission; preserve missing/stale snapshot status.
   - Completion: provider telemetry may inform a declared quota policy but never constitutes a payable posting.

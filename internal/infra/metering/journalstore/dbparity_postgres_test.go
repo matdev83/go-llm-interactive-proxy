@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/stretchr/testify/require"
 )
 
@@ -70,4 +72,30 @@ func TestDBParity_PostgresDirect(t *testing.T) {
 		require.NoError(t, bunDB.NewRaw("SELECT count(*) FROM bun_metering_journal_migrations").Scan(ctx, &countAfter))
 		require.Equal(t, len(names), countAfter)
 	})
+}
+
+func TestDBParity_PostgresDirect_AccountWindowGaugeHistoryAndProjection(t *testing.T) {
+	dsn := testkit.SkipUnlessPostgres(t)
+	ctx := context.Background()
+	storeID := testkit.UniquePostgresStoreID("account-window")
+	t.Cleanup(func() {
+		testkit.CleanupPostgresStoreByID(t, dsn, storeID, testkit.PostgresComponentJournal)
+	})
+	store := newPostgresJournal(t, dsn, storeID)
+	reset := time.Unix(1_000, 0).UTC()
+	older := phase11JournalAccountWindowObservation("pg-older", "acct-a", "pool-a", "window-a", reset, time.Unix(10, 0), phase11JournalMeasure("used_percent", "12.5"))
+	newer := phase11JournalAccountWindowObservation("pg-newer", "acct-a", "pool-a", "window-a", reset, time.Unix(20, 0), phase11JournalMeasure("remaining_percent", "87.5"))
+	for _, observation := range []metering.Observation{newer, older} {
+		observation.Subject.StoreID = storeID
+		observation.Correlation.StoreID = storeID
+		require.NoError(t, store.AppendAccountWindowObservation(ctx, observation))
+	}
+	history, err := store.ListAccountWindowObservations(ctx, journalstore.AccountWindowQuery{StoreID: storeID, ProviderAccountKey: "acct-a", PoolID: "pool-a", WindowID: "window-a", Limit: 10})
+	require.NoError(t, err)
+	require.Equal(t, []string{"pg-older", "pg-newer"}, []string{history.Observations[0].ID, history.Observations[1].ID})
+	projection, err := store.ProjectAccountWindows(ctx, journalstore.AccountWindowQuery{StoreID: storeID, ProviderAccountKey: "acct-a", PoolID: "pool-a", WindowID: "window-a", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, projection.Projections, 1)
+	require.Equal(t, "125/1", phase11ProjectionValue(t, projection.Projections[0], "used_percent"))
+	require.Equal(t, "875/1", phase11ProjectionValue(t, projection.Projections[0], "remaining_percent"))
 }

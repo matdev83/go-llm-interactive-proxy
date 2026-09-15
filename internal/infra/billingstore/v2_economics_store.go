@@ -362,6 +362,8 @@ func subjectIDForEconomics(subject metering.SubjectRef) string {
 		return subject.SubmissionID
 	case metering.SubjectProviderCharge:
 		return subject.ProviderChargeID
+	case metering.SubjectProviderDebit:
+		return subject.BLegID
 	case metering.SubjectResource:
 		return subject.ResourceID
 	case metering.SubjectAccountWindow:
@@ -978,6 +980,8 @@ func subjectFromProjection(kind metering.SubjectKind, storeID, id, tenant string
 	case metering.SubjectProviderCharge:
 		subject.ProviderChargeID = id
 		subject.ProviderAccountKey = id
+	case metering.SubjectProviderDebit:
+		subject.BLegID = id
 	case metering.SubjectResource:
 		subject.ResourceID = id
 		subject.PeriodID = id

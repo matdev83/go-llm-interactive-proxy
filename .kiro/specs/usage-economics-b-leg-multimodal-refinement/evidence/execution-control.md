@@ -15,8 +15,9 @@
 - Parent tasks 8.1–8.5: root-reviewed and accepted; real provider evidence, negotiated V1/V2 authority, multimodal native units, Codex account gauges, auxiliary dispositions and the closed producer census pass focused verification.
 - Parent tasks 9.1–9.5 and refinement task 2.3: delegated-review accepted; immutable tariff snapshots, exact component rating, scope-safe tiers, independent E/Q/P valuations, asymmetric multimodal fixtures, replay-safe identities, and canonical effective-charge COGS pass focused verification.
 - Parent tasks 10.1–10.5 and refinement tasks 6.1–6.3: delegated-review accepted; frozen retail B-leg selection, trusted submission identity, once-scoped fees, separate proxy-service lines, atomic customer units, supplier isolation and explicit pass-through adjustment pass focused verification.
+- Parent tasks 11.1–11.3: focused delegated reviews accepted; provider allowance-window gauges, authoritative request debits, conserved allocation records and optional nonfinancial quota admission pass focused verification.
 - Refinement group 7 remains open because its dependency on retail policy and non-request resource allocation is intentionally later; parent producer migration does not satisfy those downstream criteria by itself.
-- Next implementation: parent task group 11, account-window and allocation economics.
+- Next implementation: refinement group 7 certification and non-request resource attribution, then parent task group 12.
 - The refinement has 8 groups and its required parent has 20. They overlap; do not report these as 28 independent phases or infer a completion percentage from group count.
 
 ## Process correction
@@ -96,3 +97,11 @@ This document changes execution discipline only. It does not remove requirements
 - The delegated phase reviewer found one cross-call submission-fee idempotency blocker. A focused worker added a durable atomic claim, and the same reviewer approved the bounded remediation.
 - Fresh billing, runtime, frontend, billingstore, composition, SQLite parity, concurrency, vet, targeted architecture/QA, formatting and diff checks passed.
 - Accepted tasks: parent 10.1–10.5 and refinement 6.1–6.3.
+
+### Phase 11 measurement
+
+- Implementation was split into allowance-window gauges, request debits, conserved allocations, quota policy and quota integration.
+- Two broad phase reviewers stalled and were replaced with 30-minute-monitored focused reviews for tasks 11.1, 11.2 and 11.3.
+- Focused repairs closed migration backfill, cursor binding, denormalized drift, provider origin, allocation supersession/query isolation, legacy wrapper completeness, quota total ordering and cancellation evidence propagation.
+- Affected package tests, repeated concurrency/shuffle tests, SQLite parity, vet, targeted architecture/security/QA, formatting and diff checks passed.
+- Accepted tasks: parent 11.1–11.3.
