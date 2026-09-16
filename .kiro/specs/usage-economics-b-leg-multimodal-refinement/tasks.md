@@ -126,7 +126,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
 
 - [ ] 5. Enforce resumable-session economics
 
-- [ ] 5.1 Preserve local call closure while keeping A-leg open-ended
+- [x] 5.1 Preserve local call closure while keeping A-leg open-ended
   - Keep current call/B-leg closure and expected-attempt freezing for one BillingCallID, but remove any economic assumption that A-leg DONE/idle/retirement prevents later calls.
   - Completion: call 1 closes deterministically, call 2 can later allocate a new BillingCallID/B-leg on the same A-leg, and neither rewrites the other.
   - _Requirements: 3.1, 3.2, 3.3, 3.5, 3.6_
