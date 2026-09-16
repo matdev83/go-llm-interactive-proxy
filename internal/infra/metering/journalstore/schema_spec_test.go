@@ -131,6 +131,28 @@ func MeteringJournalLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 				UniqueConstraints: []dbparity.UniqueConstraintSpec{{Columns: []string{"observation_row_id", "item_kind", "item_id"}}},
 				CheckConstraints:  []dbparity.CheckConstraintSpec{{Expression: "item_kind IN"}},
 			},
+			{
+				Name: "metering_observation_economic_outbox",
+				Columns: []dbparity.ColumnSpec{
+					{Name: "id", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false), PrimaryKey: true},
+					{Name: "store_id", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false)},
+					{Name: "observation_id", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false)},
+					{Name: "observation_revision", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false)},
+					{Name: "observation_fingerprint", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false)},
+					{Name: "payload_json", Type: dbparity.TypeJSON, Nullable: dbparity.PtrBool(false)},
+					{Name: "status", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "'pending'"},
+					{Name: "attempt_count", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false), Default: "0"},
+					{Name: "next_attempt_at_unix", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false), Default: "0"},
+					{Name: "lease_owner", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "''"},
+					{Name: "lease_until_unix", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false), Default: "0"},
+					{Name: "last_error", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "''"},
+					{Name: "created_at_unix", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false)},
+					{Name: "updated_at_unix", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false)},
+				},
+				PrimaryKey:        []string{"id"},
+				UniqueConstraints: []dbparity.UniqueConstraintSpec{{Columns: []string{"store_id", "observation_id", "observation_revision"}}},
+				CheckConstraints:  []dbparity.CheckConstraintSpec{{Expression: "status IN"}},
+			},
 		},
 		Indexes: []dbparity.IndexSpec{
 			{
@@ -227,6 +249,11 @@ func MeteringJournalLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 				Name:    "idx_metering_components_observation",
 				Table:   "metering_components",
 				Columns: []string{"observation_row_id", "item_kind", "item_id"},
+			},
+			{
+				Name:    "idx_metering_observation_outbox_pending",
+				Table:   "metering_observation_economic_outbox",
+				Columns: []string{"store_id", "status", "next_attempt_at_unix", "lease_until_unix", "created_at_unix", "id"},
 			},
 		},
 	}

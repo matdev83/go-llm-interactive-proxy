@@ -86,7 +86,11 @@ type OperatorCostResult struct {
 }
 
 func rateCustomerCharge(legs []CallLegUsageRecord, outcome TurnOutcome, pricing PricingSnapshot, policy ChargePolicy, modelPricing []ModelCustomerPricing) (Money, error) {
-	selected, err := selectCustomerLegs(legs, policy.Scope, outcome)
+	retailPolicy, err := ResolveRetailSelectionPolicy(policy)
+	if err != nil {
+		return Money{}, err
+	}
+	selected, err := selectRetailBLegsForPolicy(legs, retailPolicy, outcome)
 	if err != nil {
 		return Money{}, err
 	}
@@ -169,20 +173,11 @@ func customerPricingForLeg(leg CallLegUsageRecord, defaultPricing PricingSnapsho
 // selection. In particular, all-potential means every accepted evidence leg,
 // never a planned, rejected, never-started, or evidence-unavailable leg.
 func selectCustomerLegs(legs []CallLegUsageRecord, scope ChargePolicyScope, outcome TurnOutcome) ([]CallLegUsageRecord, error) {
-	accepted := acceptedCustomerLegs(legs)
-	if scope == ChargeAllPotentialLegs {
-		return accepted, nil
+	retailPolicy, err := ResolveRetailSelectionPolicy(ChargePolicy{Scope: scope})
+	if err != nil {
+		return nil, err
 	}
-	if outcome != TurnOutcomeCompleted {
-		return oneLogicalAcceptedTurn(accepted)
-	}
-	selected := make([]CallLegUsageRecord, 0, len(accepted))
-	for _, leg := range accepted {
-		if leg.Surfaced == SurfacedYes {
-			selected = append(selected, leg)
-		}
-	}
-	return selected, nil
+	return selectRetailBLegsForPolicy(legs, retailPolicy, outcome)
 }
 
 // SelectRetailBLegs exposes the narrow default retail selector without
@@ -226,41 +221,6 @@ func selectableV2Evidence(leg CallLegUsageRecord) bool {
 		}
 	}
 	return false
-}
-
-// oneLogicalAcceptedTurn selects a single billable accepted leg for an
-// interrupted (failed/canceled) call. A surfaced leg is unambiguous and needs
-// no order. Without a surfaced leg the latest accepted attempt is chosen using
-// the persisted B2BUA sequence; when the sequence is unknown for more than one
-// accepted leg the selection is indeterminate and fails closed.
-func oneLogicalAcceptedTurn(accepted []CallLegUsageRecord) ([]CallLegUsageRecord, error) {
-	if len(accepted) == 0 {
-		return accepted, nil
-	}
-	surfaced := make([]CallLegUsageRecord, 0, 1)
-	for _, leg := range accepted {
-		if leg.Surfaced == SurfacedYes {
-			surfaced = append(surfaced, leg)
-		}
-	}
-	if len(surfaced) > 0 {
-		return surfaced, nil
-	}
-	if len(accepted) == 1 {
-		return accepted, nil
-	}
-	for _, leg := range accepted {
-		if leg.AttemptSeq <= 0 {
-			return nil, fmt.Errorf("%w: interrupted call has %d accepted legs and requires the latest accepted attempt", ErrBillingAttemptSequenceUnknown, len(accepted))
-		}
-	}
-	best := accepted[0]
-	for _, leg := range accepted[1:] {
-		if leg.AttemptSeq > best.AttemptSeq {
-			best = leg
-		}
-	}
-	return []CallLegUsageRecord{best}, nil
 }
 
 func providerAcceptedEvidence(e FinalBillingEvidence) bool {

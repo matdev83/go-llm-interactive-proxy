@@ -211,11 +211,10 @@ same store that the executor sink writes.
 | `go test -count=1 ./pkg/lipruntime -run 'TestOptions_DoesNotExposeBillingStore|Test.*Metering|Test.*Capability'` | 0 | Public `pkg/lipruntime.Options` remains free of an accounting-store seam. |
 | `git diff --check` | 0 | No whitespace errors. |
 
-The full runtimebundle package run remains red only on unrelated existing
-baseline failures (`TestRuntimebundle_NoCompleteOwnerCallbackEscapes` fixture
-import parsing and three billing host-loop timeouts). The broader archtest run
-also retains unrelated dirty-tree baseline mismatches in billing imports and
-the usage-record fixture; the focused composition/public guardrails above pass.
+The phase-level remediation subsequently made the callback architecture and all
+three stock billing host-loop tests green. The malformed import originated from
+an ignored top-level ` internal` duplicate fixture; the exact duplicate file
+was removed. The focused composition/public guardrails above remain green.
 
 ## Review repair: rejected-observation replay after in-flight capacity failure
 
@@ -310,7 +309,7 @@ head; equal-revision corrections converge by canonical input-hash ordering.
 | `go test -count=20 -shuffle=on ./internal/core/billing -run '^TestEconomicRevisionWorker_'` | 0 | Repeated worker tests pass for preterminal, terminal replay, late correction, queue isolation, and reordered/restart convergence. |
 | `go test -count=1 ./internal/infra/billingstore -run '^TestRefinement42'` | 0 | Durable duplicate/reordered revision and transport-metadata replay tests pass; pure results leave journal and unit-balance tables unchanged. |
 | `go test -count=1 ./internal/infra/runtimebundle -run 'TestBuild|TestCompose|ProcessBilling'` | 0 | Selected production composition and process-worker wiring tests pass. |
-| `go test -count=1 ./internal/core/metering/replay ./internal/core/billing ./internal/infra/billingstore ./internal/infra/runtimebundle` | 1 | Owned replay, billing, and billingstore packages pass; runtimebundle retains unrelated baseline malformed-import, owner-reachability, and three 10-second billing host-loop failures. |
+| `go test -count=1 ./internal/core/metering/replay ./internal/core/billing ./internal/infra/billingstore ./internal/infra/runtimebundle` | 1 at initial checkpoint | Replay, billing, and billingstore passed; later phase-level remediation fixed the runtimebundle malformed-import artifact and host-loop closure regressions, with the focused stock gates passing repeatedly. |
 | `make test-db-parity-sqlite` | 0 | SQLite dialect parity passes, including billingstore migration/schema checks. |
 | `go vet ./internal/core/metering/replay ./internal/core/billing ./internal/infra/billingstore ./internal/infra/runtimebundle` | 0 | Vet passes for owned Go packages. |
 | `gofmt -d <owned Go files>` / `git diff --check` | 0 | Formatting and whitespace checks pass. |

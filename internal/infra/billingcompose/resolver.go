@@ -67,6 +67,9 @@ func (r *JoinRatingResolver) Rate(ctx context.Context, input economics.PostUsage
 	if err != nil {
 		return economics.Valuation{}, fmt.Errorf("billingcompose: resolve tariff: %w", err)
 	}
+	if input.Basis == economics.BasisCustomerPolicy && input.Scope == "b_leg" {
+		return billing.RateCustomerPolicyObservation(ctx, input, tariff)
+	}
 	return billing.RateWithTariff(ctx, input, tariff)
 }
 

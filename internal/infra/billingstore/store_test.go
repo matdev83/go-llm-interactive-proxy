@@ -19,7 +19,7 @@ func TestSQLiteBillingSchemaCreatesRequiredTablesAndIndexes(t *testing.T) {
 	for _, table := range []string{
 		"billing_accounts", "billing_account_policy_events",
 		"usage_leg_records", "usage_call_records", "provider_cost_work", "call_exposures",
-		"journal_transactions", "journal_entries", "bun_billing_migrations", "billing_submission_fee_claims", "billing_allocation_store_locks", "billing_allocations", "billing_allocation_targets",
+		"journal_transactions", "journal_entries", "bun_billing_migrations", "billing_submission_fee_claims", "billing_provider_cost_posting_fences", "billing_provider_cost_execution_fences", "billing_allocation_store_locks", "billing_allocations", "billing_allocation_targets",
 	} {
 		var got string
 		if err := store.db.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(ctx, &got); err != nil {
@@ -46,6 +46,8 @@ func TestSQLiteBillingSchemaCreatesRequiredTablesAndIndexes(t *testing.T) {
 		usageCallClaimPendingIndex,
 		providerCostWorkStatusIndex,
 		providerCostWorkPendingIndex,
+		billingProviderCostPostingFenceIndex,
+		billingProviderCostExecutionFenceIndex,
 		exposureAccountStatusIndex,
 		submissionFeeClaimScopeIndex,
 		billingAllocationSourceIndex,

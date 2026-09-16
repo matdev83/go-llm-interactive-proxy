@@ -71,6 +71,21 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 		return billing.CallSettlement{}, fmt.Errorf("billingstore: begin call settlement: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Customer settlement is a call-closure operation. Requiring the immutable
+	// closure row here prevents a caller from turning a merely constructed
+	// CallUsageRecord into a speculative customer debit. The complete-call
+	// worker normally supplies this proof before reaching the settlement seam;
+	// retain the fence at the store boundary for direct/replayed calls too.
+	durableCall, err := s.loadCallUsage(ctx, tx, call.CallID)
+	if errors.Is(err, ErrUsageRecordNotFound) {
+		return billing.CallSettlement{}, fmt.Errorf("%w: durable call closure is required before customer settlement", billing.ErrCallIncomplete)
+	}
+	if err != nil {
+		return billing.CallSettlement{}, fmt.Errorf("billingstore: load durable call closure: %w", err)
+	}
+	if err := billing.CheckCallUsageReplay(durableCall, call); err != nil {
+		return billing.CallSettlement{}, fmt.Errorf("billingstore: durable call closure identity: %w", err)
+	}
 	if err := lockAccount(ctx, tx, s.db.Dialect().Name(), call.AccountID); err != nil {
 		return billing.CallSettlement{}, err
 	}

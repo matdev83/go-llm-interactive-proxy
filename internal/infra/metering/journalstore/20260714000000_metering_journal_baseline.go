@@ -25,6 +25,7 @@ func registerMigrations() {
 		registerSchemaV2Migration()
 		registerObservationProjectionMigration()
 		registerAccountWindowProjectionMigration()
+		registerObservationEconomicOutboxMigration()
 	})
 }
 

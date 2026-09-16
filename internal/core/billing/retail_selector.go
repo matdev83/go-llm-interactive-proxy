@@ -261,12 +261,7 @@ func SelectRetailBLegEvidence(in RetailSelectionInput) (RetailSelectionResult, e
 		return RetailSelectionResult{}, err
 	}
 
-	var selected []retailLegInfo
-	if retail.Mode == RetailSelectionNamedOutcomes {
-		selected = selectNamedRetailLegInfos(infos, retail.OutcomeSubset)
-	} else {
-		selected, err = selectRetailLegInfos(infos, retail.Mode, in.Call.Outcome)
-	}
+	selected, err := selectRetailLegInfosForPolicy(infos, retail, in.Call.Outcome)
 	if err != nil {
 		return RetailSelectionResult{}, err
 	}
@@ -346,6 +341,41 @@ func (r RetailSelectionResult) Clone() RetailSelectionResult {
 
 type retailLegInfo struct {
 	leg CallLegUsageRecord
+}
+
+// selectRetailLegInfosForPolicy is the one policy-to-candidate dispatch used
+// by both V2 observation selection and the V1 scalar compatibility adapter.
+// The adapters differ only in evidence validation; the frozen commercial
+// policy must never select a different B-leg set by evidence format.
+func selectRetailLegInfosForPolicy(infos []retailLegInfo, policy RetailSelectionPolicy, outcome TurnOutcome) ([]retailLegInfo, error) {
+	if err := policy.Validate(); err != nil {
+		return nil, err
+	}
+	if policy.Mode == RetailSelectionNamedOutcomes {
+		return selectNamedRetailLegInfos(infos, policy.OutcomeSubset), nil
+	}
+	return selectRetailLegInfos(infos, policy.Mode, outcome)
+}
+
+// selectRetailBLegsForPolicy adapts accepted legacy scalar evidence into the
+// shared canonical selector. It intentionally leaves V2 observation
+// validation to SelectRetailBLegEvidence; this function only owns the V1
+// evidence-availability compatibility filter and selection policy dispatch.
+func selectRetailBLegsForPolicy(legs []CallLegUsageRecord, policy RetailSelectionPolicy, outcome TurnOutcome) ([]CallLegUsageRecord, error) {
+	accepted := acceptedCustomerLegs(legs)
+	infos := make([]retailLegInfo, 0, len(accepted))
+	for _, leg := range accepted {
+		infos = append(infos, retailLegInfo{leg: leg})
+	}
+	selected, err := selectRetailLegInfosForPolicy(infos, policy, outcome)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CallLegUsageRecord, 0, len(selected))
+	for _, info := range selected {
+		out = append(out, info.leg)
+	}
+	return out, nil
 }
 
 func selectRetailLegInfos(infos []retailLegInfo, mode RetailSelectionMode, outcome TurnOutcome) ([]retailLegInfo, error) {

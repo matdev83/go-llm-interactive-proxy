@@ -15,7 +15,7 @@ import (
 
 const legacyReservedZeroMigrationName = "20260826000000"
 
-var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName, ProviderMaintenanceMigrationName, ProviderMaintenanceIntegrityMigrationName, BillingV2EconomicsMigrationName, BillingV2LineBooleanRepairMigrationName, BillingV2ValuationIdentityMigrationName, CustomerUnitLedgerMigrationName, CostPassThroughHeadMigrationName, SubmissionFeeClaimMigrationName, BillingAllocationMigrationName, BillingAllocationTargetScopeMigrationName, BillingEconomicRevisionHeadsMigrationName}
+var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName, ProviderMaintenanceMigrationName, ProviderMaintenanceIntegrityMigrationName, BillingV2EconomicsMigrationName, BillingV2LineBooleanRepairMigrationName, BillingV2ValuationIdentityMigrationName, CustomerUnitLedgerMigrationName, CostPassThroughHeadMigrationName, SubmissionFeeClaimMigrationName, BillingAllocationMigrationName, BillingAllocationTargetScopeMigrationName, BillingEconomicRevisionHeadsMigrationName, BillingProviderCostHeadsMigrationName, BillingProviderCostPostingFenceMigrationName, BillingProviderCostExecutionFenceMigrationName, BillingProviderCostCorrectionLinksMigrationName}
 
 type Config struct {
 	StoreID string
@@ -28,23 +28,25 @@ type DurableStore struct {
 }
 
 var (
-	_ billing.AccountStore           = (*DurableStore)(nil)
-	_ billing.AccountProvisioner     = (*DurableStore)(nil)
-	_ billing.CreditScreenStore      = (*DurableStore)(nil)
-	_ billing.CallUsageStore         = (*DurableStore)(nil)
-	_ billing.CallUsageReader        = (*DurableStore)(nil)
-	_ billing.CallLegUsageReader     = (*DurableStore)(nil)
-	_ billing.ExposureStore          = (*DurableStore)(nil)
-	_ billing.ExposureAdmissionStore = (*DurableStore)(nil)
-	_ billing.JournalStore           = (*DurableStore)(nil)
-	_ billing.ProviderCostStore      = (*DurableStore)(nil)
-	_ billing.ProviderCostWorkStore  = (*DurableStore)(nil)
-	_ billing.ReportsStore           = (*DurableStore)(nil)
-	_ billing.ReportingStore         = (*DurableStore)(nil)
-	_ billing.CallSettlementStore    = (*DurableStore)(nil)
-	_ billing.CompleteCallClaimer    = (*DurableStore)(nil)
-	_ billing.AuthoritativeBilling   = (*DurableStore)(nil)
-	_ billing.AllocationStore        = (*DurableStore)(nil)
+	_ billing.AccountStore              = (*DurableStore)(nil)
+	_ billing.AccountProvisioner        = (*DurableStore)(nil)
+	_ billing.CreditScreenStore         = (*DurableStore)(nil)
+	_ billing.CallUsageStore            = (*DurableStore)(nil)
+	_ billing.CallUsageReader           = (*DurableStore)(nil)
+	_ billing.CallLegUsageReader        = (*DurableStore)(nil)
+	_ billing.ExposureStore             = (*DurableStore)(nil)
+	_ billing.ExposureAdmissionStore    = (*DurableStore)(nil)
+	_ billing.JournalStore              = (*DurableStore)(nil)
+	_ billing.ProviderCostStore         = (*DurableStore)(nil)
+	_ billing.ProviderCostRevisionStore = (*DurableStore)(nil)
+	_ billing.ProviderCostHeadReader    = (*DurableStore)(nil)
+	_ billing.ProviderCostWorkStore     = (*DurableStore)(nil)
+	_ billing.ReportsStore              = (*DurableStore)(nil)
+	_ billing.ReportingStore            = (*DurableStore)(nil)
+	_ billing.CallSettlementStore       = (*DurableStore)(nil)
+	_ billing.CompleteCallClaimer       = (*DurableStore)(nil)
+	_ billing.AuthoritativeBilling      = (*DurableStore)(nil)
+	_ billing.AllocationStore           = (*DurableStore)(nil)
 )
 
 func Migrate(ctx context.Context, database *bun.DB) error {
@@ -85,7 +87,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		"journal_transactions", "journal_entries", "billing_operation_snapshots", "provider_maintenance_usage",
 		"billing_valuations", "billing_valuation_lines", "billing_reconciliations", "billing_economic_work", "billing_economic_valuation_heads", "billing_economic_revision_work_state",
 		"billing_unit_balances", "billing_unit_operations", "billing_unit_reservations",
-		"billing_cost_pass_through_heads", "billing_submission_fee_claims",
+		"billing_cost_pass_through_heads", "billing_submission_fee_claims", "billing_provider_cost_heads", "billing_provider_cost_posting_fences", "billing_provider_cost_execution_fences",
 		"billing_allocations", "billing_allocation_targets",
 	} {
 		var probe int
@@ -116,7 +118,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		if accountSequenceNotNull != 0 {
 			return fmt.Errorf("billingstore: SQLite journal account_sequence must be nullable")
 		}
-		for _, index := range []string{"idx_billing_journal_account_sequence", "idx_billing_journal_source", journalReversalUniqueIndex, providerJournalOrderIndex, providerJournalBookOrderIndex, usageLegCallBLegIndex, usageLegCallAttemptSeqIndex, usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex, usageCallClaimPendingIndex, providerCostWorkStatusIndex, providerCostWorkPendingIndex, exposureAccountStatusIndex, providerMaintenanceFingerprintIndex, billingValuationInputIndex, billingValuationSubjectIndex, billingValuationLineItemIndex, billingReconciliationSubjectIdx, billingReconciliationInputIndex, billingEconomicWorkPendingIndex, billingEconomicRevisionHeadIndex, billingEconomicRevisionWorkStateIndex, costPassThroughHeadCallIndex, submissionFeeClaimScopeIndex, billingAllocationSourceIndex, billingAllocationTargetIndex} {
+		for _, index := range []string{"idx_billing_journal_account_sequence", "idx_billing_journal_source", journalReversalUniqueIndex, providerJournalOrderIndex, providerJournalBookOrderIndex, usageLegCallBLegIndex, usageLegCallAttemptSeqIndex, usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex, usageCallClaimPendingIndex, providerCostWorkStatusIndex, providerCostWorkPendingIndex, exposureAccountStatusIndex, providerMaintenanceFingerprintIndex, billingValuationInputIndex, billingValuationSubjectIndex, billingValuationLineItemIndex, billingReconciliationSubjectIdx, billingReconciliationInputIndex, billingEconomicWorkPendingIndex, billingEconomicRevisionHeadIndex, billingEconomicRevisionWorkStateIndex, costPassThroughHeadCallIndex, submissionFeeClaimScopeIndex, billingAllocationSourceIndex, billingAllocationTargetIndex, billingProviderCostHeadIndex, billingProviderCostPostingFenceIndex, billingProviderCostExecutionFenceIndex} {
 			var name string
 			if err := database.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`, index).Scan(ctx, &name); err != nil || name != index {
 				if err != nil {
@@ -126,29 +128,32 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 			}
 		}
 		tableFragments := map[string][]string{
-			"billing_accounts":                {"CHECK", "credit_limit_nano", "opening_balance_nano", "reconcile_required"},
-			"billing_account_openings":        {"FOREIGN KEY(account_id) REFERENCES billing_accounts"},
-			"billing_reconciliation_events":   {"FOREIGN KEY(account_id) REFERENCES billing_accounts"},
-			"billing_account_policy_events":   {"FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, source_key)"},
-			"usage_leg_records":               {"usage_leg_key", "call_id", "b_leg_id", "attempt_seq", "payload_json", "fingerprint"},
-			"provider_cost_work":              {"usage_leg_key", "call_id", "status", "attempt_count", "next_attempt_at", "last_error", "updated_at"},
-			"usage_call_records":              {"usage_call_key", "call_id", "account_id", "a_leg_id", "session_id", "expected_b_leg_ids", "payload_json", "fingerprint", "claim_status", "claim_attempt_count", "next_claim_at", "last_claim_error"},
-			"call_exposures":                  {"exposure_key", "account_id", "call_id", "max_exposure_nano", "pricing_ref", "charge_policy_ref", "fingerprint", "status", "FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, call_id)"},
-			"journal_transactions":            {"CHECK", "operation_kind = 'provider_call_cogs'", "account_sequence IS NULL OR account_sequence > 0", "operation_kind <> 'provider_call_cogs'", "UNIQUE(account_id, book, source_key)", "UNIQUE(account_id, account_sequence)", "FOREIGN KEY(account_id) REFERENCES billing_accounts", "recorded_at"},
-			"journal_entries":                 {"CHECK", "side IN ('debit','credit')", "amount_nano > 0", "FOREIGN KEY(transaction_id) REFERENCES journal_transactions"},
-			"billing_operation_snapshots":     {"FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, operation_kind, source_key)", "integrity_fingerprint"},
-			"provider_maintenance_usage":      {"operation_id", "PRIMARY KEY", "a_leg_id", "target_id", "backend_id", "model_id", "recorded_at", "evidence_json", "fingerprint"},
-			"billing_valuations":              {"valuation_id", "valuation_version", "input_set_hash", "canonical_json", "fingerprint", "UNIQUE(store_id, valuation_id, valuation_version)"},
-			"billing_valuation_lines":         {"valuation_id", "valuation_version", "line_id", "amount_coefficient", "amount_scale", "amount_present", "rounded_nano", "rounded_currency", "rounded_present", "FOREIGN KEY(store_id, valuation_id, valuation_version) REFERENCES billing_valuations"},
-			"billing_reconciliations":         {"reconciliation_id", "reconciliation_version", "subject_json", "input_set_hash", "result_json", "canonical_json", "fingerprint", "UNIQUE(store_id, reconciliation_id, reconciliation_version)"},
-			"billing_economic_work":           {"work_id", "work_version", "payload_json", "fingerprint", "status", "UNIQUE(store_id, work_id, work_version)"},
-			"billing_unit_balances":           {"identity_key", "canonical_key", "account_id", "pool_id", "period_id", "component_key", "status", "granted_coefficient", "available_coefficient", "reserved_coefficient", "consumed_coefficient", "version", "fence", "UNIQUE(store_id, identity_key)"},
-			"billing_unit_operations":         {"operation_id", "identity_key", "canonical_key", "kind", "source", "quantity_coefficient", "expected_version", "fence", "fingerprint", "operation_json", "result_json", "UNIQUE(store_id, operation_id)"},
-			"billing_unit_reservations":       {"reservation_id", "identity_key", "canonical_key", "quantity_coefficient", "status", "source_operation_id", "UNIQUE(store_id, reservation_id)"},
-			"billing_cost_pass_through_heads": {"head_key", "account_id", "call_id", "settlement_operation_key", "original_transaction_id", "a_leg_id", "policy_id", "policy_version", "missing_cost", "safe_bound_nano", "currency", "allow_late_adjustment", "status", "posted_amount_nano", "provider_lur_key", "provider_valuation_id", "provider_revision", "provider_input_hash", "settlement_fingerprint", "head_version", "fence", "UNIQUE(account_id, call_id)", "FOREIGN KEY(account_id) REFERENCES billing_accounts"},
-			"billing_submission_fee_claims":   {"claim_key", "store_id", "account_id", "submission_id", "source_call_id", "tariff_id", "tariff_version", "tariff_content_hash", "policy_id", "policy_version", "policy_content_hash", "context_fingerprint", "amount_nano", "currency", "UNIQUE(store_id, account_id, submission_id)", "FOREIGN KEY(account_id) REFERENCES billing_accounts"},
-			"billing_allocations":             {"allocation_id", "allocation_version", "revision", "source_subject_kind", "source_subject_json", "source_basis", "source_amount_coefficient", "source_quantity_coefficient", "policy_method", "policy_version", "policy_hash", "rounding_residual_policy", "source_observation_refs_json", "canonical_json", "fingerprint", "UNIQUE(store_id, allocation_id, allocation_version)"},
-			"billing_allocation_targets":      {"allocation_id", "allocation_version", "target_id", "target_json", "target_tenant_id", "target_pool_id", "target_window_id", "target_reset_at_unix", "target_start_at_unix", "target_end_at_unix", "unallocated", "informational", "weight_numerator", "weight_denominator", "share_numerator", "share_denominator", "FOREIGN KEY(store_id, allocation_id, allocation_version) REFERENCES billing_allocations"},
+			"billing_accounts":                       {"CHECK", "credit_limit_nano", "opening_balance_nano", "reconcile_required"},
+			"billing_account_openings":               {"FOREIGN KEY(account_id) REFERENCES billing_accounts"},
+			"billing_reconciliation_events":          {"FOREIGN KEY(account_id) REFERENCES billing_accounts"},
+			"billing_account_policy_events":          {"FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, source_key)"},
+			"usage_leg_records":                      {"usage_leg_key", "call_id", "b_leg_id", "attempt_seq", "payload_json", "fingerprint"},
+			"provider_cost_work":                     {"usage_leg_key", "call_id", "status", "attempt_count", "next_attempt_at", "last_error", "updated_at"},
+			"usage_call_records":                     {"usage_call_key", "call_id", "account_id", "a_leg_id", "session_id", "expected_b_leg_ids", "payload_json", "fingerprint", "claim_status", "claim_attempt_count", "next_claim_at", "last_claim_error"},
+			"call_exposures":                         {"exposure_key", "account_id", "call_id", "max_exposure_nano", "pricing_ref", "charge_policy_ref", "fingerprint", "status", "FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, call_id)"},
+			"journal_transactions":                   {"CHECK", "operation_kind = 'provider_call_cogs'", "account_sequence IS NULL OR account_sequence > 0", "operation_kind <> 'provider_call_cogs'", "UNIQUE(account_id, book, source_key)", "UNIQUE(account_id, account_sequence)", "FOREIGN KEY(account_id) REFERENCES billing_accounts", "recorded_at"},
+			"journal_entries":                        {"CHECK", "side IN ('debit','credit')", "amount_nano > 0", "FOREIGN KEY(transaction_id) REFERENCES journal_transactions"},
+			"billing_operation_snapshots":            {"FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, operation_kind, source_key)", "integrity_fingerprint"},
+			"provider_maintenance_usage":             {"operation_id", "PRIMARY KEY", "a_leg_id", "target_id", "backend_id", "model_id", "recorded_at", "evidence_json", "fingerprint"},
+			"billing_valuations":                     {"valuation_id", "valuation_version", "input_set_hash", "canonical_json", "fingerprint", "UNIQUE(store_id, valuation_id, valuation_version)"},
+			"billing_valuation_lines":                {"valuation_id", "valuation_version", "line_id", "amount_coefficient", "amount_scale", "amount_present", "rounded_nano", "rounded_currency", "rounded_present", "FOREIGN KEY(store_id, valuation_id, valuation_version) REFERENCES billing_valuations"},
+			"billing_reconciliations":                {"reconciliation_id", "reconciliation_version", "subject_json", "input_set_hash", "result_json", "canonical_json", "fingerprint", "UNIQUE(store_id, reconciliation_id, reconciliation_version)"},
+			"billing_economic_work":                  {"work_id", "work_version", "payload_json", "fingerprint", "status", "UNIQUE(store_id, work_id, work_version)"},
+			"billing_unit_balances":                  {"identity_key", "canonical_key", "account_id", "pool_id", "period_id", "component_key", "status", "granted_coefficient", "available_coefficient", "reserved_coefficient", "consumed_coefficient", "version", "fence", "UNIQUE(store_id, identity_key)"},
+			"billing_unit_operations":                {"operation_id", "identity_key", "canonical_key", "kind", "source", "quantity_coefficient", "expected_version", "fence", "fingerprint", "operation_json", "result_json", "UNIQUE(store_id, operation_id)"},
+			"billing_unit_reservations":              {"reservation_id", "identity_key", "canonical_key", "quantity_coefficient", "status", "source_operation_id", "UNIQUE(store_id, reservation_id)"},
+			"billing_cost_pass_through_heads":        {"head_key", "account_id", "call_id", "settlement_operation_key", "original_transaction_id", "a_leg_id", "policy_id", "policy_version", "missing_cost", "safe_bound_nano", "currency", "allow_late_adjustment", "status", "posted_amount_nano", "provider_lur_key", "provider_valuation_id", "provider_revision", "provider_input_hash", "settlement_fingerprint", "head_version", "fence", "UNIQUE(account_id, call_id)", "FOREIGN KEY(account_id) REFERENCES billing_accounts"},
+			"billing_submission_fee_claims":          {"claim_key", "store_id", "account_id", "submission_id", "source_call_id", "tariff_id", "tariff_version", "tariff_content_hash", "policy_id", "policy_version", "policy_content_hash", "context_fingerprint", "amount_nano", "currency", "UNIQUE(store_id, account_id, submission_id)", "FOREIGN KEY(account_id) REFERENCES billing_accounts"},
+			"billing_allocations":                    {"allocation_id", "allocation_version", "revision", "source_subject_kind", "source_subject_json", "source_basis", "source_amount_coefficient", "source_quantity_coefficient", "policy_method", "policy_version", "policy_hash", "rounding_residual_policy", "source_observation_refs_json", "canonical_json", "fingerprint", "UNIQUE(store_id, allocation_id, allocation_version)"},
+			"billing_allocation_targets":             {"allocation_id", "allocation_version", "target_id", "target_json", "target_tenant_id", "target_pool_id", "target_window_id", "target_reset_at_unix", "target_start_at_unix", "target_end_at_unix", "unallocated", "informational", "weight_numerator", "weight_denominator", "share_numerator", "share_denominator", "FOREIGN KEY(store_id, allocation_id, allocation_version) REFERENCES billing_allocations"},
+			"billing_provider_cost_heads":            {"account_id", "call_id", "head_key", "subject_json", "evidence_revision", "input_set_hash", "valuation_id", "amount_nano", "currency", "head_version", "fence", "last_operation_key", "original_transaction_id", "last_transaction_id", "UNIQUE(store_id, account_id, call_id, head_key)", "FOREIGN KEY(account_id) REFERENCES billing_accounts"},
+			"billing_provider_cost_posting_fences":   {"account_id", "call_id", "lineage_key", "authority", "evidence_revision", "input_set_hash", "fingerprint", "amount_nano", "currency", "fence", "last_operation_key", "original_transaction_id", "last_transaction_id", "UNIQUE(store_id, account_id, call_id, lineage_key)", "FOREIGN KEY(account_id) REFERENCES billing_accounts"},
+			"billing_provider_cost_execution_fences": {"account_id", "call_id", "execution_lineage_key", "authority", "owner_subject_kind", "owner_head_key", "owner_revision", "owner_input_set_hash", "owner_fingerprint", "fence", "last_operation_key", "last_transaction_id", "UNIQUE(store_id, account_id, call_id, execution_lineage_key)", "FOREIGN KEY(account_id) REFERENCES billing_accounts"},
 		}
 		tableFragments["billing_economic_valuation_heads"] = []string{"queue", "head_key", "subject_json", "evidence_revision", "input_set_hash", "work_id", "valuation_id", "valuation_version", "head_version", "fence", "UNIQUE(store_id, queue, head_key)"}
 		tableFragments["billing_economic_revision_work_state"] = []string{"work_id", "work_version", "queue", "head_key", "status", "attempt_count", "next_attempt_at_unix", "lease_owner", "lease_until_unix", "last_error", "fence", "completed_at_unix", "UNIQUE(store_id, work_id, work_version)"}
@@ -306,6 +311,21 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"billing economic revision heads migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{BillingEconomicRevisionHeadsMigrationName}, []string{BillingEconomicRevisionHeadsMigrationName}},
 		{"billing economic revision heads table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'billing_economic_valuation_heads' LIMIT 1`, nil, []string{"billing_economic_valuation_heads"}},
 		{"billing economic revision heads scope index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingEconomicRevisionHeadIndex}, []string{"store_id", "queue", "subject_kind", "subject_id", "evidence_revision", "head_key"}},
+		{"billing provider cost heads migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{BillingProviderCostHeadsMigrationName}, []string{BillingProviderCostHeadsMigrationName}},
+		{"billing provider cost heads table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'billing_provider_cost_heads' LIMIT 1`, nil, []string{"billing_provider_cost_heads"}},
+		{"billing provider cost heads original transaction column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_provider_cost_heads' AND column_name = 'original_transaction_id' LIMIT 1`, nil, []string{"original_transaction_id"}},
+		{"billing provider cost heads scope index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingProviderCostHeadIndex}, []string{"store_id", "account_id", "call_id", "head_key", "evidence_revision"}},
+		{"billing provider cost heads account foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'billing_provider_cost_heads' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "billing_accounts"}},
+		{"billing provider cost posting fence migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{BillingProviderCostPostingFenceMigrationName}, []string{BillingProviderCostPostingFenceMigrationName}},
+		{"billing provider cost posting fence table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'billing_provider_cost_posting_fences' LIMIT 1`, nil, []string{"billing_provider_cost_posting_fences"}},
+		{"billing provider cost posting fence original transaction column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_provider_cost_posting_fences' AND column_name = 'original_transaction_id' LIMIT 1`, nil, []string{"original_transaction_id"}},
+		{"billing provider cost posting fence scope index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingProviderCostPostingFenceIndex}, []string{"store_id", "account_id", "call_id", "lineage_key", "evidence_revision"}},
+		{"billing provider cost posting fence account foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'billing_provider_cost_posting_fences' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "billing_accounts"}},
+		{"billing provider cost execution fence migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{BillingProviderCostExecutionFenceMigrationName}, []string{BillingProviderCostExecutionFenceMigrationName}},
+		{"billing provider cost execution fence table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'billing_provider_cost_execution_fences' LIMIT 1`, nil, []string{"billing_provider_cost_execution_fences"}},
+		{"billing provider cost execution fence scope index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingProviderCostExecutionFenceIndex}, []string{"store_id", "account_id", "call_id", "execution_lineage_key", "authority"}},
+		{"billing provider cost execution fence account foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'billing_provider_cost_execution_fences' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "billing_accounts"}},
+		{"billing provider cost correction links migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{BillingProviderCostCorrectionLinksMigrationName}, []string{BillingProviderCostCorrectionLinksMigrationName}},
 		{"billing economic revision work state table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'billing_economic_revision_work_state' LIMIT 1`, nil, []string{"billing_economic_revision_work_state"}},
 		{"billing economic revision work state due index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingEconomicRevisionWorkStateIndex}, []string{"store_id", "queue", "status", "next_attempt_at_unix", "lease_until_unix", "created_at_unix", "work_id", "work_version"}},
 		{"billing valuation lines foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'billing_valuation_lines' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "billing_valuations", "store_id", "valuation_id", "valuation_version"}},

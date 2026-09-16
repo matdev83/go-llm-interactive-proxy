@@ -130,7 +130,11 @@ WHERE u.account_id = ? AND u.operation_kind = 'provider_cost_unreconciled'
 AND NOT EXISTS (
 	SELECT 1 FROM billing_operation_snapshots c
 	WHERE c.account_id = u.account_id AND c.operation_kind = 'provider_call_cogs' AND c.source_key = u.source_key
-)`, account.ID).Scan(ctx, &unreconciled); err != nil {
+)
+AND NOT EXISTS (
+	SELECT 1 FROM billing_provider_cost_posting_fences f
+	WHERE f.store_id = ? AND f.account_id = u.account_id AND f.lineage_key = u.source_key AND f.authority = 'revision'
+	)`, account.ID, s.storeID).Scan(ctx, &unreconciled); err != nil {
 		return billing.OperatorCostReport{}, err
 	}
 	if unreconciled > 0 {

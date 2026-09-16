@@ -10,6 +10,9 @@ import (
 	runtimecore "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingadmission"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 var ErrComposeBillingIncomplete = errors.New("runtimebundle: billing composition is incomplete")
@@ -27,6 +30,10 @@ type ComposeBillingInput struct {
 	MaintenanceAccounting   billing.ProviderMaintenanceUsageObserver
 	PostTurnBatchSize       int
 	MinPreRouteHeadroomNano int64
+	// ObservationEconomicWorkBuilder optionally overrides the stock immutable
+	// observation-to-work classifier. A nil value uses the catalog-bound stock
+	// provider/customer builder.
+	ObservationEconomicWorkBuilder billing.ObservationEconomicWorkBuilder
 }
 
 func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
@@ -78,10 +85,23 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("%w: provider-cost resolver: %w", ErrComposeBillingIncomplete, err)
 	}
+	workBuilder := in.ObservationEconomicWorkBuilder
+	if workBuilder == nil {
+		workBuilder, err = stockObservationEconomicWorkBuilder(in.Catalog)
+		if err != nil {
+			return ProductionOptions{}, fmt.Errorf("%w: observation work builder: %w", ErrComposeBillingIncomplete, err)
+		}
+	}
 	var economicRater billing.PostUsageRater
-	if _, ok := in.Store.(billing.EconomicRevisionWorkReader); ok {
-		if _, ok := in.Store.(billing.EconomicRevisionResultStore); ok {
-			economicRater, _ = callResolver.(billing.PostUsageRater)
+	_, economicWorkOK := in.Store.(billing.EconomicRevisionWorkReader)
+	_, economicResultsOK := in.Store.(billing.EconomicRevisionResultStore)
+	_, providerCostRevisionOK := in.Store.(billing.ProviderCostRevisionStore)
+	if economicWorkOK && economicResultsOK {
+		economicRater, _ = callResolver.(billing.PostUsageRater)
+		if economicRater != nil && providerCostRevisionOK {
+			if _, cutoverOK := in.Store.(billing.ProviderCostWorkCutoverStore); !cutoverOK {
+				return ProductionOptions{}, fmt.Errorf("%w: %w", ErrComposeBillingIncomplete, ErrProviderCostCutoverRequired)
+			}
 		}
 	}
 	customerUnitLedger, _ := in.Store.(billing.CustomerUnitLedger)
@@ -101,11 +121,32 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		BillingCallRatingResolver:             callResolver,
 		BillingProviderCostResolver:           providerCostResolver,
 		BillingEconomicRevisionRater:          economicRater,
+		BillingObservationEconomicWorkBuilder: workBuilder,
 		BillingCostPassThroughSettlementStore: costPassThroughSettlement,
 		BillingCustomerUnitLedger:             customerUnitLedger,
 		MaintenanceAccounting:                 maintenanceObserver,
 		BillingPostTurnBatchSize:              in.PostTurnBatchSize,
 	}, nil
+}
+
+func stockObservationEconomicWorkBuilder(catalog *billingcompose.SnapshotCatalog) (billing.ObservationEconomicWorkBuilder, error) {
+	if catalog == nil {
+		return nil, fmt.Errorf("catalog is required")
+	}
+	ctx := context.Background()
+	tariff, err := catalog.DefaultTariff(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("default tariff: %w", err)
+	}
+	policy, err := catalog.Policy(ctx, lipapi.Call{})
+	if err != nil {
+		return nil, fmt.Errorf("default policy: %w", err)
+	}
+	return billing.NewObservationEconomicWorkBuilder(billing.ObservationEconomicWorkBuilderConfig{
+		CustomerInput: func(_ context.Context, subject metering.SubjectRef, observations []metering.Observation) (economics.PostUsageRatingInput, error) {
+			return billing.BuildCustomerPolicyObservationInput(subject, observations, policy.Clone(), tariff.Clone())
+		},
+	})
 }
 
 func stockOrOverrideIdentity(in ComposeBillingInput) runtimecore.BillingIdentity {

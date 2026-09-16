@@ -19,13 +19,16 @@ import (
 
 // DurableConfig configures a Bun-backed metering journal.
 type DurableConfig struct {
-	StoreID             string
-	DefaultPageSize     int
-	MaxPageSize         int
-	Now                 func() time.Time
-	SQLiteRetryNow      func() time.Time
-	SQLiteRetrySleep    func(context.Context, time.Duration) error
-	SQLiteRetryObserver SQLiteRetryObserver
+	StoreID         string
+	DefaultPageSize int
+	MaxPageSize     int
+	// ObservationOutboxMaxPending bounds unacknowledged observation relay
+	// entries. Zero uses the safe default; a negative value is rejected.
+	ObservationOutboxMaxPending int
+	Now                         func() time.Time
+	SQLiteRetryNow              func() time.Time
+	SQLiteRetrySleep            func(context.Context, time.Duration) error
+	SQLiteRetryObserver         SQLiteRetryObserver
 	// ObservationFaultHook is an infra-only test/failpoint seam. Returning an
 	// error rolls back the caller-owned observation transaction.
 	ObservationFaultHook func(string) error
@@ -61,6 +64,7 @@ var RequiredMigrationNames = []string{
 	SchemaV2MigrationName,
 	ObservationProjectionMigrationName,
 	AccountWindowProjectionMigrationName,
+	ObservationEconomicOutboxMigrationName,
 }
 
 // VerifySchema checks required runtime relations without applying migrations.
@@ -77,6 +81,7 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 			`SELECT store_id FROM metering_fact_filters WHERE 1 = 0`,
 			`SELECT 1 FROM metering_fact_supersessions WHERE 1 = 0`,
 			`SELECT store_id, observation_row_id, item_kind, component_key, component_key_hash, coefficient, scale, value_present, money_present, charge_coverage_json, subject_kind, subject_id, tenant_id, provider_account_key, projection_version FROM metering_components WHERE 1 = 0`,
+			`SELECT store_id, observation_id, observation_revision, observation_fingerprint, payload_json, status, attempt_count, next_attempt_at_unix, lease_owner, lease_until_unix, last_error, created_at_unix, updated_at_unix FROM metering_observation_economic_outbox WHERE 1 = 0`,
 		} {
 			if _, err := db.ExecContext(ctx, probe); err != nil {
 				return fmt.Errorf("metering/journalstore: schema verification failed: %w", err)
@@ -103,6 +108,13 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 				return fmt.Errorf("metering/journalstore: schema verification failed: missing index %s", name)
 			}
 		}
+		var outboxIndex int
+		if err := db.NewRaw(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = ?`, ObservationEconomicOutboxPendingIndexName).Scan(ctx, &outboxIndex); err != nil {
+			return fmt.Errorf("metering/journalstore: schema verification failed: %s: %w", ObservationEconomicOutboxPendingIndexName, err)
+		}
+		if outboxIndex != 1 {
+			return fmt.Errorf("metering/journalstore: schema verification failed: missing index %s", ObservationEconomicOutboxPendingIndexName)
+		}
 		for _, name := range RequiredMigrationNames {
 			var n int
 			if err := db.NewRaw(
@@ -122,6 +134,7 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 		`SELECT * FROM metering_fact_filters WHERE 1 = 0`,
 		`SELECT * FROM metering_fact_supersessions WHERE 1 = 0`,
 		`SELECT * FROM metering_components WHERE 1 = 0`,
+		`SELECT * FROM metering_observation_economic_outbox WHERE 1 = 0`,
 	} {
 		if _, err := db.ExecContext(ctx, probe); err != nil {
 			return fmt.Errorf("metering/journalstore: schema verification failed: %w", err)
@@ -292,6 +305,22 @@ LIMIT 1`,
 			fragments:   []string{AccountWindowProjectionMigrationName},
 		},
 		{
+			description: ObservationEconomicOutboxMigrationName + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{ObservationEconomicOutboxMigrationName},
+			fragments:   []string{ObservationEconomicOutboxMigrationName},
+		},
+		{
+			description: "metering observation economic outbox table",
+			query:       `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'metering_observation_economic_outbox' LIMIT 1`,
+			fragments:   []string{"metering_observation_economic_outbox"},
+		},
+		{
+			description: "metering observation economic outbox pending index",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'metering_observation_economic_outbox' AND indexname = '` + ObservationEconomicOutboxPendingIndexName + `' LIMIT 1`,
+			fragments:   []string{"store_id", "status", "next_attempt_at_unix", "lease_until_unix", "created_at_unix", "id"},
+		},
+		{
 			description: "metering_facts V2 observation columns",
 			query: `SELECT lower(string_agg(column_name, ',' ORDER BY column_name)) FROM information_schema.columns
 WHERE table_schema = current_schema()
@@ -382,6 +411,9 @@ func openStore(ctx context.Context, db *bun.DB, cfg DurableConfig, nonOwning boo
 	}
 	if maxPageSize < def {
 		return nil, fmt.Errorf("metering/journalstore: max page size %d < default %d", maxPageSize, def)
+	}
+	if cfg.ObservationOutboxMaxPending < 0 {
+		return nil, fmt.Errorf("metering/journalstore: observation outbox max pending must not be negative")
 	}
 	now := cfg.Now
 	if now == nil {

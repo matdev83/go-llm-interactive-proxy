@@ -108,6 +108,20 @@ func (w *CallProviderCostWorker) processWork(ctx context.Context, work []Provide
 			allErr = errors.Join(allErr, err)
 			continue
 		}
+		if cutover, ok := w.store.(ProviderCostWorkCutoverStore); ok {
+			owned, err := cutover.ClaimProviderCostWorkForRevision(ctx, item)
+			if err != nil {
+				if hasFailureStore {
+					allErr = errors.Join(allErr, failureStore.DeferProviderCostWork(ctx, item, err.Error()))
+				} else {
+					allErr = errors.Join(allErr, err)
+				}
+				continue
+			}
+			if owned {
+				continue
+			}
+		}
 		result, err := w.resolver.ResolveProviderCost(ctx, item.Leg)
 		if err != nil {
 			if failures, ok := w.store.(ProviderCostFailureStore); ok {
@@ -118,6 +132,22 @@ func (w *CallProviderCostWorker) processWork(ctx context.Context, work []Provide
 				allErr = errors.Join(allErr, failureStore.DeferProviderCostWork(ctx, item, err.Error()))
 			} else {
 				allErr = errors.Join(allErr, err)
+			}
+			continue
+		}
+		if err := ValidateProviderCostAuthority(item.Leg, result); err != nil {
+			// A local/estimated result is useful advisory evidence, but it is
+			// not eligible for the legacy monetary writer. Keep the existing
+			// durable diagnostic and retry semantics so a later provider report
+			// can be processed without losing the queued B-leg.
+			if failures, ok := w.store.(ProviderCostFailureStore); ok {
+				markerErr := failures.MarkProviderCostUnreconciled(ctx, ApplyProviderCostInput{AccountID: item.AccountID, CallID: item.CallID, Leg: item.Leg, Result: result}, err.Error())
+				allErr = errors.Join(allErr, err, markerErr)
+			} else {
+				allErr = errors.Join(allErr, err)
+			}
+			if hasFailureStore {
+				allErr = errors.Join(allErr, failureStore.DeferProviderCostWork(ctx, item, err.Error()))
 			}
 			continue
 		}

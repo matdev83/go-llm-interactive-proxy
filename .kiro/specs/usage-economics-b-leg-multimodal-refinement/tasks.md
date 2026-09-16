@@ -94,7 +94,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 3.2_
   - _Validation: go test ./internal/core/runtime/... ./internal/archtest/...; make parity-checks_
 
-- [ ] 4. Make evidence and valuation revision-driven rather than session-final-driven
+- [x] 4. Make evidence and valuation revision-driven rather than session-final-driven
 
 - [x] 4.1 Append bounded pre-terminal B-leg economic checkpoints
   - Extend existing V2 observation/journal ownership to persist stable usage deltas or cumulative snapshots before execution terminal where providers/local measurement expose them.
@@ -114,7 +114,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 4.1_
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/..._
 
-- [ ] 4.3 Apply incremental settlement only at economically stable scopes
+- [x] 4.3 Apply incremental settlement only at economically stable scopes
   - Permit operator/provider-cost posting or accrual to advance per authoritative B-leg/provider-charge revision using parent selected-cost heads and delta/fencing rules.
   - Keep default independent-retail customer settlement at BillingCallID closure when surfaced/winning B-leg selection is stable; do not wait for A-leg/session retirement.
   - If an explicit retail policy enables provisional pre-closure settlement, selection changes must post idempotent compensating deltas rather than leaving speculative retry usage charged.

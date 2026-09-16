@@ -37,6 +37,9 @@ func buildProcessBillingRuntime(owner *processResourceOwner, cfgReportsPath stri
 	if err := requireCompleteBillingComposition(prod); err != nil {
 		return ProductionOptions{}, err
 	}
+	if err := validateProviderCostRevisionRuntime(prod); err != nil {
+		return ProductionOptions{}, err
+	}
 	prod.BillingReports = prod.BillingStore
 	if closer, ok := prod.BillingTerminalUsageSink.(interface{ Close() error }); ok {
 		owner.Own(closer.Close)
@@ -86,17 +89,49 @@ func startEconomicRevisionWorkers(owner *processResourceOwner, prod ProductionOp
 	if !workOK || !resultsOK {
 		return ErrAuthoritativeBillingRequired
 	}
+	providerCost, providerCostOK := prod.BillingStore.(billing.ProviderCostRevisionStore)
+	if providerCostOK {
+		if _, cutoverOK := prod.BillingStore.(billing.ProviderCostWorkCutoverStore); !cutoverOK {
+			return fmt.Errorf("%w: %w", ErrAuthoritativeBillingRequired, ErrProviderCostCutoverRequired)
+		}
+	}
 	for _, queue := range []billing.EconomicQueue{billing.EconomicQueueCustomer, billing.EconomicQueueProvider} {
-		economicWorker, workerErr := billing.NewEconomicRevisionWorkerWithReconciler(
-			economicWork, economicResults, prod.BillingEconomicRevisionRater,
-			prod.BillingEconomicRevisionReconciler, queue, prod.BillingPostTurnBatchSize,
-		)
+		var economicWorker *billing.EconomicRevisionWorker
+		var workerErr error
+		if queue == billing.EconomicQueueProvider && providerCostOK {
+			economicWorker, workerErr = billing.NewEconomicRevisionWorkerWithReconcilerAndProviderCost(
+				economicWork, economicResults, prod.BillingEconomicRevisionRater,
+				prod.BillingEconomicRevisionReconciler, providerCost, queue, prod.BillingPostTurnBatchSize,
+			)
+		} else {
+			economicWorker, workerErr = billing.NewEconomicRevisionWorkerWithReconciler(
+				economicWork, economicResults, prod.BillingEconomicRevisionRater,
+				prod.BillingEconomicRevisionReconciler, queue, prod.BillingPostTurnBatchSize,
+			)
+		}
 		if workerErr != nil {
 			return fmt.Errorf("runtimebundle: economic revision worker: %w", workerErr)
 		}
 		if workerErr := startProcessBillingWorker(owner, economicWorker); workerErr != nil {
 			return fmt.Errorf("runtimebundle: start %s economic revision worker: %w", queue, workerErr)
 		}
+	}
+	return nil
+}
+
+// validateProviderCostRevisionRuntime rejects a monetary revision writer
+// unless the same durable store exposes the cross-path execution/cutover
+// fence. Pure economic valuation is intentionally unaffected when no provider
+// revision store is present, and legacy-only costing remains compatible.
+func validateProviderCostRevisionRuntime(prod ProductionOptions) error {
+	if prod.BillingEconomicRevisionRater == nil || prod.BillingStore == nil {
+		return nil
+	}
+	if _, revisionOK := prod.BillingStore.(billing.ProviderCostRevisionStore); !revisionOK {
+		return nil
+	}
+	if _, cutoverOK := prod.BillingStore.(billing.ProviderCostWorkCutoverStore); !cutoverOK {
+		return fmt.Errorf("%w: %w", ErrAuthoritativeBillingRequired, ErrProviderCostCutoverRequired)
 	}
 	return nil
 }

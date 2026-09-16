@@ -132,6 +132,18 @@ func RateWithTariff(ctx context.Context, input economics.PostUsageRatingInput, s
 	return rater.Rate(ctx, input)
 }
 
+// RateCustomerPolicyObservation rates the incremental B-leg inference plane
+// from a frozen customer tariff. Call/submission fixed fees are commercial
+// lines owned by terminal call settlement, so they are intentionally omitted
+// from this B-leg valuation; evaluating them once per observation head would
+// multiply a call-scoped fee across retries or selected legs.
+func RateCustomerPolicyObservation(ctx context.Context, input economics.PostUsageRatingInput, snapshot economics.TariffSnapshot) (economics.Valuation, error) {
+	if input.Basis != economics.BasisCustomerPolicy {
+		return economics.Valuation{}, fmt.Errorf("%w: customer-policy helper requires customer policy basis", ErrRateUnsupported)
+	}
+	return rateRetailValuation(ctx, snapshot, input, isRetailQuantityObservation, false, "")
+}
+
 // RateProviderReported preserves provider monetary claims without requiring a
 // local tariff catalog. P is an evidence plane, not a locally priced estimate;
 // a missing or refreshing customer/provider tariff must not block its durable

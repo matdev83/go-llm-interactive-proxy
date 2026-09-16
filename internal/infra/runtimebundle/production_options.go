@@ -32,7 +32,12 @@ type ProductionOptions struct {
 	// BillingEconomicRevisionRater drives pure revision valuation from the
 	// durable evidence queue. It is intentionally separate from settlement and
 	// provider-cost stores; nil keeps the optional worker disabled.
-	BillingEconomicRevisionRater          billing.PostUsageRater
+	BillingEconomicRevisionRater billing.PostUsageRater
+	// BillingObservationEconomicWorkBuilder converts durable metering
+	// observations into immutable customer/provider queue markers. It performs
+	// no rating or money mutation; the process-owned relay invokes it after the
+	// observation transaction commits.
+	BillingObservationEconomicWorkBuilder billing.ObservationEconomicWorkBuilder
 	BillingEconomicRevisionReconciler     billing.EconomicRevisionReconciler
 	BillingCostPassThroughSettlementStore billing.CostPassThroughSettlementStore
 	BillingCustomerUnitLedger             billing.CustomerUnitLedger

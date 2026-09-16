@@ -6,6 +6,22 @@ import (
 	"strings"
 )
 
+// ErrProviderCostAuthority is the legacy provider-cost monetary-boundary
+// classification. It aliases the revision-era sentinel so adapters can share
+// one authority vocabulary while older callers retain their existing
+// errors.Is behavior.
+var ErrProviderCostAuthority = ErrProviderCostRevisionAuthority
+
+// ErrProviderCostUntrusted is a descriptive compatibility alias used by
+// provider-cost callers that do not distinguish legacy and revision writers.
+var ErrProviderCostUntrusted = ErrProviderCostAuthority
+
+// ProviderCostAuthorityError is the typed authority failure returned when a
+// legacy provider-cost result is not provider-authoritative. It aliases the
+// existing revision error type so callers can inspect either boundary using
+// errors.As without introducing a second error shape.
+type ProviderCostAuthorityError = ProviderCostRevisionAuthorityError
+
 type ApplyProviderCostInput struct {
 	AccountID string
 	CallID    BillingCallID
@@ -17,6 +33,30 @@ type ProviderCostStore interface {
 }
 type ProviderCostFailureStore interface {
 	MarkProviderCostUnreconciled(context.Context, ApplyProviderCostInput, string) error
+}
+
+// ValidateProviderAuthority rejects a legacy result that would otherwise be
+// mistaken for provider-reported money. Local rates and estimates remain
+// usable as advisory valuation results, but they cannot cross the monetary
+// provider COGS boundary.
+func (r OperatorCostResult) ValidateProviderAuthority() error {
+	if r.Authoritative {
+		return nil
+	}
+	return providerCostRevisionAuthorityError("authoritative", "false", "authoritative provider-reported V1 cost")
+}
+
+// ValidateProviderCostAuthority validates the result together with the
+// source-qualified V1 leg that it claims to represent. The result flag is not
+// enough to turn local or estimated evidence into provider-reported money.
+func ValidateProviderCostAuthority(leg CallLegUsageRecord, result OperatorCostResult) error {
+	if err := result.ValidateProviderAuthority(); err != nil {
+		return err
+	}
+	if !authoritativeProviderCost(leg.Evidence) || leg.Evidence.Source != EvidenceSourceProviderReported {
+		return providerCostRevisionAuthorityError("evidence", string(leg.Evidence.Source), "provider-reported authoritative V1 cost")
+	}
+	return nil
 }
 
 func RateProviderCost(leg CallLegUsageRecord, rates OperatorRateSet, currency string) (OperatorCostResult, error) {

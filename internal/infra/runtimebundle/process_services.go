@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
@@ -217,11 +218,22 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	if ps.accountingStores, err = buildProcessAccountingStores(parent, in.Cfg, nowFn); err != nil {
 		return fail(err)
 	}
-	if ps.meteringRT, err = buildMeteringRuntime(owner, parent, in.Cfg, nowFn, postgresPools, ps.dualPlaneMigrator); err != nil {
+	// Align scopes only when the billing side exposes the durable economic
+	// queue seam. Memory metering and non-economic billing retain their
+	// historical store IDs; changing those IDs would alter immutable subject
+	// identity without an active bridge to consume it.
+	var logicalStoreID string
+	if _, economicAppender := in.Opts.Production.BillingStore.(billing.EconomicRevisionWorkAppender); economicAppender {
+		logicalStoreID = processBillingStoreID(in.Opts.Production.BillingStore)
+	}
+	if ps.meteringRT, err = buildMeteringRuntime(owner, parent, in.Cfg, nowFn, postgresPools, ps.dualPlaneMigrator, logicalStoreID); err != nil {
 		return fail(err)
 	}
 	if ps.meteringRT != nil {
 		ps.MeteringRecorder = ps.meteringRT.Recorder
+	}
+	if err := configureObservationEconomicBridge(owner, parent, in.Opts, ps.meteringRT); err != nil {
+		return fail(err)
 	}
 
 	shared := buildSharedMutableRuntime(in.Cfg, nowFn)
@@ -287,6 +299,20 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	// stdhttp). ProcessServices retains the non-owning handle for identity reuse only.
 
 	return ps, nil
+}
+
+// processBillingStoreID keeps the metering and billing subject scopes aligned
+// when both durable stores participate in the observation-to-work bridge.
+// Without one logical store ID the billing queue correctly rejects a work item
+// whose immutable observation belongs to a different scope.
+func processBillingStoreID(store billing.AuthoritativeBilling) string {
+	if store == nil {
+		return ""
+	}
+	if identified, ok := store.(interface{ StoreID() string }); ok {
+		return strings.TrimSpace(identified.StoreID())
+	}
+	return ""
 }
 
 // Close disposes process-owned resources in reverse acquisition order.

@@ -28,7 +28,7 @@ type meteringRuntime struct {
 }
 
 //nolint:revive // owner is the resource owner parameter
-func buildMeteringRuntime(owner *processResourceOwner, parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*meteringRuntime, error) {
+func buildMeteringRuntime(owner *processResourceOwner, parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator, logicalStoreID ...string) (*meteringRuntime, error) {
 	if cfg == nil || !cfg.Metering.Enabled {
 		return nil, nil
 	}
@@ -55,7 +55,7 @@ func buildMeteringRuntime(owner *processResourceOwner, parent context.Context, c
 			checkReady:   store.CheckReadiness,
 		}, nil
 	case "sqlite", "postgres":
-		rec, backing, checkReady, err := openDurableMeteringJournal(owner, parent, cfg, now, registry, migrator)
+		rec, backing, checkReady, err := openDurableMeteringJournal(owner, parent, cfg, now, registry, migrator, logicalStoreID...)
 		if err != nil {
 			return nil, err
 		}
@@ -82,11 +82,18 @@ func observationSinkForRecorder(rec metering.Recorder) metering.ObservationSink 
 }
 
 //nolint:revive // owner is the resource owner parameter
-func openDurableMeteringJournal(owner *processResourceOwner, parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (metering.Recorder, string, func(context.Context) error, error) {
+func openDurableMeteringJournal(owner *processResourceOwner, parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator, logicalStoreID ...string) (metering.Recorder, string, func(context.Context) error, error) {
 	if owner == nil {
 		return nil, "", nil, fmt.Errorf("runtimebundle: nil process owner")
 	}
 	store := strings.ToLower(strings.TrimSpace(cfg.Metering.Journal.Store))
+	storeID := ""
+	if len(logicalStoreID) > 0 {
+		storeID = strings.TrimSpace(logicalStoreID[0])
+	}
+	if storeID == "" {
+		storeID = "metering-" + store
+	}
 	switch store {
 	case "sqlite":
 		path := strings.TrimSpace(cfg.Metering.Journal.SQLitePath)
@@ -107,7 +114,7 @@ func openDurableMeteringJournal(owner *processResourceOwner, parent context.Cont
 			_ = sqlDB.Close()
 			return nil, "", nil, fmt.Errorf("runtimebundle: metering journal sqlite bun: %w", err)
 		}
-		impl, err := journalstore.NewDurableStore(parent, bunDB, journalstore.DurableConfig{StoreID: "metering-sqlite", Now: now})
+		impl, err := journalstore.NewDurableStore(parent, bunDB, journalstore.DurableConfig{StoreID: storeID, Now: now})
 		if err != nil {
 			wrapped := fmt.Errorf("runtimebundle: metering journal schema: %w", err)
 			if cerr := bunDB.Close(); cerr != nil {
@@ -135,7 +142,7 @@ func openDurableMeteringJournal(owner *processResourceOwner, parent context.Cont
 				Migrate: journalstore.Migrate,
 				Verify:  journalstore.VerifySchema,
 				Open: func(ctx context.Context, handle *bun.DB) (*journalstore.DurableStore, error) {
-					return journalstore.OpenStore(ctx, handle, journalstore.DurableConfig{StoreID: "metering-postgres", Now: now})
+					return journalstore.OpenStore(ctx, handle, journalstore.DurableConfig{StoreID: storeID, Now: now})
 				},
 				Close: (*journalstore.DurableStore).Close,
 			})

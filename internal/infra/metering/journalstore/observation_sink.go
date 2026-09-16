@@ -19,8 +19,20 @@ func NewObservationSink(store *DurableStore) metering.ObservationSink {
 	return durableObservationSink{store: store}
 }
 
+// NewObservationSinkWithOutbox adapts the V2 observation journal and enables
+// the atomic durable economic trigger outbox. It is deliberately a separate
+// constructor so disabled or non-economic metering remains a no-op with no
+// relay rows.
+func NewObservationSinkWithOutbox(store *DurableStore) metering.ObservationSink {
+	if store == nil {
+		return nil
+	}
+	return durableObservationSink{store: store, outbox: true}
+}
+
 type durableObservationSink struct {
-	store *DurableStore
+	store  *DurableStore
+	outbox bool
 }
 
 var _ metering.ObservationSink = durableObservationSink{}
@@ -30,12 +42,18 @@ func (s durableObservationSink) Append(ctx context.Context, observation metering
 	if s.store == nil {
 		return fmt.Errorf("metering/journalstore: nil observation sink store")
 	}
+	if s.outbox {
+		return s.store.AppendObservationsWithOutbox(ctx, []metering.Observation{observation})
+	}
 	return s.store.AppendObservation(ctx, observation)
 }
 
 func (s durableObservationSink) AppendObservations(ctx context.Context, observations []metering.Observation) error {
 	if s.store == nil {
 		return fmt.Errorf("metering/journalstore: nil observation sink store")
+	}
+	if s.outbox {
+		return s.store.AppendObservationsWithOutbox(ctx, observations)
 	}
 	return s.store.AppendObservations(ctx, observations)
 }

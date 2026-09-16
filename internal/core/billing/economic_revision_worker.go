@@ -19,37 +19,53 @@ const (
 
 var economicRevisionWorkerSequence atomic.Uint64
 
-// EconomicRevisionWorker performs bounded pure valuation/reconciliation over
-// durable revisions. It deliberately has no settlement or balance-store
-// dependency; those effects belong to a later policy-owned transition.
+// EconomicRevisionWorker performs bounded valuation/reconciliation over
+// durable revisions. An optional provider-cost port may apply an independently
+// stable operator COGS delta for provider-queue work; customer settlement and
+// customer balance mutation remain outside this worker.
 type EconomicRevisionWorker struct {
-	work       EconomicRevisionWorkReader
-	results    EconomicRevisionResultStore
-	rater      PostUsageRater
-	reconciler EconomicRevisionReconciler
-	queue      EconomicQueue
-	batch      int
-	interval   time.Duration
-	owner      string
-	mu         sync.Mutex
-	cancel     context.CancelFunc
-	done       chan struct{}
+	work         EconomicRevisionWorkReader
+	results      EconomicRevisionResultStore
+	rater        PostUsageRater
+	reconciler   EconomicRevisionReconciler
+	providerCost ProviderCostRevisionStore
+	queue        EconomicQueue
+	batch        int
+	interval     time.Duration
+	owner        string
+	mu           sync.Mutex
+	cancel       context.CancelFunc
+	done         chan struct{}
 }
 
 // NewEconomicRevisionWorker constructs a pure worker for one independent
 // customer or provider queue.
 func NewEconomicRevisionWorker(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
-	return newEconomicRevisionWorker(work, results, rater, nil, queue, batch)
+	return newEconomicRevisionWorker(work, results, rater, nil, nil, queue, batch)
 }
 
 // NewEconomicRevisionWorkerWithReconciler adds an optional pure reconciliation
 // calculation to the valuation worker. Reconciliation output is persisted in
 // the same local transaction as its valuation and head transition.
 func NewEconomicRevisionWorkerWithReconciler(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, reconciler EconomicRevisionReconciler, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
-	return newEconomicRevisionWorker(work, results, rater, reconciler, queue, batch)
+	return newEconomicRevisionWorker(work, results, rater, reconciler, nil, queue, batch)
 }
 
-func newEconomicRevisionWorker(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, reconciler EconomicRevisionReconciler, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
+// NewEconomicRevisionWorkerWithProviderCost adds the independent operator
+// COGS posting seam. Provider posting is deliberately after pure valuation
+// persistence and is scoped to one authoritative B-leg revision; customer
+// queues never call this dependency.
+func NewEconomicRevisionWorkerWithProviderCost(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, providerCost ProviderCostRevisionStore, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
+	return newEconomicRevisionWorker(work, results, rater, nil, providerCost, queue, batch)
+}
+
+// NewEconomicRevisionWorkerWithReconcilerAndProviderCost combines pure
+// reconciliation with the independent operator COGS posting seam.
+func NewEconomicRevisionWorkerWithReconcilerAndProviderCost(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, reconciler EconomicRevisionReconciler, providerCost ProviderCostRevisionStore, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
+	return newEconomicRevisionWorker(work, results, rater, reconciler, providerCost, queue, batch)
+}
+
+func newEconomicRevisionWorker(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, reconciler EconomicRevisionReconciler, providerCost ProviderCostRevisionStore, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
 	if work == nil || results == nil || rater == nil {
 		return nil, errors.New("billing: economic revision queue, result store, and rater are required")
 	}
@@ -61,7 +77,7 @@ func newEconomicRevisionWorker(work EconomicRevisionWorkReader, results Economic
 	}
 	return &EconomicRevisionWorker{
 		work: work, results: results, rater: rater, reconciler: reconciler,
-		queue: queue, batch: batch, interval: time.Second,
+		providerCost: providerCost, queue: queue, batch: batch, interval: time.Second,
 		owner: fmt.Sprintf("economic-revision-worker-%d", economicRevisionWorkerSequence.Add(1)),
 	}, nil
 }
@@ -202,6 +218,9 @@ func (w *EconomicRevisionWorker) processRevision(ctx context.Context, item Econo
 			return retry(fmt.Errorf("billing: probe %s economic revision: %w", w.queue, probeErr))
 		}
 		if processed {
+			if err := w.postProviderCost(ctx, work, economics.Valuation{ID: identity.ValuationKey()}); err != nil {
+				return retry(fmt.Errorf("billing: post %s provider cost %s: %w", w.queue, identity.Key(), err))
+			}
 			return complete()
 		}
 	}
@@ -231,7 +250,22 @@ func (w *EconomicRevisionWorker) processRevision(ctx context.Context, item Econo
 	if err := w.results.AppendEconomicRevisionResult(ctx, work, EconomicRevisionResult{Valuation: valuation, Reconciliation: reconciliation}); err != nil {
 		return retry(fmt.Errorf("billing: persist %s economic revision %s: %w", w.queue, identity.Key(), err))
 	}
+	if err := w.postProviderCost(ctx, work, valuation); err != nil {
+		return retry(fmt.Errorf("billing: post %s provider cost %s: %w", w.queue, identity.Key(), err))
+	}
 	return complete()
+}
+
+func (w *EconomicRevisionWorker) postProviderCost(ctx context.Context, work EconomicRevisionWork, valuation economics.Valuation) error {
+	if w.providerCost == nil || w.queue != EconomicQueueProvider {
+		return nil
+	}
+	input, err := BuildProviderCostRevisionInput(work, valuation)
+	if err != nil {
+		return err
+	}
+	_, err = w.providerCost.ApplyProviderCostRevision(ctx, input)
+	return err
 }
 
 // economicRevisionStateContext keeps a bounded release attempt possible when

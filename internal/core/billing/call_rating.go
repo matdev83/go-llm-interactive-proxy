@@ -131,7 +131,13 @@ func RateCall(in CallRatingInput) (CallRatingResult, error) {
 			CostPassThrough: retail.CostPassThrough,
 		}, nil
 	}
-	if hasV2RetailQuantityEvidence(sealedLegs) {
+	// The resolver materializes historic scalar pricing cards as a tagged
+	// compatibility tariff so existing callers keep the V1 charge semantics.
+	// Boundary capture is additive and may put V2 observations on those same
+	// rows; the tag must prevent that carrier from silently switching the
+	// commercial rater (and requiring generic component coverage the scalar
+	// card never promised).
+	if hasV2RetailQuantityEvidence(sealedLegs) && !isLegacyScalarTariff(in.CustomerTariff) {
 		if in.CustomerTariff.Ref.ID == "" {
 			return CallRatingResult{}, fmt.Errorf("%w: generic customer tariff is required for V2 B-leg evidence", ErrRetailRateIncomplete)
 		}
@@ -166,6 +172,10 @@ func RateCall(in CallRatingInput) (CallRatingResult, error) {
 		return CallRatingResult{}, err
 	}
 	return CallRatingResult{CallID: call.CallID, CustomerCharge: customer, Fingerprint: fp}, nil
+}
+
+func isLegacyScalarTariff(tariff economics.TariffSnapshot) bool {
+	return tariff.Ref.RaterID == LegacyScalarRaterID && tariff.LegacySemantics == LegacyScalarSemantics
 }
 
 func hasV2RetailQuantityEvidence(legs []CallLegUsageRecord) bool {

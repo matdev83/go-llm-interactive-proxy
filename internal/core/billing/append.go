@@ -43,6 +43,9 @@ type ProviderCostResolver interface {
 	ResolveProviderCost(context.Context, CallLegUsageRecord) (OperatorCostResult, error)
 }
 type CallSettlementStore interface {
+	// ApplyCallBillingResult settles one durably closed BillingCallID. An
+	// implementation must reject a constructed-but-not-appended call closure;
+	// independent retail has no provisional customer-debit contract.
 	ApplyCallBillingResult(context.Context, ApplyCallBillingInput) (CallSettlement, error)
 }
 

@@ -93,7 +93,7 @@ func TestSQLiteProviderCostWorkPrunesOldProcessedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := billing.OperatorCostResult{LURKey: sealed.Key, Amount: billing.Money{Currency: "USD"}, AmountPresent: true, Reconciled: true}
+	result := billing.OperatorCostResult{LURKey: sealed.Key, Amount: billing.Money{Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}
 	if _, err := store.ApplyProviderCost(ctx, billing.ApplyProviderCostInput{AccountID: account.ID, CallID: callID, Leg: leg, Result: result}); err != nil {
 		t.Fatal(err)
 	}

@@ -106,8 +106,15 @@ type phase10ProviderResolver struct {
 	err error
 }
 
-func (r phase10ProviderResolver) ResolveProviderCost(context.Context, CallLegUsageRecord) (OperatorCostResult, error) {
-	return OperatorCostResult{}, r.err
+func (r phase10ProviderResolver) ResolveProviderCost(_ context.Context, leg CallLegUsageRecord) (OperatorCostResult, error) {
+	if r.err != nil {
+		return OperatorCostResult{}, r.err
+	}
+	sealed, err := leg.Seal()
+	if err != nil {
+		return OperatorCostResult{}, err
+	}
+	return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}, nil
 }
 
 func phase10IndependentCustomerWorkers(t *testing.T, supplierWork []ProviderCostWork, supplierResolver ProviderCostResolver) (*CallPostUsageWorker, *CallProviderCostWorker, *phase10CustomerSettlementStore, *phase10ProviderStore) {
