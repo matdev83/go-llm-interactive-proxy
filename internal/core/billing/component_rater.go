@@ -93,7 +93,7 @@ func (r *ReferenceRater) Rate(ctx context.Context, input economics.PostUsageRati
 	case economics.BasisProviderQuantityLocal:
 		input = inputForPlane(input, isProviderQuantityObservation)
 	case economics.BasisProviderReported:
-		input = inputForPlane(input, isProviderChargeObservation)
+		input = inputForPlane(input, isProviderRevisionObservation)
 	}
 	var err error
 	input, err = canonicalizeRatingInput(input)
@@ -162,7 +162,7 @@ func RateProviderReported(ctx context.Context, input economics.PostUsageRatingIn
 	if err := input.Validate(); err != nil {
 		return economics.Valuation{}, fmt.Errorf("%w: %v", ErrRatingInvalid, err)
 	}
-	input = inputForPlane(input, isProviderChargeObservation)
+	input = inputForPlane(input, isProviderRevisionObservation)
 	var err error
 	input, err = canonicalizeRatingInput(input)
 	if err != nil {

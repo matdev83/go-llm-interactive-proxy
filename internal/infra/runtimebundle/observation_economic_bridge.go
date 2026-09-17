@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -182,13 +183,14 @@ func (r *observationEconomicRelay) ProcessOnce(ctx context.Context) error {
 
 func (r *observationEconomicRelay) processItem(ctx context.Context, item journalstore.ObservationOutboxItem) error {
 	observation := item.Observation
-	if observation.Subject.Kind != metering.SubjectBLeg || observation.Subject.BLegID == "" {
-		return nil
+	blegID, err := economicRelayBLegID(observation)
+	if err != nil {
+		return err
 	}
 	evidence := make([]metering.Observation, 0, observationEconomicEvidenceLimit)
 	query := journalstore.ObservationQuery{
 		StoreID: observation.Subject.StoreID, SubjectKind: metering.SubjectBLeg,
-		SubjectID: observation.Subject.BLegID, Limit: observationEconomicEvidenceLimit,
+		SubjectID: blegID, Limit: observationEconomicEvidenceLimit,
 	}
 	for {
 		remaining := economics.MaxRatingObservations - len(evidence)
@@ -209,11 +211,15 @@ func (r *observationEconomicRelay) processItem(ctx context.Context, item journal
 		}
 		query.Cursor = page.NextCursor
 	}
+	if err := r.appendLinkedStatementEvidence(ctx, observation, blegID, &evidence); err != nil {
+		return err
+	}
 	if len(evidence) == 0 {
 		// The outbox and observation share a transaction; this is a defensive
 		// fallback for an older query projection, never a silent acknowledgement.
-		evidence = []metering.Observation{observation}
+		evidence = make([]metering.Observation, 0, 1)
 	}
+	appendRelayObservation(&evidence, observation)
 	works, err := r.builder.BuildEconomicRevisionWork(ctx, evidence)
 	if err != nil {
 		return fmt.Errorf("runtimebundle: build economic revision work: %w", err)
@@ -224,4 +230,129 @@ func (r *observationEconomicRelay) processItem(ctx context.Context, item journal
 		}
 	}
 	return nil
+}
+
+func (r *observationEconomicRelay) appendLinkedStatementEvidence(ctx context.Context, source metering.Observation, blegID string, evidence *[]metering.Observation) error {
+	if r == nil || r.journal == nil || evidence == nil {
+		return fmt.Errorf("runtimebundle: incomplete statement evidence lookup")
+	}
+	providerAccountKey := strings.TrimSpace(source.Subject.ProviderAccountKey)
+	if providerAccountKey == "" {
+		providerAccountKey = strings.TrimSpace(source.Correlation.ProviderAccountKey)
+	}
+	streamID := strings.TrimSpace(source.StreamID)
+	if providerAccountKey == "" && streamID == "" {
+		return nil
+	}
+	queries := make([]journalstore.ObservationQuery, 0, 2)
+	if providerAccountKey != "" {
+		queries = append(queries, journalstore.ObservationQuery{StoreID: source.Subject.StoreID, ProviderAccountKey: providerAccountKey, Limit: observationEconomicEvidenceLimit})
+	}
+	if streamID != "" && streamID != source.Subject.BLegID {
+		queries = append(queries, journalstore.ObservationQuery{StoreID: source.Subject.StoreID, StreamID: streamID, Limit: observationEconomicEvidenceLimit})
+	}
+	for _, query := range queries {
+		for {
+			remaining := economics.MaxRatingObservations - len(*evidence)
+			if remaining <= 0 {
+				return fmt.Errorf("runtimebundle: durable economic evidence exceeds %d observations", economics.MaxRatingObservations)
+			}
+			if query.Limit > remaining {
+				query.Limit = remaining
+			}
+			page, err := r.journal.ListObservations(ctx, query)
+			if err != nil {
+				return fmt.Errorf("runtimebundle: load linked statement evidence: %w", err)
+			}
+			for _, candidate := range page.Observations {
+				if !linkedStatementObservation(candidate, source, blegID) {
+					continue
+				}
+				appendRelayObservation(evidence, candidate)
+			}
+			if page.NextCursor == "" {
+				break
+			}
+			query.Cursor = page.NextCursor
+		}
+	}
+	return nil
+}
+
+func linkedStatementObservation(candidate, source metering.Observation, blegID string) bool {
+	if !verifiedStatementObservationForRelay(candidate) || candidate.Correlation.BLegID != blegID {
+		return false
+	}
+	if candidate.Subject.StoreID != source.Subject.StoreID || candidate.Correlation.StoreID != source.Subject.StoreID {
+		return false
+	}
+	if candidate.Subject.AccountID != "" && source.Subject.AccountID != "" && candidate.Subject.AccountID != source.Subject.AccountID {
+		return false
+	}
+	if candidate.Correlation.ALegID != "" && source.Correlation.ALegID != "" && candidate.Correlation.ALegID != source.Correlation.ALegID {
+		return false
+	}
+	for _, pair := range [][2]string{
+		{firstRelayNonEmpty(candidate.Subject.BillingCallID, candidate.Correlation.BillingCallID), firstRelayNonEmpty(source.Subject.BillingCallID, source.Correlation.BillingCallID)},
+		{firstRelayNonEmpty(candidate.Subject.CallID, candidate.Correlation.CallID), firstRelayNonEmpty(source.Subject.CallID, source.Correlation.CallID)},
+		{firstRelayNonEmpty(candidate.Subject.ProviderAccountKey, candidate.Correlation.ProviderAccountKey), firstRelayNonEmpty(source.Subject.ProviderAccountKey, source.Correlation.ProviderAccountKey)},
+		{firstRelayNonEmpty(candidate.Subject.ProviderRequestID, candidate.Correlation.ProviderRequestID), firstRelayNonEmpty(source.Subject.ProviderRequestID, source.Correlation.ProviderRequestID)},
+		{firstRelayNonEmpty(candidate.Subject.ProviderChargeID, candidate.Correlation.ProviderChargeID), firstRelayNonEmpty(source.Subject.ProviderChargeID, source.Correlation.ProviderChargeID)},
+	} {
+		if pair[0] != "" && pair[1] != "" && pair[0] != pair[1] {
+			return false
+		}
+	}
+	return true
+}
+
+func firstRelayNonEmpty(left, right string) string {
+	if strings.TrimSpace(left) != "" {
+		return strings.TrimSpace(left)
+	}
+	return strings.TrimSpace(right)
+}
+
+func appendRelayObservation(evidence *[]metering.Observation, observation metering.Observation) {
+	if evidence == nil || observationInEconomicRelayEvidence(*evidence, observation) {
+		return
+	}
+	*evidence = append(*evidence, observation)
+}
+
+func economicRelayBLegID(observation metering.Observation) (string, error) {
+	switch observation.Subject.Kind {
+	case metering.SubjectBLeg:
+		if observation.Subject.BLegID == "" {
+			return "", fmt.Errorf("runtimebundle: B-leg economic observation requires B-leg ID")
+		}
+		return observation.Subject.BLegID, nil
+	case metering.SubjectStatementLine:
+		if !verifiedStatementObservationForRelay(observation) {
+			return "", fmt.Errorf("runtimebundle: statement economic observation requires verified importer provenance")
+		}
+		if observation.Correlation.BLegID == "" {
+			return "", fmt.Errorf("runtimebundle: statement economic observation requires one correlated B-leg")
+		}
+		return observation.Correlation.BLegID, nil
+	default:
+		return "", fmt.Errorf("runtimebundle: unsupported economic subject %q", observation.Subject.Kind)
+	}
+}
+
+func verifiedStatementObservationForRelay(observation metering.Observation) bool {
+	return observation.Origin == metering.OriginStatement &&
+		observation.Acquisition == metering.AcquisitionStatementImporter &&
+		observation.Authority == metering.AuthorityVerifiedStatement &&
+		observation.Subject.Kind == metering.SubjectStatementLine &&
+		observation.Subject.StatementLineID != ""
+}
+
+func observationInEconomicRelayEvidence(evidence []metering.Observation, wanted metering.Observation) bool {
+	for _, observation := range evidence {
+		if observation.IdentityKey() == wanted.IdentityKey() {
+			return true
+		}
+	}
+	return false
 }

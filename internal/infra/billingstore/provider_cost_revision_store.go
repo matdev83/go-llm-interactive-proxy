@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
@@ -406,10 +407,32 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		}
 		existingIdentity, identityErr := billing.NewEconomicRevisionIdentity(billing.EconomicQueueProvider, head.HeadKey, uint64(head.EvidenceRevision), head.InputSetHash)
 		incomingIdentity, incomingErr := billing.NewEconomicRevisionIdentity(billing.EconomicQueueProvider, input.HeadKey, input.EvidenceRevision, input.InputSetHash)
-		if identityErr != nil || incomingErr != nil || !existingIdentity.Less(incomingIdentity) {
-			// A same-revision candidate with a lower input hash is an older
-			// deterministic tie-breaker, not a conflict. The valid same-identity
-			// conflict path above remains the only way to reject a changed replay.
+		if identityErr != nil || incomingErr != nil {
+			return providerCostRevisionStale(input, previous), nil
+		}
+		advance := existingIdentity.Less(incomingIdentity)
+		if existingIdentity.EvidenceRevision == incomingIdentity.EvidenceRevision && existingIdentity.InputSetHash != incomingIdentity.InputSetHash {
+			relation, relationErr := s.providerCostEvidenceRelation(ctx, tx, head, input)
+			if relationErr != nil {
+				return billing.ProviderCostRevisionResult{}, relationErr
+			}
+			switch relation {
+			case billing.EconomicEvidenceSetCandidateSuperset:
+				advance = true
+			case billing.EconomicEvidenceSetCandidateSubset:
+				advance = false
+			case billing.EconomicEvidenceSetEqual:
+				// Equal reference sets are semantically equivalent. Hash
+				// ordering is retained only as their deterministic tie-breaker.
+				advance = existingIdentity.Less(incomingIdentity)
+			case billing.EconomicEvidenceSetIncomparable:
+				// The provider-cost writer cannot rate a missing union. Keep
+				// this work retryable rather than acknowledging one branch and
+				// silently dropping the other branch's evidence.
+				return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: incomparable same-revision provider evidence sets", billing.ErrProviderCostRevisionFence)
+			}
+		}
+		if !advance {
 			return providerCostRevisionStale(input, previous), nil
 		}
 		posting, err := s.postProviderCostDeltaInTx(ctx, tx, input, before, previous, amount, operationKey, head.LastTransactionID)
@@ -639,6 +662,40 @@ func (s *DurableStore) applyProviderCostRevisionAfterLegacyFence(ctx context.Con
 
 func postingDelta(previous, current billing.Money) (billing.Money, error) {
 	return current.Sub(previous)
+}
+
+func (s *DurableStore) providerCostEvidenceRelation(ctx context.Context, tx bun.Tx, head providerCostHeadRow, input billing.ProviderCostRevisionInput) (billing.EconomicEvidenceSetRelation, error) {
+	currentRefs, found, err := loadValuationInputObservationsInTx(ctx, tx, s.storeID, head.ValuationID, int64(economics.ValuationVersionV2))
+	if err != nil {
+		return billing.EconomicEvidenceSetIncomparable, err
+	}
+	if !found {
+		return billing.EconomicEvidenceSetIncomparable, fmt.Errorf("%w: provider head valuation evidence %q is unavailable", billing.ErrProviderCostRevisionFence, head.ValuationID)
+	}
+	candidateRefs, err := providerCostEvidenceRefs(input)
+	if err != nil {
+		return billing.EconomicEvidenceSetIncomparable, err
+	}
+	relation, err := billing.CompareEconomicEvidenceSets(currentRefs, candidateRefs)
+	if err != nil {
+		return billing.EconomicEvidenceSetIncomparable, fmt.Errorf("%w: compare provider evidence: %v", billing.ErrProviderCostRevisionFence, err)
+	}
+	return relation, nil
+}
+
+func providerCostEvidenceRefs(input billing.ProviderCostRevisionInput) ([]metering.ObservationRef, error) {
+	if len(input.Evidence.Observations) == 0 {
+		return append([]metering.ObservationRef(nil), input.Evidence.ObservationRefs...), nil
+	}
+	refs := make([]metering.ObservationRef, 0, len(input.Evidence.Observations))
+	for i, observation := range input.Evidence.Observations {
+		ref, err := observation.Ref(input.Subject.StoreID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: provider evidence observation %d: %v", billing.ErrProviderCostRevisionInvalid, i, err)
+		}
+		refs = append(refs, ref)
+	}
+	return refs, nil
 }
 
 func providerCostRevisionStale(input billing.ProviderCostRevisionInput, current billing.Money) billing.ProviderCostRevisionResult {

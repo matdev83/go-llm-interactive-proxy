@@ -134,7 +134,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 4.3_
   - _Validation: go test ./internal/core/runtime/... ./internal/core/billing/..._
 
-- [ ] 5.2 Keep late economics appendable after execution close
+- [x] 5.2 Keep late economics appendable after execution close
   - Allow provider finalizer/statement/correction observations to reference the closed B-leg economically without reopening execution or allocating a replacement B-leg.
   - Completion: late evidence adjusts completeness/valuation while the B-leg lifecycle remains closed exactly once.
   - _Requirements: 3.4, 4.5_

@@ -94,13 +94,18 @@ func (b *observationEconomicWorkBuilder) BuildEconomicRevisionWork(ctx context.C
 		if err := observation.Validate(); err != nil {
 			return nil, fmt.Errorf("%w: observation %d: %v", ErrInvalidEconomicRevision, i, err)
 		}
-		if observation.Subject.Kind != metering.SubjectBLeg || observation.Subject.BLegID == "" {
-			// The outbox is shared by all durable observations. Non-B-leg
-			// observations are acknowledged by the relay but do not create
-			// economic revision work.
+		if !economicObservationCanLinkToBLeg(observation) {
+			// Economic inference work is request-scoped. A statement-line
+			// observation may participate only when its authenticated
+			// correlation carries one unambiguous B-leg; account-window and
+			// unrelated statement evidence remain on their native reconciliation
+			// path until an explicit allocation exists.
 			continue
 		}
 		subject := stableEconomicSubjectForObservation(observation)
+		if subject.BLegID == "" {
+			continue
+		}
 		key := stableEconomicSubjectKey(subject)
 		group := groups[key]
 		if group == nil {
@@ -157,10 +162,33 @@ type observationEconomicGroup struct {
 }
 
 func providerObservationForRevision(observation metering.Observation) bool {
-	if observation.Origin != metering.OriginProvider || observation.Subject.Kind != metering.SubjectBLeg {
+	if observation.Origin == metering.OriginProvider && observation.Subject.Kind == metering.SubjectBLeg {
+		return len(observation.Charges) > 0 || observation.Authority == metering.AuthorityUnavailableClaim
+	}
+	return isVerifiedStatementObservation(observation) && stableEconomicSubjectForObservation(observation).BLegID != ""
+}
+
+// economicObservationCanLinkToBLeg is the relay/build boundary for
+// request-scoped economic work. A native statement line is accepted only when
+// its trusted correlation identifies exactly one B-leg; accepting a bare
+// account/window statement here would fabricate a Cartesian allocation.
+func economicObservationCanLinkToBLeg(observation metering.Observation) bool {
+	switch observation.Subject.Kind {
+	case metering.SubjectBLeg:
+		return observation.Subject.BLegID != ""
+	case metering.SubjectStatementLine:
+		return isVerifiedStatementObservation(observation) && stableEconomicSubjectForObservation(observation).BLegID != ""
+	default:
 		return false
 	}
-	return len(observation.Charges) > 0 || observation.Authority == metering.AuthorityUnavailableClaim
+}
+
+func isVerifiedStatementObservation(observation metering.Observation) bool {
+	return observation.Origin == metering.OriginStatement &&
+		observation.Acquisition == metering.AcquisitionStatementImporter &&
+		observation.Authority == metering.AuthorityVerifiedStatement &&
+		observation.Subject.Kind == metering.SubjectStatementLine &&
+		observation.Subject.StatementLineID != ""
 }
 
 func (b *observationEconomicWorkBuilder) makeWork(ctx context.Context, queue EconomicQueue, subject metering.SubjectRef, observations []metering.Observation, factory ObservationEconomicWorkInputFactory) (EconomicRevisionWork, error) {

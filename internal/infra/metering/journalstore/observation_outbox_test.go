@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -14,19 +15,54 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestObservationSinkEconomicCapabilityIsOutboxOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteJournal(t)
+
+	plain := journalstore.NewObservationSink(store)
+	if _, ok := plain.(coremetering.EconomicObservationSink); ok {
+		t.Fatal("plain observation sink must not expose economic outbox capability")
+	}
+	economic := journalstore.NewObservationSinkWithOutbox(store)
+	economicSink, ok := economic.(coremetering.EconomicObservationSink)
+	if !ok {
+		t.Fatalf("outbox observation sink = %T, want economic outbox capability", economic)
+	}
+	observation := phase4Observation("sqlite-test", "outbox-capability", 1)
+	if err := economicSink.AppendEconomicObservationWithOutbox(ctx, observation); err != nil {
+		t.Fatalf("economic observation append: %v", err)
+	}
+	if err := economicSink.AppendEconomicObservationWithOutbox(ctx, observation); err != nil {
+		t.Fatalf("economic observation replay: %v", err)
+	}
+	conflict := observation.Clone()
+	conflict.SourceEventKey = "outbox-capability-conflict"
+	if err := economicSink.AppendEconomicObservationWithOutbox(ctx, conflict); err == nil {
+		t.Fatal("same observation identity with changed payload must fail closed")
+	}
+	pending, err := store.ListPendingObservationOutbox(ctx, 10)
+	if err != nil {
+		t.Fatalf("list economic outbox: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Observation.ID != observation.ID {
+		t.Fatalf("economic outbox rows = %+v, want one exact observation trigger", pending)
+	}
+}
+
 func TestObservationOutboxIsAtomicWithObservationAndIdempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := newSQLiteJournal(t)
 	sink := journalstore.NewObservationSinkWithOutbox(store)
-	atomicSink, ok := sink.(metering.AtomicObservationSink)
+	economicSink, ok := sink.(coremetering.EconomicObservationSink)
 	require.True(t, ok)
 	first := phase4Observation("sqlite-test", "outbox-first", 1)
-	require.NoError(t, atomicSink.AppendObservations(ctx, []metering.Observation{first}))
-	require.NoError(t, atomicSink.AppendObservations(ctx, []metering.Observation{first}))
+	require.NoError(t, economicSink.AppendEconomicObservationWithOutbox(ctx, first))
+	require.NoError(t, economicSink.AppendEconomicObservationWithOutbox(ctx, first))
 	replay := first.Clone()
 	replay.ReceivedAt = replay.ReceivedAt.Add(time.Minute)
-	require.NoError(t, atomicSink.AppendObservations(ctx, []metering.Observation{replay}), "transport receipt replay must not collide")
+	require.NoError(t, economicSink.AppendEconomicObservationWithOutbox(ctx, replay), "transport receipt replay must not collide")
 
 	pending, err := store.ListPendingObservationOutbox(ctx, 10)
 	require.NoError(t, err)
@@ -41,7 +77,7 @@ func TestObservationOutboxIsAtomicWithObservationAndIdempotent(t *testing.T) {
 		}
 		return nil
 	})
-	require.Error(t, atomicSink.AppendObservations(ctx, []metering.Observation{second}))
+	require.Error(t, economicSink.AppendEconomicObservationWithOutbox(ctx, second))
 	store.SetObservationFaultHook(nil)
 	_, err = store.GetObservation(ctx, second.ID, second.Revision)
 	require.Error(t, err, "observation and outbox must roll back together")

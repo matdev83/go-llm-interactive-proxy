@@ -102,7 +102,7 @@ func RateIndependentValuations(ctx context.Context, rater PostUsageRater, base e
 	}{
 		{economics.BasisLocalExpected, &out.Expected, isLocalQuantityObservation},
 		{economics.BasisProviderQuantityLocal, &out.ProviderQuantity, isProviderQuantityObservation},
-		{economics.BasisProviderReported, &out.ProviderReported, isProviderChargeObservation},
+		{economics.BasisProviderReported, &out.ProviderReported, isProviderRevisionObservation},
 	} {
 		if !hasApplicableObservation(base.Observations, plane.ok) {
 			continue
@@ -260,6 +260,14 @@ func isProviderQuantityObservation(observation metering.Observation) bool {
 
 func isProviderChargeObservation(observation metering.Observation) bool {
 	return observation.Origin == metering.OriginProvider && (len(observation.Charges) != 0 || observation.Authority == metering.AuthorityUnavailableClaim)
+}
+
+// isProviderRevisionObservation retains verified statement references in the
+// provider valuation input. Statements are provider-revision evidence, but
+// their native statement charges are not provider COGS leaves; the provider
+// reducer filters them before posting.
+func isProviderRevisionObservation(observation metering.Observation) bool {
+	return isProviderChargeObservation(observation) || isVerifiedStatementObservation(observation)
 }
 
 type ratingObservationRef struct {

@@ -57,6 +57,10 @@ var (
 	// ErrEconomicRevisionClaimLost identifies a stale worker lease attempting
 	// to retire or retry work after another worker fenced it out.
 	ErrEconomicRevisionClaimLost = errors.New("billing: economic revision claim lost")
+	// ErrEconomicRevisionFence identifies an unsafe current-head transition,
+	// including a same-revision evidence branch that cannot be proven to contain
+	// or be contained by the durable head evidence.
+	ErrEconomicRevisionFence = errors.New("billing: economic revision head fence conflict")
 )
 
 // EconomicRevisionInputMismatchError reports a valuation whose input identity
@@ -87,6 +91,116 @@ type EconomicRevisionIdentity struct {
 	HeadKey          string
 	EvidenceRevision uint64
 	InputSetHash     string
+}
+
+// EconomicEvidenceSetRelation describes the candidate evidence set relative
+// to the current durable head. The relation is based on canonical immutable
+// observation references, never on the SHA-256 input-set hash ordering.
+type EconomicEvidenceSetRelation uint8
+
+const (
+	EconomicEvidenceSetEqual EconomicEvidenceSetRelation = iota
+	EconomicEvidenceSetCandidateSuperset
+	EconomicEvidenceSetCandidateSubset
+	EconomicEvidenceSetIncomparable
+)
+
+// CompareEconomicEvidenceSets compares a candidate's canonical observation
+// references with the references retained by the current durable head. Exact
+// duplicate references are collapsed. Two payload hashes for one
+// store/observation/revision identity are rejected because they cannot both be
+// members of one immutable evidence set.
+func CompareEconomicEvidenceSets(current, candidate []metering.ObservationRef) (EconomicEvidenceSetRelation, error) {
+	current, err := canonicalEconomicEvidenceRefs(current)
+	if err != nil {
+		return EconomicEvidenceSetIncomparable, err
+	}
+	candidate, err = canonicalEconomicEvidenceRefs(candidate)
+	if err != nil {
+		return EconomicEvidenceSetIncomparable, err
+	}
+	if len(current) == len(candidate) {
+		equal := true
+		for i := range current {
+			if !current[i].Equal(candidate[i]) {
+				equal = false
+				break
+			}
+		}
+		if equal {
+			return EconomicEvidenceSetEqual, nil
+		}
+	}
+	currentRefs := make(map[metering.ObservationRef]struct{}, len(current))
+	for _, ref := range current {
+		currentRefs[ref] = struct{}{}
+	}
+	candidateRefs := make(map[metering.ObservationRef]struct{}, len(candidate))
+	for _, ref := range candidate {
+		candidateRefs[ref] = struct{}{}
+	}
+	currentSubsetCandidate := true
+	for ref := range currentRefs {
+		if _, ok := candidateRefs[ref]; !ok {
+			currentSubsetCandidate = false
+			break
+		}
+	}
+	candidateSubsetCurrent := true
+	for ref := range candidateRefs {
+		if _, ok := currentRefs[ref]; !ok {
+			candidateSubsetCurrent = false
+			break
+		}
+	}
+	switch {
+	case currentSubsetCandidate:
+		return EconomicEvidenceSetCandidateSuperset, nil
+	case candidateSubsetCurrent:
+		return EconomicEvidenceSetCandidateSubset, nil
+	default:
+		return EconomicEvidenceSetIncomparable, nil
+	}
+}
+
+func canonicalEconomicEvidenceRefs(refs []metering.ObservationRef) ([]metering.ObservationRef, error) {
+	ordered := append([]metering.ObservationRef(nil), refs...)
+	for i, ref := range ordered {
+		if err := ref.Validate(); err != nil {
+			return nil, fmt.Errorf("%w: evidence reference %d: %v", ErrInvalidEconomicRevision, i, err)
+		}
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		left, right := ordered[i], ordered[j]
+		if left.StoreID != right.StoreID {
+			return left.StoreID < right.StoreID
+		}
+		if left.ObservationID != right.ObservationID {
+			return left.ObservationID < right.ObservationID
+		}
+		if left.Revision != right.Revision {
+			return left.Revision < right.Revision
+		}
+		return left.PayloadHash < right.PayloadHash
+	})
+	canonical := ordered[:0]
+	type revisionIdentity struct {
+		storeID, observationID string
+		revision               uint64
+	}
+	seen := make(map[revisionIdentity]string, len(ordered))
+	for _, ref := range ordered {
+		identity := revisionIdentity{storeID: ref.StoreID, observationID: ref.ObservationID, revision: ref.Revision}
+		if prior, exists := seen[identity]; exists {
+			if prior != ref.PayloadHash {
+				return nil, fmt.Errorf("%w: conflicting payload hashes for %s/%s revision %d", ErrInvalidEconomicRevision, ref.StoreID, ref.ObservationID, ref.Revision)
+			}
+			continue
+		}
+		seen[identity] = ref.PayloadHash
+		canonical = append(canonical, ref)
+	}
+	return canonical, nil
 }
 
 func (i EconomicRevisionIdentity) replayIdentity() (replay.RevisionIdentity, error) {
@@ -147,9 +261,10 @@ func (i EconomicRevisionIdentity) ReconciliationKey() string {
 	return "economic-reconciliation:v1:" + hex.EncodeToString(digest[:])
 }
 
-// Less orders identities for deterministic current-head selection. Newer
-// evidence wins; equal revisions use the input hash and opaque key as stable
-// tie-breakers rather than delivery order.
+// Less provides the deterministic identity ordering used when evidence sets
+// are equal or cannot be compared. Durable head stores must compare their
+// retained observation references first so this lexical fallback can never
+// discard a strict evidence superset at the same revision.
 func (i EconomicRevisionIdentity) Less(other EconomicRevisionIdentity) bool {
 	if i.Queue != other.Queue {
 		return i.Queue < other.Queue

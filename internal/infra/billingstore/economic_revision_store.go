@@ -420,6 +420,28 @@ func sameEconomicSubject(left, right metering.SubjectRef) bool {
 	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
 }
 
+// loadValuationInputObservationsInTx reads the immutable reference set that
+// authorized a previously selected head. Head rows retain only the valuation
+// identity and input hash; the canonical valuation payload is the durable
+// source for same-revision evidence containment decisions.
+func loadValuationInputObservationsInTx(ctx context.Context, q bun.IDB, storeID, valuationID string, valuationVersion int64) ([]metering.ObservationRef, bool, error) {
+	if strings.TrimSpace(valuationID) == "" || valuationVersion <= 0 {
+		return nil, false, nil
+	}
+	var payload string
+	if err := q.NewRaw(`SELECT canonical_json FROM billing_valuations WHERE store_id = ? AND valuation_id = ? AND valuation_version = ? LIMIT 1`, storeID, valuationID, valuationVersion).Scan(ctx, &payload); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("billingstore: load valuation evidence %q/%d: %w", valuationID, valuationVersion, err)
+	}
+	var valuation economics.Valuation
+	if err := json.Unmarshal([]byte(payload), &valuation); err != nil {
+		return nil, false, fmt.Errorf("billingstore: decode valuation evidence %q/%d: %w", valuationID, valuationVersion, err)
+	}
+	return append([]metering.ObservationRef(nil), valuation.InputObservations...), true, nil
+}
+
 // PersistEconomicRevision is an alias used by process composition code.
 func (s *DurableStore) PersistEconomicRevision(ctx context.Context, work billing.EconomicRevisionWork, result billing.EconomicRevisionResult) error {
 	return s.AppendEconomicRevisionResult(ctx, work, result)
@@ -502,8 +524,39 @@ func (s *DurableStore) appendEconomicValuationHeadInTx(ctx context.Context, tx b
 		return nil
 	}
 	existingIdentity, existingErr := billing.NewEconomicRevisionIdentity(billing.EconomicQueue(existing.Queue), existing.HeadKey, uint64(maxInt64ToZero(existing.EvidenceRevision)), existing.InputSetHash)
-	if existingErr == nil && !existingIdentity.Less(identity) {
-		return nil
+	if existingErr == nil {
+		advance := existingIdentity.Less(identity)
+		if existingIdentity.EvidenceRevision == identity.EvidenceRevision && existingIdentity.InputSetHash != identity.InputSetHash {
+			existingRefs, found, evidenceErr := loadValuationInputObservationsInTx(ctx, tx, s.storeID, existing.ValuationID, existing.ValuationVersion)
+			if evidenceErr != nil {
+				return evidenceErr
+			}
+			if !found {
+				return fmt.Errorf("%w: existing valuation evidence %q/%d is unavailable", billing.ErrEconomicRevisionFence, existing.ValuationID, existing.ValuationVersion)
+			}
+			relation, relationErr := billing.CompareEconomicEvidenceSets(existingRefs, valuation.InputObservations)
+			if relationErr != nil {
+				return fmt.Errorf("%w: compare same-revision evidence: %v", billing.ErrEconomicRevisionFence, relationErr)
+			}
+			switch relation {
+			case billing.EconomicEvidenceSetCandidateSuperset:
+				advance = true
+			case billing.EconomicEvidenceSetCandidateSubset:
+				advance = false
+			case billing.EconomicEvidenceSetEqual:
+				// Equal reference sets are semantically equivalent. Hash ordering
+				// remains only a deterministic tie-breaker for that case.
+				advance = existingIdentity.Less(identity)
+			case billing.EconomicEvidenceSetIncomparable:
+				// A worker cannot safely derive the missing union inside this
+				// transaction. Keep the durable work retryable rather than
+				// acknowledging an evidence branch that would lose coverage.
+				return fmt.Errorf("%w: incomparable same-revision evidence sets", billing.ErrEconomicRevisionFence)
+			}
+		}
+		if !advance {
+			return nil
+		}
 	}
 	if _, err := tx.NewRaw(`UPDATE billing_economic_valuation_heads SET
 		subject_kind = ?, subject_id = ?, subject_json = ?, evidence_revision = ?, input_set_hash = ?, work_id = ?,

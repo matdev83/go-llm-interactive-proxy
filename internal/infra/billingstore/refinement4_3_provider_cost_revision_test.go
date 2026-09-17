@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -357,24 +356,53 @@ func TestRefinement43ProviderCostRevisionRejectsUnconvertedNativeCurrency(t *tes
 	require.ErrorIs(t, err, billing.ErrProviderCostHeadNotFound)
 }
 
-func TestRefinement43ProviderCostRevisionSameRevisionUsesDeterministicHashOrder(t *testing.T) {
+func TestRefinement43ProviderCostRevisionSameRevisionSupersetOverridesHashOrder(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "refinement43-provider-tie", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 1_000, State: billing.AccountReady, Version: 1}
 	require.NoError(t, store.CreateAccount(ctx, account))
 	first := refinement43ProviderRevisionInput(account.ID, refinement43ProviderCallID, "tie-head", 1, 10, true)
+	var err error
+	firstRefs := make([]metering.ObservationRef, 0, len(first.Evidence.Observations))
+	for _, observation := range first.Evidence.Observations {
+		ref, err := observation.Ref(first.Subject.StoreID)
+		require.NoError(t, err)
+		firstRefs = append(firstRefs, ref)
+	}
+	first.InputSetHash, err = economics.CanonicalInputSetHash(first.Evidence.Basis, firstRefs)
+	require.NoError(t, err)
+	firstValuation := economics.Valuation{
+		ID: first.ValuationID, Version: economics.ValuationVersionV2, Perspective: first.Evidence.Perspective,
+		Basis: first.Evidence.Basis, Subject: first.Subject, Scope: "refinement43-provider-tie-first",
+		InputObservations: firstRefs, Completeness: economics.CompletenessPartial, CreatedAt: time.Unix(1_700_043_100, 0).UTC(),
+	}
+	require.NoError(t, store.AppendValuation(ctx, firstValuation))
 	require.NoError(t, func() error {
 		_, err := store.ApplyProviderCostRevision(ctx, first)
 		return err
 	}())
 	higher := first
-	higher.InputSetHash = strings.Repeat("f", 64)
+	extra := first.Evidence.Observations[0].Clone()
+	extra.ID = "refinement43-provider-charge-extra"
+	extra.SourceEventKey = extra.ID
+	extra.Charges[0].ChargeItemID = "provider-charge-extra"
+	extraAmount := metering.DecimalFromNanoUnits(2)
+	extra.Charges[0].Amount = &extraAmount
+	higher.Evidence = higher.Evidence.Clone()
+	higher.Evidence.Observations = append(higher.Evidence.Observations, extra)
+	extraRef, err := extra.Ref(first.Subject.StoreID)
+	require.NoError(t, err)
+	higherRefs := append(append([]metering.ObservationRef(nil), firstRefs...), extraRef)
+	higher.InputSetHash, err = economics.CanonicalInputSetHash(higher.Evidence.Basis, higherRefs)
+	require.NoError(t, err)
 	higher.ValuationID = "provider-valuation-higher"
 	higher.Cost.KnownSubtotalByCurrency = map[string]billing.Money{"USD": {Nano: 12, Currency: "USD"}}
 	higher.Cost.KnownSubtotal = billing.Money{Nano: 12, Currency: "USD"}
-	higher.Evidence = higher.Evidence.Clone()
-	higherAmount := metering.DecimalFromNanoUnits(12)
-	higher.Evidence.Observations[0].Charges[0].Amount = &higherAmount
+	higherValuation := firstValuation
+	higherValuation.ID = higher.ValuationID
+	higherValuation.Scope = "refinement43-provider-tie-higher"
+	higherValuation.InputObservations = higherRefs
+	require.NoError(t, store.AppendValuation(ctx, higherValuation))
 	advanced, err := store.ApplyProviderCostRevision(ctx, higher)
 	require.NoError(t, err)
 	require.True(t, advanced.Applied)

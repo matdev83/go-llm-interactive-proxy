@@ -484,7 +484,7 @@ func validateProviderCostRevisionEvidence(in ProviderCostRevisionInput) error {
 		Completeness:            CostCompletenessKnown,
 		Payable:                 true,
 	}
-	if err := attributeV2Charges(&derived, evidence.Observations); err != nil {
+	if err := attributeV2Charges(&derived, providerChargeObservations(evidence.Observations)); err != nil {
 		return fmt.Errorf("%w: provider charge selection: %v", ErrProviderCostRevisionInvalid, err)
 	}
 	if !derived.Payable || derived.Completeness != CostCompletenessKnown || len(derived.IncludedLegKeys) == 0 {
@@ -510,6 +510,16 @@ func isProviderEvidenceAcquisition(acquisition string) bool {
 	default:
 		return false
 	}
+}
+
+func providerChargeObservations(observations []metering.Observation) []metering.Observation {
+	charges := make([]metering.Observation, 0, len(observations))
+	for _, observation := range observations {
+		if isProviderChargeObservation(observation) {
+			charges = append(charges, observation)
+		}
+	}
+	return charges
 }
 
 func sameProviderCostSubtotals(left, right map[string]Money) bool {
@@ -656,13 +666,13 @@ func BuildProviderCostRevisionInput(work EconomicRevisionWork, valuation economi
 	}
 	cost := OperatorCOGSResult{KnownSubtotalByCurrency: make(map[string]Money), Completeness: CostCompletenessKnown, Payable: true}
 	for i, observation := range normalized.Input.Observations {
-		if !providerObservationInScope(observation, normalized.Subject) {
+		if !providerEconomicObservationInScope(observation, normalized.Subject) {
 			return ProviderCostRevisionInput{}, fmt.Errorf("%w: observation %d is outside B-leg scope", ErrProviderCostRevisionInvalid, i)
 		}
 	}
 	if len(normalized.Input.Observations) == 0 {
 		cost.Completeness, cost.Payable = CostCompletenessPartial, false
-	} else if err := attributeV2Charges(&cost, normalized.Input.Observations); err != nil {
+	} else if err := attributeV2Charges(&cost, providerChargeObservations(normalized.Input.Observations)); err != nil {
 		return ProviderCostRevisionInput{}, fmt.Errorf("%w: select provider charges: %v", ErrProviderCostRevisionInvalid, err)
 	}
 	// A revision with no operator-owned amount is a known exclusion, not a
@@ -759,6 +769,21 @@ func validateProviderEvidenceEnvelope(evidence economics.PostUsageRatingInput, s
 }
 
 func validateProviderObservationAuthority(observation metering.Observation, subject metering.SubjectRef, index int, allowUnavailable bool) error {
+	if isVerifiedStatementObservation(observation) {
+		if observation.Perspective != metering.PerspectiveOperator {
+			return providerCostRevisionAuthorityError("perspective", string(observation.Perspective), string(metering.PerspectiveOperator))
+		}
+		if observation.Boundary != metering.BoundaryBackendIngress && observation.Boundary != metering.BoundaryBackendEgress {
+			return providerCostRevisionAuthorityError("boundary", string(observation.Boundary), "backend ingress or egress")
+		}
+		if observation.Lifecycle != metering.LifecycleBackendAttempt {
+			return providerCostRevisionAuthorityError("lifecycle", string(observation.Lifecycle), string(metering.LifecycleBackendAttempt))
+		}
+		if !providerEconomicObservationInScope(observation, subject) {
+			return fmt.Errorf("%w: statement observation %d is outside B-leg scope", ErrProviderCostRevisionInvalid, index)
+		}
+		return nil
+	}
 	if observation.Origin != metering.OriginProvider {
 		return providerCostRevisionAuthorityError("origin", string(observation.Origin), string(metering.OriginProvider))
 	}
@@ -784,6 +809,51 @@ func validateProviderObservationAuthority(observation metering.Observation, subj
 		return fmt.Errorf("%w: observation %d is outside B-leg scope", ErrProviderCostRevisionInvalid, index)
 	}
 	return nil
+}
+
+func providerEconomicObservationInScope(observation metering.Observation, subject metering.SubjectRef) bool {
+	if isVerifiedStatementObservation(observation) {
+		if subject.Kind != metering.SubjectBLeg {
+			return false
+		}
+		if strings.TrimSpace(observation.Subject.StoreID) != subject.StoreID {
+			return false
+		}
+		if correlationStoreID := strings.TrimSpace(observation.Correlation.StoreID); correlationStoreID != "" && correlationStoreID != subject.StoreID {
+			return false
+		}
+		if observation.Subject.AccountID != "" && observation.Subject.AccountID != subject.AccountID {
+			return false
+		}
+		if blegID := firstNonEmptyBridge(observation.Subject.BLegID, observation.Correlation.BLegID); blegID != subject.BLegID {
+			return false
+		}
+		if aLegID := firstNonEmptyBridge(observation.Subject.ALegID, observation.Correlation.ALegID); aLegID != "" && aLegID != subject.ALegID {
+			return false
+		}
+		wantedCallID := firstNonEmptyBridge(subject.BillingCallID, subject.CallID)
+		for _, callID := range []string{
+			strings.TrimSpace(observation.Subject.BillingCallID), strings.TrimSpace(observation.Subject.CallID),
+			strings.TrimSpace(observation.Correlation.BillingCallID), strings.TrimSpace(observation.Correlation.CallID),
+		} {
+			if callID != "" && callID != wantedCallID {
+				return false
+			}
+		}
+		if accountKey := firstNonEmptyBridge(observation.Subject.ProviderAccountKey, observation.Correlation.ProviderAccountKey); accountKey != "" && accountKey != subject.ProviderAccountKey {
+			return false
+		}
+		for _, pair := range [][2]string{
+			{firstNonEmptyBridge(observation.Subject.ProviderRequestID, observation.Correlation.ProviderRequestID), subject.ProviderRequestID},
+			{firstNonEmptyBridge(observation.Subject.ProviderChargeID, observation.Correlation.ProviderChargeID), subject.ProviderChargeID},
+		} {
+			if pair[0] != "" && pair[1] != "" && pair[0] != pair[1] {
+				return false
+			}
+		}
+		return wantedCallID != ""
+	}
+	return providerObservationInScope(observation, subject)
 }
 
 func providerObservationInScope(observation metering.Observation, subject metering.SubjectRef) bool {

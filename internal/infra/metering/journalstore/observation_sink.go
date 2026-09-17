@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
+	sdkmetering "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // NewObservationSink adapts the V2 observation journal to the SDK capture
@@ -12,7 +13,7 @@ import (
 // compatibility and AtomicObservationSink for retry-safe checkpoint batches.
 // DurableStore already has a legacy Fact Append method, so the adapter keeps
 // the two append contracts distinct.
-func NewObservationSink(store *DurableStore) metering.ObservationSink {
+func NewObservationSink(store *DurableStore) sdkmetering.ObservationSink {
 	if store == nil {
 		return nil
 	}
@@ -23,37 +24,58 @@ func NewObservationSink(store *DurableStore) metering.ObservationSink {
 // the atomic durable economic trigger outbox. It is deliberately a separate
 // constructor so disabled or non-economic metering remains a no-op with no
 // relay rows.
-func NewObservationSinkWithOutbox(store *DurableStore) metering.ObservationSink {
+func NewObservationSinkWithOutbox(store *DurableStore) coremetering.EconomicObservationSink {
 	if store == nil {
 		return nil
 	}
-	return durableObservationSink{store: store, outbox: true}
+	return durableEconomicObservationSink{store: store}
 }
 
 type durableObservationSink struct {
-	store  *DurableStore
-	outbox bool
+	store *DurableStore
 }
 
-var _ metering.ObservationSink = durableObservationSink{}
-var _ metering.AtomicObservationSink = durableObservationSink{}
+type durableEconomicObservationSink struct {
+	store *DurableStore
+}
 
-func (s durableObservationSink) Append(ctx context.Context, observation metering.Observation) error {
+var _ sdkmetering.ObservationSink = durableObservationSink{}
+var _ sdkmetering.AtomicObservationSink = durableObservationSink{}
+var _ coremetering.EconomicObservationSink = durableEconomicObservationSink{}
+var _ sdkmetering.AtomicObservationSink = durableEconomicObservationSink{}
+
+func (s durableObservationSink) Append(ctx context.Context, observation sdkmetering.Observation) error {
 	if s.store == nil {
 		return fmt.Errorf("metering/journalstore: nil observation sink store")
-	}
-	if s.outbox {
-		return s.store.AppendObservationsWithOutbox(ctx, []metering.Observation{observation})
 	}
 	return s.store.AppendObservation(ctx, observation)
 }
 
-func (s durableObservationSink) AppendObservations(ctx context.Context, observations []metering.Observation) error {
+func (s durableObservationSink) AppendObservations(ctx context.Context, observations []sdkmetering.Observation) error {
 	if s.store == nil {
 		return fmt.Errorf("metering/journalstore: nil observation sink store")
 	}
-	if s.outbox {
-		return s.store.AppendObservationsWithOutbox(ctx, observations)
-	}
 	return s.store.AppendObservations(ctx, observations)
+}
+
+func (s durableEconomicObservationSink) Append(ctx context.Context, observation sdkmetering.Observation) error {
+	return s.AppendEconomicObservationWithOutbox(ctx, observation)
+}
+
+func (s durableEconomicObservationSink) AppendObservations(ctx context.Context, observations []sdkmetering.Observation) error {
+	if s.store == nil {
+		return fmt.Errorf("metering/journalstore: nil observation sink store")
+	}
+	return s.store.AppendObservationsWithOutbox(ctx, observations)
+}
+
+// AppendEconomicObservationWithOutbox is the only late-economics capability.
+// The journal row and the economic-work trigger are committed by the existing
+// AppendObservationsWithOutbox transaction, including its exact replay,
+// ambiguity and recovery behavior.
+func (s durableEconomicObservationSink) AppendEconomicObservationWithOutbox(ctx context.Context, observation sdkmetering.Observation) error {
+	if s.store == nil {
+		return fmt.Errorf("metering/journalstore: nil economic observation sink store")
+	}
+	return s.store.AppendObservationsWithOutbox(ctx, []sdkmetering.Observation{observation})
 }
