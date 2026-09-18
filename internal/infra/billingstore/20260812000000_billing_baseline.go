@@ -58,6 +58,7 @@ func registerMigrations() {
 		registerBillingProviderCostPostingFenceMigration()
 		registerBillingProviderCostExecutionFenceMigration()
 		registerBillingProviderCostCorrectionLinksMigration()
+		registerALegReportScopeMigration()
 	})
 }
 

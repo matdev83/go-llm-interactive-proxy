@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/uptrace/bun"
 )
 
 func (s *DurableStore) QueryOpenExposures(ctx context.Context, accountID string, page billing.PageRequest) (billing.ExposurePage, error) {
@@ -48,71 +49,133 @@ func (s *DurableStore) QueryOpenExposures(ctx context.Context, accountID string,
 }
 
 func (s *DurableStore) CallExplanation(ctx context.Context, callIDRaw string) (billing.CallExplanation, error) {
-	callID, err := billing.ParseBillingCallID(strings.TrimSpace(callIDRaw))
+	data, err := s.loadCallExplanationTx(ctx, s.db, callIDRaw, true)
 	if err != nil {
-		return billing.CallExplanation{}, fmt.Errorf("%w: %w", billing.ErrReportInvalid, err)
-	}
-	exposure, err := s.GetCallExposure(ctx, callID)
-	if err != nil {
-		if errors.Is(err, billing.ErrExposureNotFound) {
-			return billing.CallExplanation{}, billing.ErrReportNotFound
-		}
 		return billing.CallExplanation{}, err
 	}
-	report := exposureReportFromExposure(exposure)
-	var closure billing.CallUsageRecord
-	closure, err = s.GetCallUsage(ctx, callID)
-	if err != nil {
-		if !errors.Is(err, ErrUsageRecordNotFound) {
-			return billing.CallExplanation{}, err
-		}
-	} else {
+	if !data.HasExposure {
+		return billing.CallExplanation{}, billing.ErrReportNotFound
+	}
+	report := exposureReportFromExposure(data.Exposure)
+	closure := data.Closure
+	if data.HasClosure {
 		report.ALegID = closure.ALegID
 		report.SessionID = closure.SessionID
 	}
-	legs, err := s.loadCallLegUsageByCall(ctx, s.db, callID)
+	integrity, err := s.readIntegrityReport(ctx, data.Exposure.AccountID)
 	if err != nil {
 		return billing.CallExplanation{}, err
 	}
-	customerOps, providerOps, err := s.loadCallOperationSnapshots(ctx, exposure.AccountID, callID, legs)
-	if err != nil {
-		return billing.CallExplanation{}, err
-	}
-	transactions, err := s.loadCallJournals(ctx, exposure.AccountID, callID.String())
-	if err != nil {
-		return billing.CallExplanation{}, err
-	}
-	integrity, err := s.readIntegrityReport(ctx, exposure.AccountID)
-	if err != nil {
-		return billing.CallExplanation{}, err
-	}
-	currency := exposure.Max.Currency
-	revenue, cost, issues := billing.SummarizeJournalForReport(transactions, currency)
+	currency := data.Exposure.Max.Currency
+	revenue, cost, issues := billing.SummarizeJournalForReport(data.Transactions, currency)
 	integrity.Issues = append(integrity.Issues, issues...)
 	margin, marginErr := billing.ReportMargin(currency, revenue, cost)
 	if marginErr != nil {
-		integrity.Issues = append(integrity.Issues, billing.ReconciliationIssue{Code: "margin_overflow", Detail: callID.String()})
+		integrity.Issues = append(integrity.Issues, billing.ReconciliationIssue{Code: "margin_overflow", Detail: data.CallID.String()})
 	}
 	if len(integrity.Issues) > 0 {
 		integrity.OK = false
 	}
 	processed := false
-	for _, op := range customerOps {
+	for _, op := range data.CustomerOps {
 		if op.OperationKind == "customer_call_settlement" || op.OperationKind == "customer_no_charge_repair" {
 			processed = true
 			break
 		}
 	}
 	return billing.CallExplanation{
-		CallID: callID.String(), Exposure: report, Closure: closure, Legs: legs,
-		CustomerOperations: customerOps, ProviderCostOperations: providerOps,
-		Transactions: transactions, Reconciliation: &integrity,
+		CallID: data.CallID.String(), Exposure: report, Closure: closure, Legs: data.Legs,
+		CustomerOperations: data.CustomerOps, ProviderCostOperations: data.ProviderOps,
+		Transactions: data.Transactions, Reconciliation: &integrity,
 		Result: billing.TurnResultSummary{
 			CustomerCharge: billing.Money{Currency: currency, Nano: revenue},
 			ProviderCost:   billing.Money{Currency: currency, Nano: cost},
 			GrossMargin:    margin, Processed: processed,
 		},
 	}, nil
+}
+
+// callExplanationData is the durable per-call fact set behind CallExplanation
+// and the rolling A-leg snapshot. Every row comes from the caller's query
+// handle, so a report transaction observes one consistent snapshot instead of
+// fanning out to per-call public queries on separate transactions.
+type callExplanationData struct {
+	CallID       billing.BillingCallID
+	Exposure     billing.CallExposure
+	HasExposure  bool
+	Closure      billing.CallUsageRecord
+	HasClosure   bool
+	Legs         []billing.CallLegUsageRecord
+	CustomerOps  []billing.OperationSnapshot
+	ProviderOps  []billing.OperationSnapshot
+	Transactions []billing.JournalTransaction
+}
+
+// loadCallExplanationTx loads one call's durable facts through q. When
+// requireExposure is set, a missing exposure fails fast with
+// ErrReportNotFound before any dependent read, preserving the public
+// absence precedence; malformed exposure rows still fail as decode errors.
+// Otherwise missing exposure or closure is reported with
+// HasExposure/HasClosure rather than an error, so rolling snapshots can
+// classify unexposed calls as pending lineage. Only malformed input,
+// infrastructure failures, and undecodable rows fail.
+func (s *DurableStore) loadCallExplanationTx(ctx context.Context, q bun.IDB, callIDRaw string, requireExposure bool) (callExplanationData, error) {
+	callID, err := billing.ParseBillingCallID(strings.TrimSpace(callIDRaw))
+	if err != nil {
+		return callExplanationData{}, fmt.Errorf("%w: %w", billing.ErrReportInvalid, err)
+	}
+	var data callExplanationData
+	data.CallID = callID
+	var exposureRow exposureRow
+	if err := q.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE call_id = ?`, callID.String()).Scan(ctx, &exposureRow); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return callExplanationData{}, err
+		}
+	} else {
+		exposure, err := exposureFromRow(exposureRow)
+		if err != nil {
+			return callExplanationData{}, err
+		}
+		data.Exposure = exposure
+		data.HasExposure = true
+	}
+	if !data.HasExposure && requireExposure {
+		return callExplanationData{}, billing.ErrReportNotFound
+	}
+	closure, err := s.loadCallUsage(ctx, q, callID)
+	if err != nil {
+		if !errors.Is(err, ErrUsageRecordNotFound) {
+			return callExplanationData{}, err
+		}
+	} else {
+		data.Closure = closure
+		data.HasClosure = true
+	}
+	accountID := ""
+	if data.HasExposure {
+		accountID = data.Exposure.AccountID
+	} else if data.HasClosure {
+		accountID = data.Closure.AccountID
+	}
+	legs, err := s.loadCallLegUsageByCall(ctx, q, callID)
+	if err != nil {
+		return callExplanationData{}, err
+	}
+	data.Legs = legs
+	if accountID != "" {
+		customerOps, providerOps, err := loadCallOperationSnapshots(ctx, q, accountID, callID, legs)
+		if err != nil {
+			return callExplanationData{}, err
+		}
+		data.CustomerOps = customerOps
+		data.ProviderOps = providerOps
+		transactions, err := loadCallJournals(ctx, q, accountID, callID.String())
+		if err != nil {
+			return callExplanationData{}, err
+		}
+		data.Transactions = transactions
+	}
+	return data, nil
 }
 
 func exposureReportFromRow(ctx context.Context, s *DurableStore, row exposureRow) (billing.ExposureReport, error) {
@@ -142,16 +205,16 @@ func exposureReportFromExposure(exposure billing.CallExposure) billing.ExposureR
 	}
 }
 
-func (s *DurableStore) loadCallJournals(ctx context.Context, accountID, callID string) ([]billing.JournalTransaction, error) {
+func loadCallJournals(ctx context.Context, q bun.IDB, accountID, callID string) ([]billing.JournalTransaction, error) {
 	var rows []journalTransactionRow
 	query := `SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at FROM journal_transactions WHERE account_id = ? AND turn_id = ? AND book = 'financial'` + journalOrderClause("")
-	if err := s.db.NewRaw(query, accountID, callID).Scan(ctx, &rows); err != nil {
+	if err := q.NewRaw(query, accountID, callID).Scan(ctx, &rows); err != nil {
 		return nil, err
 	}
-	return loadJournals(ctx, s.db, rows)
+	return loadJournals(ctx, q, rows)
 }
 
-func (s *DurableStore) loadCallOperationSnapshots(ctx context.Context, accountID string, callID billing.BillingCallID, legs []billing.CallLegUsageRecord) ([]billing.OperationSnapshot, []billing.OperationSnapshot, error) {
+func loadCallOperationSnapshots(ctx context.Context, q bun.IDB, accountID string, callID billing.BillingCallID, legs []billing.CallLegUsageRecord) ([]billing.OperationSnapshot, []billing.OperationSnapshot, error) {
 	sourceKeys := []string{callID.String()}
 	for _, leg := range legs {
 		sourceKeys = append(sourceKeys, leg.Key)
@@ -164,7 +227,7 @@ func (s *DurableStore) loadCallOperationSnapshots(ctx context.Context, accountID
 	}
 	var rows []operationSnapshotRow
 	query := `SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ? AND source_key IN (` + placeholders + `)` + operationSnapshotOrderClause
-	if err := s.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := q.NewRaw(query, args...).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, err
 	}
 	customer := make([]billing.OperationSnapshot, 0)
