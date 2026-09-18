@@ -1164,11 +1164,12 @@ Exact file split may be adjusted to keep packages cohesive; ownership boundaries
 
 ## Brownfield Design Validation Result
 
-The design review found and repaired four high-impact risks:
+The design review found and repaired five high-impact risks:
 
 1. **Wrong stage placement** — repaired with a dedicated post-secret-guard/pre-submit stage.
 2. **False MetadataOnly claim** — repaired by defining one bounded Evidence DTO used identically by canonical and wire paths.
 3. **Multi-instance remote duplication** — repaired with atomic durable remote leases and finite attempts.
 4. **SessionView evidence alias/copy growth** — repaired by storing one scalar decisive EvidenceCode instead of an arbitrary evidence slice.
+5. **Disabled-feature startup coupling** — repaired with a lightweight process holder plus an enabled-generation overlap-safe initialization lifecycle, so a never-enabled classifier does not create a classification schema or network dependency.
 
 With these repairs, the design is implementation-ready and preserves current architecture invariants.
