@@ -823,17 +823,26 @@ Generic core config receives no new semantic section.
 
 internal/standardplugins registers session-classification like other feature factories.
 
-The basic feature factory validates/decodes the opaque feature config. Standard featurehost re-decodes or consumes the registration during generation composition to build the concrete classifier with process-owned resources, then contributes it to PlaneSessionClassifier as a generation-bound value.
+The basic feature factory validates/decodes the opaque feature config. Standard featurehost re-decodes or consumes the registration during generation composition, creates the overlap-safe store-initialization lifecycle for enabled generations, builds the concrete classifier against the shared StateHolder, and contributes the classifier to PlaneSessionClassifier as a generation-bound value.
 
 ### Process ownership
 
-featurehost process construction owns:
+featurehost process construction owns a lightweight classification StateHolder/coordinator shell and the feature metrics collector registration. Constructing the shell performs no feature schema migration, remote call, or classification-state mutation.
 
-- classification memory/Bun Store adapter;
-- process cache/coordinator;
-- feature metrics collector registration where configured.
+When an enabled generation is compiled, featurehost attaches an overlap-safe feature lifecycle to that generation. Lifecycle Start runs in the existing candidate resource-ledger prepare phase and:
 
-Process resources survive generation reload. They are closed once by featurehost; borrowed DB/HTTP infrastructure is not double-closed.
+- initializes the memory store or ensures/opens the Bun-backed feature store exactly once through the shared StateHolder;
+- may fail the candidate before publication if required store setup is unavailable;
+- does not create classification rows, call Jev, or alter an already-published classifier.
+
+Lifecycle Stop releases only the generation's use/reference; it does not destroy shared process classification state while other generations may still use it. Final process Close disposes the holder/cache once. Borrowed DB/HTTP infrastructure is never double-closed.
+
+Consequences:
+
+- a deployment that never enables session-classification acquires no classification schema/network dependency;
+- reload can enable the feature later without process restart;
+- overlapping old/new enabled generations safely share the same monotonic store/cache;
+- a rejected candidate cannot publish or mutate classification records, although an idempotent feature table created during successful prepare may remain as inert infrastructure.
 
 ### Reload
 
