@@ -225,14 +225,13 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 7.4_
   - _Validation: make test-unit; make parity-checks; make test-db-parity_
 
-- [ ] 8.2 Run resumable-session and incremental-revision certification
+- [x] 8.2 Run resumable-session and incremental-revision certification
   - Execute same-A-leg sequential BillingCallIDs, pre-terminal checkpoint, terminal checkpoint, post-terminal correction, restart and concurrent late-revision cases.
   - Completion: accounting never requires A-leg finality and no duplicate usage/posting appears.
   - _Requirements: 6.3, 6.4, 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 4.3, 4.4, 4.5_
   - _Boundary: tests: lifecycle/persistence/race_
   - _Depends: 8.1_
   - _Validation: make test-db-parity; make test-race; go test ./internal/core/runtime/... ./internal/core/billing/..._
-  - _Blocked: forced PostgreSQL certification exposed an upstream journalstore defect: JSONB normalizes `payload_json`, but V2 outbox replay validation compares raw JSON bytes and falsely raises `ErrIdentityCollision`. Kiro debug returned `STOP_FOR_HUMAN` because the production fix belongs to the Task 5.2/parent journalstore track, outside this test-only task. The complete A-E certification attempt is preserved in `stash@{0}` (`backup/task8.2-certification-blocked-pg-jsonb-20260918`)._
 
 - [ ] 8.3 Run COGS-versus-retail selector certification
   - Verify all-attributable-B-leg COGS against winner-only, retry-inclusive and cost-pass-through retail policies, including multimodal quantities and non-request allocations.
