@@ -215,7 +215,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 7.1, 7.2, 7.3_
   - _Validation: go test ./internal/core/billing/... ./pkg/lipsdk/promptcache/... ./internal/standardplugins/featurehost/..._
 
-- [ ] 8. Certify refinement and integrate into #620 release gate
+- [x] 8. Certify refinement and integrate into #620 release gate
 
 - [x] 8.1 Run multimodal direction and transform certification
   - Execute all required image/audio/video/document input/output and transform vectors through neutral evidence, rating and durable round-trip.
@@ -241,7 +241,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 8.2_
   - _Validation: make test-unit; make parity-checks; go test ./internal/core/billing/... ./internal/infra/billingstore/..._
 
-- [ ] 8.4 Reconcile parent task evidence and final release traceability
+- [x] 8.4 Reconcile parent task evidence and final release traceability
   - Update #620 implementation evidence so parent tasks use this refinement's B-leg/multimodal/session semantics wherever listed in `design.md`.
   - Cross-check all 36 refinement criteria against named tests and parent task owners; no parent acceptance may be satisfied by contradictory A-leg/session-final behavior.
   - Completion: #620 cannot close until both parent and refinement acceptance criteria pass at the same release candidate SHA.
