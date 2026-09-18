@@ -94,19 +94,9 @@ func (s *DurableStore) appendObservationOutboxInTx(ctx context.Context, tx bun.T
 	var existing observationOutboxRow
 	err = tx.NewRaw(`SELECT id, observation_fingerprint, payload_json, status FROM metering_observation_economic_outbox WHERE store_id = ? AND observation_id = ? AND observation_revision = ? LIMIT 1`, s.cfg.StoreID, canonical.ID, int64(canonical.Revision)).Scan(ctx, &existing)
 	if err == nil {
-		if existing.ObservationFingerprint != fingerprint || existing.PayloadJSON != string(payload) {
-			var stored metering.Observation
-			if jsonErr := json.Unmarshal([]byte(existing.PayloadJSON), &stored); jsonErr == nil {
-				storedReplay, storedErr := stored.ReplayFingerprint()
-				incomingReplay, incomingErr := canonical.ReplayFingerprint()
-				if storedErr == nil && incomingErr == nil && storedReplay == incomingReplay {
-					// ReceivedAt and equivalent lineage-carrier placement are
-					// transport details. Preserve the first durable envelope just
-					// as AppendObservationInTx does for a replay-equivalent retry.
-					return nil
-				}
-			}
-			return fmt.Errorf("%w: observation outbox identity=%q revision=%d", ErrIdentityCollision, canonical.ID, canonical.Revision)
+		detail := fmt.Sprintf("observation outbox identity=%q revision=%d", canonical.ID, canonical.Revision)
+		if err := validateCanonicalObservationReplay(detail, existing.PayloadJSON, existing.ObservationFingerprint, canonical); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -138,8 +128,9 @@ ON CONFLICT DO NOTHING`, s.cfg.StoreID, canonical.ID, int64(canonical.Revision),
 	if err := tx.NewRaw(`SELECT id, observation_fingerprint, payload_json, status FROM metering_observation_economic_outbox WHERE store_id = ? AND observation_id = ? AND observation_revision = ? LIMIT 1`, s.cfg.StoreID, canonical.ID, int64(canonical.Revision)).Scan(ctx, &inserted); err != nil {
 		return fmt.Errorf("metering/journalstore: observation outbox verify insert: %w", err)
 	}
-	if inserted.ObservationFingerprint != fingerprint || inserted.PayloadJSON != string(payload) {
-		return fmt.Errorf("%w: observation outbox identity=%q revision=%d", ErrIdentityCollision, canonical.ID, canonical.Revision)
+	detail := fmt.Sprintf("observation outbox identity=%q revision=%d", canonical.ID, canonical.Revision)
+	if err := validateCanonicalObservationReplay(detail, inserted.PayloadJSON, inserted.ObservationFingerprint, canonical); err != nil {
+		return err
 	}
 	if err := s.observationFault(ObservationFaultAfterOutbox); err != nil {
 		return err
@@ -377,20 +368,79 @@ func normalizeOutboxLimit(limit int) (int, error) {
 }
 
 func (s *DurableStore) decodeObservationOutboxRow(row observationOutboxRow) (ObservationOutboxItem, error) {
-	var observation metering.Observation
-	if err := json.Unmarshal([]byte(row.PayloadJSON), &observation); err != nil {
-		return ObservationOutboxItem{}, fmt.Errorf("metering/journalstore: decode observation outbox %d: %w", row.ID, err)
-	}
-	canonical, payload, err := canonicalObservationForStore(s.cfg.StoreID, observation)
+	detail := fmt.Sprintf("observation outbox identity=%q revision=%d", row.ObservationID, row.ObservationRevision)
+	canonical, err := decodeValidatedStoredObservation(s.cfg.StoreID, detail, row.PayloadJSON, row.ObservationFingerprint, row.ObservationID, row.ObservationRevision)
 	if err != nil {
-		return ObservationOutboxItem{}, fmt.Errorf("metering/journalstore: validate observation outbox %d: %w", row.ID, err)
-	}
-	if canonical.Fingerprint() != row.ObservationFingerprint || string(payload) != row.PayloadJSON {
-		return ObservationOutboxItem{}, fmt.Errorf("metering/journalstore: observation outbox %d payload fingerprint mismatch", row.ID)
+		return ObservationOutboxItem{}, err
 	}
 	return ObservationOutboxItem{
 		ID: row.ID, Observation: canonical, ObservationFingerprint: row.ObservationFingerprint, Status: row.Status,
 		AttemptCount: int(row.AttemptCount), NextAttemptAt: time.Unix(0, row.NextAttemptAtUnix).UTC(),
 		LeaseOwner: row.LeaseOwner, LeaseUntil: time.Unix(0, row.LeaseUntilUnix).UTC(), LastError: row.LastError,
 	}, nil
+}
+
+// decodeValidatedStoredObservation decodes one durable observation envelope,
+// runs the canonical content contract before the store-scope check so
+// semantically invalid content classifies as an invalid record, then verifies
+// the duplicated identity columns and the recomputed full fingerprint against
+// the durable columns. Raw JSON bytes are representation and are never
+// compared. It returns the canonical observation.
+func decodeValidatedStoredObservation(storeID, detail, storedPayloadJSON, storedFingerprint, wantObservationID string, wantRevision int64) (metering.Observation, error) {
+	var stored metering.Observation
+	if err := json.Unmarshal([]byte(storedPayloadJSON), &stored); err != nil {
+		return metering.Observation{}, fmt.Errorf("metering/journalstore: %s: corrupt stored observation payload: %w: %v", detail, metering.ErrInvalidObservation, err)
+	}
+	canonical, err := stored.Canonical()
+	if err != nil {
+		return metering.Observation{}, fmt.Errorf("metering/journalstore: %s: invalid stored observation: %w", detail, err)
+	}
+	if canonical.Subject.StoreID != storeID || canonical.Correlation.StoreID != storeID {
+		return metering.Observation{}, fmt.Errorf("metering/journalstore: %s: %w: observation store mismatch", detail, ErrQueryOutOfScope)
+	}
+	if canonical.ID != wantObservationID || wantRevision < 0 || uint64(wantRevision) != canonical.Revision {
+		return metering.Observation{}, fmt.Errorf("%w: %s: stored observation identity drift", ErrIdentityCollision, detail)
+	}
+	if strings.TrimSpace(storedFingerprint) == "" {
+		return metering.Observation{}, fmt.Errorf("%w: %s: stored observation fingerprint is missing", ErrIdentityCollision, detail)
+	}
+	if recomputed := canonical.Fingerprint(); recomputed == "" {
+		return metering.Observation{}, fmt.Errorf("metering/journalstore: %s: stored observation fingerprint unavailable: %w", detail, metering.ErrInvalidObservation)
+	} else if recomputed != storedFingerprint {
+		return metering.Observation{}, fmt.Errorf("%w: %s: stored observation fingerprint mismatch", ErrIdentityCollision, detail)
+	}
+	return canonical, nil
+}
+
+// validateCanonicalObservationReplay decides replay vs collision for one durable
+// observation envelope using canonical domain semantics only. Raw JSON bytes are
+// representation, never idempotency authority: PostgreSQL JSONB normalizes
+// whitespace and key order, so byte equality is never consulted on any dialect.
+// Durable identity is (store, observation ID, revision) plus the validated full
+// Observation.Fingerprint recomputed from canonical content; ReplayFingerprint
+// covers only the approved receipt/lineage-placement replay differences.
+func validateCanonicalObservationReplay(detail, storedPayloadJSON, storedFingerprint string, incoming metering.Observation) error {
+	storedCanonical, err := decodeValidatedStoredObservation(incoming.Subject.StoreID, detail, storedPayloadJSON, storedFingerprint, incoming.ID, int64(incoming.Revision))
+	if err != nil {
+		return err
+	}
+	incomingCanonical, err := incoming.Canonical()
+	if err != nil {
+		return fmt.Errorf("metering/journalstore: %s: invalid incoming observation: %w", detail, err)
+	}
+	if incomingCanonical.Fingerprint() == storedFingerprint {
+		return nil
+	}
+	// The durable row keeps the first full envelope. Replay identity excludes
+	// transport receipt metadata and approved lineage-carrier placement, so an
+	// equivalent delivery remains idempotent without overwriting that history.
+	storedReplay, storedErr := storedCanonical.ReplayFingerprint()
+	incomingReplay, incomingErr := incomingCanonical.ReplayFingerprint()
+	if storedErr == nil && incomingErr == nil && storedReplay == incomingReplay {
+		// ReceivedAt and equivalent lineage-carrier placement are transport
+		// details. Preserve the first durable envelope just as
+		// AppendObservationInTx does for a replay-equivalent retry.
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrIdentityCollision, detail)
 }

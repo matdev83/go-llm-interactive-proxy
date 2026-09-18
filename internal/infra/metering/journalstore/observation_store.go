@@ -328,7 +328,7 @@ func (s *DurableStore) AppendObservationInTx(ctx context.Context, tx bun.Tx, obs
 	if existing, found, lookupErr := lookupObservationRow(ctx, tx, s.cfg.StoreID, identity, canonical.ID, int64(canonical.Revision)); lookupErr != nil {
 		return lookupErr
 	} else if found {
-		return resolveObservationReplay(existing, payload, canonical)
+		return resolveObservationReplay(existing, canonical)
 	}
 	if err := s.insertObservationRow(ctx, tx, canonical, payload, identity, fingerprint); err != nil {
 		if !isUniqueViolation(err) {
@@ -342,7 +342,7 @@ func (s *DurableStore) AppendObservationInTx(ctx context.Context, tx bun.Tx, obs
 	}
 	var row observationRow
 	lookupErr := tx.NewRaw(`
-SELECT id, payload_json, payload_kind, observation_fingerprint
+SELECT id, payload_json, payload_kind, observation_fingerprint, observation_id, observation_revision
 FROM metering_facts
 WHERE store_id = ? AND payload_kind = 'observation' AND source_event_key = ?
 	LIMIT 1`, s.cfg.StoreID, identity).Scan(ctx, &row)
@@ -352,7 +352,7 @@ WHERE store_id = ? AND payload_kind = 'observation' AND source_event_key = ?
 		// same typed replay/collision outcome rather than leaking a misleading
 		// post-insert lookup failure.
 		lookupErr = tx.NewRaw(`
-SELECT id, payload_json, payload_kind, observation_fingerprint
+SELECT id, payload_json, payload_kind, observation_fingerprint, observation_id, observation_revision
 FROM metering_facts
 WHERE store_id = ? AND payload_kind = 'observation' AND observation_id = ? AND observation_revision = ?
 LIMIT 1`, s.cfg.StoreID, canonical.ID, int64(canonical.Revision)).Scan(ctx, &row)
@@ -363,8 +363,15 @@ LIMIT 1`, s.cfg.StoreID, canonical.ID, int64(canonical.Revision)).Scan(ctx, &row
 	if row.PayloadKind != "observation" {
 		return fmt.Errorf("%w: source identity is occupied by a V1 fact", ErrIdentityCollision)
 	}
-	if row.Payload != string(payload) || (row.ObservationFingerprint != "" && row.ObservationFingerprint != fingerprint) {
-		return fmt.Errorf("%w: observation_id=%q revision=%d", ErrIdentityCollision, canonical.ID, canonical.Revision)
+	// The concurrent winner may hold an equivalent envelope with a different
+	// representation or receipt metadata. Canonical semantic fingerprints
+	// decide replay vs collision, exactly as the pre-insert replay path does.
+	if row.ObservationID != canonical.ID || row.ObservationRevision != int64(canonical.Revision) {
+		return fmt.Errorf("%w: observation_id=%q revision=%d: stored observation identity drift", ErrIdentityCollision, canonical.ID, canonical.Revision)
+	}
+	detail := fmt.Sprintf("observation_id=%q revision=%d", canonical.ID, canonical.Revision)
+	if err := validateCanonicalObservationReplay(detail, row.Payload, row.ObservationFingerprint, canonical); err != nil {
+		return err
 	}
 	if err := s.observationFault("after_canonical"); err != nil {
 		return err
@@ -388,12 +395,14 @@ type observationRow struct {
 	Payload                string `bun:"payload_json"`
 	PayloadKind            string `bun:"payload_kind"`
 	ObservationFingerprint string `bun:"observation_fingerprint"`
+	ObservationID          string `bun:"observation_id"`
+	ObservationRevision    int64  `bun:"observation_revision"`
 }
 
 func lookupObservationRow(ctx context.Context, q bun.IDB, storeID, identity, observationID string, revision int64) (observationRow, bool, error) {
 	var row observationRow
 	err := q.NewRaw(`
-SELECT id, payload_json, payload_kind, observation_fingerprint
+SELECT id, payload_json, payload_kind, observation_fingerprint, observation_id, observation_revision
 FROM metering_facts
 WHERE store_id = ? AND source_event_key = ?
 LIMIT 1`, storeID, identity).Scan(ctx, &row)
@@ -404,7 +413,7 @@ LIMIT 1`, storeID, identity).Scan(ctx, &row)
 		return observationRow{}, false, fmt.Errorf("metering/journalstore: observation identity lookup: %w", err)
 	}
 	err = q.NewRaw(`
-SELECT id, payload_json, payload_kind, observation_fingerprint
+SELECT id, payload_json, payload_kind, observation_fingerprint, observation_id, observation_revision
 FROM metering_facts
 WHERE store_id = ? AND payload_kind = 'observation' AND observation_id = ? AND observation_revision = ?
 LIMIT 1`, storeID, observationID, revision).Scan(ctx, &row)
@@ -417,27 +426,23 @@ LIMIT 1`, storeID, observationID, revision).Scan(ctx, &row)
 	return observationRow{}, false, nil
 }
 
-func resolveObservationReplay(existing observationRow, payload []byte, observation metering.Observation) error {
+func resolveObservationReplay(existing observationRow, observation metering.Observation) error {
 	if existing.PayloadKind != "observation" {
 		return fmt.Errorf("%w: source identity is occupied by a V1 fact", ErrIdentityCollision)
 	}
-	if existing.Payload == string(payload) && (existing.ObservationFingerprint == "" || existing.ObservationFingerprint == observation.Fingerprint()) {
-		return nil
-	}
 	// The durable row keeps the first full envelope and its full-envelope hash
 	// for audit/history. Replay identity, however, deliberately excludes the
-	// transport receipt timestamp. Compare the stored envelope's replay hash so
-	// an equivalent delivery with a different ReceivedAt remains idempotent
-	// without overwriting that historical record.
-	var stored metering.Observation
-	if err := json.Unmarshal([]byte(existing.Payload), &stored); err == nil {
-		storedHash, storedErr := stored.ReplayFingerprint()
-		incomingHash, incomingErr := observation.ReplayFingerprint()
-		if storedErr == nil && incomingErr == nil && storedHash == incomingHash {
-			return nil
-		}
+	// transport receipt timestamp. Canonical semantic fingerprints decide replay
+	// vs collision so JSONB representation differences can never collide; the
+	// stored envelope's replay hash keeps an equivalent delivery with a
+	// different ReceivedAt idempotent without overwriting that history.
+	// Duplicated fact columns are checked first so column drift cannot hide
+	// behind a matching payload.
+	if existing.ObservationID != observation.ID || existing.ObservationRevision != int64(observation.Revision) {
+		return fmt.Errorf("%w: observation_id=%q revision=%d: stored observation identity drift", ErrIdentityCollision, observation.ID, observation.Revision)
 	}
-	return fmt.Errorf("%w: observation_id=%q revision=%d", ErrIdentityCollision, observation.ID, observation.Revision)
+	detail := fmt.Sprintf("observation_id=%q revision=%d", observation.ID, observation.Revision)
+	return validateCanonicalObservationReplay(detail, existing.Payload, existing.ObservationFingerprint, observation)
 }
 
 func (s *DurableStore) insertObservationRow(ctx context.Context, tx bun.Tx, observation metering.Observation, payload []byte, identity, fingerprint string) error {
@@ -764,7 +769,9 @@ func decodeObservationCursor(raw, kind, storeID, hash string) (observationCursor
 	return cursor, nil
 }
 
-// GetObservation returns one exact V2 observation revision.
+// GetObservation returns one exact V2 observation revision. The durable row is
+// validated against its duplicated identity columns and stored fingerprint;
+// corrupt rows fail closed instead of returning an unvalidated observation.
 func (s *DurableStore) GetObservation(ctx context.Context, observationID string, revision uint64) (metering.Observation, error) {
 	if s == nil || s.db == nil {
 		return metering.Observation{}, fmt.Errorf("metering/journalstore: nil store")
@@ -778,16 +785,13 @@ func (s *DurableStore) GetObservation(ctx context.Context, observationID string,
 	if revision > math.MaxInt64 {
 		return metering.Observation{}, fmt.Errorf("metering/journalstore: observation revision exceeds database range")
 	}
-	var payload string
-	err := s.db.NewRaw(`SELECT payload_json FROM metering_facts WHERE store_id = ? AND payload_kind = 'observation' AND observation_id = ? AND observation_revision = ? LIMIT 1`, s.cfg.StoreID, observationID, int64(revision)).Scan(ctx, &payload)
+	var row observationRow
+	err := s.db.NewRaw(`SELECT id, payload_json, payload_kind, observation_fingerprint, observation_id, observation_revision FROM metering_facts WHERE store_id = ? AND payload_kind = 'observation' AND observation_id = ? AND observation_revision = ? LIMIT 1`, s.cfg.StoreID, observationID, int64(revision)).Scan(ctx, &row)
 	if err != nil {
 		return metering.Observation{}, fmt.Errorf("metering/journalstore: get observation: %w", err)
 	}
-	var observation metering.Observation
-	if err := json.Unmarshal([]byte(payload), &observation); err != nil {
-		return metering.Observation{}, fmt.Errorf("metering/journalstore: decode observation: %w", err)
-	}
-	return observation, nil
+	detail := fmt.Sprintf("observation_id=%q revision=%d", observationID, revision)
+	return decodeValidatedStoredObservation(s.cfg.StoreID, detail, row.Payload, row.ObservationFingerprint, observationID, int64(revision))
 }
 
 // GetObservationRef is a convenience form for callers holding an immutable
@@ -905,7 +909,7 @@ func (s *DurableStore) ListObservations(ctx context.Context, query ObservationQu
 		where = append(where, `(f.stream_id > ? OR (f.stream_id = ? AND (f.sequence > ? OR (f.sequence = ? AND (f.observation_id > ? OR (f.observation_id = ? AND (f.observation_revision > ? OR (f.observation_revision = ? AND f.id > ?))))))))`)
 		args = append(args, position.StreamID, position.StreamID, position.Sequence, position.Sequence, position.ObservationID, position.ObservationID, position.Revision, position.Revision, position.RowID)
 	}
-	querySQL := `SELECT f.payload_json, f.stream_id, f.sequence, f.observation_id, f.observation_revision, f.id FROM metering_facts f WHERE ` + strings.Join(where, " AND ") + ` ORDER BY f.stream_id ASC, f.sequence ASC, f.observation_id ASC, f.observation_revision ASC, f.id ASC LIMIT ?`
+	querySQL := `SELECT f.payload_json, f.observation_fingerprint, f.stream_id, f.sequence, f.observation_id, f.observation_revision, f.id FROM metering_facts f WHERE ` + strings.Join(where, " AND ") + ` ORDER BY f.stream_id ASC, f.sequence ASC, f.observation_id ASC, f.observation_revision ASC, f.id ASC LIMIT ?`
 	args = append(args, limit+1)
 	rows, err := s.db.QueryContext(ctx, querySQL, args...)
 	if err != nil {
@@ -914,6 +918,7 @@ func (s *DurableStore) ListObservations(ctx context.Context, query ObservationQu
 	defer func() { _ = rows.Close() }()
 	type row struct {
 		Payload       string
+		Fingerprint   string
 		StreamID      string
 		Sequence      int64
 		ObservationID string
@@ -923,7 +928,7 @@ func (s *DurableStore) ListObservations(ctx context.Context, query ObservationQu
 	items := make([]row, 0, limit)
 	for rows.Next() {
 		var item row
-		if err := rows.Scan(&item.Payload, &item.StreamID, &item.Sequence, &item.ObservationID, &item.Revision, &item.ID); err != nil {
+		if err := rows.Scan(&item.Payload, &item.Fingerprint, &item.StreamID, &item.Sequence, &item.ObservationID, &item.Revision, &item.ID); err != nil {
 			return ObservationPage{}, fmt.Errorf("metering/journalstore: scan observations: %w", err)
 		}
 		items = append(items, item)
@@ -938,9 +943,10 @@ func (s *DurableStore) ListObservations(ctx context.Context, query ObservationQu
 		items = items[:limit]
 	}
 	for _, item := range items {
-		var observation metering.Observation
-		if err := json.Unmarshal([]byte(item.Payload), &observation); err != nil {
-			return ObservationPage{}, fmt.Errorf("metering/journalstore: decode listed observation: %w", err)
+		detail := fmt.Sprintf("observation_id=%q revision=%d", item.ObservationID, item.Revision)
+		observation, err := decodeValidatedStoredObservation(storeID, detail, item.Payload, item.Fingerprint, item.ObservationID, item.Revision)
+		if err != nil {
+			return ObservationPage{}, err
 		}
 		page.Observations = append(page.Observations, observation)
 	}
@@ -1090,7 +1096,7 @@ func (s *DurableStore) RebuildObservationProjections(ctx context.Context) error 
 		return fmt.Errorf("metering/journalstore: rebuild begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	rows, err := tx.QueryContext(ctx, `SELECT id, payload_json, observation_fingerprint FROM metering_facts WHERE store_id = ? AND payload_kind = 'observation' ORDER BY id ASC`, s.cfg.StoreID)
+	rows, err := tx.QueryContext(ctx, `SELECT id, payload_json, observation_fingerprint, observation_id, observation_revision FROM metering_facts WHERE store_id = ? AND payload_kind = 'observation' ORDER BY id ASC`, s.cfg.StoreID)
 	if err != nil {
 		return fmt.Errorf("metering/journalstore: rebuild scan: %w", err)
 	}
@@ -1102,20 +1108,15 @@ func (s *DurableStore) RebuildObservationProjections(ctx context.Context) error 
 	records := make([]projectionRecord, 0)
 	for rows.Next() {
 		var rowID int64
-		var payload, storedFingerprint string
-		if err := rows.Scan(&rowID, &payload, &storedFingerprint); err != nil {
+		var payload, storedFingerprint, observationID string
+		var observationRevision int64
+		if err := rows.Scan(&rowID, &payload, &storedFingerprint, &observationID, &observationRevision); err != nil {
 			return fmt.Errorf("metering/journalstore: rebuild scan row: %w", err)
 		}
-		var observation metering.Observation
-		if err := json.Unmarshal([]byte(payload), &observation); err != nil {
-			return fmt.Errorf("metering/journalstore: rebuild decode observation: %w", err)
-		}
-		canonical, canonicalJSON, err := canonicalObservationForStore(s.cfg.StoreID, observation)
+		detail := fmt.Sprintf("observation_id=%q revision=%d", observationID, observationRevision)
+		canonical, err := decodeValidatedStoredObservation(s.cfg.StoreID, detail, payload, storedFingerprint, observationID, observationRevision)
 		if err != nil {
-			return fmt.Errorf("metering/journalstore: rebuild observation: %w", err)
-		}
-		if string(canonicalJSON) != payload || (storedFingerprint != "" && storedFingerprint != canonical.Fingerprint()) {
-			return fmt.Errorf("%w: canonical observation payload drift for %q revision %d", ErrIdentityCollision, canonical.ID, canonical.Revision)
+			return fmt.Errorf("metering/journalstore: rebuild observation %d: %w", rowID, err)
 		}
 		records = append(records, projectionRecord{rowID: rowID, observation: canonical})
 	}
