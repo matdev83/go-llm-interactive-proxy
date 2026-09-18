@@ -150,6 +150,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Boundary: billing query seam and reports_
   - _Depends: 5.2_
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/... ./internal/stdhttp/..._
+  - _Blocked: debug attempted twice, still failing — the report-side proof boundary still accepts incomplete settlement marker, provider head/fence/valuation, correction-chain, or pass-through evidence as known economics. The rejected implementation and review evidence are preserved in `stash@{0}` (`backup/task5.3-proof-boundary-blocked-20260918`) for design-level follow-up._
 
 - [x] 6. Refine retail inference usage to policy-selected B-legs
 
