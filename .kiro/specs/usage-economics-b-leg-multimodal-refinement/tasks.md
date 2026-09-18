@@ -232,6 +232,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Boundary: tests: lifecycle/persistence/race_
   - _Depends: 8.1_
   - _Validation: make test-db-parity; make test-race; go test ./internal/core/runtime/... ./internal/core/billing/..._
+  - _Blocked: forced PostgreSQL certification exposed an upstream journalstore defect: JSONB normalizes `payload_json`, but V2 outbox replay validation compares raw JSON bytes and falsely raises `ErrIdentityCollision`. Kiro debug returned `STOP_FOR_HUMAN` because the production fix belongs to the Task 5.2/parent journalstore track, outside this test-only task. The complete A-E certification attempt is preserved in `stash@{0}` (`backup/task8.2-certification-blocked-pg-jsonb-20260918`)._
 
 - [ ] 8.3 Run COGS-versus-retail selector certification
   - Verify all-attributable-B-leg COGS against winner-only, retry-inclusive and cost-pass-through retail policies, including multimodal quantities and non-request allocations.
