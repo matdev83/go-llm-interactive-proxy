@@ -76,7 +76,7 @@ The feature is brownfield. It must reuse existing canonical client User-Agent ca
 
 3.2. **If** a User-Agent is generic, shared with an underlying SDK, unknown, or known to be ambiguous for a coding harness, that User-Agent alone shall not classify the session as coding_agent.
 
-3.3. **When** the current turn exposes a coding-shaped tool cluster containing at least one local read/search capability and at least one local edit/remove/command capability, and the resolved workspace exposes a recognized project marker, the local heuristic shall be able to classify the session as coding_agent even when User-Agent is absent or generic.
+3.3. **When** the current turn exposes a distinctive coding tool cluster containing at least one file read/search category, at least one file edit/remove category, and an OS-command category, the local heuristic shall be able to classify the session as coding_agent without a workspace marker; **when** the tool cluster contains read/search plus only one local mutation category, a recognized project marker shall be required as corroboration before promotion.
 
 3.4. **If** only one generic shell, browser, web, read, or search tool is present without other decisive evidence, the local heuristic shall remain unknown.
 
