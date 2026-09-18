@@ -122,7 +122,9 @@ The function intentionally uses exact, case-folded names and does not inspect ar
 
 pkg/lipsdk/workspace.WorkspaceView exposes ID, ProjectRoot, DirtyTree, Markers, and Labels. The classifier needs only a bounded recognized-marker test; it does not need ProjectRoot text or a filesystem scan in the classification stage.
 
-**Requirement repair:** the original filename-extension idea is demoted from a suggested primary heuristic. V1 can meet the product goal with stronger cheap evidence: known client identity, or coding-tool cluster plus project marker. Arbitrary transcript filename scanning is not required and would add false positives, payload-dependent work, and large-body complexity.
+The current standard tree does not guarantee that every client/session has a production workspace resolver that emits language/build markers. Requiring a marker for every non-UA promotion would therefore make the local heuristic ineffective for some real coding harnesses.
+
+**Requirement repair:** the original filename-extension idea is demoted from a suggested primary heuristic. V1 uses stronger cheap structured evidence: known client identity; a distinctive three-way coding tool cluster containing read/search + edit/remove + OS command; or a weaker read/search + mutation cluster corroborated by a project marker. Arbitrary transcript filename scanning is not required and would add false positives, payload-dependent work, and large-body complexity.
 
 ### Session opener is not the right execution seam
 
@@ -444,7 +446,8 @@ Lease expiry is time-based state evaluated on claim/touch. Cache cleanup uses on
 The initial deterministic policy should support:
 
 1. high-confidence known client identity;
-2. coding-tool cluster plus recognized workspace marker.
+2. a distinctive read/search + edit/remove + OS-command tool cluster without requiring a workspace marker;
+3. a weaker read/search + mutation cluster only when corroborated by a recognized workspace marker.
 
 Weak content-like evidence is intentionally excluded from V1 promotion. Additional evidence can be added later only if it preserves boundedness and large-body semantics.
 
