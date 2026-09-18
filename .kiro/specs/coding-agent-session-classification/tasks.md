@@ -141,14 +141,15 @@
     - _Validation: fake-clock cache capacity/eviction + concurrent load/promotion/claim tests + race suite_
 
 - [ ] 5. Compose the standard feature across process and immutable generations
-  - [ ] 5.1 Wire process-owned classification resources in featurehost
-    - Construct the memory/Bun store and coordinator once under standard featurehost using the existing borrowed DB discovery pattern.
-    - Ensure schema setup/adapter construction has one physical owner and failure unwinds cleanly.
+  - [ ] 5.1 Wire the lightweight process holder and enabled-generation store lifecycle
+    - Construct only a lightweight StateHolder/coordinator shell at process featurehost startup; do not ensure a classification table or contact a remote classifier while the feature has never been enabled.
+    - For enabled generations, add an overlap-safe feature lifecycle whose Start initializes/ensures the memory or Bun store once through the shared holder before publication; Stop must not destroy shared state used by overlapping generations.
+    - Ensure candidate failure publishes no plane/classification records and final process Close owns holder/cache disposal exactly once.
     - Register feature metrics collector through the generic metrics registry without exposing concrete feature types to runtimebundle.
-    - _Requirements: 2.7-2.10,9.1-9.6,10.5-10.7,11.4-11.7_
-    - _Boundary: internal/standardplugins/featurehost process ownership + sessionclassification child_
+    - _Requirements: 1.1,2.7-2.10,8.5-8.8,9.1-9.6,10.5-10.8,11.4-11.7_
+    - _Boundary: internal/standardplugins/featurehost process ownership + sessionclassification child + ordinary feature lifecycle_
     - _Depends: 4.4_
-    - _Validation: constructor-count, rollback, close ownership and memory-vs-Bun composition tests_
+    - _Validation: never-enabled no-schema/no-network test; lifecycle overlap/rollback/constructor-count/close ownership tests; memory-vs-Bun composition tests_
 
   - [ ] 5.2 Bind one generation classifier from feature registration/config
     - Register the session-classification standard feature factory.
