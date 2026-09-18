@@ -493,9 +493,17 @@ All modes reuse the same monotonic state/store contract.
 
 **Verdict:** resolved.
 
+### Validation concern 5: disabled optional feature must not become a startup/database dependency
+
+**Initial risk:** eagerly constructing/ensuring the feature's Bun table during process featurehost startup would make a never-enabled optional classifier capable of failing startup and would perform feature-specific persistence work before any generation enabled it.
+
+**Repair:** featurehost owns only a lightweight process StateHolder/coordinator shell initially. An enabled generation contributes an overlap-safe feature lifecycle whose prepare Start initializes/ensures the memory or Bun store once before publication. Disabled-only deployments never ensure the classification schema. Overlapping enabled generations share the process holder; final process close remains the single disposal owner.
+
+**Verdict:** resolved.
+
 ### Design validation verdict
 
-**GO.** After the repairs above, the design respects feature ownership, preserves same-turn ordering, has an exact large-body parity story, avoids untrusted session keys, and gives Jev bounded fail-open semantics without freezing an unavailable vendor API contract.
+**GO.** After the repairs above, the design respects feature ownership, preserves same-turn ordering, has an exact large-body parity story, avoids untrusted session keys, keeps disabled deployments free of classification persistence/network dependencies, and gives Jev bounded fail-open semantics without freezing an unavailable vendor API contract.
 
 ## Implementation Risk and Effort
 
