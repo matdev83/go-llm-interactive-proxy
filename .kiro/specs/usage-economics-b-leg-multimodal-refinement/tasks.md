@@ -233,7 +233,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 8.1_
   - _Validation: make test-db-parity; make test-race; go test ./internal/core/runtime/... ./internal/core/billing/..._
 
-- [ ] 8.3 Run COGS-versus-retail selector certification
+- [x] 8.3 Run COGS-versus-retail selector certification
   - Verify all-attributable-B-leg COGS against winner-only, retry-inclusive and cost-pass-through retail policies, including multimodal quantities and non-request allocations.
   - Completion: operator cost and customer charge remain independently explainable from immutable contribution refs.
   - _Requirements: 6.5, 2.3, 2.4, 2.5, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
