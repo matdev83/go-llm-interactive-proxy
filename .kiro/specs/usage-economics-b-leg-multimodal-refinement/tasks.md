@@ -217,7 +217,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
 
 - [ ] 8. Certify refinement and integrate into #620 release gate
 
-- [ ] 8.1 Run multimodal direction and transform certification
+- [x] 8.1 Run multimodal direction and transform certification
   - Execute all required image/audio/video/document input/output and transform vectors through neutral evidence, rating and durable round-trip.
   - Completion: no test relies on universal conversion to text tokens and every direction-specific rate is independently provable.
   - _Requirements: 6.1, 6.2_
