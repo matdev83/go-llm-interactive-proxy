@@ -1,0 +1,22 @@
+{
+  "feature_name": "Ingress Self-Defense",
+  "created_at": "2026-09-19T16:40:00+02:00",
+  "updated_at": "2026-09-19T16:40:00+02:00",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true
+}
