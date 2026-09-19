@@ -43,9 +43,37 @@ type providerCostHeadRow struct {
 	LastTransactionID     string `bun:"last_transaction_id"`
 	CreatedAt             int64  `bun:"created_at_unix"`
 	UpdatedAt             int64  `bun:"updated_at_unix"`
+	// Task 13.3B exact selected valuation identity. Legacy rows upgraded by
+	// the additive migration retain zero/empty values and are read through
+	// their integer nanos and selection defaults.
+	ValuationRevision   int64  `bun:"valuation_revision"`
+	SelectionStatus     string `bun:"selection_status"`
+	SelectionReason     string `bun:"selection_reason"`
+	SelectionBasis      string `bun:"selection_basis"`
+	SelectionProvenance string `bun:"selection_provenance"`
+	PostedAmountJSON    string `bun:"posted_amount_json"`
+	NativeAmountJSON    string `bun:"native_amount_json"`
+	FXJSON              string `bun:"fx_json"`
+	PostingState        string `bun:"posting_state"`
 }
 
-const providerCostHeadSelect = `SELECT id, store_id, account_id, call_id, head_key, subject_kind, subject_id, subject_json, evidence_revision, input_set_hash, valuation_id, amount_nano, currency, head_version, fence, last_operation_key, original_transaction_id, last_transaction_id, created_at_unix, updated_at_unix FROM billing_provider_cost_heads`
+const providerCostHeadSelect = `SELECT id, store_id, account_id, call_id, head_key, subject_kind, subject_id, subject_json, evidence_revision, input_set_hash, valuation_id, amount_nano, currency, head_version, fence, last_operation_key, original_transaction_id, last_transaction_id, created_at_unix, updated_at_unix, valuation_revision, selection_status, selection_reason, selection_basis, selection_provenance, posted_amount_json, native_amount_json, fx_json, posting_state FROM billing_provider_cost_heads`
+
+// providerCostHeadPostedAmountJSON projects the retained integer nanos into the
+// canonical exact-amount JSON shared with the selected-cost adjustment writer,
+// so both writers keep one coherent head identity.
+func providerCostHeadPostedAmountJSON(amount billing.Money) (string, error) {
+	decimal := metering.DecimalFromNanoUnits(amount.Nano)
+	exact := billing.MonetaryExactAmount{Currency: amount.Currency, Decimal: &decimal}
+	if err := exact.Validate(); err != nil {
+		return "", fmt.Errorf("billingstore: provider cost exact amount: %w", err)
+	}
+	payload, err := json.Marshal(exact)
+	if err != nil {
+		return "", fmt.Errorf("billingstore: encode provider cost exact amount: %w", err)
+	}
+	return string(payload), nil
+}
 
 // ApplyProviderCostRevision atomically advances one provider-cost head and
 // posts only the signed delta from its prior selected amount. Pure provider
@@ -808,14 +836,22 @@ func (s *DurableStore) insertProviderCostHeadInTx(ctx context.Context, tx bun.Tx
 	if err != nil {
 		return fmt.Errorf("billingstore: encode provider cost head subject: %w", err)
 	}
+	postedJSON, err := providerCostHeadPostedAmountJSON(amount)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC().UnixNano()
 	if _, err := tx.NewRaw(`INSERT INTO billing_provider_cost_heads(
 			store_id, account_id, call_id, head_key, subject_kind, subject_id, subject_json,
 			evidence_revision, input_set_hash, valuation_id, amount_nano, currency, head_version, fence,
-			last_operation_key, original_transaction_id, last_transaction_id, created_at_unix, updated_at_unix
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			last_operation_key, original_transaction_id, last_transaction_id, created_at_unix, updated_at_unix,
+			valuation_revision, selection_status, selection_reason, selection_basis, selection_provenance,
+			posted_amount_json, native_amount_json, fx_json, posting_state
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		s.storeID, input.AccountID, input.CallID.String(), input.HeadKey, string(input.Subject.Kind), subjectIDForEconomics(input.Subject), string(subjectJSON),
-		input.EvidenceRevision, input.InputSetHash, input.ValuationID, amount.Nano, amount.Currency, 1, 1, operationKey, originalTransactionID, transactionID, now, now).Exec(ctx); err != nil {
+		input.EvidenceRevision, input.InputSetHash, input.ValuationID, amount.Nano, amount.Currency, 1, 1, operationKey, originalTransactionID, transactionID, now, now,
+		input.EvidenceRevision, string(billing.OperatorCostSelectionStatusFinal), "", "", string(billing.OperatorCostProvenanceAttempted),
+		postedJSON, "", "", string(billing.SelectedCostPostingApplied)).Exec(ctx); err != nil {
 		return fmt.Errorf("billingstore: insert provider cost head: %w", err)
 	}
 	return nil
@@ -829,14 +865,23 @@ func (s *DurableStore) advanceProviderCostHeadInTx(ctx context.Context, tx bun.T
 	if existing.HeadVersion >= math.MaxInt64 || existing.Fence >= math.MaxInt64 {
 		return fmt.Errorf("%w: provider cost head version overflow", billing.ErrProviderCostRevisionInvalid)
 	}
+	postedJSON, err := providerCostHeadPostedAmountJSON(amount)
+	if err != nil {
+		return err
+	}
 	result, err := tx.NewRaw(`UPDATE billing_provider_cost_heads SET
 			subject_kind = ?, subject_id = ?, subject_json = ?, evidence_revision = ?, input_set_hash = ?, valuation_id = ?,
 			amount_nano = ?, currency = ?, head_version = head_version + 1, fence = fence + 1,
 			last_operation_key = ?, original_transaction_id = CASE WHEN original_transaction_id <> '' THEN original_transaction_id WHEN last_transaction_id <> '' THEN last_transaction_id ELSE ? END,
-			last_transaction_id = ?, updated_at_unix = ?
+			last_transaction_id = ?, updated_at_unix = ?,
+			valuation_revision = ?, selection_status = ?, selection_reason = ?, selection_basis = ?, selection_provenance = ?,
+			posted_amount_json = ?, native_amount_json = ?, fx_json = ?, posting_state = ?
 			WHERE id = ? AND head_version = ? AND fence = ?`,
 		string(input.Subject.Kind), subjectIDForEconomics(input.Subject), string(subjectJSON), input.EvidenceRevision, input.InputSetHash, input.ValuationID,
-		amount.Nano, amount.Currency, operationKey, transactionID, transactionID, time.Now().UTC().UnixNano(), existing.ID, existing.HeadVersion, existing.Fence).Exec(ctx)
+		amount.Nano, amount.Currency, operationKey, transactionID, transactionID, time.Now().UTC().UnixNano(),
+		input.EvidenceRevision, string(billing.OperatorCostSelectionStatusFinal), "", "", string(billing.OperatorCostProvenanceAttempted),
+		postedJSON, "", "", string(billing.SelectedCostPostingApplied),
+		existing.ID, existing.HeadVersion, existing.Fence).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("billingstore: advance provider cost head: %w", err)
 	}

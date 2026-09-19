@@ -225,7 +225,7 @@ LEFT JOIN billing_economic_revision_work_state AS q
 	ON q.store_id = w.store_id AND q.work_id = w.work_id AND q.work_version = w.work_version
 WHERE w.store_id = ? AND w.kind = ? AND w.status = 'pending'
 	AND (q.id IS NULL OR (
-		q.status <> 'completed'
+		q.status IN ('pending', 'processing')
 		AND q.next_attempt_at_unix <= ?
 		AND (q.status <> 'processing' OR q.lease_until_unix <= ?)
 	))
@@ -235,42 +235,52 @@ LIMIT ?`, s.storeID, economicRevisionWorkKind(queue), now, now, limit).Scan(ctx,
 	}
 	items := make([]billing.EconomicRevisionWork, 0, len(rows))
 	for _, row := range rows {
-		if row.WorkVersion != 1 {
-			return nil, fmt.Errorf("%w: unsupported work version %d for %q", ErrEconomicRevisionWorkConflict, row.WorkVersion, row.WorkID)
-		}
-		var work billing.EconomicRevisionWork
-		if err := json.Unmarshal([]byte(row.PayloadJSON), &work); err != nil {
-			return nil, fmt.Errorf("billingstore: decode economic revision work %q: %w", row.WorkID, err)
-		}
-		normalized, err := work.Normalize()
+		normalized, _, err := s.economicRevisionWorkFromRow(row)
 		if err != nil {
-			return nil, fmt.Errorf("billingstore: validate economic revision work %q: %w", row.WorkID, err)
-		}
-		if normalized.Subject.StoreID != s.storeID {
-			return nil, fmt.Errorf("%w: economic revision subject store for %q", ErrEconomicsOutOfScope, row.WorkID)
-		}
-		identity, err := normalized.Identity()
-		if err != nil {
-			return nil, fmt.Errorf("billingstore: identify economic revision work %q: %w", row.WorkID, err)
-		}
-		if identity.Key() != row.WorkID || normalized.InputSetHash != row.InputSetHash {
-			return nil, fmt.Errorf("%w: durable identity projection for %q", ErrEconomicRevisionWorkConflict, row.WorkID)
-		}
-		payload, err := json.Marshal(normalized)
-		if err != nil {
-			return nil, fmt.Errorf("billingstore: canonicalize economic revision work %q: %w", row.WorkID, err)
-		}
-		payload, err = canonicalJSON(payload)
-		if err != nil {
-			return nil, fmt.Errorf("billingstore: canonicalize economic revision work payload %q: %w", row.WorkID, err)
-		}
-		fingerprint := sha256.Sum256(payload)
-		if row.Fingerprint != hex.EncodeToString(fingerprint[:]) {
-			return nil, fmt.Errorf("%w: durable payload fingerprint for %q", ErrEconomicRevisionWorkConflict, row.WorkID)
+			return nil, err
 		}
 		items = append(items, normalized)
 	}
 	return items, nil
+}
+
+// economicRevisionWorkFromRow decodes and self-validates one durable immutable
+// work marker against its canonical identity, input hash and fingerprint.
+func (s *DurableStore) economicRevisionWorkFromRow(row economicRevisionWorkRow) (billing.EconomicRevisionWork, billing.EconomicRevisionIdentity, error) {
+	if row.WorkVersion != 1 {
+		return billing.EconomicRevisionWork{}, billing.EconomicRevisionIdentity{}, fmt.Errorf("%w: unsupported work version %d for %q", ErrEconomicRevisionWorkConflict, row.WorkVersion, row.WorkID)
+	}
+	var work billing.EconomicRevisionWork
+	if err := json.Unmarshal([]byte(row.PayloadJSON), &work); err != nil {
+		return billing.EconomicRevisionWork{}, billing.EconomicRevisionIdentity{}, fmt.Errorf("billingstore: decode economic revision work %q: %w", row.WorkID, err)
+	}
+	normalized, err := work.Normalize()
+	if err != nil {
+		return billing.EconomicRevisionWork{}, billing.EconomicRevisionIdentity{}, fmt.Errorf("billingstore: validate economic revision work %q: %w", row.WorkID, err)
+	}
+	if normalized.Subject.StoreID != s.storeID {
+		return billing.EconomicRevisionWork{}, billing.EconomicRevisionIdentity{}, fmt.Errorf("%w: economic revision subject store for %q", ErrEconomicsOutOfScope, row.WorkID)
+	}
+	identity, err := normalized.Identity()
+	if err != nil {
+		return billing.EconomicRevisionWork{}, billing.EconomicRevisionIdentity{}, fmt.Errorf("billingstore: identify economic revision work %q: %w", row.WorkID, err)
+	}
+	if identity.Key() != row.WorkID || normalized.InputSetHash != row.InputSetHash {
+		return billing.EconomicRevisionWork{}, billing.EconomicRevisionIdentity{}, fmt.Errorf("%w: durable identity projection for %q", ErrEconomicRevisionWorkConflict, row.WorkID)
+	}
+	payload, err := json.Marshal(normalized)
+	if err != nil {
+		return billing.EconomicRevisionWork{}, billing.EconomicRevisionIdentity{}, fmt.Errorf("billingstore: canonicalize economic revision work %q: %w", row.WorkID, err)
+	}
+	payload, err = canonicalJSON(payload)
+	if err != nil {
+		return billing.EconomicRevisionWork{}, billing.EconomicRevisionIdentity{}, fmt.Errorf("billingstore: canonicalize economic revision work payload %q: %w", row.WorkID, err)
+	}
+	fingerprint := sha256.Sum256(payload)
+	if row.Fingerprint != hex.EncodeToString(fingerprint[:]) {
+		return billing.EconomicRevisionWork{}, billing.EconomicRevisionIdentity{}, fmt.Errorf("%w: durable payload fingerprint for %q", ErrEconomicRevisionWorkConflict, row.WorkID)
+	}
+	return normalized, identity, nil
 }
 
 // ListEconomicRevisionWork is an alias for the bounded pending queue reader.
@@ -295,8 +305,8 @@ func (s *DurableStore) HasEconomicRevisionResult(ctx context.Context, identity b
 	if err := s.validateContext(ctx); err != nil {
 		return false, err
 	}
-	validated, err := billing.NewEconomicRevisionIdentity(identity.Queue, identity.HeadKey, identity.EvidenceRevision, identity.InputSetHash)
-	if err != nil {
+	validated := identity
+	if err := validated.Validate(); err != nil {
 		return false, err
 	}
 	var valuationCount int

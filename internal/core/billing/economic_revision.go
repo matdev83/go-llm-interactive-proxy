@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,11 +87,14 @@ func (e *EconomicRevisionInputMismatchError) Unwrap() error {
 // EconomicRevisionIdentity is the stable identity of one pure valuation
 // attempt. The key deliberately includes queue, head, evidence revision and
 // input-set hash, so corrected evidence is a new immutable work item.
+// Dependency-anchored work additionally carries the canonical dependency hash
+// so a changed immutable output set is a new actionable revision.
 type EconomicRevisionIdentity struct {
 	Queue            EconomicQueue
 	HeadKey          string
 	EvidenceRevision uint64
 	InputSetHash     string
+	DependenciesHash string
 }
 
 // EconomicEvidenceSetRelation describes the candidate evidence set relative
@@ -220,6 +224,12 @@ func (i EconomicRevisionIdentity) validate() error {
 	if i.EvidenceRevision == 0 {
 		return fmt.Errorf("%w: evidence revision is required", ErrInvalidEconomicRevision)
 	}
+	if i.DependenciesHash != "" {
+		decoded, err := hex.DecodeString(i.DependenciesHash)
+		if err != nil || len(decoded) != sha256.Size || strings.ToLower(i.DependenciesHash) != i.DependenciesHash {
+			return fmt.Errorf("%w: dependency hash must be lowercase SHA-256 hex", ErrInvalidEconomicRevision)
+		}
+	}
 	if _, err := i.replayIdentity(); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidEconomicRevision, err)
 	}
@@ -230,13 +240,20 @@ func (i EconomicRevisionIdentity) validate() error {
 // is present and canonical.
 func (i EconomicRevisionIdentity) Validate() error { return i.validate() }
 
-// Key returns a bounded opaque identity suitable for durable work IDs.
+// Key returns a bounded opaque identity suitable for durable work IDs. Legacy
+// rating identities keep their queue/head/revision/input-set preimage exactly;
+// dependency-anchored work extends that preimage with the canonical dependency
+// hash so distinct immutable output sets cannot collide.
 func (i EconomicRevisionIdentity) Key() string {
 	if err := i.validate(); err != nil {
 		return ""
 	}
-	replayIdentity, _ := i.replayIdentity()
-	return replayIdentity.Key()
+	preimage := i.Queue.String() + "\x00" + i.HeadKey + "\x00" + strconv.FormatUint(i.EvidenceRevision, 10) + "\x00" + i.InputSetHash
+	if i.DependenciesHash != "" {
+		preimage += "\x00" + i.DependenciesHash
+	}
+	digest := sha256.Sum256([]byte(preimage))
+	return "economic-revision:v1:" + hex.EncodeToString(digest[:])
 }
 
 // ValuationKey returns the immutable valuation ID derived from this revision.
@@ -278,18 +295,25 @@ func (i EconomicRevisionIdentity) Less(other EconomicRevisionIdentity) bool {
 	if i.InputSetHash != other.InputSetHash {
 		return i.InputSetHash < other.InputSetHash
 	}
+	if i.DependenciesHash != other.DependenciesHash {
+		return i.DependenciesHash < other.DependenciesHash
+	}
 	return i.Key() < other.Key()
 }
 
 // EconomicRevisionWork is the durable, immutable input to pure economic
 // computation. Input contains only provider-neutral immutable observations;
-// no account balance or journal operation is present in this envelope.
+// no account balance or journal operation is present in this envelope. Kind
+// identifies the pure computation; separated reconciliation work additionally
+// declares the immutable rating outputs it depends on.
 type EconomicRevisionWork struct {
 	Queue            EconomicQueue                  `json:"queue"`
+	Kind             EconomicWorkKind               `json:"kind,omitempty"`
 	HeadKey          string                         `json:"head_key"`
 	Subject          metering.SubjectRef            `json:"subject"`
 	EvidenceRevision uint64                         `json:"evidence_revision"`
 	InputSetHash     string                         `json:"input_set_hash"`
+	Dependencies     []EconomicJobDependency        `json:"dependencies,omitempty"`
 	Input            economics.PostUsageRatingInput `json:"input"`
 	CreatedAt        time.Time                      `json:"created_at"`
 }
@@ -302,6 +326,21 @@ func (w EconomicRevisionWork) Normalize() (EconomicRevisionWork, error) {
 	if err := out.Queue.Validate(); err != nil {
 		return EconomicRevisionWork{}, err
 	}
+	kind := out.Kind
+	if kind == "" {
+		kind = EconomicWorkKindForQueue(out.Queue)
+	}
+	if err := kind.Validate(); err != nil {
+		return EconomicRevisionWork{}, fmt.Errorf("%w: kind: %v", ErrInvalidEconomicRevision, err)
+	}
+	kindQueue, err := kind.Queue()
+	if err != nil {
+		return EconomicRevisionWork{}, fmt.Errorf("%w: kind queue: %v", ErrInvalidEconomicRevision, err)
+	}
+	if kindQueue != out.Queue {
+		return EconomicRevisionWork{}, fmt.Errorf("%w: kind %q does not belong to queue %q", ErrInvalidEconomicRevision, kind, out.Queue)
+	}
+	out.Kind = kind
 	if err := economics.ValidateSafeRef("economic revision head key", out.HeadKey); err != nil || strings.TrimSpace(out.HeadKey) != out.HeadKey {
 		if err == nil {
 			err = errors.New("head key must not have surrounding whitespace")
@@ -350,6 +389,24 @@ func (w EconomicRevisionWork) Normalize() (EconomicRevisionWork, error) {
 	out.InputSetHash = computedHash
 	out.Input.InputSetHash = computedHash
 	out.Input.ObservationRefs = append([]metering.ObservationRef(nil), refs...)
+	if out.Kind == EconomicWorkKindReconciliation {
+		if len(out.Dependencies) == 0 {
+			return EconomicRevisionWork{}, fmt.Errorf("%w: reconciliation work requires at least one rating dependency", ErrInvalidEconomicRevision)
+		}
+	} else if len(out.Dependencies) != 0 {
+		return EconomicRevisionWork{}, fmt.Errorf("%w: %s work cannot declare dependencies", ErrInvalidEconomicRevision, out.Kind)
+	}
+	dependencies, err := canonicalEconomicJobDependencies(out.Dependencies)
+	if err != nil {
+		return EconomicRevisionWork{}, err
+	}
+	for _, dependency := range dependencies {
+		if dependency.Queue == out.Queue && dependency.HeadKey == out.HeadKey &&
+			dependency.EvidenceRevision == out.EvidenceRevision && dependency.InputSetHash == computedHash {
+			return EconomicRevisionWork{}, fmt.Errorf("%w: reconciliation dependency is the work itself", ErrInvalidEconomicRevision)
+		}
+	}
+	out.Dependencies = dependencies
 	if out.CreatedAt.IsZero() {
 		// A zero timestamp in a synthetic/replayed envelope must not make the
 		// derived result change on every restart. Durable adapters may set their
@@ -367,8 +424,15 @@ func (w EconomicRevisionWork) Identity() (EconomicRevisionIdentity, error) {
 		return EconomicRevisionIdentity{}, err
 	}
 	identity := EconomicRevisionIdentity{Queue: normalized.Queue, HeadKey: normalized.HeadKey, EvidenceRevision: normalized.EvidenceRevision, InputSetHash: normalized.InputSetHash}
-	if _, err := identity.replayIdentity(); err != nil {
-		return EconomicRevisionIdentity{}, fmt.Errorf("%w: %v", ErrInvalidEconomicRevision, err)
+	if len(normalized.Dependencies) != 0 {
+		dependencyHash, err := economicDependenciesHash(normalized.Dependencies)
+		if err != nil {
+			return EconomicRevisionIdentity{}, err
+		}
+		identity.DependenciesHash = dependencyHash
+	}
+	if err := identity.Validate(); err != nil {
+		return EconomicRevisionIdentity{}, err
 	}
 	return identity, nil
 }

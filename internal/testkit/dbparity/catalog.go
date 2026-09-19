@@ -138,6 +138,50 @@ func DefaultCatalog() Catalog {
 						Class:    Common,
 						Evidence: "internal/infra/billingstore/phase11_allocation_test.go",
 					},
+					{
+						ID:       "statement-import-ledger-replay-conflict-scope",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/statement_import_store_test.go",
+					},
+					{
+						ID:        "postgres-direct-statement-import-ledger-atomicity",
+						Class:     PostgresDirect,
+						Evidence:  "internal/infra/billingstore/statement_import_postgres_test.go",
+						Rationale: "Direct PostgreSQL verifies statement import ledger atomic replay/conflict behavior, immutable triggers, and schema catalog constraints.",
+					},
+					{
+						ID:       "selected-cost-adjustment-cas-link-journal-replay",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/selected_cost_adjustment_store_test.go",
+					},
+					{
+						ID:        "postgres-direct-selected-cost-adjustment-atomicity",
+						Class:     PostgresDirect,
+						Evidence:  "internal/infra/billingstore/selected_cost_adjustment_postgres_test.go",
+						Rationale: "Direct PostgreSQL verifies selected-cost head CAS, immutable adjustment/link, balanced journal delta, replay and rollback atomicity.",
+					},
+					{
+						ID:       "revision-job-queue-claim-heartbeat-fail-backlog",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/economic_job_queue_store_test.go",
+					},
+					{
+						ID:        "postgres-direct-revision-job-queue-fencing",
+						Class:     PostgresDirect,
+						Evidence:  "internal/infra/billingstore/economic_job_queue_postgres_test.go",
+						Rationale: "Direct PostgreSQL verifies bounded batch claims, lease/fence fencing, heartbeat, terminal fail, backlog and dependency-gated claims.",
+					},
+					{
+						ID:       "revision-job-reconciliation-output-replay",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/economic_job_runner_store_test.go",
+					},
+					{
+						ID:        "postgres-direct-revision-reconciliation-output-idempotency",
+						Class:     PostgresDirect,
+						Evidence:  "internal/infra/billingstore/economic_job_runner_postgres_test.go",
+						Rationale: "Direct PostgreSQL verifies exact dependency output loading, idempotent reconciliation output replay/conflict and rating-then-reconciliation promotion.",
+					},
 				},
 			},
 			{

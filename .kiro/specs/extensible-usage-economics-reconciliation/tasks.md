@@ -560,9 +560,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 1.4, 6.3, 6.6, 12.6, 13.5_
 
 
-- [ ] 13. Add generic statement ingestion and idempotent adjustments
+- [x] 13. Add generic statement ingestion and idempotent adjustments
 
-- [ ] 13.1 Implement authenticated normalized statement ingestion
+- [x] 13.1 Implement authenticated normalized statement ingestion
   - Accept statement/line/revision/account/period identity and exact-granularity usage/charge claims through the generic public port.
   - Validate trusted scope, evidence bounds, replay and conflicts; do not implement vendor invoice parsers or a UI.
   - Completion: normalized fixture imports persist independently of request evidence and report replay/rejection results.
@@ -572,7 +572,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/..._
   - _Requirements: 13.1, 13.6, 16.2, 16.3_
 
-- [ ] 13.2 Match statements without guessed per-request allocation
+- [x] 13.2 Match statements without guessed per-request allocation
   - Match by explicit charge ID or complete compatible aggregate account/period/SKU coverage.
   - Preserve unmatched lines and many-charge aggregate coverage; reject timestamp-nearest matching and duplicate parent/child inclusion.
   - Completion: an account total stays account-scoped until an explicit exact match or separately labelled allocation exists.
@@ -582,7 +582,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/..._
   - _Requirements: 6.5, 12.3, 13.1, 13.2_
 
-- [ ] 13.3 Implement selected-cost heads and balanced delta corrections
+- [x] 13.3 Implement selected-cost heads and balanced delta corrections
   - Persist selected/posted valuation revision and compare-and-swap it in the same transaction as an adjustment operation and balanced journal.
   - Validate currency comparability before computing a monetary delta. Compute new selected minus previously posted amount only for the same native currency or the same explicit frozen FX basis; otherwise keep the correction pending/incomparable and do not insert a valuation link, journal delta or cost-head transition. Support downward corrections with debit/credit reversal rather than invalid negative gross amounts.
   - Completion: 10 USD to 8 USD posts only a -2 USD adjustment, while 10 USD to 8 EUR without frozen FX posts nothing; replay and racing revisions produce no duplicate effects.
@@ -592,7 +592,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/...; make test-db-parity_
   - _Requirements: 10.3, 13.3, 13.4, 13.5, 14.4_
 
-- [ ] 13.4 Make economic workers revision-aware and independently bounded
+- [x] 13.4 Make economic workers revision-aware and independently bounded
   - Extend existing customer/provider work with revision input hashes, claims/fences and retry reasons, preserving queue separation.
   - Persist and retry pure rating/reconciliation independently of the eventual atomic financial transition; do not hold customer locks for supplier computation.
   - Completion: interrupted/replayed workers finish the same revision once and expose backlog age/incomplete evidence.
@@ -602,7 +602,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/..._
   - _Requirements: 10.6, 13.3, 13.5, 14.6, 16.5_
 
-- [ ] 13.5 Certify correction and dispute-like recovery scenarios
+- [x] 13.5 Certify correction and dispute-like recovery scenarios
   - Test late evidence after closure, corrected quantities, aggregate statement adjustments, duplicate imports, unmatched statements and native-currency mismatch, including a no-FX mismatch that cannot post or advance the selected-cost head.
   - Test customer no-rebill default and explicit provisional pass-through adjustment policy.
   - Completion: economic history remains immutable and pending comparison does not erase incurred COGS or customer settlement.

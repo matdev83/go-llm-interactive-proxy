@@ -18,26 +18,31 @@ const (
 	economicRevisionWorkStatePending    = "pending"
 	economicRevisionWorkStateProcessing = "processing"
 	economicRevisionWorkStateCompleted  = "completed"
+	economicRevisionWorkStateFailed     = "failed"
 	defaultEconomicRevisionLease        = 30 * time.Second
 )
 
 type economicRevisionWorkStateRow struct {
-	ID            int64  `bun:"id"`
-	StoreID       string `bun:"store_id"`
-	WorkID        string `bun:"work_id"`
-	WorkVersion   int64  `bun:"work_version"`
-	Queue         string `bun:"queue"`
-	HeadKey       string `bun:"head_key"`
-	Status        string `bun:"status"`
-	AttemptCount  int64  `bun:"attempt_count"`
-	NextAttemptAt int64  `bun:"next_attempt_at_unix"`
-	LeaseOwner    string `bun:"lease_owner"`
-	LeaseUntil    int64  `bun:"lease_until_unix"`
-	LastError     string `bun:"last_error"`
-	Fence         int64  `bun:"fence"`
-	CompletedAt   int64  `bun:"completed_at_unix"`
-	CreatedAt     int64  `bun:"created_at_unix"`
-	UpdatedAt     int64  `bun:"updated_at_unix"`
+	ID              int64  `bun:"id"`
+	StoreID         string `bun:"store_id"`
+	WorkID          string `bun:"work_id"`
+	WorkVersion     int64  `bun:"work_version"`
+	Queue           string `bun:"queue"`
+	HeadKey         string `bun:"head_key"`
+	WorkKind        string `bun:"work_kind"`
+	DependencyCount int64  `bun:"dependency_count"`
+	Status          string `bun:"status"`
+	AttemptCount    int64  `bun:"attempt_count"`
+	NextAttemptAt   int64  `bun:"next_attempt_at_unix"`
+	LeaseOwner      string `bun:"lease_owner"`
+	LeaseUntil      int64  `bun:"lease_until_unix"`
+	LastError       string `bun:"last_error"`
+	RetryReason     string `bun:"retry_reason"`
+	Fence           int64  `bun:"fence"`
+	CompletedAt     int64  `bun:"completed_at_unix"`
+	FailedAt        int64  `bun:"failed_at_unix"`
+	CreatedAt       int64  `bun:"created_at_unix"`
+	UpdatedAt       int64  `bun:"updated_at_unix"`
 }
 
 var _ billing.EconomicRevisionWorkStateStore = (*DurableStore)(nil)
@@ -67,11 +72,12 @@ func (s *DurableStore) ensureEconomicRevisionWorkStateInTx(ctx context.Context, 
 	now := time.Now().UTC().UnixNano()
 	if _, err := tx.NewRaw(`
 INSERT INTO billing_economic_revision_work_state(
-		store_id, work_id, work_version, queue, head_key, status, attempt_count,
-		next_attempt_at_unix, lease_owner, lease_until_unix, last_error, fence,
-		completed_at_unix, created_at_unix, updated_at_unix
-) VALUES (?, ?, ?, ?, ?, ?, 0, 0, '', 0, '', 0, 0, ?, ?)
+		store_id, work_id, work_version, queue, head_key, work_kind, dependency_count, status, attempt_count,
+		next_attempt_at_unix, lease_owner, lease_until_unix, last_error, retry_reason, fence,
+		completed_at_unix, failed_at_unix, created_at_unix, updated_at_unix
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '', 0, '', '', 0, 0, 0, ?, ?)
 ON CONFLICT DO NOTHING`, s.storeID, identity.Key(), int64(1), work.Queue.String(), work.HeadKey,
+		work.Kind.String(), len(work.Dependencies),
 		economicRevisionWorkStatePending, now, now).Exec(ctx); err != nil {
 		return fmt.Errorf("billingstore: insert economic revision work state: %w", err)
 	}
@@ -86,7 +92,7 @@ ON CONFLICT DO NOTHING`, s.storeID, identity.Key(), int64(1), work.Queue.String(
 }
 
 func (s *DurableStore) selectEconomicRevisionWorkStateInTx(ctx context.Context, tx bun.Tx, identity billing.EconomicRevisionIdentity, forUpdate bool) (economicRevisionWorkStateRow, error) {
-	query := `SELECT id, store_id, work_id, work_version, queue, head_key, status, attempt_count, next_attempt_at_unix, lease_owner, lease_until_unix, last_error, fence, completed_at_unix, created_at_unix, updated_at_unix
+	query := `SELECT id, store_id, work_id, work_version, queue, head_key, work_kind, dependency_count, status, attempt_count, next_attempt_at_unix, lease_owner, lease_until_unix, last_error, retry_reason, fence, completed_at_unix, failed_at_unix, created_at_unix, updated_at_unix
 FROM billing_economic_revision_work_state
 WHERE store_id = ? AND work_id = ? AND work_version = ? LIMIT 1`
 	if forUpdate && tx.Dialect().Name() == dialect.PG {
@@ -132,7 +138,7 @@ func (s *DurableStore) ClaimEconomicRevisionWork(ctx context.Context, work billi
 	if err != nil {
 		return billing.EconomicRevisionWorkClaim{}, false, err
 	}
-	if state.Status == economicRevisionWorkStateCompleted {
+	if state.Status == economicRevisionWorkStateCompleted || state.Status == economicRevisionWorkStateFailed {
 		return billing.EconomicRevisionWorkClaim{}, false, nil
 	}
 	now := time.Now().UTC()
@@ -153,10 +159,10 @@ func (s *DurableStore) ClaimEconomicRevisionWork(ctx context.Context, work billi
 	fence := state.Fence + 1
 	if _, err := tx.NewRaw(`
 UPDATE billing_economic_revision_work_state
-SET status = ?, attempt_count = attempt_count + 1, lease_owner = ?, lease_until_unix = ?, last_error = '', fence = ?, updated_at_unix = ?
-WHERE store_id = ? AND work_id = ? AND work_version = ? AND status <> ?`,
+SET status = ?, attempt_count = attempt_count + 1, lease_owner = ?, lease_until_unix = ?, last_error = '', retry_reason = '', fence = ?, updated_at_unix = ?
+WHERE store_id = ? AND work_id = ? AND work_version = ? AND status IN (?, ?) AND fence = ?`,
 		economicRevisionWorkStateProcessing, owner, leaseUntil.UnixNano(), fence, nowUnix,
-		s.storeID, identity.Key(), int64(1), economicRevisionWorkStateCompleted).Exec(ctx); err != nil {
+		s.storeID, identity.Key(), int64(1), economicRevisionWorkStatePending, economicRevisionWorkStateProcessing, state.Fence).Exec(ctx); err != nil {
 		return billing.EconomicRevisionWorkClaim{}, false, fmt.Errorf("billingstore: claim economic revision work: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -214,6 +220,7 @@ func (s *DurableStore) RetryEconomicRevisionWork(ctx context.Context, work billi
 	if reason == "" {
 		reason = "economic_revision_failed"
 	}
+	reason = billing.BoundedEconomicWorkReasonText(reason)
 	if nextAttemptAt.IsZero() {
 		nextAttemptAt = time.Now().UTC()
 	} else {
@@ -222,9 +229,9 @@ func (s *DurableStore) RetryEconomicRevisionWork(ctx context.Context, work billi
 	now := time.Now().UTC().UnixNano()
 	result, err := s.db.NewRaw(`
 UPDATE billing_economic_revision_work_state
-SET status = ?, next_attempt_at_unix = ?, lease_owner = '', lease_until_unix = 0, last_error = ?, completed_at_unix = 0, updated_at_unix = ?
+SET status = ?, next_attempt_at_unix = ?, lease_owner = '', lease_until_unix = 0, last_error = ?, retry_reason = ?, completed_at_unix = 0, updated_at_unix = ?
 WHERE store_id = ? AND work_id = ? AND work_version = ? AND status = ? AND lease_owner = ? AND fence = ?`,
-		economicRevisionWorkStatePending, nextAttemptAt.UnixNano(), reason, now,
+		economicRevisionWorkStatePending, nextAttemptAt.UnixNano(), reason, billing.EconomicWorkReasonUnclassified.String(), now,
 		s.storeID, identity.Key(), int64(1), economicRevisionWorkStateProcessing, claim.Owner, int64(claim.Fence)).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("billingstore: retry economic revision work: %w", err)

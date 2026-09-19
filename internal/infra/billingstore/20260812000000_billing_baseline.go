@@ -61,6 +61,9 @@ func registerMigrations() {
 		registerALegReportScopeMigration()
 		registerBillingReconciliationRetentionMigration()
 		registerBillingReconciliationRetentionTenantIndexMigration()
+		registerBillingStatementImportMigration()
+		registerBillingSelectedCostAdjustmentsMigration()
+		registerBillingEconomicJobQueueMigration()
 	})
 }
 
