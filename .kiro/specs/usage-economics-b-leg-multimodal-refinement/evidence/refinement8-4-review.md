@@ -64,3 +64,59 @@ TESTS: Corrected gate records match the independently reproduced canonical outco
 FILES_WRITTEN: .kiro/specs/usage-economics-b-leg-multimodal-refinement/evidence/refinement8-4-review.md
 RELEASE_DISPOSITION: BLOCKED/PENDING
 RESIDUAL_RISKS: Parent Tasks 1 and 12-20 remain incomplete; refinement Task 5.3 remains blocked; criteria 3.6, 4.6, and 6.6 remain pending; Windows race evidence is unavailable; the repository quality and PostgreSQL parity baselines remain unresolved. This approval is for the Task 8.4 gate mechanism only, not #620 release acceptance.
+
+## Closeout refresh (2026-09-19, HEAD `4b1b26c1`)
+
+This addendum refreshes the stale statements above without rewriting the
+signed subpass A/B review record. Task 5.3 Cycles 1 (`0120bdf8`), 2
+(`f35f867c`), and 3 (`4b1b26c1`) each carry an independent APPROVED
+review (`refinement5-3-cycle1-review.md`,
+`refinement5-3-cycle2-review.md`, `refinement5-3-cycle3-review.md`).
+
+- Task 5.3 is no longer blocked; the `_Blocked` paragraph is removed from
+  `tasks.md` and Task 5.3 plus parent Task 5 are marked `[x]`. No other
+  task state was altered (parent grouping Task 2 remains `[ ]`,
+  pre-existing; all 26 leaf tasks are now `[x]`).
+- Criteria 2.2 and 2.6 are PASS with Cycle 1-3 evidence (replacement-chain
+  netting, per-call subtotals, full-DTO stability, live rolling totals on
+  SQLite and direct PostgreSQL).
+- Criteria 3.1 and 3.3 were already PASS and now carry additional
+  report-surface/lifecycle proof (`TestALegReportCycle3LateCorrectionsAcrossPlanes`,
+  `TestALegReportCycle3RealLifecycleFullDTOImmutable`).
+- Criterion 3.6 is PASS: real retirement-observer writer-silence
+  inspection (`internal/core/b2bua/store.go:72-75, 160-173`,
+  `internal/infra/runtimebundle/compile_generation.go:208-218`) plus
+  13-table SHA-256 content hashes on SQLite and `row_to_json` dumps on
+  direct PostgreSQL.
+- Criterion 4.6 is PASS (subpass D, 2026-09-19): `make test-cost` exit 1
+  was root-caused to 19 deterministic pre-existing `internal/archtest`
+  baseline ratchets plus one load-flaky `runtimebundle` worker-head
+  timeout (3/3 green in isolation) — the ratchet measures CI
+  test-execution cost, not accounting bounds, and cannot pass without
+  out-of-scope baseline remediation. All four 4.6 clauses are instead
+  proven by an 18-test exact clause battery, all PASS fresh
+  (coalesce/bounded-batch, bounded readers/overflow, pure revision
+  heads, post-output no-retry). No production gap appeared; no
+  production touched.
+- Criterion 6.6 remains PENDING/BLOCKED: parent tasks 1 and 12-20 are
+  incomplete (fresh count 53 checked / 43 unchecked) and no same-SHA
+  green release-candidate evidence exists. Refinement completeness alone
+  does not satisfy this gate.
+
+Recomputed mechanical counts over the refreshed matrix: 36 rows, 36
+unique IDs, no missing IDs, no duplicates; `STATUS_PASS=35`,
+`STATUS_BLOCKED=0`, `STATUS_PENDING=1` (6.6).
+
+Fresh subpass C verification on this tree: full targeted packages PASS;
+bounded + Cycle 3 focused 9/9 PASS; `go build`/`go vet` PASS; SQLite
+parity PASS; billingstore direct-PostgreSQL parity PASS (74.322s);
+`make quality-checks` FAILs only on the pre-existing
+adhoc-goroutines/archtest/lint baseline trio; `make test-cost` remains
+non-green on the pre-existing archtest ratchets plus one isolated
+16-way-load runtime timeout that passes 3/3 alone, with no 4.6 clause
+failure; Windows race unavailable.
+`git diff --check` clean; root `main` verified clean.
+
+RELEASE_DISPOSITION stays BLOCKED/PENDING: 6.6 is uncertified
+and the full release gates are not green on one recorded SHA. This
+refresh is traceability evidence only, not Task 8.4 approval.

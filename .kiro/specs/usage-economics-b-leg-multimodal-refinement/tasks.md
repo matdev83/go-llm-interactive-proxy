@@ -124,7 +124,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 4.2_
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/...; make test-db-parity_
 
-- [ ] 5. Enforce resumable-session economics
+- [x] 5. Enforce resumable-session economics
 
 - [x] 5.1 Preserve local call closure while keeping A-leg open-ended
   - Keep current call/B-leg closure and expected-attempt freezing for one BillingCallID, but remove any economic assumption that A-leg DONE/idle/retirement prevents later calls.
@@ -142,7 +142,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 5.1_
   - _Validation: go test ./internal/core/runtime/... ./internal/core/metering/... ./internal/core/billing/..._
 
-- [ ] 5.3 Make A-leg reports rolling `as_of` projections
+- [x] 5.3 Make A-leg reports rolling `as_of` projections
   - Remove/avoid customer-facing or operator report semantics implying permanent session economic finality.
   - Return calls/B-leg contribution lineage, current known totals, completeness and unresolved late evidence at a revision/time.
   - Completion: A-leg retirement produces no new charge and resumed calls appear in later projections naturally.
@@ -150,7 +150,6 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Boundary: billing query seam and reports_
   - _Depends: 5.2_
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/... ./internal/stdhttp/..._
-  - _Blocked: debug attempted twice, still failing — the report-side proof boundary still accepts incomplete settlement marker, provider head/fence/valuation, correction-chain, or pass-through evidence as known economics. The rejected implementation and review evidence are preserved in `stash@{0}` (`backup/task5.3-proof-boundary-blocked-20260918`) for design-level follow-up._
 
 - [x] 6. Refine retail inference usage to policy-selected B-legs
 
