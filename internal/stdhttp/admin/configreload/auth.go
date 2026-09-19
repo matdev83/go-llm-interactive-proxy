@@ -1,6 +1,7 @@
 package configreload
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"net/http"
 	"strings"
@@ -15,7 +16,11 @@ func (h *Handler) authorize(w http.ResponseWriter, r *http.Request) bool {
 	case AuthModeBearer:
 		want := strings.TrimSpace(h.opts.BearerToken)
 		got := bearerFromAuthorization(r.Header.Get("Authorization"))
-		if want == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+
+		wantHash := sha256.Sum256([]byte(want))
+		gotHash := sha256.Sum256([]byte(got))
+
+		if want == "" || subtle.ConstantTimeCompare(gotHash[:], wantHash[:]) != 1 {
 			writeCategory(w, http.StatusUnauthorized, "unauthorized")
 			return false
 		}
