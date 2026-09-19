@@ -14,9 +14,9 @@ Tests in this plan are required future implementation evidence. They were not ru
 
 ## Tasks
 
-- [ ] 1. Freeze the execution baseline and red regression contract
+- [x] 1. Freeze the execution baseline and red regression contract
 
-- [ ] 1.1 Re-inventory current owners and all economic producers
+- [x] 1.1 Re-inventory current owners and all economic producers
   - Read the five canonical spec files and current steering, record the starting commit and compare the source anchors in research.md. A rename is a mapping update, not a reason to redesign the spec.
   - Mechanically enumerate token usage, sideband/finalizer, prompt-cache/compaction, metering journal, monetary posting and report callers. Record one owner, protocol family and proposed certified/bridge/unsupported disposition for each.
   - Completion: an execution-baseline fixture covers all discovered production producers/consumers and identifies any semantic drift; stop only the affected task for spec repair if an actual contract conflict is found.
@@ -26,7 +26,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: git rev-parse HEAD; go test ./internal/archtest/..._
   - _Requirements: 17.1, 15.1, 18.3_
 
-- [ ] 1.2 Lock in financial failure cases before implementation
+- [x] 1.2 Lock in financial failure cases before implementation
   - Add red tests for independent E/Q/P preservation, input/cache/reasoning double-count prevention, multimodal input/output direction and transformation boundaries, attempted-with-missing-evidence versus never-started zero, resumptions after DONE on the same A-leg, B-leg-rooted retail selection, and fixed fee once per call/submission.
   - Use the synthetic acceptance vectors in design.md; preserve existing historical-price policy tests as versioned legacy behavior rather than changing expected results indiscriminately.
   - Completion: each new regression fails for its intended semantic reason on the baseline, without production fixes in this task.
@@ -36,7 +36,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/core/metering/..._
   - _Requirements: 1.1, 1.4, 1.5, 3.2, 3.3, 3.4, 6.3, 8.3, 14.3, 18.1, 18.2_
 
-- [ ] 1.3 Capture durability, compatibility and performance baselines
+- [x] 1.3 Capture durability, compatibility and performance baselines
   - Freeze representative V1 call/leg payloads and hashes, sideband/finalizer fixtures, old posting identity and dialect schema assumptions.
   - Measure disabled/enabled accounting allocations, terminal writes, multi-MiB traffic and current test-suite cost using repository-owned commands. Record environment and repetitions; do not invent throughput targets from a single sample.
   - Completion: reproducible baseline fixtures and commands exist; missing external DB or Windows measurements are recorded as pending execution evidence, never green.
@@ -46,7 +46,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: make test-unit; make test-db-parity-sqlite; make test-cost on Windows_
   - _Requirements: 10.6, 11.6, 17.1, 17.2, 18.4, 18.5, 18.6_
 
-- [ ] 1.4 Install scope and architecture guardrails
+- [x] 1.4 Install scope and architecture guardrails
   - Add guards against new provider-name branches, raw-content economic payloads, a second monetary authority, unversioned schema/hash changes and production posting from shadow mode.
   - Keep changes below the repository Go-source gate; maintain old build behavior while new code remains unbound.
   - Completion: architecture tests express the allowed public-binding exception and preserve ordinary non-money Options without relaxing unrelated core budgets.
