@@ -234,6 +234,19 @@ func (h *alegQueryRecorder) countMatching(substr string) int {
 	return count
 }
 
+// maxInListLenMatching bounds the largest IN-list among recorded queries
+// naming the given SQL fragment (table or column shape), so slices with
+// different density constants prove their own bound independently.
+func (h *alegQueryRecorder) maxInListLenMatching(substr string) int {
+	probe := &alegQueryRecorder{}
+	for _, q := range h.queries {
+		if strings.Contains(q.sql, substr) {
+			probe.queries = append(probe.queries, q)
+		}
+	}
+	return probe.maxInListLen()
+}
+
 // TestALegReportBoundedFactLoading proves a small page over a large scope
 // never materializes unbounded ID/fact sets: every query carries at most a
 // chunk-bounded placeholder list, and marker loads stream in chunks rather

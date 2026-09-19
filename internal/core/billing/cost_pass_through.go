@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -311,4 +312,27 @@ func CostPassThroughAdjustmentSourceKey(accountID string, callID BillingCallID, 
 		return "", fmt.Errorf("%w: adjustment identity is incomplete", ErrCostPassThroughSettlementInvalid)
 	}
 	return fmt.Sprintf("cost-pass-through-adjustment:v1:%s:%s:%s:%d:%s", strings.TrimSpace(accountID), callID.String(), strings.TrimSpace(provider.LURKey), provider.Revision, strings.TrimSpace(provider.ValuationID)), nil
+}
+
+// ParseCostPassThroughAdjustmentSourceKey strictly parses a canonical
+// adjustment source key. Any non-canonical shape — wrong prefix or
+// version, wrong field count, empty coordinates, unparseable call
+// identity, or zero revision — fails closed.
+func ParseCostPassThroughAdjustmentSourceKey(source string) (accountID, callID, lurKey string, revision uint64, valuationID string, err error) {
+	parts := strings.Split(source, ":")
+	if len(parts) != 7 || parts[0] != "cost-pass-through-adjustment" || parts[1] != "v1" {
+		return "", "", "", 0, "", fmt.Errorf("%w: malformed adjustment source key", ErrCostPassThroughSettlementInvalid)
+	}
+	accountID, callID, lurKey, valuationID = parts[2], parts[3], parts[4], parts[6]
+	revision, err = strconv.ParseUint(parts[5], 10, 64)
+	if err != nil {
+		return "", "", "", 0, "", fmt.Errorf("%w: malformed adjustment revision: %v", ErrCostPassThroughSettlementInvalid, err)
+	}
+	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(lurKey) == "" || strings.TrimSpace(valuationID) == "" || revision == 0 {
+		return "", "", "", 0, "", fmt.Errorf("%w: incomplete adjustment source key", ErrCostPassThroughSettlementInvalid)
+	}
+	if _, err := ParseBillingCallID(callID); err != nil {
+		return "", "", "", 0, "", fmt.Errorf("%w: adjustment source call: %v", ErrCostPassThroughSettlementInvalid, err)
+	}
+	return accountID, callID, lurKey, revision, valuationID, nil
 }

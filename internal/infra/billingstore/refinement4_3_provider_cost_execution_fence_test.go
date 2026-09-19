@@ -217,7 +217,9 @@ func TestRefinement43ProviderChargeAndLegacyAggregateShareExecutionFence(t *test
 			} else {
 				require.Equal(t, providerCostFenceAuthorityRevision, authority)
 				require.Equal(t, string(metering.SubjectProviderCharge), subjectKind)
-				require.Equal(t, first.HeadKey, headKey)
+				// The shared gate names the most recently applied child:
+				// every applied child revision advances it atomically.
+				require.Equal(t, second.HeadKey, headKey)
 			}
 		})
 	}
@@ -483,4 +485,192 @@ func TestRefinement43PartialExecutionFenceSurvivesRestartBeforePayableRevision(t
 	count, total := refinement43ProviderCostCountAndTotal(t, reopened, account.ID)
 	require.Equal(t, 1, count)
 	require.Equal(t, int64(10), total)
+}
+
+// c2r1ExecutionFence reads the full durable execution-fence envelope for
+// one B-leg lineage: the report must prove every field, not just the
+// owner kind and head key.
+func c2r1ExecutionFence(t *testing.T, store *DurableStore, accountID string, callID billing.BillingCallID, bLegID string) providerCostExecutionFenceRow {
+	t.Helper()
+	lineage, err := billing.CallLegUsageKey(callID, bLegID)
+	require.NoError(t, err)
+	var row providerCostExecutionFenceRow
+	require.NoError(t, store.db.NewRaw(providerCostExecutionFenceSelect+` WHERE store_id = ? AND account_id = ? AND call_id = ? AND execution_lineage_key = ? LIMIT 1`,
+		"test", accountID, callID.String(), lineage).Scan(context.Background(), &row))
+	return row
+}
+
+func c2r1ExecutionOwner(t *testing.T, store *DurableStore, accountID string, callID billing.BillingCallID, bLegID string) (revision uint64, inputHash, fingerprint, operationKey, transactionID string, fence int64) {
+	t.Helper()
+	row := c2r1ExecutionFence(t, store, accountID, callID, bLegID)
+	return uint64(row.OwnerRevision), row.OwnerInputSetHash, row.OwnerFingerprint, row.LastOperationKey, row.LastTransactionID, row.Fence
+}
+
+// TestC2R1RevisionAdvancesExistingExecutionFence proves the trusted
+// writer advances an existing execution fence atomically with every
+// applied revision. A stale owner revision, input hash, fingerprint,
+// fence, operation, or transaction must not survive rev2.
+func TestC2R1RevisionAdvancesExistingExecutionFence(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+	account := billing.Account{ID: "c2r1-execution-advance", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 1_000, State: billing.AccountReady, Version: 1}
+	require.NoError(t, store.CreateAccount(ctx, account))
+	callID := billing.BillingCallID("bc_00000000000000000000000000000071")
+
+	first := refinement43ProviderRevisionInput(account.ID, callID, "advance-head", 1, 50, true)
+	posted, err := store.ApplyProviderCostRevision(ctx, first)
+	require.NoError(t, err)
+	require.True(t, posted.Applied)
+	firstFP, err := first.SemanticFingerprint()
+	require.NoError(t, err)
+	rev, hash, fp, op, tx, fence := c2r1ExecutionOwner(t, store, account.ID, callID, "b-leg-43")
+	require.Equal(t, uint64(1), rev)
+	require.Equal(t, first.InputSetHash, hash)
+	require.Equal(t, firstFP, fp)
+	require.Equal(t, posted.Posting.OperationKey, op)
+	require.Equal(t, posted.Posting.Transaction.ID, tx)
+
+	second := refinement43ProviderRevisionInput(account.ID, callID, "advance-head", 2, 40, true)
+	corrected, err := store.ApplyProviderCostRevision(ctx, second)
+	require.NoError(t, err)
+	require.True(t, corrected.Applied)
+	secondFP, err := second.SemanticFingerprint()
+	require.NoError(t, err)
+	rev, hash, fp, op, tx, nextFence := c2r1ExecutionOwner(t, store, account.ID, callID, "b-leg-43")
+	require.Equal(t, uint64(2), rev, "stale owner revision must not survive rev2")
+	require.Equal(t, second.InputSetHash, hash)
+	require.Equal(t, secondFP, fp)
+	require.Equal(t, corrected.Posting.OperationKey, op)
+	require.Equal(t, corrected.Posting.Transaction.ID, tx)
+	require.Equal(t, fence+1, nextFence, "fence counter must advance monotonically")
+}
+
+// TestC2R1ZeroDeltaRevisionAdvancesExecutionFence proves a same-amount
+// revision advances the execution owner without posting a monetary
+// journal: the head operation pointer moves while the last monetary
+// transaction stays put.
+func TestC2R1ZeroDeltaRevisionAdvancesExecutionFence(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+	account := billing.Account{ID: "c2r1-execution-zerodelta", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 1_000, State: billing.AccountReady, Version: 1}
+	require.NoError(t, store.CreateAccount(ctx, account))
+	callID := billing.BillingCallID("bc_00000000000000000000000000000072")
+
+	first := refinement43ProviderRevisionInput(account.ID, callID, "zerodelta-head", 1, 50, true)
+	posted, err := store.ApplyProviderCostRevision(ctx, first)
+	require.NoError(t, err)
+	require.True(t, posted.Applied)
+	require.NotEmpty(t, posted.Posting.Transaction.ID)
+
+	second := refinement43ProviderRevisionInput(account.ID, callID, "zerodelta-head", 2, 50, true)
+	same, err := store.ApplyProviderCostRevision(ctx, second)
+	require.NoError(t, err)
+	require.True(t, same.Applied)
+	require.Equal(t, int64(0), same.Delta.Nano)
+	require.Len(t, refinement43ProviderJournals(t, store, account.ID), 1,
+		"a zero delta posts no monetary journal")
+	secondFP, err := second.SemanticFingerprint()
+	require.NoError(t, err)
+	rev, hash, fp, op, tx, _ := c2r1ExecutionOwner(t, store, account.ID, callID, "b-leg-43")
+	require.Equal(t, uint64(2), rev)
+	require.Equal(t, second.InputSetHash, hash)
+	require.Equal(t, secondFP, fp)
+	require.Equal(t, same.Posting.OperationKey, op)
+	require.Equal(t, posted.Posting.Transaction.ID, tx,
+		"the last monetary transaction stays put across a zero delta")
+	head, err := store.GetProviderCostHead(ctx, account.ID, callID, "zerodelta-head")
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), head.EvidenceRevision)
+	require.Equal(t, int64(50), head.CurrentAmount.Nano)
+	require.Equal(t, same.Posting.OperationKey, head.LastOperationKey)
+	require.Equal(t, posted.Posting.Transaction.ID, head.LastTransactionID)
+	var snapshotCount int
+	require.NoError(t, store.db.NewRaw(`SELECT COUNT(1) FROM billing_operation_snapshots WHERE account_id = ? AND operation_kind = 'provider_call_cogs' AND operation_key = ?`,
+		account.ID, same.Posting.OperationKey).Scan(ctx, &snapshotCount))
+	require.Equal(t, 1, snapshotCount, "the current operation needs its immutable snapshot")
+}
+
+// TestC2R1ReplayLeavesExecutionFence guards replay purity: a replayed
+// revision commits without advancing any fence or owner pointer.
+func TestC2R1ReplayLeavesExecutionFence(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+	account := billing.Account{ID: "c2r1-execution-replay", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 1_000, State: billing.AccountReady, Version: 1}
+	require.NoError(t, store.CreateAccount(ctx, account))
+	callID := billing.BillingCallID("bc_00000000000000000000000000000073")
+
+	input := refinement43ProviderRevisionInput(account.ID, callID, "replay-head", 1, 50, true)
+	posted, err := store.ApplyProviderCostRevision(ctx, input)
+	require.NoError(t, err)
+	require.True(t, posted.Applied)
+	before := c2r1ExecutionFence(t, store, account.ID, callID, "b-leg-43")
+
+	replayed, err := store.ApplyProviderCostRevision(ctx, input)
+	require.NoError(t, err)
+	require.True(t, replayed.Replayed)
+	after := c2r1ExecutionFence(t, store, account.ID, callID, "b-leg-43")
+	require.Equal(t, before, after, "replay must not advance the execution fence")
+}
+
+// TestC2R1StaleLeavesExecutionFence guards stale purity: an older
+// revision returns without touching the current owner envelope.
+func TestC2R1StaleLeavesExecutionFence(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+	account := billing.Account{ID: "c2r1-execution-stale", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 1_000, State: billing.AccountReady, Version: 1}
+	require.NoError(t, store.CreateAccount(ctx, account))
+	callID := billing.BillingCallID("bc_00000000000000000000000000000074")
+
+	require.NoError(t, func() error {
+		_, err := store.ApplyProviderCostRevision(ctx, refinement43ProviderRevisionInput(account.ID, callID, "stale-head", 1, 50, true))
+		return err
+	}())
+	second := refinement43ProviderRevisionInput(account.ID, callID, "stale-head", 2, 40, true)
+	_, err := store.ApplyProviderCostRevision(ctx, second)
+	require.NoError(t, err)
+	before := c2r1ExecutionFence(t, store, account.ID, callID, "b-leg-43")
+
+	first := refinement43ProviderRevisionInput(account.ID, callID, "stale-head", 1, 50, true)
+	stale, err := store.ApplyProviderCostRevision(ctx, first)
+	require.NoError(t, err)
+	require.True(t, stale.Stale)
+	after := c2r1ExecutionFence(t, store, account.ID, callID, "b-leg-43")
+	require.Equal(t, before, after, "stale revisions must not touch the execution fence")
+}
+
+// TestC2R1ExclusionPromotionAdvancesExecutionFence proves a payable
+// promotion after a recorded exclusion advances the execution fence to
+// the new owner: the exclusion envelope must not survive.
+func TestC2R1ExclusionPromotionAdvancesExecutionFence(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+	account := billing.Account{ID: "c2r1-execution-promotion", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 1_000, State: billing.AccountReady, Version: 1}
+	require.NoError(t, store.CreateAccount(ctx, account))
+	callID := billing.BillingCallID("bc_00000000000000000000000000000075")
+
+	excluded, err := store.ApplyProviderCostRevision(ctx, refinement43ProviderRevisionInput(account.ID, callID, "promotion-head", 1, 12, false))
+	require.NoError(t, err)
+	require.True(t, excluded.Ignored)
+
+	promoted, err := store.ApplyProviderCostRevision(ctx, refinement43ProviderRevisionInput(account.ID, callID, "promotion-head", 2, 5, true))
+	require.NoError(t, err)
+	require.True(t, promoted.Applied)
+	require.Equal(t, int64(5), promoted.CurrentAmount.Nano)
+	head, err := store.GetProviderCostHead(ctx, account.ID, callID, "promotion-head")
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), head.EvidenceRevision)
+	rev, hash, fp, op, tx, _ := c2r1ExecutionOwner(t, store, account.ID, callID, "b-leg-43")
+	promotion := refinement43ProviderRevisionInput(account.ID, callID, "promotion-head", 2, 5, true)
+	promotionFP, err := promotion.SemanticFingerprint()
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), rev)
+	require.Equal(t, promotion.InputSetHash, hash)
+	require.Equal(t, promotionFP, fp)
+	require.Equal(t, promoted.Posting.OperationKey, op)
+	require.Equal(t, promoted.Posting.Transaction.ID, tx)
 }

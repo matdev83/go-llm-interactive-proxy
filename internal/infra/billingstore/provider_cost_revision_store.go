@@ -188,7 +188,6 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 	}
 	fenceNeedsInsert := false
 	fenceSeeded := false
-	executionFenceInserted := false
 	if !canonicalFenceFound && lineageKey == executionLineageKey && fenceFound {
 		canonicalFence, canonicalFenceFound = fence, true
 	}
@@ -267,7 +266,6 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 				input.InputSetHash, fingerprint, operationKey, ""); err != nil {
 				return billing.ProviderCostRevisionResult{}, err
 			}
-			executionFenceInserted = true
 			var seededFound bool
 			seeded, seededFound, seedErr = s.loadProviderCostExecutionFence(ctx, tx, input.AccountID, input.CallID, executionLineageKey, true)
 			if seedErr == nil && !seededFound {
@@ -465,12 +463,16 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 			fingerprint, amount, operationKey, transactionID); err != nil {
 			return billing.ProviderCostRevisionResult{}, err
 		}
-		if executionFenceInserted {
-			if err := s.advanceProviderCostExecutionFenceInTx(ctx, tx, executionFence, input.AccountID, input.CallID, executionLineageKey,
-				providerCostFenceAuthorityRevision, string(input.Subject.Kind), input.HeadKey, int64(input.EvidenceRevision), input.InputSetHash,
-				fingerprint, operationKey, transactionID); err != nil {
-				return billing.ProviderCostRevisionResult{}, err
-			}
+		// Every applied revision atomically advances the execution fence
+		// to the new current owner envelope in the same transaction,
+		// whether the fence was just inserted or already existed.
+		// Replays, stale revisions, and ignored exclusions return earlier
+		// and never reach this branch, so the fence always names the
+		// latest applied revision.
+		if err := s.advanceProviderCostExecutionFenceInTx(ctx, tx, executionFence, input.AccountID, input.CallID, executionLineageKey,
+			providerCostFenceAuthorityRevision, string(input.Subject.Kind), input.HeadKey, int64(input.EvidenceRevision), input.InputSetHash,
+			fingerprint, operationKey, transactionID); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
 		}
 		if err := s.economicFault("after_provider_cost_revision"); err != nil {
 			return billing.ProviderCostRevisionResult{}, err
@@ -509,12 +511,14 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		fingerprint, amount, posting.Transaction.ID, operationKey, posting.Transaction.ID); err != nil {
 		return billing.ProviderCostRevisionResult{}, err
 	}
-	if executionFenceInserted {
-		if err := s.advanceProviderCostExecutionFenceInTx(ctx, tx, executionFence, input.AccountID, input.CallID, executionLineageKey,
-			providerCostFenceAuthorityRevision, string(input.Subject.Kind), input.HeadKey, int64(input.EvidenceRevision), input.InputSetHash,
-			fingerprint, operationKey, posting.Transaction.ID); err != nil {
-			return billing.ProviderCostRevisionResult{}, err
-		}
+	// Every applied first revision advances the shared execution gate
+	// to the new owner's envelope in the same transaction, whether the
+	// gate was just inserted or already named another head: the gate
+	// always names the most recently applied revision.
+	if err := s.advanceProviderCostExecutionFenceInTx(ctx, tx, executionFence, input.AccountID, input.CallID, executionLineageKey,
+		providerCostFenceAuthorityRevision, string(input.Subject.Kind), input.HeadKey, int64(input.EvidenceRevision), input.InputSetHash,
+		fingerprint, operationKey, posting.Transaction.ID); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
 	}
 	if err := s.economicFault("after_provider_cost_revision"); err != nil {
 		return billing.ProviderCostRevisionResult{}, err
@@ -633,8 +637,22 @@ func (s *DurableStore) applyProviderCostRevisionAfterLegacyFence(ctx context.Con
 	}
 	if executionFence, executionFound, executionErr := s.loadProviderCostExecutionFence(ctx, tx, input.AccountID, input.CallID, executionLineageKey, true); executionErr != nil {
 		return billing.ProviderCostRevisionResult{}, executionErr
-	} else if executionFound && executionFence.Authority == providerCostFenceAuthorityLegacy {
+	} else if executionFound && executionFence.Authority == providerCostFenceAuthorityLegacy && input.EvidenceRevision == uint64(fence.EvidenceRevision) {
 		if err := s.advanceProviderCostExecutionFenceInTx(ctx, tx, executionFence, input.AccountID, input.CallID, executionLineageKey,
+			providerCostFenceAuthorityRevision, string(input.Subject.Kind), input.HeadKey, int64(input.EvidenceRevision), input.InputSetHash,
+			fingerprint, operationKey, transactionID); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+	} else if input.EvidenceRevision != uint64(fence.EvidenceRevision) {
+		// An applied cutover or promotion advances an already
+		// revision-owned execution fence to the new current owner
+		// envelope in the same transaction. Same-revision replays
+		// keep the fence untouched.
+		if executionFence, executionFound, executionErr := s.loadProviderCostExecutionFence(ctx, tx, input.AccountID, input.CallID, executionLineageKey, true); executionErr != nil {
+			return billing.ProviderCostRevisionResult{}, executionErr
+		} else if !executionFound {
+			return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: provider cost execution fence %s", billing.ErrProviderCostRevisionFence, executionLineageKey)
+		} else if err := s.advanceProviderCostExecutionFenceInTx(ctx, tx, executionFence, input.AccountID, input.CallID, executionLineageKey,
 			providerCostFenceAuthorityRevision, string(input.Subject.Kind), input.HeadKey, int64(input.EvidenceRevision), input.InputSetHash,
 			fingerprint, operationKey, transactionID); err != nil {
 			return billing.ProviderCostRevisionResult{}, err

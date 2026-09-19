@@ -41,6 +41,7 @@ type costPassThroughHeadRow struct {
 	ProviderValuationID    string    `bun:"provider_valuation_id"`
 	ProviderRevision       int64     `bun:"provider_revision"`
 	ProviderInputHash      string    `bun:"provider_input_hash"`
+	SettlementFingerprint  string    `bun:"settlement_fingerprint"`
 	HeadVersion            uint64    `bun:"head_version"`
 	Fence                  uint64    `bun:"fence"`
 	CreatedAt              time.Time `bun:"created_at"`
@@ -52,10 +53,10 @@ func costPassThroughHeadKey(accountID string, callID billing.BillingCallID) stri
 }
 
 func costPassThroughHeadSelect() string {
-	return `SELECT head_key, account_id, call_id, settlement_operation_key, original_transaction_id,
+	return `SELECT head_key, account_id, call_id, settlement_operation_key, a_leg_id, original_transaction_id,
 	policy_id, policy_version, missing_cost, safe_bound_nano, currency, allow_late_adjustment,
 	status, posted_amount_nano, provider_lur_key, provider_valuation_id, provider_revision,
-	provider_input_hash, head_version, fence, created_at, updated_at
+	provider_input_hash, settlement_fingerprint, head_version, fence, created_at, updated_at
 	FROM billing_cost_pass_through_heads WHERE account_id = ? AND call_id = ?`
 }
 

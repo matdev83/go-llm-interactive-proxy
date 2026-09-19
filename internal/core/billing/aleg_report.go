@@ -19,11 +19,11 @@ import (
 //
 // The read side is pure: it never rates, settles, appends journal entries,
 // changes balances, mutates queues, or alters lifecycle state. The customer
-// plane carries proven settlement economics; provider COGS and exclusions
-// stay pending in Cycle 1 and are never faked as known zero. Totals are
-// native-currency only with no implicit FX, and unknown amounts are never
-// coerced to zero. Existing resource allocations remain separate subjects
-// and are never folded into synthetic B-legs.
+// plane carries proven settlement economics; the provider plane carries
+// proven per-leg COGS with explicit completeness, never faked as known
+// zero. Totals are native-currency only with no implicit FX, and unknown
+// amounts are never coerced to zero. Existing resource allocations remain
+// separate subjects and are never folded into synthetic B-legs.
 
 const (
 	// ALegReportDefaultLimit bounds one snapshot page when the caller omits a limit.
@@ -82,25 +82,44 @@ const (
 )
 
 // ALegLegProviderStatus is the explicit per-B-leg provider completeness
-// state for Cycle 1: attributable legs stay pending (COGS deferred),
-// while a proven never-started or rejected leg is a lineage zero with an
-// explicit basis. Unknown is the absence of evidence, never zero.
+// state. Pending means no proof yet; known means proven nonzero operator
+// COGS; known_zero means a proven zero with an explicit basis; unknown
+// means conflicting evidence with an attached issue. Unknown is never
+// zero, and provider economics never enters retail totals.
 type ALegLegProviderStatus string
 
 const (
 	ALegProviderPending   ALegLegProviderStatus = "pending"
+	ALegProviderKnown     ALegLegProviderStatus = "known"
 	ALegProviderKnownZero ALegLegProviderStatus = "known_zero"
+	ALegProviderUnknown   ALegLegProviderStatus = "unknown"
 )
 
-// ALegAdjustmentRef is one validated pass-through journal in the distinct
-// customer adjustment plane. Amounts here never enter retail totals; the
-// production-writer join is deferred to Cycle 2.
+// ALegAdjustmentRef is one pass-through journal in the distinct customer
+// adjustment plane. Amounts here never enter retail totals. Validated is
+// true only when head-anchored pass-through authority admitted this
+// lineage; otherwise the ref is lineage-only evidence that keeps the call
+// pending/unknown.
 type ALegAdjustmentRef struct {
 	TransactionID string
 	Amount        Money
+	Validated     bool
 }
 
-// ALegReportLeg is one durable B-leg row with its lineage.
+// ALegReportLeg is one durable B-leg row with its lineage. ProviderCost
+// with its operation lineage is set only when ProviderStatus is known;
+// ZeroBasis is set only when ProviderStatus is known_zero and names the
+// explicit lineage basis (for example "never_started_not_billable").
+// ProviderOperationKey is the current operation: journal-backed when the
+// latest revision moved money, snapshot-proved for journal-less
+// zero-delta revisions. ProviderTransactionID is the last monetary
+// journal, which may be older than the current operation; it is empty
+// only when no monetary journal was ever posted, and never fabricated.
+// Recorded-zero verdicts carry the proved current operation with an
+// empty transaction; other zero bases carry lineage only through
+// ZeroBasis. ProviderChildren carries the deterministic per-charge
+// breakdown for multi-charge legs (charge order); it is empty for
+// aggregate legs and for any non-known leg.
 type ALegReportLeg struct {
 	BLegID         string
 	Outcome        LegOutcome
@@ -110,26 +129,42 @@ type ALegReportLeg struct {
 	ModelID        string
 	Fingerprint    string
 	ProviderStatus ALegLegProviderStatus
-	// ZeroBasis is set only when ProviderStatus is known_zero and names the
-	// explicit lineage basis (for example "never_started_not_billable").
-	ZeroBasis string
+	ZeroBasis      string
+	// ProviderCost is the proven nonzero operator COGS for this leg.
+	ProviderCost Money
+	// ProviderOperationKey is the canonical operation key of the current
+	// head lineage proving ProviderCost.
+	ProviderOperationKey string
+	// ProviderTransactionID is the latest immutable provider journal of
+	// that lineage; empty when the current head posted no journal.
+	ProviderTransactionID string
+	// ProviderChildren is the deterministic per-provider-charge
+	// breakdown, charge-ID ordered. Only known legs carry entries, and
+	// only known children contribute to totals.
+	ProviderChildren []ALegProviderChild
 }
 
 // ALegReportContribution is one B-leg row on the leg stream with its parent
 // call summary attached. Leg and call streams page independently under the
-// one opaque cursor; consumers union pages by LegKey and CallID.
+// one opaque cursor; consumers union pages by LegKey and CallID. Provider
+// lineage mirrors the leg DTO: cost and operation identity only when the
+// leg status is known, zero basis only when it is known_zero.
 type ALegReportContribution struct {
-	Call           ALegReportCallSummary
-	LegKey         string
-	BLegID         string
-	Outcome        LegOutcome
-	Surfaced       SurfacedState
-	BackendID      string
-	ProviderID     string
-	ModelID        string
-	Fingerprint    string
-	ProviderStatus ALegLegProviderStatus
-	ZeroBasis      string
+	Call                  ALegReportCallSummary
+	LegKey                string
+	BLegID                string
+	Outcome               LegOutcome
+	Surfaced              SurfacedState
+	BackendID             string
+	ProviderID            string
+	ModelID               string
+	Fingerprint           string
+	ProviderStatus        ALegLegProviderStatus
+	ZeroBasis             string
+	ProviderCost          Money
+	ProviderOperationKey  string
+	ProviderTransactionID string
+	ProviderChildren      []ALegProviderChild
 }
 
 // ALegReportCallSummary is the durable parent-call context for one call
@@ -167,12 +202,18 @@ type ALegRetailTotals struct {
 	UnknownCalls  int
 }
 
-// ALegProviderTotals is the Cycle 1 operator plane: counts only, no proven
-// economics yet. COGS and exclusions resolve in Cycle 2.
+// ALegProviderTotals is the native-currency operator plane: proven
+// per-leg COGS plus explicit completeness counts over every attributable
+// B-leg in scope, including failed, retry, and loser attempts. Only
+// known legs contribute to KnownSubtotal; pending, zero, and unknown
+// legs never do. Provider totals never affect retail subtotals.
 type ALegProviderTotals struct {
-	Currency    string
-	PendingLegs int
-	ZeroLegs    int
+	Currency      string
+	KnownSubtotal Money
+	KnownLegs     int
+	PendingLegs   int
+	ZeroLegs      int
+	UnknownLegs   int
 }
 
 // ALegReport is one page of a rolling A-leg snapshot. Totals and counts

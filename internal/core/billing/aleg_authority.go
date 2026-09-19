@@ -60,6 +60,9 @@ type ALegAuthorityScope struct {
 	ALegID    string
 	CallID    string
 	Currency  string
+	// StoreID scopes provider-leg facts to the serving store. Customer
+	// authority ignores it; provider authority requires exact agreement.
+	StoreID string
 }
 
 // ALegMarker is one durable operation snapshot fact for the call under
