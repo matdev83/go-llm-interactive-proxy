@@ -56,7 +56,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 1. Rebaseline Current Main and Freeze Canonical Oracles
 
-- [ ] 1. Revalidate the exact implementation-start architecture before production changes
+- [x] 1. Revalidate the exact implementation-start architecture before production changes
 
 - [x] 1.1 Record implementation-start SHA and compare it with this revision
   - Record `git rev-parse HEAD` in implementation evidence.
@@ -134,7 +134,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 2. Configuration and Internal Provider-Neutral Contracts
 
-- [ ] 2. Add zero-behavior-change plumbing only
+- [x] 2. Add zero-behavior-change plumbing only
 
 - [x] 2.1 Add `server.large_payload_fast_path` configuration
   - Fields: `enabled`, `threshold_bytes`, `memory_spool_bytes`, `max_inflight_spool_bytes`, `max_semantic_fact_bytes`, `spool_dir`.
@@ -166,7 +166,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 3. Compile Current Authorities Into Frozen Eligibility + O(1) Static Reject
 
-- [ ] 3. Make obviously impossible generations skip spool/scanner work
+- [x] 3. Make obviously impossible generations skip spool/scanner work
 
 - [x] 3.1 Extend the existing generated plane descriptor with request access class
   - Add zero `Unclassified` plus `CanonicalRequired`, `MetadataOnly`, `ResponseOnly`, `WireContract` (equivalent names allowed).
@@ -219,7 +219,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 4. Replay Capture, Reservation, and Resource Safety
 
-- [ ] 4. Build replay independently of protocol/routing logic
+- [x] 4. Build replay independently of protocol/routing logic
 
 - [x] 4.1 Implement bounded logical spool reservation
   - Known identity length may reserve early; unknown/chunked reserve incrementally with checked `int64` math.
@@ -260,7 +260,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 5. Shared Incremental JSON Safety Scanner
 
-- [ ] 5. Match current shared JSON protections without retaining large scalar content
+- [x] 5. Match current shared JSON protections without retaining large scalar content
 
 - [x] 5.1 Implement incremental lexer/state machine
   - UTF-8, escapes/surrogates, numbers, delimiters/root/trailing/incomplete, depth/token/object/array/key/string/number/byte limits, cancellation.
@@ -282,7 +282,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 6. Exact Canonical Semantic Identity Without Full Call
 
-- [ ] 6. Preserve one request/economic identity namespace
+- [x] 6. Preserve one request/economic identity namespace
 
 - [x] 6.1 Factor `diag` helpers around an already-computed canonical sum
   - Preserve canonical `StableCallID`, token, Unix outputs byte-for-byte.
@@ -311,7 +311,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 7. Frontend Candidate Capture and Same-Permit Protocol Proof
 
-- [ ] 7. Add candidate ingress without certifying a provider lane yet
+- [x] 7. Add candidate ingress without certifying a provider lane yet
 
 - [x] 7.1 Add optional profile plumbing and bounded frontend wire state
   - Profile owns protocol proof, canonical identity digest, recorder shape, session precedence facts, body mode/rewrite semantics, model span, response-state seeds.
@@ -357,7 +357,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 8. Internal Backend Exact/Domain Wire Capability + HTTP Construction
 
-- [ ] 8. Backend support must be pure before commit and transport-owned after commit
+- [x] 8. Backend support must be pure before commit and transport-owned after commit
 
 - [x] 8.1 Extend internal `execbackend.Backend` additively
   - Optional pure exact `ResolveWireRequest` and late-domain `ResolveWireDomain` (equivalent names allowed).
@@ -396,7 +396,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 9. Secure-Session Wire Views and Sensitive Response Carrier
 
-- [ ] 9. Keep stock secure-session behavior eligible without prompt materialization
+- [x] 9. Keep stock secure-session behavior eligible without prompt materialization
 
 - [x] 9.1 Build exact bounded `SessionInput`
   - Preserve current header/body/session/resume/client-session precedence.
@@ -427,7 +427,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 10. Wire-Native Metering, Counting, Accounting, and Billing
 
-- [ ] 10. Economic correctness must not re-materialize the request
+- [x] 10. Economic correctness must not re-materialize the request
 
 - [x] 10.1 Add wire-native frontend-ingress checkpoint
   - Same request identity, scope/frontend, count, max-output, timestamp, post-BeginTurn A-leg/session correlation as canonical path.
@@ -462,7 +462,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 11. Implement Pure `AssessLargeBody` and Route Compatibility Envelopes
 
-- [ ] 11. This is the last expected fallback point
+- [x] 11. This is the last expected fallback point
 
 - [x] 11.1 Implement optional internal assessor/executor interface
   - `AssessLargeBody(ctx, proof) -> Assessment` and `ExecuteLargeBody(ctx, accepted, source) -> ExecutionResult`.
@@ -519,7 +519,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 12. Close All Post-Commit Full-Call Dependencies
 
-- [ ] 12. Accepted wire execution cannot enter prompt-scale Call/CloneCall machinery
+- [x] 12. Accepted wire execution cannot enter prompt-scale Call/CloneCall machinery
 
 - [x] 12.1 Convert Task 1.8 inventory into explicit bounded runtime wire facts
   - Only facts with named consumers; no shadow Call schema.
@@ -558,7 +558,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 13. Implement `ExecuteLargeBody` Inside Existing Lifecycle/Attempt Machinery
 
-- [ ] 13. No custom miniature executor
+- [x] 13. No custom miniature executor
 
 - [x] 13.1 Cross one-way commit and begin one logical turn
   - Validate assessment stamp/source ownership.
@@ -588,7 +588,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 14. Frontend Response-State and Keepalive Bridge
 
-- [ ] 14. Preserve protocol response behavior without a fake Call
+- [x] 14. Preserve protocol response behavior without a fake Call
 
 - [x] 14.1 Refactor bounded shared frontend response context
   - Frontend-owned proof state + `ExecutionResult.ResponseFacts` + sensitive session carrier supply wrapping/writers.
@@ -617,7 +617,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 15. Certify Lane 1: OpenAI Responses → OpenAI-Compatible Responses
 
-- [ ] 15. First production lane proves the complete shared architecture
+- [x] 15. First production lane proves the complete shared architecture
 
 - [x] 15.1 Implement conservative OpenAI Responses profile
   - Confirm at implementation time: no legacy full-body resolver; `RouteFromBodyModel=true`.
@@ -645,7 +645,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 16. Certify Lane 2: OpenAI Chat Completions → OpenAI-Compatible Chat
 
-- [ ] 16. Reuse infrastructure only after Lane 1 is green
+- [x] 16. Reuse infrastructure only after Lane 1 is green
 
 - [x] 16.1 Implement conservative Chat profile
   - Confirm no legacy resolver / `RouteFromBodyModel=true` at implementation time.
@@ -666,7 +666,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 17. Certify Lane 3: OpenResponses HTTP Create, Explicit No-Store Only
 
-- [ ] 17. Do not treat default OpenResponses create as stateless
+- [x] 17. Do not treat default OpenResponses create as stateless
 
 - [x] 17.1 Characterize/refactor only bounded no-store frontend state
   - Initial subset: HTTP create, **explicit `store:false`**, no `previous_response_id`, no compaction, no WebSocket.
@@ -694,7 +694,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 18. Gzip Follow-Up Wave
 
-- [ ] 18. Compression remains canonical until separately proven
+- [x] 18. Compression remains canonical until separately proven
 
 - [x] 18.1 Prove wave-1 gzip always bypasses candidate capture/profile
   - Existing decoded-limit/error behavior unchanged.
@@ -712,7 +712,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 19. Performance, Practical Eligibility, and Observability Evidence
 
-- [ ] 19. Prove material value on current main, not just correctness
+- [x] 19. Prove material value on current main, not just correctness
 
 - [x] 19.1 Add bounded diagnostics
   - considered / static-canonical / captured / profile-proven / assessment-eligible / wire / canonical counts.
@@ -762,7 +762,7 @@ There is no core-owned canonicalization callback, no second decode-admission dec
 
 ## 20. Final Architecture/Regression Gate and Default-Off Rollout
 
-- [ ] 20. No lane ships before complete evidence
+- [x] 20. No lane ships before complete evidence
 
 - [x] 20.1 Final architecture ratchets
   - No unclassified production plane/hook/non-plane request authority.
