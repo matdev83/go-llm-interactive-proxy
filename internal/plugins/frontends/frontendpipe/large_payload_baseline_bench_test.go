@@ -24,7 +24,7 @@ package frontendpipe_test
 //	go test -run=^$ -bench='LargePayloadBaseline_20MiB' -benchmem -benchtime=10x ./internal/plugins/frontends/frontendpipe/
 //
 // Machine/mode caveats are recorded in
-// .kiro/specs/large-payload-streaming-fast-path/evidence/1.10-perf-baseline.md
+// .kiro/specs/archive/large-payload-streaming-fast-path/evidence/1.10-perf-baseline.md
 // (Windows runner, no -race).
 
 import (

@@ -16,7 +16,7 @@
 
 ## Phase 1 — Freeze the Current Dual-Dialect Inventory and Enforcement Model
 
-- [ ] 1. Establish the typed parity catalog and deterministic repository discovery.
+- [x] 1. Establish the typed parity catalog and deterministic repository discovery.
 
 - [x] 1.1 Re-audit the implementation-time tree and freeze the initial component/contract inventory
   - Re-run searches for Bun migration families, SQLite/PostgreSQL runtime store branches, dialect-sensitive store packages, PostgreSQL integration tests, and compile-time store-interface assertions against current `main`.
@@ -141,7 +141,7 @@
 
 ## Phase 3 — Enforce Migration History and Logical Schema Parity
 
-- [ ] 3. Build dual-engine migration/schema proof for every registered component.
+- [x] 3. Build dual-engine migration/schema proof for every registered component.
 
 - [x] 3.1 Implement reusable migration-file discovery and applied-history assertions
   - Discover versioned migration IDs from each catalog `MigrationRoot` using the repository's timestamped Go migration naming convention, excluding `_test.go` and explicitly recognized non-migration files deterministically.
@@ -172,7 +172,7 @@
   - _Depends: 3.1–3.2_
   - _Validation: stable parity wrappers plus focused migration tests_
 
-- [ ] 3.4 Strengthen control-plane, usage-authority, concurrency, metering, and terminal-work schema parity (P)
+- [x] 3.4 Strengthen control-plane, usage-authority, concurrency, metering, and terminal-work schema parity (P)
   - Replace “table exists” proof with equivalent correctness-relevant invariant checks wherever PostgreSQL currently receives materially deeper catalog validation than SQLite or vice versa.
   - Verify store-scoped keys, uniqueness/capacity indexes, filter indexes, foreign keys/checks, and migration history required by current behavior.
   - Preserve backend-specific performance-only indexes as backend-specific capability/evidence if they are not part of common correctness semantics.
@@ -192,7 +192,7 @@
 
 ## Phase 4 — Run the Brownfield Matrix and Fix Current Divergence
 
-- [ ] 4. Certify the current tree on real SQLite and PostgreSQL before turning enforcement on.
+- [x] 4. Certify the current tree on real SQLite and PostgreSQL before turning enforcement on.
 
 - [x] 4.1 Add a temporary/local implementation-time full-matrix command and execute the untouched baseline
   - Using the catalog package list and stable wrappers, execute all SQLite parity suites.
@@ -236,7 +236,7 @@
 
 ## Phase 5 — Make the Catalog the Canonical Local/CI Runner
 
-- [ ] 5. Implement the durable developer/CI entry points without duplicate package lists.
+- [x] 5. Implement the durable developer/CI entry points without duplicate package lists.
 
 - [x] 5.1 Implement the typed database-parity runner
   - Add the internal runner with `list`, `sqlite`, `postgres-direct`, and `all` modes.
@@ -294,7 +294,7 @@
 
 ## Phase 7 — Reconcile Documentation, Release Gates, and Final Proof
 
-- [ ] 7. Make executable parity the documented source of truth and certify the finished system.
+- [x] 7. Make executable parity the documented source of truth and certify the finished system.
 
 - [x] 7.1 Align steering, database docs, release gates, and Make help with actual execution
   - Update `.kiro/steering/testing.md` and `.kiro/steering/tech.md` to distinguish default unit tests, repository-wide direct DB parity, specialized PostgreSQL distributed/pooler gates, and release/race evidence.
@@ -327,7 +327,7 @@
   - _Depends: 7.1–7.2 and all remediation tasks_
   - _Validation: `make test-db-parity`; existing specialized PostgreSQL/billing gates; `make quality-checks`; `make test`; focused race tests_
 
-- [ ] 7.4 Close #438 only after enforcement is demonstrably fail-closed
+- [x] 7.4 Close #438 only after enforcement is demonstrably fail-closed
   - Post implementation evidence to #438 naming the cataloged components, common vs backend-specific capability model, canonical commands, CI merge-blocking path, and any real parity defects repaired during the baseline wave.
   - Include evidence that an intentionally broken/unregistered dual-dialect candidate or failing PostgreSQL parity wrapper blocks the relevant architecture/CI gate.
   - Do not close the issue merely because Bun is shared; close only when the executable enforcement model is in place and green.
