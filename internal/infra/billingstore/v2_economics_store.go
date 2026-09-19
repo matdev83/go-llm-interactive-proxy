@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -26,6 +27,13 @@ const (
 	v2EconomicsCursorPrefix    = "v2."
 	v2EconomicsCursorVersion   = 1
 	v2EconomicsHardPageMaximum = 500
+
+	// ReconciliationRecordSchemaLegacy is the original single-basis
+	// reconciliation envelope.
+	ReconciliationRecordSchemaLegacy uint32 = 1
+	// ReconciliationRecordSchemaRetention is the full-result retention
+	// envelope; its result payload is billing.ReconciliationRetentionResult.
+	ReconciliationRecordSchemaRetention uint32 = 2
 )
 
 var (
@@ -48,38 +56,43 @@ var (
 // ResultJSON is canonical JSON and can contain a domain-specific result shape;
 // the storage layer does not infer provider or customer semantics from it.
 type ReconciliationRecord struct {
-	ID                string
-	Version           uint64
-	Subject           metering.SubjectRef
-	Scope             string
-	Basis             economics.ValuationBasis
-	InputSetHash      string
-	InputHash         string // compatibility alias for InputSetHash
-	LocalInputHash    string
-	ProviderInputHash string
-	PolicyID          string
-	PolicyVersion     string
-	ResultJSON        json.RawMessage
-	Result            json.RawMessage // compatibility alias for ResultJSON
-	CreatedAt         time.Time
+	ID      string
+	Version uint64
+	Subject metering.SubjectRef
+	Scope   string
+	Basis   economics.ValuationBasis
+	// ResultSchemaVersion distinguishes the original single-basis envelope
+	// from the full-result retention envelope. Zero is normalized to the
+	// legacy envelope version.
+	ResultSchemaVersion uint32
+	InputSetHash        string
+	InputHash           string // compatibility alias for InputSetHash
+	LocalInputHash      string
+	ProviderInputHash   string
+	PolicyID            string
+	PolicyVersion       string
+	ResultJSON          json.RawMessage
+	Result              json.RawMessage // compatibility alias for ResultJSON
+	CreatedAt           time.Time
 }
 
 // Reconciliation is a short alias for ReconciliationRecord.
 type Reconciliation = ReconciliationRecord
 
 type reconciliationWire struct {
-	ID                string                   `json:"id"`
-	Version           uint64                   `json:"version"`
-	Subject           metering.SubjectRef      `json:"subject"`
-	Scope             string                   `json:"scope,omitempty"`
-	Basis             economics.ValuationBasis `json:"basis"`
-	InputSetHash      string                   `json:"input_set_hash,omitempty"`
-	LocalInputHash    string                   `json:"local_input_hash,omitempty"`
-	ProviderInputHash string                   `json:"provider_input_hash,omitempty"`
-	PolicyID          string                   `json:"policy_id,omitempty"`
-	PolicyVersion     string                   `json:"policy_version,omitempty"`
-	ResultJSON        json.RawMessage          `json:"result"`
-	CreatedAt         time.Time                `json:"created_at"`
+	ID                  string                   `json:"id"`
+	Version             uint64                   `json:"version"`
+	Subject             metering.SubjectRef      `json:"subject"`
+	Scope               string                   `json:"scope,omitempty"`
+	Basis               economics.ValuationBasis `json:"basis"`
+	ResultSchemaVersion uint32                   `json:"result_schema_version,omitempty"`
+	InputSetHash        string                   `json:"input_set_hash,omitempty"`
+	LocalInputHash      string                   `json:"local_input_hash,omitempty"`
+	ProviderInputHash   string                   `json:"provider_input_hash,omitempty"`
+	PolicyID            string                   `json:"policy_id,omitempty"`
+	PolicyVersion       string                   `json:"policy_version,omitempty"`
+	ResultJSON          json.RawMessage          `json:"result"`
+	CreatedAt           time.Time                `json:"created_at"`
 }
 
 func (r ReconciliationRecord) normalized() (ReconciliationRecord, []byte, error) {
@@ -93,8 +106,20 @@ func (r ReconciliationRecord) normalized() (ReconciliationRecord, []byte, error)
 	if err := out.Subject.Validate(); err != nil {
 		return ReconciliationRecord{}, nil, fmt.Errorf("%w: subject: %v", ErrInvalidReconciliation, err)
 	}
-	if err := out.Basis.Validate(); err != nil {
-		return ReconciliationRecord{}, nil, fmt.Errorf("%w: basis: %v", ErrInvalidReconciliation, err)
+	if out.ResultSchemaVersion == 0 {
+		out.ResultSchemaVersion = ReconciliationRecordSchemaLegacy
+	}
+	switch out.ResultSchemaVersion {
+	case ReconciliationRecordSchemaLegacy:
+		if err := out.Basis.Validate(); err != nil {
+			return ReconciliationRecord{}, nil, fmt.Errorf("%w: basis: %v", ErrInvalidReconciliation, err)
+		}
+	case ReconciliationRecordSchemaRetention:
+		if out.Basis != "" {
+			return ReconciliationRecord{}, nil, fmt.Errorf("%w: retention record cannot declare a single basis", ErrInvalidReconciliation)
+		}
+	default:
+		return ReconciliationRecord{}, nil, fmt.Errorf("%w: unknown result schema version %d", ErrInvalidReconciliation, out.ResultSchemaVersion)
 	}
 	if out.InputSetHash == "" {
 		out.InputSetHash = out.InputHash
@@ -129,12 +154,57 @@ func (r ReconciliationRecord) normalized() (ReconciliationRecord, []byte, error)
 	if out.CreatedAt.IsZero() {
 		out.CreatedAt = time.Now().UTC()
 	}
-	wire := reconciliationWire{ID: out.ID, Version: out.Version, Subject: out.Subject, Scope: out.Scope, Basis: out.Basis, InputSetHash: out.InputSetHash, LocalInputHash: out.LocalInputHash, ProviderInputHash: out.ProviderInputHash, PolicyID: out.PolicyID, PolicyVersion: out.PolicyVersion, ResultJSON: canonicalResult, CreatedAt: out.CreatedAt}
+	wire := reconciliationWire{ID: out.ID, Version: out.Version, Subject: out.Subject, Scope: out.Scope, Basis: out.Basis, ResultSchemaVersion: reconciliationWireSchemaVersion(out.ResultSchemaVersion), InputSetHash: out.InputSetHash, LocalInputHash: out.LocalInputHash, ProviderInputHash: out.ProviderInputHash, PolicyID: out.PolicyID, PolicyVersion: out.PolicyVersion, ResultJSON: canonicalResult, CreatedAt: out.CreatedAt}
 	payload, err := json.Marshal(wire)
 	if err != nil {
 		return ReconciliationRecord{}, nil, fmt.Errorf("%w: canonical JSON: %v", ErrInvalidReconciliation, err)
 	}
 	return out, payload, nil
+}
+
+// reconciliationWireSchemaVersion keeps the durable wire backward compatible.
+// Schema-1 records were serialized before the field existed, so they must keep
+// omitting it; only the full-result retention generation is emitted.
+func reconciliationWireSchemaVersion(version uint32) uint32 {
+	if version >= ReconciliationRecordSchemaRetention {
+		return version
+	}
+	return 0
+}
+
+// durableReconciliationGeneration normalizes the stored
+// result_schema_version discriminator the same way the canonical wire
+// normalizes a field-less generation: an explicit zero is the legacy
+// generation. Any other value outside the two known generations fails closed.
+func durableReconciliationGeneration(column int64) (uint32, error) {
+	if column < 0 || column > int64(math.MaxUint32) {
+		return 0, fmt.Errorf("%w: unknown result schema version %d", ErrInvalidReconciliation, column)
+	}
+	generation := uint32(column)
+	if generation == 0 {
+		return ReconciliationRecordSchemaLegacy, nil
+	}
+	switch generation {
+	case ReconciliationRecordSchemaLegacy, ReconciliationRecordSchemaRetention:
+		return generation, nil
+	default:
+		return 0, fmt.Errorf("%w: unknown result schema version %d", ErrInvalidReconciliation, column)
+	}
+}
+
+// bindReconciliationReadGeneration is the single generation gate for a decoded
+// canonical wire: the decoded wire generation must equal the durable
+// discriminator before the caller may assign the stored value or bind a
+// projection, so a cross-generation row can never be returned.
+func bindReconciliationReadGeneration(wireGeneration uint32, column int64) (uint32, error) {
+	durable, err := durableReconciliationGeneration(column)
+	if err != nil {
+		return 0, err
+	}
+	if wireGeneration != durable {
+		return 0, fmt.Errorf("%w: canonical wire generation %d does not match durable generation %d", ErrReconciliationRetentionMismatch, wireGeneration, durable)
+	}
+	return durable, nil
 }
 
 func (r ReconciliationRecord) CanonicalJSON() ([]byte, error) {
@@ -148,22 +218,35 @@ func decodeCanonicalReconciliation(payload []byte) (ReconciliationRecord, []byte
 		return ReconciliationRecord{}, nil, err
 	}
 	record := ReconciliationRecord{
-		ID:                wire.ID,
-		Version:           wire.Version,
-		Subject:           wire.Subject,
-		Scope:             wire.Scope,
-		Basis:             wire.Basis,
-		InputSetHash:      wire.InputSetHash,
-		LocalInputHash:    wire.LocalInputHash,
-		ProviderInputHash: wire.ProviderInputHash,
-		PolicyID:          wire.PolicyID,
-		PolicyVersion:     wire.PolicyVersion,
-		ResultJSON:        append(json.RawMessage(nil), wire.ResultJSON...),
-		CreatedAt:         wire.CreatedAt,
+		ID:                  wire.ID,
+		Version:             wire.Version,
+		Subject:             wire.Subject,
+		Scope:               wire.Scope,
+		Basis:               wire.Basis,
+		ResultSchemaVersion: wire.ResultSchemaVersion,
+		InputSetHash:        wire.InputSetHash,
+		LocalInputHash:      wire.LocalInputHash,
+		ProviderInputHash:   wire.ProviderInputHash,
+		PolicyID:            wire.PolicyID,
+		PolicyVersion:       wire.PolicyVersion,
+		ResultJSON:          append(json.RawMessage(nil), wire.ResultJSON...),
+		CreatedAt:           wire.CreatedAt,
 	}
 	normalized, canonicalJSON, err := record.normalized()
 	if err != nil {
 		return ReconciliationRecord{}, nil, err
+	}
+	if normalized.ResultSchemaVersion == ReconciliationRecordSchemaRetention {
+		// A schema-2 canonical envelope must be the authoritative mapping of
+		// its inner full result; a mismatched envelope fails closed on read
+		// instead of being repaired or trusted.
+		result, err := billing.ParseReconciliationRetentionResult(normalized.ResultJSON)
+		if err != nil {
+			return ReconciliationRecord{}, nil, fmt.Errorf("%w: retention result payload: %w", ErrInvalidReconciliation, err)
+		}
+		if err := bindReconciliationRetentionEnvelope(normalized, result); err != nil {
+			return ReconciliationRecord{}, nil, err
+		}
 	}
 	return normalized, canonicalJSON, nil
 }
@@ -864,12 +947,25 @@ func (s *DurableStore) AppendReconciliationInTx(ctx context.Context, tx bun.Tx, 
 	if canonical.Subject.StoreID != s.storeID {
 		return fmt.Errorf("%w: reconciliation subject store", ErrEconomicsOutOfScope)
 	}
+	if canonical.ResultSchemaVersion == ReconciliationRecordSchemaRetention {
+		// Generic append must not persist a schema-2 payload that the
+		// specialized retention reader would reject; route full results through
+		// the authoritative retention validator and bind the outer envelope to
+		// the parsed inner result before replay lookup or insertion.
+		result, err := billing.ParseReconciliationRetentionResult(canonical.ResultJSON)
+		if err != nil {
+			return fmt.Errorf("%w: retention result payload: %w", ErrInvalidReconciliation, err)
+		}
+		if err := bindReconciliationRetentionEnvelope(canonical, result); err != nil {
+			return fmt.Errorf("%w: retention envelope: %w", ErrInvalidReconciliation, err)
+		}
+	}
 	if canonical.Version > math.MaxInt64 {
 		return fmt.Errorf("billingstore: reconciliation version exceeds database range")
 	}
 	fingerprint := canonical.Fingerprint()
 	var existing reconciliationRow
-	if err := tx.NewRaw(`SELECT id, reconciliation_id, reconciliation_version, canonical_json, result_json, fingerprint FROM billing_reconciliations WHERE store_id = ? AND reconciliation_id = ? AND reconciliation_version = ? LIMIT 1`, s.storeID, canonical.ID, int64(canonical.Version)).Scan(ctx, &existing); err == nil {
+	if err := tx.NewRaw(reconciliationReplaySelect+` WHERE store_id = ? AND reconciliation_id = ? AND reconciliation_version = ? LIMIT 1`, s.storeID, canonical.ID, int64(canonical.Version)).Scan(ctx, &existing); err == nil {
 		return resolveReconciliationReplay(existing, payload, canonical)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("billingstore: reconciliation identity lookup: %w", err)
@@ -878,10 +974,10 @@ func (s *DurableStore) AppendReconciliationInTx(ctx context.Context, tx bun.Tx, 
 	if err != nil {
 		return fmt.Errorf("billingstore: reconciliation subject JSON: %w", err)
 	}
-	if _, err := tx.NewRaw(`INSERT INTO billing_reconciliations(store_id, reconciliation_id, reconciliation_version, subject_kind, subject_id, subject_json, tenant_id, scope, basis, input_set_hash, local_input_hash, provider_input_hash, policy_id, policy_version, result_json, canonical_json, fingerprint, projection_version, created_at_unix) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, s.storeID, canonical.ID, int64(canonical.Version), string(canonical.Subject.Kind), subjectIDForEconomics(canonical.Subject), string(subjectJSON), canonical.Subject.TenantID, canonical.Scope, string(canonical.Basis), canonical.InputSetHash, canonical.LocalInputHash, canonical.ProviderInputHash, canonical.PolicyID, canonical.PolicyVersion, string(canonical.ResultJSON), string(payload), fingerprint, BillingEconomicsProjectionVersion, canonical.CreatedAt.UnixNano()).Exec(ctx); err != nil {
+	if _, err := tx.NewRaw(`INSERT INTO billing_reconciliations(store_id, reconciliation_id, reconciliation_version, subject_kind, subject_id, subject_json, tenant_id, scope, basis, result_schema_version, input_set_hash, local_input_hash, provider_input_hash, policy_id, policy_version, result_json, canonical_json, fingerprint, projection_version, created_at_unix) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, s.storeID, canonical.ID, int64(canonical.Version), string(canonical.Subject.Kind), subjectIDForEconomics(canonical.Subject), string(subjectJSON), canonical.Subject.TenantID, canonical.Scope, string(canonical.Basis), canonical.ResultSchemaVersion, canonical.InputSetHash, canonical.LocalInputHash, canonical.ProviderInputHash, canonical.PolicyID, canonical.PolicyVersion, string(canonical.ResultJSON), string(payload), fingerprint, BillingEconomicsProjectionVersion, canonical.CreatedAt.UnixNano()).Exec(ctx); err != nil {
 		return fmt.Errorf("billingstore: insert reconciliation: %w", err)
 	}
-	if err := tx.NewRaw(`SELECT id, reconciliation_id, reconciliation_version, canonical_json, result_json, fingerprint FROM billing_reconciliations WHERE store_id = ? AND reconciliation_id = ? AND reconciliation_version = ? LIMIT 1`, s.storeID, canonical.ID, int64(canonical.Version)).Scan(ctx, &existing); err != nil {
+	if err := tx.NewRaw(reconciliationReplaySelect+` WHERE store_id = ? AND reconciliation_id = ? AND reconciliation_version = ? LIMIT 1`, s.storeID, canonical.ID, int64(canonical.Version)).Scan(ctx, &existing); err != nil {
 		return fmt.Errorf("billingstore: reconciliation row lookup after insert: %w", err)
 	}
 	if err := resolveReconciliationReplay(existing, payload, canonical); err != nil {
@@ -893,26 +989,107 @@ func (s *DurableStore) AppendReconciliationInTx(ctx context.Context, tx bun.Tx, 
 	return nil
 }
 
+// reconciliationReplaySelect carries the durable generation discriminator and
+// every schema-2 projection identity column so a replay lookup can validate an
+// existing row before any identity comparison.
+const reconciliationReplaySelect = `SELECT id, reconciliation_id, reconciliation_version, canonical_json, result_json, fingerprint, result_schema_version, projection_version, subject_kind, subject_id, subject_json, tenant_id, scope, basis, input_set_hash, local_input_hash, provider_input_hash, policy_id, policy_version, created_at_unix FROM billing_reconciliations`
+
 type reconciliationRow struct {
-	ID                    int64
-	ReconciliationID      string
-	ReconciliationVersion int64
-	CanonicalJSON         string
-	ResultJSON            string
-	Fingerprint           string
+	ID                    int64  `bun:"id"`
+	ReconciliationID      string `bun:"reconciliation_id"`
+	ReconciliationVersion int64  `bun:"reconciliation_version"`
+	CanonicalJSON         string `bun:"canonical_json"`
+	ResultJSON            string `bun:"result_json"`
+	Fingerprint           string `bun:"fingerprint"`
+	ResultSchemaVersion   int64  `bun:"result_schema_version"`
+	ProjectionVersion     int64  `bun:"projection_version"`
+	SubjectKind           string `bun:"subject_kind"`
+	SubjectID             string `bun:"subject_id"`
+	SubjectJSON           string `bun:"subject_json"`
+	TenantID              string `bun:"tenant_id"`
+	Scope                 string `bun:"scope"`
+	Basis                 string `bun:"basis"`
+	InputSetHash          string `bun:"input_set_hash"`
+	LocalInputHash        string `bun:"local_input_hash"`
+	ProviderInputHash     string `bun:"provider_input_hash"`
+	PolicyID              string `bun:"policy_id"`
+	PolicyVersion         string `bun:"policy_version"`
+	CreatedAt             int64  `bun:"created_at_unix"`
 }
 
+func (r reconciliationRow) storedProjection() reconciliationStoredProjection {
+	return reconciliationStoredProjection{
+		SubjectKind: r.SubjectKind, SubjectID: r.SubjectID, SubjectJSON: r.SubjectJSON,
+		TenantID: r.TenantID, Scope: r.Scope, Basis: r.Basis,
+		ResultSchemaVersion: r.ResultSchemaVersion,
+		InputSetHash:        r.InputSetHash, LocalInputHash: r.LocalInputHash, ProviderInputHash: r.ProviderInputHash,
+		PolicyID: r.PolicyID, PolicyVersion: r.PolicyVersion, CreatedAt: r.CreatedAt,
+		ProjectionVersion: r.ProjectionVersion,
+	}
+}
+
+// resolveReconciliationReplay validates an existing row before comparing its
+// identity with the incoming canonical record. The stored canonical envelope is
+// decoded and must carry the durable generation; a schema-2 row must also bind
+// its full projection identity. Schema 2 never falls back to the result
+// projection or to an empty fingerprint, and an unchanged canonical row must
+// match the incoming canonical bytes exactly.
 func resolveReconciliationReplay(existing reconciliationRow, payload []byte, reconciliation ReconciliationRecord) error {
-	storedPayload := existing.CanonicalJSON
-	if storedPayload == "" {
+	conflict := func(inner error, format string, args ...any) error {
+		detail := fmt.Sprintf(format, args...)
+		if inner != nil {
+			return fmt.Errorf("%w: reconciliation_id=%q version=%d: %s: %w", ErrIdentityConflict, reconciliation.ID, reconciliation.Version, detail, inner)
+		}
+		return fmt.Errorf("%w: reconciliation_id=%q version=%d: %s", ErrIdentityConflict, reconciliation.ID, reconciliation.Version, detail)
+	}
+	durableGeneration, err := durableReconciliationGeneration(existing.ResultSchemaVersion)
+	if err != nil {
+		return conflict(err, "stored generation is invalid")
+	}
+	if existing.CanonicalJSON == "" {
 		// Rows created by the additive migration before canonical_json was
 		// introduced remain replay-readable through their result projection.
-		storedPayload = string(reconciliation.ResultJSON)
-	}
-	if (storedPayload == string(payload) || existing.ResultJSON == string(reconciliation.ResultJSON)) && (existing.Fingerprint == "" || existing.Fingerprint == reconciliation.Fingerprint()) {
+		// That compatibility path exists only for the explicitly legacy
+		// generation; schema 2 is never synthesized from projections.
+		if durableGeneration != ReconciliationRecordSchemaLegacy || reconciliation.ResultSchemaVersion != ReconciliationRecordSchemaLegacy {
+			return conflict(nil, "canonical bytes are absent for generation %d", durableGeneration)
+		}
+		if existing.ResultJSON != string(reconciliation.ResultJSON) {
+			return conflict(nil, "stored result projection differs")
+		}
+		if existing.Fingerprint != "" && existing.Fingerprint != reconciliation.Fingerprint() {
+			return conflict(nil, "stored fingerprint differs")
+		}
 		return nil
 	}
-	return fmt.Errorf("%w: reconciliation_id=%q version=%d", ErrIdentityConflict, reconciliation.ID, reconciliation.Version)
+	stored, _, err := decodeCanonicalReconciliation([]byte(existing.CanonicalJSON))
+	if err != nil {
+		return conflict(err, "stored canonical JSON is invalid")
+	}
+	if stored.ResultSchemaVersion != durableGeneration {
+		return conflict(nil, "canonical generation %d does not match durable generation %d", stored.ResultSchemaVersion, durableGeneration)
+	}
+	if durableGeneration == ReconciliationRecordSchemaRetention {
+		if err := bindReconciliationStoredProjection(stored, existing.storedProjection()); err != nil {
+			return conflict(err, "stored projection is invalid")
+		}
+	}
+	if durableGeneration != reconciliation.ResultSchemaVersion {
+		return conflict(nil, "durable generation %d does not match incoming generation %d", durableGeneration, reconciliation.ResultSchemaVersion)
+	}
+	if existing.CanonicalJSON != string(payload) {
+		return conflict(nil, "stored canonical bytes differ")
+	}
+	if existing.Fingerprint == "" {
+		if durableGeneration == ReconciliationRecordSchemaRetention {
+			return conflict(nil, "schema-2 replay requires a stored fingerprint")
+		}
+		return nil
+	}
+	if existing.Fingerprint != reconciliation.Fingerprint() {
+		return conflict(nil, "stored fingerprint differs")
+	}
+	return nil
 }
 
 func (s *DurableStore) GetReconciliation(ctx context.Context, reconciliationID string, version uint64) (ReconciliationRecord, error) {
@@ -926,24 +1103,26 @@ func (s *DurableStore) GetReconciliation(ctx context.Context, reconciliationID s
 		return ReconciliationRecord{}, fmt.Errorf("billingstore: reconciliation version exceeds database range")
 	}
 	var row struct {
-		ResultJSON        string `bun:"result_json"`
-		ID                string `bun:"reconciliation_id"`
-		Version           int64  `bun:"reconciliation_version"`
-		SubjectKind       string `bun:"subject_kind"`
-		SubjectID         string `bun:"subject_id"`
-		SubjectJSON       string `bun:"subject_json"`
-		CanonicalJSON     string `bun:"canonical_json"`
-		TenantID          string `bun:"tenant_id"`
-		Scope             string `bun:"scope"`
-		Basis             string `bun:"basis"`
-		InputSetHash      string `bun:"input_set_hash"`
-		LocalInputHash    string `bun:"local_input_hash"`
-		ProviderInputHash string `bun:"provider_input_hash"`
-		PolicyID          string `bun:"policy_id"`
-		PolicyVersion     string `bun:"policy_version"`
-		CreatedAt         int64  `bun:"created_at_unix"`
+		ResultJSON          string `bun:"result_json"`
+		ID                  string `bun:"reconciliation_id"`
+		Version             int64  `bun:"reconciliation_version"`
+		SubjectKind         string `bun:"subject_kind"`
+		SubjectID           string `bun:"subject_id"`
+		SubjectJSON         string `bun:"subject_json"`
+		CanonicalJSON       string `bun:"canonical_json"`
+		TenantID            string `bun:"tenant_id"`
+		Scope               string `bun:"scope"`
+		Basis               string `bun:"basis"`
+		ResultSchemaVersion int64  `bun:"result_schema_version"`
+		InputSetHash        string `bun:"input_set_hash"`
+		LocalInputHash      string `bun:"local_input_hash"`
+		ProviderInputHash   string `bun:"provider_input_hash"`
+		PolicyID            string `bun:"policy_id"`
+		PolicyVersion       string `bun:"policy_version"`
+		ProjectionVersion   int64  `bun:"projection_version"`
+		CreatedAt           int64  `bun:"created_at_unix"`
 	}
-	if err := s.db.NewRaw(`SELECT reconciliation_id, reconciliation_version, subject_kind, subject_id, subject_json, canonical_json, tenant_id, scope, basis, input_set_hash, local_input_hash, provider_input_hash, policy_id, policy_version, result_json, created_at_unix FROM billing_reconciliations WHERE store_id = ? AND reconciliation_id = ? AND reconciliation_version = ? LIMIT 1`, s.storeID, reconciliationID, int64(version)).Scan(ctx, &row); err != nil {
+	if err := s.db.NewRaw(`SELECT reconciliation_id, reconciliation_version, subject_kind, subject_id, subject_json, canonical_json, tenant_id, scope, basis, result_schema_version, input_set_hash, local_input_hash, provider_input_hash, policy_id, policy_version, result_json, projection_version, created_at_unix FROM billing_reconciliations WHERE store_id = ? AND reconciliation_id = ? AND reconciliation_version = ? LIMIT 1`, s.storeID, reconciliationID, int64(version)).Scan(ctx, &row); err != nil {
 		return ReconciliationRecord{}, fmt.Errorf("billingstore: get reconciliation: %w", err)
 	}
 	if row.CanonicalJSON != "" {
@@ -951,7 +1130,35 @@ func (s *DurableStore) GetReconciliation(ctx context.Context, reconciliationID s
 		if err != nil {
 			return ReconciliationRecord{}, fmt.Errorf("billingstore: decode reconciliation canonical JSON: %w", err)
 		}
+		// The decoded wire generation must equal the durable discriminator
+		// before the stored value can be assigned or a projection bound.
+		generation, err := bindReconciliationReadGeneration(record.ResultSchemaVersion, row.ResultSchemaVersion)
+		if err != nil {
+			return ReconciliationRecord{}, fmt.Errorf("billingstore: reconciliation generation: %w", err)
+		}
+		record.ResultSchemaVersion = generation
+		if generation == ReconciliationRecordSchemaRetention {
+			if err := bindReconciliationStoredProjection(record, reconciliationStoredProjection{
+				SubjectKind: row.SubjectKind, SubjectID: row.SubjectID, SubjectJSON: row.SubjectJSON,
+				TenantID: row.TenantID, Scope: row.Scope, Basis: row.Basis,
+				ResultSchemaVersion: row.ResultSchemaVersion,
+				InputSetHash:        row.InputSetHash, LocalInputHash: row.LocalInputHash, ProviderInputHash: row.ProviderInputHash,
+				PolicyID: row.PolicyID, PolicyVersion: row.PolicyVersion, CreatedAt: row.CreatedAt,
+				ProjectionVersion: row.ProjectionVersion,
+			}); err != nil {
+				return ReconciliationRecord{}, fmt.Errorf("billingstore: reconciliation projection: %w", err)
+			}
+		}
 		return record, nil
+	}
+	// Canonical bytes are absent, so only the explicitly legacy generation is
+	// addressable through projections; schema 2 is never synthesized.
+	generation, err := durableReconciliationGeneration(row.ResultSchemaVersion)
+	if err != nil {
+		return ReconciliationRecord{}, fmt.Errorf("billingstore: reconciliation generation: %w", err)
+	}
+	if generation != ReconciliationRecordSchemaLegacy {
+		return ReconciliationRecord{}, fmt.Errorf("%w: canonical bytes are absent for generation %d", ErrReconciliationRetentionMismatch, generation)
 	}
 	result := json.RawMessage(row.ResultJSON)
 	subject := subjectFromProjection(metering.SubjectKind(row.SubjectKind), s.storeID, row.SubjectID, row.TenantID)
@@ -960,7 +1167,7 @@ func (s *DurableStore) GetReconciliation(ctx context.Context, reconciliationID s
 			return ReconciliationRecord{}, fmt.Errorf("billingstore: decode reconciliation subject: %w", err)
 		}
 	}
-	reconciliation := ReconciliationRecord{ID: row.ID, Version: uint64(row.Version), Subject: subject, Scope: row.Scope, Basis: economics.ValuationBasis(row.Basis), InputSetHash: row.InputSetHash, LocalInputHash: row.LocalInputHash, ProviderInputHash: row.ProviderInputHash, PolicyID: row.PolicyID, PolicyVersion: row.PolicyVersion, ResultJSON: result, Result: append(json.RawMessage(nil), result...), CreatedAt: time.Unix(0, row.CreatedAt).UTC()}
+	reconciliation := ReconciliationRecord{ID: row.ID, Version: uint64(row.Version), Subject: subject, Scope: row.Scope, Basis: economics.ValuationBasis(row.Basis), ResultSchemaVersion: generation, InputSetHash: row.InputSetHash, LocalInputHash: row.LocalInputHash, ProviderInputHash: row.ProviderInputHash, PolicyID: row.PolicyID, PolicyVersion: row.PolicyVersion, ResultJSON: result, Result: append(json.RawMessage(nil), result...), CreatedAt: time.Unix(0, row.CreatedAt).UTC()}
 	return reconciliation, nil
 }
 
@@ -1068,20 +1275,21 @@ func (s *DurableStore) ListReconciliations(ctx context.Context, query Reconcilia
 		where = append(where, `(created_at_unix > ? OR (created_at_unix = ? AND (reconciliation_id > ? OR (reconciliation_id = ? AND (reconciliation_version > ? OR (reconciliation_version = ? AND id > ?))))))`)
 		args = append(args, position.CreatedAt, position.CreatedAt, position.RecordID, position.RecordID, position.RecordVersion, position.RecordVersion, position.RowID)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT reconciliation_id, reconciliation_version, subject_kind, subject_id, subject_json, canonical_json, tenant_id, scope, basis, input_set_hash, local_input_hash, provider_input_hash, policy_id, policy_version, result_json, created_at_unix, id FROM billing_reconciliations WHERE `+strings.Join(where, " AND ")+` ORDER BY created_at_unix ASC, reconciliation_id ASC, reconciliation_version ASC, id ASC LIMIT ?`, append(args, limit+1)...)
+	rows, err := s.db.QueryContext(ctx, `SELECT reconciliation_id, reconciliation_version, subject_kind, subject_id, subject_json, canonical_json, tenant_id, scope, basis, result_schema_version, input_set_hash, local_input_hash, provider_input_hash, policy_id, policy_version, result_json, projection_version, created_at_unix, id FROM billing_reconciliations WHERE `+strings.Join(where, " AND ")+` ORDER BY created_at_unix ASC, reconciliation_id ASC, reconciliation_version ASC, id ASC LIMIT ?`, append(args, limit+1)...)
 	if err != nil {
 		return ReconciliationPage{}, fmt.Errorf("billingstore: list reconciliations: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	type row struct {
 		ID                                                                                                                                                               string
-		Version, CreatedAt, RowID                                                                                                                                        int64
+		Version, CreatedAt, RowID, ProjectionVersion                                                                                                                     int64
 		SubjectKind, SubjectID, SubjectJSON, CanonicalJSON, TenantID, Scope, Basis, InputSetHash, LocalInputHash, ProviderInputHash, PolicyID, PolicyVersion, ResultJSON string
+		ResultSchemaVersion                                                                                                                                              int64
 	}
 	items := make([]row, 0, limit+1)
 	for rows.Next() {
 		var item row
-		if err := rows.Scan(&item.ID, &item.Version, &item.SubjectKind, &item.SubjectID, &item.SubjectJSON, &item.CanonicalJSON, &item.TenantID, &item.Scope, &item.Basis, &item.InputSetHash, &item.LocalInputHash, &item.ProviderInputHash, &item.PolicyID, &item.PolicyVersion, &item.ResultJSON, &item.CreatedAt, &item.RowID); err != nil {
+		if err := rows.Scan(&item.ID, &item.Version, &item.SubjectKind, &item.SubjectID, &item.SubjectJSON, &item.CanonicalJSON, &item.TenantID, &item.Scope, &item.Basis, &item.ResultSchemaVersion, &item.InputSetHash, &item.LocalInputHash, &item.ProviderInputHash, &item.PolicyID, &item.PolicyVersion, &item.ResultJSON, &item.ProjectionVersion, &item.CreatedAt, &item.RowID); err != nil {
 			return ReconciliationPage{}, err
 		}
 		items = append(items, item)
@@ -1101,8 +1309,36 @@ func (s *DurableStore) ListReconciliations(ctx context.Context, query Reconcilia
 			if err != nil {
 				return ReconciliationPage{}, fmt.Errorf("billingstore: decode listed reconciliation canonical JSON: %w", err)
 			}
+			// The decoded wire generation must equal the durable discriminator
+			// before the stored value can be assigned or a projection bound.
+			generation, err := bindReconciliationReadGeneration(record.ResultSchemaVersion, item.ResultSchemaVersion)
+			if err != nil {
+				return ReconciliationPage{}, fmt.Errorf("billingstore: listed reconciliation generation: %w", err)
+			}
+			record.ResultSchemaVersion = generation
+			if generation == ReconciliationRecordSchemaRetention {
+				if err := bindReconciliationStoredProjection(record, reconciliationStoredProjection{
+					SubjectKind: item.SubjectKind, SubjectID: item.SubjectID, SubjectJSON: item.SubjectJSON,
+					TenantID: item.TenantID, Scope: item.Scope, Basis: item.Basis,
+					ResultSchemaVersion: item.ResultSchemaVersion,
+					InputSetHash:        item.InputSetHash, LocalInputHash: item.LocalInputHash, ProviderInputHash: item.ProviderInputHash,
+					PolicyID: item.PolicyID, PolicyVersion: item.PolicyVersion, CreatedAt: item.CreatedAt,
+					ProjectionVersion: item.ProjectionVersion,
+				}); err != nil {
+					return ReconciliationPage{}, fmt.Errorf("billingstore: listed reconciliation projection: %w", err)
+				}
+			}
 			page.Reconciliations = append(page.Reconciliations, record)
 			continue
+		}
+		// Canonical bytes are absent, so only the explicitly legacy generation
+		// is addressable through projections; schema 2 is never synthesized.
+		generation, err := durableReconciliationGeneration(item.ResultSchemaVersion)
+		if err != nil {
+			return ReconciliationPage{}, fmt.Errorf("billingstore: listed reconciliation generation: %w", err)
+		}
+		if generation != ReconciliationRecordSchemaLegacy {
+			return ReconciliationPage{}, fmt.Errorf("%w: canonical bytes are absent for generation %d", ErrReconciliationRetentionMismatch, generation)
 		}
 		result := json.RawMessage(item.ResultJSON)
 		subject := subjectFromProjection(metering.SubjectKind(item.SubjectKind), storeID, item.SubjectID, item.TenantID)
@@ -1111,7 +1347,7 @@ func (s *DurableStore) ListReconciliations(ctx context.Context, query Reconcilia
 				return ReconciliationPage{}, fmt.Errorf("billingstore: decode listed reconciliation subject: %w", err)
 			}
 		}
-		page.Reconciliations = append(page.Reconciliations, ReconciliationRecord{ID: item.ID, Version: uint64(item.Version), Subject: subject, Scope: item.Scope, Basis: economics.ValuationBasis(item.Basis), InputSetHash: item.InputSetHash, LocalInputHash: item.LocalInputHash, ProviderInputHash: item.ProviderInputHash, PolicyID: item.PolicyID, PolicyVersion: item.PolicyVersion, ResultJSON: result, Result: append(json.RawMessage(nil), result...), CreatedAt: time.Unix(0, item.CreatedAt).UTC()})
+		page.Reconciliations = append(page.Reconciliations, ReconciliationRecord{ID: item.ID, Version: uint64(item.Version), Subject: subject, Scope: item.Scope, Basis: economics.ValuationBasis(item.Basis), ResultSchemaVersion: generation, InputSetHash: item.InputSetHash, LocalInputHash: item.LocalInputHash, ProviderInputHash: item.ProviderInputHash, PolicyID: item.PolicyID, PolicyVersion: item.PolicyVersion, ResultJSON: result, Result: append(json.RawMessage(nil), result...), CreatedAt: time.Unix(0, item.CreatedAt).UTC()})
 	}
 	return page, nil
 }
@@ -1317,20 +1553,23 @@ func (s *DurableStore) RebuildValuationProjections(ctx context.Context) error {
 }
 
 func rebuildReconciliationProjections(ctx context.Context, tx bun.Tx, storeID string) error {
-	rows, err := tx.QueryContext(ctx, `SELECT reconciliation_id, reconciliation_version, canonical_json, fingerprint FROM billing_reconciliations WHERE store_id = ? AND canonical_json != '' ORDER BY id ASC`, storeID)
+	rows, err := tx.QueryContext(ctx, `SELECT reconciliation_id, reconciliation_version, canonical_json, fingerprint, result_schema_version FROM billing_reconciliations WHERE store_id = ? AND canonical_json != '' ORDER BY id ASC`, storeID)
 	if err != nil {
 		return fmt.Errorf("billingstore: rebuild reconciliation scan: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id, payload, fingerprint string
-		var version int64
-		if err := rows.Scan(&id, &version, &payload, &fingerprint); err != nil {
+		var version, schemaVersion int64
+		if err := rows.Scan(&id, &version, &payload, &fingerprint, &schemaVersion); err != nil {
 			return fmt.Errorf("billingstore: rebuild reconciliation row: %w", err)
 		}
 		record, canonicalJSON, err := decodeCanonicalReconciliation([]byte(payload))
 		if err != nil {
 			return fmt.Errorf("billingstore: rebuild decode reconciliation: %w", err)
+		}
+		if _, err := bindReconciliationReadGeneration(record.ResultSchemaVersion, schemaVersion); err != nil {
+			return fmt.Errorf("billingstore: rebuild reconciliation generation: %w", err)
 		}
 		if string(canonicalJSON) != payload || (fingerprint != "" && fingerprint != record.Fingerprint()) {
 			return fmt.Errorf("%w: reconciliation payload drift", ErrIdentityConflict)

@@ -33,28 +33,30 @@ type routeKey struct {
 	model   string
 }
 type SnapshotCatalog struct {
-	mu               sync.RWMutex
-	pricing          map[versionKey]billing.PricingSnapshot
-	tariffs          map[versionKey]economics.TariffSnapshot
-	policies         map[versionKey]billing.ChargePolicy
-	operatorRates    map[versionKey]billing.OperatorRateSnapshot
-	defaultPricing   versionKey
-	defaultPolicy    versionKey
-	hasDefaults      bool
-	routePricing     map[routeKey]versionKey
-	operatorBindings map[routeKey]versionKey
+	mu                sync.RWMutex
+	pricing           map[versionKey]billing.PricingSnapshot
+	tariffs           map[versionKey]economics.TariffSnapshot
+	policies          map[versionKey]billing.ChargePolicy
+	operatorRates     map[versionKey]billing.OperatorRateSnapshot
+	selectionPolicies map[versionKey]billing.OperatorCostSelectionPolicy
+	defaultPricing    versionKey
+	defaultPolicy     versionKey
+	hasDefaults       bool
+	routePricing      map[routeKey]versionKey
+	operatorBindings  map[routeKey]versionKey
 }
 
 var _ economics.RatingSnapshotSource = (*SnapshotCatalog)(nil)
 
 func NewSnapshotCatalog() *SnapshotCatalog {
 	return &SnapshotCatalog{
-		pricing:          make(map[versionKey]billing.PricingSnapshot),
-		tariffs:          make(map[versionKey]economics.TariffSnapshot),
-		policies:         make(map[versionKey]billing.ChargePolicy),
-		operatorRates:    make(map[versionKey]billing.OperatorRateSnapshot),
-		routePricing:     make(map[routeKey]versionKey),
-		operatorBindings: make(map[routeKey]versionKey),
+		pricing:           make(map[versionKey]billing.PricingSnapshot),
+		tariffs:           make(map[versionKey]economics.TariffSnapshot),
+		policies:          make(map[versionKey]billing.ChargePolicy),
+		operatorRates:     make(map[versionKey]billing.OperatorRateSnapshot),
+		selectionPolicies: make(map[versionKey]billing.OperatorCostSelectionPolicy),
+		routePricing:      make(map[routeKey]versionKey),
+		operatorBindings:  make(map[routeKey]versionKey),
 	}
 }
 

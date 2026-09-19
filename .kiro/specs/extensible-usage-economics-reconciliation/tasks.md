@@ -517,9 +517,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 9.6, 14.1, 15.1, 15.4_
 
 
-- [ ] 12. Implement discrepancy reconciliation and operational classification
+- [x] 12. Implement discrepancy reconciliation and operational classification
 
-- [ ] 12.1 Compare compatible component quantities
+- [x] 12.1 Compare compatible component quantities
   - Join local/provider evidence on full subject/component/source context and calculate signed/absolute deltas.
   - Check tokenizer/schema/partition/period/coverage compatibility first; report partial/incomparable rather than zero or matched.
   - Completion: independent estimates retain quality labels and missing cache partitions are not falsely reconciled.
@@ -529,7 +529,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/..._
   - _Requirements: 12.1, 12.3, 1.4, 3.5_
 
-- [ ] 12.2 Decompose metering and monetary discrepancies
+- [x] 12.2 Decompose metering and monetary discrepancies
   - Implement E/Q/P comparison and exact cost-effect/residual formulas when terms exist; do not fill missing values.
   - Distinguish suspected tariff/context/classification causes from proven quantity differences, with source refs.
   - Completion: the E=1, Q=1.1, P=1.32 fixture yields 0.1, 0.22 and 0.32 respectively.
@@ -539,7 +539,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/..._
   - _Requirements: 7.2, 12.1, 12.2, 12.3_
 
-- [ ] 12.3 Apply versioned tolerances and retain all discrepancy evidence
+- [x] 12.3 Apply versioned tolerances and retain all discrepancy evidence
   - Implement exact absolute/relative tolerance with explicit zero denominator behavior and unit/currency-scoped policies.
   - Keep signed, absolute and within-tolerance deltas plus aggregate gross discrepancies and affected counts.
   - Completion: offsetting errors do not disappear in operational aggregates and estimated/incomparable values never become exact matches.
@@ -549,7 +549,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingstore/..._
   - _Requirements: 12.3, 12.4, 12.5_
 
-- [ ] 12.4 Select operator cost without erasing reconciliation state
+- [x] 12.4 Select operator cost without erasing reconciliation state
   - Implement versioned operator selection policy over E/Q/P/S with explicit provisional/unknown basis and payer/currency treatment.
   - Distinguish evidence completeness, comparison status and posting state; missing attempted usage stays unknown.
   - Completion: choosing P or Q never deletes E or labels unmatched evidence reconciled.
