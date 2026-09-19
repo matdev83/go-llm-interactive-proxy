@@ -16,10 +16,11 @@ func (h *Handler) authorize(w http.ResponseWriter, r *http.Request) bool {
 	case AuthModeBearer:
 		want := strings.TrimSpace(h.opts.BearerToken)
 		got := bearerFromAuthorization(r.Header.Get("Authorization"))
-
+		// subtle.ConstantTimeCompare short-circuits on length mismatch, leaking
+		// the expected token length via timing. Hash both sides first so the
+		// compared digests are always fixed-length (cf. internal/core/diag).
 		wantHash := sha256.Sum256([]byte(want))
 		gotHash := sha256.Sum256([]byte(got))
-
 		if want == "" || subtle.ConstantTimeCompare(gotHash[:], wantHash[:]) != 1 {
 			writeCategory(w, http.StatusUnauthorized, "unauthorized")
 			return false
