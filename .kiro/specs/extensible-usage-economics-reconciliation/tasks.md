@@ -646,9 +646,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 5.4, 8.6, 14.1, 14.5, 14.6, 18.3_
 
 
-- [ ] 15. Expose one external billing host binding without a runtime fork
+- [x] 15. Expose one external billing host binding without a runtime fork
 
-- [ ] 15.1 Publish the minimal typed external binding
+- [x] 15.1 Publish the minimal typed external binding
   - Implement public binding identity/version, complete cheap-screen/quote-admit/terminal ports and explicit owned-resource lifecycle registration. Preserve the separately defined public provider-neutral observation/sideband and Rater/Quoter/StatementImporter/ReconciliationReader contracts; do not add a generic provider-shaped normalizer port.
   - Use only public DTOs; adapters translate to existing internal billing services. Reject typed-nil, incomplete and duplicate monetary bindings.
   - Completion: public interfaces contain no internal, SQL, concrete provider or generic service-map types.
@@ -658,7 +658,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./pkg/lipsdk/... ./internal/archtest/..._
   - _Requirements: 15.1, 15.3, 15.4_
 
-- [ ] 15.2 Integrate explicit BuildWithBilling through the existing Host
+- [x] 15.2 Integrate explicit BuildWithBilling through the existing Host
   - Factor minimal common assembly behind Build and BuildWithBilling; call one BuildHost and preserve Host/Manager cleanup ownership.
   - Keep normal Options and stock YAML startup non-money; update the relevant architecture rule for this named exception only.
   - Completion: the internal reference billing composition and external binding use the same runtime, admission and terminal paths.
@@ -668,7 +668,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./pkg/lipruntime/... ./internal/infra/runtimebundle/... ./internal/archtest/..._
   - _Requirements: 14.1, 15.3, 15.4, 15.5_
 
-- [ ] 15.3 Certify cross-generation lifecycle and external-module use
+- [x] 15.3 Certify cross-generation lifecycle and external-module use
   - Build a separate module using only public packages with custom per-submission/credit rating and a synthetic non-token provider component.
   - Test candidate validation, failed publication, active-generation snapshot retention, repeated Close, borrowed resource ownership and worker shutdown.
   - Completion: no external internal-package import, duplicate cleanup or second host is needed.

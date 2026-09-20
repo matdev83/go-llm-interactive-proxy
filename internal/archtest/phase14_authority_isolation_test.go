@@ -72,6 +72,10 @@ func TestPhase14StreamFilesStayOffQuoteSettleAndBalance(t *testing.T) {
 // production implementation of the monetary exposure admission interface and
 // exactly one durable exposure store may exist. Test fakes are excluded;
 // non-money authority registrations live on different interfaces.
+// Task 15.2 named exception: internal/infra/billingbinding/adapter.go is the
+// single permitted delegating adapter. It implements no admission math of its
+// own; it quotes and admits exclusively through the validated public binding
+// ports (see TestBillingBindingAdapterHoldsNoAdmissionMath).
 func TestPhase14SingleMonetaryAdmissionAuthority(t *testing.T) {
 	t.Parallel()
 
@@ -111,8 +115,21 @@ func TestPhase14SingleMonetaryAdmissionAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(authorityImpls) != 1 || authorityImpls[0] != "internal/infra/billingadmission/adapter.go" {
-		t.Fatalf("monetary admission authority impls = %v, want exactly [internal/infra/billingadmission/adapter.go]", authorityImpls)
+	wantAuthority := []string{
+		"internal/infra/billingadmission/adapter.go",
+		"internal/infra/billingbinding/adapter.go",
+	}
+	if len(authorityImpls) != len(wantAuthority) {
+		t.Fatalf("monetary admission authority impls = %v, want %v", authorityImpls, wantAuthority)
+	}
+	seen := make(map[string]struct{}, len(authorityImpls))
+	for _, impl := range authorityImpls {
+		seen[impl] = struct{}{}
+	}
+	for _, want := range wantAuthority {
+		if _, ok := seen[want]; !ok {
+			t.Fatalf("monetary admission authority impls = %v, want %v", authorityImpls, wantAuthority)
+		}
 	}
 	if len(storeImpls) != 1 || storeImpls[0] != "internal/infra/billingstore/exposure_store.go" {
 		t.Fatalf("durable exposure store impls = %v, want exactly [internal/infra/billingstore/exposure_store.go]", storeImpls)

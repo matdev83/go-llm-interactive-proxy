@@ -34,6 +34,12 @@ func buildProcessBillingRuntime(owner *processResourceOwner, cfgReportsPath stri
 	if !billingCompositionConfigured(prod) {
 		return prod, nil
 	}
+	if externalBillingBindingConfigured(prod) {
+		if err := configureExternalBilling(owner, prod); err != nil {
+			return ProductionOptions{}, err
+		}
+		return prod, nil
+	}
 	if err := requireCompleteBillingComposition(prod); err != nil {
 		return ProductionOptions{}, err
 	}

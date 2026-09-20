@@ -1924,12 +1924,15 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 					a.observeBillingLeg(cctx, legRecord)
 				}
 				if callID != "" {
+					// The session-frozen scope rides the handoff even when
+					// terminalization runs detached (A-leg close/cancel).
+					scopeCtx := withTerminalScope(cctx, a.boundaryScope)
 					if a.appendBillingLegStrict != nil {
-						if err := a.appendBillingLegStrict(cctx, callID, legRecord); err != nil {
+						if err := a.appendBillingLegStrict(scopeCtx, callID, legRecord); err != nil {
 							errorsList = append(errorsList, fmt.Errorf("runtime: terminal billing leg durability: %w", err))
 						}
 					} else if a.appendBillingLeg != nil {
-						a.appendBillingLeg(cctx, callID, legRecord)
+						a.appendBillingLeg(scopeCtx, callID, legRecord)
 					}
 				}
 				if a.observeBillingLeg == nil && a.appendBillingLeg == nil && a.appendBillingLegStrict == nil && a.appendBillingLegFn != nil {

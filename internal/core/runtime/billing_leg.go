@@ -345,14 +345,18 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 	if t.observeBillingLeg != nil {
 		t.observeBillingLeg(ctx, legRecord)
 	}
+	// The sink context carries the frozen request scope even when the
+	// incoming terminal context does not, so the monetary handoff keeps
+	// customer identity on every path.
+	scopeCtx := withTerminalScope(ctx, request.recvViews.Scope)
 	if t.appendBillingLegStrict != nil {
-		if err := t.appendBillingLegStrict(ctx, request.billingCallID, legRecord); err != nil {
+		if err := t.appendBillingLegStrict(scopeCtx, request.billingCallID, legRecord); err != nil {
 			if t.logBillingAppendFailure != nil {
 				t.logBillingAppendFailure(ctx, "billing_call_leg_append_critical", "billing call-leg append failed", err)
 			}
 		}
 	} else if t.appendBillingLeg != nil {
-		t.appendBillingLeg(ctx, request.billingCallID, legRecord)
+		t.appendBillingLeg(scopeCtx, request.billingCallID, legRecord)
 	}
 }
 
@@ -561,6 +565,8 @@ func (e *Executor) appendIndependentTerminalLegWithObservations(ctx context.Cont
 	if !e.hasTerminalSink() {
 		return
 	}
+	// Frozen admission scope rides the handoff even on detached contexts.
+	ctx = withTerminalScope(ctx, state.frozenScope())
 	if started.IsZero() {
 		started = finished
 	}
@@ -610,6 +616,8 @@ func (e *Executor) appendPostOpenTerminalLeg(ctx context.Context, state *billing
 	if e == nil || strings.TrimSpace(bleg.BLegID) == "" {
 		return
 	}
+	// Frozen admission scope rides the handoff even on detached contexts.
+	ctx = withTerminalScope(ctx, state.frozenScope())
 	if started.IsZero() {
 		started = e.now()
 	}

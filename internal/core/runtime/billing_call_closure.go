@@ -62,6 +62,8 @@ func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts requestTerm
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// The frozen facts scope rides the closure even on detached contexts.
+	ctx = withTerminalScope(ctx, facts.recvViews.Scope)
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
 	err = safety.Call(safety.BoundaryStream, "billing_call_closure", func() error {

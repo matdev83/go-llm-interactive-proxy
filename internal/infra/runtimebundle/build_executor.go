@@ -370,7 +370,12 @@ func billingCompositionConfigured(prod ProductionOptions) bool {
 // requireCompleteBillingComposition enforces the final all-or-none runtime seam.
 // A stock host has no billing ports; an injected host must provide every port
 // consumed by the executor plus the durable store used by process-owned workers.
+// An external monetary binding provides the same chokepoints without an
+// internal store and satisfies the seam on its own terms.
 func requireCompleteBillingComposition(prod ProductionOptions) error {
+	if externalBillingBindingConfigured(prod) {
+		return nil
+	}
 	switch {
 	case prod.BillingStore == nil:
 		return fmt.Errorf("%w: BillingStore", ErrAuthoritativeBillingRequired)

@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/submission"
 )
 
@@ -79,6 +80,11 @@ type billingCallState struct {
 
 	mu sync.Mutex
 
+	// scope is the trusted customer scope frozen at exposure admission. It
+	// lets terminal handoffs carry customer identity on detached contexts
+	// long after the request context is gone.
+	scope scope.PrincipalScopeView
+
 	allocated map[string]int // BLegID -> actual AttemptSeq
 	frozen    []string
 	hasFrozen bool
@@ -94,6 +100,32 @@ func newBillingCallState(callID billing.BillingCallID) *billingCallState {
 		allocated: make(map[string]int),
 		finalize:  make(map[string]*finalizeCacheEntry),
 	}
+}
+
+// freezeScope records the trusted customer scope once, at exposure
+// admission. Later calls never override it: terminal handoffs must observe
+// the frozen admission scope, not a re-resolved one.
+func (s *billingCallState) freezeScope(sc scope.PrincipalScopeView) {
+	if s == nil || !sc.PrincipalID.IsKnown() {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.scope.PrincipalID.IsKnown() {
+		return
+	}
+	s.scope = sc.Clone()
+}
+
+// frozenScope returns the admission-frozen customer scope, or zero when the
+// call never admitted one.
+func (s *billingCallState) frozenScope() scope.PrincipalScopeView {
+	if s == nil {
+		return scope.PrincipalScopeView{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scope.Clone()
 }
 
 func (s *billingCallState) ensureSubmissionID(id string) error {

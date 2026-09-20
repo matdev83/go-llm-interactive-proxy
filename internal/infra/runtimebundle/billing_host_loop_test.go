@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -460,7 +461,7 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCallExposure after provider failure: %v", err)
 	}
-	if afterExposure != exposure || afterExposure.IsOpen() {
+	if !reflect.DeepEqual(afterExposure, exposure) || afterExposure.IsOpen() {
 		t.Fatalf("provider failure mutated/reopened customer exposure: before=%+v after=%+v", exposure, afterExposure)
 	}
 }
