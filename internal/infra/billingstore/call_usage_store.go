@@ -276,7 +276,7 @@ func (s *DurableStore) GetCallExposure(ctx context.Context, callID billing.Billi
 		return billing.CallExposure{}, err
 	}
 	var row exposureRow
-	if err := s.db.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE call_id = ?`, callID.String()).Scan(ctx, &row); err != nil {
+	if err := s.db.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, route_tariffs, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE call_id = ?`, callID.String()).Scan(ctx, &row); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return billing.CallExposure{}, billing.ErrExposureNotFound
 		}

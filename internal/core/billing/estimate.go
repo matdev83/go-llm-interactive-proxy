@@ -77,6 +77,10 @@ type MaxCostBound struct {
 	PricingRef      VersionRef
 	ChargePolicyRef VersionRef
 	Basis           []BoundComponent
+	// RouteTariffs carries the frozen per-route customer tariff bindings
+	// actually used to form a rich quote. Empty on the legacy scalar path
+	// and on strict-ceiling fallback bounds, which carry no tariff material.
+	RouteTariffs []RouteTariffBinding
 }
 
 func (p ChargePolicy) Validate() error {

@@ -47,11 +47,15 @@ type CallExposure struct {
 	Max             Money
 	PricingRef      VersionRef
 	ChargePolicyRef VersionRef
-	Fingerprint     string
-	CreatedAt       time.Time
-	ClosedAt        time.Time
-	Status          ExposureStatus
-	Basis           ExposureBasis
+	// RouteTariffs carries the frozen per-route customer tariff bindings
+	// admitted with this exposure. Empty on the legacy scalar path, which
+	// stays bound through the base pricing/policy references alone.
+	RouteTariffs []RouteTariffBinding
+	Fingerprint  string
+	CreatedAt    time.Time
+	ClosedAt     time.Time
+	Status       ExposureStatus
+	Basis        ExposureBasis
 }
 
 func (e CallExposure) IsOpen() bool {
@@ -64,7 +68,10 @@ type AdmitExposureInput struct {
 	Max             Money
 	PricingRef      VersionRef
 	ChargePolicyRef VersionRef
-	Now             time.Time
+	// RouteTariffs carries the frozen per-route customer tariff bindings
+	// quoted for this call. Empty on the legacy scalar path.
+	RouteTariffs []RouteTariffBinding
+	Now          time.Time
 }
 
 func (in AdmitExposureInput) normalized() (AdmitExposureInput, error) {
@@ -83,6 +90,11 @@ func (in AdmitExposureInput) normalized() (AdmitExposureInput, error) {
 	if out.PricingRef == (VersionRef{}) || out.ChargePolicyRef == (VersionRef{}) {
 		return AdmitExposureInput{}, fmt.Errorf("%w: pricing and charge policy references are required", ErrExposureInvalid)
 	}
+	bindings, err := normalizeRouteTariffBindings(in.RouteTariffs)
+	if err != nil {
+		return AdmitExposureInput{}, err
+	}
+	out.RouteTariffs = bindings
 	return out, nil
 }
 
@@ -97,9 +109,11 @@ func (in AdmitExposureInput) SemanticFingerprint() (string, error) {
 		Max             Money
 		PricingRef      VersionRef
 		ChargePolicyRef VersionRef
+		RouteTariffs    []RouteTariffBinding
 	}{
 		AccountID: normalized.AccountID, CallID: normalized.CallID, Max: normalized.Max,
 		PricingRef: normalized.PricingRef, ChargePolicyRef: normalized.ChargePolicyRef,
+		RouteTariffs: normalized.RouteTariffs,
 	}
 	payload, err := json.Marshal(canonical)
 	if err != nil {
@@ -238,8 +252,9 @@ func EvaluateAdmit(account Account, exposures []CallExposure, in AdmitExposureIn
 	return CallExposure{
 		AccountID: normalized.AccountID, CallID: normalized.CallID,
 		Max: normalized.Max, PricingRef: normalized.PricingRef,
-		ChargePolicyRef: normalized.ChargePolicyRef, Fingerprint: fingerprint,
-		CreatedAt: normalized.Now, Status: ExposureOpen,
+		ChargePolicyRef: normalized.ChargePolicyRef, RouteTariffs: normalized.RouteTariffs,
+		Fingerprint: fingerprint,
+		CreatedAt:   normalized.Now, Status: ExposureOpen,
 		Basis: ExposureBasis{
 			BalanceNano:            account.BalanceNano,
 			CreditFloorNano:        account.CreditFloorNano(),
@@ -261,6 +276,12 @@ type SettleExposureResult struct {
 	Exposure           CallExposure
 	SafetyMarginBefore Money
 	SafetyMarginAfter  Money
+	// Breached reports that the actual incurred charge exceeded the admitted
+	// maximum. The actual amount is retained and settled under the account
+	// policy; it is never truncated to the quote. OverrunNano carries the
+	// exact excess (actual minus max) and is zero when not breached.
+	Breached    bool
+	OverrunNano int64
 }
 
 func EvaluateSettle(account Account, exposures []CallExposure, in SettleExposureInput) (SettleExposureResult, error) {
@@ -297,8 +318,17 @@ func EvaluateSettle(account Account, exposures []CallExposure, in SettleExposure
 	if found.Max.Currency != in.Actual.Currency {
 		return SettleExposureResult{}, ErrMoneyCurrencyMismatch
 	}
-	if in.Actual.Nano > found.Max.Nano {
-		return SettleExposureResult{}, ErrExposureActualExceedsMax
+	// Actual incurred cost is truth: an overrun settles under the account
+	// policy with explicit breach state instead of truncating usage to the
+	// admitted bound. The balance-floor check below remains the sole gate.
+	breached := in.Actual.Nano > found.Max.Nano
+	var overrun int64
+	if breached {
+		var err error
+		overrun, err = checkedSub(in.Actual.Nano, found.Max.Nano)
+		if err != nil {
+			return SettleExposureResult{}, err
+		}
 	}
 	before, err := SafetyMargin(account, exposures)
 	if err != nil {
@@ -318,11 +348,23 @@ func EvaluateSettle(account Account, exposures []CallExposure, in SettleExposure
 	if err != nil {
 		return SettleExposureResult{}, err
 	}
-	if after.Nano < before.Nano {
-		return SettleExposureResult{}, fmt.Errorf("%w: safety margin decreased from %d to %d", ErrExposureInvalid, before.Nano, after.Nano)
+	// Exact margin accounting: releasing the max reservation while debiting
+	// the actual moves the margin by exactly max minus actual. An overrun
+	// therefore decreases the margin by exactly the overrun, never more.
+	wantAfter, err := checkedAdd(before.Nano, found.Max.Nano)
+	if err != nil {
+		return SettleExposureResult{}, err
+	}
+	wantAfter, err = checkedSub(wantAfter, in.Actual.Nano)
+	if err != nil {
+		return SettleExposureResult{}, err
+	}
+	if after.Nano != wantAfter {
+		return SettleExposureResult{}, fmt.Errorf("%w: safety margin moved from %d to %d, want %d", ErrExposureInvalid, before.Nano, after.Nano, wantAfter)
 	}
 	return SettleExposureResult{
 		Account: updated, Exposure: closed,
 		SafetyMarginBefore: before, SafetyMarginAfter: after,
+		Breached: breached, OverrunNano: overrun,
 	}, nil
 }

@@ -613,9 +613,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 10.3, 18.2, 18.4_
 
 
-- [ ] 14. Extend conservative admission to richer customer offers
+- [x] 14. Extend conservative admission to richer customer offers
 
-- [ ] 14.1 Quote token and non-token exposure from the same policy semantics
+- [x] 14.1 Quote token and non-token exposure from the same policy semantics
   - Use immutable customer rules and finite candidate/work bounds for unit, fixed, minimum, credit and resource charges.
   - Unknown duration/tool count or missing required evidence capability must yield explicit strict deny or a configured enforceable finite limit, not a fabricated bound.
   - Completion: quote and settlement agree on scope/rounding/price version across representative richer offers.
@@ -625,7 +625,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/infra/billingadmission/... ./internal/core/billing/..._
   - _Requirements: 7.1, 7.3, 14.1, 14.2, 14.5_
 
-- [ ] 14.2 Preserve atomic exposure and actual-incurred-cost truth
+- [x] 14.2 Preserve atomic exposure and actual-incurred-cost truth
   - Keep the cheap credit screen and existing atomic exposure transition as the sole monetary admission path.
   - Record actual incurred amounts even when they exceed an estimate; preserve breach state and handle settlement under existing account policy without truncating usage.
   - Completion: concurrent admissions and canceled/overrun calls cannot bypass exposure or rewrite actual cost to the quote.
@@ -635,7 +635,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/core/billing/... ./internal/infra/billingadmission/... ./internal/infra/billingstore/..._
   - _Requirements: 10.5, 14.1, 14.2, 14.3, 14.4_
 
-- [ ] 14.3 Certify unsupported capability and provider-backlog isolation
+- [x] 14.3 Certify unsupported capability and provider-backlog isolation
   - Reject strict offers before upstream spend when selected routes lack necessary evidence, without suppressing unrelated observation-only mode.
   - Exercise supplier worker backlog while customer admission proceeds and verify no supplier-side account balance lock.
   - Completion: no stream-time rating/journal path or hidden second admission authority exists.

@@ -407,22 +407,25 @@ func runBillingStoreCallSettlementContract(t *testing.T, store *DurableStore, ac
 		Call: overCall, Exposure: overExposure,
 		Result: billing.CallRatingResult{CallID: overID, CustomerCharge: billing.Money{Nano: 11, Currency: "USD"}, Fingerprint: accountID + "-over"},
 	})
-	if !errors.Is(err, billing.ErrSettlementReconcileRequired) {
-		t.Fatalf("actual>max = %v, want ErrSettlementReconcileRequired", err)
+	if err != nil {
+		t.Fatalf("actual>max = %v, want breach settlement retaining actual 11", err)
 	}
 	overAccount, err := store.GetAccount(ctx, accountID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if overAccount.State != billing.AccountReconcileRequired {
-		t.Fatalf("state = %s, want reconcile_required", overAccount.State)
+	if overAccount.State != billing.AccountReady {
+		t.Fatalf("state = %s, want ready (spendable covers actual)", overAccount.State)
+	}
+	if overAccount.BalanceNano != 64 {
+		t.Fatalf("balance = %d, want 75-11 actual debited", overAccount.BalanceNano)
 	}
 	var overStatus string
 	if err := store.db.NewRaw(`SELECT status FROM call_exposures WHERE call_id = ?`, overID.String()).Scan(ctx, &overStatus); err != nil {
 		t.Fatal(err)
 	}
-	if overStatus != "open" {
-		t.Fatalf("over-max exposure status = %q, want open", overStatus)
+	if overStatus != "closed" {
+		t.Fatalf("over-max exposure status = %q, want closed with actual posted", overStatus)
 	}
 
 	runCustomerUnitLedgerContract(t, store, accountID)

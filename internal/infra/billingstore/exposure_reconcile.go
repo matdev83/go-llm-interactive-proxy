@@ -42,7 +42,7 @@ func (s *DurableStore) ReconcileOpenExposure(ctx context.Context, accountID stri
 		return billing.ExposureReconciliationReport{}, err
 	}
 	var rows []exposureRow
-	if err := s.db.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE account_id = ? AND status = 'open' ORDER BY call_id`, accountID).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := s.db.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, route_tariffs, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE account_id = ? AND status = 'open' ORDER BY call_id`, accountID).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return billing.ExposureReconciliationReport{}, err
 	}
 	exposures := make([]billing.CallExposure, 0, len(rows))
@@ -146,9 +146,22 @@ func (s *DurableStore) applyNoChargeRepair(ctx context.Context, callID billing.B
 		return billing.CallSettlement{}, err
 	}
 	fingerprint := "no-charge-repair:v1:" + strings.TrimSpace(sourceKey)
+	result := billing.CallRatingResult{CallID: callID, CustomerCharge: billing.Money{Nano: 0, Currency: exposure.Max.Currency}, Fingerprint: fingerprint}
+	// A rich exposure closes with no charge only under an explicit attestation
+	// over the executed leg routes. Without a defensible attestation the
+	// terminal check fails closed and the call retries instead of silently
+	// settling.
+	if len(exposure.RouteTariffs) != 0 {
+		attested, attestErr := billing.AttestNoUsageRoutes(exposure.RouteTariffs, complete.Legs)
+		if attestErr != nil {
+			_ = s.RetryCompleteCall(ctx, callID, "no_charge_repair")
+			return billing.CallSettlement{}, attestErr
+		}
+		result.RouteTariffs = attested
+	}
 	settled, err := s.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
 		Call: complete.Closure, Exposure: exposure,
-		Result:        billing.CallRatingResult{CallID: callID, CustomerCharge: billing.Money{Nano: 0, Currency: exposure.Max.Currency}, Fingerprint: fingerprint},
+		Result:        result,
 		OperationKind: "customer_no_charge_repair",
 	})
 	if err != nil {

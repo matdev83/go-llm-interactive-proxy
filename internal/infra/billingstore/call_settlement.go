@@ -124,6 +124,47 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 			return billing.CallSettlement{}, ErrOperationConflict
 		}
 	}
+	var row exposureRow
+	if err := tx.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, route_tariffs, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE account_id = ? AND call_id = ?`, call.AccountID, call.CallID.String()).Scan(ctx, &row); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return billing.CallSettlement{}, billing.ErrExposureNotFound
+		}
+		return billing.CallSettlement{}, err
+	}
+	exposure, err := exposureFromRow(row)
+	if err != nil {
+		return billing.CallSettlement{}, err
+	}
+	effectiveCharge := result.CustomerCharge
+	if submissionClaimFound {
+		effectiveCharge, err = result.CustomerCharge.Sub(submissionClaim.Amount)
+		if err != nil {
+			return billing.CallSettlement{}, fmt.Errorf("%w: submission fee deduction: %v", billing.ErrSettlementInvalid, err)
+		}
+	}
+	if effectiveCharge.Nano < 0 {
+		return billing.CallSettlement{}, billing.ErrSettlementInvalid
+	}
+	if effectiveCharge.Currency != exposure.Max.Currency {
+		return billing.CallSettlement{}, billing.ErrMoneyCurrencyMismatch
+	}
+	// Actual incurred cost is truth: an overrun settles under the account
+	// policy with explicit breach state instead of discarding the actual.
+	// The breach marker binds actual versus max into the idempotency
+	// fingerprint, so redelivery replays while a different actual conflicts.
+	breached := effectiveCharge.Nano > exposure.Max.Nano
+	var overrunNano int64
+	if breached {
+		overrunNano = effectiveCharge.Nano - exposure.Max.Nano
+		settlementFingerprint += fmt.Sprintf(":breach:overrun=%d", overrunNano)
+	}
+	// The route tariffs actually used to rate this call must resolve to the
+	// admitted frozen binding. This fails closed before any journal, balance,
+	// exposure, or claim transition on version, content, route, or
+	// missing-binding mismatch.
+	if err := billing.CheckSettledRouteTariffs(exposure.RouteTariffs, result.RouteTariffs, effectiveCharge); err != nil {
+		return billing.CallSettlement{}, err
+	}
 	if existing, found, lookupErr := loadOperationSnapshot(ctx, tx, call.AccountID, operationKind, call.CallID.String()); lookupErr != nil {
 		return billing.CallSettlement{}, lookupErr
 	} else if found {
@@ -133,18 +174,7 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 		if err := tx.Commit(); err != nil {
 			return billing.CallSettlement{}, err
 		}
-		return billing.CallSettlement{CallID: call.CallID, Replayed: true}, nil
-	}
-	var row exposureRow
-	if err := tx.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE account_id = ? AND call_id = ?`, call.AccountID, call.CallID.String()).Scan(ctx, &row); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return billing.CallSettlement{}, billing.ErrExposureNotFound
-		}
-		return billing.CallSettlement{}, err
-	}
-	exposure, err := exposureFromRow(row)
-	if err != nil {
-		return billing.CallSettlement{}, err
+		return billing.CallSettlement{CallID: call.CallID, Replayed: true, Breached: breached, OverrunNano: overrunNano}, nil
 	}
 	if exposure.Fingerprint != expected.Fingerprint || !exposure.IsOpen() {
 		return billing.CallSettlement{}, billing.ErrSettlementConflict
@@ -158,25 +188,6 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 	}
 	if account.Currency != result.CustomerCharge.Currency || account.Currency != exposure.Max.Currency {
 		return billing.CallSettlement{}, billing.ErrMoneyCurrencyMismatch
-	}
-	effectiveCharge := result.CustomerCharge
-	if submissionClaimFound {
-		effectiveCharge, err = result.CustomerCharge.Sub(submissionClaim.Amount)
-		if err != nil {
-			return billing.CallSettlement{}, fmt.Errorf("%w: submission fee deduction: %v", billing.ErrSettlementInvalid, err)
-		}
-	}
-	if effectiveCharge.Nano < 0 {
-		return billing.CallSettlement{}, billing.ErrSettlementInvalid
-	}
-	if effectiveCharge.Nano > exposure.Max.Nano {
-		if err := setReconcileRequiredTx(ctx, tx, call.AccountID); err != nil {
-			return billing.CallSettlement{}, err
-		}
-		if err := tx.Commit(); err != nil {
-			return billing.CallSettlement{}, err
-		}
-		return billing.CallSettlement{}, fmt.Errorf("%w: %w", billing.ErrSettlementReconcileRequired, billing.ErrExposureActualExceedsMax)
 	}
 	before, err := snapshotForAccount(account)
 	if err != nil {
@@ -290,5 +301,5 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 		copy.OriginalTransactionID = posting.Transaction.ID
 		state = &copy
 	}
-	return billing.CallSettlement{CallID: call.CallID, Customer: posting, CustomerUnitResult: customerUnitResult, CostPassThrough: state}, nil
+	return billing.CallSettlement{CallID: call.CallID, Customer: posting, CustomerUnitResult: customerUnitResult, CostPassThrough: state, Breached: breached, OverrunNano: overrunNano}, nil
 }

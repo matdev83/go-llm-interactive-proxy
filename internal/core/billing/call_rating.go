@@ -50,6 +50,11 @@ type CallRatingResult struct {
 	// checked against that operation's bound before settlement commits.
 	CustomerUnitFallbackCharge *Money
 	CostPassThrough            *CostPassThroughSettlement
+	// RouteTariffs carries the route tariff bindings actually used to rate
+	// this call (one entry per rated route). The terminal settlement compares
+	// them against the admitted frozen binding before posting. Empty on the
+	// scalar legacy and cost-pass-through paths, which use no tariff material.
+	RouteTariffs []RouteTariffBinding
 }
 type ApplyCallBillingInput struct {
 	Call          CallUsageRecord
@@ -63,6 +68,12 @@ type CallSettlement struct {
 	CustomerUnitResult *CustomerUnitOperationResult
 	CostPassThrough    *CostPassThroughSettlement
 	Replayed           bool
+	// Breached reports that the posted customer charge exceeded the admitted
+	// exposure maximum. The actual incurred amount is retained in the posting;
+	// it is never truncated to the quote. OverrunNano carries the exact
+	// excess and is zero when not breached.
+	Breached    bool
+	OverrunNano int64
 }
 
 func RateCall(in CallRatingInput) (CallRatingResult, error) {
@@ -155,9 +166,14 @@ func RateCall(in CallRatingInput) (CallRatingResult, error) {
 		if retail.CustomerCharge.Currency != in.MaxCustomerCharge.Currency {
 			return CallRatingResult{}, ErrRatingCurrencyMismatch
 		}
+		bindings, err := ratedRouteTariffBindings(sealedLegs, retail.Valuation, in.CustomerTariff, in.ModelTariffs)
+		if err != nil {
+			return CallRatingResult{CallID: call.CallID, CustomerValuation: retail.Valuation}, err
+		}
 		return CallRatingResult{
 			CallID: call.CallID, CustomerCharge: retail.CustomerCharge,
 			Fingerprint: retail.Fingerprint, CustomerValuation: retail.Valuation,
+			RouteTariffs: bindings,
 		}, nil
 	}
 	if err := in.CustomerPricing.Validate(in.MaxCustomerCharge.Currency); err != nil {

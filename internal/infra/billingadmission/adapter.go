@@ -9,21 +9,38 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 type (
 	RoutePricing   func(ctx context.Context, backend, model string) (billing.PricingSnapshot, error)
 	ModelMaxOutput func(ctx context.Context, backend, model string) (max int64, present bool, err error)
-	Config         struct {
-		ExposureStore       billing.ExposureAdmissionStore
-		Identity            coreruntime.BillingIdentity
-		Currency            string
-		Policy              func(context.Context, lipapi.Call) (billing.ChargePolicy, error)
-		Pricing             RoutePricing
-		ModelMaxOutput      ModelMaxOutput
-		ClientMaxOutput     func(context.Context, lipapi.Call) *int64
-		Strict              bool
-		ConservativeCeiling *billing.Money
+	// TariffResolver returns the immutable customer tariff bound to the call's
+	// policy. A nil resolver keeps the legacy scalar pricing path.
+	TariffResolver func(ctx context.Context, call lipapi.Call) (economics.TariffSnapshot, error)
+	// ModelTariffResolver optionally overrides the base tariff per candidate
+	// route. An empty snapshot selects the base tariff for that route.
+	ModelTariffResolver func(ctx context.Context, backend, model string) (economics.TariffSnapshot, error)
+	// ComponentBoundsResolver returns finite enforceable candidate/work upper
+	// bounds for richer customer offers. Required when BaseTariff is set.
+	ComponentBoundsResolver func(ctx context.Context, call lipapi.Call) ([]billing.RichComponentBound, error)
+	// RouteCapabilitiesResolver returns provable evidence capabilities per route.
+	RouteCapabilitiesResolver func(ctx context.Context, backend, model string) ([]string, error)
+	Config                    struct {
+		ExposureStore        billing.ExposureAdmissionStore
+		Identity             coreruntime.BillingIdentity
+		Currency             string
+		Policy               func(context.Context, lipapi.Call) (billing.ChargePolicy, error)
+		Pricing              RoutePricing
+		ModelMaxOutput       ModelMaxOutput
+		ClientMaxOutput      func(context.Context, lipapi.Call) *int64
+		Strict               bool
+		ConservativeCeiling  *billing.Money
+		BaseTariff           TariffResolver
+		ModelTariff          ModelTariffResolver
+		ComponentBounds      ComponentBoundsResolver
+		RequiredCapabilities []string
+		RouteCapabilities    RouteCapabilitiesResolver
 	}
 )
 
@@ -53,11 +70,62 @@ func (a *Adapter) Quote(ctx context.Context, in coreruntime.BillingAdmissionInpu
 	if a == nil {
 		return billing.MaxCostBound{}, fmt.Errorf("%w: nil admission adapter", billing.ErrEstimateInvalid)
 	}
+	if a.cfg.BaseTariff != nil {
+		return a.richQuote(ctx, in)
+	}
 	estimate, err := a.maxChargeInput(ctx, in)
 	if err != nil {
 		return billing.MaxCostBound{}, err
 	}
 	return billing.EstimateMaxCustomerCharge(estimate)
+}
+
+func (a *Adapter) richQuote(ctx context.Context, in coreruntime.BillingAdmissionInput) (billing.MaxCostBound, error) {
+	policy, err := a.cfg.Policy(ctx, in.Call)
+	if err != nil {
+		return billing.MaxCostBound{}, err
+	}
+	baseTariff, err := a.cfg.BaseTariff(ctx, in.Call)
+	if err != nil {
+		return billing.MaxCostBound{}, err
+	}
+	if a.cfg.ComponentBounds == nil {
+		return billing.MaxCostBound{}, fmt.Errorf("%w: component bounds resolver is required with customer tariff", billing.ErrEstimateInvalid)
+	}
+	bounds, err := a.cfg.ComponentBounds(ctx, in.Call)
+	if err != nil {
+		return billing.MaxCostBound{}, err
+	}
+	leaves := collectPlannedLeaves(in.Route)
+	if len(leaves) == 0 {
+		return billing.MaxCostBound{}, fmt.Errorf("%w: route plan has no chargeable leaves", billing.ErrEstimateUnbounded)
+	}
+	routes := make([]billing.RichQuoteRoute, 0, len(leaves))
+	for _, leaf := range leaves {
+		route := billing.RichQuoteRoute{ID: leaf.Key, Backend: leaf.Backend, Model: leaf.Model}
+		if a.cfg.ModelTariff != nil {
+			tariff, err := a.cfg.ModelTariff(ctx, leaf.Backend, leaf.Model)
+			if err != nil {
+				return billing.MaxCostBound{}, err
+			}
+			if strings.TrimSpace(tariff.Ref.ID) != "" || strings.TrimSpace(tariff.Ref.Version) != "" || len(tariff.Rules) != 0 || strings.TrimSpace(tariff.Currency) != "" {
+				route.Tariff = tariff
+			}
+		}
+		if a.cfg.RouteCapabilities != nil {
+			capabilities, err := a.cfg.RouteCapabilities(ctx, leaf.Backend, leaf.Model)
+			if err != nil {
+				return billing.MaxCostBound{}, err
+			}
+			route.Capabilities = capabilities
+		}
+		routes = append(routes, route)
+	}
+	return billing.EstimateRichCustomerCharge(billing.RichQuoteInput{
+		Currency: a.cfg.Currency, Policy: policy, BaseTariff: baseTariff,
+		Routes: routes, Bounds: bounds,
+		RequiredCapabilities: append([]string(nil), a.cfg.RequiredCapabilities...),
+	})
 }
 
 func (a *Adapter) maxChargeInput(ctx context.Context, in coreruntime.BillingAdmissionInput) (billing.MaxChargeInput, error) {
@@ -105,6 +173,7 @@ func (a *Adapter) Admit(ctx context.Context, in coreruntime.BillingExposureAdmis
 	return a.cfg.ExposureStore.AdmitExposure(ctx, billing.AdmitExposureInput{
 		AccountID: accountID, CallID: callID, Max: bound.Amount,
 		PricingRef: bound.PricingRef, ChargePolicyRef: bound.ChargePolicyRef,
+		RouteTariffs: bound.RouteTariffs,
 	})
 }
 

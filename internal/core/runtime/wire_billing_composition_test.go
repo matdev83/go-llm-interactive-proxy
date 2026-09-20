@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,13 @@ import (
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
+
+// isEmptyCallExposure reports whether e is the zero CallExposure. Direct ==
+// comparison is unavailable because CallExposure carries the RouteTariffs
+// slice; DeepEqual preserves the field-wise emptiness intent including it.
+func isEmptyCallExposure(e billing.CallExposure) bool {
+	return reflect.DeepEqual(e, billing.CallExposure{})
+}
 
 // capturingTerminalUsageSink records sealed Call and Leg records for testing.
 type capturingTerminalUsageSink struct {
@@ -425,7 +433,7 @@ func TestWireBilling_AuthorizeExposure_NilAdmission_CanonicalParity(t *testing.T
 	if err != nil {
 		t.Fatalf("wire AuthorizeWireBilling failed: %v", err)
 	}
-	if wireExposure != (billing.CallExposure{}) {
+	if !isEmptyCallExposure(wireExposure) {
 		t.Fatalf("expected empty CallExposure for nil BillingExposureAdmission, got %+v", wireExposure)
 	}
 	wireIdentityStamped := strings.TrimSpace(wireExposure.AccountID) != ""
@@ -447,7 +455,7 @@ func TestWireBilling_AuthorizeExposure_NilAdmission_CanonicalParity(t *testing.T
 	if err := ex.authorizeBillingOnce(ctx, prep, plan); err != nil {
 		t.Fatalf("canonical authorizeBillingOnce failed: %v", err)
 	}
-	if prep.billingExposure != (billing.CallExposure{}) {
+	if !isEmptyCallExposure(prep.billingExposure) {
 		t.Fatalf("expected canonical billingExposure to be empty, got %+v", prep.billingExposure)
 	}
 	if prep.billingIdentityStamped {
@@ -455,7 +463,7 @@ func TestWireBilling_AuthorizeExposure_NilAdmission_CanonicalParity(t *testing.T
 	}
 
 	// 3. Differential assertions
-	if wireExposure != prep.billingExposure {
+	if !reflect.DeepEqual(wireExposure, prep.billingExposure) {
 		t.Fatalf("exposure mismatch: wire=%+v, canonical=%+v", wireExposure, prep.billingExposure)
 	}
 	if wireIdentityStamped != prep.billingIdentityStamped {

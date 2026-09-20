@@ -20,6 +20,7 @@ type exposureRow struct {
 	Currency            string     `bun:"currency,notnull"`
 	PricingRef          string     `bun:"pricing_ref,notnull"`
 	ChargePolicyRef     string     `bun:"charge_policy_ref,notnull"`
+	RouteTariffs        string     `bun:"route_tariffs,notnull"`
 	Fingerprint         string     `bun:"fingerprint,notnull"`
 	BalanceNano         int64      `bun:"balance_nano,notnull"`
 	CreditFloorNano     int64      `bun:"credit_floor_nano,notnull"`
@@ -62,7 +63,7 @@ func (s *DurableStore) admitExposureAttempt(ctx context.Context, input billing.A
 		return zero, err
 	}
 	var existing exposureRow
-	err = tx.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE account_id = ? AND call_id = ?`, accountID, callID).Scan(ctx, &existing)
+	err = tx.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, route_tariffs, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE account_id = ? AND call_id = ?`, accountID, callID).Scan(ctx, &existing)
 	if err == nil {
 		exposure, decodeErr := exposureFromRow(existing)
 		if decodeErr != nil {
@@ -84,7 +85,7 @@ func (s *DurableStore) admitExposureAttempt(ctx context.Context, input billing.A
 		return zero, err
 	}
 	var rows []exposureRow
-	if err := tx.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE account_id = ? AND status = 'open' ORDER BY call_id`, accountID).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := tx.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, route_tariffs, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE account_id = ? AND status = 'open' ORDER BY call_id`, accountID).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return zero, fmt.Errorf("billingstore: list open exposures: %w", err)
 	}
 	exposures := make([]billing.CallExposure, 0, len(rows))
@@ -107,8 +108,12 @@ func (s *DurableStore) admitExposureAttempt(ctx context.Context, input billing.A
 	if err != nil {
 		return zero, fmt.Errorf("billingstore: encode exposure policy ref: %w", err)
 	}
-	_, err = tx.NewRaw(`INSERT INTO call_exposures(exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		exposureKey(admitted.AccountID, admitted.CallID), admitted.AccountID, admitted.CallID, admitted.Max.Nano, admitted.Max.Currency, string(pricingRef), string(policyRef), admitted.Fingerprint,
+	routeTariffs, err := json.Marshal(admitted.RouteTariffs)
+	if err != nil {
+		return zero, fmt.Errorf("billingstore: encode exposure route tariffs: %w", err)
+	}
+	_, err = tx.NewRaw(`INSERT INTO call_exposures(exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, route_tariffs, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		exposureKey(admitted.AccountID, admitted.CallID), admitted.AccountID, admitted.CallID, admitted.Max.Nano, admitted.Max.Currency, string(pricingRef), string(policyRef), string(routeTariffs), admitted.Fingerprint,
 		admitted.Basis.BalanceNano, admitted.Basis.CreditFloorNano, admitted.Basis.OpenExposureNano, admitted.Basis.SettledHeadroomNano, admitted.Basis.SafetyMarginBeforeNano, admitted.Basis.SafetyMarginAfterNano, string(admitted.Status), admitted.CreatedAt).Exec(ctx)
 	if err != nil {
 		return zero, fmt.Errorf("billingstore: insert exposure: %w", err)
@@ -131,13 +136,20 @@ func exposureFromRow(row exposureRow) (billing.CallExposure, error) {
 	if err := json.Unmarshal([]byte(row.ChargePolicyRef), &policy); err != nil {
 		return billing.CallExposure{}, fmt.Errorf("billingstore: decode exposure policy ref: %w", err)
 	}
+	var routeTariffs []billing.RouteTariffBinding
+	if trimmed := strings.TrimSpace(row.RouteTariffs); trimmed != "" && trimmed != "[]" {
+		if err := json.Unmarshal([]byte(row.RouteTariffs), &routeTariffs); err != nil {
+			return billing.CallExposure{}, fmt.Errorf("billingstore: decode exposure route tariffs: %w", err)
+		}
+	}
 	var closedAt time.Time
 	if row.ClosedAt != nil {
 		closedAt = *row.ClosedAt
 	}
 	return billing.CallExposure{
 		AccountID: row.AccountID, CallID: row.CallID, Max: billing.Money{Nano: row.MaxExposureNano, Currency: row.Currency},
-		PricingRef: pricing, ChargePolicyRef: policy, Fingerprint: row.Fingerprint, CreatedAt: row.CreatedAt, ClosedAt: closedAt,
+		PricingRef: pricing, ChargePolicyRef: policy, RouteTariffs: routeTariffs,
+		Fingerprint: row.Fingerprint, CreatedAt: row.CreatedAt, ClosedAt: closedAt,
 		Status: billing.ExposureStatus(row.Status), Basis: billing.ExposureBasis{
 			BalanceNano: row.BalanceNano, CreditFloorNano: row.CreditFloorNano, OpenExposureNano: row.OpenExposureNano,
 			SettledHeadroomNano: row.SettledHeadroomNano, SafetyMarginBeforeNano: row.SafetyMarginBefore, SafetyMarginAfterNano: row.SafetyMarginAfter,

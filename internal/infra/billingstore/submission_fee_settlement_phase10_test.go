@@ -165,7 +165,10 @@ func TestSQLiteSubmissionFeeClaimIsNotPersistedWhenSettlementReconciles(t *testi
 		t.Fatal(err)
 	}
 	failedCall, failedExposure := phase10SubmissionCallWithMax(t, store, account.ID, "submission-rollback", "a-rollback-failed", 10)
-	failedResult := billing.CallRatingResult{CallID: failedCall.CallID, CustomerCharge: billing.Money{Nano: 15, Currency: "USD"}, Fingerprint: "submission-rollback-failed", CustomerValuation: phase10SubmissionValuation(t, failedCall, 5, 10, "tariff-v1", "policy-v1")}
+	// The failed charge exceeds spendable, so settlement reconciles under the
+	// existing account policy and the whole transaction (including the
+	// submission fee claim) rolls back.
+	failedResult := billing.CallRatingResult{CallID: failedCall.CallID, CustomerCharge: billing.Money{Nano: 150, Currency: "USD"}, Fingerprint: "submission-rollback-failed", CustomerValuation: phase10SubmissionValuation(t, failedCall, 5, 10, "tariff-v1", "policy-v1")}
 	if _, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{Call: failedCall, Exposure: failedExposure, Result: failedResult}); !errors.Is(err, billing.ErrSettlementReconcileRequired) {
 		t.Fatalf("failed settlement = %v, want reconciliation", err)
 	}

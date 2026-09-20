@@ -18,7 +18,7 @@ func (s *DurableStore) QueryOpenExposures(ctx context.Context, accountID string,
 	}
 	accountID = strings.TrimSpace(accountID)
 	afterKey := filterAfterKey(page)
-	query := `SELECT e.exposure_key, e.account_id, e.call_id, e.max_exposure_nano, e.currency, e.pricing_ref, e.charge_policy_ref, e.fingerprint, e.balance_nano, e.credit_floor_nano, e.open_exposure_nano, e.settled_headroom_nano, e.safety_margin_before_nano, e.safety_margin_after_nano, e.status, e.created_at, e.closed_at FROM call_exposures e WHERE e.status = 'open' AND e.exposure_key > ?`
+	query := `SELECT e.exposure_key, e.account_id, e.call_id, e.max_exposure_nano, e.currency, e.pricing_ref, e.charge_policy_ref, e.route_tariffs, e.fingerprint, e.balance_nano, e.credit_floor_nano, e.open_exposure_nano, e.settled_headroom_nano, e.safety_margin_before_nano, e.safety_margin_after_nano, e.status, e.created_at, e.closed_at FROM call_exposures e WHERE e.status = 'open' AND e.exposure_key > ?`
 	args := []any{afterKey}
 	if accountID != "" {
 		query += ` AND e.account_id = ?`
@@ -127,7 +127,7 @@ func (s *DurableStore) loadCallExplanationTx(ctx context.Context, q bun.IDB, cal
 	var data callExplanationData
 	data.CallID = callID
 	var exposureRow exposureRow
-	if err := q.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE call_id = ?`, callID.String()).Scan(ctx, &exposureRow); err != nil {
+	if err := q.NewRaw(`SELECT exposure_key, account_id, call_id, max_exposure_nano, currency, pricing_ref, charge_policy_ref, route_tariffs, fingerprint, balance_nano, credit_floor_nano, open_exposure_nano, settled_headroom_nano, safety_margin_before_nano, safety_margin_after_nano, status, created_at, closed_at FROM call_exposures WHERE call_id = ?`, callID.String()).Scan(ctx, &exposureRow); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return callExplanationData{}, err
 		}

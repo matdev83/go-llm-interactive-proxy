@@ -853,9 +853,11 @@ func TestRefinement83IntegratedCrossAuthorityPersistsAndExplains(t *testing.T) {
 	}
 
 	// Durable customer settlement for the winner-only charge, then replay.
+	// The admission freezes the exact route tariff bindings the production
+	// rating used, so the terminal binding fence verifies rather than fails.
 	exposure, err := store.AdmitExposure(ctx, billing.AdmitExposureInput{
 		AccountID: account.ID, CallID: callID.String(), Max: billing.Money{Nano: 10_000_000_000, Currency: "USD"},
-		PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef,
+		PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef, RouteTariffs: rated.RouteTariffs,
 	})
 	if err != nil {
 		t.Fatal(err)
