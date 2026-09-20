@@ -767,6 +767,29 @@ func TestRequestOpenFailed_clearsEphemeralMarkerButRetainsPendingInjection(t *te
 	}
 }
 
+// TestFailedOpen_producesNoBillableJobAfterPreOpenPrep locks requirement 7.12
+// and design §571 for the pre-open path: a completion-candidate preview may
+// stage intent/capsule state before Open, but if the open then fails, no
+// billable child job may be submitted.
+func TestFailedOpen_producesNoBillableJobAfterPreOpenPrep(t *testing.T) {
+	t.Parallel()
+	plugin, parent, background := openFixture(t)
+	call := openCall()
+	meta := openMeta()
+	_ = plugin.BeforeRequest(context.Background(), &call, compaction.RequestPreview{
+		Kind: compaction.PreviewCompletionCandidate, BoundaryFingerprint: "failed-open-boundary",
+	}, meta, compaction.Services{BackgroundAux: background})
+	if parent.state.PendingPreviewIntent == nil {
+		t.Fatal("pre-open preview intent was not staged")
+	}
+	if err := plugin.RequestOpenFailed(context.Background(), meta, compaction.Services{BackgroundAux: background}); err != nil {
+		t.Fatal(err)
+	}
+	if len(background.submits) != 0 {
+		t.Fatalf("failed open submitted billable work: %d", len(background.submits))
+	}
+}
+
 func TestBeforeRequest_nearMissAndStartPreviewDoNotCreateCompletionIntent(t *testing.T) {
 	t.Parallel()
 	plugin, parent, background := openFixture(t)

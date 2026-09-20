@@ -37,6 +37,10 @@ func newSpyCompactionDetector() *wireTestSpyCompactionDetector {
 	}
 }
 
+func (s *wireTestSpyCompactionDetector) PreviewRequest(meta compaction.PreservationMeta, call lipapi.Call) compaction.RequestPreview {
+	return s.inner.PreviewRequest(meta, call)
+}
+
 func (s *wireTestSpyCompactionDetector) RequestOpened(meta compaction.PreservationMeta, call lipapi.Call) []compaction.Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()

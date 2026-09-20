@@ -331,11 +331,11 @@ func (e *Executor) PrepareSecureSession(ctx context.Context, in SecureSessionPre
 			snap.SessionOpeners(),
 			openIn,
 		)
-		for k, v := range openRes.SessionLabelUpserts {
+		if len(openRes.SessionLabelUpserts) > 0 {
 			if preSession.Labels == nil {
-				preSession.Labels = make(map[string]string)
+				preSession.Labels = make(map[string]string, len(openRes.SessionLabelUpserts))
 			}
-			preSession.Labels[k] = v
+			maps.Copy(preSession.Labels, openRes.SessionLabelUpserts)
 		}
 	}
 
@@ -465,6 +465,41 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	work.Session.ContinuityKey = strings.TrimSpace(aLeg.ContinuityKey)
 	work.Session.ALegID = aLeg.ALegID
 
+	// Preserve unaugmented customer request for ingress accounting (P2) and
+	// semantic delta preservation (P1). The pre-open observer may append a
+	// proxy-generated continuity block; that block must not contaminate the
+	// customer-perspective checkpoint nor cause the semantic source watermark
+	// to be consumed before RequestOpened extracts user decisions/constraints.
+	// Capture the immutable customer view before mutation and keep it for
+	// metering and ingress provenance.
+	unaugmentedForIngress := lipapi.CloneCall(work)
+
+	// TP-2 pre-open seam: after the per-turn override snapshot and route
+	// authority barrier (inside ResolveALeg) and before secret-guard, submit,
+	// request stages and route-plan construction. Runs once per logical request
+	// (prepare runs once; retries reuse prep), before the primary B-leg opens.
+	// Fail-open: preserver errors never propagate; auxiliary turns skipped
+	// inside the observer; wire fast-path has no lipapi.Call so stays canonical-only.
+	// execctx views attach later, so carry the minimal trusted session view
+	// (authoritative IDs plus session-open label upserts) on the observer ctx;
+	// pre-open policy then sees the same session overrides as post-open.
+	// P1: The real preserver's BeforeRequest would commit the source high
+	// watermark based on the current call. That would make source.Prepare in
+	// RequestOpened see original items as already processed (injection only
+	// appends a developer item) and submit an empty SanitizedDelta while still
+	// being extraction-eligible via previewBound. Preserve the staged delta
+	// until successful open by not consuming watermark during preparation; the
+	// plugin's BeforeRequest is changed to stage without advancing the watermark.
+	// P2: Metering must use the unaugmented customer view, not the injected one.
+	e.observeCompactionBeforeRequest(
+		session.WithSessionView(outCtx, session.SessionView{
+			AuthoritativeSessionID: work.Session.AuthoritativeSessionID,
+			ALegID:                 aLeg.ALegID,
+			Labels:                 prep.PreSession().Labels,
+		}),
+		traceID, aLeg.ALegID, &work,
+	)
+
 	preSession := prep.BindSession(br, aLeg)
 	secureTurn := prep.SecureTurn(br)
 	secureTurnOK := true
@@ -503,7 +538,10 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		}
 	}
 	var meteringHolder *checkpoint.RequestHolder
-	outCtx, meteringHolder, err = captureFrontendIngressBeforeSubmit(outCtx, *workingCall, ibt.scope, e.now())
+	// P2: use unaugmented customer view for FE-ingress checkpoint; the
+	// current workingCall may already contain the proxy-appended continuity
+	// block, which must not be counted as customer input.
+	outCtx, meteringHolder, err = captureFrontendIngressBeforeSubmit(outCtx, unaugmentedForIngress, ibt.scope, e.now())
 	if err != nil {
 		return nil, nil, outCtx, err
 	}
@@ -568,7 +606,9 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		// before backend request/pre-request transforms, context estimation,
 		// billing, routing/capability/baseline. Fail closed on snapshot/
 		// projection errors; evidence stays bounded content-free.
-		ingressClone := lipapi.CloneCall(*workingCall)
+		// P2: ingress is customer perspective (unaugmented); backend is the
+		// augmented workingCall that already carries the continuity block.
+		ingressClone := lipapi.CloneCall(unaugmentedForIngress)
 		ibt.ingressCall = &ingressClone
 		backendClone := lipapi.CloneCall(*workingCall)
 		originalForFilter := lipapi.CloneCall(backendClone)
@@ -661,7 +701,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	}
 	// Ensure ingress is set even when snap == nil (no CTP branch).
 	if ibt.ingressCall == nil {
-		ingressClone := lipapi.CloneCall(*workingCall)
+		ingressClone := lipapi.CloneCall(unaugmentedForIngress)
 		ibt.ingressCall = &ingressClone
 		// Ensure backend workingCall is a distinct clone for isolation.
 		backendClone := lipapi.CloneCall(*workingCall)

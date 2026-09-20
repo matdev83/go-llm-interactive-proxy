@@ -532,7 +532,7 @@ func TestInventoryExtensions_StageCoalescingCharacterization(t *testing.T) {
 	trafFeat := featMap["feat-charlie-traffic-metrics"]
 	var trafOcc *InventoryStageOccupancy
 	for i := range trafFeat.StageOccupancy {
-		if trafFeat.StageOccupancy[i].StageID == extensions.StageTrafficObservation {
+		if trafFeat.StageOccupancy[i].StageID == lipfeature.StageIDTrafficObservation {
 			trafOcc = &trafFeat.StageOccupancy[i]
 			break
 		}
@@ -709,20 +709,20 @@ func TestInventoryExtensions_OccupantLabelFormatCharacterization(t *testing.T) {
 	}
 
 	// Verify all label formats
-	require.Equal(t, []string{"hook-sub"}, occMap[extensions.StageSubmit+":hook-sub"].HandlerIDs)
+	require.Equal(t, []string{"hook-sub"}, occMap[lipfeature.StageIDSubmit+":hook-sub"].HandlerIDs)
 	require.Equal(t, []string{"tool_catalog:filter-cat"}, occMap[extensions.StageToolCatalog+":tool_catalog:filter-cat"].HandlerIDs)
-	require.Equal(t, []string{"request_transform:req-tf"}, occMap[extensions.StageRequestWide+":request_transform:req-tf"].HandlerIDs)
-	require.Equal(t, []string{"request_part:req-part"}, occMap[extensions.StageRequestWide+":request_part:req-part"].HandlerIDs)
-	require.Equal(t, []string{"pre_request:pre-req"}, occMap[extensions.StagePreRequest+":pre_request:pre-req"].HandlerIDs)
-	require.Equal(t, []string{"route_hint:hint-rt"}, occMap[extensions.StageRouteHinting+":route_hint:hint-rt"].HandlerIDs)
-	require.Equal(t, []string{"resp-part"}, occMap[extensions.StageStreamEventMutation+":resp-part"].HandlerIDs)
+	require.Equal(t, []string{"request_transform:req-tf"}, occMap[lipfeature.StageIDRequestWide+":request_transform:req-tf"].HandlerIDs)
+	require.Equal(t, []string{"request_part:req-part"}, occMap[lipfeature.StageIDRequestWide+":request_part:req-part"].HandlerIDs)
+	require.Equal(t, []string{"pre_request:pre-req"}, occMap[lipfeature.StageIDPreRequest+":pre_request:pre-req"].HandlerIDs)
+	require.Equal(t, []string{"route_hint:hint-rt"}, occMap[lipfeature.StageIDRouteHinting+":route_hint:hint-rt"].HandlerIDs)
+	require.Equal(t, []string{"resp-part"}, occMap[lipfeature.StageIDStreamEventMutation+":resp-part"].HandlerIDs)
 	require.Equal(t, []string{"tool_policy:tool-pol", "tool_finalizer:tool-fin", "tool-reac"}, occMap[extensions.StageToolEventReaction+":tool_policy:tool-pol"].HandlerIDs)
 	require.Equal(t, []string{"opener:sess-op", "workspace_resolver:0"}, occMap[extensions.StageSessionOpen+":opener:sess-op"].HandlerIDs)
-	require.Equal(t, []string{"secret_guard:sec-gd"}, occMap[extensions.StageSecretGuard+":secret_guard:sec-gd"].HandlerIDs)
-	require.Equal(t, []string{"completion_gate:comp-gt"}, occMap[extensions.StageCompletionGating+":completion_gate:comp-gt"].HandlerIDs)
+	require.Equal(t, []string{"secret_guard:sec-gd"}, occMap[lipfeature.StageIDSecretGuard+":secret_guard:sec-gd"].HandlerIDs)
+	require.Equal(t, []string{"completion_gate:comp-gt"}, occMap[lipfeature.StageIDCompletionGating+":completion_gate:comp-gt"].HandlerIDs)
 	require.Equal(t, []string{"attempt_transform:att-tf"}, occMap[extensions.StageCandidateAttemptTransform+":attempt_transform:att-tf"].HandlerIDs)
 	require.Equal(t, []string{"stream_observer:stm-obs"}, occMap[extensions.StageFinalStreamObservation+":stream_observer:stm-obs"].HandlerIDs)
-	require.Equal(t, []string{"traffic_observer:0", "usage_observer:0", "raw_capture:0", "traffic_redactor:traf-red"}, occMap[extensions.StageTrafficObservation+":traffic_observer:0"].HandlerIDs)
+	require.Equal(t, []string{"traffic_observer:0", "usage_observer:0", "raw_capture:0", "traffic_redactor:traf-red"}, occMap[lipfeature.StageIDTrafficObservation+":traffic_observer:0"].HandlerIDs)
 }
 
 // TestInventoryExtensions_NilFilteringAllPlanesCharacterization pins nil exclusion behavior
@@ -787,19 +787,19 @@ func TestInventoryExtensions_NilFilteringAllPlanesCharacterization(t *testing.T)
 	require.Len(t, occ, 5, "must contain exactly 5 stage occupancy rows")
 	for _, o := range occ {
 		switch o.StageID {
-		case extensions.StageSecretGuard:
+		case lipfeature.StageIDSecretGuard:
 			require.Equal(t, []string{"secret_guard:sg-valid"}, o.HandlerIDs)
 			require.Equal(t, 1, o.Count)
 		case extensions.StageToolEventReaction:
 			require.Equal(t, []string{"tool_policy:pol-valid", "tool_finalizer:fin-valid"}, o.HandlerIDs)
 			require.Equal(t, 2, o.Count)
-		case extensions.StageRouteHinting:
+		case lipfeature.StageIDRouteHinting:
 			require.Equal(t, []string{"route_hint:hint-valid"}, o.HandlerIDs)
 			require.Equal(t, 1, o.Count)
 		case extensions.StageSessionOpen:
 			require.Equal(t, []string{"opener:opener-valid", "workspace_resolver:1"}, o.HandlerIDs)
 			require.Equal(t, 2, o.Count)
-		case extensions.StageTrafficObservation:
+		case lipfeature.StageIDTrafficObservation:
 			require.Equal(t, []string{"traffic_observer:1", "usage_observer:1", "raw_capture:1", "traffic_redactor:redact-valid"}, o.HandlerIDs)
 			require.Equal(t, 4, o.Count)
 		}
@@ -844,9 +844,9 @@ func TestInventoryExtensions_FamilySpecificOrderingCharacterization(t *testing.T
 	occSort := stageOccupancyFromBundle(bSort)
 	for _, o := range occSort {
 		switch o.StageID {
-		case extensions.StageSecretGuard:
+		case lipfeature.StageIDSecretGuard:
 			require.Equal(t, []string{"secret_guard:sg-a", "secret_guard:sg-b", "secret_guard:sg-z"}, o.HandlerIDs)
-		case extensions.StageSubmit:
+		case lipfeature.StageIDSubmit:
 			require.Equal(t, []string{"sub-a", "sub-b", "sub-z"}, o.HandlerIDs)
 		}
 	}
@@ -867,7 +867,7 @@ func TestInventoryExtensions_FamilySpecificOrderingCharacterization(t *testing.T
 		switch o.StageID {
 		case extensions.StageSessionOpen:
 			require.Equal(t, []string{"opener:z-opener", "opener:a-opener"}, o.HandlerIDs)
-		case extensions.StageTrafficObservation:
+		case lipfeature.StageIDTrafficObservation:
 			require.Equal(t, []string{"traffic_redactor:z-redactor", "traffic_redactor:a-redactor"}, o.HandlerIDs)
 		}
 	}

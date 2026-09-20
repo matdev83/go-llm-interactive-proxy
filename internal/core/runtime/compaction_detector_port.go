@@ -7,9 +7,10 @@ import (
 )
 
 // CompactionDetector is the repository-internal consumer port for session
-// compaction detection. It exposes only the three observation operations
+// compaction detection. It exposes only the four observation operations
 // consumed by the core runtime, using canonical lipapi and compaction SDK types.
 type CompactionDetector interface {
+	PreviewRequest(compaction.PreservationMeta, lipapi.Call) compaction.RequestPreview
 	RequestOpened(compaction.PreservationMeta, lipapi.Call) []compaction.Event
 	PreviewResponse(compaction.PreservationMeta, lipapi.Event) compaction.ResponsePreview
 	ResponseReleased(compaction.PreservationMeta, lipapi.Event) []compaction.Event

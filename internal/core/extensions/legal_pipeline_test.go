@@ -5,27 +5,28 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
 
 // wantLegalPipelineOrder is the canonical extension pipeline. Keep aligned with ADR 0006 plus
 // pre-request admission before route planning.
 var wantLegalPipelineOrder = []string{
-	extensions.StageTransportAuth,
-	extensions.StageSessionOpen,
-	extensions.StageSecretGuard,
-	extensions.StageSubmit,
-	extensions.StageToolCatalog,
-	extensions.StageRequestWide,
-	extensions.StagePreRequest,
-	extensions.StageRouteHinting,
-	extensions.StageCandidateAttemptTransform,
-	extensions.StageAttemptLifecycle,
-	extensions.StageStreamEventMutation,
-	extensions.StageToolEventReaction,
-	extensions.StageCompletionGating,
-	extensions.StageFinalStreamObservation,
-	extensions.StageTrafficObservation,
-	extensions.StageEgressEncoding,
+	feature.StageIDTransportAuth,
+	feature.StageIDSessionOpen,
+	feature.StageIDSecretGuard,
+	feature.StageIDSubmit,
+	feature.StageIDToolCatalog,
+	feature.StageIDRequestWide,
+	feature.StageIDPreRequest,
+	feature.StageIDRouteHinting,
+	feature.StageIDCandidateAttemptTransform,
+	feature.StageIDAttemptLifecycle,
+	feature.StageIDStreamEventMutation,
+	feature.StageIDToolEventReaction,
+	feature.StageIDCompletionGating,
+	feature.StageIDFinalStreamObservation,
+	feature.StageIDTrafficObservation,
+	feature.StageIDEgressEncoding,
 }
 
 func TestLegalPipelineStageNames_matchesR2CanonicalOrder_RED(t *testing.T) {
