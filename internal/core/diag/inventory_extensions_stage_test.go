@@ -108,7 +108,7 @@ func TestStageOccupancyFromBundle_trafficObservationTrafficAndUsageObserverIndic
 	occ := stageOccupancyFromBundle(b)
 	var trafficOcc *InventoryStageOccupancy
 	for i := range occ {
-		if occ[i].StageID == extensions.StageTrafficObservation {
+		if occ[i].StageID == lipfeature.StageIDTrafficObservation {
 			trafficOcc = &occ[i]
 			break
 		}
@@ -338,7 +338,7 @@ func TestStageOccupancyFromBundle_secretGuardsSortedWithPrefix(t *testing.T) {
 	occ := stageOccupancyFromBundle(b)
 	var guardOcc *InventoryStageOccupancy
 	for i := range occ {
-		if occ[i].StageID == extensions.StageSecretGuard {
+		if occ[i].StageID == lipfeature.StageIDSecretGuard {
 			guardOcc = &occ[i]
 			break
 		}
@@ -489,7 +489,7 @@ func TestBuildInventoryExtensions_ValidMixedBundleSortingAndNils(t *testing.T) {
 	// Verify sorting and nil filtering
 	for _, occ := range f0.StageOccupancy {
 		switch occ.StageID {
-		case extensions.StageSubmit:
+		case lipfeature.StageIDSubmit:
 			assert.Equal(t, []string{"sub-a", "sub-z"}, occ.HandlerIDs)
 		case extensions.StageToolEventReaction:
 			assert.Equal(t, []string{"tool_policy:pol-a", "tool_policy:pol-b"}, occ.HandlerIDs)

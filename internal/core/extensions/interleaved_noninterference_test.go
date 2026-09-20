@@ -6,19 +6,20 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
 
 func TestLegalPipelineStageNames_interleavedShapingOutsideExtensionStages(t *testing.T) {
 	t.Parallel()
 	stages := extensions.LegalPipelineStageNames()
-	if !slices.Contains(stages, extensions.StagePreRequest) {
+	if !slices.Contains(stages, feature.StageIDPreRequest) {
 		t.Fatal("pre-request must remain in legal pipeline")
 	}
-	if idx := slices.Index(stages, extensions.StageAttemptLifecycle); idx < 0 {
+	if idx := slices.Index(stages, feature.StageIDAttemptLifecycle); idx < 0 {
 		t.Fatal("attempt lifecycle must remain in legal pipeline")
 	}
-	preIdx := slices.Index(stages, extensions.StagePreRequest)
-	attemptIdx := slices.Index(stages, extensions.StageAttemptLifecycle)
+	preIdx := slices.Index(stages, feature.StageIDPreRequest)
+	attemptIdx := slices.Index(stages, feature.StageIDAttemptLifecycle)
 	if preIdx >= attemptIdx {
 		t.Fatalf("pre-request (%d) must precede attempt lifecycle (%d)", preIdx, attemptIdx)
 	}

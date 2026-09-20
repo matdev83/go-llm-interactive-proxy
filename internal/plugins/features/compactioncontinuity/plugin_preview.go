@@ -23,6 +23,9 @@ const minimumBarrierTimeout = time.Millisecond
 // BeforeRequest consumes only pure detector metadata. It may prepare a
 // non-billable intent and inject an already available capsule, but it never
 // submits fresh auxiliary work before the primary request opens.
+// Pre-open staging is authorized by requirement 7.12; §571 holds operatively:
+// failed opens never bind preview intents, submit billable jobs, or commit
+// release watermarks (see RequestOpenFailed).
 func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview compaction.RequestPreview, meta compaction.PreservationMeta, services compaction.Services) (err error) {
 	defer func() {
 		if recover() != nil {
@@ -81,13 +84,25 @@ func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview c
 	if err != nil {
 		return nil
 	}
-	watermark := encodeWatermark(prepared.HighWatermark)
-	state, err = p.parent.CommitSource(ctx, parent, state.Revision, []byte(prepared.Envelope.Canonical()), watermark)
-	if err != nil {
-		p.observeError(observability.StageCapsule, err, boundary)
-		return nil
+	// P1: preserve staged semantic delta until successful open. Do not commit
+	// source high watermark pre-open; RequestOpened will commit after binding
+	// preview intent and before extraction. Persisting the new watermark now
+	// would cause source.Prepare in RequestOpened to recognize original items
+	// as already processed (injection only appends a developer item) and
+	// produce an empty SanitizedDelta while previewBound still triggers
+	// extraction, losing user decisions/constraints.
+	// Keep the source envelope staged without advancing the persisted high
+	// watermark. Deterministic capsule staging persists the capsule content but
+	// retains the old watermark so the semantic delta remains visible to
+	// RequestOpened.
+	oldWatermark := state.SourceHighWatermark
+	if oldWatermark == "" {
+		oldWatermark = encodeWatermark(window.HighWatermark)
 	}
-	previous, state, err = p.applyPreviewDeterministic(ctx, parent, state, previous, prepared, watermark, boundary, cfg)
+	// Do not call CommitSource pre-open; stage capsule with old watermark to
+	// preserve delta while still making deterministic plan available for
+	// injection and for the post-open path.
+	previous, state, err = p.applyPreviewDeterministic(ctx, parent, state, previous, prepared, oldWatermark, boundary, cfg)
 	if err != nil {
 		p.observeError(observability.StageCapsule, err, boundary)
 		return nil

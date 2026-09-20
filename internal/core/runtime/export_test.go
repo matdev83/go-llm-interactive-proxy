@@ -188,16 +188,25 @@ func ToolFinalActiveCountForTest(stream lipapi.EventStream) (active, passThrough
 }
 
 // SafeCompactionRequestOpenedForTest exposes safeCompactionRequestOpened for characterization tests.
+// fail-open: detector panics isolated with nil log/metrics for test harness.
 func SafeCompactionRequestOpenedForTest(d CompactionDetector, meta compaction.PreservationMeta, call lipapi.Call) []compaction.Event {
-	return safeCompactionRequestOpened(d, meta, call)
+	return safeCompactionRequestOpened(context.Background(), nil, nil, d, meta, call)
 }
 
 // SafeCompactionResponseReleasedForTest exposes safeCompactionResponseReleased for characterization tests.
+// fail-open: detector panics isolated with nil log/metrics for test harness.
 func SafeCompactionResponseReleasedForTest(d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) []compaction.Event {
-	return safeCompactionResponseReleased(d, meta, ev)
+	return safeCompactionResponseReleased(context.Background(), nil, nil, d, meta, ev)
+}
+
+// SafeCompactionPreviewRequestForTest exposes safeCompactionPreviewRequest for characterization tests.
+// fail-open: detector panics isolated with nil log/metrics for test harness.
+func SafeCompactionPreviewRequestForTest(d CompactionDetector, meta compaction.PreservationMeta, call lipapi.Call) compaction.RequestPreview {
+	return safeCompactionPreviewRequest(context.Background(), nil, nil, d, meta, call)
 }
 
 // SafeCompactionPreviewResponseForTest exposes safeCompactionPreviewResponse for characterization tests.
+// fail-open: detector panics isolated with nil log/metrics for test harness.
 func SafeCompactionPreviewResponseForTest(d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) compaction.ResponsePreview {
-	return safeCompactionPreviewResponse(d, meta, ev)
+	return safeCompactionPreviewResponse(context.Background(), nil, nil, d, meta, ev)
 }

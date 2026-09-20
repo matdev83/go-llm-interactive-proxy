@@ -15,23 +15,14 @@ const (
 )
 
 // Stage name constants for the legal pipeline (stable ids; align with pkg/lipsdk/feature).
+// Only aliases with non-test production users are kept; tests must use
+// feature.StageID* directly for the remaining stages.
 const (
-	StageTransportAuth             = feature.StageIDTransportAuth
 	StageSessionOpen               = feature.StageIDSessionOpen
-	StageSecretGuard               = feature.StageIDSecretGuard
-	StageSubmit                    = feature.StageIDSubmit
 	StageToolCatalog               = feature.StageIDToolCatalog
-	StageRequestWide               = feature.StageIDRequestWide
-	StagePreRequest                = feature.StageIDPreRequest
-	StageRouteHinting              = feature.StageIDRouteHinting
 	StageCandidateAttemptTransform = feature.StageIDCandidateAttemptTransform
-	StageAttemptLifecycle          = feature.StageIDAttemptLifecycle
-	StageStreamEventMutation       = feature.StageIDStreamEventMutation
 	StageToolEventReaction         = feature.StageIDToolEventReaction
-	StageCompletionGating          = feature.StageIDCompletionGating
 	StageFinalStreamObservation    = feature.StageIDFinalStreamObservation
-	StageTrafficObservation        = feature.StageIDTrafficObservation
-	StageEgressEncoding            = feature.StageIDEgressEncoding
 )
 
 // DefaultFailurePolicyForStage returns the documented default for the stage (design section 17).

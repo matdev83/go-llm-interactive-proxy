@@ -2,10 +2,14 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 )
@@ -91,7 +95,7 @@ func (e *Executor) applyCompactionEvents(prep *preparedRequest, out openedAttemp
 
 func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRequest, out openedAttempt) compaction.PreservationMeta {
 	meta, events, ok := e.applyCompactionEvents(prep, out, func(m compaction.PreservationMeta) []compaction.Event {
-		return safeCompactionRequestOpened(e.Detector, m, *prep.identity.call)
+		return safeCompactionRequestOpened(ctx, e.Log, e.ExtensionMetrics, e.Detector, m, *prep.identity.call)
 	})
 	if !ok {
 		return compaction.PreservationMeta{}
@@ -99,6 +103,7 @@ func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRe
 	// The detector commits before content-bearing callbacks. RequestOpened gets
 	// isolated callback-local copies because the primary request is already on
 	// the wire and cannot be rolled back. Public metadata dispatch is last.
+	// fail-open: preserver errors isolated inside with log/metrics, return is always nil
 	_ = extensions.RunCompactionPreserverRequestOpened(
 		ctx,
 		e.Log,
@@ -120,7 +125,7 @@ func (e *Executor) observeCompactionOpenedWire(
 	facts compactionfacts.RequestFacts,
 ) compaction.PreservationMeta {
 	meta, events, ok := e.applyCompactionEvents(prep, out, func(m compaction.PreservationMeta) []compaction.Event {
-		return safeCompactionRequestOpenedFacts(e.Detector, m, facts)
+		return safeCompactionRequestOpenedFacts(ctx, e.Log, e.ExtensionMetrics, e.Detector, m, facts)
 	})
 	if ok {
 		compaction.Dispatch(ctx, e.compactionObservers(), events)
@@ -128,10 +133,62 @@ func (e *Executor) observeCompactionOpenedWire(
 	return meta
 }
 
+func (e *Executor) observeCompactionBeforeRequest(ctx context.Context, traceID, aLegID string, call *lipapi.Call) {
+	if e == nil || e.Detector == nil || call == nil {
+		return
+	}
+	if ctx != nil && execctx.AuxiliaryDepth(ctx) > 0 {
+		if e.Log != nil {
+			e.Log.DebugContext(ctx, "compaction before-request skipped", "reason", "auxiliary_depth", "trace_id", traceID, "a_leg_id", aLegID)
+		}
+		return
+	}
+	if ctx != nil && ctx.Err() != nil {
+		if e.Log != nil {
+			e.Log.DebugContext(ctx, "compaction before-request skipped", "reason", "context_canceled", "trace_id", traceID, "a_leg_id", aLegID)
+		}
+		return
+	}
+	// Note: no SessionModeDetached check here. prepareIdentity routes
+	// detached-mode contexts to prepareSubmitAndALegDetached before secure
+	// prepare runs, so this observer only ever sees secure turns.
+	preservers := e.compactionPreservers()
+	if len(preservers) == 0 {
+		return
+	}
+	meta := compaction.PreservationMeta{
+		TraceID:   traceID,
+		ALegID:    aLegID,
+		SessionID: call.Session.AuthoritativeSessionID,
+	}
+	if strings.TrimSpace(meta.ALegID) == "" {
+		if e.Log != nil {
+			e.Log.DebugContext(ctx, "compaction before-request skipped", "reason", "empty_a_leg_id", "trace_id", traceID)
+		}
+		return
+	}
+	preview := safeCompactionPreviewRequest(ctx, e.Log, e.ExtensionMetrics, e.Detector, meta, *call)
+	meta.TransactionID = preview.TransactionID
+	meta.RuleID = preview.RuleID
+	meta.Evidence = preview.Evidence
+	// fail-open: preserver errors isolated inside with log/metrics, return is always nil
+	_ = extensions.RunCompactionPreserverBeforeRequest(
+		ctx,
+		e.Log,
+		e.ExtensionMetrics,
+		preservers,
+		call,
+		preview,
+		meta,
+		e.compactionServices(),
+	)
+}
+
 func (e *Executor) notifyCompactionOpenFailed(ctx context.Context, prep *preparedRequest) {
 	if e == nil || prep == nil {
 		return
 	}
+	// fail-open: preserver errors isolated inside with log/metrics, return is always nil
 	_ = extensions.RunCompactionPreserverRequestOpenFailed(
 		ctx,
 		e.Log,
@@ -170,7 +227,7 @@ func (p *responsePipeline) observeCompactionReleaseFinalEvidence(ctx context.Con
 		BLegID:     attempt.bleg.BLegID,
 		AttemptSeq: attempt.bleg.Seq,
 	}
-	preview := safeCompactionPreviewResponse(p.detector, preservationMeta, *ev)
+	preview := safeCompactionPreviewResponse(ctx, p.log, p.extensionMetrics, p.detector, preservationMeta, *ev)
 	preservationMeta.TransactionID = preview.TransactionID
 	preservationMeta.RuleID = preview.RuleID
 	preservationMeta.Evidence = preview.Evidence
@@ -191,6 +248,7 @@ func (p *responsePipeline) observeCompactionReleaseFinalEvidence(ctx context.Con
 	// Pure preview is deliberately before preservation. The callback runner
 	// rolls back each failed/panicking/invalid mutation before committed detector
 	// observation, so detector and client receive the same final event.
+	// fail-open: preserver errors isolated inside with log/metrics, return is always nil
 	_ = extensions.RunCompactionPreserverBeforeResponseRelease(
 		ctx,
 		p.log,
@@ -201,7 +259,7 @@ func (p *responsePipeline) observeCompactionReleaseFinalEvidence(ctx context.Con
 		preservationMeta,
 		p.compactionServices,
 	)
-	events := safeCompactionResponseReleased(p.detector, preservationMeta, *ev)
+	events := safeCompactionResponseReleased(ctx, p.log, p.extensionMetrics, p.detector, preservationMeta, *ev)
 	dispatch = compactionReleaseDispatch{meta: preservationMeta, enabled: true}
 	if len(events) == 0 {
 		return dispatch
@@ -214,6 +272,7 @@ func (p *responsePipeline) notifyCompactionAfterRelease(ctx context.Context, ev 
 	if p == nil || !dispatch.enabled {
 		return
 	}
+	// fail-open: preserver errors isolated inside with log/metrics, return is always nil
 	_ = extensions.RunCompactionPreserverAfterResponseRelease(
 		ctx,
 		p.log,
@@ -225,41 +284,102 @@ func (p *responsePipeline) notifyCompactionAfterRelease(ctx context.Context, ev 
 	)
 }
 
-func safeCompactionRequestOpened(d CompactionDetector, meta compaction.PreservationMeta, call lipapi.Call) (events []compaction.Event) {
-	defer func() { _ = recover() }()
-	if d == nil {
-		return nil
+func isolateCompactionDetectorFailure(ctx context.Context, log *slog.Logger, obs extensions.StageMetrics, operation string, err error) {
+	if err == nil {
+		return
 	}
-	return d.RequestOpened(meta, call)
-}
-
-func safeCompactionRequestOpenedFacts(d CompactionDetector, meta compaction.PreservationMeta, facts compactionfacts.RequestFacts) (events []compaction.Event) {
-	defer func() { _ = recover() }()
-	if d == nil {
-		return nil
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if wd, ok := d.(CompactionWireDetector); ok {
-		return wd.RequestOpenedFacts(meta, facts)
-	}
-	return nil
-}
-
-func safeCompactionResponseReleased(d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) (events []compaction.Event) {
-	defer func() { _ = recover() }()
-	if d == nil {
-		return nil
-	}
-	return d.ResponseReleased(meta, ev)
-}
-
-func safeCompactionPreviewResponse(d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) (preview compaction.ResponsePreview) {
-	defer func() {
-		if r := recover(); r != nil {
-			preview = compaction.ResponsePreview{Kind: compaction.PreviewNone}
+	var pe *safety.PanicError
+	if errors.As(err, &pe) {
+		if log != nil {
+			attrs := []slog.Attr{
+				slog.String("operation", operation),
+				slog.String("outcome", "panic"),
+			}
+			attrs = append(attrs, safety.PanicSlogFieldAttrs(pe)...)
+			attrs = safety.AppendPanicStackAttr(attrs, pe)
+			log.LogAttrs(ctx, slog.LevelWarn, "compaction detector failed (fail-open)", attrs...)
 		}
-	}()
+	} else if log != nil {
+		// Do not include detector error text: it may contain prompt or content.
+		log.WarnContext(ctx, "compaction detector failed (fail-open)", "operation", operation, "outcome", "error")
+	}
+	if obs != nil {
+		obs.IncFailOpenSkip(extensions.MetricsStageCompactionPreservation)
+	}
+}
+
+func safeCompactionRequestOpened(ctx context.Context, log *slog.Logger, obs extensions.StageMetrics, d CompactionDetector, meta compaction.PreservationMeta, call lipapi.Call) (events []compaction.Event) {
+	if d == nil {
+		return nil
+	}
+	v, err := safety.CallValue(safety.BoundaryExtension, "compaction_detector_request_opened", func() ([]compaction.Event, error) {
+		return d.RequestOpened(meta, call), nil
+	})
+	if err != nil {
+		isolateCompactionDetectorFailure(ctx, log, obs, "request_opened", err)
+		return nil
+	}
+	return v
+}
+
+func safeCompactionRequestOpenedFacts(ctx context.Context, log *slog.Logger, obs extensions.StageMetrics, d CompactionDetector, meta compaction.PreservationMeta, facts compactionfacts.RequestFacts) (events []compaction.Event) {
+	if d == nil {
+		return nil
+	}
+	v, err := safety.CallValue(safety.BoundaryExtension, "compaction_detector_request_opened_facts", func() ([]compaction.Event, error) {
+		if wd, ok := d.(CompactionWireDetector); ok {
+			return wd.RequestOpenedFacts(meta, facts), nil
+		}
+		return nil, nil
+	})
+	if err != nil {
+		isolateCompactionDetectorFailure(ctx, log, obs, "request_opened_facts", err)
+		return nil
+	}
+	return v
+}
+
+func safeCompactionResponseReleased(ctx context.Context, log *slog.Logger, obs extensions.StageMetrics, d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) (events []compaction.Event) {
+	if d == nil {
+		return nil
+	}
+	v, err := safety.CallValue(safety.BoundaryExtension, "compaction_detector_response_released", func() ([]compaction.Event, error) {
+		return d.ResponseReleased(meta, ev), nil
+	})
+	if err != nil {
+		isolateCompactionDetectorFailure(ctx, log, obs, "response_released", err)
+		return nil
+	}
+	return v
+}
+
+func safeCompactionPreviewRequest(ctx context.Context, log *slog.Logger, obs extensions.StageMetrics, d CompactionDetector, meta compaction.PreservationMeta, call lipapi.Call) (preview compaction.RequestPreview) {
+	if d == nil {
+		return compaction.RequestPreview{Kind: compaction.PreviewNone}
+	}
+	v, err := safety.CallValue(safety.BoundaryExtension, "compaction_detector_preview_request", func() (compaction.RequestPreview, error) {
+		return d.PreviewRequest(meta, call), nil
+	})
+	if err != nil {
+		isolateCompactionDetectorFailure(ctx, log, obs, "preview_request", err)
+		return compaction.RequestPreview{Kind: compaction.PreviewNone}
+	}
+	return v
+}
+
+func safeCompactionPreviewResponse(ctx context.Context, log *slog.Logger, obs extensions.StageMetrics, d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) (preview compaction.ResponsePreview) {
 	if d == nil {
 		return compaction.ResponsePreview{Kind: compaction.PreviewNone}
 	}
-	return d.PreviewResponse(meta, ev)
+	v, err := safety.CallValue(safety.BoundaryExtension, "compaction_detector_preview_response", func() (compaction.ResponsePreview, error) {
+		return d.PreviewResponse(meta, ev), nil
+	})
+	if err != nil {
+		isolateCompactionDetectorFailure(ctx, log, obs, "preview_response", err)
+		return compaction.ResponsePreview{Kind: compaction.PreviewNone}
+	}
+	return v
 }
