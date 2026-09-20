@@ -211,7 +211,41 @@ func TestPKCE_S256_AndStateValidation(t *testing.T) {
 	}
 }
 
-// 5. Refresh-before-expiry calls Refresher; cached token does not
+func TestValidateState_TimingSafeSemantics(t *testing.T) {
+	t.Parallel()
+
+	const expected = "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
+
+	tests := []struct {
+		name     string
+		expected string
+		got      string
+		wantErr  bool
+	}{
+		{name: "exact match", expected: expected, got: expected, wantErr: false},
+		{name: "same length differing last char", expected: expected, got: expected[:len(expected)-1] + "X", wantErr: true},
+		{name: "same length differing first char", expected: expected, got: "X" + expected[1:], wantErr: true},
+		{name: "shorter state", expected: expected, got: expected[:len(expected)/2], wantErr: true},
+		{name: "longer state", expected: expected, got: expected + "-extra", wantErr: true},
+		{name: "empty expected", expected: "", got: expected, wantErr: true},
+		{name: "empty got", expected: expected, got: "", wantErr: true},
+		{name: "both empty", expected: "", got: "", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := oauthcred.ValidateState(tc.expected, tc.got)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error for %s, got nil", tc.name)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error for %s: %v", tc.name, err)
+			}
+		})
+	}
+}
+
 func TestSession_RefreshBeforeExpiry_VsCached(t *testing.T) {
 	t.Parallel()
 
