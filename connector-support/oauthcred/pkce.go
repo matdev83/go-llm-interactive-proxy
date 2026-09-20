@@ -39,7 +39,9 @@ func ValidateState(expected, got string) error {
 	if expected == "" || got == "" {
 		return fmt.Errorf("oauthcred: state cannot be empty")
 	}
-	if subtle.ConstantTimeCompare([]byte(expected), []byte(got)) != 1 {
+	expectedHash := sha256.Sum256([]byte(expected))
+	gotHash := sha256.Sum256([]byte(got))
+	if subtle.ConstantTimeCompare(expectedHash[:], gotHash[:]) != 1 {
 		return fmt.Errorf("oauthcred: state mismatch")
 	}
 	return nil
