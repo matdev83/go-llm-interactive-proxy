@@ -20,6 +20,10 @@ type spyCompactionDetector struct {
 	capturedMeta compaction.PreservationMeta
 }
 
+func (d *spyCompactionDetector) PreviewRequest(compaction.PreservationMeta, lipapi.Call) compaction.RequestPreview {
+	return compaction.RequestPreview{}
+}
+
 func (d *spyCompactionDetector) RequestOpened(compaction.PreservationMeta, lipapi.Call) []compaction.Event {
 	return nil
 }

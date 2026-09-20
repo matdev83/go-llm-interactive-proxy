@@ -37,10 +37,16 @@ func (s *spyStockConversationViewTagger) TagNeverBackend(ctx context.Context, aL
 
 // spyStockCompactionDetector records calls to RequestOpened, PreviewResponse, and ResponseReleased.
 type spyStockCompactionDetector struct {
+	previewRequestCalls  atomic.Int32
 	requestOpenedCalls   atomic.Int32
 	previewResponseCalls atomic.Int32
 	responseReleaseCalls atomic.Int32
 	releasedEvents       []lipapi.Event
+}
+
+func (s *spyStockCompactionDetector) PreviewRequest(compaction.PreservationMeta, lipapi.Call) compaction.RequestPreview {
+	s.previewRequestCalls.Add(1)
+	return compaction.RequestPreview{Kind: compaction.PreviewNone}
 }
 
 func (s *spyStockCompactionDetector) RequestOpened(meta compaction.PreservationMeta, call lipapi.Call) []compaction.Event {

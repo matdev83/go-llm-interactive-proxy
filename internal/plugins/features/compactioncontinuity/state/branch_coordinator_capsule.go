@@ -46,9 +46,13 @@ func (c *BranchCoordinator) CommitCapsule(ctx context.Context, key BranchKey, ex
 	return cloneBranchState(entry.State), nil
 }
 
-// CommitSource stores a bounded sanitized source snapshot only after the
-// caller has successfully opened the primary request. It does not advance the
-// capsule revision, but still compare-checks the current revision.
+// CommitSource stores a bounded sanitized source snapshot on the post-open
+// refresh path (RequestOpened, after the preview intent is bound). It does
+// not advance the capsule revision, but still compare-checks the current
+// revision. Pre-open preparation persists only the preview intent and the
+// deterministic capsule with the prior watermark; that staged state stays
+// TTL-bounded and inert until a successful open binds the preview intent;
+// failed opens must never bind intents, submit billable jobs, or commit release watermarks (§571).
 func (c *BranchCoordinator) CommitSource(ctx context.Context, key BranchKey, expectedRevision uint64, source []byte, highWatermark string) (BranchState, error) {
 	binding, err := BranchBinding(key)
 	if err != nil {

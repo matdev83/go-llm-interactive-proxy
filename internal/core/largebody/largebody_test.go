@@ -392,23 +392,23 @@ func TestAssessment_Lifecycle(t *testing.T) {
 	if err := emptyGen.Validate(testFactBudget); err == nil {
 		t.Fatal("empty generation binding must be rejected")
 	}
-	declined := largebody.AssessmentResult{Decision: largebody.AssessmentDecisionDecline, Reason: largebody.DeclineReasonAuthorityBlocker}
+	declined := largebody.Assessment{Decision: largebody.AssessmentDecisionDecline, Reason: largebody.DeclineReasonAuthorityBlocker}
 	if err := declined.Validate(testFactBudget); err != nil {
 		t.Fatalf("valid decline rejected: %v", err)
 	}
-	declineNoReason := largebody.AssessmentResult{Decision: largebody.AssessmentDecisionDecline}
+	declineNoReason := largebody.Assessment{Decision: largebody.AssessmentDecisionDecline}
 	if err := declineNoReason.Validate(testFactBudget); err == nil {
 		t.Fatal("decline without a bounded reason must be rejected")
 	}
-	accepted := largebody.AssessmentResult{Decision: largebody.AssessmentDecisionAccept, Reason: largebody.DeclineReasonNone, Stamp: validStamp()}
+	accepted := largebody.Assessment{Decision: largebody.AssessmentDecisionAccept, Reason: largebody.DeclineReasonNone, Stamp: validStamp()}
 	if err := accepted.Validate(testFactBudget); err != nil {
 		t.Fatalf("valid accept rejected: %v", err)
 	}
-	acceptNoStamp := largebody.AssessmentResult{Decision: largebody.AssessmentDecisionAccept, Reason: largebody.DeclineReasonNone}
+	acceptNoStamp := largebody.Assessment{Decision: largebody.AssessmentDecisionAccept, Reason: largebody.DeclineReasonNone}
 	if err := acceptNoStamp.Validate(testFactBudget); err == nil {
 		t.Fatal("accept without a stamp must be rejected")
 	}
-	unknown := largebody.AssessmentResult{}
+	unknown := largebody.Assessment{}
 	if err := unknown.Validate(testFactBudget); err == nil {
 		t.Fatal("unknown decision must be rejected")
 	}
@@ -651,7 +651,7 @@ func TestPackage_HasNoSmugglingVectors(t *testing.T) {
 		reflect.TypeOf(largebody.SourceDigest{}),
 		reflect.TypeOf(largebody.Proof{}),
 		reflect.TypeOf(largebody.AssessmentRequest{}),
-		reflect.TypeOf(largebody.AssessmentResult{}),
+		reflect.TypeOf(largebody.Assessment{}),
 		reflect.TypeOf(largebody.AssessmentStamp{}),
 		reflect.TypeOf(largebody.WireRequestFacts{}),
 		reflect.TypeOf(largebody.WireDomainFacts{}),

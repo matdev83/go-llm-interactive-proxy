@@ -172,8 +172,8 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 8.3 configured semantic-fact budget helpers; measured 89580, bump to 89605 with 25 headroom.
 	// Large-payload fast-path Tasks 9-19 wire execution, facts, and accounting integration;
 	// Phase 1 streaming proof core in internal/core/largebody and jsonshape string streaming;
-	// Blocker 3 pre-output recoverable wire failover and recovery stream;
-	{Dir: "internal/core", Max: 98581},
+	// Blocker 3 pre-output recoverable wire failover and recovery stream; TP-2 BeforeRequest pre-open wiring plus centralized detector panic isolation; P1/P2 ingress-clone plus staged-watermark fix; measured 98712, bump to 98737 with 25 headroom.
+	{Dir: "internal/core", Max: 98737},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6778},
 	{Dir: "internal/infra/runtimebundle", Max: 12567},

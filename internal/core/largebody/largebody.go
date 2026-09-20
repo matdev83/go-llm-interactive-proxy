@@ -772,9 +772,6 @@ type Assessment struct {
 	CompactionComplete bool
 }
 
-// AssessmentResult is an alias for Assessment for compatibility.
-type AssessmentResult = Assessment
-
 // WithCompactionFacts returns a copy of Assessment with the provided compaction facts.
 func (a Assessment) WithCompactionFacts(facts compactionfacts.RequestFacts, complete bool) Assessment {
 	a.CompactionFacts = facts.Clone()

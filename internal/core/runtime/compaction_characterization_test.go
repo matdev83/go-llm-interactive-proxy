@@ -69,12 +69,14 @@ func TestCharacterize_CompactionRuntime_PanicIsolation(t *testing.T) {
 		assert.Nil(t, runtime.SafeCompactionRequestOpenedForTest(nil, reqMeta, call))
 		assert.Nil(t, runtime.SafeCompactionResponseReleasedForTest(nil, respMeta, ev))
 		assert.Equal(t, compaction.ResponsePreview{Kind: compaction.PreviewNone}, runtime.SafeCompactionPreviewResponseForTest(nil, respMeta, ev))
+		assert.Equal(t, compaction.RequestPreview{Kind: compaction.PreviewNone}, runtime.SafeCompactionPreviewRequestForTest(nil, reqMeta, call))
 
 		// Test panicking detector calls on safe wrappers
 		panicking := &panickingCompactionDetector{}
 		assert.Nil(t, runtime.SafeCompactionRequestOpenedForTest(panicking, reqMeta, call))
 		assert.Nil(t, runtime.SafeCompactionResponseReleasedForTest(panicking, respMeta, ev))
 		assert.Equal(t, compaction.ResponsePreview{Kind: compaction.PreviewNone}, runtime.SafeCompactionPreviewResponseForTest(panicking, respMeta, ev))
+		assert.Equal(t, compaction.RequestPreview{Kind: compaction.PreviewNone}, runtime.SafeCompactionPreviewRequestForTest(panicking, reqMeta, call))
 	})
 
 	t.Run("end_to_end_fail_open_on_panic", func(t *testing.T) {
@@ -255,7 +257,8 @@ func TestCharacterize_CompactionRuntime_PurePreviewBeforePreserverAndCommitAfter
 //  1. Current runtime uses concrete `*compactiondetect.Detector` in ExecutorConfig and responsePipeline.
 //  2. Task 5.1 target will define `type CompactionDetector interface` in package runtime accepting
 //     `compaction.PreservationMeta` directly without importing concrete implementation.
-//  3. This test asserts that the three operations (RequestOpened, PreviewResponse, ResponseReleased)
+//  3. This test asserts that the four operations (PreviewRequest, RequestOpened,
+//     PreviewResponse, ResponseReleased)
 //     are fully sufficient to represent all runtime compaction observation requirements.
 func TestCharacterize_CompactionRuntime_DependencyGapForTask51(t *testing.T) {
 	t.Parallel()
@@ -269,8 +272,13 @@ func TestCharacterize_CompactionRuntime_DependencyGapForTask51(t *testing.T) {
 	assert.Equal(t, reflect.Interface, detectorField.Type.Kind(),
 		"CompactionRuntime.Detector must be an interface kind")
 
-	// Verify all three runtime methods exist on CompactionDetector with expected signature patterns
+	// Verify all four runtime methods exist on CompactionDetector with expected signature patterns
 	portType := detectorField.Type
+	previewReqMethod, ok := portType.MethodByName("PreviewRequest")
+	require.True(t, ok, "CompactionDetector must have PreviewRequest method")
+	assert.Equal(t, 2, previewReqMethod.Type.NumIn())  // PreservationMeta, lipapi.Call (interface methods don't include receiver in NumIn)
+	assert.Equal(t, 1, previewReqMethod.Type.NumOut()) // compaction.RequestPreview
+
 	reqOpenedMethod, ok := portType.MethodByName("RequestOpened")
 	require.True(t, ok, "CompactionDetector must have RequestOpened method")
 	assert.Equal(t, 2, reqOpenedMethod.Type.NumIn())  // PreservationMeta, lipapi.Call (interface methods don't include receiver in NumIn)
@@ -340,6 +348,10 @@ func filterSequence(src []string, keep []string) []string {
 
 type panickingCompactionDetector struct{}
 
+func (*panickingCompactionDetector) PreviewRequest(compaction.PreservationMeta, lipapi.Call) compaction.RequestPreview {
+	panic("detector panic: PreviewRequest")
+}
+
 func (*panickingCompactionDetector) RequestOpened(compaction.PreservationMeta, lipapi.Call) []compaction.Event {
 	panic("detector panic: RequestOpened")
 }
@@ -354,12 +366,24 @@ func (*panickingCompactionDetector) ResponseReleased(compaction.PreservationMeta
 
 type fakeCompactionDetector struct {
 	mu               sync.Mutex
+	previewRequest   func(compaction.PreservationMeta, lipapi.Call) compaction.RequestPreview
 	requestOpened    func(compaction.PreservationMeta, lipapi.Call) []compaction.Event
 	previewResponse  func(compaction.PreservationMeta, lipapi.Event) compaction.ResponsePreview
 	responseReleased func(compaction.PreservationMeta, lipapi.Event) []compaction.Event
+	previewReqCalls  []compaction.PreservationMeta
 	openedCalls      []compaction.PreservationMeta
 	previewCalls     []compaction.PreservationMeta
 	releasedCalls    []compaction.PreservationMeta
+}
+
+func (f *fakeCompactionDetector) PreviewRequest(meta compaction.PreservationMeta, call lipapi.Call) compaction.RequestPreview {
+	f.mu.Lock()
+	f.previewReqCalls = append(f.previewReqCalls, meta)
+	f.mu.Unlock()
+	if f.previewRequest != nil {
+		return f.previewRequest(meta, call)
+	}
+	return compaction.RequestPreview{Kind: compaction.PreviewNone}
 }
 
 func (f *fakeCompactionDetector) RequestOpened(meta compaction.PreservationMeta, call lipapi.Call) []compaction.Event {
