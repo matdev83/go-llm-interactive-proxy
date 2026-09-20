@@ -20,6 +20,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// sharedSequence records one global callback order across the detector and
+// preserver spies so the pre-open ordering assertion is meaningful.
+type sharedSequence struct {
+	mu    sync.Mutex
+	order []string
+}
+
+func (s *sharedSequence) append(step string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.order = append(s.order, step)
+}
+
+func (s *sharedSequence) snapshot() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.order)
+}
+
 // spyBeforeRequestDetector records PreviewRequest/RequestOpened ordering for the
 // pre-open wiring test. PreviewRequest returns a completion candidate so the
 // preserver receives correlation metadata.
@@ -28,6 +53,7 @@ type spyBeforeRequestDetector struct {
 	order    []string
 	previews []compaction.PreservationMeta
 	opened   []compaction.PreservationMeta
+	shared   *sharedSequence
 }
 
 func (s *spyBeforeRequestDetector) append(step string) {
@@ -41,6 +67,7 @@ func (s *spyBeforeRequestDetector) PreviewRequest(meta compaction.PreservationMe
 	s.previews = append(s.previews, meta)
 	s.mu.Unlock()
 	s.append("detector-preview-request")
+	s.shared.append("detector-preview-request")
 	return compaction.RequestPreview{
 		Kind:          compaction.PreviewCompletionCandidate,
 		RuleID:        "test.before_request.v1",
@@ -54,6 +81,7 @@ func (s *spyBeforeRequestDetector) RequestOpened(meta compaction.PreservationMet
 	s.opened = append(s.opened, meta)
 	s.mu.Unlock()
 	s.append("detector-request-opened")
+	s.shared.append("detector-request-opened")
 	return nil
 }
 
@@ -81,25 +109,30 @@ type spyBeforeRequestPreserver struct {
 	ctxs     []context.Context
 	previews []compaction.RequestPreview
 	metas    []compaction.PreservationMeta
+	shared   *sharedSequence
 }
 
 func (p *spyBeforeRequestPreserver) ID() string { return "before-request-spy" }
 
 func (p *spyBeforeRequestPreserver) BeforeRequest(ctx context.Context, _ *lipapi.Call, preview compaction.RequestPreview, meta compaction.PreservationMeta, _ compaction.Services) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.calls++
 	p.order = append(p.order, "preserver-before-request")
 	p.ctxs = append(p.ctxs, ctx)
 	p.previews = append(p.previews, preview)
 	p.metas = append(p.metas, meta)
+	shared := p.shared
+	p.mu.Unlock()
+	shared.append("preserver-before-request")
 	return nil
 }
 
 func (p *spyBeforeRequestPreserver) RequestOpened(_ context.Context, _ lipapi.Call, _ []compaction.Event, _ compaction.PreservationMeta, _ compaction.Services) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.order = append(p.order, "preserver-request-opened")
+	shared := p.shared
+	p.mu.Unlock()
+	shared.append("preserver-request-opened")
 	return nil
 }
 
@@ -141,6 +174,9 @@ func TestCompactionBeforeRequest_PreOpenOrderingAndMeta(t *testing.T) {
 
 	detector := &spyBeforeRequestDetector{}
 	preserver := &spyBeforeRequestPreserver{}
+	seq := &sharedSequence{}
+	detector.shared = seq
+	preserver.shared = seq
 	ex := configureRuntimeCompactionPreserver(t, detector, nil, preserver, nil, nil)
 	ex.Backends = stubBeforeRequestBackend()
 
@@ -149,8 +185,8 @@ func TestCompactionBeforeRequest_PreOpenOrderingAndMeta(t *testing.T) {
 	require.NoError(t, err)
 	drain(t, stream)
 
-	detOrder, previews, opened := detector.snapshot()
-	presOrder, calls, presPreviews, metas := preserver.snapshot()
+	_, previews, opened := detector.snapshot()
+	_, calls, presPreviews, metas := preserver.snapshot()
 
 	require.Len(t, previews, 1, "PreviewRequest must run exactly once pre-open")
 	require.Equal(t, 1, calls, "preserver BeforeRequest must run exactly once per logical request")
@@ -171,12 +207,11 @@ func TestCompactionBeforeRequest_PreOpenOrderingAndMeta(t *testing.T) {
 	assert.Equal(t, compaction.PreviewCompletionCandidate, presPreviews[0].Kind)
 	assert.Equal(t, "tx-before-1", presPreviews[0].TransactionID)
 
-	// Global ordering: preview -> before-request -> open -> opened-callback.
-	combined := slices.Concat(detOrder[:1], presOrder[:1])
-	assert.Equal(t, []string{"detector-preview-request", "preserver-before-request"}, combined,
-		"pre-open ordering must be PreviewRequest -> BeforeRequest, got detector=%v preserver=%v", detOrder, presOrder)
-	require.Contains(t, detOrder, "detector-request-opened")
-	require.Contains(t, presOrder, "preserver-request-opened")
+	// Global ordering on one shared recorder: preview -> before-request ->
+	// detector open -> preserver opened-callback. A shared sequence proves the
+	// runtime interleaving; per-spy recorders cannot.
+	assert.Equal(t, []string{"detector-preview-request", "preserver-before-request", "detector-request-opened", "preserver-request-opened"}, seq.snapshot(),
+		"pre-open ordering must be PreviewRequest -> BeforeRequest -> RequestOpened, got %v", seq.snapshot())
 }
 
 // TestCompactionBeforeRequest_FailoverRunsOnce proves the pre-open hook does not
