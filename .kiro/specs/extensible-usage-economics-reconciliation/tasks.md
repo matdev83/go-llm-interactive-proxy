@@ -679,9 +679,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 7.1, 8.1, 8.5, 15.2, 15.3, 15.4, 18.3_
 
 
-- [ ] 16. Expose safe economic detail and discrepancy queries
+- [x] 16. Expose safe economic detail and discrepancy queries
 
-- [ ] 16.1 Implement scoped call and A-leg economic detail queries
+- [x] 16.1 Implement scoped call and A-leg economic detail queries
   - Return source-separated component evidence/charges, E/Q/P/S/R detail, known subtotal, missing IDs/counts and aggregate-only coverage.
   - Preserve existing summary projections while keeping native currencies, BYOK payer and incomplete margin explicit.
   - Completion: query results reconstruct the user-required local/upstream unit-and-cost breakdown without raw-content access.
@@ -691,7 +691,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/infra/billingstore/... ./internal/core/billing/..._
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 11.4, 16.3, 16.4_
 
-- [ ] 16.2 Add discrepancy, allowance and statement query surfaces
+- [x] 16.2 Add discrepancy, allowance and statement query surfaces
   - Expose bounded paginated reconciliation, account-window, unmatched statement and adjustment views through the protected existing reports mount.
   - Add typed public reader DTOs and explicit import authorization where the host opts into an import route; never auto-enable an unauthenticated endpoint.
   - Completion: operator queries show comparison/selection/posting status independently and no supplier economics leaks into frontend responses.
@@ -701,7 +701,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/stdhttp/... ./pkg/lipsdk/controlplane/... ./internal/infra/billingstore/..._
   - _Requirements: 9.1, 12.5, 12.6, 13.2, 13.5, 16.3, 16.4_
 
-- [ ] 16.3 Enforce evidence redaction, retention and bounded diagnostics
+- [x] 16.3 Enforce evidence redaction, retention and bounded diagnostics
   - Implement economic-field allowlists, raw lexeme/path limits, sanitizer/version markers, safe hashes and authorized retention.
   - Expose low-cardinality health/backlog/conflict/partial diagnostics; include gross absolute discrepancy aggregates without request/account IDs as metric labels.
   - Completion: secret-bearing payload fixtures are excluded and retention preserves required financial/adjustment linkage.

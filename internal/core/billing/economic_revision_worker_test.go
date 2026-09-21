@@ -87,6 +87,19 @@ func (s *economicRevisionTestResultStore) HasEconomicRevisionResult(_ context.Co
 	return ok, nil
 }
 
+// LoadEconomicRevisionValuation returns the exact persisted valuation so
+// provider-posting recovery binds the same full allocation-aware identity as
+// the fresh path. It keeps the shared test store loader-backed.
+func (s *economicRevisionTestResultStore) LoadEconomicRevisionValuation(_ context.Context, identity EconomicRevisionIdentity) (economics.Valuation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result, ok := s.results[identity.Key()]
+	if !ok {
+		return economics.Valuation{}, errors.New("test result store: missing persisted valuation")
+	}
+	return result.Valuation.Clone(), nil
+}
+
 func (s *economicRevisionTestResultStore) AppendEconomicRevisionResult(_ context.Context, work EconomicRevisionWork, result EconomicRevisionResult) error {
 	work, err := work.Normalize()
 	if err != nil {

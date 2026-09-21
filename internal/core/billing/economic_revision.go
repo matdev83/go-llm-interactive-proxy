@@ -87,13 +87,20 @@ func (e *EconomicRevisionInputMismatchError) Unwrap() error {
 // EconomicRevisionIdentity is the stable identity of one pure valuation
 // attempt. The key deliberately includes queue, head, evidence revision and
 // input-set hash, so corrected evidence is a new immutable work item.
-// Dependency-anchored work additionally carries the canonical dependency hash
-// so a changed immutable output set is a new actionable revision.
+// DerivationHash additionally binds the allocation coverage input set, so an
+// allocation-only correction with unchanged observations is also a distinct,
+// actionable revision. Dependency-anchored work additionally carries the
+// canonical dependency hash so a changed immutable output set is a new
+// actionable revision.
 type EconomicRevisionIdentity struct {
 	Queue            EconomicQueue
 	HeadKey          string
 	EvidenceRevision uint64
 	InputSetHash     string
+	// DerivationHash is the full allocation-aware valuation input identity. It
+	// is empty for legacy no-allocation work so the historical key preimage is
+	// byte-for-byte unchanged.
+	DerivationHash   string
 	DependenciesHash string
 }
 
@@ -224,6 +231,12 @@ func (i EconomicRevisionIdentity) validate() error {
 	if i.EvidenceRevision == 0 {
 		return fmt.Errorf("%w: evidence revision is required", ErrInvalidEconomicRevision)
 	}
+	if i.DerivationHash != "" {
+		decoded, err := hex.DecodeString(i.DerivationHash)
+		if err != nil || len(decoded) != sha256.Size || strings.ToLower(i.DerivationHash) != i.DerivationHash {
+			return fmt.Errorf("%w: derivation hash must be lowercase SHA-256 hex", ErrInvalidEconomicRevision)
+		}
+	}
 	if i.DependenciesHash != "" {
 		decoded, err := hex.DecodeString(i.DependenciesHash)
 		if err != nil || len(decoded) != sha256.Size || strings.ToLower(i.DependenciesHash) != i.DependenciesHash {
@@ -249,6 +262,9 @@ func (i EconomicRevisionIdentity) Key() string {
 		return ""
 	}
 	preimage := i.Queue.String() + "\x00" + i.HeadKey + "\x00" + strconv.FormatUint(i.EvidenceRevision, 10) + "\x00" + i.InputSetHash
+	if i.DerivationHash != "" {
+		preimage += "\x00" + i.DerivationHash
+	}
 	if i.DependenciesHash != "" {
 		preimage += "\x00" + i.DependenciesHash
 	}
@@ -294,6 +310,9 @@ func (i EconomicRevisionIdentity) Less(other EconomicRevisionIdentity) bool {
 	}
 	if i.InputSetHash != other.InputSetHash {
 		return i.InputSetHash < other.InputSetHash
+	}
+	if i.DerivationHash != other.DerivationHash {
+		return i.DerivationHash < other.DerivationHash
 	}
 	if i.DependenciesHash != other.DependenciesHash {
 		return i.DependenciesHash < other.DependenciesHash
@@ -360,6 +379,11 @@ func (w EconomicRevisionWork) Normalize() (EconomicRevisionWork, error) {
 	if err := out.Input.Validate(); err != nil {
 		return EconomicRevisionWork{}, fmt.Errorf("%w: rating input: %v", ErrInvalidEconomicRevision, err)
 	}
+	allocations, err := economics.CanonicalAllocationCoverageRefs(out.Input.AllocationCoverageRefs)
+	if err != nil {
+		return EconomicRevisionWork{}, fmt.Errorf("%w: allocation coverage: %v", ErrInvalidEconomicRevision, err)
+	}
+	out.Input.AllocationCoverageRefs = allocations
 	refs, err := ratingInputObservationRefs(out.Input)
 	if err != nil {
 		return EconomicRevisionWork{}, fmt.Errorf("%w: observation refs: %v", ErrInvalidEconomicRevision, err)
@@ -424,6 +448,15 @@ func (w EconomicRevisionWork) Identity() (EconomicRevisionIdentity, error) {
 		return EconomicRevisionIdentity{}, err
 	}
 	identity := EconomicRevisionIdentity{Queue: normalized.Queue, HeadKey: normalized.HeadKey, EvidenceRevision: normalized.EvidenceRevision, InputSetHash: normalized.InputSetHash}
+	if len(normalized.Input.AllocationCoverageRefs) != 0 {
+		derivation, err := economics.CanonicalValuationInputSetHash(normalized.Input.Basis, normalized.Input.ObservationRefs, normalized.Input.AllocationCoverageRefs)
+		if err != nil {
+			return EconomicRevisionIdentity{}, err
+		}
+		if derivation != normalized.InputSetHash {
+			identity.DerivationHash = derivation
+		}
+	}
 	if len(normalized.Dependencies) != 0 {
 		dependencyHash, err := economicDependenciesHash(normalized.Dependencies)
 		if err != nil {
@@ -604,6 +637,18 @@ type EconomicRevisionResultStore interface {
 // avoid invoking an expensive rater again after restart/replay.
 type EconomicRevisionResultProbe interface {
 	HasEconomicRevisionResult(context.Context, EconomicRevisionIdentity) (bool, error)
+}
+
+// EconomicRevisionValuationLoader is optional. Durable implementations use it
+// to recover the exact immutable valuation identity for provider-posting
+// replay without re-rating. The loaded valuation must carry the full
+// allocation-aware InputSetHash persisted on the fresh path; callers must not
+// substitute an ID-only placeholder or fall back to the observation-only work
+// hash. Stores that persist the lenient legacy work/output seam must return
+// that exact persisted valuation so fresh and recovered provider source keys
+// stay byte-identical.
+type EconomicRevisionValuationLoader interface {
+	LoadEconomicRevisionValuation(context.Context, EconomicRevisionIdentity) (economics.Valuation, error)
 }
 
 // EconomicRevisionReconciler computes a pure reconciliation envelope. It is

@@ -206,30 +206,72 @@ func exposureReportFromExposure(exposure billing.CallExposure) billing.ExposureR
 }
 
 func loadCallJournals(ctx context.Context, q bun.IDB, accountID, callID string) ([]billing.JournalTransaction, error) {
-	var rows []journalTransactionRow
-	query := `SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at FROM journal_transactions WHERE account_id = ? AND turn_id = ? AND book = 'financial'` + journalOrderClause("")
-	if err := q.NewRaw(query, accountID, callID).Scan(ctx, &rows); err != nil {
+	rows, err := loadCallJournalRows(ctx, q, accountID, callID, 0)
+	if err != nil {
 		return nil, err
 	}
 	return loadJournals(ctx, q, rows)
 }
 
+// loadCallJournalRows reads the financial journal rows of one call in the
+// canonical deterministic order. limit > 0 adds a database-side LIMIT used by
+// bounded callers; limit <= 0 preserves the unbounded generic report read used
+// by CallExplanation.
+func loadCallJournalRows(ctx context.Context, q bun.IDB, accountID, callID string, limit int) ([]journalTransactionRow, error) {
+	query := `SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at FROM journal_transactions WHERE account_id = ? AND turn_id = ? AND book = 'financial'` + journalOrderClause("")
+	args := []any{accountID, callID}
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	var rows []journalTransactionRow
+	if err := q.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 func loadCallOperationSnapshots(ctx context.Context, q bun.IDB, accountID string, callID billing.BillingCallID, legs []billing.CallLegUsageRecord) ([]billing.OperationSnapshot, []billing.OperationSnapshot, error) {
+	rows, err := loadCallOperationSnapshotRows(ctx, q, accountID, callID, legs, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	customer, provider := operationSnapshotsFromRows(rows)
+	return customer, provider, nil
+}
+
+// loadCallOperationSnapshotRows reads the operation snapshots of one call and
+// its legs in the canonical deterministic order. limit > 0 adds a
+// database-side LIMIT used by bounded callers; limit <= 0 preserves the
+// unbounded generic report read used by CallExplanation.
+func loadCallOperationSnapshotRows(ctx context.Context, q bun.IDB, accountID string, callID billing.BillingCallID, legs []billing.CallLegUsageRecord, limit int) ([]operationSnapshotRow, error) {
 	sourceKeys := []string{callID.String()}
 	for _, leg := range legs {
 		sourceKeys = append(sourceKeys, leg.Key)
 	}
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(sourceKeys)), ",")
-	args := make([]any, 0, len(sourceKeys)+1)
+	args := make([]any, 0, len(sourceKeys)+2)
 	args = append(args, accountID)
 	for _, key := range sourceKeys {
 		args = append(args, key)
 	}
-	var rows []operationSnapshotRow
 	query := `SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ? AND source_key IN (` + placeholders + `)` + operationSnapshotOrderClause
-	if err := q.NewRaw(query, args...).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, err
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
 	}
+	var rows []operationSnapshotRow
+	if err := q.NewRaw(query, args...).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// operationSnapshotsFromRows adapts durable snapshot rows into the canonical
+// customer/provider operation sets. Kinds outside the settlement vocabulary
+// are ignored, exactly as before; every row still counts against the caller's
+// row budget before this projection runs.
+func operationSnapshotsFromRows(rows []operationSnapshotRow) ([]billing.OperationSnapshot, []billing.OperationSnapshot) {
 	customer := make([]billing.OperationSnapshot, 0)
 	provider := make([]billing.OperationSnapshot, 0)
 	for _, row := range rows {
@@ -255,5 +297,5 @@ func loadCallOperationSnapshots(ctx context.Context, q bun.IDB, accountID string
 			provider = append(provider, snap)
 		}
 	}
-	return customer, provider, nil
+	return customer, provider
 }

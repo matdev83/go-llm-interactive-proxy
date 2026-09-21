@@ -1026,7 +1026,7 @@ func composeRetailValuation(result *RetailRatingResult, call CallUsageRecord, re
 	composite.TariffContent = cloneRetailContent(&tariff.Content)
 	composite.Rater = tariff.Ref
 	composite.RaterContent = cloneRetailContent(&tariff.Content)
-	if hash, err := economics.CanonicalInputSetHash(composite.Basis, composite.InputObservations); err == nil {
+	if hash, err := economics.CanonicalValuationInputSetHash(composite.Basis, composite.InputObservations, composite.AllocationCoverageRefs); err == nil {
 		composite.InputSetHash = hash
 	}
 	composite.Totals, _ = totalsFromLines(composite.Lines, tariff.Currency)

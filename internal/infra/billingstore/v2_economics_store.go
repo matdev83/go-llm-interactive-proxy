@@ -547,7 +547,7 @@ func canonicalValuationForStore(storeID string, valuation economics.Valuation) (
 	// a trusted durable append can accept the same empty-hash compatibility
 	// state as a direct post-usage rater. A non-empty caller hash is rejected
 	// before it can affect canonical JSON, lookup or uniqueness.
-	verifiedHash, err := economics.CanonicalInputSetHash(valuation.Basis, valuation.InputObservations)
+	verifiedHash, err := economics.CanonicalValuationInputSetHash(valuation.Basis, valuation.InputObservations, valuation.AllocationCoverageRefs)
 	if err != nil {
 		return economics.Valuation{}, nil, err
 	}
@@ -563,7 +563,7 @@ func canonicalValuationForStore(storeID string, valuation economics.Valuation) (
 	// preimage trusted by direct raters. New/legacy-compatible empty hashes are
 	// filled from retained refs; a supplied non-empty mismatch is rejected
 	// before it can influence either the identity query or persisted payload.
-	verifiedHash, err = economics.CanonicalInputSetHash(canonical.Basis, canonical.InputObservations)
+	verifiedHash, err = economics.CanonicalValuationInputSetHash(canonical.Basis, canonical.InputObservations, canonical.AllocationCoverageRefs)
 	if err != nil {
 		return economics.Valuation{}, nil, err
 	}

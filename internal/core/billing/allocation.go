@@ -33,6 +33,12 @@ type AllocatedCostLine struct {
 	AllocationVersion  uint64
 	AllocationRevision uint64
 	Operation          economics.AllocationOperation
+	// PayloadHash is the exact canonical fingerprint of the immutable source
+	// allocation record (identity plus content). It is retained so a selected
+	// valuation's explicit allocation-coverage reference can be verified
+	// against the exact allocation revision instead of matching on a reusable
+	// id and version alone.
+	PayloadHash string
 	// Policy is the immutable allocation policy that produced Weight/Share.
 	// Keeping it on every expanded line prevents a payable rollup from losing
 	// the policy/version that explains its conserved distribution.
@@ -54,6 +60,12 @@ type AllocatedCostLine struct {
 	// for an explicit allocation's informational linkage only when a real
 	// request exists; allocation alone never creates request evidence.
 	InferenceEligible bool
+	// Redacted is true when the source aggregate economics could not be proven
+	// to belong to the requesting scope and were withheld. The line keeps its
+	// authoritative membership identity, policy reference and exact shares, so
+	// conservation remains auditable without exposing a foreign or unattributed
+	// source total or remainder by subtraction.
+	Redacted bool
 }
 
 // AllocationRollupResult is the fail-closed rollup view. Pending
@@ -64,8 +76,13 @@ type AllocationRollupResult struct {
 	Status            economics.AllocationSupersessionStatus
 	Pending           []economics.AllocationRef
 	PendingSupersedes []economics.AllocationRef
-	Complete          bool
-	Payable           bool
+	// Superseded is the bounded audit set of predecessor references that were
+	// authoritatively retired by a resolved successor. It is retained so a
+	// scope that loses a contribution to a target-moving replacement can still
+	// explain why the contribution is no longer live.
+	Superseded []economics.AllocationRef
+	Complete   bool
+	Payable    bool
 }
 
 // AllocationRollupIncompleteError reports the detailed state that prevented
@@ -130,17 +147,20 @@ func RollupAllocatedCostsDetailed(records []economics.AllocationRecord) (Allocat
 		Lines:             make([]AllocatedCostLine, 0),
 		Status:            resolved.Status,
 		Pending:           append([]economics.AllocationRef(nil), resolved.Pending...),
-		PendingSupersedes: append([]economics.AllocationRef(nil), resolved.Pending...),
+		PendingSupersedes: append([]economics.AllocationRef(nil), resolved.PendingSupersedes...),
+		Superseded:        append([]economics.AllocationRef(nil), resolved.Superseded...),
 		Complete:          resolved.Complete,
 		Payable:           resolved.Payable,
 	}
 	for _, record := range resolved.Effective {
+		fingerprint := record.Fingerprint()
 		for _, target := range record.Targets {
 			line := AllocatedCostLine{
 				AllocationID: record.ID, AllocationVersion: record.Version, AllocationRevision: record.Revision,
-				Operation: record.Operation,
-				Policy:    record.Policy,
-				TargetID:  target.TargetID, SourceSubject: record.SourceSubject,
+				Operation:   record.Operation,
+				PayloadHash: fingerprint,
+				Policy:      record.Policy,
+				TargetID:    target.TargetID, SourceSubject: record.SourceSubject,
 				SourceBasis: record.SourceBasis, Currency: record.Currency, Unit: record.Unit,
 				Target: target.Target, Unallocated: target.Unallocated,
 				Informational: target.Informational, Weight: target.Weight, Share: target.Share,

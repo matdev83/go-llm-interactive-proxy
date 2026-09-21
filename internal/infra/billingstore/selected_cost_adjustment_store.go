@@ -306,11 +306,24 @@ func (s *DurableStore) selectedCostHeadFromRow(row providerCostHeadRow) (billing
 	if err := selected.Validate(); err != nil {
 		return billing.SelectedCostHead{}, fmt.Errorf("%w: %v", ErrSelectedCostAdjustmentMismatch, err)
 	}
+	// Posting state is read exactly from the durable column. The additive
+	// migration is NOT NULL DEFAULT 'applied', so a legacy upgraded row reads
+	// 'applied'; an unset value mirrors that documented schema default rather
+	// than inferring anything from transaction IDs or the selection status. A
+	// non-empty unknown state is corrupt and fails closed.
+	postingState := billing.SelectedCostPostingStatus(row.PostingState)
+	if postingState == "" {
+		postingState = billing.SelectedCostPostingApplied
+	}
+	if !postingState.IsKnown() {
+		return billing.SelectedCostHead{}, fmt.Errorf("%w: head posting state", ErrSelectedCostAdjustmentMismatch)
+	}
 	return billing.SelectedCostHead{
 		AccountID: row.AccountID, CallID: callID, HeadKey: row.HeadKey, Subject: subject,
 		Version: uint64(row.HeadVersion), Selected: &selected,
 		LastOperationKey: row.LastOperationKey, LastTransactionID: row.LastTransactionID,
 		OriginalTransactionID: providerCostOriginalTransactionID(row.OriginalTransactionID, row.LastTransactionID),
+		PostingState:          postingState,
 	}, nil
 }
 

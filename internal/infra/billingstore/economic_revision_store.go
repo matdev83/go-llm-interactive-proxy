@@ -325,6 +325,34 @@ func (s *DurableStore) HasEconomicRevisionResult(ctx context.Context, identity b
 	return headCount != 0, nil
 }
 
+var _ billing.EconomicRevisionValuationLoader = (*DurableStore)(nil)
+
+// LoadEconomicRevisionValuation returns the exact immutable valuation persisted
+// for one revision identity. It is the durable reader for provider-posting
+// recovery: the returned InputSetHash is the full allocation-aware identity
+// used on the fresh path, including the lenient legacy work/output seam.
+// A missing valuation is reported as sql.ErrNoRows wrapped for retry; callers
+// must not guess the identity from work alone.
+func (s *DurableStore) LoadEconomicRevisionValuation(ctx context.Context, identity billing.EconomicRevisionIdentity) (economics.Valuation, error) {
+	if err := s.validateContext(ctx); err != nil {
+		return economics.Valuation{}, err
+	}
+	if err := identity.Validate(); err != nil {
+		return economics.Valuation{}, err
+	}
+	valuation, err := s.GetValuation(ctx, identity.ValuationKey(), economics.ValuationVersionV2)
+	if err != nil {
+		return economics.Valuation{}, err
+	}
+	if valuation.ID != identity.ValuationKey() {
+		return economics.Valuation{}, fmt.Errorf("%w: valuation id got=%q want=%q", billing.ErrEconomicRevisionInputMismatch, valuation.ID, identity.ValuationKey())
+	}
+	if valuation.InputSetHash == "" {
+		return economics.Valuation{}, fmt.Errorf("%w: persisted valuation lacks input identity", billing.ErrEconomicRevisionInputMismatch)
+	}
+	return valuation, nil
+}
+
 // AppendEconomicRevisionResult atomically persists pure valuation,
 // reconciliation and the rebuildable current head. No account, exposure,
 // journal or customer-unit table is read or written by this transaction.
@@ -353,8 +381,40 @@ func (s *DurableStore) AppendEconomicRevisionResult(ctx context.Context, work bi
 	if canonicalValuation.Basis != normalizedWork.Input.Basis {
 		return fmt.Errorf("%w: valuation basis got=%q want=%q", billing.ErrEconomicRevisionBasisMismatch, canonicalValuation.Basis, normalizedWork.Input.Basis)
 	}
-	if canonicalValuation.InputSetHash != normalizedWork.InputSetHash {
-		return fmt.Errorf("%w: valuation hash got=%q want=%q", billing.ErrEconomicRevisionInputMismatch, canonicalValuation.InputSetHash, normalizedWork.InputSetHash)
+	// Dual identity fence. The immutable work envelope authenticates only the
+	// claimed observation plane, so the observation-only projection derived from
+	// the valuation's retained references must equal the work hash. The stored
+	// valuation identity is broader and additionally authenticates allocation
+	// coverage references; canonicalValuationForStore has already verified and
+	// filled it, and the explicit recomputation below keeps both fences
+	// independent instead of collapsing them into one comparison.
+	observationHash, err := economics.CanonicalInputSetHash(canonicalValuation.Basis, canonicalValuation.InputObservations)
+	if err != nil {
+		return fmt.Errorf("%w: valuation observation inputs: %v", billing.ErrEconomicRevisionInputMismatch, err)
+	}
+	if observationHash != normalizedWork.InputSetHash {
+		return fmt.Errorf("%w: valuation observation hash got=%q want=%q", billing.ErrEconomicRevisionInputMismatch, observationHash, normalizedWork.InputSetHash)
+	}
+	fullHash, err := economics.CanonicalValuationInputSetHash(canonicalValuation.Basis, canonicalValuation.InputObservations, canonicalValuation.AllocationCoverageRefs)
+	if err != nil {
+		return fmt.Errorf("%w: valuation allocation inputs: %v", billing.ErrEconomicRevisionInputMismatch, err)
+	}
+	if canonicalValuation.InputSetHash != fullHash {
+		return fmt.Errorf("%w: valuation full hash got=%q want=%q", billing.ErrEconomicRevisionInputMismatch, canonicalValuation.InputSetHash, fullHash)
+	}
+	// An allocation-aware rater may only price the allocation coverage set
+	// declared by the immutable work; substituting an unclaimed allocation
+	// revision is a trust-boundary violation, not a distinct revision.
+	workAllocations, err := economics.CanonicalAllocationCoverageRefs(normalizedWork.Input.AllocationCoverageRefs)
+	if err != nil {
+		return fmt.Errorf("%w: work allocation coverage: %v", billing.ErrEconomicRevisionInputMismatch, err)
+	}
+	valuationAllocations, err := economics.CanonicalAllocationCoverageRefs(canonicalValuation.AllocationCoverageRefs)
+	if err != nil {
+		return fmt.Errorf("%w: valuation allocation coverage: %v", billing.ErrEconomicRevisionInputMismatch, err)
+	}
+	if len(workAllocations) != 0 && !slices.Equal(workAllocations, valuationAllocations) {
+		return fmt.Errorf("%w: valuation allocation coverage does not match the immutable work claim", billing.ErrEconomicRevisionInputMismatch)
 	}
 	result.Valuation = canonicalValuation
 	if result.Reconciliation != nil && result.Reconciliation.ID != identity.ReconciliationKey() {
@@ -479,6 +539,13 @@ type economicValuationHeadRow struct {
 	Fence                 int64  `bun:"fence"`
 	CreatedAt             int64  `bun:"created_at_unix"`
 	UpdatedAt             int64  `bun:"updated_at_unix"`
+	// DerivationHash and DependenciesHash persist the durable current winning
+	// ordering tuple's full derivation identity. UpdatedAt already persists
+	// the winning work's CreatedAt; these columns persist every other field
+	// used by the same-observation-plane comparison so delayed and equal-time
+	// arrivals order deterministically. See appendEconomicValuationHeadInTx.
+	DerivationHash   string `bun:"derivation_hash"`
+	DependenciesHash string `bun:"dependencies_hash"`
 }
 
 func (s *DurableStore) appendEconomicValuationHeadInTx(ctx context.Context, tx bun.Tx, work billing.EconomicRevisionWork, identity billing.EconomicRevisionIdentity, valuation economics.Valuation, reconciliationID string, reconciliationVersion uint64, reconciliationFingerprint string) error {
@@ -507,20 +574,23 @@ func (s *DurableStore) appendEconomicValuationHeadInTx(ctx context.Context, tx b
 		ReconciliationVersion: int64(reconciliationVersion), ValuationFingerprint: valuationFingerprint,
 		ReconciliationFP: reconciliationFingerprint, Fingerprint: headFingerprint,
 		HeadVersion: 1, Fence: 1, CreatedAt: work.CreatedAt.UnixNano(), UpdatedAt: work.CreatedAt.UnixNano(),
+		DerivationHash: identity.DerivationHash, DependenciesHash: identity.DependenciesHash,
 	}
 	if _, err := tx.NewRaw(`INSERT INTO billing_economic_valuation_heads(
 		store_id, queue, head_key, subject_kind, subject_id, subject_json, evidence_revision, input_set_hash,
 		work_id, valuation_id, valuation_version, reconciliation_id, reconciliation_version,
-		valuation_fingerprint, reconciliation_fingerprint, fingerprint, head_version, fence, created_at_unix, updated_at_unix
-	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
+		valuation_fingerprint, reconciliation_fingerprint, fingerprint, head_version, fence, created_at_unix, updated_at_unix,
+		derivation_hash, dependencies_hash
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
 		incoming.StoreID, incoming.Queue, incoming.HeadKey, incoming.SubjectKind, incoming.SubjectID, incoming.SubjectJSON,
 		incoming.EvidenceRevision, incoming.InputSetHash, incoming.WorkID, incoming.ValuationID, incoming.ValuationVersion,
 		incoming.ReconciliationID, incoming.ReconciliationVersion, incoming.ValuationFingerprint, incoming.ReconciliationFP,
-		incoming.Fingerprint, incoming.HeadVersion, incoming.Fence, incoming.CreatedAt, incoming.UpdatedAt).Exec(ctx); err != nil {
+		incoming.Fingerprint, incoming.HeadVersion, incoming.Fence, incoming.CreatedAt, incoming.UpdatedAt,
+		incoming.DerivationHash, incoming.DependenciesHash).Exec(ctx); err != nil {
 		return fmt.Errorf("billingstore: insert economic valuation head: %w", err)
 	}
 	var existing economicValuationHeadRow
-	selectSQL := `SELECT id, store_id, queue, head_key, subject_kind, subject_id, subject_json, evidence_revision, input_set_hash, work_id, valuation_id, valuation_version, reconciliation_id, reconciliation_version, valuation_fingerprint, reconciliation_fingerprint, fingerprint, head_version, fence, created_at_unix, updated_at_unix FROM billing_economic_valuation_heads WHERE store_id = ? AND queue = ? AND head_key = ? LIMIT 1`
+	selectSQL := `SELECT id, store_id, queue, head_key, subject_kind, subject_id, subject_json, evidence_revision, input_set_hash, work_id, valuation_id, valuation_version, reconciliation_id, reconciliation_version, valuation_fingerprint, reconciliation_fingerprint, fingerprint, head_version, fence, created_at_unix, updated_at_unix, derivation_hash, dependencies_hash FROM billing_economic_valuation_heads WHERE store_id = ? AND queue = ? AND head_key = ? LIMIT 1`
 	if tx.Dialect().Name() == dialect.PG {
 		selectSQL += ` FOR UPDATE`
 	}
@@ -533,35 +603,70 @@ func (s *DurableStore) appendEconomicValuationHeadInTx(ctx context.Context, tx b
 		}
 		return nil
 	}
-	existingIdentity, existingErr := billing.NewEconomicRevisionIdentity(billing.EconomicQueue(existing.Queue), existing.HeadKey, uint64(maxInt64ToZero(existing.EvidenceRevision)), existing.InputSetHash)
+	existingIdentity := billing.EconomicRevisionIdentity{
+		Queue:            billing.EconomicQueue(existing.Queue),
+		HeadKey:          existing.HeadKey,
+		EvidenceRevision: uint64(maxInt64ToZero(existing.EvidenceRevision)),
+		InputSetHash:     existing.InputSetHash,
+		DerivationHash:   existing.DerivationHash,
+		DependenciesHash: existing.DependenciesHash,
+	}
+	existingErr := existingIdentity.Validate()
+	// A legacy row backfilled without derivation columns validates with empty
+	// derivation hashes; that preserves observation-only legacy ordering while
+	// allocation-aware rows carry their full identity. An invalid stored
+	// identity is treated as older so recovery can repair it (same as before).
 	if existingErr == nil {
 		advance := existingIdentity.Less(identity)
-		if existingIdentity.EvidenceRevision == identity.EvidenceRevision && existingIdentity.InputSetHash != identity.InputSetHash {
-			existingRefs, found, evidenceErr := loadValuationInputObservationsInTx(ctx, tx, s.storeID, existing.ValuationID, existing.ValuationVersion)
-			if evidenceErr != nil {
-				return evidenceErr
-			}
-			if !found {
-				return fmt.Errorf("%w: existing valuation evidence %q/%d is unavailable", billing.ErrEconomicRevisionFence, existing.ValuationID, existing.ValuationVersion)
-			}
-			relation, relationErr := billing.CompareEconomicEvidenceSets(existingRefs, valuation.InputObservations)
-			if relationErr != nil {
-				return fmt.Errorf("%w: compare same-revision evidence: %v", billing.ErrEconomicRevisionFence, relationErr)
-			}
-			switch relation {
-			case billing.EconomicEvidenceSetCandidateSuperset:
-				advance = true
-			case billing.EconomicEvidenceSetCandidateSubset:
-				advance = false
-			case billing.EconomicEvidenceSetEqual:
-				// Equal reference sets are semantically equivalent. Hash ordering
-				// remains only a deterministic tie-breaker for that case.
-				advance = existingIdentity.Less(identity)
-			case billing.EconomicEvidenceSetIncomparable:
-				// A worker cannot safely derive the missing union inside this
-				// transaction. Keep the durable work retryable rather than
-				// acknowledging an evidence branch that would lose coverage.
-				return fmt.Errorf("%w: incomparable same-revision evidence sets", billing.ErrEconomicRevisionFence)
+		if existingIdentity.EvidenceRevision == identity.EvidenceRevision {
+			if existingIdentity.InputSetHash != identity.InputSetHash {
+				existingRefs, found, evidenceErr := loadValuationInputObservationsInTx(ctx, tx, s.storeID, existing.ValuationID, existing.ValuationVersion)
+				if evidenceErr != nil {
+					return evidenceErr
+				}
+				if !found {
+					return fmt.Errorf("%w: existing valuation evidence %q/%d is unavailable", billing.ErrEconomicRevisionFence, existing.ValuationID, existing.ValuationVersion)
+				}
+				relation, relationErr := billing.CompareEconomicEvidenceSets(existingRefs, valuation.InputObservations)
+				if relationErr != nil {
+					return fmt.Errorf("%w: compare same-revision evidence: %v", billing.ErrEconomicRevisionFence, relationErr)
+				}
+				switch relation {
+				case billing.EconomicEvidenceSetCandidateSuperset:
+					advance = true
+				case billing.EconomicEvidenceSetCandidateSubset:
+					advance = false
+				case billing.EconomicEvidenceSetEqual:
+					// Equal reference sets are semantically equivalent. Hash ordering
+					// remains only a deterministic tie-breaker for that case.
+					advance = existingIdentity.Less(identity)
+				case billing.EconomicEvidenceSetIncomparable:
+					// A worker cannot safely derive the missing union inside this
+					// transaction. Keep the durable work retryable rather than
+					// acknowledging an evidence branch that would lose coverage.
+					return fmt.Errorf("%w: incomparable same-revision evidence sets", billing.ErrEconomicRevisionFence)
+				}
+			} else {
+				// Same observation revision and same observation plane. Order by
+				// the durable current winning tuple, never by the head's
+				// initial created_at nor by arrival order:
+				//   1. winning CreatedAt (updated_at_unix persists the winning
+				//      work's CreatedAt and is updated atomically on every
+				//      transition): larger wins, smaller never regresses;
+				//   2. equal time (including normalized-zero): total
+				//      deterministic lexical tie-break over the full
+				//      derivation identity (derivation, dependencies, work
+				//      key), larger wins, consistent SQLite/PG.
+				// The immutable losing valuation is never mutated and stays
+				// independently queryable, so delayed or reordered replays of
+				// an older derivation cannot regress the head, and equal-time
+				// arrivals converge independent of completion order.
+				winningCreatedAt := existing.UpdatedAt
+				if incoming.CreatedAt != winningCreatedAt {
+					advance = incoming.CreatedAt > winningCreatedAt
+				} else {
+					advance = existingIdentity.Less(identity)
+				}
 			}
 		}
 		if !advance {
@@ -571,10 +676,12 @@ func (s *DurableStore) appendEconomicValuationHeadInTx(ctx context.Context, tx b
 	if _, err := tx.NewRaw(`UPDATE billing_economic_valuation_heads SET
 		subject_kind = ?, subject_id = ?, subject_json = ?, evidence_revision = ?, input_set_hash = ?, work_id = ?,
 		valuation_id = ?, valuation_version = ?, reconciliation_id = ?, reconciliation_version = ?, valuation_fingerprint = ?,
-		reconciliation_fingerprint = ?, fingerprint = ?, head_version = head_version + 1, fence = fence + 1, updated_at_unix = ?
+		reconciliation_fingerprint = ?, fingerprint = ?, head_version = head_version + 1, fence = fence + 1, updated_at_unix = ?,
+		derivation_hash = ?, dependencies_hash = ?
 		WHERE id = ?`, incoming.SubjectKind, incoming.SubjectID, incoming.SubjectJSON, incoming.EvidenceRevision, incoming.InputSetHash,
 		incoming.WorkID, incoming.ValuationID, incoming.ValuationVersion, incoming.ReconciliationID, incoming.ReconciliationVersion,
-		incoming.ValuationFingerprint, incoming.ReconciliationFP, incoming.Fingerprint, incoming.UpdatedAt, existing.ID).Exec(ctx); err != nil {
+		incoming.ValuationFingerprint, incoming.ReconciliationFP, incoming.Fingerprint, incoming.UpdatedAt,
+		incoming.DerivationHash, incoming.DependenciesHash, existing.ID).Exec(ctx); err != nil {
 		return fmt.Errorf("billingstore: advance economic valuation head: %w", err)
 	}
 	return nil

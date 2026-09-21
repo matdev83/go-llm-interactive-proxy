@@ -176,15 +176,54 @@ func BoundedEconomicWorkReasonText(text string) string {
 
 // EconomicJobDependency is an explicit immutable output reference that
 // separated reconciliation work depends on. The reference is the full
-// revision identity (queue, head, evidence revision, input-set hash) of a
-// rating output, so a corrected rating is a new dependency rather than an
-// overwrite of the previous output.
+// revision identity (queue, head, evidence revision, observation input-set
+// hash and allocation derivation hash) of a rating output, so a corrected
+// rating is a new dependency rather than an overwrite of the previous output.
+// DerivationHash is the full allocation-aware valuation input identity. It is
+// empty for legacy observation-only outputs so the historical key preimage is
+// byte-for-byte unchanged; allocation-aware producers must carry the exact
+// DerivationHash from their revision identity and consumers must never guess
+// it from the observation hash.
 type EconomicJobDependency struct {
 	Kind             EconomicWorkKind `json:"kind"`
 	Queue            EconomicQueue    `json:"queue"`
 	HeadKey          string           `json:"head_key"`
 	EvidenceRevision uint64           `json:"evidence_revision"`
 	InputSetHash     string           `json:"input_set_hash"`
+	DerivationHash   string           `json:"derivation_hash,omitempty"`
+}
+
+// NewEconomicJobDependency builds the exact immutable output reference for one
+// rating revision identity. The returned dependency carries the producer's
+// full derivation identity (including DerivationHash) so durable probes and
+// loads resolve the allocation-aware valuation rather than the
+// observation-only key or a stale historical output.
+func NewEconomicJobDependency(kind EconomicWorkKind, identity EconomicRevisionIdentity) (EconomicJobDependency, error) {
+	if err := kind.Validate(); err != nil {
+		return EconomicJobDependency{}, fmt.Errorf("%w: dependency kind: %v", ErrInvalidEconomicRevision, err)
+	}
+	if !kind.IsRating() {
+		return EconomicJobDependency{}, fmt.Errorf("%w: dependency kind %q is not a rating output", ErrInvalidEconomicRevision, kind)
+	}
+	queue, err := kind.Queue()
+	if err != nil {
+		return EconomicJobDependency{}, fmt.Errorf("%w: dependency queue: %v", ErrInvalidEconomicRevision, err)
+	}
+	if queue != identity.Queue {
+		return EconomicJobDependency{}, fmt.Errorf("%w: dependency kind %q does not belong to queue %q", ErrInvalidEconomicRevision, kind, identity.Queue)
+	}
+	if err := identity.Validate(); err != nil {
+		return EconomicJobDependency{}, fmt.Errorf("%w: dependency identity: %v", ErrInvalidEconomicRevision, err)
+	}
+	dependency := EconomicJobDependency{
+		Kind: kind, Queue: identity.Queue, HeadKey: identity.HeadKey,
+		EvidenceRevision: identity.EvidenceRevision, InputSetHash: identity.InputSetHash,
+		DerivationHash: identity.DerivationHash,
+	}
+	if err := dependency.Validate(); err != nil {
+		return EconomicJobDependency{}, err
+	}
+	return dependency, nil
 }
 
 // Validate checks that the dependency is a well-formed rating output reference.
@@ -209,11 +248,13 @@ func (d EconomicJobDependency) Validate() error {
 }
 
 // OutputIdentity returns the rating output revision identity the dependency
-// points at. The returned identity carries no dependency hash because a rating
-// output is never dependency-anchored.
+// points at. The returned identity carries the full derivation identity,
+// including DerivationHash for allocation-aware outputs, because a rating
+// output is never dependency-anchored but may be allocation-derived.
 func (d EconomicJobDependency) OutputIdentity() (EconomicRevisionIdentity, error) {
 	identity := EconomicRevisionIdentity{
 		Queue: d.Queue, HeadKey: d.HeadKey, EvidenceRevision: d.EvidenceRevision, InputSetHash: d.InputSetHash,
+		DerivationHash: d.DerivationHash,
 	}
 	if err := identity.Validate(); err != nil {
 		return EconomicRevisionIdentity{}, fmt.Errorf("%w: dependency output: %v", ErrInvalidEconomicRevision, err)
@@ -231,10 +272,12 @@ func (d EconomicJobDependency) Key() string {
 	return identity.Key()
 }
 
-// Equal reports whether two dependencies reference the same immutable output.
+// Equal reports whether two dependencies reference the same immutable output,
+// including the allocation derivation.
 func (d EconomicJobDependency) Equal(other EconomicJobDependency) bool {
 	return d.Kind == other.Kind && d.Queue == other.Queue && d.HeadKey == other.HeadKey &&
-		d.EvidenceRevision == other.EvidenceRevision && d.InputSetHash == other.InputSetHash
+		d.EvidenceRevision == other.EvidenceRevision && d.InputSetHash == other.InputSetHash &&
+		d.DerivationHash == other.DerivationHash
 }
 
 func canonicalEconomicJobDependencies(dependencies []EconomicJobDependency) ([]EconomicJobDependency, error) {
@@ -269,7 +312,11 @@ func canonicalEconomicJobDependencies(dependencies []EconomicJobDependency) ([]E
 // economicDependenciesHash derives the identity extension for
 // dependency-anchored work. Two jobs with the same queue/head/revision/input
 // hash but different immutable dependency sets must remain distinct
-// actionable revisions.
+// actionable revisions. The canonical preimage binds the full derivation
+// identity: allocation-aware dependencies extend the legacy
+// queue/head/revision/observation preimage with the derivation hash, while
+// observation-only dependencies keep the historical preimage byte-for-byte
+// unchanged.
 func economicDependenciesHash(dependencies []EconomicJobDependency) (string, error) {
 	if len(dependencies) == 0 {
 		return "", nil
@@ -291,6 +338,10 @@ func economicDependenciesHash(dependencies []EconomicJobDependency) (string, err
 		preimage.WriteString(strconv.FormatUint(dependency.EvidenceRevision, 10))
 		preimage.WriteString("\x00")
 		preimage.WriteString(dependency.InputSetHash)
+		if dependency.DerivationHash != "" {
+			preimage.WriteString("\x00")
+			preimage.WriteString(dependency.DerivationHash)
+		}
 	}
 	digest := sha256.Sum256([]byte(preimage.String()))
 	return hex.EncodeToString(digest[:]), nil

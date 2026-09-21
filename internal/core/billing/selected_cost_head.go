@@ -344,6 +344,12 @@ type SelectedCostHead struct {
 	LastOperationKey      string
 	OriginalTransactionID string
 	LastTransactionID     string
+	// PostingState is the exact persisted financial posting state of this head,
+	// separate from the selection and comparison planes. It is populated from
+	// the durable head row by the persistence adapter; the empty value is only
+	// valid for a caller-built in-memory head that was never read from durable
+	// storage.
+	PostingState SelectedCostPostingStatus
 }
 
 // Validate checks the request-scoped selected-cost head identity.
@@ -382,6 +388,9 @@ func (h SelectedCostHead) Validate() error {
 		if err := h.Selected.Validate(); err != nil {
 			return err
 		}
+	}
+	if h.PostingState != "" && !h.PostingState.IsKnown() {
+		return fmt.Errorf("%w: unknown head posting state %q", ErrSelectedCostHeadInvalid, h.PostingState)
 	}
 	return nil
 }

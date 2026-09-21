@@ -34,10 +34,9 @@ func economicJobTestDependency(t *testing.T, queue EconomicQueue, revision uint6
 	require.NoError(t, err)
 	identity, err := normalized.Identity()
 	require.NoError(t, err)
-	return EconomicJobDependency{
-		Kind: EconomicWorkKindForQueue(queue), Queue: normalized.Queue, HeadKey: normalized.HeadKey,
-		EvidenceRevision: identity.EvidenceRevision, InputSetHash: identity.InputSetHash,
-	}
+	dependency, err := NewEconomicJobDependency(EconomicWorkKindForQueue(queue), identity)
+	require.NoError(t, err)
+	return dependency
 }
 
 func economicJobTestReconciliation(t *testing.T, deps ...EconomicJobDependency) EconomicRevisionWork {

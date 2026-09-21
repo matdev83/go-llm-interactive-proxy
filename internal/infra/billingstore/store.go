@@ -2,10 +2,12 @@ package billingstore
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	dbinfra "github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -15,7 +17,7 @@ import (
 
 const legacyReservedZeroMigrationName = "20260826000000"
 
-var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName, ProviderMaintenanceMigrationName, ProviderMaintenanceIntegrityMigrationName, BillingV2EconomicsMigrationName, BillingV2LineBooleanRepairMigrationName, BillingV2ValuationIdentityMigrationName, CustomerUnitLedgerMigrationName, CostPassThroughHeadMigrationName, SubmissionFeeClaimMigrationName, BillingAllocationMigrationName, BillingAllocationTargetScopeMigrationName, BillingEconomicRevisionHeadsMigrationName, BillingProviderCostHeadsMigrationName, BillingProviderCostPostingFenceMigrationName, BillingProviderCostExecutionFenceMigrationName, BillingProviderCostCorrectionLinksMigrationName, BillingReconciliationRetentionMigrationName, BillingReconciliationRetentionTenantIndexMigrationName, BillingStatementImportMigrationName, BillingSelectedCostAdjustmentsMigrationName, BillingEconomicJobQueueMigrationName, RouteTariffBindingMigrationName}
+var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName, ProviderMaintenanceMigrationName, ProviderMaintenanceIntegrityMigrationName, BillingV2EconomicsMigrationName, BillingV2LineBooleanRepairMigrationName, BillingV2ValuationIdentityMigrationName, CustomerUnitLedgerMigrationName, CostPassThroughHeadMigrationName, SubmissionFeeClaimMigrationName, BillingAllocationMigrationName, BillingAllocationTargetScopeMigrationName, BillingEconomicRevisionHeadsMigrationName, BillingProviderCostHeadsMigrationName, BillingProviderCostPostingFenceMigrationName, BillingProviderCostExecutionFenceMigrationName, BillingProviderCostCorrectionLinksMigrationName, BillingReconciliationRetentionMigrationName, BillingReconciliationRetentionTenantIndexMigrationName, BillingStatementImportMigrationName, BillingSelectedCostAdjustmentsMigrationName, BillingEconomicJobQueueMigrationName, RouteTariffBindingMigrationName, BillingOperatorCursorKeyMigrationName, BillingEconomicHeadOrderingMigrationName}
 
 type Config struct {
 	StoreID string
@@ -23,6 +25,7 @@ type Config struct {
 type DurableStore struct {
 	db                  *bun.DB
 	storeID             string
+	cursorKey           []byte
 	settlementFaultHook func(string) error
 	economicFaultHook   func(string) error
 }
@@ -90,7 +93,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		"billing_cost_pass_through_heads", "billing_submission_fee_claims", "billing_provider_cost_heads", "billing_provider_cost_posting_fences", "billing_provider_cost_execution_fences",
 		"billing_allocations", "billing_allocation_targets",
 		"billing_statement_revisions", "billing_statement_lines",
-		"billing_selected_cost_adjustments",
+		"billing_selected_cost_adjustments", "billing_operator_cursor_keys",
 	} {
 		var probe int
 		if err := database.NewRaw("SELECT 1 FROM "+table+" WHERE 1 = 0").Scan(ctx, &probe); err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -160,7 +163,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 			"billing_statement_lines":                {"line_key", "statement_key", "envelope_revision", "provider_account_key", "statement_id", "period_id", "tenant_id", "line_id", "line_revision", "outcome", "charge_item_id", "observation_id", "observation_revision", "fingerprint", "payload_json", "UNIQUE(store_id, line_key)", "FOREIGN KEY(store_id, statement_key) REFERENCES billing_statement_revisions"},
 			"billing_selected_cost_adjustments":      {"account_id", "call_id", "head_key", "operation_key", "link_key", "fingerprint", "status", "comparison", "posting", "previous_valuation_id", "previous_revision", "previous_input_set_hash", "current_valuation_id", "current_revision", "current_input_set_hash", "currency", "fx_json", "adjustment_revision", "delta_json", "journal_transaction_id", "UNIQUE(store_id, operation_key)", "UNIQUE(store_id, link_key)", "FOREIGN KEY(account_id) REFERENCES billing_accounts"},
 		}
-		tableFragments["billing_economic_valuation_heads"] = []string{"queue", "head_key", "subject_json", "evidence_revision", "input_set_hash", "work_id", "valuation_id", "valuation_version", "head_version", "fence", "UNIQUE(store_id, queue, head_key)"}
+		tableFragments["billing_economic_valuation_heads"] = []string{"queue", "head_key", "subject_json", "evidence_revision", "input_set_hash", "work_id", "valuation_id", "valuation_version", "head_version", "fence", "derivation_hash", "dependencies_hash", "UNIQUE(store_id, queue, head_key)"}
 		tableFragments["billing_economic_revision_work_state"] = []string{"work_id", "work_version", "queue", "head_key", "work_kind", "dependency_count", "status", "attempt_count", "next_attempt_at_unix", "lease_owner", "lease_until_unix", "last_error", "retry_reason", "fence", "completed_at_unix", "failed_at_unix", "'failed'", "UNIQUE(store_id, work_id, work_version)"}
 		for table, fragments := range tableFragments {
 			var ddl string
@@ -372,6 +375,10 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"billing selected cost adjustment head index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{billingSelectedCostAdjustmentHeadIndex}, []string{"store_id", "account_id", "call_id", "head_key", "adjustment_revision"}},
 		{"billing selected cost adjustment account foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'billing_selected_cost_adjustments' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "billing_accounts"}},
 		{"billing selected cost adjustment immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'billing_selected_cost_adjustments' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_selected_cost_adjustments_immutable"}, []string{"billing_selected_cost_adjustments_immutable"}},
+		{"billing operator cursor key migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{BillingOperatorCursorKeyMigrationName}, []string{BillingOperatorCursorKeyMigrationName}},
+		{"billing economic head ordering migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{BillingEconomicHeadOrderingMigrationName}, []string{BillingEconomicHeadOrderingMigrationName}},
+		{"billing economic valuation head derivation column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_economic_valuation_heads' AND column_name = 'derivation_hash' LIMIT 1`, nil, []string{"derivation_hash"}},
+		{"billing economic valuation head dependencies column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_economic_valuation_heads' AND column_name = 'dependencies_hash' LIMIT 1`, nil, []string{"dependencies_hash"}},
 	}
 	for _, check := range checks {
 		if err := dbinfra.VerifyPostgresQueryRowContains(ctx, database, check.description, check.query, check.args, check.fragments...); err != nil {
@@ -398,7 +405,61 @@ func openStore(ctx context.Context, database *bun.DB, cfg Config) (*DurableStore
 	if strings.TrimSpace(cfg.StoreID) == "" {
 		return nil, fmt.Errorf("billingstore: store id is required")
 	}
-	return &DurableStore{db: database, storeID: strings.TrimSpace(cfg.StoreID)}, nil
+	storeID := strings.TrimSpace(cfg.StoreID)
+	key, err := provisionOperatorCursorKey(ctx, database, storeID)
+	if err != nil {
+		return nil, err
+	}
+	return &DurableStore{db: database, storeID: storeID, cursorKey: key}, nil
+}
+
+// provisionOperatorCursorKey loads or creates the server-owned key that
+// authenticates operator-reader cursors for one durable store identity. The
+// key is high-entropy random material persisted with the owned billing data so
+// outstanding cursors survive a reopen and concurrent instances over the same
+// database agree. It is never derived from the public store id, cursor fields
+// or a compiled constant, and it never leaves the process except as an HMAC
+// tag over a cursor payload.
+func provisionOperatorCursorKey(ctx context.Context, db *bun.DB, storeID string) ([]byte, error) {
+	key, err := readOperatorCursorKey(ctx, db, storeID)
+	if err != nil {
+		return nil, err
+	}
+	if len(key) == operatorCursorKeyBytes {
+		return key, nil
+	}
+	generated := make([]byte, operatorCursorKeyBytes)
+	if _, err := rand.Read(generated); err != nil {
+		return nil, fmt.Errorf("billingstore: operator cursor key entropy: %w", err)
+	}
+	insert := `INSERT INTO ` + billingOperatorCursorKeyTable + ` (store_id, key_material, created_at_unix) VALUES (?, ?, ?) ON CONFLICT(store_id) DO NOTHING`
+	if db.Dialect().Name() == dialect.SQLite {
+		insert = `INSERT OR IGNORE INTO ` + billingOperatorCursorKeyTable + ` (store_id, key_material, created_at_unix) VALUES (?, ?, ?)`
+	}
+	if _, err := db.ExecContext(ctx, insert, storeID, generated, time.Now().Unix()); err != nil {
+		return nil, fmt.Errorf("billingstore: operator cursor key insert: %w", err)
+	}
+	key, err = readOperatorCursorKey(ctx, db, storeID)
+	if err != nil {
+		return nil, err
+	}
+	if len(key) != operatorCursorKeyBytes {
+		return nil, fmt.Errorf("billingstore: operator cursor key unavailable")
+	}
+	return key, nil
+}
+
+func readOperatorCursorKey(ctx context.Context, db *bun.DB, storeID string) ([]byte, error) {
+	var row struct {
+		KeyMaterial []byte `bun:"key_material"`
+	}
+	if err := db.NewRaw(`SELECT key_material FROM `+billingOperatorCursorKeyTable+` WHERE store_id = ?`, storeID).Scan(ctx, &row); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("billingstore: operator cursor key read: %w", err)
+	}
+	return row.KeyMaterial, nil
 }
 
 func (s *DurableStore) Close() error {

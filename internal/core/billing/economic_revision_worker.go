@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -71,6 +72,21 @@ func newEconomicRevisionWorker(work EconomicRevisionWorkReader, results Economic
 	}
 	if err := queue.Validate(); err != nil {
 		return nil, err
+	}
+	// Provider-posting recovery must bind the exact persisted valuation
+	// identity (Hfull). A result store that exposes the processed-result probe
+	// without the exact valuation loader cannot distinguish an ordinary
+	// observation-only output from a lenient legacy allocation-bearing output
+	// for work with an empty DerivationHash, so it would silently substitute
+	// Hobs on recovery. Reject that composition before it can persist/post.
+	// Pure workers (no provider posting, or a non-provider queue where posting
+	// is a no-op) remain compatible without a loader.
+	if providerCost != nil && queue == EconomicQueueProvider {
+		if _, hasProbe := results.(EconomicRevisionResultProbe); hasProbe {
+			if _, hasLoader := results.(EconomicRevisionValuationLoader); !hasLoader {
+				return nil, fmt.Errorf("%w: provider-cost revision worker with a processed-result probe requires an exact valuation loader", ErrInvalidEconomicRevision)
+			}
+		}
 	}
 	if batch <= 0 {
 		batch = defaultEconomicRevisionBatchSize
@@ -218,7 +234,11 @@ func (w *EconomicRevisionWorker) processRevision(ctx context.Context, item Econo
 			return retry(fmt.Errorf("billing: probe %s economic revision: %w", w.queue, probeErr))
 		}
 		if processed {
-			if err := w.postProviderCost(ctx, work, economics.Valuation{ID: identity.ValuationKey()}); err != nil {
+			recovered, recoverErr := w.recoverProcessedValuation(ctx, work, identity)
+			if recoverErr != nil {
+				return retry(fmt.Errorf("billing: recover %s economic revision %s: %w", w.queue, identity.Key(), recoverErr))
+			}
+			if err := w.postProviderCost(ctx, work, recovered); err != nil {
 				return retry(fmt.Errorf("billing: post %s provider cost %s: %w", w.queue, identity.Key(), err))
 			}
 			return complete()
@@ -268,6 +288,59 @@ func (w *EconomicRevisionWorker) postProviderCost(ctx context.Context, work Econ
 	return err
 }
 
+// recoverProcessedValuation reloads the exact immutable valuation identity
+// persisted on the fresh path so provider-posting replay binds the same
+// EconomicRevisionIdentity, source key and journal fence. Durable stores must
+// implement EconomicRevisionValuationLoader. The fallback reconstructs the
+// declared derivation hash from immutable work and is only reachable for pure
+// workers without provider posting: provider-posting workers are rejected at
+// construction when the loader is absent, and recovery refuses to guess here
+// so a lenient legacy allocation-bearing output can never silently replay as
+// observation-only.
+func (w *EconomicRevisionWorker) recoverProcessedValuation(ctx context.Context, work EconomicRevisionWork, identity EconomicRevisionIdentity) (economics.Valuation, error) {
+	if loader, ok := w.results.(EconomicRevisionValuationLoader); ok {
+		loaded, err := loader.LoadEconomicRevisionValuation(ctx, identity)
+		if err != nil {
+			return economics.Valuation{}, err
+		}
+		if loaded.ID != identity.ValuationKey() {
+			return economics.Valuation{}, fmt.Errorf("%w: recovered valuation id got=%q want=%q", ErrEconomicRevisionInputMismatch, loaded.ID, identity.ValuationKey())
+		}
+		if loaded.Version != economics.ValuationVersionV2 {
+			return economics.Valuation{}, fmt.Errorf("%w: recovered valuation version got=%d", ErrEconomicRevisionInputMismatch, loaded.Version)
+		}
+		if loaded.InputSetHash == "" {
+			return economics.Valuation{}, fmt.Errorf("%w: recovered valuation lacks input identity", ErrEconomicRevisionInputMismatch)
+		}
+		observationHash, err := economics.CanonicalInputSetHash(loaded.Basis, loaded.InputObservations)
+		if err != nil {
+			return economics.Valuation{}, fmt.Errorf("%w: recovered valuation observation inputs: %v", ErrEconomicRevisionInputMismatch, err)
+		}
+		if observationHash != work.InputSetHash {
+			return economics.Valuation{}, &EconomicRevisionInputMismatchError{Expected: work.InputSetHash, Actual: observationHash}
+		}
+		fullHash, err := economics.CanonicalValuationInputSetHash(loaded.Basis, loaded.InputObservations, loaded.AllocationCoverageRefs)
+		if err != nil {
+			return economics.Valuation{}, fmt.Errorf("%w: recovered valuation allocation inputs: %v", ErrEconomicRevisionInputMismatch, err)
+		}
+		if fullHash != loaded.InputSetHash {
+			return economics.Valuation{}, &EconomicRevisionInputMismatchError{Expected: fullHash, Actual: loaded.InputSetHash}
+		}
+		if identity.DerivationHash != "" && loaded.InputSetHash != identity.DerivationHash {
+			return economics.Valuation{}, &EconomicRevisionInputMismatchError{Expected: identity.DerivationHash, Actual: loaded.InputSetHash}
+		}
+		return loaded, nil
+	}
+	if w.providerCost != nil && w.queue == EconomicQueueProvider {
+		return economics.Valuation{}, fmt.Errorf("%w: provider-cost recovery requires an exact valuation loader, refusing observation-only fallback", ErrInvalidEconomicRevision)
+	}
+	inputSetHash := identity.DerivationHash
+	if inputSetHash == "" {
+		inputSetHash = identity.InputSetHash
+	}
+	return economics.Valuation{ID: identity.ValuationKey(), InputSetHash: inputSetHash}, nil
+}
+
 // economicRevisionStateContext keeps a bounded release attempt possible when
 // a rater observes cancellation. Normal database work still honors the caller
 // context; only cleanup after cancellation is detached and time-limited.
@@ -286,15 +359,40 @@ func normalizeRevisionValuation(work EconomicRevisionWork, identity EconomicRevi
 	if out.Basis != work.Input.Basis {
 		return economics.Valuation{}, fmt.Errorf("%w: got=%q want=%q", ErrEconomicRevisionBasisMismatch, out.Basis, work.Input.Basis)
 	}
-	computedHash, err := economics.CanonicalInputSetHash(out.Basis, out.InputObservations)
+	// The immutable work envelope declares the claimed allocation coverage set.
+	// An allocation-aware rater must price exactly that set; a rater may not
+	// substitute an unclaimed allocation revision under this work identity.
+	// Legacy work that declares no allocation coverage remains lenient so the
+	// stock observation-only seam is unchanged.
+	workAllocations, err := economics.CanonicalAllocationCoverageRefs(work.Input.AllocationCoverageRefs)
+	if err != nil {
+		return economics.Valuation{}, fmt.Errorf("%w: work allocation coverage: %v", ErrEconomicRevisionInputMismatch, err)
+	}
+	outputAllocations, err := economics.CanonicalAllocationCoverageRefs(out.AllocationCoverageRefs)
+	if err != nil {
+		return economics.Valuation{}, fmt.Errorf("%w: output allocation coverage: %v", ErrEconomicRevisionInputMismatch, err)
+	}
+	if len(workAllocations) != 0 && !slices.Equal(workAllocations, outputAllocations) {
+		return economics.Valuation{}, fmt.Errorf("%w: output allocation coverage does not match the immutable work claim", ErrEconomicRevisionInputMismatch)
+	}
+	out.AllocationCoverageRefs = outputAllocations
+	// The immutable work envelope fences the observation plane: a rater may not
+	// silently change which observations support the revision. The stored
+	// valuation identity additionally covers allocation coverage references, so
+	// an allocation-only correction is a distinct, persistable revision.
+	observationHash, err := economics.CanonicalInputSetHash(out.Basis, out.InputObservations)
+	if err != nil {
+		return economics.Valuation{}, fmt.Errorf("%w: output references: %v", ErrEconomicRevisionInputMismatch, err)
+	}
+	if observationHash != work.InputSetHash {
+		return economics.Valuation{}, &EconomicRevisionInputMismatchError{Expected: work.InputSetHash, Actual: observationHash}
+	}
+	computedHash, err := economics.CanonicalValuationInputSetHash(out.Basis, out.InputObservations, out.AllocationCoverageRefs)
 	if err != nil {
 		return economics.Valuation{}, fmt.Errorf("%w: output references: %v", ErrEconomicRevisionInputMismatch, err)
 	}
 	if out.InputSetHash != "" && out.InputSetHash != computedHash {
 		return economics.Valuation{}, &EconomicRevisionInputMismatchError{Expected: computedHash, Actual: out.InputSetHash}
-	}
-	if computedHash != work.InputSetHash {
-		return economics.Valuation{}, &EconomicRevisionInputMismatchError{Expected: work.InputSetHash, Actual: computedHash}
 	}
 	out.InputSetHash = computedHash
 	out.ID = identity.ValuationKey()

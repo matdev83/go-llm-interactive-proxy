@@ -65,6 +65,8 @@ func registerMigrations() {
 		registerBillingSelectedCostAdjustmentsMigration()
 		registerBillingEconomicJobQueueMigration()
 		registerRouteTariffBindingMigration()
+		registerBillingOperatorCursorKeyMigration()
+		registerBillingEconomicHeadOrderingMigration()
 	})
 }
 

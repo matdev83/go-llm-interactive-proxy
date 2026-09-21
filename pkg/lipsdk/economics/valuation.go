@@ -803,7 +803,15 @@ type Valuation struct {
 	Completeness        Completeness                 `json:"completeness"`
 	MissingObservations []metering.ObservationRef    `json:"missing_observations,omitempty"`
 	CoverageRefs        []metering.ChargeCoverageRef `json:"coverage_refs,omitempty"`
-	CreatedAt           time.Time                    `json:"created_at"`
+	// AllocationCoverageRefs names the exact immutable non-request allocation
+	// revisions this valuation's monetary amount proves included. It is the
+	// allocation counterpart of CoverageRefs: a conserved resource/statement
+	// allocation is only proven contained in this valuation when it is named
+	// here by exact allocation identity (store, allocation, version and payload
+	// hash). It carries identity only, never money, and never turns an
+	// allocation into provider-charge evidence or a request debit.
+	AllocationCoverageRefs []AllocationRef `json:"allocation_coverage_refs,omitempty"`
+	CreatedAt              time.Time       `json:"created_at"`
 }
 
 func (v Valuation) Validate() error {
@@ -880,6 +888,23 @@ func (v Valuation) Validate() error {
 	}
 	if len(v.InputObservations) > MaxValuationRefs || len(v.MissingObservations) > MaxValuationRefs || len(v.CoverageRefs) > MaxValuationRefs {
 		return fmt.Errorf("%w: observation reference bound exceeded", ErrInvalidValuation)
+	}
+	if len(v.AllocationCoverageRefs) > MaxAllocationRefs {
+		return fmt.Errorf("%w: allocation coverage reference bound exceeded", ErrInvalidValuation)
+	}
+	seenAllocationCoverage := make(map[string]struct{}, len(v.AllocationCoverageRefs))
+	for i, ref := range v.AllocationCoverageRefs {
+		if err := ref.Validate(); err != nil {
+			return fmt.Errorf("%w: allocation coverage ref %d: %v", ErrInvalidValuation, i, err)
+		}
+		if ref.StoreID != v.Subject.StoreID {
+			return fmt.Errorf("%w: allocation coverage ref store mismatch", ErrInvalidValuation)
+		}
+		key := allocationRefSortKey(ref)
+		if _, exists := seenAllocationCoverage[key]; exists {
+			return fmt.Errorf("%w: duplicate allocation coverage ref", ErrInvalidValuation)
+		}
+		seenAllocationCoverage[key] = struct{}{}
 	}
 	if len(v.InputObservations) == 0 {
 		return fmt.Errorf("%w: at least one input observation reference required", ErrInvalidValuation)
@@ -1006,6 +1031,7 @@ func (v Valuation) Clone() Valuation {
 	out.InputObservations = append([]metering.ObservationRef(nil), v.InputObservations...)
 	out.MissingObservations = append([]metering.ObservationRef(nil), v.MissingObservations...)
 	out.CoverageRefs = append([]metering.ChargeCoverageRef(nil), v.CoverageRefs...)
+	out.AllocationCoverageRefs = append([]AllocationRef(nil), v.AllocationCoverageRefs...)
 	if v.Lines != nil {
 		out.Lines = make([]LineItem, len(v.Lines))
 		for i, line := range v.Lines {
@@ -1077,6 +1103,9 @@ func (v Valuation) Canonical() (Valuation, error) {
 	slices.SortFunc(out.MissingObservations, compareObservationRef)
 	slices.SortFunc(out.CoverageRefs, func(a, b metering.ChargeCoverageRef) int {
 		return strings.Compare(coverageKey(a), coverageKey(b))
+	})
+	slices.SortFunc(out.AllocationCoverageRefs, func(a, b AllocationRef) int {
+		return strings.Compare(allocationRefSortKey(a), allocationRefSortKey(b))
 	})
 	slices.SortFunc(out.Lines, func(a, b LineItem) int { return strings.Compare(a.ID, b.ID) })
 	slices.SortFunc(out.Totals, func(a, b CurrencyTotal) int { return strings.Compare(a.Currency, b.Currency) })

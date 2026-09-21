@@ -47,10 +47,9 @@ func economicJobSQLiteDependency(t *testing.T, work billing.EconomicRevisionWork
 	require.NoError(t, err)
 	identity, err := normalized.Identity()
 	require.NoError(t, err)
-	return billing.EconomicJobDependency{
-		Kind: billing.EconomicWorkKindForQueue(normalized.Queue), Queue: normalized.Queue,
-		HeadKey: normalized.HeadKey, EvidenceRevision: identity.EvidenceRevision, InputSetHash: identity.InputSetHash,
-	}
+	dependency, err := billing.NewEconomicJobDependency(billing.EconomicWorkKindForQueue(normalized.Queue), identity)
+	require.NoError(t, err)
+	return dependency
 }
 
 func TestEconomicJobQueueSQLiteSeparatesCustomerAndProviderClaims(t *testing.T) {

@@ -411,6 +411,46 @@ func EffectiveChargeObservations(snapshot SnapshotV2) []metering.Observation {
 	return effectiveChargeObservations(snapshot, false)
 }
 
+// EffectiveChargeGraphObservations projects the reduced charge snapshot onto
+// canonical observations while preserving the unfiltered effective coverage
+// graph: every non-superseded charge item is retained, including incomplete
+// fields, and every coverage edge is retained verbatim, including edges to an
+// unavailable target. It differs from EffectiveChargeObservations only in not
+// dropping incomplete charges or dangling edges, so a caller that owns closed
+// graph validation can reject or diagnose an invalid graph instead of silently
+// losing the edge. Superseded revisions and charge items removed by a same-item
+// replacement remain excluded because the reducer owns that reduction.
+func EffectiveChargeGraphObservations(snapshot SnapshotV2) []metering.Observation {
+	type observationKey struct {
+		scope    string
+		id       string
+		revision uint64
+	}
+	if len(snapshot.Charges) == 0 {
+		return nil
+	}
+	byObservation := make(map[observationKey][]metering.ReportedCharge)
+	for _, reduced := range snapshot.Charges {
+		key := observationKey{scope: reduced.Scope.Key(), id: reduced.ObservationID, revision: reduced.Revision}
+		byObservation[key] = append(byObservation[key], reduced.Charge.Clone())
+	}
+	if len(byObservation) == 0 {
+		return nil
+	}
+	out := make([]metering.Observation, 0, len(byObservation))
+	for _, observation := range snapshot.Observations {
+		key := observationKey{scope: scopeFor(observation).Key(), id: observation.ID, revision: observation.Revision}
+		charges, ok := byObservation[key]
+		if !ok {
+			continue
+		}
+		clone := observation.Clone()
+		clone.Charges = append([]metering.ReportedCharge(nil), charges...)
+		out = append(out, clone)
+	}
+	return out
+}
+
 // EffectiveChargeObservationsForCOGS keeps an amount-bearing correction with
 // only a late/unresolved predecessor reference available for COGS attribution.
 // The caller still receives SnapshotV2.PendingSupersedes and must mark the

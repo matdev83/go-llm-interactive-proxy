@@ -367,6 +367,10 @@ type SafeEvidenceField struct {
 	Present     bool   `json:"present"`
 	Null        bool   `json:"null,omitempty"`
 	Acquisition string `json:"acquisition"`
+	// Sanitizer is the optional identity/version marker stamped by the
+	// normalizer that produced sanitized evidence (name/version). It
+	// participates in the deterministic content hash when present.
+	Sanitizer string `json:"sanitizer,omitempty"`
 }
 
 // UnmarshalJSON rejects malformed transport bytes before encoding/json can
@@ -403,10 +407,13 @@ func (e SafeEvidenceField) Validate() error {
 	}
 	for name, value := range map[string]string{"safe evidence lexeme": e.Lexeme, "safe evidence value": e.Value} {
 		if value != "" {
-			if err := validateSafeEvidenceLexeme(name, value); err != nil {
+			if err := validateSafeEvidenceLexemeForLocation(path, name, value); err != nil {
 				return fmt.Errorf("%w: %v", ErrInvalidObservation, err)
 			}
 		}
+	}
+	if err := validateSanitizerMarker("safe evidence sanitizer", e.Sanitizer); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidObservation, err)
 	}
 	if !e.Present && (e.Lexeme != "" || e.Value != "") {
 		return fmt.Errorf("%w: absent safe evidence cannot carry a value", ErrInvalidObservation)

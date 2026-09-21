@@ -445,8 +445,32 @@ func validateEconomicJobDependencyOutput(dependency EconomicJobDependency, valua
 	if valuation.Version != economics.ValuationVersionV2 {
 		return fmt.Errorf("%w: dependency output version got=%d", ErrEconomicRevisionInputMismatch, valuation.Version)
 	}
-	if valuation.InputSetHash != dependency.InputSetHash {
-		return fmt.Errorf("%w: dependency output hash got=%q want=%q", ErrEconomicRevisionInputMismatch, valuation.InputSetHash, dependency.InputSetHash)
+	// Dual identity fence. The observation-only projection derived from the
+	// valuation's retained references must equal the dependency's observation
+	// hash, while the stored full allocation-aware identity must equal the
+	// dependency's full derivation identity. A missing DerivationHash for an
+	// allocation-aware output fails closed here: the full hash differs from
+	// the observation hash and is never guessed from it.
+	observationHash, err := economics.CanonicalInputSetHash(valuation.Basis, valuation.InputObservations)
+	if err != nil {
+		return fmt.Errorf("%w: dependency output observation inputs: %v", ErrEconomicRevisionInputMismatch, err)
+	}
+	if observationHash != dependency.InputSetHash {
+		return fmt.Errorf("%w: dependency output observation hash got=%q want=%q", ErrEconomicRevisionInputMismatch, observationHash, dependency.InputSetHash)
+	}
+	fullHash, err := economics.CanonicalValuationInputSetHash(valuation.Basis, valuation.InputObservations, valuation.AllocationCoverageRefs)
+	if err != nil {
+		return fmt.Errorf("%w: dependency output allocation inputs: %v", ErrEconomicRevisionInputMismatch, err)
+	}
+	expectedFull := dependency.InputSetHash
+	if dependency.DerivationHash != "" {
+		expectedFull = dependency.DerivationHash
+	}
+	if valuation.InputSetHash != expectedFull {
+		return fmt.Errorf("%w: dependency output hash got=%q want=%q", ErrEconomicRevisionInputMismatch, valuation.InputSetHash, expectedFull)
+	}
+	if fullHash != expectedFull {
+		return fmt.Errorf("%w: dependency output full hash got=%q want=%q", ErrEconomicRevisionInputMismatch, fullHash, expectedFull)
 	}
 	return nil
 }

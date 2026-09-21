@@ -681,10 +681,17 @@ func BuildProviderCostRevisionInput(work EconomicRevisionWork, valuation economi
 	if len(cost.IncludedLegKeys) == 0 {
 		cost.Payable = false
 	}
+	inputSetHash := normalized.InputSetHash
+	if valuation.InputSetHash != "" {
+		// Prefer the persisted valuation's full allocation-aware identity so an
+		// allocation-only correction cannot reuse a stale provider-cost source
+		// key keyed by the observation-only hash alone.
+		inputSetHash = valuation.InputSetHash
+	}
 	input := ProviderCostRevisionInput{
 		AccountID: normalized.Subject.AccountID, CallID: callID, Subject: normalized.Subject,
 		HeadKey: normalized.HeadKey, EvidenceRevision: normalized.EvidenceRevision,
-		InputSetHash: normalized.InputSetHash, ValuationID: valuation.ID, Cost: cost,
+		InputSetHash: inputSetHash, ValuationID: valuation.ID, Cost: cost,
 		Authoritative: cost.Payable, Evidence: normalized.Input.Clone(),
 	}
 	if input.AccountID == "" {
@@ -923,5 +930,9 @@ func BuildProviderCostRevisionInputFromWork(work EconomicRevisionWork) (Provider
 	if err != nil {
 		return ProviderCostRevisionInput{}, err
 	}
-	return BuildProviderCostRevisionInput(normalized, economics.Valuation{ID: identity.ValuationKey()})
+	inputSetHash := identity.DerivationHash
+	if inputSetHash == "" {
+		inputSetHash = identity.InputSetHash
+	}
+	return BuildProviderCostRevisionInput(normalized, economics.Valuation{ID: identity.ValuationKey(), InputSetHash: inputSetHash})
 }

@@ -50,24 +50,32 @@ type ReconciliationReader interface {
 // RatingInput explicitly selects one valuation basis. Observations are copied
 // by Clone before an implementation mutates local working state.
 type RatingInput struct {
-	Version              uint32                       `json:"version"`
-	Perspective          metering.EconomicPerspective `json:"perspective"`
-	Basis                ValuationBasis               `json:"basis"`
-	Subject              metering.SubjectRef          `json:"subject"`
-	Scope                string                       `json:"scope,omitempty"`
-	Payer                metering.PaymentParty        `json:"payer,omitzero"`
-	Observations         []metering.Observation       `json:"observations,omitempty"`
-	ObservationRefs      []metering.ObservationRef    `json:"observation_refs,omitempty"`
-	EffectiveQualifiers  []metering.Dimension         `json:"effective_qualifiers,omitempty"`
-	Rater                RatingSnapshotRef            `json:"rater"`
-	RaterContent         *SnapshotContentRef          `json:"rater_content,omitempty"`
-	Tariff               RatingSnapshotRef            `json:"tariff"`
-	TariffContent        *SnapshotContentRef          `json:"tariff_content,omitempty"`
-	Policy               PolicySnapshotRef            `json:"policy"`
-	PolicyContent        *SnapshotContentRef          `json:"policy_content,omitempty"`
-	InputSetHash         string                       `json:"input_set_hash,omitempty"`
-	QualifierSnapshotRef *SnapshotContentRef          `json:"qualifier_snapshot_ref,omitempty"`
-	AsOf                 time.Time                    `json:"as_of,omitzero"`
+	Version         uint32                       `json:"version"`
+	Perspective     metering.EconomicPerspective `json:"perspective"`
+	Basis           ValuationBasis               `json:"basis"`
+	Subject         metering.SubjectRef          `json:"subject"`
+	Scope           string                       `json:"scope,omitempty"`
+	Payer           metering.PaymentParty        `json:"payer,omitzero"`
+	Observations    []metering.Observation       `json:"observations,omitempty"`
+	ObservationRefs []metering.ObservationRef    `json:"observation_refs,omitempty"`
+	// AllocationCoverageRefs declares the exact immutable allocation
+	// revisions whose conserved distribution is an economic input to this
+	// valuation. They are separate from the observation plane: the input-set
+	// hash authenticates observations only, while the full allocation-aware
+	// valuation identity additionally authenticates this set. An allocation-only
+	// correction therefore produces a distinct immutable revision without
+	// fabricating observation revisions. Empty preserves legacy behavior.
+	AllocationCoverageRefs []AllocationRef      `json:"allocation_coverage_refs,omitempty"`
+	EffectiveQualifiers    []metering.Dimension `json:"effective_qualifiers,omitempty"`
+	Rater                  RatingSnapshotRef    `json:"rater"`
+	RaterContent           *SnapshotContentRef  `json:"rater_content,omitempty"`
+	Tariff                 RatingSnapshotRef    `json:"tariff"`
+	TariffContent          *SnapshotContentRef  `json:"tariff_content,omitempty"`
+	Policy                 PolicySnapshotRef    `json:"policy"`
+	PolicyContent          *SnapshotContentRef  `json:"policy_content,omitempty"`
+	InputSetHash           string               `json:"input_set_hash,omitempty"`
+	QualifierSnapshotRef   *SnapshotContentRef  `json:"qualifier_snapshot_ref,omitempty"`
+	AsOf                   time.Time            `json:"as_of,omitzero"`
 }
 
 // PostUsageRatingInput is the billing-owned spelling of the existing
@@ -132,6 +140,17 @@ func (in RatingInput) Validate() error {
 	}
 	if err := validateInputObservationRefs(in.ObservationRefs, in.Subject.StoreID); err != nil {
 		return err
+	}
+	if len(in.AllocationCoverageRefs) > MaxAllocationRefs {
+		return fmt.Errorf("%w: allocation coverage bound exceeded", ErrInvalidRating)
+	}
+	for i, ref := range in.AllocationCoverageRefs {
+		if err := ref.Validate(); err != nil {
+			return fmt.Errorf("%w: allocation coverage ref %d: %v", ErrInvalidRating, i, err)
+		}
+		if ref.StoreID != in.Subject.StoreID {
+			return fmt.Errorf("%w: allocation coverage ref %d store mismatch", ErrInvalidRating, i)
+		}
 	}
 	if err := validateDimensions(in.EffectiveQualifiers, ErrInvalidRating); err != nil {
 		return err
@@ -209,6 +228,7 @@ func (in RatingInput) Clone() RatingInput {
 		}
 	}
 	out.ObservationRefs = append([]metering.ObservationRef(nil), in.ObservationRefs...)
+	out.AllocationCoverageRefs = append([]AllocationRef(nil), in.AllocationCoverageRefs...)
 	out.EffectiveQualifiers = append([]metering.Dimension(nil), in.EffectiveQualifiers...)
 	out.RaterContent = cloneSnapshotContentRef(in.RaterContent)
 	out.TariffContent = cloneSnapshotContentRef(in.TariffContent)
