@@ -714,7 +714,7 @@ Tests in this plan are required future implementation evidence. They were not ru
 
 - [ ] 17. Execute shadow migration and fence the accounting cutover
 
-- [ ] 17.1 Implement historical readers and migration fixtures
+- [x] 17.1 Implement historical readers and migration fixtures
   - Round-trip baseline V1 records/hashes through the new storage/query path without invented breakdown or source separation.
   - Keep legacy pricing semantics and V1 writer ownership for old in-flight calls explicitly versioned.
   - Completion: old replay identity and already-posted balances remain unchanged.
