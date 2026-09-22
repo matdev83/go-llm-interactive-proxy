@@ -69,6 +69,12 @@ $allowed = @(
     # internal/infra/billingspool/spool.go: one process-owned bounded flusher
     # for the durable local terminal handoff.
     "internal/infra/billingspool/spool.go"
+    # internal/core/billing/economic_revision_worker.go: one process-owned
+    # polling worker; Start arms cancel/done and Stop cancels then joins.
+    "internal/core/billing/economic_revision_worker.go"
+    # internal/infra/runtimebundle/observation_economic_bridge.go: one
+    # generation-owned relay worker; Start arms cancel/done and Stop joins.
+    "internal/infra/runtimebundle/observation_economic_bridge.go"
     "internal/core/billing/append_outbox.go"
     "cmd/lipstd/reload_signal_adapter_unix.go"
     # Backend plugin host: bidi Execute pumps, gRPC session bridge, process waiters.

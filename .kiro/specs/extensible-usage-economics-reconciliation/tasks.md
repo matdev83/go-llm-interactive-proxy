@@ -778,9 +778,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 5.4, 15.2, 15.6, 17.1, 17.6, 18.1_
 
 
-- [ ] 19. Run end-to-end correctness and cost certification
+- [x] 19. Run end-to-end correctness and cost certification
 
-- [ ] 19.1 Certify the complete independent-economics lifecycle
+- [x] 19.1 Certify the complete independent-economics lifecycle
   - Run local/provider capture through storage, E/Q/P/R rating, discrepancy, COGS/customer settlement and query using real-family fixtures.
   - Include all-leg/auxiliary, B-leg-rooted retail selection, same-A-leg resume after DONE, missing/zero, aggregate-only money, trusted submission, credits, image/audio/video input-output transformations and synthetic non-token extensibility.
   - Completion: every design acceptance vector exercised by this integrated lifecycle task has a passing named test and every requirement listed on this task has implementation evidence; migration/cutover and remaining release-wide criteria are completed by 19.2–20.1.
@@ -790,7 +790,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: make test-unit; make parity-checks_
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 18.1, 18.2, 18.3_
 
-- [ ] 19.2 Certify database, restart and lifecycle races
+- [x] 19.2 Certify database, restart and lifecycle races
   - Run canonical dual-dialect/pooler contracts plus repeated terminal/DONE followed by same-A-leg resume, late evidence, cancellation, loser callbacks, adjustment races and cutover crashes.
   - Use repository race targets on a supported environment; Windows-only skips are not substitutes for scoped race evidence.
   - Completion: correctness survives restart and concurrent worker/call lifecycles without duplicate financial effects.
@@ -800,7 +800,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: make test-db-parity; make test-race; make qa_
   - _Requirements: 10.1, 10.3, 10.4, 10.5, 10.6, 11.4, 13.3, 14.4, 17.4, 17.5, 18.4, 18.6_
 
-- [ ] 19.3 Certify enabled and disabled overhead and test cost
+- [x] 19.3 Certify enabled and disabled overhead and test cost
   - Re-run Task 1 measurements at the final SHA, including multi-MiB canonical/fast-path traffic, bounded metadata limits and terminal writes.
   - Require zero extra disabled-path allocation/I/O and bounded enabled capture; fix material regressions rather than relax existing budgets.
   - Completion: Windows make test-cost evidence and affected #394 benchmark refresh are recorded with environment and repeated measurements.

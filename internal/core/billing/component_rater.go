@@ -141,7 +141,80 @@ func RateCustomerPolicyObservation(ctx context.Context, input economics.PostUsag
 	if input.Basis != economics.BasisCustomerPolicy {
 		return economics.Valuation{}, fmt.Errorf("%w: customer-policy helper requires customer policy basis", ErrRateUnsupported)
 	}
-	return rateRetailValuation(ctx, snapshot, input, isRetailQuantityObservation, false, "")
+	// Same frozen contractual basis as call settlement: competing
+	// local/provider measures of the same work select one channel for R.
+	// E/Q/P, reconciliation and query keep both; this incremental plane bills
+	// one. The original envelope is validated before selection so a supplied
+	// reference or input-set identity can never be silently replaced; the
+	// valuation identity is then narrowed to the selected original
+	// references deterministically.
+	if len(input.Observations) != 0 {
+		if err := validateCustomerPolicyOriginalEnvelope(input); err != nil {
+			return economics.Valuation{}, err
+		}
+		selection, err := selectRetailInferenceSelection(input.Observations)
+		if err != nil {
+			return economics.Valuation{}, err
+		}
+		valuation, rateErr := rateRetailValuation(ctx, snapshot, input, isRetailQuantityObservation, false, "", selection.kept)
+		if valuation.ID == "" {
+			return valuation, rateErr
+		}
+		scoped, narrowErr := selection.narrowValuationInputs(valuation, input.Observations)
+		if narrowErr != nil {
+			return scoped, errors.Join(narrowErr, rateErr)
+		}
+		return scoped, rateErr
+	}
+	return rateRetailValuation(ctx, snapshot, input, isRetailQuantityObservation, false, "", nil)
+}
+
+// validateCustomerPolicyOriginalEnvelope verifies the caller's original
+// observation envelope before any source/component selection is derived. A
+// supplied observation reference set must describe exactly the supplied
+// observations, and a supplied nonempty input-set hash must equal the
+// canonical identity of the full original set. Integrity failures return the
+// typed input-set mismatch instead of being cleared by selection filtering.
+func validateCustomerPolicyOriginalEnvelope(input economics.PostUsageRatingInput) error {
+	if err := input.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrRatingInvalid, err)
+	}
+	derived := make([]metering.ObservationRef, 0, len(input.Observations))
+	for i, observation := range input.Observations {
+		ref, err := observation.Ref(input.Subject.StoreID)
+		if err != nil {
+			return fmt.Errorf("%w: observation %d reference: %v", ErrRatingEvidenceMissing, i, err)
+		}
+		derived = append(derived, ref)
+	}
+	derived, err := canonicalizeObservationRefs(derived)
+	if err != nil {
+		return fmt.Errorf("%w: original observation references: %v", ErrRatingInvalid, err)
+	}
+	if len(input.ObservationRefs) != 0 {
+		supplied, err := canonicalizeObservationRefs(input.ObservationRefs)
+		if err != nil {
+			return fmt.Errorf("%w: supplied observation references: %v", ErrRatingInvalid, err)
+		}
+		if len(supplied) != len(derived) {
+			return fmt.Errorf("%w: supplied observation reference count %d differs from observation count %d", ErrInputSetHashMismatch, len(supplied), len(derived))
+		}
+		for i := range supplied {
+			if !supplied[i].Equal(derived[i]) {
+				return fmt.Errorf("%w: supplied observation reference %+v does not match original observation", ErrInputSetHashMismatch, supplied[i])
+			}
+		}
+	}
+	if input.InputSetHash != "" {
+		expected, err := economics.CanonicalInputSetHash(input.Basis, derived)
+		if err != nil {
+			return fmt.Errorf("%w: original input identity: %v", ErrRatingInvalid, err)
+		}
+		if input.InputSetHash != expected {
+			return fmt.Errorf("%w: basis=%q supplied=%q expected=%q", ErrInputSetHashMismatch, input.Basis, input.InputSetHash, expected)
+		}
+	}
+	return nil
 }
 
 // RateProviderReported preserves provider monetary claims without requiring a
@@ -323,11 +396,11 @@ type aggregateMeasure struct {
 }
 
 func (r *ReferenceRater) rateMeasures(input economics.PostUsageRatingInput, valuation economics.Valuation) (economics.Valuation, error) {
-	return r.rateMeasuresWithPredicate(input, valuation, true, nil)
+	return r.rateMeasuresWithPredicate(input, valuation, true, nil, nil)
 }
 
-func (r *ReferenceRater) rateMeasuresWithPredicate(input economics.PostUsageRatingInput, valuation economics.Valuation, includeFixed bool, predicate func(metering.Observation) bool) (economics.Valuation, error) {
-	return r.rateMeasuresWithPredicateAndFixedScope(input, valuation, includeFixed, predicate, "")
+func (r *ReferenceRater) rateMeasuresWithPredicate(input economics.PostUsageRatingInput, valuation economics.Valuation, includeFixed bool, predicate func(metering.Observation) bool, mask retailComponentMask) (economics.Valuation, error) {
+	return r.rateMeasuresWithPredicateAndFixedScope(input, valuation, includeFixed, predicate, "", mask)
 }
 
 // rateMeasuresForFixedScope is used by customer retail composition when a
@@ -336,10 +409,10 @@ func (r *ReferenceRater) rateMeasuresWithPredicate(input economics.PostUsageRati
 // call valuation partial merely because it was intentionally deferred to the
 // submission pass.
 func (r *ReferenceRater) rateMeasuresForFixedScope(input economics.PostUsageRatingInput, valuation economics.Valuation, scope string) (economics.Valuation, error) {
-	return r.rateMeasuresWithPredicateAndFixedScope(input, valuation, true, nil, scope)
+	return r.rateMeasuresWithPredicateAndFixedScope(input, valuation, true, nil, scope, nil)
 }
 
-func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.PostUsageRatingInput, valuation economics.Valuation, includeFixed bool, predicate func(metering.Observation) bool, fixedScope string) (economics.Valuation, error) {
+func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.PostUsageRatingInput, valuation economics.Valuation, includeFixed bool, predicate func(metering.Observation) bool, fixedScope string, mask retailComponentMask) (economics.Valuation, error) {
 	selected := func(observation metering.Observation) bool {
 		if predicate != nil {
 			return predicate(observation)
@@ -353,7 +426,7 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 			return observation.Origin == metering.OriginLocal
 		}
 	}
-	aggregates, unavailable, err := aggregateMeasures(input.Observations, input.Subject.StoreID, selected)
+	aggregates, unavailable, err := aggregateMeasures(input.Observations, input.Subject.StoreID, selected, mask)
 	if err != nil {
 		valuation.Completeness = economics.CompletenessPartial
 		// A reduction may contain both independently complete and incomplete
@@ -685,7 +758,7 @@ func lineAmountRat(line economics.LineItem) (*big.Rat, bool) {
 	return new(big.Rat).SetFrac(numerator, denominator), true
 }
 
-func aggregateMeasures(observations []metering.Observation, store string, selected func(metering.Observation) bool) ([]aggregateMeasure, error, error) {
+func aggregateMeasures(observations []metering.Observation, store string, selected func(metering.Observation) bool, mask retailComponentMask) ([]aggregateMeasure, error, error) {
 	selectedObservations := make([]metering.Observation, 0, len(observations))
 	for _, observation := range observations {
 		if selected(observation) {
@@ -698,6 +771,35 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 	reduced, err := aggregate.ApplyObservations(selectedObservations)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: reduce observations: %v", ErrRatingInvalid, err)
+	}
+	// A retail selection mask allowlists original (observation, component)
+	// pairs for rating. Reduction still runs over the complete original set
+	// so supersession and correction links validate against the original
+	// payload hashes and every emitted reference stays the original full
+	// observation reference. Unselected competing measures never reach
+	// arithmetic, completeness, or diagnostics.
+	var keptEntries map[string]struct{}
+	var retainedIDs map[string]struct{}
+	if mask != nil {
+		keptEntries = make(map[string]struct{})
+		retainedIDs = make(map[string]struct{})
+		for _, observation := range reduced.Observations {
+			if len(observation.Measures) == 0 {
+				retainedIDs[observation.ID] = struct{}{}
+				continue
+			}
+			for _, measure := range observation.Measures {
+				key, keyErr := measure.Key.Normalize()
+				if keyErr != nil {
+					return nil, nil, fmt.Errorf("%w: component key: %v", ErrRatingInvalid, keyErr)
+				}
+				if _, ok := mask[retailObservationMaskKey(observation, key.CanonicalKey())]; !ok {
+					continue
+				}
+				retainedIDs[observation.ID] = struct{}{}
+				keptEntries[aggregate.ScopeFor(observation).Key()+"\x00"+key.CanonicalKey()] = struct{}{}
+			}
+		}
 	}
 	byKey := make(map[string]*aggregateMeasure)
 	refsByKey := make(map[string][]metering.ObservationRef)
@@ -753,6 +855,11 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 				return nil, nil, fmt.Errorf("%w: component key: %v", ErrRatingInvalid, keyErr)
 			}
 			identity := scopeKey + "\x00" + key.CanonicalKey()
+			if keptEntries != nil {
+				if _, ok := keptEntries[identity]; !ok {
+					continue
+				}
+			}
 			refsByKey[identity] = appendUniqueObservationRef(refsByKey[identity], ref)
 			if _, replaced := superseded[observationIdentity{store: observation.Subject.StoreID, id: observation.ID, revision: observation.Revision}]; replaced {
 				continue
@@ -782,11 +889,30 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 	if len(reduced.Unavailable) != 0 {
 		// An authority-unavailable observation without measures has no component
 		// line to attach to. Keep the diagnostic at the valuation boundary while
-		// leaving unrelated reduced component partitions untouched.
-		setFirstErr(fmt.Errorf("%w: effective quantity evidence is unavailable", ErrRatingEvidenceMissing))
+		// leaving unrelated reduced component partitions untouched. Under a
+		// retail selection mask, unavailable evidence outside the selected
+		// basis must not fail the selected rating.
+		report := true
+		if retainedIDs != nil {
+			report = false
+			for _, id := range reduced.Unavailable {
+				if _, ok := retainedIDs[id]; ok {
+					report = true
+					break
+				}
+			}
+		}
+		if report {
+			setFirstErr(fmt.Errorf("%w: effective quantity evidence is unavailable", ErrRatingEvidenceMissing))
+		}
 	}
 	for _, measure := range reduced.Measures {
 		identity := measure.Scope.Key() + "\x00" + measure.Key.CanonicalKey()
+		if keptEntries != nil {
+			if _, ok := keptEntries[identity]; !ok {
+				continue
+			}
+		}
 		entry := byKey[identity]
 		if entry == nil {
 			entry = &aggregateMeasure{key: measure.Key, scopeKey: measure.Scope.Key(), complete: true}
@@ -832,6 +958,11 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 				return nil, nil, fmt.Errorf("%w: component key: %v", ErrRatingInvalid, keyErr)
 			}
 			identity := scopeKey + "\x00" + key.CanonicalKey()
+			if keptEntries != nil {
+				if _, ok := keptEntries[identity]; !ok {
+					continue
+				}
+			}
 			if _, replaced := byKey[identity]; replaced {
 				continue
 			}
@@ -858,9 +989,12 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 	if len(reduced.UnusablePredecessors) != 0 {
 		setFirstErr(fmt.Errorf("%w: correction predecessor has no usable quantity baseline", ErrRatingEvidenceMissing))
 	}
-	if !reduced.Complete && firstErr == nil {
+	if !reduced.Complete && firstErr == nil && keptEntries == nil {
 		firstErr = fmt.Errorf("%w: reduced quantity evidence is incomplete", ErrQuantityIncomplete)
 	}
+	// Under a retail selection mask every kept-side gap already sets firstErr
+	// above, so unselected evidence must not fail the selected basis with the
+	// generic reduction diagnostic.
 	keys := make([]string, 0, len(byKey))
 	for key := range byKey {
 		keys = append(keys, key)

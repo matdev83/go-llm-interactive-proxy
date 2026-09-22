@@ -35,6 +35,21 @@ type DurableStore struct {
 	// adjustment pin/effect boundaries. Nil in production; tests set it to
 	// prove atomicity.
 	adjustmentFaultHook func(string) error
+	// claimNowFunc overrides the wall clock for complete-call claim
+	// scheduling (ClaimCompleteCalls scan snapshot, incomplete deferral,
+	// lease reclaim). Nil in production (time.Now UTC); tests set it to a
+	// manual clock to deterministically advance past the 1s yield window
+	// without sleeps or SQL mutation.
+	claimNowFunc func() time.Time
+}
+
+// claimNow returns the claim scheduler clock (UTC). Production uses wall
+// time; tests may inject a manual clock.
+func (s *DurableStore) claimNow() time.Time {
+	if s != nil && s.claimNowFunc != nil {
+		return s.claimNowFunc().UTC()
+	}
+	return time.Now().UTC()
 }
 
 var (

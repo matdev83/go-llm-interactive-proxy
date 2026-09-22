@@ -95,27 +95,15 @@ func TestSQLiteClaimCompleteCallsYieldsLargeIncompletePrefix(t *testing.T) {
 	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
-	for range 300 {
-		callID, err := billing.NewBillingCallID()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := store.AppendCallUsage(ctx, testIndependentCallUsageFor(callID, []string{"b-missing"})); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(time.Millisecond)
-	}
-	completeID, err := billing.NewBillingCallID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AppendCallUsage(ctx, testIndependentCallUsageFor(completeID, []string{"b-ready"})); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AppendCallLegUsage(ctx, testIndependentCallLegFor(completeID, "b-ready")); err != nil {
-		t.Fatal(err)
-	}
+	// Pre-sorted call IDs make the trailing complete row strictly last in
+	// scan order without timing sleeps; the manual claim clock advances past
+	// the 1s incomplete yield window without sleeps or SQL mutation.
+	const prefix = 300
+	completeID := phase19R2SeedPrefixWithTrailingComplete(t, store, prefix)
 
+	base := time.Now().UTC()
+	current := base
+	store.claimNowFunc = func() time.Time { return current }
 	first, err := store.ClaimCompleteCalls(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -123,6 +111,13 @@ func TestSQLiteClaimCompleteCallsYieldsLargeIncompletePrefix(t *testing.T) {
 	if len(first) != 0 {
 		t.Fatalf("first bounded scan claimed = %+v, want incomplete prefix deferred", first)
 	}
+	// The bounded scan durably defers each incomplete row it touches to
+	// now+1s, which sorts behind never-deferred rows under the fair
+	// (next_claim_at, sealed_at, call_id) scan order. Advancing the manual
+	// clock past the yield window simulates a scan duration exceeding 1s;
+	// the second scan must still advance to the trailing complete row
+	// instead of revisiting the same prefix indefinitely.
+	current = base.Add(2 * time.Second)
 	second, err := store.ClaimCompleteCalls(ctx, 1)
 	if err != nil {
 		t.Fatal(err)

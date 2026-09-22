@@ -26,6 +26,7 @@ func TestUsageEvidence_normalizesProviderAuthorityAndRejectsEmptyUsage(t *testin
 }
 
 func TestCompletedResponseUsageRejectsNegativeCounters(t *testing.T) {
+	t.Parallel()
 	negative := int64(-1)
 	event := (completedResponse{Usage: &completedUsage{InputTokens: &negative}}).usageEvent()
 	if event != nil {
@@ -74,6 +75,7 @@ func TestNativeUsageSidebandStream_drainsEvidenceOnce(t *testing.T) {
 }
 
 func TestNativeUsageSidebandStreamDoesNotClaimPrimaryUsageAuthority(t *testing.T) {
+	t.Parallel()
 	stream := newNativeUsageSidebandStream(nil, &NativeUsageEvidence{
 		InputTokens: 13, UsagePresence: lipapi.UsagePresence{InputTokens: true},
 		Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,

@@ -111,8 +111,8 @@ func MeteringJournalLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 					{Name: "component_key_hash", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "''"},
 					{Name: "coefficient", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "''"},
 					{Name: "scale", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false), Default: "0"},
-					{Name: "value_present", Type: dbparity.TypeBoolean, Nullable: dbparity.PtrBool(false), Default: "0"},
-					{Name: "money_present", Type: dbparity.TypeBoolean, Nullable: dbparity.PtrBool(false), Default: "0"},
+					{Name: "value_present", Type: dbparity.TypeBoolean, Nullable: dbparity.PtrBool(false), Default: "0", DefaultPostgres: "false"},
+					{Name: "money_present", Type: dbparity.TypeBoolean, Nullable: dbparity.PtrBool(false), Default: "0", DefaultPostgres: "false"},
 					{Name: "currency", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), Default: "''"},
 					{Name: "charge_coverage_json", Type: dbparity.TypeJSON, Nullable: dbparity.PtrBool(false), Default: "'[]'"},
 					{Name: "subject_kind", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false)},
@@ -129,7 +129,7 @@ func MeteringJournalLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 				PrimaryKey:        []string{"id"},
 				ForeignKeys:       []dbparity.ForeignKeySpec{{Columns: []string{"store_id", "observation_row_id"}, RefTable: "metering_facts", RefColumns: []string{"store_id", "id"}}},
 				UniqueConstraints: []dbparity.UniqueConstraintSpec{{Columns: []string{"observation_row_id", "item_kind", "item_id"}}},
-				CheckConstraints:  []dbparity.CheckConstraintSpec{{Expression: "item_kind IN"}},
+				CheckConstraints:  []dbparity.CheckConstraintSpec{{Expression: "measure"}},
 			},
 			{
 				Name: "metering_observation_economic_outbox",
@@ -151,7 +151,7 @@ func MeteringJournalLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 				},
 				PrimaryKey:        []string{"id"},
 				UniqueConstraints: []dbparity.UniqueConstraintSpec{{Columns: []string{"store_id", "observation_id", "observation_revision"}}},
-				CheckConstraints:  []dbparity.CheckConstraintSpec{{Expression: "status IN"}},
+				CheckConstraints:  []dbparity.CheckConstraintSpec{{Expression: "pending"}},
 			},
 		},
 		Indexes: []dbparity.IndexSpec{

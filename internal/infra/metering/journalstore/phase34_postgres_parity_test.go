@@ -71,14 +71,34 @@ func TestPhase34_PostgresPooled_VerifySchemaFailsWhenV2IndexMissing(t *testing.T
 	for _, name := range journalstore.V2BoundedIndexNames {
 		t.Run(name, func(t *testing.T) {
 			restoreSQL := restoreV2IndexSQL(name)
+			dropSQL := `DROP INDEX IF EXISTS ` + name
+			// metering_facts_store_id_key backs the store-scoped FK
+			// metering_components(store_id, observation_row_id) ->
+			// metering_facts(store_id, id). Plain DROP INDEX is rejected
+			// with SQLSTATE 2BP01; drop through the owning FK constraint
+			// and recreate both to preserve schema integrity.
+			isFKBacked := name == "metering_facts_store_id_key"
 			t.Cleanup(func() {
 				restoreCtx, cancel := context.WithTimeout(context.Background(), pooledJournalOpenTimeout)
 				defer cancel()
-				_, _ = admin.ExecContext(restoreCtx, restoreSQL)
+				if isFKBacked {
+					_, _ = admin.ExecContext(restoreCtx, restoreV2IndexSQL(name))
+					_, _ = admin.ExecContext(restoreCtx, `ALTER TABLE metering_components DROP CONSTRAINT IF EXISTS metering_components_store_id_observation_row_id_fkey`)
+					_, _ = admin.ExecContext(restoreCtx, `ALTER TABLE metering_components ADD CONSTRAINT metering_components_store_id_observation_row_id_fkey FOREIGN KEY (store_id, observation_row_id) REFERENCES metering_facts(store_id, id)`)
+					// Ensure index exists after FK recreation (FK does not create it).
+					_, _ = admin.ExecContext(restoreCtx, restoreV2IndexSQL(name))
+				} else {
+					_, _ = admin.ExecContext(restoreCtx, restoreSQL)
+				}
 			})
 			mutateCtx, cancel := context.WithTimeout(context.Background(), pooledJournalOpenTimeout)
 			defer cancel()
-			if _, err := admin.ExecContext(mutateCtx, `DROP INDEX IF EXISTS `+name); err != nil {
+			if isFKBacked {
+				if _, err := admin.ExecContext(mutateCtx, `ALTER TABLE metering_components DROP CONSTRAINT IF EXISTS metering_components_store_id_observation_row_id_fkey`); err != nil {
+					t.Fatalf("drop FK for %s: %v", name, err)
+				}
+			}
+			if _, err := admin.ExecContext(mutateCtx, dropSQL); err != nil {
 				t.Fatalf("drop %s: %v", name, err)
 			}
 			verifyCtx, verifyCancel := context.WithTimeout(t.Context(), pooledJournalOpenTimeout)
@@ -90,7 +110,12 @@ func TestPhase34_PostgresPooled_VerifySchemaFailsWhenV2IndexMissing(t *testing.T
 			if !strings.Contains(err.Error(), name) {
 				t.Fatalf("VerifySchema error %q must mention %s", err.Error(), name)
 			}
-			_, _ = admin.ExecContext(mutateCtx, restoreSQL)
+			if isFKBacked {
+				_, _ = admin.ExecContext(mutateCtx, restoreV2IndexSQL(name))
+				_, _ = admin.ExecContext(mutateCtx, `ALTER TABLE metering_components ADD CONSTRAINT metering_components_store_id_observation_row_id_fkey FOREIGN KEY (store_id, observation_row_id) REFERENCES metering_facts(store_id, id)`)
+			} else {
+				_, _ = admin.ExecContext(mutateCtx, restoreSQL)
+			}
 		})
 	}
 }
@@ -133,6 +158,18 @@ func restoreV2IndexSQL(name string) string {
 		return `CREATE INDEX IF NOT EXISTS idx_metering_facts_store_plane ON metering_facts(store_id, perspective, boundary, lifecycle_scope)`
 	case "idx_metering_fact_supersessions_to":
 		return `CREATE INDEX IF NOT EXISTS idx_metering_fact_supersessions_to ON metering_fact_supersessions(store_id, stream_id, to_fact_id)`
+	case "metering_facts_store_id_key":
+		return `CREATE UNIQUE INDEX IF NOT EXISTS metering_facts_store_id_key ON metering_facts(store_id, id)`
+	case "metering_facts_store_observation_revision_key":
+		return `CREATE UNIQUE INDEX IF NOT EXISTS metering_facts_store_observation_revision_key ON metering_facts(store_id, observation_id, observation_revision) WHERE payload_kind = 'observation' AND observation_id <> ''`
+	case "idx_metering_components_store_subject":
+		return `CREATE INDEX IF NOT EXISTS idx_metering_components_store_subject ON metering_components(store_id, subject_kind, subject_id, stream_id, sequence, observation_id, observation_revision, item_kind, item_id)`
+	case "idx_metering_components_store_component":
+		return `CREATE INDEX IF NOT EXISTS idx_metering_components_store_component ON metering_components(store_id, component_key_hash, component_key, subject_kind, subject_id, observation_id, observation_revision, item_id)`
+	case "idx_metering_components_store_provider_account":
+		return `CREATE INDEX IF NOT EXISTS idx_metering_components_store_provider_account ON metering_components(store_id, provider_account_key, stream_id, sequence, observation_id, observation_revision, item_kind, item_id)`
+	case "idx_metering_components_observation":
+		return `CREATE INDEX IF NOT EXISTS idx_metering_components_observation ON metering_components(observation_row_id, item_kind, item_id)`
 	default:
 		return `SELECT 1`
 	}

@@ -28,6 +28,7 @@ func TestPhase3_FreshMigrate_ExactMigrationNamesOnceEach(t *testing.T) {
 		journalstore.ObservationProjectionMigrationName:     1,
 		journalstore.AccountWindowProjectionMigrationName:   1,
 		journalstore.ObservationEconomicOutboxMigrationName: 1,
+		journalstore.PresenceBooleanRepairMigrationName:     1,
 	})
 	if err := journalstore.VerifySchema(ctx, bunDB); err != nil {
 		t.Fatalf("VerifySchema: %v", err)
@@ -62,6 +63,7 @@ func TestPhase3_UpgradeFromPrePhase3Baseline_AppliesStoreScopedAndV2(t *testing.
 		journalstore.ObservationProjectionMigrationName:     1,
 		journalstore.AccountWindowProjectionMigrationName:   1,
 		journalstore.ObservationEconomicOutboxMigrationName: 1,
+		journalstore.PresenceBooleanRepairMigrationName:     1,
 	})
 
 	var filtersStoreID int
@@ -148,6 +150,7 @@ VALUES (?, 1, CURRENT_TIMESTAMP)`, journalstore.BaselineMigrationName); err != n
 		journalstore.ObservationProjectionMigrationName:     1,
 		journalstore.AccountWindowProjectionMigrationName:   1,
 		journalstore.ObservationEconomicOutboxMigrationName: 1,
+		journalstore.PresenceBooleanRepairMigrationName:     1,
 	})
 
 	if err := journalstore.Migrate(ctx, bunDB); err != nil {
@@ -161,6 +164,7 @@ VALUES (?, 1, CURRENT_TIMESTAMP)`, journalstore.BaselineMigrationName); err != n
 		journalstore.ObservationProjectionMigrationName:     1,
 		journalstore.AccountWindowProjectionMigrationName:   1,
 		journalstore.ObservationEconomicOutboxMigrationName: 1,
+		journalstore.PresenceBooleanRepairMigrationName:     1,
 	})
 	if err := journalstore.VerifySchema(ctx, bunDB); err != nil {
 		t.Fatalf("VerifySchema after collapsed recovery: %v", err)
@@ -176,6 +180,7 @@ VALUES (?, 1, CURRENT_TIMESTAMP)`, journalstore.BaselineMigrationName); err != n
 		journalstore.ObservationProjectionMigrationName:     1,
 		journalstore.AccountWindowProjectionMigrationName:   1,
 		journalstore.ObservationEconomicOutboxMigrationName: 1,
+		journalstore.PresenceBooleanRepairMigrationName:     1,
 	})
 }
 

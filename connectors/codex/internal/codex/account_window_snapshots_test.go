@@ -8,6 +8,7 @@ import (
 )
 
 func TestAccountWindowSnapshots_PreservePoolsResetAndExactGaugeValues(t *testing.T) {
+	t.Parallel()
 	headers := http.Header{
 		"X-Codex-Primary-Used-Percent":      []string{"12.500"},
 		"X-Codex-Primary-Remaining-Percent": []string{"87.5"},
@@ -39,6 +40,7 @@ func TestAccountWindowSnapshots_PreservePoolsResetAndExactGaugeValues(t *testing
 }
 
 func TestAccountWindowSnapshots_DropsMalformedValuesAndNeverCreatesDebit(t *testing.T) {
+	t.Parallel()
 	headers := http.Header{
 		"X-Codex-Primary-Used-Percent":   []string{"not-a-number"},
 		"X-Codex-Primary-Credits":        []string{"999999999999999999999999999999999999999999999"},
@@ -59,6 +61,7 @@ func TestAccountWindowSnapshots_DropsMalformedValuesAndNeverCreatesDebit(t *test
 }
 
 func TestAccountWindowSnapshots_DropsNegativeGaugeValues(t *testing.T) {
+	t.Parallel()
 	headers := http.Header{
 		"X-Codex-Primary-Used-Percent": []string{"-1"},
 		"X-Codex-Primary-Limit":        []string{"100"},
@@ -70,6 +73,7 @@ func TestAccountWindowSnapshots_DropsNegativeGaugeValues(t *testing.T) {
 }
 
 func TestCodexStream_PreservesConcurrentOutOfOrderWindowSnapshots(t *testing.T) {
+	t.Parallel()
 	stream := &codexStream{}
 	first := http.Header{
 		"X-Codex-Primary-Window-Id":    []string{"window-old"},

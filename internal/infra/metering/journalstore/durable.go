@@ -65,6 +65,7 @@ var RequiredMigrationNames = []string{
 	ObservationProjectionMigrationName,
 	AccountWindowProjectionMigrationName,
 	ObservationEconomicOutboxMigrationName,
+	PresenceBooleanRepairMigrationName,
 }
 
 // VerifySchema checks required runtime relations without applying migrations.
@@ -334,27 +335,37 @@ WHERE table_schema = current_schema()
 			fragments:   []string{"metering_components"},
 		},
 		{
-			description: "metering_facts store/id unique index",
+			description: "metering_facts_store_id_key",
 			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'metering_facts_store_id_key' LIMIT 1`,
 			fragments:   []string{"unique index", "(store_id, id)"},
 		},
 		{
-			description: "metering_components subject index",
+			description: "metering_facts_store_observation_revision_key",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'metering_facts_store_observation_revision_key' LIMIT 1`,
+			fragments:   []string{"unique index", "(store_id, observation_id, observation_revision)"},
+		},
+		{
+			description: "idx_metering_components_store_subject",
 			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_metering_components_store_subject' LIMIT 1`,
 			fragments:   []string{"store_id", "subject_kind", "subject_id", "stream_id"},
 		},
 		{
-			description: "metering_components component index",
+			description: "idx_metering_components_store_component",
 			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_metering_components_store_component' LIMIT 1`,
 			fragments:   []string{"store_id", "component_key_hash", "component_key"},
 		},
 		{
-			description: "metering_components provider-account index",
+			description: "idx_metering_components_store_provider_account",
 			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_metering_components_store_provider_account' LIMIT 1`,
 			fragments:   []string{"store_id", "provider_account_key", "stream_id"},
 		},
 		{
-			description: "metering_facts account-window index",
+			description: "idx_metering_components_observation",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_metering_components_observation' LIMIT 1`,
+			fragments:   []string{"(observation_row_id, item_kind, item_id)"},
+		},
+		{
+			description: "idx_metering_facts_store_account_window",
 			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'metering_facts' AND indexname = 'idx_metering_facts_store_account_window' LIMIT 1`,
 			fragments:   []string{"store_id", "observation_provider_account_key", "observation_pool_id", "observation_window_id", "observation_reset_at_unix", "observation_observed_at_unix", "observation_received_at_unix"},
 		},

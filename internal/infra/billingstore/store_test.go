@@ -76,7 +76,12 @@ func TestSQLiteBillingSchemaMigrationIsIdempotent(t *testing.T) {
 
 func newSQLiteTestStore(t *testing.T) *DurableStore {
 	t.Helper()
-	dsn := fmt.Sprintf("file:billing-schema-%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)", testSequence.Add(1))
+	// Match the transaction posture used by every file-backed SQLite fixture
+	// and production DSN in this package: immediate write transactions plus a
+	// busy timeout. Without them, concurrent deferred transactions on the
+	// shared-cache in-memory database can deadlock and surface raw
+	// SQLITE_LOCKED errors instead of the store's typed concurrent outcomes.
+	dsn := fmt.Sprintf("file:billing-schema-%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate", testSequence.Add(1))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)

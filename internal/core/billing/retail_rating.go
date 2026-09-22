@@ -127,6 +127,22 @@ func RateSelectedRetailBLegs(ctx context.Context, in RetailRatingInput) (RetailR
 	if retailPolicy.Basis == RetailBasisCostPassThrough {
 		return rateCostPassThrough(ctx, call, policy, retailPolicy, selection, in.ProviderCost, refs)
 	}
+	// Frozen contractual inference basis for ordinary independent retail:
+	// competing local/provider measures of the same B-leg/component/work
+	// select exactly one channel (provider-complete wins, else local-complete).
+	// Both channels stay in E/Q/P, reconciliation and query evidence; R bills
+	// one. Distinct B-legs/components/boundaries, proxy service and fixed fees
+	// remain additive. Selection is an explicit allowlist over the immutable
+	// original observations: payloads are never rewritten under an existing
+	// identity, and every emitted reference stays the original full
+	// observation reference. Deterministic and order-independent;
+	// replay-stable via the selected refs and line source refs in the
+	// valuation fingerprint.
+	basis, err := selectRetailInferenceSelection(observations)
+	if err != nil {
+		return result, err
+	}
+	selectedRefs := basis.selectedRefs
 	baseTariff, err := in.Tariff.Canonical()
 	if err != nil {
 		return result, fmt.Errorf("%w: customer tariff: %v", ErrRetailRatingInvalid, err)
@@ -149,9 +165,18 @@ func RateSelectedRetailBLegs(ctx context.Context, in RetailRatingInput) (RetailR
 	var ratingErrs []error
 	for _, group := range groups {
 		input := retailEconomicsInput(call, policy, group.tariff, group.observations, group.refs, in.Qualifiers, in.QualifierSnapshotRef, in.Payer, in.AsOf, "call:"+call.CallID.String(), metering.SubjectBillingCall)
-		valuation, rateErr := rateRetailValuation(ctx, group.tariff, input, isRetailQuantityObservation, false, "")
-		markRetailLines(&valuation, RetailChargeKindInferenceUsage)
+		valuation, rateErr := rateRetailValuation(ctx, group.tariff, input, isRetailQuantityObservation, false, "", basis.kept)
 		if valuation.ID != "" {
+			scoped, narrowErr := basis.narrowValuationInputs(valuation, group.observations)
+			if narrowErr != nil {
+				ratingErrs = append(ratingErrs, fmt.Errorf("%s: %w", RetailChargeKindInferenceUsage, narrowErr))
+				if rateErr != nil {
+					ratingErrs = append(ratingErrs, fmt.Errorf("%s: %w", RetailChargeKindInferenceUsage, rateErr))
+				}
+				continue
+			}
+			valuation = scoped
+			markRetailLines(&valuation, RetailChargeKindInferenceUsage)
 			combineRetailValuation(&result.InferenceValuation, valuation)
 		}
 		if rateErr != nil {
@@ -174,8 +199,8 @@ func RateSelectedRetailBLegs(ctx context.Context, in RetailRatingInput) (RetailR
 			feeSubject = metering.SubjectSubmission
 			feeScope = "submission:" + call.SubmissionID
 		}
-		input := retailEconomicsInput(call, policy, baseTariff, nil, refs, in.Qualifiers, in.QualifierSnapshotRef, in.Payer, in.AsOf, feeScope, feeSubject)
-		valuation, rateErr := rateRetailValuation(ctx, baseTariff, input, nil, true, string(scope))
+		input := retailEconomicsInput(call, policy, baseTariff, nil, selectedRefs, in.Qualifiers, in.QualifierSnapshotRef, in.Payer, in.AsOf, feeScope, feeSubject)
+		valuation, rateErr := rateRetailValuation(ctx, baseTariff, input, nil, true, string(scope), nil)
 		markRetailLines(&valuation, RetailChargeKindCommercialFee)
 		if valuation.ID != "" {
 			combineRetailValuation(&result.CommercialValuation, valuation)
@@ -611,6 +636,213 @@ func retailQuantityGroups(observations []metering.Observation, refs []metering.O
 	return groups, nil
 }
 
+// retailComponentMask is an explicit allowlist over original observation
+// identity plus canonical component key. A nil mask selects everything; retail
+// inference rating passes the frozen contractual basis here so losing
+// competing measures never reach arithmetic while every emitted reference
+// stays the original full observation reference.
+type retailComponentMask map[string]struct{}
+
+func retailMaskKey(store, observationID string, revision uint64, componentKey string) string {
+	return store + "\x00" + observationID + "\x00" + fmt.Sprint(revision) + "\x00" + componentKey
+}
+
+func retailObservationMaskKey(observation metering.Observation, componentKey string) string {
+	return retailMaskKey(observation.Subject.StoreID, observation.ID, observation.Revision, componentKey)
+}
+
+// retailInferenceSelection is the frozen contractual basis for ordinary
+// independent retail inference (Req 8.1, design C3), computed without ever
+// rewriting an observation payload under its existing identity. For the same
+// B-leg/component/direction/work represented by competing local/provider
+// measurements, exactly one source channel contributes to customer inference
+// usage. Provider-origin complete measurements win when present; otherwise
+// local-complete wins; otherwise all are retained for typed incomplete
+// diagnostics. Distinct B-legs, distinct component keys, distinct
+// boundaries/lifecycles/perspectives, proxy-service meters and fixed fees
+// remain additive. Selection is deterministic and order-independent; inputs
+// are only read, never mutated, so E/Q/P, reconciliation and query evidence
+// keep both channels while R bills one.
+type retailInferenceSelection struct {
+	// kept allowlists every selected original (observation, component) pair.
+	kept retailComponentMask
+	// selectedRefs are the original full references of the observations
+	// contributing at least one selected component (measure-less envelopes
+	// are retained as evidence), sorted deterministically.
+	selectedRefs []metering.ObservationRef
+}
+
+func selectRetailInferenceSelection(observations []metering.Observation) (retailInferenceSelection, error) {
+	selection := retailInferenceSelection{kept: make(retailComponentMask)}
+	if len(observations) == 0 {
+		return selection, nil
+	}
+	type candidate struct {
+		obsIdx     int
+		measureIdx int
+		origin     string
+		complete   bool
+	}
+	byWork := make(map[string][]candidate)
+	workKey := func(observation metering.Observation, measure metering.Measure) string {
+		bLegID := observation.Subject.BLegID
+		if bLegID == "" {
+			bLegID = observation.Correlation.BLegID
+		}
+		return strings.Join([]string{
+			observation.Subject.StoreID,
+			bLegID,
+			measure.Key.CanonicalKey(),
+			string(observation.Boundary),
+			string(observation.Lifecycle),
+			string(observation.Perspective),
+		}, "\x00")
+	}
+	for obsIdx, observation := range observations {
+		for measureIdx, measure := range observation.Measures {
+			key := workKey(observation, measure)
+			byWork[key] = append(byWork[key], candidate{
+				obsIdx:     obsIdx,
+				measureIdx: measureIdx,
+				origin:     observation.Origin,
+				complete:   !measureIsIncomplete(measure),
+			})
+		}
+	}
+	type losingKey struct {
+		obsIdx     int
+		measureIdx int
+	}
+	losing := make(map[losingKey]struct{})
+	for _, candidates := range byWork {
+		hasProvider, hasLocal := false, false
+		for _, c := range candidates {
+			switch c.origin {
+			case metering.OriginProvider:
+				hasProvider = true
+			case metering.OriginLocal:
+				hasLocal = true
+			}
+		}
+		if !hasProvider || !hasLocal {
+			continue
+		}
+		providerComplete, localComplete := false, false
+		for _, c := range candidates {
+			if !c.complete {
+				continue
+			}
+			if c.origin == metering.OriginProvider {
+				providerComplete = true
+			} else if c.origin == metering.OriginLocal {
+				localComplete = true
+			}
+		}
+		switch {
+		case providerComplete:
+			for _, c := range candidates {
+				if c.origin == metering.OriginLocal {
+					losing[losingKey{obsIdx: c.obsIdx, measureIdx: c.measureIdx}] = struct{}{}
+				}
+			}
+		case localComplete:
+			for _, c := range candidates {
+				if c.origin == metering.OriginProvider {
+					losing[losingKey{obsIdx: c.obsIdx, measureIdx: c.measureIdx}] = struct{}{}
+				}
+			}
+		default:
+		}
+	}
+	// The selected input identity is derived from the original full
+	// references of the observations contributing at least one selected
+	// component. It never contains a rewritten payload hash.
+	for obsIdx, observation := range observations {
+		if len(observation.Measures) == 0 {
+			ref, err := observation.Ref(observation.Subject.StoreID)
+			if err != nil {
+				return retailInferenceSelection{}, fmt.Errorf("%w: selected basis observation %q reference: %v", ErrRetailSelectionIncomplete, observation.ID, err)
+			}
+			selection.selectedRefs = append(selection.selectedRefs, ref)
+			continue
+		}
+		contributes := false
+		for measureIdx, measure := range observation.Measures {
+			if _, drop := losing[losingKey{obsIdx: obsIdx, measureIdx: measureIdx}]; drop {
+				continue
+			}
+			key, err := measure.Key.Normalize()
+			if err != nil {
+				return retailInferenceSelection{}, fmt.Errorf("%w: selected basis component key: %v", ErrRetailSelectionIncomplete, err)
+			}
+			selection.kept[retailObservationMaskKey(observation, key.CanonicalKey())] = struct{}{}
+			contributes = true
+		}
+		if !contributes {
+			continue
+		}
+		ref, err := observation.Ref(observation.Subject.StoreID)
+		if err != nil {
+			return retailInferenceSelection{}, fmt.Errorf("%w: selected basis observation %q reference: %v", ErrRetailSelectionIncomplete, observation.ID, err)
+		}
+		selection.selectedRefs = append(selection.selectedRefs, ref)
+	}
+	scoped, err := canonicalizeObservationRefs(selection.selectedRefs)
+	if err != nil {
+		return retailInferenceSelection{}, fmt.Errorf("%w: selected basis references: %v", ErrRetailSelectionIncomplete, err)
+	}
+	selection.selectedRefs = scoped
+	return selection, nil
+}
+
+// narrowValuationInputs scopes a rated valuation's input identity to the
+// original full references of the selected observations within the given
+// group. Aggregate reduction owns supersession closure over the complete
+// original set, so group observations may include fully unselected
+// observations; their references must not leak into the selected input set.
+// The returned valuation carries only resolvable original references with a
+// deterministically recomputed input-set hash and identity.
+func (s retailInferenceSelection) narrowValuationInputs(valuation economics.Valuation, group []metering.Observation) (economics.Valuation, error) {
+	if valuation.ID == "" {
+		return valuation, nil
+	}
+	retained := make(map[string]struct{}, len(group))
+	for _, observation := range group {
+		if len(observation.Measures) == 0 {
+			retained[observation.Subject.StoreID+"\x00"+observation.ID+"\x00"+fmt.Sprint(observation.Revision)] = struct{}{}
+			continue
+		}
+		for _, measure := range observation.Measures {
+			key, err := measure.Key.Normalize()
+			if err != nil {
+				continue
+			}
+			if _, ok := s.kept[retailObservationMaskKey(observation, key.CanonicalKey())]; ok {
+				retained[observation.Subject.StoreID+"\x00"+observation.ID+"\x00"+fmt.Sprint(observation.Revision)] = struct{}{}
+				break
+			}
+		}
+	}
+	scoped := make([]metering.ObservationRef, 0, len(s.selectedRefs))
+	for _, ref := range s.selectedRefs {
+		if _, ok := retained[ref.StoreID+"\x00"+ref.ObservationID+"\x00"+fmt.Sprint(ref.Revision)]; ok {
+			scoped = append(scoped, ref)
+		}
+	}
+	canonical, err := canonicalizeObservationRefs(scoped)
+	if err != nil {
+		return economics.Valuation{}, fmt.Errorf("%w: selected valuation references: %v", ErrRetailRateIncomplete, err)
+	}
+	hash, err := economics.CanonicalValuationInputSetHash(valuation.Basis, canonical, valuation.AllocationCoverageRefs)
+	if err != nil {
+		return economics.Valuation{}, fmt.Errorf("%w: selected input identity: %v", ErrRetailRateIncomplete, err)
+	}
+	valuation.InputObservations = canonical
+	valuation.InputSetHash = hash
+	valuation.ID = valuationIdentity(valuation, hash)
+	return valuation, nil
+}
+
 func retailEconomicsInput(call CallUsageRecord, policy ChargePolicy, tariff economics.TariffSnapshot, observations []metering.Observation, refs []metering.ObservationRef, qualifiers []metering.Dimension, qualifierRef *economics.SnapshotContentRef, payer metering.PaymentParty, asOf time.Time, scope string, subjectKind metering.SubjectKind) economics.PostUsageRatingInput {
 	if asOf.IsZero() {
 		asOf = call.FinishedAt
@@ -698,7 +930,7 @@ func retailQualifierContent(tariff economics.TariffSnapshot, qualifiers []meteri
 	}
 }
 
-func rateRetailValuation(ctx context.Context, tariff economics.TariffSnapshot, input economics.PostUsageRatingInput, predicate func(metering.Observation) bool, includeFixed bool, fixedScope string) (economics.Valuation, error) {
+func rateRetailValuation(ctx context.Context, tariff economics.TariffSnapshot, input economics.PostUsageRatingInput, predicate func(metering.Observation) bool, includeFixed bool, fixedScope string, mask retailComponentMask) (economics.Valuation, error) {
 	rater, err := NewReferenceRater(tariff)
 	if err != nil {
 		return economics.Valuation{}, err
@@ -756,7 +988,7 @@ func rateRetailValuation(ctx context.Context, tariff economics.TariffSnapshot, i
 	} else if includeFixed {
 		valuation, err = rater.rateMeasures(input, valuation)
 	} else {
-		valuation, err = rater.rateMeasuresWithPredicate(input, valuation, false, predicate)
+		valuation, err = rater.rateMeasuresWithPredicate(input, valuation, false, predicate, mask)
 	}
 	if len(incompleteRefs) != 0 {
 		valuation.Completeness = economics.CompletenessPartial
@@ -861,7 +1093,7 @@ func rateRetailProxyService(ctx context.Context, call CallUsageRecord, policy Ch
 	}
 	qualifierRef := (*economics.SnapshotContentRef)(nil)
 	input := retailEconomicsInput(call, policy, tariff, observations, refs, in.Qualifiers, qualifierRef, payer, asOf, scope, metering.SubjectBillingCall)
-	return rateRetailValuation(ctx, tariff, input, isRetailProxyServiceObservation, false, "")
+	return rateRetailValuation(ctx, tariff, input, isRetailProxyServiceObservation, false, "", nil)
 }
 
 func retailObservationCallMatches(observation metering.Observation, callID BillingCallID) bool {

@@ -77,6 +77,12 @@ func (a *attemptSession) localBoundaryObservations(now time.Time, drain bool) []
 		a.boundaryDrained = true
 	}
 	boundary := a.boundary
+	if boundary == nil {
+		// Ordinary no-accounting execution never allocates an accumulator, so
+		// do not build the observation identity (scope clone) at all.
+		a.billingMu.Unlock()
+		return nil
+	}
 	identity := coremetering.ObservationIdentity{
 		StoreID:       strings.TrimSpace(a.billingStoreID),
 		RequestID:     strings.TrimSpace(a.requestID),
@@ -91,9 +97,6 @@ func (a *attemptSession) localBoundaryObservations(now time.Time, drain bool) []
 		ReceivedAt:    now,
 	}
 	a.billingMu.Unlock()
-	if boundary == nil {
-		return nil
-	}
 	return a.versionLocalBoundaryObservations(boundary.Observations(identity))
 }
 

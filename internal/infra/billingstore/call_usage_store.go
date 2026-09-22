@@ -294,10 +294,19 @@ func (s *DurableStore) ClaimCompleteCalls(ctx context.Context, limit int) ([]bil
 	}
 	maxCandidates := max(limit*8, 256)
 	out := make([]billing.CompleteCall, 0, limit)
+	// Fair-progress scan: eligible rows order by (next_claim_at, sealed_at,
+	// call_id) with a matching keyset cursor. Every incomplete row the worker
+	// touches is durably deferred to now+1s, so it sorts behind never-deferred
+	// rows on the next invocation. Untouched rows behind a >page incomplete
+	// prefix therefore surface first on a later scan even when the previous
+	// scan duration exceeded the 1s yield window. This matches the existing
+	// (claim_status, next_claim_at, sealed_at, call_id) index on both
+	// dialects; no schema change and no extended deadline.
+	var afterNext time.Time
 	var afterSealed time.Time
 	var afterCallID string
 	scanned := 0
-	now := time.Now().UTC()
+	now := s.claimNow()
 	staleBefore := now.Add(-completeCallClaimLease)
 	for scanned < maxCandidates && len(out) < limit {
 		pageSize := limit
@@ -308,32 +317,33 @@ func (s *DurableStore) ClaimCompleteCalls(ctx context.Context, limit int) ([]bil
 			break
 		}
 		type pendingCall struct {
-			CallID   string
-			SealedAt time.Time
+			CallID      string
+			SealedAt    time.Time
+			NextClaimAt time.Time
 		}
 		var page []pendingCall
 		var err error
 		if afterCallID == "" {
 			err = s.db.NewRaw(
-				`SELECT call_id, sealed_at FROM usage_call_records
+				`SELECT call_id, sealed_at, next_claim_at FROM usage_call_records
  WHERE (
    (claim_status = ? AND next_claim_at <= ?)
    OR (claim_status = ? AND claimed_at IS NOT NULL AND claimed_at <= ?)
  )
- ORDER BY sealed_at, call_id LIMIT ?`,
+ ORDER BY next_claim_at, sealed_at, call_id LIMIT ?`,
 				usageCallClaimPending, now, usageCallClaimClaimed, staleBefore, pageSize,
 			).Scan(ctx, &page)
 		} else {
 			err = s.db.NewRaw(
-				`SELECT call_id, sealed_at FROM usage_call_records
+				`SELECT call_id, sealed_at, next_claim_at FROM usage_call_records
  WHERE (
    (claim_status = ? AND next_claim_at <= ?)
    OR (claim_status = ? AND claimed_at IS NOT NULL AND claimed_at <= ?)
  )
-   AND (sealed_at > ? OR (sealed_at = ? AND call_id > ?))
- ORDER BY sealed_at, call_id LIMIT ?`,
+   AND (next_claim_at > ? OR (next_claim_at = ? AND sealed_at > ?) OR (next_claim_at = ? AND sealed_at = ? AND call_id > ?))
+ ORDER BY next_claim_at, sealed_at, call_id LIMIT ?`,
 				usageCallClaimPending, now, usageCallClaimClaimed, staleBefore,
-				afterSealed, afterSealed, afterCallID, pageSize,
+				afterNext, afterNext, afterSealed, afterNext, afterSealed, afterCallID, pageSize,
 			).Scan(ctx, &page)
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -345,6 +355,7 @@ func (s *DurableStore) ClaimCompleteCalls(ctx context.Context, limit int) ([]bil
 		ids := make([]string, 0, len(page))
 		for _, row := range page {
 			ids = append(ids, row.CallID)
+			afterNext = row.NextClaimAt
 			afterSealed = row.SealedAt
 			afterCallID = row.CallID
 		}
@@ -408,7 +419,7 @@ func (s *DurableStore) claimCompleteCallsFromIDs(ctx context.Context, ids []stri
 
 func (s *DurableStore) deferIncompleteCall(ctx context.Context, callID billing.BillingCallID, now time.Time) error {
 	if now.IsZero() {
-		now = time.Now().UTC()
+		now = s.claimNow()
 	}
 	next := now.Add(completeCallIncompleteYield)
 	_, err := s.db.NewRaw(
@@ -493,7 +504,7 @@ func (s *DurableStore) ClaimCompleteCall(ctx context.Context, callID billing.Bil
 		return billing.CompleteCall{}, fmt.Errorf("%w: V1 claim for %s not eligible under cutover",
 			billing.ErrAccountingCutoverFence, callID.String())
 	}
-	return s.claimCompleteCallWithOpts(ctx, callID, claimCompleteOpts{Now: time.Now().UTC()})
+	return s.claimCompleteCallWithOpts(ctx, callID, claimCompleteOpts{Now: s.claimNow()})
 }
 
 // drainingClaimEligible reports whether a worker claim may proceed.
@@ -555,7 +566,7 @@ func (s *DurableStore) claimCompleteCallWithOpts(ctx context.Context, callID bil
 		return zero, err
 	}
 	if opts.Now.IsZero() {
-		opts.Now = time.Now().UTC()
+		opts.Now = s.claimNow()
 	}
 	return withAccountTx(ctx, accountTxRetry{Attempts: 20, Delay: 5 * time.Millisecond}, func() (billing.CompleteCall, error) {
 		return s.claimCompleteCallAttempt(ctx, callID, opts)
@@ -703,7 +714,7 @@ func (s *DurableStore) ClaimCompleteCallsWithCutover(ctx context.Context, limit 
 			return nil, derr
 		}
 		if deferIncomplete {
-			_ = s.deferIncompleteCall(ctx, callID, time.Now().UTC())
+			_ = s.deferIncompleteCall(ctx, callID, s.claimNow())
 			continue
 		}
 		if !ok {
@@ -716,14 +727,17 @@ func (s *DurableStore) ClaimCompleteCallsWithCutover(ctx context.Context, limit 
 
 // listCompleteCallCandidates returns bounded pending/stale call IDs without
 // mutating claim state. The atomic claim below revalidates eligibility under
-// the marker lock.
+// the marker lock. It uses the same fair (next_claim_at, sealed_at, call_id)
+// ordering as ClaimCompleteCalls so deferred incomplete rows sort behind
+// never-deferred rows on later scans.
 func (s *DurableStore) listCompleteCallCandidates(ctx context.Context, limit int) ([]billing.BillingCallID, error) {
 	maxCandidates := max(limit*8, 256)
 	out := make([]billing.BillingCallID, 0, limit)
+	var afterNext time.Time
 	var afterSealed time.Time
 	var afterCallID string
 	scanned := 0
-	now := time.Now().UTC()
+	now := s.claimNow()
 	staleBefore := now.Add(-completeCallClaimLease)
 	for scanned < maxCandidates && len(out) < limit {
 		pageSize := limit
@@ -734,32 +748,33 @@ func (s *DurableStore) listCompleteCallCandidates(ctx context.Context, limit int
 			break
 		}
 		type pendingCall struct {
-			CallID   string
-			SealedAt time.Time
+			CallID      string
+			SealedAt    time.Time
+			NextClaimAt time.Time
 		}
 		var page []pendingCall
 		var err error
 		if afterCallID == "" {
 			err = s.db.NewRaw(
-				`SELECT call_id, sealed_at FROM usage_call_records
+				`SELECT call_id, sealed_at, next_claim_at FROM usage_call_records
  WHERE (
    (claim_status = ? AND next_claim_at <= ?)
    OR (claim_status = ? AND claimed_at IS NOT NULL AND claimed_at <= ?)
  )
- ORDER BY sealed_at, call_id LIMIT ?`,
+ ORDER BY next_claim_at, sealed_at, call_id LIMIT ?`,
 				usageCallClaimPending, now, usageCallClaimClaimed, staleBefore, pageSize,
 			).Scan(ctx, &page)
 		} else {
 			err = s.db.NewRaw(
-				`SELECT call_id, sealed_at FROM usage_call_records
+				`SELECT call_id, sealed_at, next_claim_at FROM usage_call_records
  WHERE (
    (claim_status = ? AND next_claim_at <= ?)
    OR (claim_status = ? AND claimed_at IS NOT NULL AND claimed_at <= ?)
  )
-   AND (sealed_at > ? OR (sealed_at = ? AND call_id > ?))
- ORDER BY sealed_at, call_id LIMIT ?`,
+   AND (next_claim_at > ? OR (next_claim_at = ? AND sealed_at > ?) OR (next_claim_at = ? AND sealed_at = ? AND call_id > ?))
+ ORDER BY next_claim_at, sealed_at, call_id LIMIT ?`,
 				usageCallClaimPending, now, usageCallClaimClaimed, staleBefore,
-				afterSealed, afterSealed, afterCallID, pageSize,
+				afterNext, afterNext, afterSealed, afterNext, afterSealed, afterCallID, pageSize,
 			).Scan(ctx, &page)
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -769,6 +784,7 @@ func (s *DurableStore) listCompleteCallCandidates(ctx context.Context, limit int
 			break
 		}
 		for _, row := range page {
+			afterNext = row.NextClaimAt
 			afterSealed = row.SealedAt
 			afterCallID = row.CallID
 			callID, perr := billing.ParseBillingCallID(row.CallID)
@@ -875,7 +891,7 @@ func (s *DurableStore) claimCompleteCallWithCutoverAtomic(ctx context.Context, c
 		}
 	}
 	// Claim the call row in the same tx.
-	now := time.Now().UTC()
+	now := s.claimNow()
 	staleBefore := now.Add(-completeCallClaimLease)
 	claimResult, err := tx.NewRaw(
 		`UPDATE usage_call_records SET claim_status = ?, claimed_at = ? WHERE call_id = ? AND ( (claim_status = ? AND next_claim_at <= ?) OR (claim_status = ? AND claimed_at IS NOT NULL AND claimed_at <= ?) )`,

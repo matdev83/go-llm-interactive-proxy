@@ -89,17 +89,28 @@ func TestCleanupStatementsJournalUsesStoreScopedFilters(t *testing.T) {
 	const storeID = "store-under-test"
 
 	statements := cleanupStatements(PostgresComponentJournal, storeID)
-	if len(statements) != 2 {
-		t.Fatalf("journal cleanup statements=%d want 2", len(statements))
+	// Dependency-safe order: child rows before metering_facts. components
+	// carries FK (store_id, observation_row_id) -> facts(store_id, id);
+	// outbox, supersessions and filters are fact-scoped children.
+	wantTables := []string{
+		"metering_observation_economic_outbox",
+		"metering_components",
+		"metering_fact_supersessions",
+		"metering_fact_filters",
+		"metering_facts",
 	}
-
-	filterDelete := strings.Join(strings.Fields(statements[0].sql), " ")
-	want := "DELETE FROM metering_fact_filters WHERE store_id = ?"
-	if filterDelete != want {
-		t.Fatalf("filter cleanup %q want %q", filterDelete, want)
+	if len(statements) != len(wantTables) {
+		t.Fatalf("journal cleanup statements=%d want %d (%v)", len(statements), len(wantTables), wantTables)
 	}
-	if len(statements[0].args) != 1 || statements[0].args[0] != storeID {
-		t.Fatalf("filter cleanup args=%v want [%q]", statements[0].args, storeID)
+	for i, table := range wantTables {
+		normalized := strings.Join(strings.Fields(statements[i].sql), " ")
+		want := "DELETE FROM " + table + " WHERE store_id = ?"
+		if normalized != want {
+			t.Fatalf("journal cleanup[%d] %q want %q (ordered, store-scoped)", i, normalized, want)
+		}
+		if len(statements[i].args) != 1 || statements[i].args[0] != storeID {
+			t.Fatalf("journal cleanup[%d] args=%v want [%q]", i, statements[i].args, storeID)
+		}
 	}
 }
 

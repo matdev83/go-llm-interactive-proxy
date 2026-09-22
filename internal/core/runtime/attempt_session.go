@@ -167,6 +167,21 @@ func (a *attemptSession) claimBillingLegRecord() bool {
 	return true
 }
 
+// billingLegRecordRequired reports whether this attempt owns a terminal
+// billing leg consumer. When every accounting seam is unbound the record has
+// no observer or sink, so the terminal path must not build and discard it.
+// A nil predicate keeps the historical record path for direct test wiring
+// that assigns explicit callbacks without an executor.
+func (a *attemptSession) billingLegRecordRequired() bool {
+	if a == nil {
+		return false
+	}
+	if a.billingEnabled == nil {
+		return true
+	}
+	return a.billingEnabled()
+}
+
 func (a *attemptSession) accountingStartedAt() time.Time {
 	if a == nil {
 		return time.Time{}
@@ -1860,17 +1875,20 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 				if cmd == sdkterminal.CommandNormalFinish || evidence.Committed {
 					surfaced = billing.SurfacedYes
 				}
-				streamEv := a.augmentBillingUsage(evidence.StreamFallback, evidence.Usage)
-				evidenceEvents, evidenceConflicts := a.billingEvidenceDrain()
-				localObservations := a.drainLocalBoundaryObservations(finished)
+				recordRequired := a.billingLegRecordRequired()
+				var localObservations []metering.Observation
+				if recordRequired {
+					localObservations = a.drainLocalBoundaryObservations(finished)
+				}
 				finalizeReason := "record_leg"
 				if evidence.BillingReason != "" {
 					finalizeReason = evidence.BillingReason
 				} else if evidence.RecordReason != "" {
 					finalizeReason = evidence.RecordReason
 				}
-				finalizeEv := streamEv
-				if billingState != nil && (a.finalizeBilling != nil || a.finalizeBillingV2 != nil) {
+				finalizeEv := evidence.StreamFallback
+				finalizeApplied := false
+				if (recordRequired || a.observationSink != nil) && billingState != nil && (a.finalizeBilling != nil || a.finalizeBillingV2 != nil) {
 					if result, ok := a.finalizeBillingResult(cctx, billingState, execbackend.BillingFinalizationInput{
 						TraceID: traceID,
 						ALegID:  aLegID,
@@ -1880,6 +1898,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 						Reason:  finalizeReason,
 					}); ok {
 						finalizeEv = result.Usage
+						finalizeApplied = true
 						for _, economic := range result.EconomicEvidence {
 							a.rememberEconomicEvidenceOnce(economic)
 						}
@@ -1888,6 +1907,16 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 				if err := a.flushEconomicCheckpointsAtTerminal(cctx); err != nil {
 					errorsList = append(errorsList, err)
 				}
+				if !recordRequired {
+					// No observer or terminal sink is bound: the terminal record
+					// has no consumer, so do not build and discard it.
+					return
+				}
+				streamEv := a.augmentBillingUsage(evidence.StreamFallback, evidence.Usage)
+				if !finalizeApplied {
+					finalizeEv = streamEv
+				}
+				evidenceEvents, evidenceConflicts := a.billingEvidenceDrain()
 				economicObservations, economicConflicts := a.economicEvidenceDrain()
 				var opRef billing.VersionRef
 				if a.operatorRateRef != nil {
