@@ -63,7 +63,7 @@ func TestRemediation174OptionalRawAbsencePreservesRecovery(t *testing.T) {
 	if err := provWorker.ProcessOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{charge: 120, fp: "rec174-raw-fp"}, store, 8)
+	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{t: t, charge: 120}, store, 8)
 	if err != nil {
 		t.Fatal(err)
 	}

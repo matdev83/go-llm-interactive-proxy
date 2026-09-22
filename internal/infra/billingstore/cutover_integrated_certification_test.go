@@ -174,6 +174,7 @@ func c3cIsFenceErr(err error) bool {
 		errors.Is(err, billing.ErrAccountingCutoverFence) ||
 		errors.Is(err, billing.ErrCutoverV1Fenced) ||
 		errors.Is(err, billing.ErrCutoverV2NotAuthorized) ||
+		errors.Is(err, billing.ErrRetailRateIncomplete) ||
 		errors.Is(err, ErrOperationConflict)
 }
 
@@ -612,8 +613,9 @@ func TestCutoverIntegratedConcurrentV1V2SingleWinner(t *testing.T) {
 			t.Fatal(err)
 		}
 		v1Res := billing.CallRatingResult{CallID: callID, CustomerCharge: billing.Money{Nano: 50, Currency: "USD"}, Fingerprint: "c3c-race-fp"}
+		v2Res := f3BoundResult(t, call, 50)
 		v1Input := billing.ApplyCallBillingInput{Call: call, Exposure: exp, Result: v1Res, PostingOwner: billing.PostingOwnerV1}
-		v2Input := billing.ApplyCallBillingInput{Call: call, Exposure: exp, Result: v1Res, PostingOwner: billing.PostingOwnerV2}
+		v2Input := billing.ApplyCallBillingInput{Call: call, Exposure: exp, Result: v2Res, PostingOwner: billing.PostingOwnerV2}
 		var wg sync.WaitGroup
 		gate := make(chan struct{})
 		var v1Err, v2Err error
@@ -1473,7 +1475,7 @@ func TestCutoverIntegratedFullLegalLifecycleFileBacked(t *testing.T) {
 		t.Fatal(err)
 	}
 	custClaimCopy := claimedCust[0].Claim
-	custResult := billing.CallRatingResult{CallID: callV2, CustomerCharge: billing.Money{Nano: 120, Currency: "USD"}, Fingerprint: "f9-v2-fp-" + callV2.String()}
+	custResult := f3BoundResult(t, durableV2CallForSettle, 120)
 	settledV2, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
 		Call: durableV2CallForSettle, Exposure: expV2, Result: custResult,
 		PostingOwner: custClaimCopy.Owner, Claim: &custClaimCopy,
@@ -1635,9 +1637,10 @@ func TestCutoverIntegratedActivationRacesMonetaryFamilies(t *testing.T) {
 		t.Fatal(err)
 	}
 	v1Res := billing.CallRatingResult{CallID: callID, CustomerCharge: billing.Money{Nano: 120, Currency: "USD"}, Fingerprint: "f9-race-fp"}
+	v2Res := f3BoundResult(t, durableCall, 120)
 	v1Copy := meta
 	v1Input := billing.ApplyCallBillingInput{Call: durableCall, Exposure: durableExp, Result: v1Res, PostingOwner: v1Copy.Owner, Claim: &v1Copy}
-	v2Input := billing.ApplyCallBillingInput{Call: durableCall, Exposure: durableExp, Result: v1Res, PostingOwner: billing.PostingOwnerV2}
+	v2Input := billing.ApplyCallBillingInput{Call: durableCall, Exposure: durableExp, Result: v2Res, PostingOwner: billing.PostingOwnerV2}
 	var wg sync.WaitGroup
 	gate := make(chan struct{})
 	var v1Err, v2Err error

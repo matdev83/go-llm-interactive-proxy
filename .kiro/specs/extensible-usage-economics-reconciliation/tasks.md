@@ -755,9 +755,9 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 10.5, 11.6, 17.5, 18.4_
 
 
-- [ ] 18. Retire superseded live financial paths
+- [x] 18. Retire superseded live financial paths
 
-- [ ] 18.1 Remove token-only authoritative billing conversions and selectors
+- [x] 18.1 Remove token-only authoritative billing conversions and selectors
   - Delete V1 live financial producers and destructive selected-event merge/fallback pathways now replaced by V2.
   - Keep only historical readers and explicit one-way protocol/nonfinancial projections; no dual maintained source of monetary truth.
   - Completion: architecture/source guards reject reintroduction of scalar-only live rating or observer/token-ledger monetary writes.
@@ -767,7 +767,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/archtest/...; make quality-checks; go test ./internal/core/billing/... ./internal/core/runtime/..._
   - _Requirements: 15.1, 15.5, 15.6, 17.6_
 
-- [ ] 18.2 Close all consumer and producer migration dispositions
+- [x] 18.2 Close all consumer and producer migration dispositions
   - Recheck the Task 1 inventory against the final tree and prove each live consumer uses V2 or an explicit safe projection.
   - Remove stale configuration/conversion hooks and update public godoc/operator migration instructions inside the owning implementation changes.
   - Completion: no orphan interface, unclassified producer, unused hook or undocumented unsupported strict offer remains.

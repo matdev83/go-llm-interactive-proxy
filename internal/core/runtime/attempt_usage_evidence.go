@@ -312,7 +312,12 @@ func (a *attemptSession) usageOrAccumulated(primary lipapi.Event) lipapi.Event {
 
 // augmentBillingUsage merges attempt-owned accumulated evidence into a terminal
 // billing stream event: full substitution when the stream event lacks presence,
-// otherwise provider-cost backfill only.
+// otherwise provider-cost backfill only. Accumulated host-only money fills the
+// V1 compatibility projection carrier; source-separated V2 observations retain
+// each source independently, so no source record is destroyed by the backfill.
+// Task 18.2 (Migration Strategy step 8): this host-only V1 draining carrier is
+// intentionally retained for in-flight V1 recovery; it is not a live V2 money
+// path. Operator migration: V2 terminal observations own new economics.
 func (a *attemptSession) augmentBillingUsage(streamEv, fallbackPrimary lipapi.Event) lipapi.Event {
 	if streamEv.Kind == "" {
 		streamEv = fallbackPrimary

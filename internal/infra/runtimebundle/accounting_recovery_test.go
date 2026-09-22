@@ -113,10 +113,17 @@ func recoveryRuntimeLeg(callID billing.BillingCallID, bLegID string) billing.Cal
 	}
 }
 
-type recoveryRuntimeRater struct{ charge int64 }
+type recoveryRuntimeRater struct {
+	t      *testing.T
+	charge int64
+}
 
 func (s recoveryRuntimeRater) ResolveCallRating(_ context.Context, complete billing.CompleteCall, _ billing.CallExposure) (billing.CallRatingResult, error) {
-	return billing.CallRatingResult{CallID: complete.Closure.CallID, CustomerCharge: billing.Money{Nano: s.charge, Currency: "USD"}, Fingerprint: "rec174-rt-fp"}, nil
+	return f3rbBoundResult(s.t, complete.Closure, s.charge), nil
+}
+
+func (s recoveryRuntimeRater) ResolveCallRatingForOwner(_ context.Context, complete billing.CompleteCall, _ billing.CallExposure, _ string) (billing.CallRatingResult, error) {
+	return f3rbBoundResult(s.t, complete.Closure, s.charge), nil
 }
 
 type recoveryRuntimeProvider struct{}
@@ -157,7 +164,7 @@ func recoveryRuntimePostV2(t *testing.T, store *billingstore.DurableStore, accou
 	if err := provWorker.ProcessOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, recoveryRuntimeRater{charge: 120}, store, 8)
+	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, recoveryRuntimeRater{t: t, charge: 120}, store, 8)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -335,6 +335,7 @@ func TestPhase1ProducerConsumerCensusIsExactAndDispositioned(t *testing.T) {
 		"bridge-v1": {}, "bridge estimated": {}, "bridge fixture": {},
 		"pending": {}, "unsupported": {}, "RED": {},
 		"v2-certified": {}, "lossless-v1-bridge": {}, "unsupported advanced evidence": {},
+		"removed": {},
 	}
 	for lineNo, row := range rows[1:] {
 		if len(row) != 7 {
@@ -363,16 +364,28 @@ func TestPhase1ProducerConsumerCensusIsExactAndDispositioned(t *testing.T) {
 		if err != nil {
 			t.Fatalf("census line %d source %s: %v", lineNo+2, relPath, err)
 		}
-		if !strings.Contains(string(src), anchor) {
-			t.Fatalf("census line %d source %s lacks exact symbol anchor %q", lineNo+2, relPath, anchor)
-		}
-		if strings.TrimSpace(boundary) == category || strings.TrimSpace(protocol) == category {
-			t.Fatalf("census line %d collapses boundary/protocol to category only", lineNo+2)
-		}
 		parts := strings.SplitN(disposition, ";", 2)
 		status := strings.TrimSpace(parts[0])
 		if _, ok := allowedStatuses[status]; !ok {
 			t.Fatalf("census line %d disposition status %q is not explicit", lineNo+2, status)
+		}
+		if status == "removed" {
+			// Task 18.2 (Migration Strategy step 8): retired superseded paths
+			// keep their historical anchor name but must be absent from the
+			// final tree. The explicit replacement must be present instead.
+			if strings.Contains(string(src), anchor) {
+				t.Fatalf("census line %d retired anchor %q still present in %s; removal is not complete", lineNo+2, anchor, relPath)
+			}
+			if relPath == "internal/core/runtime/billing_leg.go" && anchor == "mergeStreamCostOntoLeg" {
+				if !strings.Contains(string(src), "projectV1BillingEvidence") {
+					t.Fatalf("census line %d retired mergeStreamCostOntoLeg lacks replacement projectV1BillingEvidence in %s", lineNo+2, relPath)
+				}
+			}
+		} else if !strings.Contains(string(src), anchor) {
+			t.Fatalf("census line %d source %s lacks exact symbol anchor %q", lineNo+2, relPath, anchor)
+		}
+		if strings.TrimSpace(boundary) == category || strings.TrimSpace(protocol) == category {
+			t.Fatalf("census line %d collapses boundary/protocol to category only", lineNo+2)
 		}
 		// The Phase 8 disposition may contain a bounded semicolon-delimited
 		// reason before the frozen parent-task marker. Keep the status in the

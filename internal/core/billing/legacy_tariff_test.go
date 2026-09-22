@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -59,6 +60,11 @@ func TestPricingSnapshotToTariffPreservesNamedLegacySemantics(t *testing.T) {
 
 func TestRateCallLegacyScalarTariffIgnoresV2BoundaryQuantityEvidence(t *testing.T) {
 	t.Parallel()
+	// Phase 18 blocker 1: the legacy tag no longer selects the scalar live
+	// engine for V2-owned work. Incomplete V2 boundary evidence (unavailable
+	// cache quantity the legacy-mapped tariff cannot cover) fails closed
+	// before money instead of silently ignoring V2 and posting 310 scalar
+	// nanos from V1 InputTokens/OutputTokens.
 	callID := mustBillingCallID(t)
 	pricing := PricingSnapshot{
 		Ref:                  VersionRef{ID: "prices", Version: "v1"},
@@ -99,14 +105,15 @@ func TestRateCallLegacyScalarTariffIgnoresV2BoundaryQuantityEvidence(t *testing.
 	if err != nil {
 		t.Fatalf("PricingSnapshotToTariff: %v", err)
 	}
-	result, err := RateCall(CallRatingInput{
+	_, err = RateCall(CallRatingInput{
 		Call: call, Legs: []CallLegUsageRecord{leg}, MaxCustomerCharge: Money{Nano: 1_000, Currency: "USD"},
 		CustomerPricing: pricing, CustomerPolicy: policy, CustomerTariff: tariff,
+		PostingOwner: PostingOwnerV2,
 	})
-	if err != nil {
-		t.Fatalf("legacy scalar rating must ignore V2 boundary quantities: %v", err)
+	if err == nil {
+		t.Fatalf("V2-owned legacy tariff with incomplete V2 evidence must fail closed, not post scalar")
 	}
-	if result.CustomerCharge != (Money{Nano: 310, Currency: "USD"}) {
-		t.Fatalf("customer charge = %+v, want 310 USD from V1 scalar evidence", result.CustomerCharge)
+	if !errors.Is(err, ErrRetailRateIncomplete) && !errors.Is(err, ErrQuantityIncomplete) && !errors.Is(err, ErrRatingEvidenceMissing) {
+		t.Fatalf("error = %v, want retail incomplete/quantity/evidence", err)
 	}
 }

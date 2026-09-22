@@ -66,21 +66,20 @@ func refinement43LegacyAuthorityWork(t *testing.T, cost MoneyEvidence) ProviderC
 
 func TestRefinement43LegacyProviderCostWorkerRejectsLocalRateFallback(t *testing.T) {
 	work := refinement43LegacyAuthorityWork(t, MoneyEvidence{})
-	result, err := RateProviderCost(work.Leg, OperatorRateSet{operatorRate()}, "USD")
-	require.NoError(t, err)
-	require.False(t, result.Authoritative)
-	require.True(t, result.AmountPresent)
-	require.True(t, result.Reconciled)
+	// Task 18.1: the scalar token-to-money fallback is retired at the
+	// resolver. Token-only evidence is unreconciled before any worker
+	// authority check; estimates belong to the V2 provider-quantity
+	// valuation.
+	_, err := RateProviderCost(work.Leg, OperatorRateSet{operatorRate()}, "USD")
+	require.ErrorIs(t, err, ErrUnreconciledCost)
 
 	reader := &refinement43LegacyAuthorityReader{work: []ProviderCostWork{work}}
 	store := &refinement43LegacyAuthorityStore{}
-	worker, err := NewCallProviderCostWorker(reader, store, refinement43LegacyAuthorityResolver{result: result}, 1)
+	worker, err := NewCallProviderCostWorker(reader, store, refinement43LegacyAuthorityResolver{err: err}, 1)
 	require.NoError(t, err)
 
 	err = worker.ProcessOnce(context.Background())
-	var authorityErr *ProviderCostAuthorityError
-	require.ErrorAs(t, err, &authorityErr)
-	require.ErrorIs(t, err, ErrProviderCostAuthority)
+	require.ErrorIs(t, err, ErrUnreconciledCost)
 	require.Empty(t, store.applied)
 	require.Len(t, store.marked, 1)
 	require.Len(t, store.deferred, 1)

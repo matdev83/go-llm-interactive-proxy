@@ -81,7 +81,9 @@ func TestB2b1V2ActiveV2PostsWithPin(t *testing.T) {
 		t.Fatalf("V2 must be authorized in active: %v", err)
 	}
 	// V2 settlement via the same atomic seam (real money, V2 ownership, not fake).
-	res := billing.CallRatingResult{CallID: callID, CustomerCharge: billing.Money{Nano: 40, Currency: "USD"}, Fingerprint: "b2b1-v2-fp"}
+	// Valid V2 component valuation is required at the generic fence; a
+	// scalar-only result would fail before reaching the pin.
+	res := f3BoundResult(t, call, 40)
 	settled, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{Call: call, Exposure: exp, Result: res, PostingOwner: billing.PostingOwnerV2})
 	if err != nil {
 		t.Fatalf("v2_active V2 settle: %v (V2 seam must post, not fake)", err)
@@ -161,7 +163,7 @@ func TestB2b1BogusClaimFailsEvenWhenRereadWouldAllow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res := billing.CallRatingResult{CallID: callID, CustomerCharge: billing.Money{Nano: 25, Currency: "USD"}, Fingerprint: "b2b1-bogus-fp"}
+	res := f3BoundResult(t, call, 25)
 	// Stale epoch claim must fence even though pin+marker would otherwise allow.
 	stale := good
 	stale.MarkerEpoch += 100
@@ -272,6 +274,11 @@ func TestB2b1ConcurrentV1VsV2SingleWinner(t *testing.T) {
 	v1store := b2b1NewStore(t, "b2b1-contend-v1wins")
 	v1ctx := context.Background()
 	v1call, v1exp, v1res := b2b1SetupAccountCallExposure(t, v1store, "acct-b2b1-v1wins", 500, 400, 50)
+	// Valid V2 valuation for the V2 contender so the fence proves ownership
+	// (V2 not authorized in v1_active), not merely missing valuation.
+	v1v2res := v1res
+	v1v2res.CustomerValuation = f3BoundComponentValuation(t, v1call, v1res.CustomerCharge)
+	v1v2res.Fingerprint = v1v2res.CustomerValuation.Fingerprint()
 	var wg sync.WaitGroup
 	var v1Err, v2Err error
 	wg.Add(2)
@@ -281,7 +288,7 @@ func TestB2b1ConcurrentV1VsV2SingleWinner(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		_, v2Err = v1store.ApplyCallBillingResult(context.Background(), billing.ApplyCallBillingInput{Call: v1call, Exposure: v1exp, Result: v1res, PostingOwner: billing.PostingOwnerV2})
+		_, v2Err = v1store.ApplyCallBillingResult(context.Background(), billing.ApplyCallBillingInput{Call: v1call, Exposure: v1exp, Result: v1v2res, PostingOwner: billing.PostingOwnerV2})
 	}()
 	wg.Wait()
 	if v1Err != nil {
@@ -357,7 +364,7 @@ func TestB2b1ConcurrentV1VsV2SingleWinner(t *testing.T) {
 	if _, err := v2store.TransitionAccountingCutover(v2ctx, billing.AccountingCutoverTransition{ExpectedVersion: cur.Version, ExpectedEpoch: cur.Epoch, NextState: billing.AccountingCutoverV2Active, TransitionID: "b2b1-cv2-active"}); err != nil {
 		t.Fatal(err)
 	}
-	res := billing.CallRatingResult{CallID: callID, CustomerCharge: billing.Money{Nano: 50, Currency: "USD"}, Fingerprint: "b2b1-cv2-fp"}
+	res := f3BoundResult(t, call, 50)
 	var wv1Err, wv2Err error
 	wg.Add(2)
 	go func() {
@@ -472,8 +479,12 @@ func TestB2b1ConflictingOwnerEpochAmountSourceFail(t *testing.T) {
 	if _, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{Call: call, Exposure: exp, Result: confAmt}); !errors.Is(err, ErrOperationConflict) {
 		t.Fatalf("conf amount err = %v, want OperationConflict", err)
 	}
-	// Conflicting owner (V2 for V1 pin).
-	if _, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{Call: call, Exposure: exp, Result: res, PostingOwner: billing.PostingOwnerV2}); !isFenceErr(err) {
+	// Conflicting owner (V2 for V1 pin). Use valid V2 valuation so the fence
+	// proves pin ownership, not merely missing valuation.
+	v2res := res
+	v2res.CustomerValuation = f3BoundComponentValuation(t, call, res.CustomerCharge)
+	v2res.Fingerprint = v2res.CustomerValuation.Fingerprint()
+	if _, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{Call: call, Exposure: exp, Result: v2res, PostingOwner: billing.PostingOwnerV2}); !isFenceErr(err) {
 		t.Fatalf("conf owner err = %v, want fence/conflict", err)
 	}
 	// Conflicting source (different call with same exposure must mismatch).

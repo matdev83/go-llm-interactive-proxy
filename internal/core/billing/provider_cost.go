@@ -71,6 +71,12 @@ func ValidateProviderCostAuthority(leg CallLegUsageRecord, result OperatorCostRe
 	return nil
 }
 
+// RateProviderCost selects the V1 provider cost for one sealed B-leg. Only
+// provider-reported authoritative money is eligible; provider-accepted token
+// evidence without provider money is explicitly unreconciled. The scalar
+// token-to-money fallback was retired in Task 18.1 (Migration Strategy step
+// 8): estimates belong to the V2 provider-quantity valuation. The rates
+// argument is retained for signature compatibility and is ignored.
 func RateProviderCost(leg CallLegUsageRecord, rates OperatorRateSet, currency string) (OperatorCostResult, error) {
 	currency = strings.TrimSpace(currency)
 	if currency == "" {
@@ -96,10 +102,10 @@ func RateProviderCost(leg CallLegUsageRecord, rates OperatorRateSet, currency st
 		}
 		return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Currency: currency}, AmountPresent: true, Reconciled: true}, nil
 	}
-	rate, found := rates.Resolve(sealed.OperatorRateRef)
-	amount, reason, ok := fallbackOperatorCost(sealed, rate, found, currency)
-	if !ok {
-		return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Currency: currency}, UnreconciledReason: reason}, fmt.Errorf("%w: %s", ErrUnreconciledCost, reason)
-	}
-	return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Nano: amount, Currency: currency}, AmountPresent: true, Reconciled: true}, nil
+	// Task 18.1: no scalar token-to-money fallback. Provider-accepted token
+	// evidence without provider-reported money stays explicitly unreconciled;
+	// V2 provider-quantity valuation owns estimates. The rates argument is
+	// ignored legacy compatibility.
+	_ = rates
+	return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Currency: currency}, UnreconciledReason: "provider_money_unavailable"}, fmt.Errorf("%w: %s", ErrUnreconciledCost, "provider_money_unavailable")
 }

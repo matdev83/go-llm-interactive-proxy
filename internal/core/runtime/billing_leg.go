@@ -407,6 +407,11 @@ func lastUsageDeltaOrShell(events []lipapi.Event) lipapi.Event {
 // projectV1BillingEvidence keeps the old scalar contract readable while
 // refusing to combine values from incompatible source/authority planes. V2
 // source observations are always retained independently by billingLegRecord.
+// This explicit one-way compatibility projection is the only V1 cost
+// selection; the legacy destructive merge helper was retired in Task 18.1
+// (Migration Strategy step 8, Task 18.2). Operator migration: V2 observations
+// are the financial truth; this V1 projection exists only for historical
+// readers and must never be re-ingested as independent V2 evidence.
 func projectV1BillingEvidence(finalize, stream billing.FinalBillingEvidence) billing.FinalBillingEvidence {
 	if finalize.Cost.Present {
 		return finalize
@@ -428,12 +433,6 @@ func projectV1BillingEvidence(finalize, stream billing.FinalBillingEvidence) bil
 	}
 	finalize.Cost = stream.Cost
 	return finalize
-}
-
-// mergeStreamCostOntoLeg is retained as a source-compatible helper for older
-// internal callers. It now applies the explicitly labelled V1 projection.
-func mergeStreamCostOntoLeg(finalize, stream billing.FinalBillingEvidence) billing.FinalBillingEvidence {
-	return projectV1BillingEvidence(finalize, stream)
 }
 
 func compatibleBillingEvidenceProjection(finalize, stream billing.FinalBillingEvidence) bool {

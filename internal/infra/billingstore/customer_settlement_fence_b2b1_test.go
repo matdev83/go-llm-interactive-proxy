@@ -672,5 +672,6 @@ func isFenceErr(err error) bool {
 		errors.Is(err, billing.ErrCutoverV2NotAuthorized) ||
 		errors.Is(err, billing.ErrSettlementConflict) ||
 		errors.Is(err, billing.ErrSettlementInvalid) ||
+		errors.Is(err, billing.ErrRetailRateIncomplete) ||
 		errors.Is(err, ErrOperationConflict)
 }

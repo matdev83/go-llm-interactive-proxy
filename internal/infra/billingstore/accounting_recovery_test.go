@@ -179,7 +179,7 @@ func TestRecovery174V2PostingsBlockStaleBinary(t *testing.T) {
 	if err := provWorker.ProcessOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{charge: 120, fp: "rec174-v2-fp"}, store, 8)
+	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{t: t, charge: 120}, store, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +351,7 @@ func TestRecovery174V2PendingIsNotV1Claimable(t *testing.T) {
 	if err := provWorker.ProcessOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{charge: 120, fp: "rec174-v2p-posted"}, store, 8)
+	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{t: t, charge: 120}, store, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,7 +550,7 @@ func TestRecovery174ForwardRecoveryDrainsExactlyOnceAcrossRestart(t *testing.T) 
 	if err := provWorker.ProcessOnce(ctx); err != nil {
 		t.Fatalf("restarted provider drain: %v", err)
 	}
-	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(reopened, reopened, f3RatingStub{charge: 120, fp: "rec174-fwd-fp"}, reopened, 8)
+	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(reopened, reopened, f3RatingStub{t: t, charge: 120}, reopened, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -625,7 +625,7 @@ func TestRecovery174RetentionPrunePreservesLinkageAndRecovery(t *testing.T) {
 	if err := provWorker.ProcessOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{charge: 120, fp: "rec174-ret-fp"}, store, 8)
+	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{t: t, charge: 120}, store, 8)
 	if err != nil {
 		t.Fatal(err)
 	}

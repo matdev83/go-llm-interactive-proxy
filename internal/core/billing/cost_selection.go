@@ -76,9 +76,13 @@ func (r OperatorCOGSResult) Subtotal(currency string) Money {
 // evidence and V2 reported charges; a V2 charge set takes precedence for its
 // leg so the compatibility projection cannot double count it.
 //
-// The currency argument is the requested legacy/fallback rate currency. V2
+// The currency argument selects the requested V1 authoritative-money currency
+// for the legacy compatibility subtotal (Task 18.2, Migration Strategy step
+// 8). The retired scalar token-to-money fallback no longer consumes it: V2
 // charges remain visible in their native currencies in
-// KnownSubtotalByCurrency. No resource or account-window observation is
+// KnownSubtotalByCurrency with no implicit FX. Operator migration: request the
+// V1 money currency for draining/history; V2 COGS uses native currencies.
+// No resource or account-window observation is
 // accepted here: those subjects require a separately conserved allocation
 // before they can be attributed to a call.
 func AttributeOperatorCOGS(legs []CallLegUsageRecord, rates OperatorRateSet, currency string) (OperatorCOGSResult, error) {
@@ -182,12 +186,6 @@ func AttributeOperatorCOGS(legs []CallLegUsageRecord, rates OperatorRateSet, cur
 	return result, nil
 }
 
-// AttributeOperatorCost is a descriptive compatibility alias for callers
-// that use the existing provider-cost vocabulary.
-func AttributeOperatorCost(legs []CallLegUsageRecord, rates OperatorRateSet, currency string) (OperatorCOGSResult, error) {
-	return AttributeOperatorCOGS(legs, rates, currency)
-}
-
 // AttributeOperatorCOGSWithAllocations attributes all operator-payable
 // provider costs and then adds explicit, conserved monetary allocations from
 // non-request resource or statement subjects. The supplied legs are the only
@@ -257,12 +255,6 @@ func AttributeOperatorCOGSWithAllocations(legs []CallLegUsageRecord, allocations
 		result.Payable = false
 	}
 	return result, nil
-}
-
-// AttributeOperatorCostWithAllocations is the allocation-aware counterpart of
-// the compatibility AttributeOperatorCost name.
-func AttributeOperatorCostWithAllocations(legs []CallLegUsageRecord, allocations []economics.AllocationRecord, rates OperatorRateSet, currency string) (OperatorCOGSResult, error) {
-	return AttributeOperatorCOGSWithAllocations(legs, allocations, rates, currency)
 }
 
 func allocationTargetMatchesLegs(target metering.SubjectRef, legs []CallLegUsageRecord) bool {

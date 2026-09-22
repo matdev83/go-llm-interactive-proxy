@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -155,22 +156,25 @@ func (w *CallPostUsageWorker) ProcessOnce(ctx context.Context) error {
 			allErr = errors.Join(allErr, w.retryCall(ctx, complete.Closure.CallID, "exposure_lookup", err))
 			continue
 		}
-		result, err := w.resolver.ResolveCallRating(ctx, complete, exposure)
+		// Phase 18 blocker 1: resolve the durable B1 pin owner before
+		// rating so V2-owned work can never silently select the scalar
+		// live engine. F8 fail-closed claim semantics are preserved:
+		// authorized first acquisition (NotFound, no pin yet) rates with
+		// empty owner (historical-replay default, safe via V2 inference);
+		// every other lookup failure retries without posting and never
+		// swallows into nil/default.
+		claimInput, cerr := w.customerSettlementClaim(ctx, complete.Closure)
+		if cerr != nil {
+			allErr = errors.Join(allErr, w.retryCall(ctx, complete.Closure.CallID, "claim_metadata", cerr))
+			continue
+		}
+		result, err := w.resolveCallRatingWithOwner(ctx, complete, exposure, claimInput.owner)
 		if err != nil {
 			code := "rating_input"
 			if errors.Is(err, ErrBillingAttemptSequenceUnknown) {
 				code = "settlement_reconcile_required"
 			}
 			allErr = errors.Join(allErr, w.retryCall(ctx, complete.Closure.CallID, code, err))
-			continue
-		}
-		// F8: fail closed on operational/cancellation/malformed claim errors.
-		// Authorized first acquisition (NotFound, no pin yet) posts without a
-		// token so the store can acquire atomically; every other lookup
-		// failure retries without posting and never swallows into nil/default.
-		claimInput, cerr := w.customerSettlementClaim(ctx, complete.Closure)
-		if cerr != nil {
-			allErr = errors.Join(allErr, w.retryCall(ctx, complete.Closure.CallID, "claim_metadata", cerr))
 			continue
 		}
 		if _, err := w.settlement.ApplyCallBillingResult(ctx, ApplyCallBillingInput{Call: complete.Closure, Exposure: exposure, Result: result, PostingOwner: claimInput.owner, Claim: claimInput.claim}); err != nil {
@@ -207,7 +211,19 @@ func (w *CallPostUsageWorker) processCutoverOnce(ctx context.Context) error {
 			allErr = errors.Join(allErr, w.retryCall(ctx, complete.Closure.CallID, "exposure_lookup", err))
 			continue
 		}
-		result, err := w.resolver.ResolveCallRating(ctx, complete, exposure)
+		// R4 mandatory: every production item must carry a complete valid
+		// token. Nil/empty/partial/mismatched tokens fail closed; never fall
+		// back to legacy metadata lookup or nil/default authority. Phase 18
+		// blocker 1: the validated token owner selects V1 drain vs V2
+		// component rating before any money, so a V2 token can never
+		// silently select the scalar live engine.
+		if verr := item.Validate(); verr != nil {
+			allErr = errors.Join(allErr, w.retryCall(ctx, complete.Closure.CallID, "claim_metadata", verr))
+			continue
+		}
+		copied := item.Claim
+		owner, claim := copied.Owner, &copied
+		result, err := w.resolveCallRatingWithOwner(ctx, complete, exposure, owner)
 		if err != nil {
 			code := "rating_input"
 			if errors.Is(err, ErrBillingAttemptSequenceUnknown) {
@@ -216,15 +232,6 @@ func (w *CallPostUsageWorker) processCutoverOnce(ctx context.Context) error {
 			allErr = errors.Join(allErr, w.retryCall(ctx, complete.Closure.CallID, code, err))
 			continue
 		}
-		// R4 mandatory: every production item must carry a complete valid
-		// token. Nil/empty/partial/mismatched tokens fail closed; never fall
-		// back to legacy metadata lookup or nil/default authority.
-		if verr := item.Validate(); verr != nil {
-			allErr = errors.Join(allErr, w.retryCall(ctx, complete.Closure.CallID, "claim_metadata", verr))
-			continue
-		}
-		copied := item.Claim
-		owner, claim := copied.Owner, &copied
 		if _, err := w.settlement.ApplyCallBillingResult(ctx, ApplyCallBillingInput{Call: complete.Closure, Exposure: exposure, Result: result, PostingOwner: owner, Claim: claim}); err != nil {
 			code := "settlement"
 			if errors.Is(err, ErrSettlementReconcileRequired) {
@@ -294,6 +301,51 @@ func (w *CallPostUsageWorker) customerSettlementClaim(ctx context.Context, closu
 		}
 	}
 	return customerSettlementClaimInput{}, nil
+}
+
+// resolveCallRatingWithOwner carries the durable B1 pin owner into rating
+// selection and enforces the generic V2 valuation fence before money.
+// V2-owned work requires an OwnerAwareCallRatingResolver: an old
+// owner-unaware resolver (including a decorator exposing only that port)
+// fails closed with zero effects, even if it would return a scalar result.
+// Every resolved result is independently validated for its settlement
+// binding via ValidateCallRatingResultForSettlement before Apply: V2
+// requires a complete bound component CustomerValuation (subject/scope,
+// currency, amount, and result identity bound to the settled call/exposure)
+// or an explicit cost-pass-through under its complete contract, while V1
+// drain and legacy empty owners preserve historical scalar replay.
+// Production cutover paths always supply the explicit V2 token owner; the
+// old interface survives only for V1/test-only non-cutover paths.
+func (w *CallPostUsageWorker) resolveCallRatingWithOwner(ctx context.Context, complete CompleteCall, exposure CallExposure, owner string) (CallRatingResult, error) {
+	trimmed := strings.TrimSpace(owner)
+	if trimmed == PostingOwnerV2 {
+		aware, ok := w.resolver.(OwnerAwareCallRatingResolver)
+		if !ok || aware == nil {
+			return CallRatingResult{}, fmt.Errorf("%w: V2-owned rating requires an owner-aware resolver", ErrPostingOwnershipInvalid)
+		}
+		result, err := aware.ResolveCallRatingForOwner(ctx, complete, exposure, owner)
+		if err != nil {
+			return CallRatingResult{}, err
+		}
+		if err := ValidateCallRatingResultForSettlement(result, complete.Closure, exposure, owner); err != nil {
+			return CallRatingResult{}, err
+		}
+		return result, nil
+	}
+	var result CallRatingResult
+	var err error
+	if aware, ok := w.resolver.(OwnerAwareCallRatingResolver); ok && aware != nil {
+		result, err = aware.ResolveCallRatingForOwner(ctx, complete, exposure, owner)
+	} else {
+		result, err = w.resolver.ResolveCallRating(ctx, complete, exposure)
+	}
+	if err != nil {
+		return CallRatingResult{}, err
+	}
+	if err := ValidateCallRatingResultForSettlement(result, complete.Closure, exposure, owner); err != nil {
+		return CallRatingResult{}, err
+	}
+	return result, nil
 }
 
 func (w *CallPostUsageWorker) retryCall(ctx context.Context, callID BillingCallID, code string, cause error) error {

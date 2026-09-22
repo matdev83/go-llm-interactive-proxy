@@ -88,9 +88,12 @@ func TestRefinement43LegacyProviderCostWorkerDefersAuthorityRejectionForRetry(t 
 	require.NoError(t, err)
 
 	err = worker.ProcessOnce(ctx)
-	var authorityErr *billing.ProviderCostAuthorityError
-	require.ErrorAs(t, err, &authorityErr)
-	require.ErrorIs(t, err, billing.ErrProviderCostAuthority)
+	// Task 18.1 retired the scalar token-to-money fallback at the resolver:
+	// estimated token-only evidence is unreconciled before any worker
+	// authority check. Estimates belong to the V2 provider-quantity
+	// valuation. The durable outcome is unchanged: no money, no fences, the
+	// work stays pending for retry, and an unreconciled marker is recorded.
+	require.ErrorIs(t, err, billing.ErrUnreconciledCost)
 	require.Equal(t, 1, resolver.calls)
 	require.Empty(t, refinement43ProviderJournals(t, store, account.ID))
 	posting, execution, heads := refinement43LegacyProviderCostFenceCounts(t, store, account.ID, callID)
@@ -101,7 +104,7 @@ func TestRefinement43LegacyProviderCostWorkerDefersAuthorityRejectionForRetry(t 
 	require.NoError(t, err)
 	require.Equal(t, "pending", state.Status)
 	require.Equal(t, 1, state.AttemptCount)
-	require.Contains(t, state.LastError, billing.ErrProviderCostAuthority.Error())
+	require.Contains(t, state.LastError, billing.ErrUnreconciledCost.Error())
 
 	var markers int
 	require.NoError(t, store.db.NewRaw(`SELECT COUNT(*) FROM billing_operation_snapshots WHERE account_id = ? AND operation_kind = 'provider_cost_unreconciled' AND source_key = ?`, account.ID, leg.Key).Scan(ctx, &markers))

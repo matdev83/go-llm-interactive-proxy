@@ -2,13 +2,20 @@ package billingstore
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	_ "modernc.org/sqlite"
 )
 
@@ -107,6 +114,7 @@ func f3IsFenceErr(err error) bool {
 		errors.Is(err, billing.ErrAccountingCutoverFence) ||
 		errors.Is(err, billing.ErrCutoverV1Fenced) ||
 		errors.Is(err, billing.ErrCutoverV2NotAuthorized) ||
+		errors.Is(err, billing.ErrRetailRateIncomplete) ||
 		errors.Is(err, ErrOperationConflict)
 }
 
@@ -129,12 +137,104 @@ func f3JournalCount(t *testing.T, store *DurableStore, accountID string) int {
 }
 
 type f3RatingStub struct {
+	t      *testing.T
 	charge int64
-	fp     string
+}
+
+// f3BoundComponentValuation builds a complete customer-policy component
+// valuation bound to the actual settled call and charge. Settlement identity
+// (account/call, scope, payer, policy/tariff snapshots, currency, amount)
+// derives from the live call and charge; only snapshot content digests use
+// deterministic fixture hashing in the phase10 manner. The caller must use
+// the valuation fingerprint as the result fingerprint.
+func f3BoundComponentValuation(t *testing.T, call billing.CallUsageRecord, charge billing.Money) economics.Valuation {
+	t.Helper()
+	const storeID = "test"
+	ref := metering.ObservationRef{StoreID: storeID, ObservationID: "observation-" + call.CallID.String(), Revision: 1, PayloadHash: "payload-" + call.CallID.String()}
+	inputHash, err := economics.CanonicalInputSetHash(economics.BasisCustomerPolicy, []metering.ObservationRef{ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tariffID, tariffVersion := call.CustomerPricingRef.ID, call.CustomerPricingRef.Version
+	policyID, policyVersion := call.ChargePolicyRef.ID, call.ChargePolicyRef.Version
+	tariffHash := f3BoundHash("tariff", tariffID+"/"+tariffVersion)
+	policyHash := f3BoundHash("policy", policyID+"/"+policyVersion)
+	qualifierHash := f3BoundHash("qualifier", tariffID+"/"+tariffVersion+"/"+policyID+"/"+policyVersion)
+	amount := f3BoundDecimal(t, charge.Nano)
+	unitPrice := f3BoundDecimal(t, charge.Nano)
+	quantity, err := metering.ParseDecimal("1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rounded := economics.Money{NanoUnits: charge.Nano, Currency: charge.Currency, Present: true}
+	component := metering.ComponentKey{Direction: metering.DirectionInput, Component: metering.ComponentInputToken, Unit: metering.UnitToken, SchemaID: metering.DefaultInclusionSchemaID}
+	line := economics.LineItem{
+		ID: "measure:input-token", RuleID: "legacy.input_token", ItemID: "legacy.input_token",
+		Component: &component, Quantity: &quantity, Unit: metering.UnitToken,
+		UnitPrice: &unitPrice, Amount: &amount, RoundedAmount: &rounded,
+		RoundingScope: economics.RoundingScopeLine, RoundingPolicy: economics.RoundingHalfAwayFromZero,
+		Status: economics.RatingLineRated, ChargeKind: "inference_usage",
+		SourceObservationRefs: []metering.ObservationRef{ref},
+	}
+	totalAmount := f3BoundDecimal(t, charge.Nano)
+	v := economics.Valuation{
+		ID: "valuation-" + call.CallID.String(), Version: economics.ValuationVersionV2, Perspective: metering.PerspectiveCustomer, Basis: economics.BasisCustomerPolicy,
+		Subject: metering.SubjectRef{Kind: metering.SubjectBillingCall, StoreID: storeID, BillingCallID: call.CallID.String()}, Scope: "call:" + call.CallID.String(),
+		InputObservations: []metering.ObservationRef{ref}, InputSetHash: inputHash,
+		Rater:                economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: tariffID, Version: tariffVersion}, RaterID: "reference"},
+		RaterContent:         &economics.SnapshotContentRef{ContentRef: "rater://" + tariffID + "/" + tariffVersion, ContentHash: tariffHash},
+		Tariff:               economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: tariffID, Version: tariffVersion}, RaterID: "reference"},
+		TariffContent:        &economics.SnapshotContentRef{ContentRef: "tariff://" + tariffID + "/" + tariffVersion, ContentHash: tariffHash},
+		Policy:               economics.PolicySnapshotRef{VersionRef: economics.VersionRef{ID: policyID, Version: policyVersion}, PolicyID: policyID},
+		PolicyContent:        &economics.SnapshotContentRef{ContentRef: "policy://" + policyID + "/" + policyVersion, ContentHash: policyHash},
+		QualifierSnapshotRef: &economics.SnapshotContentRef{ContentRef: "qualifier://" + tariffID + "/" + tariffVersion + "/" + policyID + "/" + policyVersion, ContentHash: qualifierHash},
+		Payer:                metering.PaymentParty{Kind: metering.PaymentPartyCustomer, ID: call.AccountID},
+		Lines:                []economics.LineItem{line}, Totals: []economics.CurrencyTotal{{Currency: charge.Currency, Amount: &totalAmount, RoundedAmount: rounded}},
+		Completeness: economics.CompletenessComplete, CreatedAt: time.Unix(101, 0).UTC(),
+	}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("bound fixture valuation must validate: %v", err)
+	}
+	return v
+}
+
+// f3BoundResult binds one stub charge to the actual complete call: the
+// valuation carries the call's account/call/policy/tariff identity and the
+// charge currency/amount, and the result fingerprint is the valuation
+// fingerprint so result identity cannot drift from rated content.
+func f3BoundResult(t *testing.T, call billing.CallUsageRecord, chargeNano int64) billing.CallRatingResult {
+	t.Helper()
+	charge := billing.Money{Nano: chargeNano, Currency: "USD"}
+	valuation := f3BoundComponentValuation(t, call, charge)
+	fp := valuation.Fingerprint()
+	if fp == "" {
+		t.Fatalf("bound fixture valuation fingerprint is empty")
+	}
+	return billing.CallRatingResult{CallID: call.CallID, CustomerCharge: charge, Fingerprint: fp, CustomerValuation: valuation}
+}
+
+func f3BoundHash(parts ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
+
+func f3BoundDecimal(t *testing.T, nano int64) metering.Decimal {
+	t.Helper()
+	whole := nano / 1_000_000_000
+	frac := nano % 1_000_000_000
+	value, err := metering.ParseDecimal(fmt.Sprintf("%d.%09d", whole, frac))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
 }
 
 func (s f3RatingStub) ResolveCallRating(_ context.Context, complete billing.CompleteCall, _ billing.CallExposure) (billing.CallRatingResult, error) {
-	return billing.CallRatingResult{CallID: complete.Closure.CallID, CustomerCharge: billing.Money{Nano: s.charge, Currency: "USD"}, Fingerprint: s.fp}, nil
+	return f3BoundResult(s.t, complete.Closure, s.charge), nil
+}
+
+func (s f3RatingStub) ResolveCallRatingForOwner(_ context.Context, complete billing.CompleteCall, _ billing.CallExposure, _ string) (billing.CallRatingResult, error) {
+	return f3BoundResult(s.t, complete.Closure, s.charge), nil
 }
 
 type f3ProviderStub struct{}
@@ -305,7 +405,7 @@ func TestF3LegalEmptyActivationThenFreshV2Pipeline(t *testing.T) {
 	if err := provWorker.ProcessOnce(ctx); err != nil {
 		t.Fatalf("provider worker ProcessOnce: %v", err)
 	}
-	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{charge: 120, fp: "f3-pipe-fp"}, store, 8)
+	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{t: t, charge: 120}, store, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +539,7 @@ func TestF3V2ClaimWithCutoverReturnsV2AndSettlesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	custCopy := claimedCust[0].Claim
-	custRes := billing.CallRatingResult{CallID: callID, CustomerCharge: billing.Money{Nano: 70, Currency: "USD"}, Fingerprint: "f3-claim-fp"}
+	custRes := f3BoundResult(t, durableCall, 70)
 	settled, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
 		Call: durableCall, Exposure: exp, Result: custRes,
 		PostingOwner: custCopy.Owner, Claim: &custCopy,
@@ -526,7 +626,7 @@ func TestF3RestartBetweenAdmitTerminalAndClaimPost(t *testing.T) {
 	if err := pw.ProcessOnce(ctx); err != nil {
 		t.Fatalf("provider worker after reopen: %v", err)
 	}
-	cw, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{charge: 60, fp: "f3-restart-fp"}, store, 8)
+	cw, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3RatingStub{t: t, charge: 60}, store, 8)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -143,6 +143,11 @@ func (c *SnapshotCatalog) PutPolicy(snapshot billing.ChargePolicy) error {
 	return nil
 }
 
+// PutOperatorRate publishes a historical V1 operator-rate body (Migration
+// Strategy step 8, Task 18.2). Live scalar fallback is retired: no production
+// money path reads these bodies for estimates. Retained for historical replay
+// and OperatorRateRef lineage. Operator migration: do not publish new rates
+// for live rating; V2 tariffs own estimates.
 func (c *SnapshotCatalog) PutOperatorRate(snapshot billing.OperatorRateSnapshot) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -220,6 +225,10 @@ func (c *SnapshotCatalog) SetRoutePricing(backend, model string, ref billing.Ver
 	return nil
 }
 
+// SetOperatorRateBinding binds a historical V1 operator-rate ref for
+// OperatorRateRef lineage stamping (Task 18.2). Live money never resolves
+// rate bodies through this binding; V2 tariffs own estimates. Retained so
+// sealed B-legs keep explicit historical refs.
 func (c *SnapshotCatalog) SetOperatorRateBinding(backend, model string, ref billing.VersionRef) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -479,6 +488,10 @@ func (c *SnapshotCatalog) ChargePolicyRef(_ context.Context, _ lipapi.Call) bill
 	return billing.VersionRef{}
 }
 
+// OperatorRate returns a historical V1 operator-rate body for replay only
+// (Task 18.2). No live production money path calls it after the Task 18.1
+// scalar-fallback retirement; V2 provider-quantity valuation owns estimates.
+// Operator migration: query historical bodies for audit, never for live rating.
 func (c *SnapshotCatalog) OperatorRate(ref billing.VersionRef) (billing.OperatorRateSnapshot, error) {
 	if c == nil {
 		return billing.OperatorRateSnapshot{}, errNilSnapshotCatalog

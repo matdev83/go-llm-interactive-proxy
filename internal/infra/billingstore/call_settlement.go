@@ -20,7 +20,20 @@ func (s *DurableStore) ApplyCallBillingResult(ctx context.Context, input billing
 	if err := billing.ValidateCustomerSettlementOperationKind(input.OperationKind); err != nil {
 		return billing.CallSettlement{}, err
 	}
-	if _, err := billing.ResolveCustomerSettlementOwner(input); err != nil {
+	owner, err := billing.ResolveCustomerSettlementOwner(input)
+	if err != nil {
+		return billing.CallSettlement{}, err
+	}
+	// Generic authoritative V2 valuation fence: V2-owned money requires a
+	// complete bound component CustomerValuation (subject/scope, currency,
+	// amount, and result identity bound to the settled call/exposure) or an
+	// explicit cost-pass-through under its complete contract, as defined by
+	// ValidateCallRatingResultForSettlement. This runs before any journal,
+	// balance, exposure, or pin effect so direct V2 scalar or ID-only input
+	// fails transactionally with zero effects, regardless of resolver
+	// implementation. V1 drain and legacy empty owners preserve historical
+	// scalar replay.
+	if err := billing.ValidateCallRatingResultForSettlement(input.Result, input.Call, input.Exposure, owner); err != nil {
 		return billing.CallSettlement{}, err
 	}
 	call, err := input.Call.Seal()
@@ -189,6 +202,13 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 	// completed pin.
 	owner, err := billing.ResolveCustomerSettlementOwner(input)
 	if err != nil {
+		return billing.CallSettlement{}, err
+	}
+	// Defense in depth: re-validate the rating result for its settlement
+	// binding at the transaction entry, before any pin/journal/balance/
+	// exposure mutation. Direct V2 scalar or ID-only input fails here with
+	// zero effects even if a caller bypassed the worker fence.
+	if err := billing.ValidateCallRatingResultForSettlement(result, call, expected, owner); err != nil {
 		return billing.CallSettlement{}, err
 	}
 	if err := s.b2b1Fault("b2b1-enter"); err != nil {

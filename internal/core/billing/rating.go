@@ -21,6 +21,13 @@ var (
 	ErrBillingAttemptSequenceUnknown = errors.New("billing: customer leg selection requires unknown attempt sequence")
 )
 
+// OperatorRateSnapshot is a historical V1 compatibility record (Migration
+// Strategy step 8, Task 18.2). The scalar token-to-money fallback was retired
+// in Task 18.1: live estimates belong to the V2 provider-quantity valuation,
+// and RateProviderCost ignores rate bodies. Retained records support
+// historical replay and OperatorRateRef lineage on sealed B-legs. Operator
+// migration: stop publishing operator rates for live rating; V2 tariffs own
+// estimates; historical bodies remain readable.
 type OperatorRateSnapshot struct {
 	Ref                      VersionRef
 	Currency                 string
@@ -52,15 +59,6 @@ func (r OperatorRateSnapshot) Validate() error {
 }
 
 type OperatorRateSet []OperatorRateSnapshot
-
-func (s OperatorRateSet) Resolve(ref VersionRef) (OperatorRateSnapshot, bool) {
-	for _, candidate := range s {
-		if candidate.Ref == ref {
-			return candidate, true
-		}
-	}
-	return OperatorRateSnapshot{}, false
-}
 
 type ModelCustomerPricing struct {
 	BackendID string
@@ -192,11 +190,6 @@ func SelectRetailBLegs(legs []CallLegUsageRecord, outcome TurnOutcome) ([]CallLe
 	return append([]CallLegUsageRecord(nil), selected...), nil
 }
 
-// SelectRetailLegs is a descriptive alias for SelectRetailBLegs.
-func SelectRetailLegs(legs []CallLegUsageRecord, outcome TurnOutcome) ([]CallLegUsageRecord, error) {
-	return SelectRetailBLegs(legs, outcome)
-}
-
 func acceptedCustomerLegs(legs []CallLegUsageRecord) []CallLegUsageRecord {
 	accepted := make([]CallLegUsageRecord, 0, len(legs))
 	for _, leg := range legs {
@@ -290,45 +283,4 @@ func chargeLeg(leg CallLegUsageRecord, pricing PricingSnapshot, policy ChargePol
 
 func authoritativeProviderCost(e FinalBillingEvidence) bool {
 	return e.Cost.Present && e.Authority == EvidenceAuthorityAuthoritative
-}
-
-func fallbackOperatorCost(leg CallLegUsageRecord, rate OperatorRateSnapshot, found bool, currency string) (int64, string, bool) {
-	if !found || rate.Validate() != nil || rate.Currency != currency {
-		return 0, "exact_operator_rate_unavailable", false
-	}
-	type dimension struct {
-		quantity Quantity
-		rate     int64
-		present  bool
-	}
-	dimensions := []dimension{
-		{leg.Evidence.InputTokens, rate.InputPerMillionNano, rate.InputRatePresent},
-		{leg.Evidence.OutputTokens, rate.OutputPerMillionNano, rate.OutputRatePresent},
-		{leg.Evidence.CacheReadTokens, rate.CacheReadPerMillionNano, rate.CacheReadRatePresent},
-		{leg.Evidence.CacheWriteTokens, rate.CacheWritePerMillionNano, rate.CacheWriteRatePresent},
-		{leg.Evidence.ReasoningTokens, rate.ReasoningPerMillionNano, rate.ReasoningRatePresent},
-	}
-	var total int64
-	matched := false
-	for _, d := range dimensions {
-		if !d.quantity.Present {
-			continue
-		}
-		if !d.present {
-			return 0, "operator_rate_or_quantity_incomplete", false
-		}
-		matched = true
-		value, err := exactTokensAtRate(d.quantity.Value, d.rate)
-		if err != nil {
-			return 0, "operator_rate_arithmetic_overflow", false
-		}
-		total, err = addNonNegative(total, value)
-		if err != nil {
-			return 0, "operator_rate_arithmetic_overflow", false
-		}
-	}
-	if !matched {
-		return 0, "operator_rate_or_quantity_incomplete", false
-	}
-	return total, "", true
 }

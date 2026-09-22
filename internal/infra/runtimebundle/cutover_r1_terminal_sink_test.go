@@ -91,7 +91,7 @@ func TestR1ProdTerminalSinkServesFreshV2Call(t *testing.T) {
 	if err := provWorker.ProcessOnce(ctx); err != nil {
 		t.Fatalf("provider worker: %v", err)
 	}
-	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3rbRatingStub{charge: 90, fp: "r1-fp"}, store, 8)
+	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3rbRatingStub{t: t, charge: 90}, store, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestR1ProdTerminalSpoolReplayServesFreshV2Call(t *testing.T) {
 	if err := provWorker.ProcessOnce(ctx); err != nil {
 		t.Fatalf("provider worker: %v", err)
 	}
-	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3rbRatingStub{charge: 70, fp: "r1s-fp"}, store, 8)
+	custWorker, err := billing.NewCallPostUsageWorkerWithCutover(store, store, f3rbRatingStub{t: t, charge: 70}, store, 8)
 	if err != nil {
 		t.Fatal(err)
 	}

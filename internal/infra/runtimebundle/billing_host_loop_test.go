@@ -418,7 +418,7 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OperatorCostReport after provider failure: %v", err)
 		}
-		if stateErr == nil && state.Status == "pending" && state.AttemptCount >= 1 && strings.Contains(state.LastError, "exact_operator_rate_unavailable") && providerReport.UnreconciledCosts == 1 {
+		if stateErr == nil && state.Status == "pending" && state.AttemptCount >= 1 && strings.Contains(state.LastError, "provider_money_unavailable") && providerReport.UnreconciledCosts == 1 {
 			workState = state
 			break
 		}
@@ -428,7 +428,7 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 		case <-ticker.C:
 		}
 	}
-	if workState.Status != "pending" || workState.AttemptCount < 1 || !strings.Contains(workState.LastError, "exact_operator_rate_unavailable") {
+	if workState.Status != "pending" || workState.AttemptCount < 1 || !strings.Contains(workState.LastError, "provider_money_unavailable") {
 		t.Fatalf("provider-cost retry state = %+v, want pending with recorded unavailable-rate failure", workState)
 	}
 	if providerReport.UnreconciledCosts != 1 {
