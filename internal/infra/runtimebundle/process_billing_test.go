@@ -60,6 +60,16 @@ func (processBillingStore) ClaimEconomicRevisionWorkWithCutover(context.Context,
 	return billing.EconomicRevisionWorkClaim{}, nil, false, nil
 }
 
+// GetAccountingRecoverySnapshot exposes the explicit safe snapshot for the
+// production process test double: a legacy-compatible V1 floor with no
+// marker and no V2 monetary postings. Internal store-backed composition
+// requires this port (a decorator hiding it is rejected at startup); the
+// real DurableStore loads the snapshot from its cutover marker plus V2
+// pin/work presence.
+func (processBillingStore) GetAccountingRecoverySnapshot(context.Context) (billing.AccountingRecoverySnapshot, error) {
+	return billing.AccountingRecoverySnapshot{StoreID: "process-billing-test"}, nil
+}
+
 // customerOnlyProcessBillingStore deliberately exposes the customer settlement
 // and reporting ports without exposing provider-cost work. A store may be in
 // this state while supplier queue infrastructure is unavailable; independent
@@ -77,6 +87,14 @@ func (customerOnlyProcessBillingStore) GetCutoverClaimMetadata(context.Context, 
 
 func (customerOnlyProcessBillingStore) ClaimCompleteCallsWithCutover(context.Context, int) ([]billing.ClaimedCompleteCall, error) {
 	return nil, nil
+}
+
+// GetAccountingRecoverySnapshot exposes the explicit safe snapshot for the
+// customer-only production test double (V1 floor, no marker, no V2
+// postings). Interface embedding hides the wrapped store's snapshot port,
+// so this explicit method keeps the internal composition verifiable.
+func (customerOnlyProcessBillingStore) GetAccountingRecoverySnapshot(context.Context) (billing.AccountingRecoverySnapshot, error) {
+	return billing.AccountingRecoverySnapshot{StoreID: "process-billing-customer-only"}, nil
 }
 
 func (processBillingStore) ApplyCallBillingResult(context.Context, billing.ApplyCallBillingInput) (billing.CallSettlement, error) {

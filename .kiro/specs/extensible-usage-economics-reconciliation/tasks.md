@@ -712,7 +712,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 5.6, 18.5_
 
 
-- [ ] 17. Execute shadow migration and fence the accounting cutover
+- [x] 17. Execute shadow migration and fence the accounting cutover
 
 - [x] 17.1 Implement historical readers and migration fixtures
   - Round-trip baseline V1 records/hashes through the new storage/query path without invented breakdown or source separation.
@@ -744,7 +744,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: make test-db-parity; go test ./internal/infra/billingstore/..._
   - _Requirements: 10.6, 14.4, 17.4, 18.4_
 
-- [ ] 17.4 Implement compatible rollback and recovery checks
+- [x] 17.4 Implement compatible rollback and recovery checks
   - Allow capture-only rollback before cutover; after V2 postings require a compatible reader/epoch-aware binary or quiesce strict admissions.
   - Test forward recovery, stale binary/version rejection, pending provider evidence and optional raw-retention loss.
   - Completion: no rollback path reopens an old writer against unsupported new-format financial state.

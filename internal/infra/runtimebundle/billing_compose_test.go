@@ -545,6 +545,14 @@ func (completeJournal) ClaimEconomicRevisionWorkWithCutover(context.Context, bil
 	return billing.EconomicRevisionWorkClaim{}, nil, false, nil
 }
 
+// GetAccountingRecoverySnapshot exposes the explicit safe snapshot for the
+// complete production test double: a legacy-compatible V1 floor with no
+// marker and no V2 monetary postings. Internal store-backed composition
+// requires this port; a decorator hiding it is rejected at startup.
+func (completeJournal) GetAccountingRecoverySnapshot(context.Context) (billing.AccountingRecoverySnapshot, error) {
+	return billing.AccountingRecoverySnapshot{StoreID: "compose-test"}, nil
+}
+
 type storeScopedCompleteJournal struct {
 	completeJournal
 	storeID string

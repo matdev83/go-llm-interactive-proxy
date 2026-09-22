@@ -43,6 +43,16 @@ func buildProcessBillingRuntime(owner *processResourceOwner, cfgReportsPath stri
 	if err := requireCompleteBillingComposition(prod); err != nil {
 		return ProductionOptions{}, err
 	}
+	// Task 17.4 (Migration Strategy step 7): prove the serving binary can
+	// read and fence the durable accounting state before starting workers.
+	// Every non-nil internal store is verified here and fails closed when
+	// it hides the recovery port or carries malformed, unreadable, or V2
+	// financial state this binary cannot serve. Only the storeless public
+	// external binding skips this check (it starts no store-backed
+	// workers). The check is read-only: it never claims, posts, or drains.
+	if err := verifyBillingAccountingStartup(context.Background(), prod.BillingStore); err != nil {
+		return ProductionOptions{}, err
+	}
 	if err := validateProviderCostRevisionRuntime(prod); err != nil {
 		return ProductionOptions{}, err
 	}
