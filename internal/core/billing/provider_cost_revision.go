@@ -133,6 +133,18 @@ type ProviderCostRevisionInput struct {
 	Amount        Money
 	AmountPresent bool
 	Authoritative bool
+	// PostingOwner selects the B1 pin owner for the provider charge fence.
+	// Empty preserves the legacy V1 default for backward compatibility.
+	// Draining requires a classified V1 pin plus matching claim metadata;
+	// v2_active permits only V2.
+	PostingOwner string
+	// Claim carries the B2a worker-claim metadata (owner/epoch) captured at
+	// claim time. When present, posting validates it against the current
+	// marker and pin to close TOCTOU between claim and posting. Nil preserves
+	// legacy direct calls in v1_active/shadow; draining fences unpinned/stale
+	// work even without a claim, and B2b2 draining requires a matching claim
+	// for new postings.
+	Claim *CutoverClaimMetadata
 }
 
 // OperatorCostRevisionInput is the descriptive operator-side spelling.
@@ -631,9 +643,71 @@ func ProviderCostRevisionSourceKey(in ProviderCostRevisionInput) (string, error)
 	if err != nil {
 		return "", err
 	}
-	payload := normalized.AccountID + "\x00" + normalized.CallID.String() + "\x00" + normalized.HeadKey + "\x00" + fmt.Sprint(normalized.EvidenceRevision) + "\x00" + normalized.InputSetHash
+	return providerRevisionSourceKeyFromComponents(normalized.AccountID, normalized.CallID.String(), normalized.HeadKey, normalized.EvidenceRevision, normalized.InputSetHash)
+}
+
+func providerRevisionSourceKeyFromComponents(accountID, callID, headKey string, revision uint64, inputSetHash string) (string, error) {
+	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(callID) == "" || strings.TrimSpace(headKey) == "" || revision == 0 || strings.TrimSpace(inputSetHash) == "" {
+		return "", fmt.Errorf("%w: revision source identity requires account/call/head/revision/hash", ErrProviderCostRevisionInvalid)
+	}
+	payload := accountID + "\x00" + callID + "\x00" + headKey + "\x00" + fmt.Sprint(revision) + "\x00" + inputSetHash
 	digest := sha256.Sum256([]byte(payload))
 	return "provider-cost-revision:v1:" + hex.EncodeToString(digest[:]), nil
+}
+
+// ProviderRevisionPostingOperationKey derives the immutable revision-specific
+// posting pin/operation identity for one provider monetary revision/outcome.
+// It is ScopedOperationKey("provider_call_cogs", account, sourceKey) where
+// sourceKey is ProviderCostRevisionSourceKey. Base legacy charges keep their
+// own ProviderCostSourceKey lineage operation; each higher/replacement
+// revision is a distinct pin while heads/fences still order lineage. Completed
+// pins/outcomes are immutable: exact same operation+fingerprint+tx replay only.
+func ProviderRevisionPostingOperationKey(in ProviderCostRevisionInput) (string, error) {
+	normalized, err := in.normalized()
+	if err != nil {
+		return "", err
+	}
+	sourceKey, err := providerRevisionSourceKeyFromComponents(normalized.AccountID, normalized.CallID.String(), normalized.HeadKey, normalized.EvidenceRevision, normalized.InputSetHash)
+	if err != nil {
+		return "", err
+	}
+	key := ScopedOperationKey("provider_call_cogs", normalized.AccountID, sourceKey)
+	if err := validatePostingOperationKey(key); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// ProviderRevisionPostingOperationKeyForWork derives the same revision-specific
+// pin for one monetary economic work item before valuation exists. fullHash
+// must be the allocation-aware full input hash (DerivationHash when present,
+// else InputSetHash) so work-based classification matches the later revision
+// input whose InputSetHash prefers the persisted valuation full hash.
+func ProviderRevisionPostingOperationKeyForWork(accountID string, callID BillingCallID, headKey string, revision uint64, fullHash string) (string, error) {
+	if strings.TrimSpace(accountID) == "" {
+		return "", fmt.Errorf("%w: %w: account id is required", ErrPostingOwnershipInvalid, ErrInvalidRecord)
+	}
+	if err := callID.Validate(); err != nil {
+		return "", fmt.Errorf("%w: %w: %v", ErrPostingOwnershipInvalid, ErrInvalidRecord, err)
+	}
+	if strings.TrimSpace(headKey) == "" || revision == 0 || strings.TrimSpace(fullHash) == "" {
+		return "", fmt.Errorf("%w: %w: revision identity requires head/revision/hash", ErrPostingOwnershipInvalid, ErrInvalidRecord)
+	}
+	sourceKey, err := providerRevisionSourceKeyFromComponents(strings.TrimSpace(accountID), callID.String(), strings.TrimSpace(headKey), revision, strings.TrimSpace(fullHash))
+	if err != nil {
+		return "", err
+	}
+	key := ScopedOperationKey("provider_call_cogs", strings.TrimSpace(accountID), sourceKey)
+	if err := validatePostingOperationKey(key); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// IsProviderRevisionPinKey reports whether key is a revision-specific provider
+// pin (scoped provider_call_cogs operation derived from ProviderCostRevisionSourceKey).
+func IsProviderRevisionPinKey(key string) bool {
+	return strings.HasPrefix(key, "provider_call_cogs:v1:")
 }
 
 // BuildProviderCostRevisionInput derives an operator-payable selected-cost

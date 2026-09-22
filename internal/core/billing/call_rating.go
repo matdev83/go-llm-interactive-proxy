@@ -61,6 +61,16 @@ type ApplyCallBillingInput struct {
 	Exposure      CallExposure
 	Result        CallRatingResult
 	OperationKind string
+	// PostingOwner selects the B1 pin owner for the customer settlement fence.
+	// Empty preserves the legacy V1 default for backward compatibility.
+	// Draining forbids new pins; v2_active permits only V2.
+	PostingOwner string
+	// Claim carries the B2a worker-claim metadata (owner/epoch) captured at
+	// claim time. When present, settlement validates it against the current
+	// marker and pin to close TOCTOU between claim and posting. Nil preserves
+	// legacy direct calls in v1_active/shadow; draining/active still fence
+	// unpinned/stale work even without a claim.
+	Claim *CutoverClaimMetadata
 }
 type CallSettlement struct {
 	CallID             BillingCallID

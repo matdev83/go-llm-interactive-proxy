@@ -27,6 +27,18 @@ type ApplyProviderCostInput struct {
 	CallID    BillingCallID
 	Leg       CallLegUsageRecord
 	Result    OperatorCostResult
+	// PostingOwner selects the B1 pin owner for the provider charge fence.
+	// Empty preserves the legacy V1 default for backward compatibility.
+	// Draining requires a classified V1 pin plus matching claim metadata;
+	// v2_active permits only V2.
+	PostingOwner string
+	// Claim carries the B2a worker-claim metadata (owner/epoch) captured at
+	// claim time. When present, posting validates it against the current
+	// marker and pin to close TOCTOU between claim and posting. Nil preserves
+	// legacy direct calls in v1_active/shadow; draining fences unpinned/stale
+	// work even without a claim, and B2b2 draining requires a matching claim
+	// for new postings.
+	Claim *CutoverClaimMetadata
 }
 type ProviderCostStore interface {
 	ApplyProviderCost(context.Context, ApplyProviderCostInput) (Posting, error)

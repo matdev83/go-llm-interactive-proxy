@@ -19,6 +19,31 @@ type EconomicRevisionWorkAppender interface {
 	AppendEconomicRevisionWork(context.Context, EconomicRevisionWork) error
 }
 
+// EconomicRevisionWorkEvidenceAppender persists explicitly evidence-only work
+// that drain never inventories as monetary (shadow, pure workers without a
+// posting adapter). Implementations must not create pins or fences for these
+// rows.
+type EconomicRevisionWorkEvidenceAppender interface {
+	AppendEvidenceEconomicRevisionWork(context.Context, EconomicRevisionWork) error
+}
+
+// EconomicRevisionWorkPostingAppender persists monetary provider work with an
+// explicit posting owner (V1 pre-boundary, V2 authorized). Implementations
+// must fence new V1 in draining/active and require v2_active for V2.
+type EconomicRevisionWorkPostingAppender interface {
+	AppendProviderPostingEconomicRevisionWork(context.Context, EconomicRevisionWork, string) error
+}
+
+// EconomicRevisionAdmittedOwnerResolver returns the call-scoped durable
+// posting owner admitted for one monetary work item (customer pin owner for
+// its account/call). Implementations must prefer this admitted owner over any
+// unbound global marker read; when no admitted owner exists they fall back to
+// the current marker (V2 in v2_active, else V1). The relay consumes it so
+// fresh V2 observations are not misclassified as V1 after activation.
+type EconomicRevisionAdmittedOwnerResolver interface {
+	ResolveEconomicRevisionPostingOwner(context.Context, EconomicRevisionWork) (string, error)
+}
+
 // ObservationEconomicWorkBuilder converts an immutable observation set into
 // independently recoverable customer/provider work. It performs no valuation,
 // reconciliation, balance, exposure, or journal operation.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,43 +31,107 @@ type EconomicRevisionWorker struct {
 	rater        PostUsageRater
 	reconciler   EconomicRevisionReconciler
 	providerCost ProviderCostRevisionStore
-	queue        EconomicQueue
-	batch        int
-	interval     time.Duration
-	owner        string
-	mu           sync.Mutex
-	cancel       context.CancelFunc
-	done         chan struct{}
+	// claimProvider is the narrow B2a claim port legacy production
+	// provider-queue workers use. Nil preserves the legacy test-only path.
+	claimProvider ProviderCostWorkClaimStore
+	// cutoverClaimer is the F6+F8 production token-carrying lease port. When
+	// non-nil, processRevision leases via ClaimEconomicRevisionWorkWithCutover
+	// so the monetary cutover token arrives atomically with the work lease.
+	cutoverClaimer EconomicRevisionWorkCutoverClaimer
+	queue          EconomicQueue
+	batch          int
+	interval       time.Duration
+	owner          string
+	mu             sync.Mutex
+	cancel         context.CancelFunc
+	done           chan struct{}
 }
 
 // NewEconomicRevisionWorker constructs a pure worker for one independent
-// customer or provider queue.
+// customer or provider queue. Test-only: preserves pure doubles without a
+// claim port. Production provider-queue posting must use the WithClaim
+// variant.
 func NewEconomicRevisionWorker(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
-	return newEconomicRevisionWorker(work, results, rater, nil, nil, queue, batch)
+	return newEconomicRevisionWorker(work, results, rater, nil, nil, nil, queue, batch)
 }
 
 // NewEconomicRevisionWorkerWithReconciler adds an optional pure reconciliation
 // calculation to the valuation worker. Reconciliation output is persisted in
-// the same local transaction as its valuation and head transition.
+// the same local transaction as its valuation and head transition. Test-only
+// for provider posting; production provider posting must use the WithClaim
+// variant.
 func NewEconomicRevisionWorkerWithReconciler(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, reconciler EconomicRevisionReconciler, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
-	return newEconomicRevisionWorker(work, results, rater, reconciler, nil, queue, batch)
+	return newEconomicRevisionWorker(work, results, rater, reconciler, nil, nil, queue, batch)
 }
 
 // NewEconomicRevisionWorkerWithProviderCost adds the independent operator
 // COGS posting seam. Provider posting is deliberately after pure valuation
 // persistence and is scoped to one authoritative B-leg revision; customer
-// queues never call this dependency.
+// queues never call this dependency. Test-only: production provider posting
+// must use NewEconomicRevisionWorkerWithProviderCostWithClaim or the
+// reconciler+claim variant.
 func NewEconomicRevisionWorkerWithProviderCost(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, providerCost ProviderCostRevisionStore, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
-	return newEconomicRevisionWorker(work, results, rater, nil, providerCost, queue, batch)
+	return newEconomicRevisionWorker(work, results, rater, nil, providerCost, nil, queue, batch)
 }
 
 // NewEconomicRevisionWorkerWithReconcilerAndProviderCost combines pure
-// reconciliation with the independent operator COGS posting seam.
+// reconciliation with the independent operator COGS posting seam. Test-only:
+// production provider posting must use the WithClaim variant below.
 func NewEconomicRevisionWorkerWithReconcilerAndProviderCost(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, reconciler EconomicRevisionReconciler, providerCost ProviderCostRevisionStore, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
-	return newEconomicRevisionWorker(work, results, rater, reconciler, providerCost, queue, batch)
+	return newEconomicRevisionWorker(work, results, rater, reconciler, providerCost, nil, queue, batch)
 }
 
-func newEconomicRevisionWorker(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, reconciler EconomicRevisionReconciler, providerCost ProviderCostRevisionStore, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
+// NewEconomicRevisionWorkerWithProviderCostWithClaim constructs the production
+// provider-queue worker with a required B2a claim port. A nil claim provider
+// is rejected. Lookup failures other than authorized first acquisition fail
+// closed without posting.
+func NewEconomicRevisionWorkerWithProviderCostWithClaim(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, providerCost ProviderCostRevisionStore, claimProvider ProviderCostWorkClaimStore, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
+	if claimProvider == nil {
+		return nil, errors.New("billing: economic revision claim metadata provider is required for production provider posting")
+	}
+	return newEconomicRevisionWorker(work, results, rater, nil, providerCost, claimProvider, queue, batch)
+}
+
+// NewEconomicRevisionWorkerWithReconcilerAndProviderCostWithClaim combines pure
+// reconciliation with the production provider COGS posting seam and a required
+// B2a claim port. A nil claim provider is rejected.
+func NewEconomicRevisionWorkerWithReconcilerAndProviderCostWithClaim(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, reconciler EconomicRevisionReconciler, providerCost ProviderCostRevisionStore, claimProvider ProviderCostWorkClaimStore, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
+	if claimProvider == nil {
+		return nil, errors.New("billing: economic revision claim metadata provider is required for production provider posting")
+	}
+	return newEconomicRevisionWorker(work, results, rater, reconciler, providerCost, claimProvider, queue, batch)
+}
+
+// NewEconomicRevisionWorkerWithProviderCostWithCutover constructs the F6+F8
+// production provider-queue worker with a required token-carrying lease port.
+// Each monetary lease atomically carries its current-marker cutover token.
+func NewEconomicRevisionWorkerWithProviderCostWithCutover(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, providerCost ProviderCostRevisionStore, claimer EconomicRevisionWorkCutoverClaimer, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
+	if claimer == nil {
+		return nil, errors.New("billing: economic revision cutover claimer is required for production provider posting")
+	}
+	w, err := newEconomicRevisionWorker(work, results, rater, nil, providerCost, nil, queue, batch)
+	if err != nil {
+		return nil, err
+	}
+	w.cutoverClaimer = claimer
+	return w, nil
+}
+
+// NewEconomicRevisionWorkerWithReconcilerAndProviderCostWithCutover combines
+// reconciliation with the F6+F8 production token-carrying lease port.
+func NewEconomicRevisionWorkerWithReconcilerAndProviderCostWithCutover(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, reconciler EconomicRevisionReconciler, providerCost ProviderCostRevisionStore, claimer EconomicRevisionWorkCutoverClaimer, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
+	if claimer == nil {
+		return nil, errors.New("billing: economic revision cutover claimer is required for production provider posting")
+	}
+	w, err := newEconomicRevisionWorker(work, results, rater, reconciler, providerCost, nil, queue, batch)
+	if err != nil {
+		return nil, err
+	}
+	w.cutoverClaimer = claimer
+	return w, nil
+}
+
+func newEconomicRevisionWorker(work EconomicRevisionWorkReader, results EconomicRevisionResultStore, rater PostUsageRater, reconciler EconomicRevisionReconciler, providerCost ProviderCostRevisionStore, claimProvider ProviderCostWorkClaimStore, queue EconomicQueue, batch int) (*EconomicRevisionWorker, error) {
 	if work == nil || results == nil || rater == nil {
 		return nil, errors.New("billing: economic revision queue, result store, and rater are required")
 	}
@@ -93,7 +158,7 @@ func newEconomicRevisionWorker(work EconomicRevisionWorkReader, results Economic
 	}
 	return &EconomicRevisionWorker{
 		work: work, results: results, rater: rater, reconciler: reconciler,
-		providerCost: providerCost, queue: queue, batch: batch, interval: time.Second,
+		providerCost: providerCost, claimProvider: claimProvider, queue: queue, batch: batch, interval: time.Second,
 		owner: fmt.Sprintf("economic-revision-worker-%d", economicRevisionWorkerSequence.Add(1)),
 	}, nil
 }
@@ -193,7 +258,50 @@ func (w *EconomicRevisionWorker) processRevision(ctx context.Context, item Econo
 	}
 	stateStore, hasState := w.work.(EconomicRevisionWorkStateStore)
 	var claim EconomicRevisionWorkClaim
-	if hasState {
+	var cutover *CutoverClaimMetadata
+	if w.cutoverClaimer != nil && w.providerCost != nil && w.queue == EconomicQueueProvider {
+		// F6+F8 atomic lease+token: monetary token arrives with the lease.
+		var claimed bool
+		var cutErr error
+		claim, cutover, claimed, cutErr = w.cutoverClaimer.ClaimEconomicRevisionWorkWithCutover(ctx, work, w.owner, economicRevisionClaimLease)
+		if cutErr != nil {
+			return fmt.Errorf("billing: claim %s economic revision %s with cutover: %w", w.queue, identity.Key(), cutErr)
+		}
+		if !claimed {
+			return nil
+		}
+		// S1 authoritative delivery intent: the atomic claim observes current
+		// mutable queue state under the marker lock. A worker that listed an
+		// evidence-only envelope before an evidence->monetary upgrade must not
+		// continue with that stale intent (it would skip money and strand the
+		// new monetary pin). Consume the authoritative claimed intent: a
+		// monetary token means monetary delivery regardless of the stale
+		// pre-claim envelope; nil cutover means evidence-only. Immutable
+		// evidence identity is unchanged, so retry/complete fences still match.
+		if cutover != nil {
+			work = OverlayAuthoritativeEconomicWork(work, true, cutover.Owner)
+			if renewed, rerr := work.Normalize(); rerr == nil {
+				work = renewed
+			}
+		}
+		// Align hasState so retry/complete use the atomic lease.
+		if _, ok := w.work.(EconomicRevisionWorkStateStore); ok {
+			hasState = true
+			// stateStore for retry/complete: prefer work's state store when available,
+			// otherwise the cutover claimer cannot retry/complete (should not happen
+			// for DurableStore which implements both).
+			if ss, ok := w.work.(EconomicRevisionWorkStateStore); ok {
+				stateStore = ss
+			} else {
+				// No state store to retire the lease: fail closed without posting.
+				return fmt.Errorf("billing: cutover lease without state store for %s", identity.Key())
+			}
+		} else {
+			// Cutover claimer without state store: treat as claimed with no
+			// retry/complete (pure in-memory test path should not use cutover).
+			hasState = false
+		}
+	} else if hasState {
 		var claimed bool
 		claim, claimed, err = stateStore.ClaimEconomicRevisionWork(ctx, work, w.owner, economicRevisionClaimLease)
 		if err != nil {
@@ -238,7 +346,7 @@ func (w *EconomicRevisionWorker) processRevision(ctx context.Context, item Econo
 			if recoverErr != nil {
 				return retry(fmt.Errorf("billing: recover %s economic revision %s: %w", w.queue, identity.Key(), recoverErr))
 			}
-			if err := w.postProviderCost(ctx, work, recovered); err != nil {
+			if err := w.postProviderCost(ctx, work, recovered, cutover); err != nil {
 				return retry(fmt.Errorf("billing: post %s provider cost %s: %w", w.queue, identity.Key(), err))
 			}
 			return complete()
@@ -270,19 +378,118 @@ func (w *EconomicRevisionWorker) processRevision(ctx context.Context, item Econo
 	if err := w.results.AppendEconomicRevisionResult(ctx, work, EconomicRevisionResult{Valuation: valuation, Reconciliation: reconciliation}); err != nil {
 		return retry(fmt.Errorf("billing: persist %s economic revision %s: %w", w.queue, identity.Key(), err))
 	}
-	if err := w.postProviderCost(ctx, work, valuation); err != nil {
+	if err := w.postProviderCost(ctx, work, valuation, cutover); err != nil {
 		return retry(fmt.Errorf("billing: post %s provider cost %s: %w", w.queue, identity.Key(), err))
 	}
 	return complete()
 }
 
-func (w *EconomicRevisionWorker) postProviderCost(ctx context.Context, work EconomicRevisionWork, valuation economics.Valuation) error {
+func (w *EconomicRevisionWorker) postProviderCost(ctx context.Context, work EconomicRevisionWork, valuation economics.Valuation, cutover *CutoverClaimMetadata) error {
 	if w.providerCost == nil || w.queue != EconomicQueueProvider {
+		return nil
+	}
+	// F2B: evidence-only work (customer rating, reconciliation, shadow,
+	// explicit evidence flag, or queues without a posting adapter) never
+	// posts provider money. Only monetary provider-rating work with valid
+	// B-leg lineage reaches the provider-cost seam; nonpayable exclusions
+	// still flow through Apply (which completes pins without journals).
+	normalizedForGate, gateErr := work.Normalize()
+	if gateErr != nil {
+		return gateErr
+	}
+	if normalizedForGate.EvidenceOnly || !IsMonetaryEconomicRevisionWork(normalizedForGate) {
 		return nil
 	}
 	input, err := BuildProviderCostRevisionInput(work, valuation)
 	if err != nil {
 		return err
+	}
+	// F2B V2: explicit V2 monetary work carries V2 ownership even before its
+	// first pin exists (posting acquires V2 pins in v2_active). Fresh pin
+	// metadata below upgrades it to a full claim when available.
+	if normalizedForGate.PostingOwner == PostingOwnerV2 && input.PostingOwner == "" {
+		input.PostingOwner = PostingOwnerV2
+	}
+	// R4 mandatory: when the atomic lease carries a monetary cutover token, it
+	// must be complete and valid (work identity, operation/owner, marker and
+	// lease fence). A nil cutover for monetary work on the production cutover
+	// path fails closed; it never falls back to optional lookup or
+	// nil/default authority. Evidence-only work never reaches here.
+	if cutover != nil {
+		if verr := ValidateProviderRevisionClaim(*cutover, input); verr != nil {
+			return verr
+		}
+		if verr := cutover.Validate(); verr != nil {
+			return verr
+		}
+		// Production monetary tokens must bind the lease fence; a token
+		// without lease binding is a mandatory-port bypass.
+		if w.cutoverClaimer != nil {
+			if strings.TrimSpace(cutover.WorkID) == "" || strings.TrimSpace(cutover.LeaseOwner) == "" || cutover.LeaseFence == 0 {
+				return fmt.Errorf("%w: monetary cutover token requires lease binding", ErrCutoverCoordinatorInvalid)
+			}
+		}
+		copied := *cutover
+		input.PostingOwner = copied.Owner
+		input.Claim = &copied
+		_, err = w.providerCost.ApplyProviderCostRevision(ctx, input)
+		return err
+	}
+	// Production cutover path requires a token for monetary work: nil means
+	// a decorator dropped it or the claim withheld ineligible work. Fail
+	// closed with zero effects; never fall back to legacy lookup.
+	if w.cutoverClaimer != nil {
+		return fmt.Errorf("%w: monetary work requires a cutover token (missing token fails closed)", ErrCutoverCoordinatorInvalid)
+	}
+	// Legacy fail-closed lookup for workers without an atomic cutover.
+	// Production (claimProvider != nil) distinguishes authorized first
+	// acquisition (NotFound, no pin yet) from operational/cancellation/
+	// malformed failures which return an error and never post. F6: token binds
+	// the revision-specific pin.
+	if w.claimProvider != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		pinKey, kerr := ProviderRevisionPostingOperationKey(input)
+		if kerr != nil {
+			return kerr
+		}
+		meta, merr := w.claimProvider.GetCutoverClaimMetadata(ctx, PostingOperationProviderCharge, pinKey)
+		if merr != nil {
+			if errors.Is(merr, ErrPostingOwnershipNotFound) {
+				_, err = w.providerCost.ApplyProviderCostRevision(ctx, input)
+				return err
+			}
+			return merr
+		}
+		if verr := ValidateProviderRevisionClaim(meta, input); verr != nil {
+			return verr
+		}
+		claimed := meta
+		input.PostingOwner = meta.Owner
+		input.Claim = &claimed
+		_, err = w.providerCost.ApplyProviderCostRevision(ctx, input)
+		return err
+	} else if provider, ok := w.providerCost.(ProviderCostWorkClaimStore); ok {
+		if pinKey, kerr := ProviderRevisionPostingOperationKey(input); kerr == nil {
+			if meta, merr := provider.GetCutoverClaimMetadata(ctx, PostingOperationProviderCharge, pinKey); merr == nil {
+				if verr := ValidateProviderRevisionClaim(meta, input); verr == nil {
+					claimed := meta
+					input.PostingOwner = meta.Owner
+					input.Claim = &claimed
+				}
+			}
+		}
+	} else if provider, ok := w.results.(ProviderCostWorkClaimStore); ok {
+		if pinKey, kerr := ProviderRevisionPostingOperationKey(input); kerr == nil {
+			if meta, merr := provider.GetCutoverClaimMetadata(ctx, PostingOperationProviderCharge, pinKey); merr == nil {
+				if verr := ValidateProviderRevisionClaim(meta, input); verr == nil {
+					claimed := meta
+					input.PostingOwner = meta.Owner
+					input.Claim = &claimed
+				}
+			}
+		}
 	}
 	_, err = w.providerCost.ApplyProviderCostRevision(ctx, input)
 	return err

@@ -396,9 +396,12 @@ func (s *DurableStore) UsageAppendOutboxUnresolved(ctx context.Context) (int, er
 	return count, nil
 }
 
-// Historical preserve-or-block adapter; runtime composition never calls this code.
-// AppendCall and AppendLeg are used only by the explicit historical drain.
-// They are intentionally bound to DurableStore so a local spool cannot be
+// Production terminal sink: AppendCall/AppendLeg implement
+// billing.TerminalUsageSink for the composed runtime (including spool
+// delivery). They route through the owner-aware usage append below: pre-active
+// V1 and draining classified handoff keep their behavior, while a freshly
+// admitted V2 exposure+pin selects the V2 owner durably (never a fresh global
+// reclassification). Bound to DurableStore so a local spool cannot be
 // supplied as proof of central delivery.
 func (s *DurableStore) AppendCall(ctx context.Context, record billing.CallUsageRecord) error {
 	return s.AppendCallUsage(ctx, record)

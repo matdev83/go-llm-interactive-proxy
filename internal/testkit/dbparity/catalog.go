@@ -182,6 +182,61 @@ func DefaultCatalog() Catalog {
 						Evidence:  "internal/infra/billingstore/economic_job_runner_postgres_test.go",
 						Rationale: "Direct PostgreSQL verifies exact dependency output loading, idempotent reconciliation output replay/conflict and rating-then-reconciliation promotion.",
 					},
+					{
+						ID:       "accounting-cutover-marker-cas-isolation",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/accounting_cutover_test.go",
+					},
+					{
+						ID:        "postgres-direct-accounting-cutover-atomicity",
+						Class:     PostgresDirect,
+						Evidence:  "internal/infra/billingstore/accounting_cutover_test.go",
+						Rationale: "Direct PostgreSQL verifies per-store cutover marker CAS, legacy V1 default, replay/conflict fencing, and restart durability.",
+					},
+					{
+						ID:       "posting-ownership-pin-cas-isolation",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/posting_ownership_test.go",
+					},
+					{
+						ID:        "postgres-direct-posting-ownership-atomicity",
+						Class:     PostgresDirect,
+						Evidence:  "internal/infra/billingstore/posting_ownership_postgres_test.go",
+						Rationale: "Direct PostgreSQL verifies per-operation posting ownership pin CAS, owner fencing across cutover states, replay/conflict completion and restart durability.",
+					},
+					{
+						ID:       "provider-charge-fence-b2b2",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/provider_charge_fence_b2b2_test.go",
+					},
+					{
+						ID:        "postgres-direct-provider-charge-fence-b2b2",
+						Class:     PostgresDirect,
+						Evidence:  "internal/infra/billingstore/provider_charge_fence_b2b2_postgres_test.go",
+						Rationale: "Direct PostgreSQL verifies provider charge pin CAS, V1/V2 owner fencing, exclusion completion and restart durability.",
+					},
+					{
+						ID:       "financial-adjustment-fence-b2b3",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/financial_adjustment_fence_b2b3_test.go",
+					},
+					{
+						ID:        "postgres-direct-financial-adjustment-fence-b2b3",
+						Class:     PostgresDirect,
+						Evidence:  "internal/infra/billingstore/financial_adjustment_fence_b2b3_postgres_test.go",
+						Rationale: "Direct PostgreSQL verifies financial adjustment head pin CAS, V1/V2 owner fencing, replacement-chain authority and restart durability.",
+					},
+					{
+						ID:       "financial-adjustment-sync-fence-b2b4",
+						Class:    Common,
+						Evidence: "internal/infra/billingstore/financial_adjustment_sync_b2b4_test.go",
+					},
+					{
+						ID:        "postgres-direct-financial-adjustment-sync-fence-b2b4",
+						Class:     PostgresDirect,
+						Evidence:  "internal/infra/billingstore/financial_adjustment_sync_b2b4_postgres_test.go",
+						Rationale: "Direct PostgreSQL verifies synchronous cost pass-through per-head and direct per-source pin CAS, V1/V2 owner fencing and restart durability.",
+					},
 				},
 			},
 			{

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -516,6 +517,32 @@ type completeJournal struct {
 	journalCallUsage
 	journalExposure
 	journalProvision
+}
+
+// GetCutoverClaimMetadata exposes the narrow B2a claim port for the complete
+// production test double (explicit port, legacy empty-claim behavior).
+func (completeJournal) GetCutoverClaimMetadata(context.Context, billing.PostingOperationKind, string) (billing.CutoverClaimMetadata, error) {
+	return billing.CutoverClaimMetadata{}, billing.ErrPostingOwnershipNotFound
+}
+
+// ClaimCompleteCallsWithCutover exposes the F6+F8 token-carrying claim port
+// for the complete production test double. No durable work exists in this
+// in-memory double, so it returns no claims; production DurableStore returns
+// current-marker tokens.
+func (completeJournal) ClaimCompleteCallsWithCutover(context.Context, int) ([]billing.ClaimedCompleteCall, error) {
+	return nil, nil
+}
+
+// ClaimProviderCostWorkWithCutover exposes the F6+F8 token-carrying provider
+// port for the complete production test double (no durable work).
+func (completeJournal) ClaimProviderCostWorkWithCutover(context.Context, int) ([]billing.ClaimedProviderCostWork, error) {
+	return nil, nil
+}
+
+// ClaimEconomicRevisionWorkWithCutover exposes the F6+F8 atomic lease+token
+// port for the complete production test double (no durable work).
+func (completeJournal) ClaimEconomicRevisionWorkWithCutover(context.Context, billing.EconomicRevisionWork, string, time.Duration) (billing.EconomicRevisionWorkClaim, *billing.CutoverClaimMetadata, bool, error) {
+	return billing.EconomicRevisionWorkClaim{}, nil, false, nil
 }
 
 type storeScopedCompleteJournal struct {

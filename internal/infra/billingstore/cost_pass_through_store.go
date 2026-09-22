@@ -49,7 +49,7 @@ type costPassThroughHeadRow struct {
 }
 
 func costPassThroughHeadKey(accountID string, callID billing.BillingCallID) string {
-	return "cost-pass-through-head:v1:" + strings.TrimSpace(accountID) + ":" + callID.String()
+	return billing.CostPassThroughHeadKey(accountID, callID)
 }
 
 func costPassThroughHeadSelect() string {
@@ -164,7 +164,8 @@ func costPassThroughAdjustmentFingerprint(accountID string, callID billing.Billi
 // ApplyCostPassThroughRevision atomically advances one explicit customer
 // pass-through head and posts only the signed difference from its current
 // posted amount. Validation of the provider payload occurs before the account
-// transaction, so supplier waits never hold customer admission locks.
+// transaction, so supplier waits never hold customer admission locks. B2b4
+// binds the per-head financial_adjustment pin in the same transaction.
 func (s *DurableStore) ApplyCostPassThroughRevision(ctx context.Context, input billing.CostPassThroughRevisionInput) (billing.CostPassThroughRevisionResult, error) {
 	if s == nil || s.db == nil {
 		return billing.CostPassThroughRevisionResult{}, fmt.Errorf("billingstore: nil store")
@@ -177,6 +178,14 @@ func (s *DurableStore) ApplyCostPassThroughRevision(ctx context.Context, input b
 	}
 	if err := input.Validate(); err != nil {
 		return billing.CostPassThroughRevisionResult{}, err
+	}
+	if _, err := billing.ResolveCostPassThroughAdjustmentOwner(input); err != nil {
+		return billing.CostPassThroughRevisionResult{}, err
+	}
+	if input.Claim != nil {
+		if err := billing.ValidateCostPassThroughAdjustmentClaim(*input.Claim, s.storeID, strings.TrimSpace(input.AccountID), input.CallID); err != nil {
+			return billing.CostPassThroughRevisionResult{}, err
+		}
 	}
 	input.AccountID = strings.TrimSpace(input.AccountID)
 	input.ProviderCost.LURKey = strings.TrimSpace(input.ProviderCost.LURKey)
@@ -198,6 +207,56 @@ func (s *DurableStore) applyCostPassThroughRevisionAttempt(ctx context.Context, 
 		return billing.CostPassThroughRevisionResult{}, fmt.Errorf("billingstore: begin cost pass-through adjustment: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	// B2b4 posting-time ownership fence (financial_adjustment only, per-head).
+	// Bind the canonical cost-pass-through head pin to exactly one
+	// owner/marker epoch before any monetary effect. Pin + money commit
+	// atomically in this transaction; exact retry backfills/completes the
+	// same owner pin; conflicting replay fails.
+	owner, err := billing.ResolveCostPassThroughAdjustmentOwner(input)
+	if err != nil {
+		return billing.CostPassThroughRevisionResult{}, err
+	}
+	if err := s.b2b4Fault("b2b4-enter"); err != nil {
+		return billing.CostPassThroughRevisionResult{}, err
+	}
+	// F1: lock/create the per-store marker before account/head/pin effects.
+	lockedMarker, err := s.ensureAndLockAccountingCutoverTx(ctx, tx)
+	if err != nil {
+		return billing.CostPassThroughRevisionResult{}, err
+	}
+	curState := lockedMarker.State
+	curVersion := lockedMarker.Version
+	curEpoch := lockedMarker.Epoch
+	curGeneration := lockedMarker.Generation
+	pinKey, err := billing.CostPassThroughFinancialAdjustmentPostingOperationKey(s.storeID, strings.TrimSpace(input.AccountID), input.CallID)
+	if err != nil {
+		return billing.CostPassThroughRevisionResult{}, err
+	}
+	if input.Claim != nil {
+		if input.Claim.OperationKey != pinKey {
+			return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: claim key %q != canonical %q", billing.ErrPostingOwnershipConflict, input.Claim.OperationKey, pinKey)
+		}
+		if input.Claim.Owner != owner {
+			return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: claim owner %q != posting owner %q", billing.ErrPostingOwnershipConflict, input.Claim.Owner, owner)
+		}
+	}
+	pinRow, pinFound, err := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, pinKey)
+	if err != nil {
+		return billing.CostPassThroughRevisionResult{}, err
+	}
+	var pin billing.PostingPin
+	if pinFound {
+		pin, err = postingOwnershipRowToPin(pinRow)
+		if err != nil {
+			return billing.CostPassThroughRevisionResult{}, err
+		}
+		if pin.Kind != billing.PostingOperationFinancialAdjustment || pin.OperationKey != pinKey || pin.AccountID != strings.TrimSpace(input.AccountID) || pin.CallID != input.CallID {
+			return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: cost pass-through pin identity mismatch for %q", billing.ErrPostingOwnershipConflict, pinKey)
+		}
+		if pin.Owner != owner {
+			return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: cost pass-through pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, pin.Owner, owner)
+		}
+	}
 	if err := lockAccount(ctx, tx, s.db.Dialect().Name(), input.AccountID); err != nil {
 		return billing.CostPassThroughRevisionResult{}, err
 	}
@@ -246,6 +305,16 @@ func (s *DurableStore) applyCostPassThroughRevisionAttempt(ctx context.Context, 
 		if _, _, lookupErr := loadOperationSnapshot(ctx, tx, input.AccountID, billing.CostPassThroughAdjustmentOperationKind, sourceKey); lookupErr != nil {
 			return billing.CostPassThroughRevisionResult{}, lookupErr
 		}
+		// B2b4 exact replay: no new money. Ensure the per-head pin is
+		// completed with the real outcome in the same transaction (backfill
+		// for pre-B2b4 money, completion for crash-orphaned pins). Later
+		// replacement advancement stays authoritative without mutation.
+		if err := s.b2b4Fault("b2b4-replay-pin"); err != nil {
+			return billing.CostPassThroughRevisionResult{}, err
+		}
+		if err := s.b2b4EnsureCostPassThroughReplayPin(ctx, tx, strings.TrimSpace(input.AccountID), input.CallID, pinKey, owner, curVersion, curEpoch, curGeneration, curState, pin, pinFound, sourceKey); err != nil {
+			return billing.CostPassThroughRevisionResult{}, err
+		}
 		if err := tx.Commit(); err != nil {
 			return billing.CostPassThroughRevisionResult{}, err
 		}
@@ -277,11 +346,86 @@ func (s *DurableStore) applyCostPassThroughRevisionAttempt(ctx context.Context, 
 		if existing.Fingerprint != fingerprint {
 			return billing.CostPassThroughRevisionResult{}, ErrOperationConflict
 		}
+		if err := s.b2b4Fault("b2b4-replay-pin"); err != nil {
+			return billing.CostPassThroughRevisionResult{}, err
+		}
+		if err := s.b2b4EnsureCostPassThroughReplayPin(ctx, tx, strings.TrimSpace(input.AccountID), input.CallID, pinKey, owner, curVersion, curEpoch, curGeneration, curState, pin, pinFound, sourceKey); err != nil {
+			return billing.CostPassThroughRevisionResult{}, err
+		}
 		if err := tx.Commit(); err != nil {
 			return billing.CostPassThroughRevisionResult{}, err
 		}
 		baseResult.Replayed = true
 		return baseResult, nil
+	}
+	// B2b4 synchronous ownership fence (per-head financial_adjustment pin):
+	// ordinary new revisions are fenced in draining/v2_active. Exact replay
+	// above remains allowed per B1. Pin owner stable; only token==current
+	// required (F6, sync commands use marker lock directly).
+	if input.Claim != nil {
+		if input.Claim.MarkerVersion != curVersion || input.Claim.MarkerEpoch != curEpoch || input.Claim.MarkerState != curState {
+			return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: cost pass-through claim %d/%d/%q != current %d/%d/%q",
+				billing.ErrPostingOwnershipFence, input.Claim.MarkerVersion, input.Claim.MarkerEpoch, string(input.Claim.MarkerState), curVersion, curEpoch, string(curState))
+		}
+	}
+	if !pinFound {
+		if !billing.IsPostingOwnerAllowedForNew(curState, owner) {
+			return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: cost pass-through owner %q not allowed for new in %q", billing.ErrPostingOwnershipFence, owner, string(curState))
+		}
+		if input.Claim != nil {
+			return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: cost pass-through claim without classified pin for %q", billing.ErrPostingOwnershipFence, pinKey)
+		}
+		if curState == billing.AccountingCutoverV1Draining {
+			return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: draining forbids new cost pass-through for %q", billing.ErrPostingOwnershipFence, pinKey)
+		}
+		if owner == billing.PostingOwnerV2 && !billing.IsV2NewWorkAuthorized(curState) {
+			return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: V2 cost pass-through requires v2_active", billing.ErrCutoverV2NotAuthorized)
+		}
+		if err := s.b2b4Fault("b2b4-pin-acquire"); err != nil {
+			return billing.CostPassThroughRevisionResult{}, err
+		}
+		nowUnix := nowUnixNano()
+		acquired, err := b2b4InsertCostPassThroughPinTx(ctx, tx, s, strings.TrimSpace(input.AccountID), input.CallID, pinKey, owner, curVersion, curEpoch, curGeneration, curState, nowUnix)
+		if err != nil {
+			return billing.CostPassThroughRevisionResult{}, err
+		}
+		pin = acquired
+		pinFound = true
+	} else {
+		if pin.Status == billing.PostingPinCompleted {
+			if curState == billing.AccountingCutoverV1Draining && input.Claim == nil {
+				return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: draining cost pass-through requires claim metadata for %q", billing.ErrPostingOwnershipFence, pinKey)
+			}
+			if curState == billing.AccountingCutoverV2Active && owner == billing.PostingOwnerV1 {
+				return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: v2_active forbids new V1 cost pass-through for %q", billing.ErrPostingOwnershipFence, pinKey)
+			}
+			if !billing.IsPostingPinAcquireReplayAllowed(curState, pin) {
+				return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: cost pass-through pin replay not allowed in %q", billing.ErrPostingOwnershipFence, string(curState))
+			}
+		} else {
+			if curState == billing.AccountingCutoverV1Draining && input.Claim == nil {
+				// Synchronous draining without queued-claim bypass still
+				// fences new work even though a pinned (incomplete) pin
+				// exists; exact replay above already handled pinned
+				// completion. New revisions require explicit claim lineage
+				// only when a queued worker exists; for sync commands the
+				// pinned path must still respect draining: block new.
+				// To preserve B2b3 sync semantics (draining new blocked,
+				// exact replay allowed), fall through to draining fence
+				// below which blocks new pinned completions without claim?
+				// Instead, enforce draining block for new revisions here:
+				return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: draining cost pass-through requires claim metadata for %q", billing.ErrPostingOwnershipFence, pinKey)
+			}
+			if !billing.IsPostingPinAcquireReplayAllowed(curState, pin) {
+				return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: cost pass-through pin replay not allowed in %q", billing.ErrPostingOwnershipFence, string(curState))
+			}
+			if !billing.IsPostingPinCompleteAllowed(curState, pin) {
+				return billing.CostPassThroughRevisionResult{}, fmt.Errorf("%w: cost pass-through pin completion not allowed in %q", billing.ErrPostingOwnershipFence, string(curState))
+			}
+		}
+	}
+	if err := s.b2b4Fault("b2b4-before-effects"); err != nil {
+		return billing.CostPassThroughRevisionResult{}, err
 	}
 	account, err := getAccountTx(ctx, tx, input.AccountID)
 	if err != nil {
@@ -331,6 +475,9 @@ func (s *DurableStore) applyCostPassThroughRevisionAttempt(ctx context.Context, 
 		if correctionGroup == "" {
 			correctionGroup = row.SettlementOperationKey
 		}
+		if err := s.b2b4Fault("b2b4-before-journal"); err != nil {
+			return billing.CostPassThroughRevisionResult{}, err
+		}
 		journal := billing.JournalTransaction{
 			ID: sourceKey, Book: billing.JournalBookFinancial, Currency: account.Currency, SourceKey: sourceKey,
 			AccountID: input.AccountID, TurnID: input.CallID.String(), ALegID: row.ALegID,
@@ -369,6 +516,9 @@ func (s *DurableStore) applyCostPassThroughRevisionAttempt(ctx context.Context, 
 	if err := insertOperationSnapshot(ctx, tx, operationSnapshotInput{OperationKey: sourceKey + ":snapshot", AccountID: input.AccountID, OperationKind: billing.CostPassThroughAdjustmentOperationKind, SourceKey: sourceKey, Fingerprint: fingerprint, Before: before, After: afterSnapshot, SequenceStart: accountSequence, SequenceEnd: accountSequence}); err != nil {
 		return billing.CostPassThroughRevisionResult{}, err
 	}
+	if err := s.b2b4Fault("b2b4-before-head"); err != nil {
+		return billing.CostPassThroughRevisionResult{}, err
+	}
 	now := time.Now().UTC()
 	provider := input.ProviderCost
 	updateResult, err := tx.NewRaw(`UPDATE billing_cost_pass_through_heads SET status = ?, posted_amount_nano = ?, provider_lur_key = ?, provider_valuation_id = ?, provider_revision = ?, provider_input_hash = ?, head_version = head_version + 1, fence = fence + 1, updated_at = ? WHERE account_id = ? AND call_id = ? AND head_version = ? AND fence = ?`,
@@ -381,6 +531,19 @@ func (s *DurableStore) applyCostPassThroughRevisionAttempt(ctx context.Context, 
 			return billing.CostPassThroughRevisionResult{}, affectedErr
 		}
 		return billing.CostPassThroughRevisionResult{}, billing.ErrCostPassThroughRevisionConflict
+	}
+	// B2b4 atomic completion: per-head pin + balance/journal/head commit in
+	// the same transaction. Replacement revisions advance the same head pin
+	// authority under the same owner.
+	completionTxID := ""
+	if delta.Nano != 0 {
+		completionTxID = sourceKey
+	}
+	if err := s.b2b4CompleteCostPassThroughPin(ctx, tx, pinKey, owner, sourceKey, completionTxID, pin, pinFound); err != nil {
+		return billing.CostPassThroughRevisionResult{}, err
+	}
+	if err := s.b2b4Fault("b2b4-before-commit"); err != nil {
+		return billing.CostPassThroughRevisionResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return billing.CostPassThroughRevisionResult{}, err

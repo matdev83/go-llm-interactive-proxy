@@ -95,6 +95,14 @@ func (s *DurableStore) ApplyProviderCostRevision(ctx context.Context, input bill
 	if normalized.Subject.StoreID != s.storeID {
 		return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: provider cost subject store", ErrEconomicsOutOfScope)
 	}
+	if _, err := billing.ResolveProviderRevisionOwner(normalized); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	if normalized.Claim != nil {
+		if err := billing.ValidateProviderRevisionClaim(*normalized.Claim, normalized); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+	}
 	return withAccountTx(ctx, accountTxRetry{
 		Attempts: 80, Delay: 3 * time.Millisecond,
 		Exhausted: fmt.Errorf("%w: provider cost revision retry budget exhausted", billing.ErrBillingStoreUnavailable),
@@ -122,6 +130,10 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: begin provider cost revision: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	// F1: lock the per-store marker before account/head/pin effects.
+	if _, err := s.ensureAndLockAccountingCutoverTx(ctx, tx); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
 	account, err := getAccountTx(ctx, tx, input.AccountID)
 	if err != nil {
 		return billing.ProviderCostRevisionResult{}, err
@@ -180,9 +192,342 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: encode provider cost subject: %w", err)
 	}
 	operationKey := billing.ScopedOperationKey("provider_call_cogs", input.AccountID, sourceKey)
+	// B2b2 posting-time ownership fence (provider_charge only). F5+F7: each
+	// immutable revision outcome has its own canonical pin derived from
+	// ProviderCostRevisionSourceKey (revision-specific, operationKey), not
+	// merely B-leg lineage. Base legacy charges keep lineage pins; higher/
+	// replacement revisions are distinct pins while heads/fences order lineage.
+	// Pin + head/exclusion/journal effects commit atomically; exact replay
+	// (same operation+fingerprint+tx) returns existing outcome with completed
+	// pin; completed pins never update to another revision outcome.
+	owner, err := billing.ResolveProviderRevisionOwner(input)
+	if err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	if err := s.b2b2Fault("b2b2-enter"); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	// F1: already holds the marker lock; re-lock keeps ordinary SELECT out.
+	markerRow, markerFound, err := s.loadAccountingCutoverLocked(ctx, tx)
+	if err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	var revState billing.AccountingCutoverState
+	var revVersion, revEpoch uint64
+	var revGeneration int
+	if markerFound {
+		marker, merr := accountingCutoverRowToMarker(markerRow)
+		if merr != nil {
+			return billing.ProviderCostRevisionResult{}, merr
+		}
+		revState = marker.State
+		revVersion = marker.Version
+		revEpoch = marker.Epoch
+		revGeneration = marker.Generation
+	} else {
+		revState = b2b2ProviderStateForMissingMarker()
+		revVersion, revEpoch = 1, 1
+		revGeneration = billing.AccountingCutoverGenerationV1
+	}
+	pinKey, err := billing.ProviderRevisionPostingOperationKey(input)
+	if err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	// F5+F7: revision pin equals the canonical journal operation (scoped
+	// sourceKey). Pin and journal share one immutable outcome identity.
+	if pinKey != operationKey {
+		return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: revision pin/operation mismatch", billing.ErrProviderCostRevisionInvalid)
+	}
+	if input.Claim != nil {
+		if input.Claim.OperationKey != pinKey {
+			return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: claim key %q != canonical %q", billing.ErrPostingOwnershipConflict, input.Claim.OperationKey, pinKey)
+		}
+		if input.Claim.Owner != owner {
+			return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: claim owner %q != posting owner %q", billing.ErrPostingOwnershipConflict, input.Claim.Owner, owner)
+		}
+		// R4 mandatory lease binding: when the token carries an economic
+		// lease fence, it must match current delivery state before any
+		// monetary effect. A reclaimed lease fences the stale token.
+		if strings.TrimSpace(input.Claim.WorkID) != "" || strings.TrimSpace(input.Claim.LeaseOwner) != "" || input.Claim.LeaseFence != 0 {
+			if err := input.Claim.Validate(); err != nil {
+				return billing.ProviderCostRevisionResult{}, err
+			}
+			if strings.TrimSpace(input.Claim.WorkID) == "" || strings.TrimSpace(input.Claim.LeaseOwner) == "" || input.Claim.LeaseFence == 0 {
+				return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: economic lease binding requires work, owner and fence together", billing.ErrPostingOwnershipConflict)
+			}
+			var st struct {
+				Status     string `bun:"status"`
+				LeaseOwner string `bun:"lease_owner"`
+				Fence      int64  `bun:"fence"`
+			}
+			if err := tx.NewRaw(`SELECT status, lease_owner, fence FROM billing_economic_revision_work_state WHERE store_id = ? AND work_id = ? AND work_version = 1 LIMIT 1`, s.storeID, strings.TrimSpace(input.Claim.WorkID)).Scan(ctx, &st); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: economic lease %q not found", billing.ErrPostingOwnershipFence, strings.TrimSpace(input.Claim.WorkID))
+				}
+				return billing.ProviderCostRevisionResult{}, err
+			}
+			if strings.TrimSpace(st.Status) != economicRevisionWorkStateProcessing || strings.TrimSpace(st.LeaseOwner) != strings.TrimSpace(input.Claim.LeaseOwner) || uint64(st.Fence) != input.Claim.LeaseFence {
+				return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: economic lease fence mismatch for %q (stale token fenced)", billing.ErrPostingOwnershipFence, strings.TrimSpace(input.Claim.WorkID))
+			}
+		}
+	}
+	pinRow, pinFound, err := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, pinKey)
+	if err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	var pin billing.PostingPin
+	if pinFound {
+		pin, err = postingOwnershipRowToPin(pinRow)
+		if err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if pin.Kind != billing.PostingOperationProviderCharge || pin.OperationKey != pinKey || pin.AccountID != input.AccountID || pin.CallID != input.CallID {
+			return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: provider revision pin identity mismatch for %q", billing.ErrPostingOwnershipConflict, pinKey)
+		}
+		if pin.Owner != owner {
+			return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: provider revision pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, pin.Owner, owner)
+		}
+	}
+	// ensureRevisionReplayPin backfills/completes the pin for idempotent
+	// replay paths (no new money). It never requires a claim. Completed pins
+	// are immutable: exact same operation+fingerprint+tx replay only; callers
+	// already verified fingerprint/amount against durable head/fence/snapshot
+	// before invoking. Backfill uses actual durable outcome, never fabricated tx.
+	ensureRevisionReplayPin := func(completionOpKey, completionTxID string) error {
+		if err := s.b2b2Fault("b2b2-replay-pin"); err != nil {
+			return err
+		}
+		if !pinFound {
+			nowUnix := nowUnixNano()
+			insert := `INSERT INTO billing_posting_ownership_pins (store_id, operation_kind, operation_key, account_id, call_id, b_leg_id, provider_charge_id, head_key, subject_kind, subject_json, owner, marker_version, marker_epoch, marker_generation, marker_state, status, completion_operation_key, completion_transaction_id, created_at_unix, updated_at_unix, completed_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(store_id, operation_kind, operation_key) DO NOTHING`
+			if s.db.Dialect().Name() == dialect.PG {
+				// bun uses ? placeholders for both dialects; ON CONFLICT works on PG.
+			} else {
+				insert = `INSERT OR IGNORE INTO billing_posting_ownership_pins (store_id, operation_kind, operation_key, account_id, call_id, b_leg_id, provider_charge_id, head_key, subject_kind, subject_json, owner, marker_version, marker_epoch, marker_generation, marker_state, status, completion_operation_key, completion_transaction_id, created_at_unix, updated_at_unix, completed_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			}
+			if _, err := tx.NewRaw(insert, s.storeID, string(billing.PostingOperationProviderCharge), pinKey, input.AccountID, input.CallID.String(), input.Subject.BLegID, input.Subject.ProviderChargeID, "", string(input.Subject.Kind), string(subjectJSON), owner, int64(revVersion), int64(revEpoch), revGeneration, string(revState), string(billing.PostingPinCompleted), completionOpKey, completionTxID, nowUnix, nowUnix, nowUnix).Exec(ctx); err != nil {
+				return fmt.Errorf("billingstore: b2b2 backfill revision pin: %w", err)
+			}
+			rrow, rfound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, pinKey)
+			if rerr != nil {
+				return rerr
+			}
+			if !rfound {
+				return fmt.Errorf("%w: revision pin unavailable after backfill", billing.ErrPostingOwnershipNotFound)
+			}
+			repinned, perr := postingOwnershipRowToPin(rrow)
+			if perr != nil {
+				return perr
+			}
+			if repinned.Owner != owner {
+				return fmt.Errorf("%w: revision pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, repinned.Owner, owner)
+			}
+			if repinned.Status == billing.PostingPinPinned {
+				pin = repinned
+				pinFound = true
+			} else {
+				pin = repinned
+				pinFound = true
+				return nil
+			}
+		}
+		if pinFound && pin.Status == billing.PostingPinCompleted {
+			if pin.Owner != owner {
+				return fmt.Errorf("%w: revision pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, pin.Owner, owner)
+			}
+			// Immutable outcome: exact replay must carry identical completion
+			// identity. A different outcome under same pin is conflict, never
+			// an update.
+			if pin.CompletionOperationKey != completionOpKey || pin.CompletionTransactionID != completionTxID {
+				return fmt.Errorf("%w: revision pin %q completion mismatch (immutable outcome)", billing.ErrPostingOwnershipConflict, pinKey)
+			}
+			return nil
+		}
+		if pinFound && pin.Status == billing.PostingPinPinned {
+			nowUnix := nowUnixNano()
+			if nowUnix < pin.CreatedAtUnix {
+				nowUnix = pin.CreatedAtUnix
+			}
+			if err := b2b2CompleteProviderPinTx(ctx, tx, s.storeID, pinKey, completionOpKey, completionTxID, nowUnix); err != nil {
+				rrow, rfound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, pinKey)
+				if rerr != nil {
+					return rerr
+				}
+				if !rfound {
+					return fmt.Errorf("%w: revision pin missing after race", billing.ErrPostingOwnershipNotFound)
+				}
+				remarker, merr := postingOwnershipRowToPin(rrow)
+				if merr != nil {
+					return merr
+				}
+				if remarker.Status == billing.PostingPinCompleted && remarker.Owner == owner && remarker.CompletionOperationKey == completionOpKey && remarker.CompletionTransactionID == completionTxID {
+					pin = remarker
+					return nil
+				}
+				return fmt.Errorf("%w: revision pin completion race for %q", billing.ErrPostingOwnershipConflict, pinKey)
+			}
+			rrow, _, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, pinKey)
+			if rerr != nil {
+				return rerr
+			}
+			completed, perr := postingOwnershipRowToPin(rrow)
+			if perr != nil {
+				return perr
+			}
+			pin = completed
+		}
+		return nil
+	}
+	// checkRevisionNewPin enforces the one-owner fence for new postings
+	// (payable deltas and nonpayable exclusions). F5: each revision is its own
+	// pin; completed pins never authorize new money (exact replay uses the
+	// ensure path, never this check). New V1 allowed only while marker permits
+	// V1 (active/shadow or classified draining with current token); after
+	// v2_active changed amount/evidence/higher revision with V1 owner fenced
+	// even when older V1 pin/head exists. Draining requires a classified V1
+	// pin plus matching current-marker token; v2_active permits only V2; stale
+	// tokens fence before money. Pin owner stable; only token==current required
+	// (F6, no pin-epoch comparison). F6 token binds revision-specific pin.
+	checkRevisionNewPin := func() error {
+		if input.Claim != nil {
+			if input.Claim.MarkerVersion != revVersion || input.Claim.MarkerEpoch != revEpoch || input.Claim.MarkerState != revState {
+				return fmt.Errorf("%w: provider revision claim %d/%d/%q != current %d/%d/%q",
+					billing.ErrPostingOwnershipFence, input.Claim.MarkerVersion, input.Claim.MarkerEpoch, string(input.Claim.MarkerState), revVersion, revEpoch, string(revState))
+			}
+		}
+		if !pinFound {
+			if !billing.IsPostingOwnerAllowedForNew(revState, owner) {
+				return fmt.Errorf("%w: provider revision owner %q not allowed for new in %q", billing.ErrPostingOwnershipFence, owner, string(revState))
+			}
+			if input.Claim != nil {
+				return fmt.Errorf("%w: provider revision claim without classified pin for %q", billing.ErrPostingOwnershipFence, pinKey)
+			}
+			if revState == billing.AccountingCutoverV1Draining {
+				return fmt.Errorf("%w: draining forbids new provider revision for %q", billing.ErrPostingOwnershipFence, pinKey)
+			}
+			if owner == billing.PostingOwnerV2 && !billing.IsV2NewWorkAuthorized(revState) {
+				return fmt.Errorf("%w: V2 provider revision requires v2_active", billing.ErrCutoverV2NotAuthorized)
+			}
+			if err := s.b2b2Fault("b2b2-pin-acquire"); err != nil {
+				return err
+			}
+			nowUnix := nowUnixNano()
+			acquired, err := b2b2InsertProviderPinTx(ctx, tx, s, input.AccountID, input.CallID, s.storeID, input.Subject.BLegID, input.Subject.ProviderChargeID, string(input.Subject.Kind), string(subjectJSON), pinKey, owner, revVersion, revEpoch, revGeneration, revState, nowUnix)
+			if err != nil {
+				return err
+			}
+			pin = acquired
+			pinFound = true
+		} else {
+			// F5 immutable: completed pins never authorize new outcomes.
+			// Exact historical replay flows through ensureRevisionReplayPin;
+			// any new money with same pin identity is conflict.
+			if pin.Status == billing.PostingPinCompleted {
+				return fmt.Errorf("%w: provider revision pin %q already completed (immutable outcome)", billing.ErrPostingOwnershipConflict, pinKey)
+			}
+			if revState == billing.AccountingCutoverV1Draining && input.Claim == nil {
+				return fmt.Errorf("%w: draining provider revision requires claim metadata for %q", billing.ErrPostingOwnershipFence, pinKey)
+			}
+			if !billing.IsPostingPinAcquireReplayAllowed(revState, pin) {
+				return fmt.Errorf("%w: provider revision pin replay not allowed in %q", billing.ErrPostingOwnershipFence, string(revState))
+			}
+			if !billing.IsPostingPinCompleteAllowed(revState, pin) && pin.Status == billing.PostingPinPinned {
+				return fmt.Errorf("%w: provider revision pin completion not allowed in %q", billing.ErrPostingOwnershipFence, string(revState))
+			}
+		}
+		return nil
+	}
+	// completeRevisionPin records the posting outcome atomically: pinned pins
+	// complete once. Completed pins are immutable and never advance to another
+	// revision outcome; callers must use distinct revision pins for replacements
+	// and the ensure path for exact replay.
+	completeRevisionPin := func(completionOpKey, completionTxID string) error {
+		if err := s.b2b2Fault("b2b2-before-pin-complete"); err != nil {
+			return err
+		}
+		nowUnix := nowUnixNano()
+		if pinFound && nowUnix < pin.CreatedAtUnix {
+			nowUnix = pin.CreatedAtUnix
+		}
+		if !pinFound {
+			return fmt.Errorf("%w: revision pin missing for completion", billing.ErrPostingOwnershipNotFound)
+		}
+		if pin.Status == billing.PostingPinPinned {
+			if err := b2b2CompleteProviderPinTx(ctx, tx, s.storeID, pinKey, completionOpKey, completionTxID, nowUnix); err != nil {
+				return err
+			}
+			rrow, _, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, pinKey)
+			if rerr != nil {
+				return rerr
+			}
+			completed, perr := postingOwnershipRowToPin(rrow)
+			if perr != nil {
+				return perr
+			}
+			pin = completed
+			return nil
+		}
+		return fmt.Errorf("%w: provider revision pin %q already completed (immutable, use distinct revision pin)", billing.ErrPostingOwnershipConflict, pinKey)
+	}
+	_ = ensureRevisionReplayPin
+	_ = checkRevisionNewPin
+	_ = completeRevisionPin
 	before, err := snapshotForAccount(account)
 	if err != nil {
 		return billing.ProviderCostRevisionResult{}, err
+	}
+	// R3: deterministic durable disposition for terminal no-money outcomes
+	// (stale/superseded/ignored/excluded/nonpayable) in the same tx. No journal
+	// or money movement is fabricated: the operation snapshot records the
+	// immutable fingerprint with zero balance delta (Before==After, no sequence),
+	// and the per-revision pin completes with (operationKey, "") when it is not
+	// already terminal. Exact replay (same operation+fingerprint) succeeds
+	// idempotently; conflicting replay (same pin, different fingerprint) fails
+	// closed without mutating the completed outcome. Pin identity remains per
+	// immutable logical revision; completed outcomes are never reopened.
+	// A stale replay of an already-posted payable revision (pin completed with
+	// its real journal tx) is terminal success without mutating that payable
+	// outcome: snapshot fingerprint already proves exactness.
+	completeNoMoneyOutcome := func() error {
+		existing, exists, lookupErr := loadOperationSnapshot(ctx, tx, input.AccountID, "provider_call_cogs", sourceKey)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if exists {
+			if existing.Fingerprint != fingerprint {
+				return ErrOperationConflict
+			}
+			if existing.OperationKey != operationKey {
+				return fmt.Errorf("%w: revision snapshot operation mismatch for %q", billing.ErrProviderCostRevisionConflict, sourceKey)
+			}
+		}
+		// Already-terminal pin (payable posted with real tx, or prior no-money
+		// completed) stays immutable: exact fingerprint (snapshot above) proves
+		// terminal success without mutating the outcome. Only pinned/missing
+		// pins advance to (operationKey, "") below.
+		if pinFound && pin.Status == billing.PostingPinCompleted {
+			if pin.Owner != owner {
+				return fmt.Errorf("%w: revision pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, pin.Owner, owner)
+			}
+			if !exists {
+				if err := insertOperationSnapshot(ctx, tx, operationSnapshotInput{
+					OperationKey: operationKey, AccountID: input.AccountID, OperationKind: "provider_call_cogs", SourceKey: sourceKey,
+					Fingerprint: fingerprint, Before: before, After: before,
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		if !exists {
+			if err := insertOperationSnapshot(ctx, tx, operationSnapshotInput{
+				OperationKey: operationKey, AccountID: input.AccountID, OperationKind: "provider_call_cogs", SourceKey: sourceKey,
+				Fingerprint: fingerprint, Before: before, After: before,
+			}); err != nil {
+				return err
+			}
+		}
+		return ensureRevisionReplayPin(operationKey, "")
 	}
 
 	lineageKey, err := providerCostRevisionLineageKey(input)
@@ -215,7 +560,6 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		}
 	}
 	fenceNeedsInsert := false
-	fenceSeeded := false
 	if !canonicalFenceFound && lineageKey == executionLineageKey && fenceFound {
 		canonicalFence, canonicalFenceFound = fence, true
 	}
@@ -250,7 +594,6 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 			return billing.ProviderCostRevisionResult{}, err
 		}
 		fenceFound = true
-		fenceSeeded = true
 	}
 	if !canonicalFenceFound && lineageKey == executionLineageKey && fenceFound {
 		canonicalFence, canonicalFenceFound = fence, true
@@ -314,6 +657,18 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		// A B-leg aggregate and a provider-charge child are mutually exclusive
 		// owners of one execution. Distinct children of the same V2 authority
 		// remain independent and continue below on their own posting heads.
+		// R3: terminal no-money exclusion completes its own revision pin
+		// atomically with snapshot fingerprint; exact replay succeeds via
+		// ensure, conflicting replay fails closed. No journal fabricated.
+		if err := s.b2b2Fault("b2b2-before-pin-complete"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := completeNoMoneyOutcome(); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := s.b2b2Fault("b2b2-before-commit"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
 		if err := tx.Commit(); err != nil {
 			return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit provider cost execution fence exclusion: %w", err)
 		}
@@ -323,6 +678,16 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		// Legacy already owns this execution. Partial/unavailable evidence has no
 		// amount to reconcile and must not turn the legacy aggregate into a zero
 		// reversal; the existing legacy authority remains the durable fence.
+		// R3: same terminal no-money disposition as above.
+		if err := s.b2b2Fault("b2b2-before-pin-complete"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := completeNoMoneyOutcome(); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := s.b2b2Fault("b2b2-before-commit"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
 		if err := tx.Commit(); err != nil {
 			return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit partial provider cost exclusion: %w", err)
 		}
@@ -333,6 +698,16 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		// without an explicit correction link, a child amount cannot prove that it
 		// is additive. Preserve the legacy first-writer authority and fence every
 		// later child revision rather than risking an overlapping aggregate.
+		// R3: same terminal no-money disposition.
+		if err := s.b2b2Fault("b2b2-before-pin-complete"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := completeNoMoneyOutcome(); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := s.b2b2Fault("b2b2-before-commit"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
 		if err := tx.Commit(); err != nil {
 			return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit provider cost child exclusion: %w", err)
 		}
@@ -344,12 +719,29 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		// execution has already been claimed. Keep the first durable exclusion
 		// identity stable while allowing a later payable revision for its own head
 		// to advance the selected-cost reducer.
+		// R3: same terminal no-money disposition.
+		if err := s.b2b2Fault("b2b2-before-pin-complete"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := completeNoMoneyOutcome(); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := s.b2b2Fault("b2b2-before-commit"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
 		if err := tx.Commit(); err != nil {
 			return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit provider cost exclusion replay: %w", err)
 		}
 		return ignoredProviderCostRevision(input), nil
 	}
 	if fenceFound && fence.Authority == providerCostFenceAuthorityLegacy {
+		// B2b2: enforce pin ownership before legacy handoff. The handoff posts
+		// money in its own tx; pin completion converges on retry via the main
+		// replacement/replay path (equivalent exact fence: money fence blocks
+		// duplicates while the pin stays pinned).
+		if err := checkRevisionNewPin(); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
 		return s.applyProviderCostRevisionAfterLegacyFence(ctx, tx, input, before, sourceKey, fingerprint, operationKey, lineageKey, fence, fenceNeedsInsert, head, found, amount)
 	}
 	if fenceFound && fence.Authority == providerCostFenceAuthorityRevision && !found {
@@ -357,6 +749,10 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		// head. It must suppress a stale legacy worker; a later payable revision
 		// may still promote the zero fence into a real selected-cost head.
 		if input.EvidenceRevision < uint64(fence.EvidenceRevision) {
+			// R3: stale vs exclusion fence is terminal with own pin disposition.
+			if err := completeNoMoneyOutcome(); err != nil {
+				return billing.ProviderCostRevisionResult{}, err
+			}
 			if err := tx.Commit(); err != nil {
 				return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit provider cost exclusion replay: %w", err)
 			}
@@ -366,10 +762,18 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 			if fence.InputSetHash != input.InputSetHash || fence.Fingerprint != fingerprint || providerCostFenceAmount(fence) != amount {
 				return billing.ProviderCostRevisionResult{}, fmt.Errorf("%w: provider cost exclusion %s revision=%d", billing.ErrProviderCostRevisionConflict, lineageKey, input.EvidenceRevision)
 			}
+			// R3: exact exclusion replay validates via fence above plus snapshot
+			// below; conflicting fingerprint fails closed in helper.
+			if err := completeNoMoneyOutcome(); err != nil {
+				return billing.ProviderCostRevisionResult{}, err
+			}
 			if err := tx.Commit(); err != nil {
 				return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit provider cost exclusion replay: %w", err)
 			}
 			return ignoredProviderCostRevision(input), nil
+		}
+		if err := checkRevisionNewPin(); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
 		}
 		return s.applyProviderCostRevisionAfterLegacyFence(ctx, tx, input, before, sourceKey, fingerprint, operationKey, lineageKey, fence, false, head, found, amount)
 	}
@@ -377,12 +781,27 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		// A known non-operator payer is an exclusion, not a zero-valued head.
 		// Once a payable head exists, the same exclusion is handled below as an
 		// authoritative zero target so a payer correction reverses prior COGS.
+		// R3: first exclusion records fence plus snapshot/pin atomically; exact
+		// replay later hits the fence-exact branch above and succeeds via the
+		// same snapshot identity. No journal fabricated.
+		if err := s.b2b2Fault("b2b2-before-effects"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
 		if err := s.insertProviderCostPostingFenceInTx(ctx, tx, input.AccountID, input.CallID, lineageKey,
 			providerCostFenceAuthorityRevision, input.HeadKey, int64(input.EvidenceRevision), input.InputSetHash,
 			fingerprint, amount, "", operationKey, ""); err != nil {
 			return billing.ProviderCostRevisionResult{}, err
 		}
 		if err := s.economicFault("after_provider_cost_revision"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := s.b2b2Fault("b2b2-before-pin-complete"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := completeNoMoneyOutcome(); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := s.b2b2Fault("b2b2-before-commit"); err != nil {
 			return billing.ProviderCostRevisionResult{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -393,10 +812,15 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 	if found {
 		previous := billing.Money{Nano: head.AmountNano, Currency: head.Currency}
 		if input.EvidenceRevision < uint64(head.EvidenceRevision) {
-			if fenceSeeded {
-				if err := tx.Commit(); err != nil {
-					return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit seeded provider cost fence: %w", err)
-				}
+			// R3: older revision behind newer head is terminal stale with its
+			// own pin disposition in the same tx (plus seeded fence when the
+			// head predates fences). The worker treats nil error as success
+			// and completes its queue item; activation no longer strands a pin.
+			if err := completeNoMoneyOutcome(); err != nil {
+				return billing.ProviderCostRevisionResult{}, err
+			}
+			if err := tx.Commit(); err != nil {
+				return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit stale provider cost revision: %w", err)
 			}
 			return providerCostRevisionStale(input, previous), nil
 		}
@@ -408,12 +832,20 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 			}
 			// A crash cannot leave the head and operation rows split because both
 			// are committed together, but this repair path makes a manually
-			// truncated snapshot safe as well.
+			// truncated snapshot safe as well. F7: replay backfill uses actual
+			// durable outcome (head tx), never fabricated.
 			if existing, exists, lookupErr := loadOperationSnapshot(ctx, tx, input.AccountID, "provider_call_cogs", sourceKey); lookupErr != nil {
 				return billing.ProviderCostRevisionResult{}, lookupErr
 			} else if exists {
 				if existing.Fingerprint != fingerprint {
 					return billing.ProviderCostRevisionResult{}, ErrOperationConflict
+				}
+				replayTx := head.LastTransactionID
+				if replayTx == "" {
+					replayTx = fence.LastTransactionID
+				}
+				if err := ensureRevisionReplayPin(existing.OperationKey, replayTx); err != nil {
+					return billing.ProviderCostRevisionResult{}, err
 				}
 				if err := tx.Commit(); err != nil {
 					return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit provider cost replay: %w", err)
@@ -426,6 +858,13 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 			}); err != nil {
 				return billing.ProviderCostRevisionResult{}, err
 			}
+			repairTx := head.LastTransactionID
+			if repairTx == "" {
+				repairTx = fence.LastTransactionID
+			}
+			if err := ensureRevisionReplayPin(operationKey, repairTx); err != nil {
+				return billing.ProviderCostRevisionResult{}, err
+			}
 			if err := tx.Commit(); err != nil {
 				return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit provider cost replay repair: %w", err)
 			}
@@ -434,6 +873,13 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		existingIdentity, identityErr := billing.NewEconomicRevisionIdentity(billing.EconomicQueueProvider, head.HeadKey, uint64(head.EvidenceRevision), head.InputSetHash)
 		incomingIdentity, incomingErr := billing.NewEconomicRevisionIdentity(billing.EconomicQueueProvider, input.HeadKey, input.EvidenceRevision, input.InputSetHash)
 		if identityErr != nil || incomingErr != nil {
+			// R3: unorderable identities are terminal stale with pin disposition.
+			if err := completeNoMoneyOutcome(); err != nil {
+				return billing.ProviderCostRevisionResult{}, err
+			}
+			if err := tx.Commit(); err != nil {
+				return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit stale provider cost revision: %w", err)
+			}
 			return providerCostRevisionStale(input, previous), nil
 		}
 		advance := existingIdentity.Less(incomingIdentity)
@@ -459,7 +905,27 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 			}
 		}
 		if !advance {
+			// R3: superseded same-revision loser (candidate-subset or hash
+			// tie-break) is terminal stale with its own pin disposition in the
+			// same tx. No journal fabricated; exact replay succeeds via ensure.
+			if err := completeNoMoneyOutcome(); err != nil {
+				return billing.ProviderCostRevisionResult{}, err
+			}
+			if err := tx.Commit(); err != nil {
+				return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit stale provider cost revision: %w", err)
+			}
 			return providerCostRevisionStale(input, previous), nil
+		}
+		// B2b2: replacement revision retains one pin authority; pin + delta/
+		// head/fence effects commit atomically.
+		if err := checkRevisionNewPin(); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := s.b2b2Fault("b2b2-before-effects"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := s.b2b2Fault("b2b2-before-journal"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
 		}
 		posting, err := s.postProviderCostDeltaInTx(ctx, tx, input, before, previous, amount, operationKey, head.LastTransactionID)
 		if err != nil {
@@ -505,6 +971,12 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		if err := s.economicFault("after_provider_cost_revision"); err != nil {
 			return billing.ProviderCostRevisionResult{}, err
 		}
+		if err := completeRevisionPin(operationKey, transactionID); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := s.b2b2Fault("b2b2-before-commit"); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
 		if err := tx.Commit(); err != nil {
 			return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit provider cost revision: %w", err)
 		}
@@ -516,6 +988,16 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 		}, nil
 	}
 
+	// B2b2: first payable revision acquires/completes the pin atomically.
+	if err := checkRevisionNewPin(); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	if err := s.b2b2Fault("b2b2-before-effects"); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	if err := s.b2b2Fault("b2b2-before-journal"); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
 	posting, err := s.postProviderCostDeltaInTx(ctx, tx, input, before, billing.Money{Currency: account.Currency}, amount, operationKey, "")
 	if err != nil {
 		return billing.ProviderCostRevisionResult{}, err
@@ -551,6 +1033,12 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 	if err := s.economicFault("after_provider_cost_revision"); err != nil {
 		return billing.ProviderCostRevisionResult{}, err
 	}
+	if err := completeRevisionPin(operationKey, posting.Transaction.ID); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	if err := s.b2b2Fault("b2b2-before-commit"); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit provider cost revision: %w", err)
 	}
@@ -582,9 +1070,13 @@ func providerCostOriginalTransactionID(original, latest string) string {
 }
 
 // applyProviderCostRevisionAfterLegacyFence performs the one-time handoff from
-// the legacy LUR writer to the revision writer. The legacy amount is the
-// durable prior head; a matching first revision only adopts the new identity,
-// while a later revision posts the exact signed delta from that amount.
+// the legacy LUR writer to the revision writer. F7: both legacy handoff and
+// promotion branches acquire the revision-specific pin, post delta/update
+// heads/fences, and complete pin atomically in SAME transaction before commit.
+// Pre-pin legacy rows exact replay backfill from actual durable outcome; no
+// fabricated tx. The legacy amount is the durable prior head; a matching first
+// revision only adopts the new identity, while a later revision posts the
+// exact signed delta from that amount.
 func (s *DurableStore) applyProviderCostRevisionAfterLegacyFence(ctx context.Context, tx bun.Tx, input billing.ProviderCostRevisionInput, before billing.AccountSnapshot, sourceKey, fingerprint, operationKey, lineageKey string, fence providerCostPostingFenceRow, fenceNeedsInsert bool, head providerCostHeadRow, headFound bool, amount billing.Money) (billing.ProviderCostRevisionResult, error) {
 	previous := providerCostFenceAmount(fence)
 	if input.EvidenceRevision < uint64(fence.EvidenceRevision) {
@@ -594,9 +1086,26 @@ func (s *DurableStore) applyProviderCostRevisionAfterLegacyFence(ctx context.Con
 				previous, fence.OriginalTransactionID, fence.LastOperationKey, fence.LastTransactionID); err != nil {
 				return billing.ProviderCostRevisionResult{}, err
 			}
-			if err := tx.Commit(); err != nil {
-				return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit recovered provider cost fence: %w", err)
+		}
+		// R3: legacy stale is terminal with its own pin disposition plus
+		// snapshot fingerprint (fail closed on conflict). No journal fabricated.
+		if existing, exists, lookupErr := loadOperationSnapshot(ctx, tx, input.AccountID, "provider_call_cogs", sourceKey); lookupErr != nil {
+			return billing.ProviderCostRevisionResult{}, lookupErr
+		} else if exists {
+			if existing.Fingerprint != fingerprint {
+				return billing.ProviderCostRevisionResult{}, ErrOperationConflict
 			}
+		} else if err := insertOperationSnapshot(ctx, tx, operationSnapshotInput{
+			OperationKey: operationKey, AccountID: input.AccountID, OperationKind: "provider_call_cogs", SourceKey: sourceKey,
+			Fingerprint: fingerprint, Before: before, After: before,
+		}); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := s.ensureNoMoneyRevisionPinInTx(ctx, tx, input, operationKey); err != nil {
+			return billing.ProviderCostRevisionResult{}, err
+		}
+		if err := tx.Commit(); err != nil {
+			return billing.ProviderCostRevisionResult{}, fmt.Errorf("billingstore: commit stale provider cost revision: %w", err)
 		}
 		return providerCostRevisionStale(input, previous), nil
 	}
@@ -687,6 +1196,20 @@ func (s *DurableStore) applyProviderCostRevisionAfterLegacyFence(ctx context.Con
 		}
 	}
 	if err := s.economicFault("after_provider_cost_revision"); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	// F7 atomic: complete revision-specific pin in same tx before commit.
+	// Pin key equals operationKey (revision-specific immutable outcome).
+	// Completion uses actual durable transaction (new journal or existing
+	// legacy/head tx for zero-delta adoption), never fabricated.
+	if err := s.b2b2Fault("b2b2-before-pin-complete"); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	nowUnix := nowUnixNano()
+	if err := b2b2CompleteProviderPinTx(ctx, tx, s.storeID, operationKey, operationKey, transactionID, nowUnix); err != nil {
+		return billing.ProviderCostRevisionResult{}, err
+	}
+	if err := s.b2b2Fault("b2b2-before-commit"); err != nil {
 		return billing.ProviderCostRevisionResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -940,4 +1463,115 @@ func providerCostHeadFromRow(row providerCostHeadRow) (billing.ProviderCostHead,
 		LastOperationKey: row.LastOperationKey, OriginalTransactionID: providerCostOriginalTransactionID(row.OriginalTransactionID, row.LastTransactionID), LastTransactionID: row.LastTransactionID,
 		UpdatedAt: time.Unix(0, row.UpdatedAt).UTC(),
 	}, nil
+}
+
+// ensureNoMoneyRevisionPinInTx completes one terminal no-money revision pin
+// (stale/superseded/ignored/excluded/nonpayable) with (operationKey, "") in the
+// caller's tx. It backfills a completed pin when none exists, completes a pinned
+// pin, and validates exact completion identity for already-completed pins
+// (immutable outcome: different completion is conflict, never an update).
+// No journal is fabricated; fingerprint conflict is enforced by the caller's
+// operation snapshot, not here. Marker state is recorded for audit but never
+// gates terminal no-money completion (draining new-money fences do not apply).
+func (s *DurableStore) ensureNoMoneyRevisionPinInTx(ctx context.Context, tx bun.Tx, input billing.ProviderCostRevisionInput, operationKey string) error {
+	normalized, err := input.Normalize()
+	if err != nil {
+		return err
+	}
+	owner, err := billing.ResolveProviderRevisionOwner(normalized)
+	if err != nil {
+		return err
+	}
+	subjectJSON, err := json.Marshal(normalized.Subject)
+	if err != nil {
+		return fmt.Errorf("billingstore: encode provider cost subject: %w", err)
+	}
+	markerRow, markerFound, err := s.loadAccountingCutoverLocked(ctx, tx)
+	if err != nil {
+		return err
+	}
+	var revVersion, revEpoch uint64
+	var revGeneration int
+	var revState billing.AccountingCutoverState
+	if markerFound {
+		marker, merr := accountingCutoverRowToMarker(markerRow)
+		if merr != nil {
+			return merr
+		}
+		revVersion, revEpoch, revState = marker.Version, marker.Epoch, marker.State
+		revGeneration = marker.Generation
+	} else {
+		revState = b2b2ProviderStateForMissingMarker()
+		revVersion, revEpoch = 1, 1
+		revGeneration = billing.AccountingCutoverGenerationV1
+	}
+	pinRow, pinFound, err := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, operationKey)
+	if err != nil {
+		return err
+	}
+	if !pinFound {
+		nowUnix := nowUnixNano()
+		insert := `INSERT INTO billing_posting_ownership_pins (store_id, operation_kind, operation_key, account_id, call_id, b_leg_id, provider_charge_id, head_key, subject_kind, subject_json, owner, marker_version, marker_epoch, marker_generation, marker_state, status, completion_operation_key, completion_transaction_id, created_at_unix, updated_at_unix, completed_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(store_id, operation_kind, operation_key) DO NOTHING`
+		if s.db.Dialect().Name() == dialect.SQLite {
+			insert = `INSERT OR IGNORE INTO billing_posting_ownership_pins (store_id, operation_kind, operation_key, account_id, call_id, b_leg_id, provider_charge_id, head_key, subject_kind, subject_json, owner, marker_version, marker_epoch, marker_generation, marker_state, status, completion_operation_key, completion_transaction_id, created_at_unix, updated_at_unix, completed_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		}
+		if _, err := tx.NewRaw(insert, s.storeID, string(billing.PostingOperationProviderCharge), operationKey, normalized.AccountID, normalized.CallID.String(), normalized.Subject.BLegID, normalized.Subject.ProviderChargeID, "", string(normalized.Subject.Kind), string(subjectJSON), owner, int64(revVersion), int64(revEpoch), revGeneration, string(revState), string(billing.PostingPinCompleted), operationKey, "", nowUnix, nowUnix, nowUnix).Exec(ctx); err != nil {
+			return fmt.Errorf("billingstore: backfill no-money revision pin: %w", err)
+		}
+		rrow, rfound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, operationKey)
+		if rerr != nil {
+			return rerr
+		}
+		if !rfound {
+			return fmt.Errorf("%w: revision pin unavailable after backfill", billing.ErrPostingOwnershipNotFound)
+		}
+		repinned, perr := postingOwnershipRowToPin(rrow)
+		if perr != nil {
+			return perr
+		}
+		if repinned.Owner != owner {
+			return fmt.Errorf("%w: revision pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, repinned.Owner, owner)
+		}
+		if repinned.Status == billing.PostingPinCompleted {
+			// Already terminal (payable posted or prior no-money). Snapshot
+			// fingerprint validated by the caller proves exactness; leave the
+			// immutable outcome untouched regardless of its completion tx.
+			return nil
+		}
+		// Lost insert race with a pinned pin below: fall through to complete it.
+		pinRow, pinFound = rrow, true
+	}
+	pin, err := postingOwnershipRowToPin(pinRow)
+	if err != nil {
+		return err
+	}
+	if pin.Owner != owner {
+		return fmt.Errorf("%w: revision pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, pin.Owner, owner)
+	}
+	if pin.Status == billing.PostingPinCompleted {
+		// Same terminal-success rule as above.
+		return nil
+	}
+	nowUnix := nowUnixNano()
+	if nowUnix < pin.CreatedAtUnix {
+		nowUnix = pin.CreatedAtUnix
+	}
+	if err := b2b2CompleteProviderPinTx(ctx, tx, s.storeID, operationKey, operationKey, "", nowUnix); err != nil {
+		rrow, rfound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, operationKey)
+		if rerr != nil {
+			return rerr
+		}
+		if !rfound {
+			return fmt.Errorf("%w: revision pin missing after race", billing.ErrPostingOwnershipNotFound)
+		}
+		remarker, merr := postingOwnershipRowToPin(rrow)
+		if merr != nil {
+			return merr
+		}
+		if remarker.Status == billing.PostingPinCompleted && remarker.Owner == owner && remarker.CompletionOperationKey == operationKey && remarker.CompletionTransactionID == "" {
+			return nil
+		}
+		return fmt.Errorf("%w: revision pin completion race for %q", billing.ErrPostingOwnershipConflict, operationKey)
+	}
+	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	runtimecore "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -40,6 +41,25 @@ func (s *processBillingSink) Close() error { s.mu.Lock(); s.closes++; s.mu.Unloc
 
 type processBillingStore struct{}
 
+// GetCutoverClaimMetadata exposes the narrow B2a claim port for production
+// test doubles. It returns NotFound so workers degrade to legacy empty-claim
+// behavior in these unit tests; production DurableStore returns durable pins.
+func (processBillingStore) GetCutoverClaimMetadata(context.Context, billing.PostingOperationKind, string) (billing.CutoverClaimMetadata, error) {
+	return billing.CutoverClaimMetadata{}, billing.ErrPostingOwnershipNotFound
+}
+
+func (processBillingStore) ClaimCompleteCallsWithCutover(context.Context, int) ([]billing.ClaimedCompleteCall, error) {
+	return nil, nil
+}
+
+func (processBillingStore) ClaimProviderCostWorkWithCutover(context.Context, int) ([]billing.ClaimedProviderCostWork, error) {
+	return nil, nil
+}
+
+func (processBillingStore) ClaimEconomicRevisionWorkWithCutover(context.Context, billing.EconomicRevisionWork, string, time.Duration) (billing.EconomicRevisionWorkClaim, *billing.CutoverClaimMetadata, bool, error) {
+	return billing.EconomicRevisionWorkClaim{}, nil, false, nil
+}
+
 // customerOnlyProcessBillingStore deliberately exposes the customer settlement
 // and reporting ports without exposing provider-cost work. A store may be in
 // this state while supplier queue infrastructure is unavailable; independent
@@ -47,6 +67,16 @@ type processBillingStore struct{}
 type customerOnlyProcessBillingStore struct {
 	billing.AuthoritativeBilling
 	billing.CallUsageStore
+}
+
+// GetCutoverClaimMetadata exposes the narrow B2a claim port for the customer-
+// only production test double (explicit port, legacy empty-claim behavior).
+func (customerOnlyProcessBillingStore) GetCutoverClaimMetadata(context.Context, billing.PostingOperationKind, string) (billing.CutoverClaimMetadata, error) {
+	return billing.CutoverClaimMetadata{}, billing.ErrPostingOwnershipNotFound
+}
+
+func (customerOnlyProcessBillingStore) ClaimCompleteCallsWithCutover(context.Context, int) ([]billing.ClaimedCompleteCall, error) {
+	return nil, nil
 }
 
 func (processBillingStore) ApplyCallBillingResult(context.Context, billing.ApplyCallBillingInput) (billing.CallSettlement, error) {

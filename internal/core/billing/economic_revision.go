@@ -335,6 +335,16 @@ type EconomicRevisionWork struct {
 	Dependencies     []EconomicJobDependency        `json:"dependencies,omitempty"`
 	Input            economics.PostUsageRatingInput `json:"input"`
 	CreatedAt        time.Time                      `json:"created_at"`
+	// PostingOwner records explicit monetary intent for F2B cutover fencing.
+	// Empty preserves legacy inference (monetary provider_rating defaults to
+	// V1); "v1"/"v2" marks explicit monetary ownership (V2 requires v2_active
+	// authorization). Evidence-only work must use EvidenceOnly instead.
+	PostingOwner string `json:"posting_owner,omitempty"`
+	// EvidenceOnly forces evidence-only delivery for work that would otherwise
+	// infer monetary (e.g. shadow provider observations, pure workers without
+	// a posting adapter). Drain never inventories, pins, counts, or fences
+	// these rows; workers never post provider money for them.
+	EvidenceOnly bool `json:"evidence_only,omitempty"`
 }
 
 // Normalize validates the durable work and fills the canonical input-set
@@ -360,6 +370,19 @@ func (w EconomicRevisionWork) Normalize() (EconomicRevisionWork, error) {
 		return EconomicRevisionWork{}, fmt.Errorf("%w: kind %q does not belong to queue %q", ErrInvalidEconomicRevision, kind, out.Queue)
 	}
 	out.Kind = kind
+	if out.EvidenceOnly && strings.TrimSpace(out.PostingOwner) != "" {
+		return EconomicRevisionWork{}, fmt.Errorf("%w: evidence-only work cannot carry a posting owner", ErrInvalidEconomicRevision)
+	}
+	if strings.TrimSpace(out.PostingOwner) != "" && out.PostingOwner != PostingOwnerV1 && out.PostingOwner != PostingOwnerV2 {
+		return EconomicRevisionWork{}, fmt.Errorf("%w: unknown economic posting owner %q", ErrInvalidEconomicRevision, out.PostingOwner)
+	}
+	if strings.TrimSpace(out.PostingOwner) != "" {
+		// Explicit monetary ownership requires monetary shape; evidence-only
+		// opt-out uses EvidenceOnly instead of an owner.
+		if out.Queue != EconomicQueueProvider || out.Kind != EconomicWorkKindProviderRating {
+			return EconomicRevisionWork{}, fmt.Errorf("%w: explicit %q posting requires provider-rating provider work", ErrInvalidEconomicRevision, out.PostingOwner)
+		}
+	}
 	if err := economics.ValidateSafeRef("economic revision head key", out.HeadKey); err != nil || strings.TrimSpace(out.HeadKey) != out.HeadKey {
 		if err == nil {
 			err = errors.New("head key must not have surrounding whitespace")

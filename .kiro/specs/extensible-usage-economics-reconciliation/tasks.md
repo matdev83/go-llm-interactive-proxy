@@ -734,7 +734,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: go test ./internal/infra/billingstore/... ./internal/infra/runtimebundle/... ./internal/archtest/..._
   - _Requirements: 17.3, 17.4, 18.2_
 
-- [ ] 17.3 Implement durable epoch, worker fencing and in-flight ownership
+- [x] 17.3 Implement durable epoch, worker fencing and in-flight ownership
   - Add a durable cutover marker per configured deployment/store boundary, stop old claims and drain/classify V1 in-flight work before enabling V2 admissions.
   - Enforce one posting version per call/charge/adjustment, including workers waking after a lease/epoch change.
   - Completion: concurrency/crash tests demonstrate no dual posting across cutover.

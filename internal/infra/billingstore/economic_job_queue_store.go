@@ -24,6 +24,12 @@ var _ billing.EconomicRevisionBacklogReader = (*DurableStore)(nil)
 // state. Each claimed job carries a fresh fence; a stale owner can never
 // complete, heartbeat, retry or fail it afterwards.
 func (s *DurableStore) ClaimEconomicRevisionWorkBatch(ctx context.Context, queue billing.EconomicQueue, owner string, lease time.Duration, limit int) ([]billing.EconomicRevisionClaimedWork, error) {
+	return withAccountTx(ctx, accountTxRetry{Attempts: 40, Delay: 3 * time.Millisecond}, func() ([]billing.EconomicRevisionClaimedWork, error) {
+		return s.claimEconomicRevisionWorkBatchAttempt(ctx, queue, owner, lease, limit)
+	})
+}
+
+func (s *DurableStore) claimEconomicRevisionWorkBatchAttempt(ctx context.Context, queue billing.EconomicQueue, owner string, lease time.Duration, limit int) ([]billing.EconomicRevisionClaimedWork, error) {
 	if err := s.validateContext(ctx); err != nil {
 		return nil, err
 	}
@@ -99,6 +105,13 @@ func (s *DurableStore) claimEconomicRevisionWorkInTx(ctx context.Context, tx bun
 	if state.Status == economicRevisionWorkStateCompleted || state.Status == economicRevisionWorkStateFailed {
 		return nil, nil
 	}
+	// R2 authoritative gate: shape plus mutable state decides; stale
+	// payload EvidenceOnly/owner never decides.
+	if allowed, gerr := s.economicClaimGateAllows(ctx, tx, work, state); gerr != nil {
+		return nil, gerr
+	} else if !allowed {
+		return nil, nil
+	}
 	nowUnix := now.UnixNano()
 	if state.Status == economicRevisionWorkStateProcessing && state.LeaseUntil > nowUnix {
 		return nil, nil
@@ -142,8 +155,11 @@ WHERE store_id = ? AND work_id = ? AND work_version = ? AND status IN (?, ?) AND
 		// Another writer claimed the same fence between read and update.
 		return nil, nil
 	}
+	// R2 authoritative: return the state-overlaid work so split payload/state
+	// can never disagree downstream.
+	authoritative := billing.OverlayAuthoritativeEconomicWork(work, state.ProviderPosting == 1, state.PostingOwner)
 	return &billing.EconomicRevisionClaimedWork{
-		Work:  work,
+		Work:  authoritative,
 		Claim: billing.EconomicRevisionWorkClaim{Owner: owner, Fence: uint64(fence), LeaseUntil: leaseUntil},
 	}, nil
 }

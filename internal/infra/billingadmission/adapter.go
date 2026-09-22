@@ -149,6 +149,118 @@ func (a *Adapter) maxChargeInput(ctx context.Context, in coreruntime.BillingAdmi
 }
 
 func (a *Adapter) Admit(ctx context.Context, in coreruntime.BillingExposureAdmissionInput) (billing.CallExposure, error) {
+	// F3: runtime composition chooses the posting owner from the durable
+	// marker per StoreID/deployment at admission. When the underlying store
+	// exposes version-aware admission plus a cutover reader, the active
+	// marker selects V2; all pre-active states retain the legacy V1 default.
+	// Stores without those ports (test doubles, legacy) keep V1 behavior.
+	// The admitted exposure+pin retains the owner durably through the call
+	// lifecycle; terminal evidence validates against that admitted record,
+	// never a fresh global reclassification, and the owner never changes
+	// mid-call.
+	if owner, ok := a.versionedAdmissionOwner(ctx); ok && owner == billing.PostingOwnerV2 {
+		return a.admitWithOwner(ctx, in, billing.PostingOwnerV2)
+	}
+	return a.admitV1(ctx, in)
+}
+
+// AdmitWithOwner is the explicit version-aware admission entrypoint. Empty
+// owner preserves the legacy V1 default; V2 requires v2_active authorization
+// from the durable marker and pins V2 ownership at start.
+func (a *Adapter) AdmitWithOwner(ctx context.Context, in coreruntime.BillingExposureAdmissionInput, owner string) (billing.CallExposure, error) {
+	trimmed := strings.TrimSpace(owner)
+	if trimmed == "" || trimmed == billing.PostingOwnerV1 {
+		return a.admitV1(ctx, in)
+	}
+	if trimmed != billing.PostingOwnerV2 {
+		return billing.CallExposure{}, fmt.Errorf("%w: %w: unknown posting owner %q", billing.ErrPostingOwnershipInvalid, billing.ErrInvalidRecord, owner)
+	}
+	return a.admitWithOwner(ctx, in, billing.PostingOwnerV2)
+}
+
+// AdmitV2 is the explicit V2 admission entrypoint. Before v2_active it is
+// rejected; in active it pins V2 ownership at start.
+func (a *Adapter) AdmitV2(ctx context.Context, in coreruntime.BillingExposureAdmissionInput) (billing.CallExposure, error) {
+	return a.admitWithOwner(ctx, in, billing.PostingOwnerV2)
+}
+
+// versionedExposureStore is the explicit version-aware admission port F3
+// consumes. DurableStore implements it; test doubles without it keep legacy
+// V1 behavior.
+type versionedExposureStore interface {
+	AdmitExposureWithOwner(context.Context, billing.AdmitExposureInput, string) (billing.CallExposure, error)
+}
+
+// cutoverReader observes the durable marker per StoreID/deployment at
+// admission. DurableStore implements it; the owner is chosen from this
+// snapshot and retained via the admitted pin, never reclassified mid-call.
+type cutoverReader interface {
+	GetAccountingCutover(context.Context) (billing.AccountingCutoverMarker, error)
+}
+
+// versionedAdmissionOwner returns the durable-marker owner for this
+// admission: V2 only in v2_active, V1 otherwise. ok=false when the store
+// lacks the versioned ports (legacy V1 path).
+func (a *Adapter) versionedAdmissionOwner(ctx context.Context) (string, bool) {
+	if a == nil || a.cfg.ExposureStore == nil {
+		return "", false
+	}
+	if _, ok := a.cfg.ExposureStore.(versionedExposureStore); !ok {
+		return "", false
+	}
+	reader, ok := a.cfg.ExposureStore.(cutoverReader)
+	if !ok {
+		return "", false
+	}
+	marker, err := reader.GetAccountingCutover(ctx)
+	if err != nil {
+		// Absent marker (legacy store): V1 default via legacy path.
+		return "", false
+	}
+	if billing.IsV2NewWorkAuthorized(marker.State) {
+		return billing.PostingOwnerV2, true
+	}
+	return billing.PostingOwnerV1, true
+}
+
+func (a *Adapter) admitWithOwner(ctx context.Context, in coreruntime.BillingExposureAdmissionInput, owner string) (billing.CallExposure, error) {
+	if a == nil || a.cfg.ExposureStore == nil {
+		return billing.CallExposure{}, fmt.Errorf("%w: exposure store is required", billing.ErrExposureInvalid)
+	}
+	callID := strings.TrimSpace(in.CallID)
+	if callID == "" {
+		return billing.CallExposure{}, fmt.Errorf("%w: BillingCallID is required", billing.ErrExposureInvalid)
+	}
+	bound, err := a.Quote(ctx, in.BillingAdmissionInput)
+	if err != nil {
+		return billing.CallExposure{}, err
+	}
+	accountID := strings.TrimSpace(a.cfg.Identity.AccountID(ctx, in.Call))
+	if accountID == "" && in.AccountID != "" {
+		accountID = strings.TrimSpace(in.AccountID)
+	}
+	if accountID == "" && in.Scope.PrincipalID.IsKnown() {
+		accountID = strings.TrimSpace(in.Scope.PrincipalID.String())
+	}
+	if accountID == "" {
+		return billing.CallExposure{}, fmt.Errorf("%w: account identity is required", billing.ErrExposureInvalid)
+	}
+	input := billing.AdmitExposureInput{
+		AccountID: accountID, CallID: callID, Max: bound.Amount,
+		PricingRef: bound.PricingRef, ChargePolicyRef: bound.ChargePolicyRef,
+		RouteTariffs: bound.RouteTariffs,
+	}
+	if versioned, ok := a.cfg.ExposureStore.(versionedExposureStore); ok && versioned != nil {
+		return versioned.AdmitExposureWithOwner(ctx, input, owner)
+	}
+	if owner == billing.PostingOwnerV2 {
+		return billing.CallExposure{}, fmt.Errorf("%w: store does not support V2 admission",
+			billing.ErrCutoverV2NotAuthorized)
+	}
+	return a.cfg.ExposureStore.AdmitExposure(ctx, input)
+}
+
+func (a *Adapter) admitV1(ctx context.Context, in coreruntime.BillingExposureAdmissionInput) (billing.CallExposure, error) {
 	if a == nil || a.cfg.ExposureStore == nil {
 		return billing.CallExposure{}, fmt.Errorf("%w: exposure store is required", billing.ErrExposureInvalid)
 	}

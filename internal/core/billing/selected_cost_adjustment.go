@@ -36,6 +36,18 @@ type SelectedCostAdjustmentInput struct {
 	Subject   metering.SubjectRef
 	Expected  SelectedCostHeadExpectation
 	Selected  SelectedCostValuation
+	// PostingOwner selects the B1 pin owner for the financial adjustment fence.
+	// Empty preserves the legacy V1 default for backward compatibility.
+	// Draining requires a classified V1 pin plus matching claim metadata;
+	// v2_active permits only V2.
+	PostingOwner string
+	// Claim carries the B2a worker-claim metadata (owner/epoch) captured at
+	// claim time. When present, posting validates it against the current
+	// marker and pin to close TOCTOU between claim and posting. Nil preserves
+	// legacy direct calls in v1_active/shadow; draining fences unpinned/stale
+	// work even without a claim, and B2b3 draining requires a matching claim
+	// for new postings.
+	Claim *CutoverClaimMetadata
 }
 
 // Normalize validates and returns a detached copy of the adjustment envelope.
@@ -43,11 +55,16 @@ func (in SelectedCostAdjustmentInput) Normalize() (SelectedCostAdjustmentInput, 
 	out := in
 	out.AccountID = strings.TrimSpace(out.AccountID)
 	out.HeadKey = strings.TrimSpace(out.HeadKey)
+	out.PostingOwner = strings.TrimSpace(in.PostingOwner)
 	out.Selected = in.Selected.Clone()
 	out.Expected = SelectedCostHeadExpectation{Version: in.Expected.Version}
 	if in.Expected.Previous != nil {
 		previous := in.Expected.Previous.Clone()
 		out.Expected.Previous = &previous
+	}
+	if in.Claim != nil {
+		claimed := *in.Claim
+		out.Claim = &claimed
 	}
 	if !validEconomicIdentity(out.AccountID, metering.MaxSchemaIDBytes) {
 		return SelectedCostAdjustmentInput{}, fmt.Errorf("%w: account id is required", ErrSelectedCostAdjustmentInvalid)

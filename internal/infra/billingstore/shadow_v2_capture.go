@@ -172,6 +172,16 @@ func (s *ShadowV2Capture) AppendWork(ctx context.Context, work billing.EconomicR
 		return fmt.Errorf("%w: work store %q does not match shadow scope %q",
 			ErrShadowV2Scope, normalized.Subject.StoreID, s.storeID)
 	}
+	// F2B: shadow is explicitly evidence-only (no-post). Prefer the
+	// evidence-only queue seam so drain never inventories shadow provider
+	// observations as monetary work; fall back to generic for legacy stores.
+	// Force the evidence flag so even provider-rating envelopes stay
+	// evidence-only through generic fallbacks.
+	normalized.EvidenceOnly = true
+	normalized.PostingOwner = ""
+	if evidence, ok := s.work.(billing.EconomicRevisionWorkEvidenceAppender); ok && evidence != nil && !billing.IsNilPort(evidence) {
+		return evidence.AppendEvidenceEconomicRevisionWork(ctx, normalized)
+	}
 	return s.work.AppendEconomicRevisionWork(ctx, normalized)
 }
 

@@ -225,6 +225,26 @@ func (r *observationEconomicRelay) processItem(ctx context.Context, item journal
 		return fmt.Errorf("runtimebundle: build economic revision work: %w", err)
 	}
 	for _, work := range works {
+		// R2 authoritative: production provider monetary work enqueues with
+		// the admitted durable owner for its call/work (call-scoped pin
+		// preferred over any unbound global marker). Evidence-only customer
+		// work uses the generic seam and remains operable.
+		if billing.IsMonetaryEconomicShape(work) {
+			if poster, ok := r.appender.(billing.EconomicRevisionWorkPostingAppender); ok && poster != nil && !billing.IsNilPort(poster) {
+				owner := billing.PostingOwnerV1
+				if resolver, ok := r.appender.(billing.EconomicRevisionAdmittedOwnerResolver); ok && resolver != nil && !billing.IsNilPort(resolver) {
+					if resolved, rerr := resolver.ResolveEconomicRevisionPostingOwner(ctx, work); rerr != nil {
+						return fmt.Errorf("runtimebundle: resolve economic posting owner: %w", rerr)
+					} else if resolved == billing.PostingOwnerV1 || resolved == billing.PostingOwnerV2 {
+						owner = resolved
+					}
+				}
+				if err := poster.AppendProviderPostingEconomicRevisionWork(ctx, work, owner); err != nil {
+					return fmt.Errorf("runtimebundle: append economic revision work: %w", err)
+				}
+				continue
+			}
+		}
 		if err := r.appender.AppendEconomicRevisionWork(ctx, work); err != nil {
 			return fmt.Errorf("runtimebundle: append economic revision work: %w", err)
 		}

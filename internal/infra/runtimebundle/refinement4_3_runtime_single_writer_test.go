@@ -96,6 +96,11 @@ func (s *runtime43LegacyStore) ListPendingProviderCostWork(context.Context, int)
 	return nil, nil
 }
 
+func (s *runtime43LegacyStore) ClaimProviderCostWorkWithCutover(context.Context, int) ([]billing.ClaimedProviderCostWork, error) {
+	s.listProviderCalls.Add(1)
+	return nil, nil
+}
+
 func (s *runtime43LegacyStore) ApplyProviderCost(context.Context, billing.ApplyProviderCostInput) (billing.Posting, error) {
 	s.legacyApplies.Add(1)
 	return billing.Posting{}, nil
@@ -113,6 +118,10 @@ func newRuntime43FencedStore() *runtime43FencedStore {
 
 func (s *runtime43FencedStore) ListPendingProviderCostWork(context.Context, int) ([]billing.ProviderCostWork, error) {
 	return []billing.ProviderCostWork{{AccountID: "acct"}}, nil
+}
+
+func (s *runtime43FencedStore) ClaimProviderCostWorkWithCutover(context.Context, int) ([]billing.ClaimedProviderCostWork, error) {
+	return []billing.ClaimedProviderCostWork{{Work: billing.ProviderCostWork{AccountID: "acct"}}}, nil
 }
 
 func (s *runtime43FencedStore) ClaimProviderCostWorkForRevision(context.Context, billing.ProviderCostWork) (bool, error) {

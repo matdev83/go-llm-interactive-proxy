@@ -82,6 +82,14 @@ func (s *DurableStore) ApplySelectedCostAdjustment(ctx context.Context, input bi
 	if normalized.Subject.StoreID != s.storeID {
 		return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: selected cost adjustment subject store", ErrEconomicsOutOfScope)
 	}
+	if _, err := billing.ResolveFinancialAdjustmentOwner(normalized); err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
+	}
+	if normalized.Claim != nil {
+		if err := billing.ValidateFinancialAdjustmentClaim(*normalized.Claim, normalized); err != nil {
+			return billing.SelectedCostAdjustmentResult{}, err
+		}
+	}
 	return withAccountTx(ctx, accountTxRetry{
 		Attempts: selectedCostAdjustmentTxAttempts, Delay: selectedCostAdjustmentTxDelay,
 		Exhausted: fmt.Errorf("%w: selected cost adjustment retry budget exhausted", billing.ErrBillingStoreUnavailable),
@@ -96,6 +104,56 @@ func (s *DurableStore) applySelectedCostAdjustmentAttempt(ctx context.Context, i
 		return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("billingstore: begin selected cost adjustment: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	// B2b3 posting-time ownership fence (financial_adjustment only). Bind the
+	// canonical head pin to exactly one owner/marker epoch before any
+	// adjustment monetary effect. Pin + money commit atomically in this
+	// transaction; exact retry returns the existing outcome with a completed
+	// pin; conflicting replay fails.
+	owner, err := billing.ResolveFinancialAdjustmentOwner(input)
+	if err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
+	}
+	if err := s.b2b3Fault("b2b3-enter"); err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
+	}
+	// F1: lock/create the per-store marker before account/head/pin effects.
+	lockedMarker, err := s.ensureAndLockAccountingCutoverTx(ctx, tx)
+	if err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
+	}
+	curState := lockedMarker.State
+	curVersion := lockedMarker.Version
+	curEpoch := lockedMarker.Epoch
+	curGeneration := lockedMarker.Generation
+	pinKey, err := billing.FinancialAdjustmentPostingOperationKey(s.storeID, input.AccountID, input.CallID, input.HeadKey, input.Subject)
+	if err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
+	}
+	if input.Claim != nil {
+		if input.Claim.OperationKey != pinKey {
+			return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: claim key %q != canonical %q", billing.ErrPostingOwnershipConflict, input.Claim.OperationKey, pinKey)
+		}
+		if input.Claim.Owner != owner {
+			return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: claim owner %q != posting owner %q", billing.ErrPostingOwnershipConflict, input.Claim.Owner, owner)
+		}
+	}
+	pinRow, pinFound, err := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, pinKey)
+	if err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
+	}
+	var pin billing.PostingPin
+	if pinFound {
+		pin, err = postingOwnershipRowToPin(pinRow)
+		if err != nil {
+			return billing.SelectedCostAdjustmentResult{}, err
+		}
+		if pin.Kind != billing.PostingOperationFinancialAdjustment || pin.OperationKey != pinKey || pin.AccountID != input.AccountID || pin.CallID != input.CallID {
+			return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: adjustment pin identity mismatch for %q", billing.ErrPostingOwnershipConflict, pinKey)
+		}
+		if pin.Owner != owner {
+			return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: adjustment pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, pin.Owner, owner)
+		}
+	}
 	account, err := getAccountTx(ctx, tx, input.AccountID)
 	if err != nil {
 		return billing.SelectedCostAdjustmentResult{}, err
@@ -135,19 +193,159 @@ func (s *DurableStore) applySelectedCostAdjustmentAttempt(ctx context.Context, i
 	}
 	switch plan.Status {
 	case billing.SelectedCostTransitionApplied, billing.SelectedCostTransitionNoOp:
-		return s.applySelectedCostAdjustmentEffects(ctx, tx, input, before, current, row, found, plan)
+		return s.applySelectedCostAdjustmentEffects(ctx, tx, input, before, current, row, found, plan, b2b3AdjustmentFenceCtx{
+			owner: owner, pinKey: pinKey, pin: pin, pinFound: pinFound,
+			curState: curState, curVersion: curVersion, curEpoch: curEpoch, curGeneration: curGeneration,
+		})
 	case billing.SelectedCostTransitionReplay:
-		return s.replaySelectedCostAdjustment(ctx, tx, input, current, plan)
+		return s.replaySelectedCostAdjustment(ctx, tx, input, current, plan, b2b3AdjustmentFenceCtx{
+			owner: owner, pinKey: pinKey, pin: pin, pinFound: pinFound,
+			curState: curState, curVersion: curVersion, curEpoch: curEpoch, curGeneration: curGeneration,
+		})
 	default:
 		// Pending, stale and conflict outcomes plan no writes; the deferred
-		// rollback discards the read-only transaction.
+		// rollback discards the read-only transaction. No pin is created for
+		// zero-effect planner outcomes.
 		return selectedCostAdjustmentResultFromPlan(input, current, plan), nil
 	}
 }
 
-func (s *DurableStore) applySelectedCostAdjustmentEffects(ctx context.Context, tx bun.Tx, input billing.SelectedCostAdjustmentInput, before billing.AccountSnapshot, current billing.SelectedCostHead, row providerCostHeadRow, found bool, plan billing.SelectedCostHeadTransition) (billing.SelectedCostAdjustmentResult, error) {
+// b2b3AdjustmentFenceCtx carries the B2b3 marker snapshot and pin state for
+// one adjustment attempt. The store derives the canonical head pin key; the
+// caller never supplies weak IDs.
+type b2b3AdjustmentFenceCtx struct {
+	owner         string
+	pinKey        string
+	pin           billing.PostingPin
+	pinFound      bool
+	curState      billing.AccountingCutoverState
+	curVersion    uint64
+	curEpoch      uint64
+	curGeneration int
+}
+
+// b2b3CheckNewAdjustmentPin enforces the one-owner fence for new adjustment
+// postings (Applied/NoOp deltas). Draining requires a classified V1 pin plus
+// matching current-marker token; v2_active permits only V2; stale tokens fence
+// before money. Pin owner is stable; only token==current is required (F6).
+func (s *DurableStore) b2b3CheckNewAdjustmentPin(ctx context.Context, tx bun.Tx, input billing.SelectedCostAdjustmentInput, fence *b2b3AdjustmentFenceCtx) error {
+	if input.Claim != nil {
+		if input.Claim.MarkerVersion != fence.curVersion || input.Claim.MarkerEpoch != fence.curEpoch || input.Claim.MarkerState != fence.curState {
+			return fmt.Errorf("%w: adjustment claim %d/%d/%q != current %d/%d/%q",
+				billing.ErrPostingOwnershipFence, input.Claim.MarkerVersion, input.Claim.MarkerEpoch, string(input.Claim.MarkerState), fence.curVersion, fence.curEpoch, string(fence.curState))
+		}
+	}
+	if !fence.pinFound {
+		if !billing.IsPostingOwnerAllowedForNew(fence.curState, fence.owner) {
+			return fmt.Errorf("%w: adjustment owner %q not allowed for new in %q", billing.ErrPostingOwnershipFence, fence.owner, string(fence.curState))
+		}
+		if input.Claim != nil {
+			return fmt.Errorf("%w: adjustment claim without classified pin for %q", billing.ErrPostingOwnershipFence, fence.pinKey)
+		}
+		if fence.curState == billing.AccountingCutoverV1Draining {
+			return fmt.Errorf("%w: draining forbids new adjustment for %q", billing.ErrPostingOwnershipFence, fence.pinKey)
+		}
+		if fence.owner == billing.PostingOwnerV2 && !billing.IsV2NewWorkAuthorized(fence.curState) {
+			return fmt.Errorf("%w: V2 adjustment requires v2_active", billing.ErrCutoverV2NotAuthorized)
+		}
+		if err := s.b2b3Fault("b2b3-pin-acquire"); err != nil {
+			return err
+		}
+		nowUnix := nowUnixNano()
+		acquired, err := b2b3InsertAdjustmentPinTx(ctx, tx, s, input.AccountID, input.CallID, input.Subject, input.HeadKey, fence.pinKey, fence.owner, fence.curVersion, fence.curEpoch, fence.curGeneration, fence.curState, nowUnix)
+		if err != nil {
+			return err
+		}
+		fence.pin = acquired
+		fence.pinFound = true
+		return nil
+	}
+	// Pinned path: only correctly pinned work may complete. Draining requires
+	// the caller's matching claim metadata (no optional bypass); without it
+	// the posting fences even though a pin exists.
+	if fence.curState == billing.AccountingCutoverV1Draining && input.Claim == nil {
+		return fmt.Errorf("%w: draining adjustment requires claim metadata for %q", billing.ErrPostingOwnershipFence, fence.pinKey)
+	}
+	if fence.pin.Status == billing.PostingPinCompleted {
+		// Completed head pin with the same owner remains authoritative for
+		// replacement revisions. V1 replacements in v2_active are stale
+		// wake/retries: only exact completed replay (handled in the replay
+		// path, no new money) is allowed there.
+		if fence.curState == billing.AccountingCutoverV2Active && fence.owner == billing.PostingOwnerV1 {
+			return fmt.Errorf("%w: v2_active forbids new V1 adjustment for %q", billing.ErrPostingOwnershipFence, fence.pinKey)
+		}
+		if !billing.IsPostingPinAcquireReplayAllowed(fence.curState, fence.pin) {
+			return fmt.Errorf("%w: adjustment pin replay not allowed in %q", billing.ErrPostingOwnershipFence, string(fence.curState))
+		}
+		return nil
+	}
+	if !billing.IsPostingPinAcquireReplayAllowed(fence.curState, fence.pin) {
+		return fmt.Errorf("%w: adjustment pin replay not allowed in %q", billing.ErrPostingOwnershipFence, string(fence.curState))
+	}
+	if !billing.IsPostingPinCompleteAllowed(fence.curState, fence.pin) {
+		return fmt.Errorf("%w: adjustment pin completion not allowed in %q", billing.ErrPostingOwnershipFence, string(fence.curState))
+	}
+	return nil
+}
+
+// b2b3CompleteAdjustmentPin records the adjustment outcome atomically: pinned
+// pins complete, completed pins with the same owner advance to the latest
+// outcome (one authority for replacements).
+func (s *DurableStore) b2b3CompleteAdjustmentPin(ctx context.Context, tx bun.Tx, fence *b2b3AdjustmentFenceCtx, completionOpKey, completionTxID string) error {
+	if err := s.b2b3Fault("b2b3-before-pin-complete"); err != nil {
+		return err
+	}
+	nowUnix := nowUnixNano()
+	if fence.pinFound && nowUnix < fence.pin.CreatedAtUnix {
+		nowUnix = fence.pin.CreatedAtUnix
+	}
+	if !fence.pinFound {
+		return fmt.Errorf("%w: adjustment pin missing for completion", billing.ErrPostingOwnershipNotFound)
+	}
+	if fence.pin.Status == billing.PostingPinPinned {
+		if err := b2b3CompleteAdjustmentPinTx(ctx, tx, s.storeID, fence.pinKey, completionOpKey, completionTxID, nowUnix); err != nil {
+			return err
+		}
+		rrow, _, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, fence.pinKey)
+		if rerr != nil {
+			return rerr
+		}
+		completed, perr := postingOwnershipRowToPin(rrow)
+		if perr != nil {
+			return perr
+		}
+		fence.pin = completed
+		return nil
+	}
+	if fence.pin.Owner != fence.owner {
+		return fmt.Errorf("%w: adjustment pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, fence.pin.Owner, fence.owner)
+	}
+	if err := b2b3UpdateAdjustmentPinCompletionTx(ctx, tx, s.storeID, fence.pinKey, fence.owner, completionOpKey, completionTxID, nowUnix); err != nil {
+		return err
+	}
+	rrow, _, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, fence.pinKey)
+	if rerr != nil {
+		return rerr
+	}
+	updated, perr := postingOwnershipRowToPin(rrow)
+	if perr != nil {
+		return perr
+	}
+	fence.pin = updated
+	return nil
+}
+
+func (s *DurableStore) applySelectedCostAdjustmentEffects(ctx context.Context, tx bun.Tx, input billing.SelectedCostAdjustmentInput, before billing.AccountSnapshot, current billing.SelectedCostHead, row providerCostHeadRow, found bool, plan billing.SelectedCostHeadTransition, fence b2b3AdjustmentFenceCtx) (billing.SelectedCostAdjustmentResult, error) {
 	if plan.Link == nil || plan.NextHead == nil || plan.Delta == nil {
 		return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: selected cost head transition is missing its effects", billing.ErrSelectedCostAdjustmentInvalid)
+	}
+	// New posting (no snapshot for this revision): enforce one-owner fence
+	// before any journal/linkage/head mutation.
+	if err := s.b2b3CheckNewAdjustmentPin(ctx, tx, input, &fence); err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
+	}
+	if err := s.b2b3Fault("b2b3-before-effects"); err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
 	}
 	linkKey, err := plan.Link.Key()
 	if err != nil {
@@ -155,6 +353,9 @@ func (s *DurableStore) applySelectedCostAdjustmentEffects(ctx context.Context, t
 	}
 	var transactionID string
 	if plan.Journal != nil && !plan.Journal.IsNoOp() {
+		if err := s.b2b3Fault("b2b3-before-journal"); err != nil {
+			return billing.SelectedCostAdjustmentResult{}, err
+		}
 		posting, err := s.postSelectedCostAdjustmentJournalInTx(ctx, tx, input, before, *plan.Journal)
 		if err != nil {
 			return billing.SelectedCostAdjustmentResult{}, err
@@ -176,6 +377,15 @@ func (s *DurableStore) applySelectedCostAdjustmentEffects(ctx context.Context, t
 	if err := s.economicFault("after_selected_cost_adjustment"); err != nil {
 		return billing.SelectedCostAdjustmentResult{}, err
 	}
+	// B2b3 atomic completion: pin + journal/linkage/head commit in the same
+	// transaction. No window where money is posted but the pin remains
+	// reusable. Replacement revisions advance the same head pin authority.
+	if err := s.b2b3CompleteAdjustmentPin(ctx, tx, &fence, plan.OperationKey, transactionID); err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
+	}
+	if err := s.b2b3Fault("b2b3-before-commit"); err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("billingstore: commit selected cost adjustment: %w", err)
 	}
@@ -186,7 +396,7 @@ func (s *DurableStore) applySelectedCostAdjustmentEffects(ctx context.Context, t
 	return result, nil
 }
 
-func (s *DurableStore) replaySelectedCostAdjustment(ctx context.Context, tx bun.Tx, input billing.SelectedCostAdjustmentInput, current billing.SelectedCostHead, plan billing.SelectedCostHeadTransition) (billing.SelectedCostAdjustmentResult, error) {
+func (s *DurableStore) replaySelectedCostAdjustment(ctx context.Context, tx bun.Tx, input billing.SelectedCostAdjustmentInput, current billing.SelectedCostHead, plan billing.SelectedCostHeadTransition, fence b2b3AdjustmentFenceCtx) (billing.SelectedCostAdjustmentResult, error) {
 	result := selectedCostAdjustmentResultFromPlan(input, current, plan)
 	result.TransactionID = current.LastTransactionID
 	if plan.Link != nil {
@@ -201,7 +411,97 @@ func (s *DurableStore) replaySelectedCostAdjustment(ctx context.Context, tx bun.
 		return billing.SelectedCostAdjustmentResult{}, err
 	}
 	if found && selectedCostAdjustmentStoredMatches(stored, input.Selected.Ref) {
-		return selectedCostAdjustmentReplayResult(stored, input, current)
+		replayed, err := selectedCostAdjustmentReplayResult(stored, input, current)
+		if err != nil {
+			return billing.SelectedCostAdjustmentResult{}, err
+		}
+		// Exact retry: no new money. Ensure the head pin is completed with
+		// the real outcome in the same transaction, then return replay. This
+		// allows V1 completed-history replay in v2_active without new effects.
+		if err := s.b2b3Fault("b2b3-replay-pin"); err != nil {
+			return billing.SelectedCostAdjustmentResult{}, err
+		}
+		if !fence.pinFound {
+			nowUnix := nowUnixNano()
+			if err := b2b3BackfillAdjustmentPinTx(ctx, tx, s, input.AccountID, input.CallID, input.Subject, input.HeadKey, fence.pinKey, fence.owner, fence.curVersion, fence.curEpoch, fence.curGeneration, fence.curState, stored.OperationKey, stored.JournalTransactionID, nowUnix); err != nil {
+				return billing.SelectedCostAdjustmentResult{}, err
+			}
+			rrow, refound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, fence.pinKey)
+			if rerr != nil {
+				return billing.SelectedCostAdjustmentResult{}, rerr
+			}
+			if !refound {
+				return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: adjustment pin unavailable after backfill", billing.ErrPostingOwnershipNotFound)
+			}
+			repinned, err := postingOwnershipRowToPin(rrow)
+			if err != nil {
+				return billing.SelectedCostAdjustmentResult{}, err
+			}
+			if repinned.Owner != fence.owner {
+				return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: adjustment pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, repinned.Owner, fence.owner)
+			}
+			if repinned.Status == billing.PostingPinPinned {
+				fence.pin = repinned
+				fence.pinFound = true
+			} else {
+				if repinned.CompletionOperationKey != stored.OperationKey || repinned.CompletionTransactionID != stored.JournalTransactionID {
+					// Pin advanced to a later replacement; this exact replay
+					// remains stable without touching the newer authority.
+					if err := tx.Commit(); err != nil {
+						return billing.SelectedCostAdjustmentResult{}, err
+					}
+					return replayed, nil
+				}
+				if err := tx.Commit(); err != nil {
+					return billing.SelectedCostAdjustmentResult{}, err
+				}
+				return replayed, nil
+			}
+		}
+		if fence.pinFound {
+			if fence.pin.Status == billing.PostingPinCompleted {
+				if fence.pin.CompletionOperationKey != stored.OperationKey || fence.pin.CompletionTransactionID != stored.JournalTransactionID {
+					// Replacement advanced the head pin; exact older replay
+					// stays stable with zero pin mutation.
+					if err := tx.Commit(); err != nil {
+						return billing.SelectedCostAdjustmentResult{}, err
+					}
+					return replayed, nil
+				}
+				if err := tx.Commit(); err != nil {
+					return billing.SelectedCostAdjustmentResult{}, err
+				}
+				return replayed, nil
+			}
+			nowUnix := nowUnixNano()
+			if nowUnix < fence.pin.CreatedAtUnix {
+				nowUnix = fence.pin.CreatedAtUnix
+			}
+			if err := b2b3CompleteAdjustmentPinTx(ctx, tx, s.storeID, fence.pinKey, stored.OperationKey, stored.JournalTransactionID, nowUnix); err != nil {
+				rrow, refound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, fence.pinKey)
+				if rerr != nil {
+					return billing.SelectedCostAdjustmentResult{}, rerr
+				}
+				if !refound {
+					return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: adjustment pin missing after race", billing.ErrPostingOwnershipNotFound)
+				}
+				remarker, merr := postingOwnershipRowToPin(rrow)
+				if merr != nil {
+					return billing.SelectedCostAdjustmentResult{}, merr
+				}
+				if remarker.Status == billing.PostingPinCompleted && remarker.CompletionOperationKey == stored.OperationKey && remarker.CompletionTransactionID == stored.JournalTransactionID && remarker.Owner == fence.owner {
+					if err := tx.Commit(); err != nil {
+						return billing.SelectedCostAdjustmentResult{}, err
+					}
+					return replayed, nil
+				}
+				return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: adjustment pin completion race for %q", billing.ErrPostingOwnershipConflict, fence.pinKey)
+			}
+			if err := tx.Commit(); err != nil {
+				return billing.SelectedCostAdjustmentResult{}, err
+			}
+			return replayed, nil
+		}
 	}
 	// No durable adjustment operation backs this head. A legacy provider-cost
 	// head may already carry exactly the requested valuation; only a caller CAS
@@ -212,6 +512,24 @@ func (s *DurableStore) replaySelectedCostAdjustment(ctx context.Context, tx bun.
 	}
 	if input.Expected.Version != current.Version || !previousMatches {
 		return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("%w: replay for head %s has no durable adjustment operation", billing.ErrSelectedCostAdjustmentConflict, input.HeadKey)
+	}
+	// Benign legacy-head replay: ensure a completed pin exists for the head
+	// lineage in the same transaction (no new money, just ownership).
+	if err := s.b2b3Fault("b2b3-replay-pin"); err != nil {
+		return billing.SelectedCostAdjustmentResult{}, err
+	}
+	legacyOpKey := plan.OperationKey
+	if legacyOpKey == "" {
+		legacyOpKey = current.LastOperationKey
+	}
+	if !fence.pinFound {
+		nowUnix := nowUnixNano()
+		if err := b2b3BackfillAdjustmentPinTx(ctx, tx, s, input.AccountID, input.CallID, input.Subject, input.HeadKey, fence.pinKey, fence.owner, fence.curVersion, fence.curEpoch, fence.curGeneration, fence.curState, legacyOpKey, current.LastTransactionID, nowUnix); err != nil {
+			return billing.SelectedCostAdjustmentResult{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return billing.SelectedCostAdjustmentResult{}, fmt.Errorf("billingstore: commit adjustment legacy replay: %w", err)
 	}
 	return result, nil
 }

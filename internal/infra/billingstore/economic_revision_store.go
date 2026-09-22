@@ -45,7 +45,35 @@ func economicRevisionWorkKind(queue billing.EconomicQueue) string {
 // ID is derived from queue/head/revision/input hash; a duplicate is a no-op,
 // while a changed payload under the same identity is rejected by the existing
 // economic-work identity fence.
+//
+// F2B: monetary provider work (provider queue + provider_rating + valid B-leg
+// lineage) is fenced as new V1 work in draining/active (F1 marker lock held in
+// the same tx). Evidence-only customer rating, reconciliation, shadow, and
+// queues without a posting adapter remain operable in all states.
 func (s *DurableStore) AppendEconomicRevisionWork(ctx context.Context, work billing.EconomicRevisionWork) error {
+	return s.appendEconomicRevisionWorkWithOwner(ctx, work, "")
+}
+
+// AppendProviderPostingEconomicRevisionWork appends monetary provider work with
+// an explicit posting owner (production enqueue). Empty owner preserves the
+// legacy V1 default; "v2" requires v2_active authorization and is the only
+// permitted new monetary owner after activation. Evidence-only envelopes fail
+// closed here; use AppendEconomicRevisionWork for evidence-only work.
+func (s *DurableStore) AppendProviderPostingEconomicRevisionWork(ctx context.Context, work billing.EconomicRevisionWork, owner string) error {
+	return s.appendEconomicRevisionWorkWithOwner(ctx, work, owner)
+}
+
+// AppendEvidenceEconomicRevisionWork appends an explicitly evidence-only
+// marker that never creates monetary intent, pins, or fences. Shadow
+// observations/valuations and pure workers without a posting adapter use this
+// path so drain never inventories them as payable work.
+func (s *DurableStore) AppendEvidenceEconomicRevisionWork(ctx context.Context, work billing.EconomicRevisionWork) error {
+	return withAccountTxErr(ctx, accountTxRetry{Attempts: 40, Delay: 3 * time.Millisecond}, func() error {
+		return s.appendEvidenceEconomicRevisionWorkAttempt(ctx, work)
+	})
+}
+
+func (s *DurableStore) appendEvidenceEconomicRevisionWorkAttempt(ctx context.Context, work billing.EconomicRevisionWork) error {
 	if err := s.validateContext(ctx); err != nil {
 		return err
 	}
@@ -78,13 +106,14 @@ func (s *DurableStore) AppendEconomicRevisionWork(ctx context.Context, work bill
 		return fmt.Errorf("billingstore: economic revision work begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	// F1: hold the per-store marker lock so activation serializes with enqueue,
+	// but evidence-only work never consults the V1/V2 new-work fence.
+	if _, err := s.ensureAndLockAccountingCutoverTx(ctx, tx); err != nil {
+		return err
+	}
 	if err := s.AppendEconomicWorkInTx(ctx, tx, marker); err != nil {
 		_ = tx.Rollback()
 		if errors.Is(err, ErrIdentityConflict) {
-			// Evidence delivery can legitimately change transport metadata (for
-			// example ReceivedAt) while retaining the same source revision and
-			// input hash. Treat that replay as a no-op, but keep rejecting a
-			// changed semantic payload under the same immutable identity.
 			equivalent, replayErr := s.economicRevisionReplayEquivalent(ctx, normalized, identity)
 			if replayErr != nil {
 				return replayErr
@@ -96,7 +125,137 @@ func (s *DurableStore) AppendEconomicRevisionWork(ctx context.Context, work bill
 		}
 		return err
 	}
-	if err := s.ensureEconomicRevisionWorkStateInTx(ctx, tx, normalized, identity); err != nil {
+	if err := s.ensureEconomicRevisionWorkStateEvidenceInTx(ctx, tx, normalized, identity); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("billingstore: economic revision work commit: %w", err)
+	}
+	return nil
+}
+
+func (s *DurableStore) appendEconomicRevisionWorkWithOwner(ctx context.Context, work billing.EconomicRevisionWork, owner string) error {
+	return withAccountTxErr(ctx, accountTxRetry{Attempts: 40, Delay: 3 * time.Millisecond}, func() error {
+		return s.appendEconomicRevisionWorkWithOwnerAttempt(ctx, work, owner)
+	})
+}
+
+func (s *DurableStore) appendEconomicRevisionWorkWithOwnerAttempt(ctx context.Context, work billing.EconomicRevisionWork, owner string) error {
+	if err := s.validateContext(ctx); err != nil {
+		return err
+	}
+	normalized, err := work.Normalize()
+	if err != nil {
+		return err
+	}
+	identity, err := normalized.Identity()
+	if err != nil {
+		return err
+	}
+	if normalized.Subject.StoreID != s.storeID {
+		return fmt.Errorf("%w: economic revision subject store", ErrEconomicsOutOfScope)
+	}
+	if normalized.EvidenceRevision > math.MaxInt64 {
+		return fmt.Errorf("%w: evidence revision exceeds database range", billing.ErrInvalidEconomicRevision)
+	}
+	isMonetary := billing.IsMonetaryEconomicRevisionWork(normalized)
+	effectiveOwner := owner
+	if isMonetary && effectiveOwner == "" {
+		effectiveOwner = billing.PostingOwnerV1
+	}
+	if effectiveOwner != "" && effectiveOwner != billing.PostingOwnerV1 && effectiveOwner != billing.PostingOwnerV2 {
+		return fmt.Errorf("%w: %w: unknown economic posting owner %q", billing.ErrInvalidEconomicRevision, billing.ErrInvalidRecord, owner)
+	}
+	if effectiveOwner != "" && !isMonetary {
+		return fmt.Errorf("%w: explicit %q posting requires monetary provider work", billing.ErrInvalidEconomicRevision, effectiveOwner)
+	}
+	// R2 authoritative intent: stamp the immutable payload with the effective
+	// monetary owner so payload and mutable delivery state can never disagree
+	// for newly enqueued work. Identity excludes owner/evidence intent, so the
+	// work ID is unchanged; the fingerprint covers the stamped payload.
+	if isMonetary {
+		normalized.PostingOwner = effectiveOwner
+		normalized.EvidenceOnly = false
+	}
+	payload, err := json.Marshal(normalized)
+	if err != nil {
+		return fmt.Errorf("billingstore: encode economic revision work: %w", err)
+	}
+	marker := EconomicWorkMarker{
+		ID: identity.Key(), Version: 1, Kind: economicRevisionWorkKind(normalized.Queue),
+		SubjectKind: normalized.Subject.Kind, SubjectID: subjectIDForEconomics(normalized.Subject),
+		InputSetHash: normalized.InputSetHash, PayloadJSON: payload, Status: "pending",
+		CreatedAt: normalized.CreatedAt,
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("billingstore: economic revision work begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	// F1: lock the per-store marker in the SAME tx as work/state inserts so
+	// concurrent activation serializes instead of reading stale state.
+	lockedMarker, err := s.ensureAndLockAccountingCutoverTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if isMonetary {
+		if effectiveOwner == billing.PostingOwnerV2 {
+			if !billing.IsV2NewWorkAuthorized(lockedMarker.State) {
+				return fmt.Errorf("%w: V2 economic work requires v2_active (store %q in %q)", billing.ErrCutoverV2NotAuthorized, s.storeID, string(lockedMarker.State))
+			}
+		} else {
+			if !billing.IsV1FinancialWorkAllowed(lockedMarker.State) {
+				return fmt.Errorf("%w: store %q forbids new V1 economic work in %q", billing.ErrAccountingCutoverFence, s.storeID, string(lockedMarker.State))
+			}
+		}
+	}
+	if err := s.AppendEconomicWorkInTx(ctx, tx, marker); err != nil {
+		_ = tx.Rollback()
+		if errors.Is(err, ErrIdentityConflict) {
+			// Evidence delivery can legitimately change transport metadata (for
+			// example ReceivedAt) while retaining the same source revision and
+			// input hash. Treat that replay as a no-op, but keep rejecting a
+			// changed semantic payload under the same immutable identity.
+			// Delivery intent is queue state, not evidence: ignore intent in
+			// equivalence, then upgrade evidence->monetary state if needed.
+			equivalent, replayErr := s.economicRevisionReplayEquivalent(ctx, normalized, identity)
+			if replayErr != nil {
+				return replayErr
+			}
+			if equivalent {
+				if isMonetary {
+					utx, uerr := s.db.BeginTx(ctx, nil)
+					if uerr != nil {
+						return fmt.Errorf("billingstore: economic upgrade begin: %w", uerr)
+					}
+					defer func() { _ = utx.Rollback() }()
+					// R2: reacquire the F1 marker lock in the retry tx and
+					// revalidate owner/state authorization under that same
+					// lock, so a concurrent shadow->active transition between
+					// the rolled-back first tx and this retry cannot create
+					// V1 monetary work after activation.
+					upgradeMarker, lerr := s.ensureAndLockAccountingCutoverTx(ctx, utx)
+					if lerr != nil {
+						return lerr
+					}
+					if err := s.upgradeEconomicStateToMonetaryTx(ctx, utx, upgradeMarker, identity, effectiveOwner); err != nil {
+						return err
+					}
+					if err := utx.Commit(); err != nil {
+						return fmt.Errorf("billingstore: economic upgrade commit: %w", err)
+					}
+				}
+				return nil
+			}
+			return fmt.Errorf("%w: %v", ErrEconomicRevisionWorkConflict, err)
+		}
+		return err
+	}
+	if isMonetary {
+		if err := s.ensureEconomicRevisionWorkStateWithOwnerInTx(ctx, tx, normalized, identity, effectiveOwner); err != nil {
+			return err
+		}
+	} else if err := s.ensureEconomicRevisionWorkStateInTx(ctx, tx, normalized, identity); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -156,6 +315,11 @@ func economicRevisionReplayFingerprint(work billing.EconomicRevisionWork) (strin
 	}
 	semantic := normalized
 	semantic.CreatedAt = time.Unix(0, 0).UTC()
+	// Delivery intent (F2B posting owner/evidence flag) is queue state, not
+	// immutable evidence: same observations with different intent share one
+	// work identity; state upgrades evidence->monetary without forking work.
+	semantic.PostingOwner = ""
+	semantic.EvidenceOnly = false
 	semantic.Input = normalized.Input.Clone()
 	type observationReplayIdentity struct {
 		Identity   string `json:"identity"`
@@ -203,6 +367,12 @@ func (s *DurableStore) EnqueueEconomicRevision(ctx context.Context, work billing
 // making progress when late corrections arrive. Retry attempts are ordered
 // after never-attempted work to keep a repeatedly failing item from occupying
 // every page.
+//
+// R2 authoritative intent: each returned work overlays mutable delivery state
+// (provider_posting/posting_owner) onto the immutable payload, so explicit V2
+// with legacy-empty payload and upgraded shadow (payload evidence-only, state
+// monetary) are consumed as monetary V2/V1. Evidence identity (work ID) is
+// validated before overlay and never changes.
 func (s *DurableStore) ListPendingEconomicRevisionWork(ctx context.Context, queue billing.EconomicQueue, limit int) ([]billing.EconomicRevisionWork, error) {
 	if err := s.validateContext(ctx); err != nil {
 		return nil, err
@@ -217,9 +387,15 @@ func (s *DurableStore) ListPendingEconomicRevisionWork(ctx context.Context, queu
 		return nil, ErrEconomicsPageSizeExceeded
 	}
 	now := time.Now().UTC().UnixNano()
-	var rows []economicRevisionWorkRow
+	var rows []struct {
+		economicRevisionWorkRow
+		ProviderPosting int64  `bun:"provider_posting"`
+		PostingOwner    string `bun:"posting_owner"`
+		StateID         *int64 `bun:"state_id"`
+	}
 	if err := s.db.NewRaw(`
-SELECT w.work_id, w.work_version, w.input_set_hash, w.payload_json, w.fingerprint, w.created_at_unix
+SELECT w.work_id, w.work_version, w.input_set_hash, w.payload_json, w.fingerprint, w.created_at_unix,
+	COALESCE(q.provider_posting, 0) AS provider_posting, COALESCE(q.posting_owner, '') AS posting_owner, q.id AS state_id
 FROM billing_economic_work AS w
 LEFT JOIN billing_economic_revision_work_state AS q
 	ON q.store_id = w.store_id AND q.work_id = w.work_id AND q.work_version = w.work_version
@@ -235,9 +411,12 @@ LIMIT ?`, s.storeID, economicRevisionWorkKind(queue), now, now, limit).Scan(ctx,
 	}
 	items := make([]billing.EconomicRevisionWork, 0, len(rows))
 	for _, row := range rows {
-		normalized, _, err := s.economicRevisionWorkFromRow(row)
+		normalized, _, err := s.economicRevisionWorkFromRow(row.economicRevisionWorkRow)
 		if err != nil {
 			return nil, err
+		}
+		if row.StateID != nil {
+			normalized = billing.OverlayAuthoritativeEconomicWork(normalized, row.ProviderPosting == 1, row.PostingOwner)
 		}
 		items = append(items, normalized)
 	}
