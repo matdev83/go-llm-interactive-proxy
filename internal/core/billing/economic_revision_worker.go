@@ -359,6 +359,12 @@ func normalizeRevisionValuation(work EconomicRevisionWork, identity EconomicRevi
 	if out.Basis != work.Input.Basis {
 		return economics.Valuation{}, fmt.Errorf("%w: got=%q want=%q", ErrEconomicRevisionBasisMismatch, out.Basis, work.Input.Basis)
 	}
+	if out.Perspective != work.Input.Perspective {
+		return economics.Valuation{}, fmt.Errorf("%w: valuation perspective got=%q want=%q", ErrEconomicRevisionInputMismatch, out.Perspective, work.Input.Perspective)
+	}
+	if out.Scope != work.Input.Scope {
+		return economics.Valuation{}, fmt.Errorf("%w: valuation scope got=%q want=%q", ErrEconomicRevisionInputMismatch, out.Scope, work.Input.Scope)
+	}
 	// The immutable work envelope declares the claimed allocation coverage set.
 	// An allocation-aware rater must price exactly that set; a rater may not
 	// substitute an unclaimed allocation revision under this work identity.
@@ -405,6 +411,16 @@ func normalizeRevisionValuation(work EconomicRevisionWork, identity EconomicRevi
 		return economics.Valuation{}, fmt.Errorf("%w: valuation: %v", ErrEconomicRevisionInputMismatch, err)
 	}
 	return out, nil
+}
+
+// NormalizeRevisionValuationForWork is the single shared shadow/worker
+// valuation contract. It preserves the full valid rater clone (allocation
+// coverage, snapshot identities and content, qualifiers, payer, missing
+// observations, charge coverage and other provenance) while rejecting foreign
+// subject/basis/perspective/scope/observation/allocation identity. CreatedAt
+// anchors to immutable work metadata so retries stay byte-stable.
+func NormalizeRevisionValuationForWork(work EconomicRevisionWork, identity EconomicRevisionIdentity, valuation economics.Valuation) (economics.Valuation, error) {
+	return normalizeRevisionValuation(work, identity, valuation)
 }
 
 func normalizeRevisionReconciliation(work EconomicRevisionWork, identity EconomicRevisionIdentity, reconciliation EconomicReconciliation) (*EconomicReconciliation, error) {

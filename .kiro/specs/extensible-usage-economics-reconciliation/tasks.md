@@ -724,7 +724,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: make test-db-parity; go test ./internal/core/billing/... ./internal/infra/billingstore/..._
   - _Requirements: 11.6, 17.1, 17.2, 18.4_
 
-- [ ] 17.2 Run V2 capture and rating in no-post shadow mode
+- [x] 17.2 Run V2 capture and rating in no-post shadow mode
   - Persist V2 observations/valuations/reconciliation while V1 remains the sole monetary writer.
   - Compare expected new semantics using synthetic and captured-safe fixtures, distinguishing intended defect fixes from accidental behavior drift.
   - Completion: tests prove shadow code cannot debit balances, unit accounts or provider payables.

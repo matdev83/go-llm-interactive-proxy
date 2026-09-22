@@ -203,7 +203,7 @@ func TestDurableStoreCustomerUnitLedgerRejectsStaleVersionAndFence(t *testing.T)
 	if _, err := store.ApplyCustomerUnitOperation(ctx, staleFence); !errors.Is(err, billing.ErrCustomerUnitStaleFence) {
 		t.Fatalf("stale fence error = %v, want ErrCustomerUnitStaleFence", err)
 	}
-	balance, err := store.customerUnitBalance(ctx, key)
+	balance, err := store.CustomerUnitBalance(ctx, key)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -45,7 +45,7 @@ func TestDurableStoreCallSettlementAppliesCustomerUnitOperationAtomically(t *tes
 	if settled.CustomerUnitResult == nil || settled.CustomerUnitResult.After.Consumed.CanonicalString() != "3/0" {
 		t.Fatalf("settled customer-unit result = %#v", settled.CustomerUnitResult)
 	}
-	balance, err := store.customerUnitBalance(ctx, key)
+	balance, err := store.CustomerUnitBalance(ctx, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestDurableStoreCallSettlementRollsBackCustomerUnitOperationOnFallbackBound
 	if !errors.Is(err, billing.ErrCustomerUnitInvalid) {
 		t.Fatalf("fallback bound error = %v, want ErrCustomerUnitInvalid", err)
 	}
-	balance, err := store.customerUnitBalance(ctx, key)
+	balance, err := store.CustomerUnitBalance(ctx, key)
 	if err != nil {
 		t.Fatal(err)
 	}

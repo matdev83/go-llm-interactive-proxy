@@ -81,6 +81,11 @@ const (
 	ReconciliationReasonDuplicateProvider        ReconciliationComparisonReason = "duplicate_provider"
 	ReconciliationReasonConflictingLocal         ReconciliationComparisonReason = "conflicting_local"
 	ReconciliationReasonConflictingProvider      ReconciliationComparisonReason = "conflicting_provider"
+	// ReconciliationReasonBasisMismatch identifies a valuation basis that is
+	// known but not independently comparable as local-versus-provider
+	// evidence (for example retail/customer-policy selected from provider
+	// data). It is an explicit incomparable cause, never a match.
+	ReconciliationReasonBasisMismatch ReconciliationComparisonReason = "basis_mismatch"
 )
 
 // IsKnown reports whether the reason is part of the supported reconciliation
@@ -98,7 +103,7 @@ func (r ReconciliationComparisonReason) IsKnown() bool {
 		ReconciliationReasonValueUnavailableLocal, ReconciliationReasonValueUnavailableProvider,
 		ReconciliationReasonValueUnavailableBoth, ReconciliationReasonDuplicateLocal,
 		ReconciliationReasonDuplicateProvider, ReconciliationReasonConflictingLocal,
-		ReconciliationReasonConflictingProvider,
+		ReconciliationReasonConflictingProvider, ReconciliationReasonBasisMismatch,
 		ReconciliationReasonZeroDenominator, ReconciliationReasonUnitMismatch,
 		ReconciliationReasonTolerancePolicyMissing, ReconciliationReasonEstimatedNotExact:
 		return true

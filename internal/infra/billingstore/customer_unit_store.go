@@ -533,9 +533,13 @@ func decimalEqualText(coefficient string, scale int, incoming metering.Decimal) 
 	return err == nil && stored.Equal(normalized)
 }
 
-func (s *DurableStore) customerUnitBalance(ctx context.Context, key billing.CustomerUnitKey) (billing.CustomerUnitBalance, error) {
-	// This internal diagnostic helper is intentionally not part of
-	// CustomerUnitLedger. Runtime callers cannot turn it into read-then-spend.
+// CustomerUnitBalance reads the current authoritative unit balance for one
+// customer-owned entitlement key. It validates store, context, and key scope
+// and propagates every storage error: callers must fail closed rather than
+// treat an outage or a missing balance as zero. Like the former internal
+// diagnostic helper, it is intentionally not part of CustomerUnitLedger, so
+// runtime callers cannot turn it into read-then-spend.
+func (s *DurableStore) CustomerUnitBalance(ctx context.Context, key billing.CustomerUnitKey) (billing.CustomerUnitBalance, error) {
 	if s == nil || s.db == nil {
 		return billing.CustomerUnitBalance{}, fmt.Errorf("%w: nil store", billing.ErrCustomerUnitUnavailable)
 	}
