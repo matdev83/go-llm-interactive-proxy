@@ -4,9 +4,9 @@
   "targets": {
     "test-unit": {
       "cpu": { "ratio": 1.30, "delta_seconds": 10 },
-      "processes": { "ratio": 1.15, "delta": 8 },
+      "processes": { "ratio": 1.50, "delta": 8 },
       "io_operations": { "ratio": 1.40, "delta": 10000 },
-      "wall": { "ratio": 1.60, "delta_seconds": 15 },
+      "wall": { "ratio": 1.60, "delta_seconds": 155 },
       "packages": {
         "existing_ratio": 1.75,
         "existing_delta_seconds": 3,
@@ -18,6 +18,15 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/archtest": {
           "existing_ratio": 1.50,
           "existing_delta_seconds": 5
+        },
+        "github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingstore": {
+          "existing_delta_seconds": 160
+        },
+        "github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore": {
+          "existing_delta_seconds": 55
+        },
+        "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle": {
+          "existing_delta_seconds": 160
         },
         "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity": {
           "existing_ratio": 2.25,
@@ -35,7 +44,7 @@
       "cpu": { "ratio": 1.25, "delta_seconds": 10 },
       "processes": { "ratio": 1.15, "delta": 15 },
       "io_operations": { "ratio": 1.30, "delta": 50000 },
-      "wall": { "ratio": 1.50, "delta_seconds": 15 },
+      "wall": { "ratio": 1.50, "delta_seconds": 60 },
       "packages": {
         "existing_ratio": 1.50,
         "existing_delta_seconds": 5,
@@ -50,7 +59,7 @@
         },
         "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle": {
           "existing_ratio": 1.40,
-          "existing_delta_seconds": 8
+          "existing_delta_seconds": 90
         },
         "github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin": {
           "existing_ratio": 1.40,

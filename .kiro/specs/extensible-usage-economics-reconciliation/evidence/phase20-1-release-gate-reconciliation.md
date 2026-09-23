@@ -1799,3 +1799,139 @@ mandatory/advisory split is untouched.
   section-8 policy and is intentionally not changed. No Linux binaries were run
   on Windows. No commit/stage/push/PR/rebase/merge and no Task checkbox or spec
   metadata change was made; all pre-existing worktree changes were preserved.
+
+## 13. Focused measured budget reconciliation (Task 20.1, HEAD `0dcd907b`)
+
+Bounded follow-up: the Windows test-cost ratchet was reconciled to the current
+main-anchored measurements with a small, additive budget refresh. This section
+supersedes the "test-cost remains NOT rerun / unfinished" statements in
+sections 4 and 11.6 for the budget-limit portion only; it is a comparison on
+already-measured anchor/head snapshots, not a fresh full remeasure, and it does
+**not** mark Task 20.1 complete.
+
+Scope/ownership of this turn: exactly two non-Go files, the explicitly owned
+pair — `scripts/test-cost-budget.json` and this evidence document. No Go source,
+no Go test, no other budget/override, no `.golangci.yml`/Makefile/lint-runner,
+no spec `tasks.md` checkbox or `spec.json` metadata, and no commit/rebase/merge/
+push/PR. `git status --short` shows only ` M scripts/test-cost-budget.json`
+before this section was appended.
+
+### 13.1 User authorization and provenance
+
+The user explicitly authorized, for this release-gate reconciliation:
+(1) re-anchoring the ratchet to current `main` (the pre-existing `anchor_ref`
+predated the current billing program), and (2) reasonable, bounded budget
+increases because the new billing accounting is materially more precise and its
+added certification test volume legitimately raises wall/package cost — with an
+explicit instruction not to spend days optimizing the old budget. The
+re-anchor and fixture optimization are committed and independently reviewed;
+the budget reconciliation below is a separately reviewed change:
+
+- Re-anchor commit `0dcd907bd22827ef658a2181f1a15e90c3ef8071`
+  (`test(testcost): re-anchor cost checks to current main`), independently
+  reviewed.
+- Billingstore test-fixture optimization commit `8612e0ad`
+  (`test(billingstore): seed isolated SQLite schema fixtures`): standalone
+  package cost reduced from ~162.7s to ~45–49s with 1141/1141 tests green. This
+  is the measured cause of the billingstore head value being far below the
+  pre-optimization number, and it is acknowledged here as an already-landed,
+  separately reviewed cost reduction, not a budget artifact.
+- Policy `anchor_ref` remains `bb1ef9620ee6e8d9199950161e46fc51914945f2`; the
+  full current-main-vs-head ratchet was measured at `HEAD=0dcd907b` with
+  `TEST_COST_PARALLEL=4`; raw artifacts are retained at
+  `C:\Users\Mateusz\source\repos\go-llm-interactive-proxy-testcost-0dcd907b`
+  (`measurements/`, `reports/`, `a-50198b27/logs/`, `h-50198b27/logs/`,
+  `binaries/lip-testcost.exe`).
+
+Honest status of the *first* full ratchet: it did **not** pass budgets. Because
+`LIP_ALLOW_TEST_COST_GROWTH=1` / `--allow-override` is required to authorize a
+policy change while violations exist, that run marked its violating reports
+`overridden=true`. The raw (underlying) results were test-unit 5 violations,
+quality-checks 0 violations, qa-tagged-hotspots 2 violations. Those overridden
+reports are therefore **not** a green run and are not claimed as one.
+
+### 13.2 Measured anchor → head, old allowed, new allowed
+
+Anchor `bb1ef962` → head `0dcd907b` (all values seconds unless noted; wall from
+`wall_nanos`, package from `packages[].elapsed_nanos`):
+
+| Target | Metric/package | Anchor | Head | Old allowed | Change | New allowed | Headroom |
+|---|---|---:|---:|---:|---|---:|---:|
+| test-unit | wall | 86.294 | 200.949 | 138.070 | `delta_seconds` 15→155 | 241.294 | +20.1% |
+| test-unit | processes (count) | 2372 | 2960 | 2727 | `ratio` 1.15→1.50 | 3558 | +20.2% |
+| test-unit | `internal/infra/billingstore` | 18.889 | 144.186 | 33.056 | override `existing_delta_seconds` 160 | 178.889 | +24.1% |
+| test-unit | `internal/infra/metering/journalstore` | 3.919 | 47.564 | 15.000 | override `existing_delta_seconds` 55 | 58.919 | +23.9% |
+| test-unit | `internal/infra/runtimebundle` | 63.622 | 179.746 | 111.339 | override `existing_delta_seconds` 160 | 223.622 | +24.4% |
+| qa-tagged-hotspots | wall | 59.672 | 95.564 | 89.508 | `delta_seconds` 15→60 | 119.672 | +25.2% |
+| qa-tagged-hotspots | `internal/infra/runtimebundle` | 23.744 | 91.239 | 33.242 | override `existing_delta_seconds` 8→90 | 113.744 | +24.7% |
+
+Exactly these seven limits changed. Additive deltas are used for wall and package
+costs (they reflect genuinely added feature/certification test volume, not
+ratio drift), and one bounded process ratio is used. Deliberately unchanged:
+test-unit CPU (head 1069.969s vs allowed 1083.672s — PASSED, left untouched even
+though close), test-unit I/O (PASSED), all quality-checks limits (0 violations),
+qa CPU/processes/I/O (PASSED), the shared `packages` defaults, and every
+unrelated `package_overrides` entry. New allowed limit values were verified to
+match the compare tool's semantics
+`allowed = max(anchor×ratio, anchor + delta_seconds)` for wall and
+`allowed = max(anchor×ratio, anchor+delta)` for processes; package overrides
+merge onto the shared `packages` policy (so billingstore/journalstore/
+runtimebundle retain the shared `existing_ratio` 1.75 in test-unit and the
+runtimebundle qa override retains `existing_ratio` 1.40). Policy validation
+passed (finite, non-negative; `processes.ratio ≥ 1`; package
+`existing_delta_seconds ≥ 0`).
+
+### 13.3 RED → GREEN on the same saved measurements (no override)
+
+Method: the existing `binaries/lip-testcost.exe` was run with `compare` on the
+**same six saved** `measurements/anchor-*.json` / `head-*.json` files, once with
+the pre-edit policy (RED) and once with the edited policy (GREEN), writing fresh
+reports under `reconcile-20-1\red\` and `reconcile-20-1\green\`. `--allow-override`
+was **not** passed. Command shape per target:
+
+```powershell
+& <artifact-root>\binaries\lip-testcost.exe compare `
+  --baseline <artifact-root>\measurements\anchor-<target>.json `
+  --current  <artifact-root>\measurements\head-<target>.json `
+  --policy   <worktree>\scripts\test-cost-budget.json `
+  --target   <target> `
+  --out      <artifact-root>\reconcile-20-1\{red|green}\<target>.json
+```
+
+- RED (pre-edit policy): `test-unit` exit 1 — `passed=false overridden=false
+  violations=5`; `quality-checks` exit 0 — `passed=true violations=0`;
+  `qa-tagged-hotspots` exit 1 — `passed=false overridden=false violations=2`.
+  This reproduces the underlying 5+0+2 violation set from the first ratchet
+  without any `overridden` masking.
+- GREEN (post-edit policy): all three exit 0 — `test-unit`,
+  `quality-checks`, `qa-tagged-hotspots` each `passed=true overridden=false
+  violations=[]`. Verified by parsing the report JSON, not by exit code alone:
+  `red = 5/0/2`, `green = 0/0/0` with `overridden=false` throughout.
+
+The GREEN reports are non-overridden, zero-violation comparisons on the same
+measurements that produced the RED set. Because the GREEN comparison reuses the
+already-measured head snapshots, it does not by itself prove a fresh run; the
+controller is expected to review and commit this policy diff and then rerun the
+full ratchet.
+
+### 13.4 Verification run this turn
+
+- `go test ./tools/testcost ./cmd/lip-testcost` — PASS (exit 0; 1.251s / 0.346s).
+- `go test ./internal/qa` — PASS (exit 0; 5.006s).
+- `git diff --check` — clean (exit 0). `git status --short` — only
+  ` M scripts/test-cost-budget.json` (plus this evidence file after the append).
+
+### 13.5 Explicit non-claims
+
+- The first full ratchet (`LIP_ALLOW_TEST_COST_GROWTH=1`) was overridden and
+  violating (5+0+2), **not** green; nothing in this section relabels it.
+- No fresh `make test-cost` was run this turn (bounded scope; controller will
+  rerun). The GREEN evidence is a policy comparison on retained measurements.
+- Quality-cost lint isolation is unchanged and separate: the canonical
+  `make quality-checks` still mandates the seven correctness linters
+  (staticcheck, govet, ineffassign, misspell, revive, forcetypeassert,
+  errcheck) plus the gofumpt formatter; only `modernize`, `paralleltest` and
+  `thelper` are the advisory-only style classes from section 8. This budget
+  change neither relaxes nor interacts with that lint policy.
+- No claim is made that CPU, I/O, quality-checks, or any untouched limit was
+  modified; they were not.
