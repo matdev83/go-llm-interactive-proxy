@@ -74,7 +74,6 @@ func (s *StreamingEscapeWriter) writeDirect(p []byte) error {
 			if err := s.flushBuf(); err != nil {
 				return err
 			}
-			avail = len(s.buf)
 		}
 		n := copy(s.buf[s.bufLen:], p)
 		s.bufLen += n

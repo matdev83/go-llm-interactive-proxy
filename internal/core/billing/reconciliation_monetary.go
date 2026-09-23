@@ -131,11 +131,9 @@ const (
 	MonetaryCauseSuspectedPricingDifference MonetaryCause = "suspected_pricing_difference"
 )
 
-var (
-	// ErrInvalidMonetaryExactAmount identifies a noncanonical or unbounded
-	// exact monetary amount.
-	ErrInvalidMonetaryExactAmount = errors.New("billing: invalid exact monetary amount")
-)
+// ErrInvalidMonetaryExactAmount identifies a noncanonical or unbounded
+// exact monetary amount.
+var ErrInvalidMonetaryExactAmount = errors.New("billing: invalid exact monetary amount")
 
 // MonetaryExactAmount is one signed exact native-currency amount. Exactly one
 // representation is present: a canonical bounded decimal, or reduced rational

@@ -18,8 +18,10 @@ import (
 func economicHealthTestSnapshot() billing.EconomicHealthSnapshot {
 	return billing.EconomicHealthSnapshot{
 		Queues: []billing.EconomicQueueHealth{
-			{Queue: "customer", Pending: 3, Processing: 1, Failed: 1, OldestAgeSec: 90, MaxAttempts: 5,
-				Retries: []billing.EconomicRetryCount{{Reason: "transient_failure", Count: 2}}},
+			{
+				Queue: "customer", Pending: 3, Processing: 1, Failed: 1, OldestAgeSec: 90, MaxAttempts: 5,
+				Retries: []billing.EconomicRetryCount{{Reason: "transient_failure", Count: 2}},
+			},
 			{Queue: "provider", Pending: 2, OldestAgeSec: 30, MaxAttempts: 1},
 		},
 		Statements: billing.EconomicStatementHealth{Matched: 4, Unmatched: 1},

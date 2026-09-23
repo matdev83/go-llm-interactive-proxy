@@ -39,10 +39,12 @@ type durableEconomicObservationSink struct {
 	store *DurableStore
 }
 
-var _ sdkmetering.ObservationSink = durableObservationSink{}
-var _ sdkmetering.AtomicObservationSink = durableObservationSink{}
-var _ coremetering.EconomicObservationSink = durableEconomicObservationSink{}
-var _ sdkmetering.AtomicObservationSink = durableEconomicObservationSink{}
+var (
+	_ sdkmetering.ObservationSink          = durableObservationSink{}
+	_ sdkmetering.AtomicObservationSink    = durableObservationSink{}
+	_ coremetering.EconomicObservationSink = durableEconomicObservationSink{}
+	_ sdkmetering.AtomicObservationSink    = durableEconomicObservationSink{}
+)
 
 func (s durableObservationSink) Append(ctx context.Context, observation sdkmetering.Observation) error {
 	if s.store == nil {

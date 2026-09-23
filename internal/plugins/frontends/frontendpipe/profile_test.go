@@ -45,8 +45,10 @@ func (s *stubLargeBodyExecutor) ExecuteLargeBody(ctx context.Context, accepted l
 	return largebody.ExecutionResult{}, nil
 }
 
-var _ lipsdk.ExecutorView = (*stubLargeBodyExecutor)(nil)
-var _ largebody.LargeBodyExecutor = (*stubLargeBodyExecutor)(nil)
+var (
+	_ lipsdk.ExecutorView         = (*stubLargeBodyExecutor)(nil)
+	_ largebody.LargeBodyExecutor = (*stubLargeBodyExecutor)(nil)
+)
 
 // testProfile implements frontendpipe.FrontendProfile for testing.
 type testProfile struct {

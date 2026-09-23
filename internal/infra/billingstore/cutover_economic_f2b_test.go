@@ -492,8 +492,7 @@ func TestF2BMultiBatchBoundedClassification(t *testing.T) {
 	store := f2bNewStore(t, "f2b-multibatch")
 	ctx := f2bSetupShadowAccount(t, store, "acct-f2b-multi")
 	const n = 5
-	var works []billing.EconomicRevisionWork
-	for i := 0; i < n; i++ {
+	for i := range n {
 		callID := f2bMustCallID(t)
 		w := f2bProviderWork(t, store, "acct-f2b-multi", callID, "b-multi", "f2b-head-multi", uint64(i+1), true)
 		// Distinct heads to avoid same-head ordering interactions.
@@ -502,7 +501,6 @@ func TestF2BMultiBatchBoundedClassification(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		works = append(works, w)
 		requireNoErr(t, store.AppendEconomicRevisionWork(ctx, w))
 	}
 	// Enter draining without full classification by using small batches and
@@ -517,7 +515,7 @@ func TestF2BMultiBatchBoundedClassification(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if _, err := store.ClassifyCutoverDraining(ctx, 1); err != nil {
 			t.Fatal(err)
 		}
@@ -534,7 +532,7 @@ func TestF2BMultiBatchBoundedClassification(t *testing.T) {
 	}
 	// Complete all via production worker (bounded batches internally).
 	worker := f2bProviderWorker(t, store)
-	for i := 0; i < n; i++ {
+	for range n {
 		requireNoErr(t, worker.ProcessOnce(ctx))
 	}
 	// Second pass idempotent.
@@ -557,7 +555,7 @@ func TestF2BConcurrentEnqueueSerialized(t *testing.T) {
 	const racers = 6
 	var wg sync.WaitGroup
 	results := make([]error, racers)
-	for i := 0; i < racers; i++ {
+	for i := range racers {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -595,7 +593,7 @@ func TestF2BConcurrentEnqueueSerialized(t *testing.T) {
 	// Complete all pinned monetary via worker, then drain must empty (racers that
 	// landed pre-gate complete; fenced racers never entered).
 	worker := f2bProviderWorker(t, store)
-	for i := 0; i < racers+2; i++ {
+	for range racers + 2 {
 		_ = worker.ProcessOnce(ctx)
 	}
 	final, err := store.CutoverDrainStatus(ctx)

@@ -19,12 +19,15 @@ import (
 
 // seedFactWinner rewrites the durable fact envelope to simulate a concurrent
 // winner (or durable corruption) with a different representation.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func seedFactWinner(t *testing.T, ctx context.Context, store *journalstore.DurableStore, observation metering.Observation, payload, fingerprint string) {
 	t.Helper()
 	_, err := store.DB().NewRaw(`UPDATE metering_facts SET payload_json = ?, observation_fingerprint = ? WHERE store_id = ? AND payload_kind = 'observation' AND observation_id = ? AND observation_revision = ?`, payload, fingerprint, observation.Subject.StoreID, observation.ID, int64(observation.Revision)).Exec(ctx)
 	require.NoError(t, err)
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func storedFactFingerprint(t *testing.T, ctx context.Context, store *journalstore.DurableStore, observation metering.Observation) string {
 	t.Helper()
 	var fingerprint string

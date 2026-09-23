@@ -1663,12 +1663,16 @@ func plantALegJournalFull(t *testing.T, store *DurableStore, tx billing.JournalT
 }
 
 func alegMarkerIntegrity(opKey, accountID, kind, source, fp, currency, mode string, balBefore, balAfter, spendBefore, spendAfter, floor, limit int64, verBefore, verAfter uint64, seqStart, seqEnd uint64) string {
-	before := billing.AccountSnapshot{BalanceNano: balBefore, SpendableNano: spendBefore,
+	before := billing.AccountSnapshot{
+		BalanceNano: balBefore, SpendableNano: spendBefore,
 		CreditFloorNano: floor, CreditLimitNano: limit,
-		Mode: billing.AccountMode(mode), Currency: currency, Version: verBefore}
-	after := billing.AccountSnapshot{BalanceNano: balAfter, SpendableNano: spendAfter,
+		Mode: billing.AccountMode(mode), Currency: currency, Version: verBefore,
+	}
+	after := billing.AccountSnapshot{
+		BalanceNano: balAfter, SpendableNano: spendAfter,
 		CreditFloorNano: floor, CreditLimitNano: limit,
-		Mode: billing.AccountMode(mode), Currency: currency, Version: verAfter}
+		Mode: billing.AccountMode(mode), Currency: currency, Version: verAfter,
+	}
 	return snapshotIntegrity(opKey, accountID, kind, source, fp, before, after, seqStart, seqEnd)
 }
 
@@ -1748,8 +1752,10 @@ func TestALegReportDuplicateSettlementMarkersUnknown(t *testing.T) {
 	source, err := billing.CustomerSettlementSourceKey(accountID, callID)
 	require.NoError(t, err)
 	marker := func(opKey string) billing.ALegMarker {
-		snap := billing.AccountSnapshot{BalanceNano: 100, SpendableNano: 100,
-			Mode: billing.AccountPrepaid, Currency: "USD", Version: 1}
+		snap := billing.AccountSnapshot{
+			BalanceNano: 100, SpendableNano: 100,
+			Mode: billing.AccountPrepaid, Currency: "USD", Version: 1,
+		}
 		return billing.ALegMarker{
 			OperationKey: opKey, AccountID: accountID, OperationKind: "customer_call_settlement",
 			SourceKey: callID.String(), Fingerprint: "fp-dup",

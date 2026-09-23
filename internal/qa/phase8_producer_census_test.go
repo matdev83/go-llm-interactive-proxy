@@ -10,8 +10,10 @@ import (
 )
 
 // TestPhase8ProducerCensusHasExplicitDisposition keeps the closed Phase 1
-// inventory honest. A producer row may be certified, losslessly bridged, or
-// explicitly negotiated unsupported, but it may not silently remain pending.
+// inventory honest. A producer row may be certified, losslessly bridged,
+// explicitly negotiated unsupported, or explicitly retired/removed with a
+// replacement parent task (Task 18 Migration Strategy step 8), but it may
+// not silently remain pending.
 func TestPhase8ProducerCensusHasExplicitDisposition(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -20,7 +22,7 @@ func TestPhase8ProducerCensusHasExplicitDisposition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open Phase 1 census: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	reader := csv.NewReader(file)
 	reader.Comma = '\t'
@@ -55,8 +57,13 @@ func TestPhase8ProducerCensusHasExplicitDisposition(t *testing.T) {
 		certified := strings.Contains(disposition, "v2-certified")
 		bridged := strings.Contains(disposition, "lossless-v1-bridge")
 		unsupported := strings.Contains(disposition, "unsupported advanced evidence")
-		if !certified && !bridged && !unsupported {
-			t.Errorf("census row %d (%s) lacks V2/bridge/unsupported disposition: %q", row, record[1], record[6])
+		// Task 18.1/18.2 retires superseded V1 live producers; the census
+		// marks them removed with an explicit replacement and parent task.
+		// The archtest census guard verifies the anchor is absent and the
+		// replacement is present, so accept removed here as terminal.
+		removed := strings.Contains(disposition, "removed")
+		if !certified && !bridged && !unsupported && !removed {
+			t.Errorf("census row %d (%s) lacks V2/bridge/unsupported/removed disposition: %q", row, record[1], record[6])
 		}
 		if unsupported {
 			parts := strings.SplitN(disposition, ";", 2)

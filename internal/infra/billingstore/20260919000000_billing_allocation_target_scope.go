@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -245,7 +244,7 @@ func backfillBillingAllocationTargetScope(ctx context.Context, tx bun.Tx) error 
 }
 
 func billingAllocationTargetScopeValuesFromRow(row billingAllocationTargetScopeRow) (billingAllocationTargetScopeValues, error) {
-	if row.ID <= 0 || row.AllocationVersion <= 0 || row.AllocationVersion > math.MaxInt64 {
+	if row.ID <= 0 || row.AllocationVersion <= 0 {
 		return billingAllocationTargetScopeValues{}, fmt.Errorf("%w: allocation target row %d has invalid identity", ErrIdentityConflict, row.ID)
 	}
 	var record economics.AllocationRecord

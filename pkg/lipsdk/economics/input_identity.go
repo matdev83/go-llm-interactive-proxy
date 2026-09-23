@@ -12,13 +12,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
-var (
-	// ErrInputSetHashMismatch identifies a caller-supplied input identity that
-	// does not describe the canonical observation reference set. It is kept as
-	// a typed sentinel so direct raters and durable stores classify the same
-	// trust-boundary violation deterministically.
-	ErrInputSetHashMismatch = errors.New("economics: input set hash mismatch")
-)
+// ErrInputSetHashMismatch identifies a caller-supplied input identity that
+// does not describe the canonical observation reference set. It is kept as
+// a typed sentinel so direct raters and durable stores classify the same
+// trust-boundary violation deterministically.
+var ErrInputSetHashMismatch = errors.New("economics: input set hash mismatch")
 
 // CanonicalInputSetHash returns the SHA-256 identity of one valuation basis
 // and its canonical observation-reference set. Exact duplicate references are

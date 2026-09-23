@@ -29,8 +29,10 @@ func TestPhase172F1ComposedShadowFirstKeepsV1Claimable(t *testing.T) {
 		ChargePolicyRef:    billing.VersionRef{ID: "policy", Version: "v2"},
 		ExpectedBLegIDs:    []string{"b-f1"},
 	}
-	_, err = store.AdmitExposure(ctx, billing.AdmitExposureInput{AccountID: account.ID, CallID: callID.String(),
-		Max: billing.Money{Nano: 100_000, Currency: "USD"}, PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef})
+	_, err = store.AdmitExposure(ctx, billing.AdmitExposureInput{
+		AccountID: account.ID, CallID: callID.String(),
+		Max: billing.Money{Nano: 100_000, Currency: "USD"}, PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef,
+	})
 	require.NoError(t, err)
 
 	handle, err := runtimebundle.ComposeShadowV2Capture(runtimebundle.ShadowV2CaptureInput{

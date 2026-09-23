@@ -66,6 +66,7 @@ func refinement82ValuationFor(t *testing.T, work corebilling.EconomicRevisionWor
 	}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func refinement82ProviderWork(t *testing.T, ctx context.Context, builder corebilling.ObservationEconomicWorkBuilder, observations ...metering.Observation) corebilling.EconomicRevisionWork {
 	t.Helper()
 	works, err := builder.BuildEconomicRevisionWork(ctx, observations)
@@ -81,6 +82,7 @@ func refinement82ProviderWork(t *testing.T, ctx context.Context, builder corebil
 	return corebilling.EconomicRevisionWork{}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func refinement82ValuationCount(t *testing.T, ctx context.Context, store *DurableStore) int {
 	t.Helper()
 	var count int

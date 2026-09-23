@@ -599,7 +599,7 @@ func TestRefinement51ResumableSessionLifecycleAndSettlement(t *testing.T) {
 		}
 	}
 	// Confirm strict attempt sequence progression across all attempts on this A-leg
-	if !(blegFail.Seq < blegWin.Seq && blegWin.Seq < call2LegSlot.Seq) {
+	if blegFail.Seq >= blegWin.Seq || blegWin.Seq >= call2LegSlot.Seq {
 		t.Fatalf("attempt sequences do not progress strictly monotonically: %d < %d < %d",
 			blegFail.Seq, blegWin.Seq, call2LegSlot.Seq)
 	}

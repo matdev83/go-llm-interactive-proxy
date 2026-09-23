@@ -155,7 +155,7 @@ func (a *attemptSession) rememberEconomicEvidenceOnce(evidence execbackend.Econo
 			return
 		}
 	}
-	if fingerprints != nil && len(fingerprints) != 0 {
+	if len(fingerprints) != 0 {
 		prior := ""
 		for candidate := range fingerprints {
 			if prior == "" || candidate < prior {
@@ -676,9 +676,10 @@ func billingObservationSemantics(role string) string {
 
 func billingObservationMeasures(event lipapi.Event, authority string) []metering.Measure {
 	quality := metering.QualityObserved
-	if authority == metering.AuthorityEstimatedClaim {
+	switch authority {
+	case metering.AuthorityEstimatedClaim:
 		quality = metering.QualityEstimated
-	} else if authority == metering.AuthorityUnavailableClaim {
+	case metering.AuthorityUnavailableClaim:
 		quality = metering.QualityUnknown
 	}
 	measures := make([]metering.Measure, 0, 6)

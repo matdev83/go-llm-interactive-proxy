@@ -112,7 +112,7 @@ func (g *RouteOverrideAssessmentGate) Evaluate(ctx context.Context, proof Proof)
 	// 2. Derive legal candidate backends from the generation validator / known backends.
 	// Note: We strictly DO NOT call g.OverrideReader.Snapshot or read the store.
 	candidateBackends := g.CandidateBackends()
-	if candidateBackends == nil || len(candidateBackends) == 0 {
+	if len(candidateBackends) == 0 {
 		// Unconstrained/unknown backends (nil) or no known backends (empty) cannot be proven.
 		return AssessmentDecisionDecline, DeclineReasonRouteIncompatible, WireDomainFacts{}
 	}

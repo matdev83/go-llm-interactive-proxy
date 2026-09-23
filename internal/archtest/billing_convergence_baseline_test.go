@@ -175,6 +175,18 @@ func TestBillingFinalConvergenceLOCRatchetActive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("measure denominator: %v", err)
 	}
+	// Approved usage-economics growth (remediation 3C) is accounted separately:
+	// only per-entry growth above the locked merge-base lines is credited, so the
+	// historical artifact, denominator, and ceiling stay pinned while deletions
+	// keep passing and excess fails.
+	growth, err := measureEconomicsConvergenceGrowthOverlay(root, doc)
+	if err != nil {
+		t.Fatalf("measure economics growth allowance: %v", err)
+	}
+	if msg := checkEconomicsConvergenceGrowthAllowance(growth); msg != "" {
+		t.Fatalf("economics growth allowance rejected: %s", msg)
+	}
+	m.DenominatorLOC -= growth.summary.Lines
 	findings := EvaluateBillingFinalConvergenceLOCRatchet(doc, m)
 	if len(findings) > 0 {
 		var b strings.Builder

@@ -506,7 +506,7 @@ func (c *Client) executeAnthropic(ctx context.Context, da DirectAccessToken, bac
 
 	if isStreaming {
 		stream := newAnthropicManagedSSEStream(resp)
-		stream.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+		stream.SetEnabled(c.accountingEvidenceV1)
 		return stream, nil
 	}
 
@@ -515,7 +515,7 @@ func (c *Client) executeAnthropic(ctx context.Context, da DirectAccessToken, bac
 		return nil, err
 	}
 	if memory, ok := stream.(*memoryEventStream); ok {
-		memory.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+		memory.SetEnabled(c.accountingEvidenceV1)
 	}
 	return stream, nil
 }
@@ -593,7 +593,7 @@ func (c *Client) executeOpenAI(ctx context.Context, da DirectAccessToken, backen
 
 	if isStreaming {
 		stream := newOpenAIManagedSSEStream(resp)
-		stream.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+		stream.SetEnabled(c.accountingEvidenceV1)
 		return stream, nil
 	}
 
@@ -602,7 +602,7 @@ func (c *Client) executeOpenAI(ctx context.Context, da DirectAccessToken, backen
 		return nil, err
 	}
 	if memory, ok := stream.(*memoryEventStream); ok {
-		memory.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+		memory.SetEnabled(c.accountingEvidenceV1)
 	}
 	return stream, nil
 }
@@ -851,7 +851,7 @@ func (s *anthropicManagedSSEStream) addAnthropicUsage(ev lipapi.Event) {
 }
 
 func (s *anthropicManagedSSEStream) canonicalUsageEvent(ev lipapi.Event) lipapi.Event {
-	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.AccountingEvidenceEnabled() {
 		ev.Accounting.DedupeKey = ""
 	}
 	return ev
@@ -861,7 +861,7 @@ func (s *anthropicManagedSSEStream) flushUsage() {
 	if s == nil || !s.providerUsageSeen || s.UsageEvidenceBuffer == nil {
 		return
 	}
-	s.UsageEvidenceBuffer.AddUsageEvent(s.providerUsage, "gitlabduo.anthropic:stream")
+	s.AddUsageEvent(s.providerUsage, "gitlabduo.anthropic:stream")
 }
 
 func (s *anthropicManagedSSEStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {
@@ -1017,7 +1017,7 @@ func (s *openAIManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, error)
 		if p.Usage != nil {
 			if ev := gitlabOpenAIUsageEvent(*p.Usage, p.ID, p.ServiceTier); ev != nil {
 				s.pending = append(s.pending, *ev)
-				s.UsageEvidenceBuffer.AddUsageEvent(*ev, "gitlabduo.openai:stream")
+				s.AddUsageEvent(*ev, "gitlabduo.openai:stream")
 			}
 		}
 		for _, ch := range p.Choices {
@@ -1038,7 +1038,7 @@ func (s *openAIManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, error)
 }
 
 func (s *openAIManagedSSEStream) canonicalUsageEvent(ev lipapi.Event) lipapi.Event {
-	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.AccountingEvidenceEnabled() {
 		ev.Accounting.DedupeKey = ""
 	}
 	return ev
@@ -1128,11 +1128,11 @@ func newMemoryEventStream(events []lipapi.Event) *memoryEventStream {
 				anthropicUsageSeen = true
 			}
 		} else {
-			m.UsageEvidenceBuffer.AddUsageEvent(ev, "gitlabduo.provider:stream")
+			m.AddUsageEvent(ev, "gitlabduo.provider:stream")
 		}
 	}
 	if anthropicUsageSeen {
-		m.UsageEvidenceBuffer.AddUsageEvent(anthropicUsage, "gitlabduo.anthropic:stream")
+		m.AddUsageEvent(anthropicUsage, "gitlabduo.anthropic:stream")
 	}
 	return m
 }
@@ -1146,7 +1146,7 @@ func (m *memoryEventStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 	ev := m.events[m.idx]
 	m.idx++
-	if ev.Kind == lipapi.EventUsageDelta && m.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+	if ev.Kind == lipapi.EventUsageDelta && m.AccountingEvidenceEnabled() {
 		ev.Accounting.DedupeKey = ""
 	}
 	return ev, nil

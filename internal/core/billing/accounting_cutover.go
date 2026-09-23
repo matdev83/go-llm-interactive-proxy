@@ -240,7 +240,7 @@ func DefaultAccountingCutoverMarker(storeID string, nowUnix int64) (AccountingCu
 	if err := validateAccountingCutoverStoreID(storeID); err != nil {
 		return AccountingCutoverMarker{}, err
 	}
-	if nowUnix <= 0 || nowUnix > math.MaxInt64 {
+	if nowUnix <= 0 {
 		return AccountingCutoverMarker{}, fmt.Errorf("%w: %w: cutover timestamp out of range", ErrAccountingCutoverInvalid, ErrInvalidRecord)
 	}
 	marker := AccountingCutoverMarker{
@@ -273,7 +273,7 @@ func ValidateAccountingCutoverTransition(current AccountingCutoverMarker, req Ac
 	if err := req.Validate(); err != nil {
 		return AccountingCutoverMarker{}, err
 	}
-	if nowUnix <= 0 || nowUnix > math.MaxInt64 {
+	if nowUnix <= 0 {
 		return AccountingCutoverMarker{}, fmt.Errorf("%w: %w: cutover timestamp out of range", ErrAccountingCutoverInvalid, ErrInvalidRecord)
 	}
 	if req.ExpectedVersion != current.Version || req.ExpectedEpoch != current.Epoch {

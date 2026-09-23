@@ -46,7 +46,7 @@ type observationEconomicRelay struct {
 // observation sink and starts its restartable relay after all billing workers
 // have been composed. Memory/disabled/injected non-durable recorders remain a
 // no-op because they cannot provide the atomic observation/outbox guarantee.
-func configureObservationEconomicBridge(owner *processResourceOwner, parent context.Context, opts *BuildOptions, runtime *meteringRuntime) error {
+func configureObservationEconomicBridge(parent context.Context, owner *processResourceOwner, opts *BuildOptions, runtime *meteringRuntime) error {
 	if owner == nil || opts == nil || runtime == nil || runtime.Recorder == nil {
 		return nil
 	}

@@ -25,12 +25,10 @@ import (
 // panic. The function performs no I/O, takes no locks and retains no
 // raw content.
 
-var (
-	// ErrEconomicHealthInput identifies malformed snapshot input: negative
-	// counts, unknown clocks or inexact arithmetic outside the bounded
-	// exact contract.
-	ErrEconomicHealthInput = errors.New("billing: invalid economic health input")
-)
+// ErrEconomicHealthInput identifies malformed snapshot input: negative
+// counts, unknown clocks or inexact arithmetic outside the bounded
+// exact contract.
+var ErrEconomicHealthInput = errors.New("billing: invalid economic health input")
 
 // EconomicHealthReader is the durable query port for the economics health
 // snapshot. Implementations perform bounded store-scoped reads without

@@ -56,11 +56,12 @@ func assertSameCanonicalFingerprint(t *testing.T, original, variant string) {
 
 func economicSink(t *testing.T, store *journalstore.DurableStore) coremetering.EconomicObservationSink {
 	t.Helper()
-	sink, ok := journalstore.NewObservationSinkWithOutbox(store).(coremetering.EconomicObservationSink)
-	require.True(t, ok, "outbox sink must expose the economic capability")
+	sink := journalstore.NewObservationSinkWithOutbox(store)
+	require.NotNil(t, sink, "outbox sink must expose the economic capability")
 	return sink
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func selectOutboxPayload(t *testing.T, ctx context.Context, store *journalstore.DurableStore, storeID, observationID string, revision uint64) string {
 	t.Helper()
 	var payload string
@@ -68,18 +69,21 @@ func selectOutboxPayload(t *testing.T, ctx context.Context, store *journalstore.
 	return payload
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func updateOutboxPayload(t *testing.T, ctx context.Context, store *journalstore.DurableStore, storeID, observationID string, revision uint64, payload string) {
 	t.Helper()
 	_, err := store.DB().NewRaw(`UPDATE metering_observation_economic_outbox SET payload_json = ? WHERE store_id = ? AND observation_id = ? AND observation_revision = ?`, payload, storeID, observationID, int64(revision)).Exec(ctx)
 	require.NoError(t, err)
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func updateFactsPayload(t *testing.T, ctx context.Context, store *journalstore.DurableStore, storeID, observationID string, revision uint64, payload string) {
 	t.Helper()
 	_, err := store.DB().NewRaw(`UPDATE metering_facts SET payload_json = ? WHERE store_id = ? AND payload_kind = 'observation' AND observation_id = ? AND observation_revision = ?`, payload, storeID, observationID, int64(revision)).Exec(ctx)
 	require.NoError(t, err)
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func selectFactsPayload(t *testing.T, ctx context.Context, store *journalstore.DurableStore, storeID, observationID string, revision uint64) string {
 	t.Helper()
 	var payload string

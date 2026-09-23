@@ -34,11 +34,11 @@ type fakeScreen struct {
 }
 
 func (f *fakeScreen) Check(_ context.Context, in sdkbilling.CreditScreenInput) (sdkbilling.CreditScreenResult, error) {
-	f.calls++
-	f.last = in
 	if f == nil {
 		return sdkbilling.CreditScreenResult{}, errors.New("nil screen")
 	}
+	f.calls++
+	f.last = in
 	return f.result, f.err
 }
 
@@ -50,11 +50,11 @@ type fakeQuoter struct {
 }
 
 func (f *fakeQuoter) Quote(_ context.Context, in economics.QuoteInput) (economics.ExposureQuote, error) {
-	f.calls++
-	f.last = in
 	if f == nil {
 		return economics.ExposureQuote{}, errors.New("nil quoter")
 	}
+	f.calls++
+	f.last = in
 	return f.quote, f.err
 }
 
@@ -66,11 +66,11 @@ type fakeAdmitter struct {
 }
 
 func (f *fakeAdmitter) Admit(_ context.Context, in sdkbilling.ExposureAdmissionInput) (sdkbilling.ExposureHandle, error) {
-	f.calls++
-	f.last = in
 	if f == nil {
 		return sdkbilling.ExposureHandle{}, errors.New("nil admitter")
 	}
+	f.calls++
+	f.last = in
 	return f.handle, f.err
 }
 
@@ -93,11 +93,11 @@ func echoAck(revision uint64) func(sdkbilling.TerminalEnvelope) (sdkbilling.Term
 }
 
 func (f *fakeTerminal) AppendTerminal(_ context.Context, env sdkbilling.TerminalEnvelope) (sdkbilling.TerminalAck, error) {
-	f.calls++
-	f.last = env.Clone()
 	if f == nil {
 		return sdkbilling.TerminalAck{}, errors.New("nil terminal")
 	}
+	f.calls++
+	f.last = env.Clone()
 	if f.ackFor != nil {
 		return f.ackFor(env)
 	}

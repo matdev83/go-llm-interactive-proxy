@@ -12,7 +12,7 @@ import (
 // billing migration path.
 func TestPhase4EconomicsSchemaExists(t *testing.T) {
 	store := newSQLiteTestStore(t)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	var valuations int

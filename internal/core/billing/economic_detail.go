@@ -1570,7 +1570,7 @@ func economicDetailSubjectKindRank(kind metering.SubjectKind) int {
 // never collide.
 func economicDetailSubjectSortKey(subject metering.SubjectRef) string {
 	var builder strings.Builder
-	builder.WriteString(fmt.Sprint(economicDetailSubjectKindRank(subject.Kind)))
+	fmt.Fprint(&builder, economicDetailSubjectKindRank(subject.Kind))
 	builder.WriteByte(0)
 	writeEconomicSubjectIdentity(&builder, subject)
 	return builder.String()

@@ -310,7 +310,7 @@ func TestParseStreamResponse_HTTPErrorClassification(t *testing.T) {
 	rec := httptest.NewRecorder()
 	rec.Header().Set("Retry-After", "90")
 	rec.WriteHeader(http.StatusTooManyRequests)
-	rec.WriteString(`{"error":{"message":"rate limit reached"}}`)
+	_, _ = rec.WriteString(`{"error":{"message":"rate limit reached"}}`)
 	resp := rec.Result()
 
 	_, err := openaicompat.ParseStreamResponse("test-provider", resp, openaicompat.FlavorResponses, 100)
@@ -342,7 +342,7 @@ func TestParseStreamResponse_ResponsesSSE(t *testing.T) {
 	rec := httptest.NewRecorder()
 	rec.WriteHeader(http.StatusOK)
 	rec.Header().Set("Content-Type", "text/event-stream")
-	rec.WriteString(ssePayload)
+	_, _ = rec.WriteString(ssePayload)
 	resp := rec.Result()
 
 	stream, err := openaicompat.ParseStreamResponse("test-provider", resp, openaicompat.FlavorResponses, 100)
@@ -434,7 +434,7 @@ func TestWireOpenPrimitives_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prims.Execute failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	var textDelta string
 	for {
@@ -551,7 +551,7 @@ func TestNewOutboundRequest_Framing(t *testing.T) {
 
 	t.Run("nil_context_returns_error", func(t *testing.T) {
 		t.Parallel()
-		_, err := openaicompat.NewOutboundRequest(nil, targetURL, nil, 0, "", false, nil)
+		_, err := openaicompat.NewOutboundRequest(nil, targetURL, nil, 0, "", false, nil) //nolint:staticcheck // deliberately exercises nil-context rejection
 		if !errors.Is(err, lipapi.ErrNilContext) {
 			t.Fatalf("expected ErrNilContext, got %v", err)
 		}
@@ -644,7 +644,7 @@ func TestWireOpen_TransportConformance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Execute failed: %v", err)
 		}
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 
 		if receivedProto != "HTTP/1.1" {
 			t.Fatalf("receivedProto = %q, want HTTP/1.1", receivedProto)
@@ -727,7 +727,7 @@ func TestWireOpen_TransportConformance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Execute failed: %v", err)
 		}
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 
 		if receivedProto != "HTTP/2.0" {
 			t.Fatalf("receivedProto = %q, want HTTP/2.0", receivedProto)
@@ -791,7 +791,7 @@ func TestWireOpen_TransportConformance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Execute failed: %v", err)
 		}
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 
 		// Read first peeked event successfully
 		ev, err := stream.Recv(ctx)
@@ -918,7 +918,7 @@ func TestWireOpen_TransportConformance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseAndPeekStream failed: %v", err)
 		}
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 
 		if !redirectSeen.Load() {
 			t.Fatal("redirect endpoint was not visited")
@@ -995,7 +995,7 @@ func TestWireOpen_TransportConformance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Execute failed: %v", err)
 		}
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 
 		// Verify backend-owned Authorization strictly won
 		if got := receivedHeaders.Get("Authorization"); got != "Bearer sk-backend-secret" {

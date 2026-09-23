@@ -7,7 +7,6 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,11 +22,8 @@ import (
 // (including its transitive closure) stays on public contracts.
 func TestBillingBindingImportClosureIsPublicAndNeutral(t *testing.T) {
 	t.Parallel()
-	root := repoRoot(t)
-	cmd := exec.Command("go", "list", "-deps", "-test=false", "-f", "{{.ImportPath}}",
+	out, err := cachedGoList(t, "-deps", "-test=false", "-f", "{{.ImportPath}}",
 		"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/billing")
-	cmd.Dir = root
-	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("go list failed: %v", err)
 	}

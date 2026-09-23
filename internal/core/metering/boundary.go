@@ -389,10 +389,14 @@ func PreparedInputObservationEnabled(ctx context.Context) bool {
 
 // ObservePreparedInput invokes an attached callback, if any.
 func ObservePreparedInput(ctx context.Context, summary PreparedInputSummary) {
-	if PreparedInputObservationEnabled(ctx) {
-		observer := ctx.Value(preparedInputObserverKey{}).(PreparedInputObserver)
-		observer(summary)
+	if ctx == nil {
+		return
 	}
+	observer, ok := ctx.Value(preparedInputObserverKey{}).(PreparedInputObserver)
+	if !ok || observer == nil {
+		return
+	}
+	observer(summary)
 }
 
 // ObservePreparedInputCall computes the bounded canonical estimate only when

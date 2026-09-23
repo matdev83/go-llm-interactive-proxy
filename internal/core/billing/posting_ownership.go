@@ -720,10 +720,7 @@ func (p PostingPin) Validate() error {
 	if wantKey != p.OperationKey {
 		return fmt.Errorf("%w: %w: operation key does not match canonical identity", ErrPostingOwnershipInvalid, ErrInvalidRecord)
 	}
-	if p.CreatedAtUnix <= 0 || p.CreatedAtUnix > math.MaxInt64 {
-		return fmt.Errorf("%w: %w: pin timestamps must be positive", ErrPostingOwnershipInvalid, ErrInvalidRecord)
-	}
-	if p.UpdatedAtUnix <= 0 || p.UpdatedAtUnix > math.MaxInt64 {
+	if p.CreatedAtUnix <= 0 || p.UpdatedAtUnix <= 0 {
 		return fmt.Errorf("%w: %w: pin timestamps must be positive", ErrPostingOwnershipInvalid, ErrInvalidRecord)
 	}
 	if p.UpdatedAtUnix < p.CreatedAtUnix {
@@ -744,7 +741,7 @@ func (p PostingPin) Validate() error {
 		if err := validatePostingCompletionKey("completion transaction id", p.CompletionTransactionID, false); err != nil {
 			return err
 		}
-		if p.CompletedAtUnix <= 0 || p.CompletedAtUnix > math.MaxInt64 {
+		if p.CompletedAtUnix <= 0 {
 			return fmt.Errorf("%w: %w: pin completion time must be positive", ErrPostingOwnershipInvalid, ErrInvalidRecord)
 		}
 		if p.CompletedAtUnix < p.CreatedAtUnix || p.UpdatedAtUnix < p.CompletedAtUnix {

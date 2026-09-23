@@ -378,9 +378,10 @@ func TestIncrementalBuilder_MultiMiBTextInChunks(t *testing.T) {
 	var fullText strings.Builder
 	for i := 0; i < totalChunks; i++ {
 		currentChunk := chunkData
-		if i == 500 {
+		switch i {
+		case 500:
 			currentChunk = strings.Repeat("x", chunkSize-len(partA)) + partA
-		} else if i == 501 {
+		case 501:
 			currentChunk = partB + strings.Repeat("x", chunkSize-len(partB))
 		}
 		fullText.WriteString(currentChunk)

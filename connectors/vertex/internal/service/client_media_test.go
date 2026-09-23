@@ -13,6 +13,7 @@ import (
 )
 
 func TestDecodeNonStream_ProjectsOutputFileDataReferences(t *testing.T) {
+	t.Parallel()
 	raw := []byte(`{
 		"candidates": [{"content": {"role": "model", "parts": [
 			{"text": "generated files:"},
@@ -50,6 +51,7 @@ func TestDecodeNonStream_ProjectsOutputFileDataReferences(t *testing.T) {
 }
 
 func TestDecodeSSEData_ProjectsOutputFileDataReferences(t *testing.T) {
+	t.Parallel()
 	raw := []byte(`{"candidates":[{"content":{"role":"model","parts":[{"fileData":{"fileUri":"https://storage.example/out.mp4","mimeType":"video/mp4"}}]}}]}`)
 	started, messageStarted := false, false
 	events, err := decodeSSEData(raw, &started, &messageStarted)
@@ -81,7 +83,7 @@ func TestClientOpen_PreservesInputMediaReferenceMIME(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	cfg, err := ParseConfigYAML([]byte(fmt.Sprintf("project: test-project\nlocation: us-central1\napi_origin: %s\n", srv.URL)))
+	cfg, err := ParseConfigYAML(fmt.Appendf(nil, "project: test-project\nlocation: us-central1\napi_origin: %s\n", srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -70,8 +70,10 @@ func (e *candidateGatesExec) LargeBodyStaticDisposition(profileID string) (large
 	return largebody.StaticWireNeedsRequestAssessment, largebody.StaticWireReasonNone
 }
 
-var _ frontendpipe.StaticDispositionProvider = (*candidateGatesExec)(nil)
-var _ largebody.LargeBodyExecutor = (*candidateGatesExec)(nil)
+var (
+	_ frontendpipe.StaticDispositionProvider = (*candidateGatesExec)(nil)
+	_ largebody.LargeBodyExecutor            = (*candidateGatesExec)(nil)
+)
 
 type trackingCandidateProfile struct {
 	profileID string

@@ -15,7 +15,11 @@ const GenericCompatibleBackendOverlayMax = 946
 // BillingHostCompositionOverlayMax is the measured billing-host-composition overlay
 // ratchet (production files selected by path, excluding connector and generic-compatible
 // overlays). Keep 25 lines of ratchet headroom over the measured 340-line overlay.
-const BillingHostCompositionOverlayMax = 365
+// Usage-economics reconciliation extends ComposeBilling in billing_compose.go (revision
+// workers/readers, cutover fence, unit ledger, pass-through settlement); the file stays
+// with its original overlay (no marker churn). Re-measured 403, reset to 428 with
+// 25 headroom.
+const BillingHostCompositionOverlayMax = 428
 
 // AtomicOwnedResourceLifecycleOverlayMax is the measured atomic-owned-resource-lifecycle
 // overlay ratchet (the new private process-ownership and generation-loop primitive
@@ -51,6 +55,14 @@ const TerminalDecisionFeatureExtensionOverlayMax = 622
 // fast-path host-composition overlay. Keep 25 lines of ratchet headroom over
 // the measured 266-line overlay.
 const LargePayloadHostCompositionOverlayMax = 291
+
+// UsageEconomicsOverlayMax caps the extensible usage-economics reconciliation
+// growth allowance: only lines above each allowlisted file's locked baseline enter
+// the allowance, so pre-existing baseline code can never enter. Seven files are new
+// (baseline 0); production_options.go and process_billing.go carry approved economics
+// composition growth above their merge-base lines. Keep 25 lines of ratchet headroom
+// over the measured 1,368-line allowance.
+const UsageEconomicsOverlayMax = 1393
 
 var genericCompatibleBackendOverlayPathMarkers = []string{
 	"/core/concurrencyauthority/compatible/",
@@ -108,6 +120,57 @@ var terminalDecisionFeatureExtensionOverlayPathMarkers = []string{
 var largePayloadHostCompositionOverlayPathMarkers = []string{
 	"/runtimebundle/build_large_body_assessor.go",
 	"/stdhttp/contract/large_payload_input.go",
+}
+
+// usageEconomicsGrowthFile is one allowlisted production file with its locked
+// merge-base line count. Only lines above the baseline enter the allowance;
+// baseline lines can never enter, and deletions only shrink the credit.
+type usageEconomicsGrowthFile struct {
+	path     string
+	baseline int
+}
+
+// usageEconomicsGrowthFiles is the single allowlist of economics growth surfaces.
+// All paths live inside the Req 11.5 convergence surfaces and outside every other
+// overlay; the drift test pins this table exactly, so broadening requires an
+// explicit table edit that review must approve.
+var usageEconomicsGrowthFiles = []usageEconomicsGrowthFile{
+	{path: "internal/infra/runtimebundle/accounting_recovery.go", baseline: 0},
+	{path: "internal/infra/runtimebundle/external_billing.go", baseline: 0},
+	{path: "internal/infra/runtimebundle/observation_economic_bridge.go", baseline: 0},
+	{path: "internal/infra/runtimebundle/operator_reports.go", baseline: 0},
+	{path: "internal/infra/runtimebundle/shadow_v2_compose.go", baseline: 0},
+	{path: "internal/stdhttp/admin/billing/operator.go", baseline: 0},
+	{path: "pkg/lipruntime/billing.go", baseline: 0},
+	{path: "internal/infra/runtimebundle/production_options.go", baseline: 80},
+	{path: "internal/infra/runtimebundle/process_billing.go", baseline: 75},
+}
+
+// measureUsageEconomicsGrowthOverlay credits only per-file growth above the locked
+// baselines. Files already claimed by another overlay are skipped (never double
+// counted; the disjointness test flags any such overlap loudly). Missing files
+// credit zero, so deletions always pass.
+func measureUsageEconomicsGrowthOverlay(root string, exclude map[string]struct{}) (OverlayMeasurement, error) {
+	m := OverlayMeasurement{Name: "Usage economics", Max: UsageEconomicsOverlayMax}
+	for _, f := range usageEconomicsGrowthFiles {
+		if _, skip := exclude[f.path]; skip {
+			continue
+		}
+		n, err := countTreeFileLines(filepath.Join(root, filepath.FromSlash(f.path)))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return OverlayMeasurement{}, err
+		}
+		if credit := n - f.baseline; credit > 0 {
+			m.Lines += credit
+			m.Files = append(m.Files, f.path)
+		}
+	}
+	sort.Strings(m.Files)
+	m.Pass = m.Lines <= m.Max
+	return m, nil
 }
 
 // pathMarkerOverlaySpec is one path-marker overlay allowance: a feature's new

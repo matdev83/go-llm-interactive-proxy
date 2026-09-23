@@ -112,6 +112,7 @@ type fakeWorkerUsage struct {
 func (f *fakeWorkerUsage) ClaimCompleteCalls(context.Context, int) ([]CompleteCall, error) {
 	return f.claims, nil
 }
+
 func (f *fakeWorkerUsage) GetCallExposure(context.Context, BillingCallID) (CallExposure, error) {
 	return f.exposure, nil
 }

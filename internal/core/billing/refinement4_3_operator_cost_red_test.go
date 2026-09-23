@@ -46,8 +46,10 @@ func refinement43OperatorObservation(t *testing.T, amount string, payer metering
 		Acquisition: metering.AcquisitionProviderResponse, Authority: metering.AuthorityObservedClaim,
 		Perspective: metering.PerspectiveOperator, Boundary: metering.BoundaryBackendIngress,
 		Lifecycle: metering.LifecycleBackendAttempt, Subject: subject,
-		Correlation: metering.CorrelationV2{StoreID: subject.StoreID,
-			ALegID: subject.ALegID, BillingCallID: subject.BillingCallID, BLegID: subject.BLegID},
+		Correlation: metering.CorrelationV2{
+			StoreID: subject.StoreID,
+			ALegID:  subject.ALegID, BillingCallID: subject.BillingCallID, BLegID: subject.BLegID,
+		},
 		Semantics: metering.SemanticsCumulative, ObservedAt: time.Unix(43, 0).UTC(),
 		ReceivedAt: time.Unix(43, 0).UTC(), MappingRef: "refinement43.v1",
 		Charges: []metering.ReportedCharge{{

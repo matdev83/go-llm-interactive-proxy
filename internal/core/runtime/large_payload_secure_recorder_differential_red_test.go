@@ -122,7 +122,7 @@ func TestItem5_SecureRecorder_Differential(t *testing.T) {
 		assessment.WireRequest.CandidateModel = "default:gpt-4o"
 		res, err := ex.ExecuteLargeBody(ctx, assessment, src)
 		require.NoError(t, err)
-		defer res.Stream.Close()
+		defer func() { _ = res.Stream.Close() }()
 
 		var wireEvents []lipapi.Event
 		for {
@@ -149,7 +149,7 @@ func TestItem5_SecureRecorder_Differential(t *testing.T) {
 		}
 		cStream, err := ex.Execute(canonicalCtx, canonicalCall)
 		require.NoError(t, err)
-		defer cStream.Close()
+		defer func() { _ = cStream.Close() }()
 
 		var canonicalEvents []lipapi.Event
 		for {
@@ -219,7 +219,7 @@ func TestItem5_SecureRecorder_Differential(t *testing.T) {
 		assessment.WireRequest.CandidateModel = "default:gpt-4o"
 		res, err := exWire.ExecuteLargeBody(ctx, assessment, src)
 		require.NoError(t, err)
-		defer res.Stream.Close()
+		defer func() { _ = res.Stream.Close() }()
 
 		_, wireRecvErr := res.Stream.Recv(ctx)
 		require.Error(t, wireRecvErr, "wire execution must abort on mandatory recorder failure")
@@ -248,7 +248,7 @@ func TestItem5_SecureRecorder_Differential(t *testing.T) {
 		}
 		cStream, err := exCanonical.Execute(ctx, cCall)
 		require.NoError(t, err)
-		defer cStream.Close()
+		defer func() { _ = cStream.Close() }()
 
 		_, canonicalRecvErr := cStream.Recv(ctx)
 		require.Error(t, canonicalRecvErr, "canonical execution must abort on mandatory recorder failure")
@@ -287,7 +287,7 @@ func TestItem5_SecureRecorder_Differential(t *testing.T) {
 		assessment.WireRequest.CandidateModel = "default:gpt-4o"
 		res, err := ex.ExecuteLargeBody(ctx, assessment, src)
 		require.NoError(t, err)
-		defer res.Stream.Close()
+		defer func() { _ = res.Stream.Close() }()
 
 		var received []lipapi.Event
 		for {
@@ -337,7 +337,7 @@ func TestItem5_SecureRecorder_Differential(t *testing.T) {
 		assessment.WireRequest.CandidateModel = "default:gpt-4o"
 		res, err := exWire.ExecuteLargeBody(ctx, assessment, src)
 		require.NoError(t, err)
-		defer res.Stream.Close()
+		defer func() { _ = res.Stream.Close() }()
 
 		var wireEvents []lipapi.Event
 		var wireRecvErr error
@@ -376,7 +376,7 @@ func TestItem5_SecureRecorder_Differential(t *testing.T) {
 		}
 		cStream, err := exCanonical.Execute(ctx, cCall)
 		require.NoError(t, err)
-		defer cStream.Close()
+		defer func() { _ = cStream.Close() }()
 
 		var canonicalEvents []lipapi.Event
 		var canonicalRecvErr error

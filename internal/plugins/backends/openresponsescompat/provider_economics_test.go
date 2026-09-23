@@ -179,7 +179,11 @@ func TestProviderEvidence_CompatibleStreamBindsV2AndRetainsLateCorrection(t *tes
 			ProviderRequestID: "compat-resp-1", DedupeKey: "compat:compat-resp-1",
 		},
 	}
-	stream := newProviderEventStream([]lipapi.Event{first}, "openresponses.compat.v2").(*providerEventStream)
+	rawStream := newProviderEventStream([]lipapi.Event{first}, "openresponses.compat.v2")
+	stream, ok := rawStream.(*providerEventStream)
+	if !ok {
+		t.Fatalf("provider event stream is %T, want *providerEventStream", rawStream)
+	}
 	if got := stream.DrainEconomicObservations(); len(got) != 0 {
 		t.Fatalf("unbound compatible evidence escaped: %d", len(got))
 	}
@@ -209,7 +213,7 @@ func TestProviderEvidence_CompatibleStreamBindsV2AndRetainsLateCorrection(t *tes
 	correction.InputTokens = 5
 	correction.TotalTokens = 7
 	correction.RawUsageJSON = `{"input_tokens":5,"output_tokens":2,"total_tokens":7,"input_image_count":1,"output_audio_seconds":2.5}`
-	stream.ProviderEvidenceBuffer.Add(providerEvidenceDraft(correction, "openresponses.compat.v2", "compat:compat-resp-1"))
+	stream.Add(providerEvidenceDraft(correction, "openresponses.compat.v2", "compat:compat-resp-1"))
 	corrected := stream.DrainEconomicObservations()
 	if len(corrected) != 1 {
 		t.Fatalf("late compatible correction observations = %d, want 1", len(corrected))
@@ -224,7 +228,7 @@ func TestProviderEvidence_CompatibleStreamBindsV2AndRetainsLateCorrection(t *tes
 
 func TestProviderEvidence_CompatibleAssistantMediaDoesNotInventProviderEconomics(t *testing.T) {
 	t.Parallel()
-	stream := newProviderEventStream([]lipapi.Event{
+	rawStream := newProviderEventStream([]lipapi.Event{
 		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "https://cdn.example/image.png"},
 		{Kind: lipapi.EventAssistantFileRef, AssistantRef: "file-output-1"},
 		{
@@ -236,7 +240,11 @@ func TestProviderEvidence_CompatibleAssistantMediaDoesNotInventProviderEconomics
 				DedupeKey: "compat:media-absent",
 			},
 		},
-	}, "openresponses.compat.v2").(*providerEventStream)
+	}, "openresponses.compat.v2")
+	stream, ok := rawStream.(*providerEventStream)
+	if !ok {
+		t.Fatalf("provider event stream is %T, want *providerEventStream", rawStream)
+	}
 	stream.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BLegID: "b-leg"})
 	observations := stream.DrainEconomicObservations()
 	if len(observations) != 1 {
@@ -254,5 +262,21 @@ func TestProviderEvidence_CompatibleAssistantMediaDoesNotInventProviderEconomics
 	}
 	if len(observations[0].Charges) != 0 {
 		t.Fatalf("assistant media reference invented provider charge: %+v", observations[0].Charges)
+	}
+}
+
+// TestProviderEventStreamDelegatesToEmbeddedBuffer is a termination
+// regression: BindEconomicEvidence and DrainEconomicObservations must delegate
+// to the embedded buffer, never recurse into themselves (a qualifying
+// embedded selector must stay explicit where the outer method shadows it).
+func TestProviderEventStreamDelegatesToEmbeddedBuffer(t *testing.T) {
+	t.Parallel()
+	stream := &providerEventStream{
+		events:                 nil,
+		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
+	}
+	stream.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BillingCallID: "call", BLegID: "b-1"})
+	if got := stream.DrainEconomicObservations(); len(got) != 0 {
+		t.Fatalf("empty buffer drained %d observations, want 0", len(got))
 	}
 }

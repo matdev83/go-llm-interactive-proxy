@@ -157,8 +157,10 @@ type CompletedSource struct {
 	openFile  func(path string) (io.ReadCloser, error)
 }
 
-var _ Source = (*CompletedSource)(nil)
-var _ io.Closer = (*CompletedSource)(nil)
+var (
+	_ Source    = (*CompletedSource)(nil)
+	_ io.Closer = (*CompletedSource)(nil)
+)
 
 // NewCompletedSource validates configuration and constructs an initialized CompletedSource.
 func NewCompletedSource(cfg CompletedSourceConfig) (*CompletedSource, error) {

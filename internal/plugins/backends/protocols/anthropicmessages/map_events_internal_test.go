@@ -563,7 +563,10 @@ func TestMsgStream_AnthropicPartialUsageSurvivesInterruptedStream(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	s := es.(*msgStream)
+	s, ok := es.(*msgStream)
+	if !ok {
+		t.Fatalf("message stream is %T, want *msgStream", es)
+	}
 	s.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BLegID: "b-leg"})
 	observations := s.DrainEconomicObservations()
 	if len(observations) != 1 || !hasAnthropicMeasure(observations[0], lipsdkmetering.ComponentInputToken, "11") || !hasAnthropicMeasure(observations[0], lipsdkmetering.ComponentCacheReadInputToken, "3") {

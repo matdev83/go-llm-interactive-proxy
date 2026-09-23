@@ -423,5 +423,7 @@ func testQuotaDecimalPtr(value string) *metering.Decimal {
 	return &parsed
 }
 
-var _ coremetering.AccountWindowStore = (*quotaPageStore)(nil)
-var _ authority.RequestProvider = (*authoritycoord.QuotaRequestProvider)(nil)
+var (
+	_ coremetering.AccountWindowStore = (*quotaPageStore)(nil)
+	_ authority.RequestProvider       = (*authoritycoord.QuotaRequestProvider)(nil)
+)

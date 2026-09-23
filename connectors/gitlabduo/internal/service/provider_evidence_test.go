@@ -103,7 +103,7 @@ func TestGitLabAnthropicStreamBridgesSplitUsageAtTerminal(t *testing.T) {
 		`data: {"type":"message_stop"}`,
 	}, "\n")
 	stream := newAnthropicManagedSSEStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	for {
 		ev, err := stream.Recv(context.Background())
 		if err == io.EOF {
@@ -132,7 +132,7 @@ func TestGitLabAnthropicInterruptedStreamFlushesCumulativeUsage(t *testing.T) {
 		`data: {"type":"message_delta","usage":{"output_tokens":8}}`,
 	}, "\n")
 	stream := newAnthropicManagedSSEStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	for {
 		_, err := stream.Recv(context.Background())
 		if err == io.EOF {
@@ -151,8 +151,8 @@ func TestGitLabAnthropicInterruptedStreamFlushesCumulativeUsage(t *testing.T) {
 func TestGitLabAnthropicLegacyStreamRetainsCanonicalUsageKey(t *testing.T) {
 	body := `data: {"type":"message_start","message":{"id":"msg-legacy","usage":{"input_tokens":11,"output_tokens":0}}}`
 	stream := newAnthropicManagedSSEStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-	stream.UsageEvidenceBuffer.SetEnabled(false)
-	defer stream.Close()
+	stream.SetEnabled(false)
+	defer func() { _ = stream.Close() }()
 	var usageSeen bool
 	for {
 		ev, err := stream.Recv(context.Background())

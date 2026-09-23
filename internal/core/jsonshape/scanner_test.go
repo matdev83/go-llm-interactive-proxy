@@ -607,12 +607,13 @@ func TestScanner_TopLevelSpansAndNestedKeyDiscrimination(t *testing.T) {
 	for _, e := range events {
 		if e.Key == "model" {
 			if e.TopLevel {
-				if e.Type == jsonshape.EventKey {
+				switch e.Type {
+				case jsonshape.EventKey:
 					foundTopLevelModelKey = true
 					if !slices.Equal(e.Path, []string{"model"}) {
 						t.Errorf("top-level model key path = %v, want ['model']", e.Path)
 					}
-				} else if e.Type == jsonshape.EventString {
+				case jsonshape.EventString:
 					foundTopLevelModelVal = true
 					if !slices.Equal(e.Path, []string{"model"}) {
 						t.Errorf("top-level model value path = %v, want ['model']", e.Path)
@@ -623,12 +624,13 @@ func TestScanner_TopLevelSpansAndNestedKeyDiscrimination(t *testing.T) {
 					}
 				}
 			} else {
-				if e.Type == jsonshape.EventKey {
+				switch e.Type {
+				case jsonshape.EventKey:
 					foundNestedModelKey = true
 					if !slices.Equal(e.Path, []string{"messages", "model"}) {
 						t.Errorf("nested model key path = %v, want ['messages', 'model']", e.Path)
 					}
-				} else if e.Type == jsonshape.EventString {
+				case jsonshape.EventString:
 					foundNestedModelVal = true
 					if !slices.Equal(e.Path, []string{"messages", "model"}) {
 						t.Errorf("nested model val path = %v, want ['messages', 'model']", e.Path)

@@ -154,6 +154,8 @@ func TestRefinement82SharedHarnessReopenYieldsFreshHandles(t *testing.T) {
 //   - a synchronized 8-way worker-claim race elects exactly one winner;
 //   - a synchronized superset-vs-incomparable race yields exactly one
 //     success plus one fence with no partial persistence.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func runRefinement82SharedRevisionScenario(t *testing.T, ctx context.Context, harness refinement82SharedHarness) {
 	t.Helper()
 	storeID := fmt.Sprintf("refinement82-shared-%d", time.Now().UnixNano())

@@ -167,7 +167,7 @@ func AccountingRequiresStrictQuiesce(snapshot AccountingRecoverySnapshot, capabi
 	}
 	floor := snapshot.EffectiveFloor()
 	if snapshot.HasV2MonetaryPosting || floor == V2WriterVersion {
-		if !(capability.SupportsV2Reader && capability.EpochAware) {
+		if !capability.SupportsV2Reader || !capability.EpochAware {
 			return true
 		}
 	}

@@ -457,8 +457,10 @@ func (l SelectedCostValuationLink) Key() (string, error) {
 		Currency           string                    `json:"currency"`
 		FX                 *selectedCostFXWire       `json:"fx,omitempty"`
 		AdjustmentRevision uint64                    `json:"adjustment_revision"`
-	}{"selected-cost-link:v1", l.AccountID, l.CallID.String(), l.HeadKey, l.Subject,
-		l.Previous, l.Current, l.Currency, selectedCostFXWireOf(l.FX), l.AdjustmentRevision})
+	}{
+		"selected-cost-link:v1", l.AccountID, l.CallID.String(), l.HeadKey, l.Subject,
+		l.Previous, l.Current, l.Currency, selectedCostFXWireOf(l.FX), l.AdjustmentRevision,
+	})
 	if err != nil {
 		return "", fmt.Errorf("%w: valuation link identity: %v", ErrSelectedCostHeadInvalid, err)
 	}
@@ -660,8 +662,10 @@ func selectedCostOperationKey(identity selectedCostChargeIdentity, previous *Sel
 		Currency           string                    `json:"currency"`
 		FX                 *selectedCostFXWire       `json:"fx,omitempty"`
 		AdjustmentRevision uint64                    `json:"adjustment_revision"`
-	}{"selected-cost-adjustment:v1", identity.AccountID, identity.CallID.String(), identity.HeadKey, identity.Subject,
-		previous, selected.Ref, deltaCurrency, selectedCostFXWireOf(selected.FX), selected.Ref.Revision})
+	}{
+		"selected-cost-adjustment:v1", identity.AccountID, identity.CallID.String(), identity.HeadKey, identity.Subject,
+		previous, selected.Ref, deltaCurrency, selectedCostFXWireOf(selected.FX), selected.Ref.Revision,
+	})
 	if err != nil {
 		return "", fmt.Errorf("%w: operation key: %v", ErrSelectedCostHeadInvalid, err)
 	}
@@ -689,8 +693,10 @@ func selectedCostFingerprint(identity selectedCostChargeIdentity, expected Selec
 		Selected        selectedCostValuationWire  `json:"selected"`
 		Currency        string                     `json:"currency"`
 		Delta           *MonetaryExactAmount       `json:"delta,omitempty"`
-	}{"selected-cost-adjustment-fp:v1", identity.AccountID, identity.CallID.String(), identity.HeadKey, identity.Subject,
-		expected.Version, previous, selectedCostValuationWireOf(selected), deltaCurrency, delta})
+	}{
+		"selected-cost-adjustment-fp:v1", identity.AccountID, identity.CallID.String(), identity.HeadKey, identity.Subject,
+		expected.Version, previous, selectedCostValuationWireOf(selected), deltaCurrency, delta,
+	})
 	if err != nil {
 		return "", fmt.Errorf("%w: fingerprint: %v", ErrSelectedCostHeadInvalid, err)
 	}

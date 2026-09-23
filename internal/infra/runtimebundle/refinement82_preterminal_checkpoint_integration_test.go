@@ -63,7 +63,7 @@ func newRefinement82GatedUsageStream(accountID string, release chan struct{}) *r
 		suffix:  []lipapi.Event{{Kind: lipapi.EventResponseFinished, FinishReason: "stop"}},
 		release: release,
 	}
-	stream.ProviderEvidenceBuffer.AddUsageEvent(lipapi.Event{
+	stream.AddUsageEvent(lipapi.Event{
 		Kind:          lipapi.EventUsageDelta,
 		CostNanoUnits: refinement82OperatorNano,
 		Currency:      "USD",
@@ -152,6 +152,8 @@ func injectRefinement82GatedBackend(t *testing.T, executor *coreruntime.Executor
 // provider-authority B-leg observation while the backend stream is still
 // gated (terminal not reached). It returns the live checkpoint observation
 // whose subject carries the still-open B-leg identity.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func waitRefinement82LiveProviderCheckpoint(t *testing.T, parent context.Context, journal *journalstore.DurableStore, storeID string) metering.Observation {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(parent, 20*time.Second)

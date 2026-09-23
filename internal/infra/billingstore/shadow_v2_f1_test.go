@@ -84,6 +84,7 @@ func f1Call(t *testing.T, callID billing.BillingCallID, bLegIDs ...string) billi
 	}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func f1ProvisionAccount(t *testing.T, ctx context.Context, store *DurableStore) billing.Account {
 	t.Helper()
 	account := billing.Account{ID: "f1-acct", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 1_000_000, State: billing.AccountReady, Version: 1}
@@ -91,13 +92,18 @@ func f1ProvisionAccount(t *testing.T, ctx context.Context, store *DurableStore) 
 	return account
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func f1SettleV1(t *testing.T, ctx context.Context, store *DurableStore, call billing.CallUsageRecord, maxNano, chargeNano int64) {
 	t.Helper()
-	exposure, err := store.AdmitExposure(ctx, billing.AdmitExposureInput{AccountID: call.AccountID, CallID: call.CallID.String(),
-		Max: billing.Money{Nano: maxNano, Currency: "USD"}, PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef})
+	exposure, err := store.AdmitExposure(ctx, billing.AdmitExposureInput{
+		AccountID: call.AccountID, CallID: call.CallID.String(),
+		Max: billing.Money{Nano: maxNano, Currency: "USD"}, PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef,
+	})
 	require.NoError(t, err)
-	settled, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{Call: call, Exposure: exposure,
-		Result: billing.CallRatingResult{CallID: call.CallID, CustomerCharge: billing.Money{Nano: chargeNano, Currency: "USD"}, Fingerprint: "f1-v1-result"}})
+	settled, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
+		Call: call, Exposure: exposure,
+		Result: billing.CallRatingResult{CallID: call.CallID, CustomerCharge: billing.Money{Nano: chargeNano, Currency: "USD"}, Fingerprint: "f1-v1-result"},
+	})
 	require.NoError(t, err)
 	require.False(t, settled.Replayed)
 }
@@ -113,8 +119,10 @@ func TestPhase172F1ShadowFirstKeepsV1Settleable(t *testing.T) {
 	require.NoError(t, capture.CaptureObservations(ctx, []metering.Observation{f1Observation(t, callID, "b-f1", "f1-obs-1", 1)}))
 
 	call := f1Call(t, callID, "b-f1")
-	_, err := store.AdmitExposure(ctx, billing.AdmitExposureInput{AccountID: account.ID, CallID: callID.String(),
-		Max: billing.Money{Nano: 100_000, Currency: "USD"}, PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef})
+	_, err := store.AdmitExposure(ctx, billing.AdmitExposureInput{
+		AccountID: account.ID, CallID: callID.String(),
+		Max: billing.Money{Nano: 100_000, Currency: "USD"}, PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef,
+	})
 	require.NoError(t, err)
 	require.NoError(t, store.AppendCallUsage(ctx, call))
 	require.NoError(t, store.AppendCallLegUsage(ctx, f1ScalarLeg(t, callID, "b-f1")))

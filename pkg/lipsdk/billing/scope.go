@@ -7,11 +7,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
-var (
-	// ErrInvalidBindingScope identifies a missing or malformed
-	// composition-time economics identity.
-	ErrInvalidBindingScope = errors.New("billing: invalid binding scope")
-)
+// ErrInvalidBindingScope identifies a missing or malformed
+// composition-time economics identity.
+var ErrInvalidBindingScope = errors.New("billing: invalid binding scope")
 
 // BindingScope carries the composition-time economics identity owned by the
 // binding: the trusted store and the frozen tariff and policy snapshots the

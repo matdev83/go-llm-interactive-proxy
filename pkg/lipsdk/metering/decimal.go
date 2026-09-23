@@ -98,10 +98,11 @@ func (d Decimal) Normalize() (Decimal, error) {
 	}
 	s := d.Coefficient
 	negative := false
-	if s[0] == '-' {
+	switch s[0] {
+	case '-':
 		negative = true
 		s = s[1:]
-	} else if s[0] == '+' {
+	case '+':
 		return Decimal{}, fmt.Errorf("%w: leading plus is not allowed", ErrInvalidDecimal)
 	}
 	if s == "" {
@@ -153,7 +154,7 @@ func ParseDecimal(raw string) (Decimal, error) {
 	main := raw
 	exponent := 0
 	if i := strings.IndexAny(raw, "eE"); i >= 0 {
-		if strings.IndexAny(raw[i+1:], "eE") >= 0 {
+		if strings.ContainsAny(raw[i+1:], "eE") {
 			return Decimal{}, fmt.Errorf("%w: multiple exponents", ErrInvalidDecimal)
 		}
 		main = raw[:i]
@@ -288,7 +289,7 @@ func (d *Decimal) UnmarshalJSON(data []byte) error {
 	if err := decodeV2JSON(data, "decimal", &wire); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidDecimal, err)
 	}
-	n, err := (Decimal{Coefficient: wire.Coefficient, Scale: wire.Scale}).Normalize()
+	n, err := Decimal(wire).Normalize()
 	if err != nil {
 		return err
 	}

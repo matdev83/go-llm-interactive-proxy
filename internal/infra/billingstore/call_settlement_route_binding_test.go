@@ -28,6 +28,7 @@ func bindingHashFixture(seed byte) string {
 	return string(out[:64])
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func boundCallFixture(t *testing.T, store *DurableStore, ctx context.Context, accountID string, maxNano int64, bindings []billing.RouteTariffBinding) (billing.CallUsageRecord, billing.CallExposure) {
 	t.Helper()
 	callID, err := billing.NewBillingCallID()
@@ -272,6 +273,7 @@ func TestSQLiteSettlementRouteBindingLegacyAndZeroChargeCompatible(t *testing.T)
 	})
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func boundRepairFixture(t *testing.T, store *DurableStore, ctx context.Context, accountID, backendID, modelID string, bindings []billing.RouteTariffBinding) billing.BillingCallID {
 	t.Helper()
 	callID, err := billing.NewBillingCallID()

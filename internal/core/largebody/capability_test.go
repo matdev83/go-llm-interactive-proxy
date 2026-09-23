@@ -129,9 +129,8 @@ func TestAsLargeBodyExecutor_NilAndAbsentYieldCanonical(t *testing.T) {
 func TestExternalManualExecutor_RemainsCanonicalOnly(t *testing.T) {
 	manual := &canonicalOnlyExecutor{}
 	var view lipsdk.ExecutorView = manual
-	if view == nil {
-		t.Fatal("manual executor must satisfy lipsdk.ExecutorView")
-	}
+	// Interface satisfaction is asserted at compile time above (var _ lipsdk.ExecutorView);
+	// manual is a non-nil concrete pointer, so a runtime view == nil check cannot fail.
 	if _, ok := largebody.AsLargeBodyExecutor(view); ok {
 		t.Fatal("external/manual executor without capability must stay canonical-only")
 	}

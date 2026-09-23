@@ -41,12 +41,16 @@ func c2bProviderRevisionInput(accountID string, callID billing.BillingCallID, aL
 			Acquisition: metering.AcquisitionProviderResponse, Authority: metering.AuthorityObservedClaim,
 			Perspective: metering.PerspectiveOperator, Boundary: metering.BoundaryBackendIngress,
 			Lifecycle: metering.LifecycleBackendAttempt, Subject: subject,
-			Correlation: metering.CorrelationV2{StoreID: subject.StoreID, ALegID: subject.ALegID,
-				BillingCallID: subject.BillingCallID, BLegID: subject.BLegID},
+			Correlation: metering.CorrelationV2{
+				StoreID: subject.StoreID, ALegID: subject.ALegID,
+				BillingCallID: subject.BillingCallID, BLegID: subject.BLegID,
+			},
 			Semantics: metering.SemanticsCumulative, ObservedAt: time.Unix(43, 0).UTC(),
 			ReceivedAt: time.Unix(43, 0).UTC(), MappingRef: "c2b.provider.cost",
-			Charges: []metering.ReportedCharge{{ChargeItemID: "provider-charge", Kind: metering.ChargeKindAggregate,
-				Amount: &amountDecimal, Currency: "USD", Payer: payer}},
+			Charges: []metering.ReportedCharge{{
+				ChargeItemID: "provider-charge", Kind: metering.ChargeKindAggregate,
+				Amount: &amountDecimal, Currency: "USD", Payer: payer,
+			}},
 		}},
 		Rater: economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "c2b-rater", Version: "v1"}, RaterID: "reference"},
 	}
@@ -518,7 +522,8 @@ func TestALegReportProviderBranchedChainUnknown(t *testing.T) {
 	claimC2BLegWork(t, store, accountID, callID, leg)
 	priorTx := posted.Posting.Transaction.ID
 	require.NotEmpty(t, priorTx)
-	branch, err := billing.JournalTransaction{ID: "tx-branch-pv", Book: billing.JournalBookFinancial, Currency: "USD", SourceKey: "tx-branch-pv",
+	branch, err := billing.JournalTransaction{
+		ID: "tx-branch-pv", Book: billing.JournalBookFinancial, Currency: "USD", SourceKey: "tx-branch-pv",
 		AccountID: accountID, TurnID: callID.String(), ALegID: aLegID, BLegID: "b-1",
 		AccountSequence: 9, ReversalOf: priorTx, CorrectsTransactionID: priorTx,
 		OperationKind: "provider_call_cogs",

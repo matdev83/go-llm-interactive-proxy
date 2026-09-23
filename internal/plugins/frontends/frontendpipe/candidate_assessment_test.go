@@ -65,8 +65,10 @@ func (e *testAssessorExecutor) ExecuteLargeCallCount() int64 {
 	return atomic.LoadInt64(&e.executeLargeCalls)
 }
 
-var _ lipsdk.ExecutorView = (*testAssessorExecutor)(nil)
-var _ largebody.LargeBodyExecutor = (*testAssessorExecutor)(nil)
+var (
+	_ lipsdk.ExecutorView         = (*testAssessorExecutor)(nil)
+	_ largebody.LargeBodyExecutor = (*testAssessorExecutor)(nil)
+)
 
 // minimalValidProofProfile produces a valid Proof and Seeds for assessment testing.
 func minimalValidProofProfile() *certifiedTestProfile {

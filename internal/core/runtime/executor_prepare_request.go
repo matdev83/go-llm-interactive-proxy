@@ -90,7 +90,7 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 		} else if prep.call != nil {
 			ingress = lipapi.CloneCall(*prep.call)
 		}
-		savedWP := prep.recvTurnFacts.wirePayload
+		savedWP := prep.recvTurnFacts.wirePayload //nolint:staticcheck // explicit recvTurnFacts qualification keeps request-attempt AST ratchet counts stable
 		prep.recvTurnFacts = newRecvTurnFacts(ctx, withBillingStoreID(recvTurnFactsInput{
 			baseline:                     *prep.call,
 			traceID:                      prep.identity.traceID,
@@ -105,7 +105,7 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 			conversationFilteredBaseline: lipapi.CloneCall(filtered),
 			ingressCall:                  ingress,
 		}, prep.billingStoreID, prep.billingStoreIDStamped))
-		prep.recvTurnFacts.wirePayload = savedWP
+		prep.recvTurnFacts.wirePayload = savedWP //nolint:staticcheck // explicit recvTurnFacts qualification keeps request-attempt AST ratchet counts stable
 	}
 }
 

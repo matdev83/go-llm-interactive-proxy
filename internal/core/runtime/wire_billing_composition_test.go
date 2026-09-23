@@ -687,10 +687,14 @@ func TestWireBilling_FullFastPathComposition_ReachesWireModeAndCompletesLifecycl
 		identityStamped: true,
 	}
 
-	term.handoffBillingTurn(ctx, facts, sdkterminal.CommandNormalFinish)
+	if err := term.handoffBillingTurn(ctx, facts, sdkterminal.CommandNormalFinish); err != nil {
+		t.Fatalf("handoffBillingTurn: %v", err)
+	}
 
 	// Idempotency: second handoff call is a no-op
-	term.handoffBillingTurn(ctx, facts, sdkterminal.CommandNormalFinish)
+	if err := term.handoffBillingTurn(ctx, facts, sdkterminal.CommandNormalFinish); err != nil {
+		t.Fatalf("handoffBillingTurn: %v", err)
+	}
 
 	usageSink.mu.Lock()
 	callCount := len(usageSink.calls)

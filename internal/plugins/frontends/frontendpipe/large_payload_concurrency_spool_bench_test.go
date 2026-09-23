@@ -154,7 +154,7 @@ func BenchmarkLargePayloadConcurrent_SpoolBudgetSaturation(b *testing.B) {
 		Profile:              openairesponses.NewProfile(),
 	}
 	spec := h.Spec()
-	spec.Config.LargePayload = frontendpipe.LargePayloadConfig{
+	spec.LargePayload = frontendpipe.LargePayloadConfig{
 		Enabled:          true,
 		ThresholdBytes:   16 << 10,
 		SpoolDir:         spoolDir,
@@ -247,7 +247,7 @@ func TestLargePayloadConcurrent_SpoolBudgetIsOptimizationBudgetNotOOM(t *testing
 		Profile:              openairesponses.NewProfile(),
 	}
 	spec := h.Spec()
-	spec.Config.LargePayload = frontendpipe.LargePayloadConfig{
+	spec.LargePayload = frontendpipe.LargePayloadConfig{
 		Enabled:          true,
 		ThresholdBytes:   16 << 10,
 		SpoolDir:         spoolDir,

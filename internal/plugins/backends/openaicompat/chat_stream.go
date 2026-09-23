@@ -251,7 +251,7 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 			if ch.ID != "" {
 				sourceKey = "openai.chat.usage:" + ch.ID
 			}
-			s.ProviderEvidenceBuffer.Add(openaiusage.ProviderEvidenceDraft(usage, "openai.chat.v2", sourceKey))
+			s.Add(openaiusage.ProviderEvidenceDraft(usage, "openai.chat.v2", sourceKey))
 		}
 	}
 	return nil

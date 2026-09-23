@@ -1,6 +1,7 @@
 package billingcompose_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -29,7 +30,7 @@ func TestPhase10SnapshotCatalogFreezesRetailSelectionPolicy(t *testing.T) {
 	}
 
 	policy.Retail.OutcomeSubset[0] = billing.LegOutcomeFailed
-	got, err := c.Policy(nil, lipapi.Call{})
+	got, err := c.Policy(context.Background(), lipapi.Call{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +39,7 @@ func TestPhase10SnapshotCatalogFreezesRetailSelectionPolicy(t *testing.T) {
 	}
 
 	got.Retail.OutcomeSubset[0] = billing.LegOutcomeFailed
-	again, err := c.Policy(nil, lipapi.Call{})
+	again, err := c.Policy(context.Background(), lipapi.Call{})
 	if err != nil {
 		t.Fatal(err)
 	}

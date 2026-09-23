@@ -25,7 +25,7 @@ func TestPhase4V2ProjectionSchemaExists(t *testing.T) {
 	store, err := NewDurableStore(context.Background(), bunDB, DurableConfig{StoreID: "phase4-red"})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	var got int
 	err = store.db.NewRaw("SELECT COUNT(*) FROM metering_components").Scan(context.Background(), &got)

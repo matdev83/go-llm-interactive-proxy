@@ -23,8 +23,11 @@ type lateTestLegReader struct {
 }
 
 func (r *lateTestLegReader) GetCallLegUsage(_ context.Context, key string) (corebilling.CallLegUsageRecord, error) {
+	if r == nil {
+		return corebilling.CallLegUsageRecord{}, fmt.Errorf("late test leg %q not found", key)
+	}
 	r.calls.Add(1)
-	if r == nil || r.missing || key != r.key {
+	if r.missing || key != r.key {
 		return corebilling.CallLegUsageRecord{}, fmt.Errorf("late test leg %q not found", key)
 	}
 	r.mu.Lock()

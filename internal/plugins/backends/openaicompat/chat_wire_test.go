@@ -401,7 +401,7 @@ func TestChatOpenWire_SuccessStreaming(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenWire failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	// Verify HTTP framing
 	if receivedMethod != http.MethodPost {
@@ -546,7 +546,7 @@ func TestChatOpenWire_NoAuthCompatibleBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenWire failed on no-auth backend: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if authHeader != "" {
 		t.Errorf("expected no Authorization header on no-auth compatible backend, got %q", authHeader)

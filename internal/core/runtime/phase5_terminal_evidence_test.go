@@ -49,7 +49,7 @@ func TestPhase5TrustedStoreIDScopesV2ObservationToJournalStore(t *testing.T) {
 	}}}
 	prep := &preparedRequest{}
 	executor.stampBillingStoreID(context.Background(), prep)
-	request := prep.recvTurnFacts.terminalFacts()
+	request := prep.terminalFacts()
 	draft := phase5EvidenceDraft(t, callID)
 	draft.storeID = request.storeID
 	draft.stream = phase5EvidenceEvent("trusted-store-source", lipapi.UsageSourceProviderReported, lipapi.UsageAuthorityAuthoritative, 2, 1, 3)

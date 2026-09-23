@@ -329,10 +329,11 @@ func newValuation(input economics.PostUsageRatingInput, snapshot economics.Tarif
 		Completeness:         economics.CompletenessComplete,
 		CreatedAt:            createdAt,
 	}
-	if input.Basis == economics.BasisLocalExpected || input.Basis == economics.BasisProviderQuantityLocal || input.Basis == economics.BasisCustomerPolicy {
+	switch input.Basis {
+	case economics.BasisLocalExpected, economics.BasisProviderQuantityLocal, economics.BasisCustomerPolicy:
 		valuation.Tariff = snapshot.Ref
 		valuation.TariffContent = cloneSnapshotContent(&snapshot.Content)
-	} else if input.Basis == economics.BasisProviderReported {
+	case economics.BasisProviderReported:
 		// P is a provider claim, not a local tariff evaluation. Do not carry
 		// incidental local rater/tariff labels from a shared input into the
 		// independent provider valuation.

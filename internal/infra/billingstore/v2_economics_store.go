@@ -1415,6 +1415,7 @@ func (s *DurableStore) SetEconomicFaultHook(hook func(string) error) {
 		s.economicFaultHook = hook
 	}
 }
+
 func (s *DurableStore) economicFault(stage string) error {
 	if s == nil || s.economicFaultHook == nil {
 		return nil
@@ -1602,6 +1603,7 @@ WHERE store_id = ? AND reconciliation_id = ? AND reconciliation_version = ?`,
 func (s *DurableStore) RebuildProjections(ctx context.Context) error {
 	return s.RebuildValuationProjections(ctx)
 }
+
 func (s *DurableStore) RebuildEconomicProjections(ctx context.Context) error {
 	return s.RebuildValuationProjections(ctx)
 }

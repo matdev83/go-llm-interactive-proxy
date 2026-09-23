@@ -920,11 +920,17 @@ func isKnownSemantics(value string) bool {
 
 func validateSubjectCorrelation(s SubjectRef, c CorrelationV2) error {
 	pairs := [][3]string{
-		{"request_id", s.RequestID, c.RequestID}, {"a_leg_id", s.ALegID, c.ALegID}, {"billing_call_id", s.BillingCallID, c.BillingCallID},
-		{"b_leg_id", s.BLegID, c.BLegID}, {"attempt_id", s.AttemptID, c.AttemptID},
-		{"submission_id", s.SubmissionID, c.SubmissionID}, {"provider_account_key", s.ProviderAccountKey, c.ProviderAccountKey},
-		{"provider_request_id", s.ProviderRequestID, c.ProviderRequestID}, {"provider_charge_id", s.ProviderChargeID, c.ProviderChargeID},
-		{"resource_id", s.ResourceID, c.ResourceID}, {"period_id", s.PeriodID, c.PeriodID},
+		{"request_id", s.RequestID, c.RequestID},
+		{"a_leg_id", s.ALegID, c.ALegID},
+		{"billing_call_id", s.BillingCallID, c.BillingCallID},
+		{"b_leg_id", s.BLegID, c.BLegID},
+		{"attempt_id", s.AttemptID, c.AttemptID},
+		{"submission_id", s.SubmissionID, c.SubmissionID},
+		{"provider_account_key", s.ProviderAccountKey, c.ProviderAccountKey},
+		{"provider_request_id", s.ProviderRequestID, c.ProviderRequestID},
+		{"provider_charge_id", s.ProviderChargeID, c.ProviderChargeID},
+		{"resource_id", s.ResourceID, c.ResourceID},
+		{"period_id", s.PeriodID, c.PeriodID},
 	}
 	for _, pair := range pairs {
 		if pair[1] != "" && pair[2] != "" && pair[1] != pair[2] {

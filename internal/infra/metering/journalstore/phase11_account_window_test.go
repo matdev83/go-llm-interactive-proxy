@@ -245,7 +245,7 @@ func TestPhase11AccountWindowJournal_HistoryAndProjectionCursorsAreFilterBound(t
 	require.NoError(t, err)
 	require.Equal(t, "cursor-2", second.Observations[0].ID)
 	query.PoolID = "pool-b"
-	require.ErrorIs(t, mustListAccountWindowObservations(store, ctx, query), journalstore.ErrInvalidCursor)
+	require.ErrorIs(t, mustListAccountWindowObservations(ctx, store, query), journalstore.ErrInvalidCursor)
 
 	projectionQuery := journalstore.AccountWindowQuery{StoreID: "sqlite-test", ProviderAccountKey: "acct-a", Limit: 1}
 	projectionPage, err := store.ProjectAccountWindows(ctx, projectionQuery)
@@ -362,7 +362,7 @@ func TestPhase11AccountWindowJournal_ProjectionAsOfResetFilterCursorBinding(t *t
 	require.ErrorIs(t, err, journalstore.ErrInvalidCursor, "a cursor from the epoch as-of filter must not enter the reset-less filter")
 }
 
-func mustListAccountWindowObservations(store *journalstore.DurableStore, ctx context.Context, query journalstore.AccountWindowQuery) error {
+func mustListAccountWindowObservations(ctx context.Context, store *journalstore.DurableStore, query journalstore.AccountWindowQuery) error {
 	_, err := store.ListAccountWindowObservations(ctx, query)
 	return err
 }

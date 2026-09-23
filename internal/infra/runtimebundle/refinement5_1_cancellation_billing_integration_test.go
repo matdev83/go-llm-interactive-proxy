@@ -60,8 +60,10 @@ type refinement51ProviderCostStore struct {
 	providerCostNotifyContext context.Context
 }
 
-var _ billing.AuthoritativeBilling = (*refinement51ProviderCostStore)(nil)
-var _ billing.ProviderCostWorkFailureStore = (*refinement51ProviderCostStore)(nil)
+var (
+	_ billing.AuthoritativeBilling         = (*refinement51ProviderCostStore)(nil)
+	_ billing.ProviderCostWorkFailureStore = (*refinement51ProviderCostStore)(nil)
+)
 
 func (s *refinement51ProviderCostStore) DeferProviderCostWork(ctx context.Context, work billing.ProviderCostWork, reason string) error {
 	err := s.DurableStore.DeferProviderCostWork(ctx, work, reason)
@@ -579,6 +581,7 @@ func refinement51CanonicalProviderTokenComponent(component string) bool {
 	}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func waitRefinement51ProviderCostWorkState(t *testing.T, ctx context.Context, store *billingstore.DurableStore, legKey string, done <-chan string) billingstore.ProviderCostWorkState {
 	t.Helper()
 	waitCtx, cancelWait := context.WithTimeout(ctx, 5*time.Second)

@@ -65,8 +65,10 @@ func (m *testWireBackendImpl) ResolveWireDomain(ctx context.Context, facts large
 	return m.domainResult
 }
 
-var _ largebody.WireBackend = (*testWireBackendImpl)(nil)
-var _ largebody.WireBackendProvider = execbackend.Backend{}
+var (
+	_ largebody.WireBackend         = (*testWireBackendImpl)(nil)
+	_ largebody.WireBackendProvider = execbackend.Backend{}
+)
 
 func TestEffectiveWireRequestSupport_NilYieldsCanonical(t *testing.T) {
 	t.Parallel()

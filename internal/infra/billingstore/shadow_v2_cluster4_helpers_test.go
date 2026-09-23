@@ -57,6 +57,8 @@ func cluster4ReconWorkFor(t *testing.T, rating billing.EconomicRevisionWork) bil
 // persisted dependency valuations of one reconciliation work. Every identity
 // and hash is resolved against durable state and fails closed on mismatch; no
 // caller-authored placeholder status is accepted.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func cluster4RealReconciliation(t *testing.T, ctx context.Context, store *DurableStore, reconWork billing.EconomicRevisionWork) billing.EconomicReconciliation {
 	t.Helper()
 	normalized, err := reconWork.Normalize()

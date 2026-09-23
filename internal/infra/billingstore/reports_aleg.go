@@ -584,12 +584,16 @@ func (s *DurableStore) QueryALegReport(ctx context.Context, query billing.ALegRe
 	report := billing.ALegReport{
 		StoreID: s.storeID, AccountID: account.ID, ALegID: normalized.ALegID,
 		Currency: currency, AsOf: asOf,
-		Retail: billing.ALegRetailTotals{Currency: currency,
+		Retail: billing.ALegRetailTotals{
+			Currency:      currency,
 			KnownSubtotal: billing.Money{Nano: subtotal, Currency: currency},
-			SettledCalls:  settled, PendingCalls: pending, UnknownCalls: unknown},
-		Provider: billing.ALegProviderTotals{Currency: currency,
+			SettledCalls:  settled, PendingCalls: pending, UnknownCalls: unknown,
+		},
+		Provider: billing.ALegProviderTotals{
+			Currency:      currency,
 			KnownSubtotal: billing.Money{Nano: providerSubtotal, Currency: currency},
-			KnownLegs:     providerKnown, PendingLegs: providerPending, ZeroLegs: providerZero, UnknownLegs: providerUnknown},
+			KnownLegs:     providerKnown, PendingLegs: providerPending, ZeroLegs: providerZero, UnknownLegs: providerUnknown,
+		},
 		Issues:    issues,
 		CallCount: callCount,
 	}
@@ -788,12 +792,16 @@ func alegCoreMarkers(rows []operationSnapshotRow) []billing.ALegMarker {
 			OperationKind: row.OperationKind, SourceKey: row.SourceKey,
 			Fingerprint: row.Fingerprint, IntegrityFingerprint: row.IntegrityFingerprint,
 			Currency: row.Currency, Mode: row.Mode,
-			Before: billing.AccountSnapshot{BalanceNano: row.BalanceBefore, SpendableNano: row.SpendableBefore,
+			Before: billing.AccountSnapshot{
+				BalanceNano: row.BalanceBefore, SpendableNano: row.SpendableBefore,
 				CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit,
-				Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionBefore},
-			After: billing.AccountSnapshot{BalanceNano: row.BalanceAfter, SpendableNano: row.SpendableAfter,
+				Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionBefore,
+			},
+			After: billing.AccountSnapshot{
+				BalanceNano: row.BalanceAfter, SpendableNano: row.SpendableAfter,
 				CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit,
-				Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionAfter},
+				Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionAfter,
+			},
 			SequenceStart: row.SequenceStart, SequenceEnd: row.SequenceEnd,
 		})
 	}
@@ -968,12 +976,16 @@ func alegCorePassThroughSnapshot(row operationSnapshotRow) billing.ALegPassThrou
 		OperationKey: row.OperationKey, SourceKey: row.SourceKey,
 		Fingerprint: row.Fingerprint, IntegrityFingerprint: row.IntegrityFingerprint,
 		Currency: row.Currency, Mode: row.Mode,
-		Before: billing.AccountSnapshot{BalanceNano: row.BalanceBefore, SpendableNano: row.SpendableBefore,
+		Before: billing.AccountSnapshot{
+			BalanceNano: row.BalanceBefore, SpendableNano: row.SpendableBefore,
 			CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit,
-			Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionBefore},
-		After: billing.AccountSnapshot{BalanceNano: row.BalanceAfter, SpendableNano: row.SpendableAfter,
+			Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionBefore,
+		},
+		After: billing.AccountSnapshot{
+			BalanceNano: row.BalanceAfter, SpendableNano: row.SpendableAfter,
 			CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit,
-			Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionAfter},
+			Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionAfter,
+		},
 		SequenceStart: row.SequenceStart, SequenceEnd: row.SequenceEnd,
 	}
 }
@@ -1822,12 +1834,16 @@ func alegCoreProviderSnapshot(row operationSnapshotRow) billing.ALegProviderSnap
 		OperationKey: row.OperationKey, SourceKey: row.SourceKey,
 		Fingerprint: row.Fingerprint, IntegrityFingerprint: row.IntegrityFingerprint,
 		Currency: row.Currency, Mode: row.Mode,
-		Before: billing.AccountSnapshot{BalanceNano: row.BalanceBefore, SpendableNano: row.SpendableBefore,
+		Before: billing.AccountSnapshot{
+			BalanceNano: row.BalanceBefore, SpendableNano: row.SpendableBefore,
 			CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit,
-			Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionBefore},
-		After: billing.AccountSnapshot{BalanceNano: row.BalanceAfter, SpendableNano: row.SpendableAfter,
+			Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionBefore,
+		},
+		After: billing.AccountSnapshot{
+			BalanceNano: row.BalanceAfter, SpendableNano: row.SpendableAfter,
 			CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit,
-			Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionAfter},
+			Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionAfter,
+		},
 		SequenceStart: row.SequenceStart, SequenceEnd: row.SequenceEnd,
 	}
 }
@@ -1839,7 +1855,8 @@ func alegCoreProviderSnapshot(row operationSnapshotRow) billing.ALegProviderSnap
 func evaluateALegProviderLegTx(scope billing.ALegAuthorityScope, leg alegProviderLegRow, journals []billing.JournalTransaction,
 	heads []providerCostHeadRow, postingFences []providerCostPostingFenceRow, executionFences []providerCostExecutionFenceRow,
 	work map[string]alegProviderWorkState, revisionPending map[string]bool,
-	snapshots map[string][]operationSnapshotRow) (billing.ALegProviderLegVerdict, []billing.ReconciliationIssue, error) {
+	snapshots map[string][]operationSnapshotRow,
+) (billing.ALegProviderLegVerdict, []billing.ReconciliationIssue, error) {
 	callID, err := billing.ParseBillingCallID(scope.CallID)
 	if err != nil {
 		return billing.ALegProviderLegVerdict{}, nil, fmt.Errorf("billing: A-leg provider call identity: %w", err)

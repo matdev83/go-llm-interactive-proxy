@@ -82,6 +82,8 @@ func TestALegReportScopeQueryPlans(t *testing.T) {
 		"markers chunk",
 		`SELECT operation_key FROM billing_operation_snapshots WHERE account_id = ? AND operation_kind IN ('customer_call_settlement','customer_no_charge_repair') AND source_key IN (?,?,?)`,
 		accountID, "bc_a", "bc_b", "bc_c")
+	require.Contains(t, plan, "sqlite_autoindex_billing_operation_snapshots_2")
+	require.NotContains(t, plan, "TEMP B-TREE")
 
 	plan = requireALegSearch(t, store,
 		"journals chunk",

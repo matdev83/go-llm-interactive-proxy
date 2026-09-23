@@ -46,6 +46,7 @@ func mustShadowCallID(t *testing.T) billing.BillingCallID {
 	return callID
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func shadowV2JournalCount(t *testing.T, ctx context.Context, store *DurableStore) int {
 	t.Helper()
 	var count int
@@ -53,6 +54,7 @@ func shadowV2JournalCount(t *testing.T, ctx context.Context, store *DurableStore
 	return count
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func shadowV2UnitOperationCount(t *testing.T, ctx context.Context, store *DurableStore) int {
 	t.Helper()
 	var count int
@@ -60,6 +62,7 @@ func shadowV2UnitOperationCount(t *testing.T, ctx context.Context, store *Durabl
 	return count
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func shadowV2ProviderCostHeadCount(t *testing.T, ctx context.Context, store *DurableStore) int {
 	t.Helper()
 	var count int
@@ -67,6 +70,7 @@ func shadowV2ProviderCostHeadCount(t *testing.T, ctx context.Context, store *Dur
 	return count
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func shadowV2SelectedAdjustmentCount(t *testing.T, ctx context.Context, store *DurableStore) int {
 	t.Helper()
 	var count int
@@ -74,6 +78,7 @@ func shadowV2SelectedAdjustmentCount(t *testing.T, ctx context.Context, store *D
 	return count
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func shadowV2AccountBalance(t *testing.T, ctx context.Context, store *DurableStore, accountID string) int64 {
 	t.Helper()
 	account, err := store.GetAccount(ctx, accountID)
@@ -81,6 +86,7 @@ func shadowV2AccountBalance(t *testing.T, ctx context.Context, store *DurableSto
 	return account.BalanceNano
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func shadowV2WorkCount(t *testing.T, ctx context.Context, store *DurableStore) int {
 	t.Helper()
 	var count int
@@ -88,6 +94,7 @@ func shadowV2WorkCount(t *testing.T, ctx context.Context, store *DurableStore) i
 	return count
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func shadowV2ValuationCountFor(t *testing.T, ctx context.Context, store *DurableStore, work billing.EconomicRevisionWork) int {
 	t.Helper()
 	identity, err := work.Identity()
@@ -99,11 +106,13 @@ func shadowV2ValuationCountFor(t *testing.T, ctx context.Context, store *Durable
 	return count
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func shadowV2ValuationExists(t *testing.T, ctx context.Context, store *DurableStore, work billing.EconomicRevisionWork) bool {
 	t.Helper()
 	return shadowV2ValuationCountFor(t, ctx, store, work) == 1
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func shadowV2ReconciliationExists(t *testing.T, ctx context.Context, store *DurableStore, work billing.EconomicRevisionWork) bool {
 	t.Helper()
 	identity, err := work.Identity()

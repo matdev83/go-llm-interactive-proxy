@@ -1385,7 +1385,7 @@ func (s *DurableStore) advanceProviderCostHeadInTx(ctx context.Context, tx bun.T
 	if err != nil {
 		return fmt.Errorf("billingstore: encode provider cost correction subject: %w", err)
 	}
-	if existing.HeadVersion >= math.MaxInt64 || existing.Fence >= math.MaxInt64 {
+	if existing.HeadVersion == math.MaxInt64 || existing.Fence == math.MaxInt64 {
 		return fmt.Errorf("%w: provider cost head version overflow", billing.ErrProviderCostRevisionInvalid)
 	}
 	postedJSON, err := providerCostHeadPostedAmountJSON(amount)
@@ -1539,7 +1539,7 @@ func (s *DurableStore) ensureNoMoneyRevisionPinInTx(ctx context.Context, tx bun.
 			return nil
 		}
 		// Lost insert race with a pinned pin below: fall through to complete it.
-		pinRow, pinFound = rrow, true
+		pinRow = rrow
 	}
 	pin, err := postingOwnershipRowToPin(pinRow)
 	if err != nil {

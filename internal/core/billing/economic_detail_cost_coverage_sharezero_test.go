@@ -170,8 +170,10 @@ func TestAssembleEconomicDetailFinding2ZeroSourceOrZeroShareKnownZero(t *testing
 		adjust func(*AllocatedCostLine)
 	}{
 		{name: "zero source full share", amount: "0", share: economics.AllocationFraction{Numerator: "1", Denominator: "1"}},
-		{name: "nonzero source zero share without rounded projection", amount: "10", share: economics.AllocationFraction{Numerator: "0", Denominator: "1"},
-			adjust: func(line *AllocatedCostLine) { line.RoundedAmount = nil }},
+		{
+			name: "nonzero source zero share without rounded projection", amount: "10", share: economics.AllocationFraction{Numerator: "0", Denominator: "1"},
+			adjust: func(line *AllocatedCostLine) { line.RoundedAmount = nil },
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

@@ -47,7 +47,8 @@ func ref83intDecimal(t *testing.T, raw string) *metering.Decimal {
 func ref83intObservation(t *testing.T, callID billing.BillingCallID, bLegID, id, charge string, measures ...struct {
 	key      metering.ComponentKey
 	quantity string
-}) metering.Observation {
+},
+) metering.Observation {
 	t.Helper()
 	items := make([]metering.Measure, 0, len(measures))
 	for _, item := range measures {
@@ -464,8 +465,10 @@ func ref83intAllocation(t *testing.T, callID billing.BillingCallID) economics.Al
 	target := func(id, bLegID, numerator string) economics.AllocationTarget {
 		return economics.AllocationTarget{
 			TargetID: id, Weight: economics.AllocationFraction{Numerator: numerator, Denominator: "4"},
-			Target: metering.SubjectRef{Kind: metering.SubjectBLeg, StoreID: ref83intStoreID, TenantID: "tenant-83",
-				BillingCallID: callID.String(), ALegID: "a-83", BLegID: bLegID},
+			Target: metering.SubjectRef{
+				Kind: metering.SubjectBLeg, StoreID: ref83intStoreID, TenantID: "tenant-83",
+				BillingCallID: callID.String(), ALegID: "a-83", BLegID: bLegID,
+			},
 		}
 	}
 	return economics.AllocationRecord{
@@ -590,6 +593,7 @@ func TestRefinement83IntegratedAllocationPersistsWithoutSyntheticLegs(t *testing
 	}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func ref83intJournalCount(t *testing.T, ctx context.Context, store *DurableStore, accountID, kind string) int {
 	t.Helper()
 	count := 0
@@ -606,6 +610,8 @@ func ref83intJournalCount(t *testing.T, ctx context.Context, store *DurableStore
 // key then transaction ID. JournalTransactions does not promise row order,
 // so the sort is test-side normalization only; every compared field comes
 // from the durable row.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func ref83intJournalSnapshot(t *testing.T, ctx context.Context, store *DurableStore, accountID string) []billing.JournalTransaction {
 	t.Helper()
 	transactions, err := store.JournalTransactions(ctx, accountID)

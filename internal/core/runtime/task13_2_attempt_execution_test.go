@@ -480,7 +480,7 @@ func TestTask13_2_CarryForwards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteLargeBody failed: %v", err)
 	}
-	defer res.Stream.Close()
+	defer func() { _ = res.Stream.Close() }()
 
 	// 1. WireIdentity propagated
 	if res.Facts.RequestID != "req-cf-123" {
@@ -576,7 +576,7 @@ func TestTask13_2_Finding1_WinnerStreamTransportAlive_ParallelRace(t *testing.T)
 	if err != nil {
 		t.Fatalf("ExecuteLargeBody failed: %v", err)
 	}
-	defer res.Stream.Close()
+	defer func() { _ = res.Stream.Close() }()
 
 	// Recv the peeked first event
 	ev1, err := res.Stream.Recv(ctx)
@@ -641,7 +641,7 @@ func TestTask13_2_Finding1_WinnerStreamTransportAlive_SequentialTTFTDeadline(t *
 	if err != nil {
 		t.Fatalf("ExecuteLargeBody failed: %v", err)
 	}
-	defer res.Stream.Close()
+	defer func() { _ = res.Stream.Close() }()
 
 	ev1, err := res.Stream.Recv(ctx)
 	if err != nil {
@@ -798,7 +798,7 @@ func TestTask13_2_Finding3_RaceLegs_CaptureWireBackendIngress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteLargeBody failed: %v", err)
 	}
-	defer res.Stream.Close()
+	defer func() { _ = res.Stream.Close() }()
 
 	if !b1Captured.Load() {
 		t.Error("expected backend ingress snapshot captured for b1")
@@ -857,7 +857,7 @@ func TestTask13_2_Finding4_TerminalCleanup_OpenFreshWireBodyFailure(t *testing.T
 	if err != nil {
 		t.Fatalf("ExecuteLargeBody failed: %v", err)
 	}
-	defer res.Stream.Close()
+	defer func() { _ = res.Stream.Close() }()
 	for {
 		if _, rerr := res.Stream.Recv(context.Background()); rerr != nil {
 			break

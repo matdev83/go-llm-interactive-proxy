@@ -52,7 +52,9 @@ func TestAuthoritativeRuntimeWithoutTerminalSinkDoesNotHandoff(t *testing.T) {
 	}
 	stream = stampStreamIdentity(stream, executor)
 	stream.terminal.recordBillingLegForAttempt(context.Background(), stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.attempt.require().terminalEvidence(), sdkterminal.CommandNormalFinish, lipapi.Event{}, true, stream.facts.billingCallState)
-	stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish)
+	if err := stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish); err != nil {
+		t.Fatalf("handoffBillingTurn: %v", err)
+	}
 	if executor.hasTerminalSink() || executor.hasTerminalCallSink() {
 		t.Fatal("runtime without TerminalUsageSink must not report a terminal handoff")
 	}
@@ -84,7 +86,9 @@ func TestTerminalUsageSinkFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 	state := stream.facts.billingCallState
 	state.noteAllocatedBLeg("b-2", 2)
 	state.noteAllocatedBLeg("b-1", 1)
-	stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish)
+	if err := stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish); err != nil {
+		t.Fatalf("handoffBillingTurn: %v", err)
+	}
 	if len(got) != 1 {
 		t.Fatalf("call-closure appends = %d, want 1", len(got))
 	}
@@ -102,7 +106,9 @@ func TestTerminalUsageSinkFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 	}
 
 	state.noteAllocatedBLeg("b-3", 3)
-	stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish)
+	if err := stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish); err != nil {
+		t.Fatalf("handoffBillingTurn: %v", err)
+	}
 	frozen := state.freezeAllocatedBLegs()
 	if len(frozen) != 2 || frozen[0] != "b-1" || frozen[1] != "b-2" {
 		t.Fatalf("allocated set grew after terminal freeze: %#v", frozen)
@@ -128,7 +134,9 @@ func TestTerminalUsageSinkNilLeavesRuntimeWithoutFinancialHandoff(t *testing.T) 
 	}
 	stream = stampStreamIdentity(stream, executor)
 	stream.terminal.recordBillingLegForAttempt(context.Background(), stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.attempt.require().terminalEvidence(), sdkterminal.CommandNormalFinish, lipapi.Event{}, true, stream.facts.billingCallState)
-	stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish)
+	if err := stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish); err != nil {
+		t.Fatalf("handoffBillingTurn: %v", err)
+	}
 }
 
 func TestAuthoritativeBillingWithoutTerminalSinkFailsClosed(t *testing.T) {
@@ -152,7 +160,9 @@ func TestAuthoritativeBillingWithoutTerminalSinkFailsClosed(t *testing.T) {
 	}
 	stream = stampStreamIdentity(stream, executor)
 	stream.terminal.recordBillingLegForAttempt(context.Background(), stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.attempt.require().terminalEvidence(), sdkterminal.CommandNormalFinish, lipapi.Event{}, true, stream.facts.billingCallState)
-	stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish)
+	if err := stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish); err != nil {
+		t.Fatalf("handoffBillingTurn: %v", err)
+	}
 }
 
 func TestTerminalUsageSinkIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
@@ -179,7 +189,9 @@ func TestTerminalUsageSinkIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
 	}
 	stream = stampStreamIdentity(stream, executor)
 	stream.terminal.recordBillingLegForAttempt(context.Background(), stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.attempt.require().terminalEvidence(), sdkterminal.CommandNormalFinish, lipapi.Event{}, true, stream.facts.billingCallState)
-	stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish)
+	if err := stream.terminal.handoffBillingTurn(context.Background(), stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish); err != nil {
+		t.Fatalf("handoffBillingTurn: %v", err)
+	}
 	if len(calls) != 1 {
 		t.Fatalf("call-closure appends = %d, want 1", len(calls))
 	}

@@ -158,6 +158,7 @@ func j81Observation(t *testing.T, id, bLegID, origin string, boundary metering.B
 	}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func j81OpenFileStore(t *testing.T, ctx context.Context, path string) *journalstore.DurableStore {
 	t.Helper()
 	sqlDB, err := sql.Open("sqlite", path)

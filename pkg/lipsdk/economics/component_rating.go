@@ -197,8 +197,10 @@ type RatingRule struct {
 
 // ComponentRatingRule and Rule are descriptive aliases used by adapters that
 // prefer the domain vocabulary. They preserve one canonical representation.
-type ComponentRatingRule = RatingRule
-type Rule = RatingRule
+type (
+	ComponentRatingRule = RatingRule
+	Rule                = RatingRule
+)
 
 func (r RatingRule) Validate(tariffCurrency string) error {
 	if err := validatePublicRef("rating rule id", r.ID); err != nil {

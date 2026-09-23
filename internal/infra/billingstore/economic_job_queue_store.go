@@ -15,8 +15,10 @@ import (
 
 const economicBacklogDependencyScanLimit = 512
 
-var _ billing.EconomicRevisionJobQueueStore = (*DurableStore)(nil)
-var _ billing.EconomicRevisionBacklogReader = (*DurableStore)(nil)
+var (
+	_ billing.EconomicRevisionJobQueueStore = (*DurableStore)(nil)
+	_ billing.EconomicRevisionBacklogReader = (*DurableStore)(nil)
+)
 
 // ClaimEconomicRevisionWorkBatch leases up to limit due jobs of one queue in a
 // single bounded transaction. Jobs whose immutable dependency outputs are not

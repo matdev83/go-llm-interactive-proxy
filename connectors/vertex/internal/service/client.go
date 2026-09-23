@@ -257,7 +257,7 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 
 	if stream {
 		managed := newSSEStream(resp, c.maxSSE())
-		managed.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+		managed.SetEnabled(c.accountingEvidenceV1)
 		return managed, nil
 	}
 
@@ -271,7 +271,7 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 		return nil, err
 	}
 	managed := newSliceStream(events)
-	managed.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+	managed.SetEnabled(c.accountingEvidenceV1)
 	return managed, nil
 }
 
@@ -373,7 +373,7 @@ func newSliceStream(events []lipapi.Event) *sliceStream {
 	s := &sliceStream{events: events, UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer()}
 	for _, event := range events {
 		if event.Kind == lipapi.EventUsageDelta {
-			s.UsageEvidenceBuffer.AddUsageEvent(event, "vertex.generate.usage:stream")
+			s.AddUsageEvent(event, "vertex.generate.usage:stream")
 		}
 	}
 	return s
@@ -517,7 +517,7 @@ func (s *sseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if s.UsageEvidenceBuffer != nil {
 			for _, event := range events {
 				if event.Kind == lipapi.EventUsageDelta {
-					s.UsageEvidenceBuffer.AddUsageEvent(event, "vertex.generate.usage:stream")
+					s.AddUsageEvent(event, "vertex.generate.usage:stream")
 				}
 			}
 		}

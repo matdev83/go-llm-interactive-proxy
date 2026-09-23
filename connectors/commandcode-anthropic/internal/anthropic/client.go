@@ -135,7 +135,7 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 
 	if isStreaming(call) {
 		stream := newManagedSSEStream(resp)
-		stream.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+		stream.SetEnabled(c.accountingEvidenceV1)
 		return stream, nil
 	}
 
@@ -149,7 +149,7 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 		return nil, err
 	}
 	stream := newProviderSliceStream(events)
-	stream.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+	stream.SetEnabled(c.accountingEvidenceV1)
 	return stream, nil
 }
 

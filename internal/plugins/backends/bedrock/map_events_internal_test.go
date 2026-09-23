@@ -176,8 +176,8 @@ func TestHandleOutput_metadataUsagePreservesCacheLifetimeAndRejectsNegative(t *t
 	if !ev.UsagePresence.InputTokens || !ev.UsagePresence.CacheReadTokens {
 		t.Fatalf("valid Bedrock counters were lost: %+v", ev)
 	}
-	s.ProviderEvidenceBuffer.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BLegID: "b-leg"})
-	observations := s.ProviderEvidenceBuffer.DrainEconomicObservations()
+	s.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BLegID: "b-leg"})
+	observations := s.DrainEconomicObservations()
 	if len(observations) != 1 {
 		t.Fatalf("Bedrock V2 observations = %d, want 1", len(observations))
 	}

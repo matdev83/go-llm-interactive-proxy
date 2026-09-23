@@ -497,9 +497,10 @@ func compileSummaryWithPlane(t *testing.T, planeID string) largebody.WireEligibi
 			t.Fatalf("unknown plane index %d", i)
 		}
 		acc := largebody.PlaneAccessMetadataOnly
-		if id == "response_part_hooks" || id == "completion_gates" || id == "stream_observer_factories" || id == "usage_observers" {
+		switch id {
+		case "response_part_hooks", "completion_gates", "stream_observer_factories", "usage_observers":
 			acc = largebody.PlaneAccessResponseOnly
-		} else if id == planeID {
+		case planeID:
 			acc = largebody.PlaneAccessCanonicalRequired
 		}
 		planes[i] = largebody.PlaneEligibilityInput{
@@ -678,9 +679,11 @@ type testExecView struct{}
 func (testExecView) Execute(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) {
 	return nil, nil
 }
+
 func (testExecView) CancelALeg(ctx context.Context, req lipapi.ALegCancelRequest) error {
 	return nil
 }
+
 func (testExecView) WallClock() func() time.Time {
 	return nil
 }

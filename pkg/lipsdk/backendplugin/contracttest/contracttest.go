@@ -189,6 +189,8 @@ func Run(t *testing.T, cfg Config) CertificationResult {
 // certify runs the scenario corpus and teardown without test control flow of
 // its own: setup failures and the final artifact validation surface as errors
 // so tests can drive a stuck plugin and assert fail-fast behavior directly.
+//
+//nolint:revive // shared TCK helper keeps t first per Go testing convention; reordering ctx before t would churn all callers for style only
 func certify(t *testing.T, cfg Config, ctx context.Context, host HostSession) (CertificationResult, error) {
 	t.Helper()
 

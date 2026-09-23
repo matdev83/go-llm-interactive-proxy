@@ -29,7 +29,10 @@ func TestProviderEvidenceStreamBindsNonStreamingUsageToTrustedBLeg(t *testing.T)
 		t.Fatal("non-streaming provider wrapper does not expose binder")
 	}
 	binder.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BillingCallID: "call", BLegID: "b-1"})
-	source := stream.(interface{ DrainEconomicObservations() []metering.Observation })
+	source, ok := stream.(interface{ DrainEconomicObservations() []metering.Observation })
+	if !ok {
+		t.Fatal("non-streaming provider wrapper does not expose observation source")
+	}
 	observations := source.DrainEconomicObservations()
 	if len(observations) != 1 {
 		t.Fatalf("bound provider observations = %d, want 1", len(observations))
@@ -40,5 +43,21 @@ func TestProviderEvidenceStreamBindsNonStreamingUsageToTrustedBLeg(t *testing.T)
 
 	if _, err := stream.Recv(context.Background()); err != nil {
 		t.Fatalf("event stream unexpectedly unavailable after evidence drain: %v", err)
+	}
+}
+
+// TestProviderEventStreamDelegatesToEmbeddedBuffer is a termination regression:
+// BindEconomicEvidence and DrainEconomicObservations must delegate to the
+// embedded buffer, never recurse into themselves (a qualifying embedded
+// selector must stay explicit where the outer method shadows it).
+func TestProviderEventStreamDelegatesToEmbeddedBuffer(t *testing.T) {
+	t.Parallel()
+	stream := &providerEventStream{
+		events:                 nil,
+		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
+	}
+	stream.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BillingCallID: "call", BLegID: "b-1"})
+	if got := stream.DrainEconomicObservations(); len(got) != 0 {
+		t.Fatalf("empty buffer drained %d observations, want 0", len(got))
 	}
 }

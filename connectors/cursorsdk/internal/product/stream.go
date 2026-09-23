@@ -137,7 +137,7 @@ func NewRunStream(parent context.Context, bridge RunBridge, lease *AgentLease, o
 		UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer(),
 	}
 	if opts.DisableAccountingEvidenceV1 {
-		s.UsageEvidenceBuffer.SetEnabled(false)
+		s.SetEnabled(false)
 	}
 	if bridge != nil && runID != "" {
 		ch, unsub, termErr := bridge.SubscribeRun(runID)
@@ -231,7 +231,7 @@ func (s *RunStream) Recv(ctx context.Context) (lipapi.Event, error) {
 // sideband. When V1 is unavailable, the key remains so the host's legacy
 // canonical capture path can retain the usage event.
 func (s *RunStream) canonicalUsageEvent(ev lipapi.Event) lipapi.Event {
-	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.AccountingEvidenceEnabled() {
 		ev.Accounting.DedupeKey = ""
 	}
 	return ev
@@ -285,7 +285,7 @@ func (s *RunStream) ingestFrame(f *protocol.Frame) {
 	}
 	s.expectSeq = next
 	for _, ev := range res.events {
-		s.UsageEvidenceBuffer.AddUsageEvent(ev, "cursorsdk.usage:stream")
+		s.AddUsageEvent(ev, "cursorsdk.usage:stream")
 	}
 
 	if res.terminal {

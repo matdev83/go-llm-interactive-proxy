@@ -248,7 +248,9 @@ func forgeRetentionQuantityCanonical(t *testing.T, result billing.Reconciliation
 		items, ok := quantity["items"].([]any)
 		require.True(t, ok)
 		require.Len(t, items, 1)
-		mutate(items[0].(map[string]any))
+		item, ok := items[0].(map[string]any)
+		require.True(t, ok, "quantity item must be a JSON object")
+		mutate(item)
 	})
 }
 
@@ -285,7 +287,9 @@ func TestReconciliationRetentionRejectsForgedQuantityDeltasDurably(t *testing.T)
 				result.Quantity.Items[0].SignedDelta = &metering.Decimal{Coefficient: "11"}
 			},
 			forge: func(item map[string]any) {
-				item["signed_delta"].(map[string]any)["coefficient"] = "11"
+				signedDelta, ok := item["signed_delta"].(map[string]any)
+				require.True(t, ok, "signed_delta must be a JSON object")
+				signedDelta["coefficient"] = "11"
 			},
 		},
 		{
@@ -295,10 +299,15 @@ func TestReconciliationRetentionRejectsForgedQuantityDeltasDurably(t *testing.T)
 				item.Provider = append(item.Provider, secondEvidence(item.Provider[0], "retention-forged-second-provider"))
 			},
 			forge: func(item map[string]any) {
-				provider := item["provider"].([]any)
-				duplicate := cloneRetentionJSONObject(t, provider[0].(map[string]any))
-				duplicate["observation"].(map[string]any)["observation_id"] = "retention-forged-second-provider"
-				duplicate["observation"].(map[string]any)["payload_hash"] = strings.Repeat("f", 64)
+				provider, ok := item["provider"].([]any)
+				require.True(t, ok, "provider must be a JSON array")
+				firstProvider, ok := provider[0].(map[string]any)
+				require.True(t, ok, "provider entry must be a JSON object")
+				duplicate := cloneRetentionJSONObject(t, firstProvider)
+				observation, ok := duplicate["observation"].(map[string]any)
+				require.True(t, ok, "observation must be a JSON object")
+				observation["observation_id"] = "retention-forged-second-provider"
+				observation["payload_hash"] = strings.Repeat("f", 64)
 				item["provider"] = append(provider, duplicate)
 			},
 		},
@@ -706,7 +715,8 @@ func TestReconciliationRetentionRejectsForgedAggregateTermsDurably(t *testing.T)
 				}
 			},
 			forge: func(t *testing.T, document map[string]any) {
-				aggregate := document["aggregate"].(map[string]any)
+				aggregate, ok := document["aggregate"].(map[string]any)
+				require.True(t, ok, "aggregate must be a JSON object")
 				rows, ok := aggregate["rows"].([]any)
 				require.True(t, ok)
 				require.NotEmpty(t, rows)

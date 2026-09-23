@@ -927,7 +927,7 @@ func newRefinement52AuthenticUsageStream(accountID string) *refinement52Authenti
 		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
 		accountID:              accountID,
 	}
-	stream.ProviderEvidenceBuffer.AddUsageEvent(lipapi.Event{
+	stream.AddUsageEvent(lipapi.Event{
 		Kind:          lipapi.EventUsageDelta,
 		CostNanoUnits: billingHostLoopOperatorNano,
 		Currency:      "USD",
@@ -1055,6 +1055,7 @@ func refinement52EconomicWorkIDs(t *testing.T, store *billingstore.DurableStore,
 	return ids
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func waitRefinement52EconomicWorkAttempted(t *testing.T, parent context.Context, store *billingstore.DurableStore, queue billing.EconomicQueue, want int) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(parent, 4*time.Second)
@@ -1076,6 +1077,7 @@ func waitRefinement52EconomicWorkAttempted(t *testing.T, parent context.Context,
 	}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func refinement52ExpectedProviderWork(t *testing.T, ctx context.Context, builder billing.ObservationEconomicWorkBuilder, journal *journalstore.DurableStore, storeID, blegID string, linkedStatement *metering.Observation) billing.EconomicRevisionWork {
 	t.Helper()
 	evidencePage, err := journal.ListObservations(ctx, journalstore.ObservationQuery{
@@ -1101,6 +1103,7 @@ func refinement52ExpectedProviderWork(t *testing.T, ctx context.Context, builder
 	return billing.EconomicRevisionWork{}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func waitRefinement52StockHeadExact(t *testing.T, parent context.Context, store *billingstore.DurableStore, journal *journalstore.DurableStore, accountID string, queue billing.EconomicQueue, headKey string, revision uint64, inputSetHash string) billing.EconomicValuationHead {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(parent, 8*time.Second)

@@ -55,12 +55,16 @@ func refinement43LegacyCutoverInput(accountID string, callID billing.BillingCall
 			Acquisition: metering.AcquisitionProviderResponse, Authority: metering.AuthorityObservedClaim,
 			Perspective: metering.PerspectiveOperator, Boundary: metering.BoundaryBackendIngress,
 			Lifecycle: metering.LifecycleBackendAttempt, Subject: subject,
-			Correlation: metering.CorrelationV2{StoreID: subject.StoreID, ALegID: subject.ALegID,
-				BillingCallID: subject.BillingCallID, BLegID: subject.BLegID},
+			Correlation: metering.CorrelationV2{
+				StoreID: subject.StoreID, ALegID: subject.ALegID,
+				BillingCallID: subject.BillingCallID, BLegID: subject.BLegID,
+			},
 			Semantics: metering.SemanticsCumulative, ObservedAt: time.Unix(100, 0).UTC(),
 			ReceivedAt: time.Unix(100, 0).UTC(), MappingRef: "refinement43.cutover",
-			Charges: []metering.ReportedCharge{{ChargeItemID: "provider-charge", Kind: metering.ChargeKindAggregate,
-				Amount: &amountDecimal, Currency: amount.Currency, Payer: metering.PaymentParty{Kind: metering.PaymentPartyOperator}}},
+			Charges: []metering.ReportedCharge{{
+				ChargeItemID: "provider-charge", Kind: metering.ChargeKindAggregate,
+				Amount: &amountDecimal, Currency: amount.Currency, Payer: metering.PaymentParty{Kind: metering.PaymentPartyOperator},
+			}},
 		}},
 		Rater: economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "refinement43-rater", Version: "v1"}, RaterID: "reference"},
 	}
@@ -102,9 +106,10 @@ func refinement43ProviderCostCountAndTotal(t *testing.T, store *DurableStore, ac
 			if entry.LedgerAccount != "inference_provider_cogs" {
 				continue
 			}
-			if entry.Side == billing.JournalDebit {
+			switch entry.Side {
+			case billing.JournalDebit:
 				total += entry.Amount.Nano
-			} else if entry.Side == billing.JournalCredit {
+			case billing.JournalCredit:
 				total -= entry.Amount.Nano
 			}
 		}

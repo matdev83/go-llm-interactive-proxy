@@ -13,6 +13,7 @@ import (
 )
 
 func TestVertexUsageMapsModalityAndGroundedToolEvidence(t *testing.T) {
+	t.Parallel()
 	u := &VertexUsageMetadata{
 		PromptTokenCount: 20, CandidatesTokenCount: 8, TotalTokenCount: 32,
 		CachedContentTokenCount: 4, ThoughtsTokenCount: 2, ToolUsePromptTokenCount: 1,
@@ -53,6 +54,7 @@ func TestVertexUsageMapsModalityAndGroundedToolEvidence(t *testing.T) {
 }
 
 func TestVertexUsageMalformedModalityIsUnavailable(t *testing.T) {
+	t.Parallel()
 	u := &VertexUsageMetadata{PromptTokensDetails: []VertexModalityTokenCount{{Modality: "UNKNOWN", TokenCount: 2}, {Modality: "IMAGE", TokenCount: -1}}}
 	if got := vertexNativeMeasures(u); len(got) != 0 {
 		t.Fatalf("malformed Vertex modality details should be omitted: %+v", got)
@@ -60,6 +62,7 @@ func TestVertexUsageMalformedModalityIsUnavailable(t *testing.T) {
 }
 
 func TestVertexUsageMapsEveryNativeModalityInInputAndOutputDirections(t *testing.T) {
+	t.Parallel()
 	modalities := []struct {
 		provider  string
 		component string
@@ -106,6 +109,7 @@ func TestVertexUsageMapsEveryNativeModalityInInputAndOutputDirections(t *testing
 }
 
 func TestVertexEvidenceLeavesUnsupportedMediaEconomicsUnavailable(t *testing.T) {
+	t.Parallel()
 	u := &VertexUsageMetadata{
 		PromptTokensDetails: []VertexModalityTokenCount{
 			{Modality: "IMAGE", TokenCount: 2},
@@ -132,6 +136,7 @@ func TestVertexEvidenceLeavesUnsupportedMediaEconomicsUnavailable(t *testing.T) 
 }
 
 func TestVertexUsagePrefersTrafficTypeForServiceContext(t *testing.T) {
+	t.Parallel()
 	u := &VertexUsageMetadata{TrafficType: "ON_DEMAND", ServiceTier: "legacy-tier"}
 	ev := usageEvent(u)
 	if ev.Accounting.ServiceContext != "ON_DEMAND" {
@@ -144,6 +149,7 @@ func TestVertexUsagePrefersTrafficTypeForServiceContext(t *testing.T) {
 }
 
 func TestVertexV1BridgeProjectsCanonicalUsageKey(t *testing.T) {
+	t.Parallel()
 	input := 11
 	output := 8
 	total := 19
@@ -172,6 +178,7 @@ func TestVertexV1BridgeProjectsCanonicalUsageKey(t *testing.T) {
 }
 
 func TestVertexV1BridgeDisabledLeavesCanonicalUsageIdentity(t *testing.T) {
+	t.Parallel()
 	event := lipapi.Event{
 		Kind:          lipapi.EventUsageDelta,
 		InputTokens:   11,
@@ -182,7 +189,7 @@ func TestVertexV1BridgeDisabledLeavesCanonicalUsageIdentity(t *testing.T) {
 		},
 	}
 	stream := newSliceStream([]lipapi.Event{event})
-	stream.UsageEvidenceBuffer.SetEnabled(false)
+	stream.SetEnabled(false)
 	ev, err := stream.Recv(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -196,6 +203,7 @@ func TestVertexV1BridgeDisabledLeavesCanonicalUsageIdentity(t *testing.T) {
 }
 
 func TestVertexV1BridgeRetainsTerminalAndLateCorrectionSemantics(t *testing.T) {
+	t.Parallel()
 	first := lipapi.Event{
 		Kind:          lipapi.EventUsageDelta,
 		InputTokens:   11,
@@ -229,18 +237,19 @@ func TestVertexV1BridgeRetainsTerminalAndLateCorrectionSemantics(t *testing.T) {
 	late := first
 	late.InputTokens = 13
 	late.TotalTokens = 21
-	stream.UsageEvidenceBuffer.AddUsageEvent(late, "vertex.generate.usage:stream")
+	stream.AddUsageEvent(late, "vertex.generate.usage:stream")
 	correction := stream.DrainAccountingEvidence()
 	if len(correction) != 1 || correction[0].InputTokens == nil || *correction[0].InputTokens != 13 || correction[0].TotalTokens == nil || *correction[0].TotalTokens != 21 {
 		t.Fatalf("Vertex late correction V1 evidence = %+v", correction)
 	}
-	stream.UsageEvidenceBuffer.AddUsageEvent(late, "vertex.generate.usage:stream")
+	stream.AddUsageEvent(late, "vertex.generate.usage:stream")
 	if got := stream.DrainAccountingEvidence(); len(got) != 0 {
 		t.Fatalf("Vertex exact replay was not deduplicated: %+v", got)
 	}
 }
 
 func TestVertexV1BridgeLiftsTrustedBLegProviderIdentity(t *testing.T) {
+	t.Parallel()
 	event := lipapi.Event{
 		Kind:          lipapi.EventUsageDelta,
 		InputTokens:   11,
@@ -295,6 +304,7 @@ func TestVertexV1BridgeLiftsTrustedBLegProviderIdentity(t *testing.T) {
 }
 
 func TestVertexUsagePreservesWireZeroVersusAbsent(t *testing.T) {
+	t.Parallel()
 	var usage VertexUsageMetadata
 	if err := json.Unmarshal([]byte(`{"promptTokenCount":0,"totalTokenCount":0}`), &usage); err != nil {
 		t.Fatal(err)
@@ -309,6 +319,7 @@ func TestVertexUsagePreservesWireZeroVersusAbsent(t *testing.T) {
 }
 
 func TestVertexNegativeUsageFieldRemainsUnavailable(t *testing.T) {
+	t.Parallel()
 	negative := -1
 	ev := usageEvent(&VertexUsageMetadata{PromptTokenCount: negative, CandidatesTokenCount: 2, TotalTokenCount: 2})
 	if ev.UsagePresence.InputTokens || ev.InputTokens != 0 {

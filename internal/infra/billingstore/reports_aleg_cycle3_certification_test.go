@@ -190,6 +190,8 @@ func cycle3CallDTOBytes(t *testing.T, report billing.ALegReport, callID billing.
 // the two billing seams (AdmitExposure + ApplyCallBillingResult). It
 // returns the allocated BillingCallID; callers resuming the same A-leg get
 // a distinct ID with newly allocated B-legs by construction.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func cycle3TerminalSettledCall(t *testing.T, ctx context.Context, sink billing.TerminalUsageSink, store *DurableStore, accountID, aLegID, bLegID string, chargeNano int64) billing.BillingCallID {
 	t.Helper()
 	callID, err := billing.NewBillingCallID()

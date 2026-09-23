@@ -134,32 +134,36 @@ func scanSeqLexicalOrdering(rel, src string) []RuleFinding {
 // scanLatestAcceptedUsesPersistedSequence requires the interrupted-call
 // latest-accepted rule to compare persisted sequence selectors.
 func scanLatestAcceptedUsesPersistedSequence(root string) []RuleFinding {
-	rel := "internal/core/billing/rating.go"
-	f, err := parseProductionFile(root, rel)
-	if err != nil {
-		return []RuleFinding{billingCorrectnessRuleFinding(
-			BillingCorrectnessRuleSequenceAdapterAuthoritative, rel,
-			"latest-accepted sequence target failed to parse: "+err.Error())}
-	}
-	if f == nil {
-		return []RuleFinding{billingCorrectnessRuleFinding(
-			BillingCorrectnessRuleSequenceAdapterAuthoritative, rel,
-			"latest-accepted sequence target is missing")}
+	rels := []string{
+		"internal/core/billing/rating.go",
+		"internal/core/billing/retail_selector.go",
+		"internal/core/billing/call_rating.go",
 	}
 	found := false
-	ast.Inspect(f, func(n ast.Node) bool {
-		binary, ok := n.(*ast.BinaryExpr)
-		if !ok || !isSequenceComparison(binary.Op) {
+	for _, rel := range rels {
+		f, err := parseProductionFile(root, rel)
+		if err != nil {
+			return []RuleFinding{billingCorrectnessRuleFinding(
+				BillingCorrectnessRuleSequenceAdapterAuthoritative, rel,
+				"latest-accepted sequence target failed to parse: "+err.Error())}
+		}
+		if f == nil {
+			continue
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			binary, ok := n.(*ast.BinaryExpr)
+			if !ok || !isSequenceComparison(binary.Op) {
+				return true
+			}
+			if isSeqSelector(binary.X) && isSeqSelector(binary.Y) {
+				found = true
+			}
 			return true
-		}
-		if isSeqSelector(binary.X) && isSeqSelector(binary.Y) {
-			found = true
-		}
-		return true
-	})
+		})
+	}
 	if !found {
 		return []RuleFinding{billingCorrectnessRuleFinding(
-			BillingCorrectnessRuleSequenceAdapterAuthoritative, rel,
+			BillingCorrectnessRuleSequenceAdapterAuthoritative, "internal/core/billing/rating.go",
 			"latest-accepted selection must compare persisted sequence selectors (not IDs/timestamps/position)")}
 	}
 	return nil

@@ -11,11 +11,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
-var (
-	// ErrIdentityConflict means one source-event revision was delivered with
-	// more than one semantic payload.
-	ErrIdentityConflict = errors.New("metering/replay: source event identity conflict")
-)
+// ErrIdentityConflict means one source-event revision was delivered with
+// more than one semantic payload.
+var ErrIdentityConflict = errors.New("metering/replay: source event identity conflict")
 
 // IdentityConflict identifies the source event whose immutable revision was
 // delivered with conflicting payloads.

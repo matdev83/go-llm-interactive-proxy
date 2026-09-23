@@ -775,13 +775,9 @@ func pendingCoverage(observations []metering.Observation, superseded map[observa
 				refIdentity := observationIdentity{store: ref.StoreID, id: ref.ObservationID, revision: ref.Revision}
 				target := node{ref.StoreID, ref.ObservationID, ref.Revision, ref.ChargeItemID}
 				if _, ok := known[target]; ok {
-					// A link to a known charge remains resolved only while that
-					// charge item is effective. An omitted item in a partial
-					// replacement remains effective even when its observation is
-					// superseded; a fully replaced item is audit-only.
-					if _, isEffective := effectiveItems[target]; !isEffective {
-						continue
-					}
+					// A link to a known charge never generates pending
+					// coverage: an effective link remains resolved, while a
+					// fully replaced item is audit-only.
 					continue
 				}
 				if _, obsolete := superseded[refIdentity]; obsolete {

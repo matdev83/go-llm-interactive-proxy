@@ -100,7 +100,7 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 				if resp.ID != "" {
 					sourceKey = "openai.responses.usage:" + resp.ID
 				}
-				s.ProviderEvidenceBuffer.Add(openaiusage.ProviderEvidenceDraft(*usage, "openai.responses.v2", sourceKey))
+				s.Add(openaiusage.ProviderEvidenceDraft(*usage, "openai.responses.v2", sourceKey))
 			}
 		}
 		return m.ResponseFinished()

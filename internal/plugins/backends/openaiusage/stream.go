@@ -45,7 +45,7 @@ func NewProviderEvidenceStream(events []lipapi.Event, mapping string) lipapi.Man
 		if sourceKey == "" {
 			sourceKey = mapping + ":usage:" + itoa(index)
 		}
-		s.ProviderEvidenceBuffer.Add(ProviderEvidenceDraft(event, mapping, sourceKey))
+		s.Add(ProviderEvidenceDraft(event, mapping, sourceKey))
 	}
 	return s
 }
@@ -78,12 +78,16 @@ func (s *providerEventStream) Cancel(_ context.Context, _ lipapi.CancelCause) li
 	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly, Err: s.Close()}
 }
 
+// BindEconomicEvidence delegates explicitly to the embedded buffer: the
+// qualifier must stay because this method shadows the promoted one.
 func (s *providerEventStream) BindEconomicEvidence(identity coremetering.ObservationIdentity) {
 	if s != nil && s.ProviderEvidenceBuffer != nil {
 		s.ProviderEvidenceBuffer.BindEconomicEvidence(identity)
 	}
 }
 
+// DrainEconomicObservations delegates explicitly to the embedded buffer: the
+// qualifier must stay because this method shadows the promoted one.
 func (s *providerEventStream) DrainEconomicObservations() []sdkmetering.Observation {
 	if s == nil || s.ProviderEvidenceBuffer == nil {
 		return nil

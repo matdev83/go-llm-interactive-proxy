@@ -102,7 +102,7 @@ func TestContinuationReader_ByteForByteParity_MemoryPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// Write retained prefix
 	if _, err := buf.Write(payload[:split1]); err != nil {
@@ -121,7 +121,7 @@ func TestContinuationReader_ByteForByteParity_MemoryPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCaptureReader: %v", err)
 	}
-	defer cr.Close()
+	defer func() { _ = cr.Close() }()
 
 	got, err := io.ReadAll(cr)
 	if err != nil {
@@ -302,7 +302,7 @@ func TestContinuationReader_BodyCeiling_ExactLimitPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	if _, err := buf.Write(payload[:40]); err != nil {
 		t.Fatalf("Write: %v", err)
@@ -317,7 +317,7 @@ func TestContinuationReader_BodyCeiling_ExactLimitPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCaptureReader: %v", err)
 	}
-	defer cr.Close()
+	defer func() { _ = cr.Close() }()
 
 	got, err := io.ReadAll(cr)
 	if err != nil {
@@ -343,7 +343,7 @@ func TestContinuationReader_BodyCeiling_LimitPlusOneFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	if _, err := buf.Write(payload[:40]); err != nil {
 		t.Fatalf("Write: %v", err)
@@ -358,7 +358,7 @@ func TestContinuationReader_BodyCeiling_LimitPlusOneFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCaptureReader: %v", err)
 	}
-	defer cr.Close()
+	defer func() { _ = cr.Close() }()
 
 	_, err = io.ReadAll(cr)
 	if err == nil {
@@ -381,7 +381,7 @@ func TestContinuationReader_ClientCancelIsNotTooLarge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	if _, err := buf.Write([]byte("prefix_bytes")); err != nil {
 		t.Fatalf("Write: %v", err)
@@ -401,7 +401,7 @@ func TestContinuationReader_ClientCancelIsNotTooLarge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCaptureReader: %v", err)
 	}
-	defer cr.Close()
+	defer func() { _ = cr.Close() }()
 
 	_, err = io.ReadAll(cr)
 	if err == nil {
@@ -427,7 +427,7 @@ func TestContinuationReader_ClientDisconnectIsNotTooLarge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	disconnectErr := errors.New("client connection reset by peer")
 	faulty := &faultyReader{
@@ -444,7 +444,7 @@ func TestContinuationReader_ClientDisconnectIsNotTooLarge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCaptureReader: %v", err)
 	}
-	defer cr.Close()
+	defer func() { _ = cr.Close() }()
 
 	_, err = io.ReadAll(cr)
 	if err == nil {
@@ -473,7 +473,7 @@ func TestContinuationReader_NeverRereadsOrRestartsSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	if _, err := buf.Write(payload[:4]); err != nil {
 		t.Fatalf("Write: %v", err)
@@ -488,7 +488,7 @@ func TestContinuationReader_NeverRereadsOrRestartsSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCaptureReader: %v", err)
 	}
-	defer cr.Close()
+	defer func() { _ = cr.Close() }()
 
 	got, err := io.ReadAll(cr)
 	if err != nil {
@@ -567,7 +567,7 @@ func TestSpillBuffer_UnconsumedSuffix_RejectsWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// Write 40 bytes (succeeds)
 	if _, err := buf.Write(bytes.Repeat([]byte("A"), 40)); err != nil {
@@ -622,7 +622,7 @@ func TestCaptureRequestBody_CompleteSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	result := largebody.CaptureRequestBody(src, buf, largebody.CaptureConfig{
 		MaxBytes:       2048,
@@ -643,7 +643,7 @@ func TestCaptureRequestBody_CompleteSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buf.Open: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	captured, err := io.ReadAll(rc)
 	if err != nil {
 		t.Fatalf("ReadAll: %v", err)
@@ -694,7 +694,7 @@ func TestCaptureRequestBody_MidCaptureBudgetExhaustion_YieldsContinuation(t *tes
 	if result.Continuation == nil {
 		t.Fatal("expected non-nil Continuation reader on decline")
 	}
-	defer result.Continuation.Close()
+	defer func() { _ = result.Continuation.Close() }()
 
 	// Read full payload through continuation
 	got, err := io.ReadAll(result.Continuation)
@@ -722,7 +722,7 @@ func TestCaptureRequestBody_ExceedsCeiling_FailsImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	result := largebody.CaptureRequestBody(src, buf, largebody.CaptureConfig{
 		MaxBytes:       100, // ceiling is 100
@@ -756,7 +756,7 @@ func TestCaptureRequestBody_ClientReadError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	result := largebody.CaptureRequestBody(src, buf, largebody.CaptureConfig{
 		MaxBytes:       1024,

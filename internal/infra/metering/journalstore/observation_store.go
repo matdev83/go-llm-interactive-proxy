@@ -1159,6 +1159,4 @@ func minInt(a, b int) int {
 	return b
 }
 
-var (
-	_ ObservationTxWriter = (*DurableStore)(nil)
-)
+var _ ObservationTxWriter = (*DurableStore)(nil)

@@ -52,6 +52,7 @@ func TestMediaCapabilitiesRequireCanonicalMediaMapping(t *testing.T) {
 	}
 
 	srv, _ := opencodeModelServer(t, `{"data":[{"id":"emu-model"}]}`)
+	//nolint:paralleltest // subtests share one httptest server whose handler mutates captured auth state
 	for _, kind := range []string{service.FactoryKindGo, service.FactoryKindZen} {
 		t.Run(kind, func(t *testing.T) {
 			inst, err := service.New().Configure(context.Background(), mustCfg(t, kind,

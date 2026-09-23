@@ -47,9 +47,37 @@ func TestPhase1CoreDoesNotCreateAuthoritativeALegEconomicSubject(t *testing.T) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		// Case values only read the kind for deterministic ordering (for
+		// example derived A-leg/call/B-leg display sort); they do not
+		// construct an authoritative subject. Collect them so the guard
+		// below flags only actual constructions.
+		casePositions := make(map[token.Pos]struct{})
+		ast.Inspect(file, func(node ast.Node) bool {
+			clause, ok := node.(*ast.CaseClause)
+			if !ok {
+				return true
+			}
+			for _, expr := range clause.List {
+				ast.Inspect(expr, func(inner ast.Node) bool {
+					sel, ok := inner.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					if sel.Sel.Name != "SubjectALeg" && sel.Sel.Name != "SubjectAleg" {
+						return true
+					}
+					casePositions[sel.Pos()] = struct{}{}
+					return true
+				})
+			}
+			return true
+		})
 		ast.Inspect(file, func(node ast.Node) bool {
 			selector, ok := node.(*ast.SelectorExpr)
 			if !ok || (selector.Sel.Name != "SubjectALeg" && selector.Sel.Name != "SubjectAleg") {
+				return true
+			}
+			if _, ok := casePositions[selector.Pos()]; ok {
 				return true
 			}
 			pkg, ok := selector.X.(*ast.Ident)

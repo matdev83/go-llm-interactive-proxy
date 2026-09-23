@@ -26,7 +26,7 @@ func TestCompletedSource_SourceDigest_MatchesDirectHash(t *testing.T) {
 	t.Run("NewMemorySource", func(t *testing.T) {
 		t.Parallel()
 		src := largebody.NewMemorySource(payload)
-		defer src.Close()
+		defer func() { _ = src.Close() }()
 
 		if src.Digest() != expectedDigest {
 			t.Fatalf("src.Digest() = %s, want %s", src.Digest(), expectedDigest)
@@ -49,7 +49,7 @@ func TestCompletedSource_SourceDigest_MatchesDirectHash(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSpillBuffer: %v", err)
 		}
-		defer buf.Close()
+		defer func() { _ = buf.Close() }()
 
 		if _, err := buf.Write(payload); err != nil {
 			t.Fatalf("buf.Write: %v", err)
@@ -62,7 +62,7 @@ func TestCompletedSource_SourceDigest_MatchesDirectHash(t *testing.T) {
 		if err != nil {
 			t.Fatalf("buf.Complete: %v", err)
 		}
-		defer src.Close()
+		defer func() { _ = src.Close() }()
 
 		if src.Digest() != expectedDigest {
 			t.Fatalf("src.Digest() = %s, want %s", src.Digest(), expectedDigest)
@@ -82,7 +82,7 @@ func TestCompletedSource_SourceDigest_MatchesDirectHash(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSpillBuffer: %v", err)
 		}
-		defer buf.Close()
+		defer func() { _ = buf.Close() }()
 
 		// Write in multiple small chunks
 		chunkSize := 10
@@ -107,7 +107,7 @@ func TestCompletedSource_SourceDigest_MatchesDirectHash(t *testing.T) {
 		if err != nil {
 			t.Fatalf("buf.Complete: %v", err)
 		}
-		defer src.Close()
+		defer func() { _ = src.Close() }()
 
 		if src.Digest() != expectedDigest {
 			t.Fatalf("src.Digest() = %s, want %s", src.Digest(), expectedDigest)
@@ -127,7 +127,7 @@ func TestCompletedSource_SourceDigest_MatchesDirectHash(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSpillBuffer: %v", err)
 		}
-		defer buf.Close()
+		defer func() { _ = buf.Close() }()
 
 		if _, err := buf.Write(payload); err != nil {
 			t.Fatalf("buf.Write: %v", err)
@@ -140,7 +140,7 @@ func TestCompletedSource_SourceDigest_MatchesDirectHash(t *testing.T) {
 		if err != nil {
 			t.Fatalf("buf.Complete: %v", err)
 		}
-		defer src.Close()
+		defer func() { _ = src.Close() }()
 
 		if src.Digest() != expectedDigest {
 			t.Fatalf("src.Digest() = %s, want %s", src.Digest(), expectedDigest)
@@ -161,7 +161,7 @@ func TestSpillBuffer_IncrementalDigest_MatchesWriteProgression(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// Before any write, digest is empty/zero
 	if !buf.Digest().IsZero() {
@@ -191,7 +191,7 @@ func TestSpillBuffer_IncrementalDigest_MatchesWriteProgression(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buf.Complete: %v", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	expectedFinal := sha256.Sum256(cumulative)
 	if src.Digest().Sum() != expectedFinal {
@@ -258,7 +258,7 @@ func TestCompletedSource_NewCompletedSource_ConfigDigest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewCompletedSource: %v", err)
 		}
-		defer src.Close()
+		defer func() { _ = src.Close() }()
 
 		if src.Digest() != expectedDigest {
 			t.Fatalf("src.Digest() = %s, want %s", src.Digest(), expectedDigest)
@@ -274,7 +274,7 @@ func TestCompletedSource_NewCompletedSource_ConfigDigest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewCompletedSource: %v", err)
 		}
-		defer src.Close()
+		defer func() { _ = src.Close() }()
 
 		if src.Digest() != expectedDigest {
 			t.Fatalf("src.Digest() = %s, want %s", src.Digest(), expectedDigest)
@@ -312,7 +312,7 @@ func TestCaptureRequestBody_DigestBinding(t *testing.T) {
 	if res.Source == nil {
 		t.Fatal("expected non-nil Source")
 	}
-	defer res.Source.Close()
+	defer func() { _ = res.Source.Close() }()
 
 	if res.Digest != expectedDigest {
 		t.Fatalf("res.Digest = %s, want %s", res.Digest, expectedDigest)
@@ -341,7 +341,7 @@ func TestSpillBuffer_Digest_UnwrittenSuffixNotHashedUntilCommitted(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// Write first 8 bytes (fits in memory)
 	part1 := []byte("12345678")
@@ -387,7 +387,7 @@ func TestSpillBuffer_Digest_FaultInjection_UnwrittenSuffixNotHashed(t *testing.T
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// 1. Write 4 bytes to fill memory
 	memData := []byte("abcd")

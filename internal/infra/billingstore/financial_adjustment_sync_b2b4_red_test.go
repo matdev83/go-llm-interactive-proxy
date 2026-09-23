@@ -32,6 +32,7 @@ func b2b4CountFinancialAdjustmentPins(t *testing.T, store *DurableStore) int {
 	return n
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func b2b4SetupCostPassThroughHead(t *testing.T, store *DurableStore, ctx context.Context, account billing.Account) (billing.CallUsageRecord, billing.CostPassThroughProviderCost) {
 	t.Helper()
 	callID, err := billing.NewBillingCallID()

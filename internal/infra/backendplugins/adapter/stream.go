@@ -585,10 +585,12 @@ func (s *managedStream) DrainEconomicObservations() []metering.Observation {
 	return out
 }
 
-var _ backendplugin.AccountingEvidenceV2Source = (*managedStream)(nil)
-var _ backendplugin.EconomicEvidenceSource = (*managedStream)(nil)
-var _ execbackend.EconomicEvidenceSource = (*managedStream)(nil)
-var _ metering.ObservationSource = (*managedStream)(nil)
+var (
+	_ backendplugin.AccountingEvidenceV2Source = (*managedStream)(nil)
+	_ backendplugin.EconomicEvidenceSource     = (*managedStream)(nil)
+	_ execbackend.EconomicEvidenceSource       = (*managedStream)(nil)
+	_ metering.ObservationSource               = (*managedStream)(nil)
+)
 
 func accountingEvidenceToEvent(e *backendplugin.AccountingEvidence) (lipapi.Event, error) {
 	if e == nil {

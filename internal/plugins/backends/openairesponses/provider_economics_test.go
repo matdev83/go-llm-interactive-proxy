@@ -184,9 +184,13 @@ func TestProviderEvidence_AssistantMediaRefsAloneDoNotInventUsage(t *testing.T) 
 		t.Fatal("Responses evidence stream does not expose its binder")
 	}
 	binder.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BLegID: "b-leg"})
-	observations := stream.(interface {
+	source, ok := stream.(interface {
 		DrainEconomicObservations() []sdkmetering.Observation
-	}).DrainEconomicObservations()
+	})
+	if !ok {
+		t.Fatal("Responses evidence stream does not expose observation source")
+	}
+	observations := source.DrainEconomicObservations()
 	if len(observations) != 0 {
 		t.Fatalf("assistant media refs invented provider observations: %+v", observations)
 	}
@@ -231,7 +235,7 @@ func TestSDKStreamProviderEvidence_BindsFinalAndLateCorrection(t *testing.T) {
 		t.Fatal("corrected provider usage was not emitted")
 	}
 	openaiusage.AnnotateProviderContext(correctedUsage, corrected.ID, string(corrected.ServiceTier))
-	s.ProviderEvidenceBuffer.Add(openaiusage.ProviderEvidenceDraft(*correctedUsage, "openai.responses.v2", "openai.responses.usage:"+resp.ID))
+	s.Add(openaiusage.ProviderEvidenceDraft(*correctedUsage, "openai.responses.v2", "openai.responses.usage:"+resp.ID))
 	late := s.DrainEconomicObservations()
 	if len(late) != 1 || late[0].Revision != 2 || late[0].Semantics != sdkmetering.SemanticsReplacement {
 		t.Fatalf("late provider correction = %+v, want revision 2 replacement", late)

@@ -13,6 +13,7 @@ import (
 // same atomic transaction instead of discarding it. Breach state is explicit,
 // replays stay idempotent, and conflicting actuals conflict.
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func overrunCallFixture(t *testing.T, store *DurableStore, ctx context.Context, account billing.Account, maxNano, actualNano int64) (billing.CallUsageRecord, billing.CallExposure, billing.CallRatingResult) {
 	t.Helper()
 	callID, err := billing.NewBillingCallID()

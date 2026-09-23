@@ -137,7 +137,7 @@ func (s *sseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				if responseID != "" {
 					sourceKey += ":" + responseID
 				}
-				s.ProviderEvidenceBuffer.Add(providerEvidenceDraft(events[i], "openresponses.compat.v2", sourceKey))
+				s.Add(providerEvidenceDraft(events[i], "openresponses.compat.v2", sourceKey))
 			}
 		}
 		if s.maxPending > 0 && len(s.deferred)+len(events) > s.maxPending {

@@ -200,7 +200,7 @@ func accountWindowIdentityForSubjectWithTenant(subject lipsdkmetering.SubjectRef
 func accountWindowLengthPrefixed(values ...string) string {
 	var builder strings.Builder
 	for _, value := range values {
-		builder.WriteString(fmt.Sprintf("%d:", len(value)))
+		fmt.Fprintf(&builder, "%d:", len(value))
 		builder.WriteString(value)
 	}
 	return builder.String()

@@ -732,9 +732,10 @@ func selectRetailInferenceSelection(observations []metering.Observation) (retail
 			if !c.complete {
 				continue
 			}
-			if c.origin == metering.OriginProvider {
+			switch c.origin {
+			case metering.OriginProvider:
 				providerComplete = true
-			} else if c.origin == metering.OriginLocal {
+			case metering.OriginLocal:
 				localComplete = true
 			}
 		}

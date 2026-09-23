@@ -370,6 +370,7 @@ func TestRefinement42RevisionQueueRetryDoesNotStarveNewWork(t *testing.T) {
 	require.Equal(t, identity.Key(), head.WorkID)
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func pendingStateCount(t *testing.T, store *DurableStore, ctx context.Context) int {
 	t.Helper()
 	var pending int

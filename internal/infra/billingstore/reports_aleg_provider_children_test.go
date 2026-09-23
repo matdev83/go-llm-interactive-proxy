@@ -46,13 +46,17 @@ func c2r2ChildRevisionInput(t *testing.T, accountID string, callID billing.Billi
 			Acquisition: metering.AcquisitionProviderResponse, Authority: metering.AuthorityObservedClaim,
 			Perspective: metering.PerspectiveOperator, Boundary: metering.BoundaryBackendIngress,
 			Lifecycle: metering.LifecycleBackendAttempt, Subject: subject,
-			Correlation: metering.CorrelationV2{StoreID: subject.StoreID, ALegID: subject.ALegID,
+			Correlation: metering.CorrelationV2{
+				StoreID: subject.StoreID, ALegID: subject.ALegID,
 				BillingCallID: subject.BillingCallID, BLegID: subject.BLegID,
-				ProviderAccountKey: subject.ProviderAccountKey, ProviderChargeID: chargeID},
+				ProviderAccountKey: subject.ProviderAccountKey, ProviderChargeID: chargeID,
+			},
 			Semantics: metering.SemanticsCumulative, ObservedAt: time.Unix(43, 0).UTC(),
 			ReceivedAt: time.Unix(43, 0).UTC(), MappingRef: "c2r2.provider.charge",
-			Charges: []metering.ReportedCharge{{ChargeItemID: "charge-" + chargeID, Kind: metering.ChargeKindAggregate,
-				Amount: &amountDecimal, Currency: "USD", Payer: payer}},
+			Charges: []metering.ReportedCharge{{
+				ChargeItemID: "charge-" + chargeID, Kind: metering.ChargeKindAggregate,
+				Amount: &amountDecimal, Currency: "USD", Payer: payer,
+			}},
 		}},
 		Rater: economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "c2r2-rater", Version: "v1"}, RaterID: "reference"},
 	}

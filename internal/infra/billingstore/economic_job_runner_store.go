@@ -11,8 +11,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
-var _ billing.EconomicRevisionDependencyOutputReader = (*DurableStore)(nil)
-var _ billing.EconomicRevisionReconciliationStore = (*DurableStore)(nil)
+var (
+	_ billing.EconomicRevisionDependencyOutputReader = (*DurableStore)(nil)
+	_ billing.EconomicRevisionReconciliationStore    = (*DurableStore)(nil)
+)
 
 // LoadEconomicRevisionDependencyOutput reads one immutable dependency rating
 // output by its exact revision valuation identity. A missing output is the

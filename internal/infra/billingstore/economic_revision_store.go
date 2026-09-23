@@ -32,10 +32,12 @@ var (
 	ErrEconomicRevisionWorkConflict = errors.New("billingstore: economic revision work conflict")
 )
 
-var _ billing.EconomicRevisionWorkReader = (*DurableStore)(nil)
-var _ billing.EconomicRevisionWorkStateStore = (*DurableStore)(nil)
-var _ billing.EconomicRevisionResultStore = (*DurableStore)(nil)
-var _ billing.EconomicRevisionResultProbe = (*DurableStore)(nil)
+var (
+	_ billing.EconomicRevisionWorkReader     = (*DurableStore)(nil)
+	_ billing.EconomicRevisionWorkStateStore = (*DurableStore)(nil)
+	_ billing.EconomicRevisionResultStore    = (*DurableStore)(nil)
+	_ billing.EconomicRevisionResultProbe    = (*DurableStore)(nil)
+)
 
 func economicRevisionWorkKind(queue billing.EconomicQueue) string {
 	return economicRevisionWorkKindPrefix + queue.String()

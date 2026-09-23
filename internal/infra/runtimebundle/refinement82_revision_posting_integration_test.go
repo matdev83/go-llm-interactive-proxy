@@ -104,6 +104,7 @@ func refinement82RequireCustomerSettlement(t *testing.T, transactions []billing.
 	return settlement
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func refinement82SetupPostingHost(t *testing.T, ctx context.Context, storeID, billingPath, journalPath string, extraOperatorBindings ...string) (*billingstore.DurableStore, *runtimebundle.Host, *billingcompose.SnapshotCatalog, billing.ObservationEconomicWorkBuilder) {
 	t.Helper()
 	store := openRefinement52ConcurrentBillingStore(t, billingPath, storeID)

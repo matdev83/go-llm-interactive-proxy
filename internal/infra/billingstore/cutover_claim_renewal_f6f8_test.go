@@ -598,9 +598,11 @@ type fakeF6F8Usage struct {
 func (f *fakeF6F8Usage) ClaimCompleteCalls(context.Context, int) ([]billing.CompleteCall, error) {
 	return f.claims, nil
 }
+
 func (f *fakeF6F8Usage) GetCallExposure(context.Context, billing.BillingCallID) (billing.CallExposure, error) {
 	return f.exposure, nil
 }
+
 func (f *fakeF6F8Usage) RetryCompleteCall(context.Context, billing.BillingCallID, string) error {
 	return nil
 }

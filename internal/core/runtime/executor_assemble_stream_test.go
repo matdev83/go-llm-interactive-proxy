@@ -142,7 +142,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		localPrep := newPrep()
 		wp := &wireAttemptPayload{}
 		localPrep.wirePayload = wp
-		localPrep.recvTurnFacts.wirePayload = wp
+		localPrep.wirePayload = wp
 		ex := TestExecutor()
 		ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{StreamToClient: "visible"}, interleavedthinking.NewMemoStore(1024))
 		wireOut := out

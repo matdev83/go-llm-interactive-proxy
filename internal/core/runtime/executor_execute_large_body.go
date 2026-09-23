@@ -208,8 +208,10 @@ type ProductionLargeBodyAssessor struct {
 	LaneDomainPolicies        map[string]LaneDomainPolicy
 }
 
-var _ largebody.LargeBodyAssessor = (*ProductionLargeBodyAssessor)(nil)
-var _ largebody.LargeBodyStaticDispositionProvider = (*ProductionLargeBodyAssessor)(nil)
+var (
+	_ largebody.LargeBodyAssessor                  = (*ProductionLargeBodyAssessor)(nil)
+	_ largebody.LargeBodyStaticDispositionProvider = (*ProductionLargeBodyAssessor)(nil)
+)
 
 // NewProductionLargeBodyAssessor constructs a ProductionLargeBodyAssessor.
 func NewProductionLargeBodyAssessor(

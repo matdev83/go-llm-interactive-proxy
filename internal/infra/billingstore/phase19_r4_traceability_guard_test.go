@@ -174,7 +174,7 @@ func TestPhase19R4TraceabilityMatrixAssertions(t *testing.T) {
 	if !strings.Contains(rebuildSources, "Rebuild") {
 		t.Fatalf("req 11.5 sources lack a rebuild assertion")
 	}
-	if !(strings.Contains(rebuildSources, "drift") || strings.Contains(rebuildSources, "Drift") || strings.Contains(rebuildSources, "IdentityCollision")) {
+	if !strings.Contains(rebuildSources, "drift") && !strings.Contains(rebuildSources, "Drift") && !strings.Contains(rebuildSources, "IdentityCollision") {
 		t.Fatalf("req 11.5 sources lack a drift-detection assertion")
 	}
 }

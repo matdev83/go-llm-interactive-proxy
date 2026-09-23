@@ -693,7 +693,7 @@ func TestStatementImportRejectsInvalidConstructionAndContext(t *testing.T) {
 	}
 
 	service := newStatementImportService(t, newMemoryStatementLedger())
-	_, err := service.Import(nil, trustedStatementImportScope(), statementImportFixture(t, statementImportFixtureOptions{}))
+	_, err := service.Import(nil, trustedStatementImportScope(), statementImportFixture(t, statementImportFixtureOptions{})) //nolint:staticcheck // deliberately exercises nil-context rejection
 	require.ErrorIs(t, err, ErrStatementImportInvalid)
 
 	canceled, cancel := context.WithCancel(context.Background())

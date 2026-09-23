@@ -1,4 +1,11 @@
-package aggregate
+// Package ledgercompat projects neutral metering facts onto the legacy token
+// ledger record. It lives outside internal/core/metering/aggregate so the
+// neutral reduction closure stays provider-neutral: aggregate and billing must
+// not transitively import legacy persistence or canonical wire types
+// (requirement 15.1). Money is intentionally omitted (token ledger is
+// token-only); callers must keep money on the metering journal
+// (requirement 13.3, 17.1, 17.4).
+package ledgercompat
 
 import (
 	"fmt"
@@ -15,7 +22,7 @@ import (
 // callers must keep money on the metering journal (requirement 13.3, 17.1, 17.4).
 func ProjectLedgerRecord(f metering.Fact) (ledger.Record, bool, error) {
 	if err := f.Validate(); err != nil {
-		return ledger.Record{}, false, fmt.Errorf("metering/aggregate: %w", err)
+		return ledger.Record{}, false, fmt.Errorf("metering/ledgercompat: %w", err)
 	}
 	switch f.Kind {
 	case metering.FactKindUnavailable, metering.FactKindReservationEstimate:

@@ -132,6 +132,7 @@ func (m *phase7EconomicManaged) Close() error            { return nil }
 func (m *phase7EconomicManaged) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
 	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 }
+
 func (m *phase7EconomicManaged) DrainAccountingEvidenceV2() []backendplugin.AccountingEvidenceV2 {
 	out := append([]backendplugin.AccountingEvidenceV2(nil), m.evidence...)
 	m.evidence = nil

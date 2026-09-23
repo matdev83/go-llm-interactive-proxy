@@ -234,7 +234,7 @@ func (s *managedSSEStream) addUsage(ev lipapi.Event) {
 }
 
 func (s *managedSSEStream) canonicalUsageEvent(ev lipapi.Event) lipapi.Event {
-	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.AccountingEvidenceEnabled() {
 		ev.Accounting.DedupeKey = ""
 	}
 	return ev
@@ -244,7 +244,7 @@ func (s *managedSSEStream) flushUsage() {
 	if s == nil || !s.providerUsageSeen || s.UsageEvidenceBuffer == nil {
 		return
 	}
-	s.UsageEvidenceBuffer.AddUsageEvent(s.providerUsage, "commandcode.anthropic.usage:stream")
+	s.AddUsageEvent(s.providerUsage, "commandcode.anthropic.usage:stream")
 }
 
 func (s *managedSSEStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {

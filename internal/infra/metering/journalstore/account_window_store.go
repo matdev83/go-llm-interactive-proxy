@@ -24,10 +24,12 @@ const (
 
 // These aliases expose the domain query contract at the journal adapter
 // boundary without duplicating DTOs in infrastructure.
-type AccountWindowQuery = coremetering.AccountWindowQuery
-type AccountWindowObservationPage = coremetering.AccountWindowObservationPage
-type AccountWindowProjection = coremetering.AccountWindowProjection
-type AccountWindowProjectionPage = coremetering.AccountWindowProjectionPage
+type (
+	AccountWindowQuery           = coremetering.AccountWindowQuery
+	AccountWindowObservationPage = coremetering.AccountWindowObservationPage
+	AccountWindowProjection      = coremetering.AccountWindowProjection
+	AccountWindowProjectionPage  = coremetering.AccountWindowProjectionPage
+)
 
 // AppendAccountWindowObservation validates and appends one provider allowance
 // snapshot. The canonical observation journal remains the sole authority;
@@ -384,15 +386,16 @@ func decodeAccountWindowCursor(raw, kind, storeID, hash string) (accountWindowCu
 	if cursor.Version != accountWindowCursorVersion || cursor.Kind != kind || cursor.StoreID != storeID || cursor.FilterHash != hash {
 		return accountWindowCursor{}, ErrInvalidCursor
 	}
-	if kind == "history" {
+	switch kind {
+	case "history":
 		if cursor.StreamID == "" || cursor.Sequence < 0 || cursor.ObservationID == "" || cursor.Revision <= 0 || cursor.RowID <= 0 {
 			return accountWindowCursor{}, ErrInvalidCursor
 		}
-	} else if kind == "projections" {
+	case "projections":
 		if cursor.Identity == "" {
 			return accountWindowCursor{}, ErrInvalidCursor
 		}
-	} else {
+	default:
 		return accountWindowCursor{}, ErrInvalidCursor
 	}
 	return cursor, nil

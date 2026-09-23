@@ -80,6 +80,7 @@ func observeChatMessage(builder *coremetering.PreparedInputSummaryBuilder, messa
 		if assistant.Audio.ID != "" {
 			builder.AddMedia(coremetering.MediaSummary{Kind: coremetering.MediaAudio, Count: 1, MIME: "audio"})
 		}
+		//nolint:staticcheck // legacy function_call wire field is still observed for usage evidence on received payloads; the SDK deprecation targets new sends, not reading provider responses
 		if assistant.FunctionCall.Arguments != "" {
 			builder.AddText(assistant.FunctionCall.Arguments)
 		}

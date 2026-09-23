@@ -55,13 +55,13 @@ func (s *DurableStore) AppendAllocation(ctx context.Context, record economics.Al
 	)
 	var lastErr error
 	for attempt := 0; attempt < allocationTxAttempts; attempt++ {
-		if err := s.appendAllocationOnce(ctx, record); err == nil {
+		err := s.appendAllocationOnce(ctx, record)
+		if err == nil {
 			return nil
-		} else {
-			lastErr = err
-			if !isAllocationSQLiteContention(s, err) || attempt == allocationTxAttempts-1 {
-				return err
-			}
+		}
+		lastErr = err
+		if !isAllocationSQLiteContention(s, err) || attempt == allocationTxAttempts-1 {
+			return err
 		}
 		if err := waitContention(ctx, time.Duration(attempt+1)*allocationTxDelay); err != nil {
 			return err

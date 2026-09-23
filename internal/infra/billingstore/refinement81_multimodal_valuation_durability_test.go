@@ -231,6 +231,7 @@ func v81CustomerInput(t *testing.T, tariff economics.TariffSnapshot, observation
 	return in
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func v81OpenFileStore(t *testing.T, ctx context.Context, path string) *DurableStore {
 	t.Helper()
 	sqlDB, err := sql.Open("sqlite", path)

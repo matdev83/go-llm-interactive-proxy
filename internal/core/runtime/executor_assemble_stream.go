@@ -17,6 +17,9 @@ func (e *Executor) assembleExecutorStream(ctx context.Context, prep *preparedReq
 // interleaved-thinking wrappers when the opened candidate requires them.
 func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, plan *routePlanState, out openedAttempt) (lipapi.EventStream, error) {
 	e := a.Executor
+	if prep == nil {
+		return nil, errors.New("runtime: nil prepared request for stream assembly")
+	}
 	prep.ensureRecvTurnFacts(ctx)
 	terminal := newTurnTerminalWithALeg(prep.aScope, aLegEndBase)
 	if e != nil && e.RuntimeSnapshot != nil && prep.terminalDecisionEnabled {
@@ -72,7 +75,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	// Determine candidate for wrapper selection without consuming ready.
 	cand := out.ready.Candidate()
 	turn := openedTurn(out)
-	isWire := (prep != nil && prep.wirePayload != nil) || rsFacts.wirePayload != nil
+	isWire := prep.wirePayload != nil || rsFacts.wirePayload != nil
 	if turn == nil && e != nil && e.interleavedEnabled() && !isWire {
 		turn, _ = e.getOrBeginInterleavedTurn(ctx, requestFacts{
 			recvTurnFacts: rsFacts,

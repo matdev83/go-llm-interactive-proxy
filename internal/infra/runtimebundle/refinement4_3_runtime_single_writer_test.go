@@ -311,9 +311,11 @@ func (w processBillingLifecycleFuncs) Stop(ctx context.Context) error  { return 
 
 // Compile-time references make the intended consumer-side capability visible
 // to the test matrix without exporting a runtime service registry.
-var _ billing.ProviderCostRevisionStore = (*runtime43RevisionStore)(nil)
-var _ billing.EconomicRevisionResultStore = (*runtime43RevisionStore)(nil)
-var _ billing.EconomicRevisionWorkReader = (*runtime43RevisionStore)(nil)
+var (
+	_ billing.ProviderCostRevisionStore   = (*runtime43RevisionStore)(nil)
+	_ billing.EconomicRevisionResultStore = (*runtime43RevisionStore)(nil)
+	_ billing.EconomicRevisionWorkReader  = (*runtime43RevisionStore)(nil)
+)
 
 func runtime43Catalog(t *testing.T) *billingcompose.SnapshotCatalog {
 	t.Helper()

@@ -11,6 +11,7 @@ import (
 )
 
 func TestCommandCodeUsagePreservesPresenceAndProviderLineage(t *testing.T) {
+	t.Parallel()
 	zero := 0
 	cache := 3
 	reasoning := 2
@@ -27,6 +28,7 @@ func TestCommandCodeUsagePreservesPresenceAndProviderLineage(t *testing.T) {
 }
 
 func TestCommandCodeUsageRejectsNegativeAndAbsentFields(t *testing.T) {
+	t.Parallel()
 	negative := -1
 	if ev := commandcodeUsageEvent(&usageFields{InputTokens: &negative}, "msg_bad"); ev != nil {
 		t.Fatalf("negative provider usage should remain unavailable: %+v", ev)
@@ -37,6 +39,7 @@ func TestCommandCodeUsageRejectsNegativeAndAbsentFields(t *testing.T) {
 }
 
 func TestCommandCodeNativeAnthropicFieldsRetainLifetimeAndServerToolUsage(t *testing.T) {
+	t.Parallel()
 	zero := 0
 	search := 2
 	u := &usageFields{
@@ -63,7 +66,7 @@ func TestCommandCodeAnthropicStreamBridgesSplitUsageAtTerminal(t *testing.T) {
 		`data: {"type":"message_stop"}`,
 	}, "\n")
 	stream := newManagedSSEStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	for {
 		ev, err := stream.Recv(context.Background())
 		if err == io.EOF {
@@ -92,7 +95,7 @@ func TestCommandCodeAnthropicInterruptedStreamFlushesCumulativeUsage(t *testing.
 		`data: {"type":"message_delta","usage":{"output_tokens":8}}`,
 	}, "\n")
 	stream := newManagedSSEStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	for {
 		_, err := stream.Recv(context.Background())
 		if err == io.EOF {
@@ -109,10 +112,11 @@ func TestCommandCodeAnthropicInterruptedStreamFlushesCumulativeUsage(t *testing.
 }
 
 func TestCommandCodeAnthropicLegacyStreamRetainsCanonicalUsageKey(t *testing.T) {
+	t.Parallel()
 	body := `data: {"type":"message_start","message":{"id":"msg-legacy","usage":{"input_tokens":11,"output_tokens":0}}}`
 	stream := newManagedSSEStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-	stream.UsageEvidenceBuffer.SetEnabled(false)
-	defer stream.Close()
+	stream.SetEnabled(false)
+	defer func() { _ = stream.Close() }()
 	var usageSeen bool
 	for {
 		ev, err := stream.Recv(context.Background())

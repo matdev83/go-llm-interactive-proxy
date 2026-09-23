@@ -71,6 +71,8 @@ func f1WALShadow(t *testing.T, store *DurableStore) context.Context {
 // After release, activation must observe the true drain state: success when
 // no other pending remains, DrainBlocked when other pending (e.g. setup leg)
 // correctly blocks.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func barrierActivationWhilePaused(t *testing.T, ctx context.Context, store *DurableStore, release chan struct{}, postDone chan error) {
 	t.Helper()
 	type drainRes struct {
@@ -112,6 +114,8 @@ func barrierActivationWhilePaused(t *testing.T, ctx context.Context, store *Dura
 // blocked after the paused posting commits. It still fails if activation
 // completes while paused (stale reads); after release it requires
 // DrainBlocked (correct observation) rather than success.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func barrierActivationWhilePausedAllowDrainBlocked(t *testing.T, ctx context.Context, store *DurableStore, release chan struct{}, postDone chan error) {
 	t.Helper()
 	type drainRes struct {

@@ -18,10 +18,8 @@ import (
 // captured-safe aggregates only. Raw prompts, message content, credentials,
 // paths, and provider payloads are never accepted on this seam.
 
-var (
-	// ErrShadowV2ComparisonInvalid identifies a malformed comparison input.
-	ErrShadowV2ComparisonInvalid = errors.New("billingstore: invalid shadow V2 comparison")
-)
+// ErrShadowV2ComparisonInvalid identifies a malformed comparison input.
+var ErrShadowV2ComparisonInvalid = errors.New("billingstore: invalid shadow V2 comparison")
 
 // ShadowV2ComparisonVerdict is the closed classification vocabulary.
 type ShadowV2ComparisonVerdict string

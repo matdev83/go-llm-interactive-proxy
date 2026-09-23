@@ -113,6 +113,7 @@ func r4Line(t *testing.T, id, tokens string, key metering.ComponentKey) economic
 	}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func r4SeedValuation(t *testing.T, ctx context.Context, store *DurableStore, work billing.EconomicRevisionWork, lines []economics.LineItem) economics.Valuation {
 	t.Helper()
 	normalized, err := work.Normalize()
@@ -150,6 +151,7 @@ func r4SeedValuation(t *testing.T, ctx context.Context, store *DurableStore, wor
 	return loaded
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func r4SeedEQ(t *testing.T, ctx context.Context, store *DurableStore) (eWork, qWork billing.EconomicRevisionWork, eID, qID string) {
 	t.Helper()
 	// Both planes describe the same B-leg attempt so their subjects join;
@@ -231,6 +233,7 @@ type r4ComparisonEnvelope struct {
 	} `json:"items"`
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func r4ReadEnvelope(t *testing.T, ctx context.Context, store *DurableStore, work billing.EconomicRevisionWork) r4ComparisonEnvelope {
 	t.Helper()
 	identity, err := work.Identity()

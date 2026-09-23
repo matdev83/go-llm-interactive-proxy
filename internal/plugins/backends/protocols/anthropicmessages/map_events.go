@@ -461,7 +461,7 @@ func (s *msgStream) addAnthropicProviderEvidence(ev lipapi.Event, usage any) {
 	}
 	s.providerUsageRaw = mergeAnthropicUsageRaw(s.providerUsageRaw, ev.RawUsageJSON)
 	s.providerUsage.RawUsageJSON = s.providerUsageRaw
-	s.ProviderEvidenceBuffer.Add(anthropicEvidenceDraftWithRaw(s.providerUsage, s.providerUsageRaw, "anthropic.messages.v2"))
+	s.Add(anthropicEvidenceDraftWithRaw(s.providerUsage, s.providerUsageRaw, "anthropic.messages.v2"))
 }
 
 func mergeAnthropicUsageSnapshot(previous, next lipapi.Event) lipapi.Event {

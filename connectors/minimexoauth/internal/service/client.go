@@ -268,7 +268,7 @@ func (c *Client) Execute(ctx context.Context, inv backendplugin.Invocation, call
 
 	if isStreaming {
 		stream := newAnthropicManagedSSEStream(resp)
-		stream.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+		stream.SetEnabled(c.accountingEvidenceV1)
 		return stream, nil
 	}
 
@@ -276,7 +276,7 @@ func (c *Client) Execute(ctx context.Context, inv backendplugin.Invocation, call
 	if err != nil {
 		return nil, err
 	}
-	stream.UsageEvidenceBuffer.SetEnabled(c.accountingEvidenceV1)
+	stream.SetEnabled(c.accountingEvidenceV1)
 	return stream, nil
 }
 
@@ -617,7 +617,7 @@ func (s *anthropicManagedSSEStream) addAnthropicUsage(ev lipapi.Event) {
 }
 
 func (s *anthropicManagedSSEStream) canonicalUsageEvent(ev lipapi.Event) lipapi.Event {
-	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.AccountingEvidenceEnabled() {
 		ev.Accounting.DedupeKey = ""
 	}
 	return ev
@@ -627,7 +627,7 @@ func (s *anthropicManagedSSEStream) flushUsage() {
 	if s == nil || !s.providerUsageSeen || s.UsageEvidenceBuffer == nil {
 		return
 	}
-	s.UsageEvidenceBuffer.AddUsageEvent(s.providerUsage, "minimexoauth.anthropic:stream")
+	s.AddUsageEvent(s.providerUsage, "minimexoauth.anthropic:stream")
 }
 
 func (s *anthropicManagedSSEStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {
@@ -710,7 +710,7 @@ func newUnaryAnthropicEventStream(events []lipapi.Event) *unaryAnthropicStream {
 		}
 	}
 	if seenUsage {
-		u.UsageEvidenceBuffer.AddUsageEvent(cumulative, "minimexoauth.anthropic:stream")
+		u.AddUsageEvent(cumulative, "minimexoauth.anthropic:stream")
 	}
 	return u
 }
@@ -729,7 +729,7 @@ func (u *unaryAnthropicStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 	ev := u.events[u.idx]
 	u.idx++
-	if ev.Kind == lipapi.EventUsageDelta && u.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+	if ev.Kind == lipapi.EventUsageDelta && u.AccountingEvidenceEnabled() {
 		ev.Accounting.DedupeKey = ""
 	}
 	return ev, nil

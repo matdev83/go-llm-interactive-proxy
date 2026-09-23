@@ -24,11 +24,7 @@ func TestObservationSinkEconomicCapabilityIsOutboxOnly(t *testing.T) {
 	if _, ok := plain.(coremetering.EconomicObservationSink); ok {
 		t.Fatal("plain observation sink must not expose economic outbox capability")
 	}
-	economic := journalstore.NewObservationSinkWithOutbox(store)
-	economicSink, ok := economic.(coremetering.EconomicObservationSink)
-	if !ok {
-		t.Fatalf("outbox observation sink = %T, want economic outbox capability", economic)
-	}
+	economicSink := journalstore.NewObservationSinkWithOutbox(store)
 	observation := phase4Observation("sqlite-test", "outbox-capability", 1)
 	if err := economicSink.AppendEconomicObservationWithOutbox(ctx, observation); err != nil {
 		t.Fatalf("economic observation append: %v", err)
@@ -54,9 +50,7 @@ func TestObservationOutboxIsAtomicWithObservationAndIdempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := newSQLiteJournal(t)
-	sink := journalstore.NewObservationSinkWithOutbox(store)
-	economicSink, ok := sink.(coremetering.EconomicObservationSink)
-	require.True(t, ok)
+	economicSink := journalstore.NewObservationSinkWithOutbox(store)
 	first := phase4Observation("sqlite-test", "outbox-first", 1)
 	require.NoError(t, economicSink.AppendEconomicObservationWithOutbox(ctx, first))
 	require.NoError(t, economicSink.AppendEconomicObservationWithOutbox(ctx, first))
@@ -100,7 +94,8 @@ func TestObservationOutboxBackpressureRollsObservationBack(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	sink := journalstore.NewObservationSinkWithOutbox(store)
-	atomicSink := sink.(metering.AtomicObservationSink)
+	atomicSink, ok := sink.(metering.AtomicObservationSink)
+	require.True(t, ok, "sink must implement metering.AtomicObservationSink")
 	first := phase4Observation("sqlite-test", "outbox-capacity-first", 1)
 	second := phase4Observation("sqlite-test", "outbox-capacity-second", 2)
 	require.NoError(t, atomicSink.AppendObservations(ctx, []metering.Observation{first}))

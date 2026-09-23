@@ -94,7 +94,7 @@ func newBenchBlockerSpec(
 		RoutePrefixes:        routeselect.NewPrefixSet([]string{"stub"}),
 	}
 	spec := h.Spec()
-	spec.Config.LargePayload = frontendpipe.LargePayloadConfig{
+	spec.LargePayload = frontendpipe.LargePayloadConfig{
 		Enabled:         enabled,
 		ThresholdBytes:  threshold,
 		SpoolDir:        spoolDir,

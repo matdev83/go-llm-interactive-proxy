@@ -116,8 +116,7 @@ func testTerminalizeRequest(ctx context.Context, s *retryRecvStream, cmd sdkterm
 		if attempt != nil {
 			s.terminal.recordBillingLegForAttempt(cctx, s.facts.terminalFacts(), attempt, attempt.terminalEvidence(), cmd, s.responsePipeline.billingEvidenceFallback(), s.terminal.committed(), s.facts.billingCallState)
 		}
-		s.terminal.handoffBillingTurn(cctx, s.facts.terminalFacts(), cmd)
-		return nil
+		return s.terminal.handoffBillingTurn(cctx, s.facts.terminalFacts(), cmd)
 	}
 	return s.terminal.terminalizeRequest(ctx, cmd, snap, reqEff)
 }
@@ -137,8 +136,7 @@ func testTerminalizeRequestForAttempt(ctx context.Context, s *retryRecvStream, c
 				return err
 			}
 		}
-		s.terminal.handoffBillingTurn(cctx, s.facts.terminalFacts(), cmd)
-		return nil
+		return s.terminal.handoffBillingTurn(cctx, s.facts.terminalFacts(), cmd)
 	}
 	return s.terminal.terminalizeRequest(ctx, cmd, snap, reqEff)
 }

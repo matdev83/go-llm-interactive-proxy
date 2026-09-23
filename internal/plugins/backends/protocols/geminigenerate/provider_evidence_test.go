@@ -355,12 +355,16 @@ func TestGeminiOutputMediaReferencesDoNotInventUsageOrStorageCharges(t *testing.
 
 func TestGeminiProviderEvidenceIsCumulativeTerminalCheckpointAndLateCorrection(t *testing.T) {
 	t.Parallel()
-	s := newGenaiStream(func(yield func(*genai.GenerateContentResponse, error) bool) {
+	rawStream := newGenaiStream(func(yield func(*genai.GenerateContentResponse, error) bool) {
 		yield(&genai.GenerateContentResponse{UsageMetadata: &genai.GenerateContentResponseUsageMetadata{
 			PromptTokenCount: 12, CandidatesTokenCount: 4, TotalTokenCount: 16,
 			PromptTokensDetails: []*genai.ModalityTokenCount{{Modality: genai.MediaModalityImage, TokenCount: 12}},
 		}}, nil)
-	}, "gemini", 0).(*genaiStream)
+	}, "gemini", 0)
+	s, ok := rawStream.(*genaiStream)
+	if !ok {
+		t.Fatalf("Gemini stream is %T, want *genaiStream", rawStream)
+	}
 	s.BindEconomicEvidence(coremetering.ObservationIdentity{
 		StoreID: "store", RequestID: "request", CallID: "call", BillingCallID: "billing",
 		ALegID: "a-leg", BLegID: "b-leg", AttemptID: "attempt", AttemptSeq: 1,

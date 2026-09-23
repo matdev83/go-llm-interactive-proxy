@@ -213,7 +213,7 @@ func newProviderSliceStream(events []lipapi.Event) *providerSliceStream {
 		}
 	}
 	if seenUsage {
-		s.UsageEvidenceBuffer.AddUsageEvent(cumulative, "commandcode.anthropic.usage:stream")
+		s.AddUsageEvent(cumulative, "commandcode.anthropic.usage:stream")
 	}
 	return s
 }
@@ -226,7 +226,7 @@ func (s *providerSliceStream) Recv(context.Context) (lipapi.Event, error) {
 	}
 	event := s.events[s.index]
 	s.index++
-	if event.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer.AccountingEvidenceEnabled() {
+	if event.Kind == lipapi.EventUsageDelta && s.AccountingEvidenceEnabled() {
 		event.Accounting.DedupeKey = ""
 	}
 	return event, nil

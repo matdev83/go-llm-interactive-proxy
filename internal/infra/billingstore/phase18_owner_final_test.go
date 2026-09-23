@@ -268,7 +268,6 @@ func TestOwnerFinalDValidV2ComponentAndPassThroughSucceed(t *testing.T) {
 }
 
 func TestOwnerFinalEV1DrainLegacySucceedsV2LegacyNeverDoes(t *testing.T) {
-
 	t.Parallel()
 	// V1 drain with legacy resolver succeeds and replays exactly once.
 	t.Run("v1-drain-legacy-succeeds", func(t *testing.T) {

@@ -24,10 +24,8 @@ import (
 // Default ComposeBilling behavior is unchanged; stock lipstd startup stays
 // non-money. No public pkg/lipruntime money option is added here.
 
-var (
-	// ErrShadowV2CaptureIncomplete identifies missing shadow capture ports.
-	ErrShadowV2CaptureIncomplete = errors.New("runtimebundle: shadow V2 capture is incomplete")
-)
+// ErrShadowV2CaptureIncomplete identifies missing shadow capture ports.
+var ErrShadowV2CaptureIncomplete = errors.New("runtimebundle: shadow V2 capture is incomplete")
 
 // ShadowV2CaptureInput is the explicit typed shadow-mode wiring. Every pure
 // port is required; V1Settlement proves the authoritative V1 writer remains

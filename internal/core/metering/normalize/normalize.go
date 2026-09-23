@@ -179,8 +179,10 @@ func (m Mapping) specs() []struct {
 		role string
 		spec FieldSpec
 	}{
-		{"input_total", m.InputTotal}, {"input_uncached", m.InputUncached},
-		{"output", m.Output}, {"reasoning", m.Reasoning},
+		{"input_total", m.InputTotal},
+		{"input_uncached", m.InputUncached},
+		{"output", m.Output},
+		{"reasoning", m.Reasoning},
 	}
 }
 

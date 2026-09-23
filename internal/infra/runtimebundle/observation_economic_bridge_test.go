@@ -122,7 +122,8 @@ func TestObservationEconomicRelayRetainsUnlinkedStatementOutbox(t *testing.T) {
 	statement.Correlation = metering.CorrelationV2{StoreID: "bridge-store", ProviderAccountKey: "provider"}
 	require.NoError(t, statement.Validate())
 	sink := journalstore.NewObservationSinkWithOutbox(meteringStore)
-	atomicSink := sink.(metering.AtomicObservationSink)
+	atomicSink, ok := sink.(metering.AtomicObservationSink)
+	require.True(t, ok, "sink must implement metering.AtomicObservationSink")
 	require.NoError(t, atomicSink.AppendObservations(ctx, []metering.Observation{statement}))
 
 	builder, err := billing.NewObservationEconomicWorkBuilder(billing.ObservationEconomicWorkBuilderConfig{})
@@ -144,7 +145,8 @@ func TestObservationEconomicRelayFailureAndLeaseExpiryRemainRetryable(t *testing
 	billingStore := newBridgeBillingStore(t, "bridge-store")
 	observation := bridgeRuntimeObservation("retry", 1)
 	sink := journalstore.NewObservationSinkWithOutbox(meteringStore)
-	atomicSink := sink.(metering.AtomicObservationSink)
+	atomicSink, ok := sink.(metering.AtomicObservationSink)
+	require.True(t, ok, "sink must implement metering.AtomicObservationSink")
 	require.NoError(t, atomicSink.AppendObservations(ctx, []metering.Observation{observation}))
 	builder, err := billing.NewObservationEconomicWorkBuilder(billing.ObservationEconomicWorkBuilderConfig{})
 	require.NoError(t, err)
@@ -172,8 +174,7 @@ func TestObservationEconomicRelayFailureAndLeaseExpiryRemainRetryable(t *testing
 	require.Empty(t, pending)
 }
 
-type failingEconomicAppender struct {
-}
+type failingEconomicAppender struct{}
 
 func (a failingEconomicAppender) AppendEconomicRevisionWork(ctx context.Context, work billing.EconomicRevisionWork) error {
 	return errors.New("injected economic work append failure")

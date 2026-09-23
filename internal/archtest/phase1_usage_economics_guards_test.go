@@ -303,7 +303,7 @@ func TestPhase1ProducerConsumerCensusIsExactAndDispositioned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	reader := csv.NewReader(file)
 	reader.Comma = '\t'
 	reader.FieldsPerRecord = -1

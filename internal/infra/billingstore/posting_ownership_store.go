@@ -60,7 +60,7 @@ func postingOwnershipRowToPin(row postingOwnershipRow) (billing.PostingPin, erro
 	// carry a valid call.
 	var callID billing.BillingCallID
 	if row.CallID == "" {
-		if !(row.OperationKind == string(billing.PostingOperationFinancialAdjustment) && billing.IsDirectAdjustmentPinKey(row.OperationKey)) {
+		if row.OperationKind != string(billing.PostingOperationFinancialAdjustment) || !billing.IsDirectAdjustmentPinKey(row.OperationKey) {
 			return billing.PostingPin{}, fmt.Errorf("%w: pin call id: empty call requires direct adjustment pin", billing.ErrPostingOwnershipInvalid)
 		}
 	} else {

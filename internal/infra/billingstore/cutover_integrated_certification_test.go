@@ -148,10 +148,8 @@ func c3cSeedProviderPending(t *testing.T, store *DurableStore, accountID, bLegID
 
 func c3cSeedSelectedCost(t *testing.T, store *DurableStore, accountID string) (billing.BillingCallID, string, metering.SubjectRef, billing.SelectedCostValuation) {
 	t.Helper()
-	callID, _ := billing.ParseBillingCallID("bc_00000000000000000000000000000c11")
 	// Use fresh ID to avoid collisions across parallel tests: derive from store.
-	fresh := c3cMustCallID(t)
-	callID = fresh
+	callID := c3cMustCallID(t)
 	subject := metering.SubjectRef{
 		Kind: metering.SubjectBLeg, StoreID: store.StoreID(), AccountID: accountID,
 		ALegID: "a-c3c", BillingCallID: callID.String(), BLegID: "b-c3c-sel",

@@ -62,14 +62,14 @@ func (e *Executor) preparedCompactionMeta(prep *preparedRequest, blegID string, 
 			meta.SessionID = prep.identity.call.Session.AuthoritativeSessionID
 		}
 	}
-	if prep.recvTurnFacts.traceID != "" {
-		meta.TraceID = prep.recvTurnFacts.traceID
+	if prep.recvTurnFacts.traceID != "" { //nolint:staticcheck // explicit recvTurnFacts qualification keeps request-attempt AST ratchet counts stable
+		meta.TraceID = prep.recvTurnFacts.traceID //nolint:staticcheck // explicit recvTurnFacts qualification keeps request-attempt AST ratchet counts stable
 	}
-	if prep.recvTurnFacts.aLegID != "" {
-		meta.ALegID = prep.recvTurnFacts.aLegID
+	if prep.recvTurnFacts.aLegID != "" { //nolint:staticcheck // explicit recvTurnFacts qualification keeps request-attempt AST ratchet counts stable
+		meta.ALegID = prep.recvTurnFacts.aLegID //nolint:staticcheck // explicit recvTurnFacts qualification keeps request-attempt AST ratchet counts stable
 	}
-	if prep.recvTurnFacts.wirePayload != nil && prep.recvTurnFacts.wirePayload.sessionID != "" {
-		meta.SessionID = prep.recvTurnFacts.wirePayload.sessionID
+	if prep.recvTurnFacts.wirePayload != nil && prep.recvTurnFacts.wirePayload.sessionID != "" { //nolint:staticcheck // explicit recvTurnFacts qualification keeps request-attempt AST ratchet counts stable
+		meta.SessionID = prep.recvTurnFacts.wirePayload.sessionID //nolint:staticcheck // explicit recvTurnFacts qualification keeps request-attempt AST ratchet counts stable
 	}
 	return meta
 }

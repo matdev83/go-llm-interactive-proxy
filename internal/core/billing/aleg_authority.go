@@ -364,12 +364,16 @@ func proveALegCanonicalJournal(scope ALegAuthorityScope, marker ALegMarker, cano
 		canonical.Currency != scope.Currency || canonical.OperationKind != marker.OperationKind {
 		return fmt.Errorf("%w: canonical journal %q is outside report scope", ErrJournalInvalid, canonical.ID)
 	}
-	journalBefore := AccountSnapshot{BalanceNano: canonical.BalanceBefore, SpendableNano: canonical.SpendableBefore,
+	journalBefore := AccountSnapshot{
+		BalanceNano: canonical.BalanceBefore, SpendableNano: canonical.SpendableBefore,
 		CreditFloorNano: canonical.CreditFloor, CreditLimitNano: canonical.CreditLimit,
-		Mode: AccountMode(canonical.Mode), Currency: canonical.Currency, Version: canonical.SnapshotVersionBefore}
-	journalAfter := AccountSnapshot{BalanceNano: canonical.BalanceAfter, SpendableNano: canonical.SpendableAfter,
+		Mode: AccountMode(canonical.Mode), Currency: canonical.Currency, Version: canonical.SnapshotVersionBefore,
+	}
+	journalAfter := AccountSnapshot{
+		BalanceNano: canonical.BalanceAfter, SpendableNano: canonical.SpendableAfter,
 		CreditFloorNano: canonical.CreditFloor, CreditLimitNano: canonical.CreditLimit,
-		Mode: AccountMode(canonical.Mode), Currency: canonical.Currency, Version: canonical.SnapshotVersionAfter}
+		Mode: AccountMode(canonical.Mode), Currency: canonical.Currency, Version: canonical.SnapshotVersionAfter,
+	}
 	if !reflect.DeepEqual(marker.Before, journalBefore) || !reflect.DeepEqual(marker.After, journalAfter) {
 		return fmt.Errorf("%w: marker %q snapshots disagree with canonical journal %q", ErrJournalInvalid, marker.OperationKey, canonical.ID)
 	}

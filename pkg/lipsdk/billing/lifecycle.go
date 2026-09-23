@@ -13,10 +13,8 @@ const (
 	MaxBorrowedRefs = 64
 )
 
-var (
-	// ErrInvalidLifecycle identifies a malformed lifecycle declaration.
-	ErrInvalidLifecycle = errors.New("billing: invalid lifecycle")
-)
+// ErrInvalidLifecycle identifies a malformed lifecycle declaration.
+var ErrInvalidLifecycle = errors.New("billing: invalid lifecycle")
 
 // OwnedResource is one binding-owned resource registration. Owned resources
 // start and close exactly once under host cleanup; a start failure unwinds

@@ -70,12 +70,16 @@ func f4ProviderRevisionInput(storeID, accountID string, callID billing.BillingCa
 			Acquisition: metering.AcquisitionProviderResponse, Authority: metering.AuthorityObservedClaim,
 			Perspective: metering.PerspectiveOperator, Boundary: metering.BoundaryBackendIngress,
 			Lifecycle: metering.LifecycleBackendAttempt, Subject: subject,
-			Correlation: metering.CorrelationV2{StoreID: subject.StoreID, ALegID: subject.ALegID,
-				BillingCallID: subject.BillingCallID, BLegID: subject.BLegID},
+			Correlation: metering.CorrelationV2{
+				StoreID: subject.StoreID, ALegID: subject.ALegID,
+				BillingCallID: subject.BillingCallID, BLegID: subject.BLegID,
+			},
 			Semantics: metering.SemanticsCumulative, ObservedAt: time.Unix(44, 0).UTC(),
 			ReceivedAt: time.Unix(44, 0).UTC(), MappingRef: "f4.provider.cost",
-			Charges: []metering.ReportedCharge{{ChargeItemID: "provider-charge", Kind: metering.ChargeKindAggregate,
-				Amount: &amountDecimal, Currency: "USD", Payer: payer}},
+			Charges: []metering.ReportedCharge{{
+				ChargeItemID: "provider-charge", Kind: metering.ChargeKindAggregate,
+				Amount: &amountDecimal, Currency: "USD", Payer: payer,
+			}},
 		}},
 		Rater: economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "f4-rater", Version: "v1"}, RaterID: "reference"},
 	}

@@ -25,6 +25,8 @@ import (
 // for the account with every exposure closed, then claims any unclaimed
 // complete call exactly like the host-loop worker stand-in
 // (waitBillingHostLoopCall) does. It returns all closures.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func waitRefinement82SettledCalls(t *testing.T, parent context.Context, store *billingstore.DurableStore, accountID string, want int) []billing.CallUsageRecord {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
@@ -59,6 +61,7 @@ func waitRefinement82SettledCalls(t *testing.T, parent context.Context, store *b
 	}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func refinement82RuntimeBLegObservationCount(t *testing.T, ctx context.Context, journal *journalstore.DurableStore, storeID, bLegID string) int {
 	t.Helper()
 	page, err := journal.ListObservations(ctx, journalstore.ObservationQuery{
@@ -384,6 +387,10 @@ func TestRefinement82RuntimeResumeKeepsTerminalOwnership(t *testing.T) {
 		t.Fatalf("provider work omitted late finalizer %q: observations=%+v", finalizer.ID, expectedFinalizer.Input.Observations)
 	}
 	finalizerHead := waitRefinement52StockHeadExact(t, ctx, store, journal, accountID, billing.EconomicQueueProvider, expectedFinalizer.HeadKey, 2, expectedFinalizer.Input.InputSetHash)
+	// The pure valuation head advances before the provider-cost posting stage
+	// commits the matching provider_call_cogs journal. Wait for the cost head so
+	// no provider posting remains in flight across the shutdown snapshot below.
+	waitRefinement4StockProviderCurrentAmount(t, ctx, store, accountID, closure1.CallID, expectedFinalizer.HeadKey, billingHostLoopOperatorNano+refinement82FinalizerNano)
 	legsAfterFinalizer, err := store.ListCallLegUsage(ctx, closure1.CallID)
 	if err != nil {
 		t.Fatal(err)
@@ -417,6 +424,7 @@ func TestRefinement82RuntimeResumeKeepsTerminalOwnership(t *testing.T) {
 		t.Fatalf("correction provider work revision = %d, want 3", expectedCorrection.EvidenceRevision)
 	}
 	correctionHead := waitRefinement52StockHeadExact(t, ctx, store, journal, accountID, billing.EconomicQueueProvider, expectedCorrection.HeadKey, 3, expectedCorrection.Input.InputSetHash)
+	waitRefinement4StockProviderCurrentAmount(t, ctx, store, accountID, closure1.CallID, expectedCorrection.HeadKey, billingHostLoopOperatorNano+refinement82CorrectedNano)
 	legsAfterCorrection, err := store.ListCallLegUsage(ctx, closure1.CallID)
 	if err != nil {
 		t.Fatal(err)

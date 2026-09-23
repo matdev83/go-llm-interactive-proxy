@@ -320,7 +320,8 @@ func (e alegProviderPendingEvidence) Error() string { return e.err.Error() }
 // the shared execution gate must name exactly this head, then the
 // head unit proves itself.
 func evaluateALegProviderAggregate(scope ALegAuthorityScope, legKey string, facts ALegProviderLegFacts, head *ALegProviderHead,
-	unknown func(string, uint64) (ALegProviderLegVerdict, []ReconciliationIssue, error)) (ALegProviderLegVerdict, []ReconciliationIssue, error) {
+	unknown func(string, uint64) (ALegProviderLegVerdict, []ReconciliationIssue, error),
+) (ALegProviderLegVerdict, []ReconciliationIssue, error) {
 	var executions []ALegProviderExecutionFence
 	for i := range facts.ExecutionFences {
 		execution := &facts.ExecutionFences[i]
@@ -356,7 +357,8 @@ func evaluateALegProviderAggregate(scope ALegAuthorityScope, legKey string, fact
 // current-operation anchoring. The shared execution gate is checked by
 // the caller once per leg, never per unit.
 func proveALegProviderHeadUnit(scope ALegAuthorityScope, legKey string, head *ALegProviderHead, journals []*JournalTransaction, facts ALegProviderLegFacts,
-	unknown func(string, uint64) (ALegProviderLegVerdict, []ReconciliationIssue, error)) (ALegProviderLegVerdict, []ReconciliationIssue, error) {
+	unknown func(string, uint64) (ALegProviderLegVerdict, []ReconciliationIssue, error),
+) (ALegProviderLegVerdict, []ReconciliationIssue, error) {
 	currency := scope.Currency
 	subject := head.Subject
 	if err := subject.Validate(); err != nil {
@@ -447,7 +449,7 @@ func proveALegProviderHeadUnit(scope ALegAuthorityScope, legKey string, head *AL
 		return ALegProviderLegVerdict{}, nil, err
 	}
 	if pendingEvidence {
-		return ALegProviderLegVerdict{Status: ALegProviderPending}, []ReconciliationIssue{ReconciliationIssue{Code: ALegProviderIssuePending, Sequence: 0, Detail: scope.CallID}}, nil
+		return ALegProviderLegVerdict{Status: ALegProviderPending}, []ReconciliationIssue{{Code: ALegProviderIssuePending, Sequence: 0, Detail: scope.CallID}}, nil
 	}
 	if !chain.complete {
 		// Without journals only a complete current zero-delta proof
@@ -463,8 +465,10 @@ func proveALegProviderHeadUnit(scope ALegAuthorityScope, legKey string, head *AL
 			if !proved {
 				return ALegProviderLegVerdict{Status: ALegProviderPending}, issues, nil
 			}
-			return ALegProviderLegVerdict{Status: ALegProviderKnownZero, ZeroBasis: ALegProviderZeroRecorded,
-				OperationKey: head.LastOperationKey}, nil, nil
+			return ALegProviderLegVerdict{
+				Status: ALegProviderKnownZero, ZeroBasis: ALegProviderZeroRecorded,
+				OperationKey: head.LastOperationKey,
+			}, nil, nil
 		}
 		return unknown(ALegProviderIssueUnresolved, 0)
 	}
@@ -495,8 +499,10 @@ func proveALegProviderHeadUnit(scope ALegAuthorityScope, legKey string, head *AL
 			OperationKey: head.LastOperationKey, TransactionID: head.LastTransactionID,
 		}, nil, nil
 	}
-	return ALegProviderLegVerdict{Status: ALegProviderKnownZero, ZeroBasis: ALegProviderZeroRecorded,
-		OperationKey: head.LastOperationKey, TransactionID: head.LastTransactionID}, nil, nil
+	return ALegProviderLegVerdict{
+		Status: ALegProviderKnownZero, ZeroBasis: ALegProviderZeroRecorded,
+		OperationKey: head.LastOperationKey, TransactionID: head.LastTransactionID,
+	}, nil, nil
 }
 
 // checkALegProviderExecutionGate proves the shared execution gate
@@ -542,7 +548,8 @@ func checkALegProviderExecutionGate(scope ALegAuthorityScope, legKey string, exe
 // is ever exposed. Children evaluate in charge-ID order so input
 // permutation never changes the verdict or lineage ordering.
 func evaluateALegProviderChildren(scope ALegAuthorityScope, legKey string, facts ALegProviderLegFacts, children []*ALegProviderHead,
-	unknown func(string, uint64) (ALegProviderLegVerdict, []ReconciliationIssue, error)) (ALegProviderLegVerdict, []ReconciliationIssue, error) {
+	unknown func(string, uint64) (ALegProviderLegVerdict, []ReconciliationIssue, error),
+) (ALegProviderLegVerdict, []ReconciliationIssue, error) {
 	byCharge := make(map[string][]*ALegProviderHead, len(children))
 	for _, head := range children {
 		chargeID := head.Subject.ProviderChargeID
@@ -639,9 +646,7 @@ func evaluateALegProviderChildren(scope ALegAuthorityScope, legKey string, facts
 	for _, chargeID := range charges {
 		head := byCharge[chargeID][0]
 		var unitJournals []*JournalTransaction
-		for _, journal := range byGroup[head.HeadKey] {
-			unitJournals = append(unitJournals, journal)
-		}
+		unitJournals = append(unitJournals, byGroup[head.HeadKey]...)
 		unit, _, err := proveALegProviderHeadUnit(scope, legKey, head, unitJournals, facts, unknown)
 		if err != nil {
 			return ALegProviderLegVerdict{}, nil, err
@@ -676,7 +681,7 @@ func evaluateALegProviderChildren(scope ALegAuthorityScope, legKey string, facts
 		return unknown(ALegProviderIssueUnresolved, 0)
 	}
 	if pendingLeg {
-		return ALegProviderLegVerdict{Status: ALegProviderPending}, []ReconciliationIssue{ReconciliationIssue{Code: ALegProviderIssuePending, Sequence: 0, Detail: scope.CallID}}, nil
+		return ALegProviderLegVerdict{Status: ALegProviderPending}, []ReconciliationIssue{{Code: ALegProviderIssuePending, Sequence: 0, Detail: scope.CallID}}, nil
 	}
 	if allZero {
 		return ALegProviderLegVerdict{

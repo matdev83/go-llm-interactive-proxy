@@ -230,7 +230,7 @@ func (s *DurableStore) advanceProviderCostPostingFenceInTx(ctx context.Context, 
 	if err := validateProviderCostFenceAuthority(authority); err != nil {
 		return err
 	}
-	if existing.EvidenceRevision <= 0 || existing.Fence <= 0 || existing.Fence >= math.MaxInt64 || evidenceRevision <= 0 {
+	if existing.EvidenceRevision <= 0 || existing.Fence <= 0 || existing.Fence == math.MaxInt64 || evidenceRevision <= 0 {
 		return fmt.Errorf("billingstore: invalid provider cost posting fence transition")
 	}
 	if err := amount.Validate(); err != nil {

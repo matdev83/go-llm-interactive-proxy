@@ -362,7 +362,7 @@ func TestBorrowedRefCarriesNoCloseContract(t *testing.T) {
 	t.Parallel()
 	// Borrowed handles are declaration-only values: the type system offers no
 	// Close/Start entry point, so a host cannot implicitly close them.
-	var ref billing.BorrowedRef = billing.BorrowedRef{ID: "store-shared", Kind: "journal"}
+	ref := billing.BorrowedRef{ID: "store-shared", Kind: "journal"}
 	if err := ref.Validate(); err != nil {
 		t.Fatalf("borrowed ref: %v", err)
 	}
@@ -582,10 +582,12 @@ func TestAdmissionInputCloneIsIndependent(t *testing.T) {
 func TestBindingReusesSharedEconomicsContracts(t *testing.T) {
 	t.Parallel()
 	b := validBinding(t)
-	var _ economics.Quoter = b.Quoter
-	var _ billing.CreditScreener = b.CreditScreen
-	var _ billing.ExposureAdmitter = b.Admission
-	var _ billing.TerminalSink = b.Terminal
+	// Explicit interface types are compile-time conformance assertions: the
+	// preserved seams must still satisfy the shared economics contracts.
+	var _ economics.Quoter = b.Quoter             //nolint:staticcheck // conformance assertion, not an inferred declaration
+	var _ billing.CreditScreener = b.CreditScreen //nolint:staticcheck // conformance assertion, not an inferred declaration
+	var _ billing.ExposureAdmitter = b.Admission  //nolint:staticcheck // conformance assertion, not an inferred declaration
+	var _ billing.TerminalSink = b.Terminal       //nolint:staticcheck // conformance assertion, not an inferred declaration
 }
 
 // --- Composition-time economics scope (Task 15.2 integration) ---

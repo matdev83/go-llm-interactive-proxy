@@ -18,11 +18,9 @@ import (
 // versioned, bounded full-result payload that infrastructure persists. It
 // contains no SQL or persistence dependency.
 
-var (
-	// ErrInvalidReconciliationRetention identifies a malformed, non-canonical
-	// or oversized durable reconciliation result.
-	ErrInvalidReconciliationRetention = errors.New("billing: invalid reconciliation retention result")
-)
+// ErrInvalidReconciliationRetention identifies a malformed, non-canonical
+// or oversized durable reconciliation result.
+var ErrInvalidReconciliationRetention = errors.New("billing: invalid reconciliation retention result")
 
 const (
 	// ReconciliationRetentionSchemaVersionV1 is the first durable result

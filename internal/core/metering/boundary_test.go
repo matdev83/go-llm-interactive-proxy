@@ -262,3 +262,74 @@ func TestPhase6BoundaryLifecycleStatesAreDurableAndReplayStable(t *testing.T) {
 func testBoundaryIdentity() ObservationIdentity {
 	return ObservationIdentity{StoreID: "store-1", RequestID: "request-1", CallID: "call-1", BillingCallID: "billing-1", ALegID: "a-leg-1", BLegID: "b-leg-1", AttemptID: "attempt-1", AttemptSeq: 1}
 }
+
+// TestObservePreparedInputObserverMatrix pins the fail-safe boundary contract:
+// nil contexts never panic, absent observers are no-ops, a directly stored
+// typed-nil observer reports disabled and is never invoked, and a valid
+// observer fires exactly once with the exact summary.
+func TestObservePreparedInputObserverMatrix(t *testing.T) {
+	t.Parallel()
+	summary := PreparedInputSummary{TextBytes: 7, TextBytesPresent: true}
+
+	t.Run("nil context", func(t *testing.T) {
+		t.Parallel()
+		calls := 0
+		// Must not panic and must not call back.
+		ObservePreparedInput(nil, summary) //nolint:staticcheck // deliberately exercises the nil-context guard
+		if calls != 0 {
+			t.Fatalf("nil context produced %d callbacks, want 0", calls)
+		}
+		if PreparedInputObservationEnabled(nil) { //nolint:staticcheck // deliberately exercises the nil-context guard
+			t.Fatal("nil context must report disabled")
+		}
+	})
+
+	t.Run("absent observer", func(t *testing.T) {
+		t.Parallel()
+		calls := 0
+		ObservePreparedInput(context.Background(), summary)
+		if calls != 0 {
+			t.Fatalf("absent observer produced %d callbacks, want 0", calls)
+		}
+		if PreparedInputObservationEnabled(context.Background()) {
+			t.Fatal("absent observer must report disabled")
+		}
+	})
+
+	t.Run("typed-nil observer", func(t *testing.T) {
+		t.Parallel()
+		var fn PreparedInputObserver
+		// Inject directly: WithPreparedInputObserver intentionally elides
+		// nil, so only a direct store can place a typed-nil func value.
+		ctx := context.WithValue(context.Background(), preparedInputObserverKey{}, fn)
+		if PreparedInputObservationEnabled(ctx) {
+			t.Fatal("typed-nil observer must report disabled")
+		}
+		calls := 0
+		// Must not panic and must not call back into the nil func value.
+		ObservePreparedInput(ctx, summary)
+		if calls != 0 {
+			t.Fatalf("typed-nil observer produced %d callbacks, want 0", calls)
+		}
+	})
+
+	t.Run("valid observer once", func(t *testing.T) {
+		t.Parallel()
+		calls := 0
+		var got PreparedInputSummary
+		ctx := WithPreparedInputObserver(context.Background(), func(s PreparedInputSummary) {
+			calls++
+			got = s
+		})
+		if !PreparedInputObservationEnabled(ctx) {
+			t.Fatal("attached observer must report enabled")
+		}
+		ObservePreparedInput(ctx, summary)
+		if calls != 1 {
+			t.Fatalf("valid observer produced %d callbacks, want exactly 1", calls)
+		}
+		if !reflect.DeepEqual(got, summary) {
+			t.Fatalf("observer summary = %#v, want %#v", got, summary)
+		}
+	})
+}

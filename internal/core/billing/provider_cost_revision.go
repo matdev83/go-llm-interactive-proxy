@@ -232,8 +232,10 @@ func (in ProviderCostRevisionInput) normalized() (ProviderCostRevisionInput, err
 	if out.Subject.Kind == "" {
 		// Direct store adapters may supply the compact lineage fields and let the
 		// normalizer construct the tagged B-leg subject.
-		out.Subject = metering.SubjectRef{Kind: metering.SubjectBLeg, StoreID: out.Subject.StoreID, AccountID: out.AccountID,
-			ALegID: out.ALegID, BillingCallID: out.CallID.String(), BLegID: out.BLegID}
+		out.Subject = metering.SubjectRef{
+			Kind: metering.SubjectBLeg, StoreID: out.Subject.StoreID, AccountID: out.AccountID,
+			ALegID: out.ALegID, BillingCallID: out.CallID.String(), BLegID: out.BLegID,
+		}
 	} else {
 		if out.ALegID != "" {
 			if out.Subject.ALegID != "" && out.Subject.ALegID != out.ALegID {
@@ -871,7 +873,7 @@ func validateProviderObservationAuthority(observation metering.Observation, subj
 	if !isProviderEvidenceAcquisition(observation.Acquisition) {
 		return providerCostRevisionAuthorityError("acquisition", observation.Acquisition, "provider response/header/count/finalizer")
 	}
-	if observation.Authority != metering.AuthorityObservedClaim && !(allowUnavailable && observation.Authority == metering.AuthorityUnavailableClaim) {
+	if observation.Authority != metering.AuthorityObservedClaim && (!allowUnavailable || observation.Authority != metering.AuthorityUnavailableClaim) {
 		return providerCostRevisionAuthorityError("authority", observation.Authority, string(metering.AuthorityObservedClaim))
 	}
 	if observation.Perspective != metering.PerspectiveOperator {

@@ -161,6 +161,7 @@ func ref83LegKey(call CallUsageRecord, bLegID string) string {
 	return call.CallID.String() + ":" + bLegID
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func ref83Rate(t *testing.T, ctx context.Context, call CallUsageRecord, legs []CallLegUsageRecord, selection RetailSelectionResult, policy ChargePolicy, withProxy bool) RetailRatingResult {
 	t.Helper()
 	in := RetailRatingInput{

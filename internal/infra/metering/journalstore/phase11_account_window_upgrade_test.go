@@ -255,6 +255,7 @@ func TestPhase11AccountWindowProjectionUpgrade_FileReopenRunsPendingBackfill(t *
 	require.NoError(t, journalstore.Migrate(ctx, second.DB()), "reopen migration must remain idempotent")
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func clearAccountWindowSearchColumns(t *testing.T, store *journalstore.DurableStore, ctx context.Context, observationID string) {
 	t.Helper()
 	_, err := store.DB().ExecContext(ctx, `
@@ -269,6 +270,7 @@ func clearAccountWindowSearchColumns(t *testing.T, store *journalstore.DurableSt
 	require.NoError(t, err)
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func removeAccountWindowMigrationRecord(t *testing.T, store *journalstore.DurableStore, ctx context.Context) {
 	t.Helper()
 	_, err := store.DB().ExecContext(ctx,

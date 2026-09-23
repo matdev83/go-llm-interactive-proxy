@@ -47,6 +47,8 @@ func legacySchema1Fixture(t *testing.T) ReconciliationRecord {
 
 // insertLegacySchema1Row stores the frozen pre-migration bytes exactly as the
 // checkpoint serializer wrote them, including the old fingerprint.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func insertLegacySchema1Row(t *testing.T, ctx context.Context, store *DurableStore) {
 	t.Helper()
 	_, err := store.db.ExecContext(ctx, `INSERT INTO billing_reconciliations(store_id, reconciliation_id, reconciliation_version, subject_kind, subject_id, subject_json, tenant_id, scope, basis, input_set_hash, local_input_hash, provider_input_hash, policy_id, policy_version, result_json, canonical_json, fingerprint, projection_version, created_at_unix) VALUES ('test','legacy-schema1-fixture',1,'b_leg','b-legacy','{}','tenant-test','call','provider_reported',?,?,?,?,?,?,?,?,1,?)`,

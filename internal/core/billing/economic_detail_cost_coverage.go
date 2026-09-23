@@ -168,8 +168,8 @@ func projectCostCoverage(observations []metering.Observation, valuations []econo
 			if graphValid {
 				atomByKey[atomKey] = &costCoverageChargeAtom{observation: observation, chargeIndex: chargeIndex}
 			}
-			switch {
-			case charge.Payer.Kind == metering.PaymentPartyCustomer:
+			switch charge.Payer.Kind {
+			case metering.PaymentPartyCustomer:
 				unit.hasCustomerCharge = true
 			default:
 				unit.hasNonCustomerCharge = true
@@ -431,7 +431,7 @@ func projectCostCoverage(observations []metering.Observation, valuations []econo
 		subject := EconomicDetailCostSubject{
 			Subject:         unit.subject.Clone(),
 			State:           state,
-			OperatorPayable: unit.hasNonCustomerCharge || (unit.hasMeasures && !(unit.hasCustomerCharge && !unit.hasNonCustomerCharge)),
+			OperatorPayable: unit.hasNonCustomerCharge || (unit.hasMeasures && (!unit.hasCustomerCharge || unit.hasNonCustomerCharge)),
 			ChargeItemIDs:   costCoverageCanonicalChargeItems(unit),
 		}
 		projection.Subjects = append(projection.Subjects, subject)

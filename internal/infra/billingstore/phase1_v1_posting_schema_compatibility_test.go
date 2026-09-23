@@ -190,11 +190,9 @@ func TestPhase1V1PostingIdentityAndDialectSchemaCompatibility(t *testing.T) {
 
 	sequenceSource := phase1BillingStoreSource(t, "20260828000000_billing_usage_leg_sequence.go")
 	for dialect, typeName := range fixture.DialectTypes["usage_leg_attempt_sequence"] {
-		needle := typeName
+		needle := "ADD COLUMN attempt_seq " + typeName
 		if dialect == "postgres" {
 			needle = "ADD COLUMN IF NOT EXISTS attempt_seq " + typeName
-		} else {
-			needle = "ADD COLUMN attempt_seq " + typeName
 		}
 		requirePhase1DDLTerms(t, dialect+" attempt sequence", sequenceSource, []string{needle})
 	}

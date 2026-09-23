@@ -139,7 +139,7 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) error 
 			return err
 		}
 		if s.ProviderEvidenceBuffer != nil {
-			s.ProviderEvidenceBuffer.Add(geminiEvidenceDraft(*u, resp.UsageMetadata))
+			s.Add(geminiEvidenceDraft(*u, resp.UsageMetadata))
 		}
 	}
 
@@ -293,7 +293,7 @@ func usageEvent(resp *genai.GenerateContentResponse) *lipapi.Event {
 		if u.ToolUsePromptTokenCount > 0 {
 			tool := int64(u.ToolUsePromptTokenCount)
 			if diff < tool {
-				out, outputPresent = 0, false
+				outputPresent = false
 			} else {
 				diff -= tool
 			}

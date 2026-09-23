@@ -272,7 +272,10 @@ func TestArch_WirePostCommit_RuntimeWireFunctionsAreCallFree(t *testing.T) {
 			}
 			continue
 		}
-		sig := fn.Type().(*types.Signature)
+		sig, ok := fn.Type().(*types.Signature)
+		if !ok {
+			t.Fatalf("wire function %q has non-signature type %T", funcName, fn.Type())
+		}
 
 		// 1. Check parameters and return types
 		params := sig.Params()

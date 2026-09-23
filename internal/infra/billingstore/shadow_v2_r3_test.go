@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func r3UnitGrant(t *testing.T, ctx context.Context, store *DurableStore, key billing.CustomerUnitKey) billing.CustomerUnitOperationResult {
 	t.Helper()
 	grant := customerUnitOperation("r3-unit-grant-1", key, billing.CustomerUnitOperationGrant, "", "5", 0, 1)

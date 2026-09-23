@@ -99,7 +99,7 @@ func TestB2b3MonetaryAdjustmentInventoryGuard(t *testing.T) {
 		if !strings.Contains(content, "postJournalInTx") {
 			continue
 		}
-		if !(strings.Contains(content, "b2b1") || strings.Contains(content, "b2b2") || strings.Contains(content, "b2b3") || strings.Contains(content, "b2b4")) {
+		if !strings.Contains(content, "b2b1") && !strings.Contains(content, "b2b2") && !strings.Contains(content, "b2b3") && !strings.Contains(content, "b2b4") {
 			unfenced = append(unfenced, base)
 		}
 	}

@@ -254,8 +254,10 @@ func ref83CacheAllocation(t *testing.T, callID BillingCallID) economics.Allocati
 	target := func(id, bLegID string, numerator string) economics.AllocationTarget {
 		return economics.AllocationTarget{
 			TargetID: id, Weight: economics.AllocationFraction{Numerator: numerator, Denominator: "4"},
-			Target: metering.SubjectRef{Kind: metering.SubjectBLeg, StoreID: "store-83", TenantID: "tenant-83",
-				BillingCallID: callID.String(), ALegID: "a-83", BLegID: bLegID},
+			Target: metering.SubjectRef{
+				Kind: metering.SubjectBLeg, StoreID: "store-83", TenantID: "tenant-83",
+				BillingCallID: callID.String(), ALegID: "a-83", BLegID: bLegID,
+			},
 		}
 	}
 	return economics.AllocationRecord{

@@ -277,8 +277,10 @@ func TestPhase2V2_ChargeCoverageStoreScopeAndCycles(t *testing.T) {
 	t.Parallel()
 	base := validV2Observation(t)
 	base.Charges = []metering.ReportedCharge{
-		{ChargeItemID: "aggregate", Amount: decimalPtr("12"), Currency: "USD", Kind: metering.ChargeKindAggregate,
-			Covers: []metering.ChargeCoverageRef{{Ref: metering.ChargeRef{StoreID: "store-1", ObservationID: "obs-1", Revision: 1, ChargeItemID: "input"}, Relation: metering.CoverageInclusive}}},
+		{
+			ChargeItemID: "aggregate", Amount: decimalPtr("12"), Currency: "USD", Kind: metering.ChargeKindAggregate,
+			Covers: []metering.ChargeCoverageRef{{Ref: metering.ChargeRef{StoreID: "store-1", ObservationID: "obs-1", Revision: 1, ChargeItemID: "input"}, Relation: metering.CoverageInclusive}},
+		},
 	}
 	if err := base.Validate(); err != nil {
 		t.Fatal(err)
@@ -294,8 +296,10 @@ func TestPhase2V2_ChargeCoverageStoreScopeAndCycles(t *testing.T) {
 	cycleA.SourceEventKey, cycleB.SourceEventKey = "event-a", "event-b"
 	cycleA.Charges[0].Covers[0].Ref.ObservationID = "obs-b"
 	cycleA.Charges[0].Covers[0].Ref.ChargeItemID = "child"
-	cycleB.Charges = []metering.ReportedCharge{{ChargeItemID: "child", Amount: decimalPtr("1"), Currency: "USD", Kind: metering.ChargeKindComponent,
-		Covers: []metering.ChargeCoverageRef{{Ref: metering.ChargeRef{StoreID: "store-1", ObservationID: "obs-a", Revision: 1, ChargeItemID: "aggregate"}, Relation: metering.CoverageInclusive}}}}
+	cycleB.Charges = []metering.ReportedCharge{{
+		ChargeItemID: "child", Amount: decimalPtr("1"), Currency: "USD", Kind: metering.ChargeKindComponent,
+		Covers: []metering.ChargeCoverageRef{{Ref: metering.ChargeRef{StoreID: "store-1", ObservationID: "obs-a", Revision: 1, ChargeItemID: "aggregate"}, Relation: metering.CoverageInclusive}},
+	}}
 	if err := metering.ValidateCoverageGraph([]metering.Observation{cycleA, cycleB}); err == nil {
 		t.Fatal("coverage cycle must be rejected")
 	}

@@ -126,6 +126,7 @@ func phase19R1Tariff(t *testing.T, rules []economics.RatingRule) economics.Tarif
 	return tariff
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func phase19R1ResolveAll(t *testing.T, ctx context.Context, store *journalstore.DurableStore, valuation economics.Valuation, scope string) {
 	t.Helper()
 	for _, ref := range valuation.InputObservations {

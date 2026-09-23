@@ -99,6 +99,42 @@ func cloneRetentionJSONObject(t *testing.T, in map[string]any) map[string]any {
 	return out
 }
 
+// retentionJSONObject returns parent[key] as a decoded JSON object, failing the
+// test with a clear diagnostic instead of panicking when the forged payload has
+// an unexpected shape.
+func retentionJSONObject(t *testing.T, parent map[string]any, key string) map[string]any {
+	t.Helper()
+	value, ok := parent[key].(map[string]any)
+	if !ok {
+		t.Fatalf("%s = %#v, want JSON object", key, parent[key])
+	}
+	return value
+}
+
+// retentionJSONArray returns parent[key] as a decoded JSON array, failing the
+// test with a clear diagnostic instead of panicking when the forged payload has
+// an unexpected shape.
+func retentionJSONArray(t *testing.T, parent map[string]any, key string) []any {
+	t.Helper()
+	value, ok := parent[key].([]any)
+	if !ok {
+		t.Fatalf("%s = %#v, want JSON array", key, parent[key])
+	}
+	return value
+}
+
+// retentionJSONObjectValue returns value as a decoded JSON object, failing the
+// test with a clear diagnostic instead of panicking when the value is not an
+// object.
+func retentionJSONObjectValue(t *testing.T, value any, what string) map[string]any {
+	t.Helper()
+	object, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("%s = %#v, want JSON object", what, value)
+	}
+	return object
+}
+
 // forgeRetentionCanonical decodes one valid canonical retention payload, applies
 // a JSON-level mutation and re-encodes it, so the forged bytes stay canonical
 // and only semantic revalidation can reject them.
@@ -177,7 +213,7 @@ func TestReconciliationRetentionRederivesQuantityDeltasAndSourceShape(t *testing
 				result.Quantity.Items[0].SignedDelta = &metering.Decimal{Coefficient: "11"}
 			},
 			forge: func(item map[string]any) {
-				item["signed_delta"].(map[string]any)["coefficient"] = "11"
+				retentionJSONObject(t, item, "signed_delta")["coefficient"] = "11"
 			},
 		},
 		{
@@ -186,7 +222,7 @@ func TestReconciliationRetentionRederivesQuantityDeltasAndSourceShape(t *testing
 				result.Quantity.Items[0].AbsoluteDelta = &metering.Decimal{Coefficient: "11"}
 			},
 			forge: func(item map[string]any) {
-				item["absolute_delta"].(map[string]any)["coefficient"] = "11"
+				retentionJSONObject(t, item, "absolute_delta")["coefficient"] = "11"
 			},
 		},
 		{
@@ -195,7 +231,7 @@ func TestReconciliationRetentionRederivesQuantityDeltasAndSourceShape(t *testing
 				result.Quantity.Items[0].SignedDelta = &metering.Decimal{Coefficient: "-10"}
 			},
 			forge: func(item map[string]any) {
-				item["signed_delta"].(map[string]any)["coefficient"] = "-10"
+				retentionJSONObject(t, item, "signed_delta")["coefficient"] = "-10"
 			},
 		},
 		{
@@ -204,7 +240,7 @@ func TestReconciliationRetentionRederivesQuantityDeltasAndSourceShape(t *testing
 				result.Quantity.Items[0].Local[0].Value = nil
 			},
 			forge: func(item map[string]any) {
-				delete(item["local"].([]any)[0].(map[string]any), "value")
+				delete(retentionJSONObjectValue(t, retentionJSONArray(t, item, "local")[0], "local[0]"), "value")
 			},
 		},
 		{
@@ -213,7 +249,7 @@ func TestReconciliationRetentionRederivesQuantityDeltasAndSourceShape(t *testing
 				result.Quantity.Items[0].Provider[0].Value = nil
 			},
 			forge: func(item map[string]any) {
-				delete(item["provider"].([]any)[0].(map[string]any), "value")
+				delete(retentionJSONObjectValue(t, retentionJSONArray(t, item, "provider")[0], "provider[0]"), "value")
 			},
 		},
 		{
@@ -223,10 +259,10 @@ func TestReconciliationRetentionRederivesQuantityDeltasAndSourceShape(t *testing
 				item.Local = append(item.Local, secondEvidence(item.Local[0], "retention-second-local"))
 			},
 			forge: func(item map[string]any) {
-				local := item["local"].([]any)
-				duplicate := cloneRetentionJSONObject(t, local[0].(map[string]any))
-				duplicate["observation"].(map[string]any)["observation_id"] = "retention-second-local"
-				duplicate["observation"].(map[string]any)["payload_hash"] = strings.Repeat("f", 64)
+				local := retentionJSONArray(t, item, "local")
+				duplicate := cloneRetentionJSONObject(t, retentionJSONObjectValue(t, local[0], "local[0]"))
+				retentionJSONObject(t, duplicate, "observation")["observation_id"] = "retention-second-local"
+				retentionJSONObject(t, duplicate, "observation")["payload_hash"] = strings.Repeat("f", 64)
 				item["local"] = append(local, duplicate)
 			},
 		},
@@ -237,10 +273,10 @@ func TestReconciliationRetentionRederivesQuantityDeltasAndSourceShape(t *testing
 				item.Provider = append(item.Provider, secondEvidence(item.Provider[0], "retention-second-provider"))
 			},
 			forge: func(item map[string]any) {
-				provider := item["provider"].([]any)
-				duplicate := cloneRetentionJSONObject(t, provider[0].(map[string]any))
-				duplicate["observation"].(map[string]any)["observation_id"] = "retention-second-provider"
-				duplicate["observation"].(map[string]any)["payload_hash"] = strings.Repeat("f", 64)
+				provider := retentionJSONArray(t, item, "provider")
+				duplicate := cloneRetentionJSONObject(t, retentionJSONObjectValue(t, provider[0], "provider[0]"))
+				retentionJSONObject(t, duplicate, "observation")["observation_id"] = "retention-second-provider"
+				retentionJSONObject(t, duplicate, "observation")["payload_hash"] = strings.Repeat("f", 64)
 				item["provider"] = append(provider, duplicate)
 			},
 		},
@@ -528,7 +564,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 			},
 			forge: func(t *testing.T, document map[string]any) {
 				monetaryRowJSON(t, document)["end_to_end_cost_delta"] = map[string]any{"status": "missing"}
-				monetary := document["monetary"].(map[string]any)
+				monetary := retentionJSONObject(t, document, "monetary")
 				monetary["status"] = "partial"
 				delete(monetary, "reason")
 			},
@@ -546,7 +582,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 				row := monetaryRowJSON(t, document)
 				row["metering_cost_effect"] = map[string]any{"status": "partial", "reason": "amount_unavailable"}
 				row["end_to_end_cost_delta"] = map[string]any{"status": "missing", "reason": "bogus"}
-				monetary := document["monetary"].(map[string]any)
+				monetary := retentionJSONObject(t, document, "monetary")
 				monetary["status"] = "partial"
 				monetary["reason"] = "amount_unavailable"
 			},
@@ -564,7 +600,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 				row := monetaryRowJSON(t, document)
 				row["metering_cost_effect"] = map[string]any{"status": "incomparable", "reason": "context_mismatch"}
 				row["end_to_end_cost_delta"] = map[string]any{"status": "incomparable", "reason": "bogus"}
-				monetary := document["monetary"].(map[string]any)
+				monetary := retentionJSONObject(t, document, "monetary")
 				monetary["status"] = "incomparable"
 				monetary["reason"] = "context_mismatch"
 			},
@@ -581,7 +617,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 				row := monetaryRowJSON(t, document)
 				term := termJSON(t, row, "reported_price_residual")
 				row["reported_price_residual"] = map[string]any{"status": "partial", "amount": term["amount"]}
-				monetary := document["monetary"].(map[string]any)
+				monetary := retentionJSONObject(t, document, "monetary")
 				monetary["status"] = "partial"
 				delete(monetary, "reason")
 			},
@@ -596,7 +632,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 				}
 			},
 			forge: func(t *testing.T, document map[string]any) {
-				monetary := document["monetary"].(map[string]any)
+				monetary := retentionJSONObject(t, document, "monetary")
 				valuations, ok := monetary["valuations"].([]any)
 				if !ok {
 					t.Fatalf("monetary valuations = %#v", monetary["valuations"])
@@ -639,7 +675,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 				row := monetaryRowJSON(t, document)
 				row["currency"] = "EUR"
 				for _, name := range []string{"metering_cost_effect", "reported_price_residual", "end_to_end_cost_delta"} {
-					termJSON(t, row, name)["amount"].(map[string]any)["currency"] = "EUR"
+					retentionJSONObject(t, termJSON(t, row, name), "amount")["currency"] = "EUR"
 				}
 			},
 		},
@@ -652,7 +688,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 				}
 			},
 			forge: func(t *testing.T, document map[string]any) {
-				monetary := document["monetary"].(map[string]any)
+				monetary := retentionJSONObject(t, document, "monetary")
 				delete(monetary, "valuations")
 				monetary["rows"] = []any{}
 				monetary["status"] = "partial"
@@ -973,7 +1009,7 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 			},
 			forge: func(t *testing.T, document map[string]any) {
 				evaluation := evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))
-				evaluation["target"].(map[string]any)["component"] = "other-component"
+				retentionJSONObject(t, evaluation, "target")["component"] = "other-component"
 			},
 		},
 		{
@@ -1158,8 +1194,8 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 			},
 			forge: func(t *testing.T, document map[string]any) {
 				aggregate := aggregateJSON(t, document)
-				rows := aggregate["rows"].([]any)
-				extra := cloneRetentionJSONObject(t, rows[0].(map[string]any))
+				rows := retentionJSONArray(t, aggregate, "rows")
+				extra := cloneRetentionJSONObject(t, retentionJSONObjectValue(t, rows[0], "rows[0]"))
 				extra["scope"] = "other-scope"
 				aggregate["rows"] = append(rows, extra)
 			},
@@ -1170,8 +1206,8 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 				result.Diagnostics[0].Reason = "bogus"
 			},
 			forge: func(t *testing.T, document map[string]any) {
-				diagnostics := document["diagnostics"].([]any)
-				diagnostics[0].(map[string]any)["reason"] = "bogus"
+				diagnostics := retentionJSONArray(t, document, "diagnostics")
+				retentionJSONObjectValue(t, diagnostics[0], "diagnostics[0]")["reason"] = "bogus"
 			},
 		},
 	}

@@ -52,10 +52,7 @@ func (i StatementIdentity) Key() string {
 	if err := i.Validate(); err != nil {
 		return ""
 	}
-	encoded, err := json.Marshal(statementIdentityPreimage{
-		StoreID: i.StoreID, ProviderAccountKey: i.ProviderAccountKey,
-		StatementID: i.StatementID, PeriodID: i.PeriodID, Revision: i.Revision,
-	})
+	encoded, err := json.Marshal(statementIdentityPreimage(i))
 	if err != nil {
 		return ""
 	}
@@ -110,11 +107,7 @@ func (i StatementLineIdentity) Key() string {
 	if err := i.Validate(); err != nil {
 		return ""
 	}
-	encoded, err := json.Marshal(statementLineIdentityPreimage{
-		StoreID: i.StoreID, ProviderAccountKey: i.ProviderAccountKey,
-		StatementID: i.StatementID, PeriodID: i.PeriodID,
-		LineID: i.LineID, Revision: i.Revision,
-	})
+	encoded, err := json.Marshal(statementLineIdentityPreimage(i))
 	if err != nil {
 		return ""
 	}

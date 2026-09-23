@@ -51,6 +51,7 @@ func openC4FileJournal(t *testing.T, path string) (*journalstore.DurableStore, *
 	return journal, sqlDB
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func c4JournalObservations(t *testing.T, ctx context.Context, journal *journalstore.DurableStore, bLegID string) []metering.Observation {
 	t.Helper()
 	page, err := journal.ListObservations(ctx, journalstore.ObservationQuery{
@@ -297,6 +298,7 @@ type c4FinancialSnapshot struct {
 	UnitAfter      billing.CustomerUnitBalance
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func c4CaptureFinancial(t *testing.T, ctx context.Context, store *billingstore.DurableStore, selectedCallID billing.BillingCallID, unitKey billing.CustomerUnitKey) c4FinancialSnapshot {
 	t.Helper()
 	account, err := store.GetAccount(ctx, c4AccountID)
@@ -328,6 +330,7 @@ func c4CaptureFinancial(t *testing.T, ctx context.Context, store *billingstore.D
 	}
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func c4JournalByID(t *testing.T, ctx context.Context, store *billingstore.DurableStore, id string) billing.JournalTransaction {
 	t.Helper()
 	journals, err := store.JournalTransactions(ctx, c4AccountID)
@@ -353,11 +356,15 @@ func TestPhase172Cluster4ComposedNoPostLifecycle(t *testing.T) {
 	_, err := store.PostFunding(ctx, billing.FundingInput{AccountID: c4AccountID, Amount: billing.Money{Nano: 500_000, Currency: "USD"}, SourceKey: "c4-funding-1", Reason: "c4 baseline funding"})
 	require.NoError(t, err)
 
-	unitKey := billing.CustomerUnitKey{AccountID: c4AccountID, PoolID: "c4-pool", PeriodID: "c4-period",
-		Component: metering.ComponentKey{Direction: metering.DirectionNone, Component: metering.ComponentCredit, Unit: metering.UnitCredit}}
-	grant := billing.CustomerUnitOperation{Version: billing.CustomerUnitOperationVersionV1, OperationID: "c4-unit-grant-1",
+	unitKey := billing.CustomerUnitKey{
+		AccountID: c4AccountID, PoolID: "c4-pool", PeriodID: "c4-period",
+		Component: metering.ComponentKey{Direction: metering.DirectionNone, Component: metering.ComponentCredit, Unit: metering.UnitCredit},
+	}
+	grant := billing.CustomerUnitOperation{
+		Version: billing.CustomerUnitOperationVersionV1, OperationID: "c4-unit-grant-1",
 		Key: unitKey, Kind: billing.CustomerUnitOperationGrant, Source: billing.CustomerUnitOperationSourceCustomerProvisioning,
-		Quantity: metering.Decimal{Coefficient: "5"}, ExpectedVersion: 0, Fence: 1}
+		Quantity: metering.Decimal{Coefficient: "5"}, ExpectedVersion: 0, Fence: 1,
+	}
 	grantResult, err := store.ApplyCustomerUnitOperation(ctx, grant)
 	require.NoError(t, err)
 	require.False(t, grantResult.Replayed)
@@ -368,19 +375,25 @@ func TestPhase172Cluster4ComposedNoPostLifecycle(t *testing.T) {
 	require.NoError(t, store.AppendCallLegUsage(ctx, v1Leg))
 	sealedV1Leg, err := v1Leg.Seal()
 	require.NoError(t, err)
-	v1ProviderInput := billing.ApplyProviderCostInput{AccountID: c4AccountID, CallID: v1CallID, Leg: v1Leg,
-		Result: billing.OperatorCostResult{LURKey: sealedV1Leg.Key, Amount: billing.Money{Nano: 11, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}
+	v1ProviderInput := billing.ApplyProviderCostInput{
+		AccountID: c4AccountID, CallID: v1CallID, Leg: v1Leg,
+		Result: billing.OperatorCostResult{LURKey: sealedV1Leg.Key, Amount: billing.Money{Nano: 11, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true},
+	}
 	v1Posting, err := store.ApplyProviderCost(ctx, v1ProviderInput)
 	require.NoError(t, err)
 	require.False(t, v1Posting.Replayed)
 
 	v1Call := c4Call(t, v1CallID, c4ALeg, "b-c4-v1")
 	require.NoError(t, store.AppendCallUsage(ctx, v1Call))
-	v1Exposure, err := store.AdmitExposure(ctx, billing.AdmitExposureInput{AccountID: c4AccountID, CallID: v1CallID.String(),
-		Max: billing.Money{Nano: 100_000, Currency: "USD"}, PricingRef: v1Call.CustomerPricingRef, ChargePolicyRef: v1Call.ChargePolicyRef})
+	v1Exposure, err := store.AdmitExposure(ctx, billing.AdmitExposureInput{
+		AccountID: c4AccountID, CallID: v1CallID.String(),
+		Max: billing.Money{Nano: 100_000, Currency: "USD"}, PricingRef: v1Call.CustomerPricingRef, ChargePolicyRef: v1Call.ChargePolicyRef,
+	})
 	require.NoError(t, err)
-	v1SettlementInput := billing.ApplyCallBillingInput{Call: v1Call, Exposure: v1Exposure,
-		Result: billing.CallRatingResult{CallID: v1CallID, CustomerCharge: billing.Money{Nano: 25_000, Currency: "USD"}, Fingerprint: "c4-v1-result"}}
+	v1SettlementInput := billing.ApplyCallBillingInput{
+		Call: v1Call, Exposure: v1Exposure,
+		Result: billing.CallRatingResult{CallID: v1CallID, CustomerCharge: billing.Money{Nano: 25_000, Currency: "USD"}, Fingerprint: "c4-v1-result"},
+	}
 	v1Settlement, err := store.ApplyCallBillingResult(ctx, v1SettlementInput)
 	require.NoError(t, err)
 	require.False(t, v1Settlement.Replayed)
@@ -388,25 +401,33 @@ func TestPhase172Cluster4ComposedNoPostLifecycle(t *testing.T) {
 	v1OpenCallID, err := billing.NewBillingCallID()
 	require.NoError(t, err)
 	require.NoError(t, store.AppendCallUsage(ctx, c4Call(t, v1OpenCallID, c4ALeg)))
-	_, err = store.AdmitExposure(ctx, billing.AdmitExposureInput{AccountID: c4AccountID, CallID: v1OpenCallID.String(),
+	_, err = store.AdmitExposure(ctx, billing.AdmitExposureInput{
+		AccountID: c4AccountID, CallID: v1OpenCallID.String(),
 		Max:             billing.Money{Nano: 60_000, Currency: "USD"},
 		PricingRef:      billing.VersionRef{ID: "prices", Version: "v1"},
-		ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "v2"}})
+		ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "v2"},
+	})
 	require.NoError(t, err)
 
 	selectedCallID, err := billing.NewBillingCallID()
 	require.NoError(t, err)
-	selectedSubject := metering.SubjectRef{Kind: metering.SubjectBLeg, StoreID: c4StoreID, AccountID: c4AccountID,
-		ALegID: c4ALeg, BillingCallID: selectedCallID.String(), BLegID: "b-c4-selected"}
+	selectedSubject := metering.SubjectRef{
+		Kind: metering.SubjectBLeg, StoreID: c4StoreID, AccountID: c4AccountID,
+		ALegID: c4ALeg, BillingCallID: selectedCallID.String(), BLegID: "b-c4-selected",
+	}
 	selectedDecimal := metering.DecimalFromNanoUnits(10_000_000_000)
 	selectedValuation, err := billing.NewSelectedCostValuation(
 		billing.SelectedCostValuationRef{ValuationID: "c4-sel-v1", Revision: 1, InputSetHash: "0000000000000000000000000000000000000000000000000000000000000001"},
-		billing.OperatorCostSelectionResult{Status: billing.OperatorCostSelectionStatusFinal, Provenance: billing.OperatorCostProvenanceAttempted,
-			Currency: "USD", Amount: &billing.MonetaryExactAmount{Currency: "USD", Decimal: &selectedDecimal}})
+		billing.OperatorCostSelectionResult{
+			Status: billing.OperatorCostSelectionStatusFinal, Provenance: billing.OperatorCostProvenanceAttempted,
+			Currency: "USD", Amount: &billing.MonetaryExactAmount{Currency: "USD", Decimal: &selectedDecimal},
+		})
 	require.NoError(t, err)
-	selectedInput := billing.SelectedCostAdjustmentInput{AccountID: c4AccountID,
-		CallID: selectedCallID, HeadKey: "c4-selected-head", Subject: selectedSubject,
-		Expected: billing.SelectedCostHeadExpectation{}, Selected: selectedValuation}
+	selectedInput := billing.SelectedCostAdjustmentInput{
+		AccountID: c4AccountID,
+		CallID:    selectedCallID, HeadKey: "c4-selected-head", Subject: selectedSubject,
+		Expected: billing.SelectedCostHeadExpectation{}, Selected: selectedValuation,
+	}
 	_, err = store.ApplySelectedCostAdjustment(ctx, selectedInput)
 	require.NoError(t, err)
 
@@ -630,6 +651,7 @@ func mustC4ReconIdentity(t *testing.T, work billing.EconomicRevisionWork) billin
 	return identity
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func mustC4SelectedHead(t *testing.T, ctx context.Context, store *billingstore.DurableStore, callID billing.BillingCallID) billing.SelectedCostHead {
 	t.Helper()
 	head, err := store.GetSelectedCostHead(ctx, c4AccountID, callID, "c4-selected-head")

@@ -113,7 +113,7 @@ func (s *DurableStore) advanceProviderCostExecutionFenceInTx(ctx context.Context
 	if err := validateProviderCostExecutionOwner(authority, subjectKind, headKey, inputSetHash, fingerprint, revision); err != nil {
 		return err
 	}
-	if existing.ID <= 0 || existing.Fence <= 0 || existing.Fence >= math.MaxInt64 || existing.ExecutionLineage != lineageKey {
+	if existing.ID <= 0 || existing.Fence <= 0 || existing.Fence == math.MaxInt64 || existing.ExecutionLineage != lineageKey {
 		return fmt.Errorf("billingstore: invalid provider cost execution fence transition")
 	}
 	result, err := tx.NewRaw(`UPDATE billing_provider_cost_execution_fences SET

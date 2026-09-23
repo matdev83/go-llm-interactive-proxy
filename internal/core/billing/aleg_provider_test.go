@@ -66,10 +66,14 @@ func alegPVJournal(t *testing.T, scope ALegAuthorityScope, id, bLegID, debitLedg
 }
 
 func alegPVSnapshot(scope ALegAuthorityScope, journal JournalTransaction, source string) ALegProviderSnapshot {
-	before := AccountSnapshot{BalanceNano: journal.BalanceBefore, SpendableNano: journal.SpendableBefore,
-		Mode: AccountMode(journal.Mode), Currency: journal.Currency, Version: journal.SnapshotVersionBefore}
-	after := AccountSnapshot{BalanceNano: journal.BalanceAfter, SpendableNano: journal.SpendableAfter,
-		Mode: AccountMode(journal.Mode), Currency: journal.Currency, Version: journal.SnapshotVersionAfter}
+	before := AccountSnapshot{
+		BalanceNano: journal.BalanceBefore, SpendableNano: journal.SpendableBefore,
+		Mode: AccountMode(journal.Mode), Currency: journal.Currency, Version: journal.SnapshotVersionBefore,
+	}
+	after := AccountSnapshot{
+		BalanceNano: journal.BalanceAfter, SpendableNano: journal.SpendableAfter,
+		Mode: AccountMode(journal.Mode), Currency: journal.Currency, Version: journal.SnapshotVersionAfter,
+	}
 	return ALegProviderSnapshot{
 		AccountID: scope.AccountID, OperationKind: "provider_call_cogs",
 		OperationKey: journal.ID, SourceKey: source, Fingerprint: "fp-" + journal.ID,
@@ -738,7 +742,8 @@ func TestEvaluateALegProviderFirstZeroKnown(t *testing.T) {
 	headKey := alegPVHeadKey("b-1")
 	legKey := alegPVLegKey(t, scope, "b-1")
 	op1 := alegPVOpKey(t, scope, "z1")
-	facts := ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+	facts := ALegProviderLegFacts{
+		BLegID: "b-1", Outcome: LegOutcomeWinner,
 		Heads: []ALegProviderHead{{
 			StoreID:   scope.StoreID,
 			AccountID: scope.AccountID, CallID: scope.CallID, HeadKey: headKey,
@@ -781,7 +786,8 @@ func TestEvaluateALegProviderFirstZeroMissingSnapshotPending(t *testing.T) {
 	headKey := alegPVHeadKey("b-1")
 	legKey := alegPVLegKey(t, scope, "b-1")
 	op1 := alegPVOpKey(t, scope, "z1")
-	facts := ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+	facts := ALegProviderLegFacts{
+		BLegID: "b-1", Outcome: LegOutcomeWinner,
 		Heads: []ALegProviderHead{{
 			StoreID:   scope.StoreID,
 			AccountID: scope.AccountID, CallID: scope.CallID, HeadKey: headKey,
@@ -828,7 +834,8 @@ func TestEvaluateALegProviderLegacyAdoptedChainKnown(t *testing.T) {
 	op2 := alegPVOpKey(t, scope, "r2cut")
 	legacy := alegPVJournal(t, scope, legacyOp, "b-1", "inference_provider_cogs", "provider_payable_clearing", 30, 5, legKey, "")
 	delta := alegPVJournal(t, scope, op2, "b-1", "inference_provider_cogs", "provider_payable_clearing", 10, 8, legKey, legacyOp)
-	facts := ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+	facts := ALegProviderLegFacts{
+		BLegID: "b-1", Outcome: LegOutcomeWinner,
 		Heads: []ALegProviderHead{{
 			StoreID:   scope.StoreID,
 			AccountID: scope.AccountID, CallID: scope.CallID, HeadKey: headKey,
@@ -897,12 +904,16 @@ func TestAlegProviderRevisionSourceMatchesWriter(t *testing.T) {
 				Acquisition: metering.AcquisitionProviderResponse, Authority: metering.AuthorityObservedClaim,
 				Perspective: metering.PerspectiveOperator, Boundary: metering.BoundaryBackendIngress,
 				Lifecycle: metering.LifecycleBackendAttempt, Subject: subject,
-				Correlation: metering.CorrelationV2{StoreID: subject.StoreID, ALegID: subject.ALegID,
-					BillingCallID: subject.BillingCallID, BLegID: subject.BLegID},
+				Correlation: metering.CorrelationV2{
+					StoreID: subject.StoreID, ALegID: subject.ALegID,
+					BillingCallID: subject.BillingCallID, BLegID: subject.BLegID,
+				},
 				Semantics: metering.SemanticsCumulative, ObservedAt: time.Unix(43, 0).UTC(),
 				ReceivedAt: time.Unix(43, 0).UTC(), MappingRef: "src.check",
-				Charges: []metering.ReportedCharge{{ChargeItemID: "provider-charge", Kind: metering.ChargeKindAggregate,
-					Amount: &amountDecimal, Currency: "USD", Payer: metering.PaymentParty{Kind: metering.PaymentPartyOperator}}},
+				Charges: []metering.ReportedCharge{{
+					ChargeItemID: "provider-charge", Kind: metering.ChargeKindAggregate,
+					Amount: &amountDecimal, Currency: "USD", Payer: metering.PaymentParty{Kind: metering.PaymentPartyOperator},
+				}},
 			}},
 			Rater: economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "src-check-rater", Version: "v1"}, RaterID: "reference"},
 		},
@@ -944,7 +955,8 @@ func TestEvaluateALegProviderFirstZeroHardening(t *testing.T) {
 		headKey := alegPVHeadKey("b-1")
 		legKey := alegPVLegKey(t, scope, "b-1")
 		op1 := alegPVOpKey(t, scope, "z1")
-		facts := ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+		facts := ALegProviderLegFacts{
+			BLegID: "b-1", Outcome: LegOutcomeWinner,
 			Heads: []ALegProviderHead{{
 				StoreID:   scope.StoreID,
 				AccountID: scope.AccountID, CallID: scope.CallID, HeadKey: headKey,
@@ -1070,7 +1082,8 @@ func TestEvaluateALegProviderTwoChildrenKnown(t *testing.T) {
 	scope, _ := alegPVScope(t)
 	headA, fenceA, journalA, snapA := alegPVChildChain(t, scope, "b-1", "charge-a", 30)
 	headB, fenceB, journalB, snapB := alegPVChildChain(t, scope, "b-1", "charge-b", 20)
-	facts := ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+	facts := ALegProviderLegFacts{
+		BLegID: "b-1", Outcome: LegOutcomeWinner,
 		Heads:           []ALegProviderHead{headA, headB},
 		PostingFences:   []ALegProviderFence{fenceA, fenceB},
 		ExecutionFences: []ALegProviderExecutionFence{alegPVChildExecution(t, scope, "b-1", "head-charge-b", journalB.ID, journalB.ID, 1, strings.Repeat("c", 64), "fp-fence-charge-b", 3)},
@@ -1107,13 +1120,15 @@ func TestEvaluateALegProviderChildrenPermutationStable(t *testing.T) {
 	headA, fenceA, journalA, snapA := alegPVChildChain(t, scope, "b-1", "charge-a", 30)
 	headB, fenceB, journalB, snapB := alegPVChildChain(t, scope, "b-1", "charge-b", 20)
 	execution := alegPVChildExecution(t, scope, "b-1", "head-charge-b", journalB.ID, journalB.ID, 1, strings.Repeat("c", 64), "fp-fence-charge-b", 3)
-	first, _, err := EvaluateALegProviderLeg(scope, ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+	first, _, err := EvaluateALegProviderLeg(scope, ALegProviderLegFacts{
+		BLegID: "b-1", Outcome: LegOutcomeWinner,
 		Heads: []ALegProviderHead{headA, headB}, PostingFences: []ALegProviderFence{fenceA, fenceB},
 		ExecutionFences: []ALegProviderExecutionFence{execution},
 		Snapshots:       []ALegProviderSnapshot{snapA, snapB}, Journals: []JournalTransaction{journalA, journalB},
 	})
 	require.NoError(t, err)
-	second, _, err := EvaluateALegProviderLeg(scope, ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+	second, _, err := EvaluateALegProviderLeg(scope, ALegProviderLegFacts{
+		BLegID: "b-1", Outcome: LegOutcomeWinner,
 		Heads: []ALegProviderHead{headB, headA}, PostingFences: []ALegProviderFence{fenceB, fenceA},
 		ExecutionFences: []ALegProviderExecutionFence{execution},
 		Snapshots:       []ALegProviderSnapshot{snapB, snapA}, Journals: []JournalTransaction{journalB, journalA},
@@ -1134,7 +1149,8 @@ func TestEvaluateALegProviderChildrenAdversarial(t *testing.T) {
 		headA, fenceA, journalA, snapA := alegPVChildChain(t, scope, "b-1", "charge-a", 30)
 		headB, fenceB, journalB, snapB := alegPVChildChain(t, scope, "b-1", "charge-b", 20)
 		execution := alegPVChildExecution(t, scope, "b-1", "head-charge-b", journalB.ID, journalB.ID, 1, strings.Repeat("c", 64), "fp-fence-charge-b", 3)
-		return scope, ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+		return scope, ALegProviderLegFacts{
+			BLegID: "b-1", Outcome: LegOutcomeWinner,
 			Heads: []ALegProviderHead{headA, headB}, PostingFences: []ALegProviderFence{fenceA, fenceB},
 			ExecutionFences: []ALegProviderExecutionFence{execution},
 			Snapshots:       []ALegProviderSnapshot{snapA, snapB}, Journals: []JournalTransaction{journalA, journalB},
@@ -1207,7 +1223,8 @@ func TestEvaluateALegProviderChildrenOverflowFailsQuery(t *testing.T) {
 	headA, fenceA, journalA, snapA := alegPVChildChain(t, scope, "b-1", "charge-a", maxNano)
 	headB, fenceB, journalB, snapB := alegPVChildChain(t, scope, "b-1", "charge-b", 20)
 	execution := alegPVChildExecution(t, scope, "b-1", "head-charge-b", journalB.ID, journalB.ID, 1, strings.Repeat("c", 64), "fp-fence-charge-b", 3)
-	_, _, err := EvaluateALegProviderLeg(scope, ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+	_, _, err := EvaluateALegProviderLeg(scope, ALegProviderLegFacts{
+		BLegID: "b-1", Outcome: LegOutcomeWinner,
 		Heads: []ALegProviderHead{headA, headB}, PostingFences: []ALegProviderFence{fenceA, fenceB},
 		ExecutionFences: []ALegProviderExecutionFence{execution},
 		Snapshots:       []ALegProviderSnapshot{snapA, snapB}, Journals: []JournalTransaction{journalA, journalB},
@@ -1256,7 +1273,8 @@ func TestEvaluateALegProviderAllZeroChildrenKnownZero(t *testing.T) {
 	headB, fenceB, snapB := alegPVZeroChild(t, scope, "b-1", "charge-b")
 	execution := alegPVChildExecution(t, scope, "b-1", "head-charge-b",
 		headB.LastOperationKey, "", 1, strings.Repeat("e", 64), "fp-fence-charge-b", 3)
-	facts := ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+	facts := ALegProviderLegFacts{
+		BLegID: "b-1", Outcome: LegOutcomeWinner,
 		Heads: []ALegProviderHead{headA, headB}, PostingFences: []ALegProviderFence{fenceA, fenceB},
 		ExecutionFences: []ALegProviderExecutionFence{execution},
 		Snapshots:       []ALegProviderSnapshot{snapA, snapB},
@@ -1286,7 +1304,8 @@ func TestEvaluateALegProviderMixedZeroChildrenKnown(t *testing.T) {
 	headZ, fenceZ, snapZ := alegPVZeroChild(t, scope, "b-1", "charge-b")
 	execution := alegPVChildExecution(t, scope, "b-1", "head-charge-b",
 		headZ.LastOperationKey, "", 1, strings.Repeat("e", 64), "fp-fence-charge-b", 3)
-	facts := ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+	facts := ALegProviderLegFacts{
+		BLegID: "b-1", Outcome: LegOutcomeWinner,
 		Heads: []ALegProviderHead{headA, headZ}, PostingFences: []ALegProviderFence{fenceA, fenceZ},
 		ExecutionFences: []ALegProviderExecutionFence{execution},
 		Snapshots:       []ALegProviderSnapshot{snapA, snapZ}, Journals: []JournalTransaction{journalA},
@@ -1316,7 +1335,8 @@ func TestEvaluateALegProviderChildrenCapUnknown(t *testing.T) {
 	oldCap := alegProviderMaxChildren
 	alegProviderMaxChildren = 2
 	t.Cleanup(func() { alegProviderMaxChildren = oldCap })
-	verdict, issues, err := EvaluateALegProviderLeg(scope, ALegProviderLegFacts{BLegID: "b-1", Outcome: LegOutcomeWinner,
+	verdict, issues, err := EvaluateALegProviderLeg(scope, ALegProviderLegFacts{
+		BLegID: "b-1", Outcome: LegOutcomeWinner,
 		Heads:           []ALegProviderHead{headA, headB, headC},
 		PostingFences:   []ALegProviderFence{fenceA, fenceB, fenceC},
 		ExecutionFences: []ALegProviderExecutionFence{execution},

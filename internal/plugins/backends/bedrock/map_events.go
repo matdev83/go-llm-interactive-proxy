@@ -220,7 +220,7 @@ func (s *converseStream) handleOutput(out types.ConverseStreamOutput) error {
 				if err := s.pending.Push(ev); err != nil {
 					return err
 				}
-				s.ProviderEvidenceBuffer.Add(bedrockEvidenceDraft(ev, u))
+				s.Add(bedrockEvidenceDraft(ev, u))
 			}
 		}
 	default:

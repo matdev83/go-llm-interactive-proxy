@@ -19,6 +19,7 @@ const (
 	// ValuationVersionV2 is the first version of the immutable valuation
 	// envelope. A valuation is a derived record and never replaces an input
 	// observation.
+	//nolint:staticcheck // ValuationVersionV2 intentionally carries the explicit uint32 wire width used across 100+ call sites; the Max* limits stay untyped for direct use in int cardinality contexts
 	ValuationVersionV2         uint32 = 2
 	MaxValuationLines                 = 128
 	MaxValuationTotals                = 32
@@ -611,9 +612,7 @@ func validateRationalParts(name, numerator, denominator string) error {
 			return nil, fmt.Errorf("%s %s must be a canonical integer", name, label)
 		}
 		digits := part
-		if strings.HasPrefix(digits, "-") {
-			digits = digits[1:]
-		}
+		digits = strings.TrimPrefix(digits, "-")
 		if len(digits) > MaxValuationRationalDigits {
 			return nil, fmt.Errorf("%s %s exceeds %d digits", name, label, MaxValuationRationalDigits)
 		}

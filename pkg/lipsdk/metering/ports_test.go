@@ -55,7 +55,10 @@ func TestObservationSinkCompatibilityAndAtomicCapabilityCompile(t *testing.T) {
 	t.Parallel()
 	var compatibility metering.ObservationSink = fakeObservationSink{}
 	var atomic metering.AtomicObservationSink = fakeObservationSink{}
-	if compatibility == nil || atomic == nil {
-		t.Fatal("observation sink contracts must accept their declared fake")
+	if err := compatibility.Append(context.Background(), metering.Observation{}); err != nil {
+		t.Fatalf("observation sink fake Append: %v", err)
+	}
+	if err := atomic.AppendObservations(context.Background(), nil); err != nil {
+		t.Fatalf("atomic observation sink fake AppendObservations: %v", err)
 	}
 }

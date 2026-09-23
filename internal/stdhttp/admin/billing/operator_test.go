@@ -392,7 +392,10 @@ func importTestBatch(t *testing.T) string {
 	}
 	// The line linkage requires the observation ref hash to match the
 	// included observation fingerprint exactly.
-	observations := batch["observations"].([]any)
+	observations, ok := batch["observations"].([]any)
+	if !ok {
+		t.Fatal("batch observations must be a JSON array")
+	}
 	obsPayload, err := json.Marshal(observations[0])
 	if err != nil {
 		t.Fatal(err)
@@ -401,9 +404,18 @@ func importTestBatch(t *testing.T) string {
 	if err := json.Unmarshal(obsPayload, &observation); err != nil {
 		t.Fatal(err)
 	}
-	lines := batch["lines"].([]any)
-	line := lines[0].(map[string]any)
-	ref := line["observation"].(map[string]any)
+	lines, ok := batch["lines"].([]any)
+	if !ok {
+		t.Fatal("batch lines must be a JSON array")
+	}
+	line, ok := lines[0].(map[string]any)
+	if !ok {
+		t.Fatal("batch line must be a JSON object")
+	}
+	ref, ok := line["observation"].(map[string]any)
+	if !ok {
+		t.Fatal("line observation must be a JSON object")
+	}
 	ref["payload_hash"] = observation.Fingerprint()
 	payload, err := json.Marshal(batch)
 	if err != nil {

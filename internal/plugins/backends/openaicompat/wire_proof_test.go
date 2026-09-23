@@ -379,7 +379,7 @@ func TestOpenWire_SuccessStreaming(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenWire failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	// Verify HTTP outbound semantics (Requirement 12.1, 12.2, 12.4, 12.7)
 	if receivedPath != "/v1/responses" {
@@ -467,7 +467,7 @@ func TestOpenWire_BackendIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EffectiveWireOpen failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	ev, err := stream.Recv(context.Background())
 	if err != nil && err != io.EOF {
@@ -629,7 +629,7 @@ func TestOpenWire_NoAuthCompatibleBackendSucceedsWithoutAuthorizationHeader(t *t
 	if err != nil {
 		t.Fatalf("EffectiveWireOpen failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	ev, err := stream.Recv(context.Background())
 	if err != nil && err != io.EOF {

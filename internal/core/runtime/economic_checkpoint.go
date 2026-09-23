@@ -28,8 +28,10 @@ const (
 	economicCheckpointFlushTimeout               = 2 * time.Second
 )
 
-var errEconomicCheckpointPendingLimit = errors.New("runtime: economic checkpoint pending limit reached")
-var errEconomicCheckpointAtomicBatchRequired = errors.New("runtime: economic checkpoint sink requires atomic batch capability")
+var (
+	errEconomicCheckpointPendingLimit        = errors.New("runtime: economic checkpoint pending limit reached")
+	errEconomicCheckpointAtomicBatchRequired = errors.New("runtime: economic checkpoint sink requires atomic batch capability")
+)
 
 const (
 	economicCheckpointCapacityRejectionLogMessage = "economic_checkpoint_capacity_rejected"

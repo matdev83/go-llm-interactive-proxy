@@ -236,6 +236,7 @@ func phase11WindowScopedAllocationRecord(t *testing.T, id, tenant, account, peri
 	return record
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func dropAllocationTargetImmutabilityTriggers(t *testing.T, store *DurableStore, ctx context.Context) {
 	t.Helper()
 	_, err := store.db.ExecContext(ctx, `DROP TRIGGER IF EXISTS billing_allocation_targets_immutable_update`)
@@ -244,6 +245,7 @@ func dropAllocationTargetImmutabilityTriggers(t *testing.T, store *DurableStore,
 	require.NoError(t, err)
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func clearAllocationTargetScopeColumns(t *testing.T, store *DurableStore, ctx context.Context, allocationID string, version uint64) {
 	t.Helper()
 	_, err := store.db.NewRaw(`
@@ -255,6 +257,7 @@ func clearAllocationTargetScopeColumns(t *testing.T, store *DurableStore, ctx co
 	require.NoError(t, err)
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func removeAllocationTargetScopeMigrationRecord(t *testing.T, store *DurableStore, ctx context.Context) {
 	t.Helper()
 	_, err := store.db.NewRaw(`DELETE FROM bun_billing_migrations WHERE name = ?`, BillingAllocationTargetScopeMigrationName).Exec(ctx)
@@ -286,5 +289,4 @@ func TestPhase11AllocationTargetScopeMigration_InvalidCanonicalFailsClosed(t *te
 	var tenant string
 	require.NoError(t, store.db.NewRaw(`SELECT target_tenant_id FROM billing_allocation_targets WHERE allocation_id = ?`, record.ID).Scan(ctx, &tenant))
 	require.Empty(t, tenant)
-
 }

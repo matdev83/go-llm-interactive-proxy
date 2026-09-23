@@ -198,13 +198,13 @@ func (s *DurableStore) AppendStatementRevision(ctx context.Context, statement bi
 
 	var lastErr error
 	for attempt := 0; attempt < statementImportTxAttempts; attempt++ {
-		if err := s.appendStatementRevisionOnce(ctx, normalized, payloads); err == nil {
+		err := s.appendStatementRevisionOnce(ctx, normalized, payloads)
+		if err == nil {
 			return nil
-		} else {
-			lastErr = err
-			if !isStatementImportSQLiteContention(s, err) || attempt == statementImportTxAttempts-1 {
-				return err
-			}
+		}
+		lastErr = err
+		if !isStatementImportSQLiteContention(s, err) || attempt == statementImportTxAttempts-1 {
+			return err
 		}
 		if err := waitContention(ctx, time.Duration(attempt+1)*statementImportTxDelay); err != nil {
 			return err

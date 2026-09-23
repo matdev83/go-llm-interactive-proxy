@@ -357,6 +357,7 @@ func r2Work(t *testing.T, observation metering.Observation, basis economics.Valu
 	return normalized
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func r2PersistedTotalNano(t *testing.T, ctx context.Context, store *DurableStore, work billing.EconomicRevisionWork) int64 {
 	t.Helper()
 	identity, err := work.Identity()
@@ -440,6 +441,8 @@ func TestPhase172Cluster3EvidenceDrivenSemantics(t *testing.T) {
 // normalizer, rates the attached evidence with the frozen production rater,
 // persists through the shared shadow normalization, and reads back the actual
 // total. Every amount after this point is production output.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func r2RateNormalized(t *testing.T, ctx context.Context, store *DurableStore, capture *ShadowV2Capture, vector r2Vector, revision uint64, snapshot economics.TariffSnapshot) int64 {
 	t.Helper()
 	result := r2NormalizeFields(t, vector.Mapping, vector.Fields)
@@ -458,6 +461,8 @@ func r2RateNormalized(t *testing.T, ctx context.Context, store *DurableStore, ca
 // independently through the production rater, persists both, and returns the
 // expected-plane total. The provider plane proves E/Q independence instead of
 // overwriting E.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func r2RateDirectPlanes(t *testing.T, ctx context.Context, store *DurableStore, capture *ShadowV2Capture, vector r2Vector, revision uint64, snapshot economics.TariffSnapshot, rates map[string]int64) int64 {
 	t.Helper()
 	localTokens, ok := vector.Fields["local_tokens"]
@@ -525,6 +530,8 @@ func r2DirectObservation(t *testing.T, obsID string, revision uint64, origin, ac
 
 // r2RequireExplicitFreeReasoning proves the included-reasoning measure is
 // retained as an explicit-free line rather than billed or silently dropped.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func r2RequireExplicitFreeReasoning(t *testing.T, ctx context.Context, store *DurableStore, work billing.EconomicRevisionWork) {
 	t.Helper()
 	identity, err := work.Identity()
@@ -578,6 +585,7 @@ func r2Fields(t *testing.T, fields map[string]string) []normalize.Field {
 	return inputs
 }
 
+//nolint:revive // test helper keeps t first per Go testing convention
 func r2RateResultForSensitivity(t *testing.T, ctx context.Context, result normalize.Result, snapshot economics.TariffSnapshot, basis economics.ValuationBasis) int64 {
 	t.Helper()
 	store := newSQLiteTestStore(t)

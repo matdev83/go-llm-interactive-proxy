@@ -104,7 +104,7 @@ func (s *responsesStream) handleUnion(cur responses.ResponseStreamEventUnion) er
 				if resp.ID != "" {
 					sourceKey = "openai.responses.usage:" + resp.ID
 				}
-				s.ProviderEvidenceBuffer.Add(openaiusage.ProviderEvidenceDraft(*usage, "openai.responses.v2", sourceKey))
+				s.Add(openaiusage.ProviderEvidenceDraft(*usage, "openai.responses.v2", sourceKey))
 			}
 		}
 		if err := m.ResponseFinished(); err != nil {

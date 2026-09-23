@@ -30,6 +30,8 @@ func retentionResultWithTenant(t *testing.T, storeID, bLegID, id, tenant string,
 // seedRetentionLegacyRows inserts bounded decoy rows directly so a
 // high-cardinality subject partition exists. The rows carry
 // result_schema_version=1 and are excluded from retention latest reads.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
 func seedRetentionLegacyRows(t *testing.T, ctx context.Context, store *DurableStore, storeID, subjectID, tenantID string, count int, createdAtBase int64) {
 	t.Helper()
 	tx, err := store.db.BeginTx(ctx, nil)
