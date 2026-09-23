@@ -46,8 +46,12 @@ func TestCandidateAssessment_SaturationRace_ConcurrentDecline_SingleAdmissionPer
 		var assessCalls int64
 		exec.assessFunc = func(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
 			atomic.AddInt64(&assessCalls, 1)
-			// Small synthetic delay so competing goroutines hit the limiter while permit is held
-			time.Sleep(10 * time.Millisecond)
+			// Hold the permit until the limiter has actually rejected a competing
+			// request. This forces contention while the limit is held instead of
+			// assuming overlapping goroutine scheduling. The shared wait is bounded
+			// and reports through t (no t.Fatal from this goroutine), so a limiter
+			// regression cannot hang the suite.
+			limiter.awaitFirstReject(t, saturationRejectWait)
 			return largebody.NewDeclinedAssessment(largebody.DeclineReasonRouteIncompatible)
 		}
 
