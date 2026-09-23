@@ -266,6 +266,8 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		`throw "anchor compatibility go mod tidy unexpectedly changed go.mod"`,
 		`@("build", "-buildvcs=false", "-o", $warmBinary, "./cmd/lipstd")`,
 		`SetEnvironmentVariable("GIT_CONFIG_COUNT", "2", "Process")`,
+		`[Environment]::SetEnvironmentVariable("LIP_ALLOW_LARGE_CHANGE", $null, "Process")`,
+		`[Environment]::SetEnvironmentVariable("LIP_ALLOW_LARGE_CHANGE", $previousLargeChange, "Process")`,
 		"LIP_QA_LIPSTD_BINARY",
 		"-count=1",
 		"LIP_ALLOW_TEST_COST_GROWTH",

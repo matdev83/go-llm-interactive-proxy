@@ -215,8 +215,12 @@ function Invoke-External {
     # Set TEMP/TMP only for this synchronous child invocation.  Restoring both
     # values and the location in finally prevents process-wide leakage while
     # ensuring taskrunner helpers built by each tree cannot cross-use a cache.
+    # Normalize the PR-wide allow-large-change policy override the same way:
+    # it authorizes the outer change-size gate, but nested Go tests run by
+    # measurement must observe the default test policy.
     $previousTemp = [Environment]::GetEnvironmentVariable("TEMP", "Process")
     $previousTmp = [Environment]::GetEnvironmentVariable("TMP", "Process")
+    $previousLargeChange = [Environment]::GetEnvironmentVariable("LIP_ALLOW_LARGE_CHANGE", "Process")
     $gitConfigVariables = @(
         "GIT_CONFIG_COUNT",
         "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0",
@@ -230,6 +234,7 @@ function Invoke-External {
     try {
         $env:TEMP = $TempRoot
         $env:TMP = $TempRoot
+        [Environment]::SetEnvironmentVariable("LIP_ALLOW_LARGE_CHANGE", $null, "Process")
         [Environment]::SetEnvironmentVariable("GIT_CONFIG_COUNT", "2", "Process")
         [Environment]::SetEnvironmentVariable("GIT_CONFIG_KEY_0", "core.autocrlf", "Process")
         [Environment]::SetEnvironmentVariable("GIT_CONFIG_VALUE_0", "false", "Process")
@@ -262,6 +267,7 @@ function Invoke-External {
         } else {
             $env:TMP = $previousTmp
         }
+        [Environment]::SetEnvironmentVariable("LIP_ALLOW_LARGE_CHANGE", $previousLargeChange, "Process")
         foreach ($name in $gitConfigVariables) {
             [Environment]::SetEnvironmentVariable($name, $previousGitConfig[$name], "Process")
         }
