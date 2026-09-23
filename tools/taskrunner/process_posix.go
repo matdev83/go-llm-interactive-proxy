@@ -19,6 +19,7 @@ func (p *posixProcess) startupCleanupError() error { return nil }
 func (p *posixProcess) accounting() (ProcessAccounting, error) {
 	return ProcessAccounting{Supported: false}, nil
 }
+
 func (p *posixProcess) kill() error {
 	if p.cmd.Process == nil {
 		return nil
