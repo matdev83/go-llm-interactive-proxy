@@ -113,6 +113,7 @@ func TestReconciliationSchema1RestartAndSchema2Separation(t *testing.T) {
 		sqlDB.SetMaxOpenConns(4)
 		bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 		require.NoError(t, err)
+		seedTestSchemaIfEmpty(t, bunDB)
 		store, err := NewDurableStore(ctx, bunDB, Config{StoreID: "test"})
 		require.NoError(t, err)
 		return store

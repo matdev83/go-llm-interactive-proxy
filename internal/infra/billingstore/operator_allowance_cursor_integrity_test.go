@@ -43,6 +43,7 @@ type allowanceCursorFixture struct {
 func openAllowanceCursorBilling(t *testing.T, dsn, storeID string) (*DurableStore, *sql.DB) {
 	t.Helper()
 	bunDB, sqlDB := openOperatorCursorBun(t, dsn)
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: storeID})
 	require.NoError(t, err)
 	return store, sqlDB

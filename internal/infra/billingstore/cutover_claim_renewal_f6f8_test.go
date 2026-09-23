@@ -638,6 +638,7 @@ func TestF6F8ReopenPreservesRenewal(t *testing.T) {
 		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "f6f8-reopen"})
 	if err != nil {
 		_ = bunDB.Close()
@@ -705,6 +706,7 @@ func TestF6F8ReopenPreservesRenewal(t *testing.T) {
 		_ = sqlDB2.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, bunDB2)
 	reopened, err := NewDurableStore(ctx, bunDB2, Config{StoreID: "f6f8-reopen"})
 	if err != nil {
 		_ = bunDB2.Close()

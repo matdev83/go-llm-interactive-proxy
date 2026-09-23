@@ -35,6 +35,7 @@ func openRefinement82FileBillingStore(t *testing.T, path, storeID string) (*Dura
 		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: storeID})
 	if err != nil {
 		_ = bunDB.Close()

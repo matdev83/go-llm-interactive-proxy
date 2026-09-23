@@ -225,6 +225,7 @@ func TestDurableStoreCustomerUnitLedgerPersistsAcrossStoreReopen(t *testing.T) {
 		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(ctx, bunDB, Config{StoreID: "restart"})
 	if err != nil {
 		_ = bunDB.Close()
@@ -250,6 +251,7 @@ func TestDurableStoreCustomerUnitLedgerPersistsAcrossStoreReopen(t *testing.T) {
 		_ = reopenedSQL.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, reopenedDB)
 	reopened, err := NewDurableStore(ctx, reopenedDB, Config{StoreID: "restart"})
 	if err != nil {
 		_ = reopenedDB.Close()

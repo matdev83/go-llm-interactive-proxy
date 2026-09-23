@@ -29,6 +29,7 @@ func retentionLinkageFileStore(t *testing.T, path string) *DurableStore {
 	sqlDB.SetMaxOpenConns(4)
 	bunDB, err := dbinfra.NewBunDB(sqlDB, dbinfra.DialectSQLite)
 	require.NoError(t, err)
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(ctx, bunDB, Config{StoreID: "test"})
 	require.NoError(t, err)
 	return store

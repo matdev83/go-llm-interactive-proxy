@@ -33,6 +33,7 @@ func overflowBoundaryStore(t *testing.T) *DurableStore {
 	sqlDB.SetMaxOpenConns(8)
 	bunDB, err := dbinfra.NewBunDB(sqlDB, dbinfra.DialectSQLite)
 	require.NoError(t, err)
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(ctx, bunDB, Config{StoreID: "test"})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })

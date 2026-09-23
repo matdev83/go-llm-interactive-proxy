@@ -217,6 +217,7 @@ func selectedCostAdjustmentFileStore(t *testing.T) (*DurableStore, func() *Durab
 		sqlDB.SetMaxOpenConns(16)
 		bunDB, err := dbinfra.NewBunDB(sqlDB, dbinfra.DialectSQLite)
 		require.NoError(t, err)
+		seedTestSchemaIfEmpty(t, bunDB)
 		store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "test"})
 		require.NoError(t, err)
 		return store

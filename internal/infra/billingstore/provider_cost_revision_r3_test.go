@@ -36,6 +36,7 @@ func r3OpenFileStore(t *testing.T, dsn, storeID string) *DurableStore {
 		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, bunDB)
 	s, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: storeID})
 	if err != nil {
 		_ = bunDB.Close()

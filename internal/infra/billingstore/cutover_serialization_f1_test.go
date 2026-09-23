@@ -72,6 +72,7 @@ func TestF1SQLiteActivationSerializedWithDirectAdjustment(t *testing.T) {
 		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "f1-sqlite-direct"})
 	if err != nil {
 		_ = bunDB.Close()

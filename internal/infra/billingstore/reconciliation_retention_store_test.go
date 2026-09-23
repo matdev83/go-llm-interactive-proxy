@@ -159,6 +159,7 @@ func TestReconciliationRetentionRejectsForeignEvidenceAndCrossStoreLeak(t *testi
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 	require.NoError(t, err)
 	defer func() { _ = bunDB.Close() }()
+	seedTestSchemaIfEmpty(t, bunDB)
 	storeA, err := NewDurableStore(ctx, bunDB, Config{StoreID: "store-a"})
 	require.NoError(t, err)
 	storeB, err := NewDurableStore(ctx, bunDB, Config{StoreID: "store-b"})
@@ -536,6 +537,7 @@ func TestReconciliationRetentionRestartAndLegacyIsolation(t *testing.T) {
 		sqlDB.SetMaxOpenConns(4)
 		bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 		require.NoError(t, err)
+		seedTestSchemaIfEmpty(t, bunDB)
 		store, err := NewDurableStore(ctx, bunDB, Config{StoreID: storeID})
 		require.NoError(t, err)
 		return store

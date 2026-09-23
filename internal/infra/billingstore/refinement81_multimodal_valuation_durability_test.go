@@ -243,6 +243,7 @@ func v81OpenFileStore(t *testing.T, ctx context.Context, path string) *DurableSt
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(ctx, bunDB, Config{StoreID: v81StoreID})
 	if err != nil {
 		t.Fatal(err)

@@ -92,6 +92,7 @@ func newSQLiteTestStore(t *testing.T) *DurableStore {
 		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "test"})
 	if err != nil {
 		_ = bunDB.Close()

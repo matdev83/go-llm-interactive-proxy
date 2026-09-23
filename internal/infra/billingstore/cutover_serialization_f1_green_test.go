@@ -38,6 +38,7 @@ func newF1WALStore(t *testing.T, storeID string) *DurableStore {
 		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: storeID})
 	if err != nil {
 		_ = bunDB.Close()
@@ -505,6 +506,7 @@ func TestF1GreenCrashReopenPreservesActivation(t *testing.T) {
 			_ = sqlDB.Close()
 			t.Fatal(err)
 		}
+		seedTestSchemaIfEmpty(t, bunDB)
 		s, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: storeID})
 		if err != nil {
 			_ = bunDB.Close()

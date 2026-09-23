@@ -24,6 +24,7 @@ func TestPhase11AllocationPersistsAcrossRestart(t *testing.T) {
 		_ = firstSQL.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, firstDB)
 	first, err := NewDurableStore(ctx, firstDB, Config{StoreID: "restart-allocation"})
 	if err != nil {
 		_ = firstDB.Close()
@@ -63,6 +64,7 @@ func TestPhase11AllocationPersistsAcrossRestart(t *testing.T) {
 		_ = reopenedSQL.Close()
 		t.Fatal(err)
 	}
+	seedTestSchemaIfEmpty(t, reopenedDB)
 	reopened, err := NewDurableStore(ctx, reopenedDB, Config{StoreID: "restart-allocation"})
 	if err != nil {
 		_ = reopenedDB.Close()

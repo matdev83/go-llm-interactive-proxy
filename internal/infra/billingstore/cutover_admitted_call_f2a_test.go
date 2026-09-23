@@ -582,6 +582,7 @@ func TestF2ARestartReopen(t *testing.T) {
 			_ = sqlDB.Close()
 			t.Fatal(err)
 		}
+		seedTestSchemaIfEmpty(t, bunDB)
 		s, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: storeID})
 		if err != nil {
 			_ = bunDB.Close()

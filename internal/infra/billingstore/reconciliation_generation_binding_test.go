@@ -26,6 +26,7 @@ func openGenerationBindingStore(t *testing.T, dsn, storeID string) *DurableStore
 	sqlDB.SetMaxOpenConns(4)
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 	require.NoError(t, err)
+	seedTestSchemaIfEmpty(t, bunDB)
 	store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: storeID})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
