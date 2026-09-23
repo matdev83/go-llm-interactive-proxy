@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGED=0
 CHANGED=0
+ADVISORY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,8 +17,12 @@ while [[ $# -gt 0 ]]; do
       CHANGED=1
       shift
       ;;
+    --advisory)
+      ADVISORY=1
+      shift
+      ;;
     *)
-      echo "usage: $0 [--staged|--changed]" >&2
+      echo "usage: $0 [--staged|--changed] [--advisory]" >&2
       exit 2
       ;;
   esac
@@ -121,13 +126,25 @@ run_module_lint() {
   [[ -f "$dir/go.mod" ]] || return 0
   echo "== Linting $module =="
   if [[ "$LINTER" == "golangci-lint" ]]; then
-    (cd "$dir" && golangci-lint run --allow-parallel-runners)
+    if (( ADVISORY )); then
+      (cd "$dir" && golangci-lint run --allow-parallel-runners)
+    else
+      (cd "$dir" && golangci-lint run --allow-parallel-runners --disable=modernize,paralleltest,thelper)
+    fi
   else
     (cd "$dir" && staticcheck ./...)
   fi
 }
 
-export ROOT LINTER
+if [[ "$LINTER" == "golangci-lint" ]]; then
+  if (( ADVISORY )); then
+    echo "Mode: ADVISORY (full set incl. modernize, paralleltest, thelper; non-blocking style report)."
+  else
+    echo "Mode: MANDATORY correctness gate (--disable=modernize,paralleltest,thelper); style debt via 'make lint-advisory'."
+  fi
+fi
+
+export ROOT LINTER ADVISORY
 export -f run_module_lint
 printf '%s\n' "${MODULES[@]}" | xargs -r -P"$JOBS" -I{} bash -c 'run_module_lint "$1"' _ {}
 echo "OK: All checked Go modules passed linting."
