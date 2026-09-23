@@ -210,11 +210,13 @@ func TestRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably(t *t
 	concurrentHead := waitRefinement52StockHeadExact(t, ctx, store, journal, accountID, billing.EconomicQueueProvider, expectedProvider.HeadKey, 3, expectedProvider.Input.InputSetHash)
 	refinement52RequireCompleteValuation(t, store, concurrentHead)
 	waitRefinement4StockOutboxDrained(t, ctx, store, journal)
-	waitRefinement4StockProviderCurrentAmount(t, ctx, store, accountID, closure.CallID, expectedProvider.HeadKey, billingHostLoopOperatorNano+7)
-	providerCostHead, err := store.GetProviderCostHead(ctx, accountID, closure.CallID, expectedProvider.HeadKey)
-	if err != nil {
-		t.Fatalf("read concurrent provider cost head: %v", err)
-	}
+	// The finalizer-only revision and the later statement revision share the
+	// same converged current amount, so the valuation head and the
+	// selected-cost provider head can converge at different times: the amount
+	// is already correct while the provider head still names revision 2 (the
+	// Linux race observed revision 2/hash d9aa... at this exact read). Wait for
+	// the exact durable revision+hash+amount instead of the amount alone.
+	providerCostHead := waitRefinement52StockProviderCostHeadExact(t, ctx, store, accountID, closure.CallID, expectedProvider.HeadKey, expectedProvider.EvidenceRevision, expectedProvider.InputSetHash, billingHostLoopOperatorNano+7)
 	if providerCostHead.EvidenceRevision != 3 || providerCostHead.InputSetHash != expectedProvider.InputSetHash || providerCostHead.CurrentAmount.Nano != billingHostLoopOperatorNano+7 {
 		t.Fatalf("concurrent provider cost head = %+v, want revision 3/hash %q/current %d", providerCostHead, expectedProvider.InputSetHash, billingHostLoopOperatorNano+7)
 	}
@@ -1198,6 +1200,41 @@ func waitRefinement52StockHeadExact(t *testing.T, parent context.Context, store 
 		select {
 		case <-ctx.Done():
 			t.Fatalf("timed out waiting for exact %s economic head %q revision %d/hash %q: head=%+v: %s", queue, headKey, revision, inputSetHash, head, refinement4StockDiagnostics(t, store, journal, accountID, err))
+		case <-ticker.C:
+		}
+	}
+}
+
+// waitRefinement52StockProviderCostHeadExact polls the durable selected-cost
+// provider head until it names the exact expected evidence revision AND
+// input-set hash at the expected current amount. The valuation head proven by
+// waitRefinement52StockHeadExact and this selected-cost head advance in
+// separate transactions: the finalizer-only revision and the later statement
+// revision can share one converged current amount, so waiting on the amount
+// alone can return while the head still names the earlier revision (the Linux
+// race at TestRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably
+// observed revision 2 while expecting revision 3, both at the same amount). An
+// exact wait on revision+hash+amount reads the converged head without weakening
+// the revision assertion and fails diagnostically if the head never reaches
+// that exact durable state.
+//
+//nolint:revive // test helper keeps t first per Go testing convention
+func waitRefinement52StockProviderCostHeadExact(t *testing.T, parent context.Context, store *billingstore.DurableStore, accountID string, callID billing.BillingCallID, headKey string, revision uint64, inputSetHash string, want int64) billing.ProviderCostHead {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(parent, refinement4StockPhaseWait)
+	defer cancel()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	var head billing.ProviderCostHead
+	var err error
+	for {
+		head, err = store.GetProviderCostHead(ctx, accountID, callID, headKey)
+		if err == nil && head.EvidenceRevision == revision && head.InputSetHash == inputSetHash && head.CurrentAmount.Nano == want {
+			return head
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for exact provider cost head %q revision %d/hash %q/current %d: head=%+v err=%v", headKey, revision, inputSetHash, want, head, err)
 		case <-ticker.C:
 		}
 	}
