@@ -80,28 +80,45 @@ func observationRelayProgress(ctx context.Context, store *billingstore.DurableSt
 }
 
 // pollObservationOutboxDrained polls list until it reports drained (empty
-// fingerprint, nil error). The stall window bounds only consecutive polls
-// with an unchanged pending set; steady progress extends the wait within the
-// caller's parent budget. Every synchronous callback runs under a child
-// context cut at the current stall deadline (an earlier parent deadline
-// always wins), so a callback that blocks through the window cannot erase
-// the stall: a late changed signature is still a stall, and only an actually
-// drained result succeeds. A frozen set fails fast instead of burning the
-// parent deadline, so a stuck relay is still detected promptly.
+// fingerprint, nil error). Each attempt runs under a child context bounded by
+// the caller's parent and by a fresh stall window measured from the attempt
+// start, so a retry after a read timeout always gets a usable context; the
+// durable-progress clock is reset only by a successful read that observed a
+// new fingerprint, never by a failed read. The stall detector fires when a
+// successful read keeps observing the same non-empty fingerprint for a full
+// stall window since the last durable progress, so a slow-but-progressing
+// relay is tolerated while a frozen one fails fast. A read cancelled by its
+// attempt deadline (or any read failure) is inconclusive: it is retried within
+// the parent budget, and a permanently unreadable store surfaces as a
+// parent-done failure rather than a false frozen outbox. This helper calls the
+// callback synchronously, so it can bound only a callback that honours its
+// context; it cannot bound a callback that ignores context cancellation.
 func pollObservationOutboxDrained(parent context.Context, stallWindow, tick time.Duration, list func(context.Context) (string, error)) error {
 	ticker := time.NewTicker(tick)
 	defer ticker.Stop()
 	const unset = "\x00unset"
 	lastSig, lastErr := unset, error(nil)
-	lastChange := time.Now()
+	lastProgress := time.Now()
 	for {
-		deadline := lastChange.Add(stallWindow)
-		callCtx, cancel := context.WithDeadline(parent, deadline)
+		attemptDeadline := time.Now().Add(stallWindow)
+		callCtx, cancel := context.WithDeadline(parent, attemptDeadline)
 		sig, err := list(callCtx)
 		cancel()
 		now := time.Now()
-		if err == nil && sig == "" {
-			return nil
+		progressed := false
+		if err == nil {
+			if sig == "" {
+				return nil
+			}
+			if sig != lastSig {
+				// Durable progress is authoritative: a successful read that
+				// observed a new fingerprint resets the stall clock even when
+				// it completed after the stall deadline (scheduling or store
+				// load must not erase observed progress).
+				lastSig, lastErr = sig, nil
+				lastProgress = now
+				progressed = true
+			}
 		}
 		if parent.Err() != nil {
 			// Cancellation precedence: a done parent wins over stall
@@ -111,19 +128,11 @@ func pollObservationOutboxDrained(parent context.Context, stallWindow, tick time
 			}
 			return fmt.Errorf("outbox drain parent done (last pending %q): %w", lastSig, parent.Err())
 		}
-		if !now.Before(deadline) {
-			// The callback blocked through the stall window: a changed
-			// signature arriving late cannot reset the stall clock.
-			if err != nil {
-				return fmt.Errorf("outbox drain stalled: %w (last pending %q)", err, lastSig)
-			}
+		if err == nil && !progressed && now.Sub(lastProgress) >= stallWindow {
 			return fmt.Errorf("outbox drain stalled with no progress for %s (last pending %q)", stallWindow, lastSig)
 		}
 		if err != nil {
 			lastErr = err
-		} else if sig != lastSig {
-			lastSig, lastErr = sig, nil
-			lastChange = now
 		}
 		select {
 		case <-parent.Done():
@@ -188,28 +197,117 @@ func TestOutboxDrainPollFailsFastOnStall(t *testing.T) {
 	}
 }
 
-// TestOutboxDrainPollBoundsBlockingCallback proves a callback that blocks
-// until its context fires is bounded by the stall window, not the long
-// parent: with a 30s parent and a 200ms stall window the wait must return
-// near 200ms with a stall error.
+// TestOutboxDrainPollBoundsBlockingCallback proves a callback that blocks on
+// every read is bounded by the parent budget, not by an unbounded retry loop,
+// and is reported as a parent-done failure rather than a frozen outbox.
 func TestOutboxDrainPollBoundsBlockingCallback(t *testing.T) {
 	t.Parallel()
 	list := func(ctx context.Context) (string, error) {
 		<-ctx.Done()
 		return "blocked", ctx.Err()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel()
-	start := time.Now()
-	err := pollObservationOutboxDrained(ctx, 200*time.Millisecond, 5*time.Millisecond, list)
+	err := pollObservationOutboxDrained(ctx, 50*time.Millisecond, 5*time.Millisecond, list)
 	if err == nil {
 		t.Fatal("blocking callback must fail, got nil")
 	}
-	if !strings.Contains(err.Error(), "stalled") {
-		t.Fatalf("blocked callback must report a stall, got: %v", err)
+	if strings.Contains(err.Error(), "stalled") {
+		t.Fatalf("a blocked read must not be reported as a frozen outbox: %v", err)
+	}
+	if !strings.Contains(err.Error(), "parent done") {
+		t.Fatalf("blocking callback must be bounded by the parent, got: %v", err)
+	}
+}
+
+// TestOutboxDrainPollAcceptsProgressAfterStallDeadline pins that a slow but
+// successful read which observed a new durable fingerprint is progress, not a
+// stall. Under load a store read can finish after the stall deadline while
+// still reporting real relay progress, and that progress must reset the clock.
+func TestOutboxDrainPollAcceptsProgressAfterStallDeadline(t *testing.T) {
+	t.Parallel()
+	const stallWindow = 50 * time.Millisecond
+	calls := 0
+	list := func(context.Context) (string, error) {
+		calls++
+		if calls == 1 {
+			time.Sleep(stallWindow + 25*time.Millisecond)
+			return "pending-1", nil
+		}
+		return "", nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := pollObservationOutboxDrained(ctx, stallWindow, 5*time.Millisecond, list); err != nil {
+		t.Fatalf("late durable progress must not be a stall: %v", err)
+	}
+}
+
+// TestOutboxDrainPollBlockedReadIsInconclusiveNotStall pins that a store read
+// cancelled by its attempt deadline is retried with a usable context instead
+// of being reported as a frozen outbox: a contended single-connection read is
+// no evidence of relay progress or of a freeze. The retry deliberately
+// respects its context, so an already-expired retry context loops until the
+// parent and fails this test.
+func TestOutboxDrainPollBlockedReadIsInconclusiveNotStall(t *testing.T) {
+	t.Parallel()
+	const (
+		stallWindow  = 50 * time.Millisecond
+		recoveryWait = 10 * time.Millisecond
+	)
+	calls := 0
+	list := func(ctx context.Context) (string, error) {
+		calls++
+		if calls == 1 {
+			// First attempt blocks until its child deadline fires.
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		// Every later attempt must receive a usable, not-already-expired
+		// context so a read that respects ctx recovers once contention clears.
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(recoveryWait):
+			return "", nil
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	start := time.Now()
+	if err := pollObservationOutboxDrained(ctx, stallWindow, 5*time.Millisecond, list); err != nil {
+		t.Fatalf("a timed-out read must be retried with a usable context: %v", err)
+	}
+	if calls < 2 {
+		t.Fatalf("blocked read was not retried: calls=%d", calls)
 	}
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
-		t.Fatalf("blocking callback took %v, want the stall window, not the parent budget", elapsed)
+		t.Fatalf("blocked-read retry took %v, want fast recovery", elapsed)
+	}
+}
+
+// TestOutboxDrainPollFrozenReadableStallsAtWindow pins frozen-outbox
+// detection for a context-respecting callback: successful reads that keep
+// observing the same non-empty fingerprint must trip the stall near the stall
+// window, not run until the parent budget.
+func TestOutboxDrainPollFrozenReadableStallsAtWindow(t *testing.T) {
+	t.Parallel()
+	const stallWindow = 100 * time.Millisecond
+	list := func(ctx context.Context) (string, error) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return "frozen", nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := pollObservationOutboxDrained(ctx, stallWindow, 5*time.Millisecond, list)
+	if err == nil || !strings.Contains(err.Error(), "stalled") {
+		t.Fatalf("a readable frozen outbox must trip the stall, got: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("frozen stall took %v, want near the %s stall window", elapsed, stallWindow)
 	}
 }
 
