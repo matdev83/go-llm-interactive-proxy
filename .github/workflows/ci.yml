@@ -236,11 +236,18 @@ jobs:
           # A labeled PR may authorize a ratchet update, but the orchestrator
           # still measures and reports both targets under the override.
           LIP_ALLOW_TEST_COST_GROWTH: ${{ contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && '1' || '' }}
+          # Bound Go package build/run concurrency for the measured anchor and
+          # head trees so a saturated Windows runner cannot turn deterministic
+          # contention tests into timing failures. This is a build-scheduler cap
+          # only; the runner default GOMAXPROCS and each test's internal
+          # goroutines stay unchanged.
+          GOFLAGS: -p=2
         run: |
           $outputRoot = Join-Path $env:RUNNER_TEMP "golip-test-cost-ratchet"
           & ./scripts/test-cost-ratchet.ps1 `
             -BaseSHA "${{ github.event.pull_request.base.sha }}" `
-            -OutputRoot $outputRoot
+            -OutputRoot $outputRoot `
+            -Parallel 2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build release binary

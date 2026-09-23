@@ -421,13 +421,18 @@ function Apply-CurrentAnchorTestCompatibilityPatch {
     # The anchor's late-arm assertion must wait for asynchronous terminalization
     # when the full suite saturates a Windows runner, and the anchor's
     # changesize negative test must stay hermetic under an inherited PR-wide
-    # LIP_ALLOW_LARGE_CHANGE override. Production sources still come from the anchor.
+    # LIP_ALLOW_LARGE_CHANGE override. The frontendpipe saturation tests hold
+    # their admission permit until a competing request is provably rejected, so
+    # the anchor does not depend on overlapping goroutine scheduling under load.
+    # Production sources still come from the anchor.
     $testCompatibilityPathsByAnchor = @{
         "6dbb831885341516117034923f0c3203373aded0" = @(
             "internal/core/runtime/parallel_race_late_arm_race_test.go"
         )
         "bb1ef9620ee6e8d9199950161e46fc51914945f2" = @(
-            "tools/changesize/main_test.go"
+            "tools/changesize/main_test.go",
+            "internal/plugins/frontends/frontendpipe/candidate_proof_saturation_race_test.go",
+            "internal/plugins/frontends/frontendpipe/candidate_assessment_saturation_race_test.go"
         )
     }
     if (-not $testCompatibilityPathsByAnchor.ContainsKey($AnchorCommit)) {
