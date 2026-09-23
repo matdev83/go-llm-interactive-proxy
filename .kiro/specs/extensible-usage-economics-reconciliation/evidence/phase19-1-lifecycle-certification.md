@@ -201,14 +201,29 @@ statement shape) + `TestCorrectionRecoveryCertify*`,
 `TestAdapterStrictQuoteRejectsWhenAllRoutesLackCapabilityWithoutSideEffects`,
 `TestExecutorStrictCapabilityDenialOpensNoProviderAndWritesNoExposure`,
 `TestCheapCreditScreenAllowsConfiguredHeadroom`,
-`TestEconomicJobQueueSQLiteBacklogAgeAndCounts`. 15.x: test files import
+`TestEconomicJobQueueSQLiteBacklogAgeAndCounts`; 14.6 supplier isolation:
+`TestPhase14ProviderCostProcessingTakesNoCustomerLock`,
+`TestEconomicJobRunnerCustomerProceedsWhileProviderBacklogIncomplete`. 15.x: test files import
 only SDK/core/infra (no provider SDK in core paths) +
 `TestBuildWithBilling*` (6 names), `TestACP_externalConnectorModulesPresent`,
 `TestRefinement4StockObservationToEconomicSettlement`. 16.x: tests 1-2
 (query linkage) + `TestQueryEconomicDetailRetainsAggregatePlane`,
 `TestAssembleEconomicDetailFinding2RedactedZeroShareDoesNotLeakOrExempt`,
 `TestEconomicHealthSnapshotBacklogAgeExcludesTerminalHistory`,
-`TestDedupeKeyForBLegIsScopedToBillingCallAndBLeg`. 18.1-18.3: tests 1-3
+`TestDedupeKeyForBLegIsScopedToBillingCallAndBLeg`; 16.2 sanitizer/lexemes/
+access/retention: `TestSafeEvidenceSanitizerMarker` (optional marker
+validation + hash binding), `TestSafeEvidenceAcceptsCanonicalEconomicLexemes`,
+`TestNormalize_InclusiveInputUsesExactDisjointPartition` (versioned mapping ref
+preserved with exact source lexemes),
+`TestStatementImportRejectsSecretEvidenceWithoutDisclosure`,
+`TestStatementImportUnauthorizedReadsNothing`,
+`TestStatementImportScopeFailsClosed`,
+`TestStatementImportForeignLineTenantIsScopeMismatchRed`,
+`TestReconciliationRetentionRejectsForeignEvidenceAndCrossStoreLeak`,
+`TestFinancialTablesRejectDeletes`; 16.6 retention linkage/raw-absent:
+`TestRetentionLinkageSurvivesReopen`,
+`TestRecovery174RetentionPrunePreservesLinkageAndRecovery`,
+`TestRemediation174OptionalRawAbsencePreservesRecovery`. 18.1-18.3: tests 1-3
 (new extensibility/retirement-safe lifecycle) +
 `TestTCK_ActualNormalizerAndReducer`, `TestB2b3V2ActiveV2AllowedV1ReplayOnly`,
 `TestALegReportCycle3RetirementAndReadOnlyNoWrites`,
