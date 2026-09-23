@@ -3,6 +3,7 @@ package runtimebundle_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,6 +31,26 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	_ "modernc.org/sqlite"
 )
+
+// refinement52VerificationBudget bounds the verification and restart-replay
+// tail after the refinement5.2 sentinel has already proven durable
+// convergence. It is deliberately rooted at context.Background rather than at
+// the convergence sentinel: under race-heavy package load a healthy-but-slow
+// relay drain can consume the whole sentinel before the verification reads
+// run, and a read reusing that exhausted parent then fails with
+// context.DeadlineExceeded even though the durable state is complete (the
+// 60.43s Linux race failure at ListCallLegUsage after convergence). This only
+// bounds the post-convergence verification and restart-replay lifecycle; the
+// convergence deadline itself is unchanged, and missing convergence is still
+// surfaced by the sentinel-scoped head/amount waits before any read here.
+const refinement52VerificationBudget = 60 * time.Second
+
+// refinement52VerificationContext returns a fresh bounded context for the
+// post-convergence verification reads of the refinement5.2 integration tests.
+func refinement52VerificationContext(t *testing.T) (context.Context, context.CancelFunc) {
+	t.Helper()
+	return context.WithTimeout(context.Background(), refinement52VerificationBudget)
+}
 
 // TestRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably starts
 // from one production-closed B-leg, submits a provider finalizer and a
@@ -482,7 +503,19 @@ func TestRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *te
 	completeHead := waitRefinement52StockHeadExact(t, ctx, store, journal, accountID, billing.EconomicQueueProvider, completeProvider.HeadKey, 3, completeProvider.Input.InputSetHash)
 	refinement52RequireCompleteValuation(t, store, completeHead)
 	waitRefinement4StockProviderCurrentAmount(t, ctx, store, accountID, closure.CallID, completeProvider.HeadKey, billingHostLoopOperatorNano+7)
-	providerCostHead, err := store.GetProviderCostHead(ctx, accountID, closure.CallID, completeProvider.HeadKey)
+	// Durable convergence is now proven by the sentinel-scoped exact-head and
+	// provider-amount waits above. Retire that parent before verification and
+	// restart replay: under race-heavy package load a healthy but slow relay
+	// drain can exhaust the whole sentinel after convergence, and a read that
+	// reuses it then fails with context.DeadlineExceeded on a proven-converged
+	// state (the 60.43s Linux race failure at ListCallLegUsage after
+	// convergence). Cancelling here is deterministic and pins that the tail no
+	// longer depends on the convergence parent; the tail runs under a fresh
+	// bounded verification context and still fails on real non-convergence.
+	cancel()
+	verifyCtx, verifyCancel := refinement52VerificationContext(t)
+	defer verifyCancel()
+	providerCostHead, err := store.GetProviderCostHead(verifyCtx, accountID, closure.CallID, completeProvider.HeadKey)
 	if err != nil {
 		t.Fatalf("read converged provider cost head: %v", err)
 	}
@@ -503,7 +536,7 @@ func TestRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *te
 	if strings.Join(customerWorkIDsAfter, "\x00") != strings.Join(customerWorkIDsBefore, "\x00") {
 		t.Fatalf("provider-only convergence changed customer work: before=%v after=%v", customerWorkIDsBefore, customerWorkIDsAfter)
 	}
-	legsAfter, err := store.ListCallLegUsage(ctx, closure.CallID)
+	legsAfter, err := store.ListCallLegUsage(verifyCtx, closure.CallID)
 	if err != nil {
 		t.Fatalf("ListCallLegUsage after convergence: %v", err)
 	}
@@ -527,7 +560,7 @@ func TestRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *te
 	if err != nil {
 		t.Fatalf("ComposeBilling after convergence restart: %v", err)
 	}
-	host2, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+	host2, err := runtimebundle.BuildHost(verifyCtx, runtimebundle.BuildHostInput{
 		ConfigPath: configPath, Mandatory: lipsdk.StandardDistributionRequirements(), LogWriter: io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP, Production: prod2,
 	})
@@ -550,16 +583,16 @@ func TestRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *te
 		{Kind: coremetering.LateEconomicStatement, Identity: identity, Observation: statement},
 		{Kind: coremetering.LateEconomicProviderFinalizer, Identity: identity, Observation: finalizer},
 	} {
-		if err := lateAppender2.AppendLateEconomicEvidence(ctx, late); err != nil {
+		if err := lateAppender2.AppendLateEconomicEvidence(verifyCtx, late); err != nil {
 			t.Fatalf("exact late replay after convergence restart (%s): %v", late.Kind, err)
 		}
 	}
-	waitRefinement4StockOutboxDrained(t, ctx, store2, journal2)
-	replayedHead := waitRefinement52StockHeadExact(t, ctx, store2, journal2, accountID, billing.EconomicQueueProvider, completeProvider.HeadKey, 3, completeProvider.Input.InputSetHash)
+	waitRefinement4StockOutboxDrained(t, verifyCtx, store2, journal2)
+	replayedHead := waitRefinement52StockHeadExact(t, verifyCtx, store2, journal2, accountID, billing.EconomicQueueProvider, completeProvider.HeadKey, 3, completeProvider.Input.InputSetHash)
 	if replayedHead.Fingerprint != completeHead.Fingerprint || replayedHead.HeadVersion != completeHead.HeadVersion || replayedHead.Fence != completeHead.Fence {
 		t.Fatalf("restart replay changed same-revision valuation head: before=%+v after=%+v", completeHead, replayedHead)
 	}
-	replayedProviderCost, err := store2.GetProviderCostHead(ctx, accountID, closure.CallID, completeProvider.HeadKey)
+	replayedProviderCost, err := store2.GetProviderCostHead(verifyCtx, accountID, closure.CallID, completeProvider.HeadKey)
 	if err != nil {
 		t.Fatalf("read provider cost head after convergence restart: %v", err)
 	}
@@ -584,12 +617,57 @@ func TestRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *te
 	if got := refinement52EconomicWorkIDs(t, store2, billing.EconomicQueueCustomer); strings.Join(got, "\x00") != strings.Join(customerWorkIDsBefore, "\x00") {
 		t.Fatalf("restart replay changed same-revision customer work: before=%v after=%v", customerWorkIDsBefore, got)
 	}
-	legsAfterRestart, err := store2.ListCallLegUsage(ctx, closure.CallID)
+	legsAfterRestart, err := store2.ListCallLegUsage(verifyCtx, closure.CallID)
 	if err != nil {
 		t.Fatalf("ListCallLegUsage after convergence restart: %v", err)
 	}
 	if len(legsAfterRestart) != len(legsBefore) || legsAfterRestart[0].Fingerprint != legsBefore[0].Fingerprint || legsAfterRestart[0].BLegID != legsBefore[0].BLegID || legsAfterRestart[0].AttemptSeq != legsBefore[0].AttemptSeq {
 		t.Fatalf("restart replay changed same-revision lifecycle leg: before=%+v after=%+v", legsBefore, legsAfterRestart)
+	}
+}
+
+// TestRefinement52VerificationReadSurvivesExhaustedConvergenceParent is the
+// deterministic regression for the Linux race failure at
+// "ListCallLegUsage after convergence: context deadline exceeded". It
+// reproduces the exact condition: the convergence sentinel parent is already
+// exhausted when the post-convergence verification read runs, while the
+// durable leg is present. The raw parent-scoped read fails with
+// context.DeadlineExceeded; the fresh bounded verification context reads the
+// same durable row, proving the failure was the expired parent and not missing
+// convergence.
+func TestRefinement52VerificationReadSurvivesExhaustedConvergenceParent(t *testing.T) {
+	t.Parallel()
+	store := openRefinement52ConcurrentBillingStore(t, filepath.Join(t.TempDir(), "billing.sqlite"), "refinement52-verification-read")
+	callID := billing.BillingCallID("bc_0000000000000000000000000000007a")
+	subject := metering.SubjectRef{
+		Kind: metering.SubjectBLeg, StoreID: store.StoreID(), TenantID: "refinement52-verification-tenant",
+		AccountID: "refinement52-verification-account", ALegID: "refinement52-verification-a-leg",
+		BillingCallID: callID.String(), BLegID: "refinement52-verification-b-leg",
+		AttemptID: "refinement52-verification-attempt", AttemptSeq: 1, ProviderAccountKey: "refinement52-verification-provider",
+	}
+	observation := refinement4StockObservation(subject, "refinement52-verification-observation", 1, 7, metering.SemanticsDelta, nil)
+	sealed, err := refinement4StockCallLeg(observation).Seal()
+	if err != nil {
+		t.Fatalf("seal durable verification leg: %v", err)
+	}
+	if err := store.AppendLeg(context.Background(), sealed); err != nil {
+		t.Fatalf("append durable verification leg: %v", err)
+	}
+
+	exhausted, exhaustedCancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer exhaustedCancel()
+	if _, err := store.ListCallLegUsage(exhausted, callID); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("exhausted convergence parent must fail the raw verification read, got %v", err)
+	}
+
+	verifyCtx, verifyCancel := refinement52VerificationContext(t)
+	defer verifyCancel()
+	legs, err := store.ListCallLegUsage(verifyCtx, callID)
+	if err != nil {
+		t.Fatalf("fresh bounded verification context must read the durable leg: %v", err)
+	}
+	if len(legs) != 1 || legs[0].BLegID != sealed.BLegID || legs[0].Fingerprint != sealed.Fingerprint {
+		t.Fatalf("verification read = %+v, want the durable leg %+v", legs, sealed)
 	}
 }
 
