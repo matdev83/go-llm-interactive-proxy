@@ -26,7 +26,7 @@ func identityFromFile(f *os.File) (FileIdentity, error) {
 	_ = binary.Write(h, binary.LittleEndian, info.FileIndexHigh)
 	_ = binary.Write(h, binary.LittleEndian, info.FileIndexLow)
 	copy(opaque[:], h.Sum(nil))
-	return FileIdentity{Platform: runtime.GOOS, Opaque: opaque}, nil
+	return FileIdentity{Platform: runtime.GOOS, Scheme: identitySchemeFileID, Opaque: opaque}, nil
 }
 
 func identityFromPath(path string) (FileIdentity, error) {
