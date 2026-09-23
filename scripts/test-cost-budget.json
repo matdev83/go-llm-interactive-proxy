@@ -19,6 +19,9 @@
           "existing_ratio": 1.50,
           "existing_delta_seconds": 5
         },
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/storecontract": {
+          "existing_delta_seconds": 20
+        },
         "github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingstore": {
           "existing_delta_seconds": 160
         },

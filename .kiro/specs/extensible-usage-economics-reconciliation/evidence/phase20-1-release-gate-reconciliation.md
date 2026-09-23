@@ -1935,3 +1935,166 @@ full ratchet.
   change neither relaxes nor interacts with that lint policy.
 - No claim is made that CPU, I/O, quality-checks, or any untouched limit was
   modified; they were not.
+
+## 14. Final Windows test-cost timing-variance reconciliation (Task 20.1, HEAD `49411028`)
+
+Bounded follow-up to section 13 at the current feature HEAD. It adds exactly one
+package-specific test-unit override to absorb cross-run anchor timing variance in
+a package that this feature never modified, and records the three full-ratchet
+attempts honestly. It is a comparison over already-measured anchor/head
+snapshots, not a fresh full remeasure, and it does **not** mark Task 20.1
+complete.
+
+Scope/ownership of this turn: exactly two non-Go files, the explicitly owned
+pair — `scripts/test-cost-budget.json` and this evidence document. No Go source,
+no Go test, no other budget/override, no `.golangci.yml`/Makefile/lint-runner,
+no spec `tasks.md` checkbox or `spec.json` metadata, and no commit/rebase/merge/
+push/PR. No other worktree was touched. `git status --short` shows only
+` M scripts/test-cost-budget.json` before this section was appended.
+
+### 14.1 Three full-ratchet attempts (fresh, `TEST_COST_PARALLEL=4`, Windows)
+
+| # | HEAD | Artifact root | test-unit | quality-checks | qa-tagged-hotspots | Outcome |
+|---|---|---|---|---:|---:|---|
+| 1 | `0dcd907b` | `...-testcost-0dcd907b` | 5 viol (overridden) | 0 viol | 2 viol (overridden) | Completed; every violation `overridden=true` via `LIP_ALLOW_TEST_COST_GROWTH=1` — **not** a green run (section 13.1/13.3). |
+| 2 | `a0ccaded` | `...-testcost-a0ccaded` | 0 viol (`overridden=false`) | 0 viol (`overridden=false`) | no head measurement, no report | **Failed operationally** during the qa-tagged-hotspots head measurement; the run aborted before the qa compare. |
+| 3 | `49411028` | `...-testcost-49411028` | 1 viol (`overridden=true`) | 0 viol (`overridden=false`) | 0 viol (`overridden=false`) | Operationally completed; quality + qa genuinely zero, test-unit one raw timing-variance violation authorized by the env override. |
+
+Attempt 2 failure (exact, from the retained head log
+`...-testcost-a0ccaded\h-a33ffb52\logs\qa-tagged-hotspots-stdout.log`):
+`internal/archtest` `TestShrinkage_NetReductionMeetsRequirement115` and
+`TestShrinkage_ReportSectionIncludesVerdict` both failed concurrently on the
+shared synthetic fixture path `connectors\_synthetic_companion_file` with Windows
+sharing/absence errors (`the process cannot access the file because it is being
+used by another process`; `cannot find the file` at
+`shrinkage_test.go:348` / `:312`). This is a cross-package synthetic-fixture
+race in the test harness (`tools/backendplugin` materializes the fixture while
+`internal/archtest` scans `connectors/`), not a product defect and not caused by the
+budget policy. No `head-qa-tagged-hotspots.json` was written and no
+`reports\qa-tagged-hotspots.json` exists for that run; only the anchor qa
+measurement and the test-unit/quality-checks reports are present. Attempt 3 at
+`49411028` completed without this race (qa-tagged-hotspots `passed=true
+overridden=false violations=0`).
+
+### 14.2 The one raw violation is consistent with timing variance
+
+Attempt 3 test-unit reported exactly one raw violation (the rest of the target,
+and every other target, passed):
+
+| Field | Value |
+|---|---:|
+| package | `github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/storecontract` |
+| metric | `elapsed_nanos` |
+| anchor (baseline) | 12,516,000,000 ns = 12.516 s |
+| head (current) | 26,015,000,000 ns = 26.015 s |
+| delta | 13,499,000,000 ns = 13.499 s |
+| ratio | 2.0785 |
+| old allowed (defaults) | 21,903,000,000 ns = 21.903 s (`max(12.516×1.75, 12.516+3, 15)`) |
+| over old allowed | +4.112 s |
+
+The package is untouched by this feature:
+`git diff --shortstat origin/main HEAD -- internal/core/securesession/storecontract`
+is empty and `git log origin/main..HEAD -- internal/core/securesession/storecontract`
+is empty (no feature commits). This excludes a direct package-source change,
+but does not isolate indirect dependencies or suite contention. The low anchor
+and default ratio (`existing_ratio` 1.75) are consistent with timing variance.
+
+Cross-run variance for the same package (no source change between the runs):
+
+| Run | anchor | head | old allowed (defaults) | result |
+|---|---:|---:|---:|---|
+| `0dcd907b` | 16.989 s | 23.910 s | 29.731 s (`max(16.989×1.75, 16.989+3, 15)`) | no violation |
+| `49411028` | 12.516 s | 26.015 s | 21.903 s (`max(12.516×1.75, 12.516+3, 15)`) | violation (+4.112 s) |
+
+The anchor moved 16.989 s → 12.516 s (a 26.3% decrease; equivalently the first
+run's anchor was ~1.36× the second's) while the head stayed in a narrow ~24–26 s
+band (23.910 s → 26.015 s, +8.8%). The default ratio makes the allowance fall
+with the anchor, so a similar head duration that passed on the higher anchor
+fails on the lower one. An indirect regression has not been ruled out; the
+package-specific allowance below is justified by these observed runs and the
+user-authorized bounded budget increase.
+
+### 14.3 Single override applied (and nothing else)
+
+Added exactly one `test-unit` package override, leaving `existing_ratio` (1.75),
+`existing_floor_seconds` (15), the shared `packages` defaults, and every other
+target/override untouched:
+
+```json
+"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/storecontract": {
+  "existing_delta_seconds": 20
+}
+```
+
+Effective allowance under the tool's package semantics
+`allowed = max(anchor×ratio, anchor + delta_seconds, floor)`:
+`max(12.516×1.75, 12.516+20, 15) = 32.516 s`, i.e. 6.501 s (~25%) of headroom over
+the measured 26.015 s head. This is a narrow, additive, package-scoped delta — not
+a ratio or floor change — consistent with the additive-delta convention for
+genuine cost growth used in section 13.2. The storecontract measured head
+(26.015 s) is well below the new 32.516 s allowance.
+
+### 14.4 RED → GREEN on the same saved measurements (no override)
+
+Method: the retained `binaries/lip-testcost.exe` (built from HEAD `49411028`) was
+run with `compare` on the **same six saved** `measurements/anchor-*.json` /
+`head-*.json` files, once with the pre-edit policy (RED) and once with the edited
+policy (GREEN), writing fresh reports under `reconcile-final\red\` and
+`reconcile-final\green\`. `--allow-override` was **not** passed. Command shape per
+target:
+
+```powershell
+& <artifact-root>\binaries\lip-testcost.exe compare `
+  --target   <target> `
+  --baseline <artifact-root>\measurements\anchor-<target>.json `
+  --current  <artifact-root>\measurements\head-<target>.json `
+  --policy   <worktree>\scripts\test-cost-budget.json `
+  --out      <artifact-root>\reconcile-final\{red|green}\<target>.json
+```
+
+- RED (pre-edit policy): `test-unit` exit 1 — `passed=false overridden=false
+  violations=1` (the storecontract entry above); `quality-checks` exit 0 —
+  `passed=true overridden=false violations=[]`; `qa-tagged-hotspots` exit 0 —
+  `passed=true overridden=false violations=[]`.
+- GREEN (post-edit policy): all three exit 0 and parse as `passed=true
+  overridden=false violations=[]`:
+  - `test-unit`: passed=true, overridden=false, violations=[], warnings=[].
+  - `quality-checks`: passed=true, overridden=false, violations=[], warnings=[].
+  - `qa-tagged-hotspots`: passed=true, overridden=false, violations=[], warnings=[].
+- The `test-unit` `overall` block is byte-identical between RED and GREEN
+  (the override changes only the affected package's allowance, not any overall
+  metric), confirming no other limit was altered.
+- Previous saved pair (attempt 1, `0dcd907b`) compared under the edited policy
+  into `reconcile-final\previous-0dcd907b\`: all three targets exit 0 —
+  `test-unit` / `quality-checks` / `qa-tagged-hotspots` each `passed=true
+  overridden=false violations=[]`. The earlier 5+0+2 overridden set is therefore
+  also non-overridden green under the current policy.
+
+Because GREEN reuses the already-measured head snapshots, it does not by itself
+prove a fresh run; the controller is expected to review and commit this policy
+diff and then rerun the full authoritative ratchet.
+
+### 14.5 Verification run this turn
+
+- `go test -count=1 ./tools/testcost ./cmd/lip-testcost` — PASS (exit 0;
+  1.079 s / 0.325 s).
+- `go test -count=1 ./internal/qa` — PASS (exit 0; 31.246 s).
+- `git diff --check` — clean (exit 0). `git status --short` — only
+  ` M scripts/test-cost-budget.json` (plus this evidence file after the append).
+
+### 14.6 Explicit non-claims
+
+- Attempt 3's test-unit report is `overridden=true` (the single raw violation was
+  authorized by `LIP_ALLOW_TEST_COST_GROWTH=1`); it is **not** claimed as a green
+  run. Only the post-edit saved-data comparisons are non-overridden zero-violation.
+- No fresh full `make test-cost` was run this turn (bounded scope; controller will
+  rerun). No claim of a full non-overridden pass is made; final certification is
+  the controller's.
+- No other limit was changed: `existing_ratio`, `existing_floor_seconds`, the
+  shared `packages` defaults, all quality-checks limits, all qa-tagged-hotspots
+  limits, and every unrelated `package_overrides` entry are untouched.
+- Attempt 2's qa-tagged-hotspots non-completion is a test-harness synthetic-fixture
+  race, reported as an operational failure; it is not attributed to the budget
+  policy and is not counted as a passing qa run for that attempt.
+- No production behavior changed; the storecontract package has no feature diff
+  versus `origin/main` (empty `git diff --shortstat` and empty `git log`).
