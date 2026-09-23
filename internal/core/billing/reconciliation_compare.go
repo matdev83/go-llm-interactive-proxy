@@ -686,8 +686,22 @@ func sortedReconciliationFullKeys(groups map[string][]reconciliationSource) []st
 	return fulls
 }
 
+// reconciliationUnionCapacity returns the map capacity hint for the union of two
+// full-key slices. Each operand is clamped to the per-side contract bound before
+// the addition so the size computation cannot overflow. Its only caller passes
+// non-negative lengths, so only the upper bound needs an explicit check.
+func reconciliationUnionCapacity(localLen, providerLen int) int {
+	if localLen > MaxReconciliationMeasures {
+		localLen = MaxReconciliationMeasures
+	}
+	if providerLen > MaxReconciliationMeasures {
+		providerLen = MaxReconciliationMeasures
+	}
+	return localLen + providerLen
+}
+
 func reconciliationFullUnion(local, provider []string) []string {
-	seen := make(map[string]struct{}, len(local)+len(provider))
+	seen := make(map[string]struct{}, reconciliationUnionCapacity(len(local), len(provider)))
 	for _, full := range local {
 		seen[full] = struct{}{}
 	}

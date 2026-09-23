@@ -2,6 +2,7 @@ package openresponsescompat
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 
 	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
@@ -136,12 +137,22 @@ func nativeUsageEvidence(raw string) []sdkmetering.SafeEvidenceField {
 	return out
 }
 
+// mapCapacityHint returns base+extra for a make(map) size hint without letting
+// the int size computation overflow. A wrapped hint would be negative and make
+// panic; the base length is always a safe lower bound.
+func mapCapacityHint(base, extra int) int {
+	if extra <= 0 || base > math.MaxInt-extra {
+		return base
+	}
+	return base + extra
+}
+
 func decodeUsageFields(raw string) (map[string]json.RawMessage, map[string]map[string]json.RawMessage) {
 	var root map[string]json.RawMessage
 	if strings.TrimSpace(raw) == "" || json.Unmarshal([]byte(raw), &root) != nil {
 		return nil, nil
 	}
-	fields := make(map[string]json.RawMessage, len(root)+8)
+	fields := make(map[string]json.RawMessage, mapCapacityHint(len(root), 8))
 	details := make(map[string]map[string]json.RawMessage, 4)
 	for key, value := range root {
 		fields[key] = value

@@ -3,6 +3,7 @@ package billing
 import (
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -951,4 +952,53 @@ func TestReconciliationCompareKeepsUnitsAndDirectionsDistinct(t *testing.T) {
 			t.Fatal("native unit was dropped from the result key")
 		}
 	})
+}
+
+// TestReconciliationUnionCapacityRejectsOverflow pins the bounded size
+// computation used for the full-key union map. len(local)+len(provider) is a
+// potentially large value; adding the operands directly overflows to a
+// negative capacity hint for adversarial lengths. The helper must never return
+// a negative or over-large capacity, while preserving the exact sum for the
+// in-contract inputs.
+func TestReconciliationUnionCapacityRejectsOverflow(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		localLen    int
+		providerLen int
+	}{
+		{name: "both max int", localLen: math.MaxInt, providerLen: math.MaxInt},
+		{name: "local max int", localLen: math.MaxInt, providerLen: 1},
+		{name: "provider max int", localLen: 1, providerLen: math.MaxInt},
+		{name: "both at contract bound", localLen: MaxReconciliationMeasures, providerLen: MaxReconciliationMeasures},
+		{name: "empty", localLen: 0, providerLen: 0},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := reconciliationUnionCapacity(tc.localLen, tc.providerLen)
+			if got < 0 {
+				t.Fatalf("reconciliationUnionCapacity(%d, %d) = %d, want non-negative capacity", tc.localLen, tc.providerLen, got)
+			}
+			if got > 2*MaxReconciliationMeasures {
+				t.Fatalf("reconciliationUnionCapacity(%d, %d) = %d, want capacity <= %d", tc.localLen, tc.providerLen, got, 2*MaxReconciliationMeasures)
+			}
+		})
+	}
+}
+
+// TestReconciliationUnionCapacityKeepsExactSmallSum proves the overflow guard
+// does not weaken the capacity hint for inputs the comparator can actually
+// produce.
+func TestReconciliationUnionCapacityKeepsExactSmallSum(t *testing.T) {
+	t.Parallel()
+
+	if got := reconciliationUnionCapacity(3, 4); got != 7 {
+		t.Fatalf("reconciliationUnionCapacity(3, 4) = %d, want 7", got)
+	}
+	if got := reconciliationUnionCapacity(1, 1); got != 2 {
+		t.Fatalf("reconciliationUnionCapacity(1, 1) = %d, want 2", got)
+	}
 }

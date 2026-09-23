@@ -1,11 +1,39 @@
 package openaiusage
 
 import (
+	"math"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkmetering "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
+
+func TestUsageFieldsCapacityHintDoesNotOverflow(t *testing.T) {
+	tests := []struct {
+		name  string
+		base  int
+		extra int
+		want  int
+	}{
+		{name: "normal", base: 3, extra: 8, want: 11},
+		{name: "zero base", base: 0, extra: 8, want: 8},
+		{name: "exact boundary", base: math.MaxInt - 8, extra: 8, want: math.MaxInt},
+		{name: "just past boundary stays safe", base: math.MaxInt - 7, extra: 8, want: math.MaxInt - 7},
+		{name: "maximum base stays safe", base: math.MaxInt, extra: 8, want: math.MaxInt},
+		{name: "no extra", base: 5, extra: 0, want: 5},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mapCapacityHint(tc.base, tc.extra)
+			if got != tc.want {
+				t.Fatalf("mapCapacityHint(%d, %d) = %d, want %d", tc.base, tc.extra, got, tc.want)
+			}
+			if got < 0 {
+				t.Fatalf("mapCapacityHint(%d, %d) overflowed to %d", tc.base, tc.extra, got)
+			}
+		})
+	}
+}
 
 func TestNativeUsageMeasuresPreserveMultimodalDirectionAndUnits(t *testing.T) {
 	raw := `{"input_image_tokens":0,"output_image_tokens":7,"input_audio_seconds":1.5,"output_video_frames":12,"input_document_pages":2,"output_bytes":4096}`
