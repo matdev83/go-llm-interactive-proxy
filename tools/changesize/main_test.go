@@ -15,7 +15,7 @@ func TestRun_StagedRejectsOverLimit(t *testing.T) {
 	repo := initTempRepo(t)
 	stageFiles(t, repo, 3)
 	var stderr bytes.Buffer
-	code := run([]string{"--repo", repo, "--staged", "--limit", "2"}, &stderr, os.Getenv)
+	code := run([]string{"--repo", repo, "--staged", "--limit", "2"}, &stderr, noOverrideGetenv)
 	if code != 1 {
 		t.Fatalf("exit=%d, want 1; stderr=%q", code, stderr.String())
 	}
@@ -114,6 +114,13 @@ func TestRun_UsageError(t *testing.T) {
 	if code := run([]string{"--staged", "--base", "HEAD"}, &stderr, os.Getenv); code != 2 {
 		t.Fatalf("mixed flags exit=%d, want 2; stderr=%q", code, stderr.String())
 	}
+}
+
+func noOverrideGetenv(key string) string {
+	if key == OverrideEnv {
+		return ""
+	}
+	return os.Getenv(key)
 }
 
 func initTempRepo(t *testing.T) string {

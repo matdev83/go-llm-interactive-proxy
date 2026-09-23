@@ -215,12 +215,8 @@ function Invoke-External {
     # Set TEMP/TMP only for this synchronous child invocation.  Restoring both
     # values and the location in finally prevents process-wide leakage while
     # ensuring taskrunner helpers built by each tree cannot cross-use a cache.
-    # Normalize the PR-wide allow-large-change policy override the same way:
-    # it authorizes the outer change-size gate, but nested Go tests run by
-    # measurement must observe the default test policy.
     $previousTemp = [Environment]::GetEnvironmentVariable("TEMP", "Process")
     $previousTmp = [Environment]::GetEnvironmentVariable("TMP", "Process")
-    $previousLargeChange = [Environment]::GetEnvironmentVariable("LIP_ALLOW_LARGE_CHANGE", "Process")
     $gitConfigVariables = @(
         "GIT_CONFIG_COUNT",
         "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0",
@@ -234,7 +230,6 @@ function Invoke-External {
     try {
         $env:TEMP = $TempRoot
         $env:TMP = $TempRoot
-        [Environment]::SetEnvironmentVariable("LIP_ALLOW_LARGE_CHANGE", $null, "Process")
         [Environment]::SetEnvironmentVariable("GIT_CONFIG_COUNT", "2", "Process")
         [Environment]::SetEnvironmentVariable("GIT_CONFIG_KEY_0", "core.autocrlf", "Process")
         [Environment]::SetEnvironmentVariable("GIT_CONFIG_VALUE_0", "false", "Process")
@@ -267,7 +262,6 @@ function Invoke-External {
         } else {
             $env:TMP = $previousTmp
         }
-        [Environment]::SetEnvironmentVariable("LIP_ALLOW_LARGE_CHANGE", $previousLargeChange, "Process")
         foreach ($name in $gitConfigVariables) {
             [Environment]::SetEnvironmentVariable($name, $previousGitConfig[$name], "Process")
         }
@@ -371,7 +365,8 @@ function Apply-AnchorCompatibilityPatch {
         "internal/infra/runtimehost/observability_test.go",
         "internal/qa/phase74_migration_rollout_evidence_test.go",
         "internal/plugins/frontends/openresponses/websocket_upgrade_test.go",
-        "scripts/quality-checks.ps1"
+        "scripts/quality-checks.ps1",
+        "tools/changesize/main_test.go"
     )
     foreach ($relativePath in $loadCompatibilityPaths) {
         Copy-Item -LiteralPath (Join-Path $RepositoryRoot $relativePath) -Destination (Join-Path $AnchorRoot $relativePath) -Force
@@ -415,32 +410,44 @@ function Apply-AnchorCompatibilityPatch {
     Test-CleanCheckout $AnchorRoot
 }
 
-function Apply-CurrentAnchorLoadCompatibilityPatch {
+function Apply-CurrentAnchorTestCompatibilityPatch {
     param(
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
         [Parameter(Mandatory = $true)][string]$AnchorRoot,
         [Parameter(Mandatory = $true)][string]$AnchorCommit
     )
 
-    $currentAnchor = "6dbb831885341516117034923f0c3203373aded0"
-    if ($AnchorCommit -ne $currentAnchor) {
+    # Test-only compatibility copied from head for the active pinned anchor.
+    # The anchor's late-arm assertion must wait for asynchronous terminalization
+    # when the full suite saturates a Windows runner, and the anchor's
+    # changesize negative test must stay hermetic under an inherited PR-wide
+    # LIP_ALLOW_LARGE_CHANGE override. Production sources still come from the anchor.
+    $testCompatibilityPathsByAnchor = @{
+        "6dbb831885341516117034923f0c3203373aded0" = @(
+            "internal/core/runtime/parallel_race_late_arm_race_test.go"
+        )
+        "bb1ef9620ee6e8d9199950161e46fc51914945f2" = @(
+            "tools/changesize/main_test.go"
+        )
+    }
+    if (-not $testCompatibilityPathsByAnchor.ContainsKey($AnchorCommit)) {
         return
     }
 
-    # The pinned anchor's late-arm assertion must wait for asynchronous
-    # terminalization when the full suite saturates a Windows runner.
-    $relativePath = "internal/core/runtime/parallel_race_late_arm_race_test.go"
-    Copy-Item -LiteralPath (Join-Path $RepositoryRoot $relativePath) -Destination (Join-Path $AnchorRoot $relativePath) -Force
-    $absolutePath = Join-Path $AnchorRoot $relativePath
-    $content = [IO.File]::ReadAllText($absolutePath)
-    [IO.File]::WriteAllText($absolutePath, $content.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
-    Invoke-GitChecked @("-C", $AnchorRoot, "add", "--", $relativePath)
+    $relativePaths = $testCompatibilityPathsByAnchor[$AnchorCommit]
+    foreach ($relativePath in $relativePaths) {
+        Copy-Item -LiteralPath (Join-Path $RepositoryRoot $relativePath) -Destination (Join-Path $AnchorRoot $relativePath) -Force
+        $absolutePath = Join-Path $AnchorRoot $relativePath
+        $content = [IO.File]::ReadAllText($absolutePath)
+        [IO.File]::WriteAllText($absolutePath, $content.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+    }
+    Invoke-GitChecked (@("-C", $AnchorRoot, "add", "--") + $relativePaths)
     Invoke-GitChecked @(
         "-C", $AnchorRoot,
         "-c", "user.name=Go-LIP test-cost ratchet",
         "-c", "user.email=test-cost-ratchet@invalid.local",
         "-c", "commit.gpgsign=false",
-        "commit", "-m", "test: stabilize pinned anchor late-arm assertion"
+        "commit", "-m", "test: keep pinned anchor tests hermetic under the ratchet"
     )
     Test-CleanCheckout $AnchorRoot
 }
@@ -624,7 +631,7 @@ try {
     )
     $anchorCreated = $true
     Apply-AnchorCompatibilityPatch $RepositoryRoot $anchorRoot $AnchorCommit $anchorTempRoot
-    Apply-CurrentAnchorLoadCompatibilityPatch $RepositoryRoot $anchorRoot $AnchorCommit
+    Apply-CurrentAnchorTestCompatibilityPatch $RepositoryRoot $anchorRoot $AnchorCommit
 
     # The committed anchor predates the ratchet tool itself. Build the neutral
     # measurement wrapper once from head, then point it at each source tree.
