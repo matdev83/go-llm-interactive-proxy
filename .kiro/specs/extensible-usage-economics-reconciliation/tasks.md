@@ -813,7 +813,7 @@ Tests in this plan are required future implementation evidence. They were not ru
 
 - [ ] 20. Close the release gate with verified implementation evidence
 
-- [ ] 20.1 Run full repository gates and reconcile final traceability
+- [x] 20.1 Run full repository gates and reconcile final traceability
   - Run normal comprehensive verification and wide QA at the exact release candidate; include root and changed connector-module contracts.
   - Cross-check every numbered acceptance criterion, task dependency and producer disposition against named passing tests or explicit supported-capability behavior.
   - Completion: no silent skip, unimplemented hook, unknown financial migration state or incomplete mandatory certification remains.

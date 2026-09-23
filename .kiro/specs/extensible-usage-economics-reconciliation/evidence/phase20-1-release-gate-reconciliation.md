@@ -1,4 +1,15 @@
-# Phase 20.1 release-gate reconciliation evidence (Task 20.1, BLOCKED)
+# Phase 20.1 release-gate reconciliation evidence (Task 20.1)
+
+> **CURRENT STATUS — HEAD `237ab606fed64d0440b0a73517b20bed90405e8a` (branch
+> `feat/b-leg-usage-economics`, clean tree): all five Task 20.1 validation gates
+> and the authoritative Windows `make test-cost` ratchet pass, non-overridden.
+> Section 15 is the authoritative final certification.**
+>
+> Sections 1–14 below are the preserved chronological RED/GREEN record. Their
+> `BLOCKED` headline and per-turn statuses were accurate for the earlier HEADs
+> and uncommitted-worktree states they describe (`38734320`, `5ef86a5f`,
+> `0dcd907b`, `49411028`, …) and are retained verbatim; the top-level `BLOCKED`
+> verdict is superseded only for the current HEAD by section 15.
 
 Task: `.kiro/specs/extensible-usage-economics-reconciliation/tasks.md` 20.1 —
 run full repository gates and reconcile final traceability.
@@ -2098,3 +2109,209 @@ diff and then rerun the full authoritative ratchet.
   policy and is not counted as a passing qa run for that attempt.
 - No production behavior changed; the storecontract package has no feature diff
   versus `origin/main` (empty `git diff --shortstat` and empty `git log`).
+
+## 15. Final current-HEAD release-gate certification (Task 20.1, HEAD `237ab606`)
+
+Docs-only reconciliation appended after the chronology in sections 1–14. No task
+checkbox, `spec.json`, production/test code, policy, commit, or issue was
+changed; scope was this evidence file only. At the certified revision
+`git diff --check` is clean and `git status --short` is empty. The five Task 20.1
+validation gates (`tasks.md` 20.1: `make quality-checks; make test;
+make parity-checks; make test-db-parity; make qa`) and the authoritative Windows
+`make test-cost` ratchet all pass; the earlier `BLOCKED` headline is superseded
+for this HEAD only.
+
+### 15.1 Certified revision
+
+- Branch: `feat/b-leg-usage-economics`.
+- HEAD: `237ab606fed64d0440b0a73517b20bed90405e8a`
+  (`test(testcost): bound storecontract timing variance`).
+- Worktree:
+  `C:\Users\Mateusz\source\repos\go-llm-interactive-proxy-feat-b-leg-usage-economics`
+  (verified via `git rev-parse HEAD`, `git branch --show-current`; clean
+  `git status --short`; `git diff --check` exit 0).
+
+### 15.2 Gate results at this SHA (fresh runs, exact logs)
+
+Wave A (`C:\Users\Mateusz\AppData\Local\Temp\opencode\qg-20.1-waveA-237ab606-20260923-183549\`):
+
+| # | Command | Exit | Duration | Log |
+|---|---|---:|---:|---|
+| 1 | `make quality-checks` | 0 | ~90 s | `01-quality-checks.log` |
+| 2 | `make test` | 0 | ~185 s | `02-test.log` |
+
+`01-quality-checks.log` ends `=== All Quality Checks Passed ===`: all 8 phases OK
+(generated feature planes, gofmt, modules, build, vet, ad-hoc-goroutine
+allowlist, regex hot-path) and the parallel guardrails `PASS: .` mandatory lint +
+`internal/archtest` ok 32.758s. `02-test.log` has no failing test (the only
+`FAIL` substring is the package name `internal/core/runtime/failclosed`), 361
+`ok` package lines, and `=== All Quality Checks Passed ===` at line 25; its tail
+shows the nested parity-checks matrix completing.
+
+Wave B (`C:\Users\Mateusz\AppData\Local\Temp\opencode\task20_1_waveB_20260923_184127\`),
+each gate writing a `gateN_result.txt` with `EXIT=0`:
+
+| Gate | Command | Exit | Duration | Result file / log |
+|---|---|---:|---:|---|
+| parity | `make parity-checks` | 0 | 00:00:05.03 | `gate1_result.txt` / `gate1_parity-checks.log` |
+| db-parity | `make test-db-parity` | 0 | 00:06:13.53 | `gate2_result.txt` / `gate2_test-db-parity.log` |
+| qa | `make qa` | 0 | 00:08:09.72 | `gate3_result.txt` / `gate3_qa.log` |
+
+- `make parity-checks`: contract TCKs, providerprofiles, backendplugin
+  contracttest, conformance, compatibleparity green; nested matrix
+  `connector-support/acp`, `connectors/acp`, `connector-support/openaicompat`,
+  `connectors/openrouter`, `connectors/nvidia`, `connectors/huggingface` green.
+- `make test-db-parity` (`gate2_test-db-parity.log`): 20 `ok` package lines = the
+  same 10 components under SQLite (first 10, e.g. `billingstore` 16.199s,
+  `metering/journalstore` 0.094s) and PostgreSQL-direct (next 10, e.g.
+  `billingstore` 79.091s, `conversationview` 82.728s, `metering/journalstore`
+  2.543s); no failures or skips.
+- `make qa` (`gate3_qa.log`, exit 0): `quality-checks-fast` + `qa-tests` +
+  mandatory lint (all checked modules passed; `PASS:` for every module in both
+  the fast and standalone lint invocations) + `vuln` (`No vulnerabilities found`)
+  + `backend-plugin-release-gates-static` + `test-openresponses-compliance-static`
+  (`openresponses-compliance-static: Task 8.5 wiring and evidence verified`).
+
+Windows authoritative cost ratchet, fresh full run at this SHA, artifact root
+`C:\Users\Mateusz\source\repos\go-llm-interactive-proxy-testcost-237ab606-retry`:
+
+| Target | Report | passed | overridden | violations | warnings |
+|---|---|---:|---:|---:|---:|
+| test-unit | `reports\test-unit.json` | true | false | [] (0) | [] (0) |
+| quality-checks | `reports\quality-checks.json` | true | false | [] (0) | [] (0) |
+| qa-tagged-hotspots | `reports\qa-tagged-hotspots.json` | true | false | [] (0) | [] (0) |
+
+`LIP_ALLOW_TEST_COST_GROWTH=1` was set only to authorize the companion
+`scripts/test-cost-budget.json` policy diff during the run; the retained reports
+carry no overrides (all three `overridden=false`, zero violations/warnings), so
+this is a genuine non-overridden pass, not an override-masked one.
+
+First attempt at the same HEAD failed with a named test failure; the retry fully
+passed without override (reported accurately, not hidden):
+- First attempt root `...-testcost-237ab606` (anchor phase `a-6068d75f`): the
+  `reports\` directory exists but contains no report files (the run aborted
+  before reports were generated). Its anchor `logs\test-unit-stdout.log` (45.7 MB
+  `-json` stream) records exactly 2 `"Action":"fail"` events, both the single
+  `internal/core/runtime`
+  `TestTask13_2_Finding4_TerminalCleanup_ParallelRaceLoserFailedVsCanceled` case:
+  `task13_2_attempt_execution_test.go:961: expected leg record for b3` (test
+  0.00s; package fail 10.88s). Only this observed fact is asserted: the named
+  test failed once at this HEAD expecting a `b3` leg record, and that failure
+  aborted the first ratchet before any report was written. The root cause is
+  **not established** — no isolated reproduction was performed in this docs turn,
+  and a product defect is **not excluded**.
+- Retry `...-testcost-237ab606-retry` (anchor `a-fcea503e`, head `h-fcea503e`)
+  shows 0 `"Action":"fail"` events across all six retained anchor/head logs and
+  wrote the three non-overridden zero-violation reports above. Both attempts are
+  at the same HEAD `237ab606`.
+
+### 15.3 Root and connector-module coverage
+
+- Root module: `make test`/test-unit (`go test ./...`), `make quality-checks`
+  (build/vet/archtest), `make parity-checks`, `make test-db-parity`, and
+  `make qa` all green at this SHA.
+- All lint roots green under the mandatory correctness gate
+  (`gate3_qa.log`): root, 34 `connectors/*`, 3 `connector-support/*`, and 3
+  `testdata/*`; `testdata/external_billing_binding` is additionally covered by
+  the archtest module gates (`TestExternalBillingModulePublicOnlyCompileGate` /
+  `TestExternalBillingModuleRunSmokeGate`).
+- Connector-module contract runs: the per-module `GOWORK=off` runs enumerated in
+  section 11.3 were executed at prior SHA `5ef86a5f`, **not** at this HEAD. They
+  remain applicable here because `git diff --name-only 5ef86a5f HEAD` (51 files)
+  contains no changes under `connectors/`, `connector-support/`, or `pkg/lipsdk/`
+  and no `go.mod`/`go.sum` changes anywhere
+  (`git diff --name-only 5ef86a5f HEAD -- connectors/ connector-support/ pkg/lipsdk/`
+  and `-- '**/go.mod' '**/go.sum'` are both empty), so the connector/support/
+  public-SDK source and the module dependency graph are byte-identical between
+  `5ef86a5f` and this HEAD. The canonical current-HEAD connector coverage is the
+  directly-current `make parity-checks` nested matrix and the `make qa` module
+  gates (15.2), which ran at `237ab606`.
+- `make parity-checks` exercises the connector-advertised contract/capability
+  suites; `make qa`'s nested matrix exercises the ACP/OpenAI-compatible connector
+  modules.
+
+### 15.4 Financial-migration and producer disposition references
+
+- Producer/census disposition: `evidence/phase18-2-producer-consumer-disposition.tsv`
+  and `phase1-producer-consumer-census.tsv`; QA
+  `TestPhase8ProducerCensusHasExplicitDisposition` and archtest
+  `TestPhase1ProducerConsumerCensusIsExactAndDispositioned` green (section 3
+  #1/#5). Every inventoried producer is `v2-certified`, losslessly bridged,
+  explicitly unsupported, or `removed` with replacement — no `pending`/`red`
+  rows.
+- Lifecycle/cutover/restart evidence:
+  `evidence/phase19-1-lifecycle-certification.md` (+`.tsv`),
+  `phase19-2-database-restart-lifecycle-races.md` (+`.tsv`, `phase19-2-red.txt`),
+  `phase19-3-enabled-disabled-overhead-test-cost.md`, and
+  `parent-phase19-review.md`, preserved and re-verified where rerun here.
+- Migration state: SQLite + PostgreSQL-direct `dbparity` both green at this SHA;
+  no unknown financial-migration state introduced.
+
+### 15.5 `backend-plugin-release-gates-static` "pending"/`external_blocker` disposition
+
+The `gate3_qa.log` static report block (`"schema": "golip.release.gates/v1"`,
+`"mode": "static"`, `"requirement_count": 116`, 106 `pending`, 3
+`external_blocker`, 4 `local_executable`) is **unrelated to this spec** and is
+not a Task 20.1 completion gap:
+
+- Its requirements are parsed from
+  `.kiro/specs/archive/backend-connector-plugin-architecture/requirements.md`
+  (`tools/backendplugin/release_gates/requirements.go:20`) — a separate,
+  archived specification, not `extensible-usage-economics-reconciliation`.
+- `"pending"` is generated by `buildTraceability` for every requirement whose
+  gate was not executed in `static` mode (`main.go:273-276`); static mode
+  deliberately runs only the three builtin/cheap checks (`requirements_parse`,
+  `root_go_mod_independence`, `structural_module_discovery`, all `ok: true`) and
+  lists the rest as pending. The strict completeness assertion
+  `assertFullTraceComplete` (`main.go:285-299`) runs only in `full` mode.
+- `"external_blocker"` rows `7.13`, `11.11`, `12.11` map to `external` gate kinds
+  (`security_external_ci`, `cross_platform_matrix_9_4`,
+  `native_linux_macos_windows_ci`) requiring native multi-OS CI unavailable on
+  this Windows host; the schema assigns `external_blocker` for external gates
+  (`main.go:260-266`). `12.11`'s note ("multi-OS workflows must be observed for
+  current SHA") refers to that archived spec's CI, not this spec's gates.
+- The static phase passed: `make qa` exit 0 with `tools/backendplugin`,
+  `tools/backendplugin/release_gates`, `internal/archtest`
+  (`TestBackendPluginReleaseGates_`) and conformance green (`gate3_qa.log` tail).
+
+Therefore this listing does not violate Task 20.1's "no incomplete mandatory
+certification" for this spec. It is the archived parent-architecture spec's
+by-design static traceability view, reported explicitly here rather than glossed
+over.
+
+### 15.6 Honest residuals (reported, not waived)
+
+- Mandatory lint is green; `modernize` / `paralleltest` / `thelper` remain
+  advisory-only debt under the authorized policy split (section 8), reported via
+  `make lint-advisory`, not enforced by the canonical gate.
+- Windows `make test-race` is skipped by platform rule; Phase 19 WSL race proof
+  is preserved and not re-run here.
+- PostgreSQL pooled topology was not re-run at this SHA; Phase 19 pooler evidence
+  is preserved and relied upon.
+- The first test-cost attempt's anchor failure (15.2) is observed but its root
+  cause is **not established**: no isolated reproduction was performed in this
+  docs turn, and a product defect is **not excluded**. The retry fully passed
+  without override at the same HEAD; that clean run is the certified result.
+- The POSIX advisory lint path is syntax-checked only on this Windows host.
+
+### 15.7 Verdict
+
+At HEAD `237ab606fed64d0440b0a73517b20bed90405e8a`, all five Task 20.1
+validation gates (`make quality-checks`, `make test`, `make parity-checks`,
+`make test-db-parity`, `make qa`) exit 0, and the authoritative Windows
+`make test-cost` passes non-overridden on all three targets (test-unit,
+quality-checks, qa-tagged-hotspots). Root and changed connector-module contracts
+are covered at this HEAD by the directly-current `make parity-checks` and
+`make qa` gates; the section 11.3 per-module `GOWORK=off` runs were executed at
+prior SHA `5ef86a5f` and remain applicable only because `5ef86a5f..HEAD` changes
+no connector/support/public-SDK source or module dependency files (15.3).
+Producer dispositions and financial-migration evidence are referenced and green;
+the only "pending"/`external_blocker` listing belongs to a separate archived
+spec's by-design static report. The first test-cost attempt's failed anchor test
+has an unestablished root cause (15.2/15.6) and is not treated as a resolved
+harness artifact. No substantive completion gap for this spec was found by the
+directly observed green gates.
+
+**Ready for review** (release-candidate certification at this SHA). `git diff
+--check` is clean. Task 20.1 is **not** marked complete and no completion
+metadata was changed; the Astra reviewer decides acceptance.
