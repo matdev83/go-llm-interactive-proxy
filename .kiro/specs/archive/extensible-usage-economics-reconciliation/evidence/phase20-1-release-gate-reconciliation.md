@@ -2315,3 +2315,44 @@ directly observed green gates.
 **Ready for review** (release-candidate certification at this SHA). `git diff
 --check` is clean. Task 20.1 is **not** marked complete and no completion
 metadata was changed; the Astra reviewer decides acceptance.
+
+## 16. Post-merge completion certification — PR #659 (2026-09-24)
+
+Docs-only certification appended after the merged implementation. No production
+or test code, task checkbox, issue, or commit was changed by this section beyond
+the bundle completion metadata recorded for the merged baseline.
+
+- Implementation PR: #659 `feat(billing): implement B-leg usage economics and
+  reconciliation` — https://github.com/matdev83/go-llm-interactive-proxy/pull/659
+  — head `e0001f113b661bdab5477a875c595def3d090a66`, merged
+  2026-09-24T01:13:56Z as `fc8f01f982f566b87593215895d8ced6f6811ca5` (parent
+  `bb1ef962`). The merge tree is byte-identical to the head (`git diff
+  e0001f11 fc8f01f9` is empty).
+- All 37 attached checks SUCCESS on the exact implementation head `e0001f11`,
+  including `qa`, `Database parity`, `CodeQL`, `Linux race detector`,
+  `exact-race`, `Go vulnerability check`, `Repo hygiene`, the cross-platform
+  process-tree/platform-smoke/cross-platform-qa matrices, and `Test
+  (windows-latest)`. The final Windows CI ratchet job `107441140092` at
+  workflow run `35938562730` completed with `test-unit`, `quality-checks` and
+  `qa-tagged-hotspots` each `passed=true overridden=false violations=0
+  warnings=0`, over 350 head packages vs 343 anchor packages, with no budget
+  threshold changed.
+- Local exact-head verification: `make test` PASS with `GOFLAGS=-p=2`
+  (quality-checks + unit + parity); the paired `make test-cost` PASS in 15m26s.
+- Merged-main verification on `fc8f01f9` (clean root `main` fast-forwarded to
+  the merge SHA): focused `go test -count=1` over `internal/core/billing/...`,
+  `internal/infra/billingstore/...`, `internal/infra/runtimebundle/...`,
+  `pkg/lipsdk/billing/...`, `pkg/lipsdk/metering/...` PASS; `go build
+  ./cmd/lipstd` PASS; `go run ./cmd/lipstd --help` PASS. No separately deployed
+  `serve` process smoke is claimed.
+- Disposition: this supersedes the section 15 "Ready for review" wording for the
+  merged revision. Tasks 20 and 20.2 are certified complete at the merged
+  baseline and the spec is archived.
+- Preserved residuals (unchanged, not waived): `modernize` / `paralleltest` /
+  `thelper` remain advisory-only style lint debt under the authorized policy
+  split; Windows `make test-race` is skipped by platform rule (the Linux race
+  jobs are green in CI and the Phase 19 WSL proof is preserved); PostgreSQL
+  pooled topology was not rerun at this SHA (Phase 19 pooler evidence preserved);
+  the POSIX advisory lint path is syntax-checked only on this Windows host.
+- Successor boundaries: issue #620 remains OPEN until the archive PR merges;
+  issue #398 remains OPEN for other prerequisites.

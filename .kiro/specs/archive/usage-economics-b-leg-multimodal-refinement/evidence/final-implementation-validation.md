@@ -174,3 +174,34 @@ clause battery, 18/18) and is not a blocker.
   (closeout-refresh addendum appended; signed verdict preserved)
 - `.kiro/specs/usage-economics-b-leg-multimodal-refinement/evidence/final-implementation-validation.md`
   (this file)
+
+## 7. Post-merge closeout (2026-09-24)
+
+Both archive-eligibility blockers recorded in section 5 are resolved by the
+merged implementation:
+
+1. Requirement 6.6 is satisfied. It concerns pre-implementation normative
+   integration ("before implementation begins, issue #620 and the parent SDD
+   execution plan shall treat this refinement as normative"), which was recorded
+   in `evidence/usage-economics-b-leg-multimodal-refinement-traceability.md` and
+   Task 8.4 and is reflected by the merged B-leg/multimodal/session semantics.
+2. Merged-main verification and same-SHA release certification exist.
+   Implementation PR #659 (head `e0001f113b661bdab5477a875c595def3d090a66`,
+   merged as `fc8f01f982f566b87593215895d8ced6f6811ca5` on
+   2026-09-24T01:13:56Z) has all 37 attached checks SUCCESS on the exact head,
+   including QA, Database parity, both Linux race jobs and the final Windows CI
+   test-cost ratchet (`passed=true overridden=false violations=0 warnings=0`, no
+   threshold change), with local `make test` PASS (`GOFLAGS=-p=2`); the merge
+   tree is byte-identical to the head and the post-merge focused suites
+   (`internal/core/billing/...`, `internal/infra/billingstore/...`,
+   `internal/infra/runtimebundle/...`, `pkg/lipsdk/billing/...`,
+   `pkg/lipsdk/metering/...`), `go build ./cmd/lipstd`, and `go run
+   ./cmd/lipstd --help` all pass on `fc8f01f9`. This release certification and
+   archive-completion contract belong to parent Task 20, not to requirement 6.6.
+
+The refinement is therefore complete and archived as `phase=completed`,
+`completed=true`, `ready_for_implementation=false`. Successor boundaries: issue
+#620 remains OPEN until the archive PR merges; issue #398 remains OPEN for other
+prerequisites. Residual risks are unchanged (advisory style lint debt, Windows
+race skip with green Linux race CI, PostgreSQL pooler not rerun, POSIX advisory
+lint path syntax-only).

@@ -3,7 +3,7 @@
 ## Summary
 
 - **Feature:** `usage-economics-b-leg-multimodal-refinement`
-- **Parent SDD:** `.kiro/specs/extensible-usage-economics-reconciliation/`
+- **Parent SDD:** `.kiro/specs/archive/extensible-usage-economics-reconciliation/`
 - **Execution tracker:** #620
 - **Brownfield revalidation commit:** `bc7e5ce664c51d68bee771d477c53ce5de6265e1`
 - **Scope:** refinement, not a parallel accounting subsystem
