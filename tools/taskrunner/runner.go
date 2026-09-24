@@ -115,7 +115,7 @@ func Run(ctx context.Context, req Request) (result Result) {
 	childCtx, cancel := context.WithTimeout(ctx, req.Timeout)
 	defer cancel()
 
-	cmd := exec.Command(req.Argv[0], req.Argv[1:]...)
+	cmd := exec.CommandContext(childCtx, req.Argv[0], req.Argv[1:]...)
 	cmd.Dir = req.Dir
 	cmd.Env = env
 	adapter, err := newProcessAdapter(cmd, req.RestrictAdmin)
