@@ -942,9 +942,12 @@ func exclusionPredicate(exclusions map[string]map[string]struct{}) func(scopeKey
 // child that collides with a payable complete partition of its own parent even
 // when that parent aggregate is unpriced. The returned conflict set names the
 // specific (scope, component) pairs that must not be emitted as payable lines;
-// unrelated scopes and unrelated components remain additive. Cross-direction
-// edges, transform edges, and edges whose halves land in different scopes are
-// not conflicts. The error is the typed fail-closed classification for the
+// unrelated scopes and unrelated components remain additive. It additionally
+// fails closed for a payable component that transitively includes another
+// payable component (A subset B subset C) even when the intermediate edge is
+// not itself payable. Cross-direction edges, transform edges, and edges whose
+// halves land in different scopes are not conflicts. The error is the typed
+// fail-closed classification for the
 // enclosing valuation and is returned whenever any conflict exists. This is
 // driven only by the explicit frozen relationship, never by component names or
 // coincidental numbers.
@@ -1050,6 +1053,49 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 					edge.parent.CanonicalKey(), edge.child.CanonicalKey(), string(edge.parent.Direction), edge.parent.Unit)
 			}
 			record(scope, edge.parent, edge.child)
+		}
+	}
+	// The direct check above inspects one inclusion edge at a time, so a chain
+	// A subset B subset C hides a payable A / payable C overlap behind an
+	// unpriced (or absent) middle B: the A->B and B->C pairs are not both
+	// payable, yet C is declared inside A. Close it with bounded reachability
+	// over exactly these inclusion edges (equal direction/unit), scoped the same
+	// way; transform, cross-direction and cross-scope edges are not in the graph.
+	kids := make(map[string][]metering.ComponentKey)
+	keyOf := make(map[string]metering.ComponentKey)
+	for _, edge := range edges {
+		parentKey, childKey := edge.parent.CanonicalKey(), edge.child.CanonicalKey()
+		if parentKey == "" || childKey == "" {
+			continue
+		}
+		kids[parentKey] = appendUniqueComponentKey(kids[parentKey], edge.child)
+		keyOf[parentKey], keyOf[childKey] = edge.parent, edge.child
+	}
+	for scope, payable := range payableByScope {
+		for canonical := range payable {
+			start, ok := keyOf[canonical]
+			if !ok {
+				continue
+			}
+			seen := map[string]struct{}{canonical: {}}
+			queue := append([]metering.ComponentKey(nil), kids[canonical]...)
+			for len(queue) != 0 {
+				current := queue[0]
+				queue = queue[1:]
+				currentKey := current.CanonicalKey()
+				if _, dup := seen[currentKey]; dup {
+					continue
+				}
+				seen[currentKey] = struct{}{}
+				if _, both := payable[currentKey]; both {
+					if firstErr == nil {
+						firstErr = fmt.Errorf("%w: payable component %s transitively includes payable component %s in one %q direction %q unit scope",
+							ErrSchemaOverlapConflict, canonical, currentKey, string(start.Direction), start.Unit)
+					}
+					record(scope, start, current)
+				}
+				queue = append(queue, kids[currentKey]...)
+			}
 		}
 	}
 	for scope, keys := range rateableByScope {
