@@ -17,25 +17,31 @@ import (
 	"github.com/uptrace/bun"
 )
 
-var journalIsolatedSchemaSeq atomic.Uint64
+var journalIsolatedDatabaseSeq atomic.Uint64
 
 // openIsolatedJournalPostgres gives each verifier test its own disposable
-// PostgreSQL schema. The admin endpoint is used only to create and drop that
-// schema; every migration, index mutation, and verification runs against the
-// isolated search_path, so the shared database schema is never modified.
+// PostgreSQL database. The admin endpoint is used only to create and drop that
+// database; every migration, index mutation, and verification runs inside it,
+// so the shared database schema is never modified and no per-connection schema
+// selection state is involved. A unique database name per call keeps parallel
+// and repeated runs isolated.
 //
-// The runtime DSN must be a URL DSN carrying search_path as a per-connection
-// startup parameter. That persists on every pooled connection and a target
-// mismatch fails closed via current_schema(). A DSN that cannot carry
-// search_path is rejected before any DDL instead of using a session-only
-// SET search_path, which a pool cannot guarantee to pin to one connection.
+// The runtime DSN must be a URL DSN so the database name can be rewritten
+// safely. A DSN that cannot be rewritten is reported unsupported; an endpoint
+// without the CREATE DATABASE capability is reported unsupported only when the
+// server says so (insufficient_privilege / feature_not_supported). Both cases
+// skip when PostgreSQL is optional, but fail under LIP_REQUIRE_POSTGRES=1 so
+// the required gate cannot pass with the negative cases silently absent. Any
+// unexpected DDL error always fails; the helper never falls back to destructive
+// shared-schema DDL.
 func openIsolatedJournalPostgres(t *testing.T) *bun.DB {
 	t.Helper()
 	runtimeDSN := testkit.SkipUnlessPostgres(t)
-	schema := fmt.Sprintf("journalstore_test_%d_%d", time.Now().UnixNano(), journalIsolatedSchemaSeq.Add(1))
-	dsn, hasURLSearchPath := journalDSNWithSearchPath(runtimeDSN, schema)
-	if !hasURLSearchPath {
-		t.Skipf("isolated journal schema verification requires a URL PostgreSQL DSN carrying search_path per connection; refusing session-only SET fallback")
+	database := fmt.Sprintf("journalstore_test_%d_%d", time.Now().UnixNano(), journalIsolatedDatabaseSeq.Add(1))
+
+	isolatedRuntimeDSN, ok := journalDSNWithDatabase(runtimeDSN, database)
+	if !ok {
+		refuseIsolatedJournal(t, "isolated journal verification requires a URL PostgreSQL runtime DSN whose database can be rewritten", nil)
 	}
 
 	adminDSN, ok := testkit.PostgresAdminDSN()
@@ -43,31 +49,31 @@ func openIsolatedJournalPostgres(t *testing.T) *bun.DB {
 		adminDSN = runtimeDSN
 	}
 	admin := testkit.OpenPostgresBunForTest(t, adminDSN, 1)
-	quoted := quoteJournalPostgresIdentifier(schema)
-	if _, err := admin.ExecContext(context.Background(), "CREATE SCHEMA "+quoted); err != nil {
+	quoted := quoteJournalPostgresIdentifier(database)
+	if _, err := admin.ExecContext(context.Background(), "CREATE DATABASE "+quoted); err != nil {
 		_ = admin.Close()
-		t.Fatalf("create isolated journal schema: %v", err)
+		refuseIsolatedJournal(t, "cannot create isolated journal database", err)
 	}
 	cleanup := func() {
-		_, _ = admin.ExecContext(context.Background(), "DROP SCHEMA IF EXISTS "+quoted+" CASCADE")
+		_, _ = admin.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+quoted+" WITH (FORCE)")
 		_ = admin.Close()
 	}
 
-	bunDB, err := testkit.OpenPostgresBun(dsn, 4)
+	bunDB, err := testkit.OpenPostgresBun(isolatedRuntimeDSN, 4)
 	if err != nil {
 		cleanup()
-		t.Fatalf("open isolated journal runtime: %v", err)
+		t.Fatalf("open isolated journal database: %v", err)
 	}
 	var current string
-	if err := bunDB.NewRaw(`SELECT current_schema()`).Scan(context.Background(), &current); err != nil {
+	if err := bunDB.NewRaw(`SELECT current_database()`).Scan(context.Background(), &current); err != nil {
 		_ = bunDB.Close()
 		cleanup()
-		t.Fatalf("read isolated journal current_schema: %v", err)
+		t.Fatalf("read isolated journal current_database: %v", err)
 	}
-	if current != schema {
+	if current != database {
 		_ = bunDB.Close()
 		cleanup()
-		t.Fatalf("isolated schema target mismatch: current_schema=%q want %q", current, schema)
+		t.Fatalf("isolated database target mismatch: current_database=%q want %q", current, database)
 	}
 	t.Cleanup(func() {
 		_ = bunDB.Close()
@@ -76,14 +82,34 @@ func openIsolatedJournalPostgres(t *testing.T) *bun.DB {
 	return bunDB
 }
 
-func journalDSNWithSearchPath(dsn, schema string) (string, bool) {
+// refuseIsolatedJournal reacts to a missing optional disposable-database
+// capability. A legitimate capability absence skips only while PostgreSQL is
+// optional; under LIP_REQUIRE_POSTGRES=1 it fails so the required gate cannot
+// pass with the negative cases silently absent. An unexpected error always
+// fails.
+func refuseIsolatedJournal(t *testing.T, reason string, cause error) {
+	t.Helper()
+	if cause != nil && !isOptionalIsolatedDatabaseAbsence(cause) {
+		t.Fatalf("%s: %v", reason, cause)
+	}
+	if testkit.PostgresRequired() {
+		if cause != nil {
+			t.Fatalf("%s (LIP_REQUIRE_POSTGRES=1 requires full negative coverage): %v", reason, cause)
+		}
+		t.Fatalf("%s (LIP_REQUIRE_POSTGRES=1 requires full negative coverage)", reason)
+	}
+	if cause != nil {
+		t.Skipf("%s: %v (coverage limited to the existing non-mutating verifier tests)", reason, cause)
+	}
+	t.Skipf("%s (coverage limited to the existing non-mutating verifier tests)", reason)
+}
+
+func journalDSNWithDatabase(dsn, database string) (string, bool) {
 	u, err := url.Parse(strings.TrimSpace(dsn))
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Host == "" {
 		return dsn, false
 	}
-	query := u.Query()
-	query.Set("search_path", schema)
-	u.RawQuery = query.Encode()
+	u.Path = "/" + database
 	return u.String(), true
 }
 
@@ -91,20 +117,27 @@ func quoteJournalPostgresIdentifier(identifier string) string {
 	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
 }
 
-// TestJournalDSNWithSearchPathRejectsNonURL pins the safety contract used by
-// openIsolatedJournalPostgres: only a URL DSN that can carry search_path as a
-// per-connection setting is accepted; non-URL DSNs are reported unsupported so
-// the caller skips before any DDL rather than falling back to session-only SET.
-func TestJournalDSNWithSearchPathRejectsNonURL(t *testing.T) {
-	if _, ok := journalDSNWithSearchPath("host=localhost user=x dbname=y", "s"); ok {
-		t.Fatal("non-URL DSN must not report per-connection search_path support")
+// TestJournalDSNWithDatabaseRewritesOnlyURLDSN pins the safety contract used by
+// openIsolatedJournalPostgres: only a URL DSN whose database name can be
+// rewritten is accepted; non-URL DSNs are reported unsupported so the caller
+// skips before any DDL rather than mutating the shared database.
+func TestJournalDSNWithDatabaseRewritesOnlyURLDSN(t *testing.T) {
+	if _, ok := journalDSNWithDatabase("host=localhost user=x dbname=y", "s"); ok {
+		t.Fatal("non-URL DSN must not report database rewrite support")
 	}
-	dsn, ok := journalDSNWithSearchPath("postgresql://u:p@h:5432/db?sslmode=require", "s")
+	dsn, ok := journalDSNWithDatabase("postgresql://u:p@h:5432/db?sslmode=require", "iso_db")
 	if !ok {
-		t.Fatal("URL postgres DSN must report per-connection search_path support")
+		t.Fatal("URL postgres DSN must report database rewrite support")
 	}
-	if !strings.Contains(dsn, "search_path=s") {
-		t.Fatalf("rewritten DSN is missing search_path: %q", dsn)
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse rewritten DSN: %v", err)
+	}
+	if u.Path != "/iso_db" {
+		t.Fatalf("rewritten DSN database = %q want %q", u.Path, "/iso_db")
+	}
+	if !strings.Contains(dsn, "sslmode=require") {
+		t.Fatalf("rewritten DSN lost query parameters: %q", dsn)
 	}
 }
 
