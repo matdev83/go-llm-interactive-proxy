@@ -13,6 +13,7 @@ import (
 // adapter may publish typed policy refs and observation refs, but it cannot
 // reach billing persistence or customer-unit/payable composition.
 func TestQuotaAuthorityAdapterHasNoFinancialInfrastructureImport(t *testing.T) {
+	t.Parallel()
 	root := repoRoot(t)
 	path := filepath.Join(root, "internal", "core", "authoritycoord", "quota_provider.go")
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)

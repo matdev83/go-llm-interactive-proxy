@@ -20,6 +20,7 @@ func TestSelectedCostAdjustmentInputNormalize(t *testing.T) {
 	selected := selectedCostTestUSDValuation(t, selectedCostTestRef(t, "valuation-adjustment", 1), "10")
 
 	t.Run("valid input trims and keeps identity", func(t *testing.T) {
+		t.Parallel()
 		input := SelectedCostAdjustmentInput{
 			AccountID: "  " + selectedCostTestAccount + "  ",
 			CallID:    selectedCostTestCallID(t),
@@ -37,6 +38,7 @@ func TestSelectedCostAdjustmentInputNormalize(t *testing.T) {
 	})
 
 	t.Run("malformed identity and CAS reads fail closed", func(t *testing.T) {
+		t.Parallel()
 		previous := selectedCostTestUSDValuation(t, selectedCostTestRef(t, "valuation-previous", 1), "10")
 		cases := map[string]func(*SelectedCostAdjustmentInput){
 			"missing account": func(in *SelectedCostAdjustmentInput) { in.AccountID = " " },
@@ -64,6 +66,7 @@ func TestSelectedCostAdjustmentInputNormalize(t *testing.T) {
 		}
 		for name, mutate := range cases {
 			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 				input := SelectedCostAdjustmentInput{
 					AccountID: selectedCostTestAccount, CallID: selectedCostTestCallID(t),
 					HeadKey: selectedCostTestHeadKey, Subject: subject,

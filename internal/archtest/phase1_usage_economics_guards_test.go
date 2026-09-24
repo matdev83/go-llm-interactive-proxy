@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,15 +24,9 @@ func TestPhase1PublicOptionsStayNonMonetary(t *testing.T) {
 	t.Parallel()
 	typ := reflect.TypeFor[lipruntime.Options]()
 	containsTerm := func(value, term string) bool {
-		for _, word := range identifierWords(value) {
-			if word == term {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(identifierWords(value), term)
 	}
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		for _, term := range []string{
 			"billing", "money", "currency", "tariff", "settlement", "exposure",
 			"journal", "balance", "price", "charge", "credit", "debit",

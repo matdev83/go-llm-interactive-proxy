@@ -182,7 +182,8 @@ func g2RunReconciliation(t *testing.T, store *economicJobRunnerTestStore, reconW
 	return envelope, string(record.ResultJSON)
 }
 
-func g2Nano(v int64) *int64 { return &v }
+//go:fix inline
+func g2Nano(v int64) *int64 { return new(v) }
 
 // g2SingleValuationJSON runs one local valuation carrying three distinct lines
 // (ids lineA/lineB/lineC) with the given rounded-amount order, plus one clean
@@ -299,7 +300,6 @@ func TestPhase172G2EqualQuantityAmountConflictIsOrderIndependentThroughRunner(t 
 func TestPhase172G2AllEqualAmountsMatchThroughRunner(t *testing.T) {
 	t.Parallel()
 	for _, amount := range []*int64{g2Nano(1), g2Nano(7), nil} {
-		amount := amount
 		label := "nil"
 		if amount != nil {
 			label = "nano"
@@ -308,7 +308,7 @@ func TestPhase172G2AllEqualAmountsMatchThroughRunner(t *testing.T) {
 			t.Parallel()
 			var amounts []*int64
 			if amount != nil {
-				amounts = []*int64{g2Nano(*amount), g2Nano(*amount), g2Nano(*amount)}
+				amounts = []*int64{new(*amount), new(*amount), new(*amount)}
 			} else {
 				amounts = []*int64{nil, nil, nil}
 			}

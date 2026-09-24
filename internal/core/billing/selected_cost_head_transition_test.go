@@ -368,6 +368,7 @@ func TestSelectedCostHeadChangedFrozenFXBasisIsRejected(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			result, err := PlanSelectedCostHeadTransition(selectedCostTestInput(t, head,
 				SelectedCostHeadExpectation{Version: 1, Previous: &previous}, tc.selected))
 			require.NoError(t, err)
@@ -552,6 +553,7 @@ func TestSelectedCostHeadMissingAndProvisionalSelectionsFailClosed(t *testing.T)
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			selection := selectedCostTestSelection(t, tc.status, tc.provenance, "USD", tc.amount, nil, "")
 			selection.Reason = tc.reason
 			selected, err := NewSelectedCostValuation(selectedCostTestRef(t, "valuation-"+strings.ReplaceAll(tc.name, " ", "-"), 2), selection)
@@ -661,6 +663,7 @@ func TestSelectedCostHeadJournalIntentRejectsInvalidGrossAmounts(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := tc.intent.Validate()
 			if tc.wantErr {
 				require.Error(t, err)
@@ -843,6 +846,7 @@ func TestSelectedCostHeadRejectsMalformedInput(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := PlanSelectedCostHeadTransition(tc.input)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrSelectedCostHeadInvalid)
@@ -897,6 +901,7 @@ func TestSelectedCostValuationConstructorRejectsInconsistentSelection(t *testing
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := NewSelectedCostValuation(ref, tc.selection)
 			require.Error(t, err)
 			assert.True(t, errors.Is(err, ErrSelectedCostHeadInvalid))

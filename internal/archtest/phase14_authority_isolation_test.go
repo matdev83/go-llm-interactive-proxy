@@ -107,14 +107,14 @@ func TestPhase14SingleMonetaryAdmissionAuthority(t *testing.T) {
 		body := string(src)
 		// Receiver definitions carry ") Admit(" / ") AdmitExposure("; the
 		// port interface declarations do not, so they never match here.
-		for _, line := range strings.Split(body, "\n") {
+		for line := range strings.SplitSeq(body, "\n") {
 			if strings.Contains(line, ") Admit(") && strings.Contains(line, "BillingExposureAdmissionInput") {
 				rel, _ := filepath.Rel(root, path)
 				authorityImpls = append(authorityImpls, filepath.ToSlash(rel))
 				break
 			}
 		}
-		for _, line := range strings.Split(body, "\n") {
+		for line := range strings.SplitSeq(body, "\n") {
 			if strings.Contains(line, ") AdmitExposure(") {
 				rel, _ := filepath.Rel(root, path)
 				storeImpls = append(storeImpls, filepath.ToSlash(rel))
@@ -168,7 +168,7 @@ func classifyQuiesceDecorator(t *testing.T, path string) {
 		t.Fatalf("quiescence decorator %s must declare exactly the one named type QuiescedStrictAdmission", path)
 	}
 	admitLines := 0
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if strings.Contains(line, ") Admit(") && strings.Contains(line, "BillingExposureAdmissionInput") {
 			admitLines++
 			if !strings.Contains(line, "QuiescedStrictAdmission") {

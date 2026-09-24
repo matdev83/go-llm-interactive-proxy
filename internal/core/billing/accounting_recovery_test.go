@@ -51,6 +51,7 @@ func recoverySnapshotFor(marker AccountingCutoverMarker, hasV2 bool) AccountingR
 }
 
 func TestRecoveryCurrentCapabilitySupportsBothReaders(t *testing.T) {
+	t.Parallel()
 	capability := CurrentAccountingBinaryCapability()
 	if err := capability.Validate(); err != nil {
 		t.Fatalf("current capability must validate: %v", err)
@@ -61,6 +62,7 @@ func TestRecoveryCurrentCapabilitySupportsBothReaders(t *testing.T) {
 }
 
 func TestRecoveryCaptureRollbackAllowedBeforeCutover(t *testing.T) {
+	t.Parallel()
 	capability := CurrentAccountingBinaryCapability()
 	stale := AccountingBinaryCapability{SupportsV1Reader: true}
 	if err := stale.Validate(); err != nil {
@@ -86,6 +88,7 @@ func TestRecoveryCaptureRollbackAllowedBeforeCutover(t *testing.T) {
 }
 
 func TestRecoveryRollbackBlockedAfterV2Postings(t *testing.T) {
+	t.Parallel()
 	stale := AccountingBinaryCapability{SupportsV1Reader: true}
 	current := CurrentAccountingBinaryCapability()
 	for _, state := range []AccountingCutoverState{
@@ -111,6 +114,7 @@ func TestRecoveryRollbackBlockedAfterV2Postings(t *testing.T) {
 }
 
 func TestRecoveryStaleBinaryRejectedOnV2FloorWithoutPostings(t *testing.T) {
+	t.Parallel()
 	stale := AccountingBinaryCapability{SupportsV1Reader: true}
 	current := CurrentAccountingBinaryCapability()
 	snapshot := recoverySnapshotFor(recoveryTestMarker(t, AccountingCutoverV2Active), false)
@@ -129,6 +133,7 @@ func TestRecoveryStaleBinaryRejectedOnV2FloorWithoutPostings(t *testing.T) {
 }
 
 func TestRecoveryV2CapableWithoutEpochFencingRejected(t *testing.T) {
+	t.Parallel()
 	// A binary that reads V2 formats but does not understand marker
 	// version/epoch claim fencing cannot safely serve V2 financial state:
 	// its workers could double-post across an epoch change.
@@ -146,6 +151,7 @@ func TestRecoveryV2CapableWithoutEpochFencingRejected(t *testing.T) {
 }
 
 func TestRecoveryLegacyStoreWithoutMarkerServesV1Reader(t *testing.T) {
+	t.Parallel()
 	stale := AccountingBinaryCapability{SupportsV1Reader: true}
 	current := CurrentAccountingBinaryCapability()
 	snapshot := AccountingRecoverySnapshot{StoreID: "legacy-no-marker", MarkerFound: false}
@@ -171,6 +177,7 @@ func TestRecoveryLegacyStoreWithoutMarkerServesV1Reader(t *testing.T) {
 }
 
 func TestRecoveryUnknownFloorFailsClosed(t *testing.T) {
+	t.Parallel()
 	current := CurrentAccountingBinaryCapability()
 	marker := recoveryTestMarker(t, AccountingCutoverV2Active)
 	marker.CompatibilityFloor = "v99"
@@ -190,6 +197,7 @@ func TestRecoveryUnknownFloorFailsClosed(t *testing.T) {
 }
 
 func TestRecoveryMalformedInputsFailClosed(t *testing.T) {
+	t.Parallel()
 	current := CurrentAccountingBinaryCapability()
 	bad := AccountingRecoverySnapshot{}
 	if err := CheckCaptureRollbackAllowed(bad); err == nil {
@@ -212,6 +220,7 @@ func TestRecoveryMalformedInputsFailClosed(t *testing.T) {
 }
 
 func TestRecoveryQuiescePredicateMatchesStartupVerdict(t *testing.T) {
+	t.Parallel()
 	// Determinism contract: quiesce is required exactly when startup fails
 	// with the stale-binary error. No silent downgrade is possible because
 	// both paths consume the same predicate.

@@ -279,10 +279,7 @@ func measureEconomicsConvergenceGrowthOverlay(root string, doc BillingFinalConve
 			}
 			return economicsConvergenceGrowthResult{}, rerr
 		}
-		c := n - e.baseline
-		if c < 0 {
-			c = 0
-		}
+		c := max(n-e.baseline, 0)
 		credit[e.path] = c
 		if c > 0 {
 			summary.Lines += c

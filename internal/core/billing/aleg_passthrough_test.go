@@ -306,44 +306,57 @@ func TestEvaluateALegPassThroughAdversarial(t *testing.T) {
 		mutate    func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts)
 	}{
 		{name: "foreign head aleg", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.ALegID = "a-leg-foreign"
 		}},
 		{name: "head account mismatch", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.AccountID = "acct-other"
 		}},
 		{name: "head call mismatch", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.CallID = "bc_00000000000000000000000000000000"
 		}},
 		{name: "head currency mismatch", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.PostedAmount.Currency = "EUR"
 		}},
 		{name: "head policy mismatch", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Policy = VersionRef{ID: "policy", Version: "v2"}
 		}},
 		{name: "missing exposure policy", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Policy = VersionRef{}
 			facts.Head.PolicyRef = VersionRef{}
 		}},
 		{name: "head fingerprint mismatch", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.SettlementFingerprint = "fp-drift"
 		}},
 		{name: "head version zero", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.HeadVersion = 0
 		}},
 		{name: "head fence drift", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.Fence = facts.Head.HeadVersion + 1
 		}},
 		{name: "final with zero revision", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.ProviderRevision = 0
 			facts.Journals, facts.Snapshots = nil, nil
 		}},
 		{name: "posted above bound", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.PostedAmount.Nano = 101
 		}},
 		{name: "amount mismatch", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.PostedAmount.Nano = 71
 		}},
 		{name: "stale future journal", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			future := alegPTProvider(4, 65)
 			futureSource := alegPTSource(t, scope, callID, future)
 			journal := alegPTJournal(t, scope, futureSource, scope.ALegID,
@@ -352,6 +365,7 @@ func TestEvaluateALegPassThroughAdversarial(t *testing.T) {
 			facts.Snapshots = append(facts.Snapshots, alegPTSnapshot(scope, journal, "fp-future"))
 		}},
 		{name: "duplicate source key", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			dup := facts.Journals[0]
 			dup.ID = "tx-duplicate-id"
 			dup.AccountSequence = 9
@@ -361,6 +375,7 @@ func TestEvaluateALegPassThroughAdversarial(t *testing.T) {
 			facts.Snapshots = append(facts.Snapshots, alegPTSnapshot(scope, resealed, "fp-dup"))
 		}},
 		{name: "competing same revision", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			// A second historical claim on revision 2 (different valuation
 			// lineage) is ambiguous even though each journal validates
 			// alone: at most one journal per revision may be admitted.
@@ -373,14 +388,17 @@ func TestEvaluateALegPassThroughAdversarial(t *testing.T) {
 			facts.Snapshots = append(facts.Snapshots, alegPTSnapshot(scope, journal, "fp-competing"))
 		}},
 		{name: "unrelated empty aleg journal", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			stray := alegPTJournal(t, scope, "src-unrelated", "", "customer_financial_account",
 				"customer_adjustment_clearing", 10, 9, "tx-orig")
 			facts.Journals = append(facts.Journals, stray)
 		}},
 		{name: "foreign journal aleg", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			mutateJournal(facts, 0, func(j *JournalTransaction) { j.ALegID = "a-leg-foreign" })
 		}},
 		{name: "journal currency mismatch", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			mutateJournal(facts, 0, func(j *JournalTransaction) {
 				j.Currency = "EUR"
 				for i := range j.Entries {
@@ -389,29 +407,37 @@ func TestEvaluateALegPassThroughAdversarial(t *testing.T) {
 			})
 		}},
 		{name: "journal book conflict", wantIssue: ALegIssueBookConflict, mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			mutateJournal(facts, 0, func(j *JournalTransaction) { j.Book = "authorization" })
 		}},
 		{name: "journal shape drift", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			mutateJournal(facts, 0, func(j *JournalTransaction) {
 				j.Entries[1].LedgerAccount = "usage_revenue"
 			})
 		}},
 		{name: "journal fingerprint drift", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Journals[0].SemanticFingerprint = "fp-drift"
 		}},
 		{name: "missing operation snapshot", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Snapshots = facts.Snapshots[1:]
 		}},
 		{name: "snapshot integrity drift", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Snapshots[0].IntegrityFingerprint = "snapshot:v1:drift"
 		}},
 		{name: "snapshot sequence drift", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Snapshots[0].SequenceEnd++
 		}},
 		{name: "correction group drift", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			mutateJournal(facts, 0, func(j *JournalTransaction) { j.CorrectionGroupID = "tx-other" })
 		}},
 		{name: "provisional head with journals", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegPassThroughFacts) {
+			t.Helper()
 			facts.Head.Status = CostPassThroughSettlementProvisional
 			facts.Head.ProviderRevision = 0
 			facts.Head.PostedAmount.Nano = 60

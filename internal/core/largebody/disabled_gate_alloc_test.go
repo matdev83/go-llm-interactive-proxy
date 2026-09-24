@@ -49,7 +49,6 @@ func TestCapabilityProbe_NoAllocation(t *testing.T) {
 		"capable":   capable,
 	}
 	for name, exec := range cases {
-		exec := exec
 		allocs := testing.AllocsPerRun(1000, func() {
 			_, _ = largebody.AsLargeBodyExecutor(exec)
 		})

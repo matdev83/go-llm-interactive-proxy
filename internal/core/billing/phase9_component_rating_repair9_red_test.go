@@ -10,12 +10,12 @@ import (
 func TestPhase9Repair9_COGSUsesReplacementCoverageNotStaleInclusiveEdge(t *testing.T) {
 	t.Parallel()
 	callID := mustBillingCallID(t)
-	parent := phase5ChargeObservation(t, callID, "b-repair9", "repair9-cogs-parent", "total", stringPtrRepair9("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}, metering.ChargeCoverageRef{})
+	parent := phase5ChargeObservation(t, callID, "b-repair9", "repair9-cogs-parent", "total", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}, metering.ChargeCoverageRef{})
 	parent.Charges[0].Covers = nil
 	parent.Semantics = metering.SemanticsCumulative
 	parent.StreamID = "repair9-cogs-stream"
 	parent.Sequence = 1
-	child := phase5ChargeObservation(t, callID, "b-repair9", "repair9-cogs-child", "child", stringPtrRepair9("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	child := phase5ChargeObservation(t, callID, "b-repair9", "repair9-cogs-child", "child", new("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	child.Semantics = metering.SemanticsDelta
 	child.StreamID = parent.StreamID
 	child.Sequence = 2
@@ -28,7 +28,7 @@ func TestPhase9Repair9_COGSUsesReplacementCoverageNotStaleInclusiveEdge(t *testi
 	if err != nil {
 		t.Fatalf("parent ref: %v", err)
 	}
-	replacement := phase5ChargeObservation(t, callID, "b-repair9", "repair9-cogs-replacement", "total", stringPtrRepair9("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	replacement := phase5ChargeObservation(t, callID, "b-repair9", "repair9-cogs-replacement", "total", new("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	replacement.Semantics = metering.SemanticsReplacement
 	replacement.StreamID = parent.StreamID
 	replacement.Sequence = 3
@@ -54,7 +54,7 @@ func TestPhase9Repair9_COGSUsesReplacementCoverageNotStaleInclusiveEdge(t *testi
 func TestPhase9Repair9_COGSIgnoresSupersededUnknownCoverage(t *testing.T) {
 	t.Parallel()
 	callID := mustBillingCallID(t)
-	parent := phase5ChargeObservation(t, callID, "b-repair9-missing", "repair9-missing-parent", "total", stringPtrRepair9("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	parent := phase5ChargeObservation(t, callID, "b-repair9-missing", "repair9-missing-parent", "total", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	parent.Semantics = metering.SemanticsCumulative
 	parent.StreamID = "repair9-missing-stream"
 	parent.Sequence = 1
@@ -66,7 +66,7 @@ func TestPhase9Repair9_COGSIgnoresSupersededUnknownCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parent ref: %v", err)
 	}
-	replacement := phase5ChargeObservation(t, callID, "b-repair9-missing", "repair9-missing-replacement", "total", stringPtrRepair9("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	replacement := phase5ChargeObservation(t, callID, "b-repair9-missing", "repair9-missing-replacement", "total", new("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	replacement.Semantics = metering.SemanticsReplacement
 	replacement.StreamID = parent.StreamID
 	replacement.Sequence = 2
@@ -94,7 +94,7 @@ func TestPhase9Repair9_COGSIgnoresSupersededUnknownCoverage(t *testing.T) {
 func TestPhase9Repair9_COGSIgnoresSupersededHistoricalPendingRevision(t *testing.T) {
 	t.Parallel()
 	callID := mustBillingCallID(t)
-	parent := phase5ChargeObservation(t, callID, "b-repair9-pending", "repair9-pending-parent", "total", stringPtrRepair9("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	parent := phase5ChargeObservation(t, callID, "b-repair9-pending", "repair9-pending-parent", "total", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	parent.Semantics = metering.SemanticsCorrection
 	parent.StreamID = "repair9-pending-stream"
 	parent.Sequence = 1
@@ -105,7 +105,7 @@ func TestPhase9Repair9_COGSIgnoresSupersededHistoricalPendingRevision(t *testing
 	if err != nil {
 		t.Fatalf("parent ref: %v", err)
 	}
-	replacement := phase5ChargeObservation(t, callID, "b-repair9-pending", "repair9-pending-replacement", "total", stringPtrRepair9("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	replacement := phase5ChargeObservation(t, callID, "b-repair9-pending", "repair9-pending-replacement", "total", new("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	replacement.Semantics = metering.SemanticsReplacement
 	replacement.StreamID = parent.StreamID
 	replacement.Sequence = 2
@@ -127,11 +127,11 @@ func TestPhase9Repair9_COGSIgnoresSupersededHistoricalPendingRevision(t *testing
 func TestPhase9Repair9_COGSRetainsReplacementInclusiveCoverage(t *testing.T) {
 	t.Parallel()
 	callID := mustBillingCallID(t)
-	parent := phase5ChargeObservation(t, callID, "b-repair9-retain", "repair9-retain-parent", "total", stringPtrRepair9("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	parent := phase5ChargeObservation(t, callID, "b-repair9-retain", "repair9-retain-parent", "total", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	parent.Semantics = metering.SemanticsCumulative
 	parent.StreamID = "repair9-retain-stream"
 	parent.Sequence = 1
-	child := phase5ChargeObservation(t, callID, "b-repair9-retain", "repair9-retain-child", "child", stringPtrRepair9("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	child := phase5ChargeObservation(t, callID, "b-repair9-retain", "repair9-retain-child", "child", new("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	child.Semantics = metering.SemanticsDelta
 	child.StreamID = parent.StreamID
 	child.Sequence = 2
@@ -148,7 +148,7 @@ func TestPhase9Repair9_COGSRetainsReplacementInclusiveCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parent ref: %v", err)
 	}
-	replacement := phase5ChargeObservation(t, callID, "b-repair9-retain", "repair9-retain-replacement", "total", stringPtrRepair9("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	replacement := phase5ChargeObservation(t, callID, "b-repair9-retain", "repair9-retain-replacement", "total", new("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	replacement.Semantics = metering.SemanticsReplacement
 	replacement.StreamID = parent.StreamID
 	replacement.Sequence = 3
@@ -175,11 +175,11 @@ func TestPhase9Repair9_COGSRetainsReplacementInclusiveCoverage(t *testing.T) {
 func TestPhase9Repair9_COGSRejectsEffectiveAggregateAdditiveComponentOverlap(t *testing.T) {
 	t.Parallel()
 	callID := mustBillingCallID(t)
-	parent := phase5ChargeObservation(t, callID, "b-repair9-overlap", "repair9-overlap-parent", "total", stringPtrRepair9("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	parent := phase5ChargeObservation(t, callID, "b-repair9-overlap", "repair9-overlap-parent", "total", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	parent.Semantics = metering.SemanticsCumulative
 	parent.StreamID = "repair9-overlap-stream"
 	parent.Sequence = 1
-	child := phase5ChargeObservation(t, callID, "b-repair9-overlap", "repair9-overlap-child", "child", stringPtrRepair9("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	child := phase5ChargeObservation(t, callID, "b-repair9-overlap", "repair9-overlap-child", "child", new("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	child.Charges[0].Kind = metering.ChargeKindComponent
 	child.Charges[0].Component = parentComponentRepair9()
 	child.Semantics = metering.SemanticsDelta
@@ -213,7 +213,7 @@ func TestPhase9Repair9_COGSNilBaseCorrectionIsIncompleteInAnyOrder(t *testing.T)
 	if err != nil {
 		t.Fatalf("base ref: %v", err)
 	}
-	correction := phase5ChargeObservation(t, callID, "b-repair9-nil", "repair9-nil-correction", "usage", stringPtrRepair9("6"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	correction := phase5ChargeObservation(t, callID, "b-repair9-nil", "repair9-nil-correction", "usage", new("6"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	correction.Semantics = metering.SemanticsCorrection
 	correction.StreamID = base.StreamID
 	correction.Sequence = 2
@@ -235,7 +235,7 @@ func TestPhase9Repair9_COGSNilBaseCorrectionIsIncompleteInAnyOrder(t *testing.T)
 func TestPhase9Repair9_COGSPartialReplacementRetainsCoverageDiagnostic(t *testing.T) {
 	t.Parallel()
 	callID := mustBillingCallID(t)
-	parent := phase5ChargeObservation(t, callID, "b-repair9-partial", "repair9-partial-parent", "total", stringPtrRepair9("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	parent := phase5ChargeObservation(t, callID, "b-repair9-partial", "repair9-partial-parent", "total", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	parent.Semantics = metering.SemanticsCumulative
 	parent.StreamID = "repair9-partial-stream"
 	parent.Sequence = 1
@@ -247,7 +247,7 @@ func TestPhase9Repair9_COGSPartialReplacementRetainsCoverageDiagnostic(t *testin
 	if err != nil {
 		t.Fatalf("parent ref: %v", err)
 	}
-	replacement := phase5ChargeObservation(t, callID, "b-repair9-partial", "repair9-partial-replacement", "surcharge", stringPtrRepair9("3"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	replacement := phase5ChargeObservation(t, callID, "b-repair9-partial", "repair9-partial-replacement", "surcharge", new("3"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	replacement.Semantics = metering.SemanticsReplacement
 	replacement.StreamID = parent.StreamID
 	replacement.Sequence = 2
@@ -278,7 +278,7 @@ func TestPhase9Repair9_COGSPartialReplacementRetainsCoverageDiagnostic(t *testin
 func TestPhase9Repair9_COGSOneToManyReplacementDropsOneChargeBase(t *testing.T) {
 	t.Parallel()
 	callID := mustBillingCallID(t)
-	base := phase5ChargeObservation(t, callID, "b-repair9-many", "repair9-many-base", "usage", stringPtrRepair9("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	base := phase5ChargeObservation(t, callID, "b-repair9-many", "repair9-many-base", "usage", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	base.Charges[0].Component = parentComponentRepair9()
 	base.Semantics = metering.SemanticsCumulative
 	base.StreamID = "repair9-many-stream"
@@ -287,8 +287,8 @@ func TestPhase9Repair9_COGSOneToManyReplacementDropsOneChargeBase(t *testing.T) 
 	if err != nil {
 		t.Fatalf("base ref: %v", err)
 	}
-	replacement := phase5ChargeObservation(t, callID, "b-repair9-many", "repair9-many-replacement", "usage", stringPtrRepair9("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
-	replacement.Charges = append(replacement.Charges, phase5ChargeObservation(t, callID, "b-repair9-many", "repair9-many-surcharge", "surcharge", stringPtrRepair9("2"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}).Charges[0])
+	replacement := phase5ChargeObservation(t, callID, "b-repair9-many", "repair9-many-replacement", "usage", new("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	replacement.Charges = append(replacement.Charges, phase5ChargeObservation(t, callID, "b-repair9-many", "repair9-many-surcharge", "surcharge", new("2"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}).Charges[0])
 	for i := range replacement.Charges {
 		replacement.Charges[i].Component = parentComponentRepair9()
 	}
@@ -310,7 +310,8 @@ func TestPhase9Repair9_COGSOneToManyReplacementDropsOneChargeBase(t *testing.T) 
 	}
 }
 
-func stringPtrRepair9(value string) *string { return &value }
+//go:fix inline
+func stringPtrRepair9(value string) *string { return new(value) }
 
 func parentComponentRepair9() *metering.ComponentKey {
 	key := metering.ComponentKey{Direction: metering.DirectionInput, Component: metering.ComponentImage, Unit: metering.UnitImage, SchemaID: "repair9.v1"}

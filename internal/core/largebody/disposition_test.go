@@ -14,7 +14,7 @@ var (
 func validSealedSummary(t *testing.T, genID string) largebody.WireEligibilitySummary {
 	t.Helper()
 	planes := make([]largebody.PlaneEligibilityInput, largebody.WireEligibilityPlaneCount)
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		id, ok := largebody.WireEligibilityPlaneID(i)
 		if !ok {
 			t.Fatalf("missing plane id for index %d", i)
@@ -44,7 +44,7 @@ func validSealedSummary(t *testing.T, genID string) largebody.WireEligibilitySum
 func summaryWithPlaneBlocker(t *testing.T, genID string) largebody.WireEligibilitySummary {
 	t.Helper()
 	planes := make([]largebody.PlaneEligibilityInput, largebody.WireEligibilityPlaneCount)
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		id, _ := largebody.WireEligibilityPlaneID(i)
 		planes[i] = largebody.PlaneEligibilityInput{
 			ID:       id,
@@ -72,7 +72,7 @@ func summaryWithPlaneBlocker(t *testing.T, genID string) largebody.WireEligibili
 func summaryWithHookBlocker(t *testing.T, genID string) largebody.WireEligibilitySummary {
 	t.Helper()
 	planes := make([]largebody.PlaneEligibilityInput, largebody.WireEligibilityPlaneCount)
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		id, _ := largebody.WireEligibilityPlaneID(i)
 		planes[i] = largebody.PlaneEligibilityInput{
 			ID:       id,
@@ -98,7 +98,7 @@ func summaryWithHookBlocker(t *testing.T, genID string) largebody.WireEligibilit
 func summaryWithPortBlocker(t *testing.T, genID string) largebody.WireEligibilitySummary {
 	t.Helper()
 	planes := make([]largebody.PlaneEligibilityInput, largebody.WireEligibilityPlaneCount)
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		id, _ := largebody.WireEligibilityPlaneID(i)
 		planes[i] = largebody.PlaneEligibilityInput{
 			ID:       id,
@@ -283,7 +283,6 @@ func TestStaticDisposition_DefinitelyCanonical_Cases(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			disp, reason := largebody.StaticDisposition(tc.summary, tc.input)
@@ -365,7 +364,6 @@ func TestStaticDisposition_NeedsRequestAssessment_Cases(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			disp, reason := largebody.StaticDisposition(cleanSummary, tc.input)
@@ -536,7 +534,6 @@ func TestStaticDisposition_ZeroAllocations(t *testing.T) {
 	}
 
 	for _, tc := range inputs {
-		tc := tc
 		allocs := testing.AllocsPerRun(1000, func() {
 			sinkDisposition, sinkReason = largebody.StaticDisposition(tc.summary, tc.input)
 		})

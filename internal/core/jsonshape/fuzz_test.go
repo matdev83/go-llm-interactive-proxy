@@ -148,17 +148,11 @@ func FuzzScannerDifferential(f *testing.F) {
 
 			chunkSize := 1
 			if len(data) > 32 {
-				chunkSize = len(data) / 4
-				if chunkSize < 1 {
-					chunkSize = 1
-				}
+				chunkSize = max(len(data)/4, 1)
 			}
 
 			for i := 0; i < len(data); i += chunkSize {
-				end := i + chunkSize
-				if end > len(data) {
-					end = len(data)
-				}
+				end := min(i+chunkSize, len(data))
 				if chunkErr = scChunk.Feed(data[i:end]); chunkErr != nil {
 					break
 				}

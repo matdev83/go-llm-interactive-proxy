@@ -369,6 +369,7 @@ func TestPhase9ReferenceRater_MissingAndIncompleteNeverBecomeZero(t *testing.T) 
 		}, want: ErrQuantityIncomplete},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			observation := phase9Observation(t, tc.name, metering.OriginLocal, key, "2")
 			if tc.name == "incomplete quantity" {
 				observation.Measures[0].Value = nil
@@ -792,6 +793,7 @@ func TestPhase9ReferenceRater_RejectsContradictoryKindsAndEqualSpecificityOverla
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			tariff := economics.TariffSnapshot{
 				Ref:      economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "phase9-invalid", Version: "v1"}, RaterID: "reference"},
 				Currency: "USD", Rules: tc.rules,

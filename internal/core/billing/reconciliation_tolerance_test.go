@@ -76,6 +76,7 @@ func TestReconciliationTolerancePolicyValidation(t *testing.T) {
 	eur := ReconciliationToleranceScope{Currency: "EUR"}
 
 	t.Run("valid disjoint scopes", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(
 			toleranceTestRule("usd", usd, toleranceLimit(t, "0.01"), toleranceLimit(t, "0.001")),
 			toleranceTestRule("eur", eur, toleranceLimit(t, "0.02"), nil),
@@ -86,6 +87,7 @@ func TestReconciliationTolerancePolicyValidation(t *testing.T) {
 	})
 
 	t.Run("duplicate scope", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(
 			toleranceTestRule("first", usd, toleranceLimit(t, "0.01"), nil),
 			toleranceTestRule("second", usd, toleranceLimit(t, "0.02"), nil),
@@ -96,6 +98,7 @@ func TestReconciliationTolerancePolicyValidation(t *testing.T) {
 	})
 
 	t.Run("ambiguous overlap", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(
 			toleranceTestRule("broad", usd, toleranceLimit(t, "0.01"), nil),
 			toleranceTestRule("narrow", tokenUSD, toleranceLimit(t, "0.02"), nil),
@@ -106,6 +109,7 @@ func TestReconciliationTolerancePolicyValidation(t *testing.T) {
 	})
 
 	t.Run("duplicate rule id", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(
 			toleranceTestRule("same", usd, toleranceLimit(t, "0.01"), nil),
 			toleranceTestRule("same", eur, toleranceLimit(t, "0.02"), nil),
@@ -116,6 +120,7 @@ func TestReconciliationTolerancePolicyValidation(t *testing.T) {
 	})
 
 	t.Run("rule without limits", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("empty", usd, nil, nil))
 		if err := policy.Validate(); !errors.Is(err, ErrReconciliationToleranceInvalid) {
 			t.Fatalf("error = %v, want ErrReconciliationToleranceInvalid", err)
@@ -123,6 +128,7 @@ func TestReconciliationTolerancePolicyValidation(t *testing.T) {
 	})
 
 	t.Run("negative limit", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("negative", usd, toleranceLimit(t, "-0.01"), nil))
 		if err := policy.Validate(); !errors.Is(err, ErrReconciliationToleranceInvalid) {
 			t.Fatalf("error = %v, want ErrReconciliationToleranceInvalid", err)
@@ -130,6 +136,7 @@ func TestReconciliationTolerancePolicyValidation(t *testing.T) {
 	})
 
 	t.Run("unbounded coefficient precision", func(t *testing.T) {
+		t.Parallel()
 		limit := metering.Decimal{Coefficient: strings.Repeat("9", 40)}
 		policy := toleranceTestPolicy(toleranceTestRule("wide", usd, &limit, nil))
 		if err := policy.Validate(); !errors.Is(err, ErrReconciliationToleranceInvalid) {
@@ -138,6 +145,7 @@ func TestReconciliationTolerancePolicyValidation(t *testing.T) {
 	})
 
 	t.Run("unbounded scale", func(t *testing.T) {
+		t.Parallel()
 		limit := metering.Decimal{Coefficient: "1", Scale: 255}
 		policy := toleranceTestPolicy(toleranceTestRule("deep", usd, &limit, nil))
 		if err := policy.Validate(); !errors.Is(err, ErrReconciliationToleranceInvalid) {
@@ -146,6 +154,7 @@ func TestReconciliationTolerancePolicyValidation(t *testing.T) {
 	})
 
 	t.Run("unsupported version", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", usd, toleranceLimit(t, "0.01"), nil))
 		policy.Version = 99
 		if err := policy.Validate(); !errors.Is(err, ErrReconciliationToleranceInvalid) {
@@ -154,6 +163,7 @@ func TestReconciliationTolerancePolicyValidation(t *testing.T) {
 	})
 
 	t.Run("empty and malformed policy identity", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", usd, toleranceLimit(t, "0.01"), nil))
 		policy.Rules = nil
 		if err := policy.Validate(); !errors.Is(err, ErrReconciliationToleranceInvalid) {
@@ -178,6 +188,7 @@ func TestReconciliationToleranceExactFormula(t *testing.T) {
 	t.Parallel()
 
 	t.Run("relative limit governs", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.05"), toleranceLimit(t, "0.10")))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, toleranceAmount(t, "USD", "1.00"), toleranceAmount(t, "USD", "1.10"))
 		if err != nil {
@@ -199,6 +210,7 @@ func TestReconciliationToleranceExactFormula(t *testing.T) {
 	})
 
 	t.Run("absolute limit governs", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.20"), toleranceLimit(t, "0.01")))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, toleranceAmount(t, "USD", "1.00"), toleranceAmount(t, "USD", "1.10"))
 		if err != nil {
@@ -211,6 +223,7 @@ func TestReconciliationToleranceExactFormula(t *testing.T) {
 	})
 
 	t.Run("beyond threshold is discrepant", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.05"), toleranceLimit(t, "0.10")))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, toleranceAmount(t, "USD", "1.00"), toleranceAmount(t, "USD", "1.11"))
 		if err != nil {
@@ -224,6 +237,7 @@ func TestReconciliationToleranceExactFormula(t *testing.T) {
 	})
 
 	t.Run("exact match", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0"), nil))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, toleranceAmount(t, "USD", "1.00"), toleranceAmount(t, "USD", "1.00"))
 		if err != nil {
@@ -237,6 +251,7 @@ func TestReconciliationToleranceExactFormula(t *testing.T) {
 	})
 
 	t.Run("negative expected uses absolute magnitude", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0"), toleranceLimit(t, "0.30")))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, toleranceAmount(t, "USD", "-2"), toleranceAmount(t, "USD", "-1.5"))
 		if err != nil {
@@ -256,6 +271,7 @@ func TestReconciliationToleranceZeroDenominator(t *testing.T) {
 	t.Parallel()
 
 	t.Run("absolute limit applies when expected is zero", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.1"), toleranceLimit(t, "0.5")))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, toleranceAmount(t, "USD", "0"), toleranceAmount(t, "USD", "0.05"))
 		if err != nil {
@@ -275,6 +291,7 @@ func TestReconciliationToleranceZeroDenominator(t *testing.T) {
 	})
 
 	t.Run("absolute limit exceeded when expected is zero", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.1"), toleranceLimit(t, "0.5")))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, toleranceAmount(t, "USD", "0"), toleranceAmount(t, "USD", "0.2"))
 		if err != nil {
@@ -289,6 +306,7 @@ func TestReconciliationToleranceZeroDenominator(t *testing.T) {
 	})
 
 	t.Run("relative-only policy cannot classify zero expected", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, nil, toleranceLimit(t, "0.5")))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, toleranceAmount(t, "USD", "0"), toleranceAmount(t, "USD", "0.2"))
 		if err != nil {
@@ -304,6 +322,7 @@ func TestReconciliationToleranceZeroDenominator(t *testing.T) {
 	})
 
 	t.Run("zero expected and zero reported", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.1"), nil))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, toleranceAmount(t, "USD", "0"), toleranceAmount(t, "USD", "0"))
 		if err != nil {
@@ -321,6 +340,7 @@ func TestReconciliationToleranceNoMatchingRuleAndUnitMismatch(t *testing.T) {
 	t.Parallel()
 
 	t.Run("no matching rule is partial", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.1"), nil))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "EUR"}, toleranceAmount(t, "EUR", "1"), toleranceAmount(t, "EUR", "1.5"))
 		if err != nil {
@@ -337,6 +357,7 @@ func TestReconciliationToleranceNoMatchingRuleAndUnitMismatch(t *testing.T) {
 	})
 
 	t.Run("unit mismatch is incomparable", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.1"), nil))
 		evaluation, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, toleranceAmount(t, "USD", "1"), toleranceAmount(t, "EUR", "1.5"))
 		if err != nil {

@@ -3,6 +3,7 @@ package largebody
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -424,10 +425,5 @@ func (a *BackendWireProofAssessor) ComposeOverrideCandidate(
 }
 
 func containsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, s)
 }

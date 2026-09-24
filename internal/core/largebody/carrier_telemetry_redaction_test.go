@@ -17,6 +17,7 @@ import (
 // verbs, JSON marshal, or slog handlers. Session/response IDs travel in the
 // same carrier struct, so the carrier exposes presence signals only.
 func TestSensitiveCarrier_NeverFormatsSecrets(t *testing.T) {
+	t.Parallel()
 	const token = "lip-resume-token-telemetry-probe"
 	const sessionID = "sess-telemetry-probe"
 	const aLegID = "a-leg-telemetry-probe"
@@ -30,6 +31,7 @@ func TestSensitiveCarrier_NeverFormatsSecrets(t *testing.T) {
 	}
 
 	t.Run("sensitive verbs", func(t *testing.T) {
+		t.Parallel()
 		for _, verb := range []string{"%v", "%+v", "%q", "%s"} {
 			rendered := fmt.Sprintf(verb, sensitive)
 			for _, secret := range secrets[:1] {
@@ -44,6 +46,7 @@ func TestSensitiveCarrier_NeverFormatsSecrets(t *testing.T) {
 	})
 
 	t.Run("carrier verbs", func(t *testing.T) {
+		t.Parallel()
 		renderings := map[string]string{
 			"%v":       fmt.Sprintf("%v", carrier),
 			"%+v":      fmt.Sprintf("%+v", carrier),
@@ -65,6 +68,7 @@ func TestSensitiveCarrier_NeverFormatsSecrets(t *testing.T) {
 	})
 
 	t.Run("carrier json", func(t *testing.T) {
+		t.Parallel()
 		raw, err := json.Marshal(carrier)
 		if err != nil {
 			t.Fatalf("carrier MarshalJSON error = %v", err)
@@ -80,6 +84,7 @@ func TestSensitiveCarrier_NeverFormatsSecrets(t *testing.T) {
 	})
 
 	t.Run("sensitive json", func(t *testing.T) {
+		t.Parallel()
 		raw, err := json.Marshal(sensitive)
 		if err != nil {
 			t.Fatalf("SensitiveString MarshalJSON error = %v", err)
@@ -90,6 +95,7 @@ func TestSensitiveCarrier_NeverFormatsSecrets(t *testing.T) {
 	})
 
 	t.Run("slog handlers", func(t *testing.T) {
+		t.Parallel()
 		for _, format := range []string{"json", "text"} {
 			var buf bytes.Buffer
 			var handler slog.Handler
@@ -99,7 +105,8 @@ func TestSensitiveCarrier_NeverFormatsSecrets(t *testing.T) {
 				handler = slog.NewTextHandler(&buf, nil)
 			}
 			logger := slog.New(handler)
-			logger.Info("large-body-wire-event",
+			logger.Info(
+				"large-body-wire-event",
 				slog.Any("carrier", carrier),
 				slog.Any("resume_token", sensitive),
 			)
@@ -118,6 +125,7 @@ func TestSensitiveCarrier_NeverFormatsSecrets(t *testing.T) {
 // the resume bearer token must stay redacted under every fmt verb, JSON
 // marshal, and slog handler.
 func TestSessionInput_TokenNeverFormatsSecrets(t *testing.T) {
+	t.Parallel()
 	const token = "lip-session-input-token-probe"
 	input := largebody.SessionInput{
 		AuthoritativeSessionID: "sess-input-probe",

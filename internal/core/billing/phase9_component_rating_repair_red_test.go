@@ -257,6 +257,7 @@ func TestPhase9Repair_ExplicitRatingKindsRequireUnambiguousFields(t *testing.T) 
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			tariff := economics.TariffSnapshot{Ref: economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "phase9-kind-invalid", Version: tc.name}, RaterID: "reference"}, Currency: "USD", Rules: []economics.RatingRule{tc.rule}}
 			if _, err := NewReferenceRater(tariff); !errors.Is(err, economics.ErrInvalidRatingRule) {
 				t.Fatalf("publication error=%v, want %v", err, economics.ErrInvalidRatingRule)
@@ -281,6 +282,7 @@ func TestPhase9Repair_FixedFeeScopeMustMatchValuationScope(t *testing.T) {
 		{feeScope: economics.FixedFeeScopePeriod, valueScope: "call:call"},
 	} {
 		t.Run(string(tc.feeScope)+"-on-"+tc.valueScope, func(t *testing.T) {
+			t.Parallel()
 			tariff := phase9Tariff(t, []economics.RatingRule{
 				phase9LinearRule("image", key, "1"),
 				phase9FixedRule("fixed", tc.feeScope, "1"),
@@ -303,6 +305,7 @@ func TestPhase9Repair_ValuationRejectsRoundedAmountOutsideLineScope(t *testing.T
 	key := phase9Key(metering.DirectionInput, metering.ComponentImage, metering.UnitImage)
 	for _, scope := range []economics.RoundingScope{economics.RoundingScopeCall, economics.RoundingScopePeriod} {
 		t.Run(string(scope), func(t *testing.T) {
+			t.Parallel()
 			tariff := phase9Tariff(t, []economics.RatingRule{{ID: "scoped", Component: &key, Currency: "USD", UnitPrice: phase9Decimal("1"), SelectionScope: func() economics.RatingSelectionScope {
 				if scope == economics.RoundingScopePeriod {
 					return economics.SelectionPeriod

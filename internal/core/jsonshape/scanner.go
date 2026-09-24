@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -131,9 +132,7 @@ func (t *TopLevelSpanTracker) Span(key string) (Span, bool) {
 // Spans returns a copy of all recorded top-level spans.
 func (t *TopLevelSpanTracker) Spans() map[string]Span {
 	res := make(map[string]Span, len(t.spans))
-	for k, v := range t.spans {
-		res[k] = v
-	}
+	maps.Copy(res, t.spans)
 	return res
 }
 

@@ -51,48 +51,57 @@ func TestStableFromSum_ParityFixtures(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil call", func(t *testing.T) {
+		t.Parallel()
 		assertParityWithFromSum(t, nil)
 	})
 
 	t.Run("empty call", func(t *testing.T) {
+		t.Parallel()
 		assertParityWithFromSum(t, &lipapi.Call{})
 	})
 
 	t.Run("base call", func(t *testing.T) {
+		t.Parallel()
 		assertParityWithFromSum(t, freezeBaseCall())
 	})
 
 	t.Run("call with explicit ID", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.ID = "call-explicit-1"
 		assertParityWithFromSum(t, c)
 	})
 
 	t.Run("call with whitespace ID", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.ID = "  call-whitespace-2  "
 		assertParityWithFromSum(t, c)
 	})
 
 	t.Run("call with blank ID", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.ID = "   "
 		assertParityWithFromSum(t, c)
 	})
 
 	t.Run("huge string fixture", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Messages[0].Parts[0] = lipapi.TextPart(strings.Repeat("a", 1<<20))
 		assertParityWithFromSum(t, c)
 	})
 
 	t.Run("tricky unicode and html escapes", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Messages[0].Parts[0] = lipapi.TextPart("<div>&\"'\\</div>\u2028\u2029🧪 café \\u0041 \n\t\r")
 		assertParityWithFromSum(t, c)
 	})
 
 	t.Run("tools and tool choice", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Tools = []lipapi.ToolDef{{Name: "get_weather", Description: "lookup"}}
 		c.ToolChoice = lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny}
@@ -100,6 +109,7 @@ func TestStableFromSum_ParityFixtures(t *testing.T) {
 	})
 
 	t.Run("items shape", func(t *testing.T) {
+		t.Parallel()
 		c := &lipapi.Call{
 			Route: lipapi.RouteIntent{Selector: "stub:gpt-4o-mini"},
 			Items: []lipapi.Item{{
@@ -114,6 +124,7 @@ func TestStableFromSum_ParityFixtures(t *testing.T) {
 	})
 
 	t.Run("model and route extensions", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Route.Selector = "stub:gpt-4o"
 		c.Extensions = freezeModelExt("gpt-4o-mini")
@@ -121,6 +132,7 @@ func TestStableFromSum_ParityFixtures(t *testing.T) {
 	})
 
 	t.Run("session fields", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Session.AuthoritativeSessionID = "sess-1"
 		c.Session.ClientSessionID = "client-1"
@@ -131,11 +143,12 @@ func TestStableFromSum_ParityFixtures(t *testing.T) {
 	})
 
 	t.Run("optional generation options", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Options = lipapi.GenerationOptions{
-			MaxOutputTokens: freezeIntPtr(1024),
-			Temperature:     freezeFloatPtr(0.7),
-			TopP:            freezeFloatPtr(0.9),
+			MaxOutputTokens: new(1024),
+			Temperature:     new(0.7),
+			TopP:            new(0.9),
 			ReasoningEffort: "high",
 			Verbosity:       lipapi.VerbosityLow,
 		}

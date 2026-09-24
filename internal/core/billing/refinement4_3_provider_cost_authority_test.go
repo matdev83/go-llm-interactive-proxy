@@ -18,6 +18,7 @@ func refinement43ValidProviderCostRevisionInput(t *testing.T) ProviderCostRevisi
 }
 
 func TestRefinement43ProviderCostRevisionRequiresTrustedProviderEvidence(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		mutate    func(*ProviderCostRevisionInput)
@@ -132,6 +133,7 @@ func TestRefinement43ProviderCostRevisionRequiresTrustedProviderEvidence(t *test
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			input := refinement43ValidProviderCostRevisionInput(t)
 			tc.mutate(&input)
 
@@ -145,6 +147,7 @@ func TestRefinement43ProviderCostRevisionRequiresTrustedProviderEvidence(t *test
 }
 
 func TestRefinement43ProviderCostRevisionAcceptsProviderReportedOperatorEvidence(t *testing.T) {
+	t.Parallel()
 	input := refinement43ValidProviderCostRevisionInput(t)
 
 	normalized, err := input.Normalize()
@@ -158,6 +161,7 @@ func TestRefinement43ProviderCostRevisionAcceptsProviderReportedOperatorEvidence
 }
 
 func TestRefinement43ProviderCostRevisionAcceptsProviderChargeEvidence(t *testing.T) {
+	t.Parallel()
 	work := refinement43Work(t, 1, "10", metering.PaymentPartyOperator)
 	chargeSubject := work.Subject
 	chargeSubject.Kind = metering.SubjectProviderCharge
@@ -178,6 +182,7 @@ func TestRefinement43ProviderCostRevisionAcceptsProviderChargeEvidence(t *testin
 }
 
 func TestRefinement43ProviderCostBuilderRejectsUntrustedWorkEvidence(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		mutate func(*EconomicRevisionWork)
@@ -231,6 +236,7 @@ func TestRefinement43ProviderCostBuilderRejectsUntrustedWorkEvidence(t *testing.
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			work := refinement43Work(t, 1, "10", metering.PaymentPartyOperator)
 			tc.mutate(&work)
 
@@ -243,6 +249,7 @@ func TestRefinement43ProviderCostBuilderRejectsUntrustedWorkEvidence(t *testing.
 }
 
 func TestRefinement43ProviderCostRevisionPreservesPartialCoverageWithoutAuthority(t *testing.T) {
+	t.Parallel()
 	work := refinement43Work(t, 1, "10", metering.PaymentPartyOperator)
 	ref, err := work.Input.Observations[0].Ref(work.Subject.StoreID)
 	require.NoError(t, err)
@@ -263,6 +270,7 @@ func TestRefinement43ProviderCostRevisionPreservesPartialCoverageWithoutAuthorit
 }
 
 func TestRefinement43ProviderCostBuilderPreservesUnavailableProviderCoverage(t *testing.T) {
+	t.Parallel()
 	work := refinement43Work(t, 1, "10", metering.PaymentPartyOperator)
 	work.Input.Observations[0].Authority = metering.AuthorityUnavailableClaim
 
@@ -276,6 +284,7 @@ func TestRefinement43ProviderCostBuilderPreservesUnavailableProviderCoverage(t *
 }
 
 func TestRefinement43ProviderCostBuilderPreservesUnknownPayerCoverage(t *testing.T) {
+	t.Parallel()
 	work := refinement43Work(t, 1, "10", metering.PaymentPartyUnknown)
 
 	input, err := BuildProviderCostRevisionInput(work, economics.Valuation{ID: "refinement43-unknown-payer"})
@@ -287,6 +296,7 @@ func TestRefinement43ProviderCostBuilderPreservesUnknownPayerCoverage(t *testing
 }
 
 func TestRefinement43ProviderCostRevisionAuthorityErrorIsTyped(t *testing.T) {
+	t.Parallel()
 	input := refinement43ValidProviderCostRevisionInput(t)
 	input.Evidence.Observations[0].Authority = metering.AuthorityEstimatedClaim
 

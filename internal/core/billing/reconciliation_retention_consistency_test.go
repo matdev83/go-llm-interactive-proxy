@@ -23,6 +23,7 @@ func TestReconciliationRetentionDerivesQuantityStatusFromItems(t *testing.T) {
 	}
 
 	t.Run("false matched label is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Quantity.Status = ReconciliationStatusMatched
 		result.Quantity.Reason = ReconciliationReasonNone
@@ -32,6 +33,7 @@ func TestReconciliationRetentionDerivesQuantityStatusFromItems(t *testing.T) {
 	})
 
 	t.Run("false complete label is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Quantity.Complete = false
 		if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -40,6 +42,7 @@ func TestReconciliationRetentionDerivesQuantityStatusFromItems(t *testing.T) {
 	})
 
 	t.Run("unknown status is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Quantity.Status = "bogus"
 		if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -48,6 +51,7 @@ func TestReconciliationRetentionDerivesQuantityStatusFromItems(t *testing.T) {
 	})
 
 	t.Run("unknown reason is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Quantity.Reason = "not-a-reason"
 		if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -56,6 +60,7 @@ func TestReconciliationRetentionDerivesQuantityStatusFromItems(t *testing.T) {
 	})
 
 	t.Run("discrepant status may not carry a reason", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Quantity.Reason = ReconciliationReasonCoverageMismatch
 		if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -64,6 +69,7 @@ func TestReconciliationRetentionDerivesQuantityStatusFromItems(t *testing.T) {
 	})
 
 	t.Run("incomparable item under discrepant top level is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		item := &result.Quantity.Items[0]
 		item.Status = ReconciliationStatusIncomparable
@@ -76,6 +82,7 @@ func TestReconciliationRetentionDerivesQuantityStatusFromItems(t *testing.T) {
 	})
 
 	t.Run("valid producer result passes", func(t *testing.T) {
+		t.Parallel()
 		if err := base(t).Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -284,6 +291,7 @@ func TestReconciliationRetentionRederivesQuantityDeltasAndSourceShape(t *testing
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			result := base(t)
 			tc.mutate(&result)
 			if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -320,6 +328,7 @@ func TestReconciliationRetentionRequiresExactEvidenceComponentKey(t *testing.T) 
 	t.Parallel()
 
 	t.Run("schema mismatch is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := retentionTestResult(t, "retention-consistency-key-schema", 1)
 		result.Quantity.Items[0].Local[0].Key.SchemaID = "retention.other.schema.v1"
 		if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -328,6 +337,7 @@ func TestReconciliationRetentionRequiresExactEvidenceComponentKey(t *testing.T) 
 	})
 
 	t.Run("qualifier mismatch is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := retentionTestResult(t, "retention-consistency-key-qualifier", 1)
 		result.Quantity.Items[0].Local[0].Key.Dimensions = []metering.Dimension{{Name: "region", Value: "eu"}}
 		if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -343,6 +353,7 @@ func TestReconciliationRetentionObservationIdentityExcludesPayloadHash(t *testin
 	t.Parallel()
 
 	t.Run("top level differing hash conflicts", func(t *testing.T) {
+		t.Parallel()
 		result := retentionTestResult(t, "retention-consistency-ref-hash", 1)
 		duplicate := result.ObservationRefs[0]
 		duplicate.PayloadHash = strings.Repeat("e", 64)
@@ -353,6 +364,7 @@ func TestReconciliationRetentionObservationIdentityExcludesPayloadHash(t *testin
 	})
 
 	t.Run("top level identical duplicate is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := retentionTestResult(t, "retention-consistency-ref-dup", 1)
 		result.ObservationRefs = append(result.ObservationRefs, result.ObservationRefs[0])
 		if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -361,6 +373,7 @@ func TestReconciliationRetentionObservationIdentityExcludesPayloadHash(t *testin
 	})
 
 	t.Run("evidence differing hash conflicts", func(t *testing.T) {
+		t.Parallel()
 		result := retentionTestResult(t, "retention-consistency-evidence-hash", 1)
 		duplicate := result.Quantity.Items[0].Local[0]
 		duplicate.Key = duplicate.Key.Clone()
@@ -372,6 +385,7 @@ func TestReconciliationRetentionObservationIdentityExcludesPayloadHash(t *testin
 	})
 
 	t.Run("evidence identical duplicate is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := retentionTestResult(t, "retention-consistency-evidence-dup", 1)
 		duplicate := result.Quantity.Items[0].Local[0]
 		duplicate.Key = duplicate.Key.Clone()
@@ -393,6 +407,7 @@ func TestReconciliationRetentionMonetaryStatusVocabularyAndConsistency(t *testin
 	}
 
 	t.Run("unknown monetary status", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Monetary.Status = "bogus"
 		if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -401,6 +416,7 @@ func TestReconciliationRetentionMonetaryStatusVocabularyAndConsistency(t *testin
 	})
 
 	t.Run("unknown monetary reason", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Monetary.Reason = "not-a-reason"
 		if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -409,6 +425,7 @@ func TestReconciliationRetentionMonetaryStatusVocabularyAndConsistency(t *testin
 	})
 
 	t.Run("false conflict label is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Monetary.Status = MonetaryDiscrepancyConflict
 		result.Monetary.Reason = MonetaryReasonQuantityEvidenceConflict
@@ -418,6 +435,7 @@ func TestReconciliationRetentionMonetaryStatusVocabularyAndConsistency(t *testin
 	})
 
 	t.Run("false partial label is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Monetary.Status = MonetaryDiscrepancyPartial
 		result.Monetary.Reason = MonetaryReasonMissingP
@@ -427,6 +445,7 @@ func TestReconciliationRetentionMonetaryStatusVocabularyAndConsistency(t *testin
 	})
 
 	t.Run("false complete label is rejected", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Monetary.Rows[0].EndToEndCostDelta = MonetaryDiscrepancyTerm{Status: MonetaryTermMissing, Reason: MonetaryReasonMissingP}
 		if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -435,6 +454,7 @@ func TestReconciliationRetentionMonetaryStatusVocabularyAndConsistency(t *testin
 	})
 
 	t.Run("valid producer result passes", func(t *testing.T) {
+		t.Parallel()
 		if err := base(t).Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -513,56 +533,68 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 		{
 			name: "wrong metering Q-E amount",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				result.Monetary.Rows[0].MeteringCostEffect.Amount = operatorCostTestAmount(t, "USD", "0.20")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				amountDecimalJSON(t, termJSON(t, monetaryRowJSON(t, document), "metering_cost_effect"))["coefficient"] = "2"
 			},
 		},
 		{
 			name: "wrong residual P-Q amount",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				result.Monetary.Rows[0].ReportedPriceResidual.Amount = operatorCostTestAmount(t, "USD", "0.23")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				amountDecimalJSON(t, termJSON(t, monetaryRowJSON(t, document), "reported_price_residual"))["coefficient"] = "23"
 			},
 		},
 		{
 			name: "wrong end-to-end P-E amount",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				result.Monetary.Rows[0].EndToEndCostDelta.Amount = operatorCostTestAmount(t, "USD", "0.33")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				amountDecimalJSON(t, termJSON(t, monetaryRowJSON(t, document), "end_to_end_cost_delta"))["coefficient"] = "33"
 			},
 		},
 		{
 			name: "complete term carries a reason",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				result.Monetary.Rows[0].MeteringCostEffect.Reason = MonetaryReasonAmountUnavailable
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				termJSON(t, monetaryRowJSON(t, document), "metering_cost_effect")["reason"] = "amount_unavailable"
 			},
 		},
 		{
 			name: "complete term carries an underived cause",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				result.Monetary.Rows[0].EndToEndCostDelta.Cause = MonetaryCauseQuantityDifference
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				termJSON(t, monetaryRowJSON(t, document), "end_to_end_cost_delta")["cause"] = "quantity_difference"
 			},
 		},
 		{
 			name: "missing term carries no reason",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				result.Monetary.Rows[0].EndToEndCostDelta = MonetaryDiscrepancyTerm{Status: MonetaryTermMissing}
 				result.Monetary.Status = MonetaryDiscrepancyPartial
 				result.Monetary.Reason = MonetaryReasonNone
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				monetaryRowJSON(t, document)["end_to_end_cost_delta"] = map[string]any{"status": "missing"}
 				monetary := retentionJSONObject(t, document, "monetary")
 				monetary["status"] = "partial"
@@ -572,6 +604,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 		{
 			name: "missing term carries an unknown reason",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				row := &result.Monetary.Rows[0]
 				row.MeteringCostEffect = MonetaryDiscrepancyTerm{Status: MonetaryTermPartial, Reason: MonetaryReasonAmountUnavailable}
 				row.EndToEndCostDelta = MonetaryDiscrepancyTerm{Status: MonetaryTermMissing, Reason: "bogus"}
@@ -579,6 +612,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 				result.Monetary.Reason = MonetaryReasonAmountUnavailable
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				row := monetaryRowJSON(t, document)
 				row["metering_cost_effect"] = map[string]any{"status": "partial", "reason": "amount_unavailable"}
 				row["end_to_end_cost_delta"] = map[string]any{"status": "missing", "reason": "bogus"}
@@ -590,6 +624,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 		{
 			name: "incomparable term carries an unknown reason",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				row := &result.Monetary.Rows[0]
 				row.MeteringCostEffect = MonetaryDiscrepancyTerm{Status: MonetaryTermIncomparable, Reason: MonetaryReasonContextMismatch}
 				row.EndToEndCostDelta = MonetaryDiscrepancyTerm{Status: MonetaryTermIncomparable, Reason: "bogus"}
@@ -597,6 +632,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 				result.Monetary.Reason = MonetaryReasonContextMismatch
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				row := monetaryRowJSON(t, document)
 				row["metering_cost_effect"] = map[string]any{"status": "incomparable", "reason": "context_mismatch"}
 				row["end_to_end_cost_delta"] = map[string]any{"status": "incomparable", "reason": "bogus"}
@@ -608,12 +644,14 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 		{
 			name: "partial term carries no reason",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				row := &result.Monetary.Rows[0]
 				row.ReportedPriceResidual = MonetaryDiscrepancyTerm{Status: MonetaryTermPartial, Amount: row.ReportedPriceResidual.Amount}
 				result.Monetary.Status = MonetaryDiscrepancyPartial
 				result.Monetary.Reason = MonetaryReasonNone
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				row := monetaryRowJSON(t, document)
 				term := termJSON(t, row, "reported_price_residual")
 				row["reported_price_residual"] = map[string]any{"status": "partial", "amount": term["amount"]}
@@ -625,6 +663,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 		{
 			name: "retained valuation total changed under copied terms",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				for i := range result.Monetary.Valuations {
 					if result.Monetary.Valuations[i].Role == MonetaryRoleE {
 						result.Monetary.Valuations[i].Valuation.Totals = []economics.CurrencyTotal{monetaryDecimalTotal(t, "USD", "3.00")}
@@ -632,6 +671,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 				}
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				monetary := retentionJSONObject(t, document, "monetary")
 				valuations, ok := monetary["valuations"].([]any)
 				if !ok {
@@ -665,6 +705,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 		{
 			name: "row currency is not derived from the retained valuations",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				row := &result.Monetary.Rows[0]
 				row.Currency = "EUR"
 				for _, term := range []*MonetaryDiscrepancyTerm{&row.MeteringCostEffect, &row.ReportedPriceResidual, &row.EndToEndCostDelta} {
@@ -672,6 +713,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 				}
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				row := monetaryRowJSON(t, document)
 				row["currency"] = "EUR"
 				for _, name := range []string{"metering_cost_effect", "reported_price_residual", "end_to_end_cost_delta"} {
@@ -682,12 +724,14 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 		{
 			name: "no retained valuation evidence",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				result.Monetary = &MonetaryDiscrepancyComparison{
 					Status: MonetaryDiscrepancyPartial, Reason: MonetaryReasonAmountUnavailable,
 					Subject: reconciliationSubject(),
 				}
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				monetary := retentionJSONObject(t, document, "monetary")
 				delete(monetary, "valuations")
 				monetary["rows"] = []any{}
@@ -699,6 +743,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			result := base(t)
 			tc.mutate(t, &result)
 			if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -715,6 +760,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 	}
 
 	t.Run("valid producer result passes and parses", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		if err := result.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
@@ -729,6 +775,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 	})
 
 	t.Run("valid missing-P producer result passes and parses", func(t *testing.T) {
+		t.Parallel()
 		result := retentionWithMonetary(t, []economics.Valuation{
 			monetaryTestValuation(t, "retention-missing-p-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "1.00")),
 			monetaryTestValuation(t, "retention-missing-p-q", economics.BasisProviderQuantityLocal, monetaryDecimalTotal(t, "USD", "1.10")),
@@ -749,6 +796,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 	})
 
 	t.Run("valid incomparable producer result passes and parses", func(t *testing.T) {
+		t.Parallel()
 		result := retentionWithMonetary(t, []economics.Valuation{
 			monetaryTestValuation(t, "retention-incomparable-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "1.00")),
 			monetaryTestValuation(t, "retention-incomparable-q", economics.BasisProviderQuantityLocal, monetaryDecimalTotal(t, "EUR", "1.10")),
@@ -772,6 +820,7 @@ func TestReconciliationRetentionRederivesMonetaryTerms(t *testing.T) {
 	})
 
 	t.Run("valid partial term with amount passes and parses", func(t *testing.T) {
+		t.Parallel()
 		result := retentionWithMonetary(t, []economics.Valuation{
 			monetaryPartialTestValuation(t, "retention-partial-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "1.00")),
 			monetaryTestValuation(t, "retention-partial-q", economics.BasisProviderQuantityLocal, monetaryDecimalTotal(t, "USD", "1.10")),
@@ -846,7 +895,8 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 
 	matchedRetention := func(t *testing.T) ReconciliationRetentionResult {
 		t.Helper()
-		monetary := decompose(t,
+		monetary := decompose(
+			t,
 			monetaryTestValuation(t, "unit3-matched-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "1.00")),
 			monetaryTestValuation(t, "unit3-matched-p", economics.BasisProviderReported, monetaryDecimalTotal(t, "USD", "1.00")),
 		)
@@ -925,51 +975,62 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "unknown finding reason",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Reason = "bogus"
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				findingJSON(t, aggregateJSON(t, document))["reason"] = "bogus"
 			},
 		},
 		{
 			name: "unknown evaluated status",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).EvaluatedStatus = "bogus"
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				findingJSON(t, aggregateJSON(t, document))["evaluated_status"] = "bogus"
 			},
 		},
 		{
 			name: "empty evaluated status",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).EvaluatedStatus = ""
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				findingJSON(t, aggregateJSON(t, document))["evaluated_status"] = ""
 			},
 		},
 		{
 			name: "unknown evaluation reason",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).EvaluationReason = "bogus"
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				findingJSON(t, aggregateJSON(t, document))["evaluation_reason"] = "bogus"
 			},
 		},
 		{
 			name: "non-comparable finding carries an evaluation",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Status = ReconciliationStatusPartial
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				findingJSON(t, aggregateJSON(t, document))["status"] = "partial"
 			},
 		},
 		{
 			name: "non-comparable finding carries a mismatched evaluated label",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				finding := findingOf(result)
 				finding.Status = ReconciliationStatusPartial
 				finding.Evaluation = nil
@@ -977,6 +1038,7 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 				finding.EvaluationReason = ReconciliationReasonNone
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				finding := findingJSON(t, aggregateJSON(t, document))
 				finding["status"] = "partial"
 				delete(finding, "evaluation")
@@ -987,27 +1049,33 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "evaluation policy id mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.PolicyID = "other-policy"
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))["policy_id"] = "other-policy"
 			},
 		},
 		{
 			name: "evaluation policy version mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.PolicyVersion = "v2"
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))["policy_version"] = "v2"
 			},
 		},
 		{
 			name: "evaluation target mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.Target.Component = "other-component"
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluation := evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))
 				retentionJSONObject(t, evaluation, "target")["component"] = "other-component"
 			},
@@ -1015,9 +1083,11 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "evaluation expected amount mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.Expected = operatorCostTestAmount(t, "USD", "2.00")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluation := evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))
 				amountDecimalJSON(t, amountJSON(t, evaluation, "expected"))["coefficient"] = "2"
 			},
@@ -1025,9 +1095,11 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "evaluation reported amount mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.Reported = operatorCostTestAmount(t, "USD", "2.32")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluation := evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))
 				amountDecimalJSON(t, amountJSON(t, evaluation, "reported"))["coefficient"] = "232"
 			},
@@ -1035,9 +1107,11 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "evaluation signed delta mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.SignedDelta = operatorCostTestAmount(t, "USD", "0.31")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluation := evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))
 				amountDecimalJSON(t, amountJSON(t, evaluation, "signed_delta"))["coefficient"] = "31"
 			},
@@ -1045,9 +1119,11 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "evaluation absolute delta mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.AbsoluteDelta = operatorCostTestAmount(t, "USD", "0.31")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluation := evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))
 				amountDecimalJSON(t, amountJSON(t, evaluation, "absolute_delta"))["coefficient"] = "31"
 			},
@@ -1055,9 +1131,11 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "evaluation relative difference mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.RelativeDifference = operatorCostTestAmount(t, "USD", "0.31")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluation := evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))
 				amountDecimalJSON(t, amountJSON(t, evaluation, "relative_difference"))["coefficient"] = "31"
 			},
@@ -1065,27 +1143,33 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "evaluation relative presence lie",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.RelativePresent = false
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))["relative_present"] = false
 			},
 		},
 		{
 			name: "evaluation zero denominator lie",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.ZeroDenominator = true
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))["zero_denominator"] = true
 			},
 		},
 		{
 			name: "evaluation threshold mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.Threshold = operatorCostTestAmount(t, "USD", "0.41")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluation := evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))
 				amountDecimalJSON(t, amountJSON(t, evaluation, "threshold"))["coefficient"] = "41"
 			},
@@ -1093,45 +1177,55 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "evaluation within tolerance lie",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.WithinTolerance = false
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))["within_tolerance"] = false
 			},
 		},
 		{
 			name: "evaluation status mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.Status = ReconciliationStatusDiscrepant
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))["status"] = "discrepant"
 			},
 		},
 		{
 			name: "evaluation reason mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).Evaluation.Reason = ReconciliationComparisonReason(MonetaryReasonMissingP)
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				evaluationJSON(t, findingJSON(t, aggregateJSON(t, document)))["reason"] = "missing_p"
 			},
 		},
 		{
 			name: "estimated quality keeps an exact match",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				findingOf(result).LocalQuality = metering.QualityEstimated
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				findingJSON(t, aggregateJSON(t, document))["local_quality"] = "estimated"
 			},
 		},
 		{
 			name: "row gross absolute total mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				rowOf(result).GrossAbsoluteDiscrepancy = operatorCostTestAmount(t, "USD", "0.01")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				row := rowJSON(t, aggregateJSON(t, document))
 				amountDecimalJSON(t, amountJSON(t, row, "gross_absolute_discrepancy"))["coefficient"] = "1"
 			},
@@ -1139,9 +1233,11 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "row discrepant absolute total mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				rowOf(result).DiscrepantAbsoluteDiscrepancy = operatorCostTestAmount(t, "USD", "0.10")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				row := rowJSON(t, aggregateJSON(t, document))
 				amountDecimalJSON(t, amountJSON(t, row, "discrepant_absolute_discrepancy"))["coefficient"] = "1"
 			},
@@ -1149,9 +1245,11 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "row net signed total mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				rowOf(result).NetSignedDiscrepancy = operatorCostTestAmount(t, "USD", "0.31")
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				row := rowJSON(t, aggregateJSON(t, document))
 				amountDecimalJSON(t, amountJSON(t, row, "net_signed_discrepancy"))["coefficient"] = "31"
 			},
@@ -1159,18 +1257,22 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "row affected count mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				rowOf(result).AffectedCount = 0
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				rowJSON(t, aggregateJSON(t, document))["affected_count"] = 0
 			},
 		},
 		{
 			name: "row status counts mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				rowOf(result).StatusCounts = []ReconciliationStatusCount{{Status: ReconciliationStatusMatched, Count: 1}}
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				rowJSON(t, aggregateJSON(t, document))["status_counts"] = []any{
 					map[string]any{"status": "matched", "count": 1},
 				}
@@ -1179,20 +1281,24 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "row missing ids mismatch",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				rowOf(result).MissingIDs = []string{"ghost-id"}
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				rowJSON(t, aggregateJSON(t, document))["missing_ids"] = []any{"ghost-id"}
 			},
 		},
 		{
 			name: "extra underived row",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				extra := *rowOf(result)
 				extra.Scope = "other-scope"
 				result.Aggregate.Rows = append(result.Aggregate.Rows, extra)
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				aggregate := aggregateJSON(t, document)
 				rows := retentionJSONArray(t, aggregate, "rows")
 				extra := cloneRetentionJSONObject(t, retentionJSONObjectValue(t, rows[0], "rows[0]"))
@@ -1203,9 +1309,11 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 		{
 			name: "unknown diagnostic reason",
 			mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+				t.Helper()
 				result.Diagnostics[0].Reason = "bogus"
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				diagnostics := retentionJSONArray(t, document, "diagnostics")
 				retentionJSONObjectValue(t, diagnostics[0], "diagnostics[0]")["reason"] = "bogus"
 			},
@@ -1214,6 +1322,7 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			result := base(t)
 			tc.mutate(t, &result)
 			if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -1244,10 +1353,12 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 	}
 
 	t.Run("valid within-tolerance producer result passes and parses", func(t *testing.T) {
+		t.Parallel()
 		assertRetentionRoundTrips(t, base(t))
 	})
 
 	t.Run("valid matched producer result passes and parses", func(t *testing.T) {
+		t.Parallel()
 		result := matchedRetention(t)
 		finding := result.Aggregate.Findings[0]
 		if finding.Status != ReconciliationStatusMatched || finding.EvaluatedStatus != ReconciliationStatusMatched {
@@ -1260,7 +1371,9 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 	})
 
 	t.Run("valid monetary missing_p aggregate passes and parses", func(t *testing.T) {
-		monetary := decompose(t,
+		t.Parallel()
+		monetary := decompose(
+			t,
 			monetaryTestValuation(t, "unit3-missing-p-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "1.00")),
 			monetaryTestValuation(t, "unit3-missing-p-q", economics.BasisProviderQuantityLocal, monetaryDecimalTotal(t, "USD", "1.10")),
 		)
@@ -1276,12 +1389,14 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 	})
 
 	t.Run("valid monetary incomparable aggregate passes and parses", func(t *testing.T) {
+		t.Parallel()
 		provider := monetaryTestValuation(t, "unit3-incomparable-p", economics.BasisProviderReported, monetaryDecimalTotal(t, "USD", "1.32"))
 		provider.QualifierSnapshotRef = &economics.SnapshotContentRef{ContentRef: "catalog://unit3/other-qualifiers/v1", ContentHash: strings.Repeat("9", 64)}
 		if err := provider.Validate(); err != nil {
 			t.Fatalf("provider valuation: %v", err)
 		}
-		monetary := decompose(t,
+		monetary := decompose(
+			t,
 			monetaryTestValuation(t, "unit3-incomparable-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "1.00")),
 			provider,
 		)
@@ -1297,7 +1412,9 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 	})
 
 	t.Run("valid tolerance-policy-missing aggregate passes and parses", func(t *testing.T) {
-		monetary := decompose(t,
+		t.Parallel()
+		monetary := decompose(
+			t,
 			monetaryTestValuation(t, "unit3-no-rule-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "1.00")),
 			monetaryTestValuation(t, "unit3-no-rule-p", economics.BasisProviderReported, monetaryDecimalTotal(t, "USD", "1.32")),
 		)
@@ -1313,7 +1430,9 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 	})
 
 	t.Run("valid relative-only zero-denominator aggregate passes and parses", func(t *testing.T) {
-		monetary := decompose(t,
+		t.Parallel()
+		monetary := decompose(
+			t,
 			monetaryTestValuation(t, "unit3-zero-rel-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "0.00")),
 			monetaryTestValuation(t, "unit3-zero-rel-p", economics.BasisProviderReported, monetaryDecimalTotal(t, "USD", "1.00")),
 		)
@@ -1329,7 +1448,9 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 	})
 
 	t.Run("valid absolute-limit zero-denominator aggregate passes and parses", func(t *testing.T) {
-		monetary := decompose(t,
+		t.Parallel()
+		monetary := decompose(
+			t,
 			monetaryTestValuation(t, "unit3-zero-abs-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "0.00")),
 			monetaryTestValuation(t, "unit3-zero-abs-p", economics.BasisProviderReported, monetaryDecimalTotal(t, "USD", "1.00")),
 		)
@@ -1345,6 +1466,7 @@ func TestReconciliationRetentionRederivesAggregateToleranceAndDiagnostics(t *tes
 	})
 
 	t.Run("monetary diagnostic reason is accepted", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		result.Diagnostics[0].Reason = ReconciliationComparisonReason(MonetaryReasonMissingP)
 		assertRetentionRoundTrips(t, result)

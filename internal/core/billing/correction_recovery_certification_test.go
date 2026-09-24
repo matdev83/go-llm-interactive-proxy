@@ -40,7 +40,7 @@ func correctionRecoveryAggregateLine(amount string) statementMatchLineSpec {
 	component := statementMatchSKU("token")
 	return statementMatchLineSpec{
 		ID: "agg-1", ChargeItemID: "aggregate-1", Kind: metering.ChargeKindAggregate,
-		Component: statementMatchComponentPointer(component), Amount: amount, Currency: "USD",
+		Component: new(component), Amount: amount, Currency: "USD",
 		Covers: correctionRecoveryAggregateCovers(),
 	}
 }

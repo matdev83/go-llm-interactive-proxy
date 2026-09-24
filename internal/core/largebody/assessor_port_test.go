@@ -41,7 +41,8 @@ var (
 )
 
 func TestTask11_1_AssessorPort_MethodSignature(t *testing.T) {
-	typ := reflect.TypeOf((*largebody.LargeBodyAssessor)(nil)).Elem()
+	t.Parallel()
+	typ := reflect.TypeFor[largebody.LargeBodyAssessor]()
 	if typ.Kind() != reflect.Interface {
 		t.Fatalf("LargeBodyAssessor must be an interface, got %s", typ.Kind())
 	}
@@ -54,20 +55,21 @@ func TestTask11_1_AssessorPort_MethodSignature(t *testing.T) {
 		t.Fatalf("AssessLargeBody must take 2 arguments (ctx, proof), got %d", method.Type.NumIn())
 	}
 	in1 := method.Type.In(1)
-	if in1 != reflect.TypeOf(largebody.Proof{}) {
+	if in1 != reflect.TypeFor[largebody.Proof]() {
 		t.Fatalf("AssessLargeBody second arg must be largebody.Proof, got %s", in1)
 	}
 	if method.Type.NumOut() != 2 {
 		t.Fatalf("AssessLargeBody must return 2 values (Assessment, error), got %d", method.Type.NumOut())
 	}
 	out0 := method.Type.Out(0)
-	if out0 != reflect.TypeOf(largebody.Assessment{}) {
+	if out0 != reflect.TypeFor[largebody.Assessment]() {
 		t.Fatalf("AssessLargeBody first return value must be largebody.Assessment, got %s", out0)
 	}
 }
 
 func TestTask11_1_WireExecutorPort_MethodSignature(t *testing.T) {
-	typ := reflect.TypeOf((*largebody.LargeBodyWireExecutor)(nil)).Elem()
+	t.Parallel()
+	typ := reflect.TypeFor[largebody.LargeBodyWireExecutor]()
 	if typ.Kind() != reflect.Interface {
 		t.Fatalf("LargeBodyWireExecutor must be an interface, got %s", typ.Kind())
 	}
@@ -80,38 +82,40 @@ func TestTask11_1_WireExecutorPort_MethodSignature(t *testing.T) {
 		t.Fatalf("ExecuteLargeBody must take 3 arguments (ctx, accepted, src), got %d", method.Type.NumIn())
 	}
 	in1 := method.Type.In(1)
-	if in1 != reflect.TypeOf(largebody.Assessment{}) {
+	if in1 != reflect.TypeFor[largebody.Assessment]() {
 		t.Fatalf("ExecuteLargeBody second arg must be largebody.Assessment, got %s", in1)
 	}
 	in2 := method.Type.In(2)
-	if in2 != reflect.TypeOf((*largebody.Source)(nil)).Elem() {
+	if in2 != reflect.TypeFor[largebody.Source]() {
 		t.Fatalf("ExecuteLargeBody third arg must be largebody.Source, got %s", in2)
 	}
 	if method.Type.NumOut() != 2 {
 		t.Fatalf("ExecuteLargeBody must return 2 values (ExecutionResult, error), got %d", method.Type.NumOut())
 	}
 	out0 := method.Type.Out(0)
-	if out0 != reflect.TypeOf(largebody.ExecutionResult{}) {
+	if out0 != reflect.TypeFor[largebody.ExecutionResult]() {
 		t.Fatalf("ExecuteLargeBody first return value must be largebody.ExecutionResult, got %s", out0)
 	}
 }
 
 func TestTask11_1_LargeBodyExecutor_EmbedsPorts(t *testing.T) {
-	typ := reflect.TypeOf((*largebody.LargeBodyExecutor)(nil)).Elem()
+	t.Parallel()
+	typ := reflect.TypeFor[largebody.LargeBodyExecutor]()
 	if typ.Kind() != reflect.Interface {
 		t.Fatalf("LargeBodyExecutor must be an interface, got %s", typ.Kind())
 	}
-	assessorTyp := reflect.TypeOf((*largebody.LargeBodyAssessor)(nil)).Elem()
+	assessorTyp := reflect.TypeFor[largebody.LargeBodyAssessor]()
 	if !typ.Implements(assessorTyp) {
 		t.Fatal("LargeBodyExecutor must implement LargeBodyAssessor")
 	}
-	wireExecTyp := reflect.TypeOf((*largebody.LargeBodyWireExecutor)(nil)).Elem()
+	wireExecTyp := reflect.TypeFor[largebody.LargeBodyWireExecutor]()
 	if !typ.Implements(wireExecTyp) {
 		t.Fatal("LargeBodyExecutor must implement LargeBodyWireExecutor")
 	}
 }
 
 func TestTask11_1_AsLargeBodyAssessor_Probing(t *testing.T) {
+	t.Parallel()
 	if got, ok := largebody.AsLargeBodyAssessor(nil); ok || got != nil {
 		t.Fatalf("AsLargeBodyAssessor(nil) = (%v, %v), want (nil, false)", got, ok)
 	}
@@ -127,9 +131,10 @@ func TestTask11_1_AsLargeBodyAssessor_Probing(t *testing.T) {
 }
 
 func TestTask11_1_Assessment_BoundedFactsOnly(t *testing.T) {
+	t.Parallel()
 	// Requirements 6, 22: Assessment contains opaque stamp and bounded facts only.
 	// Frontend cannot synthesize route/backend internals.
-	typ := reflect.TypeOf(largebody.Assessment{})
+	typ := reflect.TypeFor[largebody.Assessment]()
 	if typ.Kind() != reflect.Struct {
 		t.Fatalf("Assessment must be a struct, got %s", typ.Kind())
 	}
@@ -144,17 +149,15 @@ func TestTask11_1_Assessment_BoundedFactsOnly(t *testing.T) {
 		"CompactionComplete": true,
 	}
 
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		if !allowedFields[field.Name] {
 			t.Fatalf("Assessment contains unexpected field %q; must contain opaque stamp and bounded facts only", field.Name)
 		}
 	}
 
 	// Verify Stamp opacity: AssessmentStamp fields must remain unexported.
-	stampTyp := reflect.TypeOf(largebody.AssessmentStamp{})
-	for i := 0; i < stampTyp.NumField(); i++ {
-		field := stampTyp.Field(i)
+	stampTyp := reflect.TypeFor[largebody.AssessmentStamp]()
+	for field := range stampTyp.Fields() {
 		if field.PkgPath == "" {
 			t.Fatalf("AssessmentStamp field %q is exported; stamp must stay opaque (Requirement 6.7)", field.Name)
 		}
@@ -162,6 +165,7 @@ func TestTask11_1_Assessment_BoundedFactsOnly(t *testing.T) {
 }
 
 func TestTask11_1_Assessment_ConstructorsAndValidation(t *testing.T) {
+	t.Parallel()
 	// Declined assessment constructor
 	declined, err := largebody.NewDeclinedAssessment(largebody.DeclineReasonAuthorityBlocker)
 	if err != nil {
@@ -242,9 +246,10 @@ func TestTask11_1_Assessment_ConstructorsAndValidation(t *testing.T) {
 }
 
 func TestTask11_1_FrontendSuppliesProofOnly_NoInternals(t *testing.T) {
+	t.Parallel()
 	// Verify Proof structure: contains only client/frontend-derived facts.
 	// No generation ID, no route candidates, no backend credentials/internals.
-	proofTyp := reflect.TypeOf(largebody.Proof{})
+	proofTyp := reflect.TypeFor[largebody.Proof]()
 	forbiddenInProof := []string{"GenerationID", "RouteDomain", "Candidates", "Backends", "Credentials"}
 	for _, forbidden := range forbiddenInProof {
 		if _, ok := proofTyp.FieldByName(forbidden); ok {

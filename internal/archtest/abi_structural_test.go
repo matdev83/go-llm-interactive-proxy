@@ -51,7 +51,7 @@ var economicV2ProtoMessages = map[string]struct{}{
 }
 
 func isEconomicV2ProtoPath(path string) bool {
-	for _, part := range strings.Split(path, ".") {
+	for part := range strings.SplitSeq(path, ".") {
 		if _, ok := economicV2ProtoMessages[part]; ok {
 			return true
 		}

@@ -45,7 +45,7 @@ const (
 
 func blocker5COGSObservation(t *testing.T, callID BillingCallID, carrier blocker5COGSCarrier) metering.Observation {
 	t.Helper()
-	observation := phase5ChargeObservation(t, callID, "blocker5-cogs-b-leg", "blocker5-cogs-observation", "usage", stringPtrRepair9("7"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	observation := phase5ChargeObservation(t, callID, "blocker5-cogs-b-leg", "blocker5-cogs-observation", "usage", new("7"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	observation.StreamID = "blocker5-cogs-stream"
 	observation.Subject.TenantID = "blocker5-cogs-tenant"
 	observation.Subject.CallID = callID.String()

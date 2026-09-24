@@ -1142,7 +1142,7 @@ func economicDetailSnapshotFingerprint(full []metering.Observation, detail Econo
 	if err != nil {
 		// Canonical DTOs always marshal; keep a deterministic fail-closed value
 		// rather than returning an unverifiable empty fingerprint.
-		encoded = []byte(fmt.Sprintf("%s:unencodable", EconomicDetailSnapshotVersion))
+		encoded = fmt.Appendf(nil, "%s:unencodable", EconomicDetailSnapshotVersion)
 	}
 	sum := sha256.Sum256(encoded)
 	return EconomicDetailSnapshotVersion + ":" + hex.EncodeToString(sum[:])

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -397,9 +398,7 @@ func normalizeProviderCostResult(in *ProviderCostRevisionInput) error {
 	// subtotal; callers must never observe a concurrent map write.
 	if cost.KnownSubtotalByCurrency != nil {
 		cloned := make(map[string]Money, len(cost.KnownSubtotalByCurrency))
-		for currency, amount := range cost.KnownSubtotalByCurrency {
-			cloned[currency] = amount
-		}
+		maps.Copy(cloned, cost.KnownSubtotalByCurrency)
 		cost.KnownSubtotalByCurrency = cloned
 	}
 	if in.AmountPresent {

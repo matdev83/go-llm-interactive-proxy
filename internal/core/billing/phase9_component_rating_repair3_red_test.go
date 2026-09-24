@@ -10,6 +10,7 @@ import (
 )
 
 func TestPhase9Repair3_FixedOnlyUnavailableEvidenceCannotClaimComplete(t *testing.T) {
+	t.Parallel()
 	key := phase9Key(metering.DirectionInput, metering.ComponentImage, metering.UnitImage)
 	tariff := phase9Tariff(t, []economics.RatingRule{phase9FixedRule("call-fee", economics.FixedFeeScopeCall, "1")})
 	rater, err := NewReferenceRater(tariff)
@@ -32,6 +33,7 @@ func TestPhase9Repair3_FixedOnlyUnavailableEvidenceCannotClaimComplete(t *testin
 }
 
 func TestPhase9Repair3_FixedFeeQualifierFailureCannotClaimComplete(t *testing.T) {
+	t.Parallel()
 	key := phase9Key(metering.DirectionInput, metering.ComponentImage, metering.UnitImage)
 	conditional := phase9FixedRule("conditional-fee", economics.FixedFeeScopeCall, "2")
 	conditional.Conditions = []economics.QualifierCondition{{Name: "plan", Value: "pro"}}

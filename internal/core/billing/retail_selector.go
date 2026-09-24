@@ -608,13 +608,7 @@ func retailObservationRefs(leg CallLegUsageRecord, call CallUsageRecord, tenantI
 			return nil, "", "", fmt.Errorf("%w: explicit observation refs do not match loaded observations", ErrRetailSelectionIncomplete)
 		}
 		for _, supplied := range leg.ObservationRefs {
-			matched := false
-			for _, derived := range refs {
-				if supplied.Equal(derived) {
-					matched = true
-					break
-				}
-			}
+			matched := slices.ContainsFunc(refs, supplied.Equal)
 			if !matched {
 				return nil, "", "", fmt.Errorf("%w: explicit observation ref %s does not match loaded observations", ErrRetailSelectionScopeMismatch, supplied.ObservationID)
 			}

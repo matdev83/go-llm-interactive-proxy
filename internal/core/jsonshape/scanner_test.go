@@ -78,10 +78,7 @@ func TestScanner_ChunkedFeeds(t *testing.T) {
 		s := jsonshape.NewScanner(context.Background(), jsonshape.Limits{})
 		data := []byte(doc)
 		for i := 0; i < len(data); i += sz {
-			end := i + sz
-			if end > len(data) {
-				end = len(data)
-			}
+			end := min(i+sz, len(data))
 			if err := s.Feed(data[i:end]); err != nil {
 				t.Fatalf("Feed sz=%d at offset %d: %v", sz, i, err)
 			}
@@ -281,6 +278,7 @@ func TestScanner_NumberGrammar(t *testing.T) {
 	}
 	for _, tt := range invalidNumbers {
 		t.Run("invalid_"+tt.name, func(t *testing.T) {
+			t.Parallel()
 			s := jsonshape.NewScanner(context.Background(), jsonshape.Limits{})
 			feedErr := s.Feed([]byte(tt.raw))
 			var finalErr error
@@ -447,6 +445,7 @@ func TestScanner_Cancellation(t *testing.T) {
 	t.Parallel()
 
 	t.Run("canceled before feed", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		s := jsonshape.NewScanner(ctx, jsonshape.Limits{})
@@ -457,6 +456,7 @@ func TestScanner_Cancellation(t *testing.T) {
 	})
 
 	t.Run("canceled between feeds", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithCancel(context.Background())
 		s := jsonshape.NewScanner(ctx, jsonshape.Limits{})
 		if err := s.Feed([]byte(`{"a": `)); err != nil {
@@ -470,6 +470,7 @@ func TestScanner_Cancellation(t *testing.T) {
 	})
 
 	t.Run("deadline exceeded before finish", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Hour))
 		defer cancel()
 		s := jsonshape.NewScanner(ctx, jsonshape.Limits{})
@@ -588,7 +589,8 @@ func TestScanner_TopLevelSpansAndNestedKeyDiscrimination(t *testing.T) {
 		events = append(events, e)
 		return tracker.OnEvent(e)
 	})
-	s := jsonshape.NewScanner(context.Background(), jsonshape.Limits{},
+	s := jsonshape.NewScanner(
+		context.Background(), jsonshape.Limits{},
 		jsonshape.WithEventHandler(handler),
 		jsonshape.WithTrackedTopLevelSpans("model", "stream", "max_tokens", "stop", "stream_options", "messages"),
 	)
@@ -710,7 +712,8 @@ func TestScanner_TopLevelSpans_ChunkedFeeds(t *testing.T) {
 	}`
 	data := []byte(jsonStr)
 
-	scBase := jsonshape.NewScanner(context.Background(), jsonshape.Limits{},
+	scBase := jsonshape.NewScanner(
+		context.Background(), jsonshape.Limits{},
 		jsonshape.WithTrackedTopLevelSpans("model", "stream", "temperature", "messages", "metadata"),
 	)
 	if err := scBase.Feed(data); err != nil {
@@ -723,14 +726,12 @@ func TestScanner_TopLevelSpans_ChunkedFeeds(t *testing.T) {
 
 	chunkSizes := []int{1, 2, 3, 5, 7, 13, 27, len(data)}
 	for _, sz := range chunkSizes {
-		sc := jsonshape.NewScanner(context.Background(), jsonshape.Limits{},
+		sc := jsonshape.NewScanner(
+			context.Background(), jsonshape.Limits{},
 			jsonshape.WithTrackedTopLevelSpans("model", "stream", "temperature", "messages", "metadata"),
 		)
 		for i := 0; i < len(data); i += sz {
-			end := i + sz
-			if end > len(data) {
-				end = len(data)
-			}
+			end := min(i+sz, len(data))
 			if err := sc.Feed(data[i:end]); err != nil {
 				t.Fatalf("chunked feed sz=%d at %d: %v", sz, i, err)
 			}
@@ -785,7 +786,8 @@ func TestScanner_ProviderNeutral(t *testing.T) {
 	jsonDoc := `{"x_custom_field": "val1", "payload_data": [10, 20], "flag": true}`
 	data := []byte(jsonDoc)
 
-	sc := jsonshape.NewScanner(context.Background(), jsonshape.Limits{},
+	sc := jsonshape.NewScanner(
+		context.Background(), jsonshape.Limits{},
 		jsonshape.WithTrackedTopLevelSpans("x_custom_field", "payload_data", "flag"),
 	)
 	if err := sc.Feed(data); err != nil {
@@ -821,7 +823,8 @@ func TestScanner_TopLevelSpans_EdgeCases(t *testing.T) {
 		}`
 		data := []byte(jsonDoc)
 
-		sc := jsonshape.NewScanner(context.Background(), jsonshape.Limits{},
+		sc := jsonshape.NewScanner(
+			context.Background(), jsonshape.Limits{},
 			jsonshape.WithTrackedTopLevelSpans("model", "stream", "headers", "messages"),
 		)
 		if err := sc.Feed(data); err != nil {
@@ -946,7 +949,7 @@ func TestScanner_DifferentialPreflight(t *testing.T) {
 			scByte := jsonshape.NewScanner(context.Background(), limits)
 			var byteErr error
 			var byteRes jsonshape.Result
-			for i := 0; i < len(data); i++ {
+			for i := range data {
 				if byteErr = scByte.Feed(data[i : i+1]); byteErr != nil {
 					break
 				}
@@ -994,7 +997,8 @@ func TestScanner_StringWriterResolver(t *testing.T) {
 		return nil, nil
 	})
 
-	s := jsonshape.NewScanner(context.Background(), jsonshape.Limits{},
+	s := jsonshape.NewScanner(
+		context.Background(), jsonshape.Limits{},
 		jsonshape.WithStringWriterResolver(resolver),
 	)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -165,12 +166,7 @@ func verifyInputSetHash(basis economics.ValuationBasis, supplied string, refs []
 }
 
 func hasApplicableObservation(observations []metering.Observation, predicate func(metering.Observation) bool) bool {
-	for _, observation := range observations {
-		if predicate(observation) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(observations, predicate)
 }
 
 func inputForPlane(input economics.PostUsageRatingInput, predicate func(metering.Observation) bool) economics.PostUsageRatingInput {

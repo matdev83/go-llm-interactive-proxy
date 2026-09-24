@@ -68,8 +68,11 @@ func freezeBaseCall() *lipapi.Call {
 	}
 }
 
-func freezeIntPtr(v int) *int           { return &v }
-func freezeFloatPtr(v float64) *float64 { return &v }
+//go:fix inline
+func freezeIntPtr(v int) *int { return new(v) }
+
+//go:fix inline
+func freezeFloatPtr(v float64) *float64 { return new(v) }
 
 func freezeModelExt(model string) map[string]json.RawMessage {
 	return map[string]json.RawMessage{"openai.model": json.RawMessage(`"` + model + `"`)}
@@ -89,11 +92,11 @@ func TestStableIdentityFreeze_ByteForByteStability(t *testing.T) {
 	t.Parallel()
 	call := freezeBaseCall()
 	call.Tools = []lipapi.ToolDef{{Name: "get_weather", Description: "lookup", Parameters: json.RawMessage(`{"type":"object"}`)}}
-	call.Options = lipapi.GenerationOptions{MaxOutputTokens: freezeIntPtr(64), ReasoningEffort: "high", Verbosity: lipapi.VerbosityHigh}
+	call.Options = lipapi.GenerationOptions{MaxOutputTokens: new(64), ReasoningEffort: "high", Verbosity: lipapi.VerbosityHigh}
 
 	tok := diag.StableCallToken(call)
 	freezeAssertTokenShape(t, tok)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if got := diag.StableCallToken(call); got != tok {
 			t.Fatalf("StableCallToken unstable across repeats: %q vs %q", got, tok)
 		}
@@ -386,23 +389,23 @@ func TestStableIdentityFreeze_OptionalFields(t *testing.T) {
 	baseTok := diag.StableCallToken(base)
 
 	withMax := freezeBaseCall()
-	withMax.Options.MaxOutputTokens = freezeIntPtr(1024)
+	withMax.Options.MaxOutputTokens = new(1024)
 	if diag.StableCallToken(withMax) == baseTok {
 		t.Fatal("MaxOutputTokens set must differ from unset")
 	}
 	withZeroMax := freezeBaseCall()
-	withZeroMax.Options.MaxOutputTokens = freezeIntPtr(0)
+	withZeroMax.Options.MaxOutputTokens = new(0)
 	if diag.StableCallToken(withZeroMax) == baseTok || diag.StableCallToken(withZeroMax) == diag.StableCallToken(withMax) {
 		t.Fatal("MaxOutputTokens 0 must be distinct from unset and 1024")
 	}
 
 	withTemp := freezeBaseCall()
-	withTemp.Options.Temperature = freezeFloatPtr(0.5)
+	withTemp.Options.Temperature = new(0.5)
 	if diag.StableCallToken(withTemp) == baseTok {
 		t.Fatal("Temperature set must differ from unset")
 	}
 	withTopP := freezeBaseCall()
-	withTopP.Options.TopP = freezeFloatPtr(0.9)
+	withTopP.Options.TopP = new(0.9)
 	if diag.StableCallToken(withTopP) == baseTok {
 		t.Fatal("TopP set must differ from unset")
 	}

@@ -111,7 +111,6 @@ func TestEvaluateIncludedAllowanceClassifiesMissingAndPartialEntitlement(t *test
 		{name: "missing", status: CustomerEntitlementMissing, err: ErrCustomerUnitEntitlementMissing},
 		{name: "partial", status: CustomerEntitlementPartial, err: ErrCustomerUnitEntitlementPartial},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			balance := CustomerUnitBalance{Key: key, Status: tc.status}
@@ -222,7 +221,6 @@ func TestTransitionCustomerUnitBalanceRejectsStaleVersionAndFence(t *testing.T) 
 		{name: "version", expected: 7, fence: 12, want: ErrCustomerUnitStaleVersion},
 		{name: "fence", expected: 8, fence: 11, want: ErrCustomerUnitStaleFence},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			op := phase10CustomerUnitOperation(t, key, CustomerUnitOperationDebit, "1", "op-"+tc.name, tc.expected, tc.fence, nil)
@@ -307,13 +305,10 @@ func TestConcurrentCustomerUnitOperationsAllowOneSpendAndFenceTheOther(t *testin
 	results := make(chan error, 2)
 	var wg sync.WaitGroup
 	for _, op := range []CustomerUnitOperation{first, second} {
-		op := op
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := ApplyCustomerUnitOperation(context.Background(), ledger, op)
 			results <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)

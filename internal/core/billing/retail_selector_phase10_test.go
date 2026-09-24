@@ -185,6 +185,7 @@ func TestPhase10RetailSelectorFailsClosedForMissingUnknownDuplicateAndForeignEvi
 		{
 			name: "unknown outcome",
 			make: func(t *testing.T, policy ChargePolicy, call CallUsageRecord) (CallUsageRecord, []CallLegUsageRecord) {
+				t.Helper()
 				return call, []CallLegUsageRecord{retailSelectionLeg(t, call.CallID, "b-unknown", 1, LegOutcomeUnknown, SurfacedYes)}
 			},
 			want: ErrRetailSelectionOutcomeUnknown,
@@ -192,6 +193,7 @@ func TestPhase10RetailSelectorFailsClosedForMissingUnknownDuplicateAndForeignEvi
 		{
 			name: "missing selected observation",
 			make: func(t *testing.T, policy ChargePolicy, call CallUsageRecord) (CallUsageRecord, []CallLegUsageRecord) {
+				t.Helper()
 				leg := testCallLegUsageRecord(call.CallID, "b-missing")
 				leg.ALegID = "a-1"
 				leg.AttemptSeq = 1
@@ -202,6 +204,7 @@ func TestPhase10RetailSelectorFailsClosedForMissingUnknownDuplicateAndForeignEvi
 		{
 			name: "duplicate observation refs",
 			make: func(t *testing.T, policy ChargePolicy, call CallUsageRecord) (CallUsageRecord, []CallLegUsageRecord) {
+				t.Helper()
 				leg := retailSelectionLeg(t, call.CallID, "b-duplicate", 1, LegOutcomeWinner, SurfacedYes)
 				ref, err := leg.Observations[0].Ref(leg.Observations[0].Subject.StoreID)
 				if err != nil {
@@ -215,6 +218,7 @@ func TestPhase10RetailSelectorFailsClosedForMissingUnknownDuplicateAndForeignEvi
 		{
 			name: "cross-call observation",
 			make: func(t *testing.T, policy ChargePolicy, call CallUsageRecord) (CallUsageRecord, []CallLegUsageRecord) {
+				t.Helper()
 				leg := retailSelectionLeg(t, call.CallID, "b-foreign", 1, LegOutcomeWinner, SurfacedYes)
 				foreign := mustBillingCallID(t)
 				for i := range leg.Observations {
@@ -229,6 +233,7 @@ func TestPhase10RetailSelectorFailsClosedForMissingUnknownDuplicateAndForeignEvi
 		{
 			name: "customer-boundary observation",
 			make: func(t *testing.T, policy ChargePolicy, call CallUsageRecord) (CallUsageRecord, []CallLegUsageRecord) {
+				t.Helper()
 				leg := retailSelectionLeg(t, call.CallID, "b-boundary", 1, LegOutcomeWinner, SurfacedYes)
 				observation := &leg.Observations[0]
 				observation.Origin = metering.OriginLocal
@@ -247,6 +252,7 @@ func TestPhase10RetailSelectorFailsClosedForMissingUnknownDuplicateAndForeignEvi
 		{
 			name: "conflicting evidence",
 			make: func(t *testing.T, policy ChargePolicy, call CallUsageRecord) (CallUsageRecord, []CallLegUsageRecord) {
+				t.Helper()
 				leg := retailSelectionLeg(t, call.CallID, "b-conflict", 1, LegOutcomeWinner, SurfacedYes)
 				leg.EvidenceConflicts = []EvidenceConflict{{Identity: "obs", ExistingHash: "old", IncomingHash: "new"}}
 				return call, []CallLegUsageRecord{leg}
@@ -256,6 +262,7 @@ func TestPhase10RetailSelectorFailsClosedForMissingUnknownDuplicateAndForeignEvi
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			policy := retailSelectionPolicy(RetailSelectionSurfacedWinner, RetailBasisIndependent)
 			call := testCallUsageRecord(callID)
 			call.ALegID = "a-1"

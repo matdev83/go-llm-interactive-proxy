@@ -95,6 +95,7 @@ func TestRefinementRetailSelectionMatrixCharacterization(t *testing.T) {
 		{name: "all potential includes retry loser winner", scope: ChargeAllPotentialLegs, outcome: TurnOutcomeCompleted, want: 900},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			policy := ratingPolicy(tc.scope)
 			policy.IncludeFixedCharges = false
 			legs := append([]CallLegUsageRecord(nil), base...)

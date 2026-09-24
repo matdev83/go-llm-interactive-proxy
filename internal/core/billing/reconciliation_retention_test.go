@@ -165,6 +165,7 @@ func TestReconciliationRetentionValidation(t *testing.T) {
 	t.Parallel()
 
 	base := func(t *testing.T) ReconciliationRetentionResult {
+		t.Helper()
 		return retentionTestResult(t, "reconciliation-retention-3", 3)
 	}
 
@@ -186,6 +187,7 @@ func TestReconciliationRetentionValidation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			result := base(t)
 			tc.mutate(&result)
 			if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -318,6 +320,7 @@ func TestReconciliationRetentionDeepValidationAndScopeBinding(t *testing.T) {
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			result := base(t)
 			mutate(&result)
 			if err := result.Validate(); !errors.Is(err, ErrInvalidReconciliationRetention) {
@@ -330,6 +333,7 @@ func TestReconciliationRetentionDeepValidationAndScopeBinding(t *testing.T) {
 	}
 
 	t.Run("noncanonical nested amount is typed", func(t *testing.T) {
+		t.Parallel()
 		result := base(t)
 		noncanonical := MonetaryExactAmount{Currency: "USD", Numerator: "2", Denominator: "2"}
 		result.Monetary.Rows[0].EndToEndCostDelta.Amount = &noncanonical
@@ -339,6 +343,7 @@ func TestReconciliationRetentionDeepValidationAndScopeBinding(t *testing.T) {
 	})
 
 	t.Run("valid result passes", func(t *testing.T) {
+		t.Parallel()
 		if err := base(t).Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -408,6 +413,7 @@ func TestReconciliationRetentionCanonicalPermutations(t *testing.T) {
 	}
 
 	t.Run("true permutation has identical identity", func(t *testing.T) {
+		t.Parallel()
 		first := withExtraEntries(t)
 		canonicalFirst, err := first.CanonicalJSON()
 		if err != nil {
@@ -432,6 +438,7 @@ func TestReconciliationRetentionCanonicalPermutations(t *testing.T) {
 	})
 
 	t.Run("tied prefix with different payload fails closed", func(t *testing.T) {
+		t.Parallel()
 		result := withExtraEntries(t)
 		conflicting := result.Quantity.Items[0]
 		conflicting.Status = ReconciliationStatusMissingProvider
@@ -445,6 +452,7 @@ func TestReconciliationRetentionCanonicalPermutations(t *testing.T) {
 	})
 
 	t.Run("conflicting evidence for one observation fails closed", func(t *testing.T) {
+		t.Parallel()
 		result := withExtraEntries(t)
 		conflicting := result.Quantity.Items[0].Local[0]
 		conflicting.Quality = metering.QualityEstimated
@@ -462,7 +470,7 @@ func TestReconciliationRetentionRejectsOversizePayload(t *testing.T) {
 
 	result := retentionTestResult(t, "reconciliation-retention-5", 5)
 	items := make([]ComponentQuantityComparisonItem, 0, 4096)
-	for i := 0; i < MaxReconciliationRetentionObservationRefs; i++ {
+	for i := range MaxReconciliationRetentionObservationRefs {
 		key := metering.ComponentKey{Direction: metering.DirectionNone, Component: fmt.Sprintf("synthetic_metric_%d", i), Unit: metering.UnitCount, SchemaID: "retention.oversize.v1"}
 		items = append(items, ComponentQuantityComparisonItem{
 			Key: key, Status: ReconciliationStatusMissingProvider,

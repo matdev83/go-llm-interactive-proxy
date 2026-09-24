@@ -16,6 +16,7 @@ import (
 )
 
 func TestQuotaRequestProvider_QueriesExactBindingAndMapsFreshGaugeWithoutMoney(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	field := testQuotaField("provider:utilization", metering.UnitPercent)
@@ -70,6 +71,7 @@ func TestQuotaRequestProvider_QueriesExactBindingAndMapsFreshGaugeWithoutMoney(t
 }
 
 func TestQuotaRequestProvider_MapsConfiguredEvidenceFailuresToNonIndeterminateDecision(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	field := testQuotaField("provider:utilization", metering.UnitPercent)
@@ -95,6 +97,7 @@ func TestQuotaRequestProvider_MapsConfiguredEvidenceFailuresToNonIndeterminateDe
 }
 
 func TestQuotaRequestProvider_MapsFreshThresholdDenyAndStalePartialPostures(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	field := testQuotaField("provider:utilization", metering.UnitPercent)
@@ -139,6 +142,7 @@ func TestQuotaRequestProvider_MapsFreshThresholdDenyAndStalePartialPostures(t *t
 }
 
 func TestQuotaRequestProvider_ReaderErrorsAreTypedBoundedAndHonorCancellation(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	field := testQuotaField("provider:utilization", metering.UnitPercent)
@@ -178,6 +182,7 @@ func TestQuotaRequestProvider_ReaderErrorsAreTypedBoundedAndHonorCancellation(t 
 }
 
 func TestQuotaRequestProvider_MidReadCancellationPreservesUnavailableDecision(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	field := testQuotaField("provider:utilization", metering.UnitPercent)
@@ -214,11 +219,11 @@ func TestQuotaRequestProvider_MidReadCancellationPreservesUnavailableDecision(t 
 }
 
 func TestQuotaRequestProvider_ConfiguredUnavailablePosturesNeverAllowOnCancellation(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	field := testQuotaField("provider:utilization", metering.UnitPercent)
 	for _, failure := range []authority.QuotaFailureAction{authority.QuotaFailureDeny, authority.QuotaFailureIndeterminate} {
-		failure := failure
 		t.Run(string(failure), func(t *testing.T) {
 			t.Parallel()
 			policy, err := authority.CompileQuotaPolicy(authority.QuotaPolicyConfig{
@@ -249,6 +254,7 @@ func TestQuotaRequestProvider_ConfiguredUnavailablePosturesNeverAllowOnCancellat
 }
 
 func TestQuotaRequestProvider_IsConcurrentAndPolicyRefIsFrozen(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	field := testQuotaField("provider:utilization", metering.UnitPercent)
@@ -268,14 +274,12 @@ func TestQuotaRequestProvider_IsConcurrentAndPolicyRefIsFrozen(t *testing.T) {
 	const calls = 32
 	var wg sync.WaitGroup
 	results := make(chan authority.Decision, calls)
-	for i := 0; i < calls; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range calls {
+		wg.Go(func() {
 			decision, callErr := provider.AdmitRequest(context.Background(), validRequestAdmission())
 			require.NoError(t, callErr)
 			results <- decision
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)
@@ -286,6 +290,7 @@ func TestQuotaRequestProvider_IsConcurrentAndPolicyRefIsFrozen(t *testing.T) {
 }
 
 func TestQuotaRequestProvider_ReadsLaterGaugeChangesWithoutChangingFrozenPolicyRef(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	field := testQuotaField("provider:utilization", metering.UnitPercent)

@@ -20,52 +20,52 @@ import (
 
 // panicRoundTripper panics immediately on any HTTP network I/O attempt.
 type panicRoundTripper struct {
-	calls int64
+	calls atomic.Int64
 }
 
 func (p *panicRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	atomic.AddInt64(&p.calls, 1)
+	p.calls.Add(1)
 	panic("purity violation: provider HTTP network I/O attempted during wire resolution")
 }
 
 // panicStoreDouble panics immediately on any database or store read/write.
 type panicStoreDouble struct {
-	reads  int64
-	writes int64
+	reads  atomic.Int64
+	writes atomic.Int64
 }
 
 func (s *panicStoreDouble) Read(key string) ([]byte, error) {
-	atomic.AddInt64(&s.reads, 1)
+	s.reads.Add(1)
 	panic("purity violation: store read attempted during wire resolution")
 }
 
 func (s *panicStoreDouble) Write(key string, data []byte) error {
-	atomic.AddInt64(&s.writes, 1)
+	s.writes.Add(1)
 	panic("purity violation: store write attempted during wire resolution")
 }
 
 // panicSessionDouble panics immediately on any mutable session/turn operation.
 type panicSessionDouble struct {
-	turns int64
+	turns atomic.Int64
 }
 
 func (s *panicSessionDouble) BeginTurn(ctx context.Context) error {
-	atomic.AddInt64(&s.turns, 1)
+	s.turns.Add(1)
 	panic("purity violation: BeginTurn/session mutation attempted during wire resolution")
 }
 
 func (s *panicSessionDouble) FetchALeg(ctx context.Context, id string) (any, error) {
-	atomic.AddInt64(&s.turns, 1)
+	s.turns.Add(1)
 	panic("purity violation: A-leg fetch attempted during wire resolution")
 }
 
 // panicPluginDouble panics immediately on any plugin hook execution.
 type panicPluginDouble struct {
-	invocations int64
+	invocations atomic.Int64
 }
 
 func (p *panicPluginDouble) ExecuteHook(name string, payload any) error {
-	atomic.AddInt64(&p.invocations, 1)
+	p.invocations.Add(1)
 	panic("purity violation: unbounded plugin hook attempted during wire resolution")
 }
 
@@ -245,19 +245,19 @@ func TestWireResolvers_Purity_NoIOOrMutation(t *testing.T) {
 	}
 
 	// 3. Verify zero I/O, zero store calls, zero session calls, zero plugin calls.
-	if calls := atomic.LoadInt64(&wb.transport.calls); calls != 0 {
+	if calls := wb.transport.calls.Load(); calls != 0 {
 		t.Fatalf("provider network I/O called %d times during resolution", calls)
 	}
-	if reads := atomic.LoadInt64(&wb.store.reads); reads != 0 {
+	if reads := wb.store.reads.Load(); reads != 0 {
 		t.Fatalf("store reads called %d times during resolution", reads)
 	}
-	if writes := atomic.LoadInt64(&wb.store.writes); writes != 0 {
+	if writes := wb.store.writes.Load(); writes != 0 {
 		t.Fatalf("store writes called %d times during resolution", writes)
 	}
-	if turns := atomic.LoadInt64(&wb.session.turns); turns != 0 {
+	if turns := wb.session.turns.Load(); turns != 0 {
 		t.Fatalf("session/turn mutation called %d times during resolution", turns)
 	}
-	if hooks := atomic.LoadInt64(&wb.plugin.invocations); hooks != 0 {
+	if hooks := wb.plugin.invocations.Load(); hooks != 0 {
 		t.Fatalf("plugin hooks called %d times during resolution", hooks)
 	}
 
@@ -316,6 +316,7 @@ func TestWireResolvers_ProtocolBinding_ProfileIdentity(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("matching profile identity succeeds", func(t *testing.T) {
+		t.Parallel()
 		req := validWireRequestFacts(t)
 		req.ProfileID = "openai-responses-v1"
 		res := execbackend.EffectiveWireRequestSupport(ctx, be, req, routing.AttemptCandidate{})
@@ -325,6 +326,7 @@ func TestWireResolvers_ProtocolBinding_ProfileIdentity(t *testing.T) {
 	})
 
 	t.Run("mismatched profile identity fails closed to incompatible", func(t *testing.T) {
+		t.Parallel()
 		for _, mismatched := range []string{
 			"anthropic-messages-v1",
 			"gemini-generate-content-v1",
@@ -365,6 +367,7 @@ func TestWireResolvers_SemanticFactBudget_ConfiguredAndDefault(t *testing.T) {
 	be := execbackend.Backend{WireBackend: wb}
 
 	t.Run("default budget allows facts > 1024 bytes (replaces 1024 magic)", func(t *testing.T) {
+		t.Parallel()
 		// Create facts where a field exceeds the old 1024 magic budget but is well within DefaultMaxSemanticFactBytes (256 KiB).
 		longModel := strings.Repeat("m", 2048)
 		wbLong := newPureWireBackend("openai-responses-v1", []string{longModel}, true, false)
@@ -388,6 +391,7 @@ func TestWireResolvers_SemanticFactBudget_ConfiguredAndDefault(t *testing.T) {
 	})
 
 	t.Run("context-configured budget is enforced", func(t *testing.T) {
+		t.Parallel()
 		// Configure a tiny budget of 500 bytes via WithSemanticFactBudget.
 		ctxSmall := largebody.WithSemanticFactBudget(context.Background(), 500)
 
@@ -437,6 +441,7 @@ func TestWireResolvers_DomainCoverage_ExactAndUniversal(t *testing.T) {
 	catalog := []string{"gpt-5", "gpt-5-mini", "o3"}
 
 	t.Run("finite domain covers exact candidate model", func(t *testing.T) {
+		t.Parallel()
 		wb := newPureWireBackend("openai-responses-v1", catalog, true, false)
 		be := execbackend.Backend{WireBackend: wb}
 		ctx := context.Background()
@@ -487,6 +492,7 @@ func TestWireResolvers_DomainCoverage_ExactAndUniversal(t *testing.T) {
 	})
 
 	t.Run("finite domain covers candidate model slice", func(t *testing.T) {
+		t.Parallel()
 		wb := newPureWireBackend("openai-responses-v1", catalog, true, false)
 		be := execbackend.Backend{WireBackend: wb}
 		ctx := context.Background()
@@ -512,6 +518,7 @@ func TestWireResolvers_DomainCoverage_ExactAndUniversal(t *testing.T) {
 	})
 
 	t.Run("universal domain requires AnyAcceptedModel", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 
 		// Universal backend (AnyAcceptedModel=true)
@@ -548,6 +555,7 @@ func TestWireResolvers_BodyModeAndRewriteContract(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("unsupported body mode declines with BodyModeUnsupported", func(t *testing.T) {
+		t.Parallel()
 		wb := newPureWireBackend("openai-responses-v1", []string{"gpt-5"}, true, false)
 		be := execbackend.Backend{WireBackend: wb}
 
@@ -567,6 +575,7 @@ func TestWireResolvers_BodyModeAndRewriteContract(t *testing.T) {
 	})
 
 	t.Run("backend requires rewrite without certified rewrite in facts -> fails closed", func(t *testing.T) {
+		t.Parallel()
 		// Backend returns NeedsModelRewrite: true
 		be := execbackend.Backend{
 			ResolveWireRequest: func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
@@ -595,6 +604,7 @@ func TestWireResolvers_BodyModeAndRewriteContract(t *testing.T) {
 	})
 
 	t.Run("backend requires rewrite with certified rewrite in facts -> compatible", func(t *testing.T) {
+		t.Parallel()
 		be := execbackend.Backend{
 			ResolveWireRequest: func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
 				return largebody.WireRequestSupport{
@@ -618,6 +628,7 @@ func TestWireResolvers_BodyModeAndRewriteContract(t *testing.T) {
 	})
 
 	t.Run("backend does not require rewrite with certified rewrite in facts -> compatible without rewrite", func(t *testing.T) {
+		t.Parallel()
 		be := execbackend.Backend{
 			ResolveWireRequest: func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
 				return largebody.WireRequestSupport{

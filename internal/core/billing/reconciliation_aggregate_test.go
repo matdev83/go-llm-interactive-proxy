@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -77,6 +78,7 @@ func TestReconciliationAggregateGrossNeverNetsOffsets(t *testing.T) {
 	}
 
 	t.Run("beyond tolerance", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("all", ReconciliationToleranceScope{}, toleranceLimit(t, "0.01"), nil))
 		result, err := AggregateReconciliationFindings(policy, findings)
 		if err != nil {
@@ -98,6 +100,7 @@ func TestReconciliationAggregateGrossNeverNetsOffsets(t *testing.T) {
 	})
 
 	t.Run("within tolerance still contributes to gross", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("all", ReconciliationToleranceScope{}, toleranceLimit(t, "10"), nil))
 		result, err := AggregateReconciliationFindings(policy, findings)
 		if err != nil {
@@ -175,6 +178,7 @@ func TestReconciliationFindingsProjectionsPreserveEvidence(t *testing.T) {
 	outputKey := reconciliationKey(metering.DirectionOutput, metering.ComponentOutputToken, metering.UnitToken, metering.DefaultInclusionSchemaID)
 
 	t.Run("quantity comparison", func(t *testing.T) {
+		t.Parallel()
 		comparison, err := CompareComponentQuantities(
 			reconciliationSide(
 				reconciliationObservation(t, "agg-qty-local-input", metering.OriginLocal, reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "100")),
@@ -218,6 +222,7 @@ func TestReconciliationFindingsProjectionsPreserveEvidence(t *testing.T) {
 	})
 
 	t.Run("monetary comparison", func(t *testing.T) {
+		t.Parallel()
 		comparison, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
 			monetaryTestValuation(t, "valuation-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "1.00")),
 			monetaryTestValuation(t, "valuation-q", economics.BasisProviderQuantityLocal, monetaryDecimalTotal(t, "USD", "1.10")),
@@ -265,6 +270,7 @@ func TestReconciliationFindingsProjectionsPreserveEvidence(t *testing.T) {
 	})
 
 	t.Run("monetary incomparable", func(t *testing.T) {
+		t.Parallel()
 		provider := monetaryTestValuation(t, "valuation-p", economics.BasisProviderReported, monetaryDecimalTotal(t, "USD", "1.32"))
 		provider.CoverageRefs = []metering.ChargeCoverageRef{{
 			Ref: metering.ChargeRef{StoreID: reconciliationSubject().StoreID, ObservationID: "charge-observation", Revision: 1, ChargeItemID: "charge-item"}, Relation: metering.CoverageAdditive,
@@ -288,12 +294,7 @@ func TestReconciliationFindingsProjectionsPreserveEvidence(t *testing.T) {
 }
 
 func containsString(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, wanted)
 }
 
 // TestReconciliationAggregateFromProjectedEvidence runs the tolerance policy
@@ -316,6 +317,7 @@ func TestReconciliationAggregateFromProjectedEvidence(t *testing.T) {
 	}
 
 	t.Run("within tolerance", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.40"), nil))
 		result, err := AggregateReconciliationFindings(policy, findings)
 		if err != nil {
@@ -335,6 +337,7 @@ func TestReconciliationAggregateFromProjectedEvidence(t *testing.T) {
 	})
 
 	t.Run("beyond tolerance", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.10"), nil))
 		result, err := AggregateReconciliationFindings(policy, findings)
 		if err != nil {
@@ -356,6 +359,7 @@ func TestReconciliationAggregateValidatesInputsAndBounds(t *testing.T) {
 	policy := toleranceTestPolicy(toleranceTestRule("all", ReconciliationToleranceScope{}, toleranceLimit(t, "0.01"), nil))
 
 	t.Run("unknown status", func(t *testing.T) {
+		t.Parallel()
 		bad := reconciliationTestFinding(t, "bad-status", "call-3", "USD", "", "1", "1", metering.QualityObserved, "bogus")
 		if _, err := AggregateReconciliationFindings(policy, []ReconciliationFinding{bad}); !errors.Is(err, ErrReconciliationAggregateInvalid) {
 			t.Fatalf("error = %v, want ErrReconciliationAggregateInvalid", err)
@@ -363,6 +367,7 @@ func TestReconciliationAggregateValidatesInputsAndBounds(t *testing.T) {
 	})
 
 	t.Run("missing unit key", func(t *testing.T) {
+		t.Parallel()
 		bad := ReconciliationFinding{ID: "no-unit", Scope: "call-3", Status: ReconciliationStatusDiscrepant}
 		if _, err := AggregateReconciliationFindings(policy, []ReconciliationFinding{bad}); !errors.Is(err, ErrReconciliationAggregateInvalid) {
 			t.Fatalf("error = %v, want ErrReconciliationAggregateInvalid", err)
@@ -370,6 +375,7 @@ func TestReconciliationAggregateValidatesInputsAndBounds(t *testing.T) {
 	})
 
 	t.Run("amount unit mismatch", func(t *testing.T) {
+		t.Parallel()
 		bad := reconciliationTestFinding(t, "unit-mismatch", "call-3", "USD", "", "1", "1", metering.QualityObserved, ReconciliationStatusDiscrepant)
 		other := toleranceAmount(t, "EUR", "1")
 		bad.Reported = &other
@@ -379,6 +385,7 @@ func TestReconciliationAggregateValidatesInputsAndBounds(t *testing.T) {
 	})
 
 	t.Run("finding bound", func(t *testing.T) {
+		t.Parallel()
 		findings := make([]ReconciliationFinding, 0, MaxReconciliationAggregateFindings+1)
 		for i := 0; i <= MaxReconciliationAggregateFindings; i++ {
 			findings = append(findings, reconciliationTestFinding(t, fmt.Sprintf("bound-%d", i), "call-3", "USD", "", "1", "1", metering.QualityObserved, ReconciliationStatusMatched))

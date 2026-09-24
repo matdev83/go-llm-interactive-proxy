@@ -85,14 +85,15 @@ func statementMatchCovered(observation string, revision uint64, chargeItemID str
 	}
 }
 
+//go:fix inline
 func statementMatchComponentPointer(key metering.ComponentKey) *metering.ComponentKey {
-	return &key
+	return new(key)
 }
 
-func statementMatchDecimal(t testing.TB, raw string) *metering.Decimal {
-	t.Helper()
+func statementMatchDecimal(tb testing.TB, raw string) *metering.Decimal {
+	tb.Helper()
 	value, err := metering.ParseDecimal(raw)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	return &value
 }
 
@@ -100,8 +101,8 @@ func statementMatchDecimal(t testing.TB, raw string) *metering.Decimal {
 // revision. Matched lines reference a statement-line observation that carries
 // exactly their normalized charge claim; unmatched lines retain the explicit
 // unmatched outcome from 13.1.
-func statementMatchStatement(t testing.TB, spec statementMatchStatementSpec) NormalizedStatement {
-	t.Helper()
+func statementMatchStatement(tb testing.TB, spec statementMatchStatementSpec) NormalizedStatement {
+	tb.Helper()
 
 	if spec.Store == "" {
 		spec.Store = statementMatchStore
@@ -124,7 +125,7 @@ func statementMatchStatement(t testing.TB, spec statementMatchStatementSpec) Nor
 	if spec.ReceivedAt.IsZero() {
 		spec.ReceivedAt = time.Unix(1_700_000_000, 0).UTC()
 	}
-	require.NotEmpty(t, spec.Lines, "statement fixture requires at least one line")
+	require.NotEmpty(tb, spec.Lines, "statement fixture requires at least one line")
 
 	scope := TrustedStatementScope{
 		StoreID:             spec.Store,
@@ -171,7 +172,7 @@ func statementMatchStatement(t testing.TB, spec statementMatchStatementSpec) Nor
 			Covers:       append([]metering.ChargeCoverageRef(nil), line.Covers...),
 		}
 		if line.Amount != "" {
-			charge.Amount = statementMatchDecimal(t, line.Amount)
+			charge.Amount = statementMatchDecimal(tb, line.Amount)
 			charge.Currency = line.Currency
 		}
 		observation := metering.Observation{
@@ -198,7 +199,7 @@ func statementMatchStatement(t testing.TB, spec statementMatchStatementSpec) Nor
 			MappingRef: "statement:match:test:v1",
 			Charges:    []metering.ReportedCharge{charge},
 		}
-		require.NoError(t, observation.Validate(), "statement observation fixture must validate")
+		require.NoError(tb, observation.Validate(), "statement observation fixture must validate")
 		ref := metering.ObservationRef{
 			StoreID:       observation.Subject.StoreID,
 			ObservationID: observation.ID,
@@ -223,8 +224,8 @@ func statementMatchStatement(t testing.TB, spec statementMatchStatementSpec) Nor
 		Lines:              lines,
 	}
 	normalized, err := NormalizeStatement(scope, batch)
-	require.NoError(t, err, "statement fixture must normalize")
-	require.NoError(t, normalized.Validate())
+	require.NoError(tb, err, "statement fixture must normalize")
+	require.NoError(tb, normalized.Validate())
 	return normalized
 }
 
@@ -307,10 +308,11 @@ func matchStatementSet(t *testing.T, statements []NormalizedStatement, evidence 
 }
 
 func TestStatementMatchExplicitChargeEvidence(t *testing.T) {
+	t.Parallel()
 	statement := statementMatchStatement(t, statementMatchStatementSpec{
 		Lines: []statementMatchLineSpec{{
 			ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-			Component: statementMatchComponentPointer(statementMatchSKU("token")),
+			Component: new(statementMatchSKU("token")),
 			Amount:    "1.25", Currency: "USD",
 		}},
 	})
@@ -343,10 +345,11 @@ func TestStatementMatchExplicitChargeEvidence(t *testing.T) {
 }
 
 func TestStatementMatchCompleteAggregateSKUCoverage(t *testing.T) {
+	t.Parallel()
 	component := statementMatchSKU("token")
 	aggregateLine := statementMatchLineSpec{
 		ID: "agg-1", ChargeItemID: "aggregate-1", Kind: metering.ChargeKindAggregate,
-		Component: statementMatchComponentPointer(component),
+		Component: new(component),
 		Amount:    "3.75", Currency: "USD",
 		Covers: []metering.ChargeCoverageRef{
 			statementMatchCovered("evidence-observation-1", 1, "charge-1"),
@@ -361,6 +364,7 @@ func TestStatementMatchCompleteAggregateSKUCoverage(t *testing.T) {
 	}
 
 	t.Run("explicit coverage references", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{aggregateLine}})
 		set := matchStatementSet(t, []NormalizedStatement{statement}, evidence)
 		require.Len(t, set.Results, 1)
@@ -377,6 +381,7 @@ func TestStatementMatchCompleteAggregateSKUCoverage(t *testing.T) {
 	})
 
 	t.Run("complete evidence set without coverage references", func(t *testing.T) {
+		t.Parallel()
 		line := aggregateLine
 		line.Covers = nil
 		statement := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{line}})
@@ -389,11 +394,13 @@ func TestStatementMatchCompleteAggregateSKUCoverage(t *testing.T) {
 }
 
 func TestStatementMatchRetainsUnmatchedAndAccountScopedLines(t *testing.T) {
+	t.Parallel()
 	t.Run("missing explicit charge stays unmatched", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{{
 				ID: "line-1", ChargeItemID: "charge-missing", Kind: metering.ChargeKindComponent,
-				Component: statementMatchComponentPointer(statementMatchSKU("token")),
+				Component: new(statementMatchSKU("token")),
 				Amount:    "1.25", Currency: "USD",
 			}},
 		})
@@ -405,11 +412,12 @@ func TestStatementMatchRetainsUnmatchedAndAccountScopedLines(t *testing.T) {
 	})
 
 	t.Run("imported unmatched line keeps its declared reason", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{
 				{
 					ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-					Component: statementMatchComponentPointer(statementMatchSKU("token")), Amount: "1.25", Currency: "USD",
+					Component: new(statementMatchSKU("token")), Amount: "1.25", Currency: "USD",
 				},
 				{ID: "line-2", Unmatched: true, UnmatchedReason: "account-period aggregate"},
 			},
@@ -424,6 +432,7 @@ func TestStatementMatchRetainsUnmatchedAndAccountScopedLines(t *testing.T) {
 	})
 
 	t.Run("account total stays account-scoped", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{{
 				ID: "total-1", ChargeItemID: "account-total-1", Kind: metering.ChargeKindAggregate,
@@ -444,6 +453,7 @@ func TestStatementMatchRetainsUnmatchedAndAccountScopedLines(t *testing.T) {
 }
 
 func TestStatementMatchPartialAggregateIsNotMatched(t *testing.T) {
+	t.Parallel()
 	component := statementMatchSKU("token")
 	evidence := []StatementChargeEvidence{
 		statementMatchEvidence(statementMatchEvidenceSpec{Observation: "evidence-observation-1", ChargeItemID: "charge-1"}),
@@ -452,10 +462,11 @@ func TestStatementMatchPartialAggregateIsNotMatched(t *testing.T) {
 	}
 	aggregateLine := statementMatchLineSpec{
 		ID: "agg-1", ChargeItemID: "aggregate-1", Kind: metering.ChargeKindAggregate,
-		Component: statementMatchComponentPointer(component), Amount: "3.75", Currency: "USD",
+		Component: new(component), Amount: "3.75", Currency: "USD",
 	}
 
 	t.Run("missing coverage reference is partial", func(t *testing.T) {
+		t.Parallel()
 		line := aggregateLine
 		line.Covers = []metering.ChargeCoverageRef{
 			statementMatchCovered("evidence-observation-1", 1, "charge-1"),
@@ -470,6 +481,7 @@ func TestStatementMatchPartialAggregateIsNotMatched(t *testing.T) {
 	})
 
 	t.Run("ineligible group member makes coverage partial", func(t *testing.T) {
+		t.Parallel()
 		ineligible := evidence[2]
 		ineligible.State = StatementEvidenceIneligible
 		mixed := []StatementChargeEvidence{evidence[0], evidence[1], ineligible}
@@ -482,6 +494,7 @@ func TestStatementMatchPartialAggregateIsNotMatched(t *testing.T) {
 	})
 
 	t.Run("dangling coverage reference is partial", func(t *testing.T) {
+		t.Parallel()
 		line := aggregateLine
 		line.Covers = []metering.ChargeCoverageRef{
 			statementMatchCovered("evidence-observation-1", 1, "charge-1"),
@@ -497,6 +510,7 @@ func TestStatementMatchPartialAggregateIsNotMatched(t *testing.T) {
 }
 
 func TestStatementMatchNeverGuessesNearestChargeOrAllocation(t *testing.T) {
+	t.Parallel()
 	// The account/period holds eligible charges with the same amount and
 	// component; the statement line has no explicit charge link, so nothing
 	// may be attached to it.
@@ -516,6 +530,7 @@ func TestStatementMatchNeverGuessesNearestChargeOrAllocation(t *testing.T) {
 }
 
 func TestStatementMatchRejectsDuplicateParentChildInclusion(t *testing.T) {
+	t.Parallel()
 	component := statementMatchSKU("token")
 	parentRef := statementMatchRef("evidence-observation-parent", 1, "charge-parent")
 	childRef := statementMatchRef("evidence-observation-child", 1, "charge-child")
@@ -528,10 +543,11 @@ func TestStatementMatchRejectsDuplicateParentChildInclusion(t *testing.T) {
 	})
 
 	t.Run("one aggregate link cannot include parent and inclusive child", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{{
 				ID: "agg-1", ChargeItemID: "aggregate-1", Kind: metering.ChargeKindAggregate,
-				Component: statementMatchComponentPointer(component), Amount: "5.00", Currency: "USD",
+				Component: new(component), Amount: "5.00", Currency: "USD",
 				Covers: []metering.ChargeCoverageRef{
 					{Ref: parentRef, Relation: metering.CoverageInclusive},
 					{Ref: childRef, Relation: metering.CoverageInclusive},
@@ -546,15 +562,16 @@ func TestStatementMatchRejectsDuplicateParentChildInclusion(t *testing.T) {
 	})
 
 	t.Run("separate lines cannot cover a parent and its inclusive child", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{
 				{
 					ID: "line-parent", ChargeItemID: "charge-parent", Kind: metering.ChargeKindComponent,
-					Component: statementMatchComponentPointer(component), Amount: "5.00", Currency: "USD",
+					Component: new(component), Amount: "5.00", Currency: "USD",
 				},
 				{
 					ID: "line-child", ChargeItemID: "charge-child", Kind: metering.ChargeKindComponent,
-					Component: statementMatchComponentPointer(component), Amount: "1.00", Currency: "USD",
+					Component: new(component), Amount: "1.00", Currency: "USD",
 				},
 			},
 		})
@@ -569,10 +586,11 @@ func TestStatementMatchRejectsDuplicateParentChildInclusion(t *testing.T) {
 	})
 
 	t.Run("direct overlap outranks internal parent-child inclusion deterministically", func(t *testing.T) {
+		t.Parallel()
 		aggregate := statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{{
 				ID: "agg-1", ChargeItemID: "aggregate-1", Kind: metering.ChargeKindAggregate,
-				Component: statementMatchComponentPointer(component), Amount: "5.00", Currency: "USD",
+				Component: new(component), Amount: "5.00", Currency: "USD",
 				Covers: []metering.ChargeCoverageRef{
 					{Ref: parentRef, Relation: metering.CoverageInclusive},
 					{Ref: childRef, Relation: metering.CoverageInclusive},
@@ -583,7 +601,7 @@ func TestStatementMatchRejectsDuplicateParentChildInclusion(t *testing.T) {
 			Statement: "statement-2",
 			Lines: []statementMatchLineSpec{{
 				ID: "line-parent", ChargeItemID: "charge-parent", Kind: metering.ChargeKindComponent,
-				Component: statementMatchComponentPointer(component), Amount: "5.00", Currency: "USD",
+				Component: new(component), Amount: "5.00", Currency: "USD",
 			}},
 		})
 		set := matchStatementSet(t, []NormalizedStatement{aggregate, explicit}, []StatementChargeEvidence{parentEvidence, childEvidence})
@@ -597,9 +615,10 @@ func TestStatementMatchRejectsDuplicateParentChildInclusion(t *testing.T) {
 }
 
 func TestStatementMatchScopeAndClaimMismatchesAreIncomparable(t *testing.T) {
+	t.Parallel()
 	baseClaim := statementMatchLineSpec{
 		ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-		Component: statementMatchComponentPointer(statementMatchSKU("token")),
+		Component: new(statementMatchSKU("token")),
 		Amount:    "1.25", Currency: "USD",
 	}
 	tests := []struct {
@@ -664,6 +683,7 @@ func TestStatementMatchScopeAndClaimMismatchesAreIncomparable(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			statement := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{test.claim}})
 			set := matchStatementSet(t, []NormalizedStatement{statement}, []StatementChargeEvidence{statementMatchEvidence(test.evid)})
 			result := set.Results[0]
@@ -675,20 +695,22 @@ func TestStatementMatchScopeAndClaimMismatchesAreIncomparable(t *testing.T) {
 }
 
 func TestStatementMatchRejectsOverlappingAndDuplicateCoverage(t *testing.T) {
+	t.Parallel()
 	component := statementMatchSKU("token")
 
 	t.Run("two explicit lines cannot cover the same charge", func(t *testing.T) {
+		t.Parallel()
 		first := statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{{
 				ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-				Component: statementMatchComponentPointer(component), Amount: "1.25", Currency: "USD",
+				Component: new(component), Amount: "1.25", Currency: "USD",
 			}},
 		})
 		second := statementMatchStatement(t, statementMatchStatementSpec{
 			Statement: "statement-2",
 			Lines: []statementMatchLineSpec{{
 				ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-				Component: statementMatchComponentPointer(component), Amount: "1.25", Currency: "USD",
+				Component: new(component), Amount: "1.25", Currency: "USD",
 			}},
 		})
 		evidence := []StatementChargeEvidence{statementMatchEvidence(statementMatchEvidenceSpec{ChargeItemID: "charge-1"})}
@@ -702,9 +724,10 @@ func TestStatementMatchRejectsOverlappingAndDuplicateCoverage(t *testing.T) {
 	})
 
 	t.Run("two aggregate lines cannot cover the same eligible charges", func(t *testing.T) {
+		t.Parallel()
 		aggregateLine := statementMatchLineSpec{
 			ID: "agg-1", ChargeItemID: "aggregate-1", Kind: metering.ChargeKindAggregate,
-			Component: statementMatchComponentPointer(component), Amount: "2.50", Currency: "USD",
+			Component: new(component), Amount: "2.50", Currency: "USD",
 		}
 		first := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{aggregateLine}})
 		second := statementMatchStatement(t, statementMatchStatementSpec{
@@ -723,10 +746,11 @@ func TestStatementMatchRejectsOverlappingAndDuplicateCoverage(t *testing.T) {
 	})
 
 	t.Run("duplicate evidence entries are rejected", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{{
 				ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-				Component: statementMatchComponentPointer(component), Amount: "1.25", Currency: "USD",
+				Component: new(component), Amount: "1.25", Currency: "USD",
 			}},
 		})
 		duplicate := statementMatchEvidence(statementMatchEvidenceSpec{ChargeItemID: "charge-1"})
@@ -735,10 +759,11 @@ func TestStatementMatchRejectsOverlappingAndDuplicateCoverage(t *testing.T) {
 	})
 
 	t.Run("duplicate statement revision is rejected", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{{
 				ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-				Component: statementMatchComponentPointer(component), Amount: "1.25", Currency: "USD",
+				Component: new(component), Amount: "1.25", Currency: "USD",
 			}},
 		})
 		_, err := MatchStatements([]NormalizedStatement{statement, statement}, nil)
@@ -747,19 +772,20 @@ func TestStatementMatchRejectsOverlappingAndDuplicateCoverage(t *testing.T) {
 }
 
 func TestStatementMatchIsDeterministicAcrossInputOrder(t *testing.T) {
+	t.Parallel()
 	component := statementMatchSKU("token")
 	statements := []NormalizedStatement{
 		statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{{
 				ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-				Component: statementMatchComponentPointer(component), Amount: "1.25", Currency: "USD",
+				Component: new(component), Amount: "1.25", Currency: "USD",
 			}},
 		}),
 		statementMatchStatement(t, statementMatchStatementSpec{
 			Statement: "statement-2",
 			Lines: []statementMatchLineSpec{{
 				ID: "agg-1", ChargeItemID: "aggregate-1", Kind: metering.ChargeKindAggregate,
-				Component: statementMatchComponentPointer(component), Amount: "2.50", Currency: "USD",
+				Component: new(component), Amount: "2.50", Currency: "USD",
 			}},
 		}),
 	}
@@ -783,6 +809,7 @@ func TestStatementMatchIsDeterministicAcrossInputOrder(t *testing.T) {
 }
 
 func TestStatementMatchRetainsNoRequestOrAllocationLineage(t *testing.T) {
+	t.Parallel()
 	assertNoGuessedAllocationFields(t, StatementChargeEvidence{})
 	assertNoGuessedAllocationFields(t, StatementCoverageLink{})
 	assertNoGuessedAllocationFields(t, StatementMatchLine{})
@@ -798,8 +825,7 @@ func assertNoGuessedAllocationFields(t *testing.T, value any) {
 		"request", "aleg", "a_leg", "bleg", "b_leg", "billing_call", "billingcall",
 		"attempt", "allocation", "call_id", "callid", "provider_request",
 	}
-	for i := range typ.NumField() {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		if !field.IsExported() {
 			continue
 		}
@@ -811,13 +837,15 @@ func assertNoGuessedAllocationFields(t *testing.T, value any) {
 }
 
 func TestStatementMatchRejectsAmbiguousRevisions(t *testing.T) {
+	t.Parallel()
 	component := statementMatchSKU("token")
 	line := statementMatchLineSpec{
 		ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-		Component: statementMatchComponentPointer(component), Amount: "1.25", Currency: "USD",
+		Component: new(component), Amount: "1.25", Currency: "USD",
 	}
 
 	t.Run("mixed statement revisions fail closed", func(t *testing.T) {
+		t.Parallel()
 		first := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{line}})
 		second := statementMatchStatement(t, statementMatchStatementSpec{Revision: 2, Lines: []statementMatchLineSpec{line}})
 		_, err := MatchStatements([]NormalizedStatement{first, second}, nil)
@@ -828,6 +856,7 @@ func TestStatementMatchRejectsAmbiguousRevisions(t *testing.T) {
 	})
 
 	t.Run("multiple evidence revisions are ambiguous for explicit matching", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{line}})
 		evidence := []StatementChargeEvidence{
 			statementMatchEvidence(statementMatchEvidenceSpec{Observation: "evidence-observation-1", Revision: 1, ChargeItemID: "charge-1"}),
@@ -841,10 +870,11 @@ func TestStatementMatchRejectsAmbiguousRevisions(t *testing.T) {
 	})
 
 	t.Run("multiple evidence revisions are ambiguous for aggregate coverage", func(t *testing.T) {
+		t.Parallel()
 		aggregate := statementMatchStatement(t, statementMatchStatementSpec{
 			Lines: []statementMatchLineSpec{{
 				ID: "agg-1", ChargeItemID: "aggregate-1", Kind: metering.ChargeKindAggregate,
-				Component: statementMatchComponentPointer(component), Amount: "2.50", Currency: "USD",
+				Component: new(component), Amount: "2.50", Currency: "USD",
 			}},
 		})
 		evidence := []StatementChargeEvidence{
@@ -860,19 +890,22 @@ func TestStatementMatchRejectsAmbiguousRevisions(t *testing.T) {
 }
 
 func TestStatementMatchRejectsMalformedAndOverboundInput(t *testing.T) {
+	t.Parallel()
 	component := statementMatchSKU("token")
 	validLine := statementMatchLineSpec{
 		ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-		Component: statementMatchComponentPointer(component), Amount: "1.25", Currency: "USD",
+		Component: new(component), Amount: "1.25", Currency: "USD",
 	}
 
 	t.Run("empty input is an empty match set", func(t *testing.T) {
+		t.Parallel()
 		set, err := MatchStatements(nil, nil)
 		require.NoError(t, err)
 		require.Empty(t, set.Results)
 	})
 
 	t.Run("tampered statement is rejected", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{validLine}})
 		tampered := statement.Clone()
 		tampered.Lines[0].Line.ID = "line-2"
@@ -881,6 +914,7 @@ func TestStatementMatchRejectsMalformedAndOverboundInput(t *testing.T) {
 	})
 
 	t.Run("malformed evidence is rejected", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{validLine}})
 		tests := map[string]func() StatementChargeEvidence{
 			"missing charge item": func() StatementChargeEvidence {
@@ -936,6 +970,7 @@ func TestStatementMatchRejectsMalformedAndOverboundInput(t *testing.T) {
 		}
 		for name, build := range tests {
 			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 				_, err := MatchStatements([]NormalizedStatement{statement}, []StatementChargeEvidence{build()})
 				require.ErrorIs(t, err, ErrStatementMatchInvalid)
 			})
@@ -943,6 +978,7 @@ func TestStatementMatchRejectsMalformedAndOverboundInput(t *testing.T) {
 	})
 
 	t.Run("evidence bound is enforced", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{validLine}})
 		evidence := make([]StatementChargeEvidence, 0, MaxStatementMatchEvidence+1)
 		for i := 0; i <= MaxStatementMatchEvidence; i++ {
@@ -956,6 +992,7 @@ func TestStatementMatchRejectsMalformedAndOverboundInput(t *testing.T) {
 	})
 
 	t.Run("statement bound is enforced", func(t *testing.T) {
+		t.Parallel()
 		statement := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{validLine}})
 		statements := make([]NormalizedStatement, 0, MaxStatementMatchStatements+1)
 		for i := 0; i <= MaxStatementMatchStatements; i++ {
@@ -967,11 +1004,12 @@ func TestStatementMatchRejectsMalformedAndOverboundInput(t *testing.T) {
 }
 
 func TestStatementCoverageLinkIdentityIsStableAndDetached(t *testing.T) {
+	t.Parallel()
 	component := statementMatchSKU("token")
 	statement := statementMatchStatement(t, statementMatchStatementSpec{
 		Lines: []statementMatchLineSpec{{
 			ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-			Component: statementMatchComponentPointer(component), Amount: "1.25", Currency: "USD",
+			Component: new(component), Amount: "1.25", Currency: "USD",
 		}},
 	})
 	base := statementMatchEvidence(statementMatchEvidenceSpec{ChargeItemID: "charge-1", ReconciliationID: "reconciliation-1"})
@@ -995,6 +1033,7 @@ func TestStatementCoverageLinkIdentityIsStableAndDetached(t *testing.T) {
 }
 
 func TestStatementMatchVocabularyIsClosed(t *testing.T) {
+	t.Parallel()
 	statuses := []StatementMatchStatus{
 		StatementMatchStatusMatched, StatementMatchStatusPartial, StatementMatchStatusIncomparable,
 		StatementMatchStatusConflict, StatementMatchStatusUnmatched,
@@ -1036,14 +1075,14 @@ func FuzzStatementMatchOrderIndependence(f *testing.F) {
 		component := statementMatchSKU("token")
 		line := statementMatchLineSpec{
 			ID: "line-1", ChargeItemID: "charge-1", Kind: metering.ChargeKindComponent,
-			Component: statementMatchComponentPointer(component), Amount: "1.25", Currency: "USD",
+			Component: new(component), Amount: "1.25", Currency: "USD",
 		}
 		first := statementMatchStatement(t, statementMatchStatementSpec{Lines: []statementMatchLineSpec{line}})
 		second := statementMatchStatement(t, statementMatchStatementSpec{
 			Statement: "statement-2",
 			Lines: []statementMatchLineSpec{{
 				ID: "agg-1", ChargeItemID: "aggregate-1", Kind: metering.ChargeKindAggregate,
-				Component: statementMatchComponentPointer(component), Amount: "2.50", Currency: "USD",
+				Component: new(component), Amount: "2.50", Currency: "USD",
 			}},
 		})
 		evidence := []StatementChargeEvidence{

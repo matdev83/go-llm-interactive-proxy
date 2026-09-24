@@ -295,11 +295,9 @@ func ValidateAccountingCutoverTransition(current AccountingCutoverMarker, req Ac
 	if !ok {
 		return AccountingCutoverMarker{}, fmt.Errorf("%w: %w: unknown cutover state %q", ErrAccountingCutoverInvalid, ErrInvalidRecord, string(req.NextState))
 	}
-	updated := nowUnix
-	if updated < current.CreatedAtUnix {
+	updated := max(nowUnix,
 		// Never move the auditable clock backward; preserve CreatedAt ordering.
-		updated = current.CreatedAtUnix
-	}
+		current.CreatedAtUnix)
 	next := AccountingCutoverMarker{
 		StoreID:            current.StoreID,
 		Generation:         gen,

@@ -427,7 +427,6 @@ func TestStatementImportScopeFailsClosed(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ledger := newMemoryStatementLedger()
@@ -591,7 +590,6 @@ func TestStatementImportRejectsMalformedAndUnsupportedClaims(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ledger := newMemoryStatementLedger()
@@ -773,7 +771,6 @@ func TestStatementImportScopeHelpers(t *testing.T) {
 		"duplicate account": {StoreID: "store-1", ProviderAccountKeys: []string{"a", "a"}},
 		"unsafe account":    {StoreID: "store-1", ProviderAccountKeys: []string{"bad\naccount"}},
 	} {
-		name, invalid := name, invalid
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			require.ErrorIs(t, invalid.Validate(), ErrStatementImportInvalid)

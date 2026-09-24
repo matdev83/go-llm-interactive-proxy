@@ -341,10 +341,7 @@ func NewBuilderWithByteBudget(op lipapi.Operation, maxFactBytes int) *Builder {
 	if maxFactBytes <= 0 {
 		return NewBuilder(op, 0)
 	}
-	items := maxFactBytes / ItemHashSizeBytes
-	if items < 1 {
-		items = 1
-	}
+	items := max(maxFactBytes/ItemHashSizeBytes, 1)
 	return NewBuilder(op, items)
 }
 
