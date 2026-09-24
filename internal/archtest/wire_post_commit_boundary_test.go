@@ -120,6 +120,7 @@ func isLipapiCloneCall(info *types.Info, call *ast.CallExpr) bool {
 // No struct in internal/core/largebody may retain lipapi.Call, and no wire
 // post-commit function/method may accept/return lipapi.Call or invoke lipapi.CloneCall.
 func TestArch_WirePostCommit_LargebodyPackageIsCallFree(t *testing.T) {
+	t.Parallel()
 	pkg := loadPackageForArchTest(t, "github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody")
 
 	var violations []string
@@ -140,8 +141,7 @@ func TestArch_WirePostCommit_LargebodyPackageIsCallFree(t *testing.T) {
 		if !ok {
 			continue
 		}
-		for i := 0; i < st.NumFields(); i++ {
-			field := st.Field(i)
+		for field := range st.Fields() {
 			if isLipapiCallType(field.Type()) {
 				violations = append(violations, fmt.Sprintf("struct %s: field %s has forbidden type %s",
 					name, field.Name(), field.Type().String()))
@@ -166,8 +166,7 @@ func TestArch_WirePostCommit_LargebodyPackageIsCallFree(t *testing.T) {
 
 		// Check parameters
 		params := sig.Params()
-		for i := 0; i < params.Len(); i++ {
-			p := params.At(i)
+		for p := range params.Variables() {
 			if isLipapiCallType(p.Type()) {
 				hasCall = true
 				callDetails = append(callDetails, fmt.Sprintf("param %s: %s", p.Name(), p.Type().String()))
@@ -235,8 +234,7 @@ func isRuntimeWireFunction(fn *types.Func) bool {
 		return false
 	}
 	params := sig.Params()
-	for i := 0; i < params.Len(); i++ {
-		p := params.At(i)
+	for p := range params.Variables() {
 		typeName := p.Type().String()
 		if strings.Contains(typeName, "largebody.Wire") || strings.Contains(typeName, "largebody.Assessment") ||
 			strings.Contains(typeName, "WireBilling") || strings.Contains(typeName, "WireExposure") ||
@@ -252,6 +250,7 @@ func isRuntimeWireFunction(fn *types.Func) bool {
 // they do not accept lipapi.Call, dereference fields of type lipapi.Call,
 // or invoke lipapi.CloneCall, except explicitly whitelisted response-only adapters.
 func TestArch_WirePostCommit_RuntimeWireFunctionsAreCallFree(t *testing.T) {
+	t.Parallel()
 	pkg := loadPackageForArchTest(t, "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime")
 
 	var violations []string
@@ -279,8 +278,7 @@ func TestArch_WirePostCommit_RuntimeWireFunctionsAreCallFree(t *testing.T) {
 
 		// 1. Check parameters and return types
 		params := sig.Params()
-		for i := 0; i < params.Len(); i++ {
-			p := params.At(i)
+		for p := range params.Variables() {
 			if isLipapiCallType(p.Type()) {
 				pos := pkg.Fset.Position(ident.Pos())
 				violations = append(violations, fmt.Sprintf("%s:%d: wire function %q accepts forbidden parameter %s: %s",
@@ -288,8 +286,7 @@ func TestArch_WirePostCommit_RuntimeWireFunctionsAreCallFree(t *testing.T) {
 			}
 		}
 		results := sig.Results()
-		for i := 0; i < results.Len(); i++ {
-			r := results.At(i)
+		for r := range results.Variables() {
 			if isLipapiCallType(r.Type()) {
 				pos := pkg.Fset.Position(ident.Pos())
 				violations = append(violations, fmt.Sprintf("%s:%d: wire function %q returns forbidden type %s",
@@ -363,6 +360,7 @@ func TestArch_WirePostCommit_RuntimeWireFunctionsAreCallFree(t *testing.T) {
 // any field access or dereference on a lipapi.Call receiver is caught regardless
 // of field or variable names.
 func TestArch_WirePostCommit_CatchPrepCallClonesAndRenames_TypeOriented(t *testing.T) {
+	t.Parallel()
 	root := repoRoot(t)
 	overlayPath := filepath.Join(root, "pkg", "lipapi", "synthetic_type_test_overlay.go")
 	overlay := map[string][]byte{
@@ -427,6 +425,7 @@ func WireFunctionWithRenamedClone(c *RenamedCarrier) {
 // legacy route resolver. ResolveRouteSelector must never be invoked in candidate
 // execution; its only allowed appearance is the Gate 5 pre-capture nil-check.
 func TestArch_FrontendCandidate_NoLegacyRouteResolverBodyMaterialization(t *testing.T) {
+	t.Parallel()
 	root := repoRoot(t)
 	candidatePath := filepath.Join(root, "internal", "plugins", "frontends", "frontendpipe", "candidate.go")
 	content, err := os.ReadFile(candidatePath)
@@ -470,6 +469,7 @@ func TestArch_FrontendCandidate_NoLegacyRouteResolverBodyMaterialization(t *test
 // any simulated rogue call, clone, or legacy resolver invocation in wire
 // candidate code is deterministically flagged with the exact violation details.
 func TestArch_WirePostCommit_RogueViolationDetection_MutationTest(t *testing.T) {
+	t.Parallel()
 	fset := token.NewFileSet()
 	badCode := `package badcode
 

@@ -51,6 +51,7 @@ func makeWireSafePlanes(genID string) []largebody.PlaneEligibilityInput {
 // -----------------------------------------------------------------------------
 
 func TestTask11_3_UnknownPort_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task-11-3"
 	summary := validWireSafeSummary(t, genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -83,6 +84,7 @@ func TestTask11_3_UnknownPort_Declines(t *testing.T) {
 }
 
 func TestTask11_3_UnknownPlane_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task-11-3"
 	summary := validWireSafeSummary(t, genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -104,6 +106,7 @@ func TestTask11_3_UnknownPlane_Declines(t *testing.T) {
 }
 
 func TestTask11_3_UnclassifiedPlane_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task-11-3"
 	summary := validWireSafeSummary(t, genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -127,6 +130,7 @@ func TestTask11_3_UnclassifiedPlane_Declines(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_3_WireSafeSet_Accepts(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task-11-3"
 	summary := validWireSafeSummary(t, genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -204,6 +208,7 @@ func TestTask11_3_WireSafeSet_Accepts(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_3_DefensiveRecheck_UnsealedSummaryDeclines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task-11-3"
 	census := largebody.NewStandardDependencyCensus(genID)
 
@@ -220,6 +225,7 @@ func TestTask11_3_DefensiveRecheck_UnsealedSummaryDeclines(t *testing.T) {
 }
 
 func TestTask11_3_DefensiveRecheck_GenerationMismatchDeclines(t *testing.T) {
+	t.Parallel()
 	census := largebody.NewStandardDependencyCensus("gen-A")
 	summary := validWireSafeSummary(t, "gen-A")
 
@@ -235,6 +241,7 @@ func TestTask11_3_DefensiveRecheck_GenerationMismatchDeclines(t *testing.T) {
 }
 
 func TestTask11_3_DefensiveRecheck_EmptyGenerationDeclines(t *testing.T) {
+	t.Parallel()
 	census := largebody.NewStandardDependencyCensus("gen-A")
 	summary := validWireSafeSummary(t, "gen-A")
 
@@ -252,6 +259,7 @@ func TestTask11_3_DefensiveRecheck_EmptyGenerationDeclines(t *testing.T) {
 }
 
 func TestTask11_3_DefensiveRecheck_StaticBlockerDeclines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task-11-3"
 	census := largebody.NewStandardDependencyCensus(genID)
 
@@ -284,6 +292,7 @@ func TestTask11_3_DefensiveRecheck_StaticBlockerDeclines(t *testing.T) {
 }
 
 func TestTask11_3_DefensiveRecheck_NoHotPathReflection(t *testing.T) {
+	t.Parallel()
 	// Guardrail: no hot-path reflection during authority gate assessment.
 	// Assessment duration must be sub-millisecond and well under the budget.
 	genID := "gen-task-11-3"
@@ -293,7 +302,7 @@ func TestTask11_3_DefensiveRecheck_NoHotPathReflection(t *testing.T) {
 	gate := largebody.NewAuthorityAssessmentGate(summary, census, genID)
 
 	// Benchmark/run multiple iterations ensuring zero allocations / ultra-fast execution
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		dec, r := gate.Evaluate()
 		if dec != largebody.AssessmentDecisionAccept || r != largebody.DeclineReasonNone {
 			t.Fatalf("iteration %d failed: dec=%v r=%v", i, dec, r)
@@ -306,6 +315,7 @@ func TestTask11_3_DefensiveRecheck_NoHotPathReflection(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_3_OccupiedBlocker_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task-11-3"
 	summary := validWireSafeSummary(t, genID)
 
@@ -372,6 +382,7 @@ func TestTask11_3_OccupiedBlocker_Declines(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			census := largebody.NewStandardDependencyCensus(genID)
 			tc.mutate(&census)
 
@@ -387,6 +398,7 @@ func TestTask11_3_OccupiedBlocker_Declines(t *testing.T) {
 }
 
 func TestTask11_3_SentinelHarness_AllSentinelsUntouched(t *testing.T) {
+	t.Parallel()
 	harness := NewSentinelHarness()
 	genID := "gen-task-11-3"
 	summary := validWireSafeSummary(t, genID)

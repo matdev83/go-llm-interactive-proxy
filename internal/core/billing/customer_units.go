@@ -995,10 +995,7 @@ func decimalAtCommonScale(a, b metering.Decimal, signB int) (metering.Decimal, e
 	if err != nil {
 		return metering.Decimal{}, err
 	}
-	scale := left.Scale
-	if right.Scale > scale {
-		scale = right.Scale
-	}
+	scale := max(right.Scale, left.Scale)
 	leftCoefficient, ok := new(big.Int).SetString(left.Coefficient, 10)
 	if !ok {
 		return metering.Decimal{}, fmt.Errorf("%w: left coefficient", metering.ErrInvalidDecimal)

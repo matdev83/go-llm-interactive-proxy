@@ -595,7 +595,7 @@ func TestWireEligibility_NarrowPortBlockers(t *testing.T) {
 func TestWireEligibility_InputModelStaysFixed(t *testing.T) {
 	t.Parallel()
 
-	if got := reflect.TypeOf(largebody.NarrowPortEligibilityInput{}).NumField(); got != 23 {
+	if got := reflect.TypeFor[largebody.NarrowPortEligibilityInput]().NumField(); got != 23 {
 		t.Fatalf("narrow-port input model changed (%d fields): extend the compiler policy first", got)
 	}
 	if largebody.WireEligibilityPlaneCount != 26 {

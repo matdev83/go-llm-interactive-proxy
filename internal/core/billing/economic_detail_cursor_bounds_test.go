@@ -24,7 +24,6 @@ func TestEconomicDetailQueryNormalizeBoundsIncomingCursor(t *testing.T) {
 		"tag segment":     "op2." + strings.Repeat("A", 8) + "." + strings.Repeat("B", economics.MaxOperatorCursorBytes),
 	}
 	for name, cursor := range oversized {
-		name, cursor := name, cursor
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			require.Greater(t, len(cursor), economics.MaxOperatorCursorBytes)

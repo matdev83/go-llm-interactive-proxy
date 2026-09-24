@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -308,10 +309,8 @@ func appendUniqueSorted(values []string, value string) []string {
 	if value == "" {
 		return values
 	}
-	for _, existing := range values {
-		if existing == value {
-			return values
-		}
+	if slices.Contains(values, value) {
+		return values
 	}
 	values = append(values, value)
 	sort.Strings(values)

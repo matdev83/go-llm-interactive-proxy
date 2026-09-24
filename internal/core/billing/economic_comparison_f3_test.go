@@ -438,7 +438,6 @@ func TestPhase172F3SubjectVariantsAreIncomparableThroughRunner(t *testing.T) {
 		}},
 	}
 	for _, variant := range variants {
-		variant := variant
 		t.Run(variant.name, func(t *testing.T) {
 			t.Parallel()
 			store := newEconomicJobRunnerTestStore()

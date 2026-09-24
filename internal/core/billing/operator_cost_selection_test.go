@@ -72,7 +72,8 @@ func TestOperatorCostSelectionChoosesPWithoutErasingAlternatives(t *testing.T) {
 		operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false),
 		operatorCostTestRule("q-provisional", OperatorCostBasisQ, OperatorCostSelectionStatusProvisional, true, false, false),
 	)
-	input := operatorCostTestInput(t,
+	input := operatorCostTestInput(
+		t,
 		operatorCostTestCandidate(t, OperatorCostBasisE, "e", "1.00", economics.CompletenessComplete, metering.PaymentParty{}),
 		operatorCostTestCandidate(t, OperatorCostBasisQ, "q", "1.10", economics.CompletenessComplete, metering.PaymentParty{}),
 		operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
@@ -125,7 +126,8 @@ func TestOperatorCostSelectionChoosesQProvisional(t *testing.T) {
 		operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false),
 		operatorCostTestRule("q-provisional", OperatorCostBasisQ, OperatorCostSelectionStatusProvisional, true, false, false),
 	)
-	result, err := SelectOperatorCost(policy, operatorCostTestInput(t,
+	result, err := SelectOperatorCost(policy, operatorCostTestInput(
+		t,
 		operatorCostTestCandidate(t, OperatorCostBasisE, "e", "1.00", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
 		operatorCostTestCandidate(t, OperatorCostBasisQ, "q", "1.10", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
 	))
@@ -151,6 +153,7 @@ func TestOperatorCostSelectionAttemptedMissingStaysUnknown(t *testing.T) {
 	policy := operatorCostTestPolicy(operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false))
 
 	t.Run("no candidates", func(t *testing.T) {
+		t.Parallel()
 		result, err := SelectOperatorCost(policy, operatorCostTestInput(t))
 		if err != nil {
 			t.Fatalf("SelectOperatorCost: %v", err)
@@ -167,7 +170,9 @@ func TestOperatorCostSelectionAttemptedMissingStaysUnknown(t *testing.T) {
 	})
 
 	t.Run("only partial evidence without provisional rule", func(t *testing.T) {
-		result, err := SelectOperatorCost(policy, operatorCostTestInput(t,
+		t.Parallel()
+		result, err := SelectOperatorCost(policy, operatorCostTestInput(
+			t,
 			operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessPartial, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
 		))
 		if err != nil {
@@ -192,6 +197,7 @@ func TestOperatorCostSelectionKnownZeroRequiresExplicitPolicy(t *testing.T) {
 	authorized.KnownZeroProvenance = []OperatorCostProvenance{OperatorCostProvenanceNeverStarted, OperatorCostProvenanceNotBillable}
 
 	t.Run("authorized never started", func(t *testing.T) {
+		t.Parallel()
 		input := operatorCostTestInput(t)
 		input.Provenance = OperatorCostProvenanceNeverStarted
 		result, err := SelectOperatorCost(authorized, input)
@@ -210,6 +216,7 @@ func TestOperatorCostSelectionKnownZeroRequiresExplicitPolicy(t *testing.T) {
 	})
 
 	t.Run("unauthorized never started stays unknown", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false))
 		input := operatorCostTestInput(t)
 		input.Provenance = OperatorCostProvenanceNeverStarted
@@ -235,6 +242,7 @@ func TestOperatorCostSelectionPayerTreatment(t *testing.T) {
 	providerCandidate := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 
 	t.Run("customer byok is not operator payable", func(t *testing.T) {
+		t.Parallel()
 		input := operatorCostTestInput(t, providerCandidate)
 		input.PayerClass = OperatorCostPayerCustomerBYOK
 		result, err := SelectOperatorCost(policy, input)
@@ -250,6 +258,7 @@ func TestOperatorCostSelectionPayerTreatment(t *testing.T) {
 	})
 
 	t.Run("customer-paid provider charge is not operator payable", func(t *testing.T) {
+		t.Parallel()
 		customer := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyCustomer, ID: "customer-1"})
 		result, err := SelectOperatorCost(policy, operatorCostTestInput(t, customer))
 		if err != nil {
@@ -261,6 +270,7 @@ func TestOperatorCostSelectionPayerTreatment(t *testing.T) {
 	})
 
 	t.Run("unallocated payer stays unknown", func(t *testing.T) {
+		t.Parallel()
 		input := operatorCostTestInput(t, providerCandidate)
 		input.PayerClass = OperatorCostPayerUnallocated
 		result, err := SelectOperatorCost(policy, input)
@@ -289,6 +299,7 @@ func TestOperatorCostSelectionCurrencyAndFrozenFX(t *testing.T) {
 	}
 
 	t.Run("mismatch without fx is incomparable", func(t *testing.T) {
+		t.Parallel()
 		candidate := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 		candidate.Currency = "EUR"
 		candidate.Amount = operatorCostTestAmount(t, "EUR", "1.32")
@@ -305,6 +316,7 @@ func TestOperatorCostSelectionCurrencyAndFrozenFX(t *testing.T) {
 	})
 
 	t.Run("shared frozen fx basis permits exact converted selection", func(t *testing.T) {
+		t.Parallel()
 		candidate := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 		candidate.Currency = "EUR"
 		candidate.Amount = operatorCostTestAmount(t, "EUR", "1.32")
@@ -346,6 +358,7 @@ func TestOperatorCostSelectionCurrencyAndFrozenFX(t *testing.T) {
 	})
 
 	t.Run("same identity different exact rate is incomparable", func(t *testing.T) {
+		t.Parallel()
 		candidate := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 		candidate.Currency = "EUR"
 		candidate.Amount = operatorCostTestAmount(t, "EUR", "1.32")
@@ -365,6 +378,7 @@ func TestOperatorCostSelectionCurrencyAndFrozenFX(t *testing.T) {
 	})
 
 	t.Run("reversed direction is incomparable", func(t *testing.T) {
+		t.Parallel()
 		candidate := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 		candidate.Currency = "EUR"
 		candidate.Amount = operatorCostTestAmount(t, "EUR", "1.32")
@@ -381,6 +395,7 @@ func TestOperatorCostSelectionCurrencyAndFrozenFX(t *testing.T) {
 	})
 
 	t.Run("destination mismatch is incomparable", func(t *testing.T) {
+		t.Parallel()
 		candidate := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 		candidate.Currency = "EUR"
 		candidate.Amount = operatorCostTestAmount(t, "EUR", "1.32")
@@ -397,6 +412,7 @@ func TestOperatorCostSelectionCurrencyAndFrozenFX(t *testing.T) {
 	})
 
 	t.Run("input fx must convert into the view currency", func(t *testing.T) {
+		t.Parallel()
 		candidate := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 		input := operatorCostTestInput(t, candidate)
 		input.FX = &OperatorCostFXBasis{ID: "fx-eur-gbp", Version: "v1", FromCurrency: "EUR", ToCurrency: "GBP", Rate: toleranceLimit(t, "0.85")}
@@ -448,6 +464,7 @@ func TestOperatorCostSelectionRejectsUnboundedFX(t *testing.T) {
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			candidate := baseCandidate()
 			input := operatorCostTestInput(t, candidate)
 			mutate(&input.Candidates[0], &input)
@@ -481,7 +498,9 @@ func TestOperatorCostSelectionRequiresExplicitOperatorPayer(t *testing.T) {
 	}
 	for _, tc := range payerCases {
 		t.Run("P with "+tc.name+" payer stays unknown", func(t *testing.T) {
-			result, err := SelectOperatorCost(policy, operatorCostTestInput(t,
+			t.Parallel()
+			result, err := SelectOperatorCost(policy, operatorCostTestInput(
+				t,
 				operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, tc.payer),
 			))
 			if err != nil {
@@ -495,7 +514,9 @@ func TestOperatorCostSelectionRequiresExplicitOperatorPayer(t *testing.T) {
 			}
 		})
 		t.Run("Q with "+tc.name+" payer stays unknown", func(t *testing.T) {
-			result, err := SelectOperatorCost(policy, operatorCostTestInput(t,
+			t.Parallel()
+			result, err := SelectOperatorCost(policy, operatorCostTestInput(
+				t,
 				operatorCostTestCandidate(t, OperatorCostBasisQ, "q", "1.10", economics.CompletenessComplete, tc.payer),
 			))
 			if err != nil {
@@ -509,7 +530,9 @@ func TestOperatorCostSelectionRequiresExplicitOperatorPayer(t *testing.T) {
 			}
 		})
 		t.Run("E with "+tc.name+" payer stays unknown", func(t *testing.T) {
-			result, err := SelectOperatorCost(policy, operatorCostTestInput(t,
+			t.Parallel()
+			result, err := SelectOperatorCost(policy, operatorCostTestInput(
+				t,
 				operatorCostTestCandidate(t, OperatorCostBasisE, "e", "1.00", economics.CompletenessComplete, tc.payer),
 			))
 			if err != nil {
@@ -522,6 +545,7 @@ func TestOperatorCostSelectionRequiresExplicitOperatorPayer(t *testing.T) {
 	}
 
 	t.Run("explicit operator payer passes", func(t *testing.T) {
+		t.Parallel()
 		operatorPayer := metering.PaymentParty{Kind: metering.PaymentPartyOperator}
 		for _, basis := range []OperatorCostSelectionBasis{OperatorCostBasisP, OperatorCostBasisQ, OperatorCostBasisE} {
 			candidate := operatorCostTestCandidate(t, basis, string(basis), "1.10", economics.CompletenessComplete, operatorPayer)
@@ -536,10 +560,12 @@ func TestOperatorCostSelectionRequiresExplicitOperatorPayer(t *testing.T) {
 	})
 
 	t.Run("rule without payer requirement may use an absent payer", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(
 			operatorCostTestRule("q-provisional", OperatorCostBasisQ, OperatorCostSelectionStatusProvisional, false, false, false),
 		)
-		result, err := SelectOperatorCost(policy, operatorCostTestInput(t,
+		result, err := SelectOperatorCost(policy, operatorCostTestInput(
+			t,
 			operatorCostTestCandidate(t, OperatorCostBasisQ, "q", "1.10", economics.CompletenessComplete, metering.PaymentParty{}),
 		))
 		if err != nil {
@@ -551,10 +577,12 @@ func TestOperatorCostSelectionRequiresExplicitOperatorPayer(t *testing.T) {
 	})
 
 	t.Run("customer payer never passes even without a payer rule", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(
 			operatorCostTestRule("q-provisional", OperatorCostBasisQ, OperatorCostSelectionStatusProvisional, false, false, false),
 		)
-		result, err := SelectOperatorCost(policy, operatorCostTestInput(t,
+		result, err := SelectOperatorCost(policy, operatorCostTestInput(
+			t,
 			operatorCostTestCandidate(t, OperatorCostBasisQ, "q", "1.10", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyCustomer, ID: "customer-1"}),
 		))
 		if err != nil {
@@ -578,6 +606,7 @@ func TestOperatorCostSelectionRequiresDurableReconciliationRef(t *testing.T) {
 	}
 
 	t.Run("empty ref is rejected", func(t *testing.T) {
+		t.Parallel()
 		input := operatorCostTestInput(t, candidate())
 		input.Reconciliation.Ref = OperatorCostReconciliationRef{}
 		if _, err := SelectOperatorCost(policy, input); !errors.Is(err, ErrOperatorCostSelectionInput) {
@@ -586,6 +615,7 @@ func TestOperatorCostSelectionRequiresDurableReconciliationRef(t *testing.T) {
 	})
 
 	t.Run("partial refs are rejected", func(t *testing.T) {
+		t.Parallel()
 		for name, ref := range map[string]OperatorCostReconciliationRef{
 			"id only":           {ID: "reconciliation-1"},
 			"version only":      {Version: 1},
@@ -602,6 +632,7 @@ func TestOperatorCostSelectionRequiresDurableReconciliationRef(t *testing.T) {
 	})
 
 	t.Run("final selection retains the durable ref", func(t *testing.T) {
+		t.Parallel()
 		result, err := SelectOperatorCost(policy, operatorCostTestInput(t, candidate()))
 		if err != nil {
 			t.Fatalf("SelectOperatorCost: %v", err)
@@ -628,7 +659,9 @@ func TestOperatorCostSelectionKeepsStatesSeparate(t *testing.T) {
 	)
 
 	t.Run("partial evidence needs a provisional rule", func(t *testing.T) {
-		result, err := SelectOperatorCost(policy, operatorCostTestInput(t,
+		t.Parallel()
+		result, err := SelectOperatorCost(policy, operatorCostTestInput(
+			t,
 			operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessPartial, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
 			operatorCostTestCandidate(t, OperatorCostBasisQ, "q", "1.10", economics.CompletenessPartial, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
 		))
@@ -647,7 +680,9 @@ func TestOperatorCostSelectionKeepsStatesSeparate(t *testing.T) {
 	})
 
 	t.Run("comparison conflict fails closed", func(t *testing.T) {
-		input := operatorCostTestInput(t,
+		t.Parallel()
+		input := operatorCostTestInput(
+			t,
 			operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
 		)
 		input.Reconciliation.Status = ReconciliationStatusConflict
@@ -664,10 +699,12 @@ func TestOperatorCostSelectionKeepsStatesSeparate(t *testing.T) {
 	})
 
 	t.Run("incomparable comparison stays visible when Q is provisional", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(
 			operatorCostTestRule("q-provisional", OperatorCostBasisQ, OperatorCostSelectionStatusProvisional, true, false, false),
 		)
-		input := operatorCostTestInput(t,
+		input := operatorCostTestInput(
+			t,
 			operatorCostTestCandidate(t, OperatorCostBasisQ, "q", "1.10", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
 		)
 		input.Reconciliation.Status = ReconciliationStatusIncomparable
@@ -685,10 +722,12 @@ func TestOperatorCostSelectionKeepsStatesSeparate(t *testing.T) {
 	})
 
 	t.Run("comparable comparison required by rule", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(
 			operatorCostTestRule("q-final", OperatorCostBasisQ, OperatorCostSelectionStatusProvisional, true, false, true),
 		)
-		input := operatorCostTestInput(t,
+		input := operatorCostTestInput(
+			t,
 			operatorCostTestCandidate(t, OperatorCostBasisQ, "q", "1.10", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
 		)
 		input.Reconciliation.Status = ReconciliationStatusIncomparable
@@ -714,6 +753,7 @@ func TestOperatorCostSelectionCompatibility(t *testing.T) {
 	policy := operatorCostTestPolicy(operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false))
 
 	t.Run("scope mismatch is skipped", func(t *testing.T) {
+		t.Parallel()
 		candidate := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 		candidate.Scope = "call:other"
 		result, err := SelectOperatorCost(policy, operatorCostTestInput(t, candidate))
@@ -726,6 +766,7 @@ func TestOperatorCostSelectionCompatibility(t *testing.T) {
 	})
 
 	t.Run("compatible provisional fallback is still selectable", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(
 			operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false),
 			operatorCostTestRule("q-provisional", OperatorCostBasisQ, OperatorCostSelectionStatusProvisional, true, false, false),
@@ -749,6 +790,7 @@ func TestOperatorCostSelectionDeterminismAndFailClosed(t *testing.T) {
 	t.Parallel()
 
 	t.Run("policy validation", func(t *testing.T) {
+		t.Parallel()
 		valid := operatorCostTestPolicy(operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false))
 		if err := valid.Validate(); err != nil {
 			t.Fatalf("valid policy rejected: %v", err)
@@ -781,6 +823,7 @@ func TestOperatorCostSelectionDeterminismAndFailClosed(t *testing.T) {
 	})
 
 	t.Run("deterministic regardless of candidate order", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(
 			operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false),
 			operatorCostTestRule("q-provisional", OperatorCostBasisQ, OperatorCostSelectionStatusProvisional, true, false, false),
@@ -802,8 +845,10 @@ func TestOperatorCostSelectionDeterminismAndFailClosed(t *testing.T) {
 	})
 
 	t.Run("duplicate roles fail closed", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false))
-		_, err := SelectOperatorCost(policy, operatorCostTestInput(t,
+		_, err := SelectOperatorCost(policy, operatorCostTestInput(
+			t,
 			operatorCostTestCandidate(t, OperatorCostBasisP, "p-one", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
 			operatorCostTestCandidate(t, OperatorCostBasisP, "p-two", "1.33", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),
 		))
@@ -813,6 +858,7 @@ func TestOperatorCostSelectionDeterminismAndFailClosed(t *testing.T) {
 	})
 
 	t.Run("candidate bound fails closed", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false))
 		candidates := make([]OperatorCostCandidate, 0, MaxOperatorCostCandidates+1)
 		for i := 0; i <= MaxOperatorCostCandidates; i++ {
@@ -824,6 +870,7 @@ func TestOperatorCostSelectionDeterminismAndFailClosed(t *testing.T) {
 	})
 
 	t.Run("malformed candidate fails closed", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false))
 		candidate := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 		candidate.Amount = nil
@@ -833,6 +880,7 @@ func TestOperatorCostSelectionDeterminismAndFailClosed(t *testing.T) {
 	})
 
 	t.Run("result does not alias caller input", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false))
 		candidates := []OperatorCostCandidate{
 			operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator}),

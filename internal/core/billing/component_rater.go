@@ -1577,10 +1577,7 @@ func decimalFromRat(value *big.Rat) (metering.Decimal, *big.Rat, bool) {
 	if den.Cmp(big.NewInt(1)) != 0 {
 		return metering.Decimal{}, new(big.Rat).Set(value), false
 	}
-	scale := two
-	if five > scale {
-		scale = five
-	}
+	scale := max(five, two)
 	if scale > int(metering.MaxDecimalScale) {
 		return metering.Decimal{}, new(big.Rat).Set(value), false
 	}

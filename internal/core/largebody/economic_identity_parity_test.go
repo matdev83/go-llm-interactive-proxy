@@ -57,7 +57,9 @@ import (
 )
 
 // helperIntPtr returns a pointer to an int value.
-func helperIntPtr(v int) *int { return &v }
+//
+//go:fix inline
+func helperIntPtr(v int) *int { return new(v) }
 
 // streamCallIdentityWithChunkSize streams a Call through CallIdentityWriter in chunks.
 func streamCallIdentityWithChunkSize(t *testing.T, call *lipapi.Call, chunkSize int) (largebody.IdentityDigest, error) {
@@ -100,10 +102,7 @@ func streamCallIdentityWithChunkSize(t *testing.T, call *lipapi.Call, chunkSize 
 					chunkSize = len(textBytes)
 				}
 				for offset := 0; offset < len(textBytes); offset += chunkSize {
-					end := offset + chunkSize
-					if end > len(textBytes) {
-						end = len(textBytes)
-					}
+					end := min(offset+chunkSize, len(textBytes))
 					if _, err := tw.Write(textBytes[offset:end]); err != nil {
 						return largebody.IdentityDigest{}, err
 					}
@@ -142,10 +141,7 @@ func streamCallIdentityWithChunkSize(t *testing.T, call *lipapi.Call, chunkSize 
 					chunkSize = len(textBytes)
 				}
 				for offset := 0; offset < len(textBytes); offset += chunkSize {
-					end := offset + chunkSize
-					if end > len(textBytes) {
-						end = len(textBytes)
-					}
+					end := min(offset+chunkSize, len(textBytes))
 					if _, err := tw.Write(textBytes[offset:end]); err != nil {
 						return largebody.IdentityDigest{}, err
 					}
@@ -180,7 +176,7 @@ func TestEconomicIdentityParity_CanonicalVsWriterDigest(t *testing.T) {
 			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("Calculate economic identity parity.")}},
 		},
 		Options: lipapi.GenerationOptions{
-			MaxOutputTokens: helperIntPtr(128),
+			MaxOutputTokens: new(128),
 			ReasoningEffort: "high",
 		},
 	}
@@ -283,7 +279,6 @@ func TestEconomicIdentityParity_ExplicitCallerIDPrecedence(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			call := baseCall(tc.explicitID)
@@ -417,6 +412,7 @@ func TestEconomicIdentityParity_CheckpointIdentityDeterminism(t *testing.T) {
 
 	// Subtest A: Fallback derived ID
 	t.Run("fallback derived ID", func(t *testing.T) {
+		t.Parallel()
 		canonReqID := diag.StableCallID(call)
 		wireReqID := writerDigest.CallID("")
 
@@ -443,6 +439,7 @@ func TestEconomicIdentityParity_CheckpointIdentityDeterminism(t *testing.T) {
 
 	// Subtest B: Explicit caller ID
 	t.Run("explicit caller ID", func(t *testing.T) {
+		t.Parallel()
 		explicitID := "ext-caller-id-999"
 		callWithID := *call
 		callWithID.ID = explicitID
@@ -468,6 +465,7 @@ func TestEconomicIdentityParity_CheckpointIdentityDeterminism(t *testing.T) {
 
 	// Subtest C: Backend attempt identity namespace separation
 	t.Run("backend attempt namespace separation", func(t *testing.T) {
+		t.Parallel()
 		attemptID := "attempt-xyz-001"
 		beFactID, beSrcID, beSeq := checkpoint.BackendIngressIdentity(attemptID)
 
@@ -770,7 +768,7 @@ func TestEconomicIdentityParity_CorpusDifferential(t *testing.T) {
 					Options: lipapi.GenerationOptions{
 						Temperature:     &temp,
 						TopP:            &topP,
-						MaxOutputTokens: helperIntPtr(1024),
+						MaxOutputTokens: new(1024),
 						ReasoningEffort: "high",
 					},
 				}
@@ -827,7 +825,6 @@ func TestEconomicIdentityParity_CorpusDifferential(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			call := tc.buildCall()

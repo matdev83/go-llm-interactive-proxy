@@ -23,7 +23,7 @@ import (
 
 func makeCleanPlanes() []largebody.PlaneEligibilityInput {
 	planes := make([]largebody.PlaneEligibilityInput, largebody.WireEligibilityPlaneCount)
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		id, _ := largebody.WireEligibilityPlaneID(i)
 		planes[i] = largebody.PlaneEligibilityInput{
 			ID:       id,
@@ -34,8 +34,8 @@ func makeCleanPlanes() []largebody.PlaneEligibilityInput {
 	return planes
 }
 
-func validSealedSummaryTB(t testing.TB, genID string) largebody.WireEligibilitySummary {
-	t.Helper()
+func validSealedSummaryTB(tb testing.TB, genID string) largebody.WireEligibilitySummary {
+	tb.Helper()
 	s, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
 		GenerationID:              genID,
 		Planes:                    makeCleanPlanes(),
@@ -44,20 +44,20 @@ func validSealedSummaryTB(t testing.TB, genID string) largebody.WireEligibilityS
 		TwoPhaseExecutorAvailable: true,
 	}, 1024)
 	if err != nil {
-		t.Fatalf("CompileWireEligibilitySummary: %v", err)
+		tb.Fatalf("CompileWireEligibilitySummary: %v", err)
 	}
 	if s.HasStaticBlocker() {
-		t.Fatal("validSealedSummaryTB must not have static blocker")
+		tb.Fatal("validSealedSummaryTB must not have static blocker")
 	}
 	return s
 }
 
-func summaryWithLocalTurnOccupied(t testing.TB, genID string, occupied bool) largebody.WireEligibilitySummary {
-	t.Helper()
+func summaryWithLocalTurnOccupied(tb testing.TB, genID string, occupied bool) largebody.WireEligibilitySummary {
+	tb.Helper()
 	planes := makeCleanPlanes()
 	idx, ok := largebody.WireEligibilityPlaneIndex("local_turn_handlers")
 	if !ok {
-		t.Fatalf("missing plane index for local_turn_handlers")
+		tb.Fatalf("missing plane index for local_turn_handlers")
 	}
 	planes[idx].Access = largebody.PlaneAccessCanonicalRequired
 	planes[idx].Occupied = occupied
@@ -70,18 +70,18 @@ func summaryWithLocalTurnOccupied(t testing.TB, genID string, occupied bool) lar
 		TwoPhaseExecutorAvailable: true,
 	}, 1024)
 	if err != nil {
-		t.Fatalf("CompileWireEligibilitySummary: %v", err)
+		tb.Fatalf("CompileWireEligibilitySummary: %v", err)
 	}
 	return s
 }
 
-func summaryWithSecretGuardOccupied(t testing.TB, genID string, occupied bool) largebody.WireEligibilitySummary {
-	t.Helper()
+func summaryWithSecretGuardOccupied(tb testing.TB, genID string, occupied bool) largebody.WireEligibilitySummary {
+	tb.Helper()
 	planes := makeCleanPlanes()
 	for _, id := range []string{"secret_guard_execution", "secret_guards"} {
 		idx, ok := largebody.WireEligibilityPlaneIndex(id)
 		if !ok {
-			t.Fatalf("missing plane index for %s", id)
+			tb.Fatalf("missing plane index for %s", id)
 		}
 		planes[idx].Access = largebody.PlaneAccessCanonicalRequired
 		planes[idx].Occupied = occupied
@@ -95,13 +95,13 @@ func summaryWithSecretGuardOccupied(t testing.TB, genID string, occupied bool) l
 		TwoPhaseExecutorAvailable: true,
 	}, 1024)
 	if err != nil {
-		t.Fatalf("CompileWireEligibilitySummary: %v", err)
+		tb.Fatalf("CompileWireEligibilitySummary: %v", err)
 	}
 	return s
 }
 
-func summaryWithTrafficCapturing(t testing.TB, genID string, capturing bool) largebody.WireEligibilitySummary {
-	t.Helper()
+func summaryWithTrafficCapturing(tb testing.TB, genID string, capturing bool) largebody.WireEligibilitySummary {
+	tb.Helper()
 	planes := makeCleanPlanes()
 	s, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
 		GenerationID: genID,
@@ -113,13 +113,13 @@ func summaryWithTrafficCapturing(t testing.TB, genID string, capturing bool) lar
 		TwoPhaseExecutorAvailable: true,
 	}, 1024)
 	if err != nil {
-		t.Fatalf("CompileWireEligibilitySummary: %v", err)
+		tb.Fatalf("CompileWireEligibilitySummary: %v", err)
 	}
 	return s
 }
 
-func summaryWithTwoPhaseAvailable(t testing.TB, genID string, available bool) largebody.WireEligibilitySummary {
-	t.Helper()
+func summaryWithTwoPhaseAvailable(tb testing.TB, genID string, available bool) largebody.WireEligibilitySummary {
+	tb.Helper()
 	planes := makeCleanPlanes()
 	s, err := largebody.CompileWireEligibilitySummary(largebody.WireEligibilityInput{
 		GenerationID:              genID,
@@ -129,7 +129,7 @@ func summaryWithTwoPhaseAvailable(t testing.TB, genID string, available bool) la
 		TwoPhaseExecutorAvailable: available,
 	}, 1024)
 	if err != nil {
-		t.Fatalf("CompileWireEligibilitySummary: %v", err)
+		tb.Fatalf("CompileWireEligibilitySummary: %v", err)
 	}
 	return s
 }
@@ -241,7 +241,7 @@ func TestStaticDisposition_UnclassifiedPlaneRatchet(t *testing.T) {
 	t.Parallel()
 	const genID = "gen-ratchet-unclassified"
 
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		planeID, _ := largebody.WireEligibilityPlaneID(i)
 		planes := makeCleanPlanes()
 		planes[i].Access = largebody.PlaneAccessUnclassified // zero value
@@ -430,7 +430,6 @@ func TestStaticDisposition_NormalPotentiallyEligibleRatchet(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			disp, reason := summary.StaticDisposition(largebody.StaticDispositionInput{
@@ -554,7 +553,6 @@ func TestStaticDisposition_DefinitelyIneligible_NoTempFileOrScanner(t *testing.T
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			disp, reason := tc.summary.StaticDisposition(tc.input)
 			if disp != largebody.DefinitelyCanonical {

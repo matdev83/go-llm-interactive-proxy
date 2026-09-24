@@ -11,6 +11,7 @@ import (
 )
 
 func TestRollupAllocatedCostsPreservesSourcePlaneAndUnallocatedRemainder(t *testing.T) {
+	t.Parallel()
 	amount, err := metering.ParseDecimal("10")
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +51,7 @@ func TestRollupAllocatedCostsPreservesSourcePlaneAndUnallocatedRemainder(t *test
 }
 
 func TestRollupAllocatedCostsUsesLatestImmutableCorrectionHead(t *testing.T) {
+	t.Parallel()
 	amount, err := metering.ParseDecimal("10")
 	if err != nil {
 		t.Fatal(err)
@@ -81,6 +83,7 @@ func TestRollupAllocatedCostsUsesLatestImmutableCorrectionHead(t *testing.T) {
 }
 
 func TestRollupAllocatedCostsDetailedExcludesPendingSuccessor(t *testing.T) {
+	t.Parallel()
 	amount, err := metering.ParseDecimal("10")
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +151,6 @@ func TestLegacyAllocationLinesRejectsIncompleteAndNonPayableResults(t *testing.T
 		{name: "nonpayable", complete: true, payable: false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

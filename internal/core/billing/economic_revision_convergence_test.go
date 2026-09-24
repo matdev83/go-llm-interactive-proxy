@@ -9,6 +9,7 @@ import (
 )
 
 func TestCompareEconomicEvidenceSetsUsesReferenceContainment(t *testing.T) {
+	t.Parallel()
 	ref := func(id, hash string) metering.ObservationRef {
 		return metering.ObservationRef{StoreID: "store", ObservationID: id, Revision: 1, PayloadHash: hash}
 	}
@@ -28,6 +29,7 @@ func TestCompareEconomicEvidenceSetsUsesReferenceContainment(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := CompareEconomicEvidenceSets(test.current, test.candidate)
 			require.NoError(t, err)
 			require.Equal(t, test.want, got)
@@ -36,6 +38,7 @@ func TestCompareEconomicEvidenceSetsUsesReferenceContainment(t *testing.T) {
 }
 
 func TestCompareEconomicEvidenceSetsRejectsConflictingReferencePayloads(t *testing.T) {
+	t.Parallel()
 	left := metering.ObservationRef{StoreID: "store", ObservationID: "same", Revision: 2, PayloadHash: strings.Repeat("a", 64)}
 	right := left
 	right.PayloadHash = strings.Repeat("b", 64)

@@ -183,6 +183,7 @@ func TestAdmitExposurePersistsRouteTariffBindingsDeterministically(t *testing.T)
 		{"bad hash", []RouteTariffBinding{{RouteID: "a:m1", TariffID: "m", TariffVersion: "v1", ContentHash: "not-a-hash"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			bad := exposureAdmit("call-1", 40)
 			bad.RouteTariffs = tc.bindings
 			if _, err := EvaluateAdmit(exposurePrepaid(100), nil, bad); !errors.Is(err, ErrExposureInvalid) {
@@ -215,6 +216,7 @@ func TestCheckSettledRouteTariffsFailsClosedOnMismatch(t *testing.T) {
 		{"missing binding", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if err := CheckSettledRouteTariffs(admitted, tc.used, exposureUSD(25)); !errors.Is(err, ErrRatingSnapshotMismatch) {
 				t.Fatalf("mismatch = %v, want ErrRatingSnapshotMismatch", err)
 			}
@@ -283,7 +285,8 @@ func TestRateCallEmitsBindingsForZeroUseSelectedLeg(t *testing.T) {
 		Retail: &RetailSelectionPolicy{Mode: RetailSelectionSurfacedWinner, Basis: RetailBasisIndependent},
 	}
 	call := retailSelectionCall(t, policy, "b-winner")
-	observation := phase10RetailObservation(t, call.CallID, "b-winner", "winner-zero",
+	observation := phase10RetailObservation(
+		t, call.CallID, "b-winner", "winner-zero",
 		metering.OriginProvider, metering.BoundaryBackendIngress,
 		phase10RetailMeasure{key: key, quantity: "0"},
 	)
@@ -320,7 +323,8 @@ func TestRateCallPopulatesUsedRouteTariffBindings(t *testing.T) {
 		Retail: &RetailSelectionPolicy{Mode: RetailSelectionSurfacedWinner, Basis: RetailBasisIndependent},
 	}
 	call := retailSelectionCall(t, policy, "b-winner")
-	observation := phase10RetailObservation(t, call.CallID, "b-winner", "winner-usage",
+	observation := phase10RetailObservation(
+		t, call.CallID, "b-winner", "winner-usage",
 		metering.OriginProvider, metering.BoundaryBackendIngress,
 		phase10RetailMeasure{key: metering.ComponentKey{Direction: metering.DirectionInput, Component: metering.ComponentTextToken, Unit: metering.UnitToken, SchemaID: "retail.v1"}, quantity: "100"},
 	)

@@ -37,6 +37,7 @@ func TestDiagnostics_SizeBucket(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%d_bytes", tc.bytes), func(t *testing.T) {
+			t.Parallel()
 			got := largebody.SizeBucket(tc.bytes)
 			if got != tc.want {
 				t.Fatalf("SizeBucket(%d) = %q, want %q", tc.bytes, got, tc.want)
@@ -50,6 +51,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 
 	// 1. Gate reasons without summary dependency
 	t.Run("feature_disabled", func(t *testing.T) {
+		t.Parallel()
 		got := largebody.ResolveStaticDeclineReason(largebody.WireEligibilitySummary{}, largebody.StaticWireReasonFeatureDisabled)
 		if got != largebody.DeclineReasonFeatureDisabled {
 			t.Fatalf("want %q, got %q", largebody.DeclineReasonFeatureDisabled, got)
@@ -57,6 +59,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 	})
 
 	t.Run("below_threshold", func(t *testing.T) {
+		t.Parallel()
 		got := largebody.ResolveStaticDeclineReason(largebody.WireEligibilitySummary{}, largebody.StaticWireReasonBelowThreshold)
 		if got != largebody.DeclineReasonBelowThreshold {
 			t.Fatalf("want %q, got %q", largebody.DeclineReasonBelowThreshold, got)
@@ -64,6 +67,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 	})
 
 	t.Run("gzip_compressed", func(t *testing.T) {
+		t.Parallel()
 		got := largebody.ResolveStaticDeclineReason(largebody.WireEligibilitySummary{}, largebody.StaticWireReasonGzipCompressed)
 		if got != largebody.DeclineReasonGzipCompressed {
 			t.Fatalf("want %q, got %q", largebody.DeclineReasonGzipCompressed, got)
@@ -71,6 +75,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 	})
 
 	t.Run("legacy_resolver", func(t *testing.T) {
+		t.Parallel()
 		got := largebody.ResolveStaticDeclineReason(largebody.WireEligibilitySummary{}, largebody.StaticWireReasonLegacyResolverConfigured)
 		if got != largebody.DeclineReasonFrontendRouteResolver {
 			t.Fatalf("want %q, got %q", largebody.DeclineReasonFrontendRouteResolver, got)
@@ -79,6 +84,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 
 	// 2. Summary plane blockers: local_turn, secret_guard, terminal_decision
 	t.Run("local_turn", func(t *testing.T) {
+		t.Parallel()
 		summary := compileSummaryWithPlane(t, "local_turn_handlers")
 		got := largebody.ResolveStaticDeclineReason(summary, largebody.StaticWireReasonStaticBlocker)
 		if got != largebody.DeclineReasonLocalTurn {
@@ -87,6 +93,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 	})
 
 	t.Run("secret_guard", func(t *testing.T) {
+		t.Parallel()
 		summary := compileSummaryWithPlane(t, "secret_guard_execution")
 		got := largebody.ResolveStaticDeclineReason(summary, largebody.StaticWireReasonStaticBlocker)
 		if got != largebody.DeclineReasonSecretGuard {
@@ -95,6 +102,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 	})
 
 	t.Run("terminal_decision", func(t *testing.T) {
+		t.Parallel()
 		summary := compileSummaryWithPlane(t, "terminal_decision_provider")
 		got := largebody.ResolveStaticDeclineReason(summary, largebody.StaticWireReasonStaticBlocker)
 		if got != largebody.DeclineReasonTerminalDecision {
@@ -104,6 +112,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 
 	// 3. Summary port blockers: traffic, accounting/counting, custom_call_callback, backend_domain
 	t.Run("traffic", func(t *testing.T) {
+		t.Parallel()
 		summary := compileSummaryWithPort(t, largebody.NarrowPortEligibilityInput{TrafficCapturing: true})
 		got := largebody.ResolveStaticDeclineReason(summary, largebody.StaticWireReasonStaticBlocker)
 		if got != largebody.DeclineReasonTraffic {
@@ -112,6 +121,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 	})
 
 	t.Run("accounting_counting", func(t *testing.T) {
+		t.Parallel()
 		summary := compileSummaryWithPort(t, largebody.NarrowPortEligibilityInput{TokenCountingRequired: true})
 		got := largebody.ResolveStaticDeclineReason(summary, largebody.StaticWireReasonStaticBlocker)
 		if got != largebody.DeclineReasonAccountingCounting {
@@ -120,6 +130,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 	})
 
 	t.Run("custom_call_callback", func(t *testing.T) {
+		t.Parallel()
 		summary := compileSummaryWithPort(t, largebody.NarrowPortEligibilityInput{CustomCallCallbacksPresent: true})
 		got := largebody.ResolveStaticDeclineReason(summary, largebody.StaticWireReasonStaticBlocker)
 		if got != largebody.DeclineReasonCustomCallCallback {
@@ -128,6 +139,7 @@ func TestDiagnostics_StaticDeclineReasonResolution(t *testing.T) {
 	})
 
 	t.Run("backend_domain", func(t *testing.T) {
+		t.Parallel()
 		summary := compileSummaryWithPort(t, largebody.NarrowPortEligibilityInput{BackendsEmpty: true})
 		got := largebody.ResolveStaticDeclineReason(summary, largebody.StaticWireReasonStaticBlocker)
 		if got != largebody.DeclineReasonBackendDomain {

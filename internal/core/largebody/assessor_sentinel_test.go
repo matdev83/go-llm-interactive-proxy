@@ -465,14 +465,14 @@ func (h *SentinelHarness) Violations() []SentinelViolationError {
 }
 
 // AssertUntouched verifies that no sentinel was triggered.
-func (h *SentinelHarness) AssertUntouched(t testing.TB) {
-	t.Helper()
+func (h *SentinelHarness) AssertUntouched(tb testing.TB) {
+	tb.Helper()
 	if h.AnyTouched() {
 		violations := h.Violations()
 		for _, v := range violations {
-			t.Errorf("sentinel violation: %s (%s)", v.Surface, v.Message)
+			tb.Errorf("sentinel violation: %s (%s)", v.Surface, v.Message)
 		}
-		t.Fatalf("assessment touched %d side-effecting surfaces; must remain side-effect-free (Requirement 6.2)", len(violations))
+		tb.Fatalf("assessment touched %d side-effecting surfaces; must remain side-effect-free (Requirement 6.2)", len(violations))
 	}
 }
 
@@ -559,6 +559,7 @@ func (h *SentinelHarness) MeasureAssessment(
 // =============================================================================
 
 func TestTask11_2_SentinelHarness_AllSentinelsArmed(t *testing.T) {
+	t.Parallel()
 	harness := NewSentinelHarness()
 	if harness.BeginTurn == nil {
 		t.Fatal("BeginTurnSentinel must not be nil")
@@ -609,6 +610,7 @@ func (a *violatingAssessor) AssessLargeBody(_ context.Context, _ largebody.Proof
 }
 
 func TestTask11_2_Sentinel_BeginTurn_Panics(t *testing.T) {
+	t.Parallel()
 	harness := NewSentinelHarness()
 	assessor := &violatingAssessor{
 		action: func() {
@@ -632,7 +634,9 @@ func TestTask11_2_Sentinel_BeginTurn_Panics(t *testing.T) {
 }
 
 func TestTask11_2_Sentinel_ALeg_Panics(t *testing.T) {
+	t.Parallel()
 	t.Run("CreateALeg", func(t *testing.T) {
+		t.Parallel()
 		harness := NewSentinelHarness()
 		assessor := &violatingAssessor{
 			action: func() {
@@ -653,6 +657,7 @@ func TestTask11_2_Sentinel_ALeg_Panics(t *testing.T) {
 	})
 
 	t.Run("FetchALeg", func(t *testing.T) {
+		t.Parallel()
 		harness := NewSentinelHarness()
 		assessor := &violatingAssessor{
 			action: func() {
@@ -671,6 +676,7 @@ func TestTask11_2_Sentinel_ALeg_Panics(t *testing.T) {
 }
 
 func TestTask11_2_Sentinel_DBStore_Panics(t *testing.T) {
+	t.Parallel()
 	for name, fn := range map[string]func(*DBStoreSentinel){
 		"Snapshot": func(s *DBStoreSentinel) { _, _ = s.Snapshot(context.Background(), "aleg-1") },
 		"Replace":  func(s *DBStoreSentinel) { _, _ = s.Replace(context.Background(), "aleg-1", nil) },
@@ -678,6 +684,7 @@ func TestTask11_2_Sentinel_DBStore_Panics(t *testing.T) {
 		"Query":    func(s *DBStoreSentinel) { _, _ = s.Query(context.Background(), nil) },
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			harness := NewSentinelHarness()
 			assessor := &violatingAssessor{action: func() { fn(harness.DBStore) }}
 			_, violation, _ := harness.RunAssessment(context.Background(), assessor, validProof())
@@ -695,6 +702,7 @@ func TestTask11_2_Sentinel_DBStore_Panics(t *testing.T) {
 }
 
 func TestTask11_2_Sentinel_BillingReservation_Panics(t *testing.T) {
+	t.Parallel()
 	for name, fn := range map[string]func(*BillingReservationSentinel){
 		"Reserve":      func(s *BillingReservationSentinel) { _, _ = s.Reserve(context.Background(), nil) },
 		"Admit":        func(s *BillingReservationSentinel) { _, _ = s.Admit(context.Background(), nil) },
@@ -702,6 +710,7 @@ func TestTask11_2_Sentinel_BillingReservation_Panics(t *testing.T) {
 		"WriteJournal": func(s *BillingReservationSentinel) { _ = s.WriteJournal(context.Background(), nil) },
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			harness := NewSentinelHarness()
 			assessor := &violatingAssessor{action: func() { fn(harness.BillingReservation) }}
 			_, violation, _ := harness.RunAssessment(context.Background(), assessor, validProof())
@@ -719,6 +728,7 @@ func TestTask11_2_Sentinel_BillingReservation_Panics(t *testing.T) {
 }
 
 func TestTask11_2_Sentinel_ProviderNetwork_Panics(t *testing.T) {
+	t.Parallel()
 	for name, fn := range map[string]func(*ProviderNetworkSentinel){
 		"Open":           func(s *ProviderNetworkSentinel) { _, _ = s.Open(context.Background(), nil) },
 		"Dial":           func(s *ProviderNetworkSentinel) { _, _ = s.Dial(context.Background(), "tcp", "127.0.0.1:80") },
@@ -726,6 +736,7 @@ func TestTask11_2_Sentinel_ProviderNetwork_Panics(t *testing.T) {
 		"ExecuteAttempt": func(s *ProviderNetworkSentinel) { _, _ = s.ExecuteAttempt(context.Background(), nil) },
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			harness := NewSentinelHarness()
 			assessor := &violatingAssessor{action: func() { fn(harness.ProviderNetwork) }}
 			_, violation, _ := harness.RunAssessment(context.Background(), assessor, validProof())
@@ -743,7 +754,9 @@ func TestTask11_2_Sentinel_ProviderNetwork_Panics(t *testing.T) {
 }
 
 func TestTask11_2_Sentinel_ReplayBytes_Panics(t *testing.T) {
+	t.Parallel()
 	t.Run("OpenReplayBytes", func(t *testing.T) {
+		t.Parallel()
 		harness := NewSentinelHarness()
 		assessor := &violatingAssessor{
 			action: func() {
@@ -764,6 +777,7 @@ func TestTask11_2_Sentinel_ReplayBytes_Panics(t *testing.T) {
 	})
 
 	t.Run("ReadReplayBytes", func(t *testing.T) {
+		t.Parallel()
 		harness := NewSentinelHarness()
 		assessor := &violatingAssessor{
 			action: func() {
@@ -782,6 +796,7 @@ func TestTask11_2_Sentinel_ReplayBytes_Panics(t *testing.T) {
 	})
 
 	t.Run("SizeIsSafeMetadata", func(t *testing.T) {
+		t.Parallel()
 		harness := NewSentinelHarness()
 		if harness.ReplayBytes.Size() <= 0 {
 			t.Fatalf("expected positive size, got %d", harness.ReplayBytes.Size())
@@ -794,6 +809,7 @@ func TestTask11_2_Sentinel_ReplayBytes_Panics(t *testing.T) {
 }
 
 func TestTask11_2_Sentinel_ClientWait_Panics(t *testing.T) {
+	t.Parallel()
 	harness := NewSentinelHarness()
 	assessor := &violatingAssessor{
 		action: func() {
@@ -815,7 +831,9 @@ func TestTask11_2_Sentinel_ClientWait_Panics(t *testing.T) {
 }
 
 func TestTask11_2_Sentinel_UnboundedCallback_Panics(t *testing.T) {
+	t.Parallel()
 	t.Run("Invoke", func(t *testing.T) {
+		t.Parallel()
 		harness := NewSentinelHarness()
 		assessor := &violatingAssessor{
 			action: func() {
@@ -836,6 +854,7 @@ func TestTask11_2_Sentinel_UnboundedCallback_Panics(t *testing.T) {
 	})
 
 	t.Run("CallbackFunc", func(t *testing.T) {
+		t.Parallel()
 		harness := NewSentinelHarness()
 		cb := harness.UnboundedCallback.Callback()
 		assessor := &violatingAssessor{
@@ -882,6 +901,7 @@ func (a *pureFactAssessor) AssessLargeBody(_ context.Context, proof largebody.Pr
 }
 
 func TestTask11_2_PureAssessment_TouchesOnlyBoundedFacts(t *testing.T) {
+	t.Parallel()
 	harness := NewSentinelHarness()
 
 	pure := &pureFactAssessor{
@@ -912,6 +932,7 @@ func TestTask11_2_PureAssessment_TouchesOnlyBoundedFacts(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_2_MeasureAssessment_UnderHeldPermit(t *testing.T) {
+	t.Parallel()
 	harness := NewSentinelHarness()
 
 	pure := &pureFactAssessor{
@@ -957,6 +978,7 @@ func TestTask11_2_MeasureAssessment_UnderHeldPermit(t *testing.T) {
 }
 
 func TestTask11_2_MeasureAssessment_DetectsPrematurePermitRelease(t *testing.T) {
+	t.Parallel()
 	harness := NewSentinelHarness()
 
 	// Assessor that improperly forces early permit release during assessment
@@ -977,6 +999,7 @@ func TestTask11_2_MeasureAssessment_DetectsPrematurePermitRelease(t *testing.T) 
 }
 
 func TestTask11_2_DecodeAdmission_SingleDecisionEnforcement(t *testing.T) {
+	t.Parallel()
 	adm := &SentinelDecodeAdmission{}
 	ctx := context.Background()
 
@@ -1015,6 +1038,7 @@ func TestTask11_2_DecodeAdmission_SingleDecisionEnforcement(t *testing.T) {
 }
 
 func TestTask11_2_DurationBound_EnforcesCeiling(t *testing.T) {
+	t.Parallel()
 	harness := NewSentinelHarness()
 	// Set an artificially tight ceiling to verify bound enforcement
 	harness.MaxAllowedDuration = 10 * time.Microsecond

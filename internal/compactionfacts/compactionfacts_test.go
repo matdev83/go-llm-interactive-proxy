@@ -189,6 +189,7 @@ func TestRulePrioritiesAndFamilies(t *testing.T) {
 
 	for _, tc := range sigTests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := compactionfacts.ExtractFactsFromCall(tc.call)
 			if !f.StartRuleMatched {
 				t.Fatalf("expected start rule match for %s", tc.name)
@@ -376,7 +377,7 @@ func TestIncrementalBuilder_MultiMiBTextInChunks(t *testing.T) {
 
 	// Item 1: system message with chunked text
 	var fullText strings.Builder
-	for i := 0; i < totalChunks; i++ {
+	for i := range totalChunks {
 		currentChunk := chunkData
 		switch i {
 		case 500:
@@ -449,7 +450,7 @@ func TestIncrementalBuilder_BudgetOverflow(t *testing.T) {
 	}
 	h := compactionfacts.HashItem(it)
 
-	for i := 0; i < budget; i++ {
+	for i := range budget {
 		require.NoError(t, builder.AddItemHash(h), "item %d within budget", i)
 	}
 
@@ -575,7 +576,7 @@ func TestCanonical_HighItemCount_NoSilentTruncation(t *testing.T) {
 	// Must NOT silently truncate at fixed maxItems.
 	totalItems := 5000
 	items := make([]lipapi.Item, totalItems)
-	for i := 0; i < totalItems; i++ {
+	for i := range totalItems {
 		items[i] = lipapi.Item{
 			Kind:    lipapi.ItemKindMessage,
 			Role:    lipapi.RoleUser,

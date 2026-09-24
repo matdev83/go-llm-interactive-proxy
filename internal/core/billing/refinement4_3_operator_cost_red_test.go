@@ -94,6 +94,7 @@ func (refinement43Rater) Rate(_ context.Context, input economics.PostUsageRating
 }
 
 func TestRefinement43EconomicWorkerPostsProviderCostBeforeCallClosure(t *testing.T) {
+	t.Parallel()
 	queue := &economicRevisionTestQueue{}
 	poster := &refinement43ProviderCostPoster{}
 	work := refinement43Work(t, 1, "10", metering.PaymentPartyOperator)
@@ -115,6 +116,7 @@ func TestRefinement43EconomicWorkerPostsProviderCostBeforeCallClosure(t *testing
 }
 
 func TestRefinement43ProviderCostRevisionUsesExactCorrectionAndExcludesCustomerPayer(t *testing.T) {
+	t.Parallel()
 	first := refinement43Work(t, 1, "10", metering.PaymentPartyOperator)
 	correction := refinement43Work(t, 2, "8", metering.PaymentPartyOperator)
 	firstResult := economics.Valuation{ID: "first", Version: economics.ValuationVersionV2, Subject: first.Subject, Basis: first.Input.Basis, Perspective: first.Input.Perspective, InputObservations: []metering.ObservationRef{{StoreID: "store", ObservationID: first.Input.Observations[0].ID, Revision: 1, PayloadHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, Completeness: economics.CompletenessPartial, CreatedAt: time.Unix(43, 0).UTC()}
@@ -140,6 +142,7 @@ func TestRefinement43ProviderCostRevisionUsesExactCorrectionAndExcludesCustomerP
 }
 
 func TestRefinement43ProviderCostPostingFailureCanRetry(t *testing.T) {
+	t.Parallel()
 	queue := &economicRevisionTestQueue{}
 	results := newEconomicRevisionTestResultStore()
 	poster := &refinement43ProviderCostPoster{failOnce: true}
@@ -155,6 +158,7 @@ func TestRefinement43ProviderCostPostingFailureCanRetry(t *testing.T) {
 }
 
 func TestRefinement43CustomerQueueNeverPostsProviderCost(t *testing.T) {
+	t.Parallel()
 	queue := &economicRevisionTestQueue{}
 	poster := &refinement43ProviderCostPoster{}
 	work := refinement43Work(t, 1, "10", metering.PaymentPartyOperator)

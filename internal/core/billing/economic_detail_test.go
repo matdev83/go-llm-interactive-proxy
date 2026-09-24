@@ -731,8 +731,7 @@ func TestEconomicDetailExposesNoRawContent(t *testing.T) {
 			return
 		}
 		seen[key] = true
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
+		for field := range typ.Fields() {
 			lower := strings.ToLower(field.Name + " " + string(field.Tag))
 			for _, word := range forbidden {
 				require.NotContains(t, lower, word, "type %s field %s must not expose raw content", prefix+typ.Name(), field.Name)
@@ -740,9 +739,9 @@ func TestEconomicDetailExposesNoRawContent(t *testing.T) {
 			walk(prefix+typ.Name()+".", field.Type)
 		}
 	}
-	walk("", reflect.TypeOf(EconomicDetail{}))
-	walk("", reflect.TypeOf(EconomicDetailQuery{}))
-	walk("", reflect.TypeOf(EconomicDetailInput{}))
+	walk("", reflect.TypeFor[EconomicDetail]())
+	walk("", reflect.TypeFor[EconomicDetailQuery]())
+	walk("", reflect.TypeFor[EconomicDetailInput]())
 }
 
 // detailTestAllocationLine builds one source-preserving allocation
@@ -1460,7 +1459,7 @@ func TestEconomicValuationStreamKeyCoversEverySubjectIdentityField(t *testing.T)
 		Perspective: metering.PerspectiveOperator, Basis: economics.BasisLocalExpected,
 	}
 	baseKey := EconomicValuationStreamKey(base)
-	typ := reflect.TypeOf(metering.SubjectRef{})
+	typ := reflect.TypeFor[metering.SubjectRef]()
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		tag := strings.Split(field.Tag.Get("json"), ",")[0]

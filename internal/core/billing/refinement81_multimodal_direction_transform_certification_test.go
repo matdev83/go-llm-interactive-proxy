@@ -304,7 +304,6 @@ func cert81AssertFullLine(t *testing.T, label string, key metering.ComponentKey,
 func TestRefinement81_MultimodalDirectionRateCertification(t *testing.T) {
 	t.Parallel()
 	for _, v := range cert81Vectors() {
-		v := v
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 			key := cert81Key(v)
@@ -536,7 +535,6 @@ func TestRefinement81_OutputTransformPreservesProviderOrigin(t *testing.T) {
 func TestRefinement81_DurableRoundTripPreservesMultimodalIdentity(t *testing.T) {
 	t.Parallel()
 	for _, v := range cert81Vectors() {
-		v := v
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 			key := cert81Key(v)
@@ -612,7 +610,6 @@ func TestRefinement81_DurableRoundTripPreservesMultimodalIdentity(t *testing.T) 
 func TestRefinement81_MissingDetailNeverBecomesZeroOrTextTokens(t *testing.T) {
 	t.Parallel()
 	for _, v := range cert81Vectors() {
-		v := v
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 			key := cert81Key(v)
@@ -658,7 +655,6 @@ func TestRefinement81_DirectionIsCanonicalIdentity(t *testing.T) {
 		{metering.ComponentDocument, metering.UnitPage},
 	}
 	for _, p := range pairs {
-		p := p
 		t.Run(p.component, func(t *testing.T) {
 			t.Parallel()
 			in := metering.ComponentKey{

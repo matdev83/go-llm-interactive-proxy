@@ -3,6 +3,7 @@ package billing
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -293,12 +294,7 @@ func allocationTargetMatchesLegs(target metering.SubjectRef, legs []CallLegUsage
 }
 
 func containsAllocationRef(refs []economics.AllocationRef, wanted economics.AllocationRef) bool {
-	for _, ref := range refs {
-		if ref == wanted {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(refs, wanted)
 }
 
 func hasV2Charge(leg CallLegUsageRecord) bool {
@@ -467,10 +463,8 @@ func appendUniqueString(values *[]string, value string) {
 	if values == nil || value == "" {
 		return
 	}
-	for _, existing := range *values {
-		if existing == value {
-			return
-		}
+	if slices.Contains(*values, value) {
+		return
 	}
 	*values = append(*values, value)
 }
@@ -489,10 +483,8 @@ func markCostPartial(result *OperatorCOGSResult, identity string) {
 	if identity == "" {
 		return
 	}
-	for _, existing := range result.UnknownLegKeys {
-		if existing == identity {
-			return
-		}
+	if slices.Contains(result.UnknownLegKeys, identity) {
+		return
 	}
 	result.UnknownLegKeys = append(result.UnknownLegKeys, identity)
 }

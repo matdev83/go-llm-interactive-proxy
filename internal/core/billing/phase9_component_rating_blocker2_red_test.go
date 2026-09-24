@@ -19,7 +19,7 @@ func TestPhase9Blocker2_COGSCorrectionTaintIsChargeLocalAndOrderIndependent(t *t
 		t.Fatalf("base ref: %v", err)
 	}
 
-	correction := phase5ChargeObservation(t, callID, "b-blocker2", "blocker2-correction", "affected", stringPtrRepair9("6"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	correction := phase5ChargeObservation(t, callID, "b-blocker2", "blocker2-correction", "affected", new("6"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	correction.Semantics = metering.SemanticsCorrection
 	correction.StreamID = base.StreamID
 	correction.Sequence = 2
@@ -29,7 +29,7 @@ func TestPhase9Blocker2_COGSCorrectionTaintIsChargeLocalAndOrderIndependent(t *t
 		t.Fatalf("correction ref: %v", err)
 	}
 
-	delta := phase5ChargeObservation(t, callID, "b-blocker2", "blocker2-delta", "affected", stringPtrRepair9("2"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	delta := phase5ChargeObservation(t, callID, "b-blocker2", "blocker2-delta", "affected", new("2"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	delta.Semantics = metering.SemanticsDelta
 	delta.StreamID = base.StreamID
 	delta.Sequence = 3
@@ -38,7 +38,7 @@ func TestPhase9Blocker2_COGSCorrectionTaintIsChargeLocalAndOrderIndependent(t *t
 		t.Fatalf("delta ref: %v", err)
 	}
 
-	replacement := phase5ChargeObservation(t, callID, "b-blocker2", "blocker2-replacement", "affected", stringPtrRepair9("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	replacement := phase5ChargeObservation(t, callID, "b-blocker2", "blocker2-replacement", "affected", new("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	replacement.Semantics = metering.SemanticsReplacement
 	replacement.StreamID = base.StreamID
 	replacement.Sequence = 4
@@ -72,7 +72,6 @@ func TestPhase9Blocker2_COGSCorrectionTaintIsChargeLocalAndOrderIndependent(t *t
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			orders := [][]metering.Observation{
@@ -109,12 +108,12 @@ func TestPhase9Blocker2_COGSUnusableCorrectionDoesNotPoisonHealthyBLeg(t *testin
 	if err != nil {
 		t.Fatalf("base ref: %v", err)
 	}
-	correction := phase5ChargeObservation(t, callID, "b-blocker2-affected", "blocker2-cross-correction", "affected", stringPtrRepair9("6"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	correction := phase5ChargeObservation(t, callID, "b-blocker2-affected", "blocker2-cross-correction", "affected", new("6"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	correction.Semantics = metering.SemanticsCorrection
 	correction.StreamID = base.StreamID
 	correction.Sequence = 2
 	correction.Supersedes = []metering.ObservationRef{baseRef}
-	healthy := phase5ChargeObservation(t, callID, "b-blocker2-healthy", "blocker2-cross-healthy", "healthy", stringPtrRepair9("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	healthy := phase5ChargeObservation(t, callID, "b-blocker2-healthy", "blocker2-cross-healthy", "healthy", new("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	healthy.StreamID = "blocker2-cross-healthy-stream"
 	healthy.Sequence = 1
 
@@ -149,7 +148,7 @@ func TestPhase9Blocker2_COGSUnavailableBaseTaintIsChargeLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("base ref: %v", err)
 	}
-	correction := phase5ChargeObservation(t, callID, "b-blocker2-authority", "blocker2-authority-correction", "affected", stringPtrRepair9("6"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	correction := phase5ChargeObservation(t, callID, "b-blocker2-authority", "blocker2-authority-correction", "affected", new("6"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	correction.Semantics = metering.SemanticsCorrection
 	correction.StreamID = base.StreamID
 	correction.Sequence = 2
@@ -178,7 +177,7 @@ func TestPhase9Blocker2_COGSNilBaseCorrectionKeepsCorrectionSiblingUsable(t *tes
 	if err != nil {
 		t.Fatalf("base ref: %v", err)
 	}
-	correction := phase5ChargeObservation(t, callID, "b-blocker2-sibling", "blocker2-sibling-correction", "affected", stringPtrRepair9("6"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	correction := phase5ChargeObservation(t, callID, "b-blocker2-sibling", "blocker2-sibling-correction", "affected", new("6"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	correction.Semantics = metering.SemanticsCorrection
 	correction.StreamID = base.StreamID
 	correction.Sequence = 2

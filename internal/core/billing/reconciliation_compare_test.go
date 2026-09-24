@@ -148,6 +148,7 @@ func TestReconciliationCompareJoinsExactEconomicIdentity(t *testing.T) {
 	}
 
 	t.Run("payer mismatch is incomparable", func(t *testing.T) {
+		t.Parallel()
 		paid := provider
 		paid.Payer = metering.PaymentParty{Kind: metering.PaymentPartyOperator}
 		billed := local
@@ -166,6 +167,7 @@ func TestReconciliationCompareJoinsExactEconomicIdentity(t *testing.T) {
 	})
 
 	t.Run("effective measurement context mismatch is incomparable", func(t *testing.T) {
+		t.Parallel()
 		eu := local
 		eu.EffectiveQualifiers = []metering.Dimension{{Name: "region", Value: "eu"}}
 		us := provider
@@ -181,6 +183,7 @@ func TestReconciliationCompareJoinsExactEconomicIdentity(t *testing.T) {
 	})
 
 	t.Run("component qualifier mismatch is incomparable", func(t *testing.T) {
+		t.Parallel()
 		png := reconciliationKey(metering.DirectionInput, "media_upload", metering.UnitImage, "reconciliation.media.v1", metering.Dimension{Name: "format", Value: "png"})
 		jpeg := reconciliationKey(metering.DirectionInput, "media_upload", metering.UnitImage, "reconciliation.media.v1", metering.Dimension{Name: "format", Value: "jpeg"})
 		mismatched, err := CompareComponentQuantities(
@@ -213,6 +216,7 @@ func TestReconciliationCompareRequiresTokenizerIdentity(t *testing.T) {
 	}
 
 	t.Run("local undeclared provider declared", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(tokenMeasure(t, "tok-local", metering.OriginLocal, "100"))
 		local.Tokenizer = ""
 		provider := reconciliationSide(tokenMeasure(t, "tok-provider", metering.OriginProvider, "110"))
@@ -229,6 +233,7 @@ func TestReconciliationCompareRequiresTokenizerIdentity(t *testing.T) {
 	})
 
 	t.Run("provider undeclared local declared", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(tokenMeasure(t, "tok-local", metering.OriginLocal, "100"))
 		provider := reconciliationSide(tokenMeasure(t, "tok-provider", metering.OriginProvider, "110"))
 		provider.Tokenizer = ""
@@ -242,6 +247,7 @@ func TestReconciliationCompareRequiresTokenizerIdentity(t *testing.T) {
 	})
 
 	t.Run("both undeclared token measured is incomparable", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(tokenMeasure(t, "tok-local", metering.OriginLocal, "100"))
 		local.Tokenizer = ""
 		provider := reconciliationSide(tokenMeasure(t, "tok-provider", metering.OriginProvider, "110"))
@@ -264,6 +270,7 @@ func TestReconciliationCompareRequiresTokenizerIdentity(t *testing.T) {
 	})
 
 	t.Run("different declarations have no mapping", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(tokenMeasure(t, "tok-local", metering.OriginLocal, "100"))
 		local.Tokenizer = "tokenizer-v1"
 		provider := reconciliationSide(tokenMeasure(t, "tok-provider", metering.OriginProvider, "100"))
@@ -281,6 +288,7 @@ func TestReconciliationCompareRequiresTokenizerIdentity(t *testing.T) {
 	})
 
 	t.Run("matching declarations compare", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(tokenMeasure(t, "tok-local", metering.OriginLocal, "100"))
 		provider := reconciliationSide(tokenMeasure(t, "tok-provider", metering.OriginProvider, "110"))
 		result, err := CompareComponentQuantities(local, provider)
@@ -293,6 +301,7 @@ func TestReconciliationCompareRequiresTokenizerIdentity(t *testing.T) {
 	})
 
 	t.Run("native non-token unit compares without declaration", func(t *testing.T) {
+		t.Parallel()
 		seconds := reconciliationKey(metering.DirectionInput, "audio", metering.UnitSecond, "reconciliation.media.v1")
 		local := reconciliationSide(reconciliationObservation(t, "sec-local", metering.OriginLocal, reconciliationMeasure(t, seconds, metering.QualityObserved, "opaque", "1.5")))
 		local.Tokenizer = ""
@@ -312,6 +321,7 @@ func TestReconciliationCompareRequiresTokenizerIdentity(t *testing.T) {
 	})
 
 	t.Run("one sided declaration is incompatible even for native units", func(t *testing.T) {
+		t.Parallel()
 		seconds := reconciliationKey(metering.DirectionInput, "audio", metering.UnitSecond, "reconciliation.media.v1")
 		local := reconciliationSide(reconciliationObservation(t, "sec-local", metering.OriginLocal, reconciliationMeasure(t, seconds, metering.QualityObserved, "opaque", "1.5")))
 		local.Tokenizer = ""
@@ -335,6 +345,7 @@ func TestReconciliationCompareSignedAndAbsoluteDeltaIsExact(t *testing.T) {
 	tokenKey := reconciliationKey(metering.DirectionOutput, metering.ComponentOutputToken, metering.UnitToken, metering.DefaultInclusionSchemaID)
 
 	t.Run("provider above local is positive", func(t *testing.T) {
+		t.Parallel()
 		result, err := CompareComponentQuantities(
 			reconciliationSide(reconciliationObservation(t, "obs-local-pos", metering.OriginLocal, reconciliationMeasure(t, tokenKey, metering.QualityObserved, "tok", "110"))),
 			reconciliationSide(reconciliationObservation(t, "obs-provider-pos", metering.OriginProvider, reconciliationMeasure(t, tokenKey, metering.QualityObserved, "tok", "120"))),
@@ -346,6 +357,7 @@ func TestReconciliationCompareSignedAndAbsoluteDeltaIsExact(t *testing.T) {
 	})
 
 	t.Run("provider below local is negative signed positive absolute", func(t *testing.T) {
+		t.Parallel()
 		result, err := CompareComponentQuantities(
 			reconciliationSide(reconciliationObservation(t, "obs-local-neg", metering.OriginLocal, reconciliationMeasure(t, tokenKey, metering.QualityObserved, "tok", "120"))),
 			reconciliationSide(reconciliationObservation(t, "obs-provider-neg", metering.OriginProvider, reconciliationMeasure(t, tokenKey, metering.QualityObserved, "tok", "110"))),
@@ -357,6 +369,7 @@ func TestReconciliationCompareSignedAndAbsoluteDeltaIsExact(t *testing.T) {
 	})
 
 	t.Run("equal evidence is matched with exact zero", func(t *testing.T) {
+		t.Parallel()
 		result, err := CompareComponentQuantities(
 			reconciliationSide(reconciliationObservation(t, "obs-local-eq", metering.OriginLocal, reconciliationMeasure(t, tokenKey, metering.QualityObserved, "tok", "100"))),
 			reconciliationSide(reconciliationObservation(t, "obs-provider-eq", metering.OriginProvider, reconciliationMeasure(t, tokenKey, metering.QualityObserved, "tok", "100"))),
@@ -372,6 +385,7 @@ func TestReconciliationCompareSignedAndAbsoluteDeltaIsExact(t *testing.T) {
 	})
 
 	t.Run("fractional native unit keeps exact scale", func(t *testing.T) {
+		t.Parallel()
 		seconds := reconciliationKey(metering.DirectionInput, "audio", metering.UnitSecond, "reconciliation.media.v1")
 		result, err := CompareComponentQuantities(
 			reconciliationSide(reconciliationObservation(t, "obs-local-sec", metering.OriginLocal, reconciliationMeasure(t, seconds, metering.QualityEstimated, "", "1.5"))),
@@ -408,6 +422,7 @@ func TestReconciliationCompareIncompatibleEvidenceIsTyped(t *testing.T) {
 	}
 
 	t.Run("inclusion partition schema mismatch", func(t *testing.T) {
+		t.Parallel()
 		other := reconciliationKey(metering.DirectionInput, metering.ComponentInputToken, metering.UnitToken, "reconciliation.schema.b")
 		result, err := CompareComponentQuantities(
 			reconciliationSide(localObservation()),
@@ -425,6 +440,7 @@ func TestReconciliationCompareIncompatibleEvidenceIsTyped(t *testing.T) {
 	})
 
 	t.Run("tokenizer mismatch", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(localObservation())
 		local.Tokenizer = "tokenizer-semantics-a"
 		provider := reconciliationSide(reconciliationObservation(t, "obs-provider-tokenizer", metering.OriginProvider,
@@ -442,6 +458,7 @@ func TestReconciliationCompareIncompatibleEvidenceIsTyped(t *testing.T) {
 	})
 
 	t.Run("aggregation semantics mismatch", func(t *testing.T) {
+		t.Parallel()
 		result, err := CompareComponentQuantities(
 			reconciliationSide(localObservation()),
 			reconciliationSide(reconciliationObservationWithSemantics(t, "obs-provider-cumulative", metering.OriginProvider, metering.SemanticsCumulative,
@@ -458,6 +475,7 @@ func TestReconciliationCompareIncompatibleEvidenceIsTyped(t *testing.T) {
 	})
 
 	t.Run("period mismatch", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(providerObservation())
 		local.PeriodID = "period-2026-01"
 		provider := reconciliationSide(providerObservation())
@@ -473,6 +491,7 @@ func TestReconciliationCompareIncompatibleEvidenceIsTyped(t *testing.T) {
 	})
 
 	t.Run("coverage mismatch", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(localObservation())
 		local.Coverage = []metering.ChargeCoverageRef{{Ref: metering.ChargeRef{StoreID: reconciliationSubject().StoreID, ObservationID: "obs-charge", Revision: 1, ChargeItemID: "item-a"}, Relation: metering.CoverageAdditive}}
 		provider := reconciliationSide(providerObservation())
@@ -488,6 +507,7 @@ func TestReconciliationCompareIncompatibleEvidenceIsTyped(t *testing.T) {
 	})
 
 	t.Run("currency mismatch", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(localObservation())
 		local.Currency = "USD"
 		provider := reconciliationSide(providerObservation())
@@ -512,11 +532,13 @@ func TestReconciliationCompareDistinguishesMissingAndAttemptedUnknown(t *testing
 	cacheReadKey := reconciliationKey(metering.DirectionInput, metering.ComponentCacheReadInputToken, metering.UnitToken, metering.DefaultInclusionSchemaID)
 	cacheWriteKey := reconciliationKey(metering.DirectionInput, metering.ComponentCacheWriteInputToken, metering.UnitToken, metering.DefaultInclusionSchemaID)
 
-	local := reconciliationSide(reconciliationObservation(t, "obs-local-partial", metering.OriginLocal,
+	local := reconciliationSide(reconciliationObservation(
+		t, "obs-local-partial", metering.OriginLocal,
 		reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "100"),
 		reconciliationMeasure(t, cacheReadKey, metering.QualityUnavailable, "", ""),
 	))
-	provider := reconciliationSide(reconciliationObservation(t, "obs-provider-partial", metering.OriginProvider,
+	provider := reconciliationSide(reconciliationObservation(
+		t, "obs-provider-partial", metering.OriginProvider,
 		reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "110"),
 		reconciliationMeasure(t, cacheReadKey, metering.QualityObserved, "tok", "40"),
 		reconciliationMeasure(t, cacheWriteKey, metering.QualityObserved, "tok", "5"),
@@ -549,6 +571,7 @@ func TestReconciliationCompareDistinguishesMissingAndAttemptedUnknown(t *testing
 	assertReconciliationNoDelta(t, cacheWriteItem)
 
 	t.Run("provider-only evidence is missing_local", func(t *testing.T) {
+		t.Parallel()
 		only := reconciliationSide(reconciliationObservation(t, "obs-provider-only", metering.OriginProvider,
 			reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "100")))
 		absent := reconciliationSide(reconciliationObservation(t, "obs-local-other", metering.OriginLocal,
@@ -568,6 +591,7 @@ func TestReconciliationCompareDistinguishesMissingAndAttemptedUnknown(t *testing
 	})
 
 	t.Run("explicit observed zero is not missing", func(t *testing.T) {
+		t.Parallel()
 		zeroLocal := reconciliationSide(reconciliationObservation(t, "obs-local-zero", metering.OriginLocal,
 			reconciliationMeasure(t, cacheReadKey, metering.QualityObserved, "tok", "0")))
 		zeroProvider := reconciliationSide(reconciliationObservation(t, "obs-provider-zero", metering.OriginProvider,
@@ -646,6 +670,7 @@ func TestReconciliationCompareIsDeterministicAndFailsClosed(t *testing.T) {
 	}
 
 	t.Run("observation order does not change results", func(t *testing.T) {
+		t.Parallel()
 		first := reconciliationSide(
 			observationFor("obs-z", metering.OriginLocal, "z_metric", "1"),
 			observationFor("obs-a", metering.OriginLocal, "a_metric", "2"),
@@ -675,6 +700,7 @@ func TestReconciliationCompareIsDeterministicAndFailsClosed(t *testing.T) {
 	})
 
 	t.Run("identical duplicate evidence conflicts", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(
 			observationFor("obs-dup-1", metering.OriginLocal, "dup_metric", "5"),
 			observationFor("obs-dup-2", metering.OriginLocal, "dup_metric", "5"),
@@ -697,6 +723,7 @@ func TestReconciliationCompareIsDeterministicAndFailsClosed(t *testing.T) {
 	})
 
 	t.Run("contradictory duplicate evidence conflicts", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(
 			observationFor("obs-conf-1", metering.OriginLocal, "conf_metric", "5"),
 			observationFor("obs-conf-2", metering.OriginLocal, "conf_metric", "6"),
@@ -716,6 +743,7 @@ func TestReconciliationCompareIsDeterministicAndFailsClosed(t *testing.T) {
 	})
 
 	t.Run("provider conflict is distinct", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(observationFor("obs-pconf-l", metering.OriginLocal, "pconf_metric", "5"))
 		provider := reconciliationSide(
 			observationFor("obs-pconf-1", metering.OriginProvider, "pconf_metric", "6"),
@@ -731,6 +759,7 @@ func TestReconciliationCompareIsDeterministicAndFailsClosed(t *testing.T) {
 	})
 
 	t.Run("observation bound fails closed", func(t *testing.T) {
+		t.Parallel()
 		observations := make([]metering.Observation, 0, MaxReconciliationObservations+1)
 		for i := 0; i <= MaxReconciliationObservations; i++ {
 			observations = append(observations, observationFor(fmt.Sprintf("obs-bound-%d", i), metering.OriginLocal, fmt.Sprintf("bound_metric_%d", i), "1"))
@@ -742,10 +771,11 @@ func TestReconciliationCompareIsDeterministicAndFailsClosed(t *testing.T) {
 	})
 
 	t.Run("result cardinality bound fails closed", func(t *testing.T) {
+		t.Parallel()
 		providerObservations := make([]metering.Observation, 0, 33)
-		for i := 0; i < 32; i++ {
+		for i := range 32 {
 			measures := make([]metering.Measure, 0, metering.MaxObservationMeasures)
-			for j := 0; j < metering.MaxObservationMeasures; j++ {
+			for j := range metering.MaxObservationMeasures {
 				name := fmt.Sprintf("cardinality_metric_%d", i*metering.MaxObservationMeasures+j)
 				measures = append(measures, reconciliationMeasure(t, keyFor(name), metering.QualityObserved, "method", "1"))
 			}
@@ -763,12 +793,14 @@ func TestReconciliationCompareIsDeterministicAndFailsClosed(t *testing.T) {
 	})
 
 	t.Run("empty evidence is rejected", func(t *testing.T) {
+		t.Parallel()
 		if _, err := CompareComponentQuantities(reconciliationSide(), reconciliationSide()); !errors.Is(err, ErrReconciliationInput) {
 			t.Fatalf("error = %v, want ErrReconciliationInput", err)
 		}
 	})
 
 	t.Run("cross-store comparison is rejected", func(t *testing.T) {
+		t.Parallel()
 		otherSubject := reconciliationSubject()
 		otherSubject.StoreID = "store-other"
 		otherObservation := observationFor("obs-other", metering.OriginProvider, "other_metric", "1")
@@ -797,6 +829,7 @@ func TestReconciliationCompareSameSideSemanticsIdentity(t *testing.T) {
 	}
 
 	t.Run("local semantics-only difference is conflicting", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(
 			observed("obs-sem-local-delta", metering.OriginLocal, metering.SemanticsDelta),
 			observed("obs-sem-local-cumulative", metering.OriginLocal, metering.SemanticsCumulative),
@@ -819,6 +852,7 @@ func TestReconciliationCompareSameSideSemanticsIdentity(t *testing.T) {
 	})
 
 	t.Run("provider semantics-only difference is conflicting", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(observed("obs-sem2-local", metering.OriginLocal, metering.SemanticsDelta))
 		provider := reconciliationSide(
 			observed("obs-sem2-provider-delta", metering.OriginProvider, metering.SemanticsDelta),
@@ -841,6 +875,7 @@ func TestReconciliationCompareSameSideSemanticsIdentity(t *testing.T) {
 	})
 
 	t.Run("identical semantics remain exact duplicates", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(
 			observed("obs-sem-dup-1", metering.OriginLocal, metering.SemanticsDelta),
 			observed("obs-sem-dup-2", metering.OriginLocal, metering.SemanticsDelta),
@@ -856,6 +891,7 @@ func TestReconciliationCompareSameSideSemanticsIdentity(t *testing.T) {
 	})
 
 	t.Run("identical semantics provider duplicates are preserved", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(observed("obs-sem-pdup-l", metering.OriginLocal, metering.SemanticsCumulative))
 		provider := reconciliationSide(
 			observed("obs-sem-pdup-1", metering.OriginProvider, metering.SemanticsCumulative),
@@ -871,6 +907,7 @@ func TestReconciliationCompareSameSideSemanticsIdentity(t *testing.T) {
 	})
 
 	t.Run("quality-only difference is conflicting", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(
 			reconciliationObservationWithSemantics(t, "obs-q-local-observed", metering.OriginLocal, metering.SemanticsDelta,
 				reconciliationMeasure(t, key, metering.QualityObserved, "method", "5")),
@@ -895,6 +932,7 @@ func TestReconciliationCompareKeepsUnitsAndDirectionsDistinct(t *testing.T) {
 	t.Parallel()
 
 	t.Run("direction remains distinct", func(t *testing.T) {
+		t.Parallel()
 		inputImage := reconciliationKey(metering.DirectionInput, "image", metering.UnitImage, "reconciliation.media.v1")
 		outputImage := reconciliationKey(metering.DirectionOutput, "image", metering.UnitImage, "reconciliation.media.v1")
 		result, err := CompareComponentQuantities(
@@ -917,6 +955,7 @@ func TestReconciliationCompareKeepsUnitsAndDirectionsDistinct(t *testing.T) {
 	})
 
 	t.Run("native units remain distinct", func(t *testing.T) {
+		t.Parallel()
 		tokenWidget := reconciliationKey(metering.DirectionNone, "widget", metering.UnitToken, "reconciliation.widget.v1")
 		countWidget := reconciliationKey(metering.DirectionNone, "widget", metering.UnitCount, "reconciliation.widget.v1")
 		result, err := CompareComponentQuantities(
@@ -935,6 +974,7 @@ func TestReconciliationCompareKeepsUnitsAndDirectionsDistinct(t *testing.T) {
 	})
 
 	t.Run("multimodal duration joins on its own unit", func(t *testing.T) {
+		t.Parallel()
 		videoSeconds := reconciliationKey(metering.DirectionInput, "video", metering.UnitSecond, "reconciliation.media.v1")
 		result, err := CompareComponentQuantities(
 			reconciliationSide(reconciliationObservation(t, "obs-local-video", metering.OriginLocal, reconciliationMeasure(t, videoSeconds, metering.QualityObserved, "", "1.5"))),
@@ -975,7 +1015,6 @@ func TestReconciliationUnionCapacityRejectsOverflow(t *testing.T) {
 		{name: "empty", localLen: 0, providerLen: 0},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := reconciliationUnionCapacity(tc.localLen, tc.providerLen)

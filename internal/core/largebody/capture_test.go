@@ -203,7 +203,7 @@ func TestContinuationReader_WithSpillToFile(t *testing.T) {
 func TestContinuationReader_RandomChunkingAndFaults(t *testing.T) {
 	t.Parallel()
 
-	for iter := 0; iter < 40; iter++ {
+	for iter := range 40 {
 		// Random payload between 512 and 16384 bytes
 		nBig, _ := rand.Int(rand.Reader, big.NewInt(15872))
 		payloadLen := 512 + int(nBig.Int64())

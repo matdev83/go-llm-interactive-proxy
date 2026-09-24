@@ -68,6 +68,7 @@ func TestPhase9Repair4_EffectiveReplayIgnoresSupersededUnknownLinks(t *testing.T
 		{name: "provider quantity", origin: metering.OriginProvider, basis: economics.BasisProviderQuantityLocal},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			stale := phase9Observation(t, "stale-unknown-"+tc.name, tc.origin, key, "99")
 			stale.Semantics = metering.SemanticsCorrection
 			stale.Supersedes = []metering.ObservationRef{{StoreID: "store", ObservationID: "not-yet-known", Revision: 1, PayloadHash: strings.Repeat("a", 64)}}

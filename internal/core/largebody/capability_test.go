@@ -58,19 +58,20 @@ var (
 
 func executorViewMethodNames(t *testing.T) []string {
 	t.Helper()
-	typ := reflect.TypeOf((*lipsdk.ExecutorView)(nil)).Elem()
+	typ := reflect.TypeFor[lipsdk.ExecutorView]()
 	if typ.Kind() != reflect.Interface {
 		t.Fatalf("lipsdk.ExecutorView is %s, want interface", typ.Kind())
 	}
 	var names []string
-	for i := 0; i < typ.NumMethod(); i++ {
-		names = append(names, typ.Method(i).Name)
+	for method := range typ.Methods() {
+		names = append(names, method.Name)
 	}
 	sort.Strings(names)
 	return names
 }
 
 func TestExecutorView_PublicContractUnchanged(t *testing.T) {
+	t.Parallel()
 	names := executorViewMethodNames(t)
 	want := []string{"CancelALeg", "Execute", "WallClock"}
 	if !reflect.DeepEqual(names, want) {
@@ -86,13 +87,14 @@ func TestExecutorView_PublicContractUnchanged(t *testing.T) {
 }
 
 func TestLargeBodyCapability_DefinedInternally(t *testing.T) {
-	typ := reflect.TypeOf((*largebody.LargeBodyExecutor)(nil)).Elem()
+	t.Parallel()
+	typ := reflect.TypeFor[largebody.LargeBodyExecutor]()
 	if typ.Kind() != reflect.Interface {
 		t.Fatalf("largebody.LargeBodyExecutor is %s, want interface", typ.Kind())
 	}
 	var names []string
-	for i := 0; i < typ.NumMethod(); i++ {
-		names = append(names, typ.Method(i).Name)
+	for method := range typ.Methods() {
+		names = append(names, method.Name)
 	}
 	sort.Strings(names)
 	want := []string{"AssessLargeBody", "ExecuteLargeBody"}
@@ -105,6 +107,7 @@ func TestLargeBodyCapability_DefinedInternally(t *testing.T) {
 }
 
 func TestAsLargeBodyExecutor_NilAndAbsentYieldCanonical(t *testing.T) {
+	t.Parallel()
 	if got, ok := largebody.AsLargeBodyExecutor(nil); ok || got != nil {
 		t.Fatalf("AsLargeBodyExecutor(nil) = (%v, %v), want (nil, false)", got, ok)
 	}
@@ -127,6 +130,7 @@ func TestAsLargeBodyExecutor_NilAndAbsentYieldCanonical(t *testing.T) {
 }
 
 func TestExternalManualExecutor_RemainsCanonicalOnly(t *testing.T) {
+	t.Parallel()
 	manual := &canonicalOnlyExecutor{}
 	var view lipsdk.ExecutorView = manual
 	// Interface satisfaction is asserted at compile time above (var _ lipsdk.ExecutorView);

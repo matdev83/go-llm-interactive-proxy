@@ -65,6 +65,7 @@ func refinement43LegacyAuthorityWork(t *testing.T, cost MoneyEvidence) ProviderC
 }
 
 func TestRefinement43LegacyProviderCostWorkerRejectsLocalRateFallback(t *testing.T) {
+	t.Parallel()
 	work := refinement43LegacyAuthorityWork(t, MoneyEvidence{})
 	// Task 18.1: the scalar token-to-money fallback is retired at the
 	// resolver. Token-only evidence is unreconciled before any worker
@@ -86,6 +87,7 @@ func TestRefinement43LegacyProviderCostWorkerRejectsLocalRateFallback(t *testing
 }
 
 func TestRefinement43LegacyProviderCostWorkerAcceptsAuthoritativeProviderReport(t *testing.T) {
+	t.Parallel()
 	work := refinement43LegacyAuthorityWork(t, MoneyEvidence{NanoUnits: 11, Currency: "USD", Present: true})
 	result, err := RateProviderCost(work.Leg, nil, "USD")
 	require.NoError(t, err)
@@ -102,6 +104,7 @@ func TestRefinement43LegacyProviderCostWorkerAcceptsAuthoritativeProviderReport(
 }
 
 func TestRefinement43LegacyProviderCostWorkerRetainsUnknownPayerWorkForRetry(t *testing.T) {
+	t.Parallel()
 	callID := mustBillingCallID(t)
 	leg := testCallLegUsageRecord(callID, "b-unknown-payer")
 	sealed, err := leg.Seal()
@@ -121,6 +124,7 @@ func TestRefinement43LegacyProviderCostWorkerRetainsUnknownPayerWorkForRetry(t *
 }
 
 func TestRefinement43LegacyProviderCostAuthorityErrorIsTypedAndRetryable(t *testing.T) {
+	t.Parallel()
 	work := refinement43LegacyAuthorityWork(t, MoneyEvidence{})
 	sealed, err := work.Leg.Seal()
 	require.NoError(t, err)
@@ -139,6 +143,7 @@ func TestRefinement43LegacyProviderCostAuthorityErrorIsTypedAndRetryable(t *test
 }
 
 func TestRefinement43LegacyProviderCostRejectsAuthoritativeFlagOnLocalEvidence(t *testing.T) {
+	t.Parallel()
 	work := refinement43LegacyAuthorityWork(t, MoneyEvidence{})
 	work.Leg.Evidence.Source = EvidenceSourceLocalEstimator
 	work.Leg.Evidence.Authority = EvidenceAuthorityEstimated

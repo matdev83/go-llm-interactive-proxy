@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1160,13 +1161,7 @@ func combineRetailValuation(dst *economics.Valuation, src economics.Valuation) {
 	dst.MissingObservations = appendUniqueRetailRefs(dst.MissingObservations, src.MissingObservations...)
 	dst.CoverageRefs = append([]metering.ChargeCoverageRef(nil), dst.CoverageRefs...)
 	for _, ref := range src.CoverageRefs {
-		found := false
-		for _, prior := range dst.CoverageRefs {
-			if prior == ref {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(dst.CoverageRefs, ref)
 		if !found {
 			dst.CoverageRefs = append(dst.CoverageRefs, ref)
 		}

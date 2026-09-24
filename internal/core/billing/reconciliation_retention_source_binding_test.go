@@ -155,6 +155,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 	}
 
 	t.Run("quantity producer controls bind", func(t *testing.T) {
+		t.Parallel()
 		matched := quantityBase(t,
 			[]metering.Observation{quantityObservation(t, "binding-qty-matched-local", metering.OriginLocal, "100")},
 			[]metering.Observation{quantityObservation(t, "binding-qty-matched-provider", metering.OriginProvider, "100")})
@@ -202,6 +203,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 	})
 
 	t.Run("monetary producer controls bind", func(t *testing.T) {
+		t.Parallel()
 		requireRetentionSourceBindingAccepted(t, completeMonetary(t))
 		requireRetentionSourceBindingAccepted(t, missingPMonetary(t))
 		requireRetentionSourceBindingAccepted(t, partialMonetary(t))
@@ -213,6 +215,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 	})
 
 	t.Run("forged aggregate source classifications fail closed", func(t *testing.T) {
+		t.Parallel()
 		cases := []struct {
 			name   string
 			build  func(t *testing.T) ReconciliationRetentionResult
@@ -222,6 +225,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 				name:  "comparable monetary source status changed to matched",
 				build: completeMonetary,
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					result.Aggregate.Findings[0].Status = ReconciliationStatusMatched
 				},
 			},
@@ -229,6 +233,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 				name:  "comparable monetary source carries an invented reason",
 				build: completeMonetary,
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					result.Aggregate.Findings[0].Reason = ReconciliationReasonCoverageMismatch
 				},
 			},
@@ -236,6 +241,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 				name:  "absent-value monetary finding marked matched",
 				build: missingPMonetary,
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					finding := &result.Aggregate.Findings[0]
 					finding.Status = ReconciliationStatusMatched
 					finding.Reason = ReconciliationReasonNone
@@ -247,6 +253,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 				name:  "monetary missing side swapped",
 				build: missingPMonetary,
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					finding := &result.Aggregate.Findings[0]
 					finding.Status = ReconciliationStatusMissingLocal
 					finding.EvaluatedStatus = ReconciliationStatusMissingLocal
@@ -256,6 +263,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 				name:  "monetary partial reason swapped",
 				build: partialMonetary,
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					finding := &result.Aggregate.Findings[0]
 					finding.Reason = ReconciliationComparisonReason(MonetaryReasonAmountUnavailable)
 					finding.EvaluationReason = finding.Reason
@@ -265,6 +273,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 				name:  "monetary incomparable reason swapped",
 				build: incomparableMonetary,
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					finding := &result.Aggregate.Findings[0]
 					finding.Reason = ReconciliationComparisonReason(MonetaryReasonCurrencyMismatch)
 					finding.EvaluationReason = finding.Reason
@@ -273,23 +282,27 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 			{
 				name: "quantity comparable finding marked matched",
 				build: func(t *testing.T) ReconciliationRetentionResult {
+					t.Helper()
 					return quantityBase(t,
 						[]metering.Observation{quantityObservation(t, "binding-poison-qty-matched-local", metering.OriginLocal, "100")},
 						[]metering.Observation{quantityObservation(t, "binding-poison-qty-matched-provider", metering.OriginProvider, "110")})
 				},
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					result.Aggregate.Findings[0].Status = ReconciliationStatusMatched
 				},
 			},
 			{
 				name: "quantity missing side swapped",
 				build: func(t *testing.T) ReconciliationRetentionResult {
+					t.Helper()
 					cacheReadKey := reconciliationKey(metering.DirectionInput, metering.ComponentCacheReadInputToken, metering.UnitToken, metering.DefaultInclusionSchemaID)
 					return quantityBase(t,
 						[]metering.Observation{reconciliationObservation(t, "binding-poison-qty-missing-local", metering.OriginLocal, reconciliationMeasure(t, cacheReadKey, metering.QualityObserved, "binding-tokenizer-v1", "7"))},
 						[]metering.Observation{quantityObservation(t, "binding-poison-qty-missing-provider", metering.OriginProvider, "100")})
 				},
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					for i := range result.Aggregate.Findings {
 						finding := &result.Aggregate.Findings[i]
 						if finding.Component == metering.ComponentInputToken {
@@ -302,11 +315,13 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 			{
 				name: "quantity comparable finding forged amounts",
 				build: func(t *testing.T) ReconciliationRetentionResult {
+					t.Helper()
 					return quantityBase(t,
 						[]metering.Observation{quantityObservation(t, "binding-poison-qty-amount-local", metering.OriginLocal, "100")},
 						[]metering.Observation{quantityObservation(t, "binding-poison-qty-amount-provider", metering.OriginProvider, "110")})
 				},
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					finding := &result.Aggregate.Findings[0]
 					finding.Expected = operatorCostTestAmount(t, metering.UnitToken, "102")
 					finding.Evaluation.Expected = operatorCostTestAmount(t, metering.UnitToken, "102")
@@ -317,11 +332,13 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 			{
 				name: "comparable quantity item carries a source reason",
 				build: func(t *testing.T) ReconciliationRetentionResult {
+					t.Helper()
 					return quantityBase(t,
 						[]metering.Observation{quantityObservation(t, "binding-poison-item-reason-local", metering.OriginLocal, "100")},
 						[]metering.Observation{quantityObservation(t, "binding-poison-item-reason-provider", metering.OriginProvider, "100")})
 				},
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					result.Aggregate = nil
 					result.Quantity.Items[0].Reason = ReconciliationReasonCoverageMismatch
 				},
@@ -330,6 +347,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 				name:  "monetary finding forged valuation ids",
 				build: completeMonetary,
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					result.Aggregate.Findings[0].ValuationIDs = append(result.Aggregate.Findings[0].ValuationIDs, "forged-valuation")
 				},
 			},
@@ -337,6 +355,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 				name:  "monetary finding forged source refs",
 				build: completeMonetary,
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					result.Aggregate.Findings[0].SourceObservationRefs = append(result.Aggregate.Findings[0].SourceObservationRefs, operatorCostTestRef("forged-observation"))
 				},
 			},
@@ -344,6 +363,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 				name:  "aggregate findings without retained comparisons",
 				build: completeMonetary,
 				mutate: func(t *testing.T, result *ReconciliationRetentionResult) {
+					t.Helper()
 					result.Quantity = nil
 					result.Monetary = nil
 				},
@@ -351,6 +371,7 @@ func TestReconciliationRetentionBindsAggregateFindingsToProducerSources(t *testi
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
 				result := tc.build(t)
 				tc.mutate(t, &result)
 				requireRetentionSourceBindingRejected(t, result)

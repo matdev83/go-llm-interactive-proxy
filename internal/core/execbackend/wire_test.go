@@ -100,6 +100,7 @@ func TestEffectiveWireRequestSupport_RewriteNeedOnlyWhenCertified(t *testing.T) 
 	t.Parallel()
 
 	t.Run("declares rewrite need when certified -> compatible", func(t *testing.T) {
+		t.Parallel()
 		be := execbackend.Backend{
 			ResolveWireRequest: func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
 				return largebody.WireRequestSupport{
@@ -119,6 +120,7 @@ func TestEffectiveWireRequestSupport_RewriteNeedOnlyWhenCertified(t *testing.T) 
 	})
 
 	t.Run("declares rewrite need without certification -> fails closed to canonical", func(t *testing.T) {
+		t.Parallel()
 		be := execbackend.Backend{
 			ResolveWireRequest: func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
 				return largebody.WireRequestSupport{
@@ -141,6 +143,7 @@ func TestEffectiveWireRequestSupport_RewriteNeedOnlyWhenCertified(t *testing.T) 
 	})
 
 	t.Run("does not declare rewrite need when not needed -> compatible", func(t *testing.T) {
+		t.Parallel()
 		be := execbackend.Backend{
 			ResolveWireRequest: func(ctx context.Context, facts largebody.WireRequestFacts, cand routing.AttemptCandidate) largebody.WireRequestSupport {
 				return largebody.WireRequestSupport{
@@ -167,6 +170,7 @@ func TestEffectiveWireRequestSupport_UnknownYieldsCanonical(t *testing.T) {
 	}
 
 	t.Run("unknown delivery mode", func(t *testing.T) {
+		t.Parallel()
 		facts := validWireRequestFacts(t)
 		facts.Delivery = "unknown_mode"
 		res := execbackend.EffectiveWireRequestSupport(context.Background(), be, facts, routing.AttemptCandidate{})
@@ -176,6 +180,7 @@ func TestEffectiveWireRequestSupport_UnknownYieldsCanonical(t *testing.T) {
 	})
 
 	t.Run("unsupported body mode", func(t *testing.T) {
+		t.Parallel()
 		facts := validWireRequestFacts(t)
 		facts.BodyMode = "gzip_json"
 		res := execbackend.EffectiveWireRequestSupport(context.Background(), be, facts, routing.AttemptCandidate{})
@@ -185,6 +190,7 @@ func TestEffectiveWireRequestSupport_UnknownYieldsCanonical(t *testing.T) {
 	})
 
 	t.Run("empty profile id", func(t *testing.T) {
+		t.Parallel()
 		facts := validWireRequestFacts(t)
 		facts.ProfileID = ""
 		res := execbackend.EffectiveWireRequestSupport(context.Background(), be, facts, routing.AttemptCandidate{})
@@ -194,6 +200,7 @@ func TestEffectiveWireRequestSupport_UnknownYieldsCanonical(t *testing.T) {
 	})
 
 	t.Run("canceled context", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		res := execbackend.EffectiveWireRequestSupport(ctx, be, validWireRequestFacts(t), routing.AttemptCandidate{})
@@ -207,6 +214,7 @@ func TestEffectiveWireDomainSupport_UniversalAndFiniteDomains(t *testing.T) {
 	t.Parallel()
 
 	t.Run("universal domain without AnyAcceptedModel fails closed to canonical", func(t *testing.T) {
+		t.Parallel()
 		be := execbackend.Backend{
 			ResolveWireDomain: func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport {
 				return largebody.WireDomainSupport{
@@ -232,6 +240,7 @@ func TestEffectiveWireDomainSupport_UniversalAndFiniteDomains(t *testing.T) {
 	})
 
 	t.Run("universal domain with AnyAcceptedModel succeeds", func(t *testing.T) {
+		t.Parallel()
 		be := execbackend.Backend{
 			ResolveWireDomain: func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport {
 				return largebody.WireDomainSupport{
@@ -257,6 +266,7 @@ func TestEffectiveWireDomainSupport_UniversalAndFiniteDomains(t *testing.T) {
 	})
 
 	t.Run("finite domain with certified models succeeds", func(t *testing.T) {
+		t.Parallel()
 		be := execbackend.Backend{
 			ResolveWireDomain: func(ctx context.Context, facts largebody.WireDomainFacts) largebody.WireDomainSupport {
 				return largebody.WireDomainSupport{

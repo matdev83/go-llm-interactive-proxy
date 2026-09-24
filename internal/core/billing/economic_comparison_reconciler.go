@@ -660,9 +660,6 @@ func ratDecimal(value *big.Rat) string {
 	if denominator.Cmp(big.NewInt(1)) != 0 {
 		return value.RatString()
 	}
-	places := factors[2]
-	if factors[5] > places {
-		places = factors[5]
-	}
+	places := max(factors[5], factors[2])
 	return value.FloatString(int(places))
 }

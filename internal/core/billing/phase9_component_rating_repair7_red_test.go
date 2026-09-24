@@ -13,6 +13,7 @@ func TestPhase9Repair7_ProviderChargeSuccessorsStayUnchargeable(t *testing.T) {
 	t.Parallel()
 	component := phase9Key(metering.DirectionInput, metering.ComponentImage, metering.UnitImage)
 	t.Run("delta", func(t *testing.T) {
+		t.Parallel()
 		base := phase9ProviderChargeObservation(t, "repair7-provider-base", 1, metering.SemanticsCumulative, blegSubjectForRepair7("b-main"),
 			phase9ProviderCharge("repair7-affected", &component, ""), phase9ProviderCharge("repair7-sibling", &component, "4"))
 		baseRef, err := base.Ref(base.Subject.StoreID)
@@ -25,6 +26,7 @@ func TestPhase9Repair7_ProviderChargeSuccessorsStayUnchargeable(t *testing.T) {
 		assertRepair7ProviderChargesIncomplete(t, []metering.Observation{delta, correction, base})
 	})
 	t.Run("partial replacement", func(t *testing.T) {
+		t.Parallel()
 		base := phase9ProviderChargeObservation(t, "repair7-provider-partial-base", 1, metering.SemanticsCumulative, blegSubjectForRepair7("b-main"),
 			phase9ProviderCharge("repair7-affected", &component, ""), phase9ProviderCharge("repair7-sibling", &component, "4"))
 		baseRef, err := base.Ref(base.Subject.StoreID)

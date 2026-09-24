@@ -123,7 +123,6 @@ func TestPhase172G1SevereStatusesRemainIncompleteThroughRunner(t *testing.T) {
 		economics.CompletenessConflict,
 		economics.CompletenessUnavailable,
 	} {
-		status := status
 		t.Run(string(status), func(t *testing.T) {
 			t.Parallel()
 			local := f4RatingWork(t, 541, "g1-head-local-sev-"+string(status), "g1-obs-local-sev-"+string(status), economics.BasisLocalExpected)

@@ -16,11 +16,11 @@ func TestPhase9Blocker3_OperatorCOGSRejectsUnlinkedAggregateComponentOverlap(t *
 		Unit:      metering.UnitImage,
 		SchemaID:  "phase9.blocker3.v1",
 	}
-	aggregate := phase5ChargeObservation(t, callID, "b-blocker3-overlap", "blocker3-aggregate", "total", stringPtrBlocker3("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	aggregate := phase5ChargeObservation(t, callID, "b-blocker3-overlap", "blocker3-aggregate", "total", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	aggregate.Semantics = metering.SemanticsCumulative
 	aggregate.StreamID = "blocker3-overlap-stream"
 	aggregate.Sequence = 1
-	child := phase5ChargeObservation(t, callID, "b-blocker3-overlap", "blocker3-component", "image", stringPtrBlocker3("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	child := phase5ChargeObservation(t, callID, "b-blocker3-overlap", "blocker3-component", "image", new("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	child.Charges[0].Kind = metering.ChargeKindComponent
 	child.Charges[0].Component = &component
 	child.StreamID = aggregate.StreamID
@@ -46,7 +46,7 @@ func TestPhase9Blocker3_OperatorCOGSAllowsExplicitSurchargeChild(t *testing.T) {
 		Unit:      metering.UnitImage,
 		SchemaID:  "phase9.blocker3.v1",
 	}
-	child := phase5ChargeObservation(t, callID, "b-blocker3-surcharge", "blocker3-surcharge-child", "surcharge", stringPtrBlocker3("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	child := phase5ChargeObservation(t, callID, "b-blocker3-surcharge", "blocker3-surcharge-child", "surcharge", new("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	child.Charges[0].Kind = metering.ChargeKindSurcharge
 	child.Charges[0].Component = &component
 	child.StreamID = "blocker3-surcharge-stream"
@@ -55,7 +55,7 @@ func TestPhase9Blocker3_OperatorCOGSAllowsExplicitSurchargeChild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("child ref: %v", err)
 	}
-	aggregate := phase5ChargeObservation(t, callID, "b-blocker3-surcharge", "blocker3-surcharge-total", "total", stringPtrBlocker3("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}, metering.ChargeCoverageRef{
+	aggregate := phase5ChargeObservation(t, callID, "b-blocker3-surcharge", "blocker3-surcharge-total", "total", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}, metering.ChargeCoverageRef{
 		Ref: metering.ChargeRef{StoreID: childRef.StoreID, ObservationID: childRef.ObservationID, Revision: childRef.Revision, ChargeItemID: "surcharge"}, Relation: metering.CoverageAdditive,
 	})
 	aggregate.Semantics = metering.SemanticsCumulative
@@ -76,7 +76,7 @@ func TestPhase9Blocker3_OperatorCOGSAllowsExplicitSurchargeChild(t *testing.T) {
 func TestPhase9Blocker3_OperatorCOGSUnresolvedCoverageIsPartialNotInvalid(t *testing.T) {
 	t.Parallel()
 	callID := mustBillingCallID(t)
-	aggregate := phase5ChargeObservation(t, callID, "b-blocker3-pending", "blocker3-pending-total", "total", stringPtrBlocker3("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}, metering.ChargeCoverageRef{
+	aggregate := phase5ChargeObservation(t, callID, "b-blocker3-pending", "blocker3-pending-total", "total", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}, metering.ChargeCoverageRef{
 		Ref: metering.ChargeRef{StoreID: "store-1", ObservationID: "blocker3-missing-child", Revision: 1, ChargeItemID: "child"}, Relation: metering.CoverageInclusive,
 	})
 	aggregate.Semantics = metering.SemanticsCumulative
@@ -111,7 +111,7 @@ func TestPhase9Blocker3_OperatorCOGSIgnoresSupersededInvalidOverlap(t *testing.T
 		Unit:      metering.UnitImage,
 		SchemaID:  "phase9.blocker3.v1",
 	}
-	child := phase5ChargeObservation(t, callID, "b-blocker3-superseded", "blocker3-superseded-child", "child", stringPtrBlocker3("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
+	child := phase5ChargeObservation(t, callID, "b-blocker3-superseded", "blocker3-superseded-child", "child", new("4"), metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 	child.Charges[0].Kind = metering.ChargeKindComponent
 	child.Charges[0].Component = &component
 	child.StreamID = "blocker3-superseded-stream"
@@ -120,7 +120,7 @@ func TestPhase9Blocker3_OperatorCOGSIgnoresSupersededInvalidOverlap(t *testing.T
 	if err != nil {
 		t.Fatalf("child ref: %v", err)
 	}
-	base := phase5ChargeObservation(t, callID, "b-blocker3-superseded", "blocker3-invalid-base", "total", stringPtrBlocker3("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}, metering.ChargeCoverageRef{
+	base := phase5ChargeObservation(t, callID, "b-blocker3-superseded", "blocker3-invalid-base", "total", new("10"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}, metering.ChargeCoverageRef{
 		Ref: metering.ChargeRef{StoreID: childRef.StoreID, ObservationID: childRef.ObservationID, Revision: childRef.Revision, ChargeItemID: "child"}, Relation: metering.CoverageAdditive,
 	})
 	base.Semantics = metering.SemanticsCumulative
@@ -130,7 +130,7 @@ func TestPhase9Blocker3_OperatorCOGSIgnoresSupersededInvalidOverlap(t *testing.T
 	if err != nil {
 		t.Fatalf("base ref: %v", err)
 	}
-	replacement := phase5ChargeObservation(t, callID, "b-blocker3-superseded", "blocker3-valid-replacement", "total", stringPtrBlocker3("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}, metering.ChargeCoverageRef{
+	replacement := phase5ChargeObservation(t, callID, "b-blocker3-superseded", "blocker3-valid-replacement", "total", new("8"), metering.PaymentParty{Kind: metering.PaymentPartyOperator}, metering.ChargeCoverageRef{
 		Ref: metering.ChargeRef{StoreID: childRef.StoreID, ObservationID: childRef.ObservationID, Revision: childRef.Revision, ChargeItemID: "child"}, Relation: metering.CoverageInclusive,
 	})
 	replacement.Semantics = metering.SemanticsReplacement
@@ -155,4 +155,5 @@ func TestPhase9Blocker3_OperatorCOGSIgnoresSupersededInvalidOverlap(t *testing.T
 	}
 }
 
-func stringPtrBlocker3(value string) *string { return &value }
+//go:fix inline
+func stringPtrBlocker3(value string) *string { return new(value) }

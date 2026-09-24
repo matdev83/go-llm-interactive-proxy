@@ -169,6 +169,7 @@ func TestDeriveRequiredCapabilities(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := capabilityfacts.DeriveRequiredCapabilities(tc.turn, tc.ctrl)
 			for _, exp := range tc.expected {
 				require.True(t, slices.Contains(got, exp), "expected capability %s in got %v", exp, got)

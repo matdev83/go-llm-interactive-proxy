@@ -171,7 +171,7 @@ type DependencyCensus struct {
 func NewStandardDependencyCensus(generationID string) DependencyCensus {
 	_ = generationID
 	planes := make([]PlaneEligibilityInput, WireEligibilityPlaneCount)
-	for i := 0; i < WireEligibilityPlaneCount; i++ {
+	for i := range WireEligibilityPlaneCount {
 		id, _ := WireEligibilityPlaneID(i)
 		planes[i] = PlaneEligibilityInput{
 			ID:       id,

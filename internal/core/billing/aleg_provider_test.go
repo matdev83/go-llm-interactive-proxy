@@ -353,122 +353,159 @@ func TestEvaluateALegProviderAdversarial(t *testing.T) {
 		mutate     func(t *testing.T, facts *ALegProviderLegFacts)
 	}{
 		{name: "ambiguous heads", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			dup := facts.Heads[0]
 			dup.HeadKey = "head-other"
 			facts.Heads = append(facts.Heads, dup)
 		}},
 		{name: "head subject bleg mismatch", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].Subject.BLegID = "b-other"
 		}},
 		{name: "head subject aleg mismatch", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].Subject.ALegID = "a-other"
 		}},
 		{name: "head subject call mismatch", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].Subject.BillingCallID = "bc_00000000000000000000000000000000"
 		}},
 		{name: "head currency mismatch", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].CurrentAmount.Currency = "EUR"
 		}},
 		{name: "head revision zero", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].EvidenceRevision = 0
 		}},
 		{name: "head valuation empty", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].ValuationID = ""
 		}},
 		{name: "head hash empty", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].InputSetHash = ""
 		}},
 		{name: "head version fence drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].Fence++
 		}},
 		{name: "missing posting fence", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.PostingFences = nil
 		}},
 		{name: "legacy fence with head", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.PostingFences[0].Authority = "legacy"
 		}},
 		{name: "fence revision drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.PostingFences[0].EvidenceRevision = 1
 		}},
 		{name: "fence hash drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.PostingFences[0].InputSetHash = strings.Repeat("f", 64)
 		}},
 		{name: "fence amount drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.PostingFences[0].Amount.Nano = 41
 		}},
 		{name: "fence head key drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.PostingFences[0].HeadKey = "head-other"
 		}},
 		{name: "fence operation drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.PostingFences[0].LastOperationKey = "op-other"
 		}},
 		{name: "missing execution fence", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences = nil
 		}},
 		{name: "execution owner kind drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].OwnerSubjectKind = string(metering.SubjectProviderCharge)
 		}},
 		{name: "execution owner head drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].OwnerHeadKey = "head-other"
 		}},
 		{name: "foreign execution authority", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].Authority = "bogus"
 		}},
 		{name: "stale execution owner revision", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].OwnerRevision = 1
 		}},
 		{name: "stale execution owner hash", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].OwnerInputSetHash = strings.Repeat("b", 64)
 		}},
 		{name: "stale execution owner fingerprint", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].OwnerFingerprint = "fp-stale"
 		}},
 		{name: "stale execution owner operation", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].LastOperationKey = "op-stale"
 		}},
 		{name: "stale execution owner transaction", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].LastTransactionID = "tx-stale"
 		}},
 		{name: "execution fence zero", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].Fence = 0
 		}},
 		{name: "legacy execution authority with head", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].Authority = "legacy"
 		}},
 		{name: "head subject kind drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].SubjectKind = string(metering.SubjectProviderCharge)
 		}},
 		{name: "head subject id drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].SubjectID = "b-other"
 		}},
 		{name: "head subject aleg missing", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].Subject.ALegID = ""
 		}},
 		{name: "head subject call missing", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].Subject.BillingCallID = ""
 			facts.Heads[0].Subject.CallID = ""
 		}},
 		{name: "head subject account missing", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].Subject.AccountID = ""
 		}},
 		{name: "root original transaction drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].OriginalTransactionID = "tx-other"
 		}},
 		{name: "head last transaction drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].LastTransactionID = "tx-other"
 		}},
 		{name: "diverged current operation without snapshot", wantStatus: ALegProviderPending, wantIssue: ALegProviderIssuePending, mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].LastOperationKey = alegPVOpKey(t, scope, "r3")
 			facts.PostingFences[0].LastOperationKey = facts.Heads[0].LastOperationKey
 			facts.ExecutionFences[0].LastOperationKey = facts.Heads[0].LastOperationKey
 		}},
 		{name: "journal without lineage", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			stray := alegPVJournal(t, scope, alegPVOpKey(t, scope, "stray"), "b-1",
 				"inference_provider_cogs", "provider_payable_clearing", 5, 9, "head-stray", "")
 			facts.Journals = append(facts.Journals, stray)
 			facts.Snapshots = append(facts.Snapshots, alegPVSnapshot(scope, stray, "rev-src-stray"))
 		}},
 		{name: "duplicate source key", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			dup := facts.Journals[0]
 			dup.ID = "tx-duplicate-id"
 			dup.AccountSequence = 9
@@ -478,12 +515,14 @@ func TestEvaluateALegProviderAdversarial(t *testing.T) {
 			facts.Snapshots = append(facts.Snapshots, alegPVSnapshot(scope, resealed, "rev-src-1"))
 		}},
 		{name: "competing same revision", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			competing := alegPVJournal(t, scope, alegPVOpKey(t, scope, "competing"), "b-1",
 				"inference_provider_cogs", "provider_payable_clearing", 15, 9, facts.Heads[0].HeadKey, "")
 			facts.Journals = append(facts.Journals, competing)
 			facts.Snapshots = append(facts.Snapshots, alegPVSnapshot(scope, competing, "rev-src-competing"))
 		}},
 		{name: "unrelated empty aleg journal", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			unrelated := alegPVJournal(t, scope, "tx-unrelated", "b-1",
 				"inference_provider_cogs", "provider_payable_clearing", 5, 9, "head-ghost", "")
 			unrelated.ALegID = ""
@@ -492,6 +531,7 @@ func TestEvaluateALegProviderAdversarial(t *testing.T) {
 			facts.Journals = append(facts.Journals, resealed)
 		}},
 		{name: "correction group drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			journal := facts.Journals[1]
 			journal.CorrectionGroupID = "tx-other"
 			resealed, err := journal.Seal()
@@ -500,6 +540,7 @@ func TestEvaluateALegProviderAdversarial(t *testing.T) {
 			facts.Snapshots[1] = alegPVSnapshot(scope, resealed, "rev-src-2")
 		}},
 		{name: "broken correction link", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Journals[1].ReversalOf = "tx-missing"
 			facts.Journals[1].CorrectsTransactionID = "tx-missing"
 			resealed, err := facts.Journals[1].Seal()
@@ -508,6 +549,7 @@ func TestEvaluateALegProviderAdversarial(t *testing.T) {
 			facts.Snapshots[1] = alegPVSnapshot(scope, resealed, "rev-src-2")
 		}},
 		{name: "branched correction chain", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			branch := alegPVJournal(t, scope, alegPVOpKey(t, scope, "branch"), "b-1",
 				"inference_provider_cogs", "provider_payable_clearing", 5, 9, facts.Heads[0].HeadKey, facts.Journals[0].ID)
 			// The group contract holds so only the branch ambiguity remains.
@@ -518,9 +560,11 @@ func TestEvaluateALegProviderAdversarial(t *testing.T) {
 			facts.Snapshots = append(facts.Snapshots, alegPVSnapshot(scope, branch, "rev-src-branch"))
 		}},
 		{name: "telescope mismatch", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Heads[0].CurrentAmount.Nano = 41
 		}},
 		{name: "journal aleg mismatch", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			journal := facts.Journals[0]
 			journal.ALegID = "a-other"
 			resealed, err := journal.Seal()
@@ -529,6 +573,7 @@ func TestEvaluateALegProviderAdversarial(t *testing.T) {
 			facts.Snapshots[0] = alegPVSnapshot(scope, resealed, "rev-src-1")
 		}},
 		{name: "journal bleg mismatch", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			journal := facts.Journals[1]
 			journal.BLegID = "b-other"
 			resealed, err := journal.Seal()
@@ -538,6 +583,7 @@ func TestEvaluateALegProviderAdversarial(t *testing.T) {
 			facts.Journals[1] = resealed
 		}},
 		{name: "journal currency mismatch", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			journal := facts.Journals[0]
 			journal.Currency = "EUR"
 			for i := range journal.Entries {
@@ -549,10 +595,12 @@ func TestEvaluateALegProviderAdversarial(t *testing.T) {
 			facts.Snapshots[0] = alegPVSnapshot(scope, resealed, "rev-src-1")
 		}},
 		{name: "journal book conflict", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Journals[0].Book = "authorization"
 			facts.Journals[0].SemanticFingerprint = ""
 		}},
 		{name: "journal shape drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			journal := facts.Journals[0]
 			journal.Entries[1].LedgerAccount = "usage_revenue"
 			resealed, err := journal.Seal()
@@ -561,15 +609,19 @@ func TestEvaluateALegProviderAdversarial(t *testing.T) {
 			facts.Snapshots[0] = alegPVSnapshot(scope, resealed, "rev-src-1")
 		}},
 		{name: "journal fingerprint drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Journals[0].SemanticFingerprint = "fp-drift"
 		}},
 		{name: "snapshot integrity drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Snapshots[0].IntegrityFingerprint = "snapshot:v1:drift"
 		}},
 		{name: "snapshot sequence drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Snapshots[1].SequenceEnd++
 		}},
 		{name: "snapshot balance drift", mutate: func(t *testing.T, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Snapshots[0].After.BalanceNano++
 		}},
 	} {
@@ -990,21 +1042,27 @@ func TestEvaluateALegProviderFirstZeroHardening(t *testing.T) {
 		mutate func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts)
 	}{
 		{name: "empty source", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Snapshots[0].SourceKey = ""
 		}},
 		{name: "foreign source", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Snapshots[0].SourceKey = "provider-cost-revision:v1:" + strings.Repeat("f", 64)
 		}},
 		{name: "wrong revision source", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Snapshots[0].SourceKey = alegPVRevisionSource(t, scope, alegPVHeadKey("b-1"), 2, strings.Repeat("e", 64))
 		}},
 		{name: "fingerprint drift", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Snapshots[0].Fingerprint = "fp-drift"
 		}},
 		{name: "nonzero sequence", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Snapshots[0].SequenceStart, facts.Snapshots[0].SequenceEnd = 1, 1
 		}},
 		{name: "balance movement", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Snapshots[0].After.BalanceNano++
 		}},
 	} {
@@ -1163,26 +1221,32 @@ func TestEvaluateALegProviderChildrenAdversarial(t *testing.T) {
 		mutate     func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts)
 	}{
 		{name: "pending sibling blocks subtotal", wantStatus: ALegProviderPending, wantIssue: ALegProviderIssuePending, mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.Snapshots = facts.Snapshots[:1]
 		}},
 		{name: "gate owner missing from set", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].OwnerHeadKey = "head-ghost"
 		}},
 		{name: "gate owner wrong charge", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			facts.ExecutionFences[0].OwnerHeadKey = "head-charge-a"
 			facts.ExecutionFences[0].LastOperationKey = facts.Journals[0].ID
 			facts.ExecutionFences[0].LastTransactionID = facts.Journals[0].ID
 		}},
 		{name: "mixed aggregate and child", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			chain := alegPVChainTwo(t, scope, "b-1")
 			facts.Heads = append(facts.Heads, chain.head)
 		}},
 		{name: "duplicate child identity", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			dup := facts.Heads[0]
 			dup.HeadKey = "head-duplicate"
 			facts.Heads = append(facts.Heads, dup)
 		}},
 		{name: "stray journal group", mutate: func(t *testing.T, scope ALegAuthorityScope, facts *ALegProviderLegFacts) {
+			t.Helper()
 			stray := alegPVJournal(t, scope, alegPVOpKey(t, scope, "stray"), "b-1",
 				"inference_provider_cogs", "provider_payable_clearing", 5, 9, "head-ghost", "")
 			facts.Journals = append(facts.Journals, stray)
@@ -1325,6 +1389,7 @@ func TestEvaluateALegProviderMixedZeroChildrenKnown(t *testing.T) {
 // TestEvaluateALegProviderChildrenCapUnknown proves child fanout
 // beyond the bound resolves unknown rather than a partial sum.
 func TestEvaluateALegProviderChildrenCapUnknown(t *testing.T) {
+	t.Parallel()
 	// No t.Parallel: this test mutates the package child cap; sequential
 	// execution keeps the override and its Cleanup restore deterministic.
 	scope, _ := alegPVScope(t)

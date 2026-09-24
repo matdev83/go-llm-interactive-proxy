@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sort"
 	"time"
 
@@ -494,12 +495,7 @@ func SelectOperatorCost(policy OperatorCostSelectionPolicy, input OperatorCostSe
 }
 
 func operatorCostKnownZeroAuthorized(policy OperatorCostSelectionPolicy, provenance OperatorCostProvenance) bool {
-	for _, authorized := range policy.KnownZeroProvenance {
-		if authorized == provenance {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(policy.KnownZeroProvenance, provenance)
 }
 
 func validateOperatorCostSelectionInput(input OperatorCostSelectionInput) error {

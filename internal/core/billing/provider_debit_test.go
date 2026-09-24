@@ -10,6 +10,7 @@ import (
 )
 
 func TestProviderDebitDoesNotEnterIndependentMoneyRatingPlanes(t *testing.T) {
+	t.Parallel()
 	key := metering.ComponentKey{Direction: metering.DirectionNone, Component: metering.ComponentCredit, Unit: metering.UnitCredit, SchemaID: "provider-debit.v1"}
 	observation := phase9Observation(t, "provider-debit-only", metering.OriginProvider, key, "3")
 	observation.Subject.Kind = metering.SubjectProviderDebit

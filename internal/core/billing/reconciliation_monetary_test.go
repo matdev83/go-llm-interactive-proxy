@@ -242,6 +242,7 @@ func TestMonetaryDiscrepancyKeepsMissingTermsAbsent(t *testing.T) {
 	t.Parallel()
 
 	t.Run("E and Q only", func(t *testing.T) {
+		t.Parallel()
 		result, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
 			monetaryTestValuation(t, "valuation-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "1.00")),
 			monetaryTestValuation(t, "valuation-q", economics.BasisProviderQuantityLocal, monetaryDecimalTotal(t, "USD", "1.10")),
@@ -261,6 +262,7 @@ func TestMonetaryDiscrepancyKeepsMissingTermsAbsent(t *testing.T) {
 	})
 
 	t.Run("provider quantity without money", func(t *testing.T) {
+		t.Parallel()
 		result, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
 			monetaryTestValuation(t, "valuation-q", economics.BasisProviderQuantityLocal, monetaryDecimalTotal(t, "USD", "1.10")),
 		}})
@@ -279,6 +281,7 @@ func TestMonetaryDiscrepancyKeepsMissingTermsAbsent(t *testing.T) {
 	})
 
 	t.Run("provider money only", func(t *testing.T) {
+		t.Parallel()
 		result, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
 			monetaryTestValuation(t, "valuation-p", economics.BasisProviderReported, monetaryDecimalTotal(t, "USD", "1.32")),
 		}})
@@ -292,6 +295,7 @@ func TestMonetaryDiscrepancyKeepsMissingTermsAbsent(t *testing.T) {
 	})
 
 	t.Run("explicit zero is not missing", func(t *testing.T) {
+		t.Parallel()
 		result, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
 			monetaryTestValuation(t, "valuation-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "0")),
 			monetaryTestValuation(t, "valuation-q", economics.BasisProviderQuantityLocal, monetaryDecimalTotal(t, "USD", "0")),
@@ -320,10 +324,12 @@ func TestMonetaryDiscrepancyTypedIncomparability(t *testing.T) {
 	t.Parallel()
 
 	usd := func(t *testing.T, amount string) economics.CurrencyTotal {
+		t.Helper()
 		return monetaryDecimalTotal(t, "USD", amount)
 	}
 
 	t.Run("tariff mismatch isolates the E/Q cost effect", func(t *testing.T) {
+		t.Parallel()
 		e := monetaryTestValuation(t, "valuation-e", economics.BasisLocalExpected, usd(t, "1.00"))
 		e.Tariff.ID = "tariff-other"
 		result, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
@@ -345,6 +351,7 @@ func TestMonetaryDiscrepancyTypedIncomparability(t *testing.T) {
 	})
 
 	t.Run("coverage mismatch isolates P terms", func(t *testing.T) {
+		t.Parallel()
 		provider := monetaryTestValuation(t, "valuation-p", economics.BasisProviderReported, usd(t, "1.32"))
 		provider.CoverageRefs = []metering.ChargeCoverageRef{{
 			Ref: metering.ChargeRef{StoreID: reconciliationSubject().StoreID, ObservationID: "charge-observation", Revision: 1, ChargeItemID: "charge-item"}, Relation: metering.CoverageAdditive,
@@ -364,6 +371,7 @@ func TestMonetaryDiscrepancyTypedIncomparability(t *testing.T) {
 	})
 
 	t.Run("payer mismatch isolates P terms", func(t *testing.T) {
+		t.Parallel()
 		provider := monetaryTestValuation(t, "valuation-p", economics.BasisProviderReported, usd(t, "1.32"))
 		provider.Payer = metering.PaymentParty{Kind: metering.PaymentPartyOperator}
 		e := monetaryTestValuation(t, "valuation-e", economics.BasisLocalExpected, usd(t, "1.00"))
@@ -381,6 +389,7 @@ func TestMonetaryDiscrepancyTypedIncomparability(t *testing.T) {
 	})
 
 	t.Run("subject mismatch isolates P terms", func(t *testing.T) {
+		t.Parallel()
 		provider := monetaryTestValuation(t, "valuation-p", economics.BasisProviderReported, usd(t, "1.32"))
 		provider.Subject.BLegID = "b-leg-other"
 		result, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
@@ -401,6 +410,7 @@ func TestMonetaryDiscrepancyTypedIncomparability(t *testing.T) {
 	})
 
 	t.Run("disjoint currencies are incomparable", func(t *testing.T) {
+		t.Parallel()
 		result, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
 			monetaryTestValuation(t, "valuation-e", economics.BasisLocalExpected, monetaryDecimalTotal(t, "USD", "1.00")),
 			monetaryTestValuation(t, "valuation-q", economics.BasisProviderQuantityLocal, monetaryDecimalTotal(t, "EUR", "1.10")),
@@ -433,16 +443,20 @@ func TestMonetaryDiscrepancyPProviderMeasurementContext(t *testing.T) {
 	t.Parallel()
 
 	usd := func(t *testing.T, amount string) economics.CurrencyTotal {
+		t.Helper()
 		return monetaryDecimalTotal(t, "USD", amount)
 	}
 	e := func(t *testing.T) economics.Valuation {
+		t.Helper()
 		return monetaryTestValuation(t, "valuation-e", economics.BasisLocalExpected, usd(t, "1.00"))
 	}
 	q := func(t *testing.T) economics.Valuation {
+		t.Helper()
 		return monetaryTestValuation(t, "valuation-q", economics.BasisProviderQuantityLocal, usd(t, "1.10"))
 	}
 
 	t.Run("provider scope mismatch isolates P terms", func(t *testing.T) {
+		t.Parallel()
 		provider := monetaryTestValuation(t, "valuation-p", economics.BasisProviderReported, usd(t, "1.32"))
 		provider.Scope = "call:other"
 		result, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{e(t), q(t), provider}})
@@ -462,6 +476,7 @@ func TestMonetaryDiscrepancyPProviderMeasurementContext(t *testing.T) {
 	})
 
 	t.Run("provider effective qualifier mismatch isolates P terms", func(t *testing.T) {
+		t.Parallel()
 		provider := monetaryTestValuation(t, "valuation-p", economics.BasisProviderReported, usd(t, "1.32"))
 		provider.EffectiveQualifiers = []metering.Dimension{{Name: "region", Value: "eu"}}
 		provider.QualifierSnapshotRef = &economics.SnapshotContentRef{ContentRef: "catalog://monetary/qualifiers/eu", ContentHash: strings.Repeat("b", 64)}
@@ -478,6 +493,7 @@ func TestMonetaryDiscrepancyPProviderMeasurementContext(t *testing.T) {
 	})
 
 	t.Run("provider qualifier snapshot mismatch isolates P terms", func(t *testing.T) {
+		t.Parallel()
 		provider := monetaryTestValuation(t, "valuation-p", economics.BasisProviderReported, usd(t, "1.32"))
 		provider.QualifierSnapshot = strings.Repeat("d", 64)
 		provider.QualifierSnapshotRef = &economics.SnapshotContentRef{ContentRef: "catalog://monetary/qualifiers/alt", ContentHash: strings.Repeat("d", 64)}
@@ -492,6 +508,7 @@ func TestMonetaryDiscrepancyPProviderMeasurementContext(t *testing.T) {
 	})
 
 	t.Run("matching context keeps the provider price difference suspected only", func(t *testing.T) {
+		t.Parallel()
 		provider := monetaryTestValuation(t, "valuation-p", economics.BasisProviderReported, usd(t, "1.32"))
 		evaluation, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{e(t), q(t), provider}})
 		if err != nil {
@@ -529,7 +546,9 @@ func TestMonetaryDiscrepancyIntegratesQuantityComparison(t *testing.T) {
 	}
 
 	t.Run("partial quantity evidence downgrades without rewriting terms", func(t *testing.T) {
-		comparison := quantityComparison(t,
+		t.Parallel()
+		comparison := quantityComparison(
+			t,
 			reconciliationSide(reconciliationObservation(t, "monetary-qty-local", metering.OriginLocal, reconciliationMeasure(t, cacheKey, metering.QualityObserved, "tok", "7"))),
 			reconciliationSide(reconciliationObservation(t, "monetary-qty-provider", metering.OriginProvider, reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "100"))),
 		)
@@ -550,6 +569,7 @@ func TestMonetaryDiscrepancyIntegratesQuantityComparison(t *testing.T) {
 	})
 
 	t.Run("incomparable quantity evidence downgrades", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(reconciliationObservation(t, "monetary-qty-local", metering.OriginLocal, reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "100")))
 		local.Payer = metering.PaymentParty{Kind: metering.PaymentPartyCustomer}
 		provider := reconciliationSide(reconciliationObservation(t, "monetary-qty-provider", metering.OriginProvider, reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "100")))
@@ -564,6 +584,7 @@ func TestMonetaryDiscrepancyIntegratesQuantityComparison(t *testing.T) {
 	})
 
 	t.Run("conflicting quantity evidence downgrades to conflict", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(
 			reconciliationObservation(t, "monetary-qty-dup-1", metering.OriginLocal, reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "5")),
 			reconciliationObservation(t, "monetary-qty-dup-2", metering.OriginLocal, reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "6")),
@@ -579,6 +600,7 @@ func TestMonetaryDiscrepancyIntegratesQuantityComparison(t *testing.T) {
 	})
 
 	t.Run("compatible quantity discrepancy stays complete", func(t *testing.T) {
+		t.Parallel()
 		local := reconciliationSide(reconciliationObservation(t, "monetary-qty-local", metering.OriginLocal, reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "100")))
 		provider := reconciliationSide(reconciliationObservation(t, "monetary-qty-provider", metering.OriginProvider, reconciliationMeasure(t, inputKey, metering.QualityObserved, "tok", "110")))
 		comparison := quantityComparison(t, local, provider)
@@ -656,10 +678,12 @@ func TestMonetaryDiscrepancyFailsClosedOnRoleConflictsAndBounds(t *testing.T) {
 	t.Parallel()
 
 	usd := func(t *testing.T, amount string) economics.CurrencyTotal {
+		t.Helper()
 		return monetaryDecimalTotal(t, "USD", amount)
 	}
 
 	t.Run("duplicate role conflicts", func(t *testing.T) {
+		t.Parallel()
 		_, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
 			monetaryTestValuation(t, "valuation-e-1", economics.BasisLocalExpected, usd(t, "1.00")),
 			monetaryTestValuation(t, "valuation-e-2", economics.BasisLocalExpected, usd(t, "1.00")),
@@ -670,6 +694,7 @@ func TestMonetaryDiscrepancyFailsClosedOnRoleConflictsAndBounds(t *testing.T) {
 	})
 
 	t.Run("conflicting role content conflicts", func(t *testing.T) {
+		t.Parallel()
 		_, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
 			monetaryTestValuation(t, "valuation-e-1", economics.BasisLocalExpected, usd(t, "1.00")),
 			monetaryTestValuation(t, "valuation-e-2", economics.BasisLocalExpected, usd(t, "2.00")),
@@ -680,6 +705,7 @@ func TestMonetaryDiscrepancyFailsClosedOnRoleConflictsAndBounds(t *testing.T) {
 	})
 
 	t.Run("unsupported basis fails closed", func(t *testing.T) {
+		t.Parallel()
 		statement := monetaryTestValuation(t, "valuation-s", economics.BasisStatementReported, usd(t, "1.00"))
 		_, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{statement}})
 		if !errors.Is(err, ErrMonetaryDiscrepancyRole) {
@@ -688,6 +714,7 @@ func TestMonetaryDiscrepancyFailsClosedOnRoleConflictsAndBounds(t *testing.T) {
 	})
 
 	t.Run("valuation bound fails closed", func(t *testing.T) {
+		t.Parallel()
 		_, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
 			monetaryTestValuation(t, "valuation-e", economics.BasisLocalExpected, usd(t, "1.00")),
 			monetaryTestValuation(t, "valuation-q", economics.BasisProviderQuantityLocal, usd(t, "1.10")),
@@ -700,12 +727,14 @@ func TestMonetaryDiscrepancyFailsClosedOnRoleConflictsAndBounds(t *testing.T) {
 	})
 
 	t.Run("empty input fails closed", func(t *testing.T) {
+		t.Parallel()
 		if _, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{}); !errors.Is(err, ErrMonetaryDiscrepancyInput) {
 			t.Fatalf("error = %v, want ErrMonetaryDiscrepancyInput", err)
 		}
 	})
 
 	t.Run("invalid valuation fails closed", func(t *testing.T) {
+		t.Parallel()
 		invalid := monetaryTestValuation(t, "valuation-e", economics.BasisLocalExpected, usd(t, "1.00"))
 		invalid.ID = ""
 		if _, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{invalid}}); !errors.Is(err, ErrMonetaryDiscrepancyInput) {
@@ -721,6 +750,7 @@ func TestMonetaryDiscrepancyPreservesExactRationalAndChecksOverflow(t *testing.T
 	t.Parallel()
 
 	t.Run("non-terminating difference stays exact", func(t *testing.T) {
+		t.Parallel()
 		result, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{
 			monetaryTestValuation(t, "valuation-e", economics.BasisLocalExpected, monetaryRationalTotal(t, "USD", "1", "3")),
 			monetaryTestValuation(t, "valuation-q", economics.BasisProviderQuantityLocal, monetaryRationalTotal(t, "USD", "1", "4")),
@@ -737,6 +767,7 @@ func TestMonetaryDiscrepancyPreservesExactRationalAndChecksOverflow(t *testing.T
 	})
 
 	t.Run("unbounded exact difference fails closed", func(t *testing.T) {
+		t.Parallel()
 		first := new(big.Int).Exp(big.NewInt(2), big.NewInt(425), nil)
 		second := new(big.Int).Exp(big.NewInt(3), big.NewInt(267), nil)
 		_, err := DecomposeMonetaryDiscrepancies(MonetaryDiscrepancyInput{Valuations: []economics.Valuation{

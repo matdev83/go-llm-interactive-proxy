@@ -46,6 +46,7 @@ func TestMonetaryExactAmountCanonicalContract(t *testing.T) {
 	}
 	for name, amount := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			if err := amount.Validate(); !errors.Is(err, ErrInvalidMonetaryExactAmount) {
 				t.Fatalf("Validate error = %v, want ErrInvalidMonetaryExactAmount", err)
 			}
@@ -59,6 +60,7 @@ func TestMonetaryExactAmountCanonicalContract(t *testing.T) {
 	}
 
 	t.Run("canonical decimal round trip", func(t *testing.T) {
+		t.Parallel()
 		amount := toleranceAmount(t, "USD", "1.32")
 		if err := amount.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
@@ -80,6 +82,7 @@ func TestMonetaryExactAmountCanonicalContract(t *testing.T) {
 	})
 
 	t.Run("canonical reduced rational", func(t *testing.T) {
+		t.Parallel()
 		amount := MonetaryExactAmount{Currency: "USD", Numerator: "-1", Denominator: "12"}
 		if err := amount.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
@@ -94,6 +97,7 @@ func TestMonetaryExactAmountCanonicalContract(t *testing.T) {
 	})
 
 	t.Run("lowercase measurement unit keys stay canonical", func(t *testing.T) {
+		t.Parallel()
 		for _, unit := range []string{"token", "second", "count", "byte_second"} {
 			amount := toleranceAmount(t, unit, "1")
 			if err := amount.Validate(); err != nil {
@@ -103,6 +107,7 @@ func TestMonetaryExactAmountCanonicalContract(t *testing.T) {
 	})
 
 	t.Run("uppercase currency code is canonical", func(t *testing.T) {
+		t.Parallel()
 		amount := toleranceAmount(t, "USD", "1")
 		if err := amount.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
@@ -118,6 +123,7 @@ func TestMonetaryExactAmountValidationAtIngress(t *testing.T) {
 	noncanonical := MonetaryExactAmount{Currency: "USD", Numerator: "2", Denominator: "2"}
 
 	t.Run("tolerance", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.1"), nil))
 		if _, err := EvaluateReconciliationTolerance(policy, ReconciliationToleranceTarget{Currency: "USD"}, noncanonical, toleranceAmount(t, "USD", "1")); !errors.Is(err, ErrInvalidMonetaryExactAmount) {
 			t.Fatalf("error = %v, want ErrInvalidMonetaryExactAmount", err)
@@ -125,6 +131,7 @@ func TestMonetaryExactAmountValidationAtIngress(t *testing.T) {
 	})
 
 	t.Run("aggregation finding", func(t *testing.T) {
+		t.Parallel()
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, toleranceLimit(t, "0.1"), nil))
 		finding := reconciliationTestFinding(t, "amount-ingress", "call-amount", "USD", "", "1", "1", metering.QualityObserved, ReconciliationStatusDiscrepant)
 		finding.Expected = &noncanonical
@@ -134,6 +141,7 @@ func TestMonetaryExactAmountValidationAtIngress(t *testing.T) {
 	})
 
 	t.Run("selection candidate", func(t *testing.T) {
+		t.Parallel()
 		policy := operatorCostTestPolicy(operatorCostTestRule("p-final", OperatorCostBasisP, OperatorCostSelectionStatusFinal, true, false, false))
 		candidate := operatorCostTestCandidate(t, OperatorCostBasisP, "p", "1.32", economics.CompletenessComplete, metering.PaymentParty{Kind: metering.PaymentPartyOperator})
 		candidate.Amount = &noncanonical
@@ -143,6 +151,7 @@ func TestMonetaryExactAmountValidationAtIngress(t *testing.T) {
 	})
 
 	t.Run("selection fx rate", func(t *testing.T) {
+		t.Parallel()
 		fx := &OperatorCostFXBasis{ID: "fx-eur-usd", Version: "v1", FromCurrency: "EUR", ToCurrency: "USD", Rate: &metering.Decimal{Coefficient: "092", Scale: 2}}
 		if err := fx.Validate(); !errors.Is(err, ErrOperatorCostSelectionInput) {
 			t.Fatalf("error = %v, want ErrOperatorCostSelectionInput", err)
@@ -150,6 +159,7 @@ func TestMonetaryExactAmountValidationAtIngress(t *testing.T) {
 	})
 
 	t.Run("tolerance limit precision", func(t *testing.T) {
+		t.Parallel()
 		limit := metering.Decimal{Coefficient: strings.Repeat("1", 40)}
 		policy := toleranceTestPolicy(toleranceTestRule("usd", ReconciliationToleranceScope{Currency: "USD"}, &limit, nil))
 		if err := policy.Validate(); !errors.Is(err, ErrReconciliationToleranceInvalid) {

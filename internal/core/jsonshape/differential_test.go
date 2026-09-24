@@ -81,7 +81,7 @@ func (d *diffRunner) verify(t *testing.T, label string, data []byte) {
 		sc := jsonshape.NewScanner(context.Background(), d.limits)
 		var byteErr error
 		var byteRes jsonshape.Result
-		for i := 0; i < len(data); i++ {
+		for i := range data {
 			if byteErr = sc.Feed(data[i : i+1]); byteErr != nil {
 				break
 			}

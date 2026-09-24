@@ -22,7 +22,7 @@ import (
 
 func makeCleanArchPlanes() []largebody.PlaneEligibilityInput {
 	planes := make([]largebody.PlaneEligibilityInput, largebody.WireEligibilityPlaneCount)
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		id, ok := largebody.WireEligibilityPlaneID(i)
 		if !ok {
 			panic("missing plane id")

@@ -81,6 +81,18 @@ linters:
       - path: ^internal/stdhttp/(frontend_isolation_integration_test|reasoning_preservation_http_harness_test)\.go$
         linters:
           - paralleltest
+      # Process-wide heap/GC ratchets and the SetUseWholeMessageMarshalForTest
+      # global hook must run sequentially: parallel siblings perturb
+      # runtime.MemStats deltas and race on the shared test hook.
+      - path: ^internal/core/largebody/streaming_proof_differential_test\.go$
+        linters:
+          - paralleltest
+      - path: ^internal/plugins/frontends/frontendpipe/(large_payload_heap_invariant_bench|large_payload_proof_bound_characterization|large_payload_pipeline_memory_ratchet_red)_test\.go$
+        linters:
+          - paralleltest
+      - path: ^internal/plugins/frontends/(openailegacy|openairesponses)/(profile_test|compaction_differential_test)\.go$
+        linters:
+          - paralleltest
       # JSON wire-shape changes need contract review, not bulk lint autofixes.
       - text: "Omitempty has no effect on nested struct fields"
         linters:
