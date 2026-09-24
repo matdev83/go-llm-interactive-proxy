@@ -498,11 +498,11 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	rated := make([]ratedAggregate, 0, len(aggregates))
 	ratedMeasureCount := 0
 	for _, item := range aggregates {
-		if isInformationalMeasure(item.key) {
+		if isInformationalMeasure(item.key) || (item.complete && item.rat != nil && item.rat.Sign() == 0) {
 			if _, probeErr := r.resolveRule(item.key, qualifiers); errors.Is(probeErr, ErrRateMissing) {
-				// Totals/reasoning observations are retained as evidence but do
-				// not become billable lines unless the tariff explicitly prices
-				// that component.
+				// Totals/reasoning and complete, exactly-zero quantities are
+				// retained as evidence but not billed unless priced; positive
+				// unmatched quantities stay independent missing charges.
 				continue
 			}
 		}
