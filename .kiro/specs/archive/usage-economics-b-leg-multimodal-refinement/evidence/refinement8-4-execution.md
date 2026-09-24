@@ -253,3 +253,27 @@ no blind rerun, no threshold changes):
 - `gofmt`/`go vet` not applicable (no Go writes); placeholder/secret scan
   and markdown consistency checked on both new documents; `git status`
   shows only the two owned docs.
+
+## Post-merge closeout (2026-09-24)
+
+Superseding addendum; the historical chronology above (including the subpass B
+gate table and the rows referencing parent `[ ]` tasks or a `PENDING` 6.6) is
+preserved. Implementation PR #659 (head
+`e0001f113b661bdab5477a875c595def3d090a66`, merged as
+`fc8f01f982f566b87593215895d8ced6f6811ca5` on 2026-09-24T01:13:56Z) merged the
+complete parent and refinement work with all 37 attached checks SUCCESS on the
+exact head and a merge tree byte-identical to the head.
+
+At the merged release candidate:
+
+- Row 6.6 is satisfied by its actual meaning: before implementation, #620 and the
+  parent execution plan treated this refinement as normative (recorded in the
+  parent traceability map and this Task 8.4 evidence), and the merged
+  implementation follows the refined B-leg/multimodal/session semantics. The
+  same-SHA release certification is owned by parent Task 20 and the
+  archive-completion contract, not by 6.6.
+- The status counts recomputed in the earlier closeout refresh move from
+  `STATUS_PASS=35 / STATUS_PENDING=1` to `STATUS_PASS=36 / STATUS_PENDING=0`.
+- RELEASE DISPOSITION is no longer BLOCKED/PENDING for the implementation scope;
+  issue #620 remains OPEN until the archive PR merges and #398 remains OPEN for
+  other prerequisites. Residual risks are unchanged.

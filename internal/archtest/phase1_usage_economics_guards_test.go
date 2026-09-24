@@ -298,7 +298,7 @@ func TestPhase1FingerprintSourcesCarryExplicitVersionMarkers(t *testing.T) {
 func TestPhase1ProducerConsumerCensusIsExactAndDispositioned(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	path := filepath.Join(root, filepath.FromSlash(".kiro/specs/usage-economics-b-leg-multimodal-refinement/evidence/phase1-producer-consumer-census.tsv"))
+	path := filepath.Join(root, filepath.FromSlash(".kiro/specs/archive/usage-economics-b-leg-multimodal-refinement/evidence/phase1-producer-consumer-census.tsv"))
 	file, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)

@@ -192,7 +192,7 @@ type phase182DispositionRow struct {
 
 func loadPhase182Census(t *testing.T, root string) map[int]phase182CensusRow {
 	t.Helper()
-	path := filepath.Join(root, filepath.FromSlash(".kiro/specs/usage-economics-b-leg-multimodal-refinement/evidence/phase1-producer-consumer-census.tsv"))
+	path := filepath.Join(root, filepath.FromSlash(".kiro/specs/archive/usage-economics-b-leg-multimodal-refinement/evidence/phase1-producer-consumer-census.tsv"))
 	file, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("open census: %v", err)
@@ -231,7 +231,7 @@ func loadPhase182Census(t *testing.T, root string) map[int]phase182CensusRow {
 
 func loadPhase182Disposition(t *testing.T, root string) []phase182DispositionRow {
 	t.Helper()
-	path := filepath.Join(root, filepath.FromSlash(".kiro/specs/extensible-usage-economics-reconciliation/evidence/phase18-2-producer-consumer-disposition.tsv"))
+	path := filepath.Join(root, filepath.FromSlash(".kiro/specs/archive/extensible-usage-economics-reconciliation/evidence/phase18-2-producer-consumer-disposition.tsv"))
 	file, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("18.2 disposition artifact missing: %s: %v (create final V2/projection/unsupported/removed mapping for all 69 census rows)", path, err)

@@ -90,3 +90,19 @@ Existing user-authored modifications to the execution/review evidence, `tasks.md
 ## Residual risks
 
 The refinement is implementation-complete at its own leaf-task boundary, but it is not release-complete. The parent reconciliation work and same-SHA release gates remain outstanding. Before archive, correct the stale test-cost description, record a single release-candidate SHA, rerun the required full release gates, verify merged-main delivery, and complete the approved Kiro archive workflow.
+
+## Post-merge closeout addendum (2026-09-24)
+
+The implementation-only approval above stands, and the archive blocker recorded
+in section C is now resolved. Implementation PR #659 (head
+`e0001f113b661bdab5477a875c595def3d090a66`, merged as
+`fc8f01f982f566b87593215895d8ced6f6811ca5` on 2026-09-24T01:13:56Z) has all 37
+attached checks SUCCESS on the exact head, the merge tree is byte-identical to
+the head, and merged-main verification on `fc8f01f9` passes the focused suites,
+`go build ./cmd/lipstd`, and `go run ./cmd/lipstd --help`. Requirement 6.6
+(pre-implementation normative integration) is satisfied because #620 and the
+parent execution plan treated this refinement as normative before implementation,
+and the same-SHA release certification is owned by parent Task 20 and the
+archive-completion contract. The refinement is archived as complete. Issue #620
+remains OPEN until the archive PR merges; issue #398 remains OPEN for other
+prerequisites.

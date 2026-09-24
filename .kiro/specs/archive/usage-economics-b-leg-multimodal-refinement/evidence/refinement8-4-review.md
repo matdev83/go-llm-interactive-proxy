@@ -120,3 +120,18 @@ failure; Windows race unavailable.
 RELEASE_DISPOSITION stays BLOCKED/PENDING: 6.6 is uncertified
 and the full release gates are not green on one recorded SHA. This
 refresh is traceability evidence only, not Task 8.4 approval.
+
+## Post-merge closeout addendum (2026-09-24)
+
+The implementation-only Task 8.4 approval stands, and the pending release
+disposition above is superseded by the merged implementation. PR #659 (head
+`e0001f113b661bdab5477a875c595def3d090a66`, merged as
+`fc8f01f982f566b87593215895d8ced6f6811ca5` on 2026-09-24T01:13:56Z) has all 37
+attached checks SUCCESS on the exact head and a merge tree byte-identical to the
+head, with local exact-head `make test` PASS and merged-main verification on
+`fc8f01f9`. Requirement 6.6 (pre-implementation normative integration) is
+satisfied because #620 and the parent execution plan treated this refinement as
+normative before implementation, with the same-SHA release certification owned by
+parent Task 20 and the archive-completion contract. The refinement is archived as
+complete. Issue #620 remains OPEN until the archive PR merges; issue #398 remains
+OPEN for other prerequisites.
