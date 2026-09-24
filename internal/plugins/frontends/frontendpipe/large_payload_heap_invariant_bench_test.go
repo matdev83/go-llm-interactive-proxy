@@ -73,7 +73,7 @@ func writeDiskFixture(tb testing.TB, target int, filePath string) {
 	if err != nil {
 		tb.Fatalf("create fixture file: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	bw := bufio.NewWriterSize(f, 32*1024)
 	if _, err := bw.WriteString(prefix); err != nil {
@@ -215,7 +215,7 @@ func BenchmarkLargePayloadHeap_PostCommitRetained(b *testing.B) {
 					if err != nil {
 						return largebody.ExecutionResult{}, err
 					}
-					defer rc.Close()
+					defer func() { _ = rc.Close() }()
 					buf := make([]byte, 32*1024)
 					for {
 						_, rerr := rc.Read(buf)
@@ -315,7 +315,7 @@ func BenchmarkLargePayloadHeap_RetainedPostProofGC(b *testing.B) {
 			if err != nil {
 				b.Fatalf("spill complete: %v", err)
 			}
-			defer src.Close()
+			defer func() { _ = src.Close() }()
 
 			proofIn := frontendpipe.ProofInput{
 				Ctx:                  b.Context(),
@@ -395,7 +395,7 @@ func TestLargePayloadHeap_AcceptedWireHasNoCallTree(t *testing.T) {
 			if err != nil {
 				return largebody.ExecutionResult{}, err
 			}
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 			return largebody.ExecutionResult{
 				Stream: lipapi.NewFixedEventStream([]lipapi.Event{
 					{Kind: lipapi.EventResponseStarted},
@@ -492,7 +492,7 @@ func TestLargePayloadHeap_LiveGCRetained_ExcludesCallerFixture(t *testing.T) {
 					if err != nil {
 						return largebody.ExecutionResult{}, err
 					}
-					defer rc.Close()
+					defer func() { _ = rc.Close() }()
 					buf := make([]byte, 32*1024)
 					for {
 						_, rerr := rc.Read(buf)
@@ -529,7 +529,7 @@ func TestLargePayloadHeap_LiveGCRetained_ExcludesCallerFixture(t *testing.T) {
 
 			f, err := os.Open(fixturePath)
 			require.NoError(t, err)
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", f)
 			req.Header.Set("Content-Type", "application/json")
@@ -657,7 +657,7 @@ func TestLargePayloadHeap_LiveGCRetained_RealRuntime_ExecuteLargeBody(t *testing
 			var openCalls int
 			detector := compactiondetect.New(compactiondetect.Config{})
 			ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "real runtime ok", nil)
-			ex.CompactionRuntime.Detector = detector
+			ex.Detector = detector
 			ex.LargeBodyGenerationID = "gen-real-runtime"
 			ex.LargeBodyCandidateDomainGeneration = "dom-gen-real-runtime"
 			ex.DefaultBackend = "stub"

@@ -23,6 +23,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/submission"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -38,6 +39,7 @@ type preparedRequest struct {
 	aScope             *leglifecycle.ALeg
 	billingCallID      billing.BillingCallID
 	billingCallState   *billingCallState
+	submission         submission.BindingResult
 	billingExposure    billing.CallExposure
 	execSpan           trace.Span
 	compactionOpenMeta compaction.PreservationMeta
@@ -88,8 +90,8 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 		} else if prep.call != nil {
 			ingress = lipapi.CloneCall(*prep.call)
 		}
-		savedWP := prep.recvTurnFacts.wirePayload
-		prep.recvTurnFacts = newRecvTurnFacts(ctx, recvTurnFactsInput{
+		savedWP := prep.recvTurnFacts.wirePayload //nolint:staticcheck // explicit recvTurnFacts qualification keeps request-attempt AST ratchet counts stable
+		prep.recvTurnFacts = newRecvTurnFacts(ctx, withBillingStoreID(recvTurnFactsInput{
 			baseline:                     *prep.call,
 			traceID:                      prep.identity.traceID,
 			aLegID:                       prep.identity.aLeg.ALegID,
@@ -97,12 +99,13 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 			secureTurnOK:                 prep.identity.secureTurnOK,
 			billingCallID:                prep.billingCallID,
 			billingCallState:             prep.billingCallState,
+			submissionID:                 submissionIDForBilling(prep.submission),
 			conversationSnapshot:         cloneSnapshot(snap),
 			conversationProvenance:       slices.Clone(prov),
 			conversationFilteredBaseline: lipapi.CloneCall(filtered),
 			ingressCall:                  ingress,
-		})
-		prep.recvTurnFacts.wirePayload = savedWP
+		}, prep.billingStoreID, prep.billingStoreIDStamped))
+		prep.recvTurnFacts.wirePayload = savedWP //nolint:staticcheck // explicit recvTurnFacts qualification keeps request-attempt AST ratchet counts stable
 	}
 }
 
@@ -151,6 +154,11 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	prepCtx = ibt.projectContext(prepCtx)
 	pr.identity = ibt
 	pr.call = workingCall
+	pr.submission, err = bindSubmissionAuthority(prepCtx, ibt, workingCall)
+	if err != nil {
+		pr.finalize(err)
+		return nil, nil, noop, fmt.Errorf("executor: bind submission identity: %w", err)
+	}
 	terminalDecisionPolicy, terminalDecisionEnabled, err := e.snapshotTerminalDecisionPolicy(prepCtx, ibt)
 	if err != nil {
 		pr.finalize(err)
@@ -213,6 +221,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 				pr.localStream = out.stream
 				pr.isLocal = true
 				pr.localHandlerID = out.handlerID
+				pr.submission = localSubmissionResult(ibt.scope, ibt.aLeg.ALegID, workingCall.ID)
 				// Release prior concurrency authority deterministically; no billing/route/B-leg.
 				guardLocal := &preStreamGuard{executor: e, ctx: prepCtx, requestAuthorityAdmitted: true}
 				pr.guard = guardLocal
@@ -241,6 +250,18 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		guard.Close()
 		pr.finalize(err)
 		return nil, nil, noop, fmt.Errorf("executor: allocate billing call id: %w", err)
+	}
+	// Freeze trusted store lineage at the same request identity boundary as the
+	// BillingCallID. It is carried by terminal facts and never re-resolved per
+	// B-leg or terminal callback.
+	e.stampBillingStoreID(prepCtx, pr)
+	if err := completeSubmissionAuthority(pr, ibt); err != nil {
+		guard.Close()
+		pr.finalize(err)
+		return nil, nil, noop, fmt.Errorf("executor: complete submission identity: %w", err)
+	}
+	if pr.submission.Trusted() {
+		prepCtx = submission.WithAuthority(prepCtx, pr.submission.Authority)
 	}
 	lifecycle := e.lifecycleCoordinator()
 	pr.aScope = lifecycle.StartALeg(pr.identity.aLeg.ALegID)
@@ -274,7 +295,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	} else {
 		ingress = lipapi.CloneCall(*workingCall)
 	}
-	pr.recvTurnFacts = newRecvTurnFacts(prepCtx, recvTurnFactsInput{
+	pr.recvTurnFacts = newRecvTurnFacts(prepCtx, withBillingStoreID(recvTurnFactsInput{
 		baseline:                     *workingCall,
 		traceID:                      ibt.traceID,
 		aLegID:                       ibt.aLeg.ALegID,
@@ -300,11 +321,12 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		billingIdentityStamped:       pr.billingIdentityStamped,
 		billingCallID:                pr.billingCallID,
 		billingCallState:             pr.billingCallState,
+		submissionID:                 submissionIDForBilling(pr.submission),
 		conversationSnapshot:         cloneSnapshot(pr.conversationSnapshot),
 		conversationProvenance:       slices.Clone(prov),
 		conversationFilteredBaseline: lipapi.CloneCall(filtered),
 		ingressCall:                  ingress,
-	})
+	}, pr.billingStoreID, pr.billingStoreIDStamped))
 	return pr, prepCtx, guard.Close, nil
 }
 

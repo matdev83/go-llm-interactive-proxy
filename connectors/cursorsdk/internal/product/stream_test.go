@@ -155,6 +155,31 @@ func TestRunStream_CanonicalOrderUsageTerminalEOF(t *testing.T) {
 	assert.Empty(t, invalids)
 }
 
+func TestRunStream_V1BridgeProjectsCanonicalUsageKey(t *testing.T) {
+	bridge := newScriptedRunBridge(4)
+	owner := &recordingLeaseOwner{}
+	lease := &AgentLease{RunID: "run-usage-authority"}
+	s := NewRunStream(context.Background(), bridge, lease, owner, RunStreamOpts{})
+	defer func() { _ = s.Close() }()
+
+	bridge.push(eventFrame(lease.RunID, 1, protocol.KindUsage, `{"inputTokens":11,"outputTokens":8,"totalTokens":19}`))
+	bridge.push(eventFrame(lease.RunID, 2, protocol.KindFinished, `{"status":"finished"}`))
+
+	var usage lipapi.Event
+	for {
+		ev, err := s.Recv(context.Background())
+		require.NoError(t, err)
+		if ev.Kind == lipapi.EventUsageDelta {
+			usage = ev
+			break
+		}
+	}
+	assert.Empty(t, usage.Accounting.DedupeKey, "canonical usage must remain observer-only when V1 sideband is enabled")
+	evidence := s.DrainAccountingEvidence()
+	require.Len(t, evidence, 1)
+	assert.Equal(t, "cursorsdk.usage:"+lease.RunID, evidence[0].DedupeKey)
+}
+
 func TestRunStream_ActivityIsolatedNoToolCalls(t *testing.T) {
 	bridge := newScriptedRunBridge(4)
 	owner := &recordingLeaseOwner{}

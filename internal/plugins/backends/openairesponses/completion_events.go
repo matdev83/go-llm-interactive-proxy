@@ -31,6 +31,7 @@ func handleCompletedUnion(m *openairesponsestream.Mapper, cur responses.Response
 	}
 	if resp.JSON.Usage.Valid() {
 		ev := openaiusage.ResponsesUsageEvent(resp.Usage)
+		openaiusage.AnnotateProviderContext(&ev, resp.ID, string(resp.ServiceTier))
 		if err := m.PushUsage(&ev); err != nil {
 			return err
 		}

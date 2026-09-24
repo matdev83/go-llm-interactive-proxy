@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -14,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -64,7 +66,8 @@ func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnF
 	}
 	at := p.nowTime()
 	attempt.observeAccountingBackendEvent(at, ev)
-	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !attempt.rememberUsageEvidenceOnce(ev) {
+	attempt.observeLocalProviderEvent(ev)
+	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !attempt.hasHostOnlyEconomicEvidenceSource() && !attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleStream) {
 		prepared.swallowed = true
 		return prepared
 	}
@@ -86,6 +89,27 @@ func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnF
 		}
 	}
 	return prepared
+}
+
+// hasHostOnlyEconomicEvidenceSource identifies streams whose provider-owned
+// host-only sideband (V1 or V2) is the authoritative durable evidence path.
+// Canonical usage events remain available to observers and clients, but must
+// not also enter the legacy V1 terminal accumulator for the same quantities.
+func hasHostOnlyEconomicEvidenceSource(inner lipapi.ManagedEventStream) bool {
+	if inner == nil {
+		return false
+	}
+	if state, ok := inner.(interface{ AccountingEvidenceEnabled() bool }); ok {
+		return state.AccountingEvidenceEnabled()
+	}
+	if _, ok := inner.(lipapi.UsageEvidenceSource); ok {
+		return true
+	}
+	if _, ok := inner.(execbackend.EconomicEvidenceSource); ok {
+		return true
+	}
+	_, ok := inner.(metering.ObservationSource)
+	return ok
 }
 
 // clientEventTransformation applies response-side tool policy/reactors and
@@ -217,6 +241,10 @@ func (p *responsePipeline) observeClientFacing(ctx context.Context, ev lipapi.Ev
 	if in.attempt == nil {
 		return lipapi.Event{}, responseRecordingResult{}, errNilRetryRecvStream
 	}
+	// ev is already the post-hook/customer-projection event at this boundary.
+	// Capture only bounded properties; the provider-origin plane was captured in
+	// prepareRecvEvent before any customer transformation.
+	in.attempt.observeLocalCustomerEvent(ev)
 	if err := extensions.RunFinalStreamObservationStage(ctx, p.log, p.extensionMetrics, in.attempt.finalStreamObs, ev, in.committed); err != nil {
 		p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeFailed)
 		return lipapi.Event{}, responseRecordingResult{}, err
@@ -361,17 +389,24 @@ func (p *responsePipeline) consumeBackendUsageEvidenceForAttempt(ctx context.Con
 	if p == nil || attempt == nil || inner == nil {
 		return
 	}
-	source, ok := inner.(lipapi.UsageEvidenceSource)
-	if !ok {
-		return
-	}
-	for _, ev := range source.DrainUsageEvidence() {
-		if ev.Kind != lipapi.EventUsageDelta || !attempt.rememberUsageEvidenceOnce(ev) {
-			continue
+	if source, ok := inner.(lipapi.UsageEvidenceSource); ok {
+		for _, ev := range source.DrainUsageEvidence() {
+			if ev.Kind != lipapi.EventUsageDelta || !attempt.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleSideband) {
+				continue
+			}
+			p.rememberInternalUsage(ev)
+			attempt.observeAccountingUsage(ev)
+			p.emitUsage(ctx, facts, attempt, ev)
 		}
-		p.rememberInternalUsage(ev)
-		attempt.observeAccountingUsage(ev)
-		p.emitUsage(ctx, facts, attempt, ev)
+	}
+	if source, ok := inner.(execbackend.EconomicEvidenceSource); ok {
+		for _, evidence := range source.DrainEconomicEvidenceRecords() {
+			attempt.rememberEconomicEvidenceOnce(evidence)
+		}
+	} else if source, ok := inner.(metering.ObservationSource); ok {
+		for _, observation := range source.DrainEconomicObservations() {
+			attempt.rememberEconomicObservationOnce(observation)
+		}
 	}
 }
 

@@ -29,7 +29,7 @@ func TestNewCallRatingResolver(t *testing.T) {
 	})
 }
 
-func TestProviderCostJoinResolverRatesOnlyOnFallback(t *testing.T) {
+func TestProviderCostJoinResolverRetiresScalarFallback(t *testing.T) {
 	t.Parallel()
 	missingRateRef := billing.VersionRef{ID: "operator-rates", Version: "missing"}
 
@@ -87,24 +87,23 @@ func TestProviderCostJoinResolverRatesOnlyOnFallback(t *testing.T) {
 		}
 	})
 
-	t.Run("accepted tokens with published rate", func(t *testing.T) {
+	t.Run("accepted tokens with published rate stay unreconciled", func(t *testing.T) {
 		t.Parallel()
 		c, _, _, rates := seedCatalog(t)
 		resolver, err := billingcompose.NewProviderCostResolver(c, "USD")
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Task 18.1: the scalar per-million fallback is retired. A published
+		// catalog rate no longer converts token-only evidence into money;
+		// estimates belong to the V2 provider-quantity valuation.
 		leg := providerCostTestLeg(t, rates.Ref, billing.FinalBillingEvidence{
 			InputTokens:  billing.Quantity{Value: 1_000_000, Present: true},
 			OutputTokens: billing.Quantity{Value: 1_000_000, Present: true},
 		})
-		got, err := resolver.ResolveProviderCost(context.Background(), leg)
-		if err != nil {
-			t.Fatalf("ResolveProviderCost: %v", err)
-		}
-		want := rates.InputPerMillionNano + rates.OutputPerMillionNano
-		if !got.Reconciled || got.Authoritative || got.Amount.Nano != want {
-			t.Fatalf("rated result = %+v, want nano=%d", got, want)
+		_, err = resolver.ResolveProviderCost(context.Background(), leg)
+		if !errors.Is(err, billing.ErrUnreconciledCost) {
+			t.Fatalf("error = %v, want %v", err, billing.ErrUnreconciledCost)
 		}
 	})
 }

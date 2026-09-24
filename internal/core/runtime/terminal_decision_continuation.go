@@ -233,12 +233,15 @@ func continuationPrePublicationFailureWithOverlay(ctx context.Context, t *turnTe
 		cmd = sdkterminal.CommandCancel
 	}
 	request := s.facts.terminalFacts()
-	t.claimRequestTerminal(ctx, cmd, coreterm.NewAccumulatorSnapshot(nil, t.committed()), func(cctx context.Context, _ coreterm.Outcome) error {
+	requestResult := t.claimRequestTerminal(ctx, cmd, coreterm.NewAccumulatorSnapshot(nil, t.committed()), func(cctx context.Context, _ coreterm.Outcome) error {
 		t.settleOrReleaseRequestAuthority(cctx, s.responsePipeline, request)
-		t.handoffBillingTurn(cctx, request, cmd)
+		handoffErr := t.handoffBillingTurn(cctx, request, cmd)
 		t.finishResponse(s.responsePipeline, s.attempt.snapshot())
-		return nil
+		return handoffErr
 	})
+	if requestResult.Err != nil {
+		return requestResult.Err
+	}
 	if errors.Is(cause, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 		return context.Canceled
 	}

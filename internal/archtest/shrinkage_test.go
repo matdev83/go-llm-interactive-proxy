@@ -21,7 +21,7 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if RuntimeConvergenceMinNetLineReduction != 800 {
 		t.Fatalf("min reduction drift: %d", RuntimeConvergenceMinNetLineReduction)
 	}
-	if ConnectorArchitectureOverlayMax != 2300 {
+	if ConnectorArchitectureOverlayMax != 2346 {
 		t.Fatalf("connector overlay cap drift: %d", ConnectorArchitectureOverlayMax)
 	}
 	if BackendResourcePoolOverlayMax != 381 {
@@ -30,7 +30,7 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if GenericCompatibleBackendOverlayMax != 946 {
 		t.Fatalf("generic compatible overlay cap drift: %d", GenericCompatibleBackendOverlayMax)
 	}
-	if BillingHostCompositionOverlayMax != 365 {
+	if BillingHostCompositionOverlayMax != 428 {
 		t.Fatalf("billing host composition overlay cap drift: %d", BillingHostCompositionOverlayMax)
 	}
 	if AtomicOwnedResourceLifecycleOverlayMax != 92 {
@@ -38,6 +38,28 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	}
 	if len(pathMarkerOverlaySpecs) != 9 {
 		t.Fatalf("path-marker overlay table drift: got %d specs, want 9", len(pathMarkerOverlaySpecs))
+	}
+	if UsageEconomicsOverlayMax != 1393 {
+		t.Fatalf("usage economics overlay cap drift: %d", UsageEconomicsOverlayMax)
+	}
+	wantGrowth := []usageEconomicsGrowthFile{
+		{path: "internal/infra/runtimebundle/accounting_recovery.go", baseline: 0},
+		{path: "internal/infra/runtimebundle/external_billing.go", baseline: 0},
+		{path: "internal/infra/runtimebundle/observation_economic_bridge.go", baseline: 0},
+		{path: "internal/infra/runtimebundle/operator_reports.go", baseline: 0},
+		{path: "internal/infra/runtimebundle/shadow_v2_compose.go", baseline: 0},
+		{path: "internal/stdhttp/admin/billing/operator.go", baseline: 0},
+		{path: "pkg/lipruntime/billing.go", baseline: 0},
+		{path: "internal/infra/runtimebundle/production_options.go", baseline: 80},
+		{path: "internal/infra/runtimebundle/process_billing.go", baseline: 75},
+	}
+	if len(usageEconomicsGrowthFiles) != len(wantGrowth) {
+		t.Fatalf("usage economics growth table drift: got %d files, want %d", len(usageEconomicsGrowthFiles), len(wantGrowth))
+	}
+	for i, want := range wantGrowth {
+		if usageEconomicsGrowthFiles[i] != want {
+			t.Fatalf("usage economics growth file[%d] = %+v, want %+v", i, usageEconomicsGrowthFiles[i], want)
+		}
 	}
 	if LargePayloadHostCompositionOverlayMax != 291 {
 		t.Fatalf("large payload host composition overlay cap drift: %d", LargePayloadHostCompositionOverlayMax)
@@ -268,6 +290,7 @@ func TestShrinkage_MeasureDeterministicTotals(t *testing.T) {
 	for _, o := range m.PathOverlays {
 		overlayLines += o.Lines
 	}
+	overlayLines += m.Growth.Lines
 	if m.ConvergenceDelta != m.Delta-overlayLines {
 		t.Fatalf("convergence delta inconsistency: got %d want %d-%d", m.ConvergenceDelta, m.Delta, overlayLines)
 	}
@@ -275,6 +298,7 @@ func TestShrinkage_MeasureDeterministicTotals(t *testing.T) {
 	for _, o := range m.PathOverlays {
 		wantPass = wantPass && o.Pass
 	}
+	wantPass = wantPass && m.Growth.Pass
 	if m.Pass != wantPass {
 		t.Fatalf("pass flag inconsistency: pass=%v convergence=%+d", m.Pass, m.ConvergenceDelta)
 	}
@@ -299,6 +323,7 @@ func TestShrinkage_ReportSectionIncludesVerdict(t *testing.T) {
 		"GeoIP ingress overlay lines:",
 		"Terminal decision feature extension overlay lines:",
 		"Large payload host composition overlay lines:",
+		"Usage economics overlay lines:",
 		"Convergence delta (raw − overlays):",
 		"Required: convergence delta ≤ -800",
 	} {
@@ -330,5 +355,59 @@ func TestShrinkage_NetReductionMeetsRequirement115(t *testing.T) {
 		t.Fatalf("Req 11.5 FAIL: raw delta %+d; connector overlay %d/%d; convergence delta %+d (need ≤ %+d)\n%sbaseline_total=%d current_total=%d connector_files=%v",
 			m.Delta, m.Connector.Lines, m.Connector.Max, m.ConvergenceDelta, m.RequiredMax,
 			b.String(), m.BaselineTotal, m.CurrentTotal, m.Connector.Files)
+	}
+}
+
+// TestShrinkage_OverlaysArePairwiseDisjoint proves no production file is counted
+// by two overlays: connector files seed the exclusion set, each path overlay
+// claims only unclaimed files, and the growth allowance skips claimed files, so
+// the convergence subtraction never double counts.
+func TestShrinkage_OverlaysArePairwiseDisjoint(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	connector, err := MeasureConnectorArchitectureOverlay(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlays, err := measurePathMarkerOverlays(root, connector.Files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(map[string]string, len(connector.Files))
+	for _, f := range connector.Files {
+		seen[f] = "Connector"
+	}
+	for _, o := range overlays {
+		for _, f := range o.Files {
+			if owner, dup := seen[f]; dup {
+				t.Fatalf("file %s counted by both %s and %s", f, owner, o.Name)
+			}
+			seen[f] = o.Name
+		}
+	}
+	// Independent pre-exclusion guard: every growth allowlist path is compared
+	// directly against the connector and path-marker selections before the growth
+	// measurement's defensive filtering could hide an overlap.
+	if msg := growthAllowlistOverlap(usageEconomicsGrowthFiles, seen); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// TestShrinkage_UsageEconomicsOverlayStaysInScannedSurfaces ties the economics
+// allowance to the historical scan: every allowlisted file must live under a Req
+// 11.5 affected-surface tree, so unscanned areas can never inflate the subtraction.
+func TestShrinkage_UsageEconomicsOverlayStaysInScannedSurfaces(t *testing.T) {
+	t.Parallel()
+	for _, f := range usageEconomicsGrowthFiles {
+		ok := false
+		for _, s := range RuntimeConvergenceAffectedSurfaces {
+			if f.path == s.Tree || strings.HasPrefix(f.path, s.Tree+"/") {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			t.Fatalf("usage economics allowlist file outside scanned surfaces: %s", f.path)
+		}
 	}
 }

@@ -285,21 +285,27 @@ func TestEvaluateSettleSafetyMarginDoesNotDecreaseWhenActualAtMostMax(t *testing
 	}
 }
 
-func TestEvaluateSettleRejectsActualAboveMax(t *testing.T) {
+func TestEvaluateSettleRetainsActualAboveMaxWithBreach(t *testing.T) {
 	t.Parallel()
 	acct := exposurePrepaid(100)
 	admitted, err := EvaluateAdmit(acct, nil, exposureAdmit("call-1", 40))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = EvaluateSettle(acct, []CallExposure{admitted}, SettleExposureInput{
+	result, err := EvaluateSettle(acct, []CallExposure{admitted}, SettleExposureInput{
 		CallID: "call-1", Actual: exposureUSD(41),
 	})
-	if !errors.Is(err, ErrExposureActualExceedsMax) {
-		t.Fatalf("actual > max = %v, want ErrExposureActualExceedsMax", err)
+	if err != nil {
+		t.Fatalf("actual > max = %v, want breach settlement retaining actual 41", err)
+	}
+	if !result.Breached || result.OverrunNano != 1 {
+		t.Fatalf("breach = %+v, want Breached with OverrunNano 1", result)
+	}
+	if result.Account.BalanceNano != 59 {
+		t.Fatalf("balance = %d, want actual debited (100-41)", result.Account.BalanceNano)
 	}
 	if acct.BalanceNano != 100 {
-		t.Fatalf("rejected settle mutated balance: %+v", acct)
+		t.Fatalf("settled mutated input balance: %+v", acct)
 	}
 }
 

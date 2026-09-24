@@ -799,7 +799,7 @@ func TestOpenAIResponsesProfile_HandlerIntegration(t *testing.T) {
 	// We verify that an eligible request runs candidate proof and a declining request
 	// executes canonically with no error.
 	spec := h.Spec()
-	spec.Config.LargePayload = frontendpipe.LargePayloadConfig{
+	spec.LargePayload = frontendpipe.LargePayloadConfig{
 		Enabled:        true,
 		ThresholdBytes: 20, // low threshold for testing
 	}
@@ -861,8 +861,10 @@ func (e *testExecView) ExecuteLargeBody(ctx context.Context, accepted largebody.
 	return largebody.ExecutionResult{}, nil
 }
 
-var _ lipsdk.ExecutorView = (*testExecView)(nil)
-var _ largebody.LargeBodyExecutor = (*testExecView)(nil)
+var (
+	_ lipsdk.ExecutorView         = (*testExecView)(nil)
+	_ largebody.LargeBodyExecutor = (*testExecView)(nil)
+)
 
 func test1MiBResponsesBody(tb testing.TB, target int) []byte {
 	tb.Helper()

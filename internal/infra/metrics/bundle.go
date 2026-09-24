@@ -27,6 +27,7 @@ type Bundle struct {
 	TokenAccounting     *TokenAccountingProm
 	PostgresPool        *PostgresPoolProm
 	TerminalWork        *TerminalWorkProm
+	EconomicHealth      *EconomicHealthProm
 	Reload              *ReloadProm
 	GeoIP               *GeoIPProm
 	ConversationView    *ConversationViewProm
@@ -53,6 +54,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	tok := RegisterTokenAccountingProm(r)
 	pg := RegisterPostgresPoolProm(r, poolStats)
 	tw := RegisterTerminalWorkProm(r)
+	eh := RegisterEconomicHealthProm(r)
 	reload := RegisterReloadProm(r)
 	geoip := RegisterGeoIPProm(r)
 	cv := RegisterConversationViewProm(r)
@@ -69,6 +71,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 		TokenAccounting:     tok,
 		PostgresPool:        pg,
 		TerminalWork:        tw,
+		EconomicHealth:      eh,
 		Reload:              reload,
 		GeoIP:               geoip,
 		ConversationView:    cv,

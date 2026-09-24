@@ -3,8 +3,10 @@ package archtest
 // EvaluateBillingCustomerOperatorIndependence rejects any customer-rating path
 // that resolves or carries operator rates. Customer snapshot resolution, the
 // customer join resolver, the customer rating inputs, and the customer
-// post-usage worker must stay free of provider-cost data; only the provider
-// join resolver may read operator rates.
+// post-usage worker must stay free of provider-cost data. Task 18.1 retired
+// the scalar token-to-money fallback, so the provider join resolver must not
+// read operator rates either; estimates belong to the V2 provider-quantity
+// valuation and the operator-rate catalog remains for historical references.
 func EvaluateBillingCustomerOperatorIndependence(root string) ([]RuleFinding, error) {
 	var out []RuleFinding
 	out = append(out, scanFuncBodyForbiddenIdents(
@@ -26,36 +28,18 @@ func EvaluateBillingCustomerOperatorIndependence(root string) ([]RuleFinding, er
 		root, "internal/core/billing/call_rating.go", "CallRatingInput",
 		"Operator", BillingCorrectnessRuleCustomerInputCarriesOperatorRates,
 		"customer rating input must not carry operator-rate collections")...)
-	out = append(out, requireProviderPathResolvesOperatorRate(root)...)
+	out = append(out, forbidProviderPathOperatorRate(root)...)
 	return out, nil
 }
 
-// requireProviderPathResolvesOperatorRate locks the provider join resolver as
-// the sole customer-independent consumer of operator rates.
-func requireProviderPathResolvesOperatorRate(root string) []RuleFinding {
-	rel := "internal/infra/billingcompose/resolver.go"
-	f, err := parseProductionFile(root, rel)
-	if err != nil {
-		return []RuleFinding{billingCorrectnessRuleFinding(
-			BillingCorrectnessRuleCustomerOperatorCoupling, rel,
-			"provider cost resolver target failed to parse: "+err.Error())}
-	}
-	if f == nil {
-		return []RuleFinding{billingCorrectnessRuleFinding(
-			BillingCorrectnessRuleCustomerOperatorCoupling, rel,
-			"provider cost resolver target is missing")}
-	}
-	fd := findFuncDecl(f, "ResolveProviderCost")
-	if fd == nil {
-		return []RuleFinding{billingCorrectnessRuleFinding(
-			BillingCorrectnessRuleCustomerOperatorCoupling, rel,
-			"provider cost resolver ResolveProviderCost is missing")}
-	}
-	names := collectIdentNames(fd.Body)
-	if _, ok := names["OperatorRate"]; !ok {
-		return []RuleFinding{billingCorrectnessRuleFinding(
-			BillingCorrectnessRuleCustomerOperatorCoupling, rel,
-			"provider cost resolution (the provider-only path) must read catalog.OperatorRate")}
-	}
-	return nil
+// forbidProviderPathOperatorRate locks the Task 18.1 retirement: the provider
+// join resolver must not read operator rates for live estimation. Only
+// provider-reported authoritative V1 money resolves there; token-only evidence
+// stays unreconciled and V2 provider-quantity valuation owns estimates.
+func forbidProviderPathOperatorRate(root string) []RuleFinding {
+	return scanFuncBodyForbiddenIdents(
+		root, "internal/infra/billingcompose/resolver.go", "ResolveProviderCost",
+		billingCorrectnessOperatorRateIdents,
+		BillingCorrectnessRuleCustomerOperatorCoupling,
+		"provider cost resolution must not read operator rates: scalar fallback is retired")
 }

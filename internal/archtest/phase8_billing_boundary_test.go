@@ -33,11 +33,14 @@ func TestRuntimeBillingBoundaryHasNoStreamMonetarySettlement(t *testing.T) {
 func TestPhase8KeepsTerminalFinalizeBillingCostMerge(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	// Req 3.4: stream CostPresent (including authoritative zero) is copied onto
-	// the current call-leg record. Behavior is locked by runtime tests
+	// Req 3.4: stream CostPresent (including authoritative zero) is selected
+	// onto the current call-leg record through the explicit one-way V1
+	// compatibility projection. Behavior is locked by runtime tests
 	// TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize and
 	// TestParallelBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize.
 	// This gate forbids splicing money onto lipapi.Event in the observe path.
+	// Task 18.1 retired the destructive mergeStreamCostOntoLeg helper; only
+	// projectV1BillingEvidence may perform the V1 selection.
 	for _, rel := range []string{
 		"internal/core/runtime/billing_leg.go",
 	} {
@@ -49,8 +52,11 @@ func TestPhase8KeepsTerminalFinalizeBillingCostMerge(t *testing.T) {
 		if strings.Contains(text, "finalize.CostPresent") && strings.Contains(text, "stream.CostNanoUnits") {
 			t.Fatalf("%s still splices CostPresent onto lipapi.Event; merge belongs on current call-leg money evidence", rel)
 		}
-		if !strings.Contains(text, "mergeStreamCostOntoLeg") {
-			t.Fatalf("%s must copy stream CostPresent onto current call-leg evidence when FinalizeBilling has no money", rel)
+		if strings.Contains(text, "mergeStreamCostOntoLeg") {
+			t.Fatalf("%s still defines mergeStreamCostOntoLeg; V1 cost selection belongs to projectV1BillingEvidence only", rel)
+		}
+		if !strings.Contains(text, "projectV1BillingEvidence") {
+			t.Fatalf("%s must select stream CostPresent onto current call-leg evidence through projectV1BillingEvidence when FinalizeBilling has no money", rel)
 		}
 	}
 }

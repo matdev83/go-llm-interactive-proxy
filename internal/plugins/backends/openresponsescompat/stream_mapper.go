@@ -555,8 +555,11 @@ func (m *streamMapper) mapTerminal(ev *remoteStreamEvent, status string) ([]lipa
 		return nil, m.malformed("response.%s before response start", status)
 	}
 	events := make([]lipapi.Event, 0, 2)
-	if ev.Response != nil && usagePresent(ev.Response.Usage) {
-		u := usageEvent(ev.Response.Usage)
+	if ev.Response != nil && (ev.Response.UsagePresent || usagePresent(ev.Response.Usage)) {
+		if id := strings.TrimSpace(ev.Response.ID); id != "" {
+			m.native.ResponseID = id
+		}
+		u := usageEventWithContext(ev.Response.Usage, ev.Response.ID, ev.Response.ServiceTier)
 		if err := m.emit(&u); err != nil {
 			return nil, err
 		}

@@ -248,6 +248,9 @@ message FactoryDescriptor {
   bool deprecated = 13;
   CapabilitySummary static_capabilities = 14;
   TransportCapabilitySummary transport_capabilities = 15;
+  // supports_accounting_evidence_v2 advertises the lossless host-only
+  // observation sideband. It is additive; V1 fields retain their meaning.
+  bool supports_accounting_evidence_v2 = 16;
 }
 
 message CapabilitySummary {
@@ -342,6 +345,8 @@ message ResolvedProfile {
   string profile_version = 11;
   DialectSupportWire dialect_support = 12;
   PromptCacheProfile prompt_cache_profile = 13;
+  // Explicit capability bit for the negotiated V2 economic sideband.
+  bool supports_accounting_evidence_v2 = 14;
 }
 
 message PromptCacheProfile {
@@ -443,6 +448,8 @@ message FinalizeBillingRequest {
 message FinalizeBillingResponse {
   UsageEvidence usage = 1;
   string evidence_quality = 2;
+  // V2 observations are host-only and never become canonical client events.
+  repeated AccountingEvidenceV2 accounting_evidence_v2 = 3;
 }
 
 message UsagePresence {
@@ -734,6 +741,10 @@ message ExecuteServerFrame {
   Terminal terminal = 6;
   AccountingEvidence accounting_evidence = 7;
   PromptCacheObservation prompt_cache_observation = 8;
+  // V2 keeps the V1 accounting frame kind and adds a distinct payload field.
+  // Old generated clients cannot interpret this field and therefore fail
+  // closed instead of silently dropping provider economics.
+  AccountingEvidenceV2 accounting_evidence_v2 = 9;
 }
 
 message PluginError {
@@ -756,4 +767,186 @@ message GracefulShutdownRequest {
 
 message GracefulShutdownResponse {
   bool accepted = 1;
+}
+
+// AccountingEvidenceV2 is the versioned, host-only economic sideband. The
+// nested observation is the canonical metering.Observation envelope; this
+// transport wrapper carries an explicit coverage disposition so a V1 bridge
+// cannot claim complete V2 semantics. All fields are additive to the V1 ABI.
+message AccountingEvidenceV2 {
+  EconomicObservationV2 observation = 1;
+  string coverage = 2;
+  string coverage_reason = 3;
+}
+
+message EconomicDecimalV2 {
+  // Signed base-10 coefficient. Floating point is deliberately not used.
+  string coefficient = 1;
+  uint32 scale = 2;
+}
+
+message EconomicDimensionV2 {
+  string name = 1;
+  string value = 2;
+}
+
+message EconomicComponentKeyV2 {
+  string direction = 1;
+  string component = 2;
+  string unit = 3;
+  string schema_id = 4;
+  repeated EconomicDimensionV2 dimensions = 5;
+}
+
+message EconomicMeasureV2 {
+  EconomicComponentKeyV2 key = 1;
+  // A missing message is absent; coefficient "0", scale 0 is explicit zero.
+  EconomicDecimalV2 value = 2;
+  string quality = 3;
+  string method_ref = 4;
+  string reason = 5;
+}
+
+message EconomicSubjectV2 {
+  string kind = 1;
+  string store_id = 2;
+  string tenant_id = 3;
+  string account_id = 4;
+  string a_leg_id = 5;
+  string request_id = 6;
+  string billing_call_id = 7;
+  string call_id = 8;
+  string b_leg_id = 9;
+  string attempt_id = 10;
+  uint64 attempt_seq = 11;
+  string submission_id = 12;
+  string provider_account_key = 13;
+  string provider_request_id = 14;
+  string provider_charge_id = 15;
+  string resource_id = 16;
+  string period_id = 17;
+  string pool_id = 18;
+  string window_id = 19;
+  string statement_id = 20;
+  string statement_line_id = 21;
+  int64 reset_at_unix_nanos = 22;
+  int64 start_at_unix_nanos = 23;
+  int64 end_at_unix_nanos = 24;
+}
+
+message EconomicCorrelationV2 {
+  string store_id = 1;
+  string tenant_id = 2;
+  string request_id = 3;
+  string call_id = 4;
+  string billing_call_id = 5;
+  string a_leg_id = 6;
+  string b_leg_id = 7;
+  string attempt_id = 8;
+  uint64 attempt_seq = 9;
+  string submission_id = 10;
+  string provider_account_key = 11;
+  string provider_request_id = 12;
+  string provider_charge_id = 13;
+  string parent_work_id = 14;
+  string resource_id = 15;
+  string period_id = 16;
+}
+
+// EconomicScopeValueV2 preserves unknown versus known-empty attribution.
+message EconomicScopeValueV2 {
+  bool known = 1;
+  string value = 2;
+}
+
+message EconomicScopeV2 {
+  string subject_kind = 1;
+  EconomicScopeValueV2 principal_id = 2;
+  EconomicScopeValueV2 display_name = 3;
+  EconomicScopeValueV2 auth_method = 4;
+  EconomicScopeValueV2 credential_id = 5;
+  repeated string roles = 6;
+  map<string, string> safe_claims = 7;
+  EconomicScopeValueV2 tenant_id = 8;
+  EconomicScopeValueV2 organization_id = 9;
+  EconomicScopeValueV2 workspace_id = 10;
+  EconomicScopeValueV2 project_id = 11;
+  EconomicScopeValueV2 department_id = 12;
+  EconomicScopeValueV2 cost_center_id = 13;
+  map<string, string> policy_labels = 14;
+  string origin = 15;
+  EconomicScopeValueV2 parent_trace_id = 16;
+}
+
+message EconomicChargeRefV2 {
+  string store_id = 1;
+  string observation_id = 2;
+  uint64 revision = 3;
+  string charge_item_id = 4;
+}
+
+message EconomicCoverageV2 {
+  EconomicChargeRefV2 ref = 1;
+  string relation = 2;
+}
+
+message EconomicPaymentPartyV2 {
+  string kind = 1;
+  string id = 2;
+}
+
+message EconomicChargeV2 {
+  string charge_item_id = 1;
+  EconomicComponentKeyV2 component = 2;
+  EconomicDecimalV2 amount = 3;
+  string currency = 4;
+  string kind = 5;
+  EconomicPaymentPartyV2 payer = 6;
+  repeated EconomicCoverageV2 covers = 7;
+}
+
+message EconomicObservationRefV2 {
+  string store_id = 1;
+  string observation_id = 2;
+  uint64 revision = 3;
+  string payload_hash = 4;
+}
+
+message EconomicEvidenceFieldV2 {
+  string path = 1;
+  string name = 2;
+  string lexeme = 3;
+  string value = 4;
+  bool present = 5;
+  bool null = 6;
+  string acquisition = 7;
+}
+
+// EconomicObservationV2 mirrors metering.Observation field-for-field. Typed
+// nested messages preserve decimal/presence, component identity, provider
+// charge coverage, supersession and safe original lexemes.
+message EconomicObservationV2 {
+  uint32 version = 1;
+  string id = 2;
+  string source_event_key = 3;
+  uint64 revision = 4;
+  string stream_id = 5;
+  uint64 sequence = 6;
+  string origin = 7;
+  string acquisition = 8;
+  string authority = 9;
+  string perspective = 10;
+  string boundary = 11;
+  string lifecycle = 12;
+  EconomicSubjectV2 subject = 13;
+  EconomicCorrelationV2 correlation = 14;
+  EconomicScopeV2 scope = 15;
+  string semantics = 16;
+  int64 observed_at_unix_nanos = 17;
+  int64 received_at_unix_nanos = 18;
+  string mapping_ref = 19;
+  repeated EconomicMeasureV2 measures = 20;
+  repeated EconomicChargeV2 charges = 21;
+  repeated EconomicObservationRefV2 supersedes = 22;
+  repeated EconomicEvidenceFieldV2 evidence = 23;
 }

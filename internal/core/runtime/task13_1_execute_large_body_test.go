@@ -179,6 +179,9 @@ func makeTestAcceptedAssessment(t *testing.T, genID, profileID string, src *test
 		CandidateModels: candModels,
 	}
 	acc, err := largebody.NewAcceptedAssessment(stamp, wireReq, wireDomain)
+	if err != nil {
+		t.Fatalf("NewAcceptedAssessment error: %v", err)
+	}
 	return acc
 }
 
@@ -558,7 +561,7 @@ func TestTask13_1_ResponseFactsAndSessionCarrier(t *testing.T) {
 	if res.Stream == nil {
 		t.Fatal("Stream must not be nil")
 	}
-	defer res.Stream.Close()
+	defer func() { _ = res.Stream.Close() }()
 }
 
 func TestTask13_1_ConversationViewReader_SnapshotFailure(t *testing.T) {

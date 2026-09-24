@@ -1,11 +1,11 @@
 package pluginreg
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
-	"net/http"
 )
 
 func TestWrapLifecycleBackend_RejectsNilWrapperResult(t *testing.T) {

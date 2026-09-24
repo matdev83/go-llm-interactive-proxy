@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	legacybackend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	responsesbackend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -31,7 +32,7 @@ func OpenChat(ctx context.Context, cli openai.Client, req InvokeRequest) (lipapi
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", req.ProviderID, err)
 		}
-		return lipapi.NewFixedEventStream(ChatCompletionEvents(*comp)), nil
+		return openaiusage.NewProviderEvidenceStream(ChatCompletionEvents(*comp), "openai.chat.v2"), nil
 	}
 	// Empty TransportMode is the legacy default and maps to streaming.
 	raw := cli.Chat.Completions.NewStreaming(ctx, p, req.SDKOptions...)
@@ -52,7 +53,7 @@ func OpenResponses(ctx context.Context, cli openai.Client, req InvokeRequest) (l
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", req.ProviderID, err)
 		}
-		return lipapi.NewFixedEventStream(events), nil
+		return openaiusage.NewProviderEvidenceStream(events, "openai.responses.v2"), nil
 	}
 	// Empty TransportMode is the legacy default and maps to streaming.
 	raw := cli.Responses.NewStreaming(ctx, p, req.SDKOptions...)

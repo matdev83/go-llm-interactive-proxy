@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
@@ -55,6 +56,10 @@ type Backend struct {
 
 	BillingFinalizationSupported bool
 	FinalizeBilling              func(ctx context.Context, in BillingFinalizationInput) (lipapi.Event, error)
+	// FinalizeBillingV2 preserves host-only economic observations returned by
+	// an executable connector. FinalizeBilling remains the compatibility
+	// projection consumed by legacy authority paths.
+	FinalizeBillingV2 func(ctx context.Context, in BillingFinalizationInput) (BillingFinalizationResult, error)
 
 	// EnforcesMaxOutputTokens reports whether this backend serializes a
 	// non-nil/positive MaxOutputTokens onto the provider wire so an authority
@@ -124,6 +129,32 @@ type BillingFinalizationInput struct {
 	Backend string
 	Model   string
 	Reason  string
+}
+
+// BillingFinalizationResult keeps the canonical compatibility usage event and
+// the additive host-only V2 observations from one idempotent finalizer call.
+// The executor owns terminal capture; no finalizer result is client content.
+type BillingFinalizationResult struct {
+	Usage            lipapi.Event
+	EconomicEvidence []EconomicEvidence
+}
+
+// EconomicEvidence is the neutral core handoff for one validated connector
+// observation. Coverage is transport metadata retained through the adapter
+// boundary; Observation is the canonical metering model consumed by core.
+// Keeping this carrier in execbackend prevents core from importing gRPC or the
+// executable backend-plugin wire package.
+type EconomicEvidence struct {
+	Observation    metering.Observation
+	Coverage       string
+	CoverageReason string
+}
+
+// EconomicEvidenceSource is the narrow host-to-core drain seam for the
+// neutral finalizer/stream evidence carrier. It is intentionally separate
+// from the executable connector ABI and has no transport dependency.
+type EconomicEvidenceSource interface {
+	DrainEconomicEvidenceRecords() []EconomicEvidence
 }
 
 // EffectiveCaps returns the caps used for negotiation for one backend and candidate.

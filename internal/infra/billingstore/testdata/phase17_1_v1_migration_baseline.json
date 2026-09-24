@@ -1,0 +1,25 @@
+{
+  "fixture_version": "phase17-1-v1-migration-baseline",
+  "serialization": "payload_sha256 is SHA-256 of the exact compact payload bytes; semantic fingerprints are produced by the existing sealed V1 contracts. This fixture pins the Migration Strategy steps 1-3 baseline for the historical V1 compatibility reader.",
+  "writer_version": "v1",
+  "legacy_semantics": "legacy_scalar_per_million_tokens_v1",
+  "call": {
+    "payload": {"SchemaVersion":1,"Key":"bc_0123456789abcdef0123456789abcdef","Fingerprint":"93c7c0de825b3548bb3aff4e6044005e6b22e03a8412fa6f30338a891a503dd2","CallID":"bc_0123456789abcdef0123456789abcdef","AccountID":"acct-phase1","ALegID":"a-phase1","SessionID":"sess-phase1","StartedAt":"2026-01-02T03:04:05Z","FinishedAt":"2026-01-02T03:06:05Z","Outcome":"completed","CustomerPricingRef":{"ID":"customer-pricing","Version":"2026-01","EffectiveAt":"2026-01-01T03:04:05Z","FetchedAt":"2026-01-02T02:04:05Z"},"ChargePolicyRef":{"ID":"customer-policy","Version":"2026-01","EffectiveAt":"2026-01-01T03:04:05Z","FetchedAt":"2026-01-02T02:04:05Z"},"ExpectedBLegIDs":["b-a","b-z"],"Workload":{}},
+    "payload_sha256": "5ac40cad1bd42b9eeae6129bd255a2b49d054a417c3c7e858d2c38f545b195b1",
+    "key": "bc_0123456789abcdef0123456789abcdef",
+    "semantic_fingerprint": "93c7c0de825b3548bb3aff4e6044005e6b22e03a8412fa6f30338a891a503dd2"
+  },
+  "leg": {
+    "payload": {"Key":"bc_0123456789abcdef0123456789abcdef:b-primary","Fingerprint":"8cf755d66808f2f0a64a2ea893b601dccd8f19379221b75df2ebae34bbc28608","CallID":"bc_0123456789abcdef0123456789abcdef","ALegID":"a-phase1","BLegID":"b-primary","AttemptSeq":2,"BackendID":"backend-phase1","ProviderID":"provider-phase1","ModelID":"model-phase1","StartedAt":"2026-01-02T03:04:15Z","FinishedAt":"2026-01-02T03:05:35Z","Outcome":"winner","Surfaced":"yes","Evidence":{"InputTokens":{"Value":123,"Present":true},"OutputTokens":{"Value":45,"Present":true},"CacheReadTokens":{"Value":7,"Present":true},"CacheWriteTokens":{"Value":0,"Present":true},"ReasoningTokens":{"Value":2,"Present":true},"TotalTokens":{"Value":170,"Present":true},"Cost":{"NanoUnits":987,"Currency":"USD","Present":true},"Source":"provider_reported","Authority":"authoritative","DedupeKey":"provider-charge-phase1"},"OperatorRateRef":{"ID":"operator-rate","Version":"2026-01","EffectiveAt":"2026-01-01T03:04:05Z","FetchedAt":"2026-01-02T02:04:05Z"},"Workload":{}},
+    "payload_sha256": "46e59709a6074e46959f106aa3593f833c2c614df5e5c7b4f5b6eb96ba0f0893",
+    "key": "bc_0123456789abcdef0123456789abcdef:b-primary",
+    "semantic_fingerprint": "8cf755d66808f2f0a64a2ea893b601dccd8f19379221b75df2ebae34bbc28608"
+  },
+  "posting_identity": {
+    "provider_cost_source_prefix": "provider-cost:v1:",
+    "journal_fingerprint_prefix": "journal-fp:v2:",
+    "provider_cost_source_key": "provider-cost:v1:bc_0123456789abcdef0123456789abcdef:b-primary",
+    "call_key": "bc_0123456789abcdef0123456789abcdef",
+    "leg_key": "bc_0123456789abcdef0123456789abcdef:b-primary"
+  }
+}

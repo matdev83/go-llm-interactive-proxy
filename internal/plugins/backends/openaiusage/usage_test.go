@@ -137,3 +137,48 @@ func TestProviderCostNanoUnits_roundsRationalExactly(t *testing.T) {
 		t.Fatalf("nano = %d, want 2", nano)
 	}
 }
+
+func TestChatUsageEvent_ignoresMalformedCacheWriteExtension(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{
+		`{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3,"prompt_tokens_details":{"x_lip_cache_write_tokens":-1}}`,
+		`{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3,"prompt_tokens_details":{"x_lip_cache_write_tokens":1.2}}`,
+		`{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3,"prompt_tokens_details":{"x_lip_cache_write_tokens":1e999}}`,
+	} {
+		var usage openai.CompletionUsage
+		if err := json.Unmarshal([]byte(raw), &usage); err != nil {
+			t.Fatal(err)
+		}
+		ev := ChatUsageEvent(usage)
+		if ev.UsagePresence.CacheWriteTokens || ev.CacheWriteTokens != 0 {
+			t.Fatalf("malformed cache-write extension became present: %+v", ev)
+		}
+	}
+}
+
+func TestUsageEvent_RejectsNegativeProviderCounters(t *testing.T) {
+	t.Parallel()
+	var chat openai.CompletionUsage
+	if err := json.Unmarshal([]byte(`{"prompt_tokens":-1,"completion_tokens":2,"total_tokens":1}`), &chat); err != nil {
+		t.Fatal(err)
+	}
+	ev := ChatUsageEvent(chat)
+	if ev.UsagePresence.InputTokens || ev.InputTokens != 0 {
+		t.Fatalf("negative prompt count became present: %+v", ev)
+	}
+	var responsesUsage responses.ResponseUsage
+	if err := json.Unmarshal([]byte(`{"input_tokens":1,"output_tokens":-2,"total_tokens":-1}`), &responsesUsage); err != nil {
+		t.Fatal(err)
+	}
+	ev = ResponsesUsageEvent(responsesUsage)
+	if ev.UsagePresence.OutputTokens || ev.UsagePresence.TotalTokens || ev.OutputTokens != 0 || ev.TotalTokens != 0 {
+		t.Fatalf("negative response counts became present: %+v", ev)
+	}
+}
+
+func TestProviderCostNanoUnits_RejectsOverflow(t *testing.T) {
+	t.Parallel()
+	if _, ok := providerCostNanoUnits("1e100"); ok {
+		t.Fatal("overflow provider cost accepted")
+	}
+}

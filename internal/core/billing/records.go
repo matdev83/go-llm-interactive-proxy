@@ -11,6 +11,26 @@ import (
 
 const CurrentRecordSchemaVersion = 1
 
+// EvidenceFormatVersionV2 identifies the additive observation envelope carried
+// by a call-leg record. The durable record schema remains at v1: old rows keep
+// their exact payload shape and continue to use FinalBillingEvidence as a
+// compatibility projection.
+const EvidenceFormatVersionV2 = 2
+
+// EvidenceProjectionV1 labels the legacy scalar fields retained on a record
+// while the source-separated V2 observations remain the economic evidence.
+const EvidenceProjectionV1 = "v1_compatibility_projection"
+
+const (
+	// MaxCallLegEvidenceObservations bounds terminal evidence retained for one
+	// B-leg. A provider may emit many frames, but terminal accounting must stay
+	// bounded and retain a deterministic incomplete/conflict signal when the
+	// bound is reached.
+	MaxCallLegEvidenceObservations = 1024
+	MaxCallLegEvidenceRefs         = 1024
+	MaxCallLegEvidenceConflicts    = 128
+)
+
 var (
 	ErrInvalidRecord     = errors.New("billing: invalid usage record")
 	ErrReplayConflict    = errors.New("billing: replay fingerprint conflict")
@@ -65,6 +85,42 @@ type FinalBillingEvidence struct {
 	Authority        EvidenceAuthority
 	DedupeKey        string
 }
+
+// EvidenceConflict records a source-event identity that was delivered with a
+// changed payload. Exact identity/revision replays are collapsed; a changed
+// payload is retained as a visible conflict instead of being silently merged.
+// The conflict is diagnostic evidence and never becomes a charge by itself.
+type EvidenceConflict struct {
+	Identity               string                   `json:"identity"`
+	ExistingHash           string                   `json:"existing_hash"`
+	IncomingHash           string                   `json:"incoming_hash"`
+	ExistingCoverage       EconomicEvidenceCoverage `json:"existing_coverage,omitempty"`
+	ExistingCoverageReason string                   `json:"existing_coverage_reason,omitempty"`
+	IncomingCoverage       EconomicEvidenceCoverage `json:"incoming_coverage,omitempty"`
+	IncomingCoverageReason string                   `json:"incoming_coverage_reason,omitempty"`
+}
+
+func (c EvidenceConflict) valid() bool {
+	if strings.TrimSpace(c.Identity) == "" || strings.TrimSpace(c.ExistingHash) == "" || strings.TrimSpace(c.IncomingHash) == "" {
+		return false
+	}
+	if c.ExistingCoverage != "" || c.ExistingCoverageReason != "" {
+		if err := validateEconomicEvidenceCoverage(c.ExistingCoverage, c.ExistingCoverageReason); err != nil {
+			return false
+		}
+	}
+	if c.IncomingCoverage != "" || c.IncomingCoverageReason != "" {
+		if err := validateEconomicEvidenceCoverage(c.IncomingCoverage, c.IncomingCoverageReason); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (c EvidenceConflict) HasCoverageMetadata() bool {
+	return c.ExistingCoverage != "" || c.ExistingCoverageReason != "" || c.IncomingCoverage != "" || c.IncomingCoverageReason != ""
+}
+
 type TurnOutcome string
 
 const (

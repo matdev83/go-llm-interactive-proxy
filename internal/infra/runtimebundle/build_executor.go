@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
@@ -36,6 +37,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
@@ -140,6 +142,21 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			meteringRT = &meteringRuntime{Recorder: prod.MeteringRecorder, StoreBacking: "injected"}
 		}
 	}
+	var quotaStore coremetering.AccountWindowStore
+	if prod.MeteringAccountWindowStore != nil {
+		quotaStore = prod.MeteringAccountWindowStore
+	} else if meteringRT != nil {
+		quotaStore, _ = meteringRT.Recorder.(coremetering.AccountWindowStore)
+	}
+	quotaReg, err := quotaRequestRegistration(cfg, quotaStore, in.NowFn)
+	if err != nil {
+		return nil, err
+	}
+	if quotaReg != nil {
+		// Allocate a new slice so a candidate-local quota registration never
+		// mutates the caller-owned production options backing array.
+		prod.RequestRegistrations = append([]authority.RequestRegistration{*quotaReg}, prod.RequestRegistrations...)
+	}
 	interleaved := runtime.InterleavedRuntime{
 		Processor: in.InterleavedProcessor,
 	}
@@ -154,7 +171,10 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		accountingRT.AdminCountService = tokenAccounting.Counter
 	}
 	if meteringRT != nil {
+		// Recorder and sink are process-owned and borrowed by this generation;
+		// keep them paired so the sink always writes the same durable journal.
 		accountingRT.MeteringRecorder = meteringRT.Recorder
+		accountingRT.MeteringObservationSink = meteringRT.ObservationSink
 	}
 	if in.UsageAuthority != nil {
 		accountingRT.UsageAuthority = in.UsageAuthority
@@ -350,7 +370,12 @@ func billingCompositionConfigured(prod ProductionOptions) bool {
 // requireCompleteBillingComposition enforces the final all-or-none runtime seam.
 // A stock host has no billing ports; an injected host must provide every port
 // consumed by the executor plus the durable store used by process-owned workers.
+// An external monetary binding provides the same chokepoints without an
+// internal store and satisfies the seam on its own terms.
 func requireCompleteBillingComposition(prod ProductionOptions) error {
+	if externalBillingBindingConfigured(prod) {
+		return nil
+	}
 	switch {
 	case prod.BillingStore == nil:
 		return fmt.Errorf("%w: BillingStore", ErrAuthoritativeBillingRequired)

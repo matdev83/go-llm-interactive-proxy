@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,24 +14,24 @@ import (
 // handoffBillingTurn owns the request-level BillingCallID closure claim. The
 // terminal mutex remains held through the sink append so a failed append is
 // retryable while concurrent terminal paths cannot publish duplicate closures.
-func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts requestTerminalFacts, command sdkterminal.Command) {
+func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts requestTerminalFacts, command sdkterminal.Command) error {
 	if t == nil || t.appendBillingCall == nil || t.billingWorkload == nil {
-		return
+		return nil
 	}
 	t.billingClosureMu.Lock()
 	defer t.billingClosureMu.Unlock()
 	if t.appendBillingCall == nil || t.billingClosureSuccess {
-		return
+		return nil
 	}
 	if err := facts.billingCallID.Validate(); err != nil {
-		return
+		return nil
 	}
 	if !facts.identityStamped {
-		return
+		return nil
 	}
 	accountID := strings.TrimSpace(facts.accountID)
 	if accountID == "" {
-		return
+		return nil
 	}
 	ids := facts.billingState.freezeAllocatedBLegs()
 	now := t.nowTime()
@@ -39,6 +40,7 @@ func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts requestTerm
 	record := billing.CallUsageRecord{
 		SchemaVersion:      billing.CurrentRecordSchemaVersion,
 		CallID:             facts.billingCallID,
+		SubmissionID:       strings.TrimSpace(facts.submissionID),
 		AccountID:          accountID,
 		ALegID:             strings.TrimSpace(facts.aLegID),
 		SessionID:          strings.TrimSpace(facts.sessionID),
@@ -55,8 +57,13 @@ func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts requestTerm
 		if t.log != nil {
 			t.log.DebugContext(ctx, "billing call-closure seal failed", "error", err)
 		}
-		return
+		return nil
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// The frozen facts scope rides the closure even on detached contexts.
+	ctx = withTerminalScope(ctx, facts.recvViews.Scope)
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
 	err = safety.Call(safety.BoundaryStream, "billing_call_closure", func() error {
@@ -66,9 +73,10 @@ func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts requestTerm
 		if t.logBillingAppendFailure != nil {
 			t.logBillingAppendFailure(persistCtx, "billing_call_closure_append_critical", "billing call-closure append failed", err)
 		}
-		return
+		return fmt.Errorf("billing call-closure append: %w", err)
 	}
 	t.billingClosureSuccess = true
+	return nil
 }
 
 func callClosureTimes(legs []billing.CallLegUsageRecord, now time.Time) (time.Time, time.Time) {

@@ -106,3 +106,71 @@ func TestRequestCoordinator_StageAdmitUnavailablePreservesConcurrencyPrefix(t *t
 		t.Fatalf("Kind=%s want deny", d.Kind)
 	}
 }
+
+func TestRequestCoordinator_StageAdmitErrorPreservesProviderDecisionEvidence(t *testing.T) {
+	t.Parallel()
+	bound := economics.PolicySnapshotRef{VersionRef: economics.VersionRef{ID: "provider-quota", Version: "2026-01"}, PolicyID: "provider-quota"}
+	evidence := authority.SafeEvidence{
+		Category:       "provider_quota",
+		Code:           "telemetry_unavailable",
+		RuleID:         "provider-quota",
+		ProviderID:     "quota",
+		QuotaPolicyRef: &authority.QuotaPolicyRef{ID: "provider-quota", Version: "2026-01", Hash: "hash"},
+		Attrs:          map[string]string{"evidence_status": "unavailable"},
+	}
+	providerErr := errors.New("quota reader canceled")
+	quota := &fakeRequestProvider{
+		id: "quota",
+		admit: func(context.Context, authority.RequestAdmission) (authority.Decision, error) {
+			return authority.Decision{
+				Kind:          authority.DecisionDeny,
+				ProviderID:    "quota",
+				Stage:         authority.StageRequestAdmit,
+				Readiness:     authority.ReadinessUnavailable,
+				BoundVersions: []economics.PolicySnapshotRef{bound},
+				Evidence:      evidence,
+			}, providerErr
+		},
+	}
+	coord := &authoritycoord.RequestCoordinator{
+		Slots:          []authoritycoord.RequestSlot{{ID: "quota", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: quota}},
+		CleanupTimeout: time.Second,
+	}
+
+	d, err := coord.Admit(context.Background(), validRequestAdmission())
+	if err == nil {
+		t.Fatal("expected unavailable error")
+	}
+	if d.Kind != authority.DecisionDeny {
+		t.Fatalf("kind=%s want deny", d.Kind)
+	}
+	if d.Readiness != authority.ReadinessUnavailable {
+		t.Fatalf("readiness=%s want unavailable", d.Readiness)
+	}
+	if len(d.ProviderDecisions) != 1 {
+		t.Fatalf("provider decisions=%+v want one decision accompanying error", d.ProviderDecisions)
+	}
+	got := d.ProviderDecisions[0]
+	if got.Kind != authority.DecisionDeny || got.Readiness != authority.ReadinessUnavailable {
+		t.Fatalf("provider decision=%+v", got)
+	}
+	if len(got.BoundVersions) != 1 || got.BoundVersions[0] != bound {
+		t.Fatalf("provider bound versions=%+v want %+v", got.BoundVersions, bound)
+	}
+	if got.Evidence.Category != evidence.Category || got.Evidence.Code != evidence.Code || got.Evidence.Attrs["evidence_status"] != "unavailable" {
+		t.Fatalf("provider evidence=%+v", got.Evidence)
+	}
+	if d.Evidence.Category != evidence.Category || d.Evidence.Code != evidence.Code || d.Evidence.QuotaPolicyRef == nil {
+		t.Fatalf("composite evidence=%+v want provider evidence", d.Evidence)
+	}
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("error=%v must preserve provider error", err)
+	}
+	var unavailable *authoritycoord.UnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("error=%T %v must expose unavailable decision", err, err)
+	}
+	if unavailable.Decision.Evidence.Category != evidence.Category || unavailable.Decision.Readiness != authority.ReadinessUnavailable {
+		t.Fatalf("unavailable decision=%+v", unavailable.Decision)
+	}
+}

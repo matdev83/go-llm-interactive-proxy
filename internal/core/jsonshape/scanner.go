@@ -507,7 +507,8 @@ func (s *Scanner) Feed(chunk []byte) error {
 						return s.err
 					}
 				} else if s.escapeBuf[0] == 'u' {
-					if s.escapeLen == 5 {
+					switch s.escapeLen {
+					case 5:
 						r, ok := parseHex4(s.escapeBuf[1:5])
 						if !ok {
 							s.err = &Error{Kind: KindMalformed, Reason: MalformedSyntax, Msg: "malformed JSON"}
@@ -542,7 +543,7 @@ func (s *Scanner) Feed(chunk []byte) error {
 							s.strInEscape = false
 							s.escapeLen = 0
 						}
-					} else if s.escapeLen == 6 {
+					case 6:
 						if b != '\\' {
 							// not followed by escape: previous was isolated high surrogate
 							s.strDecodedBytes += 3
@@ -557,7 +558,7 @@ func (s *Scanner) Feed(chunk []byte) error {
 							s.escapeLen = 0
 							i-- // re-process b
 						}
-					} else if s.escapeLen == 7 {
+					case 7:
 						if b != 'u' {
 							s.strDecodedBytes += 3
 							if s.strIsKey {
@@ -643,7 +644,7 @@ func (s *Scanner) Feed(chunk []byte) error {
 								return s.err
 							}
 						}
-					} else if s.escapeLen == 11 {
+					case 11:
 						r1, _ := parseHex4(s.escapeBuf[1:5])
 						r2, ok := parseHex4(s.escapeBuf[7:11])
 						if !ok {
@@ -1009,12 +1010,13 @@ func (s *Scanner) Feed(chunk []byte) error {
 		}
 
 		// Check unexpected closing delimiter
-		if b == '}' {
+		switch b {
+		case '}':
 			if len(s.frames) == 0 || !s.frames[len(s.frames)-1].object {
 				s.err = &Error{Kind: KindMalformed, Reason: MalformedUnexpectedClosing, Msg: "unexpected closing delimiter"}
 				return s.err
 			}
-		} else if b == ']' {
+		case ']':
 			if len(s.frames) == 0 || s.frames[len(s.frames)-1].object {
 				s.err = &Error{Kind: KindMalformed, Reason: MalformedUnexpectedClosing, Msg: "unexpected closing delimiter"}
 				return s.err
@@ -1043,13 +1045,14 @@ func (s *Scanner) Feed(chunk []byte) error {
 				continue
 			}
 
-			if s.state == stateExpectValue {
+			switch s.state {
+			case stateExpectValue:
 				s.rootValues++
 				if s.rootValues > 1 {
 					s.err = &Error{Kind: KindMalformed, Reason: MalformedMultipleValues, Msg: "multiple JSON values"}
 					return s.err
 				}
-			} else if s.state == stateExpectArrayValueOrEnd || s.state == stateExpectArrayValue {
+			case stateExpectArrayValueOrEnd, stateExpectArrayValue:
 				frame := &s.frames[len(s.frames)-1]
 				frame.count++
 				if frame.count > s.limits.MaxArrayElems {
@@ -1336,8 +1339,10 @@ func (s *Scanner) Finish() (Result, error) {
 		return Result{}, s.err
 	}
 
-	if s.state == stateInNumber {
-		if s.numState == numStateMinus || s.numState == numStateDot || s.numState == numStateExp || s.numState == numStateExpSign {
+	switch s.state {
+	case stateInNumber:
+		switch s.numState {
+		case numStateMinus, numStateDot, numStateExp, numStateExpSign:
 			s.err = &Error{Kind: KindMalformed, Reason: MalformedIncomplete, Msg: "incomplete JSON body"}
 			return Result{}, s.err
 		}
@@ -1351,7 +1356,7 @@ func (s *Scanner) Finish() (Result, error) {
 			return Result{}, s.err
 		}
 		s.valueFinished()
-	} else if s.state == stateInLiteral {
+	case stateInLiteral:
 		if s.literalIdx < len(s.literalExpected) {
 			s.err = &Error{Kind: KindMalformed, Reason: MalformedIncomplete, Msg: "incomplete JSON body"}
 			return Result{}, s.err

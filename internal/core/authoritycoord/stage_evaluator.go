@@ -106,6 +106,7 @@ func runStageAdmit[AdmitIn any, P any](
 
 		d, err := cfg.admit(ctx, slot.provider, in)
 		if err != nil {
+			recordStageAdmitErrorDecision(&out, d)
 			fails := compensateCurrentThenPrior(ctx, timeout, stack, func(claimed *CompensationStack) {
 				cfg.pushHolds(claimed, id, slot.provider, in, d)
 			})
@@ -117,7 +118,7 @@ func runStageAdmit[AdmitIn any, P any](
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			out.Stack = *stack
-			return out, &UnavailableError{ProviderID: id, Err: err}
+			return out, &UnavailableError{ProviderID: id, Err: err, Decision: d}
 		}
 
 		reg, stage := cfg.registration(slot)
@@ -158,7 +159,7 @@ func runStageAdmit[AdmitIn any, P any](
 				return out, &DeniedError{ProviderID: id, Decision: d}
 			}
 			out.Stack = *stack
-			return out, &UnavailableError{ProviderID: id, Err: vErr}
+			return out, &UnavailableError{ProviderID: id, Err: vErr, Decision: d}
 		}
 
 		out.ProviderDecisions = append(out.ProviderDecisions, d)
@@ -208,6 +209,33 @@ func runStageAdmit[AdmitIn any, P any](
 	}
 	out.Stack = *stack
 	return out, nil
+}
+
+func recordStageAdmitErrorDecision(out *CompositeDecision, d authority.Decision) {
+	if out == nil || !stageAdmitDecisionPresent(d) {
+		return
+	}
+	out.ProviderDecisions = append(out.ProviderDecisions, d)
+	out.Readiness = authorityattribution.AggregateReadiness(out.Readiness, d.Readiness)
+	if len(d.BoundVersions) > 0 {
+		out.BoundVersions = append(out.BoundVersions, d.BoundVersions...)
+	}
+	if safeEvidencePresent(d.Evidence) {
+		out.Evidence = mergeAdvisoryEvidence(out.Evidence, d.Evidence)
+	}
+}
+
+func stageAdmitDecisionPresent(d authority.Decision) bool {
+	return d.Kind != "" || strings.TrimSpace(d.ProviderID) != "" || d.Stage != "" || d.Readiness != "" ||
+		len(d.Reservations) > 0 || len(d.Clamps) > 0 || strings.TrimSpace(d.CompensationHandle) != "" ||
+		len(d.BoundVersions) > 0 || len(d.RatingVersions) > 0 || safeEvidencePresent(d.Evidence)
+}
+
+func safeEvidencePresent(ev authority.SafeEvidence) bool {
+	return strings.TrimSpace(ev.Category) != "" || strings.TrimSpace(ev.Code) != "" ||
+		strings.TrimSpace(ev.Message) != "" || strings.TrimSpace(ev.RuleID) != "" ||
+		strings.TrimSpace(ev.ProviderID) != "" || len(ev.Attrs) > 0 || ev.QuotaPolicyRef != nil ||
+		len(ev.EvidenceRefs) > 0
 }
 
 func runStageSettle[SettleIn any, P any](

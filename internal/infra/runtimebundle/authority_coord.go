@@ -3,11 +3,44 @@ package runtimebundle
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
+	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 )
+
+// quotaRequestRegistration compiles the one optional provider quota policy
+// for the candidate generation and binds it to the nonfinancial account-window
+// reader. No registration is returned when quota is absent, preserving the
+// existing generic authority path.
+func quotaRequestRegistration(cfg *coreconfig.Config, store coremetering.AccountWindowStore, now func() time.Time) (*authority.RequestRegistration, error) {
+	if cfg == nil || cfg.Accounting.Authority.Quota == nil {
+		return nil, nil
+	}
+	policyConfig, err := cfg.Accounting.Authority.Quota.PolicyConfig()
+	if err != nil {
+		return nil, fmt.Errorf("runtimebundle: quota policy config: %w", err)
+	}
+	policy, err := authority.CompileQuotaPolicy(policyConfig)
+	if err != nil {
+		return nil, fmt.Errorf("runtimebundle: quota policy: %w", err)
+	}
+	provider, err := authoritycoord.NewQuotaRequestProvider(authoritycoord.QuotaRequestProviderConfig{
+		ID: "provider-quota:" + policy.ID(), Policy: policy, Store: store, Now: now,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("runtimebundle: quota provider: %w", err)
+	}
+	descriptor := provider.Describe()
+	return &authority.RequestRegistration{
+		Descriptor: descriptor,
+		Priority:   authority.RequestPriorityQuotaBudgetRate,
+		Provider:   provider,
+	}, nil
+}
 
 // attachAuthorityCoordinators merges descriptor-bound production registrations
 // into request/attempt coordinators (requirements 3.1–3.4, 3.7–3.9, 12.1, 12.4).

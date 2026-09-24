@@ -3,6 +3,8 @@ package economics
 import (
 	"context"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // SnapshotState classifies versioned snapshot readiness (requirement 11.7).
@@ -90,8 +92,11 @@ type PolicyRulesView struct {
 
 // RatingCatalogView is the public rating/catalog snapshot payload.
 type RatingCatalogView struct {
-	Currency       string `json:"currency,omitempty"`
-	CatalogVersion string `json:"catalog_version,omitempty"`
+	Currency            string               `json:"currency,omitempty"`
+	CatalogVersion      string               `json:"catalog_version,omitempty"`
+	Rules               []RatingRule         `json:"rules,omitempty"`
+	EffectiveQualifiers []metering.Dimension `json:"effective_qualifiers,omitempty"`
+	LegacySemantics     string               `json:"legacy_semantics,omitempty"`
 }
 
 // RuleSnapshotSource provides immutable authority or concurrency rule snapshots

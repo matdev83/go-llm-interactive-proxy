@@ -180,7 +180,7 @@ func TestSemanticFactBudget(t *testing.T) {
 	}
 
 	// nil context returns default
-	if got := largebody.SemanticFactBudget(nil); got != largebody.DefaultMaxSemanticFactBytes {
+	if got := largebody.SemanticFactBudget(nil); got != largebody.DefaultMaxSemanticFactBytes { //nolint:staticcheck // deliberately exercises nil-context default
 		t.Fatalf("SemanticFactBudget(nil) = %d, want default %d", got, largebody.DefaultMaxSemanticFactBytes)
 	}
 

@@ -13,11 +13,18 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/submission"
 )
 
 type authDecisionCtxKey struct{}
 
 func contextWithAuthDecision(ctx context.Context, d sdkauth.Decision) context.Context {
+	if ctx == nil {
+		ctx = context.TODO()
+	}
+	if d.SubmissionAuthority != nil {
+		ctx = submission.WithAuthority(ctx, d.SubmissionAuthority.Clone())
+	}
 	return context.WithValue(ctx, authDecisionCtxKey{}, d)
 }
 

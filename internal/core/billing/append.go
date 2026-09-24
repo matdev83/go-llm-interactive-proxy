@@ -43,7 +43,17 @@ type ProviderCostResolver interface {
 	ResolveProviderCost(context.Context, CallLegUsageRecord) (OperatorCostResult, error)
 }
 type CallSettlementStore interface {
+	// ApplyCallBillingResult settles one durably closed BillingCallID. An
+	// implementation must reject a constructed-but-not-appended call closure;
+	// independent retail has no provisional customer-debit contract.
 	ApplyCallBillingResult(context.Context, ApplyCallBillingInput) (CallSettlement, error)
+}
+
+// CostPassThroughSettlementStore is an optional late-adjustment seam. The
+// customer settlement store remains usable without it, preserving the
+// independent-retail path and older adapters.
+type CostPassThroughSettlementStore interface {
+	ApplyCostPassThroughRevision(context.Context, CostPassThroughRevisionInput) (CostPassThroughRevisionResult, error)
 }
 type CompleteCallClaimer interface {
 	ClaimCompleteCall(context.Context, BillingCallID) (CompleteCall, error)

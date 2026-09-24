@@ -208,8 +208,8 @@ func TestOpenResponses_ProfileSeamConfiguration(t *testing.T) {
 		if spec.Profile != dummy {
 			t.Fatalf("spec.Profile = %v, want %v", spec.Profile, dummy)
 		}
-		if spec.Config.LargePayload != lpCfg {
-			t.Fatalf("spec.Config.LargePayload = %+v, want %+v", spec.Config.LargePayload, lpCfg)
+		if spec.LargePayload != lpCfg {
+			t.Fatalf("spec.Config.LargePayload = %+v, want %+v", spec.LargePayload, lpCfg)
 		}
 		if spec.ResolveRouteSelector != nil {
 			t.Fatal("Handler must NOT configure legacy ResolveRouteSelector")
@@ -231,7 +231,7 @@ func TestOpenResponses_ProfileSeamConfiguration(t *testing.T) {
 		if spec.Profile != nil {
 			t.Fatalf("default spec.Profile = %v, want nil", spec.Profile)
 		}
-		if spec.Config.LargePayload.Enabled {
+		if spec.LargePayload.Enabled {
 			t.Fatal("default spec.Config.LargePayload.Enabled must be false")
 		}
 	})

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -27,6 +28,104 @@ type AccountingAuthorityConfig struct {
 	SnapshotVersion string                          `yaml:"snapshot_version"`
 	Query           AccountingAuthorityQueryConfig  `yaml:"query"`
 	Rules           []AccountingAuthorityRuleConfig `yaml:"rules"`
+	// Quota is an optional provider account-window authority. Its presence is
+	// the explicit opt-in; no telemetry is inferred as quota authority when it
+	// is omitted.
+	Quota *AccountingQuotaConfig `yaml:"quota"`
+}
+
+// AccountingQuotaConfig is the host-facing, YAML-friendly source form for one
+// immutable provider quota policy. It contains only nonfinancial account-window
+// identity, gauge fields, thresholds, and explicit telemetry failure actions.
+type AccountingQuotaConfig struct {
+	ID                 string                           `yaml:"id"`
+	Version            string                           `yaml:"version"`
+	Method             string                           `yaml:"method"`
+	StoreID            string                           `yaml:"store_id"`
+	TenantID           string                           `yaml:"tenant_id"`
+	ProviderAccountKey string                           `yaml:"provider_account_key"`
+	PoolID             string                           `yaml:"pool_id"`
+	WindowID           string                           `yaml:"window_id"`
+	ResetAt            string                           `yaml:"reset_at"`
+	Freshness          string                           `yaml:"freshness"`
+	Required           []metering.ComponentKey          `yaml:"required"`
+	Thresholds         []AccountingQuotaThresholdConfig `yaml:"thresholds"`
+	Failures           AccountingQuotaFailureConfig     `yaml:"failures"`
+}
+
+// AccountingQuotaThresholdConfig keeps exact decimal thresholds as text so
+// YAML never routes an allowance comparison through floating point.
+type AccountingQuotaThresholdConfig struct {
+	Kind      string                `yaml:"kind"`
+	Field     metering.ComponentKey `yaml:"field"`
+	ValueKind string                `yaml:"value_kind"`
+	Value     string                `yaml:"value"`
+}
+
+// AccountingQuotaFailureConfig makes every non-complete evidence posture
+// independently configurable. Empty actions are normalized by the policy to
+// fail closed.
+type AccountingQuotaFailureConfig struct {
+	Missing     string `yaml:"missing"`
+	Stale       string `yaml:"stale"`
+	Partial     string `yaml:"partial"`
+	Unavailable string `yaml:"unavailable"`
+	Mismatch    string `yaml:"mismatch"`
+	Future      string `yaml:"future"`
+}
+
+// PolicyConfig parses the host-facing quota policy into the public immutable
+// policy source form. CompileQuotaPolicy performs the final identity and
+// nonfinancial policy validation.
+func (q *AccountingQuotaConfig) PolicyConfig() (authority.QuotaPolicyConfig, error) {
+	if q == nil {
+		return authority.QuotaPolicyConfig{}, fmt.Errorf("accounting.authority.quota: policy is nil")
+	}
+	freshnessRaw := strings.TrimSpace(q.Freshness)
+	if freshnessRaw == "" {
+		return authority.QuotaPolicyConfig{}, fmt.Errorf("accounting.authority.quota.freshness: required")
+	}
+	freshness, err := time.ParseDuration(freshnessRaw)
+	if err != nil {
+		return authority.QuotaPolicyConfig{}, fmt.Errorf("accounting.authority.quota.freshness: invalid duration %q", q.Freshness)
+	}
+	resetRaw := strings.TrimSpace(q.ResetAt)
+	if resetRaw == "" {
+		return authority.QuotaPolicyConfig{}, fmt.Errorf("accounting.authority.quota.reset_at: required")
+	}
+	resetAt, err := time.Parse(time.RFC3339, resetRaw)
+	if err != nil {
+		return authority.QuotaPolicyConfig{}, fmt.Errorf("accounting.authority.quota.reset_at: invalid timestamp %q", q.ResetAt)
+	}
+	thresholds := make([]authority.QuotaThreshold, 0, len(q.Thresholds))
+	for i, threshold := range q.Thresholds {
+		valueRaw := strings.TrimSpace(threshold.Value)
+		if valueRaw == "" {
+			return authority.QuotaPolicyConfig{}, fmt.Errorf("accounting.authority.quota.thresholds[%d].value: required", i)
+		}
+		value, parseErr := metering.ParseDecimal(valueRaw)
+		if parseErr != nil {
+			return authority.QuotaPolicyConfig{}, fmt.Errorf("accounting.authority.quota.thresholds[%d].value: %w", i, parseErr)
+		}
+		thresholds = append(thresholds, authority.QuotaThreshold{
+			Kind: authority.QuotaThresholdKind(strings.TrimSpace(threshold.Kind)), Field: threshold.Field,
+			ValueKind: authority.QuotaValueKind(strings.TrimSpace(threshold.ValueKind)), Value: value,
+		})
+	}
+	return authority.QuotaPolicyConfig{
+		ID: strings.TrimSpace(q.ID), Version: strings.TrimSpace(q.Version), Method: strings.TrimSpace(q.Method),
+		Binding: authority.QuotaBinding{
+			StoreID: strings.TrimSpace(q.StoreID), TenantID: strings.TrimSpace(q.TenantID),
+			ProviderAccountKey: strings.TrimSpace(q.ProviderAccountKey), PoolID: strings.TrimSpace(q.PoolID),
+			WindowID: strings.TrimSpace(q.WindowID), ResetAt: resetAt.UTC(),
+		},
+		Freshness: freshness, Required: append([]metering.ComponentKey(nil), q.Required...), Thresholds: thresholds,
+		Failures: authority.QuotaFailurePolicy{
+			Missing: authority.QuotaFailureAction(strings.TrimSpace(q.Failures.Missing)), Stale: authority.QuotaFailureAction(strings.TrimSpace(q.Failures.Stale)),
+			Partial: authority.QuotaFailureAction(strings.TrimSpace(q.Failures.Partial)), Unavailable: authority.QuotaFailureAction(strings.TrimSpace(q.Failures.Unavailable)),
+			Mismatch: authority.QuotaFailureAction(strings.TrimSpace(q.Failures.Mismatch)), Future: authority.QuotaFailureAction(strings.TrimSpace(q.Failures.Future)),
+		},
+	}, nil
 }
 
 const (
@@ -298,6 +397,11 @@ func validateAccountingAuthority(cfg *Config) error {
 	if accountingCategoryRequired && strings.EqualFold(strings.TrimSpace(cfg.ControlPlane.RecordingPolicy), "required_pre_work") && !auth.Enabled {
 		return fmt.Errorf("accounting.authority.enabled: must be true when accounting_authority is required under required_pre_work")
 	}
+	if auth.Quota != nil {
+		if err := validateAccountingQuota(auth.Quota); err != nil {
+			return err
+		}
+	}
 	if !auth.Enabled {
 		if auth.Query.Enabled {
 			return fmt.Errorf("accounting.authority.enabled: must be true when accounting.authority.query.enabled is true")
@@ -441,6 +545,17 @@ func validateAccountingAuthority(cfg *Config) error {
 	}
 	if err := domainCfg.Validate(); err != nil {
 		return fmt.Errorf("accounting.authority: %w", err)
+	}
+	return nil
+}
+
+func validateAccountingQuota(quota *AccountingQuotaConfig) error {
+	policyConfig, err := quota.PolicyConfig()
+	if err != nil {
+		return err
+	}
+	if _, err := authority.CompileQuotaPolicy(policyConfig); err != nil {
+		return fmt.Errorf("accounting.authority.quota: %w", err)
 	}
 	return nil
 }

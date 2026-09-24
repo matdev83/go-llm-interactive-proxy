@@ -30,6 +30,9 @@ type ChargePolicy struct {
 	IncludeOutputTokens    bool
 	IncludeFixedCharges    bool
 	IncludeResourceCharges bool
+	// Retail freezes the request-scoped B-leg selection used for customer
+	// inference quantities. A zero value migrates from Scope for compatibility.
+	Retail *RetailSelectionPolicy
 }
 type PricingSnapshot struct {
 	Ref                  VersionRef
@@ -74,6 +77,10 @@ type MaxCostBound struct {
 	PricingRef      VersionRef
 	ChargePolicyRef VersionRef
 	Basis           []BoundComponent
+	// RouteTariffs carries the frozen per-route customer tariff bindings
+	// actually used to form a rich quote. Empty on the legacy scalar path
+	// and on strict-ceiling fallback bounds, which carry no tariff material.
+	RouteTariffs []RouteTariffBinding
 }
 
 func (p ChargePolicy) Validate() error {
@@ -86,8 +93,15 @@ func (p ChargePolicy) Validate() error {
 	if p.Scope != ChargeSurfacedTurn && p.Scope != ChargeAllPotentialLegs {
 		return fmt.Errorf("%w: unsupported charging scope %q", ErrEstimateInvalid, p.Scope)
 	}
-	if !p.IncludeInputTokens && !p.IncludeOutputTokens && !p.IncludeFixedCharges && !p.IncludeResourceCharges {
+	retail, err := ResolveRetailSelectionPolicy(p)
+	if err != nil {
+		return fmt.Errorf("%w: retail policy: %w", ErrEstimateInvalid, err)
+	}
+	if !p.IncludeInputTokens && !p.IncludeOutputTokens && !p.IncludeFixedCharges && !p.IncludeResourceCharges && retail.Basis != RetailBasisCostPassThrough {
 		return fmt.Errorf("%w: policy has no chargeable dimensions", ErrEstimateInvalid)
+	}
+	if err := retail.Validate(); err != nil {
+		return fmt.Errorf("%w: retail policy: %w", ErrEstimateInvalid, err)
 	}
 	return nil
 }
@@ -112,12 +126,29 @@ func EstimateMaxCustomerCharge(in MaxChargeInput) (MaxCostBound, error) {
 	if err := in.Policy.Validate(); err != nil {
 		return MaxCostBound{}, err
 	}
+	retail, err := ResolveRetailSelectionPolicy(in.Policy)
+	if err != nil {
+		return MaxCostBound{}, err
+	}
 	currency := strings.TrimSpace(in.Currency)
 	if currency == "" {
 		return MaxCostBound{}, fmt.Errorf("%w: currency is required", ErrEstimateInvalid)
 	}
 	if in.InputTokens < 0 {
 		return MaxCostBound{}, fmt.Errorf("%w: quantities cannot be negative", ErrEstimateInvalid)
+	}
+	if retail.Basis == RetailBasisCostPassThrough {
+		if retail.CostPassThrough == nil || retail.CostPassThrough.SafeBound == nil {
+			return MaxCostBound{}, fmt.Errorf("%w: explicit cost-pass-through safe bound is required", ErrEstimateInvalid)
+		}
+		bound := *retail.CostPassThrough.SafeBound
+		if bound.Currency != currency {
+			return MaxCostBound{}, fmt.Errorf("%w: safe bound currency %q want %q", ErrEstimateCurrency, bound.Currency, currency)
+		}
+		return MaxCostBound{
+			Amount: bound, PricingRef: in.Policy.PricingRef, ChargePolicyRef: in.Policy.Ref,
+			Basis: []BoundComponent{{Kind: "cost_pass_through_safe_bound", Name: "safe_bound", Amount: bound}},
+		}, nil
 	}
 	if in.Policy.IncludeInputTokens && !in.InputTokensPresent {
 		return ceilingOrError(in, ErrEstimateUnbounded)
@@ -158,7 +189,7 @@ func EstimateMaxCustomerCharge(in MaxChargeInput) (MaxCostBound, error) {
 		bounds = append(bounds, bound)
 	}
 	selected := bounds[0]
-	if in.Policy.Scope == ChargeAllPotentialLegs {
+	if in.Policy.Scope == ChargeAllPotentialLegs || retail.Mode == RetailSelectionAllAttributable {
 		var total int64
 		basis := make([]BoundComponent, 0)
 		for _, b := range bounds {

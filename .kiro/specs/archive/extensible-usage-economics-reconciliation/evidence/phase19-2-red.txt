@@ -1,0 +1,82 @@
+Phase 19.2 RED evidence (before the minimal fixes)
+
+Source notes
+- "exact log" entries are copied from retained raw logs under %TEMP%\opencode\.
+- "transcribed" entries were captured from the executing session console; the raw
+  file was not retained for that run and the text is reproduced verbatim from the
+  session output.
+
+=== RED 1 (transcribed): first full-package race run, pre-fix ===
+command:
+  WSL2 bash -c 'go test -race -tags=precommit,integration -count=1 -timeout=30m
+    ./internal/infra/billingstore/ ./internal/core/billing/
+    ./internal/infra/metering/journalstore/ ./internal/infra/terminalwork/workstore/'
+observed:
+  --- FAIL: TestF2BConcurrentEnqueueSerialized (12.26s)
+      cutover_economic_f2b_test.go:606: final economic pending = 2, want 0 (all pre-gate completed)
+  --- FAIL: TestSQLiteClaimCompleteCallsYieldsLargeIncompletePrefix (22.34s)
+      call_usage_store_test.go:131: second scan claimed = [], want complete call bc_174e78190cd0dd0295602aca417ad831
+  FAIL
+  FAIL github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingstore 1116.317s
+
+=== RED 2 (transcribed): isolated claim-prefix race failure, pre-fix ===
+command:
+  WSL2 bash -c 'go test -race -tags=precommit,integration -count=1 -timeout=20m
+    -v -run "TestSQLiteClaimCompleteCallsYieldsLargeIncompletePrefix" ./internal/infra/billingstore/'
+observed:
+  === RUN   TestSQLiteClaimCompleteCallsYieldsLargeIncompletePrefix
+  --- FAIL: TestSQLiteClaimCompleteCallsYieldsLargeIncompletePrefix (7.96s)
+  FAIL
+  FAIL github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingstore 7.990s
+
+=== RED 3 (exact log: ph192-race-rep2.log, pre-DSN-fix) ===
+command:
+  WSL2 bash -c 'go test -race -tags=precommit,integration -count=1 -timeout=40m
+    ./internal/infra/billingstore/'   (two such runs launched concurrently)
+observed:
+  --- FAIL: TestPostJournalTransactionConcurrentDistinctReversalsRejectAllButOne (57.58s)
+      journal_store_test.go:312: unexpected concurrent reversal error: billingstore: insert journal transaction: database table is locked: database is deadlocked (6)
+  FAIL
+  FAIL github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingstore 1282.318s
+
+=== RED 4 (exact log: ph192-race-rep3.log, pre-DSN-fix) ===
+same command as RED 3, concurrent companion run:
+  --- FAIL: TestPostJournalTransactionConcurrentDistinctReversalsRejectAllButOne (54.31s)
+      journal_store_test.go:312: unexpected concurrent reversal error: billingstore: insert journal transaction: database table is locked: database is deadlocked (6)
+  FAIL
+  FAIL github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingstore 1290.462s
+
+=== RED 5 (exact log: ph192-final-race-billingstore.log, after DSN parity, before Defer retries) ===
+command:
+  WSL2 bash -c 'go test -race -tags=precommit,integration -count=1 -timeout=45m
+    ./internal/infra/billingstore/'   (concurrent with the runtime/billing scoped race run)
+observed:
+  --- FAIL: TestSQLiteDeferProviderCostWorkAtomicUnderConcurrency (10.83s)
+      r2_persistence_remediation_test.go:93: billingstore: begin provider-cost defer: database table is locked (262)
+  --- FAIL: TestSQLiteDeferUsageAppendAtomicUnderConcurrency (10.80s)
+      r2_persistence_remediation_test.go:130: billingstore: begin usage append defer: database table is locked (262)
+  FAIL
+  FAIL github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingstore 1156.479s
+
+=== RED 6 (transcribed): Codex connector is not buildable on Linux ===
+command:
+  WSL2 bash -c 'cd connectors/codex && go build ./cmd/lip-backend-codex'
+observed:
+  internal/codex/stream.go:510:19: undefined: AccountWindowSnapshot
+  internal/codex/attempt.go:223:41: undefined: AccountWindowSnapshotSource
+  ... (10 errors)
+cause: connectors/codex/internal/codex/account_windows.go (and its _windows_test.go)
+carried a GOOS-suffixed filename without a build tag, so the whole package is
+excluded from Linux builds and tests.
+
+=== RED 7 (exact log: ph192-qa.log, pre-fix make qa) ===
+command: make qa
+observed (quality-checks-fast):
+  taskrunner label="quality-checks:adhoc-goroutines" outcome=child_failure exit=1
+    ERROR: disallowed explicit goroutine spawn in non-test code ...
+      internal/core/billing/economic_revision_worker.go
+      internal/infra/runtimebundle/observation_economic_bridge.go
+  taskrunner label="quality-checks:lint" outcome=child_failure exit=1
+    FAILED: connectors/codex
+      account_window_snapshots_test.go:10: ... missing the call to method parallel (paralleltest)
+      (6 issues in connectors/codex; surfaced once the renamed file made the module linted on Linux)

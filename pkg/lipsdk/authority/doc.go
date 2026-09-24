@@ -5,6 +5,11 @@
 // policydecision and controlplane for EvidenceSink (no cycles).
 // Implementations and stores live outside this package (Phase 6+ / 8).
 //
+// QuotaPolicy is an optional nonfinancial authority contract for persisted
+// provider account-window gauges. It retains the provider account/pool/window
+// reset binding, freshness and evidence status, but never represents money,
+// provider request debits, payable postings or customer credit.
+//
 // Boundary rules:
 //   - Must not import internal/*, database/sql, net/http, or provider SDKs.
 //   - Must not reference Executor or runtimebundle types.

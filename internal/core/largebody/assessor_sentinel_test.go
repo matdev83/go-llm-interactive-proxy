@@ -269,8 +269,10 @@ func (s *ReplayBytesSentinel) Touched() bool { return s.touched.Load() > 0 }
 func (s *ReplayBytesSentinel) Count() int64  { return s.touched.Load() }
 func (s *ReplayBytesSentinel) Reset()        { s.touched.Store(0) }
 
-var _ largebody.Source = (*ReplayBytesSentinel)(nil)
-var _ io.Reader = (*ReplayBytesSentinel)(nil)
+var (
+	_ largebody.Source = (*ReplayBytesSentinel)(nil)
+	_ io.Reader        = (*ReplayBytesSentinel)(nil)
+)
 
 // -----------------------------------------------------------------------------
 // 7. ClientWaitSentinel

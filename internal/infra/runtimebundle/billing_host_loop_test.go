@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -94,7 +95,7 @@ func TestBillingHostLoop(t *testing.T) {
 	if executor.BillingExposureAdmission == nil {
 		t.Fatal("exposure generation must expose operational admission")
 	}
-	injectBillingHostLoopUsageBackend(t, executor)
+	injectBillingHostLoopUsageBackend(t, executor, true)
 
 	execCtx := scope.WithScope(ctx, scope.PrincipalScopeView{
 		PrincipalID: scope.Known(accountID),
@@ -134,8 +135,10 @@ func TestBillingHostLoop(t *testing.T) {
 	if !complete.Legs[0].Evidence.InputTokens.Present || !complete.Legs[0].Evidence.OutputTokens.Present {
 		t.Fatalf("durable leg missing input+output: %+v", complete.Legs[0].Evidence)
 	}
-	if complete.Legs[0].Evidence.Cost.Present {
-		t.Fatalf("stream price leaked onto independent LUR: %+v", complete.Legs[0].Evidence)
+	if !complete.Legs[0].Evidence.Cost.Present || complete.Legs[0].Evidence.Cost.NanoUnits != billingHostLoopOperatorNano ||
+		complete.Legs[0].Evidence.Cost.Currency != "USD" || complete.Legs[0].Evidence.Source != billing.EvidenceSourceProviderReported ||
+		complete.Legs[0].Evidence.Authority != billing.EvidenceAuthorityAuthoritative {
+		t.Fatalf("durable leg missing authoritative provider cost: %+v", complete.Legs[0].Evidence)
 	}
 
 	report := waitBillingHostLoopProviderCost(t, store, accountID)
@@ -335,7 +338,7 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 	if executor.BillingExposureAdmission == nil {
 		t.Fatal("exposure generation must expose operational admission")
 	}
-	injectBillingHostLoopUsageBackend(t, executor)
+	injectBillingHostLoopUsageBackend(t, executor, false)
 
 	execCtx := scope.WithScope(ctx, scope.PrincipalScopeView{
 		PrincipalID: scope.Known(accountID),
@@ -415,7 +418,7 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OperatorCostReport after provider failure: %v", err)
 		}
-		if stateErr == nil && state.Status == "pending" && state.AttemptCount >= 1 && strings.Contains(state.LastError, "exact_operator_rate_unavailable") && providerReport.UnreconciledCosts == 1 {
+		if stateErr == nil && state.Status == "pending" && state.AttemptCount >= 1 && strings.Contains(state.LastError, "provider_money_unavailable") && providerReport.UnreconciledCosts == 1 {
 			workState = state
 			break
 		}
@@ -425,7 +428,7 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 		case <-ticker.C:
 		}
 	}
-	if workState.Status != "pending" || workState.AttemptCount < 1 || !strings.Contains(workState.LastError, "exact_operator_rate_unavailable") {
+	if workState.Status != "pending" || workState.AttemptCount < 1 || !strings.Contains(workState.LastError, "provider_money_unavailable") {
 		t.Fatalf("provider-cost retry state = %+v, want pending with recorded unavailable-rate failure", workState)
 	}
 	if providerReport.UnreconciledCosts != 1 {
@@ -458,7 +461,7 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCallExposure after provider failure: %v", err)
 	}
-	if afterExposure != exposure || afterExposure.IsOpen() {
+	if !reflect.DeepEqual(afterExposure, exposure) || afterExposure.IsOpen() {
 		t.Fatalf("provider failure mutated/reopened customer exposure: before=%+v after=%+v", exposure, afterExposure)
 	}
 }
@@ -662,14 +665,14 @@ func hostActiveExecutor(t *testing.T, host *runtimebundle.Host) *coreruntime.Exe
 	return ex
 }
 
-func injectBillingHostLoopUsageBackend(t *testing.T, executor *coreruntime.Executor) *atomic.Int32 {
+func injectBillingHostLoopUsageBackend(t *testing.T, executor *coreruntime.Executor, authoritativeCost bool) *atomic.Int32 {
 	t.Helper()
 	var opens atomic.Int32
 	be := execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			opens.Add(1)
-			return lipapi.NewFixedEventStream(billingHostLoopUsageEvents()), nil
+			return newBillingHostLoopUsageStream(authoritativeCost), nil
 		},
 	}
 	if executor.Backends == nil {
@@ -704,7 +707,7 @@ func injectBillingHostLoopFailoverBackends(t *testing.T, executor *coreruntime.E
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			opens.Add(1)
-			return lipapi.NewFixedEventStream(billingHostLoopUsageEvents()), nil
+			return newBillingHostLoopUsageStream(true), nil
 		},
 	}
 	if executor.Backends == nil {
@@ -728,6 +731,44 @@ func injectBillingHostLoopFailoverBackends(t *testing.T, executor *coreruntime.E
 		t.Fatalf("CapsResolver type %T cannot accept failover backend caps", executor.CapsResolver)
 	}
 	return &opens
+}
+
+type billingHostLoopUsageStream struct {
+	*lipapi.FixedEventStream
+	evidence []lipapi.Event
+}
+
+func newBillingHostLoopUsageStream(authoritativeCost bool) *billingHostLoopUsageStream {
+	// Provider cost is host-only evidence: the client-facing stream remains
+	// price-free while billing receives an authoritative provider report.
+	stream := &billingHostLoopUsageStream{
+		FixedEventStream: lipapi.NewFixedEventStream(billingHostLoopUsageEvents()),
+	}
+	if authoritativeCost {
+		stream.evidence = []lipapi.Event{{
+			Kind:          lipapi.EventUsageDelta,
+			CostNanoUnits: billingHostLoopOperatorNano,
+			Currency:      "USD",
+			CostSource:    string(lipapi.UsageSourceProviderReported),
+			CostPresent:   true,
+			Accounting: lipapi.UsageAccountingMetadata{
+				Plane:     lipapi.UsagePlaneProviderBillable,
+				Source:    lipapi.UsageSourceProviderReported,
+				Authority: lipapi.UsageAuthorityAuthoritative,
+				DedupeKey: "billing-host-loop:provider-cost",
+			},
+		}}
+	}
+	return stream
+}
+
+func (s *billingHostLoopUsageStream) DrainUsageEvidence() []lipapi.Event {
+	if s == nil || len(s.evidence) == 0 {
+		return nil
+	}
+	out := append([]lipapi.Event(nil), s.evidence...)
+	s.evidence = nil
+	return out
 }
 
 //nolint:revive // test helper takes *testing.T as first argument
@@ -768,7 +809,7 @@ func startBillingHostLoopHost(
 	}
 	hostServeCleanup(t, host)
 	executor := hostActiveExecutor(t, host)
-	opens := injectBillingHostLoopUsageBackend(t, executor)
+	opens := injectBillingHostLoopUsageBackend(t, executor, false)
 	return executor, opens
 }
 

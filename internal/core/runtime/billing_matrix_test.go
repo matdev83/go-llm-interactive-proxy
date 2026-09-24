@@ -225,16 +225,18 @@ func TestB2BUABillingMatrix(t *testing.T) {
 
 	// 5. Rate using ChargeAllPotentialLegs policy:
 	// All potential billable legs should be sum-charged.
-	// Billable legs are all accepted legs (winner/loser/failed/canceled/never-started with evidence, etc.):
+	// Billable legs are all executed accepted legs (winner/loser/failed/canceled
+	// with evidence, etc.). Never-started shells are excluded even if a fixture
+	// happens to carry legacy evidence.
 	// Let's see:
-	// - Seq 1: LegOutcomeNeverStarted (cost 0, but input tokens 1,000,000 present, backend back-expensive -> 5000)
+	// - Seq 1: LegOutcomeNeverStarted (excluded; never-started shells are not payable)
 	// - Seq 2: LegOutcomeFailed (input tokens 1,000,000 present, backend back-expensive -> 5000)
 	// - Seq 3: LegOutcomeSwallowed (input tokens 1,000,000 present, backend back-expensive -> 5000)
 	// - Seq 4: LegOutcomeLoser (input tokens 1,000,000 present, backend back-cheap -> 10)
 	// - Seq 5: LegOutcomeWinner (input tokens 1,000,000 present, backend back-cheap -> 10)
 	// - Seq 6: LegOutcomeWinner (input tokens 1,000,000 present, backend back-cheap -> 10)
 	// - Seq 7: LegOutcomeWinner (input tokens 1,000,000 present, backend back-zero -> 0)
-	// Total expected charge = 5000 + 5000 + 5000 + 10 + 10 + 10 + 0 = 15030 nano units.
+	// Total expected charge = 5000 + 5000 + 10 + 10 + 10 + 0 = 10030 nano units.
 	policyChargeAll := billing.ChargePolicy{
 		Ref:                 policyRef,
 		PricingRef:          pricingRef,
@@ -255,7 +257,7 @@ func TestB2BUABillingMatrix(t *testing.T) {
 		t.Fatalf("RateCall charge-all policy failed: %v", err)
 	}
 
-	if resultChargeAll.CustomerCharge.Nano != 15030 {
-		t.Fatalf("expected CustomerCharge for charge-all to be 15030, got %d", resultChargeAll.CustomerCharge.Nano)
+	if resultChargeAll.CustomerCharge.Nano != 10030 {
+		t.Fatalf("expected CustomerCharge for charge-all to be 10030, got %d", resultChargeAll.CustomerCharge.Nano)
 	}
 }

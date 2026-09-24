@@ -191,6 +191,16 @@
   },
   {
     "category": "const",
+    "name": "DefaultMaxEconomicEvidencePerAttempt",
+    "detail": "DefaultMaxEconomicEvidencePerAttempt uint64 = 1024"
+  },
+  {
+    "category": "const",
+    "name": "DefaultMaxEconomicObservationBytes",
+    "detail": "DefaultMaxEconomicObservationBytes uint64 = 65536"
+  },
+  {
+    "category": "const",
     "name": "DefaultMaxMessageBytes",
     "detail": "DefaultMaxMessageBytes uint64 = 4194304"
   },
@@ -371,13 +381,43 @@
   },
   {
     "category": "const",
+    "name": "EvidenceCoverageComplete",
+    "detail": "EvidenceCoverageComplete backendplugin.EvidenceCoverage = \"complete\""
+  },
+  {
+    "category": "const",
+    "name": "EvidenceCoveragePartial",
+    "detail": "EvidenceCoveragePartial backendplugin.EvidenceCoverage = \"partial\""
+  },
+  {
+    "category": "const",
+    "name": "EvidenceCoverageUnsupported",
+    "detail": "EvidenceCoverageUnsupported backendplugin.EvidenceCoverage = \"unsupported\""
+  },
+  {
+    "category": "const",
     "name": "FeatureAccountingEvidence",
     "detail": "FeatureAccountingEvidence untyped string = \"accounting_evidence_sideband\""
   },
   {
     "category": "const",
+    "name": "FeatureAccountingEvidenceV2",
+    "detail": "FeatureAccountingEvidenceV2 untyped string = \"accounting_evidence_v2\""
+  },
+  {
+    "category": "const",
     "name": "FeatureCancellationHandshake",
     "detail": "FeatureCancellationHandshake untyped string = \"cancellation_handshake_v1\""
+  },
+  {
+    "category": "const",
+    "name": "FeatureEconomicEvidenceV2",
+    "detail": "FeatureEconomicEvidenceV2 untyped string = \"accounting_evidence_v2\""
+  },
+  {
+    "category": "const",
+    "name": "FeatureEconomicsV2",
+    "detail": "FeatureEconomicsV2 untyped string = \"accounting_evidence_v2\""
   },
   {
     "category": "const",
@@ -536,8 +576,23 @@
   },
   {
     "category": "const",
+    "name": "ProtocolMinorAccountingEvidenceV2",
+    "detail": "ProtocolMinorAccountingEvidenceV2 uint32 = 9"
+  },
+  {
+    "category": "const",
     "name": "ProtocolMinorCancellationHandshake",
     "detail": "ProtocolMinorCancellationHandshake uint32 = 8"
+  },
+  {
+    "category": "const",
+    "name": "ProtocolMinorEconomicEvidenceV2",
+    "detail": "ProtocolMinorEconomicEvidenceV2 uint32 = 9"
+  },
+  {
+    "category": "const",
+    "name": "ProtocolMinorEconomicsV2",
+    "detail": "ProtocolMinorEconomicsV2 uint32 = 9"
   },
   {
     "category": "const",
@@ -727,6 +782,18 @@
   {
     "category": "field",
     "name": "AccountingEvidence.TotalTokens"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidenceV2.Coverage"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidenceV2.CoverageReason"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidenceV2.Observation"
   },
   {
     "category": "field",
@@ -1034,6 +1101,10 @@
   },
   {
     "category": "field",
+    "name": "FactoryDescriptor.SupportsAccountingEvidenceV2"
+  },
+  {
+    "category": "field",
     "name": "FactoryDescriptor.SupportsCountTokens"
   },
   {
@@ -1083,6 +1154,10 @@
   {
     "category": "field",
     "name": "FinalizeBillingRequest.Reason"
+  },
+  {
+    "category": "field",
+    "name": "FinalizeBillingResponse.AccountingV2"
   },
   {
     "category": "field",
@@ -1742,6 +1817,10 @@
   },
   {
     "category": "field",
+    "name": "ResolvedProfile.SupportsAccountingEvidenceV2"
+  },
+  {
+    "category": "field",
     "name": "ResolvedProfile.SupportsCountTokens"
   },
   {
@@ -1827,6 +1906,10 @@
   {
     "category": "field",
     "name": "ServerFrame.Accounting"
+  },
+  {
+    "category": "field",
+    "name": "ServerFrame.AccountingV2"
   },
   {
     "category": "field",
@@ -1933,9 +2016,87 @@
     "name": "UsageEvidence.TotalTokens"
   },
   {
+    "category": "field",
+    "name": "V1EvidenceIdentity.Correlation"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.MappingRef"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.ObservationID"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.ObservedAt"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.ReceivedAt"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.Revision"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.Scope"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.Sequence"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.SourceEventKey"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.StoreID"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.StreamID"
+  },
+  {
+    "category": "field",
+    "name": "V1EvidenceIdentity.Subject"
+  },
+  {
     "category": "func",
     "name": "AccessScopeFromLipsdk",
     "detail": "func AccessScopeFromLipsdk(s lipsdk.BackendAccessScope) (AccessScope, error)"
+  },
+  {
+    "category": "func",
+    "name": "AccountingEvidenceNegotiated",
+    "detail": "func AccountingEvidenceNegotiated(neg Negotiation) bool"
+  },
+  {
+    "category": "func",
+    "name": "AccountingEvidenceV2FromProto",
+    "detail": "func AccountingEvidenceV2FromProto(p *backendpluginv1.AccountingEvidenceV2) (AccountingEvidenceV2, error)"
+  },
+  {
+    "category": "func",
+    "name": "AccountingEvidenceV2FromProtoPtr",
+    "detail": "func AccountingEvidenceV2FromProtoPtr(p *backendpluginv1.AccountingEvidenceV2) (*AccountingEvidenceV2, error)"
+  },
+  {
+    "category": "func",
+    "name": "AccountingEvidenceV2FromV1",
+    "detail": "func AccountingEvidenceV2FromV1(e AccountingEvidence, id V1EvidenceIdentity) (AccountingEvidenceV2, error)"
+  },
+  {
+    "category": "func",
+    "name": "AccountingEvidenceV2Negotiated",
+    "detail": "func AccountingEvidenceV2Negotiated(neg Negotiation) bool"
+  },
+  {
+    "category": "func",
+    "name": "AccountingEvidenceV2ToProto",
+    "detail": "func AccountingEvidenceV2ToProto(e *AccountingEvidenceV2) (*backendpluginv1.AccountingEvidenceV2, error)"
   },
   {
     "category": "func",
@@ -2064,6 +2225,36 @@
   },
   {
     "category": "func",
+    "name": "EconomicDecimalV2FromProto",
+    "detail": "func EconomicDecimalV2FromProto(p *backendpluginv1.EconomicDecimalV2) (metering.Decimal, error)"
+  },
+  {
+    "category": "func",
+    "name": "EconomicDecimalV2ToProto",
+    "detail": "func EconomicDecimalV2ToProto(d metering.Decimal) (*backendpluginv1.EconomicDecimalV2, error)"
+  },
+  {
+    "category": "func",
+    "name": "EconomicEvidenceV2Negotiated",
+    "detail": "func EconomicEvidenceV2Negotiated(neg Negotiation) bool"
+  },
+  {
+    "category": "func",
+    "name": "EconomicObservationV2FromProto",
+    "detail": "func EconomicObservationV2FromProto(p *backendpluginv1.EconomicObservationV2) (metering.Observation, error)"
+  },
+  {
+    "category": "func",
+    "name": "EconomicObservationV2ToProto",
+    "detail": "func EconomicObservationV2ToProto(o metering.Observation) (*backendpluginv1.EconomicObservationV2, error)"
+  },
+  {
+    "category": "func",
+    "name": "EconomicsV2Negotiated",
+    "detail": "func EconomicsV2Negotiated(neg Negotiation) bool"
+  },
+  {
+    "category": "func",
     "name": "FinalizeBillingRequestFromProto",
     "detail": "func FinalizeBillingRequestFromProto(p *backendpluginv1.FinalizeBillingRequest) (FinalizeBillingRequest, error)"
   },
@@ -2144,6 +2335,11 @@
   },
   {
     "category": "func",
+    "name": "LiftAccountingEvidenceV1",
+    "detail": "func LiftAccountingEvidenceV1(e AccountingEvidence, id V1EvidenceIdentity) (AccountingEvidenceV2, error)"
+  },
+  {
+    "category": "func",
     "name": "ListModelsResponseFromProto",
     "detail": "func ListModelsResponseFromProto(p *backendpluginv1.ListModelsResponse) (ListModelsResponse, error)"
   },
@@ -2181,6 +2377,21 @@
     "category": "func",
     "name": "NewGRPCServer",
     "detail": "func NewGRPCServer(offer ProtocolOffer, svc Service) *GRPCServer"
+  },
+  {
+    "category": "func",
+    "name": "NewUsageEvidenceBuffer",
+    "detail": "func NewUsageEvidenceBuffer() *UsageEvidenceBuffer"
+  },
+  {
+    "category": "func",
+    "name": "ObservationV2FromProto",
+    "detail": "func ObservationV2FromProto(p *backendpluginv1.EconomicObservationV2) (metering.Observation, error)"
+  },
+  {
+    "category": "func",
+    "name": "ObservationV2ToProto",
+    "detail": "func ObservationV2ToProto(o metering.Observation) (*backendpluginv1.EconomicObservationV2, error)"
   },
   {
     "category": "func",
@@ -2316,6 +2527,11 @@
     "category": "func",
     "name": "RawJSONToProto",
     "detail": "func RawJSONToProto(r RawJSON) *backendpluginv1.RawJSONValue"
+  },
+  {
+    "category": "func",
+    "name": "RequireAccountingEvidenceV2",
+    "detail": "func RequireAccountingEvidenceV2(neg Negotiation) error"
   },
   {
     "category": "func",
@@ -2493,6 +2709,15 @@
   },
   {
     "category": "method",
+    "name": "AccountingEvidenceV2.Validate",
+    "detail": "func (e AccountingEvidenceV2) Validate() error"
+  },
+  {
+    "category": "method",
+    "name": "AccountingEvidenceV2Source.DrainAccountingEvidenceV2"
+  },
+  {
+    "category": "method",
     "name": "BillingFinalizer.FinalizeBilling"
   },
   {
@@ -2520,6 +2745,10 @@
   {
     "category": "method",
     "name": "ConfiguredInstance.Resolve"
+  },
+  {
+    "category": "method",
+    "name": "EconomicEvidenceSource.DrainEconomicEvidence"
   },
   {
     "category": "method",
@@ -2693,6 +2922,26 @@
   },
   {
     "category": "method",
+    "name": "UsageEvidenceBuffer.AccountingEvidenceEnabled",
+    "detail": "func (b *UsageEvidenceBuffer) AccountingEvidenceEnabled() bool"
+  },
+  {
+    "category": "method",
+    "name": "UsageEvidenceBuffer.AddUsageEvent",
+    "detail": "func (b *UsageEvidenceBuffer) AddUsageEvent(event lipapi.Event, fallbackDedupeKey string)"
+  },
+  {
+    "category": "method",
+    "name": "UsageEvidenceBuffer.DrainAccountingEvidence",
+    "detail": "func (b *UsageEvidenceBuffer) DrainAccountingEvidence() []AccountingEvidence"
+  },
+  {
+    "category": "method",
+    "name": "UsageEvidenceBuffer.SetEnabled",
+    "detail": "func (b *UsageEvidenceBuffer) SetEnabled(enabled bool)"
+  },
+  {
+    "category": "method",
     "name": "frameSequencer.Err",
     "detail": "func (s *frameSequencer) Err() error"
   },
@@ -2730,6 +2979,11 @@
     "category": "struct",
     "name": "AccountingEvidence",
     "detail": "AccountingEvidence struct {\n\tInputTokens      *int64\n\tOutputTokens     *int64\n\tCacheReadTokens  *int64\n\tCacheWriteTokens *int64\n\tReasoningTokens  *int64\n\tTotalTokens      *int64\n\tPresence         UsagePresence\n\tSource           AccountingSource\n\tAuthority        AccountingAuthority\n\tPlane            AccountingPlane\n\tDedupeKey        string\n}"
+  },
+  {
+    "category": "struct",
+    "name": "AccountingEvidenceV2",
+    "detail": "AccountingEvidenceV2 struct {\n\tObservation    metering.Observation\n\tCoverage       EvidenceCoverage\n\tCoverageReason string\n}"
   },
   {
     "category": "struct",
@@ -2784,7 +3038,7 @@
   {
     "category": "struct",
     "name": "FactoryDescriptor",
-    "detail": "FactoryDescriptor struct {\n\tKind                      string\n\tDisplayName               string\n\tDescription               string\n\tCredentialMode            CredentialMode\n\tAccessScope               AccessScope\n\tRoutePrefixes             []string\n\tSupportsCountTokens       bool\n\tSupportsFinalizeBilling   bool\n\tSupportsDynamicInventory  bool\n\tSupportsModelAwareProfile bool\n\tProcessSharing            ProcessSharing\n\tExperimental              bool\n\tDeprecated                bool\n\tStaticCapabilities        CapabilitySummary\n\tTransportCapabilities     TransportCapabilitySummary\n}"
+    "detail": "FactoryDescriptor struct {\n\tKind                      string\n\tDisplayName               string\n\tDescription               string\n\tCredentialMode            CredentialMode\n\tAccessScope               AccessScope\n\tRoutePrefixes             []string\n\tSupportsCountTokens       bool\n\tSupportsFinalizeBilling   bool\n\tSupportsDynamicInventory  bool\n\tSupportsModelAwareProfile bool\n\tProcessSharing            ProcessSharing\n\tExperimental              bool\n\tDeprecated                bool\n\tStaticCapabilities        CapabilitySummary\n\tTransportCapabilities     TransportCapabilitySummary\n\n\tSupportsAccountingEvidenceV2 bool\n}"
   },
   {
     "category": "struct",
@@ -2799,7 +3053,7 @@
   {
     "category": "struct",
     "name": "FinalizeBillingResponse",
-    "detail": "FinalizeBillingResponse struct {\n\tUsage           UsageEvidence\n\tEvidenceQuality string\n}"
+    "detail": "FinalizeBillingResponse struct {\n\tUsage           UsageEvidence\n\tEvidenceQuality string\n\n\tAccountingV2 []AccountingEvidenceV2\n}"
   },
   {
     "category": "struct",
@@ -2934,7 +3188,7 @@
   {
     "category": "struct",
     "name": "ResolvedProfile",
-    "detail": "ResolvedProfile struct {\n\tCapabilities             CapabilitySummary\n\tTransportCapabilities    TransportCapabilitySummary\n\tDialectSupport           DialectSupport\n\tReasoningReplaySupported bool\n\tRoutePrefixes            []string\n\tEnforceMaxOutput         bool\n\tMaxOutputTokens          *uint32\n\tSupportsCountTokens      bool\n\tSupportsFinalizeBilling  bool\n\tSupportsDynamicInventory bool\n\tEvidenceSource           string\n\tProfileVersion           string\n\tPromptCacheProfile       promptcache.Profile\n}"
+    "detail": "ResolvedProfile struct {\n\tCapabilities             CapabilitySummary\n\tTransportCapabilities    TransportCapabilitySummary\n\tDialectSupport           DialectSupport\n\tReasoningReplaySupported bool\n\tRoutePrefixes            []string\n\tEnforceMaxOutput         bool\n\tMaxOutputTokens          *uint32\n\tSupportsCountTokens      bool\n\tSupportsFinalizeBilling  bool\n\tSupportsDynamicInventory bool\n\tEvidenceSource           string\n\tProfileVersion           string\n\tPromptCacheProfile       promptcache.Profile\n\n\tSupportsAccountingEvidenceV2 bool\n}"
   },
   {
     "category": "struct",
@@ -2954,7 +3208,7 @@
   {
     "category": "struct",
     "name": "ServerFrame",
-    "detail": "ServerFrame struct {\n\tKind                   ServerFrameKind\n\tSequence               uint64\n\tEvent                  *CanonicalEvent\n\tDiagnostic             string\n\tCancelOutcome          *CancelOutcome\n\tTerminal               *Terminal\n\tAccounting             *AccountingEvidence\n\tPromptCacheObservation *promptcache.Observation\n}"
+    "detail": "ServerFrame struct {\n\tKind          ServerFrameKind\n\tSequence      uint64\n\tEvent         *CanonicalEvent\n\tDiagnostic    string\n\tCancelOutcome *CancelOutcome\n\tTerminal      *Terminal\n\tAccounting    *AccountingEvidence\n\n\tAccountingV2           *AccountingEvidenceV2\n\tPromptCacheObservation *promptcache.Observation\n}"
   },
   {
     "category": "struct",
@@ -2987,6 +3241,16 @@
     "detail": "UsageEvidence struct {\n\tInputTokens      *int64\n\tOutputTokens     *int64\n\tCacheReadTokens  *int64\n\tCacheWriteTokens *int64\n\tReasoningTokens  *int64\n\tTotalTokens      *int64\n\tPresence         UsagePresence\n\tRawUsageJSON     RawJSON\n}"
   },
   {
+    "category": "struct",
+    "name": "UsageEvidenceBuffer",
+    "detail": "UsageEvidenceBuffer struct {\n\tmu               sync.Mutex\n\titems            []AccountingEvidence\n\tlastFingerprint  map[string]string\n\tfingerprintOrder []string\n\tenabled          bool\n}"
+  },
+  {
+    "category": "struct",
+    "name": "V1EvidenceIdentity",
+    "detail": "V1EvidenceIdentity struct {\n\tStoreID        string\n\tObservationID  string\n\tSourceEventKey string\n\tRevision       uint64\n\tStreamID       string\n\tSequence       uint64\n\tSubject        metering.SubjectRef\n\tCorrelation    metering.CorrelationV2\n\tScope          scope.PrincipalScopeView\n\tObservedAt     time.Time\n\tReceivedAt     time.Time\n\tMappingRef     string\n}"
+  },
+  {
     "category": "type",
     "name": "AccessScope",
     "detail": "AccessScope = lipsdk.BackendAccessScope"
@@ -3000,6 +3264,11 @@
     "category": "type",
     "name": "AccountingEvidenceSource",
     "detail": "AccountingEvidenceSource interface {\n\tDrainAccountingEvidence() []AccountingEvidence\n}"
+  },
+  {
+    "category": "type",
+    "name": "AccountingEvidenceV2Source",
+    "detail": "AccountingEvidenceV2Source interface {\n\tDrainAccountingEvidenceV2() []AccountingEvidenceV2\n}"
   },
   {
     "category": "type",
@@ -3043,6 +3312,21 @@
   },
   {
     "category": "type",
+    "name": "EconomicEvidenceSource",
+    "detail": "EconomicEvidenceSource interface {\n\tDrainEconomicEvidence() []AccountingEvidenceV2\n}"
+  },
+  {
+    "category": "type",
+    "name": "EconomicEvidenceV2",
+    "detail": "EconomicEvidenceV2 = AccountingEvidenceV2"
+  },
+  {
+    "category": "type",
+    "name": "EconomicObservation",
+    "detail": "EconomicObservation = metering.Observation"
+  },
+  {
+    "category": "type",
     "name": "ErrorCode",
     "detail": "ErrorCode string"
   },
@@ -3050,6 +3334,11 @@
     "category": "type",
     "name": "EventKind",
     "detail": "EventKind = lipapi.EventKind"
+  },
+  {
+    "category": "type",
+    "name": "EvidenceCoverage",
+    "detail": "EvidenceCoverage string"
   },
   {
     "category": "type",
@@ -3135,6 +3424,16 @@
     "category": "var",
     "name": "ErrAcceptedRequired",
     "detail": "ErrAcceptedRequired"
+  },
+  {
+    "category": "var",
+    "name": "ErrAccountingEvidenceV2Conflict",
+    "detail": "ErrAccountingEvidenceV2Conflict"
+  },
+  {
+    "category": "var",
+    "name": "ErrAccountingEvidenceV2Unsupported",
+    "detail": "ErrAccountingEvidenceV2Unsupported"
   },
   {
     "category": "var",

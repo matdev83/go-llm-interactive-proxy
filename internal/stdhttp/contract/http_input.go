@@ -21,6 +21,7 @@ import (
 	ssessiondiag "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	billingadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/billing"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
@@ -79,17 +80,22 @@ type HTTPOperationsInput struct {
 	BillingReportsPath      string
 	BillingProvisioner      billing.AccountProvisioner
 	BillingExposureRecovery billing.ExposureRecovery
-	Metrics                 *metrics.Bundle
-	Store                   diag.AttemptLoader
-	SecretGuardInventory    *diag.InventoryExtras
-	ControlPlaneQueries     lipcp.Queries
-	ReadinessReport         lipcp.ReadinessReportReader
-	TokenAccountingAdmin    adminaccounting.Service
-	RouteOverrideAdmin      http.Handler
-	KeepwarmAdmin           adminkeepwarm.Options
-	KeepwarmAdminEnabled    bool
-	Registrations           []lipsdk.Registration
-	TerminalDecisionPolicy  TerminalDecisionPolicyInput
+	// BillingOperatorReports carries the optional 16.2A operator readers
+	// for the protected reports mount. The zero value leaves every new
+	// operator route reporting disabled; stock startup never opts into
+	// the normalized statement import.
+	BillingOperatorReports billingadmin.OperatorReports
+	Metrics                *metrics.Bundle
+	Store                  diag.AttemptLoader
+	SecretGuardInventory   *diag.InventoryExtras
+	ControlPlaneQueries    lipcp.Queries
+	ReadinessReport        lipcp.ReadinessReportReader
+	TokenAccountingAdmin   adminaccounting.Service
+	RouteOverrideAdmin     http.Handler
+	KeepwarmAdmin          adminkeepwarm.Options
+	KeepwarmAdminEnabled   bool
+	Registrations          []lipsdk.Registration
+	TerminalDecisionPolicy TerminalDecisionPolicyInput
 }
 
 type HTTPModelInput struct {

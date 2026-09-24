@@ -63,7 +63,6 @@ func TestRequireCompleteBillingCompositionRejectsEveryPartialPortSet(t *testing.
 		},
 	}
 	for name, mutate := range map[string]func(*ProductionOptions){
-		"store":              func(p *ProductionOptions) { p.BillingStore = nil },
 		"exposure admission": func(p *ProductionOptions) { p.BillingExposureAdmission = nil },
 		"credit gate":        func(p *ProductionOptions) { p.BillingCreditGate = nil },
 		"terminal sink":      func(p *ProductionOptions) { p.BillingTerminalUsageSink = nil },
@@ -76,6 +75,25 @@ func TestRequireCompleteBillingCompositionRejectsEveryPartialPortSet(t *testing.
 				t.Fatalf("partial %s wiring error = %v, want ErrAuthoritativeBillingRequired", name, err)
 			}
 		})
+	}
+}
+
+// TestRequireCompleteBillingCompositionAcceptsExternalBinding locks the Task
+// 15.2 named exception: a complete external monetary binding occupies the
+// same runtime chokepoints without an internal durable store, so the
+// storeless set satisfies the seam while every partial set above still fails.
+func TestRequireCompleteBillingCompositionAcceptsExternalBinding(t *testing.T) {
+	t.Parallel()
+	external := ProductionOptions{
+		BillingExposureAdmission: gateStubExposure{},
+		BillingCreditGate:        gateStubCredit{},
+		BillingTerminalUsageSink: gateStubSink{},
+		BillingIdentity: coreruntime.BillingIdentity{
+			AccountID: func(context.Context, lipapi.Call) string { return "acct" },
+		},
+	}
+	if err := requireCompleteBillingComposition(external); err != nil {
+		t.Fatalf("complete external binding: %v", err)
 	}
 }
 

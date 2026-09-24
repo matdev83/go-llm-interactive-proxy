@@ -33,7 +33,19 @@ type VertexContent struct {
 }
 
 type VertexPart struct {
-	Text string `json:"text,omitempty"`
+	Text       string            `json:"text,omitempty"`
+	FileData   *VertexFileData   `json:"fileData,omitempty"`
+	InlineData *VertexInlineData `json:"inlineData,omitempty"`
+}
+
+type VertexFileData struct {
+	FileURI  string `json:"fileUri"`
+	MIMEType string `json:"mimeType,omitempty"`
+}
+
+type VertexInlineData struct {
+	MIMEType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 type GenerationConfig struct {
@@ -54,17 +66,62 @@ type VertexCandidate struct {
 }
 
 type VertexUsageMetadata struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	PromptTokenCount           int                        `json:"promptTokenCount"`
+	CandidatesTokenCount       int                        `json:"candidatesTokenCount"`
+	TotalTokenCount            int                        `json:"totalTokenCount"`
+	CachedContentTokenCount    int                        `json:"cachedContentTokenCount,omitempty"`
+	ThoughtsTokenCount         int                        `json:"thoughtsTokenCount,omitempty"`
+	ToolUsePromptTokenCount    int                        `json:"toolUsePromptTokenCount,omitempty"`
+	PromptTokensDetails        []VertexModalityTokenCount `json:"promptTokensDetails,omitempty"`
+	CandidatesTokensDetails    []VertexModalityTokenCount `json:"candidatesTokensDetails,omitempty"`
+	CacheTokensDetails         []VertexModalityTokenCount `json:"cacheTokensDetails,omitempty"`
+	ToolUsePromptTokensDetails []VertexModalityTokenCount `json:"toolUsePromptTokensDetails,omitempty"`
+	TrafficType                string                     `json:"trafficType,omitempty"`
+	ServiceTier                string                     `json:"serviceTier,omitempty"`
+
+	inputTokenPresent     bool
+	outputTokenPresent    bool
+	totalTokenPresent     bool
+	cacheTokenPresent     bool
+	reasoningTokenPresent bool
+	groundedToolPresent   bool
+}
+
+// UnmarshalJSON retains field presence that would otherwise be lost by the
+// value-typed Vertex counters. Explicit zero is evidence; an omitted counter
+// remains unavailable. The flags are internal and never serialized.
+func (u *VertexUsageMetadata) UnmarshalJSON(data []byte) error {
+	type plain VertexUsageMetadata
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*u = VertexUsageMetadata(decoded)
+	_, u.inputTokenPresent = fields["promptTokenCount"]
+	_, u.outputTokenPresent = fields["candidatesTokenCount"]
+	_, u.totalTokenPresent = fields["totalTokenCount"]
+	_, u.cacheTokenPresent = fields["cachedContentTokenCount"]
+	_, u.reasoningTokenPresent = fields["thoughtsTokenCount"]
+	_, u.groundedToolPresent = fields["toolUsePromptTokenCount"]
+	return nil
+}
+
+type VertexModalityTokenCount struct {
+	Modality   string `json:"modality,omitempty"`
+	TokenCount int    `json:"tokenCount,omitempty"`
 }
 
 type Client struct {
-	Config        Config
-	TokenProvider TokenProvider
-	HTTPClient    *http.Client
-	MaxBodyBytes  int64
-	MaxSSEBytes   int64
+	Config               Config
+	TokenProvider        TokenProvider
+	HTTPClient           *http.Client
+	MaxBodyBytes         int64
+	MaxSSEBytes          int64
+	accountingEvidenceV1 bool
 }
 
 func (c *Client) maxBody() int64 {
@@ -110,13 +167,25 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 			if p.Kind == lipapi.PartReasoning {
 				return nil, fmt.Errorf("vertex: reasoning replay unsupported")
 			}
-			if p.Kind != lipapi.PartText {
+			switch p.Kind {
+			case lipapi.PartText:
+				if strings.TrimSpace(p.Text) == "" {
+					continue
+				}
+				parts = append(parts, VertexPart{Text: p.Text})
+			case lipapi.PartImageRef:
+				if strings.TrimSpace(p.ImageRef) == "" {
+					continue
+				}
+				parts = append(parts, VertexPart{FileData: &VertexFileData{FileURI: p.ImageRef, MIMEType: p.ImageMIME}})
+			case lipapi.PartFileRef:
+				if strings.TrimSpace(p.FileRef) == "" {
+					continue
+				}
+				parts = append(parts, VertexPart{FileData: &VertexFileData{FileURI: p.FileRef, MIMEType: p.FileMIME}})
+			default:
 				return nil, fmt.Errorf("vertex: unsupported part kind %q", p.Kind)
 			}
-			if strings.TrimSpace(p.Text) == "" {
-				continue
-			}
-			parts = append(parts, VertexPart{Text: p.Text})
 		}
 		if len(parts) == 0 {
 			return nil, fmt.Errorf("vertex: message has no text parts after trimming")
@@ -187,7 +256,9 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 	}
 
 	if stream {
-		return lipapi.CloseOnlyManagedStream{Stream: newSSEStream(resp, c.maxSSE())}, nil
+		managed := newSSEStream(resp, c.maxSSE())
+		managed.SetEnabled(c.accountingEvidenceV1)
+		return managed, nil
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -199,7 +270,9 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 	if err != nil {
 		return nil, err
 	}
-	return lipapi.CloseOnlyManagedStream{Stream: &sliceStream{events: events}}, nil
+	managed := newSliceStream(events)
+	managed.SetEnabled(c.accountingEvidenceV1)
+	return managed, nil
 }
 
 func (c *Client) ListModels(ctx context.Context, limit uint32) (backendplugin.ListModelsResponse, error) {
@@ -293,6 +366,17 @@ type sliceStream struct {
 	events []lipapi.Event
 	idx    int
 	closed bool
+	*backendplugin.UsageEvidenceBuffer
+}
+
+func newSliceStream(events []lipapi.Event) *sliceStream {
+	s := &sliceStream{events: events, UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer()}
+	for _, event := range events {
+		if event.Kind == lipapi.EventUsageDelta {
+			s.AddUsageEvent(event, "vertex.generate.usage:stream")
+		}
+	}
+	return s
 }
 
 func (s *sliceStream) Recv(context.Context) (lipapi.Event, error) {
@@ -306,7 +390,7 @@ func (s *sliceStream) Recv(context.Context) (lipapi.Event, error) {
 	}
 	ev := s.events[s.idx]
 	s.idx++
-	return ev, nil
+	return projectCanonicalUsageEvent(ev, s.UsageEvidenceBuffer), nil
 }
 
 func (s *sliceStream) Close() error {
@@ -314,6 +398,10 @@ func (s *sliceStream) Close() error {
 	defer s.mu.Unlock()
 	s.closed = true
 	return nil
+}
+
+func (s *sliceStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly, Err: s.Close()}
 }
 
 func decodeNonStream(raw []byte) ([]lipapi.Event, error) {
@@ -332,13 +420,7 @@ func decodeNonStream(raw []byte) ([]lipapi.Event, error) {
 	msgStarted := false
 	for _, cand := range resp.Candidates {
 		for _, part := range cand.Content.Parts {
-			if part.Text != "" {
-				if !msgStarted {
-					events = append(events, lipapi.Event{Kind: lipapi.EventMessageStarted})
-					msgStarted = true
-				}
-				events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: part.Text})
-			}
+			appendVertexOutputPartEvents(&events, &msgStarted, part)
 		}
 	}
 
@@ -358,6 +440,7 @@ type sseStream struct {
 	done     bool
 	closed   bool
 	mu       sync.Mutex
+	*backendplugin.UsageEvidenceBuffer
 }
 
 func newSSEStream(resp *http.Response, maxBytes int64) *sseStream {
@@ -365,9 +448,10 @@ func newSSEStream(resp *http.Response, maxBytes int64) *sseStream {
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 1024*1024)
 	return &sseStream{
-		resp:     resp,
-		maxBytes: maxBytes,
-		sc:       sc,
+		resp:                resp,
+		maxBytes:            maxBytes,
+		sc:                  sc,
+		UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer(),
 	}
 }
 
@@ -386,7 +470,7 @@ func (s *sseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if len(s.pending) > 0 {
 			ev := s.pending[0]
 			s.pending = s.pending[1:]
-			return ev, nil
+			return projectCanonicalUsageEvent(ev, s.UsageEvidenceBuffer), nil
 		}
 		if s.done {
 			return lipapi.Event{}, io.EOF
@@ -430,8 +514,24 @@ func (s *sseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if err != nil {
 			return lipapi.Event{}, err
 		}
+		if s.UsageEvidenceBuffer != nil {
+			for _, event := range events {
+				if event.Kind == lipapi.EventUsageDelta {
+					s.AddUsageEvent(event, "vertex.generate.usage:stream")
+				}
+			}
+		}
 		s.pending = append(s.pending, events...)
 	}
+}
+
+// projectCanonicalUsageEvent leaves provider identity in the negotiated V1
+// sideband while retaining the key for a legacy host that cannot consume it.
+func projectCanonicalUsageEvent(ev lipapi.Event, bridge *backendplugin.UsageEvidenceBuffer) lipapi.Event {
+	if ev.Kind == lipapi.EventUsageDelta && bridge != nil && bridge.AccountingEvidenceEnabled() {
+		ev.Accounting.DedupeKey = ""
+	}
+	return ev
 }
 
 func (s *sseStream) Close() error {
@@ -442,6 +542,10 @@ func (s *sseStream) Close() error {
 		return s.resp.Body.Close()
 	}
 	return nil
+}
+
+func (s *sseStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeTransport, Err: s.Close()}
 }
 
 func decodeSSEData(raw []byte, started, msgStart *bool) ([]lipapi.Event, error) {
@@ -462,28 +566,102 @@ func decodeSSEData(raw []byte, started, msgStart *bool) ([]lipapi.Event, error) 
 
 	for _, cand := range resp.Candidates {
 		for _, part := range cand.Content.Parts {
-			if part.Text != "" {
-				if !*msgStart {
-					events = append(events, lipapi.Event{Kind: lipapi.EventMessageStarted})
-					*msgStart = true
-				}
-				events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: part.Text})
-			}
+			appendVertexOutputPartEvents(&events, msgStart, part)
 		}
 	}
 	return events, nil
 }
 
+// appendVertexOutputPartEvents preserves provider output references while
+// keeping raw inline media out of the canonical event stream. Vertex's
+// fileData URI is a reference the customer-facing API can carry; inlineData
+// is provider output bytes with no canonical output carrier and is therefore
+// deliberately unavailable here rather than copied or priced locally.
+func appendVertexOutputPartEvents(events *[]lipapi.Event, messageStarted *bool, part VertexPart) {
+	if part.Text != "" {
+		if !*messageStarted {
+			*events = append(*events, lipapi.Event{Kind: lipapi.EventMessageStarted})
+			*messageStarted = true
+		}
+		*events = append(*events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: part.Text})
+	}
+	if part.FileData == nil || strings.TrimSpace(part.FileData.FileURI) == "" {
+		return
+	}
+	if !*messageStarted {
+		*events = append(*events, lipapi.Event{Kind: lipapi.EventMessageStarted})
+		*messageStarted = true
+	}
+	uri := strings.TrimSpace(part.FileData.FileURI)
+	mime := strings.TrimSpace(part.FileData.MIMEType)
+	if strings.HasPrefix(strings.ToLower(mime), "image/") {
+		*events = append(*events, lipapi.Event{
+			Kind: lipapi.EventAssistantImageRef, AssistantRef: uri, AssistantMIME: mime,
+		})
+		return
+	}
+	*events = append(*events, lipapi.Event{
+		Kind: lipapi.EventAssistantFileRef, AssistantRef: uri, AssistantMIME: mime,
+	})
+}
+
 func usageEvent(u *VertexUsageMetadata) lipapi.Event {
+	if u == nil {
+		return lipapi.Event{}
+	}
+	in, inputPresent := vertexCount(u.PromptTokenCount, u.inputTokenPresent)
+	outBase, outputPresent := vertexCount(u.CandidatesTokenCount, u.outputTokenPresent)
+	thoughts, thoughtsPresent := vertexCount(u.ThoughtsTokenCount, u.reasoningTokenPresent)
+	cache, cachePresent := vertexCount(u.CachedContentTokenCount, u.cacheTokenPresent)
+	total, totalPresent := vertexCount(u.TotalTokenCount, u.totalTokenPresent)
+	if outputPresent && thoughtsPresent {
+		// Both fields are independently provider-reported. Add only after
+		// validating non-negative values; an overflow cannot be represented as
+		// a trustworthy canonical int and therefore remains unavailable.
+		if int64(outBase) > int64(^uint(0)>>1)-int64(thoughts) {
+			outBase, outputPresent = 0, false
+		} else {
+			outBase += thoughts
+		}
+	} else if !outputPresent {
+		outBase, outputPresent = thoughts, thoughtsPresent
+	}
 	return lipapi.Event{
-		Kind:         lipapi.EventUsageDelta,
-		InputTokens:  u.PromptTokenCount,
-		OutputTokens: u.CandidatesTokenCount,
-		TotalTokens:  u.TotalTokenCount,
+		Kind:            lipapi.EventUsageDelta,
+		InputTokens:     in,
+		OutputTokens:    outBase,
+		TotalTokens:     total,
+		CacheReadTokens: cache,
+		ReasoningTokens: thoughts,
 		UsagePresence: lipapi.UsagePresence{
-			InputTokens:  true,
-			OutputTokens: true,
-			TotalTokens:  true,
+			InputTokens:     inputPresent,
+			OutputTokens:    outputPresent,
+			CacheReadTokens: cachePresent,
+			ReasoningTokens: thoughtsPresent,
+			TotalTokens:     totalPresent,
+		},
+		RawUsageJSON: vertexUsageRawJSON(u),
+		Accounting: lipapi.UsageAccountingMetadata{
+			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported,
+			Authority: lipapi.UsageAuthorityAuthoritative, DedupeKey: "vertex.generate.usage:stream",
+			ServiceContext: vertexServiceContext(u),
 		},
 	}
+}
+
+func vertexServiceContext(u *VertexUsageMetadata) string {
+	if u == nil {
+		return ""
+	}
+	if traffic := strings.TrimSpace(u.TrafficType); traffic != "" {
+		return traffic
+	}
+	return strings.TrimSpace(u.ServiceTier)
+}
+
+func vertexCount(value int, explicit bool) (int, bool) {
+	if value < 0 {
+		return 0, false
+	}
+	return value, explicit || value != 0
 }

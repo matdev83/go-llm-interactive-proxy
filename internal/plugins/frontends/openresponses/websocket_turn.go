@@ -198,6 +198,12 @@ func (r *SessionRunner) executeTurn(ctx context.Context, s *WSSession, decoded *
 		stopPeerWatch()
 		cancel()
 	}()
+	// The authenticated handshake is the authority source for every turn on
+	// this connection. Carry only its trusted submission projection into the
+	// executor; request metadata and continuation payloads never become
+	// submission identity. Clone-before-context keeps the session-owned
+	// decision immutable across sequential turns.
+	turnCtx = contextWithAuthDecision(turnCtx, s.Auth())
 
 	localStore := s.LocalStore()
 	scope := s.ContinuationScope()

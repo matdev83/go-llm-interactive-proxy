@@ -77,3 +77,10 @@ func (s *usageEstimatingStream) Close() error {
 func (s *usageEstimatingStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
 	return s.base.Cancel(ctx, cause)
 }
+
+func (s *usageEstimatingStream) DrainAccountWindowSnapshots() []AccountWindowSnapshot {
+	if source, ok := s.base.(AccountWindowSnapshotSource); ok {
+		return source.DrainAccountWindowSnapshots()
+	}
+	return nil
+}

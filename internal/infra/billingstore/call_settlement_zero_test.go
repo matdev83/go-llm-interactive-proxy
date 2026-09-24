@@ -28,6 +28,9 @@ func TestSQLiteApplyCallBillingResultExactZeroClosesExposureWithoutJournalEntry(
 		CustomerPricingRef: billing.VersionRef{ID: "prices", Version: "v1"},
 		ChargePolicyRef:    billing.VersionRef{ID: "policy", Version: "v1"},
 	}
+	if err := store.AppendCallUsage(ctx, call); err != nil {
+		t.Fatal(err)
+	}
 	exposure, err := store.AdmitExposure(ctx, billing.AdmitExposureInput{
 		AccountID: account.ID, CallID: callID.String(), Max: billing.Money{Nano: 10, Currency: "USD"},
 		PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef,

@@ -58,7 +58,8 @@ help:
 	@echo "  make pgo-profile     - collect default.pgo from core benches (move under cmd/lipstd before build)"
 	@echo "  make pgo-build       - build cmd/lipstd (uses cmd/lipstd/default.pgo when present)"
 	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln + release-gates-static + OpenResponses compliance static gate"
-	@echo "  make lint            - golangci-lint if installed, else staticcheck"
+	@echo "  make lint            - mandatory correctness lint (golangci-lint if installed, else staticcheck)"
+	@echo "  make lint-advisory   - on-demand full lint incl. advisory style checks (modernize, paralleltest, thelper)"
 	@echo "  make hooks-install   - git config core.hooksPath .githooks (pre-commit: change-size + secrets + quality gate)"
 	@echo "  make check-change-size - reject staged changes over 100 modified Go files (LIP_ALLOW_LARGE_CHANGE=1 to override)"
 	@echo "  make kiro-spec-check SPEC=<name> - validate a Kiro spec development gate"
@@ -470,6 +471,21 @@ ifeq ($(OS),Windows_NT)
 	@$(WINDOWS_TASK) lint
 else
 	@bash scripts/lint-all-modules.sh
+endif
+
+# On-demand advisory style lint (modernize/paralleltest/thelper). The canonical
+# `make lint`/`quality-checks`/`qa`/`precommit-full` gates enforce the mandatory
+# correctness linters only (scripts/lint-all-modules.* pass
+# --disable=modernize,paralleltest,thelper); this target reports the full set
+# without treating repository-wide style debt as a release blocker.
+# Intentionally not listed in .PHONY: TestWindowsTaskReliability_WindowsRoutes
+# requires every .PHONY target to be classified in the frozen archived
+# windows-task-reliability design table, and no file shadows this target.
+lint-advisory:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint-all-modules.ps1 -Advisory
+else
+	@bash scripts/lint-all-modules.sh --advisory
 endif
 
 vuln:

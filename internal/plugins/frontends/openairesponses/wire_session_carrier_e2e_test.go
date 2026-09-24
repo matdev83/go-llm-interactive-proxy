@@ -37,7 +37,7 @@ func (s *logCaptureSpy) Handle(_ context.Context, r slog.Record) error {
 		b.WriteString(" ")
 		b.WriteString(a.Key)
 		b.WriteString("=")
-		b.WriteString(fmt.Sprintf("%v", a.Value.Any()))
+		fmt.Fprintf(&b, "%v", a.Value.Any())
 		return true
 	})
 	s.records = append(s.records, b.String())
@@ -180,7 +180,7 @@ func TestSecureSessionE2E_WireFirstTurn_ResumeCanonicalAndWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp1.Body.Close()
+	defer func() { _ = resp1.Body.Close() }()
 
 	if resp1.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp1.Body)
@@ -225,7 +225,7 @@ func TestSecureSessionE2E_WireFirstTurn_ResumeCanonicalAndWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	if resp2.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp2.Body)
@@ -280,7 +280,7 @@ func TestSecureSessionE2E_WireFirstTurn_ResumeCanonicalAndWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp3.Body.Close()
+	defer func() { _ = resp3.Body.Close() }()
 
 	if resp3.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp3.Body)
@@ -322,7 +322,7 @@ func TestSecureSessionE2E_WireFirstTurn_ResumeCanonicalAndWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp4.Body.Close()
+	defer func() { _ = resp4.Body.Close() }()
 
 	if resp4.StatusCode != http.StatusBadRequest {
 		t.Fatalf("turn 4 expected 400 Bad Request, got %d", resp4.StatusCode)
@@ -413,7 +413,7 @@ func TestSecureSessionE2E_CanonicalFirstTurn_ResumeWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp1.Body.Close()
+	defer func() { _ = resp1.Body.Close() }()
 	if resp1.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp1.StatusCode)
 	}
@@ -437,7 +437,7 @@ func TestSecureSessionE2E_CanonicalFirstTurn_ResumeWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	if resp2.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp2.Body)
 		t.Fatalf("wire resume status %d body=%s", resp2.StatusCode, b)

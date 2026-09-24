@@ -82,7 +82,7 @@ func (e *ratchetAssessorExecutor) ExecuteLargeBody(ctx context.Context, accepted
 	if err != nil {
 		return largebody.ExecutionResult{}, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	e.backendOpenCount++
 	return largebody.ExecutionResult{
@@ -216,7 +216,7 @@ func TestFindingB1_CaptureCandidateBody_NoPayloadSizedMemorySlice(t *testing.T) 
 					req := httptest.NewRequest(http.MethodPost, lane.urlPath, bytes.NewReader(body))
 					rec := httptest.NewRecorder()
 
-					capRes, capturedBody, err := frontendpipe.CaptureCandidateBody(req.Context(), &spec, rec, req, spec.Config.MaxRequestBodyBytes)
+					capRes, capturedBody, err := frontendpipe.CaptureCandidateBody(req.Context(), &spec, rec, req, spec.MaxRequestBodyBytes)
 					require.NoError(t, err)
 					require.Equal(t, largebody.CaptureOutcomeCompleted, capRes.Outcome)
 					require.NotNil(t, capRes.Completed)

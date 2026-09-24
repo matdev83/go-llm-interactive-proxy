@@ -16,7 +16,7 @@ func TestProcessTree_POSIXProcessGroup(t *testing.T) {
 	ready := dir + "/ready"
 	pidFile := dir + "/pid"
 	result := Run(context.Background(), Request{
-		Argv:    append([]string{buildHelper(t), "-mode=spawn-grandchild", "-ready-file", ready, "-pid-file", pidFile}),
+		Argv:    []string{buildHelper(t), "-mode=spawn-grandchild", "-ready-file", ready, "-pid-file", pidFile},
 		Timeout: 500 * time.Millisecond,
 		Output:  Capture,
 	})

@@ -231,7 +231,7 @@ func writeCustomerOperatorSupportFixtures(t *testing.T, root string) {
 		"internal/infra/billingcompose/resolver.go": `package billingcompose
 
 func (c *SnapshotCatalog) ResolveCallRating() {}
-func (c *SnapshotCatalog) ResolveProviderCost() { var rate OperatorRate; _ = rate }
+func (c *SnapshotCatalog) ResolveProviderCost() {}
 `,
 		"internal/core/billing/call_post_usage_worker.go": `package billing
 `,

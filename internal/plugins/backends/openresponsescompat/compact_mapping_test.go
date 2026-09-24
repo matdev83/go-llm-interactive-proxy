@@ -383,8 +383,9 @@ func TestCompact_UsageEventCarriesTokens(t *testing.T) {
 		t.Fatalf("usage event = %+v", usage)
 	}
 
-	// Absent/all-zero usage must not synthesize an event.
-	noUsage := strings.Replace(completeCompactResourceJSON,
+	// Explicit zero counters are provider evidence; only an absent usage object
+	// must avoid synthesizing an event.
+	zeroUsage := strings.Replace(completeCompactResourceJSON,
 		`"usage": {
     "input_tokens": 41,
     "input_tokens_details": {"cached_tokens": 11},
@@ -392,12 +393,27 @@ func TestCompact_UsageEventCarriesTokens(t *testing.T) {
     "output_tokens_details": {"reasoning_tokens": 2},
     "total_tokens": 53
   }`, `"usage": {"input_tokens": 0, "input_tokens_details": {}, "output_tokens": 0, "output_tokens_details": {}, "total_tokens": 0}`, 1)
-	events, _, err = parseCompactResource("my-or", []byte(noUsage), defaultResponseTestLimits())
+	events, _, err = parseCompactResource("my-or", []byte(zeroUsage), defaultResponseTestLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var zero *lipapi.Event
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventUsageDelta {
+			copy := ev
+			zero = &copy
+		}
+	}
+	if zero == nil || !zero.UsagePresence.InputTokens || !zero.UsagePresence.OutputTokens || !zero.UsagePresence.TotalTokens {
+		t.Fatalf("explicit zero usage lost presence: %+v", zero)
+	}
+	absentUsage := strings.Replace(zeroUsage, `"usage": {"input_tokens": 0, "input_tokens_details": {}, "output_tokens": 0, "output_tokens_details": {}, "total_tokens": 0}`, `"usage": null`, 1)
+	events, _, err = parseCompactResource("my-or", []byte(absentUsage), defaultResponseTestLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if hasEventKind(events, lipapi.EventUsageDelta) {
-		t.Fatalf("all-zero usage must not emit a usage event: %+v", events)
+		t.Fatalf("absent usage must not emit a usage event: %+v", events)
 	}
 }
 

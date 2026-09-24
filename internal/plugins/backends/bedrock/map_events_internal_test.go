@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -146,6 +147,51 @@ func TestHandleOutput_metadataUsageDetails(t *testing.T) {
 	assertUsageIntField(t, ev, "CacheWriteTokens", 4)
 	assertUsageIntField(t, ev, "TotalTokens", 19)
 	assertUsageRawJSONContains(t, ev, "InputTokens")
+}
+
+func TestHandleOutput_metadataUsagePreservesCacheLifetimeAndRejectsNegative(t *testing.T) {
+	t.Parallel()
+	s := &converseStream{
+		pending:                stream.NewPendingEventQueue(0),
+		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
+	}
+	err := s.handleOutput(&types.ConverseStreamOutputMemberMetadata{
+		Value: types.ConverseStreamMetadataEvent{
+			Usage: &types.TokenUsage{
+				InputTokens:          aws.Int32(2),
+				OutputTokens:         aws.Int32(-1),
+				TotalTokens:          aws.Int32(-1),
+				CacheDetails:         []types.CacheDetail{{InputTokens: aws.Int32(0), Ttl: types.CacheTTLFiveMinutes}},
+				CacheReadInputTokens: aws.Int32(3),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := findUsageEvent(t, stream.DrainPending(&s.pending))
+	if ev.UsagePresence.OutputTokens || ev.OutputTokens != 0 || ev.UsagePresence.TotalTokens || ev.TotalTokens != 0 {
+		t.Fatalf("negative Bedrock counters became present: %+v", ev)
+	}
+	if !ev.UsagePresence.InputTokens || !ev.UsagePresence.CacheReadTokens {
+		t.Fatalf("valid Bedrock counters were lost: %+v", ev)
+	}
+	s.BindEconomicEvidence(coremetering.ObservationIdentity{StoreID: "store", BLegID: "b-leg"})
+	observations := s.DrainEconomicObservations()
+	if len(observations) != 1 {
+		t.Fatalf("Bedrock V2 observations = %d, want 1", len(observations))
+	}
+	foundLifetime := false
+	for _, measure := range observations[0].Measures {
+		for _, dimension := range measure.Key.Dimensions {
+			if dimension.Name == "cache_lifetime" && dimension.Value == "5m" {
+				foundLifetime = true
+			}
+		}
+	}
+	if !foundLifetime {
+		t.Fatalf("Bedrock cache lifetime measure missing: %+v", observations[0].Measures)
+	}
 }
 
 func findUsageEvent(t *testing.T, events []lipapi.Event) lipapi.Event {

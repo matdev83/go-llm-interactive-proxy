@@ -98,6 +98,7 @@ func TestForwardExecute_ForwardsOpeningAccountingEvidenceBeforeCanonicalEvents(t
 	}
 	ms := &evidenceManaged{evidence: []backendplugin.AccountingEvidence{usage}, events: []lipapi.Event{{Kind: lipapi.EventResponseFinished}}}
 	stream := newFakeExecuteStream(context.Background(), validStartFrame(t))
+	stream.neg = backendplugin.Negotiation{EnabledFeatures: []string{backendplugin.FeatureAccountingEvidence}}
 
 	if err := backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
 		return ms, nil
@@ -303,6 +304,7 @@ type fakeExecuteStream struct {
 	inbox []backendplugin.ClientFrame
 	mu    sync.Mutex
 	sent  []backendplugin.ServerFrame
+	neg   backendplugin.Negotiation
 }
 
 func newFakeExecuteStream(ctx context.Context, start backendplugin.ClientFrame) *fakeExecuteStream {
@@ -326,6 +328,8 @@ func (f *fakeExecuteStream) Send(frame backendplugin.ServerFrame) error {
 	f.sent = append(f.sent, frame)
 	return nil
 }
+
+func (f *fakeExecuteStream) Negotiation() backendplugin.Negotiation { return f.neg }
 
 type scriptedManaged struct {
 	events []lipapi.Event

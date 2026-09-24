@@ -19,13 +19,19 @@ import (
 
 // DurableConfig configures a Bun-backed metering journal.
 type DurableConfig struct {
-	StoreID             string
-	DefaultPageSize     int
-	MaxPageSize         int
-	Now                 func() time.Time
-	SQLiteRetryNow      func() time.Time
-	SQLiteRetrySleep    func(context.Context, time.Duration) error
-	SQLiteRetryObserver SQLiteRetryObserver
+	StoreID         string
+	DefaultPageSize int
+	MaxPageSize     int
+	// ObservationOutboxMaxPending bounds unacknowledged observation relay
+	// entries. Zero uses the safe default; a negative value is rejected.
+	ObservationOutboxMaxPending int
+	Now                         func() time.Time
+	SQLiteRetryNow              func() time.Time
+	SQLiteRetrySleep            func(context.Context, time.Duration) error
+	SQLiteRetryObserver         SQLiteRetryObserver
+	// ObservationFaultHook is an infra-only test/failpoint seam. Returning an
+	// error rolls back the caller-owned observation transaction.
+	ObservationFaultHook func(string) error
 }
 
 // DurableStore persists metering facts via Bun (SQLite or Postgres).
@@ -56,6 +62,10 @@ var RequiredMigrationNames = []string{
 	StoreScopedSourceKeyMigrationName,
 	StoreScopedFiltersMigrationName,
 	SchemaV2MigrationName,
+	ObservationProjectionMigrationName,
+	AccountWindowProjectionMigrationName,
+	ObservationEconomicOutboxMigrationName,
+	PresenceBooleanRepairMigrationName,
 }
 
 // VerifySchema checks required runtime relations without applying migrations.
@@ -68,9 +78,11 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 	}
 	if db.Dialect().Name() != dialect.PG {
 		for _, probe := range []string{
-			`SELECT identity_version, source_revision, source_event_kind, source_id FROM metering_facts WHERE 1 = 0`,
+			`SELECT identity_version, source_revision, source_event_kind, source_id, payload_kind, observation_id, observation_revision, observation_fingerprint, observation_subject_kind, observation_subject_id, observation_tenant_id, observation_origin, observation_acquisition, observation_provider_account_key, observation_pool_id, observation_window_id, observation_reset_at_unix, observation_observed_at_unix, observation_received_at_unix FROM metering_facts WHERE 1 = 0`,
 			`SELECT store_id FROM metering_fact_filters WHERE 1 = 0`,
 			`SELECT 1 FROM metering_fact_supersessions WHERE 1 = 0`,
+			`SELECT store_id, observation_row_id, item_kind, component_key, component_key_hash, coefficient, scale, value_present, money_present, charge_coverage_json, subject_kind, subject_id, tenant_id, provider_account_key, projection_version FROM metering_components WHERE 1 = 0`,
+			`SELECT store_id, observation_id, observation_revision, observation_fingerprint, payload_json, status, attempt_count, next_attempt_at_unix, lease_owner, lease_until_unix, last_error, created_at_unix, updated_at_unix FROM metering_observation_economic_outbox WHERE 1 = 0`,
 		} {
 			if _, err := db.ExecContext(ctx, probe); err != nil {
 				return fmt.Errorf("metering/journalstore: schema verification failed: %w", err)
@@ -97,6 +109,13 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 				return fmt.Errorf("metering/journalstore: schema verification failed: missing index %s", name)
 			}
 		}
+		var outboxIndex int
+		if err := db.NewRaw(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = ?`, ObservationEconomicOutboxPendingIndexName).Scan(ctx, &outboxIndex); err != nil {
+			return fmt.Errorf("metering/journalstore: schema verification failed: %s: %w", ObservationEconomicOutboxPendingIndexName, err)
+		}
+		if outboxIndex != 1 {
+			return fmt.Errorf("metering/journalstore: schema verification failed: missing index %s", ObservationEconomicOutboxPendingIndexName)
+		}
 		for _, name := range RequiredMigrationNames {
 			var n int
 			if err := db.NewRaw(
@@ -112,9 +131,11 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 		return nil
 	}
 	for _, probe := range []string{
-		`SELECT identity_version, source_revision, source_event_kind, source_id FROM metering_facts WHERE 1 = 0`,
+		`SELECT identity_version, source_revision, source_event_kind, source_id, payload_kind, observation_id, observation_revision, observation_fingerprint, observation_subject_kind, observation_subject_id, observation_tenant_id, observation_origin, observation_acquisition, observation_provider_account_key, observation_pool_id, observation_window_id, observation_reset_at_unix, observation_observed_at_unix, observation_received_at_unix FROM metering_facts WHERE 1 = 0`,
 		`SELECT * FROM metering_fact_filters WHERE 1 = 0`,
 		`SELECT * FROM metering_fact_supersessions WHERE 1 = 0`,
+		`SELECT * FROM metering_components WHERE 1 = 0`,
+		`SELECT * FROM metering_observation_economic_outbox WHERE 1 = 0`,
 	} {
 		if _, err := db.ExecContext(ctx, probe); err != nil {
 			return fmt.Errorf("metering/journalstore: schema verification failed: %w", err)
@@ -272,6 +293,82 @@ LIMIT 1`,
 			args:        []any{SchemaV2MigrationName},
 			fragments:   []string{SchemaV2MigrationName},
 		},
+		{
+			description: ObservationProjectionMigrationName + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{ObservationProjectionMigrationName},
+			fragments:   []string{ObservationProjectionMigrationName},
+		},
+		{
+			description: AccountWindowProjectionMigrationName + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{AccountWindowProjectionMigrationName},
+			fragments:   []string{AccountWindowProjectionMigrationName},
+		},
+		{
+			description: ObservationEconomicOutboxMigrationName + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{ObservationEconomicOutboxMigrationName},
+			fragments:   []string{ObservationEconomicOutboxMigrationName},
+		},
+		{
+			description: "metering observation economic outbox table",
+			query:       `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'metering_observation_economic_outbox' LIMIT 1`,
+			fragments:   []string{"metering_observation_economic_outbox"},
+		},
+		{
+			description: "metering observation economic outbox pending index",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'metering_observation_economic_outbox' AND indexname = '` + ObservationEconomicOutboxPendingIndexName + `' LIMIT 1`,
+			fragments:   []string{"store_id", "status", "next_attempt_at_unix", "lease_until_unix", "created_at_unix", "id"},
+		},
+		{
+			description: "metering_facts V2 observation columns",
+			query: `SELECT lower(string_agg(column_name, ',' ORDER BY column_name)) FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name = 'metering_facts'
+  AND column_name IN ('payload_kind','observation_id','observation_revision','observation_fingerprint','observation_subject_kind','observation_subject_id','observation_tenant_id','observation_origin','observation_acquisition','observation_provider_account_key','observation_pool_id','observation_window_id','observation_reset_at_unix','observation_observed_at_unix','observation_received_at_unix')`,
+			fragments: []string{"observation_acquisition", "observation_fingerprint", "observation_id", "observation_origin", "observation_observed_at_unix", "observation_pool_id", "observation_provider_account_key", "observation_received_at_unix", "observation_reset_at_unix", "observation_revision", "observation_subject_id", "observation_subject_kind", "observation_tenant_id", "observation_window_id", "payload_kind"},
+		},
+		{
+			description: "metering_components table",
+			query:       `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'metering_components' LIMIT 1`,
+			fragments:   []string{"metering_components"},
+		},
+		{
+			description: "metering_facts_store_id_key",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'metering_facts_store_id_key' LIMIT 1`,
+			fragments:   []string{"unique index", "(store_id, id)"},
+		},
+		{
+			description: "metering_facts_store_observation_revision_key",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'metering_facts_store_observation_revision_key' LIMIT 1`,
+			fragments:   []string{"unique index", "(store_id, observation_id, observation_revision)"},
+		},
+		{
+			description: "idx_metering_components_store_subject",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_metering_components_store_subject' LIMIT 1`,
+			fragments:   []string{"store_id", "subject_kind", "subject_id", "stream_id"},
+		},
+		{
+			description: "idx_metering_components_store_component",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_metering_components_store_component' LIMIT 1`,
+			fragments:   []string{"store_id", "component_key_hash", "component_key"},
+		},
+		{
+			description: "idx_metering_components_store_provider_account",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_metering_components_store_provider_account' LIMIT 1`,
+			fragments:   []string{"store_id", "provider_account_key", "stream_id"},
+		},
+		{
+			description: "idx_metering_components_observation",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_metering_components_observation' LIMIT 1`,
+			fragments:   []string{"(observation_row_id, item_kind, item_id)"},
+		},
+		{
+			description: "idx_metering_facts_store_account_window",
+			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'metering_facts' AND indexname = 'idx_metering_facts_store_account_window' LIMIT 1`,
+			fragments:   []string{"store_id", "observation_provider_account_key", "observation_pool_id", "observation_window_id", "observation_reset_at_unix", "observation_observed_at_unix", "observation_received_at_unix"},
+		},
 	}
 	for _, check := range checks {
 		if err := dbinfra.VerifyPostgresQueryRowContains(ctx, db, check.description, check.query, check.args, check.fragments...); err != nil {
@@ -325,6 +422,9 @@ func openStore(ctx context.Context, db *bun.DB, cfg DurableConfig, nonOwning boo
 	}
 	if maxPageSize < def {
 		return nil, fmt.Errorf("metering/journalstore: max page size %d < default %d", maxPageSize, def)
+	}
+	if cfg.ObservationOutboxMaxPending < 0 {
+		return nil, fmt.Errorf("metering/journalstore: observation outbox max pending must not be negative")
 	}
 	now := cfg.Now
 	if now == nil {

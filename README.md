@@ -159,10 +159,10 @@ Operator install/trust/diagnostics/upgrade/rollback for executable backend plugi
 PR CI includes:
 
 - **Repo hygiene** (`.github/workflows/ci.yml`) — exact `.release-files` manifest on every push/PR; cross-platform tests and `lipstd` build. Linux/macOS run `go test -race`; Windows runs `go test` because the ACP PATH-cache stress test is prohibitively slow under the Windows race runtime.
-- **QA** (`.github/workflows/qa.yml`) — when test-relevant files change: formatting, `go mod verify`, architecture guardrails, and `go vet` of `cmd/lipstd`. Full `golangci-lint` and `govulncheck` run locally via `make qa` / `make lint` / `make vuln`; PRs also run govulncheck in `.github/workflows/security.yml`.
+- **QA** (`.github/workflows/qa.yml`) — when test-relevant files change: formatting, `go mod verify`, architecture guardrails, and `go vet` of `cmd/lipstd`. The mandatory correctness lint set and `govulncheck` run locally via `make qa` / `make lint` / `make vuln`; PRs also run govulncheck in `.github/workflows/security.yml`. The canonical lint gates exclude the advisory style linters (`modernize`, `paralleltest`, `thelper`); run `make lint-advisory` for that full, non-blocking report.
 - **CodeQL**, **Go vulnerability check**, and **OpenSSF Scorecard** on `main` and PRs (where configured).
 
-Nightly CI (`.github/workflows/race-fuzz-nightly.yml`, also `workflow_dispatch`) runs strict Linux race and Tier-1 fuzz smoke (`FUZZTIME=6s`). Locally, `make lint` runs `golangci-lint` from PATH (golangci-lint v2; config in [`.golangci.yml`](.golangci.yml)) and falls back to `staticcheck`. A monthly modernization workflow (`.github/workflows/modernize-monthly.yml`) re-runs the `modernize` linter suite and `go tool govulncheck`.
+Nightly CI (`.github/workflows/race-fuzz-nightly.yml`, also `workflow_dispatch`) runs strict Linux race and Tier-1 fuzz smoke (`FUZZTIME=6s`). Locally, `make lint` runs `golangci-lint` from PATH (golangci-lint v2; config in [`.golangci.yml`](.golangci.yml)) and falls back to `staticcheck`; `make lint-advisory` runs the same modules with the advisory style linters enabled. A monthly modernization workflow (`.github/workflows/modernize-monthly.yml`) re-runs the `modernize` linter suite and `go tool govulncheck`.
 
 Recoverability is defined by tests, `testdata/` goldens, stable `pkg/lipapi` / `pkg/lipsdk` contracts, and steering. Cross-protocol parity: `make parity-checks`.
 

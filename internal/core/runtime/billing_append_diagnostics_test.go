@@ -74,7 +74,9 @@ func TestTask51BillingClosureAppendFailurePreservesDiagnosticLevels(t *testing.T
 				billingIdentityStamped: true, billingAccountID: "acct-1",
 				baseline: lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
 			}
-			term.handoffBillingTurn(context.Background(), facts.terminalFacts(), sdkterminal.CommandNormalFinish)
+			// The injected append failure is the subject of this test; the
+			// returned closure error is intentionally observed via the log only.
+			_ = term.handoffBillingTurn(context.Background(), facts.terminalFacts(), sdkterminal.CommandNormalFinish)
 			got := logs.String()
 			if !strings.Contains(got, `"level":"`+tc.level+`"`) {
 				t.Fatalf("append failure log level = %s, want %s: %s", got, tc.level, got)

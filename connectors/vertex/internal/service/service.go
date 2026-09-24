@@ -59,6 +59,7 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 		Version:       "0.1.0",
 		BuildID:       "localdev",
 		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureAccountingEvidence},
 			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		Factories: []backendplugin.FactoryDescriptor{{
@@ -104,25 +105,28 @@ func (s *Service) Configure(_ context.Context, req backendplugin.ConfigureReques
 	}
 
 	return &instance{
-		cfg:  cfg,
-		tp:   tp,
-		hc:   hc,
-		kind: FactoryKind,
+		cfg:                  cfg,
+		tp:                   tp,
+		hc:                   hc,
+		kind:                 FactoryKind,
+		accountingEvidenceV1: backendplugin.AccountingEvidenceNegotiated(req.Negotiation),
 	}, nil
 }
 
 type instance struct {
-	cfg  Config
-	tp   TokenProvider
-	hc   *http.Client
-	kind string
+	cfg                  Config
+	tp                   TokenProvider
+	hc                   *http.Client
+	kind                 string
+	accountingEvidenceV1 bool
 }
 
 func (i *instance) client() *Client {
 	return &Client{
-		Config:        i.cfg,
-		TokenProvider: i.tp,
-		HTTPClient:    i.hc,
+		Config:               i.cfg,
+		TokenProvider:        i.tp,
+		HTTPClient:           i.hc,
+		accountingEvidenceV1: i.accountingEvidenceV1,
 	}
 }
 

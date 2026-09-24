@@ -3,6 +3,7 @@ package auth
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/submission"
 )
 
 // DeviceIdentity distinguishes app, device, or key material from a human principal.
@@ -36,4 +37,8 @@ type Decision struct {
 	// trusted auth code. It is nil for legacy principal-only decisions. Raw bearer/API/OAuth/
 	// resume tokens and transport headers must never be placed here (requirements 2.1, 2.5, 2.6).
 	Scope *scope.PrincipalScopeView
+	// SubmissionAuthority carries optional trusted current-turn or continuation
+	// classification. Client payload metadata and headers are never promoted to
+	// this field; absence leaves prompt-priced submission charging unsupported.
+	SubmissionAuthority *submission.Authority
 }

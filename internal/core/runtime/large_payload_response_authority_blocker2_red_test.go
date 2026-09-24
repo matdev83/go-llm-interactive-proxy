@@ -50,6 +50,7 @@ func (g *blocker2TrackingCompletionGate) Order() int { return 1 }
 func (g *blocker2TrackingCompletionGate) FailureMode() sdkhooks.FailureMode {
 	return sdkhooks.FailClosed
 }
+
 func (g *blocker2TrackingCompletionGate) Handle(ctx context.Context, meta completion.Meta, buf completion.Buffered, svc completion.Services) (completion.Outcome, error) {
 	g.invoked.Store(true)
 	return completion.PassOriginalOutcome(), nil
@@ -72,12 +73,15 @@ func (r *blocker2TrackingSecureRecorder) RecordPostHookStreamEvent(context.Conte
 func (r *blocker2TrackingSecureRecorder) AppendTranscript(context.Context, domain.TranscriptItem) error {
 	return nil
 }
+
 func (r *blocker2TrackingSecureRecorder) AppendAudit(context.Context, domain.AuditItem) error {
 	return nil
 }
+
 func (r *blocker2TrackingSecureRecorder) AddUsage(context.Context, domain.UsageDelta) error {
 	return nil
 }
+
 func (r *blocker2TrackingSecureRecorder) TouchActivity(context.Context, domain.SessionID, time.Time, domain.ActivitySource) error {
 	return nil
 }
@@ -222,7 +226,7 @@ func TestBlocker2_ResponseAuthority_WireBypassProvesViolation(t *testing.T) {
 
 		res, err := ex.ExecuteLargeBody(ctx, assessment, src)
 		require.NoError(t, err)
-		defer res.Stream.Close()
+		defer func() { _ = res.Stream.Close() }()
 
 		var text string
 		for {
@@ -263,7 +267,7 @@ func TestBlocker2_ResponseAuthority_WireBypassProvesViolation(t *testing.T) {
 	}
 	stream, err := ex.Execute(ctx, call)
 	require.NoError(t, err)
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	var text string
 	for {

@@ -7,6 +7,15 @@ run:
 
 linters:
   default: none
+  # Canonical quality gates (`make lint`, `make quality-checks`, `make qa`,
+  # `make precommit-full`, and the pre-commit quality gate) enforce the
+  # correctness linters below. They run through scripts/lint-all-modules.*,
+  # which pass --disable=modernize,paralleltest,thelper so that repository-wide
+  # style debt cannot block the release. The three style linters stay enabled
+  # in this file so the full report remains reproducible on demand via
+  # `make lint-advisory` (and the scheduled
+  # .github/workflows/modernize-monthly.yml modernize pass). They are advisory:
+  # reported, never silently skipped.
   enable:
     - staticcheck
     - govet
@@ -15,6 +24,7 @@ linters:
     - revive
     - forcetypeassert
     - errcheck
+    # Advisory style (on-demand; disabled in the canonical gates above):
     - paralleltest
     - thelper
     - modernize

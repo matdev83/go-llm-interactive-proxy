@@ -320,9 +320,31 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		"internal/qa/phase74_migration_rollout_evidence_test.go",
 		"internal/plugins/frontends/openresponses/websocket_upgrade_test.go",
 		"scripts/quality-checks.ps1",
+		"tools/changesize/main_test.go",
 	} {
 		if !strings.Contains(script, loadCompatibilityPath) {
 			t.Fatalf("anchor load compatibility must remain test-only and explicit: %q", loadCompatibilityPath)
+		}
+	}
+	currentAnchorStart := strings.Index(script, "$testCompatibilityPathsByAnchor = @{")
+	if currentAnchorStart < 0 {
+		t.Fatal("current-anchor test compatibility must declare an explicit per-anchor map")
+	}
+	currentAnchorEnd := strings.Index(script[currentAnchorStart:], "}")
+	if currentAnchorEnd < 0 {
+		t.Fatal("current-anchor test compatibility map is unterminated")
+	}
+	currentAnchorBlock := script[currentAnchorStart : currentAnchorStart+currentAnchorEnd]
+	for _, currentAnchorPath := range []string{
+		"6dbb831885341516117034923f0c3203373aded0",
+		"internal/core/runtime/parallel_race_late_arm_race_test.go",
+		"bb1ef9620ee6e8d9199950161e46fc51914945f2",
+		"tools/changesize/main_test.go",
+		"internal/plugins/frontends/frontendpipe/candidate_proof_saturation_race_test.go",
+		"internal/plugins/frontends/frontendpipe/candidate_assessment_saturation_race_test.go",
+	} {
+		if !strings.Contains(currentAnchorBlock, currentAnchorPath) {
+			t.Fatalf("current-anchor test compatibility must keep the active anchor hermetic: %q", currentAnchorPath)
 		}
 	}
 	for _, warmupModuleGuard := range []string{
@@ -413,14 +435,20 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		t.Fatal("CI must place the Windows test-cost ratchet before building the release binary")
 	}
 	ratchetBlock := ci[ratchet:buildBinary]
-	if !strings.Contains(ratchetBlock, "timeout-minutes: 30") {
-		t.Fatal("Windows test-cost ratchet step must declare timeout-minutes: 30")
+	if !strings.Contains(ratchetBlock, "timeout-minutes: 75") {
+		t.Fatal("Windows test-cost ratchet step must declare timeout-minutes: 75")
 	}
 	if !strings.Contains(ratchetBlock, "& ./scripts/test-cost-ratchet.ps1") {
 		t.Fatal("Windows test-cost ratchet step must invoke & ./scripts/test-cost-ratchet.ps1 directly")
 	}
 	if strings.Contains(ratchetBlock, "-File scripts/test-cost-ratchet.ps1") || strings.Contains(ratchetBlock, "& pwsh") {
 		t.Fatal("Windows test-cost ratchet step must not invoke a nested pwsh subprocess")
+	}
+	if !strings.Contains(ratchetBlock, "GOFLAGS: -p=2") {
+		t.Fatal("Windows test-cost ratchet step must cap Go package concurrency with GOFLAGS: -p=2")
+	}
+	if !strings.Contains(ratchetBlock, "-Parallel 2") {
+		t.Fatal("Windows test-cost ratchet step must cap test concurrency with -Parallel 2")
 	}
 }
 

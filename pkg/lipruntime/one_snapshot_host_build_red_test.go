@@ -76,7 +76,7 @@ func assertBuildSourceUsesBuildHostOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var buildHost, bootstrap, attach int
+	var buildHost, buildCommon, bootstrap, attach int
 	ast.Inspect(f, func(n ast.Node) bool {
 		fd, ok := n.(*ast.FuncDecl)
 		if !ok || fd.Name == nil || fd.Name.Name != "Build" || fd.Body == nil {
@@ -89,6 +89,9 @@ func assertBuildSourceUsesBuildHostOnce(t *testing.T) {
 			}
 			sel, ok := call.Fun.(*ast.SelectorExpr)
 			if !ok || sel.Sel == nil {
+				if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "buildCommon" {
+					buildCommon++
+				}
 				return true
 			}
 			switch sel.Sel.Name {
@@ -103,8 +106,11 @@ func assertBuildSourceUsesBuildHostOnce(t *testing.T) {
 		})
 		return false
 	})
-	if buildHost != 1 {
-		t.Fatalf("lipruntime.Build BuildHost calls=%d want 1", buildHost)
+	// Task 15.2 shares one BuildHost call site behind buildCommon (see
+	// TestFacadeConvergesOnOneBuildHost): Build must obtain its Host from
+	// exactly one Host operation, directly or via that shared assembly.
+	if buildHost+buildCommon != 1 {
+		t.Fatalf("lipruntime.Build Host operations=%d (BuildHost=%d shared=%d) want 1", buildHost+buildCommon, buildHost, buildCommon)
 	}
 	if bootstrap != 0 || attach != 0 {
 		t.Fatalf("lipruntime.Build must not call BuildBootstrap/AttachReloadHost; bootstrap=%d attach=%d", bootstrap, attach)

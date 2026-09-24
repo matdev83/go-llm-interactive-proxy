@@ -31,10 +31,11 @@ func (e *HTTPError) Error() string {
 }
 
 type Client struct {
-	BaseURL    string
-	APIKey     string
-	HTTPClient *http.Client
-	Version    string
+	BaseURL              string
+	APIKey               string
+	HTTPClient           *http.Client
+	Version              string
+	accountingEvidenceV1 bool
 }
 
 func NewClient(baseURL, apiKey string, hc *http.Client) *Client {
@@ -46,7 +47,16 @@ func NewClient(baseURL, apiKey string, hc *http.Client) *Client {
 		BaseURL:    strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		APIKey:     strings.TrimSpace(apiKey),
 		HTTPClient: hc,
-		Version:    ver,
+		Version:    ver, accountingEvidenceV1: true,
+	}
+}
+
+// SetAccountingEvidenceEnabled applies the negotiated V1 host-only sideband
+// capability for this client generation. The default remains enabled for
+// direct package users that do not construct an external ABI session.
+func (c *Client) SetAccountingEvidenceEnabled(enabled bool) {
+	if c != nil {
+		c.accountingEvidenceV1 = enabled
 	}
 }
 
@@ -124,7 +134,9 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 	}
 
 	if isStreaming(call) {
-		return newManagedSSEStream(resp), nil
+		stream := newManagedSSEStream(resp)
+		stream.SetEnabled(c.accountingEvidenceV1)
+		return stream, nil
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -136,7 +148,9 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 	if err != nil {
 		return nil, err
 	}
-	return lipapi.CloseOnlyManagedStream{Stream: lipapi.NewFixedEventStream(events)}, nil
+	stream := newProviderSliceStream(events)
+	stream.SetEnabled(c.accountingEvidenceV1)
+	return stream, nil
 }
 
 func parseNonStreamingResponse(raw []byte) ([]lipapi.Event, error) {
@@ -152,13 +166,8 @@ func parseNonStreamingResponse(raw []byte) ([]lipapi.Event, error) {
 			Thinking  string          `json:"thinking"`
 			Signature string          `json:"signature"`
 		} `json:"content"`
-		StopReason string `json:"stop_reason"`
-		Usage      struct {
-			InputTokens              int `json:"input_tokens"`
-			OutputTokens             int `json:"output_tokens"`
-			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-		} `json:"usage"`
+		StopReason string       `json:"stop_reason"`
+		Usage      *usageFields `json:"usage"`
 	}
 
 	if err := json.Unmarshal(raw, &resp); err != nil {
@@ -171,19 +180,10 @@ func parseNonStreamingResponse(raw []byte) ([]lipapi.Event, error) {
 		lipapi.Event{Kind: lipapi.EventMessageStarted},
 	)
 
-	// 1. Usage delta (input)
-	if resp.Usage.InputTokens > 0 || resp.Usage.CacheReadInputTokens > 0 || resp.Usage.CacheCreationInputTokens > 0 {
-		events = append(events, lipapi.Event{
-			Kind:             lipapi.EventUsageDelta,
-			InputTokens:      resp.Usage.InputTokens,
-			CacheReadTokens:  resp.Usage.CacheReadInputTokens,
-			CacheWriteTokens: resp.Usage.CacheCreationInputTokens,
-			UsagePresence: lipapi.UsagePresence{
-				InputTokens:      resp.Usage.InputTokens > 0,
-				CacheReadTokens:  resp.Usage.CacheReadInputTokens > 0,
-				CacheWriteTokens: resp.Usage.CacheCreationInputTokens > 0,
-			},
-		})
+	// 1. Usage (including explicit zero values; absent/malformed fields remain
+	// unavailable and do not turn into synthetic text-token evidence).
+	if usage := commandcodeUsageEvent(resp.Usage, resp.ID); usage != nil {
+		events = append(events, *usage)
 	}
 
 	// 2. Content blocks
@@ -229,25 +229,14 @@ func parseNonStreamingResponse(raw []byte) ([]lipapi.Event, error) {
 		}
 	}
 
-	// 3. Usage delta (output)
-	if resp.Usage.OutputTokens > 0 {
-		events = append(events, lipapi.Event{
-			Kind:         lipapi.EventUsageDelta,
-			OutputTokens: resp.Usage.OutputTokens,
-			UsagePresence: lipapi.UsagePresence{
-				OutputTokens: true,
-			},
-		})
-	}
-
-	// 4. Finish reason
+	// 3. Finish reason
 	if resp.StopReason != "" {
 		events = append(events, lipapi.Event{
 			Kind:         lipapi.EventResponseFinished,
 			FinishReason: resp.StopReason,
 		})
 	}
-
+	annotateProviderUsageEvents(events, resp.ID)
 	return events, nil
 }
 

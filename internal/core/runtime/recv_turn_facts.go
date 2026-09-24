@@ -36,6 +36,14 @@ func (f recvTurnFacts) logDecision(ctx context.Context, logger *slog.Logger, key
 	diag.LogDecision(ctx, logger, key, diag.AttrOpts{CallID: f.traceID, BLegID: f.aLegID}, attrs...)
 }
 
+func (f recvTurnFacts) logEconomicCheckpointCapacityRejection(ctx context.Context, logger *slog.Logger, attempt *attemptSession, diagnostic economicCheckpointCapacityDiagnostic) {
+	diag.LogDecision(ctx, logger, economicCheckpointCapacityRejectionLogMessage, f.attemptDiagAttrs(attempt),
+		slog.String("reason", economicCheckpointCapacityRejectionReason),
+		slog.String("checkpoint_semantics", string(diagnostic.semantics)),
+		slog.Uint64("checkpoint_revision", diagnostic.revision),
+	)
+}
+
 func (f recvTurnFacts) logRecoverablePreOutput(ctx context.Context, logger *slog.Logger, candidate string) {
 	f.logDecision(ctx, logger, "recoverable_pre_output_swallowed", slog.String("candidate_key", candidate), slog.String("phase", "recv"))
 }
@@ -73,11 +81,14 @@ type recvTurnFactsInput struct {
 	requestAuth *requestAuthorityState
 
 	billingAccountID       string
+	billingStoreID         string
+	billingStoreIDStamped  bool
 	billingCustomerPricing billing.VersionRef
 	billingChargePolicy    billing.VersionRef
 	billingIdentityStamped bool
 	billingCallID          billing.BillingCallID
 	billingCallState       *billingCallState
+	submissionID           string
 
 	conversationSnapshot         conversationprojection.Snapshot
 	conversationProvenance       []conversationprojection.OverlayProvenance
@@ -85,6 +96,12 @@ type recvTurnFactsInput struct {
 	ingressCall                  lipapi.Call
 	continuationIntent           continuationIntentFacts
 	wirePayload                  *wireAttemptPayload
+}
+
+func withBillingStoreID(input recvTurnFactsInput, storeID string, stamped bool) recvTurnFactsInput {
+	input.billingStoreID = storeID
+	input.billingStoreIDStamped = stamped
+	return input
 }
 
 // recvTurnFacts is the request-lifetime authority for facts needed after stream
@@ -118,11 +135,14 @@ type recvTurnFacts struct {
 	requestAuth *requestAuthorityState
 
 	billingAccountID       string
+	billingStoreID         string
+	billingStoreIDStamped  bool
 	billingCustomerPricing billing.VersionRef
 	billingChargePolicy    billing.VersionRef
 	billingIdentityStamped bool
 	billingCallID          billing.BillingCallID
 	billingCallState       *billingCallState
+	submissionID           string
 
 	conversationSnapshot         conversationprojection.Snapshot
 	conversationProvenance       []conversationprojection.OverlayProvenance
@@ -133,32 +153,33 @@ type recvTurnFacts struct {
 }
 
 func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts {
-	var input recvTurnFactsInput
-	input.baseline = f.call
-	input.traceID = f.traceID
-	input.aLegID = f.aLegID
-	input.secureTurn = f.secureTurn
-	input.secureTurnOK = f.secureTurnOK
-	input.terminalDecisionPolicy = f.terminalDecisionPolicy
-	input.terminalDecisionEnabled = f.terminalDecisionEnabled
-	input.billingCallID = f.billingCallID
-	input.billingCallState = f.billingState
-	input.billingAccountID = f.accountID
-	input.billingCustomerPricing = f.pricing
-	input.billingChargePolicy = f.chargePolicy
-	input.billingIdentityStamped = f.identityStamped
-	input.requestAuth = f.requestAuth
-	input.routePrefs = slices.Clone(f.routePrefs)
-	input.recvViews = f.recvViews
-	input.recvViewsOK = true
-	input.metering = f.metering
-	input.conversationSnapshot = cloneSnapshot(f.conversationSnapshot)
-	input.conversationProvenance = slices.Clone(f.conversationProvenance)
-	input.conversationFilteredBaseline = lipapi.CloneCall(f.conversationFilteredBaseline)
-	input.ingressCall = lipapi.CloneCall(f.ingressCall)
-	input.continuationIntent = f.continuationIntent
-	input.wirePayload = f.wirePayload
-	return newRecvTurnFacts(ctx, input)
+	return newRecvTurnFacts(ctx, withBillingStoreID(recvTurnFactsInput{
+		baseline:                     f.call,
+		traceID:                      f.traceID,
+		aLegID:                       f.aLegID,
+		secureTurn:                   f.secureTurn,
+		secureTurnOK:                 f.secureTurnOK,
+		terminalDecisionPolicy:       f.terminalDecisionPolicy,
+		terminalDecisionEnabled:      f.terminalDecisionEnabled,
+		billingCallID:                f.billingCallID,
+		billingCallState:             f.billingState,
+		submissionID:                 f.submissionID,
+		billingAccountID:             f.accountID,
+		billingCustomerPricing:       f.pricing,
+		billingChargePolicy:          f.chargePolicy,
+		billingIdentityStamped:       f.identityStamped,
+		requestAuth:                  f.requestAuth,
+		routePrefs:                   slices.Clone(f.routePrefs),
+		recvViews:                    f.recvViews,
+		recvViewsOK:                  true,
+		metering:                     f.metering,
+		conversationSnapshot:         cloneSnapshot(f.conversationSnapshot),
+		conversationProvenance:       slices.Clone(f.conversationProvenance),
+		conversationFilteredBaseline: lipapi.CloneCall(f.conversationFilteredBaseline),
+		ingressCall:                  lipapi.CloneCall(f.ingressCall),
+		continuationIntent:           f.continuationIntent,
+		wirePayload:                  f.wirePayload,
+	}, f.storeID, f.storeIDStamped))
 }
 
 func newRecvTurnFacts(ctx context.Context, in recvTurnFactsInput) recvTurnFacts {

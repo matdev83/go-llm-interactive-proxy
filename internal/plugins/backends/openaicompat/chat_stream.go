@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -40,6 +41,7 @@ type chatStream struct {
 	activeTools     map[int64]string
 	pendingToolArgs map[int64][]string
 	activeToolOrder []int64
+	*coremetering.ProviderEvidenceBuffer
 }
 
 // NewChatStream maps an openai-go chat-completions stream into canonical events.
@@ -48,9 +50,10 @@ func NewChatStream(provider string, s *ssestream.Stream[openai.ChatCompletionChu
 		return lipapi.NewFixedEventStream(nil)
 	}
 	return &chatStream{
-		provider: provider,
-		sdk:      s,
-		pending:  stream.NewPendingEventQueue(maxPending),
+		provider:               provider,
+		sdk:                    s,
+		pending:                stream.NewPendingEventQueue(maxPending),
+		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
 	}
 }
 
@@ -238,8 +241,17 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 	}
 
 	if ch.JSON.Usage.Valid() {
-		if err := s.pending.Push(openaiusage.ChatUsageEvent(ch.Usage)); err != nil {
+		usage := openaiusage.ChatUsageEvent(ch.Usage)
+		openaiusage.AnnotateProviderContext(&usage, ch.ID, string(ch.ServiceTier))
+		if err := s.pending.Push(usage); err != nil {
 			return err
+		}
+		if s.ProviderEvidenceBuffer != nil {
+			sourceKey := "openai.chat.usage:stream"
+			if ch.ID != "" {
+				sourceKey = "openai.chat.usage:" + ch.ID
+			}
+			s.Add(openaiusage.ProviderEvidenceDraft(usage, "openai.chat.v2", sourceKey))
 		}
 	}
 	return nil

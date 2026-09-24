@@ -401,7 +401,6 @@ func (g *LateSelectorAssessmentGate) Evaluate(ctx context.Context, proof Proof) 
 	// AnyAcceptedModel above) or when a mixed set still has universal proof
 	// for every resolved target backend (verified above).
 	universalModel := hasUniversal
-	allTargetBackends = deduplicateAndSort(allTargetBackends)
 	if !universalModel {
 		allTargetModels = deduplicateAndSort(allTargetModels)
 		if len(allTargetModels) == 0 && strings.TrimSpace(proof.ClientModel) != "" {

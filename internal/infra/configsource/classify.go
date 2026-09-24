@@ -77,6 +77,13 @@ const (
 )
 
 func ClassifyAtomicReplacement(active ActiveSourceVersion, candidate SourceSnapshot) (AtomicResult, Category, error) {
+	// Identities from different platforms or provenance schemes are not
+	// comparable. A coarser identity cannot prove the candidate is a different
+	// physical file, so fail closed instead of treating it as a new identity.
+	if active.HandleIdentity.Platform != candidate.HandleIdentity.Platform ||
+		active.HandleIdentity.Scheme != candidate.HandleIdentity.Scheme {
+		return AtomicReject, CategoryNonAtomicUpdate, integrityErr(CategoryNonAtomicUpdate)
+	}
 	sameID := active.HandleIdentity == candidate.HandleIdentity
 	sameDigest := bytes.Equal(active.PrivateDigest[:], candidate.PrivateDigest[:])
 	switch {

@@ -25,6 +25,15 @@ func TestUsageEvidence_normalizesProviderAuthorityAndRejectsEmptyUsage(t *testin
 	}
 }
 
+func TestCompletedResponseUsageRejectsNegativeCounters(t *testing.T) {
+	t.Parallel()
+	negative := int64(-1)
+	event := (completedResponse{Usage: &completedUsage{InputTokens: &negative}}).usageEvent()
+	if event != nil {
+		t.Fatalf("negative request usage became provider evidence: %+v", event)
+	}
+}
+
 func TestAccountingEvidence_preservesPresenceAndProviderMetadata(t *testing.T) {
 	t.Parallel()
 	usage := &NativeUsageEvidence{
@@ -62,6 +71,21 @@ func TestNativeUsageSidebandStream_drainsEvidenceOnce(t *testing.T) {
 	}
 	if _, err := sideband.Recv(context.Background()); !errors.Is(err, io.EOF) {
 		t.Fatalf("open error = %v, want EOF", err)
+	}
+}
+
+func TestNativeUsageSidebandStreamDoesNotClaimPrimaryUsageAuthority(t *testing.T) {
+	t.Parallel()
+	stream := newNativeUsageSidebandStream(nil, &NativeUsageEvidence{
+		InputTokens: 13, UsagePresence: lipapi.UsagePresence{InputTokens: true},
+		Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+	}, io.EOF)
+	state, ok := stream.(interface{ AccountingEvidenceEnabled() bool })
+	if !ok {
+		t.Fatal("compaction sideband does not expose explicit authority state")
+	}
+	if state.AccountingEvidenceEnabled() {
+		t.Fatal("compaction sideband claimed authority over the wrapped primary stream")
 	}
 }
 

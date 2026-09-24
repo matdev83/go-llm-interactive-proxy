@@ -166,7 +166,7 @@ func executeCanonicalFlow(
 	if err != nil {
 		t.Fatalf("canonical be.Open failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	for {
 		_, err := stream.Recv(context.Background())
@@ -210,7 +210,7 @@ func executeWireFlow(
 	if err != nil {
 		t.Fatalf("SpliceModelToken failed: %v", err)
 	}
-	defer spliceReader.Close()
+	defer func() { _ = spliceReader.Close() }()
 	rewrittenLen := spliceReader.RewrittenLength()
 
 	pool, err := credpool.New([]credpool.Credential{{ID: "k1", Secret: "sk-backend-secret"}})
@@ -261,7 +261,7 @@ func executeWireFlow(
 	if err != nil {
 		t.Fatalf("OpenWire failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	for {
 		_, err := stream.Recv(context.Background())

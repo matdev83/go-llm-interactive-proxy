@@ -1,0 +1,53 @@
+{
+  "fixture_version": "phase1-v1-posting-schema-compatibility",
+  "migration_ids": {
+    "billing_baseline": "20260812000000",
+    "usage_leg_records": "20260818000000",
+    "usage_call_records": "20260819000000",
+    "usage_leg_attempt_sequence": "20260828000000",
+    "provider_journal_order": "20260830000000",
+    "provider_journal_sequence_contract": "20260830010000"
+  },
+  "posting_identity": {
+    "journal_book": "financial",
+    "provider_cogs_operation_kind": "provider_call_cogs",
+    "provider_cost_source_prefix": "provider-cost:v1:",
+    "journal_fingerprint_prefix": "journal-fp:v2:",
+    "provider_debit_account": "inference_provider_cogs",
+    "provider_credit_account": "provider_payable_clearing",
+    "journal_reversal_unique_index": "idx_billing_journal_reversal_unique",
+    "provider_journal_order_index": "idx_billing_journal_provider_order",
+    "provider_journal_book_order_index": "idx_billing_journal_book_provider_order",
+    "usage_leg_call_bleg_unique_index": "idx_usage_leg_records_call_b_leg",
+    "usage_leg_call_attempt_unique_index": "idx_usage_leg_records_call_attempt_seq",
+    "usage_call_id_unique_index": "idx_usage_call_records_call_id",
+    "usage_call_account_session_index": "idx_usage_call_records_account_session",
+    "usage_call_claim_status_index": "idx_usage_call_records_claim_status",
+    "usage_call_claim_pending_index": "idx_usage_call_records_claim_pending",
+    "provider_journal_sequence_check": "billing_journal_sequence_contract"
+  },
+  "schema_columns": {
+    "journal_transactions": [
+      "transaction_id", "account_id", "book", "currency", "source_key",
+      "semantic_fingerprint", "turn_id", "a_leg_id", "b_leg_id",
+      "account_sequence", "reversal_of", "corrects_transaction_id",
+      "correction_group_id", "operation_kind", "recorded_at"
+    ],
+    "usage_leg_records": [
+      "usage_leg_key", "fingerprint", "call_id", "a_leg_id", "b_leg_id",
+      "backend_id", "provider_id", "model_id", "started_at", "finished_at",
+      "outcome", "surfaced", "payload_json", "sealed_at"
+    ],
+    "usage_call_records": [
+      "usage_call_key", "fingerprint", "call_id", "account_id", "a_leg_id",
+      "session_id", "started_at", "finished_at", "outcome",
+      "expected_b_leg_ids", "payload_json", "sealed_at", "claim_status",
+      "claimed_at", "claim_attempt_count", "next_claim_at", "last_claim_error"
+    ]
+  },
+  "dialect_types": {
+    "journal_account_sequence": {"sqlite": "INTEGER", "postgres": "BIGINT"},
+    "journal_amount_nano": {"sqlite": "INTEGER", "postgres": "BIGINT"},
+    "usage_leg_attempt_sequence": {"sqlite": "INTEGER NULL", "postgres": "BIGINT NULL"}
+  }
+}

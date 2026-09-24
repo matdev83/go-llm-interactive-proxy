@@ -5,8 +5,14 @@
 param(
     [switch]$Staged,
     [switch]$Changed,
+    [switch]$Advisory,
     [string[]]$Modules = @()
 )
+
+# Style linters that are advisory for the canonical gate: they stay enabled in
+# .golangci.yml for the full report (`-Advisory`, `make lint-advisory`) but are
+# disabled by default so repository-wide style debt cannot block a release.
+$AdvisoryStyleLinters = @("modernize", "paralleltest", "thelper")
 
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/taskrunner.ps1"
@@ -106,6 +112,9 @@ $linterArgs = @()
 if (Get-Command golangci-lint -ErrorAction SilentlyContinue) {
     $linter = "golangci-lint"
     $linterArgs = @("run", "--allow-parallel-runners")
+    if (-not $Advisory) {
+        $linterArgs += "--disable=$($AdvisoryStyleLinters -join ',')"
+    }
 } elseif (Get-Command staticcheck -ErrorAction SilentlyContinue) {
     $linter = "staticcheck"
     $linterArgs = @("./...")
@@ -115,6 +124,13 @@ if (Get-Command golangci-lint -ErrorAction SilentlyContinue) {
 }
 
 Write-Host "Linting $($targetModules.Count) module(s) with $linter in parallel..." -ForegroundColor Cyan
+if ($linter -eq "golangci-lint") {
+    if ($Advisory) {
+        Write-Host "Mode: ADVISORY (full set incl. $($AdvisoryStyleLinters -join ', '); non-blocking style report)." -ForegroundColor Yellow
+    } else {
+        Write-Host "Mode: MANDATORY correctness gate (--disable=$($AdvisoryStyleLinters -join ',')); style debt via 'make lint-advisory'." -ForegroundColor Cyan
+    }
+}
 
 $runnerBinary = Get-TaskRunnerBinary
 $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()

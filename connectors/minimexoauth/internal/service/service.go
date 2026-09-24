@@ -60,6 +60,7 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 		Version:       "0.1.0",
 		BuildID:       "localdev",
 		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureAccountingEvidence},
 			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		Factories: []backendplugin.FactoryDescriptor{{
@@ -115,10 +116,11 @@ func (s *Service) Configure(ctx context.Context, req backendplugin.ConfigureRequ
 	}
 
 	cl := &Client{
-		Config:        cfg,
-		TokenProvider: tp,
-		OAuthSession:  oauthSess,
-		HTTPClient:    hc,
+		Config:               cfg,
+		TokenProvider:        tp,
+		OAuthSession:         oauthSess,
+		HTTPClient:           hc,
+		accountingEvidenceV1: backendplugin.AccountingEvidenceNegotiated(req.Negotiation),
 	}
 
 	return &instance{

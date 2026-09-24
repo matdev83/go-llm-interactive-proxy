@@ -21,6 +21,13 @@ var V2BoundedIndexNames = []string{
 	"idx_metering_facts_store_recorded",
 	"idx_metering_facts_store_plane",
 	"idx_metering_fact_supersessions_to",
+	"metering_facts_store_id_key",
+	"metering_facts_store_observation_revision_key",
+	"idx_metering_components_store_subject",
+	"idx_metering_components_store_component",
+	"idx_metering_components_store_provider_account",
+	"idx_metering_components_observation",
+	accountWindowFactsIndex,
 }
 
 func registerSchemaV2Migration() {
@@ -134,12 +141,10 @@ func schemaV2SQLite(ctx context.Context, db *bun.DB) error {
 }
 
 func sqliteAddColumnIfMissing(ctx context.Context, db *bun.DB, table, column, alterSQL string) error {
-	if table != "metering_facts" {
-		return fmt.Errorf("metering schema v2 sqlite: unsupported table %q", table)
-	}
 	var n int
 	err := db.NewRaw(
-		`SELECT COUNT(1) FROM pragma_table_info('metering_facts') WHERE name = ?`,
+		`SELECT COUNT(1) FROM pragma_table_info(?) WHERE name = ?`,
+		table,
 		column,
 	).Scan(ctx, &n)
 	if err != nil {

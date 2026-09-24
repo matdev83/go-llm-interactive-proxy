@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"math"
 	"strings"
 	"unicode/utf8"
 
@@ -74,7 +75,6 @@ func (s *StreamingEscapeWriter) writeDirect(p []byte) error {
 			if err := s.flushBuf(); err != nil {
 				return err
 			}
-			avail = len(s.buf)
 		}
 		n := copy(s.buf[s.bufLen:], p)
 		s.bufLen += n
@@ -104,6 +104,9 @@ const hexDigits = "0123456789abcdef"
 func (s *StreamingEscapeWriter) Write(p []byte) (int, error) {
 	if s.closed {
 		return 0, errors.New("largebody: write to closed StreamingEscapeWriter")
+	}
+	if len(p) > math.MaxInt-s.tailLen {
+		return 0, errors.New("largebody: escaped write buffer length overflows int")
 	}
 	origLen := len(p)
 
@@ -221,6 +224,9 @@ func (s *StreamingEscapeWriter) Write(p []byte) (int, error) {
 func (s *StreamingEscapeWriter) WriteString(str string) (int, error) {
 	if s.closed {
 		return 0, errors.New("largebody: write to closed StreamingEscapeWriter")
+	}
+	if len(str) > math.MaxInt-s.tailLen {
+		return 0, errors.New("largebody: escaped write buffer length overflows int")
 	}
 	origLen := len(str)
 

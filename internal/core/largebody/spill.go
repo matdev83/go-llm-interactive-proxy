@@ -130,10 +130,12 @@ type SpillBuffer struct {
 	removeFile func(path string) error
 }
 
-var _ Source = (*SpillBuffer)(nil)
-var _ io.Writer = (*SpillBuffer)(nil)
-var _ io.ReaderFrom = (*SpillBuffer)(nil)
-var _ io.Closer = (*SpillBuffer)(nil)
+var (
+	_ Source        = (*SpillBuffer)(nil)
+	_ io.Writer     = (*SpillBuffer)(nil)
+	_ io.ReaderFrom = (*SpillBuffer)(nil)
+	_ io.Closer     = (*SpillBuffer)(nil)
+)
 
 // NewSpillBuffer validates configuration and constructs an initialized SpillBuffer.
 func NewSpillBuffer(cfg SpillConfig) (*SpillBuffer, error) {
@@ -193,7 +195,7 @@ func NewSpillBuffer(cfg SpillConfig) (*SpillBuffer, error) {
 // (Requirement 20.2; design section 5).
 func defaultCreateSpillFile(dir string) (SpillFile, string, error) {
 	dir = filepath.Clean(dir)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, "", fmt.Errorf("%w: failed to create spool dir %q: %v",
 			ErrSpillFileCreationFailed, dir, err)
 	}
@@ -209,7 +211,7 @@ func defaultCreateSpillFile(dir string) (SpillFile, string, error) {
 		filePath := filepath.Join(dir, fileName)
 
 		flags := os.O_RDWR | os.O_CREATE | os.O_EXCL
-		f, err := os.OpenFile(filePath, flags, 0600)
+		f, err := os.OpenFile(filePath, flags, 0o600)
 		if err == nil {
 			return f, filePath, nil
 		}

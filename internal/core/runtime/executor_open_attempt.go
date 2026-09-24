@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -121,6 +122,7 @@ type attemptTx struct {
 	launchPermit *leglifecycle.LaunchPermit
 
 	// attempt-local resources
+	boundary              *coremetering.BoundaryAccumulator
 	accounting            attemptAccountingTracker
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
@@ -156,15 +158,18 @@ func (e *Executor) newAttemptSession(in attemptSessionInput) *attemptSession {
 		}
 		in.now = e.now
 		in.finalizeBilling = e.callFinalizeBilling
+		in.finalizeBillingV2 = e.callFinalizeBillingResult
 		in.billingEnabled = e.billingEnabled
 		in.operatorRateRef = e.operatorRateRef
 		in.billingWorkload = e.billingWorkloadIdentityForALeg
 		in.observeBillingLeg = e.observeBillingLeg
 		in.appendBillingLeg = e.appendIndependentCallLeg
+		in.observationSink = e.MeteringObservationSink
 	}
 	sess := newAttemptSession(in)
 	if e != nil {
 		sess.recordCancellationFn = e.recordCancellation
+		sess.appendBillingLegStrict = e.appendIndependentCallLegStrict
 	}
 	return sess
 }
@@ -176,7 +181,7 @@ func (tx *attemptTx) createSession() *attemptSession {
 	if tx.session != nil {
 		return tx.session
 	}
-	tx.session = tx.e.newAttemptSession(attemptSessionInput{
+	tx.session = tx.e.newAttemptSession(withBillingStoreIDOnAttempt(attemptSessionInput{
 		inner:                 tx.stream,
 		streamDisposed:        tx.streamDisposed,
 		bleg:                  tx.bleg,
@@ -185,15 +190,29 @@ func (tx *attemptTx) createSession() *attemptSession {
 		aScope:                tx.reqFacts.aScope,
 		traceID:               tx.reqFacts.traceID,
 		billingCallID:         tx.reqFacts.billingCallID,
+		submissionID:          tx.reqFacts.submissionID,
 		billingCallState:      tx.reqFacts.billingCallState,
 		accounting:            tx.accounting,
+		boundary:              tx.boundary,
+		requestID:             attemptRequestID(tx.reqFacts),
+		boundaryScope:         tx.reqFacts.recvViews.Scope,
 		toolFinal:             tx.toolFinal,
 		promptCacheSource:     tx.promptCacheSource,
 		promptCacheController: tx.promptCacheController,
 		finalStreamObs:        tx.finalStreamObs,
 		recordAttemptLoggedFn: tx.recordAttemptLoggedFn,
-	})
+	}, tx.reqFacts.billingStoreID))
 	return tx.session
+}
+
+func attemptRequestID(facts requestFacts) string {
+	if facts.wirePayload != nil && strings.TrimSpace(facts.wirePayload.requestID) != "" {
+		return strings.TrimSpace(facts.wirePayload.requestID)
+	}
+	if requestID := strings.TrimSpace(facts.baseline.ID); requestID != "" {
+		return requestID
+	}
+	return strings.TrimSpace(facts.traceID)
 }
 
 func (e *Executor) createSessionForParallelLeg(leg *parallelLeg, aScope *leglifecycle.ALeg) *attemptSession {
@@ -203,19 +222,32 @@ func (e *Executor) createSessionForParallelLeg(leg *parallelLeg, aScope *leglife
 	if leg.tx != nil {
 		return leg.tx.createSession()
 	}
-	return e.newAttemptSession(attemptSessionInput{
+	boundary := leg.boundary
+	if boundary == nil {
+		boundary = e.newLocalBoundaryAccumulator()
+	}
+	billingCallID := leg.billingCallID
+	if billingCallID == "" && leg.billingCallState != nil {
+		billingCallID = leg.billingCallState.callID
+	}
+	return e.newAttemptSession(withBillingStoreIDOnAttempt(attemptSessionInput{
 		inner:            leg.stream,
 		bleg:             leg.bleg,
 		cand:             leg.cand,
 		authority:        leg.authority,
 		aScope:           aScope,
+		requestID:        leg.requestID,
+		boundaryScope:    leg.boundaryScope,
+		billingCallID:    billingCallID,
+		submissionID:     billingSubmissionID(leg.billingCallState),
 		billingCallState: leg.billingCallState,
+		boundary:         boundary,
 		recordAttemptLoggedFn: func(cctx context.Context, p recordAttemptParams, attrs diag.AttrOpts) {
 			if e != nil {
 				e.recordAttemptLogged(cctx, p, attrs)
 			}
 		},
-	})
+	}, leg.storeID))
 }
 
 func (tx *attemptTx) HandoffReady(pending pendingSelectionEffects) *readyAttempt {
@@ -357,6 +389,7 @@ func (e *Executor) startAttemptTx(ctx context.Context, rf requestFacts, route ro
 		bleg:       bleg,
 		budget:     budget,
 		failures:   failures,
+		boundary:   e.newLocalBoundaryAccumulator(),
 	}, nil
 }
 
@@ -767,6 +800,12 @@ func (e *Executor) openAttemptTx(
 	wireCall.Session.ContinuityKey = ""
 	wireCall.Session.AuthoritativeSessionID = ""
 	wireCall.Session.ResumeToken = ""
+	if tx.boundary != nil {
+		// This is only a bounded canonical estimate. Essential adapters replace
+		// it through the context observer after constructing their final wire
+		// representation (including provider-specific transforms).
+		tx.boundary.PrepareCall(wireCall)
+	}
 	if e.RuntimeSnapshot != nil {
 		bundle := coretraffic.PortBundleFromSnapshot(e.RuntimeSnapshot)
 		if !bundle.EmitIsNoop() {
@@ -836,10 +875,34 @@ func (e *Executor) openAttemptTx(
 		ALegID: tx.reqFacts.aLegID, BLegID: tx.bleg.BLegID,
 		BackendInstanceID: c.Primary.Backend, CanonicalModelID: c.Primary.Model,
 	})
+	if tx.boundary != nil {
+		tx.boundary.MarkAttempted()
+		openCtx = coremetering.WithPreparedInputObserver(openCtx, tx.boundary.ObservePreparedInput)
+	}
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
 		return be.Open(openCtx, wireCall, routing.BackendFacingCandidate(c))
 	})
 	tx.stream = stream
+	// Provider adapters may capture native V2 evidence before the runtime has
+	// created a trusted B-leg binding. Supply that binding immediately after
+	// Open so evidence from the first pre-read event and from every terminal
+	// path is attributed to this attempt only. A missing store remains a
+	// fail-closed no-op in the provider buffer.
+	if err == nil && stream != nil {
+		if binder, ok := stream.(coremetering.ProviderEvidenceBinder); ok {
+			billingCallID := tx.reqFacts.billingCallID.String()
+			binder.BindEconomicEvidence(coremetering.ObservationIdentity{
+				StoreID: tx.reqFacts.billingStoreID, RequestID: wireCall.ID,
+				CallID: billingCallID, BillingCallID: billingCallID,
+				ALegID: tx.reqFacts.aLegID, BLegID: tx.bleg.BLegID,
+				AttemptID: tx.bleg.BLegID, AttemptSeq: uint64(maxInt(tx.bleg.Seq, 0)),
+				ObservedAt: openStart.UTC(), ReceivedAt: e.now().UTC(),
+			})
+		}
+	}
+	if tx.boundary != nil {
+		tx.boundary.MarkAccepted(err == nil && stream != nil)
+	}
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {
 		tx.abortLaunchPermit()

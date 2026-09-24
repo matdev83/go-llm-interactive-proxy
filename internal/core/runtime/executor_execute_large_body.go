@@ -25,6 +25,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
@@ -151,6 +152,13 @@ func (s *wireLifecycleEventStream) Cancel(ctx context.Context, cause lipapi.Canc
 // If LargeBodyAssessor is not configured or interleaved thinking is enabled,
 // it returns a declined assessment (fail closed to canonical; Item 4).
 func (e *Executor) AssessLargeBody(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
+	if e != nil && e.localBoundaryCaptureRequired() {
+		// Wire execution has no canonical Call or transform callback with which
+		// to prove the final provider-bound representation. Decline before any
+		// upstream commitment so the canonical path can capture it.
+		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonMeteringUnsupported)
+		return dec, nil
+	}
 	if e == nil || e.LargeBodyAssessor == nil || e.interleavedEnabled() {
 		dec, _ := largebody.NewDeclinedAssessment(largebody.DeclineReasonAuthorityBlocker)
 		return dec, nil
@@ -200,8 +208,10 @@ type ProductionLargeBodyAssessor struct {
 	LaneDomainPolicies        map[string]LaneDomainPolicy
 }
 
-var _ largebody.LargeBodyAssessor = (*ProductionLargeBodyAssessor)(nil)
-var _ largebody.LargeBodyStaticDispositionProvider = (*ProductionLargeBodyAssessor)(nil)
+var (
+	_ largebody.LargeBodyAssessor                  = (*ProductionLargeBodyAssessor)(nil)
+	_ largebody.LargeBodyStaticDispositionProvider = (*ProductionLargeBodyAssessor)(nil)
+)
 
 // NewProductionLargeBodyAssessor constructs a ProductionLargeBodyAssessor.
 func NewProductionLargeBodyAssessor(
@@ -756,7 +766,6 @@ func (e *Executor) ExecuteLargeBody(
 					outcome = billing.LegOutcomeFailed
 				}
 			}
-
 			if aScope != nil {
 				aScope.End()
 			}
@@ -918,6 +927,24 @@ type wireBodyClosingStream struct {
 	once   sync.Once
 }
 
+// wireBoundaryEventStream keeps the wire fast lane observable when no
+// customer-side transform is occupied. Wire eligibility guarantees the
+// provider event is delivered unchanged, so the two local output boundaries
+// are still recorded as independent snapshots with independent identities.
+type wireBoundaryEventStream struct {
+	lipapi.ManagedEventStream
+	boundary *coremetering.BoundaryAccumulator
+}
+
+func (s *wireBoundaryEventStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	ev, err := s.ManagedEventStream.Recv(ctx)
+	if err == nil && s.boundary != nil {
+		s.boundary.ObserveProviderEvent(ev)
+		s.boundary.ObserveCustomerEvent(ev)
+	}
+	return ev, err
+}
+
 func (s *wireBodyClosingStream) Close() error {
 	var closeErr error
 	s.once.Do(func() {
@@ -1059,6 +1086,12 @@ func (e *Executor) openWireAttemptTx(
 		tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeNeverStarted, openErr, "")
 		return nil
 	}
+	if tx.boundary != nil {
+		// Wire mode has no canonical Call. Retain only a bounded payload-byte
+		// estimate until an optional wire adapter reports final text/media
+		// properties through the context observer.
+		tx.boundary.PreparePayloadBytes(contentLength)
+	}
 
 	op := wp.turnFacts.Protocol.Operation
 	if op == "" {
@@ -1100,10 +1133,17 @@ func (e *Executor) openWireAttemptTx(
 
 	tx.openInvoked = true
 	tx.backendAttempted = true
+	if tx.boundary != nil {
+		tx.boundary.MarkAttempted()
+		openSpanCtx = coremetering.WithPreparedInputObserver(openSpanCtx, tx.boundary.ObservePreparedInput)
+	}
 
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
 		return execbackend.EffectiveWireOpen(openSpanCtx, be, wireReq)
 	})
+	if tx.boundary != nil {
+		tx.boundary.MarkAccepted(err == nil && stream != nil)
+	}
 	openDur := time.Since(openStart).Seconds()
 	if e.Metrics != nil {
 		e.Metrics.OnBackendOpenDuration(c.Primary.Backend, openDur)
@@ -1198,6 +1238,9 @@ func (e *Executor) openWireAttemptTx(
 		}
 	}
 
+	if tx.boundary != nil {
+		stream = &wireBoundaryEventStream{ManagedEventStream: stream, boundary: tx.boundary}
+	}
 	tx.stream = &wireBodyClosingStream{
 		ManagedEventStream: stream,
 		closer:             bodyReader,

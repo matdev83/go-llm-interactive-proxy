@@ -88,7 +88,7 @@ func TestFindingM5_ForcedNewCaptureReaderFailure_YieldsTerminalErrorNeverDecline
 
 	buf, err := largebody.NewSpillBuffer(cfg)
 	require.NoError(t, err)
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// Write enough so that bytes are spilled and BytesWritten > 0
 	prefix := bytes.Repeat([]byte("retained-prefix-bytes-"), 10)

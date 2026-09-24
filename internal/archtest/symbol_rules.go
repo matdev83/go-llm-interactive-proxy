@@ -46,7 +46,6 @@ var ForbiddenDeclarations = []ForbiddenDeclRule{
 	// Phase 8 deleted stream-time financial runtime surface
 	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "RatingRequest", Reason: "stream-time rater contract deleted; billing owns monetary rating"},
 	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "RatingResult", Reason: "stream-time rater contract deleted; billing owns monetary rating"},
-	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "Rater", Reason: "stream-time rater contract deleted; billing owns monetary rating"},
 	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "RaterRegistration", Reason: "stream-time rater registration deleted"},
 	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "OutputLimitStatus", Reason: "legacy monetary output-limit quote contract deleted"},
 	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "OutputLimitRequest", Reason: "legacy monetary output-limit quote contract deleted"},

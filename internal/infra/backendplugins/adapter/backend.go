@@ -140,7 +140,7 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 	}
 	if profile.SupportsFinalizeBilling {
 		if fin, ok := session.(OptionalBillingFinalizer); ok {
-			be.FinalizeBilling = func(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+			finalize := func(ctx context.Context, in execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error) {
 				cctx, cancel := context.WithTimeout(ctx, opt.MetadataTimeout)
 				defer cancel()
 				resp, err := fin.FinalizeBilling(cctx, backendplugin.FinalizeBillingRequest{
@@ -148,9 +148,31 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 					ModelID: in.Model, Reason: in.Reason, IdempotencyKey: finalizationIdempotencyKey(in),
 				})
 				if err != nil {
-					return lipapi.Event{}, err
+					return execbackend.BillingFinalizationResult{}, err
 				}
-				return finalizeBillingResponseToEvent(resp, finalizationIdempotencyKey(in))
+				usage, err := finalizeBillingResponseToEvent(resp, finalizationIdempotencyKey(in))
+				if err != nil {
+					return execbackend.BillingFinalizationResult{}, err
+				}
+				evidence := make([]execbackend.EconomicEvidence, len(resp.AccountingV2))
+				for i, item := range resp.AccountingV2 {
+					evidence[i] = execbackend.EconomicEvidence{
+						Observation:    item.Observation.Clone(),
+						Coverage:       string(item.Coverage),
+						CoverageReason: item.CoverageReason,
+					}
+				}
+				return execbackend.BillingFinalizationResult{Usage: usage, EconomicEvidence: evidence}, nil
+			}
+			if profile.SupportsAccountingEvidenceV2 && backendplugin.AccountingEvidenceV2Negotiated(opt.Negotiation) {
+				be.FinalizeBillingV2 = finalize
+			}
+			be.FinalizeBilling = func(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+				result, err := finalize(ctx, in)
+				if err == nil && len(result.EconomicEvidence) != 0 {
+					return lipapi.Event{}, backendplugin.ErrAccountingEvidenceV2Unsupported
+				}
+				return result.Usage, err
 			}
 		}
 	}

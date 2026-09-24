@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -28,20 +29,27 @@ func (f BillingLegObserverFunc) ObserveBillingLeg(ctx context.Context, record bi
 }
 
 type billingLegDraft struct {
-	callID          billing.BillingCallID
-	aLegID          string
-	bLegID          string
-	seq             int
-	primary         routing.Primary
-	startedAt       time.Time
-	finishedAt      time.Time
-	command         sdkterminal.Command
-	outcome         billing.LegOutcome
-	surfaced        billing.SurfacedState
-	finalize        lipapi.Event
-	stream          lipapi.Event
-	operatorRateRef billing.VersionRef
-	workload        billing.WorkloadIdentity
+	callID               billing.BillingCallID
+	submissionID         string
+	aLegID               string
+	storeID              string
+	bLegID               string
+	seq                  int
+	primary              routing.Primary
+	startedAt            time.Time
+	finishedAt           time.Time
+	command              sdkterminal.Command
+	outcome              billing.LegOutcome
+	surfaced             billing.SurfacedState
+	finalize             lipapi.Event
+	stream               lipapi.Event
+	evidenceEvents       []capturedBillingEvidence
+	evidenceConflicts    []billing.EvidenceConflict
+	economicObservations []execbackend.EconomicEvidence
+	economicConflicts    []billing.EvidenceConflict
+	localObservations    []metering.Observation
+	operatorRateRef      billing.VersionRef
+	workload             billing.WorkloadIdentity
 }
 
 func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
@@ -57,14 +65,25 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	if bLegID == "" {
 		bLegID = billingSyntheticBLegID(draft.seq)
 	}
-	evidence := mergeStreamCostOntoLeg(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
+	// Evidence is captured source-by-source for V2. The scalar V1 value below
+	// is retained only as a compatibility projection for old stores/readers;
+	// it is deliberately not used as the terminal economic source of truth.
+	evidence := projectV1BillingEvidence(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
 	evidence = normalizeBillingEvidenceIdentity(evidence, draft.callID, bLegID)
+	observations, conflicts := observationsFromBillingEvidence(draft, draft.evidenceEvents)
+	economicInput := stampEconomicSubmissionIdentity(draft.economicObservations, draft.submissionID)
+	observations, economicDispositions, conflicts := appendCanonicalEconomicObservations(observations, conflicts, economicInput)
+	localInput := stampSubmissionIdentity(draft.localObservations, draft.submissionID)
+	observations, conflicts = appendCanonicalObservations(observations, conflicts, localInput)
+	observations = stampSubmissionIdentity(observations, draft.submissionID)
+	conflicts = appendBoundedEvidenceConflicts(conflicts, draft.economicConflicts)
 	outcome := draft.outcome
 	if outcome == "" {
 		outcome = legOutcomeFromCommand(draft.command)
 	}
-	return billing.CallLegUsageRecord{
+	record := billing.CallLegUsageRecord{
 		CallID:          draft.callID,
+		SubmissionID:    strings.TrimSpace(draft.submissionID),
 		ALegID:          strings.TrimSpace(draft.aLegID),
 		BLegID:          bLegID,
 		AttemptSeq:      draft.seq,
@@ -79,6 +98,159 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 		Evidence:        evidence,
 		Workload:        draft.workload,
 	}
+	if len(observations) != 0 || len(conflicts) != 0 {
+		record.EvidenceVersion = billing.EvidenceFormatVersionV2
+		record.EvidenceProjection = billing.EvidenceProjectionV1
+		record.Observations = observations
+		record.EvidenceConflicts = appendBoundedEvidenceConflicts(conflicts, draft.evidenceConflicts)
+	}
+	if len(economicDispositions) != 0 {
+		record.EconomicEvidenceVersion = billing.EconomicEvidenceDispositionVersionV1
+		record.EconomicDispositions = economicDispositions
+	}
+	return record
+}
+
+// appendCanonicalObservations retains each source's provenance plane. It
+// validates and deep-copies observations at the terminal handoff, and never
+// converts or clones provider evidence into local evidence.
+func appendCanonicalObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []metering.Observation) ([]metering.Observation, []billing.EvidenceConflict) {
+	if len(incoming) == 0 {
+		return existing, conflicts
+	}
+	seen := make(map[string]string, len(existing)+len(incoming))
+	for _, observation := range existing {
+		seen[observation.IdentityKey()] = observation.Fingerprint()
+	}
+	for _, original := range incoming {
+		observation, err := original.Canonical()
+		if err != nil {
+			continue
+		}
+		identity := observation.IdentityKey()
+		hash := observation.Fingerprint()
+		if prior, ok := seen[identity]; ok {
+			if prior != hash {
+				conflicts = appendBoundedEvidenceConflicts(conflicts, []billing.EvidenceConflict{{Identity: identity, ExistingHash: prior, IncomingHash: hash}})
+			}
+			continue
+		}
+		if len(existing) >= billing.MaxCallLegEvidenceObservations {
+			break
+		}
+		existing = append(existing, observation)
+		seen[identity] = hash
+	}
+	return existing, conflicts
+}
+
+// stampSubmissionIdentity projects the runtime-owned identity onto every
+// B-leg observation after source normalization. Provider/local payload values
+// cannot override the trusted submission authority. When that authority is
+// unavailable, clear any adapter-carried value so unsupported attribution
+// cannot become a durable submission claim.
+func stampSubmissionIdentity(observations []metering.Observation, submissionID string) []metering.Observation {
+	submissionID = strings.TrimSpace(submissionID)
+	if len(observations) == 0 {
+		return observations
+	}
+	out := append([]metering.Observation(nil), observations...)
+	for i := range out {
+		out[i].Subject.SubmissionID = submissionID
+		out[i].Correlation.SubmissionID = submissionID
+	}
+	return out
+}
+
+func stampEconomicSubmissionIdentity(incoming []execbackend.EconomicEvidence, submissionID string) []execbackend.EconomicEvidence {
+	submissionID = strings.TrimSpace(submissionID)
+	if len(incoming) == 0 {
+		return incoming
+	}
+	out := append([]execbackend.EconomicEvidence(nil), incoming...)
+	for i := range out {
+		out[i].Observation.Subject.SubmissionID = submissionID
+		out[i].Observation.Correlation.SubmissionID = submissionID
+	}
+	return out
+}
+
+func appendCanonicalEconomicObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []execbackend.EconomicEvidence) ([]metering.Observation, []billing.EconomicEvidenceDisposition, []billing.EvidenceConflict) {
+	if len(incoming) == 0 {
+		return existing, nil, conflicts
+	}
+	dispositions := make([]billing.EconomicEvidenceDisposition, 0, len(incoming))
+	seen := make(map[string]string, len(existing)+len(incoming))
+	for _, observation := range existing {
+		canonical, err := observation.Canonical()
+		if err != nil {
+			continue
+		}
+		seen[canonical.IdentityKey()] = billing.ObservationEvidenceHash(canonical)
+	}
+	seenDispositions := make(map[string]billing.EconomicEvidenceDisposition, len(incoming))
+	for _, evidence := range incoming {
+		observation, err := evidence.Observation.Canonical()
+		if err != nil {
+			continue
+		}
+		disposition, err := billing.NewEconomicEvidenceDisposition(observation, evidence.Coverage, evidence.CoverageReason)
+		if err != nil {
+			continue
+		}
+		identity := observation.IdentityKey()
+		hash := billing.ObservationEvidenceHash(observation)
+		if prior, ok := seen[identity]; ok {
+			if prior != hash {
+				conflicts = appendBoundedEvidenceConflicts(conflicts, []billing.EvidenceConflict{{
+					Identity: identity, ExistingHash: prior, IncomingHash: hash,
+					IncomingCoverage: disposition.Coverage, IncomingCoverageReason: disposition.CoverageReason,
+				}})
+				continue
+			}
+			if priorDisposition, hasDisposition := seenDispositions[identity]; hasDisposition {
+				if priorDisposition.Coverage != disposition.Coverage || priorDisposition.CoverageReason != disposition.CoverageReason {
+					conflicts = appendBoundedEvidenceConflicts(conflicts, []billing.EvidenceConflict{{
+						Identity: identity, ExistingHash: prior, IncomingHash: hash,
+						ExistingCoverage: priorDisposition.Coverage, ExistingCoverageReason: priorDisposition.CoverageReason,
+						IncomingCoverage: disposition.Coverage, IncomingCoverageReason: disposition.CoverageReason,
+					}})
+				}
+				continue
+			}
+			dispositions = append(dispositions, disposition)
+			seenDispositions[identity] = disposition
+			continue
+		}
+		if len(existing) >= billing.MaxCallLegEvidenceObservations {
+			break
+		}
+		existing = append(existing, observation)
+		seen[identity] = hash
+		dispositions = append(dispositions, disposition)
+		seenDispositions[identity] = disposition
+	}
+	return existing, dispositions, conflicts
+}
+
+func appendBoundedEvidenceConflicts(existing, incoming []billing.EvidenceConflict) []billing.EvidenceConflict {
+	if len(existing) == 0 && len(incoming) == 0 {
+		return nil
+	}
+	out := make([]billing.EvidenceConflict, 0, min(billing.MaxCallLegEvidenceConflicts, len(existing)+len(incoming)))
+	for _, conflict := range existing {
+		out = appendBoundedEvidenceConflict(out, conflict)
+		if len(out) >= billing.MaxCallLegEvidenceConflicts {
+			return out
+		}
+	}
+	for _, conflict := range incoming {
+		out = appendBoundedEvidenceConflict(out, conflict)
+		if len(out) >= billing.MaxCallLegEvidenceConflicts {
+			break
+		}
+	}
+	return out
 }
 
 // normalizeBillingEvidenceIdentity keeps every independently accounted B-leg
@@ -140,51 +312,87 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 		surfaced = billing.SurfacedYes
 	}
 	streamEv = attempt.augmentBillingUsage(streamEv, lipapi.Event{})
+	evidenceEvents, evidenceConflicts := attempt.billingEvidenceDrain()
+	localObservations := attempt.drainLocalBoundaryObservations(now)
 	workloadCtx := request.toRecvTurnFacts(ctx).projectContext(ctx, nil)
+	finalizeEv := t.finalizeBillingEvidence(ctx, request, evidence, billingState, "record_leg", streamEv, attempt)
+	if err := attempt.flushEconomicCheckpointsAtTerminal(ctx); err != nil && t.logBillingAppendFailure != nil {
+		t.logBillingAppendFailure(ctx, "economic_checkpoint_append_critical", "economic checkpoint append failed", err)
+	}
+	economicObservations, economicConflicts := attempt.economicEvidenceDrain()
 	legRecord := billingLegRecord(billingLegDraft{
-		callID:          request.billingCallID,
-		aLegID:          request.aLegID,
-		bLegID:          evidence.bleg.BLegID,
-		seq:             evidence.bleg.Seq,
-		primary:         evidence.candidate.Primary,
-		startedAt:       started,
-		finishedAt:      now,
-		command:         command,
-		surfaced:        surfaced,
-		finalize:        t.finalizeBillingEvidence(ctx, request, evidence, billingState, "record_leg", streamEv),
-		stream:          streamEv,
-		operatorRateRef: t.operatorRateRef(workloadCtx, evidence.candidate.Primary),
-		workload:        t.billingWorkload(workloadCtx, request.aLegID),
+		callID:               request.billingCallID,
+		submissionID:         request.submissionID,
+		aLegID:               request.aLegID,
+		storeID:              request.storeID,
+		bLegID:               evidence.bleg.BLegID,
+		seq:                  evidence.bleg.Seq,
+		primary:              evidence.candidate.Primary,
+		startedAt:            started,
+		finishedAt:           now,
+		command:              command,
+		surfaced:             surfaced,
+		finalize:             finalizeEv,
+		stream:               streamEv,
+		evidenceEvents:       evidenceEvents,
+		evidenceConflicts:    evidenceConflicts,
+		economicObservations: economicObservations,
+		economicConflicts:    economicConflicts,
+		localObservations:    localObservations,
+		operatorRateRef:      t.operatorRateRef(workloadCtx, evidence.candidate.Primary),
+		workload:             t.billingWorkload(workloadCtx, request.aLegID),
 	})
 	if t.observeBillingLeg != nil {
 		t.observeBillingLeg(ctx, legRecord)
 	}
-	if t.appendBillingLeg != nil {
-		t.appendBillingLeg(ctx, request.billingCallID, legRecord)
+	// The sink context carries the frozen request scope even when the
+	// incoming terminal context does not, so the monetary handoff keeps
+	// customer identity on every path.
+	scopeCtx := withTerminalScope(ctx, request.recvViews.Scope)
+	if t.appendBillingLegStrict != nil {
+		if err := t.appendBillingLegStrict(scopeCtx, request.billingCallID, legRecord); err != nil {
+			if t.logBillingAppendFailure != nil {
+				t.logBillingAppendFailure(ctx, "billing_call_leg_append_critical", "billing call-leg append failed", err)
+			}
+		}
+	} else if t.appendBillingLeg != nil {
+		t.appendBillingLeg(scopeCtx, request.billingCallID, legRecord)
 	}
 }
 
-func (t *turnTerminal) finalizeBillingEvidence(ctx context.Context, request requestTerminalFacts, evidence attemptTerminalEvidence, billingState *billingCallState, reason string, fallback lipapi.Event) lipapi.Event {
-	if t == nil || t.finalizeBilling == nil {
+func (t *turnTerminal) finalizeBillingEvidence(ctx context.Context, request requestTerminalFacts, evidence attemptTerminalEvidence, billingState *billingCallState, reason string, fallback lipapi.Event, attempt *attemptSession) lipapi.Event {
+	if t == nil || billingState == nil || (t.finalizeBilling == nil && t.finalizeBillingV2 == nil) {
 		return fallback
 	}
-	if billingState == nil {
-		return fallback
-	}
-	ev, ok := billingState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+	in := execbackend.BillingFinalizationInput{
 		TraceID: strings.TrimSpace(request.traceID),
 		ALegID:  strings.TrimSpace(request.aLegID),
 		BLegID:  strings.TrimSpace(evidence.bleg.BLegID),
 		Backend: strings.TrimSpace(evidence.candidate.Primary.Backend),
 		Model:   strings.TrimSpace(evidence.candidate.Primary.Model),
 		Reason:  strings.TrimSpace(reason),
-	}, func(cctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-		return t.finalizeBilling(cctx, in)
-	})
+	}
+	result, ok := t.finalizeOnceWithEvidence(ctx, billingState, in)
 	if !ok {
 		return fallback
 	}
-	return ev
+	if attempt != nil {
+		for _, economic := range result.EconomicEvidence {
+			attempt.rememberEconomicEvidenceOnce(economic)
+		}
+	}
+	return result.Usage
+}
+
+func (t *turnTerminal) finalizeOnceWithEvidence(ctx context.Context, state *billingCallState, in execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, bool) {
+	if t == nil || state == nil || (t.finalizeBilling == nil && t.finalizeBillingV2 == nil) {
+		return execbackend.BillingFinalizationResult{}, false
+	}
+	if t.finalizeBillingV2 != nil {
+		return state.finalizeOnceWithEvidence(ctx, in, t.finalizeBillingV2)
+	}
+	ev, ok := state.finalizeOnce(ctx, in, t.finalizeBilling)
+	return execbackend.BillingFinalizationResult{Usage: ev}, ok
 }
 
 func lastUsageDeltaOrShell(events []lipapi.Event) lipapi.Event {
@@ -196,18 +404,45 @@ func lastUsageDeltaOrShell(events []lipapi.Event) lipapi.Event {
 	return emptyOperatorUsageShell()
 }
 
-func mergeStreamCostOntoLeg(finalize, stream billing.FinalBillingEvidence) billing.FinalBillingEvidence {
+// projectV1BillingEvidence keeps the old scalar contract readable while
+// refusing to combine values from incompatible source/authority planes. V2
+// source observations are always retained independently by billingLegRecord.
+// This explicit one-way compatibility projection is the only V1 cost
+// selection; the legacy destructive merge helper was retired in Task 18.1
+// (Migration Strategy step 8, Task 18.2). Operator migration: V2 observations
+// are the financial truth; this V1 projection exists only for historical
+// readers and must never be re-ingested as independent V2 evidence.
+func projectV1BillingEvidence(finalize, stream billing.FinalBillingEvidence) billing.FinalBillingEvidence {
 	if finalize.Cost.Present {
 		return finalize
 	}
 	if !stream.Cost.Present {
 		return finalize
 	}
-	finalize.Cost = stream.Cost
-	if stream.Authority != "" {
+	// A provider-authoritative stream cost is a valid compatibility projection
+	// when the finalizer only supplied non-economic provenance (the historical
+	// FinalizeBilling ABI does this for token totals). This selects one V1
+	// value; the V2 observations still retain the two source envelopes.
+	if stream.Authority == billing.EvidenceAuthorityAuthoritative {
+		finalize.Cost = stream.Cost
 		finalize.Authority = stream.Authority
+		return finalize
 	}
+	if !compatibleBillingEvidenceProjection(finalize, stream) {
+		return finalize
+	}
+	finalize.Cost = stream.Cost
 	return finalize
+}
+
+func compatibleBillingEvidenceProjection(finalize, stream billing.FinalBillingEvidence) bool {
+	if finalize.Source == billing.EvidenceSourceUnknown || finalize.Authority == billing.EvidenceAuthorityUnknown {
+		return false
+	}
+	if stream.Source == billing.EvidenceSourceUnknown || stream.Authority == billing.EvidenceAuthorityUnknown {
+		return false
+	}
+	return finalize.Source == stream.Source && finalize.Authority == stream.Authority
 }
 
 func legOutcomeFromCommand(command sdkterminal.Command) billing.LegOutcome {
@@ -267,17 +502,30 @@ func finalBillingEvidenceFromEvent(ev lipapi.Event) billing.FinalBillingEvidence
 }
 
 func (e *Executor) appendIndependentCallLeg(ctx context.Context, callID billing.BillingCallID, leg billing.CallLegUsageRecord) {
+	if err := e.appendIndependentCallLegStrict(ctx, callID, leg); err != nil {
+		e.logBillingUsageAppendFailure(ctx, "billing_call_leg_append_critical", "billing call-leg append failed", err)
+	}
+}
+
+// appendIndependentCallLegStrict is the terminal durability seam. It returns
+// sink failures to the owning terminal effect while retaining the existing
+// validation diagnostics and void observer wrapper for optional callers.
+func (e *Executor) appendIndependentCallLegStrict(ctx context.Context, callID billing.BillingCallID, leg billing.CallLegUsageRecord) error {
 	if !e.hasTerminalSink() {
-		return
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	// AttemptSeq is the authoritative B2BUA financial fact; reject unknown
 	// sequences rather than deriving order. Legacy NULL rows remain readable,
 	// but order-dependent rating fails closed.
 	if leg.AttemptSeq <= 0 {
+		err := fmt.Errorf("%w: attempt sequence for B-leg %q", billing.ErrInvalidRecord, leg.BLegID)
 		if e.Log != nil {
-			e.Log.ErrorContext(ctx, "billing call-leg append rejected: attempt sequence missing", "error", fmt.Errorf("%w: attempt sequence for B-leg %q", billing.ErrInvalidRecord, leg.BLegID), "b_leg_id", leg.BLegID)
+			e.Log.ErrorContext(ctx, "billing call-leg append rejected: attempt sequence missing", "error", err, "b_leg_id", leg.BLegID)
 		}
-		return
+		return nil
 	}
 	leg.CallID = callID
 	leg.Evidence = normalizeBillingEvidenceIdentity(leg.Evidence, callID, leg.BLegID)
@@ -285,15 +533,16 @@ func (e *Executor) appendIndependentCallLeg(ctx context.Context, callID billing.
 		if e.Log != nil {
 			e.Log.ErrorContext(ctx, "billing call-leg append rejected: invalid independent leg", "error", err, "b_leg_id", leg.BLegID)
 		}
-		return
+		return nil
 	}
-	independent := leg
+	independent := leg.Clone()
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
 	err := e.TerminalUsageSink.AppendLeg(persistCtx, independent)
 	if err != nil {
-		e.logBillingUsageAppendFailure(persistCtx, "billing_call_leg_append_critical", "billing call-leg append failed", err)
+		return fmt.Errorf("billing call-leg append: %w", err)
 	}
+	return nil
 }
 
 func (e *Executor) logBillingUsageAppendFailure(ctx context.Context, criticalMsg, warnMsg string, err error) {
@@ -308,9 +557,15 @@ func (e *Executor) logBillingUsageAppendFailure(ctx context.Context, criticalMsg
 }
 
 func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
+	e.appendIndependentTerminalLegWithObservations(ctx, state, aLegID, bleg, primary, started, finished, outcome, nil)
+}
+
+func (e *Executor) appendIndependentTerminalLegWithObservations(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome, localObservations []metering.Observation) {
 	if !e.hasTerminalSink() {
 		return
 	}
+	// Frozen admission scope rides the handoff even on detached contexts.
+	ctx = withTerminalScope(ctx, state.frozenScope())
 	if started.IsZero() {
 		started = finished
 	}
@@ -326,12 +581,22 @@ func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, state *bill
 		model = "unknown"
 	}
 	leg := billing.CallLegUsageRecord{
-		ALegID: strings.TrimSpace(aLegID), BLegID: strings.TrimSpace(bleg.BLegID), AttemptSeq: bleg.Seq,
+		SubmissionID: billingSubmissionID(state),
+		ALegID:       strings.TrimSpace(aLegID), BLegID: strings.TrimSpace(bleg.BLegID), AttemptSeq: bleg.Seq,
 		BackendID: backend, ProviderID: billingProviderID(primary), ModelID: model,
 		StartedAt: started, FinishedAt: finished, Outcome: outcome, Surfaced: billing.SurfacedNo,
 		Evidence:        billing.FinalBillingEvidence{Source: billing.EvidenceSourceUnavailable, Authority: billing.EvidenceAuthorityUnavailable},
 		OperatorRateRef: e.operatorRateRef(ctx, primary),
 		Workload:        e.billingWorkloadIdentityForALeg(ctx, aLegID),
+	}
+	if len(localObservations) != 0 {
+		localInput := stampSubmissionIdentity(localObservations, billingSubmissionID(state))
+		leg.Observations, _ = appendCanonicalObservations(nil, nil, localInput)
+		leg.Observations = stampSubmissionIdentity(leg.Observations, billingSubmissionID(state))
+		if len(leg.Observations) != 0 {
+			leg.EvidenceVersion = billing.EvidenceFormatVersionV2
+			leg.EvidenceProjection = billing.EvidenceProjectionV1
+		}
 	}
 	var callID billing.BillingCallID
 	if state != nil {
@@ -350,6 +615,8 @@ func (e *Executor) appendPostOpenTerminalLeg(ctx context.Context, state *billing
 	if e == nil || strings.TrimSpace(bleg.BLegID) == "" {
 		return
 	}
+	// Frozen admission scope rides the handoff even on detached contexts.
+	ctx = withTerminalScope(ctx, state.frozenScope())
 	if started.IsZero() {
 		started = e.now()
 	}
@@ -397,7 +664,9 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 	}
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:          callID,
+		submissionID:    billingSubmissionID(leg.billingCallState),
 		aLegID:          leg.bleg.ALegID,
+		storeID:         leg.storeID,
 		bLegID:          leg.bleg.BLegID,
 		seq:             leg.bleg.Seq,
 		primary:         leg.cand.Primary,
@@ -407,6 +676,7 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 		surfaced:        surfaced,
 		finalize:        finalizeEv,
 		stream:          fallback,
+		evidenceEvents:  []capturedBillingEvidence{{event: usage, role: billingEvidenceRoleStream}},
 		operatorRateRef: e.operatorRateRef(ctx, leg.cand.Primary),
 		workload:        e.billingWorkloadIdentityForALeg(ctx, leg.bleg.ALegID),
 	})

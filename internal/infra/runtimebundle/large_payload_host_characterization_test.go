@@ -449,16 +449,16 @@ func TestLargePayloadHost_EnabledConfig_LinkageToFrontendSpecs(t *testing.T) {
 		t.Fatalf("expected *openairesponses.Handler at /v1/responses, got %T", hResp)
 	}
 	specResp := respHandler.Spec()
-	if !specResp.Config.LargePayload.Enabled {
+	if !specResp.LargePayload.Enabled {
 		t.Error("expected openairesponses Spec.Config.LargePayload.Enabled == true")
 	}
-	if specResp.Config.LargePayload.ThresholdBytes != 4096 {
-		t.Errorf("expected openairesponses ThresholdBytes == 4096, got %d", specResp.Config.LargePayload.ThresholdBytes)
+	if specResp.LargePayload.ThresholdBytes != 4096 {
+		t.Errorf("expected openairesponses ThresholdBytes == 4096, got %d", specResp.LargePayload.ThresholdBytes)
 	}
-	if specResp.Config.LargePayload.MemorySpoolBytes != 32768 {
-		t.Errorf("expected openairesponses MemorySpoolBytes == 32768, got %d", specResp.Config.LargePayload.MemorySpoolBytes)
+	if specResp.LargePayload.MemorySpoolBytes != 32768 {
+		t.Errorf("expected openairesponses MemorySpoolBytes == 32768, got %d", specResp.LargePayload.MemorySpoolBytes)
 	}
-	if specResp.Config.LargePayload.SpoolLedger != host.SpoolLedger() {
+	if specResp.LargePayload.SpoolLedger != host.SpoolLedger() {
 		t.Errorf("expected openairesponses SpoolLedger to match host.SpoolLedger()")
 	}
 
@@ -469,11 +469,11 @@ func TestLargePayloadHost_EnabledConfig_LinkageToFrontendSpecs(t *testing.T) {
 		t.Fatalf("expected *openailegacy.Handler at /v1/chat/completions, got %T", hLegacy)
 	}
 	specLegacy := legacyHandler.Spec()
-	if !specLegacy.Config.LargePayload.Enabled {
+	if !specLegacy.LargePayload.Enabled {
 		t.Error("expected openailegacy Spec.Config.LargePayload.Enabled == true")
 	}
-	if specLegacy.Config.LargePayload.ThresholdBytes != 4096 {
-		t.Errorf("expected openailegacy ThresholdBytes == 4096, got %d", specLegacy.Config.LargePayload.ThresholdBytes)
+	if specLegacy.LargePayload.ThresholdBytes != 4096 {
+		t.Errorf("expected openailegacy ThresholdBytes == 4096, got %d", specLegacy.LargePayload.ThresholdBytes)
 	}
 
 	// OpenResponses handler
@@ -483,11 +483,11 @@ func TestLargePayloadHost_EnabledConfig_LinkageToFrontendSpecs(t *testing.T) {
 		t.Fatalf("expected *openresponses.Handler at /responses, got %T", hOpenResp)
 	}
 	specOpenResp := openRespHandler.Spec()
-	if !specOpenResp.Config.LargePayload.Enabled {
+	if !specOpenResp.LargePayload.Enabled {
 		t.Error("expected openresponses Spec.Config.LargePayload.Enabled == true")
 	}
-	if specOpenResp.Config.LargePayload.ThresholdBytes != 4096 {
-		t.Errorf("expected openresponses ThresholdBytes == 4096, got %d", specOpenResp.Config.LargePayload.ThresholdBytes)
+	if specOpenResp.LargePayload.ThresholdBytes != 4096 {
+		t.Errorf("expected openresponses ThresholdBytes == 4096, got %d", specOpenResp.LargePayload.ThresholdBytes)
 	}
 }
 
@@ -545,19 +545,19 @@ func TestLargePayloadHost_DisabledConfig_LeavesFrontendSpecsDisabled(t *testing.
 
 	hResp, _ := testMux.Handler(httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
 	if respHandler, ok := hResp.(*openairesponses.Handler); ok {
-		if respHandler.Spec().Config.LargePayload.Enabled {
+		if respHandler.Spec().LargePayload.Enabled {
 			t.Error("expected openairesponses spec.Config.LargePayload.Enabled == false")
 		}
 	}
 	hLegacy, _ := testMux.Handler(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
 	if legacyHandler, ok := hLegacy.(*openailegacy.Handler); ok {
-		if legacyHandler.Spec().Config.LargePayload.Enabled {
+		if legacyHandler.Spec().LargePayload.Enabled {
 			t.Error("expected openailegacy spec.Config.LargePayload.Enabled == false")
 		}
 	}
 	hOpenResp, _ := testMux.Handler(httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", nil))
 	if openRespHandler, ok := hOpenResp.(*openresponses.Handler); ok {
-		if openRespHandler.Spec().Config.LargePayload.Enabled {
+		if openRespHandler.Spec().LargePayload.Enabled {
 			t.Error("expected openresponses spec.Config.LargePayload.Enabled == false")
 		}
 	}

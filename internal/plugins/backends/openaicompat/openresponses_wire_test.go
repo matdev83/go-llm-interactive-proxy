@@ -309,7 +309,7 @@ func TestOpenResponsesWireOpen_ReusingTask8OpenWire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenWire failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	// Verify server received correct path and headers
 	if receivedMethod != http.MethodPost {

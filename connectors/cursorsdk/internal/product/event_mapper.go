@@ -59,7 +59,7 @@ func mapBridgeEvent(f *protocol.Frame, runID string, expectSeq int64, apiKey str
 		}
 		return mapResult{events: []lipapi.Event{ev}}, next
 	case protocol.KindUsage:
-		ev, err := mapUsageEvent(f.Payload)
+		ev, err := mapUsageEvent(f.Payload, runID)
 		if err != nil {
 			return mapResult{err: err}, expectSeq
 		}
@@ -120,35 +120,45 @@ func mapBridgeEvent(f *protocol.Frame, runID string, expectSeq int64, apiKey str
 	}
 }
 
-func mapUsageEvent(raw json.RawMessage) (*lipapi.Event, error) {
+func mapUsageEvent(raw json.RawMessage, runID string) (*lipapi.Event, error) {
 	var p struct {
-		InputTokens      *int `json:"inputTokens"`
-		OutputTokens     *int `json:"outputTokens"`
-		TotalTokens      *int `json:"totalTokens"`
-		CacheReadTokens  *int `json:"cacheReadTokens"`
-		CacheWriteTokens *int `json:"cacheWriteTokens"`
-		ReasoningTokens  *int `json:"reasoningTokens"`
+		InputTokens        *int   `json:"inputTokens"`
+		OutputTokens       *int   `json:"outputTokens"`
+		TotalTokens        *int   `json:"totalTokens"`
+		CacheReadTokens    *int   `json:"cacheReadTokens"`
+		CacheWriteTokens   *int   `json:"cacheWriteTokens"`
+		ReasoningTokens    *int   `json:"reasoningTokens"`
+		ProviderAccountKey string `json:"providerAccountKey"`
+		ProviderRequestID  string `json:"providerRequestId"`
+		ProviderChargeID   string `json:"providerChargeId"`
+		ServiceContext     string `json:"serviceContext"`
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, fmt.Errorf("cursorsdk: usage payload: %w", err)
 	}
-	if p.InputTokens == nil || p.OutputTokens == nil || p.TotalTokens == nil {
-		return nil, nil
-	}
-	if *p.InputTokens < 0 || *p.OutputTokens < 0 || *p.TotalTokens < 0 {
-		return nil, nil
-	}
 	ev := &lipapi.Event{
-		Kind:         lipapi.EventUsageDelta,
-		InputTokens:  *p.InputTokens,
-		OutputTokens: *p.OutputTokens,
-		TotalTokens:  *p.TotalTokens,
-		UsagePresence: lipapi.UsagePresence{
-			InputTokens:  true,
-			OutputTokens: true,
-			TotalTokens:  true,
+		Kind: lipapi.EventUsageDelta,
+		Accounting: lipapi.UsageAccountingMetadata{
+			Plane:              lipapi.UsagePlaneProviderBillable,
+			Source:             lipapi.UsageSourceProviderReported,
+			Authority:          lipapi.UsageAuthorityAuthoritative,
+			ProviderAccountKey: strings.TrimSpace(p.ProviderAccountKey),
+			ProviderRequestID:  strings.TrimSpace(p.ProviderRequestID),
+			ProviderChargeID:   strings.TrimSpace(p.ProviderChargeID),
+			ServiceContext:     strings.TrimSpace(p.ServiceContext),
+			DedupeKey:          "cursorsdk.usage:" + strings.TrimSpace(runID),
 		},
 	}
+	setCount := func(value *int, target *int, present *bool) {
+		if value == nil || *value < 0 {
+			return
+		}
+		*target = *value
+		*present = true
+	}
+	setCount(p.InputTokens, &ev.InputTokens, &ev.UsagePresence.InputTokens)
+	setCount(p.OutputTokens, &ev.OutputTokens, &ev.UsagePresence.OutputTokens)
+	setCount(p.TotalTokens, &ev.TotalTokens, &ev.UsagePresence.TotalTokens)
 	if p.CacheReadTokens != nil && *p.CacheReadTokens >= 0 {
 		ev.CacheReadTokens = *p.CacheReadTokens
 		ev.UsagePresence.CacheReadTokens = true
@@ -160,6 +170,9 @@ func mapUsageEvent(raw json.RawMessage) (*lipapi.Event, error) {
 	if p.ReasoningTokens != nil && *p.ReasoningTokens >= 0 {
 		ev.ReasoningTokens = *p.ReasoningTokens
 		ev.UsagePresence.ReasoningTokens = true
+	}
+	if !ev.UsagePresence.Any() {
+		return nil, nil
 	}
 	return ev, nil
 }

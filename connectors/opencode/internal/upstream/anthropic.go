@@ -54,6 +54,9 @@ func openAnthropic(ctx context.Context, hc *http.Client, baseURL, apiKey string,
 }
 
 func anthropicRequestBody(call lipapi.Call, model string) ([]byte, error) {
+	if err := validateTextOnlyCall(call); err != nil {
+		return nil, err
+	}
 	text := firstUserText(call)
 	payload := map[string]any{
 		"model":      model,
@@ -111,4 +114,14 @@ func firstUserText(call lipapi.Call) string {
 		}
 	}
 	return "hi"
+}
+
+func validateTextOnlyCall(call lipapi.Call) error {
+	return lipapi.WalkCallContentParts(call, func(_ lipapi.Item, part lipapi.ContentPart) error {
+		switch part.Kind {
+		case lipapi.ContentPartImageRef, lipapi.ContentPartFileRef, lipapi.ContentPartVideoRef:
+			return fmt.Errorf("opencode: unsupported canonical media content part %q; text-only route", part.Kind)
+		}
+		return nil
+	})
 }

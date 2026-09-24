@@ -224,6 +224,16 @@ func (s *DurableStore) DeferUsageAppend(ctx context.Context, key, reason string)
 	if key == "" {
 		return fmt.Errorf("billingstore: usage append key is required")
 	}
+	reason = strings.TrimSpace(reason)
+	// Concurrent defers contend on the same row; SQLite topologies can report
+	// locked/deadlocked contention under load, so this write path uses the
+	// same retry wrapper as the other account write paths.
+	return withAccountTxErr(ctx, accountTxRetry{Attempts: 40, Delay: 3 * time.Millisecond}, func() error {
+		return s.deferUsageAppendAttempt(ctx, key, reason)
+	})
+}
+
+func (s *DurableStore) deferUsageAppendAttempt(ctx context.Context, key, reason string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("billingstore: begin usage append defer: %w", err)
@@ -231,7 +241,7 @@ func (s *DurableStore) DeferUsageAppend(ctx context.Context, key, reason string)
 	defer func() { _ = tx.Rollback() }()
 	now := time.Now().UTC()
 	var attempts int
-	if err := tx.NewRaw(`UPDATE usage_append_outbox SET attempt_count = attempt_count + 1, last_error = ?, updated_at = ? WHERE append_key = ? AND status = 'pending' RETURNING attempt_count`, strings.TrimSpace(reason), now, key).Scan(ctx, &attempts); err != nil {
+	if err := tx.NewRaw(`UPDATE usage_append_outbox SET attempt_count = attempt_count + 1, last_error = ?, updated_at = ? WHERE append_key = ? AND status = 'pending' RETURNING attempt_count`, reason, now, key).Scan(ctx, &attempts); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("billingstore: usage append work not found or terminal: %s", key)
 		}
@@ -396,9 +406,12 @@ func (s *DurableStore) UsageAppendOutboxUnresolved(ctx context.Context) (int, er
 	return count, nil
 }
 
-// Historical preserve-or-block adapter; runtime composition never calls this code.
-// AppendCall and AppendLeg are used only by the explicit historical drain.
-// They are intentionally bound to DurableStore so a local spool cannot be
+// Production terminal sink: AppendCall/AppendLeg implement
+// billing.TerminalUsageSink for the composed runtime (including spool
+// delivery). They route through the owner-aware usage append below: pre-active
+// V1 and draining classified handoff keep their behavior, while a freshly
+// admitted V2 exposure+pin selects the V2 owner durably (never a fresh global
+// reclassification). Bound to DurableStore so a local spool cannot be
 // supplied as proof of central delivery.
 func (s *DurableStore) AppendCall(ctx context.Context, record billing.CallUsageRecord) error {
 	return s.AppendCallUsage(ctx, record)

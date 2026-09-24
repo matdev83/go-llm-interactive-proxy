@@ -6,15 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/routingstub"
-	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -223,12 +222,16 @@ func openWSPreparedAttemptOnce(ctx context.Context, env *codexOpenEnv, cfg *Conf
 		return nil, resp, rawFirst, wsOpenNoRetry, fmt.Errorf("%s: websocket model rejected before first event", ID)
 	}
 	mapper := newCodexEventMapper(call.MaxPendingWireEvents)
+	mapper.providerAccountKey = strings.TrimSpace(cfg.AccountID)
 	if err := mapper.handleData(string(rawFirst)); err != nil {
 		session.release(true)
 		attemptPayload.rollback()
 		return nil, nil, rawFirst, wsOpenNoRetry, err
 	}
 	wsStream := newWSStreamWithMapper(conn, mapper)
+	if resp != nil {
+		wsStream.captureAccountWindowSnapshots(resp.Header, cfg.AccountID, time.Now().UTC())
+	}
 	wsStream.release = session.release
 	var managed lipapi.ManagedEventStream
 	if cfg.Transport == TransportWebSocket {
@@ -298,10 +301,55 @@ func wsOpenCommitted(ev lipapi.Event) bool {
 
 func prependManagedEvents(events []lipapi.Event, rest lipapi.ManagedEventStream) lipapi.ManagedEventStream {
 	out := rest
-	for _, event := range slices.Backward(events) {
-		out = streampeek.NewManagedPrependFirst(event, out)
+	for i := len(events) - 1; i >= 0; i-- {
+		out = &codexPrependManaged{first: events[i], rest: out}
 	}
 	return out
+}
+
+// codexPrependManaged keeps the provider sidebands visible after the WebSocket
+// open path has pre-read one or more canonical events. The generic streampeek
+// wrapper cannot name this connector's account-window snapshot type, so using
+// a connector-local wrapper is required to avoid dropping native gauge data.
+type codexPrependManaged struct {
+	first lipapi.Event
+	rest  lipapi.ManagedEventStream
+	sent  bool
+}
+
+func (s *codexPrependManaged) Recv(ctx context.Context) (lipapi.Event, error) {
+	if !s.sent {
+		s.sent = true
+		return s.first, nil
+	}
+	if s.rest == nil {
+		return lipapi.Event{}, io.EOF
+	}
+	return s.rest.Recv(ctx)
+}
+
+func (s *codexPrependManaged) Close() error {
+	if s == nil || s.rest == nil {
+		return nil
+	}
+	return s.rest.Close()
+}
+
+func (s *codexPrependManaged) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	if s == nil || s.rest == nil {
+		return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+	}
+	return s.rest.Cancel(ctx, cause)
+}
+
+func (s *codexPrependManaged) DrainAccountWindowSnapshots() []AccountWindowSnapshot {
+	if s == nil || s.rest == nil {
+		return nil
+	}
+	if source, ok := s.rest.(AccountWindowSnapshotSource); ok {
+		return source.DrainAccountWindowSnapshots()
+	}
+	return nil
 }
 
 var _ lipapi.ManagedEventStream = (*codexContinuationRecordingStream)(nil)
@@ -353,6 +401,13 @@ func (s *codexContinuationRecordingStream) Cancel(ctx context.Context, cause lip
 		s.store.invalidateWithFingerprints(s.cfg, s.call, &s.payload, s.inputFP)
 	}
 	return res
+}
+
+func (s *codexContinuationRecordingStream) DrainAccountWindowSnapshots() []AccountWindowSnapshot {
+	if source, ok := s.inner.(AccountWindowSnapshotSource); ok {
+		return source.DrainAccountWindowSnapshots()
+	}
+	return nil
 }
 
 func (s *codexContinuationRecordingStream) record() {

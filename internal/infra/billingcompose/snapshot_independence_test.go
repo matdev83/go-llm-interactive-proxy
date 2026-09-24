@@ -167,8 +167,9 @@ func TestResolveCallRatingFailoverSettlesSurfacedModelCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Surfaced winner: 1,000,000 input at override 1000/million = 1000.
-	if got, want := result.CustomerCharge.Nano, int64(1000); got != want {
+	// Surfaced winner: 1,000,000 input at override 1000/million = 1000,
+	// plus the enabled call-scoped request fee of 3.
+	if got, want := result.CustomerCharge.Nano, int64(1003); got != want {
 		t.Errorf("failover settlement = %d, want %d (settle surfaced winner with its own model card)", got, want)
 	}
 }

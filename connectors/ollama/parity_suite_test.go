@@ -93,7 +93,7 @@ func TestParity_LocalInventoryCapsAndError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.Models) != 1 || !resp.Models[0].Capabilities.Tools || !resp.Models[0].Capabilities.Vision {
+	if len(resp.Models) != 1 || !resp.Models[0].Capabilities.Tools || resp.Models[0].Capabilities.Vision {
 		t.Fatalf("%+v", resp.Models)
 	}
 

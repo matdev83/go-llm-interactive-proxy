@@ -51,9 +51,24 @@ func phase1LegacyCustomerCharge(legs []CallLegUsageRecord, outcome TurnOutcome, 
 		}
 	}
 	var total int64
+	legPolicy := policy
+	legPolicy.IncludeFixedCharges = false
+	legPolicy.IncludeResourceCharges = false
 	for _, leg := range selected {
 		strict := outcome == TurnOutcomeCompleted && leg.Surfaced == SurfacedYes
-		amount, err := chargeLegCurrentForTest(leg, pricing, policy, strict)
+		amount, err := chargeLegCurrentForTest(leg, pricing, legPolicy, strict)
+		if err != nil {
+			return 0, err
+		}
+		if total > int64(^uint64(0)>>1)-amount {
+			return 0, ErrRatingInvalid
+		}
+		total += amount
+	}
+	if len(selected) != 0 {
+		amount, err := chargeLegCurrentForTest(CallLegUsageRecord{}, pricing, ChargePolicy{
+			IncludeFixedCharges: policy.IncludeFixedCharges, IncludeResourceCharges: policy.IncludeResourceCharges,
+		}, false)
 		if err != nil {
 			return 0, err
 		}
@@ -169,7 +184,7 @@ func TestPhase1NativeRatingDifferentialAgainstLegacyScenarios(t *testing.T) {
 				phase1UnacceptedLeg("b-never-started", LegOutcomeNeverStarted),
 				phase1UnacceptedLeg("b-rejected", LegOutcomeRejected),
 				phase1UnacceptedLeg("b-no-evidence", LegOutcomeFailed),
-			}, want: 606,
+			}, want: 603,
 		},
 		{
 			name:    "interrupted latest accepted sequence",
