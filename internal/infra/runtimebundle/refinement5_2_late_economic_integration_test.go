@@ -1066,7 +1066,7 @@ func writeRefinement52MeteredConfig(t *testing.T, journalPath string) string {
 
 func openRefinement52RuntimeJournal(t *testing.T, path, storeID string) *journalstore.DurableStore {
 	t.Helper()
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate"
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -1253,7 +1253,7 @@ func refinement52RequireCompleteValuation(t *testing.T, store *billingstore.Dura
 
 func openRefinement52ConcurrentBillingStore(t *testing.T, path, storeID string) *billingstore.DurableStore {
 	t.Helper()
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate"
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)

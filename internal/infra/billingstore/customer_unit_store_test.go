@@ -214,7 +214,7 @@ func TestDurableStoreCustomerUnitLedgerRejectsStaleVersionAndFence(t *testing.T)
 
 func TestDurableStoreCustomerUnitLedgerPersistsAcrossStoreReopen(t *testing.T) {
 	ctx := context.Background()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "billing.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "billing.db")))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)

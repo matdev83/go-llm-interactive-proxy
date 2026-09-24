@@ -115,7 +115,7 @@ func TestReconciliationRetentionEnvelopeBindingFailsClosedOnRawRows(t *testing.T
 	ctx := context.Background()
 	storeID := "envelope-binding-restart"
 	createdAt := time.Unix(1_700_006_100, 0).UTC()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "envelope-binding.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "envelope-binding.db")))
 	open := func() *DurableStore {
 		sqlDB, err := sql.Open("sqlite", dsn)
 		require.NoError(t, err)

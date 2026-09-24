@@ -24,7 +24,7 @@ type bunstoreSQLiteFixture struct{}
 func (f *bunstoreSQLiteFixture) NewStore(t *testing.T) app.Store {
 	t.Helper()
 	id := bunstoreParityMemSeq.Add(1)
-	dsn := fmt.Sprintf("file:bunstoreparity%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", id)
+	dsn := fmt.Sprintf("file:bunstoreparity%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", id)
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
@@ -48,7 +48,7 @@ func (f *bunstoreSQLiteFixture) ReopenStore(t *testing.T) (app.Store, func() app
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, fmt.Sprintf("reopen_%d.db", bunstoreParityMemSeq.Add(1)))
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 
 	var current *bunstore.Store
 	open := func() app.Store {
@@ -95,7 +95,7 @@ func TestDBParity_SQLite(t *testing.T) {
 
 	t.Run("MigrationAndSchemaParity", func(t *testing.T) {
 		id := bunstoreParityMemSeq.Add(1)
-		dsn := fmt.Sprintf("file:bunstoreschemaparity%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", id)
+		dsn := fmt.Sprintf("file:bunstoreschemaparity%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", id)
 		sqlDB, err := sql.Open("sqlite", dsn)
 		require.NoError(t, err)
 		sqlDB.SetMaxOpenConns(1)

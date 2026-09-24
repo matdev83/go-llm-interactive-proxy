@@ -21,7 +21,7 @@ var f1JournalSequence atomic.Int64
 
 func openF1Journal(t *testing.T) *journalstore.DurableStore {
 	t.Helper()
-	dsn := fmt.Sprintf("file:f1-journal-%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)", f1JournalSequence.Add(1))
+	dsn := fmt.Sprintf("file:f1-journal-%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", f1JournalSequence.Add(1))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(8)
@@ -231,7 +231,7 @@ func openF1FileBillingStore(t *testing.T, path string) (*DurableStore, func()) {
 
 func openF1FileJournal(t *testing.T, path string) (*journalstore.DurableStore, func()) {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate")
+	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate")
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(8)
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)

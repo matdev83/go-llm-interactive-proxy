@@ -71,7 +71,7 @@ func TestReconciliationGenerationBindingRejectsWireColumnCrossGeneration(t *test
 	ctx := context.Background()
 	storeID := "generation-binding"
 	createdAt := time.Unix(1_700_007_000, 0).UTC()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "generation-binding.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "generation-binding.db")))
 	open := func() *DurableStore { return openGenerationBindingStore(t, dsn, storeID) }
 	openTestScope := func() *DurableStore { return openGenerationBindingStore(t, dsn, "test") }
 
@@ -187,7 +187,7 @@ func TestReconciliationGenerationBindingRejectsWireColumnCrossGeneration(t *test
 	})
 
 	t.Run("explicit zero and unknown durable discriminators are gated", func(t *testing.T) {
-		freshDSN := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "generation-zero.db")))
+		freshDSN := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "generation-zero.db")))
 		store := openGenerationBindingStore(t, freshDSN, "test")
 
 		zero := legacySchema1Fixture(t)
@@ -218,7 +218,7 @@ func TestReconciliationGenerationBindingRejectsReplayPoison(t *testing.T) {
 	ctx := context.Background()
 	storeID := "replay-generation"
 	createdAt := time.Unix(1_700_007_500, 0).UTC()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "replay-generation.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "replay-generation.db")))
 	open := func() *DurableStore { return openGenerationBindingStore(t, dsn, storeID) }
 	openTestScope := func() *DurableStore { return openGenerationBindingStore(t, dsn, "test") }
 

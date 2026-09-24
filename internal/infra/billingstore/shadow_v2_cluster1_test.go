@@ -392,7 +392,7 @@ func TestPhase172Cluster1ReopenStable(t *testing.T) {
 
 func openCluster1FileStore(t *testing.T, path, storeID string) *DurableStore {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate")
+	sqlDB, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate")
 	if err != nil {
 		t.Fatal(err)
 	}

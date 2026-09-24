@@ -28,7 +28,7 @@ func reconcileReserveCommandInternal(ruleID string, value int64) app.ReserveComm
 
 func openSeedRaceDB(t *testing.T, path string) *bun.DB {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=busy_timeout(5000)&_txlock=immediate")
+	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ var seedRaceMemDSN atomic.Int64
 // and backfill-after-reopen tests must keep using the file-backed helper.
 func openSeedRaceMemDB(t *testing.T) *bun.DB {
 	t.Helper()
-	name := fmt.Sprintf("file:seed-race-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_txlock=immediate", seedRaceMemDSN.Add(1))
+	name := fmt.Sprintf("file:seed-race-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate", seedRaceMemDSN.Add(1))
 	sqlDB, err := sql.Open("sqlite", name)
 	if err != nil {
 		t.Fatal(err)

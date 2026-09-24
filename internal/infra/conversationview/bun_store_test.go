@@ -19,7 +19,7 @@ func newTestBunStore(t *testing.T) (*conversationview.BunStore, func()) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
@@ -81,7 +81,7 @@ func TestConversationView_RestartSurvival_SQLite(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cv_restart.db")
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)

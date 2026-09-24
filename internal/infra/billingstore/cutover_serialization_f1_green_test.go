@@ -27,7 +27,7 @@ import (
 
 func newF1WALStore(t *testing.T, storeID string) *DurableStore {
 	t.Helper()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", filepath.ToSlash(filepath.Join(t.TempDir(), storeID+".db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), storeID+".db")))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -494,7 +494,7 @@ func TestF1GreenContextCancellationWhileWaiting(t *testing.T) {
 func TestF1GreenCrashReopenPreservesActivation(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "f1-green-reopen.db")
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", filepath.ToSlash(path))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)", filepath.ToSlash(path))
 	open := func(storeID string) (*DurableStore, func()) {
 		sqlDB, err := sql.Open("sqlite", dsn)
 		if err != nil {

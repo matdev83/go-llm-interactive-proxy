@@ -70,7 +70,7 @@ func (f *sqliteContinuityFixture) ReopenStore(t *testing.T) (*Store, func() *Sto
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, fmt.Sprintf("reopen_%d.db", testMemDBSeq.Add(1)))
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 
 	var current *Store
 	open := func() *Store {

@@ -260,7 +260,7 @@ func TestF5F7Red_HandoffLeavesPinCompleted(t *testing.T) {
 
 // F7 crash/reopen immediately after handoff on same file.
 func TestF5F7Red_HandoffCrashReopenPreservesPin(t *testing.T) {
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "f5f7-red-reopen.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "f5f7-red-reopen.db")))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)

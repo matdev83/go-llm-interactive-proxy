@@ -119,7 +119,7 @@ func TestStockCompositionObservationEconomicBridgeQueuesWithoutManualSeeding(t *
 
 func newCompositionBillingStore(t *testing.T, storeID string) *billingstore.DurableStore {
 	t.Helper()
-	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "billing.sqlite")) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate"
+	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "billing.sqlite")) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sqlDB.Close() })

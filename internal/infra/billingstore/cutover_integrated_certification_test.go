@@ -55,7 +55,7 @@ func c3cNewStore(t *testing.T, storeID string) *DurableStore {
 
 func c3cNewFileStore(t *testing.T, storeID string) (*DurableStore, func()) {
 	t.Helper()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "c3c.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "c3c.db")))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -1043,7 +1043,7 @@ func TestCutoverIntegratedFullLegalLifecycleFileBacked(t *testing.T) {
 	t.Parallel()
 	const storeID = "f9-full"
 	const accountID = "acct-f9-full"
-	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "f9-full.db")) + "?_pragma=foreign_keys(ON)"
+	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "f9-full.db")) + "?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	store := f9OpenStore(t, dsn, storeID)
 	ctx := context.Background()
 

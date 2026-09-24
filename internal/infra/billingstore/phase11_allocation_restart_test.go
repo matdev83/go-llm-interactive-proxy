@@ -13,7 +13,7 @@ import (
 
 func TestPhase11AllocationPersistsAcrossRestart(t *testing.T) {
 	ctx := context.Background()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "allocation.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "allocation.db")))
 	firstSQL, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)

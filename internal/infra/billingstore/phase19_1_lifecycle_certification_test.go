@@ -64,7 +64,7 @@ func ph191BillingStore(t *testing.T) (*DurableStore, string, func()) {
 func ph191JournalStore(t *testing.T) *journalstore.DurableStore {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "ph191-journal.sqlite")
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate"
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)
