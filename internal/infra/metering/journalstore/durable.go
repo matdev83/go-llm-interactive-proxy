@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -315,6 +316,24 @@ LIMIT 1`,
 			fragments:   []string{ObservationEconomicOutboxMigrationName},
 		},
 		{
+			description: LinkedStatementIndexMigrationName + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{LinkedStatementIndexMigrationName},
+			fragments:   []string{LinkedStatementIndexMigrationName},
+		},
+		{
+			description: LinkedStatementOrderedIndexMigrationName + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{LinkedStatementOrderedIndexMigrationName},
+			fragments:   []string{LinkedStatementOrderedIndexMigrationName},
+		},
+		{
+			description: LinkedStatementCandidateIndexMigrationName + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{LinkedStatementCandidateIndexMigrationName},
+			fragments:   []string{LinkedStatementCandidateIndexMigrationName},
+		},
+		{
 			description: "metering observation economic outbox table",
 			query:       `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'metering_observation_economic_outbox' LIMIT 1`,
 			fragments:   []string{"metering_observation_economic_outbox"},
@@ -378,7 +397,201 @@ WHERE table_schema = current_schema()
 			return fmt.Errorf("metering/journalstore: schema verification failed: %w", err)
 		}
 	}
+	// R10's bounded linked-statement lookup needs its accelerators to be exactly
+	// the ordered partial indexes the production query was planned against.
+	// Fragment/containment checks are unsafe here: an extra restriction (AND
+	// b_leg_id = 'one-leg') or a disjunction would keep the name and leading
+	// columns yet break the general B-leg lookup, so compare the whole ordered
+	// key list and the complete conjunctive predicate.
+	indexChecks := []struct {
+		description string
+		query       string
+		columns     string
+		predicates  []string
+	}{
+		{
+			description: meteringFactsStoreBLegIndex,
+			query: `SELECT indexdef FROM pg_indexes
+WHERE schemaname = current_schema()
+  AND tablename = 'metering_facts'
+  AND indexname = '` + meteringFactsStoreBLegIndex + `'
+LIMIT 1`,
+			columns:    "store_id, b_leg_id, stream_id, sequence, observation_id, observation_revision, id",
+			predicates: []string{"payload_kind = 'observation'"},
+		},
+		{
+			description: meteringFactsStoreBLegStatementIndex,
+			query: `SELECT indexdef FROM pg_indexes
+WHERE schemaname = current_schema()
+  AND tablename = 'metering_facts'
+  AND indexname = '` + meteringFactsStoreBLegStatementIndex + `'
+LIMIT 1`,
+			columns: "store_id, b_leg_id, stream_id, sequence, observation_id, observation_revision, id",
+			predicates: []string{
+				"payload_kind = 'observation'",
+				"observation_subject_kind = 'statement_line'",
+				"observation_origin = 'statement'",
+				"observation_acquisition = 'statement_importer'",
+				"authority = 'verified_statement'",
+			},
+		},
+	}
+	for _, check := range indexChecks {
+		if err := verifyPostgresIndexDefinition(ctx, db, check.description, check.query, check.columns, check.predicates); err != nil {
+			return fmt.Errorf("metering/journalstore: schema verification failed: %w", err)
+		}
+	}
 	return nil
+}
+
+// postgresIndexCastPattern strips PostgreSQL's rendered type casts (for example
+// 'observation'::text) so index expressions can be compared semantically.
+var postgresIndexCastPattern = regexp.MustCompile(`::[a-z_][a-z0-9_]*`)
+
+// verifyPostgresIndexDefinition checks that a pg_indexes indexdef declares
+// exactly the wantColumns ordered key list and exactly the wantPredicates
+// conjunctive partial predicate. It deliberately avoids substring matching so
+// that an extra restriction or a disjunction cannot satisfy verification.
+func verifyPostgresIndexDefinition(ctx context.Context, db *bun.DB, description, query, wantColumns string, wantPredicates []string) error {
+	var raw string
+	if err := db.QueryRowContext(ctx, query).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("verify postgres %s: missing", description)
+		}
+		return fmt.Errorf("verify postgres %s: %w", description, err)
+	}
+	if err := checkPostgresIndexDefinition(raw, wantColumns, wantPredicates); err != nil {
+		return fmt.Errorf("verify postgres %s: %w", description, err)
+	}
+	return nil
+}
+
+// checkPostgresIndexDefinition is the pure core of
+// verifyPostgresIndexDefinition: it compares a rendered index definition against
+// the expected ordered key list and complete conjunctive predicate.
+func checkPostgresIndexDefinition(raw, wantColumns string, wantPredicates []string) error {
+	columns, predicates, err := parsePostgresIndexDefinition(raw)
+	if err != nil {
+		return err
+	}
+	wantColumns = canonicalizePostgresIndexExpression(wantColumns)
+	if columns != wantColumns {
+		return fmt.Errorf("key columns %q, want %q", columns, wantColumns)
+	}
+	want := make(map[string]struct{}, len(wantPredicates))
+	for _, predicate := range wantPredicates {
+		want[canonicalizePostgresIndexExpression(predicate)] = struct{}{}
+	}
+	got := make(map[string]struct{}, len(predicates))
+	for _, predicate := range predicates {
+		got[predicate] = struct{}{}
+	}
+	if len(got) != len(predicates) || len(got) != len(wantPredicates) {
+		return fmt.Errorf("partial predicate %v, want %v", predicates, wantPredicates)
+	}
+	for predicate := range want {
+		if _, ok := got[predicate]; !ok {
+			return fmt.Errorf("partial predicate %v, want %v", predicates, wantPredicates)
+		}
+	}
+	return nil
+}
+
+// parsePostgresIndexDefinition extracts the ordered key columns and the
+// conjunctive partial predicate from a pg_indexes indexdef. Both are returned
+// canonicalized; the predicate is split only on top-level "and" conjunctions, so
+// a disjunction stays inside one element and fails set comparison.
+func parsePostgresIndexDefinition(raw string) (string, []string, error) {
+	lower := strings.ToLower(raw)
+	open := strings.IndexByte(lower, '(')
+	if open < 0 {
+		return "", nil, fmt.Errorf("unsupported index definition %q", raw)
+	}
+	closeIdx := matchingParenIndex(lower, open)
+	if closeIdx < 0 {
+		return "", nil, fmt.Errorf("unsupported index definition %q", raw)
+	}
+	columns := canonicalizePostgresIndexExpression(raw[open+1 : closeIdx])
+	rest := raw[closeIdx+1:]
+	whereIdx := strings.Index(strings.ToLower(rest), " where ")
+	if whereIdx < 0 {
+		return columns, nil, nil
+	}
+	predicate := canonicalizePostgresIndexExpression(rest[whereIdx+len(" where "):])
+	if predicate == "" {
+		return columns, nil, fmt.Errorf("empty partial predicate in %q", raw)
+	}
+	return columns, strings.Split(predicate, " and "), nil
+}
+
+func matchingParenIndex(s string, open int) int {
+	depth := 0
+	for i := open; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// canonicalizePostgresIndexExpression lower-cases, drops rendered type casts,
+// removes parentheses, and collapses whitespace so pg_indexes rendering can be
+// compared without depending on its exact formatting. Syntax normalization is
+// applied only outside single-quoted SQL literals: literal bytes (case,
+// embedded cast-looking text, doubled quotes, and spaces) are preserved exactly.
+func canonicalizePostgresIndexExpression(expr string) string {
+	masked, literals := maskPostgresStringLiterals(expr)
+	masked = strings.ToLower(masked)
+	masked = postgresIndexCastPattern.ReplaceAllString(masked, "")
+	masked = strings.NewReplacer("(", " ", ")", " ").Replace(masked)
+	masked = strings.Join(strings.Fields(masked), " ")
+	for i, literal := range literals {
+		masked = strings.ReplaceAll(masked, postgresLiteralPlaceholder(i), literal)
+	}
+	return masked
+}
+
+func postgresLiteralPlaceholder(i int) string {
+	return "\x00lit" + strconv.Itoa(i) + "\x00"
+}
+
+// maskPostgresStringLiterals replaces each single-quoted SQL literal with a
+// whitespace-free placeholder and returns the literal bytes verbatim. A doubled
+// single quote inside a literal is treated as an escaped quote. An unterminated
+// literal is preserved to end of input.
+func maskPostgresStringLiterals(expr string) (string, []string) {
+	var b strings.Builder
+	var literals []string
+	for i := 0; i < len(expr); {
+		if expr[i] != '\'' {
+			b.WriteByte(expr[i])
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(expr) {
+			if expr[j] != '\'' {
+				j++
+				continue
+			}
+			if j+1 < len(expr) && expr[j+1] == '\'' {
+				j += 2
+				continue
+			}
+			break
+		}
+		end := min(j, len(expr)-1)
+		literals = append(literals, expr[i:end+1])
+		b.WriteString(postgresLiteralPlaceholder(len(literals) - 1))
+		i = end + 1
+	}
+	return b.String(), literals
 }
 
 // NewDurableStore migrates schema and returns a durable journal. Caller owns closing db
