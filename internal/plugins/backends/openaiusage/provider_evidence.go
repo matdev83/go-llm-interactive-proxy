@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 	"math"
+	"strconv"
 	"strings"
 
 	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
@@ -67,13 +68,14 @@ func AnnotateProviderContext(ev *lipapi.Event, providerRequestID, serviceContext
 }
 
 type nativeUsageSpec struct {
-	keys      []string
-	nested    string
-	component string
-	unit      string
-	direction sdkmetering.FlowDirection
-	path      string
-	integer   bool
+	keys             []string
+	nested           string
+	component        string
+	unit             string
+	direction        sdkmetering.FlowDirection
+	path             string
+	integer          bool
+	preserveWirePath bool
 }
 
 // nativeUsageSpecs contains fields used by OpenAI and compatible Responses /
@@ -81,10 +83,42 @@ type nativeUsageSpec struct {
 // expose the same quantity under prompt/input or completion/output names.
 // No estimate or text-token conversion is performed.
 var nativeUsageSpecs = []nativeUsageSpec{
+	// The nested token-detail fields are the provider-family representations.
+	// Keep them ahead of compatible flat aliases so a response carrying both
+	// forms cannot silently select a conflicting synthetic alias.
+	{nested: "prompt_tokens_details", keys: []string{"text_tokens"}, component: sdkmetering.ComponentTextToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_text_tokens", integer: true, preserveWirePath: true},
+	{nested: "completion_tokens_details", keys: []string{"text_tokens"}, component: sdkmetering.ComponentTextToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionOutput, path: "$.usage.output_text_tokens", integer: true, preserveWirePath: true},
+	{nested: "prompt_tokens_details", keys: []string{"audio_tokens"}, component: sdkmetering.ComponentAudioToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_audio_tokens", integer: true, preserveWirePath: true},
+	{nested: "completion_tokens_details", keys: []string{"audio_tokens"}, component: sdkmetering.ComponentAudioToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionOutput, path: "$.usage.output_audio_tokens", integer: true, preserveWirePath: true},
+	// The Chat CompletionUsage prompt_tokens_details also carries image input
+	// tokens (prompt_tokens_details.image_tokens). They are token quantities,
+	// not image counts, so they map onto the directional image_token component;
+	// they must never be mapped onto the separate image/image-count component.
+	// The documented completion_tokens_details has no image_tokens member, so no
+	// output image token is fabricated. Keeping this nested field ahead of the
+	// flat compatible aliases lets the provider-family value win a conflict,
+	// and preserveWirePath retains the evidence at the exact provider location
+	// $.usage.prompt_tokens_details.image_tokens (allowlisted by the SDK).
+	{nested: "prompt_tokens_details", keys: []string{"image_tokens"}, component: sdkmetering.ComponentImageToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.prompt_tokens_details.image_tokens", integer: true, preserveWirePath: true},
+	// The official Chat CompletionUsagePromptTokensDetails carries the standard
+	// cache_write_tokens member ("The unadjusted number of prompt tokens written
+	// to cache"); the Responses ResponseUsageInputTokensDetails carries the same
+	// member. It is an input subset like cached_tokens, so it maps onto the
+	// directional input cache_write_input_token component under the native detail
+	// schema and retains its exact provider wire path. Both provider-family
+	// spellings are declared; only one is ever present on a wire response.
+	{nested: "prompt_tokens_details", keys: []string{"cache_write_tokens"}, component: sdkmetering.ComponentCacheWriteInputToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.prompt_tokens_details.cache_write_tokens", integer: true, preserveWirePath: true},
+	{nested: "input_tokens_details", keys: []string{"text_tokens"}, component: sdkmetering.ComponentTextToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_text_tokens", integer: true, preserveWirePath: true},
+	{nested: "output_tokens_details", keys: []string{"text_tokens"}, component: sdkmetering.ComponentTextToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionOutput, path: "$.usage.output_text_tokens", integer: true, preserveWirePath: true},
+	{nested: "input_tokens_details", keys: []string{"audio_tokens"}, component: sdkmetering.ComponentAudioToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_audio_tokens", integer: true, preserveWirePath: true},
+	{nested: "output_tokens_details", keys: []string{"audio_tokens"}, component: sdkmetering.ComponentAudioToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionOutput, path: "$.usage.output_audio_tokens", integer: true, preserveWirePath: true},
+	{nested: "input_tokens_details", keys: []string{"images"}, component: sdkmetering.ComponentImage, unit: sdkmetering.UnitImage, direction: sdkmetering.DirectionInput, path: "$.usage.input_image_count", integer: true, preserveWirePath: true},
+	{nested: "output_tokens_details", keys: []string{"images"}, component: sdkmetering.ComponentImage, unit: sdkmetering.UnitImage, direction: sdkmetering.DirectionOutput, path: "$.usage.output_image_count", integer: true, preserveWirePath: true},
+	{nested: "input_tokens_details", keys: []string{"cache_write_tokens"}, component: sdkmetering.ComponentCacheWriteInputToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_tokens_details.cache_write_tokens", integer: true, preserveWirePath: true},
 	{keys: []string{"input_image_tokens", "image_input_tokens", "prompt_image_tokens"}, component: sdkmetering.ComponentImageToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_image_tokens", integer: true},
 	{keys: []string{"output_image_tokens", "image_output_tokens", "completion_image_tokens"}, component: sdkmetering.ComponentImageToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionOutput, path: "$.usage.output_image_tokens", integer: true},
-	{keys: []string{"input_audio_tokens", "audio_input_tokens", "prompt_audio_tokens"}, component: sdkmetering.ComponentAudioToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_audio_tokens", integer: true},
-	{keys: []string{"output_audio_tokens", "audio_output_tokens", "completion_audio_tokens"}, component: sdkmetering.ComponentAudioToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionOutput, path: "$.usage.output_audio_tokens", integer: true},
+	{keys: []string{"input_audio_tokens", "audio_input_tokens", "prompt_audio_tokens"}, component: sdkmetering.ComponentAudioToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_audio_tokens", integer: true, preserveWirePath: true},
+	{keys: []string{"output_audio_tokens", "audio_output_tokens", "completion_audio_tokens"}, component: sdkmetering.ComponentAudioToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionOutput, path: "$.usage.output_audio_tokens", integer: true, preserveWirePath: true},
 	{keys: []string{"input_video_tokens", "video_input_tokens", "prompt_video_tokens"}, component: sdkmetering.ComponentVideoToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_video_tokens", integer: true},
 	{keys: []string{"output_video_tokens", "video_output_tokens", "completion_video_tokens"}, component: sdkmetering.ComponentVideoToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionOutput, path: "$.usage.output_video_tokens", integer: true},
 	{keys: []string{"input_document_tokens", "document_input_tokens", "prompt_document_tokens"}, component: sdkmetering.ComponentDocumentToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_document_tokens", integer: true},
@@ -103,17 +137,24 @@ var nativeUsageSpecs = []nativeUsageSpec{
 	{keys: []string{"output_file_pages", "file_output_pages", "completion_file_pages"}, component: sdkmetering.ComponentFile, unit: sdkmetering.UnitPage, direction: sdkmetering.DirectionOutput, path: "$.usage.output_file_pages", integer: true},
 	{keys: []string{"input_bytes", "request_bytes", "prompt_bytes"}, component: sdkmetering.ComponentFile, unit: sdkmetering.UnitByte, direction: sdkmetering.DirectionInput, path: "$.usage.input_bytes", integer: true},
 	{keys: []string{"output_bytes", "response_bytes", "completion_bytes"}, component: sdkmetering.ComponentFile, unit: sdkmetering.UnitByte, direction: sdkmetering.DirectionOutput, path: "$.usage.output_bytes", integer: true},
-	{nested: "input_tokens_details", keys: []string{"text_tokens"}, component: sdkmetering.ComponentTextToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_text_tokens", integer: true},
-	{nested: "output_tokens_details", keys: []string{"text_tokens"}, component: sdkmetering.ComponentTextToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionOutput, path: "$.usage.output_text_tokens", integer: true},
-	{nested: "input_tokens_details", keys: []string{"audio_tokens"}, component: sdkmetering.ComponentAudioToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionInput, path: "$.usage.input_audio_tokens", integer: true},
-	{nested: "output_tokens_details", keys: []string{"audio_tokens"}, component: sdkmetering.ComponentAudioToken, unit: sdkmetering.UnitToken, direction: sdkmetering.DirectionOutput, path: "$.usage.output_audio_tokens", integer: true},
-	{nested: "input_tokens_details", keys: []string{"images"}, component: sdkmetering.ComponentImage, unit: sdkmetering.UnitImage, direction: sdkmetering.DirectionInput, path: "$.usage.input_image_count", integer: true},
-	{nested: "output_tokens_details", keys: []string{"images"}, component: sdkmetering.ComponentImage, unit: sdkmetering.UnitImage, direction: sdkmetering.DirectionOutput, path: "$.usage.output_image_count", integer: true},
 }
 
-// NativeUsageMeasures returns only provider-reported native units. Malformed,
-// negative, fractional discrete and overflow values are omitted, preserving
-// an unavailable quantity rather than coercing it to zero or text tokens.
+// nativeUsageMethodRef and nativeUsageMalformedReason are bounded adapter
+// identities carried by every native measure. The malformed reason is the
+// typed unavailable status for a present provider-family field whose lexeme
+// cannot be a valid quantity.
+const (
+	nativeUsageMethodRef       = "openai.usage.native.v2"
+	nativeUsageMalformedReason = "malformed_native_usage"
+)
+
+// NativeUsageMeasures returns only provider-reported native units. A malformed,
+// negative, fractional discrete or overflow flat compatible alias is omitted,
+// preserving an unavailable quantity rather than coercing it to zero or text
+// tokens. A present provider-family nested field is authoritative: when its
+// lexeme is malformed it becomes an explicit unavailable measure instead of
+// being silently dropped, and it claims its canonical component so a later
+// compatible flat alias cannot stand in for the unusable provider value.
 func NativeUsageMeasures(raw string) []sdkmetering.Measure {
 	fields, details := usageFields(raw)
 	if len(fields) == 0 {
@@ -121,18 +162,13 @@ func NativeUsageMeasures(raw string) []sdkmetering.Measure {
 	}
 	measures := make([]sdkmetering.Measure, 0, len(nativeUsageSpecs))
 	for _, spec := range nativeUsageSpecs {
-		value, ok := nativeField(fields, details, spec)
-		if !ok {
+		value, _, presence := nativeSpecPresence(fields, details, spec)
+		if presence == nativeFieldAbsent {
 			continue
 		}
-		lexeme := strings.TrimSpace(string(value))
-		decimal, err := sdkmetering.ParseDecimal(lexeme)
-		if err != nil || strings.HasPrefix(lexeme, "-") || strings.HasPrefix(decimal.Coefficient, "-") || (spec.integer && decimal.Scale != 0) {
+		measure := nativeMeasureForKey(spec, value)
+		if measure.Quality == sdkmetering.QualityUnavailable && spec.nested == "" {
 			continue
-		}
-		measure := sdkmetering.Measure{
-			Key:   sdkmetering.ComponentKey{Direction: spec.direction, Component: spec.component, Unit: spec.unit, SchemaID: "openai.usage.v2"},
-			Value: &decimal, Quality: sdkmetering.QualityObserved, MethodRef: "openai.usage.native.v2",
 		}
 		duplicate := false
 		for _, prior := range measures {
@@ -148,8 +184,76 @@ func NativeUsageMeasures(raw string) []sdkmetering.Measure {
 	return measures
 }
 
+// nativeCountMaxDigits mirrors the SDK safe-evidence count bound: a
+// non-negative integer count is limited to 19 canonical base-10 digits so it
+// cannot exceed an unsigned 64-bit quantity. The adapter applies the same bound
+// before it emits an observed count or retains a raw count lexeme, so a native
+// measure and its evidence can never disagree with Observation.Validate.
+const nativeCountMaxDigits = 19
+
+// nativeCanonicalCount reports whether a present provider-family integer lexeme
+// is exactly the canonical non-negative base-10 unsigned integer spelling the
+// SDK safe-evidence count contract enforces. Signs, fractions, exponents,
+// leading zeroes, grouping separators, underscores and overflow are rejected.
+func nativeCanonicalCount(value string) bool {
+	if value == "" || len(value) > nativeCountMaxDigits {
+		return false
+	}
+	if len(value) > 1 && value[0] == '0' {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	if _, err := strconv.ParseUint(value, 10, 64); err != nil {
+		return false
+	}
+	return true
+}
+
+// nativeObservedDecimal accepts one present provider lexeme for a spec and
+// returns its canonical observed Decimal. A declared discrete integer count must
+// be a canonical unsigned count before it may be observed; a permissively parsed
+// decimal or scientific lexeme is unavailable rather than a canonicalized
+// observed count whose original raw lexeme would fail Observation.Validate and
+// discard the whole observation. A fractional/duration spec keeps the exact
+// non-negative decimal grammar.
+func nativeObservedDecimal(spec nativeUsageSpec, lexeme string) (sdkmetering.Decimal, bool) {
+	if spec.integer {
+		if !nativeCanonicalCount(lexeme) {
+			return sdkmetering.Decimal{}, false
+		}
+		return sdkmetering.Decimal{Coefficient: lexeme, Scale: 0}, true
+	}
+	decimal, err := sdkmetering.ParseDecimal(lexeme)
+	if err != nil || strings.HasPrefix(lexeme, "-") || strings.HasPrefix(decimal.Coefficient, "-") {
+		return sdkmetering.Decimal{}, false
+	}
+	return decimal, true
+}
+
+// nativeMeasureForKey builds one native measure for a present provider value.
+// The declared discrete integer grammar is enforced exactly as the evidence
+// contract does; an unusable lexeme yields an explicit unavailable measure.
+func nativeMeasureForKey(spec nativeUsageSpec, value json.RawMessage) sdkmetering.Measure {
+	key := sdkmetering.ComponentKey{Direction: spec.direction, Component: spec.component, Unit: spec.unit, SchemaID: NativeUsageSchemaID}
+	lexeme := strings.TrimSpace(string(value))
+	decimal, ok := nativeObservedDecimal(spec, lexeme)
+	if !ok {
+		return sdkmetering.Measure{Key: key, Quality: sdkmetering.QualityUnavailable, MethodRef: nativeUsageMethodRef, Reason: nativeUsageMalformedReason}
+	}
+	return sdkmetering.Measure{Key: key, Value: &decimal, Quality: sdkmetering.QualityObserved, MethodRef: nativeUsageMethodRef}
+}
+
 // NativeUsageEvidence returns bounded safe lexemes for the same native fields
-// retained as measures. The canonical path is allowlisted by the V2 contract.
+// retained as measures. Provider-family nested fields and selected aliases
+// retain their exact allowlisted wire path; no synthetic decomposition path is
+// substituted for the provider's field identity. A present-but-malformed
+// provider-family nested field has no safe numeric lexeme to retain, but it
+// still claims its canonical component so a later flat alias cannot silently
+// stand in for it; its typed unavailable status is carried by the measure.
 func NativeUsageEvidence(raw string) []sdkmetering.SafeEvidenceField {
 	fields, details := usageFields(raw)
 	if len(fields) == 0 {
@@ -158,23 +262,35 @@ func NativeUsageEvidence(raw string) []sdkmetering.SafeEvidenceField {
 	evidence := make([]sdkmetering.SafeEvidenceField, 0, len(nativeUsageSpecs))
 	seen := make(map[string]struct{}, len(nativeUsageSpecs))
 	for _, spec := range nativeUsageSpecs {
-		value, ok := nativeField(fields, details, spec)
-		if !ok {
+		value, providerKey, presence := nativeSpecPresence(fields, details, spec)
+		if presence == nativeFieldAbsent {
+			continue
+		}
+		componentKey := sdkmetering.ComponentKey{
+			Direction: spec.direction, Component: spec.component, Unit: spec.unit, SchemaID: NativeUsageSchemaID,
+		}.CanonicalKey()
+		if _, ok := seen[componentKey]; ok {
+			// The first provider-family field in nativeUsageSpecs wins. This
+			// prevents a conflicting alias or alternate endpoint detail from
+			// adding a second evidence lexeme for one canonical measure.
 			continue
 		}
 		lexeme := strings.TrimSpace(string(value))
-		decimal, err := sdkmetering.ParseDecimal(lexeme)
-		if err != nil || strings.HasPrefix(lexeme, "-") || strings.HasPrefix(decimal.Coefficient, "-") || (spec.integer && decimal.Scale != 0) {
+		if _, ok := nativeObservedDecimal(spec, lexeme); !ok {
+			if spec.nested != "" {
+				// A malformed provider-family nested field still claims its
+				// canonical component so its own typed unavailable measure is
+				// never supplemented by a flat alias lexeme.
+				seen[componentKey] = struct{}{}
+			}
 			continue
 		}
-		if _, ok := seen[spec.path]; ok {
-			// A single allowlisted path cannot retain two directional values;
-			// the measure carries the direction, while the lexeme is retained
-			// once for evidence.
-			continue
+		seen[componentKey] = struct{}{}
+		path := spec.path
+		if spec.preserveWirePath {
+			path = nativeEvidencePath(spec, providerKey)
 		}
-		seen[spec.path] = struct{}{}
-		evidence = append(evidence, sdkmetering.SafeEvidenceField{Path: spec.path, Lexeme: lexeme, Present: true, Acquisition: sdkmetering.AcquisitionProviderResponse})
+		evidence = append(evidence, sdkmetering.SafeEvidenceField{Path: path, Lexeme: lexeme, Present: true, Acquisition: sdkmetering.AcquisitionProviderResponse})
 	}
 	return evidence
 }
@@ -211,20 +327,44 @@ func usageFields(raw string) (map[string]json.RawMessage, map[string]map[string]
 	return fields, details
 }
 
-func nativeField(fields map[string]json.RawMessage, details map[string]map[string]json.RawMessage, spec nativeUsageSpec) (json.RawMessage, bool) {
-	if spec.nested != "" {
-		return firstNativeField(details[spec.nested], spec.keys)
-	}
-	return firstNativeField(fields, spec.keys)
-}
+// nativeFieldPresence classifies whether a spec's provider key is actually
+// present on the wire. An absent member and a JSON null member both carry no
+// provider quantity and are indistinguishable here; a present member is
+// authoritative for the spec's canonical component even when its lexeme is
+// malformed.
+type nativeFieldPresence uint8
 
-func firstNativeField(fields map[string]json.RawMessage, keys []string) (json.RawMessage, bool) {
-	for _, key := range keys {
-		value, ok := fields[key]
-		if !ok || strings.TrimSpace(string(value)) == "" || strings.TrimSpace(string(value)) == "null" {
+const (
+	nativeFieldAbsent nativeFieldPresence = iota
+	nativeFieldPresent
+)
+
+// nativeSpecPresence returns the first present provider key for a spec. Flat
+// compatible aliases read the merged top-level fields; nested provider-family
+// fields read only their own detail object so an absent detail member never
+// falls through to an unrelated top-level spelling.
+func nativeSpecPresence(fields map[string]json.RawMessage, details map[string]map[string]json.RawMessage, spec nativeUsageSpec) (json.RawMessage, string, nativeFieldPresence) {
+	lookup := fields
+	if spec.nested != "" {
+		lookup = details[spec.nested]
+	}
+	for _, key := range spec.keys {
+		value, ok := lookup[key]
+		if !ok {
 			continue
 		}
-		return value, true
+		trimmed := strings.TrimSpace(string(value))
+		if trimmed == "" || trimmed == "null" {
+			continue
+		}
+		return value, key, nativeFieldPresent
 	}
-	return nil, false
+	return nil, "", nativeFieldAbsent
+}
+
+func nativeEvidencePath(spec nativeUsageSpec, providerKey string) string {
+	if spec.nested != "" {
+		return "$.usage." + spec.nested + "." + providerKey
+	}
+	return "$.usage." + providerKey
 }

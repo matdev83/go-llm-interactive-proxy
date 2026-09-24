@@ -39,7 +39,7 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if len(pathMarkerOverlaySpecs) != 9 {
 		t.Fatalf("path-marker overlay table drift: got %d specs, want 9", len(pathMarkerOverlaySpecs))
 	}
-	if UsageEconomicsOverlayMax != 1393 {
+	if UsageEconomicsOverlayMax != 1421 {
 		t.Fatalf("usage economics overlay cap drift: %d", UsageEconomicsOverlayMax)
 	}
 	wantGrowth := []usageEconomicsGrowthFile{

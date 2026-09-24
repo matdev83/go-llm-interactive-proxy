@@ -61,6 +61,18 @@ func NewSnapshotCatalog() *SnapshotCatalog {
 }
 
 func (c *SnapshotCatalog) PutPricing(snapshot billing.PricingSnapshot) error {
+	return c.putPricingTariff(snapshot, nil)
+}
+
+// PutPricingWithSchemas atomically publishes a scalar pricing card and the
+// matching opt-in schema-bearing tariff, so a frozen default or route tariff
+// is reachable through the public catalog. Schemas are caller-supplied and
+// never inferred; empty schemas is exactly PutPricing.
+func (c *SnapshotCatalog) PutPricingWithSchemas(snapshot billing.PricingSnapshot, schemas []metering.ComponentSchema) error {
+	return c.putPricingTariff(snapshot, schemas)
+}
+
+func (c *SnapshotCatalog) putPricingTariff(snapshot billing.PricingSnapshot, schemas []metering.ComponentSchema) error {
 	if c == nil {
 		return errNilSnapshotCatalog
 	}
@@ -71,8 +83,17 @@ func (c *SnapshotCatalog) PutPricing(snapshot billing.PricingSnapshot) error {
 	if err != nil {
 		return fmt.Errorf("billingcompose: legacy tariff snapshot: %w", err)
 	}
+	if len(schemas) > 0 {
+		tariff.Schemas = schemas
+		tariff.Content = economics.SnapshotContentRef{}
+		if tariff, err = tariff.Canonical(); err != nil {
+			return fmt.Errorf("billingcompose: schema tariff snapshot: %w", err)
+		}
+		if _, err = billing.NewReferenceRater(tariff); err != nil {
+			return fmt.Errorf("billingcompose: tariff rules: %w", err)
+		}
+	}
 	key := keyOf(snapshot.Ref)
-	cloned := clonePricing(snapshot)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if existingTariff, tariffOK := c.tariffs[key]; tariffOK &&
@@ -80,7 +101,7 @@ func (c *SnapshotCatalog) PutPricing(snapshot billing.PricingSnapshot) error {
 		return ErrSnapshotImmutable
 	}
 	if existing, ok := c.pricing[key]; ok {
-		if pricingReplayEqual(existing, cloned) {
+		if pricingReplayEqual(existing, snapshot) {
 			if existingTariff, tariffOK := c.tariffs[key]; tariffOK && existingTariff.ContentHash() != tariff.ContentHash() {
 				return ErrSnapshotImmutable
 			}
@@ -88,7 +109,7 @@ func (c *SnapshotCatalog) PutPricing(snapshot billing.PricingSnapshot) error {
 		}
 		return ErrSnapshotImmutable
 	}
-	c.pricing[key] = cloned
+	c.pricing[key] = clonePricing(snapshot)
 	c.tariffs[key] = tariff
 	return nil
 }
@@ -415,6 +436,7 @@ func (c *SnapshotCatalog) Snapshot(ctx context.Context) (economics.Snapshot[econ
 			Rules:               rules,
 			EffectiveQualifiers: append([]metering.Dimension(nil), tariff.EffectiveQualifiers...),
 			LegacySemantics:     tariff.LegacySemantics,
+			Schemas:             tariff.Schemas,
 		},
 	}, nil
 }

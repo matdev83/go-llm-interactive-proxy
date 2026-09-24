@@ -159,22 +159,22 @@ func TestBillingLegRecordCarriesTrustedSubmissionIdentity(t *testing.T) {
 	}
 }
 
-func TestSubmissionIdentityStampCannotBeOverriddenByObservationPayload(t *testing.T) {
+func TestSubmissionIdentityClaimCannotOverrideTrustedRecordLinkage(t *testing.T) {
 	t.Parallel()
 
 	incoming := []metering.Observation{{
 		Subject:     metering.SubjectRef{SubmissionID: "submission-spoofed"},
 		Correlation: metering.CorrelationV2{SubmissionID: "submission-spoofed"},
 	}}
-	got := stampSubmissionIdentity(incoming, "submission-authenticated")
-	if got[0].Subject.SubmissionID != "submission-authenticated" || got[0].Correlation.SubmissionID != "submission-authenticated" {
-		t.Fatalf("stamped observation identity = %+v, want authenticated identity", got[0])
+	got := retainSubmissionLinkedObservations(incoming, "submission-authenticated")
+	if len(got) != 0 {
+		t.Fatalf("spoofed observation claim was retained: %+v", got)
 	}
 	if incoming[0].Subject.SubmissionID != "submission-spoofed" || incoming[0].Correlation.SubmissionID != "submission-spoofed" {
-		t.Fatal("identity stamping mutated caller-owned observation")
+		t.Fatal("submission filtering mutated caller-owned observation")
 	}
-	cleared := stampSubmissionIdentity(incoming, "")
-	if cleared[0].Subject.SubmissionID != "" || cleared[0].Correlation.SubmissionID != "" {
-		t.Fatalf("unsupported observation identity = %+v, want no submission claim", cleared[0])
+	cleared := retainSubmissionLinkedObservations(incoming, "")
+	if len(cleared) != 0 {
+		t.Fatalf("unsupported adapter observation claim was retained: %+v", cleared)
 	}
 }

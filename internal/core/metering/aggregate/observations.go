@@ -1,6 +1,7 @@
 package aggregate
 
 import (
+	"container/heap"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -217,11 +218,17 @@ func ApplyObservations(observations []metering.Observation) (SnapshotV2, error) 
 	// successor remains incomplete until that exact field is replaced by
 	// complete authoritative evidence.
 	correctionTaintFields := allCorrectionTaintFields(ordered, known)
-	propagatedFieldTaint := propagateFieldTaint(ordered, correctionTaintFields)
+	// Effective reduction follows the explicit supersession graph: a
+	// supersession predecessor is applied before its successor so an older
+	// explicit revision delivered with a higher Sequence cannot overwrite newer
+	// state, while a present-field replacement still retains the predecessor's
+	// omitted fields. The immutable audit envelope is untouched.
+	reductionOrder := supersessionOrder(ordered)
+	propagatedFieldTaint := propagateFieldTaint(reductionOrder, correctionTaintFields)
 	unusableCorrectionFields := knownUnusableCorrectionFields(ordered, known, correctionTaintFields)
-	propagatedUnusableFields := propagateFieldTaint(ordered, unusableCorrectionFields)
+	propagatedUnusableFields := propagateFieldTaint(reductionOrder, unusableCorrectionFields)
 	states := make(map[string]*reductionState)
-	for _, observation := range ordered {
+	for _, observation := range reductionOrder {
 		scope := scopeFor(observation)
 		key := scope.Key()
 		state := states[key]
@@ -367,6 +374,98 @@ func ApplyObservations(observations []metering.Observation) (SnapshotV2, error) 
 	})
 	slices.Sort(snapshot.Unavailable)
 	return snapshot, nil
+}
+
+// supersessionOrder returns the deterministic order used for effective
+// reduction. Every observation that a successor supersedes is emitted before
+// that successor, so source revision order governs effective state for one
+// source event even when a provider supplies a reversed or reused Sequence.
+// Independent observations keep their declared Sequence order; ties fall back
+// to the input position so the result is stable. The input is already
+// cycle-checked by ValidateSupersessionGraph, so the traversal is a defensive
+// fallback rather than a correctness gate.
+func supersessionOrder(observations []metering.Observation) []metering.Observation {
+	if len(observations) < 2 {
+		return observations
+	}
+	index := make(map[observationIdentity]int, len(observations))
+	hasSuccessor := false
+	for i, observation := range observations {
+		index[observationIdentity{store: observation.Subject.StoreID, id: observation.ID, revision: observation.Revision}] = i
+	}
+	successors := make([][]int, len(observations))
+	indegree := make([]int, len(observations))
+	for i, observation := range observations {
+		for _, ref := range observation.Supersedes {
+			predecessor, ok := index[observationIdentity{store: ref.StoreID, id: ref.ObservationID, revision: ref.Revision}]
+			if !ok || predecessor == i {
+				continue
+			}
+			successors[predecessor] = append(successors[predecessor], i)
+			indegree[i]++
+			hasSuccessor = true
+		}
+	}
+	if !hasSuccessor {
+		return observations
+	}
+	ready := &reductionCandidateHeap{observations: observations}
+	for i := range observations {
+		if indegree[i] == 0 {
+			heap.Push(ready, i)
+		}
+	}
+	out := make([]metering.Observation, 0, len(observations))
+	emitted := make([]bool, len(observations))
+	for ready.Len() > 0 {
+		next := heap.Pop(ready).(int)
+		emitted[next] = true
+		out = append(out, observations[next])
+		for _, successor := range successors[next] {
+			indegree[successor]--
+			if indegree[successor] == 0 {
+				heap.Push(ready, successor)
+			}
+		}
+	}
+	if len(out) != len(observations) {
+		// Defensive: a caller that bypassed supersession validation could supply
+		// a cycle. Emit the remaining observations in their original order so the
+		// reducer stays total instead of looping.
+		for i := range observations {
+			if !emitted[i] {
+				out = append(out, observations[i])
+			}
+		}
+	}
+	return out
+}
+
+// reductionCandidateHeap orders ready topological nodes by declared Sequence and
+// then input position so independent observations keep Sequence order.
+type reductionCandidateHeap struct {
+	observations []metering.Observation
+	items        []int
+}
+
+func (h reductionCandidateHeap) Len() int { return len(h.items) }
+func (h reductionCandidateHeap) Less(i, j int) bool {
+	left, right := h.items[i], h.items[j]
+	if h.observations[left].Sequence != h.observations[right].Sequence {
+		return h.observations[left].Sequence < h.observations[right].Sequence
+	}
+	return left < right
+}
+func (h reductionCandidateHeap) Swap(i, j int) { h.items[i], h.items[j] = h.items[j], h.items[i] }
+func (h *reductionCandidateHeap) Push(value any) {
+	h.items = append(h.items, value.(int))
+}
+func (h *reductionCandidateHeap) Pop() any {
+	items := h.items
+	last := len(items) - 1
+	value := items[last]
+	h.items = items[:last]
+	return value
 }
 
 // effectiveCoverageObservations returns the non-superseded source revisions

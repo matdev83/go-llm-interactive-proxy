@@ -94,8 +94,10 @@ type attemptSession struct {
 	usageEvidenceOrder                    []string
 	usageConflicts                        []billing.EvidenceConflict
 	economicObservations                  []execbackend.EconomicEvidence
-	economicObservationHashes             map[string]map[string]execbackend.EconomicEvidence
+	economicIdentities                    map[string]*economicIdentityRecord
 	economicConflicts                     []billing.EvidenceConflict
+	economicRetentionConflicts            []retentionEvidenceConflict
+	evidenceCaptureLoss                   evidenceCaptureLoss
 	checkpointPending                     map[string]metering.Observation
 	checkpointOrder                       []string
 	checkpointDeferred                    map[string]metering.Observation
@@ -1069,6 +1071,21 @@ func (r *readyAttempt) setPending(p pendingSelectionEffects) {
 	r.mu.Unlock()
 }
 
+// armPendingInvalidationLocked records a pending lifecycle invalidation and
+// immediately detaches the session under the readyAttempt mutex. Detaching at
+// record time -- before waiting for the in-flight publication op -- guarantees
+// that any competing caller that inspects the readyAttempt (for example the
+// post-open terminal fallback in Execute) observes no session it could
+// terminalize. The lifecycle invalidation path owns the returned session as the
+// single terminal owner once the in-flight op finishes.
+func (r *readyAttempt) armPendingInvalidationLocked(inv pendingInvalidation) *attemptSession {
+	r.pendingInvalidation = &inv
+	r.state = readyStateDisposed
+	sess := r.session
+	r.session = nil
+	return sess
+}
+
 func (r *readyAttempt) cancelViaLifecycle(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
 	if r == nil {
 		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
@@ -1096,17 +1113,14 @@ func (r *readyAttempt) cancelViaLifecycle(ctx context.Context, cause lipapi.Canc
 	}
 	if r.opInFlight {
 		if r.pendingInvalidation == nil {
-			r.pendingInvalidation = &pendingInvalidation{
+			sess := r.armPendingInvalidationLocked(pendingInvalidation{
 				kind:        invalidationCancel,
 				cancelCause: &cause,
-			}
-			r.state = readyStateDisposed
+			})
 			cond := r.getCond()
 			for r.opInFlight {
 				cond.Wait()
 			}
-			sess := r.session
-			r.session = nil
 			r.pending = pendingSelectionEffects{}
 			relKind := r.defaultReleaseKind
 			cmd := r.defaultCommand
@@ -1184,16 +1198,13 @@ func (r *readyAttempt) closeViaLifecycle() error {
 	}
 	if r.opInFlight {
 		if r.pendingInvalidation == nil {
-			r.pendingInvalidation = &pendingInvalidation{
+			sess := r.armPendingInvalidationLocked(pendingInvalidation{
 				kind: invalidationClose,
-			}
-			r.state = readyStateDisposed
+			})
 			cond := r.getCond()
 			for r.opInFlight {
 				cond.Wait()
 			}
-			sess := r.session
-			r.session = nil
 			r.pending = pendingSelectionEffects{}
 			relKind, cmd, legOutcome := r.defaultReleaseKind, r.defaultCommand, r.defaultLegOutcome
 			cond.Broadcast()
@@ -1254,18 +1265,15 @@ func (r *readyAttempt) DisposeWithEvidence(ctx context.Context, intent attemptTe
 	}
 	if r.opInFlight {
 		if r.pendingInvalidation == nil {
-			r.pendingInvalidation = &pendingInvalidation{
+			sess := r.armPendingInvalidationLocked(pendingInvalidation{
 				kind:     invalidationDispose,
 				intent:   intent,
 				evidence: &evidence,
-			}
-			r.state = readyStateDisposed
+			})
 			cond := r.getCond()
 			for r.opInFlight {
 				cond.Wait()
 			}
-			sess := r.session
-			r.session = nil
 			r.pending = pendingSelectionEffects{}
 			cond.Broadcast()
 			r.mu.Unlock()
@@ -1332,17 +1340,14 @@ func (r *readyAttempt) Dispose(ctx context.Context, err error) {
 	}
 	if r.opInFlight {
 		if r.pendingInvalidation == nil {
-			r.pendingInvalidation = &pendingInvalidation{
+			sess := r.armPendingInvalidationLocked(pendingInvalidation{
 				kind: invalidationDispose,
 				err:  err,
-			}
-			r.state = readyStateDisposed
+			})
 			cond := r.getCond()
 			for r.opInFlight {
 				cond.Wait()
 			}
-			sess := r.session
-			r.session = nil
 			r.pending = pendingSelectionEffects{}
 			cond.Broadcast()
 			r.mu.Unlock()
@@ -1917,7 +1922,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 					finalizeEv = streamEv
 				}
 				evidenceEvents, evidenceConflicts := a.billingEvidenceDrain()
-				economicObservations, economicConflicts := a.economicEvidenceDrain()
+				economicObservations, economicOrdinaryConflicts, economicRetentionConflicts := a.economicEvidenceDrainPartitioned()
 				var opRef billing.VersionRef
 				if a.operatorRateRef != nil {
 					opRef = a.operatorRateRef(cctx, a.cand.Primary)
@@ -1927,27 +1932,28 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 					workload = a.billingWorkload(cctx, aLegID)
 				}
 				legRecord := billingLegRecord(billingLegDraft{
-					callID:               callID,
-					submissionID:         a.submissionID,
-					aLegID:               aLegID,
-					storeID:              a.billingStoreID,
-					bLegID:               a.bleg.BLegID,
-					seq:                  a.bleg.Seq,
-					primary:              a.cand.Primary,
-					startedAt:            started,
-					finishedAt:           finished,
-					command:              cmd,
-					outcome:              legOutcome,
-					surfaced:             surfaced,
-					finalize:             finalizeEv,
-					stream:               streamEv,
-					evidenceEvents:       evidenceEvents,
-					evidenceConflicts:    evidenceConflicts,
-					economicObservations: economicObservations,
-					economicConflicts:    economicConflicts,
-					localObservations:    localObservations,
-					operatorRateRef:      opRef,
-					workload:             workload,
+					callID:                    callID,
+					submissionID:              a.submissionID,
+					aLegID:                    aLegID,
+					storeID:                   a.billingStoreID,
+					bLegID:                    a.bleg.BLegID,
+					seq:                       a.bleg.Seq,
+					primary:                   a.cand.Primary,
+					startedAt:                 started,
+					finishedAt:                finished,
+					command:                   cmd,
+					outcome:                   legOutcome,
+					surfaced:                  surfaced,
+					finalize:                  finalizeEv,
+					stream:                    streamEv,
+					evidenceEvents:            evidenceEvents,
+					evidenceConflicts:         evidenceConflicts,
+					economicObservations:      economicObservations,
+					economicConflicts:         economicRetentionConflicts,
+					economicOrdinaryConflicts: economicOrdinaryConflicts,
+					localObservations:         localObservations,
+					operatorRateRef:           opRef,
+					workload:                  workload,
 				})
 				if a.observeBillingLeg != nil {
 					a.observeBillingLeg(cctx, legRecord)

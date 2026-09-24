@@ -8,11 +8,13 @@ import (
 // Audited remediation-3A baselines: exact live measurements behind the refreshed
 // ceilings. Each ceiling must equal its audited baseline + 25 (repository headroom
 // convention); the live tree may only shrink below the audit (deletions allowed)
-// and must never exceed its ceiling.
+// and must never exceed its ceiling. PR #659 adversarial repair (R1-R10) re-audited
+// runtimebundle to 13659 and internal/core to 139708 from the reviewed production
+// additions; stdhttp, process_services.go, and the connector overlay are unchanged.
 const (
-	phase20AuditRuntimebundleLines    = 13631
+	phase20AuditRuntimebundleLines    = 13659
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 137434
+	phase20AuditCoreLines             = 139708
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

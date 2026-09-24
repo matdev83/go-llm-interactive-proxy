@@ -21,7 +21,18 @@ const (
 	observationEconomicRelayLease    = 30 * time.Second
 	observationEconomicRelayRetry    = 100 * time.Millisecond
 	observationEconomicEvidenceLimit = 500
+	// observationEconomicStatementCandidateBudget is the hard bound on raw
+	// verified statement-line rows a single B-leg relay item may enumerate. It
+	// is deliberately a small multiple of the accepted-evidence cap so normal
+	// volumes pass and pathological candidate growth fails closed instead of
+	// paging without bound.
+	observationEconomicStatementCandidateBudget = 4 * economics.MaxRatingObservations
 )
+
+// errObservationEconomicStatementCandidateBudget is a retryable, fail-closed
+// refusal: the durable outbox item stays pending and no truncated work marker
+// is ever emitted for the prefix that was read.
+var errObservationEconomicStatementCandidateBudget = errors.New("runtimebundle: linked statement candidate budget exceeded")
 
 var observationEconomicRelaySequence atomic.Uint64
 
@@ -36,6 +47,9 @@ type observationEconomicRelay struct {
 	interval time.Duration
 	lease    time.Duration
 	owner    string
+	// statementCandidateBudget is a test seam for the package hard budget.
+	// Zero uses observationEconomicStatementCandidateBudget.
+	statementCandidateBudget int
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -80,8 +94,9 @@ func newObservationEconomicRelay(journal *journalstore.DurableStore, appender bi
 	return &observationEconomicRelay{
 		journal: journal, appender: appender, builder: builder,
 		batch: observationEconomicRelayBatch, interval: observationEconomicRelayInterval,
-		lease: observationEconomicRelayLease,
-		owner: fmt.Sprintf("observation-economic-relay-%d", observationEconomicRelaySequence.Add(1)),
+		lease:                    observationEconomicRelayLease,
+		owner:                    fmt.Sprintf("observation-economic-relay-%d", observationEconomicRelaySequence.Add(1)),
+		statementCandidateBudget: observationEconomicStatementCandidateBudget,
 	}
 }
 
@@ -249,49 +264,64 @@ func (r *observationEconomicRelay) processItem(ctx context.Context, item journal
 	return nil
 }
 
+// appendLinkedStatementEvidence resolves verified statement/correction
+// observations for the source B-leg through a selective indexed correlation
+// bound. Candidates are restricted at the database to verified statement-line
+// rows for the trusted store + B-leg, so a B-leg's unrelated usage history and
+// unverified statement rows are never paged. Candidate work is additionally
+// hard-bounded: once the documented budget is exhausted while more candidates
+// remain, the lookup fails closed with a retryable error instead of
+// acknowledging a truncated prefix. linkedStatementObservation still enforces
+// store, account, A-leg and call/request lineage isolation and remains the
+// authoritative validator for every accepted candidate.
 func (r *observationEconomicRelay) appendLinkedStatementEvidence(ctx context.Context, source metering.Observation, blegID string, evidence *[]metering.Observation) error {
 	if r == nil || r.journal == nil || evidence == nil {
 		return fmt.Errorf("runtimebundle: incomplete statement evidence lookup")
 	}
-	providerAccountKey := strings.TrimSpace(source.Subject.ProviderAccountKey)
-	if providerAccountKey == "" {
-		providerAccountKey = strings.TrimSpace(source.Correlation.ProviderAccountKey)
-	}
-	streamID := strings.TrimSpace(source.StreamID)
-	if providerAccountKey == "" && streamID == "" {
+	blegID = strings.TrimSpace(blegID)
+	if blegID == "" {
 		return nil
 	}
-	queries := make([]journalstore.ObservationQuery, 0, 2)
-	if providerAccountKey != "" {
-		queries = append(queries, journalstore.ObservationQuery{StoreID: source.Subject.StoreID, ProviderAccountKey: providerAccountKey, Limit: observationEconomicEvidenceLimit})
+	budget := r.statementCandidateBudget
+	if budget <= 0 {
+		budget = observationEconomicStatementCandidateBudget
 	}
-	if streamID != "" && streamID != source.Subject.BLegID {
-		queries = append(queries, journalstore.ObservationQuery{StoreID: source.Subject.StoreID, StreamID: streamID, Limit: observationEconomicEvidenceLimit})
+	query := journalstore.ObservationQuery{
+		StoreID: source.Subject.StoreID, CorrelationBLegID: blegID,
+		StatementEvidenceOnly: true, Limit: observationEconomicEvidenceLimit,
 	}
-	for _, query := range queries {
-		for {
-			remaining := economics.MaxRatingObservations - len(*evidence)
-			if remaining <= 0 {
+	examined := 0
+	for {
+		// The candidate budget is enforced before each page so total examined
+		// rows can never exceed it; a page is only fetched while work remains.
+		left := budget - examined
+		if left <= 0 {
+			return fmt.Errorf("%w: examined %d verified statement candidates for B-leg %q (budget %d)",
+				errObservationEconomicStatementCandidateBudget, examined, blegID, budget)
+		}
+		if left < observationEconomicEvidenceLimit {
+			query.Limit = left
+		} else {
+			query.Limit = observationEconomicEvidenceLimit
+		}
+		page, err := r.journal.ListObservations(ctx, query)
+		if err != nil {
+			return fmt.Errorf("runtimebundle: load linked statement evidence: %w", err)
+		}
+		examined += len(page.Observations)
+		for _, candidate := range page.Observations {
+			if !linkedStatementObservation(candidate, source, blegID) {
+				continue
+			}
+			if len(*evidence) >= economics.MaxRatingObservations {
 				return fmt.Errorf("runtimebundle: durable economic evidence exceeds %d observations", economics.MaxRatingObservations)
 			}
-			if query.Limit > remaining {
-				query.Limit = remaining
-			}
-			page, err := r.journal.ListObservations(ctx, query)
-			if err != nil {
-				return fmt.Errorf("runtimebundle: load linked statement evidence: %w", err)
-			}
-			for _, candidate := range page.Observations {
-				if !linkedStatementObservation(candidate, source, blegID) {
-					continue
-				}
-				appendRelayObservation(evidence, candidate)
-			}
-			if page.NextCursor == "" {
-				break
-			}
-			query.Cursor = page.NextCursor
+			appendRelayObservation(evidence, candidate)
 		}
+		if page.NextCursor == "" {
+			break
+		}
+		query.Cursor = page.NextCursor
 	}
 	return nil
 }

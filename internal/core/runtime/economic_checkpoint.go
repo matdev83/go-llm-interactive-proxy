@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,8 +40,400 @@ const (
 	economicCheckpointCapacityRejectionReason     = "checkpoint_capacity_exhausted"
 )
 
+// Durable-head metadata budgets. A cumulative source's durable head keeps one
+// entry per still-effective component key and one per supersession ref so a
+// reordered sparse revision is never mistaken for redundant. Those maps are
+// otherwise unbounded per head: a provider reporting a novel component or ref
+// key on each successful flush would grow them for the whole attempt lifetime.
+// Each budget is checked before a field or ref is retained. Once a budget is
+// exhausted, the field/ref is simply not retained and the head records that its
+// coverage proof is truncated, so an uncovered key/ref stays conservatively
+// inadmissible rather than being invented as covered.
+//
+// The byte budgets are conservative upper bounds on resident Go map storage, not
+// exact payload sizes. A retained string-keyed entry costs more than its key
+// bytes plus value: on a 64-bit runtime the map slot also holds a 16-byte string
+// header, the Swiss-table control array adds at least one byte per slot, table
+// growth leaves spare capacity, allocation size classes round both the key
+// backing array and the table up, and every non-nil map additionally owns a
+// table header plus a minimum one-group (eight-slot) allocation. A head also
+// carries an outer-map entry keyed by its source identity. The per-entry and
+// per-head reserves below charge the marginal entry cost and the fixed map cost,
+// so the budgets dominate real resident metadata. The charges are sized from
+// 64-bit worst-case layout, which also upper-bounds 32-bit Go, whose headers and
+// pointers are smaller.
+const (
+	// A single V2 observation carries at most metering.MaxObservationMeasures
+	// measures and metering.MaxObservationSupersedes supersession refs, so a
+	// fresh head always retains one complete observation.
+	maxEconomicCheckpointHeadFields        = metering.MaxObservationMeasures
+	maxEconomicCheckpointHeadSupersedes    = metering.MaxObservationSupersedes
+	maxEconomicCheckpointHeadMetadataBytes = metering.MaxSafeEvidenceBytes
+
+	// Aggregate caps independent of the bounded durable-head count. Total
+	// retained durable-head metadata is capped at a small multiple of a single
+	// head's budget, so total metadata cannot grow with the number of tracked
+	// sources even though the head map itself is bounded by the terminal
+	// evidence cap.
+	maxEconomicCheckpointAggregateHeadSources   = 16
+	maxEconomicCheckpointTotalFields            = maxEconomicCheckpointAggregateHeadSources * metering.MaxObservationMeasures
+	maxEconomicCheckpointTotalSupersedes        = maxEconomicCheckpointAggregateHeadSources * metering.MaxObservationSupersedes
+	maxEconomicCheckpointTotalHeadMetadataBytes = maxEconomicCheckpointAggregateHeadSources * metering.MaxSafeEvidenceBytes
+)
+
+const (
+	// checkpointDurableKeyBackingFactor multiplies a retained key's own bytes
+	// before the fixed map-entry reserve is added. Go's allocator rounds a
+	// string's backing array up to the next size class, so charging only
+	// len(key)+reserve undercounts real resident storage: a 4097-byte canonical
+	// key occupies a 4864-byte class (+18.75%), and a key just above a class
+	// boundary can overshoot by up to ~1.5x. Doubling the key length strictly
+	// dominates the backing array for every valid width (small widths, where the
+	// ratio is larger, are covered by the reserve below), so the charged metadata
+	// is a real upper bound on admitted backing.
+	checkpointDurableKeyBackingFactor = 2
+
+	// checkpointDurableMapEntryReserveBytes is the marginal charge, beyond the
+	// key's doubled backing, for retaining one entry in a durable-head map on a
+	// 64-bit Go runtime. It covers with margin: the 16-byte string header and the
+	// value struct in the slot (the largest value here is checkpointDurableField,
+	// 48 bytes on 64-bit), at least one Swiss control byte per slot, a 2x
+	// capacity headroom so a grown table's live slot array stays within
+	// 2*(slot+control) per entry, allocator size-class rounding of the table, and
+	// the residual small-string rounding above the 2x factor. It is a strict
+	// upper bound for every value type stored here, and a zero-length key can
+	// never evade the byte budget because the reserve alone is charged.
+	checkpointDurableMapEntryReserveBytes = 256
+
+	// checkpointDurableHeadEntryReserveBytes is the fixed charge for one head in
+	// the outer source-keyed durable-head map, independent of its entry count.
+	// The head's source-identity key backing is charged separately at the same
+	// doubled factor; this reserve covers the outer map's slot and
+	// checkpointDurableHead value, the hmap headers and minimum one-group
+	// (eight-slot plus control) allocations of the head's two inner maps, and
+	// allocator rounding. It bounds those on 64-bit Go with margin.
+	checkpointDurableHeadEntryReserveBytes = 2048
+)
+
+// checkpointDurableField records the effective reducer ordering of one component
+// key already durable for a cumulative source. usableSequence/usableRevision
+// track the newest durable reducible value so a reordered older revision is not
+// mistaken for redundant; numericSequence/numericRevision separately track the
+// newest durable value the reducer actually applies (which includes a
+// QualityUnknown measure that still carries a value) so an unavailable
+// diagnostic cannot stand in for that numeric contribution; hasUnusable retains
+// an absent/unavailable/unknown diagnostic so a later usable value cannot
+// silently erase payability.
+type checkpointDurableField struct {
+	usableSequence  uint64
+	usableRevision  uint64
+	hasUsable       bool
+	numericSequence uint64
+	numericRevision uint64
+	hasNumeric      bool
+	hasUnusable     bool
+}
+
+// checkpointDurableHead tracks the revision fence plus the per-component
+// measure/supersession state already durable for one cumulative source.
+// Coverage keeps the fence from discarding a late, reordered sparse revision
+// whose still-effective field has not yet been persisted. Each key keeps its own
+// effective ordering so a reordered older revision cannot be judged redundant
+// merely because a *different* key advanced the global revision.
 type checkpointDurableHead struct {
-	revision uint64
+	revision   uint64
+	fields     map[string]checkpointDurableField
+	supersedes map[string]struct{}
+	// headBytes is the fixed charged cost of the head's outer-map entry (its
+	// source-identity key plus per-map base overhead); fieldBytes and
+	// supersedeBytes are the charged marginal costs of the inner-map entries.
+	// truncated records that a field or ref was refused by a budget, so coverage
+	// for that key/ref is unprovable rather than covered.
+	headBytes      int
+	fieldBytes     int
+	supersedeBytes int
+	truncated      bool
+}
+
+// metadataBytes is the total charged metadata retained by one head.
+func (h checkpointDurableHead) metadataBytes() int {
+	return h.headBytes + h.fieldBytes + h.supersedeBytes
+}
+
+// checkpointDurableKeyEntryBytes is the overflow-safe charge for retaining one
+// map entry keyed by a key of keyLen bytes: twice the key length (dominating the
+// allocator's size-class-rounded backing array) plus the fixed map reserve. It
+// saturates instead of wrapping, so a hostile or corrupted length can only make
+// an entry more expensive, never evade the budget.
+func checkpointDurableKeyEntryBytes(keyLen, reserve int) int {
+	if keyLen <= 0 {
+		return reserve
+	}
+	if keyLen > (math.MaxInt-reserve)/checkpointDurableKeyBackingFactor {
+		return math.MaxInt
+	}
+	return checkpointDurableKeyBackingFactor*keyLen + reserve
+}
+
+// checkpointEntryExceedsBudget reports whether current+charge exceeds limit
+// without overflowing. Callers keep current within limit, but charge is
+// saturated for pathological key lengths, so the comparison must not assume a
+// safe sum.
+func checkpointEntryExceedsBudget(current, charge, limit int) bool {
+	if current < 0 || charge < 0 {
+		return true
+	}
+	if charge > limit {
+		return true
+	}
+	return current > limit-charge
+}
+
+func checkpointDurableFieldEntryBytes(canonicalKey string) int {
+	return checkpointDurableKeyEntryBytes(len(canonicalKey), checkpointDurableMapEntryReserveBytes)
+}
+
+func checkpointDurableSupersessionEntryBytes(refKey string) int {
+	return checkpointDurableKeyEntryBytes(len(refKey), checkpointDurableMapEntryReserveBytes)
+}
+
+// checkpointDurableHeadEntryBytes charges the outer durable-head map entry: the
+// source-identity key's doubled backing plus the fixed per-head map reserve.
+func checkpointDurableHeadEntryBytes(sourceKey string) int {
+	return checkpointDurableKeyEntryBytes(len(sourceKey), checkpointDurableHeadEntryReserveBytes)
+}
+
+// checkpointHeadLimits is the resolved retention budget for one head: the
+// smaller of the per-head cap and what remains of the aggregate cap.
+type checkpointHeadLimits struct {
+	fields     int
+	supersedes int
+	bytes      int
+}
+
+// record merges one durably written cumulative observation into the head under
+// the supplied budgets. The global revision advances monotonically; each field
+// keeps the newest durable usable ordering, tracks the newest durable
+// reducer-applied numeric ordering (including unknown-quality values), and
+// grows its unusable diagnostic coverage. A field or supersession ref that
+// cannot be retained within the budget is not added and marks the head's
+// coverage proof truncated, so it is never mistaken for covered.
+func (h checkpointDurableHead) record(observation metering.Observation, limits checkpointHeadLimits) checkpointDurableHead {
+	if observation.Revision > h.revision {
+		h.revision = observation.Revision
+	}
+	for _, measure := range observation.Measures {
+		key, err := measure.Key.Normalize()
+		if err != nil {
+			continue
+		}
+		canonicalKey := key.CanonicalKey()
+		field, exists := h.fields[canonicalKey]
+		if !exists {
+			entryBytes := checkpointDurableFieldEntryBytes(canonicalKey)
+			if len(h.fields) >= limits.fields || checkpointEntryExceedsBudget(h.metadataBytes(), entryBytes, limits.bytes) {
+				h.truncated = true
+				continue
+			}
+			if h.fields == nil {
+				h.fields = make(map[string]checkpointDurableField)
+			}
+			h.fieldBytes += entryBytes
+		}
+		if checkpointMeasureReducible(measure) {
+			if !field.hasUsable || checkpointOrderAtLeastAsNew(observation.Sequence, observation.Revision, field.usableSequence, field.usableRevision) {
+				field.hasUsable = true
+				field.usableSequence = observation.Sequence
+				field.usableRevision = observation.Revision
+			}
+		} else {
+			field.hasUnusable = true
+		}
+		if checkpointMeasureValued(measure) {
+			if !field.hasNumeric || checkpointOrderAtLeastAsNew(observation.Sequence, observation.Revision, field.numericSequence, field.numericRevision) {
+				field.hasNumeric = true
+				field.numericSequence = observation.Sequence
+				field.numericRevision = observation.Revision
+			}
+		}
+		h.fields[canonicalKey] = field
+	}
+	for _, ref := range observation.Supersedes {
+		refKey := checkpointSupersessionRefKey(ref)
+		if _, exists := h.supersedes[refKey]; exists {
+			continue
+		}
+		entryBytes := checkpointDurableSupersessionEntryBytes(refKey)
+		if len(h.supersedes) >= limits.supersedes || checkpointEntryExceedsBudget(h.metadataBytes(), entryBytes, limits.bytes) {
+			h.truncated = true
+			continue
+		}
+		if h.supersedes == nil {
+			h.supersedes = make(map[string]struct{})
+		}
+		h.supersedes[refKey] = struct{}{}
+		h.supersedeBytes += entryBytes
+	}
+	return h
+}
+
+// durableHeadCovers reports whether every still-effective field of observation
+// is already durably represented by head. A usable field is covered only by a
+// durable usable entry whose reducer ordering is at least as new, so a reordered
+// older value remains admissible; an unusable field is covered only by a durable
+// unusable entry for the same key, so a diagnostic is never hidden. A
+// non-reducible measure that still carries a value (QualityUnknown with a value)
+// additionally requires a durable numeric entry at least as new, because the
+// reducer applies that value while an unavailable diagnostic does not represent
+// it. Charge-bearing and unavailable-authority observations are never covered:
+// cumulative charges accumulate one reduced entry per revision, and an
+// unavailable claim contributes an explicit diagnostic that a later revision
+// does not erase.
+func durableHeadCovers(head checkpointDurableHead, observation metering.Observation) bool {
+	if observation.Authority == metering.AuthorityUnavailableClaim || len(observation.Charges) != 0 {
+		return false
+	}
+	for _, measure := range observation.Measures {
+		key, err := measure.Key.Normalize()
+		if err != nil {
+			return false
+		}
+		field, ok := head.fields[key.CanonicalKey()]
+		if !ok {
+			return false
+		}
+		if checkpointMeasureReducible(measure) {
+			if !field.hasUsable || !checkpointOrderAtLeastAsNew(field.usableSequence, field.usableRevision, observation.Sequence, observation.Revision) {
+				return false
+			}
+		} else {
+			if !field.hasUnusable {
+				return false
+			}
+			if checkpointMeasureValued(measure) &&
+				(!field.hasNumeric || !checkpointOrderAtLeastAsNew(field.numericSequence, field.numericRevision, observation.Sequence, observation.Revision)) {
+				return false
+			}
+		}
+	}
+	for _, ref := range observation.Supersedes {
+		if _, ok := head.supersedes[checkpointSupersessionRefKey(ref)]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// cumulativeSnapshotCovers reports whether newer can represent every
+// still-effective field of older for cumulative reduction, so dropping older
+// cannot lose a value or a diagnostic. Present-field coverage is per component:
+// explicit zero is a present, reducible value, while an older
+// absent/unavailable/not-applicable field is never covered because it keeps the
+// reduced snapshot incomplete even when newer carries the same key's value. An
+// older revision carrying any charge or an unavailable authority claim is never
+// covered because cumulative reduction retains those per observation.
+func cumulativeSnapshotCovers(newer, older metering.Observation) bool {
+	if newer.Semantics != metering.SemanticsCumulative || older.Semantics != metering.SemanticsCumulative {
+		return false
+	}
+	if economicCheckpointPendingKey(newer) != economicCheckpointPendingKey(older) {
+		return false
+	}
+	// Only a reducer-newer snapshot may coalesce an older one. Dropping
+	// effective newer evidence because a reordered older revision arrived would
+	// move the durable head backwards even when the field sets overlap.
+	if !checkpointOrderAtLeastAsNew(newer.Sequence, newer.Revision, older.Sequence, older.Revision) {
+		return false
+	}
+	if newer.Authority == metering.AuthorityUnavailableClaim || older.Authority == metering.AuthorityUnavailableClaim {
+		return false
+	}
+	if len(older.Charges) != 0 {
+		return false
+	}
+	if !checkpointSupersedesCover(newer.Supersedes, older.Supersedes) {
+		return false
+	}
+	newerMeasures := make(map[string]bool, len(newer.Measures))
+	for _, measure := range newer.Measures {
+		key, err := measure.Key.Normalize()
+		if err != nil {
+			continue
+		}
+		newerMeasures[key.CanonicalKey()] = newerMeasures[key.CanonicalKey()] || checkpointMeasureReducible(measure)
+	}
+	for _, measure := range older.Measures {
+		key, err := measure.Key.Normalize()
+		if err != nil {
+			return false
+		}
+		// An absent/unavailable/not-applicable older field keeps the reduced
+		// snapshot incomplete even when a newer revision carries the same key's
+		// usable value, so it must stay durable as an explicit diagnostic.
+		if !checkpointMeasureReducible(measure) {
+			return false
+		}
+		if reducible, present := newerMeasures[key.CanonicalKey()]; !present || !reducible {
+			return false
+		}
+	}
+	return true
+}
+
+func checkpointSupersedesCover(newer, older []metering.ObservationRef) bool {
+	if len(older) == 0 {
+		return true
+	}
+	known := make(map[string]struct{}, len(newer))
+	for _, ref := range newer {
+		known[checkpointSupersessionRefKey(ref)] = struct{}{}
+	}
+	for _, ref := range older {
+		if _, ok := known[checkpointSupersessionRefKey(ref)]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func checkpointSupersessionRefKey(ref metering.ObservationRef) string {
+	return ref.StoreID + "\x00" + ref.ObservationID + "\x00" + strconv.FormatUint(ref.Revision, 10) + "\x00" + ref.PayloadHash
+}
+
+// checkpointMeasureReducible reports whether a measure is a usable present
+// value for cumulative coalescing and durable-head coverage. It mirrors the
+// reducer's usability rule: a QualityUnknown measure is incomplete even when it
+// carries a value (see aggregate.measureIsIncomplete), so it must stay an
+// unusable diagnostic rather than a usable field. Treating it as usable would
+// let a later known value coalesce it away and silently drop the incomplete
+// reduction that the original immutable observations establish.
+func checkpointMeasureReducible(measure metering.Measure) bool {
+	return measure.Value != nil && measure.Quality != metering.QualityUnknown &&
+		measure.Quality != metering.QualityUnavailable && measure.Quality != metering.QualityNotApplicable
+}
+
+// checkpointMeasureValued reports whether the canonical reducer applies a
+// numeric value for this measure. It mirrors aggregate.reductionState.apply
+// exactly: a present value is reduced unless the quality is unavailable or
+// not-applicable. A QualityUnknown measure with a non-nil value is therefore
+// valued even though it is not reducible: the reducer applies the number and
+// separately marks the snapshot incomplete. Durable-head coverage must track
+// that numeric contribution independently of the incompleteness diagnostic.
+func checkpointMeasureValued(measure metering.Measure) bool {
+	return measure.Value != nil && measure.Quality != metering.QualityUnavailable &&
+		measure.Quality != metering.QualityNotApplicable
+}
+
+// checkpointOrderAtLeastAsNew reports whether (sequence, revision) is reduced at
+// or after (priorSequence, priorRevision) by the canonical reducer, which orders
+// observations by declared stream sequence and then revision. Cumulative
+// coalescing and durable-head coverage must respect that order so a reordered
+// older revision can never replace effective newer evidence.
+func checkpointOrderAtLeastAsNew(sequence, revision, priorSequence, priorRevision uint64) bool {
+	if sequence != priorSequence {
+		return sequence > priorSequence
+	}
+	return revision >= priorRevision
 }
 
 type economicCheckpointAdmission uint8
@@ -85,17 +479,28 @@ func (a *attemptSession) queueEconomicCheckpoint(observation metering.Observatio
 	a.checkpointMu.Lock()
 	defer a.checkpointMu.Unlock()
 	if canonical.Semantics == metering.SemanticsCumulative {
-		if prior, ok := a.checkpointDurableHeads[pendingKey]; ok && canonical.Revision <= prior.revision {
-			// A durable cumulative head is authoritative for this attempt. A
-			// reordered older revision must not re-enter either queue after a
-			// successful flush.
+		if prior, ok := a.checkpointDurableHeads[pendingKey]; ok && canonical.Revision <= prior.revision && durableHeadCovers(prior, canonical) {
+			// A durable cumulative head is authoritative for the fields it
+			// already covers. A reordered older revision that still carries an
+			// uncovered field must remain admissible rather than being lost.
 			return economicCheckpointIgnored
 		}
+		// Coalesce only when the newer snapshot provably represents every
+		// still-effective field of an older pending/deferred revision. A sparse
+		// snapshot that omits a field must not erase the earlier revision.
+		a.removeCoveredCumulativeCheckpointsLocked(pendingKey, canonical)
+		// Coalescing deletes covered map entries but leaves their keys in the
+		// append-only order slices. Rebuild both order indexes from the surviving
+		// map entries even when no removal happened, so a stream of coalesced
+		// cumulative revisions can never grow order bookkeeping past the bounded
+		// maps regardless of whether a flush ever reaches a sink.
+		a.removeStaleEconomicCheckpointsLocked()
 	}
 	if a.checkpointPending == nil {
 		a.checkpointPending = make(map[string]metering.Observation)
 	}
-	if prior, ok := a.checkpointPending[pendingKey]; ok {
+	storageKey := a.cumulativeCheckpointStorageKeyLocked(canonical, pendingKey)
+	if prior, ok := a.checkpointPending[storageKey]; ok {
 		if canonical.Revision < prior.Revision {
 			// A reordered cumulative snapshot must not move the pending head
 			// backwards. Delta observations use revision-qualified keys and
@@ -106,10 +511,10 @@ func (a *attemptSession) queueEconomicCheckpoint(observation metering.Observatio
 		if priorErr == nil && priorHash == hash {
 			return economicCheckpointIgnored
 		}
-		a.checkpointPending[pendingKey] = canonical
+		a.checkpointPending[storageKey] = canonical
 		return economicCheckpointRetained
 	}
-	if prior, ok := a.checkpointDeferred[pendingKey]; ok {
+	if prior, ok := a.checkpointDeferred[storageKey]; ok {
 		if canonical.Revision < prior.Revision {
 			return economicCheckpointIgnored
 		}
@@ -117,20 +522,20 @@ func (a *attemptSession) queueEconomicCheckpoint(observation metering.Observatio
 		if priorErr == nil && priorHash == hash {
 			return economicCheckpointIgnored
 		}
-		a.checkpointDeferred[pendingKey] = canonical
+		a.checkpointDeferred[storageKey] = canonical
 		return economicCheckpointRetained
 	}
 	if len(a.checkpointPending) < maxPreTerminalEconomicCheckpointPending {
-		a.checkpointPending[pendingKey] = canonical
-		a.checkpointOrder = append(a.checkpointOrder, pendingKey)
+		a.checkpointPending[storageKey] = canonical
+		a.checkpointOrder = append(a.checkpointOrder, storageKey)
 		return economicCheckpointRetained
 	}
 	if len(a.checkpointDeferred) < maxPreTerminalEconomicCheckpointDeferred {
 		if a.checkpointDeferred == nil {
 			a.checkpointDeferred = make(map[string]metering.Observation)
 		}
-		a.checkpointDeferred[pendingKey] = canonical
-		a.checkpointDeferredOrder = append(a.checkpointDeferredOrder, pendingKey)
+		a.checkpointDeferred[storageKey] = canonical
+		a.checkpointDeferredOrder = append(a.checkpointDeferredOrder, storageKey)
 		return economicCheckpointRetained
 	}
 	a.checkpointErr = errEconomicCheckpointPendingLimit
@@ -142,6 +547,43 @@ func (a *attemptSession) queueEconomicCheckpoint(observation metering.Observatio
 		a.checkpointCapacityDiagnosticRevision = canonical.Revision
 	}
 	return economicCheckpointRejected
+}
+
+// removeCoveredCumulativeCheckpointsLocked drops already-queued cumulative
+// revisions that the incoming snapshot provably covers. Callers hold
+// checkpointMu. An older revision that carries a field absent from the incoming
+// snapshot is retained so a later sparse revision cannot erase it.
+func (a *attemptSession) removeCoveredCumulativeCheckpointsLocked(base string, canonical metering.Observation) {
+	a.removeCoveredCumulativeSetLocked(a.checkpointPending, base, canonical)
+	a.removeCoveredCumulativeSetLocked(a.checkpointDeferred, base, canonical)
+}
+
+func (a *attemptSession) removeCoveredCumulativeSetLocked(set map[string]metering.Observation, base string, canonical metering.Observation) {
+	for key, existing := range set {
+		if economicCheckpointPendingKey(existing) != base {
+			continue
+		}
+		if cumulativeSnapshotCovers(canonical, existing) {
+			delete(set, key)
+		}
+	}
+}
+
+// cumulativeCheckpointStorageKeyLocked selects the queue key for a cumulative
+// observation. It reuses the coalescing base key when free; when a
+// non-subsumed sibling already occupies it, the revision-qualified identity is
+// used so both sparse revisions remain durable. Callers hold checkpointMu.
+func (a *attemptSession) cumulativeCheckpointStorageKeyLocked(canonical metering.Observation, base string) string {
+	if canonical.Semantics != metering.SemanticsCumulative {
+		return canonical.SourceEventIdentity()
+	}
+	if _, ok := a.checkpointPending[base]; ok {
+		return canonical.SourceEventIdentity()
+	}
+	if _, ok := a.checkpointDeferred[base]; ok {
+		return canonical.SourceEventIdentity()
+	}
+	return base
 }
 
 // takeEconomicCheckpointCapacityDiagnostic claims the one coalesced capacity
@@ -328,11 +770,16 @@ func (a *attemptSession) flushEconomicCheckpoints(ctx context.Context, force boo
 
 	a.checkpointMu.Lock()
 	writes := make([]economicCheckpointWrite, 0, len(a.checkpointPending)+len(a.checkpointDeferred))
+	seenKeys := make(map[string]struct{}, len(a.checkpointPending)+len(a.checkpointDeferred))
 	for _, pendingKey := range a.checkpointOrder {
+		if _, duplicate := seenKeys[pendingKey]; duplicate {
+			continue
+		}
 		observation, ok := a.checkpointPending[pendingKey]
 		if !ok {
 			continue
 		}
+		seenKeys[pendingKey] = struct{}{}
 		canonical, hash, err := canonicalEconomicCheckpoint(observation)
 		if err != nil {
 			a.checkpointMu.Unlock()
@@ -342,10 +789,14 @@ func (a *attemptSession) flushEconomicCheckpoints(ctx context.Context, force boo
 		writes = append(writes, economicCheckpointWrite{pendingKey: pendingKey, hash: hash, observation: canonical})
 	}
 	for _, pendingKey := range a.checkpointDeferredOrder {
+		if _, duplicate := seenKeys[pendingKey]; duplicate {
+			continue
+		}
 		observation, ok := a.checkpointDeferred[pendingKey]
 		if !ok {
 			continue
 		}
+		seenKeys[pendingKey] = struct{}{}
 		canonical, hash, err := canonicalEconomicCheckpoint(observation)
 		if err != nil {
 			a.checkpointMu.Unlock()
@@ -407,32 +858,41 @@ func (a *attemptSession) flushEconomicCheckpoints(ctx context.Context, force boo
 	return nil
 }
 
+// removeStaleEconomicCheckpointsLocked rebuilds each order index from the map
+// entries that still own a queue slot, preserving the relative arrival order of
+// the survivors and dropping both stale keys and accidental duplicates. Because
+// coalescing can delete a map entry whose key remains in the order slice, every
+// index is bounded by its map, which is itself bounded by the configured
+// capacity. The rebuild is idempotent and safe to run on the receive path.
 func (a *attemptSession) removeStaleEconomicCheckpointsLocked() {
 	if a == nil {
 		return
 	}
-	if len(a.checkpointPending) == 0 {
-		a.checkpointOrder = nil
-	} else {
-		order := a.checkpointOrder[:0]
-		for _, pendingKey := range a.checkpointOrder {
-			if _, ok := a.checkpointPending[pendingKey]; ok {
-				order = append(order, pendingKey)
-			}
-		}
-		a.checkpointOrder = order
+	a.checkpointOrder = compactEconomicCheckpointOrder(a.checkpointOrder, a.checkpointPending)
+	a.checkpointDeferredOrder = compactEconomicCheckpointOrder(a.checkpointDeferredOrder, a.checkpointDeferred)
+}
+
+// compactEconomicCheckpointOrder keeps only keys still present in set, in their
+// original relative order, with each key appearing at most once. It reuses the
+// input backing array so steady-state coalescing does not allocate per revision
+// beyond the small dedupe set bounded by the map size.
+func compactEconomicCheckpointOrder(order []string, set map[string]metering.Observation) []string {
+	if len(order) == 0 || len(set) == 0 {
+		return nil
 	}
-	if len(a.checkpointDeferred) == 0 {
-		a.checkpointDeferredOrder = nil
-	} else {
-		order := a.checkpointDeferredOrder[:0]
-		for _, pendingKey := range a.checkpointDeferredOrder {
-			if _, ok := a.checkpointDeferred[pendingKey]; ok {
-				order = append(order, pendingKey)
-			}
+	keep := order[:0]
+	seen := make(map[string]struct{}, len(set))
+	for _, key := range order {
+		if _, ok := set[key]; !ok {
+			continue
 		}
-		a.checkpointDeferredOrder = order
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		keep = append(keep, key)
 	}
+	return keep
 }
 
 func (a *attemptSession) recordDurableEconomicHeadsLocked(writes []economicCheckpointWrite) {
@@ -442,20 +902,85 @@ func (a *attemptSession) recordDurableEconomicHeadsLocked(writes []economicCheck
 	if a.checkpointDurableHeads == nil {
 		a.checkpointDurableHeads = make(map[string]checkpointDurableHead)
 	}
+	// Recompute the bounded aggregate once per record pass and maintain it
+	// locally, so total retained metadata cannot grow with the number of tracked
+	// sources without an unbounded per-attempt counter.
+	aggregate := a.durableHeadAggregateLocked()
 	for _, write := range writes {
 		if write.observation.Semantics != metering.SemanticsCumulative {
 			continue
 		}
-		prior, exists := a.checkpointDurableHeads[write.pendingKey]
-		if exists && prior.revision > write.observation.Revision {
-			continue
+		base := economicCheckpointPendingKey(write.observation)
+		head, exists := a.checkpointDurableHeads[base]
+		if !exists {
+			if len(a.checkpointDurableHeads) >= maxPreTerminalEconomicCheckpointDurableHeads {
+				// The terminal evidence bound is the lifetime cap for accepted
+				// observations. Do not grow the revision fence beyond that cap.
+				continue
+			}
+			headBytes := checkpointDurableHeadEntryBytes(base)
+			if headBytes > maxEconomicCheckpointHeadMetadataBytes ||
+				checkpointEntryExceedsBudget(aggregate.bytes, headBytes, maxEconomicCheckpointTotalHeadMetadataBytes) {
+				// The head's own outer-map entry cannot fit the per-head or
+				// aggregate metadata budget, so the head is not admitted at all.
+				// The observation still reaches durable storage; only the
+				// coverage cache declines to track it.
+				continue
+			}
+			head = checkpointDurableHead{headBytes: headBytes}
+			a.checkpointDurableHeads[base] = head
+			aggregate.bytes += headBytes
 		}
-		if !exists && len(a.checkpointDurableHeads) >= maxPreTerminalEconomicCheckpointDurableHeads {
-			// The terminal evidence bound is the lifetime cap for accepted
-			// observations. Do not grow the revision fence beyond that cap.
-			continue
-		}
-		a.checkpointDurableHeads[write.pendingKey] = checkpointDurableHead{revision: write.observation.Revision}
+		beforeFields := len(head.fields)
+		beforeSupersedes := len(head.supersedes)
+		beforeBytes := head.metadataBytes()
+		updated := head.record(write.observation, aggregate.headLimits(head))
+		aggregate.fields += len(updated.fields) - beforeFields
+		aggregate.supersedes += len(updated.supersedes) - beforeSupersedes
+		aggregate.bytes += updated.metadataBytes() - beforeBytes
+		a.checkpointDurableHeads[base] = updated
+	}
+}
+
+// durableHeadAggregate is the running sum of durable-head metadata for one
+// attempt. It is derived from the bounded head map at the start of a record
+// pass and then updated locally.
+type durableHeadAggregate struct {
+	fields     int
+	supersedes int
+	bytes      int
+}
+
+func (a *attemptSession) durableHeadAggregateLocked() durableHeadAggregate {
+	var aggregate durableHeadAggregate
+	for _, head := range a.checkpointDurableHeads {
+		aggregate.fields += len(head.fields)
+		aggregate.supersedes += len(head.supersedes)
+		aggregate.bytes += head.metadataBytes()
+	}
+	return aggregate
+}
+
+// headLimits resolves the per-head retention budget against the aggregate caps.
+// The head itself is already counted in the aggregate, so its room is the
+// head's current usage plus whatever remains of the aggregate budget.
+func (aggregate durableHeadAggregate) headLimits(head checkpointDurableHead) checkpointHeadLimits {
+	fieldRoom := maxEconomicCheckpointTotalFields - aggregate.fields
+	if fieldRoom < 0 {
+		fieldRoom = 0
+	}
+	supersedeRoom := maxEconomicCheckpointTotalSupersedes - aggregate.supersedes
+	if supersedeRoom < 0 {
+		supersedeRoom = 0
+	}
+	byteRoom := maxEconomicCheckpointTotalHeadMetadataBytes - aggregate.bytes
+	if byteRoom < 0 {
+		byteRoom = 0
+	}
+	return checkpointHeadLimits{
+		fields:     min(maxEconomicCheckpointHeadFields, len(head.fields)+fieldRoom),
+		supersedes: min(maxEconomicCheckpointHeadSupersedes, len(head.supersedes)+supersedeRoom),
+		bytes:      min(maxEconomicCheckpointHeadMetadataBytes, head.metadataBytes()+byteRoom),
 	}
 }
 

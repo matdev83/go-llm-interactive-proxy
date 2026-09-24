@@ -66,6 +66,9 @@ var RequiredMigrationNames = []string{
 	AccountWindowProjectionMigrationName,
 	ObservationEconomicOutboxMigrationName,
 	PresenceBooleanRepairMigrationName,
+	LinkedStatementIndexMigrationName,
+	LinkedStatementOrderedIndexMigrationName,
+	LinkedStatementCandidateIndexMigrationName,
 }
 
 // VerifySchema checks required runtime relations without applying migrations.

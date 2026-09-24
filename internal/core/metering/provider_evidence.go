@@ -26,9 +26,21 @@ type ProviderEvidenceBinder interface {
 // safe evidence; this type only makes the runtime identity boundary explicit.
 // A draft cannot be drained as V2 until a trusted B-leg binding is supplied.
 type ProviderEvidenceDraft struct {
-	SourceEventKey     string
-	Revision           uint64
-	StreamID           string
+	SourceEventKey string
+	// Revision is a host-assigned observation revision. A caller/provider
+	// supplied source revision is NOT a supported capability: Add rejects any
+	// non-zero Revision as an explicit unsupported-ordering-identity loss and
+	// never drains the payload as provider evidence. This is an enforceable
+	// boundary, not a TODO: the SDK observation cannot carry source-vs-host
+	// revision provenance, so a late older explicit revision would be
+	// observationally identical to a valid cumulative/delta update and could
+	// duplicate a charge. The buffer assigns the revision instead.
+	Revision uint64
+	StreamID string
+	// Sequence is a host-assigned lifetime receipt ordinal. A caller/provider
+	// supplied non-zero Sequence is part of the same unsupported ordering
+	// identity and is rejected at Add with the same loss disposition; the buffer
+	// assigns the sequence.
 	Sequence           uint64
 	Origin             string
 	Acquisition        string
@@ -48,63 +60,153 @@ type ProviderEvidenceDraft struct {
 	ReceivedAt         time.Time
 	Coverage           string
 	CoverageReason     string
-
-	// sourceRevision is provider supplied when Revision was non-zero at Add
-	// time. The exported Revision may later be advanced by the host to create
-	// an immutable local observation revision, so replay identity must retain
-	// this original source value separately.
-	sourceRevision uint64
 }
 
 // ProviderEvidenceBuffer retains bounded, immutable provider drafts until the
 // executor binds the concrete B-leg. It deduplicates exact replay of one
 // source payload while preserving changed payloads as revisions.
 type ProviderEvidenceBuffer struct {
-	mu                          sync.Mutex
-	identity                    ObservationIdentity
-	bound                       bool
-	drafts                      []ProviderEvidenceDraft
-	lastFingerprint             map[string]string
-	fingerprintOrder            []string
-	explicitRevisionFingerprint map[string]string
-	explicitRevisionOrder       []string
-	lastRevision                map[string]uint64
-	lastObservation             map[string]lipsdkmetering.Observation
-	retained                    int
+	mu              sync.Mutex
+	identity        ObservationIdentity
+	bound           bool
+	drafts          []ProviderEvidenceDraft
+	lastFingerprint map[string]string
+	lastRevision    map[string]uint64
+	lastObservation map[string]lipsdkmetering.Observation
+	anchorSizes     map[string]int
+	anchorBytes     int
+	// pending counts drafts currently buffered before the bind-time drain. It is
+	// deliberately independent of the lifetime sequence/revision generation
+	// counters so a long stream is never permanently refused after enough
+	// drains; only the ordinary pending cap bounds it.
+	pending int
+	// sequence and nextRevision are lifetime monotonic host counters. They are
+	// never reset by Drain, so host receipt ordering and host-assigned revision
+	// identity are reused for neither a later add nor a later drain.
+	sequence     uint64
+	nextRevision uint64
+	// lossDrafts reserves bounded capacity, independent of the ordinary pending
+	// cap, for explicit incomplete markers. Evidence loss must remain visible
+	// even when the ordinary pending buffer is full.
+	lossDrafts []ProviderEvidenceDraft
+	lossCauses map[string]struct{}
 }
 
-const maxProviderEvidenceDrafts = 256
+const (
+	maxProviderEvidenceDrafts = 256
+	// maxProviderEvidenceLossMarkers bounds the reserved loss-marker capacity.
+	// It is derived from the closed loss-disposition set so a new disposition
+	// can never silently overflow the bounded marker list.
+	maxProviderEvidenceLossMarkers = len(providerEvidenceLossCauses)
+	// maxProviderEvidenceAnchors bounds the number of sources whose immutable
+	// replay/supersession anchor is retained. A tracked source's anchor is never
+	// evicted, so a reordered payload can never be promoted as new after capacity
+	// pressure; a brand-new source is instead refused with an explicit incomplete
+	// marker.
+	maxProviderEvidenceAnchors = 256
+	// maxProviderEvidenceAnchorBytes bounds total retained anchor bytes across
+	// all tracked sources.
+	maxProviderEvidenceAnchorBytes = 1 << 20
+	// maxProviderEvidenceDraftBytes bounds one retained draft's metadata so an
+	// oversized provider payload is rejected before unbounded metadata grows.
+	maxProviderEvidenceDraftBytes = 64 * 1024
+
+	// providerEvidenceStringBytes charges one string header per retained field
+	// so a cardinality of zero-length strings cannot evade the byte budgets.
+	providerEvidenceStringBytes = 16
+	// providerEvidenceElementBytes charges one fixed overhead per nested slice
+	// element (measure, charge, evidence field, supersession ref, dimension or
+	// charge coverage ref), independent of its strings, so arbitrarily many
+	// empty elements cannot pass the byte checks.
+	providerEvidenceElementBytes = 48
+
+	providerEvidenceLossStreamID = "provider.evidence.loss.v1"
+	providerEvidenceLossSchemaID = "lip.provider.evidence.v1"
+)
+
+// Loss dispositions carried by an explicit provider-neutral unavailable
+// observation. They are bounded identifiers, never raw provider text.
+const (
+	providerEvidenceLossPendingCapacity = "pending_capacity"
+	providerEvidenceLossSourceHistory   = "source_history_capacity"
+	providerEvidenceLossRetainedBytes   = "retained_bytes_capacity"
+	providerEvidenceLossOversizedInput  = "oversized_input"
+	// providerEvidenceLossUnsupportedOrderingIdentity is the typed degraded
+	// disposition for a draft that supplies its own source Revision or Sequence.
+	// The capability is unsupported at the enforceable boundary because an
+	// explicit source revision cannot be distinguished from a host revision
+	// once it is an Observation, so a late older explicit revision could
+	// duplicate a charge. Rejection is visible and sticky: it drains as an
+	// unavailable provider observation that keeps the reduction incomplete.
+	providerEvidenceLossUnsupportedOrderingIdentity = "unsupported_ordering_identity"
+)
+
+// providerEvidenceLossCauses is the closed set of every distinct loss
+// disposition the buffer can record. Reserved loss-marker capacity is derived
+// from its length so no admitted disposition can silently disappear.
+var providerEvidenceLossCauses = [...]string{
+	providerEvidenceLossPendingCapacity,
+	providerEvidenceLossSourceHistory,
+	providerEvidenceLossRetainedBytes,
+	providerEvidenceLossOversizedInput,
+	providerEvidenceLossUnsupportedOrderingIdentity,
+}
 
 // NewProviderEvidenceBuffer creates a stream-local provider evidence buffer.
 func NewProviderEvidenceBuffer() *ProviderEvidenceBuffer {
 	return &ProviderEvidenceBuffer{
-		lastFingerprint:             make(map[string]string),
-		explicitRevisionFingerprint: make(map[string]string),
-		lastRevision:                make(map[string]uint64),
-		lastObservation:             make(map[string]lipsdkmetering.Observation),
+		lastFingerprint: make(map[string]string),
+		lastRevision:    make(map[string]uint64),
+		lastObservation: make(map[string]lipsdkmetering.Observation),
+		anchorSizes:     make(map[string]int),
+		lossCauses:      make(map[string]struct{}),
 	}
 }
 
 // Add appends one provider-owned draft. Exact replay under the same source key
-// is ignored; changed content is retained and receives a later revision when
-// the draft does not provide one.
+// is ignored; changed content is retained and receives a buffer-assigned
+// revision. A draft that supplies its own source Revision or Sequence is
+// rejected as an unsupported ordering identity (see the field docs).
 func (b *ProviderEvidenceBuffer) Add(draft ProviderEvidenceDraft) {
-	if b == nil || strings.TrimSpace(draft.SourceEventKey) == "" {
+	if b == nil {
+		// Nil buffer remains a genuine no-op: there is no loss ledger to record
+		// the rejection in.
 		return
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.retained >= maxProviderEvidenceDrafts {
+	if draft.Revision != 0 || draft.Sequence != 0 {
+		// A caller/provider supplied ordering identity is an unsupported
+		// capability. The SDK observation cannot carry source-vs-host revision
+		// provenance, so accepting a non-zero Revision or Sequence would let a
+		// late older explicit revision masquerade as a valid cumulative/delta
+		// update and duplicate a charge. Reject the payload as an explicit,
+		// sticky degraded disposition instead of silently accepting a prefix.
+		//
+		// This gate is deliberately ordered before the empty-source-key no-op so
+		// an unsupported-ordering draft that also omits its source key cannot
+		// vanish silently: otherwise a healthy admitted prefix followed by such
+		// a draft would leave no marker and could look complete.
+		b.recordProviderEvidenceLossLocked(providerEvidenceLossUnsupportedOrderingIdentity)
 		return
 	}
-	explicitRevision := draft.Revision
-	draft.sourceRevision = explicitRevision
-	if draft.Revision == 0 {
-		draft.Revision = 1
+	if strings.TrimSpace(draft.SourceEventKey) == "" {
+		// A draft with no source identity is not addressable provider evidence.
+		// It is neither admitted nor a loss: there is nothing to key, replay or
+		// supersede. (Drafts carrying an explicit ordering identity were already
+		// rejected above and are never treated as this benign no-op.)
+		return
 	}
-	if draft.Sequence == 0 {
-		draft.Sequence = uint64(b.retained + 1)
+	if providerEvidenceDraftBytes(draft) > maxProviderEvidenceDraftBytes {
+		// Reject oversized metadata before it can grow any retained structure.
+		b.recordProviderEvidenceLossLocked(providerEvidenceLossOversizedInput)
+		return
 	}
+	// Sequence is a lifetime host receipt ordinal. It must never restart at one
+	// after a drain, or later evidence would not order after earlier evidence in
+	// the shared reducer.
+	b.sequence++
+	draft.Sequence = b.sequence
 	if draft.StreamID == "" {
 		draft.StreamID = "provider:" + draft.SourceEventKey
 	}
@@ -149,42 +251,80 @@ func (b *ProviderEvidenceBuffer) Add(draft ProviderEvidenceDraft) {
 	// legitimate correction A -> B -> A; retaining every hash ever observed
 	// would incorrectly discard the final A. Pending drafts are checked first,
 	// then the last accepted drained payload supplies the cross-drain anchor.
-	if explicitRevision != 0 {
-		revisionKey := providerRevisionKey(key, explicitRevision)
-		if _, exists := b.explicitRevisionFingerprint[revisionKey]; exists {
-			// A source revision is immutable. A retry of its accepted payload is
-			// idempotent; a changed payload at the same revision is rejected rather
-			// than being mistaken for another correction with an unstable identity.
-			return
-		}
-		for i := len(b.drafts) - 1; i >= 0; i-- {
-			prior := b.drafts[i]
-			if prior.SourceEventKey == key && prior.sourceRevision == explicitRevision {
-				return
-			}
-		}
-	} else {
-		latest := b.lastFingerprint[key]
-		for i := len(b.drafts) - 1; i >= 0; i-- {
-			if b.drafts[i].SourceEventKey == key {
-				latest = draftFingerprint(b.drafts[i])
-				break
-			}
-		}
-		if latest == hash {
-			return
+	latest := b.lastFingerprint[key]
+	for i := len(b.drafts) - 1; i >= 0; i-- {
+		if b.drafts[i].SourceEventKey == key {
+			latest = draftFingerprint(b.drafts[i])
+			break
 		}
 	}
-	if prior, exists := b.lastRevision[key]; exists && draft.Revision <= prior {
-		draft.Revision = prior + 1
+	if latest == hash {
+		return
 	}
-	for _, prior := range b.drafts {
-		if prior.SourceEventKey == key && prior.Revision >= draft.Revision {
-			draft.Revision = prior.Revision + 1
-		}
+	// Host-assigned revision generation is a lifetime monotonic counter so an
+	// evicted or drained anchor can never cause a revision to be reused with a
+	// changed payload.
+	b.nextRevision++
+	revision := b.nextRevision
+	if prior, exists := b.lastRevision[key]; exists && prior >= revision {
+		revision = prior + 1
+	}
+	draft.Revision = revision
+	b.retainAcceptedDraftLocked(draft, hash)
+}
+
+// retainAcceptedDraftLocked appends one accepted draft under the ordinary
+// pending cap and the bounded source-history policy. Capacity pressure is never
+// silent: it is recorded as an explicit loss disposition.
+func (b *ProviderEvidenceBuffer) retainAcceptedDraftLocked(draft ProviderEvidenceDraft, fingerprint string) {
+	if b.pending >= maxProviderEvidenceDrafts {
+		b.recordProviderEvidenceLossLocked(providerEvidenceLossPendingCapacity)
+		return
+	}
+	if cause := b.sourceCapacityLossLocked(draft.SourceEventKey, fingerprint, providerEvidenceDraftBytes(draft)); cause != "" {
+		b.recordProviderEvidenceLossLocked(cause)
+		return
 	}
 	b.drafts = append(b.drafts, cloneProviderEvidenceDraft(draft))
-	b.retained++
+	b.pending++
+}
+
+// sourceCapacityLossLocked reports the loss disposition when a draft cannot be
+// retained under the bounded anchor policy, and empty otherwise. A brand-new
+// source is charged its full prospective anchor; a tracked source is charged
+// the replacement delta so anchor growth cannot bypass the byte cap.
+func (b *ProviderEvidenceBuffer) sourceCapacityLossLocked(key, fingerprint string, draftBytes int) string {
+	newSize := providerEvidenceAnchorBytes(key, fingerprint, draftBytes)
+	if oldSize, anchored := b.anchorSizes[key]; anchored {
+		if b.anchorBytes-oldSize+newSize > maxProviderEvidenceAnchorBytes {
+			return providerEvidenceLossRetainedBytes
+		}
+		return ""
+	}
+	if b.sourceTrackedLocked(key) {
+		// Tracked only through a pending, not-yet-drained draft. Its anchor is
+		// admitted at drain time against its then-current size.
+		return ""
+	}
+	if len(b.lastObservation) >= maxProviderEvidenceAnchors {
+		return providerEvidenceLossSourceHistory
+	}
+	if b.anchorBytes+newSize > maxProviderEvidenceAnchorBytes {
+		return providerEvidenceLossRetainedBytes
+	}
+	return ""
+}
+
+func (b *ProviderEvidenceBuffer) sourceTrackedLocked(key string) bool {
+	if _, exists := b.lastObservation[key]; exists {
+		return true
+	}
+	for i := range b.drafts {
+		if b.drafts[i].SourceEventKey == key {
+			return true
+		}
+	}
+	return false
 }
 
 // AddUsageEvent maps the six legacy token counters and a genuine provider
@@ -285,6 +425,7 @@ func (b *ProviderEvidenceBuffer) DrainEconomicObservations() []lipsdkmetering.Ob
 		drafts[i] = cloneProviderEvidenceDraft(draft)
 	}
 	b.drafts = nil
+	b.pending = 0
 
 	observations := make([]lipsdkmetering.Observation, 0, len(drafts))
 	if b.lastRevision == nil {
@@ -292,6 +433,9 @@ func (b *ProviderEvidenceBuffer) DrainEconomicObservations() []lipsdkmetering.Ob
 	}
 	if b.lastObservation == nil {
 		b.lastObservation = make(map[string]lipsdkmetering.Observation)
+	}
+	if b.anchorSizes == nil {
+		b.anchorSizes = make(map[string]int)
 	}
 	priorBySource := make(map[string]lipsdkmetering.Observation, len(b.lastObservation))
 	for key, observation := range b.lastObservation {
@@ -321,18 +465,22 @@ func (b *ProviderEvidenceBuffer) DrainEconomicObservations() []lipsdkmetering.Ob
 			draft.Semantics = lipsdkmetering.SemanticsReplacement
 		}
 		if observation, err := providerObservationValidated(identity, draft); err == nil {
-			priorBySource[draft.SourceEventKey] = observation
-			b.lastRevision[draft.SourceEventKey] = draft.Revision
-			b.lastObservation[draft.SourceEventKey] = observation.Clone()
-			if payloadFingerprint != "" {
-				b.rememberFingerprintLocked(draft.SourceEventKey, payloadFingerprint)
+			if b.rememberAnchorLocked(draft.SourceEventKey, payloadFingerprint, draft, observation) {
+				priorBySource[draft.SourceEventKey] = observation
+				observations = append(observations, observation)
 			}
-			if sourceRevision := draft.sourceRevision; sourceRevision != 0 {
-				b.rememberExplicitRevisionLocked(draft.SourceEventKey, sourceRevision, payloadFingerprint)
-			}
+		}
+	}
+	// Loss markers use reserved capacity independent of the ordinary pending
+	// cap, so a full buffer still makes dropped evidence visible as an explicit
+	// provider-neutral unavailable observation.
+	for _, draft := range b.lossDrafts {
+		if observation, err := providerObservationValidated(identity, draft); err == nil {
 			observations = append(observations, observation)
 		}
 	}
+	b.lossDrafts = nil
+	b.lossCauses = make(map[string]struct{})
 	return observations
 }
 
@@ -525,50 +673,201 @@ func draftFingerprint(draft ProviderEvidenceDraft) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func (b *ProviderEvidenceBuffer) rememberFingerprintLocked(key, fingerprint string) {
-	if b == nil || key == "" || fingerprint == "" {
-		return
+// rememberAnchorLocked retains the bounded per-source replay/supersession
+// anchor. A tracked source's anchor is immutable for the stream lifetime: when
+// capacity is exhausted a new source is refused and its loss is recorded, so an
+// older explicit revision can never be promoted as new evidence. A tracked
+// source is charged the replacement delta (newSize minus its retained size) and
+// refused without partial mutation when that would exceed the byte cap.
+func (b *ProviderEvidenceBuffer) rememberAnchorLocked(key, fingerprint string, draft ProviderEvidenceDraft, observation lipsdkmetering.Observation) bool {
+	if b == nil || key == "" {
+		return false
 	}
 	if b.lastFingerprint == nil {
 		b.lastFingerprint = make(map[string]string)
 	}
-	if _, exists := b.lastFingerprint[key]; !exists {
-		if len(b.lastFingerprint) >= maxProviderEvidenceDrafts && len(b.fingerprintOrder) > 0 {
-			oldest := b.fingerprintOrder[0]
-			b.fingerprintOrder = b.fingerprintOrder[1:]
-			delete(b.lastFingerprint, oldest)
-		}
-		b.fingerprintOrder = append(b.fingerprintOrder, key)
+	if b.anchorSizes == nil {
+		b.anchorSizes = make(map[string]int)
 	}
+	newSize := providerEvidenceAnchorBytes(key, fingerprint, providerEvidenceDraftBytes(draft))
+	oldSize, anchored := b.anchorSizes[key]
+	if !anchored {
+		if len(b.lastObservation) >= maxProviderEvidenceAnchors {
+			b.recordProviderEvidenceLossLocked(providerEvidenceLossSourceHistory)
+			return false
+		}
+		if b.anchorBytes+newSize > maxProviderEvidenceAnchorBytes {
+			b.recordProviderEvidenceLossLocked(providerEvidenceLossRetainedBytes)
+			return false
+		}
+	} else if b.anchorBytes-oldSize+newSize > maxProviderEvidenceAnchorBytes {
+		// Refuse the replacement without mutating the retained anchor or its
+		// replay/supersession state.
+		b.recordProviderEvidenceLossLocked(providerEvidenceLossRetainedBytes)
+		return false
+	}
+	if anchored {
+		b.anchorBytes -= oldSize
+	}
+	b.lastObservation[key] = observation.Clone()
+	b.lastRevision[key] = observation.Revision
 	b.lastFingerprint[key] = fingerprint
+	b.anchorSizes[key] = newSize
+	b.anchorBytes += newSize
+	return true
 }
 
-func providerRevisionKey(key string, revision uint64) string {
-	return key + "\x00" + strconv.FormatUint(revision, 10)
-}
-
-func (b *ProviderEvidenceBuffer) rememberExplicitRevisionLocked(key string, revision uint64, fingerprint string) {
-	if b == nil || key == "" || revision == 0 || fingerprint == "" {
+// recordProviderEvidenceLossLocked appends one bounded marker per distinct loss
+// disposition. Markers are independent of the ordinary pending cap, so evidence
+// loss is always visible rather than silently truncated.
+func (b *ProviderEvidenceBuffer) recordProviderEvidenceLossLocked(cause string) {
+	if cause == "" {
 		return
 	}
-	if b.explicitRevisionFingerprint == nil {
-		b.explicitRevisionFingerprint = make(map[string]string)
+	if b.lossCauses == nil {
+		b.lossCauses = make(map[string]struct{})
 	}
-	revisionKey := providerRevisionKey(key, revision)
-	if _, exists := b.explicitRevisionFingerprint[revisionKey]; !exists {
-		if len(b.explicitRevisionFingerprint) >= maxProviderEvidenceDrafts && len(b.explicitRevisionOrder) > 0 {
-			oldest := b.explicitRevisionOrder[0]
-			b.explicitRevisionOrder = b.explicitRevisionOrder[1:]
-			delete(b.explicitRevisionFingerprint, oldest)
+	if _, exists := b.lossCauses[cause]; exists {
+		return
+	}
+	if len(b.lossDrafts) >= maxProviderEvidenceLossMarkers {
+		return
+	}
+	b.lossCauses[cause] = struct{}{}
+	b.lossDrafts = append(b.lossDrafts, b.providerEvidenceLossDraftLocked(cause))
+}
+
+// providerEvidenceLossDraftLocked builds a provider-neutral unavailable
+// observation carrying one bounded loss disposition. It reuses the existing
+// incomplete evidence contract (unavailable authority plus an unusable measure)
+// instead of inventing provider/customer provenance.
+func (b *ProviderEvidenceBuffer) providerEvidenceLossDraftLocked(cause string) ProviderEvidenceDraft {
+	b.nextRevision++
+	b.sequence++
+	return ProviderEvidenceDraft{
+		SourceEventKey: "provider.evidence.loss:" + cause,
+		Revision:       b.nextRevision,
+		StreamID:       providerEvidenceLossStreamID,
+		Sequence:       b.sequence,
+		Origin:         lipsdkmetering.OriginProvider,
+		Acquisition:    lipsdkmetering.AcquisitionProviderResponse,
+		Authority:      lipsdkmetering.AuthorityUnavailableClaim,
+		Perspective:    lipsdkmetering.PerspectiveOperator,
+		Boundary:       lipsdkmetering.BoundaryBackendEgress,
+		Lifecycle:      lipsdkmetering.LifecycleBackendAttempt,
+		Semantics:      lipsdkmetering.SemanticsCumulative,
+		Coverage:       "partial",
+		CoverageReason: cause,
+		Measures: []lipsdkmetering.Measure{{
+			Key: lipsdkmetering.ComponentKey{
+				Direction: lipsdkmetering.DirectionNone,
+				Component: "provider_evidence_loss",
+				Unit:      lipsdkmetering.UnitCount,
+				SchemaID:  providerEvidenceLossSchemaID,
+			},
+			Quality:   lipsdkmetering.QualityUnavailable,
+			MethodRef: providerEvidenceLossStreamID,
+			Reason:    cause,
+		}},
+	}
+}
+
+// providerEvidenceAnchorBytes prices one prospective per-source anchor: the
+// source key, its rendered payload fingerprint and the retained draft metadata.
+func providerEvidenceAnchorBytes(key, fingerprint string, draftBytes int) int {
+	return len(key) + len(fingerprint) + draftBytes
+}
+
+// providerEvidenceDraftBytes estimates the metadata a draft retains. It charges
+// a fixed per-string and per-element overhead in addition to content lengths so
+// a collection of empty elements cannot slip under the byte budgets, and it
+// includes the Origin/Acquisition/Authority envelope fields and every nested
+// measure, charge, dimension, coverage and evidence field, including every
+// enum-backed and identifier string. It never serializes.
+func providerEvidenceDraftBytes(draft ProviderEvidenceDraft) int {
+	addString := func(size int, value string) int {
+		return size + len(value) + providerEvidenceStringBytes
+	}
+	addElements := func(size, elements int) int {
+		return size + elements*providerEvidenceElementBytes
+	}
+	size := 0
+	for _, value := range []string{
+		draft.SourceEventKey, draft.StreamID, draft.Origin, draft.Acquisition,
+		draft.Authority, string(draft.Perspective), string(draft.Boundary),
+		string(draft.Lifecycle), draft.Semantics, draft.ProviderAccountKey,
+		draft.ProviderRequestID, draft.ProviderChargeID, draft.Coverage,
+		draft.CoverageReason,
+	} {
+		size = addString(size, value)
+	}
+	size = addElements(size, len(draft.Measures))
+	for i := range draft.Measures {
+		measure := draft.Measures[i]
+		size = addString(size, string(measure.Key.Direction))
+		size = addString(size, measure.Key.Component)
+		size = addString(size, measure.Key.Unit)
+		size = addString(size, measure.Key.SchemaID)
+		size = addString(size, measure.Quality)
+		size = addString(size, measure.MethodRef)
+		size = addString(size, measure.Reason)
+		size = addElements(size, len(measure.Key.Dimensions))
+		for _, dimension := range measure.Key.Dimensions {
+			size = addString(size, dimension.Name)
+			size = addString(size, dimension.Value)
 		}
-		b.explicitRevisionOrder = append(b.explicitRevisionOrder, revisionKey)
+		if measure.Value != nil {
+			size = addString(size, measure.Value.Coefficient)
+		}
 	}
-	// Preserve the first accepted payload for this source revision. Add rejects
-	// every later payload at the same source revision, whether identical or
-	// conflicting, so the first hash remains an idempotent replay anchor.
-	if _, exists := b.explicitRevisionFingerprint[revisionKey]; !exists {
-		b.explicitRevisionFingerprint[revisionKey] = fingerprint
+	size = addElements(size, len(draft.Charges))
+	for i := range draft.Charges {
+		charge := draft.Charges[i]
+		size = addString(size, charge.ChargeItemID)
+		size = addString(size, charge.Currency)
+		size = addString(size, string(charge.Kind))
+		size = addString(size, string(charge.Payer.Kind))
+		size = addString(size, charge.Payer.ID)
+		if charge.Amount != nil {
+			size = addString(size, charge.Amount.Coefficient)
+		}
+		if charge.Component != nil {
+			size = addString(size, string(charge.Component.Direction))
+			size = addString(size, charge.Component.Component)
+			size = addString(size, charge.Component.Unit)
+			size = addString(size, charge.Component.SchemaID)
+			size = addElements(size, len(charge.Component.Dimensions))
+			for _, dimension := range charge.Component.Dimensions {
+				size = addString(size, dimension.Name)
+				size = addString(size, dimension.Value)
+			}
+		}
+		size = addElements(size, len(charge.Covers))
+		for _, cover := range charge.Covers {
+			size = addString(size, cover.Ref.StoreID)
+			size = addString(size, cover.Ref.ObservationID)
+			size = addString(size, cover.Ref.ChargeItemID)
+			size = addString(size, string(cover.Relation))
+		}
 	}
+	size = addElements(size, len(draft.Evidence))
+	for i := range draft.Evidence {
+		field := draft.Evidence[i]
+		size = addString(size, field.Path)
+		size = addString(size, field.Name)
+		size = addString(size, field.Lexeme)
+		size = addString(size, field.Value)
+		size = addString(size, field.Acquisition)
+		size = addString(size, field.Sanitizer)
+	}
+	size = addElements(size, len(draft.Supersedes))
+	for i := range draft.Supersedes {
+		ref := draft.Supersedes[i]
+		size = addString(size, ref.StoreID)
+		size = addString(size, ref.ObservationID)
+		size = addString(size, ref.PayloadHash)
+	}
+	return size
 }
 
 func cloneProviderEvidenceDraft(in ProviderEvidenceDraft) ProviderEvidenceDraft {

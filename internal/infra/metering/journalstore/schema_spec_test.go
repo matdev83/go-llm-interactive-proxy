@@ -231,6 +231,22 @@ func MeteringJournalLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 				Unique:  true,
 			},
 			{
+				Name:      "idx_metering_facts_store_bleg",
+				Table:     "metering_facts",
+				Columns:   []string{"store_id", "b_leg_id", "stream_id", "sequence", "observation_id", "observation_revision", "id"},
+				Unique:    false,
+				Predicate: "payload_kind = 'observation'",
+			},
+			{
+				Name:    meteringFactsStoreBLegStatementIndex,
+				Table:   "metering_facts",
+				Columns: []string{"store_id", "b_leg_id", "stream_id", "sequence", "observation_id", "observation_revision", "id"},
+				Unique:  false,
+				Predicate: "payload_kind = 'observation' AND observation_subject_kind = 'statement_line'" +
+					" AND observation_origin = 'statement' AND observation_acquisition = 'statement_importer'" +
+					" AND authority = 'verified_statement'",
+			},
+			{
 				Name:    "idx_metering_components_store_subject",
 				Table:   "metering_components",
 				Columns: []string{"store_id", "subject_kind", "subject_id", "stream_id", "sequence", "observation_id", "observation_revision", "item_kind", "item_id"},

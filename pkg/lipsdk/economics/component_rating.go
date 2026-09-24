@@ -498,7 +498,13 @@ type TariffSnapshot struct {
 	Rules               []RatingRule         `json:"rules"`
 	EffectiveQualifiers []metering.Dimension `json:"effective_qualifiers,omitempty"`
 	LegacySemantics     string               `json:"legacy_semantics,omitempty"`
-	Content             SnapshotContentRef   `json:"content"`
+	// Schemas carries optional frozen component-relationship material that a
+	// later post-usage evaluator may consult without re-querying a provider or
+	// re-deriving inclusion semantics. It is additive: nil/empty schemas
+	// reproduce the exact pre-schema canonical bytes, content hash and resolver
+	// identity, so historical snapshots are never rewritten.
+	Schemas []metering.ComponentSchema `json:"schemas,omitempty"`
+	Content SnapshotContentRef         `json:"content"`
 }
 
 // NewTariffSnapshot creates canonical tariff material. It is convenient for
@@ -516,6 +522,29 @@ func BuildTariffSnapshot(ref RatingSnapshotRef, currency string, rules []RatingR
 		return TariffSnapshot{}, err
 	}
 	return s.withContent(), nil
+}
+
+// BuildTariffSnapshotWithSchemas validates and content-addresses one tariff
+// snapshot carrying optional frozen component-relationship material. Passing
+// nil or empty schemas is exactly equivalent to BuildTariffSnapshot: the
+// canonical bytes and content hash are unchanged for existing snapshots.
+func BuildTariffSnapshotWithSchemas(ref RatingSnapshotRef, currency string, rules []RatingRule, schemas []metering.ComponentSchema) (TariffSnapshot, error) {
+	s := TariffSnapshot{Ref: ref, Currency: currency, Rules: append([]RatingRule(nil), rules...), Schemas: cloneComponentSchemas(schemas)}
+	if err := s.Validate(); err != nil {
+		return TariffSnapshot{}, err
+	}
+	return s.withContent(), nil
+}
+
+func cloneComponentSchemas(schemas []metering.ComponentSchema) []metering.ComponentSchema {
+	if schemas == nil {
+		return nil
+	}
+	out := make([]metering.ComponentSchema, len(schemas))
+	for i, schema := range schemas {
+		out[i] = schema.Clone()
+	}
+	return out
 }
 
 func (s TariffSnapshot) Validate() error {
@@ -554,6 +583,9 @@ func (s TariffSnapshot) Validate() error {
 	if err := validateDimensions(s.EffectiveQualifiers, ErrInvalidTariffSnapshot); err != nil {
 		return err
 	}
+	if err := metering.ValidateComponentSchemas(s.Schemas); err != nil {
+		return fmt.Errorf("%w: schemas: %v", ErrInvalidTariffSnapshot, err)
+	}
 	if s.Content.ContentRef != "" || s.Content.ContentHash != "" {
 		if err := s.Content.Validate(); err != nil {
 			return fmt.Errorf("%w: content: %v", ErrInvalidTariffSnapshot, err)
@@ -583,13 +615,14 @@ func (s TariffSnapshot) contentHash() string {
 		RaterID:    canonical.Ref.RaterID,
 	}
 	body := struct {
-		Ref                 RatingSnapshotRef    `json:"ref"`
-		Currency            string               `json:"currency"`
-		CatalogVersion      string               `json:"catalog_version,omitempty"`
-		Rules               []RatingRule         `json:"rules"`
-		EffectiveQualifiers []metering.Dimension `json:"effective_qualifiers,omitempty"`
-		LegacySemantics     string               `json:"legacy_semantics,omitempty"`
-	}{identity, canonical.Currency, canonical.CatalogVersion, canonical.Rules, canonical.EffectiveQualifiers, canonical.LegacySemantics}
+		Ref                 RatingSnapshotRef          `json:"ref"`
+		Currency            string                     `json:"currency"`
+		CatalogVersion      string                     `json:"catalog_version,omitempty"`
+		Rules               []RatingRule               `json:"rules"`
+		EffectiveQualifiers []metering.Dimension       `json:"effective_qualifiers,omitempty"`
+		LegacySemantics     string                     `json:"legacy_semantics,omitempty"`
+		Schemas             []metering.ComponentSchema `json:"schemas,omitempty"`
+	}{identity, canonical.Currency, canonical.CatalogVersion, canonical.Rules, canonical.EffectiveQualifiers, canonical.LegacySemantics, canonical.Schemas}
 	b, _ := json.Marshal(body)
 	hash := sha256.Sum256(b)
 	return hex.EncodeToString(hash[:])
@@ -608,6 +641,7 @@ func (s TariffSnapshot) Clone() TariffSnapshot {
 		out.Rules[i] = rule.Clone()
 	}
 	out.EffectiveQualifiers = append([]metering.Dimension(nil), s.EffectiveQualifiers...)
+	out.Schemas = cloneComponentSchemas(s.Schemas)
 	return out
 }
 
@@ -630,6 +664,35 @@ func (s TariffSnapshot) canonicalBody() TariffSnapshot {
 				return strings.Compare(a.Name, b.Name)
 			}
 			return strings.Compare(a.Value, b.Value)
+		})
+	}
+	// Schema material is a set: schema and relationship input order must not
+	// change the frozen bytes or content hash. Relationship key dimensions are
+	// normalized so an unordered qualifier list cannot fork identity.
+	slices.SortFunc(out.Schemas, func(a, b metering.ComponentSchema) int {
+		if a.ID != b.ID {
+			return strings.Compare(a.ID, b.ID)
+		}
+		return strings.Compare(a.Version, b.Version)
+	})
+	for i := range out.Schemas {
+		for j := range out.Schemas[i].Relationships {
+			relationship := &out.Schemas[i].Relationships[j]
+			if normalized, err := relationship.Parent.Normalize(); err == nil {
+				relationship.Parent = normalized
+			}
+			if normalized, err := relationship.Child.Normalize(); err == nil {
+				relationship.Child = normalized
+			}
+		}
+		slices.SortFunc(out.Schemas[i].Relationships, func(a, b metering.ComponentRelationship) int {
+			if a.Kind != b.Kind {
+				return strings.Compare(string(a.Kind), string(b.Kind))
+			}
+			if parentA, parentB := a.Parent.CanonicalKey(), b.Parent.CanonicalKey(); parentA != parentB {
+				return strings.Compare(parentA, parentB)
+			}
+			return strings.Compare(a.Child.CanonicalKey(), b.Child.CanonicalKey())
 		})
 	}
 	return out
@@ -667,6 +730,7 @@ func (v RatingCatalogView) Clone() RatingCatalogView {
 		out.Rules[i] = rule.Clone()
 	}
 	out.EffectiveQualifiers = append([]metering.Dimension(nil), v.EffectiveQualifiers...)
+	out.Schemas = cloneComponentSchemas(v.Schemas)
 	return out
 }
 
@@ -696,7 +760,13 @@ func (v RatingCatalogView) Validate() error {
 			return fmt.Errorf("%w: %v", ErrInvalidTariffSnapshot, err)
 		}
 	}
-	return validateDimensions(v.EffectiveQualifiers, ErrInvalidTariffSnapshot)
+	if err := validateDimensions(v.EffectiveQualifiers, ErrInvalidTariffSnapshot); err != nil {
+		return err
+	}
+	if err := metering.ValidateComponentSchemas(v.Schemas); err != nil {
+		return fmt.Errorf("%w: schemas: %v", ErrInvalidTariffSnapshot, err)
+	}
+	return nil
 }
 
 // Tariff materializes a catalog view under an immutable rating identity.
@@ -704,7 +774,7 @@ func (v RatingCatalogView) Tariff(ref RatingSnapshotRef) (TariffSnapshot, error)
 	if err := v.Validate(); err != nil {
 		return TariffSnapshot{}, err
 	}
-	s := TariffSnapshot{Ref: ref, Currency: v.Currency, CatalogVersion: v.CatalogVersion, Rules: v.Rules, EffectiveQualifiers: v.EffectiveQualifiers, LegacySemantics: v.LegacySemantics}
+	s := TariffSnapshot{Ref: ref, Currency: v.Currency, CatalogVersion: v.CatalogVersion, Rules: v.Rules, EffectiveQualifiers: v.EffectiveQualifiers, LegacySemantics: v.LegacySemantics, Schemas: cloneComponentSchemas(v.Schemas)}
 	if err := s.Validate(); err != nil {
 		return TariffSnapshot{}, err
 	}

@@ -97,6 +97,12 @@ type RatingCatalogView struct {
 	Rules               []RatingRule         `json:"rules,omitempty"`
 	EffectiveQualifiers []metering.Dimension `json:"effective_qualifiers,omitempty"`
 	LegacySemantics     string               `json:"legacy_semantics,omitempty"`
+	// Schemas carries optional frozen component-relationship material published
+	// by a rating source. It is the view-plane counterpart of
+	// TariffSnapshot.Schemas: a view that omits or drops schemas reconstructs a
+	// different content identity than the published tariff. Nil/empty schemas
+	// reproduce the exact legacy contract.
+	Schemas []metering.ComponentSchema `json:"schemas,omitempty"`
 }
 
 // RuleSnapshotSource provides immutable authority or concurrency rule snapshots

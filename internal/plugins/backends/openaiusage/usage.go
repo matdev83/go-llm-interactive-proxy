@@ -17,10 +17,15 @@ import (
 )
 
 const (
-	lipCacheWriteTokensKey  = "x_lip_cache_write_tokens"
-	usageCostKey            = "cost"
-	defaultProviderCurrency = "USD"
-	providerCostNanoScale   = int64(1_000_000_000)
+	lipCacheWriteTokensKey = "x_lip_cache_write_tokens"
+	// standardCacheWriteTokensKey is the official provider-family
+	// prompt_tokens_details / input_tokens_details cache-write member. It is
+	// owned by the native usage mapping (provider_evidence.go); the
+	// x_lip_cache_write_tokens extension is only a compatible-provider fallback.
+	standardCacheWriteTokensKey = "cache_write_tokens"
+	usageCostKey                = "cost"
+	defaultProviderCurrency     = "USD"
+	providerCostNanoScale       = int64(1_000_000_000)
 )
 
 func ChatUsageEvent(usage openai.CompletionUsage) lipapi.Event {
@@ -107,6 +112,14 @@ func applyPromptDetailsExtensions(ev *lipapi.Event, extras map[string]respjson.F
 	if ev == nil {
 		return
 	}
+	// The official provider-family cache_write_tokens member is authoritative:
+	// when it is present on the details object (even with a malformed lexeme)
+	// the native usage mapping owns the quantity, so the non-standard
+	// x_lip_cache_write_tokens extension must not stand in for it or add a
+	// second, conflicting observed value.
+	if detailsJSONHasMember(detailsRaw, standardCacheWriteTokensKey) {
+		return
+	}
 	if len(extras) > 0 {
 		if f, ok := extras[lipCacheWriteTokensKey]; ok && f.Valid() {
 			if value, valid := parseIntFieldFromJSON(f.Raw()); valid {
@@ -121,6 +134,27 @@ func applyPromptDetailsExtensions(ev *lipapi.Event, extras map[string]respjson.F
 			ev.UsagePresence.CacheWriteTokens = true
 		}
 	}
+}
+
+// detailsJSONHasMember reports whether a detail JSON object carries a present,
+// non-null member with the given key. It mirrors the native usage presence
+// policy: an absent member and a JSON null member both carry no provider
+// quantity, so only a real value counts as present.
+func detailsJSONHasMember(raw, key string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &probe); err != nil {
+		return false
+	}
+	value, ok := probe[key]
+	if !ok {
+		return false
+	}
+	trimmed := strings.TrimSpace(string(value))
+	return trimmed != "" && trimmed != "null"
 }
 
 func cacheWriteFromDetailsJSON(raw string) (int, bool) {

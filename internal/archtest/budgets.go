@@ -100,7 +100,10 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// token-ledger money writes) and excluded from this allowance;
 	// measured 13631 (runtimebundle) and 7134 (stdhttp), reset to 13656 and 7159
 	// with 25 headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 13656},
+	// PR #659 adversarial repair (R1-R10) extends the economic observation bridge
+	// (observation_economic_bridge.go +30); runtimebundle re-measured 13659, reset
+	// to 13684 with 25 headroom.
+	{Tree: "internal/infra/runtimebundle", Max: 13684},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
 	{Tree: "internal/stdhttp", Max: 7159},
 	{Tree: "cmd/lipstd", Max: 979},
@@ -192,10 +195,13 @@ var LineBudgets = []LineBudget{
 	// terminal capture/submission (+2,282). The current-main pre-open continuity
 	// fix adds 162 production lines; re-measured 137434, bump to 137459 with
 	// 25 headroom.
-	{Dir: "internal/core", Max: 137459},
+	// PR #659 adversarial repair (R1-R10) adds reviewed component rating/selection
+	// and metering-evidence plus runtime terminal-capture economics production
+	// lines; internal/core re-measured 139708, bump to 139733 with 25 headroom.
+	{Dir: "internal/core", Max: 139733},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
-	{Dir: "internal/infra/runtimebundle", Max: 13656},
+	{Dir: "internal/infra/runtimebundle", Max: 13684},
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},
