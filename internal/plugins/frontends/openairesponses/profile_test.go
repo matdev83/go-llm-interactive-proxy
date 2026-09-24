@@ -574,7 +574,6 @@ func TestOpenAIResponsesProfile_CompileProof_ExactIdentityDifferentialCorpus(t *
 	prof := openairesponses.NewProfile()
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -753,7 +752,6 @@ func TestOpenAIResponsesProfile_DeclineToCanonical(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -922,6 +920,7 @@ func TestOpenAIResponsesProfile_CompileProof_TransientAllocBounded(t *testing.T)
 
 	var proofSink frontendpipe.ProofOutput
 	benchRes := testing.Benchmark(func(b *testing.B) {
+		b.Helper()
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
@@ -1011,7 +1010,7 @@ func TestOpenAIResponsesProfile_CompileProof_EnvelopeFactBudget(t *testing.T) {
 	prof := openairesponses.NewProfile()
 	// Create instructions larger than 256 KiB budget (e.g. 270 KiB)
 	largeInstructions := strings.Repeat("i", 270*1024)
-	body := []byte(fmt.Sprintf(`{"model":"gpt-4o","instructions":"%s","input":"Hello"}`, largeInstructions))
+	body := fmt.Appendf(nil, `{"model":"gpt-4o","instructions":"%s","input":"Hello"}`, largeInstructions)
 	in := defaultProofInput(body, "stub:gpt-4o", nil)
 
 	_, err := prof.CompileProof(context.Background(), in)
@@ -1098,6 +1097,7 @@ func TestOpenAIResponsesProfile_CompileProof_ChunkBoundaryNumbersDifferential(t 
 			optionKey:  "max_output_tokens",
 			numLiteral: "1500",
 			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				t.Helper()
 				if proof.MaxOutputTokens != 1500 {
 					t.Fatalf("MaxOutputTokens dropped: got %d, want 1500", proof.MaxOutputTokens)
 				}
@@ -1108,6 +1108,7 @@ func TestOpenAIResponsesProfile_CompileProof_ChunkBoundaryNumbersDifferential(t 
 			optionKey:  "temperature",
 			numLiteral: "0.7",
 			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				t.Helper()
 				// Verified via identity match
 			},
 		},
@@ -1116,13 +1117,13 @@ func TestOpenAIResponsesProfile_CompileProof_ChunkBoundaryNumbersDifferential(t 
 			optionKey:  "top_p",
 			numLiteral: "0.85",
 			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				t.Helper()
 				// Verified via identity match
 			},
 		},
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

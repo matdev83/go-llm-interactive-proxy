@@ -25,7 +25,6 @@ func TestStatementImportLedgerSQLiteForeignLineTenantRejectsAtomically(t *testin
 		{name: "matched", lineIndex: 0},
 		{name: "unmatched", lineIndex: 1},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			store := newSQLiteTestStore(t)

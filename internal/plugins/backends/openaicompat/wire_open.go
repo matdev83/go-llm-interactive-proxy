@@ -76,7 +76,7 @@ func parseConnectionTokens(extraHeaders http.Header) map[string]struct{} {
 	}
 	tokens := make(map[string]struct{})
 	for _, raw := range rawValues {
-		for _, part := range strings.Split(raw, ",") {
+		for part := range strings.SplitSeq(raw, ",") {
 			token := strings.TrimSpace(part)
 			if token != "" {
 				tokens[strings.ToLower(token)] = struct{}{}

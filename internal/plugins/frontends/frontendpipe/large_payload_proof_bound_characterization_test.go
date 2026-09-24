@@ -70,7 +70,7 @@ func bench20MiBChatBody(tb testing.TB, target int) []byte {
 	var b strings.Builder
 	b.Grow(target)
 	b.WriteString(prefix)
-	for i := 0; i < numParts; i++ {
+	for i := range numParts {
 		if i > 0 {
 			b.WriteString(",")
 		}
@@ -108,7 +108,7 @@ func bench20MiBOpenResponsesBody(tb testing.TB, target int) []byte {
 	var b strings.Builder
 	b.Grow(target)
 	b.WriteString(prefix)
-	for i := 0; i < numParts; i++ {
+	for i := range numParts {
 		if i > 0 {
 			b.WriteString(",")
 		}
@@ -146,7 +146,8 @@ func TestLargePayloadProof_TransientAllocBounded(t *testing.T) {
 		{name: "1MiB", target: 1 << 20},
 	}
 	if !testing.Short() {
-		fullSizes = append(fullSizes,
+		fullSizes = append(
+			fullSizes,
 			sizeCase{name: "5MiB", target: 5 << 20},
 			sizeCase{name: "20MiB", target: 20 << 20},
 		)
@@ -159,6 +160,7 @@ func TestLargePayloadProof_TransientAllocBounded(t *testing.T) {
 			urlPath: "/v1/responses",
 			sizes:   fullSizes,
 			bodyBuilder: func(tb testing.TB, target int) []byte {
+				tb.Helper()
 				if target > (8 << 20) {
 					return bench20MiBChunkedBody(tb, target)
 				}
@@ -171,6 +173,7 @@ func TestLargePayloadProof_TransientAllocBounded(t *testing.T) {
 			urlPath: "/v1/chat/completions",
 			sizes:   fullSizes,
 			bodyBuilder: func(tb testing.TB, target int) []byte {
+				tb.Helper()
 				if target > (8 << 20) {
 					return bench20MiBChatBody(tb, target)
 				}
@@ -183,6 +186,7 @@ func TestLargePayloadProof_TransientAllocBounded(t *testing.T) {
 			urlPath: "/openresponses/v1/responses",
 			sizes:   fullSizes,
 			bodyBuilder: func(tb testing.TB, target int) []byte {
+				tb.Helper()
 				if target > (8 << 20) {
 					return bench20MiBOpenResponsesBody(tb, target)
 				}
@@ -228,6 +232,7 @@ func TestLargePayloadProof_TransientAllocBounded(t *testing.T) {
 
 					// Measure proof compilation allocations under benchmark harness.
 					benchRes := testing.Benchmark(func(b *testing.B) {
+						b.Helper()
 						b.ReportAllocs()
 						b.ResetTimer()
 						for b.Loop() {

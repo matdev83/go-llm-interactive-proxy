@@ -55,7 +55,7 @@ func TestEconomicHealthPromCurrencySeriesBounded(t *testing.T) {
 	m := RegisterEconomicHealthProm(reg)
 
 	codes := make([]string, 0, 1024+3)
-	for i := 0; i < 1024; i++ {
+	for i := range 1024 {
 		codes = append(codes, syntheticCurrencyCode(i))
 	}
 	// Hostile malformed codes that the old bucket function folded into a
@@ -143,9 +143,9 @@ func TestEconomicHealthPromCurrencyVocabularyNeverGrowsAcrossSnapshots(t *testin
 	m := RegisterEconomicHealthProm(reg)
 
 	seen := map[string]struct{}{}
-	for round := 0; round < 8; round++ {
+	for round := range 8 {
 		codes := make([]string, 0, 130)
-		for i := 0; i < 128; i++ {
+		for i := range 128 {
 			codes = append(codes, syntheticCurrencyCode(round*128+i))
 		}
 		codes = append(codes, "USD", "EUR")

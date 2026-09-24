@@ -841,6 +841,7 @@ func TestResponseContext_SessionHeaders_ParityWithCanonical(t *testing.T) {
 	}
 
 	t.Run("NewSession", func(t *testing.T) {
+		t.Parallel()
 		const (
 			sessID      = "sess_parity_new_1"
 			aLegID      = "aleg_parity_new_1"
@@ -893,6 +894,7 @@ func TestResponseContext_SessionHeaders_ParityWithCanonical(t *testing.T) {
 	})
 
 	t.Run("ResumedSession", func(t *testing.T) {
+		t.Parallel()
 		const (
 			sessID = "sess_parity_resumed_1"
 			aLegID = "aleg_parity_resumed_1"
@@ -935,6 +937,7 @@ func TestResponseContext_SessionHeaders_ParityWithCanonical(t *testing.T) {
 	})
 
 	t.Run("EmptySession", func(t *testing.T) {
+		t.Parallel()
 		canonicalCall := &lipapi.Call{}
 		recCanonical := httptest.NewRecorder()
 		sessionwire.WriteResponseCarriers(recCanonical, canonicalCall)
@@ -1081,6 +1084,7 @@ func TestResponseContext_SensitiveToken_NeverReachesLoggingMetricsDebug(t *testi
 	})
 
 	t.Run("SensitiveStringRedaction", func(t *testing.T) {
+		t.Parallel()
 		assertNoSecret := func(label, got string) {
 			t.Helper()
 			if strings.Contains(got, rawSecret) {
@@ -1116,6 +1120,7 @@ func TestResponseContext_SensitiveToken_NeverReachesLoggingMetricsDebug(t *testi
 	})
 
 	t.Run("SessionResponseCarrierRedaction", func(t *testing.T) {
+		t.Parallel()
 		assertNoSecret := func(label, got string) {
 			t.Helper()
 			if strings.Contains(got, rawSecret) {
@@ -1140,6 +1145,7 @@ func TestResponseContext_SensitiveToken_NeverReachesLoggingMetricsDebug(t *testi
 	})
 
 	t.Run("ResponseContextRedaction", func(t *testing.T) {
+		t.Parallel()
 		assertNoSecret := func(label, got string) {
 			t.Helper()
 			if strings.Contains(got, rawSecret) {
@@ -1236,6 +1242,7 @@ func TestResponseContext_SensitiveToken_NeverReachesLoggingMetricsDebug(t *testi
 	})
 
 	t.Run("StructuredLoggingNoSecret", func(t *testing.T) {
+		t.Parallel()
 		spy := &testLogSpy{}
 		logger := slog.New(spy)
 
@@ -1263,7 +1270,8 @@ func TestResponseContext_SensitiveToken_NeverReachesLoggingMetricsDebug(t *testi
 			}
 		}
 
-		logger.Info("audit turn event",
+		logger.Info(
+			"audit turn event",
 			"response_context", rc,
 			"carrier", carrier,
 			"sensitive_token", tok,
@@ -1288,6 +1296,7 @@ func TestResponseContext_SensitiveToken_NeverReachesLoggingMetricsDebug(t *testi
 	})
 
 	t.Run("WriteSessionHeadersSilentNoLogging", func(t *testing.T) {
+		t.Parallel()
 		spy := &testLogSpy{}
 		rec := httptest.NewRecorder()
 
@@ -1302,6 +1311,7 @@ func TestResponseContext_SensitiveToken_NeverReachesLoggingMetricsDebug(t *testi
 	})
 
 	t.Run("WithoutSensitiveToken", func(t *testing.T) {
+		t.Parallel()
 		msg := "operation failed with token " + rawSecret + " in trace"
 		cleaned := sessionwire.WithoutSensitiveToken(msg, rawSecret)
 		if strings.Contains(cleaned, rawSecret) {

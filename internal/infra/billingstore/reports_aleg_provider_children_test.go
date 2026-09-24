@@ -376,7 +376,7 @@ func TestALegReportProviderChildrenCapUnknown(t *testing.T) {
 	seedALegCustomerAccount(t, store, accountID)
 	callID := seedC2BCall(t, store, accountID, aLegID)
 	leg := seedC2BLeg(t, store, callID, aLegID, "b-1", 1, billing.LegOutcomeWinner)
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		chargeID := fmt.Sprintf("charge-%d", i)
 		applyC2BRevision(t, store, c2r2ChildRevisionInput(t, accountID, callID, aLegID, "b-1", chargeID, "head-"+chargeID, 1, 1, true))
 	}
@@ -449,7 +449,7 @@ func TestALegReportProviderLoaderLegBoundFifty(t *testing.T) {
 	// Flood call: one leg with 50 distinct valid children.
 	floodCall := seedC2BCall(t, store, accountID, aLegID)
 	floodLeg := seedC2BLeg(t, store, floodCall, aLegID, "b-flood", 1, billing.LegOutcomeWinner)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		chargeID := fmt.Sprintf("charge-%02d", i)
 		applyC2BRevision(t, store, c2r2ChildRevisionInput(t, accountID, floodCall, aLegID, "b-flood", chargeID, "head-"+chargeID, 1, 1, true))
 	}

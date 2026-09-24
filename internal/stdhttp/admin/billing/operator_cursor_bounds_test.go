@@ -88,7 +88,6 @@ func TestOperatorOversizedCursorHTTPRejectionIsStableAndNonEchoing(t *testing.T)
 
 	const wantBody = "{\"error\":\"invalid_query\"}\n"
 	for name, path := range routes {
-		name, path := name, path
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			rec := httptest.NewRecorder()

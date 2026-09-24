@@ -2,6 +2,7 @@ package openaiusage
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"strings"
 
@@ -30,7 +31,8 @@ func ProviderEvidenceDraft(ev lipapi.Event, mapping, sourceKey string) coremeter
 			// actually surfaced it. A nano-unit fallback is sufficient for the
 			// charge amount but must not masquerade as the provider's raw value.
 			if raw != "" {
-				draft.Evidence = append(draft.Evidence,
+				draft.Evidence = append(
+					draft.Evidence,
 					sdkmetering.SafeEvidenceField{Path: "$.cost.amount", Lexeme: raw, Present: true, Acquisition: sdkmetering.AcquisitionProviderResponse},
 					sdkmetering.SafeEvidenceField{Path: "$.cost.currency", Lexeme: strings.TrimSpace(ev.Currency), Present: true, Acquisition: sdkmetering.AcquisitionProviderResponse},
 				)
@@ -194,9 +196,7 @@ func usageFields(raw string) (map[string]json.RawMessage, map[string]map[string]
 	}
 	fields := make(map[string]json.RawMessage, mapCapacityHint(len(root), 8))
 	details := make(map[string]map[string]json.RawMessage, 4)
-	for key, value := range root {
-		fields[key] = value
-	}
+	maps.Copy(fields, root)
 	for _, nested := range []string{"prompt_tokens_details", "input_tokens_details", "completion_tokens_details", "output_tokens_details"} {
 		var child map[string]json.RawMessage
 		if value, ok := root[nested]; ok && json.Unmarshal(value, &child) == nil {

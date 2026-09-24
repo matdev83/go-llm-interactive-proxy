@@ -197,7 +197,7 @@ func (s *DurableStore) AppendStatementRevision(ctx context.Context, statement bi
 	}
 
 	var lastErr error
-	for attempt := 0; attempt < statementImportTxAttempts; attempt++ {
+	for attempt := range statementImportTxAttempts {
 		err := s.appendStatementRevisionOnce(ctx, normalized, payloads)
 		if err == nil {
 			return nil

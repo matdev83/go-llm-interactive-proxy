@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -287,7 +288,6 @@ func TestOpenResponsesProfile_CompileProof_ExplicitStoreFalseGate(t *testing.T) 
 
 	prof := openresponses.NewProfile()
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			in := defaultOpenResponsesProofInput([]byte(tc.json), "", nil)
@@ -468,7 +468,6 @@ func TestOpenResponsesProfile_CompileProof_IdentityParity(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(tc.json)
@@ -554,7 +553,6 @@ func TestOpenResponsesProfile_SelectorDifferential(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -686,6 +684,7 @@ func TestOpenResponsesProfile_CompileProof_TransientAllocBounded(t *testing.T) {
 
 	var proofSink frontendpipe.ProofOutput
 	benchRes := testing.Benchmark(func(b *testing.B) {
+		b.Helper()
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
@@ -718,7 +717,7 @@ func TestOpenResponsesProfile_CompileProof_EnvelopeFactBudget(t *testing.T) {
 	prof := openresponses.NewProfile()
 	// Create model larger than 256 KiB budget (e.g. 270 KiB)
 	largeModel := strings.Repeat("m", 270*1024)
-	body := []byte(fmt.Sprintf(`{"model":"%s","input":"Hello","store":false}`, largeModel))
+	body := fmt.Appendf(nil, `{"model":"%s","input":"Hello","store":false}`, largeModel)
 	in := defaultOpenResponsesProofInput(body, "stub:gpt-4o", nil)
 
 	_, err := prof.CompileProof(context.Background(), in)
@@ -891,6 +890,7 @@ func TestOpenResponsesProfile_CompileProof_ChunkBoundaryNumbersDifferential(t *t
 			optionKey:  "max_output_tokens",
 			numLiteral: "1500",
 			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				t.Helper()
 				if proof.MaxOutputTokens != 1500 {
 					t.Fatalf("MaxOutputTokens dropped: got %d, want 1500", proof.MaxOutputTokens)
 				}
@@ -909,7 +909,6 @@ func TestOpenResponsesProfile_CompileProof_ChunkBoundaryNumbersDifferential(t *t
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1073,7 +1072,6 @@ func TestOpenResponsesProfile_CompileProof_DeclineCorpus(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1145,7 +1143,6 @@ func TestOpenResponsesProfile_MF1_ToolChoiceParityAndDeclines(t *testing.T) {
 	}
 
 	for _, tc := range declineCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(tc.body)
@@ -1176,7 +1173,6 @@ func TestOpenResponsesProfile_MF1_ToolChoiceParityAndDeclines(t *testing.T) {
 	}
 
 	for _, tc := range parityCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(tc.body)
@@ -1250,7 +1246,7 @@ func TestOpenResponsesProfile_MF3_SmallArrayValidationDeclines(t *testing.T) {
 			name: "continuation ref count exceeded rejected",
 			body: func() string {
 				var items []string
-				for i := 0; i < 101; i++ {
+				for i := range 101 {
 					items = append(items, fmt.Sprintf(`{"type":"item_reference","id":"ref_%d"}`, i))
 				}
 				items = append(items, `{"type":"message","role":"user","content":"hi"}`)
@@ -1261,7 +1257,6 @@ func TestOpenResponsesProfile_MF3_SmallArrayValidationDeclines(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(tc.body)
@@ -1340,7 +1335,6 @@ func TestOpenResponsesProfile_WhitelistDeclines_SmallArray(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			in := defaultOpenResponsesProofInput([]byte(tc.body), "gpt-4o", nil)
@@ -1404,7 +1398,6 @@ func TestOpenResponsesProfile_WhitelistDeclines_LargeArrayParity(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			in := defaultOpenResponsesProofInput([]byte(tc.body), "gpt-4o", nil)
@@ -1474,12 +1467,7 @@ func TestOpenResponsesProfile_Tools_RequiredCapabilities(t *testing.T) {
 	prof := openresponses.NewProfile()
 
 	hasCap := func(caps []lipapi.Capability, target lipapi.Capability) bool {
-		for _, c := range caps {
-			if c == target {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(caps, target)
 	}
 
 	t.Run("tools in envelope", func(t *testing.T) {

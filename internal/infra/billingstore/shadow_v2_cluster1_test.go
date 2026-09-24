@@ -338,7 +338,7 @@ func TestPhase172Cluster1ConcurrentOverlapDeterministic(t *testing.T) {
 	require.NoError(t, err)
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()

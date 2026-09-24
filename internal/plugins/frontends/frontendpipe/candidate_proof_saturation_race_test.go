@@ -41,7 +41,7 @@ type perRequestTrackingLimiter struct {
 	underlying decodeqos.TryAcquirer
 	mu         sync.Mutex
 	records    map[string]*reqAdmissionRecord
-	totalCalls int64
+	totalCalls atomic.Int64
 	rejectAll  bool
 
 	firstRejectOnce sync.Once
@@ -57,7 +57,7 @@ func newPerRequestTrackingLimiter(underlying decodeqos.TryAcquirer) *perRequestT
 }
 
 func (l *perRequestTrackingLimiter) TryAcquire(ctx context.Context, weight int64) (func(), bool, error) {
-	atomic.AddInt64(&l.totalCalls, 1)
+	l.totalCalls.Add(1)
 
 	reqID, _ := ctx.Value(reqIDKey).(string)
 
@@ -124,7 +124,7 @@ func (l *perRequestTrackingLimiter) RecordFor(reqID string) reqAdmissionRecord {
 }
 
 func (l *perRequestTrackingLimiter) TotalCalls() int64 {
-	return atomic.LoadInt64(&l.totalCalls)
+	return l.totalCalls.Load()
 }
 
 func (l *perRequestTrackingLimiter) MaxCallsPerRequest() int {
@@ -272,7 +272,7 @@ func TestCandidateProof_SaturationRace_FullySaturatedLimiter(t *testing.T) {
 
 	payload := buildJSONPayload(payloadSize)
 
-	for iter := 0; iter < iterations; iter++ {
+	for iter := range iterations {
 		exec := &candidateGatesExec{}
 		limiter := newPerRequestTrackingLimiter(nil)
 		limiter.rejectAll = true // fully saturated limiter
@@ -311,7 +311,7 @@ func TestCandidateProof_SaturationRace_FullySaturatedLimiter(t *testing.T) {
 		}
 		results := make([]reqResult, numGoroutines)
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			go func(idx int) {
 				defer wg.Done()
 				reqID := fmt.Sprintf("iter-%d-req-%03d", iter, idx)
@@ -391,7 +391,7 @@ func TestCandidateProof_SaturationRace_ConcurrentProofDecline_SingleAdmissionPer
 
 	payload := buildJSONPayload(payloadSize)
 
-	for iter := 0; iter < iterations; iter++ {
+	for iter := range iterations {
 		// Real limiter with capacity for maxConcurrent requests of payloadSize
 		realLimiter := decodeqos.New(maxConcurrent, int64(maxConcurrent*payloadSize))
 		limiter := newPerRequestTrackingLimiter(realLimiter)
@@ -399,11 +399,11 @@ func TestCandidateProof_SaturationRace_ConcurrentProofDecline_SingleAdmissionPer
 		exec := &candidateGatesExec{}
 
 		// Profile always declines: simulates unsupported extension / uncertified profile
-		var compileCalls int64
+		var compileCalls atomic.Int64
 		prof := &certifiedTestProfile{
 			profileID: "test_decline_race_profile",
 			compileFunc: func(ctx context.Context, in frontendpipe.ProofInput) (frontendpipe.ProofOutput, error) {
-				atomic.AddInt64(&compileCalls, 1)
+				compileCalls.Add(1)
 				// Hold the permit until the limiter has actually rejected a competing
 				// request. This forces contention while the limit is held instead of
 				// assuming overlapping goroutine scheduling. The shared wait is
@@ -414,7 +414,7 @@ func TestCandidateProof_SaturationRace_ConcurrentProofDecline_SingleAdmissionPer
 			},
 		}
 
-		var decodeCalls int64
+		var decodeCalls atomic.Int64
 		spec := newCandidateProofSpec(
 			exec, prof,
 			frontendpipe.LargePayloadConfig{
@@ -424,7 +424,7 @@ func TestCandidateProof_SaturationRace_ConcurrentProofDecline_SingleAdmissionPer
 			limiter,
 			nil,
 			func(dctx frontendpipe.DecodeContext) {
-				atomic.AddInt64(&decodeCalls, 1)
+				decodeCalls.Add(1)
 			},
 		)
 
@@ -440,7 +440,7 @@ func TestCandidateProof_SaturationRace_ConcurrentProofDecline_SingleAdmissionPer
 		}
 		results := make([]reqResult, numGoroutines)
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			go func(idx int) {
 				defer wg.Done()
 				reqID := fmt.Sprintf("iter-%d-cand-%03d", iter, idx)
@@ -517,10 +517,10 @@ func TestCandidateProof_SaturationRace_ConcurrentProofDecline_SingleAdmissionPer
 		}
 
 		// Spec.Decode and CompileProof must match admitted count exactly
-		if totalCompile := atomic.LoadInt64(&compileCalls); totalCompile != int64(admittedCount) {
+		if totalCompile := compileCalls.Load(); totalCompile != int64(admittedCount) {
 			t.Fatalf("[iter %d] CompileProof calls: got %d, want %d", iter, totalCompile, admittedCount)
 		}
-		if totalDecode := atomic.LoadInt64(&decodeCalls); totalDecode != int64(admittedCount) {
+		if totalDecode := decodeCalls.Load(); totalDecode != int64(admittedCount) {
 			t.Fatalf("[iter %d] Spec.Decode calls: got %d, want %d", iter, totalDecode, admittedCount)
 		}
 
@@ -583,7 +583,7 @@ func TestCandidateProof_SaturationRace_ContextCanceledDuringSaturation(t *testin
 	}
 	results := make([]reqResult, numGoroutines)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(idx int) {
 			defer wg.Done()
 			reqID := fmt.Sprintf("cancel-race-req-%03d", idx)

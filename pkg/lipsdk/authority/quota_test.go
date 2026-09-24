@@ -10,6 +10,7 @@ import (
 )
 
 func TestQuotaPolicy_FreshMatchingGaugeAllowsAndReplayIsStable(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	utilization := quotaField("provider:utilization", metering.UnitPercent)
@@ -30,7 +31,8 @@ func TestQuotaPolicy_FreshMatchingGaugeAllowsAndReplayIsStable(t *testing.T) {
 	require.NoError(t, err)
 
 	observed := now.Add(-time.Minute)
-	first := quotaObservation("quota-1", "account-a", "primary", "minute", reset, observed,
+	first := quotaObservation(
+		"quota-1", "account-a", "primary", "minute", reset, observed,
 		quotaMeasure(utilization, "12.5", metering.QualityObserved),
 		quotaMeasure(headroom, "2", metering.QualityObserved),
 	)
@@ -72,6 +74,7 @@ func TestQuotaPolicy_FreshMatchingGaugeAllowsAndReplayIsStable(t *testing.T) {
 }
 
 func TestQuotaPolicy_ThresholdTypesAndSafetyBoundaries(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	utilization := quotaField("provider:utilization", metering.UnitPercent)
@@ -132,6 +135,7 @@ func TestQuotaPolicy_ThresholdTypesAndSafetyBoundaries(t *testing.T) {
 }
 
 func TestQuotaPolicy_MissingStalePartialAndUnavailableUseTypedConfiguredActions(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	utilization := quotaField("provider:utilization", metering.UnitPercent)
@@ -177,6 +181,7 @@ func TestQuotaPolicy_MissingStalePartialAndUnavailableUseTypedConfiguredActions(
 }
 
 func TestQuotaPolicy_BindingResetAndAsOfHeadNeverSumGaugeSnapshots(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	utilization := quotaField("provider:utilization", metering.UnitPercent)
@@ -231,6 +236,7 @@ func TestQuotaPolicy_BindingResetAndAsOfHeadNeverSumGaugeSnapshots(t *testing.T)
 }
 
 func TestQuotaPolicy_SameTimeAcquisitionAndLineageHaveTotalOrder(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	utilization := quotaField("provider:utilization", metering.UnitPercent)
@@ -261,7 +267,7 @@ func TestQuotaPolicy_SameTimeAcquisitionAndLineageHaveTotalOrder(t *testing.T) {
 	require.Equal(t, response.ID, want.HeadObservationID)
 	require.Equal(t, "90/0", quotaMeasureValue(t, want, utilization))
 
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		observations := []metering.Observation{header, response}
 		if i%2 == 0 {
 			observations[0], observations[1] = observations[1], observations[0]
@@ -287,6 +293,7 @@ func TestQuotaPolicy_SameTimeAcquisitionAndLineageHaveTotalOrder(t *testing.T) {
 }
 
 func TestQuotaPolicy_ReplayConflictIsTyped(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	utilization := quotaField("provider:utilization", metering.UnitPercent)
@@ -301,6 +308,7 @@ func TestQuotaPolicy_ReplayConflictIsTyped(t *testing.T) {
 }
 
 func TestQuotaPolicy_CompiledInputsAndAccessorsAreImmutableCopies(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	field := quotaField("provider:utilization", metering.UnitPercent)
@@ -327,6 +335,7 @@ func TestQuotaPolicy_CompiledInputsAndAccessorsAreImmutableCopies(t *testing.T) 
 }
 
 func TestQuotaPolicy_DefaultFailurePostureCannotSilentlyAllow(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 3, 12, 0, 0, 0, time.UTC)
 	reset := now.Add(-time.Hour)
 	field := quotaField("provider:utilization", metering.UnitPercent)
@@ -414,6 +423,7 @@ func quotaDecimal(t *testing.T, value string) metering.Decimal {
 }
 
 func quotaDecimalPtr(t *testing.T, value string) *metering.Decimal {
+	t.Helper()
 	parsed := quotaDecimal(t, value)
 	return &parsed
 }

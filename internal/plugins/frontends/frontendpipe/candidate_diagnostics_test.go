@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -82,23 +83,13 @@ func (r *recordingDiagnosticsObserver) OnActiveSpoolBytes(seq uint64, b int64) {
 func (r *recordingDiagnosticsObserver) hasStage(s largebody.PipelineStage) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, stage := range r.stages {
-		if stage == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(r.stages, s)
 }
 
 func (r *recordingDiagnosticsObserver) hasDecline(reason string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, d := range r.declines {
-		if d == reason {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(r.declines, reason)
 }
 
 func gzipBytes(t *testing.T, data []byte) []byte {
@@ -128,16 +119,22 @@ func TestCandidateDiagnostics_StaticDeclineGates(t *testing.T) {
 		wantDecline string
 	}{
 		{
-			name:        "below_threshold",
-			body:        func(t *testing.T) []byte { return []byte(`{"prompt":"hi"}`) },
+			name: "below_threshold",
+			body: func(t *testing.T) []byte {
+				t.Helper()
+				return []byte(`{"prompt":"hi"}`)
+			},
 			threshold:   1024 * 1024,
 			withProfile: true,
 			withExec:    true,
 			wantDecline: largebody.DeclineReasonBelowThreshold,
 		},
 		{
-			name:        "gzip_compressed",
-			body:        func(t *testing.T) []byte { return gzipBytes(t, []byte(`{"prompt":"hi"}`)) },
+			name: "gzip_compressed",
+			body: func(t *testing.T) []byte {
+				t.Helper()
+				return gzipBytes(t, []byte(`{"prompt":"hi"}`))
+			},
 			headers:     map[string]string{"Content-Encoding": "gzip"},
 			threshold:   10,
 			withProfile: true,
@@ -145,8 +142,11 @@ func TestCandidateDiagnostics_StaticDeclineGates(t *testing.T) {
 			wantDecline: largebody.DeclineReasonGzipCompressed,
 		},
 		{
-			name:        "legacy_route_resolver",
-			body:        func(t *testing.T) []byte { return []byte(`{"prompt":"hi long payload"}`) },
+			name: "legacy_route_resolver",
+			body: func(t *testing.T) []byte {
+				t.Helper()
+				return []byte(`{"prompt":"hi long payload"}`)
+			},
 			threshold:   5,
 			withProfile: true,
 			withExec:    true,
@@ -154,8 +154,11 @@ func TestCandidateDiagnostics_StaticDeclineGates(t *testing.T) {
 			wantDecline: largebody.DeclineReasonFrontendRouteResolver,
 		},
 		{
-			name:        "missing_profile",
-			body:        func(t *testing.T) []byte { return []byte(`{"prompt":"hi"}`) },
+			name: "missing_profile",
+			body: func(t *testing.T) []byte {
+				t.Helper()
+				return []byte(`{"prompt":"hi"}`)
+			},
 			threshold:   10,
 			withProfile: false,
 			withExec:    true,
@@ -165,6 +168,7 @@ func TestCandidateDiagnostics_StaticDeclineGates(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			obs := &recordingDiagnosticsObserver{}
 			exec := &testCandidateExec{}
 			var prof frontendpipe.FrontendProfile
@@ -559,6 +563,7 @@ func TestCandidateDiagnostics_SummaryBlockers(t *testing.T) {
 		{
 			name: "local_turn",
 			summary: func(t *testing.T) largebody.WireEligibilitySummary {
+				t.Helper()
 				return compileSummaryWithPlane(t, "local_turn_handlers")
 			},
 			wantDecline: largebody.DeclineReasonLocalTurn,
@@ -566,6 +571,7 @@ func TestCandidateDiagnostics_SummaryBlockers(t *testing.T) {
 		{
 			name: "secret_guard",
 			summary: func(t *testing.T) largebody.WireEligibilitySummary {
+				t.Helper()
 				return compileSummaryWithPlane(t, "secret_guard_execution")
 			},
 			wantDecline: largebody.DeclineReasonSecretGuard,
@@ -573,6 +579,7 @@ func TestCandidateDiagnostics_SummaryBlockers(t *testing.T) {
 		{
 			name: "terminal_decision",
 			summary: func(t *testing.T) largebody.WireEligibilitySummary {
+				t.Helper()
 				return compileSummaryWithPlane(t, "terminal_decision_provider")
 			},
 			wantDecline: largebody.DeclineReasonTerminalDecision,
@@ -580,6 +587,7 @@ func TestCandidateDiagnostics_SummaryBlockers(t *testing.T) {
 		{
 			name: "traffic",
 			summary: func(t *testing.T) largebody.WireEligibilitySummary {
+				t.Helper()
 				return compileSummaryWithPort(t, largebody.NarrowPortEligibilityInput{TrafficCapturing: true})
 			},
 			wantDecline: largebody.DeclineReasonTraffic,
@@ -587,6 +595,7 @@ func TestCandidateDiagnostics_SummaryBlockers(t *testing.T) {
 		{
 			name: "accounting_counting",
 			summary: func(t *testing.T) largebody.WireEligibilitySummary {
+				t.Helper()
 				return compileSummaryWithPort(t, largebody.NarrowPortEligibilityInput{TokenCountingRequired: true})
 			},
 			wantDecline: largebody.DeclineReasonAccountingCounting,
@@ -594,6 +603,7 @@ func TestCandidateDiagnostics_SummaryBlockers(t *testing.T) {
 		{
 			name: "custom_call_callback",
 			summary: func(t *testing.T) largebody.WireEligibilitySummary {
+				t.Helper()
 				return compileSummaryWithPort(t, largebody.NarrowPortEligibilityInput{CustomCallCallbacksPresent: true})
 			},
 			wantDecline: largebody.DeclineReasonCustomCallCallback,
@@ -601,6 +611,7 @@ func TestCandidateDiagnostics_SummaryBlockers(t *testing.T) {
 		{
 			name: "backend_domain",
 			summary: func(t *testing.T) largebody.WireEligibilitySummary {
+				t.Helper()
 				return compileSummaryWithPort(t, largebody.NarrowPortEligibilityInput{BackendsEmpty: true})
 			},
 			wantDecline: largebody.DeclineReasonBackendDomain,
@@ -609,6 +620,7 @@ func TestCandidateDiagnostics_SummaryBlockers(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			obs := &recordingDiagnosticsObserver{}
 			exec := &testCandidateExec{}
 			prof := minimalValidProofProfile()

@@ -226,6 +226,7 @@ func (a *blockingEconomicAppender) AppendEconomicRevisionWork(ctx context.Contex
 }
 
 func newBridgeMeteringStore(t *testing.T, storeID string) *journalstore.DurableStore {
+	t.Helper()
 	return newBridgeMeteringStoreWithClock(t, storeID, time.Now)
 }
 

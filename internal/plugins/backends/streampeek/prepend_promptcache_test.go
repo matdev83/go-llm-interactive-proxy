@@ -91,9 +91,10 @@ func TestManagedPrependForwardsPromptCacheObservations(t *testing.T) {
 }
 
 func TestManagedPrependForwardsEconomicNegotiationState(t *testing.T) {
+	t.Parallel()
 	for _, enabled := range []bool{false, true} {
-		enabled := enabled
 		t.Run(map[bool]string{false: "disabled", true: "enabled"}[enabled], func(t *testing.T) {
+			t.Parallel()
 			inner := &economicStateManagedStream{FixedEventStream: lipapi.NewFixedEventStream(nil), enabled: enabled}
 			wrapped := NewManagedPrependFirst(lipapi.Event{Kind: lipapi.EventResponseStarted}, inner)
 			state, ok := wrapped.(interface{ AccountingEvidenceEnabled() bool })
@@ -108,6 +109,7 @@ func TestManagedPrependForwardsEconomicNegotiationState(t *testing.T) {
 }
 
 func TestManagedPrependForwardsUsageEvidence(t *testing.T) {
+	t.Parallel()
 	inner := &usageSidebandManagedStream{
 		FixedEventStream: lipapi.NewFixedEventStream(nil),
 		evidence:         []lipapi.Event{{Kind: lipapi.EventUsageDelta, InputTokens: 3}},

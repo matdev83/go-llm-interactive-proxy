@@ -462,7 +462,7 @@ func TestRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *te
 
 	var finalizer metering.Observation
 	var completeProvider billing.EconomicRevisionWork
-	for candidateIndex := 0; candidateIndex < 10000; candidateIndex++ {
+	for candidateIndex := range 10000 {
 		candidate := refinement52RuntimeObservation(storeID, closure.CallID, closure.ALegID, legBefore, authority,
 			fmt.Sprintf("superset-finalizer-%05d", candidateIndex), 2, metering.OriginProvider, metering.AcquisitionProviderFinalizer, metering.AuthorityObservedClaim)
 		completeEvidence := append([]metering.Observation(nil), initialPage.Observations...)

@@ -236,7 +236,6 @@ func TestWebSocketContinuation_MaterializesLocalParentAndNewInput(t *testing.T) 
 
 	wsText(t, conn, `{"type":"response.create","model":"gpt-4o","previous_response_id":"`+id1+`","input":"second"}`)
 	frames2 := wsReadUntilTerminal(t, conn, 3*time.Second)
-	_ = conn.Close()
 
 	if exec.count() != 2 {
 		t.Fatalf("executor calls=%d, want 2", exec.count())
@@ -270,6 +269,8 @@ func TestWebSocketContinuation_MaterializesLocalParentAndNewInput(t *testing.T) 
 	if len(rec.InputItems) != 1 || rec.InputItems[0].Content[0].Text != "first" {
 		t.Fatalf("parent record input items=%+v, want [first]", rec.InputItems)
 	}
+
+	_ = conn.Close()
 }
 
 func TestWebSocketContinuation_SuccessChainStaysContinuable(t *testing.T) {

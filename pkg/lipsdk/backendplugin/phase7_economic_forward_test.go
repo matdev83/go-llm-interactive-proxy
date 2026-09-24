@@ -21,6 +21,7 @@ func TestPhase7EconomicForward_DrainsV2BeforeCanonicalAndOnOpenFailure(t *testin
 		{name: "open failure", openErr: errors.New("open failed")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			stream := &phase7NegotiatedStream{fakeExecuteStream: newFakeExecuteStream(context.Background(), validStartFrame(t)), neg: phase7ForwardNegotiation()}
 			ms := &phase7EconomicManaged{evidence: []backendplugin.AccountingEvidenceV2{evidence}, events: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "visible"}}}
 			err := backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {

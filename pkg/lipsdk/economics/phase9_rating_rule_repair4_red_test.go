@@ -20,6 +20,7 @@ func TestPhase9Repair4_LegacyRuleInferenceRejectsConversionAndStrayMaterial(t *t
 		{name: "legacy conversion with direct rate", rule: RatingRule{ID: "legacy-conversion-rate", Component: &key, Currency: "USD", UnitPrice: decimalForPhase9Repair4(t, "1"), ConversionSchema: "image-to-token-v1"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			ref := RatingSnapshotRef{VersionRef: VersionRef{ID: "phase9-repair4", Version: tc.name}, RaterID: "reference"}
 			_, err := BuildTariffSnapshot(ref, "USD", []RatingRule{tc.rule})
 			if !errors.Is(err, ErrInvalidRatingRule) {
@@ -40,6 +41,7 @@ func TestPhase9Repair4_ExplicitConversionRejectsContradictoryFields(t *testing.T
 		{name: "tiers", rule: RatingRule{ID: "conversion-tiers", Kind: RatingRuleConversion, Component: &key, Currency: "USD", TierMode: TierAllUnits, Tiers: []RatingTier{{UnitPrice: decimalForPhase9Repair4(t, "1")}}, ConversionSchema: "image-to-token-v1"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			ref := RatingSnapshotRef{VersionRef: VersionRef{ID: "phase9-repair4-explicit", Version: tc.name}, RaterID: "reference"}
 			_, err := BuildTariffSnapshot(ref, "USD", []RatingRule{tc.rule})
 			if !errors.Is(err, ErrInvalidRatingRule) {

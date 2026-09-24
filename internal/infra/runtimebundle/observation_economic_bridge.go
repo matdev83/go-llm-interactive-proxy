@@ -197,10 +197,7 @@ func (r *observationEconomicRelay) processItem(ctx context.Context, item journal
 		if remaining <= 0 {
 			return fmt.Errorf("runtimebundle: durable economic evidence exceeds %d observations", economics.MaxRatingObservations)
 		}
-		query.Limit = observationEconomicEvidenceLimit
-		if remaining < query.Limit {
-			query.Limit = remaining
-		}
+		query.Limit = min(remaining, observationEconomicEvidenceLimit)
 		page, err := r.journal.ListObservations(ctx, query)
 		if err != nil {
 			return fmt.Errorf("runtimebundle: load durable economic evidence: %w", err)

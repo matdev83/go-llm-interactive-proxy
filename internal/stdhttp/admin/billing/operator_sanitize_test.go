@@ -21,7 +21,10 @@ const sanitizeProbeSecret = "sk-ant-secret-probe-value"
 // suffix classifier accepted at numeric allowlist paths.
 const sanitizeNumericProbe = "PrivateCustomerOutputWithoutSpaces"
 
-func sanitizeSecretBatch(t *testing.T) string { return sanitizeEvidenceBatch(t, sanitizeProbeSecret) }
+func sanitizeSecretBatch(t *testing.T) string {
+	t.Helper()
+	return sanitizeEvidenceBatch(t, sanitizeProbeSecret)
+}
 
 func sanitizeEvidenceBatch(t *testing.T, lexeme string) string {
 	t.Helper()

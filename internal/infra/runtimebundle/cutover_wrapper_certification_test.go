@@ -29,22 +29,22 @@ type hideClaimBillingStore struct {
 func TestCutoverWrapperHidingFailsClaimAsserts(t *testing.T) {
 	t.Parallel()
 	var hiding *hideClaimBillingStore
-	if _, ok := interface{}(hiding).(billing.CutoverClaimMetadataProvider); ok {
+	if _, ok := any(hiding).(billing.CutoverClaimMetadataProvider); ok {
 		t.Fatalf("hiding decorator must not expose CutoverClaimMetadataProvider")
 	}
-	if _, ok := interface{}(hiding).(billing.ProviderCostWorkClaimStore); ok {
+	if _, ok := any(hiding).(billing.ProviderCostWorkClaimStore); ok {
 		t.Fatalf("hiding decorator must not expose ProviderCostWorkClaimStore")
 	}
-	if _, ok := interface{}(hiding).(billing.FinancialAdjustmentClaimStore); ok {
+	if _, ok := any(hiding).(billing.FinancialAdjustmentClaimStore); ok {
 		t.Fatalf("hiding decorator must not expose FinancialAdjustmentClaimStore")
 	}
-	if _, ok := interface{}(hiding).(billing.ClaimedCompleteCallClaimer); ok {
+	if _, ok := any(hiding).(billing.ClaimedCompleteCallClaimer); ok {
 		t.Fatalf("hiding decorator must not expose ClaimedCompleteCallClaimer")
 	}
-	if _, ok := interface{}(hiding).(billing.ClaimedProviderCostWorkClaimer); ok {
+	if _, ok := any(hiding).(billing.ClaimedProviderCostWorkClaimer); ok {
 		t.Fatalf("hiding decorator must not expose ClaimedProviderCostWorkClaimer")
 	}
-	if _, ok := interface{}(hiding).(billing.EconomicRevisionWorkCutoverClaimer); ok {
+	if _, ok := any(hiding).(billing.EconomicRevisionWorkCutoverClaimer); ok {
 		t.Fatalf("hiding decorator must not expose EconomicRevisionWorkCutoverClaimer")
 	}
 	// Production constructors must reject nil claim ports (fail closed).
@@ -100,8 +100,8 @@ func TestCutoverWrapperProductionRequiresExplicitPorts(t *testing.T) {
 	}
 	// Legacy test-only fallbacks must not appear as production construction
 	// (allow comments mentioning legacy).
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(content, "\n")
+	for line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "//") {
 			continue

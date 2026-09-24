@@ -70,11 +70,9 @@ func TestOperatorQueryNormalizeBoundsIncomingCursor(t *testing.T) {
 	}
 
 	for kind, normalize := range baseline {
-		kind, normalize := kind, normalize
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 			for name, cursor := range oversized {
-				name, cursor := name, cursor
 				t.Run(name, func(t *testing.T) {
 					t.Parallel()
 					require.Greater(t, len(cursor), MaxOperatorCursorBytes,

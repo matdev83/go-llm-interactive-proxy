@@ -79,7 +79,6 @@ func TestPhase2FinalV2JSONDecodeRejectsMalformedUTF8BeforeReplacement(t *testing
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			for _, bad := range []byte{0xff, 0xfe} {

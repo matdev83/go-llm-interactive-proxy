@@ -224,6 +224,7 @@ func TestCompaction_MemoryBudget_FlatAllocationsAcross1_5_20MiB(t *testing.T) {
 
 			// Benchmark allocation measurement isolated to CompileProof (fixtures excluded)
 			benchRes := testing.Benchmark(func(b *testing.B) {
+				b.Helper()
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {

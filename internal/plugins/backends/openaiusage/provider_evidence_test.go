@@ -9,6 +9,7 @@ import (
 )
 
 func TestUsageFieldsCapacityHintDoesNotOverflow(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		base  int
@@ -24,6 +25,7 @@ func TestUsageFieldsCapacityHintDoesNotOverflow(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := mapCapacityHint(tc.base, tc.extra)
 			if got != tc.want {
 				t.Fatalf("mapCapacityHint(%d, %d) = %d, want %d", tc.base, tc.extra, got, tc.want)
@@ -36,6 +38,7 @@ func TestUsageFieldsCapacityHintDoesNotOverflow(t *testing.T) {
 }
 
 func TestNativeUsageMeasuresPreserveMultimodalDirectionAndUnits(t *testing.T) {
+	t.Parallel()
 	raw := `{"input_image_tokens":0,"output_image_tokens":7,"input_audio_seconds":1.5,"output_video_frames":12,"input_document_pages":2,"output_bytes":4096}`
 	measures := NativeUsageMeasures(raw)
 	if len(measures) != 6 {
@@ -71,6 +74,7 @@ func TestNativeUsageMeasuresPreserveMultimodalDirectionAndUnits(t *testing.T) {
 }
 
 func TestNativeUsageMeasuresRejectMalformedNegativeAndFractionalDiscreteValues(t *testing.T) {
+	t.Parallel()
 	raw := `{"input_image_tokens":-1,"output_video_frames":1.2,"input_audio_seconds":"oops","output_image_count":1e999}`
 	if got := NativeUsageMeasures(raw); len(got) != 0 {
 		t.Fatalf("invalid native values should be unavailable, got %d measures", len(got))
@@ -78,6 +82,7 @@ func TestNativeUsageMeasuresRejectMalformedNegativeAndFractionalDiscreteValues(t
 }
 
 func TestNativeUsageEvidenceRetainsPresentZeroOncePerSafePath(t *testing.T) {
+	t.Parallel()
 	raw := `{"input_image_tokens":0,"output_image_tokens":7,"input_audio_seconds":0}`
 	evidence := NativeUsageEvidence(raw)
 	if len(evidence) != 3 {
@@ -91,6 +96,7 @@ func TestNativeUsageEvidenceRetainsPresentZeroOncePerSafePath(t *testing.T) {
 }
 
 func TestNativeUsageEvidenceRejectsMalformedNegativeAndFractionalDiscreteValues(t *testing.T) {
+	t.Parallel()
 	raw := `{"input_image_tokens":-1,"output_video_frames":1.2,"input_audio_seconds":"oops","output_image_count":1e999}`
 	if got := NativeUsageEvidence(raw); len(got) != 0 {
 		t.Fatalf("invalid native evidence should be unavailable, got %d fields", len(got))
@@ -98,6 +104,7 @@ func TestNativeUsageEvidenceRejectsMalformedNegativeAndFractionalDiscreteValues(
 }
 
 func TestNativeUsageMeasuresMapsOpenResponsesDetailDirections(t *testing.T) {
+	t.Parallel()
 	raw := `{"input_tokens_details":{"text_tokens":4,"audio_tokens":3,"images":0},"output_tokens_details":{"text_tokens":6,"audio_tokens":5,"images":2}}`
 	measures := NativeUsageMeasures(raw)
 	if len(measures) != 6 {
@@ -122,6 +129,7 @@ func TestNativeUsageMeasuresMapsOpenResponsesDetailDirections(t *testing.T) {
 }
 
 func TestProviderEvidenceDraftRetainsGenuineProviderCostAndRawLexeme(t *testing.T) {
+	t.Parallel()
 	event := lipapi.Event{
 		Kind:          lipapi.EventUsageDelta,
 		CostNanoUnits: 140_000,
@@ -157,6 +165,7 @@ func TestProviderEvidenceDraftRetainsGenuineProviderCostAndRawLexeme(t *testing.
 }
 
 func TestProviderEvidenceDraftRejectsMalformedOrNegativeProviderCost(t *testing.T) {
+	t.Parallel()
 	for _, raw := range []string{`{"cost":-1}`, `{"cost":1e100}`, `{"cost":"not-a-number"}`} {
 		event := lipapi.Event{
 			Kind:          lipapi.EventUsageDelta,

@@ -190,7 +190,7 @@ func assertFreezeChatCarriers(t *testing.T, h http.Header) {
 func freezeChatSSEChunks(t *testing.T, body string) []freezeChatCompletion {
 	t.Helper()
 	var out []freezeChatCompletion
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		rest, ok := strings.CutPrefix(line, "data: ")
 		if !ok || !strings.HasPrefix(strings.TrimSpace(rest), "{") {
 			continue

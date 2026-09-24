@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 )
 
@@ -84,12 +85,7 @@ func ShadowV2ExpectedFixReasonCodes() []string {
 }
 
 func shadowV2ExpectedFixReason(code string) bool {
-	for _, allowed := range ShadowV2ExpectedFixReasonCodes() {
-		if code == allowed {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ShadowV2ExpectedFixReasonCodes(), code)
 }
 
 func shadowV2ValidLabel(label string) bool {

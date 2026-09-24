@@ -256,7 +256,7 @@ func TestRefinement82RuntimePreterminalCheckpointAdvancesProvider(t *testing.T) 
 	// Consume only the prefix: the backend stays gated, so no terminal event
 	// can flow and the B-leg must remain open.
 	var sawStarted bool
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		event, err := stream.Recv(ctx)
 		if err != nil {
 			t.Fatalf("prefix Recv %d: %v", i, err)

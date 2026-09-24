@@ -832,7 +832,7 @@ func TestWireOpen_TransportConformance(t *testing.T) {
 			MaxPending: 10,
 		}
 
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			stream, err := prims.Execute(context.Background(), func(ctx context.Context, cred credpool.Credential) (lipapi.ManagedEventStream, error) {
 				req, err := prims.NewRequest(ctx, strings.NewReader(`{}`), 2, "sk-test", true, nil)
 				if err != nil {

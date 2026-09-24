@@ -473,10 +473,7 @@ func (s *DurableStore) replaySelectedCostAdjustment(ctx context.Context, tx bun.
 				}
 				return replayed, nil
 			}
-			nowUnix := nowUnixNano()
-			if nowUnix < fence.pin.CreatedAtUnix {
-				nowUnix = fence.pin.CreatedAtUnix
-			}
+			nowUnix := max(nowUnixNano(), fence.pin.CreatedAtUnix)
 			if err := b2b3CompleteAdjustmentPinTx(ctx, tx, s.storeID, fence.pinKey, stored.OperationKey, stored.JournalTransactionID, nowUnix); err != nil {
 				rrow, refound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, fence.pinKey)
 				if rerr != nil {

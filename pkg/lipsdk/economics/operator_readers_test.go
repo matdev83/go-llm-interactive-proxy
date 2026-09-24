@@ -325,8 +325,7 @@ func TestOperatorDTOLeakage(t *testing.T) {
 		if len(typ.PkgPath()) > 0 && !strings.HasPrefix(typ.PkgPath(), "github.com/matdev83/go-llm-interactive-proxy/pkg/") && !strings.HasPrefix(typ.PkgPath(), "time") && typ.PkgPath() != "" {
 			t.Fatalf("operator DTO %s references unexpected package %s", prefix+typ.Name(), typ.PkgPath())
 		}
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
+		for field := range typ.Fields() {
 			if allowlisted[field.Name] {
 				continue
 			}
@@ -340,15 +339,15 @@ func TestOperatorDTOLeakage(t *testing.T) {
 		}
 	}
 	for _, typ := range []reflect.Type{
-		reflect.TypeOf(OperatorScope{}),
-		reflect.TypeOf(DiscrepancyQuery{}),
-		reflect.TypeOf(DiscrepancyPage{}),
-		reflect.TypeOf(AllowanceQuery{}),
-		reflect.TypeOf(AllowancePage{}),
-		reflect.TypeOf(StatementLineQuery{}),
-		reflect.TypeOf(StatementLinePage{}),
-		reflect.TypeOf(AdjustmentQuery{}),
-		reflect.TypeOf(AdjustmentPage{}),
+		reflect.TypeFor[OperatorScope](),
+		reflect.TypeFor[DiscrepancyQuery](),
+		reflect.TypeFor[DiscrepancyPage](),
+		reflect.TypeFor[AllowanceQuery](),
+		reflect.TypeFor[AllowancePage](),
+		reflect.TypeFor[StatementLineQuery](),
+		reflect.TypeFor[StatementLinePage](),
+		reflect.TypeFor[AdjustmentQuery](),
+		reflect.TypeFor[AdjustmentPage](),
 	} {
 		walk("", typ)
 	}

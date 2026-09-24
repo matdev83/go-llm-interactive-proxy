@@ -599,7 +599,6 @@ func TestOpenAIChatProfile_DeclinesToCanonical(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -713,6 +712,7 @@ func TestOpenAIChatProfile_CompileProof_TransientAllocBounded(t *testing.T) {
 
 	var proofSink frontendpipe.ProofOutput
 	benchRes := testing.Benchmark(func(b *testing.B) {
+		b.Helper()
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
@@ -745,7 +745,7 @@ func TestOpenAIChatProfile_CompileProof_EnvelopeFactBudget(t *testing.T) {
 	prof := openailegacy.NewProfile()
 	// Create model larger than 256 KiB budget (e.g. 270 KiB)
 	largeModel := strings.Repeat("m", 270*1024)
-	body := []byte(fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"Hello"}]}`, largeModel))
+	body := fmt.Appendf(nil, `{"model":"%s","messages":[{"role":"user","content":"Hello"}]}`, largeModel)
 	in := defaultChatProofInput(body, "stub:gpt-4o", nil)
 
 	_, err := prof.CompileProof(context.Background(), in)
@@ -923,6 +923,7 @@ func TestOpenAIChatProfile_CompileProof_ChunkBoundaryNumbersDifferential(t *test
 			optionKey:  "max_tokens",
 			numLiteral: "1500",
 			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				t.Helper()
 				if proof.MaxOutputTokens != 1500 {
 					t.Fatalf("MaxOutputTokens dropped: got %d, want 1500", proof.MaxOutputTokens)
 				}
@@ -933,6 +934,7 @@ func TestOpenAIChatProfile_CompileProof_ChunkBoundaryNumbersDifferential(t *test
 			optionKey:  "temperature",
 			numLiteral: "0.7",
 			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				t.Helper()
 				// Verified via identity match
 			},
 		},
@@ -941,13 +943,13 @@ func TestOpenAIChatProfile_CompileProof_ChunkBoundaryNumbersDifferential(t *test
 			optionKey:  "top_p",
 			numLiteral: "0.85",
 			verify: func(t *testing.T, proof largebody.Proof, canon *lipapi.Call) {
+				t.Helper()
 				// Verified via identity match
 			},
 		},
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

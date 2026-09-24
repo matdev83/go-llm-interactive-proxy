@@ -7,6 +7,7 @@ import (
 )
 
 func TestPhase9Repair6_RationalNativeTotalValidatesAndConvertsExactlyOnce(t *testing.T) {
+	t.Parallel()
 	nativeRounded := Money{NanoUnits: 333333333, Currency: "USD", Present: true}
 	reporting := Money{NanoUnits: 666666667, Currency: "EUR", Present: true}
 	rate := decimalForRepair6(t, "2")

@@ -10,6 +10,7 @@ import (
 )
 
 func TestObservePreparedInputUsesDecodedGeminiProviderRepresentation(t *testing.T) {
+	t.Parallel()
 	call := lipapi.Call{Messages: []lipapi.Message{{
 		Role: lipapi.RoleUser,
 		Parts: []lipapi.Part{

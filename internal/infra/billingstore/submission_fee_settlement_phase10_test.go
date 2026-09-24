@@ -47,13 +47,10 @@ func TestSQLiteSubmissionFeeSettlementIsClaimedOnceConcurrently(t *testing.T) {
 	errs := make(chan error, len(pendingCalls))
 	var group sync.WaitGroup
 	for _, item := range pendingCalls {
-		item := item
-		group.Add(1)
-		go func() {
-			defer group.Done()
+		group.Go(func() {
 			_, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{Call: item.call, Exposure: item.exposure, Result: item.result})
 			errs <- err
-		}()
+		})
 	}
 	group.Wait()
 	close(errs)
@@ -255,6 +252,7 @@ func TestSQLiteSubmissionFeeSettlementRejectsFrozenTariffOrPolicyConflict(t *tes
 }
 
 func phase10SubmissionCall(t *testing.T, store *DurableStore, accountID, submissionID, aLegID string) (billing.CallUsageRecord, billing.CallExposure) {
+	t.Helper()
 	return phase10SubmissionCallWithMax(t, store, accountID, submissionID, aLegID, 100)
 }
 

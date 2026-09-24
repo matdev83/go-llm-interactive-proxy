@@ -70,7 +70,6 @@ func TestPhase2Repair_DirectProviderAndStatementValuationsDoNotInventTariffMater
 	t.Parallel()
 
 	for _, basis := range []economics.ValuationBasis{economics.BasisProviderReported, economics.BasisStatementReported} {
-		basis := basis
 		t.Run(string(basis), func(t *testing.T) {
 			t.Parallel()
 			v := validValuation(basis)
@@ -160,7 +159,6 @@ func TestPhase2Repair_StatementLinesResolveExactIncludedObservationChargeOrDecla
 		"foreign statement":   func(b *economics.StatementBatch) { b.Lines[0].Subject.StatementID = "other-statement" },
 		"foreign period":      func(b *economics.StatementBatch) { b.Lines[0].Subject.PeriodID = "other-period" },
 	} {
-		name, mutate := name, mutate
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			invalid := base
@@ -177,7 +175,6 @@ func TestPhase2Repair_StatementLinesResolveExactIncludedObservationChargeOrDecla
 		"foreign included observation statement": func(b *economics.StatementBatch) { b.Observations[0].Subject.StatementID = "other-statement" },
 		"missing included observation period":    func(b *economics.StatementBatch) { b.Observations[0].Subject.PeriodID = "" },
 	} {
-		name, mutate := name, mutate
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			invalid := base

@@ -2,6 +2,7 @@ package openresponsescompat
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"strings"
 
@@ -154,9 +155,7 @@ func decodeUsageFields(raw string) (map[string]json.RawMessage, map[string]map[s
 	}
 	fields := make(map[string]json.RawMessage, mapCapacityHint(len(root), 8))
 	details := make(map[string]map[string]json.RawMessage, 4)
-	for key, value := range root {
-		fields[key] = value
-	}
+	maps.Copy(fields, root)
 	for _, nested := range []string{"prompt_tokens_details", "input_tokens_details", "completion_tokens_details", "output_tokens_details"} {
 		var child map[string]json.RawMessage
 		if value, ok := root[nested]; ok && json.Unmarshal(value, &child) == nil {

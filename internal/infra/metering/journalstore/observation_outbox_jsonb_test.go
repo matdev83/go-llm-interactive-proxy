@@ -166,7 +166,6 @@ func TestObservationOutboxJSONB_SemanticChangesCollide(t *testing.T) {
 		{"subject identity", changedSubject},
 		{"charge amount", changedCharge},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := sink.AppendEconomicObservationWithOutbox(ctx, tc.observation)

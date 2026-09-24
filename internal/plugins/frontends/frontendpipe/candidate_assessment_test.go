@@ -31,12 +31,12 @@ type testAssessorExecutor struct {
 	mu                sync.Mutex
 	assessFunc        func(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error)
 	executeLargeFunc  func(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error)
-	assessCalls       int64
-	executeLargeCalls int64
+	assessCalls       atomic.Int64
+	executeLargeCalls atomic.Int64
 }
 
 func (e *testAssessorExecutor) AssessLargeBody(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
-	atomic.AddInt64(&e.assessCalls, 1)
+	e.assessCalls.Add(1)
 	e.mu.Lock()
 	fn := e.assessFunc
 	e.mu.Unlock()
@@ -47,7 +47,7 @@ func (e *testAssessorExecutor) AssessLargeBody(ctx context.Context, proof largeb
 }
 
 func (e *testAssessorExecutor) ExecuteLargeBody(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error) {
-	atomic.AddInt64(&e.executeLargeCalls, 1)
+	e.executeLargeCalls.Add(1)
 	e.mu.Lock()
 	fn := e.executeLargeFunc
 	e.mu.Unlock()
@@ -58,11 +58,11 @@ func (e *testAssessorExecutor) ExecuteLargeBody(ctx context.Context, accepted la
 }
 
 func (e *testAssessorExecutor) AssessCallCount() int64 {
-	return atomic.LoadInt64(&e.assessCalls)
+	return e.assessCalls.Load()
 }
 
 func (e *testAssessorExecutor) ExecuteLargeCallCount() int64 {
-	return atomic.LoadInt64(&e.executeLargeCalls)
+	return e.executeLargeCalls.Load()
 }
 
 var (
@@ -602,7 +602,6 @@ func TestCandidateAssessment_MissingWriter_FailsExplicitly_NoStatusOkPlaceholder
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
