@@ -30,6 +30,31 @@ const (
 // transform, and separate-scope edges are not overlaps and remain additive.
 var ErrSchemaOverlapConflict = errors.New("billing: frozen schema component overlap is not payable")
 
+// ErrSchemaPartitionContradiction reports a frozen complete child partition
+// whose present, complete and rateable declared children do not arithmetically
+// account for the present parent's comparable effective reduced quantity in the
+// exact same reduction scope. The partition evidence is inconsistent, so the
+// rater keeps the independent lines payable but classifies the enclosing
+// valuation partial/incomparable instead of suppressing the parent (which would
+// make the children-only money look complete) or inventing the residual
+// (Requirement 3.5). This classification is independent of the parent's own
+// missing-rate diagnostic: a complete zero parent and an informational parent
+// are skipped from line emission by the rating loop, yet their contradicted
+// partition must still fail the valuation closed.
+var ErrSchemaPartitionContradiction = errors.New("billing: frozen schema complete partition contradicts observed quantities")
+
+// ErrSchemaPartitionIncomparable reports an observed aggregate parent whose
+// declared complete child partition cannot be proven because at least one
+// declared child is also declared under another complete parent (ambiguous
+// ownership). The children sum is not comparable in that case, so this is
+// deliberately distinct from ErrSchemaPartitionContradiction: the rater exposes
+// partial/incomparable evidence (Requirement 3.5) rather than asserting an
+// arithmetic contradiction, and never lets the child-only money look complete.
+// It is independent of the parent's own rating: a zero or informational parent
+// is skipped from line emission, yet its ambiguously shared partition still
+// classifies the enclosing valuation partial.
+var ErrSchemaPartitionIncomparable = errors.New("billing: frozen schema complete partition has ambiguously shared children")
+
 // ReferenceRater is a deterministic post-usage evaluator over one immutable
 // tariff snapshot. It has no provider, SQL or stream lifecycle dependency.
 type ReferenceRater struct {
@@ -451,7 +476,7 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	// is not an independent missing charge: the children are the authoritative
 	// billers for that share. The evidence and observation references are never
 	// removed; only the spurious rate-missing diagnostic is excused.
-	completePartitionParents := r.completeChildPartitionCoverage(aggregates, qualifiers)
+	completePartitionParents, contradictedPartitions, incomparablePartitions := r.completeChildPartitionCoverage(aggregates, qualifiers)
 	if err != nil {
 		valuation.Completeness = economics.CompletenessPartial
 		// A reduction may contain both independently complete and incomplete
@@ -607,6 +632,41 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 		valuation.Completeness = economics.CompletenessConflict
 		unavailable = overlapErr
 	}
+	if overlapErr == nil && len(contradictedPartitions) != 0 {
+		// A declared complete partition whose present, complete and rateable
+		// children do not account for the parent is inconsistent evidence.
+		// Classify the enclosing valuation partial even when the parent itself
+		// never produced a missing-rate diagnostic: a complete zero parent or an
+		// informational parent is skipped from line emission by the rating loop,
+		// so without this independent classification the children-only money
+		// would look complete. Independent child lines stay payable; the
+		// residual is never invented.
+		valuation.Completeness = economics.CompletenessPartial
+		if contradictionErr := schemaPartitionDiagnostic(ErrSchemaPartitionContradiction, contradictedPartitions); contradictionErr != nil {
+			if unavailable == nil {
+				unavailable = contradictionErr
+			} else {
+				unavailable = errors.Join(unavailable, contradictionErr)
+			}
+		}
+	}
+	if overlapErr == nil && len(incomparablePartitions) != 0 {
+		// An observed parent declares a complete partition whose child is also
+		// declared under another complete parent. Its coverage cannot be proven
+		// and its child sum is not comparable, so this is explicitly
+		// partial/incomparable rather than an arithmetic contradiction. Like the
+		// contradiction classification it is independent of the parent's own
+		// rating, so a skipped zero or informational parent cannot let the
+		// child-only money look complete. Independent child lines stay payable.
+		valuation.Completeness = economics.CompletenessPartial
+		if incomparableErr := schemaPartitionDiagnostic(ErrSchemaPartitionIncomparable, incomparablePartitions); incomparableErr != nil {
+			if unavailable == nil {
+				unavailable = incomparableErr
+			} else {
+				unavailable = errors.Join(unavailable, incomparableErr)
+			}
+		}
+	}
 	if unavailable != nil && valuation.Completeness == economics.CompletenessComplete {
 		// Preserve the independent lines, while truthfully carrying the
 		// quantity/authority failure to the valuation boundary.
@@ -677,8 +737,8 @@ type partitionMember struct {
 // child is present and complete in the exact same scope, every present optional
 // member is complete and rateable, and no complete child is shared by two
 // distinct complete parents anywhere in the frozen schema set (an ambiguous
-// overlapping partition fails closed for every parent). It is never inferred
-// from component names, quantities, or arithmetic equality.
+// overlapping partition stays conservatively uncovered). It is never inferred
+// from component names.
 //
 // Presence and quantity completeness are not enough: every child that proves
 // the parent's coverage must itself be an eligible biller for the selected
@@ -687,13 +747,42 @@ type partitionMember struct {
 // that the rating loop skips for lack of a rule) cannot stand in for the
 // parent's share; without this the parent would be excused while nothing
 // charges its quantity, yielding a false complete valuation.
-func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMeasure, qualifiers []metering.Dimension) map[string]map[string]struct{} {
+//
+// Finally, the claim is arithmetically checked: the parent's comparable
+// effective reduced quantity in the same scope must equal the exact sum of the
+// present, complete and rateable declared children. An absent optional member
+// contributes zero (the schema's own optional-partition semantics), but any
+// present member -- optional or explicit zero -- participates in the sum.
+//
+// The function returns three per-scope sets. covered names the parents whose
+// conserved partition may excuse an unpriced parent's missing rule. contradicted
+// names the parents whose structurally eligible partition fails the exact
+// conservation test; that is an independent classification, because a complete
+// zero parent or an informational parent is skipped from line emission by the
+// rating loop and therefore never produces a missing-rate diagnostic that could
+// carry the failure (Requirement 3.5: expose partial/incomparable evidence
+// rather than invent a residual). incomparable names the OBSERVED parents whose
+// structurally eligible partition cannot be trusted because a declared child is
+// shared with another complete parent: their sum is not comparable, so the
+// enclosing valuation is classified partial/incomparable rather than an
+// arithmetic contradiction. A contradicted or incomparable parent is never
+// covered.
+//
+// Ambiguity isolation is per parent: a globally shared child disables all
+// coverage (conservative), but it only taints the specific parents that declare
+// that shared child. An independent unambiguous partition elsewhere in the same
+// schema set therefore still contributes its bounded arithmetic contradiction,
+// and an unobserved tainted parent (whose schema is merely declared but never
+// observed) contributes nothing.
+func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMeasure, qualifiers []metering.Dimension) (map[string]map[string]struct{}, map[string]map[string]struct{}, map[string]map[string]struct{}) {
+	var covered, contradicted, incomparable map[string]map[string]struct{}
 	if r == nil || len(r.snapshot.Schemas) == 0 || len(aggregates) == 0 {
-		return nil
+		return nil, nil, nil
 	}
 	childrenByParent := make(map[string][]partitionMember)
 	parentByChild := make(map[string]string)
 	ambiguous := false
+	sharedChild := make(map[string]struct{})
 	for _, schema := range r.snapshot.Schemas {
 		for _, relationship := range schema.Relationships {
 			if !completeCoverageRelationship(relationship.Kind) {
@@ -712,15 +801,32 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 			childrenByParent[parentKey] = append(childrenByParent[parentKey], partitionMember{key: child, optional: relationship.Optional})
 			if prior, ok := parentByChild[childKey]; ok && prior != parentKey {
 				ambiguous = true
+				sharedChild[childKey] = struct{}{}
 			}
 			parentByChild[childKey] = parentKey
 		}
 	}
-	if len(childrenByParent) == 0 || ambiguous {
-		return nil
+	if len(childrenByParent) == 0 {
+		return nil, nil, nil
+	}
+	// A child shared by two distinct complete parents makes every relationship
+	// that declares it untrustworthy: the true owner cannot be chosen, so no
+	// coverage may be proven from it. Isolation is per parent, not global:
+	// taintedParent names the parents that declare a shared child, so an
+	// independent unambiguous partition elsewhere keeps its arithmetic
+	// contradiction diagnosis.
+	taintedParent := make(map[string]bool)
+	for parentKey, children := range childrenByParent {
+		for _, child := range children {
+			if _, shared := sharedChild[child.key.CanonicalKey()]; shared {
+				taintedParent[parentKey] = true
+				break
+			}
+		}
 	}
 	present := make(map[string]map[string]struct{})
 	complete := make(map[string]map[string]struct{})
+	quantity := make(map[string]map[string]*big.Rat)
 	for _, item := range aggregates {
 		key, keyErr := item.key.Normalize()
 		if keyErr != nil {
@@ -729,24 +835,38 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 		if present[item.scopeKey] == nil {
 			present[item.scopeKey] = make(map[string]struct{})
 			complete[item.scopeKey] = make(map[string]struct{})
+			quantity[item.scopeKey] = make(map[string]*big.Rat)
 		}
 		canonical := key.CanonicalKey()
 		present[item.scopeKey][canonical] = struct{}{}
 		if item.complete {
 			complete[item.scopeKey][canonical] = struct{}{}
 		}
+		if item.rat != nil {
+			quantity[item.scopeKey][canonical] = item.rat
+		}
 	}
-	var covered map[string]map[string]struct{}
 	for scopeKey, byKey := range present {
 		for parentKey, children := range childrenByParent {
 			if _, ok := byKey[parentKey]; !ok {
 				continue
 			}
+			// The parent's own quantity is only comparable when it is a complete
+			// effective measure in this exact scope; an incomplete parent cannot
+			// prove conservation.
+			parentRat, hasParentQuantity := quantity[scopeKey][parentKey]
+			if !hasParentQuantity {
+				continue
+			}
+			if _, ok := complete[scopeKey][parentKey]; !ok {
+				continue
+			}
 			covers := true
 			accounted := false
+			childSum := new(big.Rat)
 			for _, child := range children {
 				childKey := child.key.CanonicalKey()
-				if _, ok := byKey[childKey]; !ok {
+				if _, childPresent := byKey[childKey]; !childPresent {
 					if child.optional {
 						continue
 					}
@@ -768,9 +888,53 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 					covers = false
 					break
 				}
+				childRat, hasChildQuantity := quantity[scopeKey][childKey]
+				if !hasChildQuantity {
+					covers = false
+					break
+				}
+				childSum.Add(childSum, childRat)
 			}
 			if !covers || !accounted {
 				// An all-optional declaration with every member absent proves nothing.
+				continue
+			}
+			if taintedParent[parentKey] {
+				// This observed parent declares a child that another complete
+				// parent also declares, so its coverage cannot be proven and its
+				// child sum is not comparable. Record an explicit
+				// partial/incomparable classification -- independent of the
+				// parent's own rating and missing-rate diagnostic -- so a zero
+				// or informational parent skipped from line emission cannot let
+				// the child-only money look complete.
+				if incomparable == nil {
+					incomparable = make(map[string]map[string]struct{})
+				}
+				if incomparable[scopeKey] == nil {
+					incomparable[scopeKey] = make(map[string]struct{})
+				}
+				incomparable[scopeKey][parentKey] = struct{}{}
+				continue
+			}
+			if parentRat.Cmp(childSum) != 0 {
+				// The declared complete partition is contradicted by the
+				// effective reduced quantities. Record the bounded
+				// contradiction so the enclosing valuation fails closed as
+				// partial even when this parent is a zero or informational
+				// summary the rating loop would otherwise skip entirely.
+				if contradicted == nil {
+					contradicted = make(map[string]map[string]struct{})
+				}
+				if contradicted[scopeKey] == nil {
+					contradicted[scopeKey] = make(map[string]struct{})
+				}
+				contradicted[scopeKey][parentKey] = struct{}{}
+				continue
+			}
+			if ambiguous {
+				// Coverage stays conservatively disabled while any complete
+				// child is shared between distinct parents; only the isolated
+				// contradiction and incomparable diagnoses above are per-parent.
 				continue
 			}
 			if covered == nil {
@@ -782,7 +946,33 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 			covered[scopeKey][parentKey] = struct{}{}
 		}
 	}
-	return covered
+	return covered, contradicted, incomparable
+}
+
+// schemaPartitionDiagnostic pins one deterministic typed diagnostic for every
+// (scope, parent) pair in a partition classification set. Iteration is sorted so
+// the message is stable across replay.
+func schemaPartitionDiagnostic(kind error, partitions map[string]map[string]struct{}) error {
+	if len(partitions) == 0 {
+		return nil
+	}
+	scopes := make([]string, 0, len(partitions))
+	for scope := range partitions {
+		scopes = append(scopes, scope)
+	}
+	sort.Strings(scopes)
+	var parts []string
+	for _, scope := range scopes {
+		keys := make([]string, 0, len(partitions[scope]))
+		for key := range partitions[scope] {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			parts = append(parts, fmt.Sprintf("%s in scope %q", key, scope))
+		}
+	}
+	return fmt.Errorf("%w: %s", kind, strings.Join(parts, "; "))
 }
 
 // parentCoveredByCompletePartition reports whether one rated aggregate lands on

@@ -8,17 +8,21 @@ package billing_test
 // aggregate parent is present but unpriced.
 //
 // The unpriced aggregate summary is not an independent missing charge when a
-// proven complete disjoint child partition covers it. The decision is driven
-// only by the explicit frozen partition/aggregate relationship, the equal
-// direction/unit edge, the same reduction scope, and the presence and
-// completeness of every declared child. It is never inferred from component
-// names, guessed arithmetic equality, or coincidental totals.
+// proven complete disjoint child partition covers it. The decision is driven by
+// the explicit frozen partition/aggregate relationship, the equal direction/unit
+// edge, the same reduction scope, the presence and completeness of every declared
+// child, and exact arithmetic conservation of the comparable effective reduced
+// quantities (parent == sum of present, complete, rateable children). It is never
+// inferred from component names alone; a contradictory aggregate is exposed as
+// partial/incomparable evidence rather than having its residual invented or
+// silently suppressed.
 //
 // The suppression must fail closed for a mere subset edge, an incomplete
-// partition (absent/null/unavailable child), an ambiguous overlapping child
-// shared by two complete parents, a cross-direction/cross-scope edge, and
-// schema-free legacy tariffs. A tariff that prices both sides still fails closed
-// through B1, and an aggregate-only B2A tariff still rates unchanged.
+// partition (absent/null/unavailable child), an arithmetically contradicted
+// partition, an ambiguous overlapping child shared by two complete parents, a
+// cross-direction/cross-scope edge, and schema-free legacy tariffs. A tariff
+// that prices both sides still fails closed through B1, and an aggregate-only
+// B2A tariff still rates unchanged.
 
 import (
 	"context"
@@ -253,16 +257,18 @@ func TestB2BChildOnlyAggregateRelationshipKindRatesIntactEvidence(t *testing.T) 
 	b2aAssertIntactEvidenceRetained(t, obs, val)
 }
 
-// TestB2BChildOnlyCoverageIsStructuralNotArithmetic proves the complete
-// partition decision rests solely on the frozen relationship declaration, not
-// on any guessed parent==sum(children) equality. The intact aggregate is
-// deliberately reported with quantities that disagree with the child sum; the
-// declared complete partition still governs, so the child-only tariff rates
-// completely at the literal child total 74/0.
-func TestB2BChildOnlyCoverageIsStructuralNotArithmetic(t *testing.T) {
+// TestB2BChildOnlyContradictoryAggregateStaysPartial proves the complete
+// partition proof is bounded by exact arithmetic conservation (F3). The
+// declared complete partition is a claim, not a truth: when the intact aggregate
+// parent quantities (37 and 41) disagree with the child sums (8+3 and 5+4), the
+// evidence is inconsistent and the rater must fail closed partial rather than
+// invent the aggregate's residual or suppress it as if the children had priced
+// its whole share. The priced children stay payable at their literal child total
+// 74/0, and each contested parent keeps its missing-rate diagnostic.
+func TestB2BChildOnlyContradictoryAggregateStaysPartial(t *testing.T) {
 	t.Parallel()
-	resolved := b2bResolved(t, "b2b-structural-not-arithmetic", b2bChildOnlyRules(t), b2bPartitionSchemas(metering.RelationshipPartition))
-	obs := b1Observation(t, "b2b-structural-not-arithmetic", "b-leg-1", metering.OriginLocal, metering.BoundaryBackendIngress, metering.PerspectiveOperator,
+	resolved := b2bResolved(t, "b2b-contradictory-aggregate", b2bChildOnlyRules(t), b2bPartitionSchemas(metering.RelationshipPartition))
+	obs := b1Observation(t, "b2b-contradictory-aggregate", "b-leg-1", metering.OriginLocal, metering.BoundaryBackendIngress, metering.PerspectiveOperator,
 		b1Measure(t, b2bParentInKey(), "37"),
 		b1Measure(t, b2bTextInKey(), "8"),
 		b1Measure(t, b2bAudioInKey(), "3"),
@@ -272,11 +278,26 @@ func TestB2BChildOnlyCoverageIsStructuralNotArithmetic(t *testing.T) {
 	)
 
 	val, err := billing.RateCustomerPolicyObservation(context.Background(), b1RetailInput(t, resolved, []metering.Observation{obs}), resolved)
-	if err != nil {
-		t.Fatalf("declared complete partition must govern regardless of parent quantity, got %v; lines=%+v", err, val.Lines)
+	if err == nil {
+		t.Fatalf("contradicted complete partition must stay partial, got complete total %s; lines=%+v", b1PayableTotal(t, val), val.Lines)
 	}
-	b2bAssertChildOnly(t, val)
-	b2bAssertNoParentLine(t, val)
+	if val.Completeness != economics.CompletenessPartial {
+		t.Fatalf("completeness=%q, want partial", val.Completeness)
+	}
+	if total := b1PayableTotal(t, val); total != "74/0" {
+		t.Fatalf("contradicted child-only total=%s, want literal child total 74/0", total)
+	}
+	assertB2BChildrenPayable(t, val)
+
+	for _, parentKey := range []metering.ComponentKey{b2bParentInKey(), b2bParentOutKey()} {
+		line := b2aComponentLine(t, val, parentKey)
+		if line == nil {
+			t.Fatalf("contested aggregate parent %s diagnostic missing; lines=%+v", parentKey.Component, val.Lines)
+		}
+		if line.Status != economics.RatingLineRateMissing {
+			t.Fatalf("aggregate parent %s status=%q, want missing rate", parentKey.Component, line.Status)
+		}
+	}
 }
 
 // TestB2BChildOnlyMereSubsetStaysPartial pins the fail-closed boundary: a
