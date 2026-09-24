@@ -257,7 +257,7 @@ func TestALegReportBoundedFactLoading(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	const accountID, aLegID = "aleg-c1-bound", "a-leg-c1"
 	seedALegCustomerAccount(t, store, accountID)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		seedALegCustomerCall(t, store, accountID, aLegID, nil, 10)
 	}
 	recorder := &alegQueryRecorder{}
@@ -545,7 +545,7 @@ func TestALegReportJournalFanoutBounded(t *testing.T) {
 	const accountID, aLegID = "aleg-c1-jfan", "a-leg-c1"
 	seedALegCustomerAccount(t, store, accountID)
 	callID := seedALegCustomerCall(t, store, accountID, aLegID, nil, 20)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		plantALegSettlementJournal(t, store, fmt.Sprintf("tx-jfan-%d", i), accountID, callID.String(), aLegID,
 			"customer_call_settlement", "customer_financial_account", "usage_revenue", 5, uint64(20+i), "", "", "")
 	}
@@ -578,7 +578,7 @@ func TestALegReportEntryFanoutBounded(t *testing.T) {
 	entries := []billing.JournalEntry{
 		{LedgerAccount: "customer_financial_account", Side: billing.JournalDebit, Amount: billing.Money{Nano: 20, Currency: "USD"}},
 	}
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		entries = append(entries, billing.JournalEntry{
 			LedgerAccount: "usage_revenue", Side: billing.JournalCredit, Amount: billing.Money{Nano: 4, Currency: "USD"},
 		})
@@ -713,7 +713,7 @@ func TestALegReportIssuesBoundedDuringCollection(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	const accountID, aLegID = "aleg-c1-issuecap", "a-leg-c1"
 	seedALegCustomerAccount(t, store, accountID)
-	for i := 0; i < 140; i++ {
+	for range 140 {
 		seedALegCustomerClosure(t, store, accountID, aLegID)
 	}
 	first := queryALegCustomerReport(t, store, accountID, aLegID, 70, "")

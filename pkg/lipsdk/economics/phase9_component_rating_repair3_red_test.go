@@ -15,6 +15,7 @@ func (phase9Repair3Rater) Rate(context.Context, RatingInput) (Valuation, error) 
 }
 
 func TestPhase9Repair3_PublicRaterContractRemainsProviderNeutral(t *testing.T) {
+	t.Parallel()
 	var rater Rater = phase9Repair3Rater{}
 	_, err := rater.Rate(context.Background(), RatingInput{})
 	if !errors.Is(err, errPhase9Repair3Rater) {

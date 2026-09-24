@@ -885,14 +885,14 @@ func TestLane3E2E_CanonicalResponseEventParity(t *testing.T) {
 	if events[0].Kind != lipapi.EventResponseStarted {
 		t.Errorf("event[0] expected EventResponseStarted, got %v", events[0].Kind)
 	}
-	var textSeen string
+	var textSeen strings.Builder
 	for _, ev := range events {
 		if ev.Kind == lipapi.EventTextDelta {
-			textSeen += ev.Delta
+			textSeen.WriteString(ev.Delta)
 		}
 	}
-	if !strings.Contains(textSeen, "hello from lane-3 wire E2E") {
-		t.Errorf("expected text delta 'hello from lane-3 wire E2E', got %q", textSeen)
+	if !strings.Contains(textSeen.String(), "hello from lane-3 wire E2E") {
+		t.Errorf("expected text delta 'hello from lane-3 wire E2E', got %q", textSeen.String())
 	}
 	if events[len(events)-1].Kind != lipapi.EventResponseFinished {
 		t.Errorf("last event expected EventResponseFinished, got %v", events[len(events)-1].Kind)
@@ -1399,10 +1399,8 @@ func TestLane3E2E_RetryFailoverRaceCredentialEconomics(t *testing.T) {
 
 		var wg sync.WaitGroup
 		errs := make(chan error, 2)
-		for i := 0; i < 2; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 2 {
+			wg.Go(func() {
 				r, err := src.Open()
 				if err != nil {
 					errs <- err
@@ -1418,7 +1416,7 @@ func TestLane3E2E_RetryFailoverRaceCredentialEconomics(t *testing.T) {
 					errs <- fmt.Errorf("unexpected body content: %s", string(data))
 					return
 				}
-			}()
+			})
 		}
 		wg.Wait()
 		close(errs)
@@ -1757,7 +1755,6 @@ func TestLane3E2E_HardGate_StoreNeverReachesWireBackend(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

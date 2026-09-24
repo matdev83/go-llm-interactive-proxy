@@ -146,8 +146,6 @@ func newRatchetPipeSpec(
 }
 
 func TestFindingB1_CaptureCandidateBody_NoPayloadSizedMemorySlice(t *testing.T) {
-	t.Parallel()
-
 	type sizeCase struct {
 		name   string
 		target int
@@ -157,7 +155,8 @@ func TestFindingB1_CaptureCandidateBody_NoPayloadSizedMemorySlice(t *testing.T) 
 		{name: "1MiB", target: 1 << 20},
 	}
 	if !testing.Short() {
-		sizes = append(sizes,
+		sizes = append(
+			sizes,
 			sizeCase{name: "5MiB", target: 5 << 20},
 			sizeCase{name: "20MiB", target: 20 << 20},
 		)
@@ -174,6 +173,7 @@ func TestFindingB1_CaptureCandidateBody_NoPayloadSizedMemorySlice(t *testing.T) 
 			profile: openairesponses.NewProfile(),
 			urlPath: "/v1/responses",
 			bodyBuilder: func(tb testing.TB, target int) []byte {
+				tb.Helper()
 				if target > (8 << 20) {
 					return bench20MiBChunkedBody(tb, target)
 				}
@@ -185,6 +185,7 @@ func TestFindingB1_CaptureCandidateBody_NoPayloadSizedMemorySlice(t *testing.T) 
 			profile: openailegacy.NewProfile(),
 			urlPath: "/v1/chat/completions",
 			bodyBuilder: func(tb testing.TB, target int) []byte {
+				tb.Helper()
 				if target > (8 << 20) {
 					return bench20MiBChatBody(tb, target)
 				}
@@ -196,6 +197,7 @@ func TestFindingB1_CaptureCandidateBody_NoPayloadSizedMemorySlice(t *testing.T) 
 			profile: openresponses.NewProfile(),
 			urlPath: "/openresponses/v1/responses",
 			bodyBuilder: func(tb testing.TB, target int) []byte {
+				tb.Helper()
 				if target > (8 << 20) {
 					return bench20MiBOpenResponsesBody(tb, target)
 				}
@@ -245,7 +247,8 @@ func TestFindingB1_RealPipeline_TransientAllocBounded(t *testing.T) {
 		{name: "1MiB", target: 1 << 20},
 	}
 	if !testing.Short() {
-		sizes = append(sizes,
+		sizes = append(
+			sizes,
 			sizeCase{name: "5MiB", target: 5 << 20},
 			sizeCase{name: "20MiB", target: 20 << 20},
 		)
@@ -262,6 +265,7 @@ func TestFindingB1_RealPipeline_TransientAllocBounded(t *testing.T) {
 			profile: openairesponses.NewProfile(),
 			urlPath: "/v1/responses",
 			bodyBuilder: func(tb testing.TB, target int) []byte {
+				tb.Helper()
 				if target > (8 << 20) {
 					return bench20MiBChunkedBody(tb, target)
 				}
@@ -273,6 +277,7 @@ func TestFindingB1_RealPipeline_TransientAllocBounded(t *testing.T) {
 			profile: openailegacy.NewProfile(),
 			urlPath: "/v1/chat/completions",
 			bodyBuilder: func(tb testing.TB, target int) []byte {
+				tb.Helper()
 				if target > (8 << 20) {
 					return bench20MiBChatBody(tb, target)
 				}
@@ -284,6 +289,7 @@ func TestFindingB1_RealPipeline_TransientAllocBounded(t *testing.T) {
 			profile: openresponses.NewProfile(),
 			urlPath: "/openresponses/v1/responses",
 			bodyBuilder: func(tb testing.TB, target int) []byte {
+				tb.Helper()
 				if target > (8 << 20) {
 					return bench20MiBOpenResponsesBody(tb, target)
 				}
@@ -299,6 +305,7 @@ func TestFindingB1_RealPipeline_TransientAllocBounded(t *testing.T) {
 					body := lane.bodyBuilder(t, sz.target)
 
 					benchRes := testing.Benchmark(func(b *testing.B) {
+						b.Helper()
 						b.ReportAllocs()
 						b.ResetTimer()
 						for b.Loop() {

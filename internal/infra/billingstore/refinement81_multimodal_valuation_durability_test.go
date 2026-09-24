@@ -414,7 +414,6 @@ func TestRefinement81_ValuationDurability(t *testing.T) {
 	reopened := v81OpenFileStore(t, ctx, path)
 
 	for _, row := range persistedVals {
-		row := row
 		t.Run(row.vector.name, func(t *testing.T) {
 			for _, want := range []struct {
 				ruleID   string

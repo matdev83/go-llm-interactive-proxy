@@ -203,7 +203,6 @@ func TestResponseStateSeeds_ValidationAndHelpers(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run("oversized_"+tc.name, func(t *testing.T) {
 			t.Parallel()
 			bad := seeds
@@ -426,12 +425,20 @@ func (m *stubMockExec) WallClock() func() time.Time {
 
 type mockWire struct{}
 
-func (mockWire) WriteBodyTooLarge(w http.ResponseWriter) error                          { return nil }
-func (mockWire) WriteReadBodyFailed(w http.ResponseWriter) error                        { return nil }
-func (mockWire) WriteExecutorNotConfigured(w http.ResponseWriter) error                 { return nil }
-func (mockWire) WritePreflightCanceled(w http.ResponseWriter) error                     { return nil }
-func (mockWire) WriteInvalidJSON(w http.ResponseWriter) error                           { return nil }
+func (mockWire) WriteBodyTooLarge(w http.ResponseWriter) error { return nil }
+
+func (mockWire) WriteReadBodyFailed(w http.ResponseWriter) error { return nil }
+
+func (mockWire) WriteExecutorNotConfigured(w http.ResponseWriter) error { return nil }
+
+func (mockWire) WritePreflightCanceled(w http.ResponseWriter) error { return nil }
+
+func (mockWire) WriteInvalidJSON(w http.ResponseWriter) error { return nil }
+
 func (mockWire) WriteAdmissionReject(w http.ResponseWriter, d decodeqos.Decision) error { return nil }
-func (mockWire) WriteInvalidRequest(w http.ResponseWriter) error                        { return nil }
-func (mockWire) WriteExecuteError(w http.ResponseWriter, out execerr.Outcome) error     { return nil }
-func (mockWire) WriteEncodeFailed(w http.ResponseWriter) error                          { return nil }
+
+func (mockWire) WriteInvalidRequest(w http.ResponseWriter) error { return nil }
+
+func (mockWire) WriteExecuteError(w http.ResponseWriter, out execerr.Outcome) error { return nil }
+
+func (mockWire) WriteEncodeFailed(w http.ResponseWriter) error { return nil }

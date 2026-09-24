@@ -404,7 +404,7 @@ func refinement82ReleaseBarrier(t *testing.T, n int, fn func(i int) error) []err
 	start := make(chan struct{})
 	errs := make([]error, n)
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -413,7 +413,7 @@ func refinement82ReleaseBarrier(t *testing.T, n int, fn func(i int) error) []err
 			errs[i] = fn(i)
 		}(i)
 	}
-	for i := 0; i < n; i++ {
+	for range n {
 		<-ready
 	}
 	close(start)

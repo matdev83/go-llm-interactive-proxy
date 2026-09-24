@@ -27,7 +27,7 @@ import (
 
 func benchMakeCleanPlanes() []largebody.PlaneEligibilityInput {
 	planes := make([]largebody.PlaneEligibilityInput, largebody.WireEligibilityPlaneCount)
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		id, _ := largebody.WireEligibilityPlaneID(i)
 		planes[i] = largebody.PlaneEligibilityInput{
 			ID:     id,
@@ -222,6 +222,7 @@ func BenchmarkLargePayloadBlocker_BelowThreshold(b *testing.B) {
 // -----------------------------------------------------------------------------
 
 func TestLargePayloadBlocker_ZeroTempFilesAndNoScanner(t *testing.T) {
+	t.Parallel()
 	const target = 1 << 20 // 1 MiB
 	body := baselineResponsesBody(t, target)
 
@@ -264,6 +265,7 @@ func TestLargePayloadBlocker_ZeroTempFilesAndNoScanner(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			spoolDir := t.TempDir()
 			spec := newBenchBlockerSpec(t, tc.enabled, 1<<20, spoolDir, tc.summary)
 

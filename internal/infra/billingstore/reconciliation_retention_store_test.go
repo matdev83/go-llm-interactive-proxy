@@ -375,11 +375,13 @@ func TestReconciliationRetentionRejectsForgedMonetaryTermsDurably(t *testing.T) 
 		{
 			name: "wrong complete metering amount",
 			mutate: func(t *testing.T, result *billing.ReconciliationRetentionResult) {
+				t.Helper()
 				result.Monetary.Rows[0].MeteringCostEffect.Amount = &billing.MonetaryExactAmount{
 					Currency: "USD", Decimal: &metering.Decimal{Coefficient: "2", Scale: 1},
 				}
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				row := monetaryRowJSON(t, document)
 				term, ok := row["metering_cost_effect"].(map[string]any)
 				require.True(t, ok)
@@ -393,20 +395,24 @@ func TestReconciliationRetentionRejectsForgedMonetaryTermsDurably(t *testing.T) 
 		{
 			name: "missing term without a reason",
 			mutate: func(t *testing.T, result *billing.ReconciliationRetentionResult) {
+				t.Helper()
 				result.Monetary.Rows[0].MeteringCostEffect = billing.MonetaryDiscrepancyTerm{Status: billing.MonetaryTermMissing}
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				monetaryRowJSON(t, document)["metering_cost_effect"] = map[string]any{"status": "missing"}
 			},
 		},
 		{
 			name: "incomparable term with an unknown reason",
 			mutate: func(t *testing.T, result *billing.ReconciliationRetentionResult) {
+				t.Helper()
 				result.Monetary.Rows[0].EndToEndCostDelta = billing.MonetaryDiscrepancyTerm{
 					Status: billing.MonetaryTermIncomparable, Reason: "bogus",
 				}
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				monetaryRowJSON(t, document)["end_to_end_cost_delta"] = map[string]any{"status": "incomparable", "reason": "bogus"}
 			},
 		},
@@ -676,14 +682,17 @@ func TestReconciliationRetentionRejectsForgedAggregateTermsDurably(t *testing.T)
 		{
 			name: "forged evaluation signed delta",
 			build: func(t *testing.T, id string) billing.ReconciliationRetentionResult {
+				t.Helper()
 				return retentionAggregateResultForStore(t, "test", "b-aggregate-forged", id, 1, createdAt)
 			},
 			mutate: func(t *testing.T, result *billing.ReconciliationRetentionResult) {
+				t.Helper()
 				result.Aggregate.Findings[0].Evaluation.SignedDelta = &billing.MonetaryExactAmount{
 					Currency: "USD", Decimal: &metering.Decimal{Coefficient: "31", Scale: 2},
 				}
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				finding := aggregateFindingJSON(t, document)
 				evaluation, ok := finding["evaluation"].(map[string]any)
 				require.True(t, ok)
@@ -697,26 +706,32 @@ func TestReconciliationRetentionRejectsForgedAggregateTermsDurably(t *testing.T)
 		{
 			name: "unknown evaluated status",
 			build: func(t *testing.T, id string) billing.ReconciliationRetentionResult {
+				t.Helper()
 				return retentionTestResult(t, "test", "b-aggregate-forged", id, 1, createdAt)
 			},
 			mutate: func(t *testing.T, result *billing.ReconciliationRetentionResult) {
+				t.Helper()
 				result.Aggregate.Findings[0].EvaluatedStatus = "bogus"
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				aggregateFindingJSON(t, document)["evaluated_status"] = "bogus"
 			},
 		},
 		{
 			name: "forged row gross absolute total",
 			build: func(t *testing.T, id string) billing.ReconciliationRetentionResult {
+				t.Helper()
 				return retentionTestResult(t, "test", "b-aggregate-forged", id, 1, createdAt)
 			},
 			mutate: func(t *testing.T, result *billing.ReconciliationRetentionResult) {
+				t.Helper()
 				result.Aggregate.Rows[0].GrossAbsoluteDiscrepancy = &billing.MonetaryExactAmount{
 					Currency: "USD", Decimal: &metering.Decimal{Coefficient: "1"},
 				}
 			},
 			forge: func(t *testing.T, document map[string]any) {
+				t.Helper()
 				aggregate, ok := document["aggregate"].(map[string]any)
 				require.True(t, ok, "aggregate must be a JSON object")
 				rows, ok := aggregate["rows"].([]any)

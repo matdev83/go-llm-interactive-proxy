@@ -38,7 +38,6 @@ func TestPhase2EconomicsRepair_LineItemRejectsFractionalTokenAndCountQuantity(t 
 	t.Parallel()
 
 	for _, unit := range []string{metering.UnitToken, metering.UnitCount} {
-		unit := unit
 		t.Run(unit, func(t *testing.T) {
 			t.Parallel()
 			v := validValuation(economics.BasisProviderReported)
@@ -62,7 +61,6 @@ func TestPhase2EconomicsRepair_UnitBoundRejectsFractionalTokenAndCount(t *testin
 	t.Parallel()
 
 	for _, unit := range []string{metering.UnitToken, metering.UnitCount} {
-		unit := unit
 		t.Run(unit, func(t *testing.T) {
 			t.Parallel()
 			bound := economics.UnitBound{Unit: unit, Amount: decimalPtr("1.5"), Present: true}
@@ -122,7 +120,6 @@ func TestPhase2EconomicsRepair_ObservationRefsRejectConflictingHashesAndDuplicat
 			},
 		},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			for _, invalid := range [][]metering.ObservationRef{
@@ -148,7 +145,6 @@ func TestPhase2EconomicsRepair_ValuationRejectsCrossStoreAndDuplicateAdjustmentR
 		{name: "cross store", refs: []economics.AdjustmentRef{{StoreID: "other-store", ValuationID: base.ValuationID, Revision: base.Revision, OperationID: base.OperationID}}},
 		{name: "duplicate", refs: []economics.AdjustmentRef{base, base}},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			v := validValuation(economics.BasisProviderReported)
@@ -165,7 +161,6 @@ func TestPhase2EconomicsRepair_ValuationCoverageRefsRejectDuplicateOrContradicto
 
 	ref := metering.ChargeRef{StoreID: "store-1", ObservationID: "unresolved-charge-observation", Revision: 1, ChargeItemID: "charge-1"}
 	for _, relation := range []metering.CoverageRelation{metering.CoverageInclusive, metering.CoverageAdditive} {
-		relation := relation
 		t.Run(string(relation), func(t *testing.T) {
 			t.Parallel()
 			v := validValuation(economics.BasisProviderReported)
@@ -252,7 +247,6 @@ func TestPhase2EconomicsRepair_V2AbsentMoneyCannotCarryMetadata(t *testing.T) {
 			},
 		},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if err := tc.check(); err == nil {

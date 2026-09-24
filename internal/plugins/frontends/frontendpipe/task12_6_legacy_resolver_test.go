@@ -32,6 +32,7 @@ func (tr *readTrackingReader) Read(p []byte) (int, error) {
 // at PreCapture Gate 5 before any capture/spool allocation, ensuring the body
 // is never double-materialized.
 func TestTask12_6_LegacyResolver_NoBodyDoubleMaterialization(t *testing.T) {
+	t.Parallel()
 	exec := &candidateGatesExec{}
 	prof := &trackingCandidateProfile{}
 	var records []frontendpipe.PreCaptureResult
@@ -69,6 +70,7 @@ func TestTask12_6_LegacyResolver_NoBodyDoubleMaterialization(t *testing.T) {
 // TestTask12_6_LegacyResolver_NilResolver_CandidatePermitted verifies that
 // when ResolveRouteSelector is nil, PreCapture does not decline on Gate 5.
 func TestTask12_6_LegacyResolver_NilResolver_CandidatePermitted(t *testing.T) {
+	t.Parallel()
 	exec := &candidateGatesExec{}
 	prof := &trackingCandidateProfile{}
 	var records []frontendpipe.PreCaptureResult

@@ -61,7 +61,6 @@ func TestPhase2Repair_CoverageGraphRejectsDuplicateRevisionNodes(t *testing.T) {
 			},
 		},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if err := metering.ValidateCoverageGraph([]metering.Observation{base, tc.make()}); err == nil {

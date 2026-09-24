@@ -36,6 +36,7 @@ func TestBuildSessionInput_SessionWire(t *testing.T) {
 	t.Parallel()
 
 	t.Run("headers extract and precedence over body metadata", func(t *testing.T) {
+		t.Parallel()
 		h := http.Header{}
 		h.Set(sessionwire.HeaderAuthoritativeSessionID, "hdr-sid")
 		h.Set(sessionwire.HeaderResumeToken, "hdr-tok")
@@ -72,6 +73,7 @@ func TestBuildSessionInput_SessionWire(t *testing.T) {
 	})
 
 	t.Run("body metadata rejection when RejectBodyMetadata is true", func(t *testing.T) {
+		t.Parallel()
 		h := http.Header{}
 		h.Set(sessionwire.HeaderAuthoritativeSessionID, "hdr-sid")
 		meta := map[string]string{
@@ -90,6 +92,7 @@ func TestBuildSessionInput_SessionWire(t *testing.T) {
 	})
 
 	t.Run("non-LIP body metadata is not rejected when RejectBodyMetadata is true", func(t *testing.T) {
+		t.Parallel()
 		h := http.Header{}
 		h.Set(sessionwire.HeaderAuthoritativeSessionID, "hdr-sid")
 		h.Set(sessionwire.HeaderResumeToken, "hdr-tok")
@@ -109,6 +112,7 @@ func TestBuildSessionInput_SessionWire(t *testing.T) {
 	})
 
 	t.Run("header aliases support", func(t *testing.T) {
+		t.Parallel()
 		h := http.Header{}
 		h.Set("X-Custom-Session", "alias-sid")
 		h.Set("X-Custom-Resume", "alias-tok")
@@ -133,6 +137,7 @@ func TestBuildSessionInput_SessionWire(t *testing.T) {
 	})
 
 	t.Run("bounds validation on metadata when permitted", func(t *testing.T) {
+		t.Parallel()
 		meta := map[string]string{
 			sessionwire.MetaKeyAuthoritativeSessionID: strings.Repeat("s", lipapi.MaxAuthoritativeSessionIDBytes+1),
 		}

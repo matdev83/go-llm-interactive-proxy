@@ -92,11 +92,10 @@ func (r *uploadObservingReader) Read(p []byte) (int, error) {
 	if r.onRead != nil {
 		r.onRead(len(r.data) - r.offset)
 	}
-	chunk := min(len(p), len(r.data)-r.offset)
-	// Return smaller chunks to simulate streaming upload
-	if chunk > 16*1024 {
-		chunk = 16 * 1024
-	}
+	chunk := min(
+		// Return smaller chunks to simulate streaming upload
+		min(len(p), len(r.data)-r.offset), 16*1024,
+	)
 	copy(p, r.data[r.offset:r.offset+chunk])
 	r.offset += chunk
 	return chunk, nil
@@ -356,7 +355,7 @@ func TestCandidateProof_ReplaySourceThroughProtocolProof_Parity(t *testing.T) {
 			}
 
 			// 4. Derive model span (Requirements 4, 9)
-			modelIdx := bytes.Index(readBytes, []byte(fmt.Sprintf("%q", parsed.Model)))
+			modelIdx := bytes.Index(readBytes, fmt.Appendf(nil, "%q", parsed.Model))
 			modelSpan := largebody.Span{
 				Offset: int64(modelIdx),
 				Length: int64(len(parsed.Model) + 2), // include quotes

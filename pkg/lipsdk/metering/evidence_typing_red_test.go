@@ -137,9 +137,7 @@ func TestSafeEvidenceNumericLocationsRejectNonNumericLexemes(t *testing.T) {
 	t.Parallel()
 	locations := append(append([]string{}, numericEvidencePaths...), numericEvidenceHeaders...)
 	for _, location := range locations {
-		location := location
 		for _, probe := range hostileNonNumericLexemes {
-			probe := probe
 			t.Run(location+"/"+probe.name, func(t *testing.T) {
 				t.Parallel()
 				field := sanitizeTestField(location, probe.lexeme)
@@ -164,7 +162,6 @@ func TestSafeEvidenceReproducedBypassPaths(t *testing.T) {
 		"$.usage.audio_seconds",
 		"$.usage.web_search_requests",
 	} {
-		location := location
 		t.Run(location, func(t *testing.T) {
 			t.Parallel()
 			field := sanitizeTestField(location, "PrivateCustomerOutputWithoutSpaces")
@@ -192,9 +189,7 @@ func TestSafeEvidenceIntegerLocationsRejectSignsFractionsAndOverflow(t *testing.
 		{name: "internal space", lexeme: "1 00"},
 	}
 	for _, probe := range invalid {
-		probe := probe
 		for _, location := range []string{"$.usage.input_tokens", "content-length", "$.usage.web_search_requests"} {
-			location := location
 			t.Run(location+"/"+probe.name, func(t *testing.T) {
 				t.Parallel()
 				if err := sanitizeTestField(location, probe.lexeme).Validate(); err == nil {

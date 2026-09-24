@@ -214,7 +214,7 @@ func assertFreezeCarriers(t *testing.T, h http.Header) {
 func sseDataPayloads(t *testing.T, body string) []map[string]any {
 	t.Helper()
 	var out []map[string]any
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		rest, ok := strings.CutPrefix(line, "data: ")
 		if !ok || !strings.HasPrefix(strings.TrimSpace(rest), "{") {
 			continue

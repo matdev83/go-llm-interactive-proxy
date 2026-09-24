@@ -57,6 +57,7 @@ func TestPhase9Repair5_ValuationContextHashIncludesTrustedSnapshotIdentity(t *te
 	}
 	for _, tc := range variants {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			variant := base.Clone()
 			tc.mutate(&variant)
 			if got := variant.ContextHash(); got == base.ContextHash() {

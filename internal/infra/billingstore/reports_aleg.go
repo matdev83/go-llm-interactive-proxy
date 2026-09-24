@@ -341,10 +341,7 @@ func (s *DurableStore) QueryALegReport(ctx context.Context, query billing.ALegRe
 		// states, and journal-bound snapshots. No per-call and no
 		// per-leg statements anywhere. The leg cap covers the page
 		// limit so every surfaced page leg always has a verdict.
-		perCallCap := alegReportMaxPresenceLegs
-		if normalized.Limit > perCallCap {
-			perCallCap = normalized.Limit
-		}
+		perCallCap := max(normalized.Limit, alegReportMaxPresenceLegs)
 		providerLegs, providerOverCap, err := loadALegProviderLegsTx(ctx, tx, account.ID, normalized.ALegID, chunkIDs, perCallCap)
 		if err != nil {
 			return billing.ALegReport{}, err
@@ -541,7 +538,8 @@ func (s *DurableStore) QueryALegReport(ctx context.Context, query billing.ALegRe
 				verdict, verdictIssues, err := evaluateALegProviderLegTx(
 					billing.ALegAuthorityScope{StoreID: s.storeID, AccountID: account.ID, ALegID: normalized.ALegID, CallID: callID, Currency: currency},
 					leg, okJournals[callID], okHeads[callID], okFences[callID], executionFences[callID],
-					workStates, revisionPending, providerSnapshots)
+					workStates, revisionPending, providerSnapshots,
+				)
 				if err != nil {
 					return billing.ALegReport{}, err
 				}
@@ -890,10 +888,7 @@ func loadALegPassThroughSnapshotsTx(ctx context.Context, q bun.IDB, accountID st
 		return out, nil
 	}
 	for start := 0; start < len(sourceKeys); {
-		end := start + alegReportScopeChunkSize
-		if end > len(sourceKeys) {
-			end = len(sourceKeys)
-		}
+		end := min(start+alegReportScopeChunkSize, len(sourceKeys))
 		batch := sourceKeys[start:end]
 		args := make([]any, 0, len(batch)+2)
 		args = append(args, accountID, billing.CostPassThroughAdjustmentOperationKind)
@@ -1605,10 +1600,7 @@ func loadALegProviderRevisionStateTx(ctx context.Context, q bun.IDB, storeID str
 		keys = append(keys, key)
 	}
 	for start := 0; start < len(keys); {
-		end := start + alegReportScopeChunkSize
-		if end > len(keys) {
-			end = len(keys)
-		}
+		end := min(start+alegReportScopeChunkSize, len(keys))
 		batch := keys[start:end]
 		args := make([]any, 0, len(batch)+2)
 		args = append(args, storeID, string(billing.EconomicQueueProvider))
@@ -1648,10 +1640,7 @@ func loadALegProviderSnapshotsTx(ctx context.Context, q bun.IDB, accountID strin
 		keys = append(keys, key)
 	}
 	for start := 0; start < len(keys); {
-		end := start + alegReportScopeChunkSize
-		if end > len(keys) {
-			end = len(keys)
-		}
+		end := min(start+alegReportScopeChunkSize, len(keys))
 		batch := keys[start:end]
 		args := make([]any, 0, len(batch)+3)
 		args = append(args, accountID, "provider_call_cogs")

@@ -879,14 +879,14 @@ func TestLane2E2E_CanonicalResponseEventParity(t *testing.T) {
 	if events[0].Kind != lipapi.EventResponseStarted {
 		t.Errorf("event[0] expected EventResponseStarted, got %v", events[0].Kind)
 	}
-	var textSeen string
+	var textSeen strings.Builder
 	for _, ev := range events {
 		if ev.Kind == lipapi.EventTextDelta {
-			textSeen += ev.Delta
+			textSeen.WriteString(ev.Delta)
 		}
 	}
-	if !strings.Contains(textSeen, "hello from lane-2 wire E2E") {
-		t.Errorf("expected text delta 'hello from lane-2 wire E2E', got %q", textSeen)
+	if !strings.Contains(textSeen.String(), "hello from lane-2 wire E2E") {
+		t.Errorf("expected text delta 'hello from lane-2 wire E2E', got %q", textSeen.String())
 	}
 	if events[len(events)-1].Kind != lipapi.EventResponseFinished {
 		t.Errorf("last event expected EventResponseFinished, got %v", events[len(events)-1].Kind)

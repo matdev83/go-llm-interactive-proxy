@@ -78,7 +78,6 @@ func TestSafeEvidenceEveryLocationRejectsCrossTypeLexemes(t *testing.T) {
 		{lexeme: "1.5"},
 	}
 	for location, kind := range safeEvidencePathAllowlist {
-		location, kind := location, kind
 		for _, p := range crossType {
 			probeLexeme := p.lexeme
 			t.Run(location+"/"+probeLexeme, func(t *testing.T) {
@@ -140,7 +139,6 @@ func TestSafeEvidenceCanonicalFixturesPerKind(t *testing.T) {
 		{name: "charge kind header", location: "x-charge-kind", lexeme: "credit"},
 	}
 	for _, fixture := range fixtures {
-		fixture := fixture
 		t.Run(fixture.name, func(t *testing.T) {
 			t.Parallel()
 			if err := sanitizeTestField(fixture.location, fixture.lexeme).Validate(); err != nil {
@@ -191,7 +189,6 @@ func TestSafeEvidenceTypeGrammarBoundaries(t *testing.T) {
 		{name: "kind rejects casing", location: "$.charge.kind", lexeme: "COMPONENT"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := sanitizeTestField(tc.location, tc.lexeme).Validate()
@@ -220,7 +217,6 @@ func TestSafeEvidenceUnknownAndAmbiguousLocationsReject(t *testing.T) {
 		"x-usage-anything-bytes",
 		"x-provider-custom-field",
 	} {
-		location := location
 		t.Run(location, func(t *testing.T) {
 			t.Parallel()
 			field := sanitizeTestField(location, "100")

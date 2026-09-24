@@ -399,7 +399,7 @@ func TestALegReportPassThroughBoundedFactLoading(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	const accountID, aLegID = "aleg-c2-bound", "a-leg-c2"
 	seedALegCustomerAccount(t, store, accountID)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		callID, _ := seedALegPassThroughCall(t, store, accountID, aLegID, 60)
 		applyALegPassThroughRevision(t, store, accountID, callID, phase10ProviderCost(2, 80, "USD"))
 		applyALegPassThroughRevision(t, store, accountID, callID, phase10ProviderCost(3, 70, "USD"))

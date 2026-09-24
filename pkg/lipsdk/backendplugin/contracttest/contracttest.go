@@ -326,13 +326,7 @@ const defaultScenarioTimeout = 30 * time.Second
 // the run. The run context remains the parent so a cancelled run still
 // releases every scenario.
 func scenarioContext(parent context.Context, runTimeout time.Duration) (context.Context, context.CancelFunc) {
-	bound := runTimeout / 10
-	if bound < 5*time.Second {
-		bound = 5 * time.Second
-	}
-	if bound > defaultScenarioTimeout {
-		bound = defaultScenarioTimeout
-	}
+	bound := min(max(runTimeout/10, 5*time.Second), defaultScenarioTimeout)
 	return context.WithTimeout(parent, bound)
 }
 

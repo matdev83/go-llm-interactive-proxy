@@ -51,7 +51,6 @@ func TestBindSubmissionIdentityAcceptanceVectors(t *testing.T) {
 		{name: "explicit local command", kind: KindLocalCommand, source: SourceLocalCommand, wantStatus: StatusTrusted, wantBillable: false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			result, err := Bind(phase10BindingInput(), phase10Authority(tc.kind, tc.source, tc.submissionID, tc.billingCallID))
@@ -105,8 +104,8 @@ func TestBindSubmissionIdentityRejectsUntrustedAndCrossScopeAuthorities(t *testi
 	})
 
 	for _, field := range []string{"tenant", "principal", "session", "a-leg", "store", "call"} {
-		field := field
 		t.Run("cross-"+field, func(t *testing.T) {
+			t.Parallel()
 			in := phase10BindingInput()
 			authority := phase10Authority(KindToolContinuation, SourceAuthenticatedContinuation, "submission-1", "bc_0123456789abcdef0123456789abcdef")
 			switch field {
@@ -166,6 +165,7 @@ func TestBindSubmissionIdentityMakesMissingAndLifecycleStatesExplicit(t *testing
 	t.Parallel()
 
 	t.Run("tool continuation may receive a fresh runtime call identity", func(t *testing.T) {
+		t.Parallel()
 		result, err := Bind(phase10BindingInput(), phase10Authority(KindToolContinuation, SourceAuthenticatedContinuation, "submission-1", ""))
 		if err != nil {
 			t.Fatalf("Bind() error = %v, want trusted submission identity", err)
@@ -176,6 +176,7 @@ func TestBindSubmissionIdentityMakesMissingAndLifecycleStatesExplicit(t *testing
 	})
 
 	t.Run("missing submission identity is incomplete", func(t *testing.T) {
+		t.Parallel()
 		result, err := Bind(phase10BindingInput(), phase10Authority(KindNewSubmission, SourceAuthenticatedCurrentTurn, "", ""))
 		if err != nil {
 			t.Fatalf("Bind() error = %v, want explicit status without rejecting inference", err)
@@ -189,6 +190,7 @@ func TestBindSubmissionIdentityMakesMissingAndLifecycleStatesExplicit(t *testing
 	})
 
 	t.Run("absent authority is unsupported", func(t *testing.T) {
+		t.Parallel()
 		result, err := Bind(phase10BindingInput(), nil)
 		if err != nil {
 			t.Fatalf("Bind() error = %v, want explicit status", err)
@@ -202,6 +204,7 @@ func TestBindSubmissionIdentityMakesMissingAndLifecycleStatesExplicit(t *testing
 	})
 
 	t.Run("follow-up cannot reopen a prior billing call", func(t *testing.T) {
+		t.Parallel()
 		result, err := Bind(phase10BindingInput(), phase10Authority(KindFollowUp, SourceAuthenticatedCurrentTurn, "submission-2", "bc_0123456789abcdef0123456789abcdef"))
 		if !errors.Is(err, ErrLifecycleConflict) {
 			t.Fatalf("error = %v, want ErrLifecycleConflict", err)
@@ -231,16 +234,14 @@ func TestSubmissionAuthorityContextClonesAndConcurrentBindingIsDeterministic(t *
 	results := make(chan BindingResult, workers)
 	var wg sync.WaitGroup
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			result, err := Bind(phase10BindingInput(), phase10Authority(KindToolContinuation, SourceAuthenticatedContinuation, "submission-1", "bc_0123456789abcdef0123456789abcdef"))
 			if err != nil {
 				t.Errorf("Bind() error = %v", err)
 				return
 			}
 			results <- result
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)

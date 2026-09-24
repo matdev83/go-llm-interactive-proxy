@@ -124,7 +124,8 @@ func (e *benchWireExecutor) Execute(ctx context.Context, call *lipapi.Call) (lip
 }
 
 func (e *benchWireExecutor) CancelALeg(context.Context, lipapi.ALegCancelRequest) error { return nil }
-func (e *benchWireExecutor) WallClock() func() time.Time                                { return nil }
+
+func (e *benchWireExecutor) WallClock() func() time.Time { return nil }
 
 var (
 	_ lipsdk.ExecutorView         = (*benchWireExecutor)(nil)
@@ -685,7 +686,7 @@ func bench20MiBChunkedBody(tb testing.TB, target int) []byte {
 	var b strings.Builder
 	b.Grow(target)
 	b.WriteString(prefix)
-	for i := 0; i < numParts; i++ {
+	for i := range numParts {
 		if i > 0 {
 			b.WriteString(",")
 		}
@@ -746,6 +747,7 @@ func BenchmarkLargePayloadStages_20MiB_WireEndToEnd(b *testing.B) {
 // -----------------------------------------------------------------------------
 
 func TestLargePayloadStages_DecodePermitNotHeldDuringUpload(t *testing.T) {
+	t.Parallel()
 	const target = 1 << 20 // 1 MiB
 	body := baselineResponsesBody(t, target)
 	spoolDir := t.TempDir()

@@ -91,15 +91,13 @@ func TestRefinement52DurableLateEvidenceKeepsClosedLegAndRevisionWorkAppendable(
 	const duplicateWriters = 8
 	var wg sync.WaitGroup
 	errs := make(chan error, duplicateWriters)
-	for i := 0; i < duplicateWriters; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range duplicateWriters {
+		wg.Go(func() {
 			errs <- appender.AppendLateEconomicEvidence(ctx, coremetering.LateEconomicEvidence{
 				Kind:     coremetering.LateEconomicProviderFinalizer,
 				Identity: refinement52LateIdentity(storeID, callID), Observation: finalizer,
 			})
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

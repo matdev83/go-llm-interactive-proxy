@@ -191,7 +191,6 @@ func TestAllocationConserve_RejectsScopeAndPlaneMismatch(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			record := allocationTestRecord(t, tc.name)
@@ -331,8 +330,8 @@ func TestAllocationSupersession_ValidCorrectionIsOrderIndependent(t *testing.T) 
 		"predecessor-first": {canonicalBase, correction},
 		"successor-first":   {correction, canonicalBase},
 	} {
-		name, records := name, records
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			result, err := ResolveAllocationSupersession(records)
 			if err != nil {
 				t.Fatalf("resolve: %v", err)
@@ -361,6 +360,7 @@ func TestAllocationSupersession_RejectsHashScopeForkAndCycle(t *testing.T) {
 	}
 
 	t.Run("hash conflict", func(t *testing.T) {
+		t.Parallel()
 		correction := canonicalBase.Clone()
 		correction.ID = "allocation-hash-correction"
 		correction.Operation = AllocationOperationCorrection
@@ -374,6 +374,7 @@ func TestAllocationSupersession_RejectsHashScopeForkAndCycle(t *testing.T) {
 	})
 
 	t.Run("scope mismatch", func(t *testing.T) {
+		t.Parallel()
 		correction := canonicalBase.Clone()
 		correction.ID = "allocation-scope-correction"
 		correction.SourceSubject.ResourceID = "another-resource"
@@ -407,8 +408,8 @@ func TestAllocationSupersession_RejectsHashScopeForkAndCycle(t *testing.T) {
 			record.Currency = "EUR"
 		},
 	} {
-		name, mutate := name, mutate
 		t.Run("incompatible "+name, func(t *testing.T) {
+			t.Parallel()
 			correction := canonicalBase.Clone()
 			correction.ID = "allocation-incompatible-" + name
 			correction.Operation = AllocationOperationCorrection
@@ -421,6 +422,7 @@ func TestAllocationSupersession_RejectsHashScopeForkAndCycle(t *testing.T) {
 	}
 
 	t.Run("unit", func(t *testing.T) {
+		t.Parallel()
 		baseQuantity := allocationTestRecord(t, "allocation-unit-base")
 		baseQuantity.SourceBasis = BasisProviderQuantityLocal
 		baseQuantity.SourceAmount = nil
@@ -442,6 +444,7 @@ func TestAllocationSupersession_RejectsHashScopeForkAndCycle(t *testing.T) {
 	})
 
 	t.Run("self reference and duplicate payload", func(t *testing.T) {
+		t.Parallel()
 		self := canonicalBase.Clone()
 		self.ID = "allocation-self"
 		self.Operation = AllocationOperationCorrection
@@ -459,6 +462,7 @@ func TestAllocationSupersession_RejectsHashScopeForkAndCycle(t *testing.T) {
 	})
 
 	t.Run("forked successors", func(t *testing.T) {
+		t.Parallel()
 		left := canonicalBase.Clone()
 		left.ID = "allocation-left"
 		left.Operation = AllocationOperationCorrection
@@ -473,6 +477,7 @@ func TestAllocationSupersession_RejectsHashScopeForkAndCycle(t *testing.T) {
 	})
 
 	t.Run("pending fork", func(t *testing.T) {
+		t.Parallel()
 		left := canonicalBase.Clone()
 		left.ID = "allocation-pending-left"
 		left.Operation = AllocationOperationCorrection
@@ -487,6 +492,7 @@ func TestAllocationSupersession_RejectsHashScopeForkAndCycle(t *testing.T) {
 	})
 
 	t.Run("multiple active heads", func(t *testing.T) {
+		t.Parallel()
 		second := canonicalBase.Clone()
 		second.Version = 2
 		if _, err := ResolveAllocationSupersession([]AllocationRecord{canonicalBase, second}); !errors.Is(err, ErrAllocationSupersessionHeadConflict) {
@@ -495,6 +501,7 @@ func TestAllocationSupersession_RejectsHashScopeForkAndCycle(t *testing.T) {
 	})
 
 	t.Run("cycle", func(t *testing.T) {
+		t.Parallel()
 		left := canonicalBase.Clone()
 		left.ID = "allocation-cycle-left"
 		left.Operation = AllocationOperationCorrection
@@ -546,8 +553,8 @@ func TestAllocationSupersession_ShuffledCorrectionReplacementChainConverges(t *t
 		"reverse": {replacement, correction, base},
 		"mixed":   {correction, replacement, base},
 	} {
-		name, records := name, records
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			result, err := ResolveAllocationSupersession(records)
 			if err != nil {
 				t.Fatalf("resolve: %v", err)

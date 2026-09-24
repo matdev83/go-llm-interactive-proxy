@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -75,13 +76,7 @@ func cycle3BillingTables() []string {
 
 func cycle3CountRows(t *testing.T, store *DurableStore, table string) int {
 	t.Helper()
-	allowed := false
-	for _, name := range cycle3BillingTables() {
-		if name == table {
-			allowed = true
-			break
-		}
-	}
+	allowed := slices.Contains(cycle3BillingTables(), table)
 	require.True(t, allowed, "table %q not in Cycle 3 allowlist", table)
 	var count int
 	require.NoError(t, store.db.NewRaw(`SELECT COUNT(*) FROM `+table).Scan(context.Background(), &count))
@@ -446,7 +441,7 @@ func TestALegReportCycle3RealLifecycleFullDTOImmutable(t *testing.T) {
 	// the faithful transition. Every repeat must observe identical
 	// business DTO, fresh non-decreasing AsOf, and identical hashes.
 	previous := before
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		idle := queryALegCustomerReport(t, store, accountID, aLegID, 0, "")
 		require.Equal(t, string(cycle3BusinessJSON(t, before)), string(cycle3BusinessJSON(t, idle)),
 			"idle repeat %d: business DTO must be identical", i)
@@ -507,7 +502,7 @@ func TestALegReportCycle3RetirementAndReadOnlyNoWrites(t *testing.T) {
 	// hash untouched — zero new charge/head/fence/snapshot/journal or
 	// economic-revision work-state mutation.
 	previous := baseline
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		repeat := queryALegCustomerReport(t, store, accountID, aLegID, 0, "")
 		require.Equal(t, string(beforeBusiness), string(cycle3BusinessJSON(t, repeat)),
 			"repeat %d: identical query must render identical business DTO", i)

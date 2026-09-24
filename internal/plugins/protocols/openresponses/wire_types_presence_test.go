@@ -66,7 +66,6 @@ func TestWireUsage_UnmarshalPresenceDisambiguation(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -90,7 +89,6 @@ func TestWireUsage_UnmarshalRejectsNonObject(t *testing.T) {
 	t.Parallel()
 
 	for _, raw := range []string{`1`, `[]`, `"usage"`} {
-		raw := raw
 		t.Run(raw, func(t *testing.T) {
 			t.Parallel()
 			var got WireUsage
@@ -122,7 +120,6 @@ func TestWireUsageDetails_UnmarshalRejectsNonObject(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if err := json.Unmarshal([]byte(tc.raw), tc.alloc()); err == nil {
@@ -179,7 +176,6 @@ func TestWireResponseResource_UsagePresence(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -246,7 +242,6 @@ func TestWireCompactResource_UsagePresence(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

@@ -16,6 +16,7 @@ import (
 )
 
 func TestGeminiNativeMeasuresPreserveModalityDirectionCacheReasoningAndGroundedTool(t *testing.T) {
+	t.Parallel()
 	u := &genai.GenerateContentResponseUsageMetadata{
 		PromptTokenCount:           20,
 		CandidatesTokenCount:       8,
@@ -82,6 +83,7 @@ func TestGeminiEvidenceDraftWithTrafficTypeRetainsSingleServiceContext(t *testin
 }
 
 func TestGeminiZeroUsageMetadataRetainsPresenceWithoutInventingPrice(t *testing.T) {
+	t.Parallel()
 	ev := usageEvent(&genai.GenerateContentResponse{UsageMetadata: &genai.GenerateContentResponseUsageMetadata{}})
 	if ev == nil || !ev.UsagePresence.InputTokens || !ev.UsagePresence.OutputTokens || !ev.UsagePresence.TotalTokens {
 		t.Fatalf("zero provider usage must remain an explicit observation: %+v", ev)
@@ -92,6 +94,7 @@ func TestGeminiZeroUsageMetadataRetainsPresenceWithoutInventingPrice(t *testing.
 }
 
 func TestGeminiCacheOnlyUsageRetainsCachePresence(t *testing.T) {
+	t.Parallel()
 	ev := usageEvent(&genai.GenerateContentResponse{UsageMetadata: &genai.GenerateContentResponseUsageMetadata{CachedContentTokenCount: 4}})
 	if ev == nil || !ev.UsagePresence.CacheReadTokens || ev.CacheReadTokens != 4 {
 		t.Fatalf("cache-only Gemini usage lost cache evidence: %+v", ev)
@@ -99,6 +102,7 @@ func TestGeminiCacheOnlyUsageRetainsCachePresence(t *testing.T) {
 }
 
 func TestGeminiNegativeUsageFieldRemainsUnavailable(t *testing.T) {
+	t.Parallel()
 	ev := usageEvent(&genai.GenerateContentResponse{UsageMetadata: &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: -1, CandidatesTokenCount: 2, TotalTokenCount: 2}})
 	if ev == nil || ev.UsagePresence.InputTokens || ev.InputTokens != 0 {
 		t.Fatalf("negative Gemini input became provider evidence: %+v", ev)

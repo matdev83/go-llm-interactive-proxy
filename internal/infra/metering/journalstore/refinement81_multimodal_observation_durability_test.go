@@ -238,7 +238,6 @@ func TestRefinement81_JournalDurability(t *testing.T) {
 	reopened := j81OpenFileStore(t, ctx, path)
 
 	for _, row := range rows {
-		row := row
 		t.Run(row.vector.name, func(t *testing.T) {
 			for _, want := range []struct {
 				obs      metering.Observation

@@ -168,7 +168,6 @@ func TestStatementIdentityIsDeterministicAndFieldScoped(t *testing.T) {
 		"period":    func(i *economics.StatementIdentity) { i.PeriodID = "period-2" },
 		"revision":  func(i *economics.StatementIdentity) { i.Revision = 2 },
 	} {
-		name, mutate := name, mutate
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			changed := identity
@@ -188,7 +187,6 @@ func TestStatementIdentityIsDeterministicAndFieldScoped(t *testing.T) {
 		"no revision":  {StoreID: "store-1", ProviderAccountKey: "a", StatementID: "s", PeriodID: "p"},
 		"padded":       {StoreID: " store-1", ProviderAccountKey: "a", StatementID: "s", PeriodID: "p", Revision: 1},
 	} {
-		name, invalid := name, invalid
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			require.Error(t, invalid.Validate())
@@ -363,7 +361,6 @@ func TestStatementBatchReplayFingerprintsRejectInvalidBatches(t *testing.T) {
 			b.Observations[0].Charges[0].Amount = &metering.Decimal{Coefficient: "1.2.5", Scale: 1}
 		},
 	} {
-		name, mutate := name, mutate
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			invalid := valid

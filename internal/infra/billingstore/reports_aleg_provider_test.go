@@ -845,7 +845,7 @@ func TestALegReportProviderBoundedFactLoading(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	const accountID, aLegID = "aleg-c2b-bound", "a-leg-c2b"
 	seedALegCustomerAccount(t, store, accountID)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		callID := seedC2BCall(t, store, accountID, aLegID)
 		for j, bLegID := range []string{"b-1", "b-2"} {
 			leg := seedC2BLeg(t, store, callID, aLegID, bLegID, j+1, billing.LegOutcomeWinner)

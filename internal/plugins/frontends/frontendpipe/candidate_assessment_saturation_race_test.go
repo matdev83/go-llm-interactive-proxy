@@ -38,14 +38,14 @@ func TestCandidateAssessment_SaturationRace_ConcurrentDecline_SingleAdmissionPer
 
 	payload := buildJSONPayload(payloadSize)
 
-	for iter := 0; iter < iterations; iter++ {
+	for iter := range iterations {
 		realLimiter := decodeqos.New(maxConcurrent, int64(maxConcurrent*payloadSize))
 		limiter := newPerRequestTrackingLimiter(realLimiter)
 
 		exec := &testAssessorExecutor{}
-		var assessCalls int64
+		var assessCalls atomic.Int64
 		exec.assessFunc = func(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
-			atomic.AddInt64(&assessCalls, 1)
+			assessCalls.Add(1)
 			// Hold the permit until the limiter has actually rejected a competing
 			// request. This forces contention while the limit is held instead of
 			// assuming overlapping goroutine scheduling. The shared wait is bounded
@@ -55,7 +55,7 @@ func TestCandidateAssessment_SaturationRace_ConcurrentDecline_SingleAdmissionPer
 			return largebody.NewDeclinedAssessment(largebody.DeclineReasonRouteIncompatible)
 		}
 
-		var decodeCalls int64
+		var decodeCalls atomic.Int64
 		spec := newAssessmentTestSpec(
 			exec,
 			minimalValidProofProfile(),
@@ -67,7 +67,7 @@ func TestCandidateAssessment_SaturationRace_ConcurrentDecline_SingleAdmissionPer
 			nil,
 			nil,
 			func(dctx frontendpipe.DecodeContext) {
-				atomic.AddInt64(&decodeCalls, 1)
+				decodeCalls.Add(1)
 			},
 		)
 
@@ -82,7 +82,7 @@ func TestCandidateAssessment_SaturationRace_ConcurrentDecline_SingleAdmissionPer
 		}
 		results := make([]reqResult, numGoroutines)
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			go func(idx int) {
 				defer wg.Done()
 				reqID := fmt.Sprintf("iter-%d-cand-%03d", iter, idx)
@@ -158,8 +158,8 @@ func TestCandidateAssessment_SaturationRace_ConcurrentDecline_SingleAdmissionPer
 		if total := limiter.TotalCalls(); total != int64(numGoroutines) {
 			t.Fatalf("[iter %d] total TryAcquire calls: got %d, want %d", iter, total, numGoroutines)
 		}
-		if int64(count200) != atomic.LoadInt64(&decodeCalls) {
-			t.Fatalf("[iter %d] Spec.Decode calls (%d) must equal admitted requests (%d)", iter, atomic.LoadInt64(&decodeCalls), count200)
+		if int64(count200) != decodeCalls.Load() {
+			t.Fatalf("[iter %d] Spec.Decode calls (%d) must equal admitted requests (%d)", iter, decodeCalls.Load(), count200)
 		}
 		if exec.ExecuteLargeCallCount() != 0 {
 			t.Fatalf("[iter %d] ExecuteLargeBody must NOT be called on decline, got %d", iter, exec.ExecuteLargeCallCount())
@@ -185,7 +185,7 @@ func TestCandidateAssessment_SaturationRace_ConcurrentAccept_SingleAdmissionAndS
 
 	payload := buildJSONPayload(payloadSize)
 
-	for iter := 0; iter < iterations; iter++ {
+	for iter := range iterations {
 		realLimiter := decodeqos.New(maxConcurrent, int64(maxConcurrent*payloadSize))
 		limiter := newPerRequestTrackingLimiter(realLimiter)
 
@@ -196,9 +196,9 @@ func TestCandidateAssessment_SaturationRace_ConcurrentAccept_SingleAdmissionAndS
 			return makeAcceptedAssessment(proof)
 		}
 
-		var executeLargeCalls int64
+		var executeLargeCalls atomic.Int64
 		exec.executeLargeFunc = func(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error) {
-			atomic.AddInt64(&executeLargeCalls, 1)
+			executeLargeCalls.Add(1)
 			return largebody.ExecutionResult{}, nil
 		}
 
@@ -228,7 +228,7 @@ func TestCandidateAssessment_SaturationRace_ConcurrentAccept_SingleAdmissionAndS
 		}
 		results := make([]reqResult, numGoroutines)
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			go func(idx int) {
 				defer wg.Done()
 				reqID := fmt.Sprintf("iter-%d-accept-%03d", iter, idx)
@@ -300,8 +300,8 @@ func TestCandidateAssessment_SaturationRace_ConcurrentAccept_SingleAdmissionAndS
 			t.Fatalf("[iter %d] Spec.Decode must NEVER be called on accept, got %d", iter, decodeCalls)
 		}
 		// ExecuteLargeBody must be called once per admitted request
-		if atomic.LoadInt64(&executeLargeCalls) != int64(count200) {
-			t.Fatalf("[iter %d] ExecuteLargeBody calls (%d) must equal admitted requests (%d)", iter, atomic.LoadInt64(&executeLargeCalls), count200)
+		if executeLargeCalls.Load() != int64(count200) {
+			t.Fatalf("[iter %d] ExecuteLargeBody calls (%d) must equal admitted requests (%d)", iter, executeLargeCalls.Load(), count200)
 		}
 	}
 }

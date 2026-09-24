@@ -10,6 +10,7 @@ import (
 )
 
 func TestProviderEvidenceStreamBindsNonStreamingUsageToTrustedBLeg(t *testing.T) {
+	t.Parallel()
 	stream := NewProviderEvidenceStream([]lipapi.Event{{
 		Kind: lipapi.EventUsageDelta, InputTokens: 2, OutputTokens: 3,
 		UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true},

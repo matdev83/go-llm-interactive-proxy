@@ -197,6 +197,7 @@ func BenchmarkLargePayloadConcurrent_SpoolBudgetSaturation(b *testing.B) {
 // -----------------------------------------------------------------------------
 
 func TestLargePayloadConcurrent_SpoolBudgetIsOptimizationBudgetNotOOM(t *testing.T) {
+	t.Parallel()
 	const target = 1 << 20 // 1 MiB
 	body := baselineResponsesBody(t, target)
 	spoolDir := t.TempDir()
@@ -265,10 +266,8 @@ func TestLargePayloadConcurrent_SpoolBudgetIsOptimizationBudgetNotOOM(t *testing
 	var wg sync.WaitGroup
 	var successCount atomic.Int64
 
-	for i := 0; i < numReqs; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range numReqs {
+		wg.Go(func() {
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
@@ -276,7 +275,7 @@ func TestLargePayloadConcurrent_SpoolBudgetIsOptimizationBudgetNotOOM(t *testing
 			if rec.Code == http.StatusOK {
 				successCount.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -330,6 +329,7 @@ func (r *pausingSpillReader) Read(p []byte) (int, error) {
 }
 
 func TestLargePayloadConcurrent_CancellationCleansUpSpillFiles(t *testing.T) {
+	t.Parallel()
 	const target = 1 << 20 // 1 MiB
 	body := baselineResponsesBody(t, target)
 	spoolDir := t.TempDir()

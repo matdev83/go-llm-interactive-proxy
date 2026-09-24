@@ -188,8 +188,8 @@ func (c ResponseContext) DeterministicToken() string {
 	if c.State.Seeds.DeterministicToken != "" {
 		return c.State.Seeds.DeterministicToken
 	}
-	if strings.HasPrefix(c.State.Seeds.DeterministicCallID, "call_") {
-		return strings.TrimPrefix(c.State.Seeds.DeterministicCallID, "call_")
+	if after, ok := strings.CutPrefix(c.State.Seeds.DeterministicCallID, "call_"); ok {
+		return after
 	}
 	return ""
 }

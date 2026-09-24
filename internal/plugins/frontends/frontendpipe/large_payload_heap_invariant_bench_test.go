@@ -80,7 +80,7 @@ func writeDiskFixture(tb testing.TB, target int, filePath string) {
 		tb.Fatalf("write prefix: %v", err)
 	}
 	chunk := strings.Repeat("a", 32*1024)
-	for i := 0; i < numParts; i++ {
+	for i := range numParts {
 		if i > 0 {
 			if _, err := bw.WriteString(","); err != nil {
 				tb.Fatalf("write comma: %v", err)
@@ -94,10 +94,7 @@ func writeDiskFixture(tb testing.TB, target int, filePath string) {
 			p += remainder
 		}
 		for p > 0 {
-			step := len(chunk)
-			if step > p {
-				step = p
-			}
+			step := min(len(chunk), p)
 			if _, err := bw.WriteString(chunk[:step]); err != nil {
 				tb.Fatalf("write chunk: %v", err)
 			}
@@ -461,7 +458,6 @@ func TestLargePayloadHeap_LiveGCRetained_ExcludesCallerFixture(t *testing.T) {
 	var results []measurement
 
 	for _, sz := range sizes {
-		sz := sz
 		t.Run(sz.name, func(t *testing.T) {
 			spoolDir := t.TempDir()
 			fixturePath := filepath.Join(spoolDir, "request-fixture.json")
@@ -555,10 +551,7 @@ func TestLargePayloadHeap_LiveGCRetained_ExcludesCallerFixture(t *testing.T) {
 			runtime.KeepAlive(execResult)
 			runtime.KeepAlive(rec)
 
-			retainedBytes := int64(mPostGC.HeapAlloc) - int64(mBaseline.HeapAlloc)
-			if retainedBytes < 0 {
-				retainedBytes = 0
-			}
+			retainedBytes := max(int64(mPostGC.HeapAlloc)-int64(mBaseline.HeapAlloc), 0)
 
 			t.Logf("=== Size %s (%d bytes) ===", sz.name, sz.target)
 			t.Logf("  Fixture Heap Bytes: %d B", fixtureHeapBytes)
@@ -609,7 +602,6 @@ func TestLargePayloadHeap_LiveGCRetained_RealRuntime_ExecuteLargeBody(t *testing
 	var results []measurement
 
 	for _, sz := range sizes {
-		sz := sz
 		t.Run(sz.name, func(t *testing.T) {
 			spoolDir := t.TempDir()
 			fixturePath := filepath.Join(spoolDir, "payload.json")
@@ -740,10 +732,7 @@ func TestLargePayloadHeap_LiveGCRetained_RealRuntime_ExecuteLargeBody(t *testing
 			runtime.KeepAlive(ex)
 			runtime.KeepAlive(detector)
 
-			retainedBytes := int64(mPostGC.HeapAlloc) - int64(mBaseline.HeapAlloc)
-			if retainedBytes < 0 {
-				retainedBytes = 0
-			}
+			retainedBytes := max(int64(mPostGC.HeapAlloc)-int64(mBaseline.HeapAlloc), 0)
 
 			t.Logf("=== Real Runtime %s (%d B) ===", sz.name, sz.target)
 			t.Logf("  Transient Allocations: %d B (%.2f KiB)", transientAlloc, float64(transientAlloc)/1024.0)
