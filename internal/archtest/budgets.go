@@ -201,7 +201,11 @@ var LineBudgets = []LineBudget{
 	// PR #659 adversarial repair (R1-R10) adds reviewed component rating/selection
 	// and metering-evidence plus runtime terminal-capture economics production
 	// lines; internal/core re-measured 139708, bump to 139733 with 25 headroom.
-	{Dir: "internal/core", Max: 139733},
+	// PR #666 adversarial F1-F6 behavior repairs add reviewed economics production
+	// in internal/core (component_rater, billing_leg, economic_checkpoint,
+	// provider_evidence, attempt_usage_evidence); internal/core re-measured 140016,
+	// bump to 140041 with 25 headroom.
+	{Dir: "internal/core", Max: 140041},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
 	{Dir: "internal/infra/runtimebundle", Max: 13782},

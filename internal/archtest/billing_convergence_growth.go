@@ -13,8 +13,11 @@ import (
 // the locked merge-base lines enters the allowance, so historical baseline code can
 // never enter. PR #659 adversarial repair (R1-R10) grows component_rater.go
 // (1652 -> 2327) and runtime/billing_leg.go (270 -> 412); the allowance re-measured
-// 54,687 lines, reset to 54,712 with 25 headroom.
-const EconomicsConvergenceGrowthOverlayMax = 54712
+// 54,687 lines, reset to 54,712 with 25 headroom. PR #666 adversarial F1-F6
+// behavior repairs grow component_rater.go (2327 -> 2587) and
+// runtime/billing_leg.go (412 -> 454); the allowance re-measured 54,877 lines,
+// reset to 54,902 with 25 headroom.
+const EconomicsConvergenceGrowthOverlayMax = 54902
 
 // economicsConvergenceGrowthEntry is one allowlisted denominator file with its
 // locked merge-base (c7fa4169) line count, audited credit, category attribution,
@@ -58,7 +61,7 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/billing/call_usage.go", baseline: 332, credit: 182, category: "terminal", provenance: "modified"},
 	{path: "internal/core/billing/commands.go", baseline: 213, credit: 9, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/complete_call.go", baseline: 43, credit: 3, category: "lifecycle", provenance: "modified"},
-	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2327, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2587, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_finalize.go", baseline: 0, credit: 394, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_validation.go", baseline: 0, credit: 216, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rating_contract.go", baseline: 0, credit: 383, category: "rating", provenance: "new"},
@@ -130,7 +133,7 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/runtime/billing_call_closure.go", baseline: 94, credit: 8, category: "terminal", provenance: "modified"},
 	{path: "internal/core/runtime/billing_call_id.go", baseline: 22, credit: 61, category: "identity", provenance: "modified"},
 	{path: "internal/core/runtime/billing_collector.go", baseline: 214, credit: 89, category: "terminal", provenance: "modified"},
-	{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 412, category: "terminal", provenance: "modified"},
+	{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 454, category: "terminal", provenance: "modified"},
 	{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 181, category: "admission", provenance: "modified"},
 	{path: "internal/infra/billingadmission/doc.go", baseline: 1, credit: 0, category: "package", provenance: "modified"},
 	{path: "internal/infra/billingcompose/catalog.go", baseline: 467, credit: 247, category: "composition", provenance: "modified"},

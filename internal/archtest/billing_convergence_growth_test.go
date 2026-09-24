@@ -21,9 +21,11 @@ import (
 
 // TestBillingEconomicsGrowthManifestLocked pins the remediation-3C allowance
 // table: 160 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at
-// c7fa4169), audited-credit sum 54,602 (PR #659 adversarial repair R1-R10 re-audited
-// component_rater.go 1652 -> 2327 and runtime/billing_leg.go 270 -> 412), cap 54,712
-// (live-measured 54,687 + 25). Schema,
+// c7fa4169), audited-credit sum 54,904 (PR #659 adversarial repair R1-R10 re-audited
+// component_rater.go 1652 -> 2327 and runtime/billing_leg.go 270 -> 412; PR #666
+// adversarial F1-F6 behavior repairs re-audited component_rater.go 2327 -> 2587 and
+// runtime/billing_leg.go 412 -> 454), cap 54,902
+// (live-measured 54,877 + 25). Schema,
 // order, uniqueness, and attribution rules run through the shared table
 // validator so production and injected-negative tests enforce identical rules;
 // per-entry fork values are verified mechanically against the pinned fork tree
@@ -35,8 +37,8 @@ func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	if len(economicsConvergenceGrowthManifest) != 160 {
 		t.Fatalf("growth manifest entries = %d, want 160", len(economicsConvergenceGrowthManifest))
 	}
-	if EconomicsConvergenceGrowthOverlayMax != 54712 {
-		t.Fatalf("growth cap drift: %d, want 54712", EconomicsConvergenceGrowthOverlayMax)
+	if EconomicsConvergenceGrowthOverlayMax != 54902 {
+		t.Fatalf("growth cap drift: %d, want 54902", EconomicsConvergenceGrowthOverlayMax)
 	}
 	if msg := validateEconomicsConvergenceGrowthManifest(economicsConvergenceGrowthManifest); msg != "" {
 		t.Fatalf("growth manifest schema rejected: %s", msg)
@@ -49,16 +51,16 @@ func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	if sumBaseline != 9593 {
 		t.Fatalf("manifest baseline sum = %d, want 9593 (fork roots 8209 + files 1384)", sumBaseline)
 	}
-	if sumCredit != 54602 {
-		t.Fatalf("manifest audited credit sum = %d, want 54602", sumCredit)
+	if sumCredit != 54904 {
+		t.Fatalf("manifest audited credit sum = %d, want 54904", sumCredit)
 	}
 	// Spot-check representative entries across roots and provenances so a
 	// silent baseline/credit/category edit fails loudly.
 	spot := []economicsConvergenceGrowthEntry{
 		{path: "internal/core/billing/account.go", baseline: 102, credit: 0, category: "settlement", provenance: "modified"},
 		{path: "internal/core/billing/append.go", baseline: 50, credit: 10, category: "lifecycle", provenance: "modified"},
-		{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2327, category: "rating", provenance: "new"},
-		{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 412, category: "terminal", provenance: "modified"},
+		{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2587, category: "rating", provenance: "new"},
+		{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 454, category: "terminal", provenance: "modified"},
 		{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 181, category: "admission", provenance: "modified"},
 		{path: "internal/infra/billingcompose/catalog.go", baseline: 467, credit: 247, category: "composition", provenance: "modified"},
 		{path: "internal/infra/billingstore/call_usage_store.go", baseline: 454, credit: 519, category: "persistence", provenance: "modified"},

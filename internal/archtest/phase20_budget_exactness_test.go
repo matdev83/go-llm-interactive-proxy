@@ -14,11 +14,14 @@ import (
 // PR #659 CodeRabbit durable candidate-budget backoff/logging (commit 652b9773)
 // re-audited runtimebundle to 13757 (observation_economic_bridge.go); the same
 // change leaves stdhttp, internal/core, process_services.go, and the connector
-// overlay unchanged.
+// overlay unchanged. PR #666 adversarial F1-F6 behavior repairs re-audited
+// internal/core to 140016 from the reviewed economics production additions;
+// runtimebundle, stdhttp, process_services.go, and the connector overlay are
+// unchanged.
 const (
 	phase20AuditRuntimebundleLines    = 13757
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 139708
+	phase20AuditCoreLines             = 140016
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25
