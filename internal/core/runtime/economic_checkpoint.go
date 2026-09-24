@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/aggregate"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
@@ -719,9 +720,16 @@ func economicCheckpointPendingKey(observation metering.Observation) string {
 	// correction revisions retain their full identity because their supersession
 	// graph must remain durable even when both revisions arrive in one flush.
 	if idx := strings.LastIndexByte(identity, 0); idx >= 0 {
-		return identity[:idx]
+		identity = identity[:idx]
 	}
-	return identity
+	// Source identity alone omits the perspective, boundary, lifecycle, account
+	// and charge-scope axes that the canonical reducer partitions on. Two valid
+	// cumulative observations can therefore share a source identity while the
+	// reducer keeps them in separate partitions; coalescing or suppressing one
+	// would drop a whole reduced partition. Qualify the coalescing/durable-head
+	// key with the reducer's own scope key so the checkpoint can never merge
+	// across a reduction partition, without defining a third scope identity.
+	return identity + "\x00" + aggregate.ScopeFor(observation).Key()
 }
 
 func (a *attemptSession) shouldFlushEconomicCheckpoints(now time.Time, force bool) bool {
