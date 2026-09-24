@@ -69,7 +69,7 @@ func TestListObservationsStatementEvidenceOnlyUsesCandidateIndex(t *testing.T) {
 
 	var plan string
 	for _, query := range recorder.queries {
-		plan += explainSQLiteQueryPlan(t, store.DB(), ctx, query)
+		plan += explainSQLiteQueryPlan(ctx, t, store.DB(), query)
 	}
 	t.Logf("EXPLAIN QUERY PLAN:\n%s", plan)
 	require.Contains(t, plan, "idx_metering_facts_store_bleg_statement",

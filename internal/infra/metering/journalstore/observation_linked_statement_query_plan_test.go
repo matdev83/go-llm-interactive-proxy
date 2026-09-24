@@ -43,7 +43,7 @@ func TestListObservationsCorrelationBLegOrderedIndexAvoidsTempBTree(t *testing.T
 
 	var plan strings.Builder
 	for _, query := range recorder.queries {
-		plan.WriteString(explainSQLiteQueryPlan(t, store.DB(), ctx, query))
+		plan.WriteString(explainSQLiteQueryPlan(ctx, t, store.DB(), query))
 	}
 	t.Logf("EXPLAIN QUERY PLAN:\n%s", plan.String())
 	require.Contains(t, plan.String(), "idx_metering_facts_store_bleg",
@@ -52,7 +52,7 @@ func TestListObservationsCorrelationBLegOrderedIndexAvoidsTempBTree(t *testing.T
 		"correlation B-leg query must satisfy ORDER BY from the index, not a temp B-tree; plan:\n%s", plan.String())
 }
 
-func explainSQLiteQueryPlan(t *testing.T, db *bun.DB, ctx context.Context, query string) string {
+func explainSQLiteQueryPlan(ctx context.Context, t *testing.T, db *bun.DB, query string) string {
 	t.Helper()
 	rows, err := db.QueryContext(ctx, "EXPLAIN QUERY PLAN "+query)
 	require.NoError(t, err)
@@ -67,7 +67,7 @@ func explainSQLiteQueryPlan(t *testing.T, db *bun.DB, ctx context.Context, query
 		}
 		require.NoError(t, rows.Scan(pointers...))
 		for _, value := range values {
-			plan.WriteString(fmt.Sprint(value))
+			fmt.Fprintf(&plan, "%v", value)
 			plan.WriteString(" | ")
 		}
 		plan.WriteString("\n")

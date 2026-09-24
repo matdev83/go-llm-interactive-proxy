@@ -132,7 +132,7 @@ func TestListObservationsCorrelationBLegUsesPartialIndex(t *testing.T) {
 			}
 			require.NoError(t, rows.Scan(pointers...))
 			for _, value := range values {
-				plan.WriteString(fmt.Sprint(value))
+				fmt.Fprintf(&plan, "%v", value)
 				plan.WriteString(" | ")
 			}
 			plan.WriteString("\n")

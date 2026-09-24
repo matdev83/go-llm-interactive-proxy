@@ -418,7 +418,10 @@ func supersessionOrder(observations []metering.Observation) []metering.Observati
 	out := make([]metering.Observation, 0, len(observations))
 	emitted := make([]bool, len(observations))
 	for ready.Len() > 0 {
-		next := heap.Pop(ready).(int)
+		next, ok := heap.Pop(ready).(int)
+		if !ok {
+			panic("metering: reduction heap pop yielded a non-int candidate")
+		}
 		emitted[next] = true
 		out = append(out, observations[next])
 		for _, successor := range successors[next] {
@@ -458,8 +461,13 @@ func (h reductionCandidateHeap) Less(i, j int) bool {
 }
 func (h reductionCandidateHeap) Swap(i, j int) { h.items[i], h.items[j] = h.items[j], h.items[i] }
 func (h *reductionCandidateHeap) Push(value any) {
-	h.items = append(h.items, value.(int))
+	item, ok := value.(int)
+	if !ok {
+		panic("metering: reduction heap push requires an int candidate")
+	}
+	h.items = append(h.items, item)
 }
+
 func (h *reductionCandidateHeap) Pop() any {
 	items := h.items
 	last := len(items) - 1

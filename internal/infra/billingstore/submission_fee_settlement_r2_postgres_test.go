@@ -331,7 +331,7 @@ func TestPostgresV2SubmissionFeeConcurrentFirstClaimReplayStable(t *testing.T) {
 				openPostgresStoreOnSchema(t, dsn, schema, storeID, 4),
 			}
 		}
-		phase10AssertV2ConcurrentFirstClaimAndReplay(t, ctx, accountID, accountID, settlers, openReplayers, inputs)
+		phase10AssertV2ConcurrentFirstClaimAndReplay(ctx, t, accountID, accountID, settlers, openReplayers, inputs)
 	}
 }
 

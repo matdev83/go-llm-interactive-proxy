@@ -785,7 +785,7 @@ func TestSQLiteV2SubmissionFeeConcurrentFirstClaimReplayStable(t *testing.T) {
 		f3SetupAccount(t, settlers[0], storeID, 1_000)
 		f3ActivateEmpty(t, settlers[0])
 		inputs := phase10V2ConcurrentSubmissionInputs(t, settlers[0], storeID, storeID)
-		phase10AssertV2ConcurrentFirstClaimAndReplay(t, ctx, storeID, storeID, settlers, open, inputs)
+		phase10AssertV2ConcurrentFirstClaimAndReplay(ctx, t, storeID, storeID, settlers, open, inputs)
 	}
 }
 
@@ -1136,7 +1136,7 @@ func phase10SettleConcurrently(ctx context.Context, settlers [2]*DurableStore, i
 // the concurrent first-claim race: a 780 balance, exactly two financial
 // transactions debiting 120 (owner) and 100 (sibling), and the two expected
 // transaction identities.
-func phase10AssertConcurrentFirstClaimMoney(t *testing.T, ctx context.Context, store *DurableStore, accountID, ownerCallID, siblingCallID, ownerTxID, siblingTxID string) {
+func phase10AssertConcurrentFirstClaimMoney(ctx context.Context, t *testing.T, store *DurableStore, accountID, ownerCallID, siblingCallID, ownerTxID, siblingTxID string) {
 	t.Helper()
 	account, err := store.GetAccount(ctx, accountID)
 	if err != nil {
@@ -1180,7 +1180,7 @@ func phase10AssertConcurrentFirstClaimMoney(t *testing.T, ctx context.Context, s
 
 // phase10RequireCompletedPin loads and validates one completed V2 customer
 // settlement pin bound to the expected posting transaction.
-func phase10RequireCompletedPin(t *testing.T, ctx context.Context, store *DurableStore, sourceKey, wantTxID string) billing.PostingPin {
+func phase10RequireCompletedPin(ctx context.Context, t *testing.T, store *DurableStore, sourceKey, wantTxID string) billing.PostingPin {
 	t.Helper()
 	pin, err := store.GetPostingPin(ctx, billing.PostingOperationCustomerSettlement, sourceKey)
 	if err != nil {
@@ -1198,7 +1198,7 @@ func phase10RequireCompletedPin(t *testing.T, ctx context.Context, store *Durabl
 // close with completed original pins, and replaying both exact inputs on fresh
 // handles preserves the dispositions with zero new claim, journal, pin, balance,
 // or exposure effect.
-func phase10AssertV2ConcurrentFirstClaimAndReplay(t *testing.T, ctx context.Context, accountID, submissionID string, settlers [2]*DurableStore, openReplayers func() [2]*DurableStore, inputs [2]billing.ApplyCallBillingInput) {
+func phase10AssertV2ConcurrentFirstClaimAndReplay(ctx context.Context, t *testing.T, accountID, submissionID string, settlers [2]*DurableStore, openReplayers func() [2]*DurableStore, inputs [2]billing.ApplyCallBillingInput) {
 	t.Helper()
 	settlements, settleErrs := phase10SettleConcurrently(ctx, settlers, inputs)
 	for i, err := range settleErrs {
@@ -1239,7 +1239,7 @@ func phase10AssertV2ConcurrentFirstClaimAndReplay(t *testing.T, ctx context.Cont
 	}
 	ownerCall := inputs[owner].Call.CallID
 	siblingCall := inputs[sibling].Call.CallID
-	phase10AssertConcurrentFirstClaimMoney(t, ctx, settlers[0], accountID, ownerCall.String(), siblingCall.String(), ownerTxID, siblingTxID)
+	phase10AssertConcurrentFirstClaimMoney(ctx, t, settlers[0], accountID, ownerCall.String(), siblingCall.String(), ownerTxID, siblingTxID)
 
 	ownerSourceKey, err := billing.CustomerSettlementSourceKey(accountID, ownerCall)
 	if err != nil {
@@ -1249,8 +1249,8 @@ func phase10AssertV2ConcurrentFirstClaimAndReplay(t *testing.T, ctx context.Cont
 	if err != nil {
 		t.Fatal(err)
 	}
-	ownerPin := phase10RequireCompletedPin(t, ctx, settlers[0], ownerSourceKey, ownerTxID)
-	siblingPin := phase10RequireCompletedPin(t, ctx, settlers[0], siblingSourceKey, siblingTxID)
+	ownerPin := phase10RequireCompletedPin(ctx, t, settlers[0], ownerSourceKey, ownerTxID)
+	siblingPin := phase10RequireCompletedPin(ctx, t, settlers[0], siblingSourceKey, siblingTxID)
 	phase10AssertExposureState(t, settlers[0], ownerCall, inputs[owner].Exposure.Fingerprint)
 	phase10AssertExposureState(t, settlers[0], siblingCall, inputs[sibling].Exposure.Fingerprint)
 
@@ -1278,11 +1278,11 @@ func phase10AssertV2ConcurrentFirstClaimAndReplay(t *testing.T, ctx context.Cont
 	if count := phase10SubmissionClaimCount(t, replayers[0], accountID, submissionID); count != 1 {
 		t.Fatalf("claim count after replay = %d, want one", count)
 	}
-	phase10AssertConcurrentFirstClaimMoney(t, ctx, replayers[0], accountID, ownerCall.String(), siblingCall.String(), ownerTxID, siblingTxID)
-	if afterOwnerPin := phase10RequireCompletedPin(t, ctx, replayers[0], ownerSourceKey, ownerTxID); afterOwnerPin != ownerPin {
+	phase10AssertConcurrentFirstClaimMoney(ctx, t, replayers[0], accountID, ownerCall.String(), siblingCall.String(), ownerTxID, siblingTxID)
+	if afterOwnerPin := phase10RequireCompletedPin(ctx, t, replayers[0], ownerSourceKey, ownerTxID); afterOwnerPin != ownerPin {
 		t.Fatalf("owner replay changed pin: before=%+v after=%+v", ownerPin, afterOwnerPin)
 	}
-	if afterSiblingPin := phase10RequireCompletedPin(t, ctx, replayers[0], siblingSourceKey, siblingTxID); afterSiblingPin != siblingPin {
+	if afterSiblingPin := phase10RequireCompletedPin(ctx, t, replayers[0], siblingSourceKey, siblingTxID); afterSiblingPin != siblingPin {
 		t.Fatalf("sibling replay changed pin: before=%+v after=%+v", siblingPin, afterSiblingPin)
 	}
 	phase10AssertExposureState(t, replayers[0], ownerCall, inputs[owner].Exposure.Fingerprint)

@@ -90,6 +90,7 @@ func (s *r5c2aProviderStream) Close() error                               { retu
 func (s *r5c2aProviderStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
 	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
 }
+
 func (s *r5c2aProviderStream) DrainEconomicObservations() []metering.Observation {
 	if s == nil || s.buffer == nil {
 		return nil
