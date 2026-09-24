@@ -303,11 +303,30 @@ func TestProviderEvidenceBufferRejectsUnsafeEvidenceWithoutDroppingOtherDrafts(t
 	b.AddUsageEvent(providerUsageEvent(1, 1), "test.provider.v2")
 	b.BindEconomicEvidence(testObservationIdentity())
 	observations := b.DrainEconomicObservations()
-	if len(observations) != 1 {
-		t.Fatalf("unsafe draft should be suppressed while valid draft remains: %d", len(observations))
+	// The unsafe field is never retained and the unrelated valid draft survives.
+	// Its rejection is now visible as a bounded loss marker instead of a silent
+	// drop, so an admitted prefix cannot reduce as complete (F6).
+	valid, ok := f6ObservationByKey(observations, "test.provider.v2:stream")
+	if !ok {
+		t.Fatalf("valid draft was dropped alongside the unsafe draft: %+v", observations)
 	}
-	if observations[0].SourceEventKey != "test.provider.v2:stream" {
-		t.Fatalf("remaining source key = %q", observations[0].SourceEventKey)
+	for _, observation := range observations {
+		for _, field := range observation.Evidence {
+			if field.Lexeme == "should-not-retain" {
+				t.Fatalf("unsafe evidence leaked into an observation: %+v", observation)
+			}
+		}
+	}
+	marker, ok := r5UnavailableMarker(observations)
+	if !ok || r5UnavailableCause(marker) != providerEvidenceLossInvalidDraft {
+		t.Fatalf("unsafe draft must surface a %q loss marker: %+v", providerEvidenceLossInvalidDraft, observations)
+	}
+	snapshot, err := aggregate.ApplyObservations([]sdkmetering.Observation{valid, marker})
+	if err != nil {
+		t.Fatalf("apply retained evidence: %v", err)
+	}
+	if snapshot.Complete {
+		t.Fatal("rejected unsafe evidence must keep the reduction incomplete")
 	}
 }
 

@@ -139,6 +139,13 @@ const (
 	// duplicate a charge. Rejection is visible and sticky: it drains as an
 	// unavailable provider observation that keeps the reduction incomplete.
 	providerEvidenceLossUnsupportedOrderingIdentity = "unsupported_ordering_identity"
+	// providerEvidenceLossInvalidDraft is the typed disposition for a draft that
+	// passed every Add-time bound but violates the SDK observation contract when
+	// it is projected at drain time (for example a provider identifier one byte
+	// past MaxSchemaIDBytes). The invalid payload is never persisted as an
+	// observation or anchor: only this bounded provider-neutral marker survives,
+	// so an accepted prefix cannot look complete.
+	providerEvidenceLossInvalidDraft = "invalid_draft"
 )
 
 // providerEvidenceLossCauses is the closed set of every distinct loss
@@ -150,6 +157,7 @@ var providerEvidenceLossCauses = [...]string{
 	providerEvidenceLossRetainedBytes,
 	providerEvidenceLossOversizedInput,
 	providerEvidenceLossUnsupportedOrderingIdentity,
+	providerEvidenceLossInvalidDraft,
 }
 
 // NewProviderEvidenceBuffer creates a stream-local provider evidence buffer.
@@ -464,11 +472,21 @@ func (b *ProviderEvidenceBuffer) DrainEconomicObservations() []lipsdkmetering.Ob
 			// an immutable supersession edge.
 			draft.Semantics = lipsdkmetering.SemanticsReplacement
 		}
-		if observation, err := providerObservationValidated(identity, draft); err == nil {
-			if b.rememberAnchorLocked(draft.SourceEventKey, payloadFingerprint, draft, observation) {
-				priorBySource[draft.SourceEventKey] = observation
-				observations = append(observations, observation)
-			}
+		observation, err := providerObservationValidated(identity, draft)
+		if err != nil {
+			// A draft admitted by Add can still violate the SDK observation
+			// contract when it is projected at drain time (for example a
+			// provider identifier one byte past its bound). Silently dropping it
+			// would leave an accepted prefix indistinguishable from a complete
+			// stream, so the runtime could seal and rate that prefix as
+			// complete. Record the bounded, provider-neutral loss marker and
+			// retain neither the invalid identifier nor any other raw field.
+			b.recordProviderEvidenceLossLocked(providerEvidenceLossInvalidDraft)
+			continue
+		}
+		if b.rememberAnchorLocked(draft.SourceEventKey, payloadFingerprint, draft, observation) {
+			priorBySource[draft.SourceEventKey] = observation
+			observations = append(observations, observation)
 		}
 	}
 	// Loss markers use reserved capacity independent of the ordinary pending
