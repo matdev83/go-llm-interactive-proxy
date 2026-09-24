@@ -208,7 +208,7 @@ func TestQueryEconomicDetailProviderChargeReconciliationBoundFailsClosed(t *test
 	aLegID := "a-ed-pcrec-bound"
 	edSetupCall(t, store, account.ID, callID, aLegID, edTestLeg(t, "b-edPCCRBD"))
 
-	for i := 0; i < billing.MaxEconomicDetailReconciliations; i++ {
+	for i := range billing.MaxEconomicDetailReconciliations {
 		edAppendRetentionSubject(t, store, fmt.Sprintf("rec-pcrec-bound-%05d", i),
 			edTestProviderChargeSubject(store, account.ID, aLegID, callID.String(), "b-edPCCRBD",
 				fmt.Sprintf("pc-pcrec-bound-%05d", i), "pa-1"),

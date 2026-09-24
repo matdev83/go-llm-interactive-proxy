@@ -321,6 +321,7 @@ func TestFindingB2d_BackendPanicInParallelArmIsolated(t *testing.T) {
 }
 
 func runPanicIsolationHelper(t *testing.T) {
+	t.Helper()
 	ex, _, _ := setupTestExecutor(t)
 	src := newTestSource(`{"model":"gpt-4o","messages":[{"role":"user","content":"panic-arm"}]}`)
 	acc := makeTestAcceptedAssessment(t, "gen-1", "openai-chat", src, true)

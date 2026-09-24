@@ -181,13 +181,10 @@ func TestPhase11AllocationConcurrentSuccessorsHaveOneDurableWinner(t *testing.T)
 	errs := make(chan error, 2)
 	var wg sync.WaitGroup
 	for _, record := range []economics.AllocationRecord{left, right} {
-		record := record
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			errs <- store.AppendAllocation(ctx, record)
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

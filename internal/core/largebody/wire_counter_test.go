@@ -121,7 +121,6 @@ func TestWireCounter_ExactTokenizerSemantics(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := tc.semantics.IsExact(); got != tc.wantExact {
@@ -192,7 +191,6 @@ func TestWireCounter_EvaluateWireTokenCounting_InexactTokenizerDeclinesUnderSame
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			res := largebody.EvaluateWireTokenCounting(context.Background(), largebody.WireTokenCountGateInput{

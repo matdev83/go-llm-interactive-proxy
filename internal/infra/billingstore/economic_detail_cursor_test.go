@@ -194,7 +194,7 @@ func TestQueryEconomicDetailCursorSurvivesDurableReopen(t *testing.T) {
 	account := edTestAccount(t, first, "ed-cursor-reopen", "USD")
 	callID := edTestCallID(t)
 	var observations []metering.Observation
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		subject := edTestBLegSubject(first.StoreID(), "tenant-ed", account.ID, "a-ed-reopen", callID.String(), "b-ed-reopen")
 		observations = append(observations, edTestObservation(t, "obs-reopen-"+string(rune('a'+i)), metering.OriginLocal, "stream-reopen", uint64(i+1), subject,
 			[]metering.Measure{edTestMeasure(t, metering.ComponentInputToken, "10")}, nil))

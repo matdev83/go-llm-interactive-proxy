@@ -22,8 +22,11 @@ func freezeBaseCall() *lipapi.Call {
 	}
 }
 
-func freezeIntPtr(v int) *int           { return &v }
-func freezeFloatPtr(v float64) *float64 { return &v }
+//go:fix inline
+func freezeIntPtr(v int) *int { return new(v) }
+
+//go:fix inline
+func freezeFloatPtr(v float64) *float64 { return new(v) }
 
 func freezeModelExt(model string) map[string]json.RawMessage {
 	return map[string]json.RawMessage{"openai.model": json.RawMessage(`"` + model + `"`)}
@@ -50,7 +53,6 @@ func TestIdentityWriter_StreamingStringEscapeParity(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -95,10 +97,7 @@ func TestIdentityWriter_StreamingStringEscapeParity(t *testing.T) {
 				sw = largebody.NewStreamingEscapeWriter(&buf)
 				inBytes := []byte(tc.in)
 				for offset := 0; offset < len(inBytes); offset += chunkSize {
-					end := offset + chunkSize
-					if end > len(inBytes) {
-						end = len(inBytes)
-					}
+					end := min(offset+chunkSize, len(inBytes))
 					if _, err := sw.Write(inBytes[offset:end]); err != nil {
 						t.Fatalf("Write chunk [%d:%d]: %v", offset, end, err)
 					}
@@ -143,48 +142,57 @@ func TestIdentityWriter_ParityWithDiagFixtures(t *testing.T) {
 	}
 
 	t.Run("nil call", func(t *testing.T) {
+		t.Parallel()
 		assertParity(t, "nil call", nil)
 	})
 
 	t.Run("empty call", func(t *testing.T) {
+		t.Parallel()
 		assertParity(t, "empty call", &lipapi.Call{})
 	})
 
 	t.Run("base call", func(t *testing.T) {
+		t.Parallel()
 		assertParity(t, "base call", freezeBaseCall())
 	})
 
 	t.Run("call with explicit ID", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.ID = "call-explicit-1"
 		assertParity(t, "call with explicit ID", c)
 	})
 
 	t.Run("call with whitespace ID", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.ID = "  call-whitespace-2  "
 		assertParity(t, "call with whitespace ID", c)
 	})
 
 	t.Run("call with blank ID", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.ID = "   "
 		assertParity(t, "call with blank ID", c)
 	})
 
 	t.Run("huge string fixture", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Messages[0].Parts[0] = lipapi.TextPart(strings.Repeat("a", 1<<20))
 		assertParity(t, "huge string fixture", c)
 	})
 
 	t.Run("tricky unicode and html escapes", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Messages[0].Parts[0] = lipapi.TextPart("<div>&\"'\\</div>\u2028\u2029🧪 café \\u0041 \n\t\r")
 		assertParity(t, "tricky unicode and html escapes", c)
 	})
 
 	t.Run("tools and tool choice", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Tools = []lipapi.ToolDef{{Name: "get_weather", Description: "lookup"}}
 		c.ToolChoice = lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny}
@@ -192,6 +200,7 @@ func TestIdentityWriter_ParityWithDiagFixtures(t *testing.T) {
 	})
 
 	t.Run("items shape", func(t *testing.T) {
+		t.Parallel()
 		c := &lipapi.Call{
 			Route: lipapi.RouteIntent{Selector: "stub:gpt-4o-mini"},
 			Items: []lipapi.Item{{
@@ -206,6 +215,7 @@ func TestIdentityWriter_ParityWithDiagFixtures(t *testing.T) {
 	})
 
 	t.Run("model and route extensions", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Route.Selector = "stub:gpt-4o"
 		c.Extensions = freezeModelExt("gpt-4o-mini")
@@ -213,6 +223,7 @@ func TestIdentityWriter_ParityWithDiagFixtures(t *testing.T) {
 	})
 
 	t.Run("session fields", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Session.AuthoritativeSessionID = "sess-1"
 		c.Session.ClientSessionID = "client-1"
@@ -223,11 +234,12 @@ func TestIdentityWriter_ParityWithDiagFixtures(t *testing.T) {
 	})
 
 	t.Run("optional generation options", func(t *testing.T) {
+		t.Parallel()
 		c := freezeBaseCall()
 		c.Options = lipapi.GenerationOptions{
-			MaxOutputTokens: freezeIntPtr(1024),
-			Temperature:     freezeFloatPtr(0.7),
-			TopP:            freezeFloatPtr(0.9),
+			MaxOutputTokens: new(1024),
+			Temperature:     new(0.7),
+			TopP:            new(0.9),
 			ReasoningEffort: "high",
 			Verbosity:       lipapi.VerbosityLow,
 		}
@@ -254,8 +266,8 @@ func TestIdentityWriter_StreamingMessages(t *testing.T) {
 			ResumeToken:            "secret-token",
 		},
 		Options: lipapi.GenerationOptions{
-			MaxOutputTokens: freezeIntPtr(2048),
-			Temperature:     freezeFloatPtr(0.7),
+			MaxOutputTokens: new(2048),
+			Temperature:     new(0.7),
 		},
 		Messages: []lipapi.Message{
 			{
@@ -304,10 +316,7 @@ func TestIdentityWriter_StreamingMessages(t *testing.T) {
 	chunkSize := 1024
 	inBytes := []byte(hugeText)
 	for i := 0; i < len(inBytes); i += chunkSize {
-		end := i + chunkSize
-		if end > len(inBytes) {
-			end = len(inBytes)
-		}
+		end := min(i+chunkSize, len(inBytes))
 		if _, err := textWriter.Write(inBytes[i:end]); err != nil {
 			t.Fatalf("Write chunk: %v", err)
 		}
@@ -371,10 +380,7 @@ func TestIdentityWriter_StreamingItems(t *testing.T) {
 	chunkSize := 512
 	inBytes := []byte(hugeText)
 	for i := 0; i < len(inBytes); i += chunkSize {
-		end := i + chunkSize
-		if end > len(inBytes) {
-			end = len(inBytes)
-		}
+		end := min(i+chunkSize, len(inBytes))
 		if _, err := textWriter.Write(inBytes[i:end]); err != nil {
 			t.Fatalf("Write chunk: %v", err)
 		}
@@ -490,8 +496,8 @@ func TestIdentityWriter_WriteCall_AllFixtures(t *testing.T) {
 		func() *lipapi.Call {
 			c := freezeBaseCall()
 			c.Options = lipapi.GenerationOptions{
-				MaxOutputTokens: freezeIntPtr(512),
-				Temperature:     freezeFloatPtr(0.5),
+				MaxOutputTokens: new(512),
+				Temperature:     new(0.5),
 				ReasoningEffort: "low",
 			}
 			return c

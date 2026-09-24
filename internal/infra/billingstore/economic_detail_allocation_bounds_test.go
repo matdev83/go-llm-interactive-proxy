@@ -123,7 +123,7 @@ func TestEconomicDetailAllocationEnvelopeBoundaryPasses(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := edTestAccount(t, store, "ed-alloc-max", "USD")
-	for i := 0; i < economicDetailMaxAllocationRecords; i++ {
+	for i := range economicDetailMaxAllocationRecords {
 		record := edTestAllocationQuantityEnvelope(t, store, fmt.Sprintf("alloc-ed-max-%03d", i), account.ID,
 			[]economics.AllocationTarget{edTestAllocationBLegTarget(store, account.ID, "call-ed-max", "b-ed-max")})
 		require.NoError(t, store.AppendAllocation(ctx, record))
@@ -211,7 +211,7 @@ func TestEconomicDetailAllocationDiscoveryDuplicatesDoNotConsumeBudget(t *testin
 	const sharedY = "call-ed-dup-y"
 	// Every envelope targets X in chunk one; the first also targets Y, which
 	// lands in chunk two, so it is discovered twice.
-	for i := 0; i < economicDetailMaxAllocationRecords; i++ {
+	for i := range economicDetailMaxAllocationRecords {
 		targets := []economics.AllocationTarget{edTestAllocationCallTarget(store, account.ID, sharedX)}
 		if i == 0 {
 			targets = append(targets, edTestAllocationCallTarget(store, account.ID, sharedY))
@@ -223,7 +223,7 @@ func TestEconomicDetailAllocationDiscoveryDuplicatesDoNotConsumeBudget(t *testin
 	}
 
 	callIDs := []string{sharedX}
-	for i := 0; i < economicDetailChunkSize-1; i++ {
+	for i := range economicDetailChunkSize - 1 {
 		callIDs = append(callIDs, fmt.Sprintf("call-pad-dup-%04d", i))
 	}
 
@@ -243,7 +243,7 @@ func TestEconomicDetailAllocationEnvelopeLoadIsOneBatchQuery(t *testing.T) {
 	ctx := context.Background()
 	account := edTestAccount(t, store, "ed-alloc-batch", "USD")
 	const envelopes = 8
-	for i := 0; i < envelopes; i++ {
+	for i := range envelopes {
 		record := edTestAllocationQuantityEnvelope(t, store, fmt.Sprintf("alloc-ed-batch-%03d", i), account.ID,
 			[]economics.AllocationTarget{edTestAllocationBLegTarget(store, account.ID, "call-ed-batch", "b-ed-batch")})
 		require.NoError(t, store.AppendAllocation(ctx, record))
@@ -290,7 +290,7 @@ func TestEconomicDetailAllocationDiscoveryBudgetIsGlobalAcrossChunks(t *testing.
 	}
 
 	callIDs := []string{sharedX}
-	for i := 0; i < economicDetailChunkSize-1; i++ {
+	for i := range economicDetailChunkSize - 1 {
 		callIDs = append(callIDs, fmt.Sprintf("call-pad-chunk-%04d", i))
 	}
 

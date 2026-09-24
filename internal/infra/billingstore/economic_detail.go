@@ -458,10 +458,7 @@ func (s *DurableStore) detailLegsByCalls(ctx context.Context, callIDs []string) 
 	out := make([]billing.CallLegUsageRecord, 0)
 	observationTotal := 0
 	for _, chunk := range chunkStrings(callIDs, economicDetailChunkSize) {
-		remaining := economicDetailMaxLegRecords - len(out)
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(economicDetailMaxLegRecords-len(out), 0)
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(chunk)), ",")
 		args := make([]any, 0, len(chunk)+1)
 		for _, id := range chunk {
@@ -639,10 +636,7 @@ func (s *DurableStore) economicDetailProviderChargeSubjects(ctx context.Context,
 	out := make([]economicDetailSubject, 0)
 	seen := make(map[string]struct{})
 	for _, chunk := range chunkStrings(bLegIDs, economicDetailChunkSize) {
-		remaining := economicDetailMaxChargeSubjects - len(out)
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(economicDetailMaxChargeSubjects-len(out), 0)
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(chunk)), ",")
 		where := `store_id = ? AND subject_kind = ?`
 		args := []any{s.storeID, string(metering.SubjectProviderCharge)}
@@ -758,10 +752,7 @@ func (s *DurableStore) detailValuations(ctx context.Context, tenantID string, su
 	byStream := map[string]latestValuation{}
 	loaded := 0
 	for _, chunk := range chunkEconomicDetailSubjects(subjects, economicDetailChunkSize) {
-		remaining := economicDetailMaxValuations - loaded
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(economicDetailMaxValuations-loaded, 0)
 		var clauses []string
 		args := []any{s.storeID}
 		where := `store_id = ?`
@@ -953,10 +944,7 @@ func (s *DurableStore) economicDetailProviderChargeReconciliationSubjects(ctx co
 	out := make([]economicDetailSubject, 0)
 	seen := make(map[string]struct{})
 	for _, chunk := range chunkStrings(bLegIDs, economicDetailChunkSize) {
-		remaining := budget - len(out)
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(budget-len(out), 0)
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(chunk)), ",")
 		where := `store_id = ? AND result_schema_version = ? AND subject_kind = ?`
 		args := []any{s.storeID, ReconciliationRecordSchemaRetention, string(metering.SubjectProviderCharge)}
@@ -1095,10 +1083,7 @@ func (s *DurableStore) detailSelectedValuations(ctx context.Context, tenantID st
 	byID := make(map[string][]economics.Valuation, len(ids))
 	loaded := 0
 	for _, chunk := range chunkStrings(ids, economicDetailChunkSize) {
-		remaining := economicDetailMaxValuations - loaded
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(economicDetailMaxValuations-loaded, 0)
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(chunk)), ",")
 		where := `store_id = ? AND valuation_id IN (` + placeholders + `)`
 		args := []any{s.storeID}
@@ -1179,10 +1164,7 @@ func (s *DurableStore) decodeEconomicDetailValuation(row economicDetailValuation
 func (s *DurableStore) detailHeads(ctx context.Context, accountID string, callIDs []string) ([]billing.SelectedCostHead, error) {
 	var out []billing.SelectedCostHead
 	for _, chunk := range chunkStrings(callIDs, economicDetailChunkSize) {
-		remaining := economicDetailMaxHeads - len(out)
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(economicDetailMaxHeads-len(out), 0)
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(chunk)), ",")
 		args := make([]any, 0, len(chunk)+3)
 		args = append(args, s.storeID, accountID)
@@ -1301,10 +1283,7 @@ func (s *DurableStore) latestReconciliationsForSubjects(ctx context.Context, ten
 	}
 	out := make([]reconciliationRetentionRef, 0, len(subjects))
 	for _, chunk := range chunkEconomicDetailSubjects(subjects, economicDetailChunkSize) {
-		remaining := billing.MaxEconomicDetailReconciliations - len(out)
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(billing.MaxEconomicDetailReconciliations-len(out), 0)
 		where := `store_id = ? AND result_schema_version = ?`
 		args := []any{s.storeID, ReconciliationRecordSchemaRetention}
 		if tenantID != "" {
@@ -1675,10 +1654,7 @@ type economicDetailAllocationEnvelopeRow struct {
 func (s *DurableStore) discoverAllocationCandidates(ctx context.Context, targetIDs []string) ([]economicDetailAllocationCandidate, error) {
 	out := make([]economicDetailAllocationCandidate, 0, economicDetailMaxAllocationRecords)
 	for _, chunk := range chunkStrings(targetIDs, economicDetailChunkSize) {
-		remaining := economicDetailMaxAllocationRecords - len(out)
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(economicDetailMaxAllocationRecords-len(out), 0)
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(chunk)), ",")
 		args := make([]any, 0, len(chunk)+2*len(out)+2)
 		args = append(args, s.storeID)
@@ -1933,10 +1909,7 @@ func chunkStrings(in []string, size int) [][]string {
 	}
 	var out [][]string
 	for len(in) > 0 {
-		n := size
-		if n > len(in) {
-			n = len(in)
-		}
+		n := min(size, len(in))
 		out = append(out, in[:n])
 		in = in[n:]
 	}
@@ -1949,10 +1922,7 @@ func chunkEconomicDetailSubjects(in []economicDetailSubject, size int) [][]econo
 	}
 	var out [][]economicDetailSubject
 	for len(in) > 0 {
-		n := size
-		if n > len(in) {
-			n = len(in)
-		}
+		n := min(size, len(in))
 		out = append(out, in[:n])
 		in = in[n:]
 	}

@@ -227,10 +227,11 @@ func TestQueryEconomicDetailAllocationClosureBoundFailsClosed(t *testing.T) {
 	// The only discovered seed targets the requested leg.
 	require.NoError(t, store.AppendAllocation(ctx, makeRecord("alloc-sup-bound-seed", "t-seed", "b-ed-sup-bound")))
 	// Unrelated same-source lineage that no requested target names.
-	for i := 0; i < economicDetailMaxAllocationRecords; i++ {
+	for i := range economicDetailMaxAllocationRecords {
 		require.NoError(t, store.AppendAllocation(ctx, makeRecord(
 			fmt.Sprintf("alloc-sup-bound-extra-%03d", i),
-			fmt.Sprintf("t-extra-%03d", i), fmt.Sprintf("b-ed-sup-bound-extra-%03d", i))))
+			fmt.Sprintf("t-extra-%03d", i), fmt.Sprintf("b-ed-sup-bound-extra-%03d", i),
+		)))
 	}
 
 	recorder := &edLegQueryRecorder{}

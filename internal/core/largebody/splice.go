@@ -71,7 +71,7 @@ func ValidateModelSpans(sourceSize int64, spans ...Span) error {
 			return fmt.Errorf("largebody: span %d invalid: %w", i, err)
 		}
 	}
-	for i := 0; i < len(spans); i++ {
+	for i := range spans {
 		s1 := spans[i]
 		end1, _ := s1.End()
 		for j := i + 1; j < len(spans); j++ {
@@ -81,14 +81,8 @@ func ValidateModelSpans(sourceSize int64, spans ...Span) error {
 				return fmt.Errorf("largebody: duplicate span at offset %d length %d", s1.Offset, s1.Length)
 			}
 			// Check overlap: max(start1, start2) < min(end1, end2)
-			startMax := s1.Offset
-			if s2.Offset > startMax {
-				startMax = s2.Offset
-			}
-			endMin := end1
-			if end2 < endMin {
-				endMin = end2
-			}
+			startMax := max(s2.Offset, s1.Offset)
+			endMin := min(end2, end1)
 			if startMax < endMin {
 				return fmt.Errorf("largebody: overlapping spans [%d,%d) and [%d,%d)",
 					s1.Offset, end1, s2.Offset, end2)
@@ -167,10 +161,7 @@ func (s *SpliceReader) Read(p []byte) (int, error) {
 
 		// Phase 1: Stream prefix from source.
 		if s.prefixRemaining > 0 {
-			toRead := int64(len(dest))
-			if s.prefixRemaining < toRead {
-				toRead = s.prefixRemaining
-			}
+			toRead := min(s.prefixRemaining, int64(len(dest)))
 			n, err := s.source.Read(dest[:toRead])
 			if n > 0 {
 				s.prefixRemaining -= int64(n)
@@ -203,10 +194,7 @@ func (s *SpliceReader) Read(p []byte) (int, error) {
 			} else {
 				var scratch [512]byte
 				for s.spanDiscardRemaining > 0 {
-					chunk := int64(len(scratch))
-					if s.spanDiscardRemaining < chunk {
-						chunk = s.spanDiscardRemaining
-					}
+					chunk := min(s.spanDiscardRemaining, int64(len(scratch)))
 					n, err := s.source.Read(scratch[:chunk])
 					s.spanDiscardRemaining -= int64(n)
 					if err != nil {
@@ -234,10 +222,7 @@ func (s *SpliceReader) Read(p []byte) (int, error) {
 
 		// Phase 4: Stream suffix from source.
 		if s.suffixRemaining > 0 {
-			toRead := int64(len(dest))
-			if s.suffixRemaining < toRead {
-				toRead = s.suffixRemaining
-			}
+			toRead := min(s.suffixRemaining, int64(len(dest)))
 			n, err := s.source.Read(dest[:toRead])
 			if n > 0 {
 				s.suffixRemaining -= int64(n)

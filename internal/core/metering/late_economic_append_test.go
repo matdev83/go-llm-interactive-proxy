@@ -120,6 +120,7 @@ func (r *lateTestObservationResolver) GetObservation(_ context.Context, id strin
 }
 
 func TestLateEconomicAppenderAcceptsProviderFinalizerAfterClosedLeg(t *testing.T) {
+	t.Parallel()
 	base := lateTestProviderObservation("finalizer", 1)
 	appender, sink, _ := newLateTestAppender(t, true, base)
 	if err := appender.AppendLateEconomicEvidence(context.Background(), lateEvidence(base, LateEconomicProviderFinalizer)); err != nil {
@@ -134,6 +135,7 @@ func TestLateEconomicAppenderAcceptsProviderFinalizerAfterClosedLeg(t *testing.T
 }
 
 func TestLateEconomicAppenderAcceptsStatementLineWithClosedBLegCorrelation(t *testing.T) {
+	t.Parallel()
 	statement := lateTestStatementObservation("statement-line", 1)
 	appender, sink, _ := newLateTestAppender(t, true, statement)
 	if err := appender.AppendLateEconomicEvidence(context.Background(), lateEvidence(statement, LateEconomicStatement)); err != nil {
@@ -145,6 +147,7 @@ func TestLateEconomicAppenderAcceptsStatementLineWithClosedBLegCorrelation(t *te
 }
 
 func TestLateEconomicAppenderAcceptsResolvedProviderCorrection(t *testing.T) {
+	t.Parallel()
 	prior := lateTestProviderObservation("prior", 1)
 	correction := lateTestProviderObservation("correction", 2)
 	correction.SourceEventKey = prior.SourceEventKey
@@ -167,6 +170,7 @@ func TestLateEconomicAppenderAcceptsResolvedProviderCorrection(t *testing.T) {
 }
 
 func TestLateEconomicAppenderExactReplayIsIdempotent(t *testing.T) {
+	t.Parallel()
 	observation := lateTestProviderObservation("replay", 1)
 	appender, sink, _ := newLateTestAppender(t, true, observation)
 	sink.ambiguousOnce.Store(true)
@@ -186,6 +190,7 @@ func TestLateEconomicAppenderExactReplayIsIdempotent(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsBillingCallMismatch(t *testing.T) {
+	t.Parallel()
 	observation := lateTestProviderObservation("call-mismatch", 1)
 	appender, _, _ := newLateTestAppender(t, true, observation)
 	evidence := lateEvidence(observation, LateEconomicProviderFinalizer)
@@ -200,6 +205,7 @@ func TestLateEconomicAppenderRejectsBillingCallMismatch(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsBLegMismatch(t *testing.T) {
+	t.Parallel()
 	observation := lateTestProviderObservation("b-leg-mismatch", 1)
 	appender, _, _ := newLateTestAppender(t, true, observation)
 	evidence := lateEvidence(observation, LateEconomicProviderFinalizer)
@@ -210,6 +216,7 @@ func TestLateEconomicAppenderRejectsBLegMismatch(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsAttemptSequenceMismatch(t *testing.T) {
+	t.Parallel()
 	observation := lateTestProviderObservation("attempt-mismatch", 1)
 	appender, _, _ := newLateTestAppender(t, true, observation)
 	evidence := lateEvidence(observation, LateEconomicProviderFinalizer)
@@ -220,6 +227,7 @@ func TestLateEconomicAppenderRejectsAttemptSequenceMismatch(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsWrongStoreID(t *testing.T) {
+	t.Parallel()
 	observation := lateTestProviderObservation("store-mismatch", 1)
 	appender, _, _ := newLateTestAppender(t, true, observation)
 	evidence := lateEvidence(observation, LateEconomicProviderFinalizer)
@@ -230,6 +238,7 @@ func TestLateEconomicAppenderRejectsWrongStoreID(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsWrongProviderAuthority(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		mutate func(*sdkmetering.Observation, *LateEconomicIdentity)
@@ -241,6 +250,7 @@ func TestLateEconomicAppenderRejectsWrongProviderAuthority(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			observation := lateTestProviderObservation("provider-mismatch-"+test.name, 1)
 			appender, sink, reader := newLateTestAppender(t, true, observation)
 			if test.name == "missing trusted authority" {
@@ -267,6 +277,7 @@ func TestLateEconomicAppenderRejectsWrongProviderAuthority(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsWrongProviderAccount(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		mutate func(*sdkmetering.Observation, *LateEconomicIdentity)
@@ -289,6 +300,7 @@ func TestLateEconomicAppenderRejectsWrongProviderAccount(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			observation := lateTestProviderObservation("authority-spoof-"+test.name, 1)
 			appender, sink, _ := newLateTestAppender(t, true, observation)
 			evidence := lateEvidence(observation, LateEconomicProviderFinalizer)
@@ -304,6 +316,7 @@ func TestLateEconomicAppenderRejectsWrongProviderAccount(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsProviderFinalizerWrongProvenance(t *testing.T) {
+	t.Parallel()
 	observation := lateTestStatementObservation("wrong-finalizer-provenance", 1)
 	appender, _, _ := newLateTestAppender(t, true, observation)
 	if err := appender.AppendLateEconomicEvidence(context.Background(), lateEvidence(observation, LateEconomicProviderFinalizer)); !errors.Is(err, ErrLateEconomicProvenanceMismatch) {
@@ -312,6 +325,7 @@ func TestLateEconomicAppenderRejectsProviderFinalizerWrongProvenance(t *testing.
 }
 
 func TestLateEconomicAppenderRejectsStatementWrongProvenance(t *testing.T) {
+	t.Parallel()
 	observation := lateTestProviderObservation("wrong-statement-provenance", 1)
 	appender, _, _ := newLateTestAppender(t, true, observation)
 	if err := appender.AppendLateEconomicEvidence(context.Background(), lateEvidence(observation, LateEconomicStatement)); !errors.Is(err, ErrLateEconomicProvenanceMismatch) {
@@ -320,6 +334,7 @@ func TestLateEconomicAppenderRejectsStatementWrongProvenance(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsCorrectionWithoutSupersedes(t *testing.T) {
+	t.Parallel()
 	observation := lateTestProviderObservation("missing-supersedes", 2)
 	observation.Semantics = sdkmetering.SemanticsCorrection
 	appender, _, _ := newLateTestAppender(t, true, observation)
@@ -329,6 +344,7 @@ func TestLateEconomicAppenderRejectsCorrectionWithoutSupersedes(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsUnknownSupersedesLineage(t *testing.T) {
+	t.Parallel()
 	prior := lateTestProviderObservation("unknown-prior", 1)
 	correction := lateTestProviderObservation("unknown-correction", 2)
 	correction.SourceEventKey = prior.SourceEventKey
@@ -341,6 +357,7 @@ func TestLateEconomicAppenderRejectsUnknownSupersedesLineage(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsSupersedesPayloadHashMismatch(t *testing.T) {
+	t.Parallel()
 	prior := lateTestProviderObservation("hash-prior", 1)
 	correction := lateTestProviderObservation("hash-correction", 2)
 	correction.SourceEventKey = prior.SourceEventKey
@@ -354,6 +371,7 @@ func TestLateEconomicAppenderRejectsSupersedesPayloadHashMismatch(t *testing.T) 
 }
 
 func TestLateEconomicAppenderRejectsCrossBLegCorrection(t *testing.T) {
+	t.Parallel()
 	prior := lateTestProviderObservation("cross-b-leg-prior", 1)
 	prior.Subject.BLegID = "other-b-leg"
 	prior.Correlation.BLegID = "other-b-leg"
@@ -377,6 +395,7 @@ func TestLateEconomicAppenderRejectsCrossBLegCorrection(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsUnclosedLeg(t *testing.T) {
+	t.Parallel()
 	observation := lateTestProviderObservation("unclosed", 1)
 	appender, _, reader := newLateTestAppender(t, true, observation)
 	reader.record.FinishedAt = time.Time{}
@@ -386,6 +405,7 @@ func TestLateEconomicAppenderRejectsUnclosedLeg(t *testing.T) {
 }
 
 func TestLateEconomicAppenderRejectsMissingClosedBLegWithoutReplacement(t *testing.T) {
+	t.Parallel()
 	observation := lateTestProviderObservation("missing-closed-leg", 1)
 	appender, sink, reader := newLateTestAppender(t, true, observation)
 	reader.missing = true
@@ -398,6 +418,7 @@ func TestLateEconomicAppenderRejectsMissingClosedBLegWithoutReplacement(t *testi
 }
 
 func TestLateEconomicAppenderRejectsPlainOrObservationOnlySinkBeforeAppend(t *testing.T) {
+	t.Parallel()
 	plain := &lateTestPlainObservationSink{}
 	atomicOnly := &lateTestAtomicObservationOnlySink{}
 	var typedNil *lateTestObservationSink
@@ -413,6 +434,7 @@ func TestLateEconomicAppenderRejectsPlainOrObservationOnlySinkBeforeAppend(t *te
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			observation := lateTestProviderObservation("sink-rejected-"+test.name, 1)
 			reader := newLateTestLegReaderForObservation(t, observation, true)
 			appender, err := NewLateEconomicAppender(LateEconomicAppenderConfig{StoreID: "metering-1", Legs: reader, Sink: test.sink})
@@ -430,20 +452,19 @@ func TestLateEconomicAppenderRejectsPlainOrObservationOnlySinkBeforeAppend(t *te
 }
 
 func TestLateEconomicAppenderConcurrentDuplicateIsOneLogicalObservation(t *testing.T) {
+	t.Parallel()
 	observation := lateTestProviderObservation("concurrent-replay", 1)
 	appender, sink, _ := newLateTestAppender(t, true, observation)
 	evidence := lateEvidence(observation, LateEconomicProviderFinalizer)
 	const workers = 16
 	var wg sync.WaitGroup
 	var failures atomic.Int32
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			if err := appender.AppendLateEconomicEvidence(context.Background(), evidence); err != nil {
 				failures.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if got := failures.Load(); got != 0 {

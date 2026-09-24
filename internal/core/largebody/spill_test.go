@@ -204,7 +204,7 @@ func TestSpillBuffer_ParallelIndependentReaders(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		go func(readerIdx int) {
 			defer wg.Done()
@@ -594,7 +594,7 @@ func TestSpillBuffer_IdempotentClose(t *testing.T) {
 		t.Fatalf("Write failed: %v", err)
 	}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := buf.Close(); err != nil {
 			t.Fatalf("call %d: Close failed: %v", i+1, err)
 		}

@@ -11,6 +11,7 @@ import (
 const testBudget = largebody.DefaultMaxSemanticFactBytes
 
 func TestTask12_1_WireRuntimeFacts_EveryFieldHasNamedConsumer(t *testing.T) {
+	t.Parallel()
 	facts := largebody.DefaultTestWireTurnFacts()
 	consumers := facts.AuditNamedConsumers()
 
@@ -47,6 +48,7 @@ func TestTask12_1_WireRuntimeFacts_EveryFieldHasNamedConsumer(t *testing.T) {
 }
 
 func TestTask12_1_WireRuntimeFacts_NoShadowCallSchema(t *testing.T) {
+	t.Parallel()
 	facts := largebody.DefaultTestWireTurnFacts()
 	if err := facts.AssertNoShadowCall(); err != nil {
 		t.Fatalf("AssertNoShadowCall failed: %v", err)
@@ -54,6 +56,7 @@ func TestTask12_1_WireRuntimeFacts_NoShadowCallSchema(t *testing.T) {
 }
 
 func TestTask12_1_WireRuntimeFacts_ConsumerCoverageIsMechanical(t *testing.T) {
+	t.Parallel()
 	facts := largebody.DefaultTestWireTurnFacts()
 	if err := facts.AssertConsumerCoverage(); err != nil {
 		t.Fatalf("AssertConsumerCoverage failed: %v", err)
@@ -61,6 +64,7 @@ func TestTask12_1_WireRuntimeFacts_ConsumerCoverageIsMechanical(t *testing.T) {
 }
 
 func TestTask12_1_WireRuntimeFacts_EightDomainsCoverage(t *testing.T) {
+	t.Parallel()
 	facts := largebody.DefaultTestWireTurnFacts()
 	if err := facts.Validate(testBudget); err != nil {
 		t.Fatalf("valid wire turn facts rejected: %v", err)
@@ -94,6 +98,7 @@ func TestTask12_1_WireRuntimeFacts_EightDomainsCoverage(t *testing.T) {
 }
 
 func TestTask12_1_WireRuntimeFacts_ValidationBudgetBounds(t *testing.T) {
+	t.Parallel()
 	facts := largebody.DefaultTestWireTurnFacts()
 
 	// 1. Oversized RouteSelector
@@ -140,6 +145,7 @@ func TestTask12_1_WireRuntimeFacts_ValidationBudgetBounds(t *testing.T) {
 }
 
 func TestTask12_1_WireRuntimeFacts_ConstructFromProofAndAssessment(t *testing.T) {
+	t.Parallel()
 	proof := largebody.Proof{
 		ProfileID:       "openai-responses-v1",
 		Operation:       lipapi.OperationOpenAIResponses,
@@ -206,6 +212,7 @@ func TestTask12_1_WireRuntimeFacts_ConstructFromProofAndAssessment(t *testing.T)
 }
 
 func TestTask12_1_WireRuntimeFacts_DeriveExistingWireFactTypes(t *testing.T) {
+	t.Parallel()
 	facts := largebody.DefaultTestWireTurnFacts()
 
 	// 1. Derive WireRequestFacts

@@ -681,7 +681,7 @@ func (s *DurableStore) economicCutoverGateAllowsLocked(ctx context.Context, tx b
 	}
 }
 
-func jsonMarshalSubject(subject interface{}) (string, error) {
+func jsonMarshalSubject(subject any) (string, error) {
 	payload, err := json.Marshal(subject)
 	if err != nil {
 		return "", fmt.Errorf("%w: pin subject encode: %v", billing.ErrPostingOwnershipInvalid, err)

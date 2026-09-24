@@ -87,10 +87,7 @@ func TestCompletedSource_SourceDigest_MatchesDirectHash(t *testing.T) {
 		// Write in multiple small chunks
 		chunkSize := 10
 		for i := 0; i < len(payload); i += chunkSize {
-			end := i + chunkSize
-			if end > len(payload) {
-				end = len(payload)
-			}
+			end := min(i+chunkSize, len(payload))
 			if _, err := buf.Write(payload[i:end]); err != nil {
 				t.Fatalf("buf.Write: %v", err)
 			}
@@ -217,8 +214,8 @@ func TestCompletedSource_SourceDigest_DistinctFromIdentityDigest(t *testing.T) {
 	}
 
 	// 1. Type identity: reflect.TypeOf must prove they are distinct types
-	sourceType := reflect.TypeOf(sourceDigest)
-	identityType := reflect.TypeOf(identityDigest)
+	sourceType := reflect.TypeFor[largebody.SourceDigest]()
+	identityType := reflect.TypeFor[largebody.IdentityDigest]()
 
 	if sourceType == identityType {
 		t.Fatalf("SourceDigest and IdentityDigest must be distinct types, but got %v == %v", sourceType, identityType)

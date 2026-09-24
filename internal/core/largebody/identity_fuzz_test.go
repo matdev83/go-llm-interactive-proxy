@@ -64,10 +64,7 @@ func FuzzStreamingEscapeWriter(f *testing.F) {
 			var bufChunk bytes.Buffer
 			swChunk := largebody.NewStreamingEscapeWriter(&bufChunk)
 			for offset := 0; offset < len(data); offset += cs {
-				end := offset + cs
-				if end > len(data) {
-					end = len(data)
-				}
+				end := min(offset+cs, len(data))
 				if _, err := swChunk.Write(data[offset:end]); err != nil {
 					t.Fatalf("swChunk.Write [%d:%d]: %v", offset, end, err)
 				}
@@ -157,10 +154,7 @@ func FuzzCallIdentityWriter(f *testing.F) {
 		// Write in 3-byte chunks to stress boundary crossings
 		chunkSize := 3
 		for offset := 0; offset < len(text); offset += chunkSize {
-			end := offset + chunkSize
-			if end > len(text) {
-				end = len(text)
-			}
+			end := min(offset+chunkSize, len(text))
 			if _, err := io.WriteString(tw, text[offset:end]); err != nil {
 				t.Fatalf("tw.WriteString [%d:%d]: %v", offset, end, err)
 			}
@@ -241,10 +235,7 @@ func FuzzCallIdentityWriter(f *testing.F) {
 		}
 
 		for offset := 0; offset < len(text); offset += chunkSize {
-			end := offset + chunkSize
-			if end > len(text) {
-				end = len(text)
-			}
+			end := min(offset+chunkSize, len(text))
 			if _, err := io.WriteString(itw, text[offset:end]); err != nil {
 				t.Fatalf("itw.WriteString [%d:%d]: %v", offset, end, err)
 			}

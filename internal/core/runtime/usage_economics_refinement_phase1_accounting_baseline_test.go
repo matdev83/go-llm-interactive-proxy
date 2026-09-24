@@ -176,7 +176,6 @@ func TestRefinementAccountingBaselineTerminalWrites(t *testing.T) {
 		{name: "Disabled", enabled: false},
 		{name: "Enabled", enabled: true},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			capture := newAccountingBaselineCapture(tc.enabled)
@@ -268,7 +267,6 @@ func BenchmarkRefinementAccountingBaseline(b *testing.B) {
 		{name: "Disabled", enabled: false},
 		{name: "Enabled", enabled: true},
 	} {
-		tc := tc
 		b.Run(tc.name, func(b *testing.B) {
 			capture := newAccountingBaselineCapture(false)
 			ex := accountingBaselineExecutor(b, tc.enabled, capture)

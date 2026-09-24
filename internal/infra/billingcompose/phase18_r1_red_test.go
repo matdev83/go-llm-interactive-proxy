@@ -18,6 +18,7 @@ import (
 // material) and carries a component valuation; the V2 owner path is enforced
 // via ResolveCallRatingForOwner and the posting boundary.
 func TestPhase18R1RedV2OwnerLegacyTariffMustNotUseScalar(t *testing.T) {
+	t.Parallel()
 	c, pricing, policy, _ := seedCatalog(t)
 	resolver, err := billingcompose.NewCallRatingResolver(c)
 	if err != nil {

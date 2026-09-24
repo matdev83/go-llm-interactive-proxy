@@ -166,10 +166,7 @@ func streamCallIdentity(t *testing.T, call *lipapi.Call, chunkSize int) (largebo
 				}
 				textBytes := []byte(msg.Parts[0].Text)
 				for offset := 0; offset < len(textBytes); offset += chunkSize {
-					end := offset + chunkSize
-					if end > len(textBytes) {
-						end = len(textBytes)
-					}
+					end := min(offset+chunkSize, len(textBytes))
 					if _, err := tw.Write(textBytes[offset:end]); err != nil {
 						return largebody.IdentityDigest{}, err
 					}
@@ -205,10 +202,7 @@ func streamCallIdentity(t *testing.T, call *lipapi.Call, chunkSize int) (largebo
 				}
 				textBytes := []byte(item.Content[0].Text)
 				for offset := 0; offset < len(textBytes); offset += chunkSize {
-					end := offset + chunkSize
-					if end > len(textBytes) {
-						end = len(textBytes)
-					}
+					end := min(offset+chunkSize, len(textBytes))
 					if _, err := tw.Write(textBytes[offset:end]); err != nil {
 						return largebody.IdentityDigest{}, err
 					}
@@ -404,7 +398,6 @@ func TestDifferentialCorpus_OpenAIResponses(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -536,7 +529,6 @@ func TestDifferentialCorpus_OpenAIChat(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -607,7 +599,6 @@ func TestDifferentialCorpus_OpenResponses(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -636,7 +627,7 @@ func TestDifferentialCorpus_HugeUnicodeAndEscapeStress(t *testing.T) {
 	var sb strings.Builder
 	// 50,000 repetitions of a complex string (~2MB)
 	pattern := "abc <div>&\"'\\</div>\u2028\u2029 🧪 café \\u0041 \n\t\r 🚀🌍 日本語 中文 العربية "
-	for i := 0; i < 50000; i++ {
+	for range 50000 {
 		sb.WriteString(pattern)
 	}
 	hugeText := sb.String()
@@ -672,7 +663,7 @@ func TestDifferentialCorpus_ItemAuthoritativeHugeStress(t *testing.T) {
 
 	var sb strings.Builder
 	pattern := "item payload <script>\"test\"&'safe'</script> \u2028\u2029 🌍🚀 "
-	for i := 0; i < 40000; i++ {
+	for range 40000 {
 		sb.WriteString(pattern)
 	}
 	hugeItemText := sb.String()
@@ -751,7 +742,7 @@ func TestDifferentialCorpus_RandomizedChunkStreaming(t *testing.T) {
 	rng := rand.New(rand.NewPCG(42, 100))
 	textBytes := []byte(text)
 
-	for iter := 0; iter < 10; iter++ {
+	for iter := range 10 {
 		w, err := largebody.NewCallIdentityWriter(largebody.CallIdentityConfig{
 			Route: call.Route,
 		})
@@ -771,10 +762,7 @@ func TestDifferentialCorpus_RandomizedChunkStreaming(t *testing.T) {
 		offset := 0
 		for offset < len(textBytes) {
 			chunkSize := rng.IntN(127) + 1 // 1 to 127 bytes
-			end := offset + chunkSize
-			if end > len(textBytes) {
-				end = len(textBytes)
-			}
+			end := min(offset+chunkSize, len(textBytes))
 			if _, err := tw.Write(textBytes[offset:end]); err != nil {
 				t.Fatalf("iter %d Write [%d:%d]: %v", iter, offset, end, err)
 			}

@@ -188,7 +188,7 @@ func TestSQLitePhase10CostPassThroughRevisionFailsClosedForCurrencyAndConcurrent
 	results := make([]billing.CostPassThroughRevisionResult, workers)
 	errs := make([]error, workers)
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()

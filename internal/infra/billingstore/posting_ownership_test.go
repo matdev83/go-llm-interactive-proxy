@@ -336,7 +336,7 @@ func TestPostingOwnershipConcurrentContenders(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, contenders)
 	pins := make([]billing.PostingPin, contenders)
-	for i := 0; i < contenders; i++ {
+	for i := range contenders {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

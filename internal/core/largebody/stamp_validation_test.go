@@ -65,6 +65,7 @@ func makeValidProof(gen string) (largebody.Proof, [32]byte) {
 // binds generation identity, profile/proof identity, source digest/size, body mode/rewrite contract,
 // and candidate/domain proof generation (Requirements 6.7, 8.5; Task 11.8).
 func TestTask11_8_StampBindsCandidateDomainGeneration(t *testing.T) {
+	t.Parallel()
 	proof, srcDigest := makeValidProof("gen-1")
 	identDigest := sha256Digest(0xaa)
 
@@ -141,9 +142,8 @@ func TestTask11_8_StampBindsCandidateDomainGeneration(t *testing.T) {
 	}
 
 	// 4. Verify opacity: all fields must remain unexported
-	stampTyp := reflect.TypeOf(largebody.AssessmentStamp{})
-	for i := 0; i < stampTyp.NumField(); i++ {
-		field := stampTyp.Field(i)
+	stampTyp := reflect.TypeFor[largebody.AssessmentStamp]()
+	for field := range stampTyp.Fields() {
 		if field.PkgPath == "" {
 			t.Fatalf("AssessmentStamp field %q is exported; stamp must stay opaque (Requirement 6.7)", field.Name)
 		}
@@ -155,6 +155,7 @@ func TestTask11_8_StampBindsCandidateDomainGeneration(t *testing.T) {
 // against live facts, and that ANY disagreement produces an invariant failure error, NEVER fallback to canonical
 // (Requirements 6.6, 6.7, 8.5; Task 11.8).
 func TestTask11_8_ExecuteRevalidation_DisagreementIsInvariantFailure(t *testing.T) {
+	t.Parallel()
 	proof, srcDigest := makeValidProof("gen-1")
 	identDigest := sha256Digest(0xbb)
 
@@ -304,6 +305,7 @@ func TestTask11_8_ExecuteRevalidation_DisagreementIsInvariantFailure(t *testing.
 	// Disagreement must abort execution immediately, never invoke delegate, never fallback.
 	for _, tc := range tests {
 		t.Run("executor/"+tc.name, func(t *testing.T) {
+			t.Parallel()
 			live := baseLive
 			tc.modify(&live)
 
@@ -333,6 +335,7 @@ func TestTask11_8_ExecuteRevalidation_DisagreementIsInvariantFailure(t *testing.
 // TestTask11_8_ExecuteRevalidation_ValidFactsExecuteSuccessfully verifies that
 // matching live facts pass revalidation and proceed to execution.
 func TestTask11_8_ExecuteRevalidation_ValidFactsExecuteSuccessfully(t *testing.T) {
+	t.Parallel()
 	proof, srcDigest := makeValidProof("gen-1")
 	identDigest := sha256Digest(0xcc)
 
@@ -412,6 +415,7 @@ func TestTask11_8_ExecuteRevalidation_ValidFactsExecuteSuccessfully(t *testing.T
 // executing with an unaccepted, declined, or zero-stamp assessment fails fail-closed
 // with an invariant error.
 func TestTask11_8_ExecuteRevalidation_InvalidAcceptedAssessment(t *testing.T) {
+	t.Parallel()
 	live := largebody.LiveExecutionFacts{
 		GenerationID:              "gen-1",
 		ProfileID:                 "openai-chat",
@@ -448,6 +452,7 @@ func TestTask11_8_ExecuteRevalidation_InvalidAcceptedAssessment(t *testing.T) {
 // BackendWireProofAssessor implements LargeBodyWireExecutor (and therefore LargeBodyExecutor),
 // binding the stamp at assessment and revalidating it at execute time.
 func TestTask11_8_BackendWireProofAssessor_ExecuteLargeBody(t *testing.T) {
+	t.Parallel()
 	proof, srcDigest := makeValidProof("gen-1")
 	identDigest := sha256Digest(0xdd)
 

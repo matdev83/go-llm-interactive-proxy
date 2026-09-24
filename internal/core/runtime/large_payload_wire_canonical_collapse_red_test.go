@@ -124,6 +124,7 @@ func TestDefect2_TTFT_KeptAliveUntilOutputCommitment_FailsOver(t *testing.T) {
 	respFinished := lipapi.Event{Kind: lipapi.EventResponseFinished}
 
 	runTest := func(t *testing.T, isWire bool) {
+		t.Helper()
 		ex, _, _ := setupTestExecutor(t)
 		ex.Now = time.Now
 
@@ -240,6 +241,7 @@ func TestDefect3_EOFAndIdle_AutoRecovery_Differential(t *testing.T) {
 
 	t.Run("EOF_PreCommit_AutoRecovery", func(t *testing.T) {
 		runEOFTest := func(t *testing.T, isWire bool) {
+			t.Helper()
 			ex, _, _ := setupTestExecutor(t)
 			ex.Now = time.Now
 			ex.StreamRecovery = streamrecovery.Config{Enabled: true}
@@ -347,6 +349,7 @@ func TestDefect3_EOFAndIdle_AutoRecovery_Differential(t *testing.T) {
 
 	t.Run("Idle_PreCommit_AutoRecovery", func(t *testing.T) {
 		runIdleTest := func(t *testing.T, isWire bool) {
+			t.Helper()
 			ex, _, _ := setupTestExecutor(t)
 			ex.Now = time.Now
 			ex.StreamRecovery = streamrecovery.Config{Enabled: true, IdleTimeout: 50 * time.Millisecond}

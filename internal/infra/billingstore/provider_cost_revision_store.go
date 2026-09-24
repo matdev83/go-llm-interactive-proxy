@@ -344,10 +344,7 @@ func (s *DurableStore) applyProviderCostRevisionAttempt(ctx context.Context, inp
 			return nil
 		}
 		if pinFound && pin.Status == billing.PostingPinPinned {
-			nowUnix := nowUnixNano()
-			if nowUnix < pin.CreatedAtUnix {
-				nowUnix = pin.CreatedAtUnix
-			}
+			nowUnix := max(nowUnixNano(), pin.CreatedAtUnix)
 			if err := b2b2CompleteProviderPinTx(ctx, tx, s.storeID, pinKey, completionOpKey, completionTxID, nowUnix); err != nil {
 				rrow, rfound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, pinKey)
 				if rerr != nil {
@@ -1552,10 +1549,7 @@ func (s *DurableStore) ensureNoMoneyRevisionPinInTx(ctx context.Context, tx bun.
 		// Same terminal-success rule as above.
 		return nil
 	}
-	nowUnix := nowUnixNano()
-	if nowUnix < pin.CreatedAtUnix {
-		nowUnix = pin.CreatedAtUnix
-	}
+	nowUnix := max(nowUnixNano(), pin.CreatedAtUnix)
 	if err := b2b2CompleteProviderPinTx(ctx, tx, s.storeID, operationKey, operationKey, "", nowUnix); err != nil {
 		rrow, rfound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, operationKey)
 		if rerr != nil {

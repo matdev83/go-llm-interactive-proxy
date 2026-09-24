@@ -54,7 +54,7 @@ func (s *DurableStore) AppendAllocation(ctx context.Context, record economics.Al
 		allocationTxDelay    = 3 * time.Millisecond
 	)
 	var lastErr error
-	for attempt := 0; attempt < allocationTxAttempts; attempt++ {
+	for attempt := range allocationTxAttempts {
 		err := s.appendAllocationOnce(ctx, record)
 		if err == nil {
 			return nil

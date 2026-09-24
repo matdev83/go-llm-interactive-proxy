@@ -105,6 +105,7 @@ func validStamp() largebody.AssessmentStamp {
 }
 
 func TestSource_ContractShape(t *testing.T) {
+	t.Parallel()
 	var src largebody.Source = stubSource{size: 8}
 	if got := src.Size(); got != 8 {
 		t.Fatalf("Size() = %d, want 8", got)
@@ -129,6 +130,7 @@ func TestSource_ContractShape(t *testing.T) {
 }
 
 func TestSpan_Validate(t *testing.T) {
+	t.Parallel()
 	if err := (largebody.Span{Offset: 0, Length: 8}).Validate(); err != nil {
 		t.Fatalf("valid span rejected: %v", err)
 	}
@@ -151,6 +153,7 @@ func TestSpan_Validate(t *testing.T) {
 }
 
 func TestCheckedSpliceLength(t *testing.T) {
+	t.Parallel()
 	got, err := largebody.CheckedSpliceLength(100, 5, 200)
 	if err != nil || got != 305 {
 		t.Fatalf("CheckedSpliceLength = %d, %v; want 305, nil", got, err)
@@ -163,6 +166,7 @@ func TestCheckedSpliceLength(t *testing.T) {
 }
 
 func TestBodyMode_ValidateAndString(t *testing.T) {
+	t.Parallel()
 	if err := largebody.BodyModeIdentityJSON.Validate(); err != nil {
 		t.Fatalf("identity body mode rejected: %v", err)
 	}
@@ -178,6 +182,7 @@ func TestBodyMode_ValidateAndString(t *testing.T) {
 }
 
 func TestRewriteSemantics_Immutable(t *testing.T) {
+	t.Parallel()
 	none := largebody.NewNoRewrite()
 	if none.NeedsModelRewrite() {
 		t.Fatal("no-rewrite must not need a model rewrite")
@@ -201,15 +206,16 @@ func TestRewriteSemantics_Immutable(t *testing.T) {
 	if _, err := largebody.NewModelTokenRewrite(largebody.Span{Offset: 4, Length: 0}); err == nil {
 		t.Fatal("rewrite with empty span must be rejected")
 	}
-	typ := reflect.TypeOf(largebody.RewriteSemantics{})
-	for i := 0; i < typ.NumField(); i++ {
-		if typ.Field(i).PkgPath == "" {
-			t.Fatalf("RewriteSemantics field %q is exported; semantics must be immutable", typ.Field(i).Name)
+	typ := reflect.TypeFor[largebody.RewriteSemantics]()
+	for field := range typ.Fields() {
+		if field.PkgPath == "" {
+			t.Fatalf("RewriteSemantics field %q is exported; semantics must be immutable", field.Name)
 		}
 	}
 }
 
 func TestSensitiveString_Redaction(t *testing.T) {
+	t.Parallel()
 	const secret = "lip-resume-token-abc123"
 	s := largebody.NewSensitiveString(secret)
 	if got := s.Reveal(); got != secret {
@@ -253,6 +259,7 @@ func TestSensitiveString_Redaction(t *testing.T) {
 }
 
 func TestProof_Validate_Bounded(t *testing.T) {
+	t.Parallel()
 	if err := validProof().Validate(testFactBudget); err != nil {
 		t.Fatalf("valid proof rejected: %v", err)
 	}
@@ -295,6 +302,7 @@ func TestProof_Validate_Bounded(t *testing.T) {
 }
 
 func TestProof_AggregateFactBytes_IncludesResumeTokenAndIncompleteCompaction(t *testing.T) {
+	t.Parallel()
 	p := validProof()
 	baseBytes := p.AggregateFactBytes()
 
@@ -324,6 +332,7 @@ func TestProof_AggregateFactBytes_IncludesResumeTokenAndIncompleteCompaction(t *
 }
 
 func TestProof_Validate_StreamingRequiresCapabilityStreaming(t *testing.T) {
+	t.Parallel()
 	p := validProof()
 	p.Delivery = lipapi.DeliveryModeStreaming
 	p.RequiredCapabilities = []lipapi.Capability{lipapi.CapabilityTools} // missing streaming
@@ -337,6 +346,7 @@ func TestProof_Validate_StreamingRequiresCapabilityStreaming(t *testing.T) {
 }
 
 func TestClientTurnShape_BoundedNoPromptText(t *testing.T) {
+	t.Parallel()
 	if err := validProof().Turn.Validate(testFactBudget); err != nil {
 		t.Fatalf("valid turn shape rejected: %v", err)
 	}
@@ -363,12 +373,13 @@ func TestClientTurnShape_BoundedNoPromptText(t *testing.T) {
 }
 
 func TestDigests_DistinctNamespaces(t *testing.T) {
+	t.Parallel()
 	identity := largebody.NewIdentityDigest(digestOf(1))
 	source := largebody.NewSourceDigest(digestOf(1))
 	if identity.IsZero() || source.IsZero() {
 		t.Fatal("non-zero digests must not report IsZero")
 	}
-	if reflect.TypeOf(identity) == reflect.TypeOf(source) {
+	if reflect.TypeFor[largebody.IdentityDigest]() == reflect.TypeOf(source) {
 		t.Fatal("identity and source digests must be distinct types")
 	}
 	if identity.String() == "" || source.String() == "" {
@@ -383,6 +394,7 @@ func TestDigests_DistinctNamespaces(t *testing.T) {
 }
 
 func TestAssessment_Lifecycle(t *testing.T) {
+	t.Parallel()
 	req := largebody.AssessmentRequest{Proof: validProof(), GenerationID: "gen-1"}
 	if err := req.Validate(testFactBudget); err != nil {
 		t.Fatalf("valid assessment request rejected: %v", err)
@@ -421,6 +433,7 @@ func TestAssessment_Lifecycle(t *testing.T) {
 }
 
 func TestAssessmentStamp_BindsFacts(t *testing.T) {
+	t.Parallel()
 	stamp := validStamp()
 	if stamp.GenerationID() != "gen-1" || stamp.ProfileID() != "openai-responses-v1" {
 		t.Fatalf("stamp binds %+v, want gen-1/openai-responses-v1", stamp)
@@ -437,15 +450,16 @@ func TestAssessmentStamp_BindsFacts(t *testing.T) {
 	if _, err := largebody.NewAssessmentStamp("g", "p", largebody.NewSourceDigest(digestOf(2)), 8, largebody.BodyMode(""), largebody.NewNoRewrite(), largebody.NewIdentityDigest(digestOf(1))); err == nil {
 		t.Fatal("stamp with unknown body mode must be rejected")
 	}
-	typ := reflect.TypeOf(largebody.AssessmentStamp{})
-	for i := 0; i < typ.NumField(); i++ {
-		if typ.Field(i).PkgPath == "" {
-			t.Fatalf("AssessmentStamp field %q is exported; the stamp must stay opaque", typ.Field(i).Name)
+	typ := reflect.TypeFor[largebody.AssessmentStamp]()
+	for field := range typ.Fields() {
+		if field.PkgPath == "" {
+			t.Fatalf("AssessmentStamp field %q is exported; the stamp must stay opaque", field.Name)
 		}
 	}
 }
 
 func TestWireFacts_Bounded(t *testing.T) {
+	t.Parallel()
 	req := largebody.WireRequestFacts{
 		ProfileID:      "openai-responses-v1",
 		Operation:      lipapi.OperationOpenAIResponses,
@@ -501,6 +515,7 @@ func TestWireFacts_Bounded(t *testing.T) {
 }
 
 func TestRewritePlan_CheckedMath(t *testing.T) {
+	t.Parallel()
 	plan := largebody.RewritePlan{
 		Rewrite:          mustRewrite(),
 		ReplacementModel: "gpt-5-mini",
@@ -535,6 +550,7 @@ func mustRewrite() largebody.RewriteSemantics {
 }
 
 func TestExecutionResult_Bounded(t *testing.T) {
+	t.Parallel()
 	result := largebody.ExecutionResult{
 		Stream: stubStream{},
 		Facts: largebody.ResponseFacts{
@@ -580,6 +596,7 @@ func TestExecutionResult_Bounded(t *testing.T) {
 }
 
 func TestSessionCarrier_NeverLogsSecrets(t *testing.T) {
+	t.Parallel()
 	const token = "lip-resume-token-secret"
 	carrier := largebody.SessionResponseCarrier{
 		AuthoritativeSessionID: "sess-9",
@@ -614,6 +631,7 @@ func TestSessionCarrier_NeverLogsSecrets(t *testing.T) {
 }
 
 func TestSessionInput_MarshalRedactsResumeToken(t *testing.T) {
+	t.Parallel()
 	const token = "lip-resume-token-secret"
 	input := largebody.SessionInput{
 		AuthoritativeSessionID: "sess-1",
@@ -638,27 +656,28 @@ func TestSessionInput_MarshalRedactsResumeToken(t *testing.T) {
 }
 
 func TestPackage_HasNoSmugglingVectors(t *testing.T) {
+	t.Parallel()
 	structs := []reflect.Type{
-		reflect.TypeOf(largebody.Span{}),
-		reflect.TypeOf(largebody.RewriteSemantics{}),
-		reflect.TypeOf(largebody.SensitiveString{}),
-		reflect.TypeOf(largebody.ProtocolFacts{}),
-		reflect.TypeOf(largebody.SessionInput{}),
-		reflect.TypeOf(largebody.ClientTurnPartShape{}),
-		reflect.TypeOf(largebody.ClientTurnItemShape{}),
-		reflect.TypeOf(largebody.ClientTurnShape{}),
-		reflect.TypeOf(largebody.IdentityDigest{}),
-		reflect.TypeOf(largebody.SourceDigest{}),
-		reflect.TypeOf(largebody.Proof{}),
-		reflect.TypeOf(largebody.AssessmentRequest{}),
-		reflect.TypeOf(largebody.Assessment{}),
-		reflect.TypeOf(largebody.AssessmentStamp{}),
-		reflect.TypeOf(largebody.WireRequestFacts{}),
-		reflect.TypeOf(largebody.WireDomainFacts{}),
-		reflect.TypeOf(largebody.RewritePlan{}),
-		reflect.TypeOf(largebody.ExecutionResult{}),
-		reflect.TypeOf(largebody.ResponseFacts{}),
-		reflect.TypeOf(largebody.SessionResponseCarrier{}),
+		reflect.TypeFor[largebody.Span](),
+		reflect.TypeFor[largebody.RewriteSemantics](),
+		reflect.TypeFor[largebody.SensitiveString](),
+		reflect.TypeFor[largebody.ProtocolFacts](),
+		reflect.TypeFor[largebody.SessionInput](),
+		reflect.TypeFor[largebody.ClientTurnPartShape](),
+		reflect.TypeFor[largebody.ClientTurnItemShape](),
+		reflect.TypeFor[largebody.ClientTurnShape](),
+		reflect.TypeFor[largebody.IdentityDigest](),
+		reflect.TypeFor[largebody.SourceDigest](),
+		reflect.TypeFor[largebody.Proof](),
+		reflect.TypeFor[largebody.AssessmentRequest](),
+		reflect.TypeFor[largebody.Assessment](),
+		reflect.TypeFor[largebody.AssessmentStamp](),
+		reflect.TypeFor[largebody.WireRequestFacts](),
+		reflect.TypeFor[largebody.WireDomainFacts](),
+		reflect.TypeFor[largebody.RewritePlan](),
+		reflect.TypeFor[largebody.ExecutionResult](),
+		reflect.TypeFor[largebody.ResponseFacts](),
+		reflect.TypeFor[largebody.SessionResponseCarrier](),
 	}
 	allowedContentNames := map[string]bool{
 		"ContentBytes": true, "TotalContentBytes": true, "ControlCount": true,
@@ -668,8 +687,7 @@ func TestPackage_HasNoSmugglingVectors(t *testing.T) {
 		if strings.Contains(typ.Name(), "Call") {
 			t.Fatalf("type %s mirrors lipapi.Call; DTOs must stay narrowly scoped", typ.Name())
 		}
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
+		for field := range typ.Fields() {
 			if field.PkgPath == "" && field.Type.Kind() == reflect.Map {
 				t.Fatalf("type %s field %s is an unbounded map", typ.Name(), field.Name)
 			}

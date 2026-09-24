@@ -692,11 +692,9 @@ func TestRefinement41ConcurrentCheckpointFlushDoesNotDuplicate(t *testing.T) {
 	var wait sync.WaitGroup
 	errCh := make(chan error, 2)
 	for range 2 {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
+		wait.Go(func() {
 			errCh <- attempt.flushEconomicCheckpoints(context.Background(), true)
-		}()
+		})
 	}
 	wait.Wait()
 	close(errCh)

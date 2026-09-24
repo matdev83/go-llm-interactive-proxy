@@ -432,7 +432,7 @@ func TestCompaction_MultiTurn_MixedCanonicalAndWire_HeuristicDetection(t *testin
 	msgTail1 := "penultimate message: the quick brown fox jumps over the lazy dog"
 	msgTail2 := "final confirmation message: acknowledged and completed"
 	var msgs []lipapi.Message
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		msgs = append(msgs, lipapi.Message{
 			Role:  lipapi.RoleUser,
 			Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: strings.Repeat("a", 4800)}},

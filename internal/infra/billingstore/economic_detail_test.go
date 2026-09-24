@@ -675,7 +675,7 @@ func TestQueryEconomicDetailPagination(t *testing.T) {
 	account := edTestAccount(t, store, "ed-page", "USD")
 	callID := edTestCallID(t)
 	var observations []metering.Observation
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		subject := edTestBLegSubject(store.StoreID(), "tenant-ed", account.ID, "a-ed-page", callID.String(), "b-ed-page")
 		observations = append(observations, edTestObservation(t,
 			"obs-ed-page-"+string(rune('a'+i)), metering.OriginLocal, "stream-ed-page", uint64(i+1), subject,
@@ -1365,7 +1365,7 @@ func TestQueryEconomicDetailReconciliationLaterChildSurvives(t *testing.T) {
 	account := edTestAccount(t, store, "ed-recon-late", "USD")
 	callID := edTestCallID(t)
 	legs := make([]billing.CallLegUsageRecord, 0, 40)
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		leg := edTestLeg(t, fmt.Sprintf("b-late-%02d", i))
 		leg.AttemptSeq = i + 1
 		legs = append(legs, leg)

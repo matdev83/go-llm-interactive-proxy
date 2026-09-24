@@ -30,6 +30,7 @@ import (
 // Test 1: routing.PrepareSelector is the shared compilation/validation helper
 // shared between canonical buildRoutePlan and wire ComposeInitialCandidates (share-don't-fork).
 func TestTask12_2_Routing_PrepareSelector_SharedHelper(t *testing.T) {
+	t.Parallel()
 	aliases, err := routing.NewAliasResolver([]routing.ModelAliasRule{
 		{Pattern: "fast", Replacement: "openai:gpt-4o"},
 	})
@@ -86,6 +87,7 @@ func TestTask12_2_Routing_PrepareSelector_SharedHelper(t *testing.T) {
 // content-dependent token estimation. On the wire path, without an exact
 // source contract (WireCounter), it MUST decline with DeclineReasonCountingUnsupported.
 func TestTask12_2_RequestSize_ConstraintWithoutExactSourceContract_Declines(t *testing.T) {
+	t.Parallel()
 	be := &testStubBackend{compatible: true}
 	backends := largebody.WireBackendMap{"openai": be}
 
@@ -114,6 +116,7 @@ func TestTask12_2_RequestSize_ConstraintWithoutExactSourceContract_Declines(t *t
 // Test 3: When a selector has NO request-size constraints, exact metadata facts
 // suffice, and evaluation succeeds without token estimation.
 func TestTask12_2_RequestSize_NoConstraints_ExactMetadataSuffices(t *testing.T) {
+	t.Parallel()
 	be := &testStubBackend{compatible: true}
 	backends := largebody.WireBackendMap{"openai": be}
 
@@ -142,6 +145,7 @@ func TestTask12_2_RequestSize_NoConstraints_ExactMetadataSuffices(t *testing.T) 
 // Test 4: EvaluateRouteFacts and EvaluateTurnFacts directly consume Task 12.1's
 // bounded wire facts without constructing a Proof or Call.
 func TestTask12_2_EvaluateRouteFacts_DirectWireTurnFacts(t *testing.T) {
+	t.Parallel()
 	be := &testStubBackend{compatible: true}
 	backends := largebody.WireBackendMap{"openai-default": be}
 
@@ -180,6 +184,7 @@ func TestTask12_2_EvaluateRouteFacts_DirectWireTurnFacts(t *testing.T) {
 // Test 5: GenerationSelectorValidator exposes HasRequestSizeConstraints to detect
 // context-size filters on selectors under current generation rules.
 func TestTask12_2_GenerationSelectorValidator_HasRequestSizeConstraints(t *testing.T) {
+	t.Parallel()
 	v := routing.NewGenerationSelectorValidator(
 		nil,
 		"openai",
@@ -217,6 +222,7 @@ func TestTask12_2_GenerationSelectorValidator_HasRequestSizeConstraints(t *testi
 // Test 6: FailoverRequirementSet can be derived from static metadata
 // lipapi.ProtocolRequirements without requiring a full lipapi.Call.
 func TestTask12_2_Capabilities_NewFailoverRequirementSetFromRequirements(t *testing.T) {
+	t.Parallel()
 	req := lipapi.ProtocolRequirements{
 		Capabilities: []lipapi.Capability{
 			lipapi.CapabilityTools,

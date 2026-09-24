@@ -80,7 +80,7 @@ func TestAccountingCutoverEnsureRaceConverges(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make([]billing.AccountingCutoverMarker, contenders)
 	errs := make([]error, contenders)
-	for i := 0; i < contenders; i++ {
+	for i := range contenders {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -266,7 +266,7 @@ func TestAccountingCutoverTwoConcurrentContenders(t *testing.T) {
 	var wg sync.WaitGroup
 	outcomes := make([]error, contenders)
 	markers := make([]billing.AccountingCutoverMarker, contenders)
-	for i := 0; i < contenders; i++ {
+	for i := range contenders {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

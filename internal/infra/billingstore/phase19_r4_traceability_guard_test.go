@@ -70,7 +70,7 @@ func TestPhase19R4TraceabilityMatrixAssertions(t *testing.T) {
 		if err != nil {
 			return nil
 		}
-		for _, line := range strings.Split(string(content), "\n") {
+		for line := range strings.SplitSeq(string(content), "\n") {
 			trimmed := strings.TrimSpace(line)
 			if !strings.HasPrefix(trimmed, "func Test") {
 				continue
@@ -117,7 +117,7 @@ func TestPhase19R4TraceabilityMatrixAssertions(t *testing.T) {
 		}
 		key := columns[0] + "\x00" + columns[1]
 		var names []string
-		for _, field := range strings.Split(columns[3], ";") {
+		for field := range strings.SplitSeq(columns[3], ";") {
 			name := strings.TrimSpace(field)
 			if name == "" || name == "-" {
 				continue

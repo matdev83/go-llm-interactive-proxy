@@ -335,10 +335,7 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 			}
 			// Pinned but money already posted (crash between money and pin
 			// completion in pre-B2b1 code, or concurrent replay): complete now.
-			nowUnix := time.Now().UTC().UnixNano()
-			if nowUnix < pin.CreatedAtUnix {
-				nowUnix = pin.CreatedAtUnix
-			}
+			nowUnix := max(time.Now().UTC().UnixNano(), pin.CreatedAtUnix)
 			if err := b2b1CompleteCustomerPinTx(ctx, tx, s.storeID, sourceKey, sourceKey, expectedTxID, nowUnix); err != nil {
 				// Concurrent completer won: reload to classify replay vs conflict.
 				rerow, refound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationCustomerSettlement, sourceKey)

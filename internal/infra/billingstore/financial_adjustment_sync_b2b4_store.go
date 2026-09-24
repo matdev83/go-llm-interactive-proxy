@@ -209,10 +209,7 @@ func (s *DurableStore) b2b4EnsureCostPassThroughReplayPin(ctx context.Context, t
 			return fmt.Errorf("%w: cost pass-through pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, repinned.Owner, owner)
 		}
 		if repinned.Status == billing.PostingPinPinned {
-			nowUnix := nowUnixNano()
-			if nowUnix < repinned.CreatedAtUnix {
-				nowUnix = repinned.CreatedAtUnix
-			}
+			nowUnix := max(nowUnixNano(), repinned.CreatedAtUnix)
 			if err := b2b4CompleteCostPassThroughPinTx(ctx, tx, s.storeID, pinKey, sourceKey, completionTxID, nowUnix); err != nil {
 				// Concurrent completer won: verify exact outcome.
 				rerow2, refound2, rerr2 := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, pinKey)
@@ -246,10 +243,7 @@ func (s *DurableStore) b2b4EnsureCostPassThroughReplayPin(ctx context.Context, t
 		}
 		return nil
 	}
-	nowUnix := nowUnixNano()
-	if nowUnix < pin.CreatedAtUnix {
-		nowUnix = pin.CreatedAtUnix
-	}
+	nowUnix := max(nowUnixNano(), pin.CreatedAtUnix)
 	if err := b2b4CompleteCostPassThroughPinTx(ctx, tx, s.storeID, pinKey, sourceKey, completionTxID, nowUnix); err != nil {
 		rerow, refound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, pinKey)
 		if rerr != nil {
@@ -316,10 +310,7 @@ func (s *DurableStore) b2b4EnsureDirectReplayPin(ctx context.Context, tx bun.Tx,
 			return fmt.Errorf("%w: direct pin owned by %q, claimant %q", billing.ErrPostingOwnershipConflict, repinned.Owner, owner)
 		}
 		if repinned.Status == billing.PostingPinPinned {
-			nowUnix := nowUnixNano()
-			if nowUnix < repinned.CreatedAtUnix {
-				nowUnix = repinned.CreatedAtUnix
-			}
+			nowUnix := max(nowUnixNano(), repinned.CreatedAtUnix)
 			if err := b2b4CompleteDirectPinTx(ctx, tx, s.storeID, pinKey, completionOpKey, completionTxID, nowUnix); err != nil {
 				rerow2, refound2, rerr2 := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, pinKey)
 				if rerr2 != nil {
@@ -348,10 +339,7 @@ func (s *DurableStore) b2b4EnsureDirectReplayPin(ctx context.Context, tx bun.Tx,
 		}
 		return nil
 	}
-	nowUnix := nowUnixNano()
-	if nowUnix < pin.CreatedAtUnix {
-		nowUnix = pin.CreatedAtUnix
-	}
+	nowUnix := max(nowUnixNano(), pin.CreatedAtUnix)
 	if err := b2b4CompleteDirectPinTx(ctx, tx, s.storeID, pinKey, completionOpKey, completionTxID, nowUnix); err != nil {
 		rerow, refound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationFinancialAdjustment, pinKey)
 		if rerr != nil {

@@ -40,7 +40,7 @@ func seedRetentionLegacyRows(t *testing.T, ctx context.Context, store *DurableSt
 	statement, err := tx.PrepareContext(ctx, `INSERT INTO billing_reconciliations(store_id, reconciliation_id, reconciliation_version, subject_kind, subject_id, subject_json, tenant_id, scope, basis, result_schema_version, input_set_hash, local_input_hash, provider_input_hash, policy_id, policy_version, result_json, canonical_json, fingerprint, projection_version, created_at_unix) VALUES (?,?,?,?,?,'{}',?,'','',1,'','','','','','{}','','',1,?)`)
 	require.NoError(t, err)
 	defer func() { _ = statement.Close() }()
-	for i := 0; i < count; i++ {
+	for i := range count {
 		_, err := statement.ExecContext(ctx, storeID, fmt.Sprintf("legacy-%s-%d", subjectID, i), 1, string(metering.SubjectBLeg), subjectID, tenantID, createdAtBase+int64(i))
 		require.NoError(t, err)
 	}

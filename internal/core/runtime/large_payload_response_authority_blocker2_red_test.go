@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"crypto/sha256"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -228,14 +229,14 @@ func TestBlocker2_ResponseAuthority_WireBypassProvesViolation(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = res.Stream.Close() }()
 
-		var text string
+		var text strings.Builder
 		for {
 			ev, rerr := res.Stream.Recv(ctx)
 			if rerr != nil {
 				break
 			}
 			if ev.Kind == lipapi.EventTextDelta {
-				text += ev.Delta
+				text.WriteString(ev.Delta)
 			}
 		}
 
@@ -244,7 +245,7 @@ func TestBlocker2_ResponseAuthority_WireBypassProvesViolation(t *testing.T) {
 		// These will FAIL on current code because ExecuteLargeBody bypasses all of them!
 		assert.Equal(t, largebody.AssessmentDecisionDecline, assessment.Decision,
 			"wire assessment must decline when response-side authorities are occupied")
-		assert.Equal(t, "PREFIX:hello", text,
+		assert.Equal(t, "PREFIX:hello", text.String(),
 			"accepted wire response lacks prefix (hook bypassed)")
 		assert.True(t, gate.invoked.Load(),
 			"accepted wire response bypassed completion gate")
@@ -269,17 +270,17 @@ func TestBlocker2_ResponseAuthority_WireBypassProvesViolation(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = stream.Close() }()
 
-	var text string
+	var text strings.Builder
 	for {
 		ev, rerr := stream.Recv(ctx)
 		if rerr != nil {
 			break
 		}
 		if ev.Kind == lipapi.EventTextDelta {
-			text += ev.Delta
+			text.WriteString(ev.Delta)
 		}
 	}
-	assert.Equal(t, "PREFIX:hello", text, "canonical execution must run response hook")
+	assert.Equal(t, "PREFIX:hello", text.String(), "canonical execution must run response hook")
 	assert.True(t, gate.invoked.Load(), "canonical execution must run completion gate")
 	assert.True(t, rec.postHookStreamEventCalls.Load() > 0, "canonical execution must run secure session recorder")
 }

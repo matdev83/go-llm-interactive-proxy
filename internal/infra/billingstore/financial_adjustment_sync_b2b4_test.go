@@ -501,7 +501,7 @@ func TestB2b4ConcurrentSingleWinner(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, n)
 	results := make([]billing.CostPassThroughRevisionResult, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -536,7 +536,7 @@ func TestB2b4ConcurrentSingleWinner(t *testing.T) {
 	var dwg sync.WaitGroup
 	derrs := make([]error, n)
 	dresults := make([]billing.Posting, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		dwg.Add(1)
 		go func(idx int) {
 			defer dwg.Done()
