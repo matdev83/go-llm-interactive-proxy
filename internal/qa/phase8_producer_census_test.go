@@ -17,7 +17,7 @@ import (
 func TestPhase8ProducerCensusHasExplicitDisposition(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	path := filepath.Join(root, ".kiro", "specs", "usage-economics-b-leg-multimodal-refinement", "evidence", "phase1-producer-consumer-census.tsv")
+	path := filepath.Join(root, ".kiro", "specs", "archive", "usage-economics-b-leg-multimodal-refinement", "evidence", "phase1-producer-consumer-census.tsv")
 	file, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("open Phase 1 census: %v", err)
