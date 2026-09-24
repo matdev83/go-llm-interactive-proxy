@@ -97,7 +97,7 @@ func (a *attemptSession) localBoundaryObservations(now time.Time, drain bool) []
 		ReceivedAt:    now,
 	}
 	a.billingMu.Unlock()
-	return a.versionLocalBoundaryObservations(boundary.Observations(identity))
+	return a.versionLocalBoundaryObservations(boundary.Observations(identity), drain)
 }
 
 func (a *attemptSession) observeLocalProviderEvent(event lipapi.Event, media ...coremetering.MediaSummary) {

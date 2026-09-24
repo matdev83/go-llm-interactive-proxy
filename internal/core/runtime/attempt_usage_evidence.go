@@ -765,7 +765,7 @@ func cloneBillingEvidenceEvent(ev lipapi.Event) lipapi.Event {
 	}
 }
 
-func observationsFromBillingEvidence(draft billingLegDraft, captured []capturedBillingEvidence) ([]metering.Observation, []billing.EvidenceConflict) {
+func observationsFromBillingEvidence(draft billingLegDraft, captured []capturedBillingEvidence) ([]metering.Observation, []billing.EvidenceConflict, int) {
 	inputs := make([]billingObservationInput, 0, len(captured)+2)
 	capturedKeys := make(map[string]struct{}, len(captured))
 	for i, evidence := range captured {
@@ -804,6 +804,7 @@ func observationsFromBillingEvidence(draft billingLegDraft, captured []capturedB
 	// member; a later corrected source must arrive through the V2 observation
 	// contract rather than being guessed here.
 	seenSourceEvents := make(map[string]string, len(inputs))
+	dropped := 0
 	for _, input := range inputs {
 		observation, ok := billingObservationFromEvent(draft, input)
 		if !ok {
@@ -823,12 +824,16 @@ func observationsFromBillingEvidence(draft billingLegDraft, captured []capturedB
 		if len(observations) >= billing.MaxCallLegEvidenceObservations {
 			// The attempt accumulator is intentionally bounded. Preserve the
 			// V1 scalar fallback for any dropped terminal source while keeping
-			// the immutable V2 collection within the record contract.
+			// the immutable V2 collection within the record contract. Report
+			// the drop so the terminal builder can surface a trusted reserved
+			// fail-closed disposition instead of silently truncating a
+			// validated origin before it ever reaches the builder.
+			dropped++
 			continue
 		}
 		observations = append(observations, observation)
 	}
-	return observations, conflicts
+	return observations, conflicts, dropped
 }
 
 // directEvidenceCoveredByEconomicObservation prevents a canonical provider

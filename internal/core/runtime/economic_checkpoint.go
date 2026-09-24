@@ -626,7 +626,15 @@ func canonicalEconomicCheckpoint(observation metering.Observation) (metering.Obs
 // revision-one snapshots into immutable cumulative revisions. Observation
 // timestamps describe capture time and therefore do not, by themselves,
 // advance a local measurement revision.
-func (a *attemptSession) versionLocalBoundaryObservations(observations []metering.Observation) []metering.Observation {
+//
+// drain is true only for the irreversible terminal drain. The receive-side
+// checkpoint path can retry a rejected measurement from the still-live
+// accumulator, so it neither records loss nor treats the rejection as final.
+// On the terminal drain a rejected measurement has no later retry owner: the
+// just-measured immutable snapshot is handed to the terminal record directly
+// (never the stale prior head), and the truncated durable checkpoint is
+// recorded as sticky capture loss that a later successful flush cannot clear.
+func (a *attemptSession) versionLocalBoundaryObservations(observations []metering.Observation, drain bool) []metering.Observation {
 	if a == nil || len(observations) == 0 {
 		return nil
 	}
@@ -664,14 +672,15 @@ func (a *attemptSession) versionLocalBoundaryObservations(observations []meterin
 			canonical.Revision = prior.Revision + 1
 		}
 		if a.queueEconomicCheckpoint(canonical) != economicCheckpointRetained {
-			// Keep the previous local head visible until the new measurement has
-			// queue ownership. The bounded deferred queue normally makes this
-			// path reachable only when both retry queues are exhausted.
-			if hasPrior {
-				versioned = append(versioned, prior.Clone())
-			} else {
-				versioned = append(versioned, canonical.Clone())
+			// The measurement has no durable checkpoint owner. On the terminal
+			// drain that is an irreversible loss of the pre-terminal checkpoint
+			// plane, so retain the sticky fail-closed disposition. The final
+			// immutable snapshot itself is handed to the terminal record rather
+			// than republishing a stale prior head as if it were final.
+			if drain {
+				a.recordEconomicCaptureLoss(evidenceCaptureLossCheckpointCapacity, canonical.SourceEventKey, economicEvidenceCaptureLossBytes(canonical))
 			}
+			versioned = append(versioned, canonical.Clone())
 			continue
 		}
 		a.checkpointMu.Lock()
@@ -1003,4 +1012,38 @@ func (a *attemptSession) flushEconomicCheckpointsAtTerminal(ctx context.Context)
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), economicCheckpointFlushTimeout)
 	defer cancel()
 	return a.flushEconomicCheckpoints(persistCtx, true)
+}
+
+// maxTerminalLocalEvidenceReserve bounds the terminal evidence envelope
+// capacity reserved for the validated final local boundary origin. Local
+// boundary capture emits a small fixed set of planes per attempt, so the
+// reserve is deliberately small: provider and economic evidence keep priority
+// for every unreserved slot, and the reserve only guarantees the final local
+// origin is never silently displaced by an independently admitted
+// provider/economic population.
+const maxTerminalLocalEvidenceReserve = 8
+
+// terminalEnvelopeLossIdentity is the bounded, runtime-owned identity carried
+// by the reserved envelope-truncation disposition. It is a fixed runtime
+// marker, never a source-controlled value, so the disposition cannot be forged
+// from provider content and repeated truncations deduplicate.
+const terminalEnvelopeLossIdentity = "terminal-evidence-envelope"
+
+// terminalEvidenceEnvelopeLossConflict builds the trusted, reserved,
+// fail-closed disposition emitted when the bounded terminal evidence envelope
+// cannot include every validated origin. It reuses the existing capture-loss
+// diagnostic shape so the terminal record stays unratable instead of
+// presenting a truncated prefix as complete. It is bounded: one marker per
+// record, carrying only a count and a closed cause.
+func terminalEvidenceEnvelopeLossConflict(dropped int) []billing.EvidenceConflict {
+	if dropped <= 0 {
+		return nil
+	}
+	return captureLossEvidenceConflicts(evidenceCaptureLoss{
+		present:       true,
+		count:         uint64(dropped),
+		causes:        evidenceCaptureLossCauseSet(0).with(evidenceCaptureLossObservationCap),
+		firstCause:    evidenceCaptureLossObservationCap,
+		firstIdentity: terminalEnvelopeLossIdentity,
+	})
 }

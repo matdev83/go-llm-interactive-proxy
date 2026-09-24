@@ -162,14 +162,14 @@ func TestR3AppendCanonicalObservationsUsesSemanticReplayIdentity(t *testing.T) {
 	carrier.Subject.ProviderRequestID = carrier.Correlation.ProviderRequestID
 	carrier.Correlation.ProviderRequestID = ""
 
-	observations, conflicts := appendCanonicalObservations(nil, nil, []metering.Observation{base, receipt, carrier})
+	observations, conflicts, _ := appendCanonicalObservations(nil, nil, []metering.Observation{base, receipt, carrier}, billing.MaxCallLegEvidenceObservations)
 	if len(observations) != 1 || len(conflicts) != 0 {
 		t.Fatalf("semantic replay observations=%d conflicts=%d, want one and none", len(observations), len(conflicts))
 	}
 
 	changed := base.Clone()
 	changed.Measures[0].Value = &metering.Decimal{Coefficient: "5", Scale: 0}
-	observations, conflicts = appendCanonicalObservations(observations, conflicts, []metering.Observation{changed})
+	observations, conflicts, _ = appendCanonicalObservations(observations, conflicts, []metering.Observation{changed}, billing.MaxCallLegEvidenceObservations)
 	if len(observations) != 1 || len(conflicts) != 1 {
 		t.Fatalf("changed measure observations=%d conflicts=%d, want one and one", len(observations), len(conflicts))
 	}

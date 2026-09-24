@@ -78,7 +78,26 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	// it is deliberately not used as the terminal economic source of truth.
 	evidence := projectV1BillingEvidence(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
 	evidence = normalizeBillingEvidenceIdentity(evidence, draft.callID, bLegID)
-	observations, conflicts := observationsFromBillingEvidence(draft, draft.evidenceEvents)
+	observations, conflicts, legacyDropped := observationsFromBillingEvidence(draft, draft.evidenceEvents)
+
+	// The validated final local boundary origin is assembled last, after
+	// provider and economic evidence, so it is the origin most exposed to the
+	// bounded terminal evidence envelope. Reserve bounded capacity for it
+	// before those origins can consume the whole envelope; provider/economic
+	// evidence keeps priority for every unreserved slot. Any origin that still
+	// cannot be included is surfaced as a trusted reserved fail-closed
+	// disposition rather than silently truncated. legacyDropped carries the
+	// V1 conversion cap that already fired inside the provider-origin builder.
+	localSubmissionConflicts := submissionLinkageConflictsForObservations(draft.localObservations, draft.submissionID)
+	localInput := retainSubmissionLinkedObservations(draft.localObservations, draft.submissionID)
+	localReserve := min(len(localInput), maxTerminalLocalEvidenceReserve)
+	nonLocalLimit := billing.MaxCallLegEvidenceObservations - localReserve
+	envelopeDropped := legacyDropped
+	if len(observations) > nonLocalLimit {
+		envelopeDropped += len(observations) - nonLocalLimit
+		observations = observations[:nonLocalLimit]
+	}
+
 	// Economic observations may already be durable checkpoints. Their source
 	// revisions and supersession references were fingerprinted before this
 	// terminal handoff, so mutating Subject/Correlation here would invalidate
@@ -87,20 +106,31 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	// with that record-level authority.
 	economicSubmissionConflicts := submissionLinkageConflictsForEconomicEvidence(draft.economicObservations, draft.submissionID)
 	economicInput := retainSubmissionLinkedEconomicEvidence(draft.economicObservations, draft.submissionID)
-	observations, economicDispositions, conflicts := appendCanonicalEconomicObservations(observations, conflicts, economicInput)
-	localSubmissionConflicts := submissionLinkageConflictsForObservations(draft.localObservations, draft.submissionID)
-	localInput := retainSubmissionLinkedObservations(draft.localObservations, draft.submissionID)
-	observations, conflicts = appendCanonicalObservations(observations, conflicts, localInput)
+	var economicDispositions []billing.EconomicEvidenceDisposition
+	economicDropped := 0
+	observations, economicDispositions, conflicts, economicDropped = appendCanonicalEconomicObservations(observations, conflicts, economicInput, nonLocalLimit)
+	envelopeDropped += economicDropped
+
+	localDropped := 0
+	observations, conflicts, localDropped = appendCanonicalObservations(observations, conflicts, localInput, billing.MaxCallLegEvidenceObservations)
+	envelopeDropped += localDropped
+
+	// Reserved envelope-truncation dispositions join the trusted reserved
+	// channel so a saturated ordinary conflict set cannot displace them. The
+	// caller's slice is copied first so this append never mutates a shared
+	// backing array.
+	reservedConflicts := draft.economicConflicts
+	if envelopeDropped > 0 {
+		reservedConflicts = append(append([]billing.EvidenceConflict(nil), reservedConflicts...), terminalEvidenceEnvelopeLossConflict(envelopeDropped)...)
+	}
 	// Merge every conflict origin with reserved retention-overflow priority so a
 	// saturated ordinary conflict set from any origin cannot displace the
 	// explicit fail-closed retention disposition. Reserved priority comes only
-	// from draft.economicConflicts, the runtime-owned trusted channel; every
-	// source-derived origin, including draft.economicOrdinaryConflicts and the
-	// conflicts synthesized from provider observations, is ordinary and cannot
-	// forge priority. The durable cap still holds, ordinary conflicts stay
-	// visible, and no immutable evidence is mutated.
+	// from the trusted runtime-owned channel; every source-derived origin is
+	// ordinary and cannot forge priority. The durable cap still holds, ordinary
+	// conflicts stay visible, and no immutable evidence is mutated.
 	conflicts = mergeTerminalEvidenceConflicts(
-		draft.economicConflicts,
+		reservedConflicts,
 		conflicts,
 		economicSubmissionConflicts,
 		localSubmissionConflicts,
@@ -146,15 +176,21 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 // converts or clones provider evidence into local evidence. Replay identity is
 // the shared semantic preimage (receipt time and approved Subject/Correlation
 // carrier placement normalized); a genuinely changed semantic payload remains
-// a visible conflict.
-func appendCanonicalObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []metering.Observation) ([]metering.Observation, []billing.EvidenceConflict) {
+// a visible conflict. limit bounds the terminal envelope; the returned dropped
+// count lets the caller surface a reserved fail-closed disposition instead of
+// silently truncating a validated origin.
+func appendCanonicalObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []metering.Observation, limit int) ([]metering.Observation, []billing.EvidenceConflict, int) {
+	if limit <= 0 || limit > billing.MaxCallLegEvidenceObservations {
+		limit = billing.MaxCallLegEvidenceObservations
+	}
 	if len(incoming) == 0 {
-		return existing, conflicts
+		return existing, conflicts, 0
 	}
 	seen := make(map[string]string, len(existing)+len(incoming))
 	for _, observation := range existing {
 		seen[observation.IdentityKey()] = billing.ObservationEvidenceHash(observation)
 	}
+	dropped := 0
 	for _, original := range incoming {
 		observation, err := original.Canonical()
 		if err != nil {
@@ -168,13 +204,14 @@ func appendCanonicalObservations(existing []metering.Observation, conflicts []bi
 			}
 			continue
 		}
-		if len(existing) >= billing.MaxCallLegEvidenceObservations {
-			break
+		if len(existing) >= limit {
+			dropped++
+			continue
 		}
 		existing = append(existing, observation)
 		seen[identity] = hash
 	}
-	return existing, conflicts
+	return existing, conflicts, dropped
 }
 
 // retainSubmissionLinkedObservations keeps immutable observation envelopes
@@ -296,9 +333,12 @@ func observationSubmissionMatches(observation metering.Observation, submissionID
 	return true
 }
 
-func appendCanonicalEconomicObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []execbackend.EconomicEvidence) ([]metering.Observation, []billing.EconomicEvidenceDisposition, []billing.EvidenceConflict) {
+func appendCanonicalEconomicObservations(existing []metering.Observation, conflicts []billing.EvidenceConflict, incoming []execbackend.EconomicEvidence, limit int) ([]metering.Observation, []billing.EconomicEvidenceDisposition, []billing.EvidenceConflict, int) {
+	if limit <= 0 || limit > billing.MaxCallLegEvidenceObservations {
+		limit = billing.MaxCallLegEvidenceObservations
+	}
 	if len(incoming) == 0 {
-		return existing, nil, conflicts
+		return existing, nil, conflicts, 0
 	}
 	dispositions := make([]billing.EconomicEvidenceDisposition, 0, len(incoming))
 	seen := make(map[string]string, len(existing)+len(incoming))
@@ -310,6 +350,7 @@ func appendCanonicalEconomicObservations(existing []metering.Observation, confli
 		seen[canonical.IdentityKey()] = billing.ObservationEvidenceHash(canonical)
 	}
 	seenDispositions := make(map[string]billing.EconomicEvidenceDisposition, len(incoming))
+	dropped := 0
 	for _, evidence := range incoming {
 		observation, err := evidence.Observation.Canonical()
 		if err != nil {
@@ -343,15 +384,16 @@ func appendCanonicalEconomicObservations(existing []metering.Observation, confli
 			seenDispositions[identity] = disposition
 			continue
 		}
-		if len(existing) >= billing.MaxCallLegEvidenceObservations {
-			break
+		if len(existing) >= limit {
+			dropped++
+			continue
 		}
 		existing = append(existing, observation)
 		seen[identity] = hash
 		dispositions = append(dispositions, disposition)
 		seenDispositions[identity] = disposition
 	}
-	return existing, dispositions, conflicts
+	return existing, dispositions, conflicts, dropped
 }
 
 func appendBoundedEvidenceConflicts(existing, incoming []billing.EvidenceConflict) []billing.EvidenceConflict {
@@ -715,7 +757,7 @@ func (e *Executor) appendIndependentTerminalLegWithObservations(ctx context.Cont
 		submissionID := billingSubmissionID(state)
 		localConflicts := submissionLinkageConflictsForObservations(localObservations, submissionID)
 		localInput := retainSubmissionLinkedObservations(localObservations, submissionID)
-		leg.Observations, localConflicts = appendCanonicalObservations(nil, localConflicts, localInput)
+		leg.Observations, localConflicts, _ = appendCanonicalObservations(nil, localConflicts, localInput, billing.MaxCallLegEvidenceObservations)
 		if len(leg.Observations) != 0 || len(localConflicts) != 0 {
 			leg.EvidenceVersion = billing.EvidenceFormatVersionV2
 			leg.EvidenceProjection = billing.EvidenceProjectionV1
