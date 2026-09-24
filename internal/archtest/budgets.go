@@ -103,7 +103,10 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// PR #659 adversarial repair (R1-R10) extends the economic observation bridge
 	// (observation_economic_bridge.go +30); runtimebundle re-measured 13659, reset
 	// to 13684 with 25 headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 13684},
+	// PR #659 CodeRabbit durable candidate-budget backoff/logging (commit 652b9773)
+	// grows observation_economic_bridge.go; runtimebundle re-measured 13757, reset
+	// to 13782 with 25 headroom.
+	{Tree: "internal/infra/runtimebundle", Max: 13782},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
 	{Tree: "internal/stdhttp", Max: 7159},
 	{Tree: "cmd/lipstd", Max: 979},
@@ -201,7 +204,7 @@ var LineBudgets = []LineBudget{
 	{Dir: "internal/core", Max: 139733},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
-	{Dir: "internal/infra/runtimebundle", Max: 13684},
+	{Dir: "internal/infra/runtimebundle", Max: 13782},
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},

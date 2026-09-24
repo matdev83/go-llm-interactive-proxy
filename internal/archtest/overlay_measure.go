@@ -62,8 +62,10 @@ const LargePayloadHostCompositionOverlayMax = 291
 // (baseline 0); production_options.go and process_billing.go carry approved economics
 // composition growth above their merge-base lines. PR #659 adversarial repair
 // (R1-R10) extends observation_economic_bridge.go; the allowance re-measured
-// 1,396 lines, reset to 1,421 with 25 headroom.
-const UsageEconomicsOverlayMax = 1421
+// 1,396 lines, reset to 1,421 with 25 headroom. PR #659 CodeRabbit durable
+// candidate-budget backoff/logging (commit 652b9773) grows the same bridge; the
+// allowance re-measured 1,494 lines, reset to 1,519 with 25 headroom.
+const UsageEconomicsOverlayMax = 1519
 
 var genericCompatibleBackendOverlayPathMarkers = []string{
 	"/core/concurrencyauthority/compatible/",

@@ -11,8 +11,12 @@ import (
 // and must never exceed its ceiling. PR #659 adversarial repair (R1-R10) re-audited
 // runtimebundle to 13659 and internal/core to 139708 from the reviewed production
 // additions; stdhttp, process_services.go, and the connector overlay are unchanged.
+// PR #659 CodeRabbit durable candidate-budget backoff/logging (commit 652b9773)
+// re-audited runtimebundle to 13757 (observation_economic_bridge.go); the same
+// change leaves stdhttp, internal/core, process_services.go, and the connector
+// overlay unchanged.
 const (
-	phase20AuditRuntimebundleLines    = 13659
+	phase20AuditRuntimebundleLines    = 13757
 	phase20AuditStdhttpLines          = 7134
 	phase20AuditCoreLines             = 139708
 	phase20AuditProcessServicesLines  = 342
