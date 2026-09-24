@@ -61,7 +61,7 @@ func TestF1SQLiteActivationSerializedWithDirectAdjustment(t *testing.T) {
 	// (ordinary SELECT without FOR UPDATE + drain outside tx) reproduces on
 	// SQLite. Memory rollback-journal databases serialize via the single
 	// writer and would mask the bug.
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", filepath.ToSlash(filepath.Join(t.TempDir(), "f1-sqlite-wal.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "f1-sqlite-wal.db")))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)

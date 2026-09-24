@@ -106,7 +106,7 @@ func TestReconciliationSchema1CanonicalBytesAndReplayIdentity(t *testing.T) {
 // survive a restart and that schema-2 records keep their own canonical shape.
 func TestReconciliationSchema1RestartAndSchema2Separation(t *testing.T) {
 	ctx := context.Background()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "schema1-compat.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "schema1-compat.db")))
 	open := func() *DurableStore {
 		sqlDB, err := sql.Open("sqlite", dsn)
 		require.NoError(t, err)

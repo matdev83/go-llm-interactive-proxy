@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -46,13 +47,39 @@ func buildGOWORKOffCommandPlan(root, tempDir string) []goworkOffCmd {
 }
 
 func runGOWORKOffCommandPlanContext(ctx context.Context, plan []goworkOffCmd) error {
+	// The plan steps are independent read/build commands over the same tree, and
+	// the Go command's own build cache serializes shared work safely. Running
+	// them concurrently collapses the plan's wall clock (the single largest
+	// archtest cost under a saturated suite) without weakening any assertion:
+	// the first failing step still cancels its siblings and surfaces the error.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(plan))
 	for _, step := range plan {
-		cmd := exec.CommandContext(ctx, step.Name, step.Args...)
-		cmd.Dir = step.Dir
-		cmd.Env = step.Env
-		out, err := cmd.CombinedOutput()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cmd := exec.CommandContext(ctx, step.Name, step.Args...)
+			cmd.Dir = step.Dir
+			cmd.Env = step.Env
+			out, err := cmd.CombinedOutput()
+			if err == nil {
+				return
+			}
+			select {
+			case errCh <- fmt.Errorf("%s %v: %w\n%s", step.Name, step.Args, err, out):
+				cancel()
+			default:
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
 		if err != nil {
-			return fmt.Errorf("%s %v: %w\n%s", step.Name, step.Args, err, out)
+			return err
 		}
 	}
 	return nil

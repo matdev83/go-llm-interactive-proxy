@@ -33,6 +33,7 @@ help:
 	@echo "  make test            - quality-checks, full unit tests, and conformance parity checks"
 	@echo "  make test-cost [TEST_COST_BASE_SHA=<git-rev>] [TEST_COST_OUTPUT_ROOT=<dir>] [TEST_COST_PARALLEL=<n>] - Windows-authoritative test-cost ratchet (opt-in; not part of make test)"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
+	@echo "  make test-quick      - single one-pass go test ./... for inner-loop feedback (no parity re-tags)"
 	@echo "  make precommit-full  - run the optional full local lint + vulnerability scan before commit"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
 	@echo "  make billing-convergence-certify - fail-fast final billing architecture, integration, quality, docs, and race certification"
@@ -154,6 +155,16 @@ ifeq ($(OS),Windows_NT)
 else
 	$(GO) test $(GO_TEST_FLAGS) ./...
 endif
+
+# Inner-loop fast path: exactly one untagged repository test run, without the
+# parity/conformance re-tag passes `make test` adds. `make test-unit` has the
+# same selection; this alias exists so the fast path is discoverable and
+# documented. Use `make test` (comprehensive) or `make qa` (wide) before
+# delivery. Intentionally not listed in .PHONY: TestWindowsTaskReliability_
+# TargetTableComplete requires every .PHONY target to be classified in the
+# frozen archived windows-task-reliability design table (same precedent as
+# lint-advisory).
+test-quick: test-unit
 
 # Canonical repository-wide database dialect parity targets.
 # Delegated directly to the catalog-driven runner (no duplicate package lists).

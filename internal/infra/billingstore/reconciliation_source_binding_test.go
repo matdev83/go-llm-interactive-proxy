@@ -62,7 +62,7 @@ func TestReconciliationRetentionRejectsUnboundAggregateSourceFindingsDurably(t *
 	})
 
 	t.Run("durable forged row fails closed on get, list, latest and restart", func(t *testing.T) {
-		dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "source-binding.db")))
+		dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "source-binding.db")))
 		store := openGenerationBindingStore(t, dsn, "test")
 
 		result := retentionAggregateResultForStore(t, "test", "b-source-binding", "retention-binding-row", 1, createdAt)

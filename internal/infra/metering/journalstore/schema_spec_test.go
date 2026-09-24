@@ -263,7 +263,7 @@ func TestMeteringJournalSchemaSpec_NegativeCases(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "negative.db")
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", filepath.ToSlash(path))
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(path))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	defer func() { _ = sqlDB.Close() }()

@@ -166,7 +166,7 @@ func TestPhase11AllocationTargetScopeMigration_BackfillsLegacyRowsAndPreservesAu
 
 func TestPhase11AllocationTargetScopeMigration_FileReopenBackfillsPendingRows(t *testing.T) {
 	ctx := context.Background()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "allocation-target-scope.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "allocation-target-scope.db")))
 
 	firstSQL, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)

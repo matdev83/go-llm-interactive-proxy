@@ -27,7 +27,7 @@ func TestConversationStore_PersistenceSelection_SQLiteYieldsBunStore(t *testing.
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "persist_selection.db")
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	defer func() { _ = sqlDB.Close() }()

@@ -569,7 +569,7 @@ func TestF2AAppendRaceWithBeginSerialized(t *testing.T) {
 
 func TestF2ARestartReopen(t *testing.T) {
 	t.Parallel()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "f2a-reopen.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "f2a-reopen.db")))
 	open := func(storeID string) (*DurableStore, func()) {
 		t.Helper()
 		sqlDB, err := sql.Open("sqlite", dsn)

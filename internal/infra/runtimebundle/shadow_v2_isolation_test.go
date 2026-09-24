@@ -29,7 +29,7 @@ var (
 
 func openC4FileStore(t *testing.T, path string) (*billingstore.DurableStore, *sql.DB) {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate")
+	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate")
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(8)
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
@@ -41,7 +41,7 @@ func openC4FileStore(t *testing.T, path string) (*billingstore.DurableStore, *sq
 
 func openC4FileJournal(t *testing.T, path string) (*journalstore.DurableStore, *sql.DB) {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate")
+	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate")
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(8)
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)

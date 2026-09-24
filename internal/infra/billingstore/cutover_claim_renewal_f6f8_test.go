@@ -627,7 +627,7 @@ func (f6f8ProviderResolverStub) ResolveProviderCost(_ context.Context, leg billi
 }
 
 func TestF6F8ReopenPreservesRenewal(t *testing.T) {
-	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "f6f8-reopen.db")) + "?_pragma=foreign_keys(ON)"
+	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "f6f8-reopen.db")) + "?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)

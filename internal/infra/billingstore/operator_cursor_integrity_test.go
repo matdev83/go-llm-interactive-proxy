@@ -38,7 +38,7 @@ func openOperatorCursorBun(t *testing.T, dsn string) (*bun.DB, *sql.DB) {
 
 func operatorCursorDSN(t *testing.T, name string) string {
 	t.Helper()
-	return fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), name)))
+	return fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), name)))
 }
 
 func seedOperatorCursorDiscrepancies(t *testing.T, store *DurableStore, ids ...string) {

@@ -481,7 +481,7 @@ func r3SingleObservationInput(t *testing.T, store *DurableStore, accountID strin
 // C. Execution-authority exclusion crash/reopen replays via worker with zero extra money.
 func TestR3_ExcludedExecutionCrashReplaysViaWorker(t *testing.T) {
 	t.Parallel()
-	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "r3-c-excl.db")) + "?_pragma=foreign_keys(ON)"
+	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "r3-c-excl.db")) + "?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	const storeID = "r3-c-excl"
 	const accountID = "acct-r3-c"
 	store := r3OpenFileStore(t, dsn, storeID)

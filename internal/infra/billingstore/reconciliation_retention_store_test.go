@@ -152,7 +152,7 @@ func retentionTestResult(t *testing.T, storeID, bLegID, id string, revision uint
 // stay scoped to the owning store.
 func TestReconciliationRetentionRejectsForeignEvidenceAndCrossStoreLeak(t *testing.T) {
 	ctx := context.Background()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "retention-scope.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "retention-scope.db")))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(4)
@@ -536,7 +536,7 @@ func TestReconciliationRetentionScopeIsolationAndLatest(t *testing.T) {
 func TestReconciliationRetentionRestartAndLegacyIsolation(t *testing.T) {
 	ctx := context.Background()
 	storeID := "restart-retention"
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "retention.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "retention.db")))
 	open := func() *DurableStore {
 		sqlDB, err := sql.Open("sqlite", dsn)
 		require.NoError(t, err)

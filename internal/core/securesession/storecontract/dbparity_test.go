@@ -28,7 +28,7 @@ func newSQLiteSecureSessionFixture(t *testing.T) storecontract.ParityFixture {
 func (f *sqliteSecureSessionFixture) NewStore(t *testing.T) app.Store {
 	t.Helper()
 	id := dbParityMemSeq.Add(1)
-	dsn := fmt.Sprintf("file:memparity%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", id)
+	dsn := fmt.Sprintf("file:memparity%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", id)
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
@@ -52,7 +52,7 @@ func (f *sqliteSecureSessionFixture) ReopenStore(t *testing.T) (app.Store, func(
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, fmt.Sprintf("reopen_%d.db", dbParityMemSeq.Add(1)))
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 
 	var current *bunstore.Store
 	open := func() app.Store {

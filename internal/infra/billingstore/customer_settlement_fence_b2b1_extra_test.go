@@ -392,7 +392,7 @@ func TestB2b1ConcurrentV1VsV2SingleWinner(t *testing.T) {
 
 func TestB2b1FileReopenPreservesPinAndOutcome(t *testing.T) {
 	t.Parallel()
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)", filepath.ToSlash(filepath.Join(t.TempDir(), "b2b1-reopen-file.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "b2b1-reopen-file.db")))
 	open := func(storeID string) (*DurableStore, func()) {
 		sqlDB, err := sql.Open("sqlite", dsn)
 		if err != nil {

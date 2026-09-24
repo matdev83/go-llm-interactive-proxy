@@ -31,6 +31,7 @@ Fast feedback is an architectural constraint.
 - Reuse compiled/cached test helpers rather than rebuilding the same executable for each check.
 - Prefer fake clocks and deterministic IDs over sleeps/polling.
 - Prefer in-memory persistence unless reopen/durability/engine behavior is the subject of the test.
+- When a test genuinely needs a file-backed SQLite database (reopen/durability/engine behavior), build the DSN with WAL journaling and `synchronous=NORMAL` (`?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)`, preserving any `_txlock`). WAL+`NORMAL` keeps close/reopen and process-crash durability for committed transactions while avoiding a full fsync per commit, which otherwise makes file-backed stores dominate the suite. Do not use it for tests that assert rollback-journal or power-loss durability semantics.
 - Do not add expensive tagged/external work to the default unit path.
 - Before intentionally increasing test/QA infrastructure cost, run the Windows-authoritative `make test-cost` ratchet and provide evidence. Budget changes require explicit maintainer authorization; they are not a normal escape hatch for regressions.
 
@@ -117,6 +118,7 @@ The `Makefile` is authoritative for exact target composition. Common intents are
 
 - `make quality-checks` — static/architecture/hygiene checks;
 - `make test-unit` — default unit/composed tests;
+- `make test-quick` — alias for the single one-pass `go test ./...` inner-loop fast path;
 - `make test` — normal comprehensive local verification;
 - `make parity-checks` — protocol/contract parity and bounded cross-surface checks;
 - `make test-db-parity` — repository-wide persistence parity;

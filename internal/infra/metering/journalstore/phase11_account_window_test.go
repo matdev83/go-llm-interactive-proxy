@@ -394,7 +394,7 @@ func TestPhase11AccountWindowJournal_ResetEpochAndRestartRemainDistinct(t *testi
 
 func TestPhase11AccountWindowJournal_FileRestartRebuildsCurrentProjection(t *testing.T) {
 	ctx := context.Background()
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", filepath.ToSlash(filepath.Join(t.TempDir(), "metering.db")))
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", filepath.ToSlash(filepath.Join(t.TempDir(), "metering.db")))
 	firstSQL, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	firstBun, err := db.NewBunDB(firstSQL, db.DialectSQLite)

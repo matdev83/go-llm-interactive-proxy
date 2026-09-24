@@ -422,7 +422,7 @@ func TestF2BStaleLeaseFencedRenewableSucceeds(t *testing.T) {
 // F2B: restart/reopen preserves pins/counts; worker completes after reopen.
 func TestF2BRestartReopen(t *testing.T) {
 	t.Parallel()
-	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "f2b-reopen.db")) + "?_pragma=foreign_keys(ON)"
+	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "f2b-reopen.db")) + "?_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	open := func(storeID string) (*DurableStore, func()) {
 		t.Helper()
 		sqlDB, err := sql.Open("sqlite", dsn)

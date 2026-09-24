@@ -17,7 +17,7 @@ import (
 func BenchmarkDurableIndependentPrincipals(b *testing.B) {
 	ctx := context.Background()
 	path := filepath.Join(b.TempDir(), "indep.db")
-	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate")
+	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func BenchmarkDurableIndependentPrincipals(b *testing.B) {
 func BenchmarkDurableHotAccountContention(b *testing.B) {
 	ctx := context.Background()
 	path := filepath.Join(b.TempDir(), "hot.db")
-	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate")
+	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate")
 	if err != nil {
 		b.Fatal(err)
 	}
