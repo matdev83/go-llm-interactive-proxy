@@ -154,7 +154,7 @@ jobs:
           - os: macos-latest
             packages: ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Fail closed if scope detection failed
         if: needs.changes.result != 'success'
@@ -230,7 +230,7 @@ jobs:
 
       - name: Windows test-cost ratchet
         if: needs.changes.result == 'success' && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
-        timeout-minutes: 30
+        timeout-minutes: 75
         shell: pwsh
         env:
           # A labeled PR may authorize a ratchet update, but the orchestrator

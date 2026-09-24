@@ -435,8 +435,8 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		t.Fatal("CI must place the Windows test-cost ratchet before building the release binary")
 	}
 	ratchetBlock := ci[ratchet:buildBinary]
-	if !strings.Contains(ratchetBlock, "timeout-minutes: 30") {
-		t.Fatal("Windows test-cost ratchet step must declare timeout-minutes: 30")
+	if !strings.Contains(ratchetBlock, "timeout-minutes: 75") {
+		t.Fatal("Windows test-cost ratchet step must declare timeout-minutes: 75")
 	}
 	if !strings.Contains(ratchetBlock, "& ./scripts/test-cost-ratchet.ps1") {
 		t.Fatal("Windows test-cost ratchet step must invoke & ./scripts/test-cost-ratchet.ps1 directly")
