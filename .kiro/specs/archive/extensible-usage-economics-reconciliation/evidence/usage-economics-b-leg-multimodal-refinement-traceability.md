@@ -56,3 +56,31 @@ Windows; cited from the independent review's fresh run). No failure was
 fixed or re-run; all are pre-existing tracked baseline issues outside
 this docs-only task. Full per-gate table lives in
 `refinement8-4-execution.md`. RELEASE DISPOSITION stays BLOCKED/PENDING.
+
+## Post-merge closeout (2026-09-24)
+
+Superseding addendum; the historical status above is preserved. The parent spec
+completed through implementation PR #659: head
+`e0001f113b661bdab5477a875c595def3d090a66`, merged as
+`fc8f01f982f566b87593215895d8ced6f6811ca5` on 2026-09-24T01:13:56Z, with all 37
+attached checks SUCCESS on the exact head and the merge tree byte-identical to
+the head.
+
+At the merged release candidate:
+
+- Every parent and refinement implementation checkbox is `[x]`; parent tasks 20
+  and 20.2 and refinement parent Task 2 are checked.
+- Amendment rows 5 and 7 (parent Task 19.x gates) are no longer pending: the
+  parent release gates certified at `237ab606` and the merged-head CI certify
+  them at the merged baseline.
+- Refinement Task 5.3 is resolved through Cycles 1-3 approval. Refinement
+  requirement 6.6 (pre-implementation normative integration) is satisfied: #620
+  and the parent execution plan treated the refinement as normative before
+  implementation, and the merged implementation follows the refined
+  B-leg/multimodal/session semantics. The same-SHA release certification belongs
+  to parent Task 20 (37 green checks on head `e0001f11`, merged `fc8f01f9`) and
+  the archive completion contract, not to 6.6.
+- Issue #620 remains OPEN until the archive PR merges; issue #398 remains OPEN
+  for other prerequisites.
+- Residual risks are unchanged (advisory style lint debt, Windows race skip with
+  green Linux race CI, pooler not rerun, POSIX advisory path syntax-only).

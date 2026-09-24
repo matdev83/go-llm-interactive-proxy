@@ -2,7 +2,7 @@
 
 ## Execution Contract
 
-This is a normative refinement of `.kiro/specs/extensible-usage-economics-reconciliation/`, not an independent implementation stream. Issue #620 remains the owning work order. Implementation agents must read the parent SDD and this refinement together; this document has precedence only for the topics enumerated in `design.md` under **Parent-Spec Amendments**.
+This is a normative refinement of `.kiro/specs/archive/extensible-usage-economics-reconciliation/`, not an independent implementation stream. Issue #620 remains the owning work order. Implementation agents must read the parent SDD and this refinement together; this document has precedence only for the topics enumerated in `design.md` under **Parent-Spec Amendments**.
 
 Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do not introduce session-final settlement, a second evidence journal, a second B2BUA model, per-chunk financial writes, or synthetic B-legs for genuine resource/account-period economics.
 
@@ -37,7 +37,7 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Depends: 1.1_
   - _Validation: go test ./pkg/lipsdk/metering/... ./internal/core/runtime/...; make parity-checks_
 
-- [ ] 2. Refine canonical multimodal component identity
+- [x] 2. Refine canonical multimodal component identity
 
 - [x] 2.1 Add explicit economic direction to V2 component identity
   - Make input/output/none direction part of the canonical key, serializer and fingerprint; non-directional request/resource/gauge scope remains in subject/component identity rather than fake flow directions.
@@ -248,3 +248,14 @@ Use TDD. Keep the parent's shadow/cutover fencing and single monetary writer. Do
   - _Boundary: tests and release certification_
   - _Depends: 8.3_
   - _Validation: make quality-checks; make test; make parity-checks; make test-db-parity; make qa_
+
+## Completion Status
+
+- [x] All 26 implementation leaf tasks completed and verified on `origin/main` @ `fc8f01f982f566b87593215895d8ced6f6811ca5`; parent grouping Task 2 and Task 5 checked, no unchecked task remains.
+- [x] Implementation PR #659 `feat(billing): implement B-leg usage economics and reconciliation` — head `e0001f113b661bdab5477a875c595def3d090a66`, merged as `fc8f01f982f566b87593215895d8ced6f6811ca5` on 2026-09-24T01:13:56Z — https://github.com/matdev83/go-llm-interactive-proxy/pull/659
+- [x] All 37 attached checks SUCCESS on the exact implementation head `e0001f11` (including QA, Database parity, both Linux race jobs and the final Windows CI test-cost ratchet with zero violations and no threshold change); merge tree byte-identical to the head.
+- [x] Requirement 6.6 (pre-implementation normative integration) satisfied: issue #620 and the parent SDD execution plan treated this refinement as normative before implementation, recorded in `evidence/usage-economics-b-leg-multimodal-refinement-traceability.md` (Task 8.4), and the merged implementation follows the refined B-leg/multimodal/session semantics.
+- [x] Same-SHA release certification and archive-completion contract (owned by parent Task 20, not requirement 6.6): all 37 checks green on head `e0001f11`, merged `fc8f01f9`; local exact-head `make test` PASS (`GOFLAGS=-p=2`); merged-main verification on `fc8f01f9` (focused suites, `go build ./cmd/lipstd`, `go run ./cmd/lipstd --help`).
+- [x] Residual risks preserved and not waived: advisory style lint debt, Windows race skip with green Linux race CI, PostgreSQL pooler not rerun, POSIX advisory lint path syntax-only.
+- [x] Successor boundary: issue #620 remains OPEN until the archive PR merges; issue #398 remains OPEN for other prerequisites.
+- [x] `spec.json` updated: `phase=completed`, `completed=true`, `ready_for_implementation=false`.

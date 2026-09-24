@@ -11,7 +11,7 @@ import (
 // Phase 19 review-blocker-4 mechanical traceability guard.
 //
 // It validates the Phase 19.1 lifecycle matrix
-// (.kiro/specs/extensible-usage-economics-reconciliation/evidence/phase19-1-lifecycle-certification.tsv)
+// (.kiro/specs/archive/extensible-usage-economics-reconciliation/evidence/phase19-1-lifecycle-certification.tsv)
 // against real test declarations and real assertion semantics — not
 // self-referential strings:
 //
@@ -33,7 +33,7 @@ func TestPhase19R4TraceabilityMatrixAssertions(t *testing.T) {
 	}
 	// This file lives at <root>/internal/infra/billingstore/.
 	root := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(thisFile))))
-	tsvPath := filepath.Join(root, ".kiro", "specs", "extensible-usage-economics-reconciliation", "evidence", "phase19-1-lifecycle-certification.tsv")
+	tsvPath := filepath.Join(root, ".kiro", "specs", "archive", "extensible-usage-economics-reconciliation", "evidence", "phase19-1-lifecycle-certification.tsv")
 	raw, err := os.ReadFile(tsvPath)
 	if err != nil {
 		t.Fatalf("read matrix: %v", err)

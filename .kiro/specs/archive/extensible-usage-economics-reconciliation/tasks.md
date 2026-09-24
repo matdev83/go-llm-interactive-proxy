@@ -811,7 +811,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Requirements: 4.6, 18.3, 18.5, 18.6_
 
 
-- [ ] 20. Close the release gate with verified implementation evidence
+- [x] 20. Close the release gate with verified implementation evidence
 
 - [x] 20.1 Run full repository gates and reconcile final traceability
   - Run normal comprehensive verification and wide QA at the exact release candidate; include root and changed connector-module contracts.
@@ -823,7 +823,7 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Validation: make quality-checks; make test; make parity-checks; make test-db-parity; make qa_
   - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6_
 
-- [ ] 20.2 Seal implementation completion and release-gate disposition
+- [x] 20.2 Seal implementation completion and release-gate disposition
   - Update canonical spec task evidence and completed metadata only after the preceding gates pass; record exact SHA and verification outputs.
   - Confirm the work-order acceptance before permitting #398 to close; actual rebranding/split remains outside this implementation.
   - Completion: completed spec is archived under the repository rule and the execution issue has a verifiable completion record, not merely a merged partial PR.
@@ -832,3 +832,13 @@ Tests in this plan are required future implementation evidence. They were not ru
   - _Depends: 20.1_
   - _Validation: Review completed task evidence; validate spec metadata and canonical archive location_
   - _Requirements: 17.6, 18.1, 18.6_
+
+## Completion Status
+
+- [x] All implementation tasks completed and verified on `origin/main` @ `fc8f01f982f566b87593215895d8ced6f6811ca5`.
+- [x] Implementation PR #659 `feat(billing): implement B-leg usage economics and reconciliation` — head `e0001f113b661bdab5477a875c595def3d090a66`, merged as `fc8f01f982f566b87593215895d8ced6f6811ca5` on 2026-09-24T01:13:56Z — https://github.com/matdev83/go-llm-interactive-proxy/pull/659
+- [x] All 37 attached checks SUCCESS on the exact implementation head `e0001f11` (including QA, Database parity, CodeQL, both Linux race jobs and exact-race), and the merge tree is byte-identical to the head. Final Windows CI ratchet job `107441140092` at run `35938562730` completed `test-unit`, `quality-checks` and `qa-tagged-hotspots` each `passed=true overridden=false violations=0 warnings=0` over 350 head packages vs 343 anchor, with no budget threshold changed.
+- [x] Local exact-head `make test` PASS with `GOFLAGS=-p=2` (quality + unit + parity); the paired `make test-cost` PASS in 15m26s.
+- [x] Merged-main verification on `fc8f01f9`: focused `go test -count=1` over `internal/core/billing/...`, `internal/infra/billingstore/...`, `internal/infra/runtimebundle/...`, `pkg/lipsdk/billing/...`, `pkg/lipsdk/metering/...` PASS; `go build ./cmd/lipstd` PASS; `go run ./cmd/lipstd --help` PASS. No separately deployed `serve` process smoke is claimed.
+- [x] No successor-only work is claimed; issue #620 remains open until the archive PR merges and #398 remains open for other prerequisites.
+- [x] `spec.json` updated: `phase=completed`, `completed=true`, `ready_for_implementation=false`.

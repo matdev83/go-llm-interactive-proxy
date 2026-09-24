@@ -6,7 +6,7 @@ This refinement narrows the economic authority model of the parent `extensible-u
 
 The existing B2BUA hierarchy remains: one A-leg may host arbitrarily many later BillingCallIDs, each BillingCallID owns the B-legs caused by one invocation, and each B-leg may own multiple provider charge/evidence events. Call/B-leg terminal markers remain useful execution checkpoints, but they never retire the economic lifetime of the A-leg and do not prevent later economic revisions.
 
-**Parent:** `.kiro/specs/extensible-usage-economics-reconciliation/`  
+**Parent:** `.kiro/specs/archive/extensible-usage-economics-reconciliation/`
 **Revalidated tree:** `bc7e5ce664c51d68bee771d477c53ce5de6265e1`  
 **Execution tracker:** #620
 
