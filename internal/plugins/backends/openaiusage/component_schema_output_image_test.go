@@ -313,13 +313,13 @@ func TestOpenAIUsageEvidence_OutputImageConflictingAliasFirstWinsAndOverlaps(t *
 	}
 }
 
-// TestNativeUsageMeasuresDoesNotFabricateOutputImageTokens proves the subset edge
-// is not fed by an invented Chat completion image field: a hypothetical nested
-// completion_tokens_details.image_tokens member (or Responses output detail
-// image_tokens) must not create a native output image token measure, so the
-// output subset edge can only ever bind to the recognized flat provider
-// vocabulary. The nested Chat prompt_tokens_details.image_tokens input measure
-// remains intact.
+// TestNativeUsageMeasuresDoesNotFabricateOutputImageTokens proves the optional
+// output partition edge is not fed by an invented Chat completion image field: a
+// hypothetical nested completion_tokens_details.image_tokens member (or
+// Responses output detail image_tokens) must not create a native output image
+// token measure, so the output optional partition edge can only ever bind to the
+// recognized flat provider vocabulary. The nested Chat
+// prompt_tokens_details.image_tokens input measure remains intact.
 func TestNativeUsageMeasuresDoesNotFabricateOutputImageTokens(t *testing.T) {
 	t.Parallel()
 	raw := `{"prompt_tokens":13,"completion_tokens":9,"total_tokens":22,"prompt_tokens_details":{"text_tokens":8,"audio_tokens":3,"image_tokens":2},"completion_tokens_details":{"text_tokens":5,"audio_tokens":4,"image_tokens":3}}`

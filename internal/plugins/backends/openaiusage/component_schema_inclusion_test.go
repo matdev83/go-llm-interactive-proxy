@@ -38,21 +38,23 @@ const wireResponsesSuccess = `{"id":"resp-audio","object":"response","created_at
 
 // TestNativeUsageInclusionSchemaDeclaresDirectionalTextAudioPartition pins the
 // frozen provider-family schema shape: explicit partition edges for the
-// directional text/audio children, plus a subset edge for the included native
-// input image tokens and its symmetric output image token edge, and the bounded
-// subset edges for the included cached (input), reasoning (output) and
-// cache-write (input) subsets. The cache-write subset has two edges because the
-// standard native member and the compatible-provider extension fallback are
-// emitted under different schema identities; the adapter never lets both bind
-// the same observation. The subset kind is deliberate: image/cached/reasoning/
-// cache-write tokens are included in the ordinary prompt/completion total (so
-// an aggregate+subset tariff must fail closed), but they are not required
-// partition members, so an audio-only observation without image_tokens still has
-// a complete text/audio partition, and an aggregate-only tariff over
-// cached/reasoning/cache-write stays complete. The output
-// image token edge only ever binds the recognized compatible-provider flat alias
-// vocabulary the adapter emits; the native OpenAI output detail has no image
-// token member. The cached/reasoning subset children share the default
+// directional text/audio children, plus OPTIONAL partition edges for the
+// native image token members (input and output), and the bounded subset edges
+// for the included cached (input), reasoning (output) and cache-write (input)
+// subsets. The cache-write subset has two edges because the standard native
+// member and the compatible-provider extension fallback are emitted under
+// different schema identities; the adapter never lets both bind the same
+// observation. The optional partition kind is deliberate: image tokens are a
+// disjoint member of the prompt/completion partition (so text+audio+image rates
+// completely, and an aggregate+image tariff must fail closed), but the member
+// is reported only when the request/response carried image media, so an omitted
+// image member keeps the text/audio partition complete without inventing a
+// provider zero. The cached/reasoning/cache-write subsets are partial
+// containments, so an aggregate-only tariff over them stays complete and a
+// child-only tariff over one can never prove the parent's complete coverage.
+// The output image token edge only ever binds the recognized compatible-provider
+// flat alias vocabulary the adapter emits; the native OpenAI output detail has
+// no image token member. The cached/reasoning subset children share the default
 // inclusion schema identity with their aggregates because the adapter emits them
 // there (providerTokenMeasures), while the native text/audio/image/cache-write
 // children live under the native detail schema. It validates the published
@@ -79,6 +81,7 @@ func TestNativeUsageInclusionSchemaDeclaresDirectionalTextAudioPartition(t *test
 		parent      string
 		child       string
 		childSchema string
+		optional    bool
 	}
 	seen := make(map[edge]struct{})
 	partitionEdges, subsetEdges := 0, 0
@@ -90,6 +93,9 @@ func TestNativeUsageInclusionSchemaDeclaresDirectionalTextAudioPartition(t *test
 			subsetEdges++
 		default:
 			t.Fatalf("relationship kind = %q, want partition or subset", relationship.Kind)
+		}
+		if relationship.Optional && relationship.Kind != sdkmetering.RelationshipPartition {
+			t.Fatalf("optional %q relationship is not a partition member: %+v", relationship.Kind, relationship)
 		}
 		if relationship.Parent.SchemaID != sdkmetering.DefaultInclusionSchemaID {
 			t.Fatalf("parent schema = %q, want %q", relationship.Parent.SchemaID, sdkmetering.DefaultInclusionSchemaID)
@@ -106,29 +112,29 @@ func TestNativeUsageInclusionSchemaDeclaresDirectionalTextAudioPartition(t *test
 		if relationship.Parent.Direction != relationship.Child.Direction {
 			t.Fatalf("edge direction mismatch: %q -> %q", relationship.Parent.Direction, relationship.Child.Direction)
 		}
-		seen[edge{relationship.Kind, string(relationship.Parent.Direction), relationship.Parent.Component, relationship.Child.Component, relationship.Child.SchemaID}] = struct{}{}
+		seen[edge{relationship.Kind, string(relationship.Parent.Direction), relationship.Parent.Component, relationship.Child.Component, relationship.Child.SchemaID, relationship.Optional}] = struct{}{}
 	}
 	for _, want := range []edge{
-		{sdkmetering.RelationshipPartition, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentTextToken, openaiusage.NativeUsageSchemaID},
-		{sdkmetering.RelationshipPartition, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentAudioToken, openaiusage.NativeUsageSchemaID},
-		{sdkmetering.RelationshipPartition, "output", sdkmetering.ComponentOutputToken, sdkmetering.ComponentTextToken, openaiusage.NativeUsageSchemaID},
-		{sdkmetering.RelationshipPartition, "output", sdkmetering.ComponentOutputToken, sdkmetering.ComponentAudioToken, openaiusage.NativeUsageSchemaID},
-		{sdkmetering.RelationshipSubset, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentImageToken, openaiusage.NativeUsageSchemaID},
-		{sdkmetering.RelationshipSubset, "output", sdkmetering.ComponentOutputToken, sdkmetering.ComponentImageToken, openaiusage.NativeUsageSchemaID},
-		{sdkmetering.RelationshipSubset, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentCacheReadInputToken, sdkmetering.DefaultInclusionSchemaID},
-		{sdkmetering.RelationshipSubset, "output", sdkmetering.ComponentOutputToken, sdkmetering.ComponentReasoningOutputToken, sdkmetering.DefaultInclusionSchemaID},
-		{sdkmetering.RelationshipSubset, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentCacheWriteInputToken, openaiusage.NativeUsageSchemaID},
-		{sdkmetering.RelationshipSubset, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentCacheWriteInputToken, sdkmetering.DefaultInclusionSchemaID},
+		{sdkmetering.RelationshipPartition, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentTextToken, openaiusage.NativeUsageSchemaID, false},
+		{sdkmetering.RelationshipPartition, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentAudioToken, openaiusage.NativeUsageSchemaID, false},
+		{sdkmetering.RelationshipPartition, "output", sdkmetering.ComponentOutputToken, sdkmetering.ComponentTextToken, openaiusage.NativeUsageSchemaID, false},
+		{sdkmetering.RelationshipPartition, "output", sdkmetering.ComponentOutputToken, sdkmetering.ComponentAudioToken, openaiusage.NativeUsageSchemaID, false},
+		{sdkmetering.RelationshipPartition, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentImageToken, openaiusage.NativeUsageSchemaID, true},
+		{sdkmetering.RelationshipPartition, "output", sdkmetering.ComponentOutputToken, sdkmetering.ComponentImageToken, openaiusage.NativeUsageSchemaID, true},
+		{sdkmetering.RelationshipSubset, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentCacheReadInputToken, sdkmetering.DefaultInclusionSchemaID, false},
+		{sdkmetering.RelationshipSubset, "output", sdkmetering.ComponentOutputToken, sdkmetering.ComponentReasoningOutputToken, sdkmetering.DefaultInclusionSchemaID, false},
+		{sdkmetering.RelationshipSubset, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentCacheWriteInputToken, openaiusage.NativeUsageSchemaID, false},
+		{sdkmetering.RelationshipSubset, "input", sdkmetering.ComponentInputToken, sdkmetering.ComponentCacheWriteInputToken, sdkmetering.DefaultInclusionSchemaID, false},
 	} {
 		if _, ok := seen[want]; !ok {
 			t.Fatalf("schema missing edge %+v: %+v", want, seen)
 		}
 	}
-	if partitionEdges != 4 {
-		t.Fatalf("partition edge count = %d, want 4 text/audio partition edges", partitionEdges)
+	if partitionEdges != 6 {
+		t.Fatalf("partition edge count = %d, want 4 text/audio + 2 optional image partition edges", partitionEdges)
 	}
-	if subsetEdges != 6 {
-		t.Fatalf("subset edge count = %d, want 6 included native/default subset edges", subsetEdges)
+	if subsetEdges != 4 {
+		t.Fatalf("subset edge count = %d, want 4 included native/default subset edges", subsetEdges)
 	}
 }
 

@@ -656,6 +656,14 @@ func completeCoverageRelationship(kind metering.RelationshipKind) bool {
 	}
 }
 
+// partitionMember is one declared child of a complete aggregate/partition
+// coverage. An optional member may be absent; when present it must still be
+// complete and rateable, so absence stays distinct from a provider zero.
+type partitionMember struct {
+	key      metering.ComponentKey
+	optional bool
+}
+
 // completeChildPartitionCoverage returns, per reduction scope, the set of
 // present aggregate parent component keys whose frozen complete child partition
 // is fully present and complete in that exact same scope and whose declared
@@ -665,11 +673,12 @@ func completeCoverageRelationship(kind metering.RelationshipKind) bool {
 //
 // The proof is structural and explicit: only partition/aggregate edges with
 // equal economic direction and unit are considered; a parent is covered only
-// when it declares at least one complete child, every declared complete child
-// is present and complete in the exact same scope, and no complete child is
-// shared by two distinct complete parents anywhere in the frozen schema set
-// (an ambiguous overlapping partition fails closed for every parent). It is
-// never inferred from component names, quantities, or arithmetic equality.
+// when it declares at least one complete child, every non-optional declared
+// child is present and complete in the exact same scope, every present optional
+// member is complete and rateable, and no complete child is shared by two
+// distinct complete parents anywhere in the frozen schema set (an ambiguous
+// overlapping partition fails closed for every parent). It is never inferred
+// from component names, quantities, or arithmetic equality.
 //
 // Presence and quantity completeness are not enough: every child that proves
 // the parent's coverage must itself be an eligible biller for the selected
@@ -682,7 +691,7 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 	if r == nil || len(r.snapshot.Schemas) == 0 || len(aggregates) == 0 {
 		return nil
 	}
-	childrenByParent := make(map[string][]metering.ComponentKey)
+	childrenByParent := make(map[string][]partitionMember)
 	parentByChild := make(map[string]string)
 	ambiguous := false
 	for _, schema := range r.snapshot.Schemas {
@@ -700,7 +709,7 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 			}
 			parentKey := parent.CanonicalKey()
 			childKey := child.CanonicalKey()
-			childrenByParent[parentKey] = append(childrenByParent[parentKey], child)
+			childrenByParent[parentKey] = append(childrenByParent[parentKey], partitionMember{key: child, optional: relationship.Optional})
 			if prior, ok := parentByChild[childKey]; ok && prior != parentKey {
 				ambiguous = true
 			}
@@ -734,17 +743,22 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 				continue
 			}
 			covers := true
+			accounted := false
 			for _, child := range children {
-				childKey := child.CanonicalKey()
+				childKey := child.key.CanonicalKey()
 				if _, ok := byKey[childKey]; !ok {
+					if child.optional {
+						continue
+					}
 					covers = false
 					break
 				}
+				accounted = true
 				if _, ok := complete[scopeKey][childKey]; !ok {
 					covers = false
 					break
 				}
-				if _, ruleErr := r.resolveRule(child, qualifiers); ruleErr != nil {
+				if _, ruleErr := r.resolveRule(child.key, qualifiers); ruleErr != nil {
 					// A declaring child proves the parent's coverage only when it
 					// is itself selected and rateable. An informational summary
 					// with no rule is skipped by the rating loop, and an
@@ -755,7 +769,8 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 					break
 				}
 			}
-			if !covers {
+			if !covers || !accounted {
+				// An all-optional declaration with every member absent proves nothing.
 				continue
 			}
 			if covered == nil {
@@ -961,7 +976,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 		child    metering.ComponentKey
 	}
 	var edges []schemaEdge
-	completeChildrenByParent := make(map[string][]metering.ComponentKey)
+	completeChildrenByParent := make(map[string][]partitionMember)
 	subsetChildrenByParent := make(map[string][]metering.ComponentKey)
 	parentByCompleteChild := make(map[string]string)
 	ambiguousComplete := false
@@ -989,7 +1004,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 			}
 			// Aggregate and partition edges assert a complete coverage of the
 			// parent, so they form the partition side of the subset conflict.
-			completeChildrenByParent[parentKey] = appendUniqueComponentKey(completeChildrenByParent[parentKey], child)
+			completeChildrenByParent[parentKey] = append(completeChildrenByParent[parentKey], partitionMember{key: child, optional: relationship.Optional})
 			childKey := child.CanonicalKey()
 			if prior, ok := parentByCompleteChild[childKey]; ok && prior != parentKey {
 				ambiguousComplete = true
@@ -1042,14 +1057,24 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 			if len(children) == 0 {
 				continue
 			}
+			// A subset is contained in the parent whenever its partition is
+			// accounted for here: prove it from required members (present and
+			// rateable) plus any present optional member, requiring at least
+			// one present rateable member so an all-absent optional cannot win.
 			complete := true
+			proven := false
 			for _, child := range children {
-				if _, ok := keys[child.CanonicalKey()]; !ok {
-					complete = false
-					break
+				if _, ok := keys[child.key.CanonicalKey()]; ok {
+					proven = true
+					continue
 				}
+				if child.optional {
+					continue
+				}
+				complete = false
+				break
 			}
-			if !complete {
+			if !complete || !proven {
 				continue
 			}
 			payable := payableByScope[scope]
@@ -1062,7 +1087,9 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 						ErrSchemaOverlapConflict, parentKey, subset.CanonicalKey(), string(subset.Direction), subset.Unit)
 				}
 				record(scope, subset)
-				record(scope, children...)
+				for _, child := range children {
+					record(scope, child.key)
+				}
 			}
 		}
 	}

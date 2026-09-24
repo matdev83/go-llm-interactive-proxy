@@ -1,8 +1,10 @@
 package metering_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -103,6 +105,52 @@ func TestValidateComponentSchemasRejectsCycles(t *testing.T) {
 	}
 	if err := metering.ValidateComponentSchemas(schemas); !errors.Is(err, metering.ErrInvalidComponentSchema) {
 		t.Fatalf("cycle error=%v, want ErrInvalidComponentSchema", err)
+	}
+}
+
+func TestComponentRelationshipOptionalMembershipOnlyForCompleteCoverage(t *testing.T) {
+	t.Parallel()
+	parent := schemaTestKey(metering.DirectionInput, metering.ComponentInputToken, metering.UnitToken, "schema:optional:v1")
+	child := schemaTestKey(metering.DirectionInput, metering.ComponentImageToken, metering.UnitToken, "schema:optional:v1")
+
+	for _, kind := range []metering.RelationshipKind{metering.RelationshipPartition, metering.RelationshipAggregate} {
+		if err := (metering.ComponentRelationship{Kind: kind, Parent: parent, Child: child, Optional: true}).Validate(); err != nil {
+			t.Fatalf("optional %s member must validate: %v", kind, err)
+		}
+	}
+	for _, kind := range []metering.RelationshipKind{metering.RelationshipSubset, metering.RelationshipTransform} {
+		if err := (metering.ComponentRelationship{Kind: kind, Parent: parent, Child: child, Optional: true}).Validate(); !errors.Is(err, metering.ErrInvalidComponentSchema) {
+			t.Fatalf("optional %s error=%v, want ErrInvalidComponentSchema", kind, err)
+		}
+	}
+}
+
+func TestComponentRelationshipOptionalPreservesLegacyJSONIdentity(t *testing.T) {
+	t.Parallel()
+	parent := schemaTestKey(metering.DirectionInput, metering.ComponentInputToken, metering.UnitToken, "schema:optjson:v1")
+	child := schemaTestKey(metering.DirectionInput, metering.ComponentImageToken, metering.UnitToken, "schema:optjson:v1")
+
+	legacy, err := json.Marshal(metering.ComponentRelationship{Kind: metering.RelationshipPartition, Parent: parent, Child: child})
+	if err != nil {
+		t.Fatalf("marshal legacy relationship: %v", err)
+	}
+	if strings.Contains(string(legacy), "optional") {
+		t.Fatalf("legacy relationship must not emit an optional field: %s", legacy)
+	}
+
+	optional, err := json.Marshal(metering.ComponentRelationship{Kind: metering.RelationshipPartition, Parent: parent, Child: child, Optional: true})
+	if err != nil {
+		t.Fatalf("marshal optional relationship: %v", err)
+	}
+	if !strings.Contains(string(optional), `"optional":true`) {
+		t.Fatalf("optional relationship must emit the optional flag: %s", optional)
+	}
+	var round metering.ComponentRelationship
+	if err := json.Unmarshal(optional, &round); err != nil {
+		t.Fatalf("unmarshal optional relationship: %v", err)
+	}
+	if !round.Optional {
+		t.Fatalf("optional flag must survive a JSON round-trip: %+v", round)
 	}
 }
 

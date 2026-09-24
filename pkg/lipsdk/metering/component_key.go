@@ -395,10 +395,21 @@ func (k RelationshipKind) Validate() error {
 // ComponentRelationship is one schema-declared parent/child or transform
 // edge. Parent and child may retain different native units only for an
 // explicitly declared transform relationship.
+//
+// Optional marks a member of a complete aggregate/partition coverage that the
+// provider may omit. When the member is present it is a required part of the
+// coverage and must be complete and rateable; when it is absent the parent's
+// coverage is still proven by the remaining members. It is therefore the
+// truthful encoding of a wire family that reports a disjoint detail member
+// conditionally, keeping absence distinct from an explicit provider zero.
+// Optional is only meaningful for an aggregate or partition relationship; a
+// subset is already a partial containment and a transform is a separately
+// governed unit derivation.
 type ComponentRelationship struct {
-	Kind   RelationshipKind `json:"kind"`
-	Parent ComponentKey     `json:"parent"`
-	Child  ComponentKey     `json:"child"`
+	Kind     RelationshipKind `json:"kind"`
+	Parent   ComponentKey     `json:"parent"`
+	Child    ComponentKey     `json:"child"`
+	Optional bool             `json:"optional,omitempty"`
 }
 
 func (r ComponentRelationship) Validate() error {
@@ -416,6 +427,9 @@ func (r ComponentRelationship) Validate() error {
 	}
 	if r.Kind != RelationshipTransform && r.Parent.Unit != r.Child.Unit {
 		return fmt.Errorf("%w: %s relationship requires equal units", ErrInvalidComponentSchema, r.Kind)
+	}
+	if r.Optional && r.Kind != RelationshipAggregate && r.Kind != RelationshipPartition {
+		return fmt.Errorf("%w: optional membership requires an aggregate or partition relationship", ErrInvalidComponentSchema)
 	}
 	return nil
 }
