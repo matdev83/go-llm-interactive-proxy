@@ -29,6 +29,38 @@ func TestMapRequestAuthorityError_ConcurrencyLimitIsClientSafe(t *testing.T) {
 	}
 }
 
+func TestMapRequestAuthorityError_PreservesUnavailableProviderDecision(t *testing.T) {
+	t.Parallel()
+	cause := errors.New("quota reader canceled")
+	decision := authority.Decision{
+		Kind:       authority.DecisionDeny,
+		ProviderID: "quota",
+		Stage:      authority.StageRequestAdmit,
+		Readiness:  authority.ReadinessUnavailable,
+		Evidence: authority.SafeEvidence{
+			Category: "provider_quota",
+			Code:     "telemetry_unavailable",
+			Attrs:    map[string]string{"evidence_status": "unavailable"},
+		},
+	}
+	input := &authoritycoord.UnavailableError{ProviderID: "quota", Err: cause, Decision: decision}
+
+	mapped := mapRequestAuthorityError(input)
+	var got *authoritycoord.UnavailableError
+	if !errors.As(mapped, &got) {
+		t.Fatalf("mapped error=%T %v must retain UnavailableError", mapped, mapped)
+	}
+	if !errors.Is(mapped, cause) {
+		t.Fatalf("mapped error=%v must retain reader cause", mapped)
+	}
+	if got.Decision.Kind != authority.DecisionDeny || got.Decision.Readiness != authority.ReadinessUnavailable {
+		t.Fatalf("mapped decision=%+v", got.Decision)
+	}
+	if got.Decision.Evidence.Category != "provider_quota" || got.Decision.Evidence.Attrs["evidence_status"] != "unavailable" {
+		t.Fatalf("mapped evidence=%+v", got.Decision.Evidence)
+	}
+}
+
 func TestAdmitRequestAuthorityOnce_ConcurrencyDenyMaps(t *testing.T) {
 	t.Parallel()
 	conc := &denyConcurrency{}

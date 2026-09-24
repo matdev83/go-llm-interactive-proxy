@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"gopkg.in/yaml.v3"
 )
 
@@ -372,6 +373,9 @@ func classifyAccounting(active, candidate *config.Config, reload, restart noteFn
 	if !equalAccountingAuthority(a.Authority, c.Authority) {
 		restart("accounting.authority")
 	}
+	if !equalAccountingQuota(a.Authority.Quota, c.Authority.Quota) {
+		reload("accounting.authority.quota")
+	}
 	if !equalConcurrencyAuthority(a.Concurrency, c.Concurrency) {
 		restart("accounting.concurrency")
 	}
@@ -567,6 +571,38 @@ func equalAccountingAuthority(a, b config.AccountingAuthorityConfig) bool {
 		}
 	}
 	return true
+}
+
+func equalAccountingQuota(a, b *config.AccountingQuotaConfig) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.ID != b.ID || a.Version != b.Version || a.Method != b.Method ||
+		a.StoreID != b.StoreID || a.TenantID != b.TenantID ||
+		a.ProviderAccountKey != b.ProviderAccountKey || a.PoolID != b.PoolID ||
+		a.WindowID != b.WindowID || a.ResetAt != b.ResetAt || a.Freshness != b.Freshness ||
+		a.Failures != b.Failures || len(a.Required) != len(b.Required) ||
+		len(a.Thresholds) != len(b.Thresholds) {
+		return false
+	}
+	for i := range a.Required {
+		if !equalAccountingQuotaComponent(a.Required[i], b.Required[i]) {
+			return false
+		}
+	}
+	for i := range a.Thresholds {
+		at, bt := a.Thresholds[i], b.Thresholds[i]
+		if at.Kind != bt.Kind || at.ValueKind != bt.ValueKind || at.Value != bt.Value ||
+			!equalAccountingQuotaComponent(at.Field, bt.Field) {
+			return false
+		}
+	}
+	return true
+}
+
+func equalAccountingQuotaComponent(a, b metering.ComponentKey) bool {
+	return a.Direction == b.Direction && a.Component == b.Component && a.Unit == b.Unit &&
+		a.SchemaID == b.SchemaID && slices.Equal(a.Dimensions, b.Dimensions)
 }
 
 func equalAuthorityRule(a, b config.AccountingAuthorityRuleConfig) bool {

@@ -2,6 +2,7 @@ package backendplugin
 
 import (
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func factoryFromProto(p *backendpluginv1.FactoryDescriptor) (FactoryDescriptor, error) {
@@ -21,21 +22,22 @@ func factoryFromProto(p *backendpluginv1.FactoryDescriptor) (FactoryDescriptor, 
 		return FactoryDescriptor{}, err
 	}
 	return FactoryDescriptor{
-		Kind:                      p.GetKind(),
-		DisplayName:               p.GetDisplayName(),
-		Description:               p.GetDescription(),
-		CredentialMode:            cm,
-		AccessScope:               as,
-		RoutePrefixes:             append([]string(nil), p.GetRoutePrefixes()...),
-		SupportsCountTokens:       p.GetSupportsCountTokens(),
-		SupportsFinalizeBilling:   p.GetSupportsFinalizeBilling(),
-		SupportsDynamicInventory:  p.GetSupportsDynamicInventory(),
-		SupportsModelAwareProfile: p.GetSupportsModelAwareProfile(),
-		ProcessSharing:            ps,
-		Experimental:              p.GetExperimental(),
-		Deprecated:                p.GetDeprecated(),
-		StaticCapabilities:        capabilityFromProto(p.GetStaticCapabilities()),
-		TransportCapabilities:     transportCapabilityFromProto(p.GetTransportCapabilities()),
+		Kind:                         p.GetKind(),
+		DisplayName:                  p.GetDisplayName(),
+		Description:                  p.GetDescription(),
+		CredentialMode:               cm,
+		AccessScope:                  as,
+		RoutePrefixes:                append([]string(nil), p.GetRoutePrefixes()...),
+		SupportsCountTokens:          p.GetSupportsCountTokens(),
+		SupportsFinalizeBilling:      p.GetSupportsFinalizeBilling(),
+		SupportsDynamicInventory:     p.GetSupportsDynamicInventory(),
+		SupportsModelAwareProfile:    p.GetSupportsModelAwareProfile(),
+		ProcessSharing:               ps,
+		Experimental:                 p.GetExperimental(),
+		Deprecated:                   p.GetDeprecated(),
+		StaticCapabilities:           capabilityFromProto(p.GetStaticCapabilities()),
+		TransportCapabilities:        transportCapabilityFromProto(p.GetTransportCapabilities()),
+		SupportsAccountingEvidenceV2: p.GetSupportsAccountingEvidenceV2(),
 	}, nil
 }
 
@@ -53,21 +55,22 @@ func factoryToProto(f FactoryDescriptor) (*backendpluginv1.FactoryDescriptor, er
 		return nil, err
 	}
 	return &backendpluginv1.FactoryDescriptor{
-		Kind:                      f.Kind,
-		DisplayName:               f.DisplayName,
-		Description:               f.Description,
-		CredentialMode:            cm,
-		AccessScope:               as,
-		RoutePrefixes:             append([]string(nil), f.RoutePrefixes...),
-		SupportsCountTokens:       f.SupportsCountTokens,
-		SupportsFinalizeBilling:   f.SupportsFinalizeBilling,
-		SupportsDynamicInventory:  f.SupportsDynamicInventory,
-		SupportsModelAwareProfile: f.SupportsModelAwareProfile,
-		ProcessSharing:            ps,
-		Experimental:              f.Experimental,
-		Deprecated:                f.Deprecated,
-		StaticCapabilities:        capabilityToProto(f.StaticCapabilities),
-		TransportCapabilities:     transportCapabilityToProto(f.TransportCapabilities),
+		Kind:                         f.Kind,
+		DisplayName:                  f.DisplayName,
+		Description:                  f.Description,
+		CredentialMode:               cm,
+		AccessScope:                  as,
+		RoutePrefixes:                append([]string(nil), f.RoutePrefixes...),
+		SupportsCountTokens:          f.SupportsCountTokens,
+		SupportsFinalizeBilling:      f.SupportsFinalizeBilling,
+		SupportsDynamicInventory:     f.SupportsDynamicInventory,
+		SupportsModelAwareProfile:    f.SupportsModelAwareProfile,
+		ProcessSharing:               ps,
+		Experimental:                 f.Experimental,
+		Deprecated:                   f.Deprecated,
+		StaticCapabilities:           capabilityToProto(f.StaticCapabilities),
+		TransportCapabilities:        transportCapabilityToProto(f.TransportCapabilities),
+		SupportsAccountingEvidenceV2: f.SupportsAccountingEvidenceV2,
 	}, nil
 }
 
@@ -130,19 +133,20 @@ func ResolvedProfileFromProto(p *backendpluginv1.ResolvedProfile) (ResolvedProfi
 		return ResolvedProfile{}, err
 	}
 	return ResolvedProfile{
-		Capabilities:             capabilityFromProto(p.GetCapabilities()),
-		TransportCapabilities:    transportCapabilityFromProto(p.GetTransportCapabilities()),
-		DialectSupport:           dialectSupportFromProto(p.GetDialectSupport()),
-		ReasoningReplaySupported: p.GetReasoningReplaySupported(),
-		RoutePrefixes:            append([]string(nil), p.GetRoutePrefixes()...),
-		EnforceMaxOutput:         p.GetEnforceMaxOutput(),
-		MaxOutputTokens:          optUint32(p.MaxOutputTokens),
-		SupportsCountTokens:      p.GetSupportsCountTokens(),
-		SupportsFinalizeBilling:  p.GetSupportsFinalizeBilling(),
-		SupportsDynamicInventory: p.GetSupportsDynamicInventory(),
-		EvidenceSource:           p.GetEvidenceSource(),
-		ProfileVersion:           p.GetProfileVersion(),
-		PromptCacheProfile:       promptCacheProfile,
+		Capabilities:                 capabilityFromProto(p.GetCapabilities()),
+		TransportCapabilities:        transportCapabilityFromProto(p.GetTransportCapabilities()),
+		DialectSupport:               dialectSupportFromProto(p.GetDialectSupport()),
+		ReasoningReplaySupported:     p.GetReasoningReplaySupported(),
+		RoutePrefixes:                append([]string(nil), p.GetRoutePrefixes()...),
+		EnforceMaxOutput:             p.GetEnforceMaxOutput(),
+		MaxOutputTokens:              optUint32(p.MaxOutputTokens),
+		SupportsCountTokens:          p.GetSupportsCountTokens(),
+		SupportsFinalizeBilling:      p.GetSupportsFinalizeBilling(),
+		SupportsDynamicInventory:     p.GetSupportsDynamicInventory(),
+		EvidenceSource:               p.GetEvidenceSource(),
+		ProfileVersion:               p.GetProfileVersion(),
+		PromptCacheProfile:           promptCacheProfile,
+		SupportsAccountingEvidenceV2: p.GetSupportsAccountingEvidenceV2(),
 	}, nil
 }
 
@@ -153,19 +157,20 @@ func ResolvedProfileToProto(p ResolvedProfile) *backendpluginv1.ResolvedProfile 
 		return nil
 	}
 	return &backendpluginv1.ResolvedProfile{
-		Capabilities:             capabilityToProto(p.Capabilities),
-		TransportCapabilities:    transportCapabilityToProto(p.TransportCapabilities),
-		DialectSupport:           dialectSupportToProto(p.DialectSupport),
-		ReasoningReplaySupported: p.ReasoningReplaySupported,
-		RoutePrefixes:            append([]string(nil), p.RoutePrefixes...),
-		EnforceMaxOutput:         p.EnforceMaxOutput,
-		MaxOutputTokens:          optUint32(p.MaxOutputTokens),
-		SupportsCountTokens:      p.SupportsCountTokens,
-		SupportsFinalizeBilling:  p.SupportsFinalizeBilling,
-		SupportsDynamicInventory: p.SupportsDynamicInventory,
-		EvidenceSource:           p.EvidenceSource,
-		ProfileVersion:           p.ProfileVersion,
-		PromptCacheProfile:       promptCacheProfile,
+		Capabilities:                 capabilityToProto(p.Capabilities),
+		TransportCapabilities:        transportCapabilityToProto(p.TransportCapabilities),
+		DialectSupport:               dialectSupportToProto(p.DialectSupport),
+		ReasoningReplaySupported:     p.ReasoningReplaySupported,
+		RoutePrefixes:                append([]string(nil), p.RoutePrefixes...),
+		EnforceMaxOutput:             p.EnforceMaxOutput,
+		MaxOutputTokens:              optUint32(p.MaxOutputTokens),
+		SupportsCountTokens:          p.SupportsCountTokens,
+		SupportsFinalizeBilling:      p.SupportsFinalizeBilling,
+		SupportsDynamicInventory:     p.SupportsDynamicInventory,
+		EvidenceSource:               p.EvidenceSource,
+		ProfileVersion:               p.ProfileVersion,
+		PromptCacheProfile:           promptCacheProfile,
+		SupportsAccountingEvidenceV2: p.SupportsAccountingEvidenceV2,
 	}
 }
 
@@ -246,20 +251,45 @@ func FinalizeBillingResponseFromProto(p *backendpluginv1.FinalizeBillingResponse
 	if p == nil {
 		return FinalizeBillingResponse{}, nil
 	}
+	if uint64(proto.Size(p)) > DefaultMaxMessageBytes || len(p.GetAccountingEvidenceV2()) > int(DefaultMaxEconomicEvidencePerAttempt) {
+		return FinalizeBillingResponse{}, ErrOversizedMessage
+	}
 	usage, err := UsageEvidenceFromProto(p.GetUsage())
 	if err != nil {
 		return FinalizeBillingResponse{}, err
 	}
-	return FinalizeBillingResponse{Usage: usage, EvidenceQuality: p.GetEvidenceQuality()}, nil
+	out := FinalizeBillingResponse{Usage: usage, EvidenceQuality: p.GetEvidenceQuality()}
+	for _, wire := range p.GetAccountingEvidenceV2() {
+		evidence, convErr := AccountingEvidenceV2FromProto(wire)
+		if convErr != nil {
+			return FinalizeBillingResponse{}, convErr
+		}
+		out.AccountingV2 = append(out.AccountingV2, evidence)
+	}
+	return out, nil
 }
 
 // FinalizeBillingResponseToProto encodes finalize results.
 func FinalizeBillingResponseToProto(r FinalizeBillingResponse) (*backendpluginv1.FinalizeBillingResponse, error) {
+	if len(r.AccountingV2) > int(DefaultMaxEconomicEvidencePerAttempt) {
+		return nil, ErrOversizedMessage
+	}
 	usage, err := UsageEvidenceToProto(r.Usage)
 	if err != nil {
 		return nil, err
 	}
-	return &backendpluginv1.FinalizeBillingResponse{Usage: usage, EvidenceQuality: r.EvidenceQuality}, nil
+	out := &backendpluginv1.FinalizeBillingResponse{Usage: usage, EvidenceQuality: r.EvidenceQuality}
+	for i := range r.AccountingV2 {
+		evidence, convErr := AccountingEvidenceV2ToProto(&r.AccountingV2[i])
+		if convErr != nil {
+			return nil, convErr
+		}
+		out.AccountingEvidenceV2 = append(out.AccountingEvidenceV2, evidence)
+	}
+	if uint64(proto.Size(out)) > DefaultMaxMessageBytes {
+		return nil, ErrOversizedMessage
+	}
+	return out, nil
 }
 
 // CancelOutcomeFromProto converts cancel outcomes.

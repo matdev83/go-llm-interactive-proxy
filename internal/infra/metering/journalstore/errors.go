@@ -27,3 +27,15 @@ var ErrSupersessionCycle = errors.New("metering/journalstore: supersession cycle
 // ErrQueryTooBroad is returned when List lacks a required selective bound so the
 // store cannot safely page without scanning (requirement 14.4/14.8).
 var ErrQueryTooBroad = metering.ErrQueryTooBroad
+
+// ErrInvalidCursor identifies a cursor that is malformed or was created for
+// a different store/filter. V2 cursors are opaque and filter-bound.
+var ErrInvalidCursor = errors.New("metering/journalstore: invalid cursor")
+
+// ErrQueryOutOfScope identifies a query that attempts to use another store's
+// namespace or an untrusted subject scope.
+var ErrQueryOutOfScope = errors.New("metering/journalstore: query out of scope")
+
+// ErrPageSizeExceeded is returned by V2 bounded queries when a caller asks
+// for more than the hard safety bound.
+var ErrPageSizeExceeded = errors.New("metering/journalstore: page size exceeds hard maximum")

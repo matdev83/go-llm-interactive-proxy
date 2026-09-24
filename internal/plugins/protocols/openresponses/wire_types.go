@@ -220,17 +220,26 @@ type WireTool struct {
 
 // WireUsageInputDetails captures known input token detail counters.
 type WireUsageInputDetails struct {
-	CachedTokens int `json:"cached_tokens"`
-	TextTokens   int `json:"text_tokens,omitempty"`
-	AudioTokens  int `json:"audio_tokens,omitempty"`
-	Images       int `json:"images,omitempty"`
+	CachedTokens        int  `json:"cached_tokens"`
+	TextTokens          int  `json:"text_tokens,omitempty"`
+	AudioTokens         int  `json:"audio_tokens,omitempty"`
+	Images              int  `json:"images,omitempty"`
+	CachedTokensPresent bool `json:"-"`
+	TextTokensPresent   bool `json:"-"`
+	AudioTokensPresent  bool `json:"-"`
+	ImagesPresent       bool `json:"-"`
 }
 
 // WireUsageOutputDetails captures known output token detail counters.
 type WireUsageOutputDetails struct {
-	ReasoningTokens int `json:"reasoning_tokens"`
-	TextTokens      int `json:"text_tokens,omitempty"`
-	AudioTokens     int `json:"audio_tokens,omitempty"`
+	ReasoningTokens        int  `json:"reasoning_tokens"`
+	TextTokens             int  `json:"text_tokens,omitempty"`
+	AudioTokens            int  `json:"audio_tokens,omitempty"`
+	Images                 int  `json:"images,omitempty"`
+	ReasoningTokensPresent bool `json:"-"`
+	TextTokensPresent      bool `json:"-"`
+	AudioTokensPresent     bool `json:"-"`
+	ImagesPresent          bool `json:"-"`
 }
 
 // WireUsage represents token usage statistics on the wire.
@@ -240,6 +249,64 @@ type WireUsage struct {
 	OutputTokens        int                    `json:"output_tokens"`
 	OutputTokensDetails WireUsageOutputDetails `json:"output_tokens_details"`
 	TotalTokens         int                    `json:"total_tokens"`
+	InputTokensPresent  bool                   `json:"-"`
+	OutputTokensPresent bool                   `json:"-"`
+	TotalTokensPresent  bool                   `json:"-"`
+	RawJSON             json.RawMessage        `json:"-"`
+}
+
+func (d *WireUsageInputDetails) UnmarshalJSON(data []byte) error {
+	type alias WireUsageInputDetails
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*d = WireUsageInputDetails(decoded)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, d.CachedTokensPresent = fields["cached_tokens"]
+	_, d.TextTokensPresent = fields["text_tokens"]
+	_, d.AudioTokensPresent = fields["audio_tokens"]
+	_, d.ImagesPresent = fields["images"]
+	return nil
+}
+
+func (d *WireUsageOutputDetails) UnmarshalJSON(data []byte) error {
+	type alias WireUsageOutputDetails
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*d = WireUsageOutputDetails(decoded)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, d.ReasoningTokensPresent = fields["reasoning_tokens"]
+	_, d.TextTokensPresent = fields["text_tokens"]
+	_, d.AudioTokensPresent = fields["audio_tokens"]
+	_, d.ImagesPresent = fields["images"]
+	return nil
+}
+
+func (u *WireUsage) UnmarshalJSON(data []byte) error {
+	type alias WireUsage
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*u = WireUsage(decoded)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, u.InputTokensPresent = fields["input_tokens"]
+	_, u.OutputTokensPresent = fields["output_tokens"]
+	_, u.TotalTokensPresent = fields["total_tokens"]
+	u.RawJSON = append(u.RawJSON[:0], data...)
+	return nil
 }
 
 // WireToolChoiceFunction is the official direct object form of a required
@@ -305,17 +372,76 @@ type WireResponseResource struct {
 	SafetyIdentifier     *string         `json:"safety_identifier"`
 	PromptCacheKey       *string         `json:"prompt_cache_key"`
 	PromptCacheRetention *string         `json:"prompt_cache_retention"`
+	UsagePresent         bool            `json:"-"`
+	RawJSON              json.RawMessage `json:"-"`
+}
+
+func (r *WireResponseResource) UnmarshalJSON(data []byte) error {
+	type alias WireResponseResource
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = WireResponseResource(decoded)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, ok := fields["usage"]; ok && string(raw) != "null" {
+		// Preserve explicit zero counters. The nested decoder records field
+		// presence independently from values, so an all-zero provider usage
+		// object is evidence when its counters were actually surfaced.
+		r.UsagePresent = usageHasValue(r.Usage) || usageHasPresence(r.Usage)
+	}
+	r.RawJSON = append(r.RawJSON[:0], data...)
+	return nil
 }
 
 // WireCompactResource represents the OpenResponses response.compaction resource.
 type WireCompactResource struct {
-	ID        string     `json:"id"`
-	Object    string     `json:"object"`
-	CreatedAt int64      `json:"created_at"`
-	Status    string     `json:"status"`
-	Model     string     `json:"model"`
-	Output    []WireItem `json:"output"`
-	Usage     WireUsage  `json:"usage"`
+	ID           string          `json:"id"`
+	Object       string          `json:"object"`
+	CreatedAt    int64           `json:"created_at"`
+	Status       string          `json:"status"`
+	Model        string          `json:"model"`
+	Output       []WireItem      `json:"output"`
+	Usage        WireUsage       `json:"usage"`
+	UsagePresent bool            `json:"-"`
+	RawJSON      json.RawMessage `json:"-"`
+}
+
+func (r *WireCompactResource) UnmarshalJSON(data []byte) error {
+	type alias WireCompactResource
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = WireCompactResource(decoded)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, ok := fields["usage"]; ok && string(raw) != "null" {
+		r.UsagePresent = usageHasValue(r.Usage) || usageHasPresence(r.Usage)
+	}
+	r.RawJSON = append(r.RawJSON[:0], data...)
+	return nil
+}
+
+func usageHasValue(u WireUsage) bool {
+	return u.InputTokens != 0 || u.OutputTokens != 0 || u.TotalTokens != 0 ||
+		u.InputTokensDetails.CachedTokens != 0 || u.InputTokensDetails.TextTokens != 0 ||
+		u.InputTokensDetails.AudioTokens != 0 || u.InputTokensDetails.Images != 0 ||
+		u.OutputTokensDetails.ReasoningTokens != 0 || u.OutputTokensDetails.TextTokens != 0 ||
+		u.OutputTokensDetails.AudioTokens != 0 || u.OutputTokensDetails.Images != 0
+}
+
+func usageHasPresence(u WireUsage) bool {
+	return u.InputTokensPresent || u.OutputTokensPresent || u.TotalTokensPresent ||
+		u.InputTokensDetails.CachedTokensPresent || u.InputTokensDetails.TextTokensPresent ||
+		u.InputTokensDetails.AudioTokensPresent || u.InputTokensDetails.ImagesPresent ||
+		u.OutputTokensDetails.ReasoningTokensPresent || u.OutputTokensDetails.TextTokensPresent ||
+		u.OutputTokensDetails.AudioTokensPresent || u.OutputTokensDetails.ImagesPresent
 }
 
 // EnvelopeMetadata carries proxy-owned response metadata for resource construction.

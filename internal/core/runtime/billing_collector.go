@@ -12,6 +12,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/submission"
 )
 
 func (e *Executor) billingEnabled() bool {
@@ -29,36 +31,59 @@ func (e *Executor) observeBillingLeg(ctx context.Context, record billing.CallLeg
 }
 
 func (e *Executor) callFinalizeBilling(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+	result, err := e.callFinalizeBillingResult(ctx, in)
+	return result.Usage, err
+}
+
+func (e *Executor) callFinalizeBillingResult(ctx context.Context, in execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error) {
 	if e == nil || e.Backends == nil {
-		return lipapi.Event{}, fmt.Errorf("executor finalizer: no backends")
+		return execbackend.BillingFinalizationResult{}, fmt.Errorf("executor finalizer: no backends")
 	}
 	backendID := strings.TrimSpace(in.Backend)
 	be, ok := e.Backends[backendID]
-	if !ok || be.FinalizeBilling == nil {
-		return lipapi.Event{}, fmt.Errorf("executor finalizer: backend %q does not support FinalizeBilling", backendID)
+	if !ok || (be.FinalizeBilling == nil && be.FinalizeBillingV2 == nil) {
+		return execbackend.BillingFinalizationResult{}, fmt.Errorf("executor finalizer: backend %q does not support FinalizeBilling", backendID)
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingFinalizeTimeout)
 	defer cancel()
 	in.Backend = backendID
-	ev, err := safety.CallValue(safety.BoundaryBackend, "backend_finalize_billing", func() (lipapi.Event, error) {
-		return be.FinalizeBilling(persistCtx, in)
+	result, err := safety.CallValue(safety.BoundaryBackend, "backend_finalize_billing", func() (execbackend.BillingFinalizationResult, error) {
+		if be.FinalizeBillingV2 != nil {
+			return be.FinalizeBillingV2(persistCtx, in)
+		}
+		ev, err := be.FinalizeBilling(persistCtx, in)
+		return execbackend.BillingFinalizationResult{Usage: ev}, err
 	})
 	if err != nil {
 		if e.Log != nil {
 			e.Log.DebugContext(persistCtx, "billing FinalizeBilling", "error", err)
 		}
-		return lipapi.Event{}, err
+		return execbackend.BillingFinalizationResult{}, err
 	}
-	if ev.Kind != lipapi.EventUsageDelta {
-		return lipapi.Event{}, fmt.Errorf("executor finalizer: invalid event kind %q", ev.Kind)
+	if result.Usage.Kind != lipapi.EventUsageDelta {
+		return execbackend.BillingFinalizationResult{}, fmt.Errorf("executor finalizer: invalid event kind %q", result.Usage.Kind)
 	}
-	return ev, nil
+	if len(result.EconomicEvidence) > billing.MaxCallLegEvidenceObservations {
+		return execbackend.BillingFinalizationResult{}, fmt.Errorf("executor finalizer: economic evidence exceeds limit")
+	}
+	for i := range result.EconomicEvidence {
+		if err := result.EconomicEvidence[i].Observation.Validate(); err != nil {
+			return execbackend.BillingFinalizationResult{}, fmt.Errorf("executor finalizer: invalid economic evidence %d", i)
+		}
+	}
+	return result, nil
 }
 
 type billingCallState struct {
-	callID billing.BillingCallID
+	callID       billing.BillingCallID
+	submissionID string
 
 	mu sync.Mutex
+
+	// scope is the trusted customer scope frozen at exposure admission. It
+	// lets terminal handoffs carry customer identity on detached contexts
+	// long after the request context is gone.
+	scope scope.PrincipalScopeView
 
 	allocated map[string]int // BLegID -> actual AttemptSeq
 	frozen    []string
@@ -75,6 +100,62 @@ func newBillingCallState(callID billing.BillingCallID) *billingCallState {
 		allocated: make(map[string]int),
 		finalize:  make(map[string]*finalizeCacheEntry),
 	}
+}
+
+// freezeScope records the trusted customer scope once, at exposure
+// admission. Later calls never override it: terminal handoffs must observe
+// the frozen admission scope, not a re-resolved one.
+func (s *billingCallState) freezeScope(sc scope.PrincipalScopeView) {
+	if s == nil || !sc.PrincipalID.IsKnown() {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.scope.PrincipalID.IsKnown() {
+		return
+	}
+	s.scope = sc.Clone()
+}
+
+// frozenScope returns the admission-frozen customer scope, or zero when the
+// call never admitted one.
+func (s *billingCallState) frozenScope() scope.PrincipalScopeView {
+	if s == nil {
+		return scope.PrincipalScopeView{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scope.Clone()
+}
+
+func (s *billingCallState) ensureSubmissionID(id string) error {
+	if s == nil {
+		return nil
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.submissionID != "" && s.submissionID != id {
+		return fmt.Errorf("%w: billing call already belongs to submission %q", submission.ErrScopeMismatch, s.submissionID)
+	}
+	s.submissionID = id
+	return nil
+}
+
+func (s *billingCallState) submissionIdentity() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.submissionID
+}
+
+func billingSubmissionID(s *billingCallState) string {
+	return s.submissionIdentity()
 }
 
 func (s *billingCallState) noteAllocatedBLeg(bLegID string, seq int) {
@@ -160,9 +241,9 @@ type billingLegTiming struct {
 }
 
 type finalizeCacheEntry struct {
-	done chan struct{}
-	ev   lipapi.Event
-	ok   bool
+	done   chan struct{}
+	result execbackend.BillingFinalizationResult
+	ok     bool
 }
 
 func finalizeCacheKey(in execbackend.BillingFinalizationInput) string {
@@ -173,13 +254,21 @@ func finalizeCacheKey(in execbackend.BillingFinalizationInput) string {
 }
 
 func (s *billingCallState) finalizeOnce(ctx context.Context, in execbackend.BillingFinalizationInput, finalizeFn func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)) (lipapi.Event, bool) {
+	result, ok := s.finalizeOnceWithEvidence(ctx, in, func(ctx context.Context, in execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error) {
+		ev, err := finalizeFn(ctx, in)
+		return execbackend.BillingFinalizationResult{Usage: ev}, err
+	})
+	return result.Usage, ok
+}
+
+func (s *billingCallState) finalizeOnceWithEvidence(ctx context.Context, in execbackend.BillingFinalizationInput, finalizeFn func(context.Context, execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error)) (execbackend.BillingFinalizationResult, bool) {
 	if s == nil {
-		return lipapi.Event{}, false
+		return execbackend.BillingFinalizationResult{}, false
 	}
 	key := finalizeCacheKey(in)
 	if key == "" {
-		ev, err := finalizeFn(ctx, in)
-		return ev, err == nil && ev.Kind == lipapi.EventUsageDelta
+		result, err := finalizeFn(ctx, in)
+		return result, err == nil && result.Usage.Kind == lipapi.EventUsageDelta
 	}
 
 	s.finalizeMu.Lock()
@@ -192,9 +281,9 @@ func (s *billingCallState) finalizeOnce(ctx context.Context, in execbackend.Bill
 		select {
 		case <-entry.done:
 		case <-ctx.Done():
-			return lipapi.Event{}, false
+			return execbackend.BillingFinalizationResult{}, false
 		}
-		return entry.ev, entry.ok
+		return entry.result, entry.ok
 	}
 
 	entry = &finalizeCacheEntry{done: make(chan struct{})}
@@ -202,11 +291,11 @@ func (s *billingCallState) finalizeOnce(ctx context.Context, in execbackend.Bill
 	s.finalizeMu.Unlock()
 
 	defer close(entry.done)
-	ev, err := finalizeFn(ctx, in)
-	entry.ev = ev
-	entry.ok = err == nil && ev.Kind == lipapi.EventUsageDelta
+	result, err := finalizeFn(ctx, in)
+	entry.result = result
+	entry.ok = err == nil && result.Usage.Kind == lipapi.EventUsageDelta
 
-	return entry.ev, entry.ok
+	return entry.result, entry.ok
 }
 
 const billingFinalizeTimeout = 2 * time.Second

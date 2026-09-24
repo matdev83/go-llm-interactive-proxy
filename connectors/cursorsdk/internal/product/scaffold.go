@@ -8,13 +8,14 @@ import (
 )
 
 type Scaffold struct {
-	cfg        Config
-	source     ModelListSource
-	starter    ProcessStarter
-	hostEnv    []string
-	hasEnv     bool
-	log        *slog.Logger
-	instanceID string
+	cfg                         Config
+	source                      ModelListSource
+	starter                     ProcessStarter
+	hostEnv                     []string
+	hasEnv                      bool
+	log                         *slog.Logger
+	instanceID                  string
+	disableAccountingEvidenceV1 bool
 }
 
 func NewScaffold(cfg Config) Scaffold {
@@ -47,12 +48,21 @@ func (s Scaffold) WithInstanceID(id string) Scaffold {
 	return s
 }
 
+// WithAccountingEvidenceV1 enables the negotiated legacy accounting sideband
+// for streams opened by this scaffold. Native account-window gauges remain
+// local because the executable ABI has no trusted StoreID/native subject.
+func (s Scaffold) WithAccountingEvidenceV1(enabled bool) Scaffold {
+	s.disableAccountingEvidenceV1 = !enabled
+	return s
+}
+
 func (s Scaffold) Backend() Backend {
 	opts := runtimeOpts{
-		Starter:         s.starter,
-		ModelListSource: s.source,
-		Log:             s.log,
-		InstanceID:      s.instanceID,
+		Starter:                     s.starter,
+		ModelListSource:             s.source,
+		Log:                         s.log,
+		InstanceID:                  s.instanceID,
+		DisableAccountingEvidenceV1: s.disableAccountingEvidenceV1,
 	}
 	if s.hasEnv {
 		opts.HostEnv = s.hostEnv

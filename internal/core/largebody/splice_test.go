@@ -73,7 +73,7 @@ func TestSpliceModelToken_SameShorterLonger(t *testing.T) {
 			if err != nil {
 				t.Fatalf("SpliceModelToken failed: %v", err)
 			}
-			defer reader.Close()
+			defer func() { _ = reader.Close() }()
 
 			gotBytes, err := io.ReadAll(reader)
 			if err != nil {
@@ -140,7 +140,7 @@ func TestSpliceModelToken_EscapedModel(t *testing.T) {
 				if err != nil {
 					t.Fatalf("SpliceModelToken failed for replacement %q: %v", repl, err)
 				}
-				defer reader.Close()
+				defer func() { _ = reader.Close() }()
 
 				spliced, err := io.ReadAll(reader)
 				if err != nil {
@@ -185,7 +185,7 @@ func TestSpliceModelToken_EscapedModel(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SpliceModelToken failed: %v", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 
 		spliced, err := io.ReadAll(reader)
 		if err != nil {
@@ -232,7 +232,7 @@ func TestSpliceModelToken_LateModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SpliceModelToken failed: %v", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	spliced, err := io.ReadAll(reader)
 	if err != nil {
@@ -294,7 +294,7 @@ func TestSpliceModelToken_NestedMisleadingText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SpliceModelToken failed: %v", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	spliced, err := io.ReadAll(reader)
 	if err != nil {
@@ -311,18 +311,42 @@ func TestSpliceModelToken_NestedMisleadingText(t *testing.T) {
 	}
 
 	// Verify nested model occurrences were preserved intact.
-	msgs := parsed["messages"].([]any)
-	m1 := msgs[1].(map[string]any)
+	msgs, ok := parsed["messages"].([]any)
+	if !ok {
+		t.Fatalf("parsed[\"messages\"] is %T, want []any", parsed["messages"])
+	}
+	m1, ok := msgs[1].(map[string]any)
+	if !ok {
+		t.Fatalf("msgs[1] is %T, want map[string]any", msgs[1])
+	}
 	if m1["model"] != "nested-model-attribute" {
 		t.Fatalf("nested message model altered: %v", m1["model"])
 	}
 
-	tools := parsed["tools"].([]any)
-	tool0 := tools[0].(map[string]any)
-	fn := tool0["function"].(map[string]any)
-	params := fn["parameters"].(map[string]any)
-	props := params["properties"].(map[string]any)
-	modelProp := props["model"].(map[string]any)
+	tools, ok := parsed["tools"].([]any)
+	if !ok {
+		t.Fatalf("parsed[\"tools\"] is %T, want []any", parsed["tools"])
+	}
+	tool0, ok := tools[0].(map[string]any)
+	if !ok {
+		t.Fatalf("tools[0] is %T, want map[string]any", tools[0])
+	}
+	fn, ok := tool0["function"].(map[string]any)
+	if !ok {
+		t.Fatalf("tool0[\"function\"] is %T, want map[string]any", tool0["function"])
+	}
+	params, ok := fn["parameters"].(map[string]any)
+	if !ok {
+		t.Fatalf("fn[\"parameters\"] is %T, want map[string]any", fn["parameters"])
+	}
+	props, ok := params["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("params[\"properties\"] is %T, want map[string]any", params["properties"])
+	}
+	modelProp, ok := props["model"].(map[string]any)
+	if !ok {
+		t.Fatalf("props[\"model\"] is %T, want map[string]any", props["model"])
+	}
 	if modelProp["type"] != "string" {
 		t.Fatalf("tool parameter model altered: %v", modelProp)
 	}
@@ -520,7 +544,7 @@ func TestSpliceModelToken_SourceTypes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SpliceModelToken failed: %v", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		res, err := io.ReadAll(reader)
 		if err != nil {
 			t.Fatalf("ReadAll failed: %v", err)
@@ -541,7 +565,7 @@ func TestSpliceModelToken_SourceTypes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SpliceModelToken failed: %v", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		res, err := io.ReadAll(reader)
 		if err != nil {
 			t.Fatalf("ReadAll failed: %v", err)
@@ -566,7 +590,7 @@ func TestSpliceModelToken_SourceTypes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSpillBuffer failed: %v", err)
 		}
-		defer spillBuf.Close()
+		defer func() { _ = spillBuf.Close() }()
 
 		if _, err := spillBuf.Write(sourceBytes); err != nil {
 			t.Fatalf("Write to spillBuf failed: %v", err)
@@ -575,13 +599,13 @@ func TestSpliceModelToken_SourceTypes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Complete failed: %v", err)
 		}
-		defer compSource.Close()
+		defer func() { _ = compSource.Close() }()
 
 		reader, err := largebody.SpliceModelToken(compSource, span, replacement)
 		if err != nil {
 			t.Fatalf("SpliceModelToken on CompletedSource failed: %v", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 
 		res, err := io.ReadAll(reader)
 		if err != nil {
@@ -603,7 +627,7 @@ func TestSpliceModelToken_SourceTypes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SpliceModelTokenAt failed: %v", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		res, err := io.ReadAll(reader)
 		if err != nil {
 			t.Fatalf("ReadAll failed: %v", err)
@@ -624,7 +648,7 @@ func TestSpliceModelToken_SourceTypes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SpliceModelTokenReader failed: %v", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		res, err := io.ReadAll(reader)
 		if err != nil {
 			t.Fatalf("ReadAll failed: %v", err)
@@ -667,7 +691,7 @@ func TestSpliceModelToken_SourceTypes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SpliceModelTokenPlan failed: %v", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 
 		res, err := io.ReadAll(reader)
 		if err != nil {
@@ -710,7 +734,7 @@ func TestSpliceModelToken_StreamingChunkVariations(t *testing.T) {
 			if err != nil {
 				t.Fatalf("SpliceModelToken failed: %v", err)
 			}
-			defer reader.Close()
+			defer func() { _ = reader.Close() }()
 
 			var buf bytes.Buffer
 			p := make([]byte, chunk)
@@ -740,7 +764,7 @@ func TestSpliceModelToken_StreamingChunkVariations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SpliceModelToken failed: %v", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 
 		var buf bytes.Buffer
 		n, err := reader.WriteTo(&buf)
@@ -763,7 +787,7 @@ func TestSpliceModelToken_StreamingChunkVariations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SpliceModelTokenReader failed: %v", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 
 		_, err = io.ReadAll(reader)
 		if !errors.Is(err, io.ErrUnexpectedEOF) {

@@ -76,9 +76,11 @@ type turnTerminal struct {
 	billingWorkload         func(context.Context, string) billing.WorkloadIdentity
 	observeBillingLeg       func(context.Context, billing.CallLegUsageRecord)
 	appendBillingLeg        func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord)
+	appendBillingLegStrict  func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord) error
 	appendBillingCall       func(context.Context, billing.CallUsageRecord) error
 	logBillingAppendFailure func(context.Context, string, string, error)
 	finalizeBilling         func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
+	finalizeBillingV2       func(context.Context, execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error)
 	releaseRequestAuthority func(context.Context) error
 	settleRequestAuthority  func(context.Context, []metering.Fact) error
 	emitFrontendEgress      func(context.Context, string, lipapi.Event) (metering.Fact, bool)
@@ -128,11 +130,13 @@ func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
 	t.billingWorkload = e.billingWorkloadIdentityForALeg
 	t.observeBillingLeg = e.observeBillingLeg
 	t.appendBillingLeg = e.appendIndependentCallLeg
+	t.appendBillingLegStrict = e.appendIndependentCallLegStrict
 	if e.TerminalUsageSink != nil {
 		t.appendBillingCall = e.TerminalUsageSink.AppendCall
 	}
 	t.logBillingAppendFailure = e.logBillingUsageAppendFailure
 	t.finalizeBilling = e.callFinalizeBilling
+	t.finalizeBillingV2 = e.callFinalizeBillingResult
 	t.releaseRequestAuthority = e.releaseRequestAuthority
 	t.settleRequestAuthority = e.settleRequestAuthority
 	t.emitFrontendEgress = e.emitFrontendEgressMeteringFact
@@ -446,14 +450,16 @@ func (t *turnTerminal) terminalizeTurnAfterDecision(ctx context.Context, decisio
 			cmd = sdkterminal.CommandPartialError
 		}
 	}
+	var attemptErr error
 	if attempt != nil {
-		attempt.TerminalizeAttempt(ctx, intent, evidence)
+		attemptResult := attempt.TerminalizeAttempt(ctx, intent, evidence)
+		attemptErr = attemptResult.Result.Err
 	}
 	result := t.claimRequestTerminal(ctx, cmd, snapshot, func(cctx context.Context, _ coreterm.Outcome) error {
 		t.settleOrReleaseRequestAuthority(cctx, p, request)
-		t.handoffBillingTurn(cctx, request, cmd)
+		handoffErr := t.handoffBillingTurn(cctx, request, cmd)
 		t.finishResponse(p, attempt)
-		return deactErr
+		return errors.Join(deactErr, attemptErr, handoffErr)
 	})
 	if !t.finished() {
 		t.finishResponse(p, attempt)
@@ -718,12 +724,11 @@ func (t *turnTerminal) terminalizeGateReplacement(ctx context.Context, request r
 	if decision.Decision.Kind == terminaldecision.DecisionContinue {
 		return nil
 	}
-	attempt.TerminalizeAttempt(ctx, IntentSurfacedFailure, ev)
-	t.claimRequestTerminal(ctx, sdkterminal.CommandGateReplacement, snapshot, func(cctx context.Context, _ coreterm.Outcome) error {
-		t.handoffBillingTurn(cctx, request, sdkterminal.CommandGateReplacement)
-		return nil
+	attemptResult := attempt.TerminalizeAttempt(ctx, IntentSurfacedFailure, ev)
+	requestResult := t.claimRequestTerminal(ctx, sdkterminal.CommandGateReplacement, snapshot, func(cctx context.Context, _ coreterm.Outcome) error {
+		return t.handoffBillingTurn(cctx, request, sdkterminal.CommandGateReplacement)
 	})
-	return gateErr
+	return errors.Join(gateErr, attemptResult.Result.Err, requestResult.Err)
 }
 
 func (t *turnTerminal) registerReplacement(ctx context.Context, out replacementOpenResult, next *readyAttempt) error {

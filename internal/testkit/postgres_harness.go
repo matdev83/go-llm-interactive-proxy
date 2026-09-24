@@ -347,6 +347,9 @@ func cleanupStatements(component PostgresStoreComponent, storeID string) []clean
 		}
 	case PostgresComponentJournal:
 		return []cleanupStmt{
+			{`DELETE FROM metering_observation_economic_outbox WHERE store_id = ?`, []any{storeID}},
+			{`DELETE FROM metering_components WHERE store_id = ?`, []any{storeID}},
+			{`DELETE FROM metering_fact_supersessions WHERE store_id = ?`, []any{storeID}},
 			{`DELETE FROM metering_fact_filters WHERE store_id = ?`, []any{storeID}},
 			{`DELETE FROM metering_facts WHERE store_id = ?`, []any{storeID}},
 		}

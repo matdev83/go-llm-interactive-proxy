@@ -73,7 +73,9 @@ func CompletionEvents(comp openai.ChatCompletion) []lipapi.Event {
 	}
 
 	if comp.JSON.Usage.Valid() {
-		events = append(events, openaiusage.ChatUsageEvent(comp.Usage))
+		usage := openaiusage.ChatUsageEvent(comp.Usage)
+		openaiusage.AnnotateProviderContext(&usage, comp.ID, string(comp.ServiceTier))
+		events = append(events, usage)
 	}
 
 	events = append(events, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: finishReason})

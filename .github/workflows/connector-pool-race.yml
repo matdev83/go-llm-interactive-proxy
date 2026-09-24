@@ -45,7 +45,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go test -race -count=1 \
+          go test -race -count=1 -p 2 -parallel 2 \
             ./internal/infra/runtimebundle \
             ./pkg/lipsdk/backendplugin/host \
             ./internal/infra/backendplugins/processhost

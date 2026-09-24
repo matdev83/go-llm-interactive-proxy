@@ -120,7 +120,7 @@ func TestWireRequestAuthority_SettlementParity_Differential(t *testing.T) {
 	exCanonical, _, _ := setupTestExecutor(t)
 	provCanonical := &wireParityRecordingProvider{id: "coord-canonical"}
 	recCanonical := &recordingMeter{}
-	exCanonical.AccountingRuntime.MeteringRecorder = recCanonical
+	exCanonical.MeteringRecorder = recCanonical
 	exCanonical.RequestCoordinator = &authoritycoord.RequestCoordinator{
 		Slots: []authoritycoord.RequestSlot{{
 			ID: "quota", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: provCanonical, Strength: authority.StrengthRequired,
@@ -164,7 +164,7 @@ func TestWireRequestAuthority_SettlementParity_Differential(t *testing.T) {
 
 	cStream, err := exCanonical.Execute(canonicalCtx, canonicalCall)
 	require.NoError(t, err)
-	defer cStream.Close()
+	defer func() { _ = cStream.Close() }()
 
 	var canonicalEvents []lipapi.Event
 	for {
@@ -192,7 +192,7 @@ func TestWireRequestAuthority_SettlementParity_Differential(t *testing.T) {
 	exWire, _, _ := setupTestExecutor(t)
 	provWire := &wireParityRecordingProvider{id: "coord-wire"}
 	recWire := &recordingMeter{}
-	exWire.AccountingRuntime.MeteringRecorder = recWire
+	exWire.MeteringRecorder = recWire
 	exWire.RequestCoordinator = &authoritycoord.RequestCoordinator{
 		Slots: []authoritycoord.RequestSlot{{
 			ID: "quota", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: provWire, Strength: authority.StrengthRequired,
@@ -234,7 +234,7 @@ func TestWireRequestAuthority_SettlementParity_Differential(t *testing.T) {
 
 	res, err := exWire.ExecuteLargeBody(wireCtx, acc, src)
 	require.NoError(t, err)
-	defer res.Stream.Close()
+	defer func() { _ = res.Stream.Close() }()
 
 	var wireEvents []lipapi.Event
 	for {

@@ -141,6 +141,7 @@ var featureMinorRequirements = []struct {
 	name  string
 	minor uint32
 }{
+	{FeatureAccountingEvidenceV2, ProtocolMinorAccountingEvidenceV2},
 	{FeatureCancellationHandshake, ProtocolMinorCancellationHandshake},
 	{FeaturePromptCacheResidency, ProtocolMinorPromptCacheResidency},
 	{FeatureSemanticExtensions, ProtocolMinorSemanticExtensions},

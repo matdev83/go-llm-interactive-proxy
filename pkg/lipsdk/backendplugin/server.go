@@ -325,7 +325,7 @@ func (s *GRPCServer) ReleasePromptCache(ctx context.Context, req *backendpluginv
 }
 
 func (s *GRPCServer) FinalizeBilling(ctx context.Context, req *backendpluginv1.FinalizeBillingRequest) (*backendpluginv1.FinalizeBillingResponse, error) {
-	inst, release, _, err := s.acquire(req.GetInstanceId())
+	inst, release, neg, err := s.acquire(req.GetInstanceId())
 	if err != nil {
 		return nil, err
 	}
@@ -341,6 +341,9 @@ func (s *GRPCServer) FinalizeBilling(ctx context.Context, req *backendpluginv1.F
 	out, err := fin.FinalizeBilling(ctx, in)
 	if err != nil {
 		return nil, err
+	}
+	if len(out.AccountingV2) != 0 && !AccountingEvidenceV2Negotiated(neg) {
+		return nil, status.Error(codes.FailedPrecondition, ErrAccountingEvidenceV2Unsupported.Error())
 	}
 	return FinalizeBillingResponseToProto(out)
 }
@@ -467,6 +470,9 @@ func (g *grpcExecuteStream) Recv() (ClientFrame, error) {
 func (g *grpcExecuteStream) Send(frame ServerFrame) error {
 	if frame.Kind == ServerFramePromptCacheObservation && !PromptCacheNegotiated(g.negotiation) {
 		return ErrPromptCacheUnsupported
+	}
+	if frame.AccountingV2 != nil && !AccountingEvidenceV2Negotiated(g.negotiation) {
+		return ErrAccountingEvidenceV2Unsupported
 	}
 	if err := ValidateServerFrameBounds(frame); err != nil {
 		return err

@@ -178,8 +178,11 @@ func BuildQualityChecksRequest(options MeasureOptions) (taskrunner.Request, erro
 		Timeout:  timeout,
 		Output:   taskrunner.Stream,
 		ClearEnv: false,
+		// Anchor and head must execute the same guardrail work for a fair
+		// comparison. This target-scoped skip only applies to the cost
+		// measurement; the canonical quality-checks gate still runs lint.
 		Env: []string{
-			"CI=", "LIP_VERIFY_MODULE_CACHE=", "LIP_SKIP_ARCHTEST=1", "LIP_SKIP_GO_COMPILE_CHECKS=1",
+			"CI=", "LIP_VERIFY_MODULE_CACHE=", "LIP_SKIP_ARCHTEST=1", "LIP_SKIP_GO_COMPILE_CHECKS=1", "LIP_SKIP_LINT=1",
 			"LIP_TEST_PARALLEL=" + strconv.Itoa(parallel), "TEMP=" + tempRoot, "TMP=" + tempRoot,
 		},
 		Label:         TargetQualityChecks,

@@ -117,10 +117,12 @@ type SpliceReader struct {
 	closed               bool
 }
 
-var _ io.Reader = (*SpliceReader)(nil)
-var _ io.Closer = (*SpliceReader)(nil)
-var _ io.ReadCloser = (*SpliceReader)(nil)
-var _ io.WriterTo = (*SpliceReader)(nil)
+var (
+	_ io.Reader     = (*SpliceReader)(nil)
+	_ io.Closer     = (*SpliceReader)(nil)
+	_ io.ReadCloser = (*SpliceReader)(nil)
+	_ io.WriterTo   = (*SpliceReader)(nil)
+)
 
 // RewrittenLength reports the exact checked rewritten body length in bytes (Requirement 9.4).
 func (s *SpliceReader) RewrittenLength() int64 {
@@ -388,26 +390,12 @@ func SpliceModelToken(source any, span Span, replacement string) (*SpliceReader,
 		reader = strings.NewReader(s)
 		inspectBuf = []byte(s)
 	case Source:
+		// *CompletedSource and *SpillBuffer implement Source and are handled
+		// by this clause; dedicated cases below them would be unreachable.
 		sourceSize = s.Size()
 		rc, err := s.Open()
 		if err != nil {
 			return nil, fmt.Errorf("largebody: failed to open source: %w", err)
-		}
-		reader = rc
-		closer = rc
-	case *CompletedSource:
-		sourceSize = s.Size()
-		rc, err := s.Open()
-		if err != nil {
-			return nil, fmt.Errorf("largebody: failed to open completed source: %w", err)
-		}
-		reader = rc
-		closer = rc
-	case *SpillBuffer:
-		sourceSize = s.Size()
-		rc, err := s.Open()
-		if err != nil {
-			return nil, fmt.Errorf("largebody: failed to open spill buffer: %w", err)
 		}
 		reader = rc
 		closer = rc
@@ -550,7 +538,7 @@ func SpliceModelTokenBytes(source []byte, span Span, replacement string) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	return io.ReadAll(r)
 }
 

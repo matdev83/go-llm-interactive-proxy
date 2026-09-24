@@ -1,0 +1,36 @@
+{
+  "fixture_version": "phase1-v1-billing-compatibility",
+  "serialization": "payload_sha256 is SHA-256 of the exact compact payload bytes; semantic fingerprints are produced by the existing sealed V1 contracts.",
+  "call": {
+    "payload": {"SchemaVersion":1,"Key":"bc_0123456789abcdef0123456789abcdef","Fingerprint":"93c7c0de825b3548bb3aff4e6044005e6b22e03a8412fa6f30338a891a503dd2","CallID":"bc_0123456789abcdef0123456789abcdef","AccountID":"acct-phase1","ALegID":"a-phase1","SessionID":"sess-phase1","StartedAt":"2026-01-02T03:04:05Z","FinishedAt":"2026-01-02T03:06:05Z","Outcome":"completed","CustomerPricingRef":{"ID":"customer-pricing","Version":"2026-01","EffectiveAt":"2026-01-01T03:04:05Z","FetchedAt":"2026-01-02T02:04:05Z"},"ChargePolicyRef":{"ID":"customer-policy","Version":"2026-01","EffectiveAt":"2026-01-01T03:04:05Z","FetchedAt":"2026-01-02T02:04:05Z"},"ExpectedBLegIDs":["b-a","b-z"],"Workload":{}},
+    "payload_sha256": "5ac40cad1bd42b9eeae6129bd255a2b49d054a417c3c7e858d2c38f545b195b1",
+    "key": "bc_0123456789abcdef0123456789abcdef",
+    "semantic_fingerprint": "93c7c0de825b3548bb3aff4e6044005e6b22e03a8412fa6f30338a891a503dd2"
+  },
+  "leg": {
+    "payload": {"Key":"bc_0123456789abcdef0123456789abcdef:b-primary","Fingerprint":"8cf755d66808f2f0a64a2ea893b601dccd8f19379221b75df2ebae34bbc28608","CallID":"bc_0123456789abcdef0123456789abcdef","ALegID":"a-phase1","BLegID":"b-primary","AttemptSeq":2,"BackendID":"backend-phase1","ProviderID":"provider-phase1","ModelID":"model-phase1","StartedAt":"2026-01-02T03:04:15Z","FinishedAt":"2026-01-02T03:05:35Z","Outcome":"winner","Surfaced":"yes","Evidence":{"InputTokens":{"Value":123,"Present":true},"OutputTokens":{"Value":45,"Present":true},"CacheReadTokens":{"Value":7,"Present":true},"CacheWriteTokens":{"Value":0,"Present":true},"ReasoningTokens":{"Value":2,"Present":true},"TotalTokens":{"Value":170,"Present":true},"Cost":{"NanoUnits":987,"Currency":"USD","Present":true},"Source":"provider_reported","Authority":"authoritative","DedupeKey":"provider-charge-phase1"},"OperatorRateRef":{"ID":"operator-rate","Version":"2026-01","EffectiveAt":"2026-01-01T03:04:05Z","FetchedAt":"2026-01-02T02:04:05Z"},"Workload":{}},
+    "payload_sha256": "46e59709a6074e46959f106aa3593f833c2c614df5e5c7b4f5b6eb96ba0f0893",
+    "key": "bc_0123456789abcdef0123456789abcdef:b-primary",
+    "semantic_fingerprint": "8cf755d66808f2f0a64a2ea893b601dccd8f19379221b75df2ebae34bbc28608"
+  },
+  "provider_cost": {
+    "payload": {"LURKey":"bc_0123456789abcdef0123456789abcdef:b-primary","Amount":{"Nano":987,"Currency":"USD"},"AmountPresent":true,"Reconciled":true,"Authoritative":true,"UnreconciledReason":""},
+    "payload_sha256": "758fb8251b7cc1e98136a7554c2dfca1f7a1dc23a87bf9279f083a369a0cb14f",
+    "semantic_fingerprint": "provider-cost:v1:2a798e4dda9287183981b7a032332fa4cb4a5224904c51715d064061d4eb13ab"
+  },
+  "journal": {
+    "payload": {"ID":"txn-phase1-cogs","Book":"financial","Currency":"USD","SourceKey":"provider-cost:v1:bc_0123456789abcdef0123456789abcdef:b-primary","SemanticFingerprint":"journal-fp:v2:b10b1bf1bae2e7213ddc275da4add7f483fd3397be387e77624434cf651e1f4d","AccountID":"acct-phase1","TurnID":"bc_0123456789abcdef0123456789abcdef","ALegID":"a-phase1","BLegID":"b-primary","AccountSequence":4,"ReversalOf":"","CorrectsTransactionID":"","CorrectionGroupID":"","OperationKind":"provider_call_cogs","BalanceBefore":10000,"BalanceAfter":10000,"SpendableBefore":10000,"SpendableAfter":10000,"CreditFloor":0,"CreditLimit":10000,"Mode":"postpaid","SnapshotVersionBefore":3,"SnapshotVersionAfter":4,"RecordedAt":"2026-01-02T03:06:10Z","Entries":[{"LedgerAccount":"inference_provider_cogs","Side":"debit","Amount":{"Nano":987,"Currency":"USD"}},{"LedgerAccount":"provider_payable_clearing","Side":"credit","Amount":{"Nano":987,"Currency":"USD"}}]},
+    "payload_sha256": "f3f9436dc71c9ca60295934c5afa098be5661c4be0ecd41196c40456cec39ab0",
+    "semantic_fingerprint": "journal-fp:v2:b10b1bf1bae2e7213ddc275da4add7f483fd3397be387e77624434cf651e1f4d"
+  },
+  "identity_schema": {
+    "current_record_schema_version": 1,
+    "journal_fingerprint_prefix": "journal-fp:v2:",
+    "provider_cost_fingerprint_prefix": "provider-cost:v1:",
+    "customer_settlement_prefix": "customer-settlement:v2:",
+    "provider_cost_source_prefix": "provider-cost:v1:",
+    "call_key": "bc_0123456789abcdef0123456789abcdef",
+    "leg_key": "bc_0123456789abcdef0123456789abcdef:b-primary",
+    "provider_cost_source_key": "provider-cost:v1:bc_0123456789abcdef0123456789abcdef:b-primary"
+  }
+}

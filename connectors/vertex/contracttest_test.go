@@ -65,6 +65,7 @@ func bufconnHost(factory string, config []byte, secrets backendplugin.SecretBund
 			{Name: backendplugin.FeatureOrderedItems},
 			{Name: backendplugin.FeatureExactOpenResponsesFields},
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
+			{Name: backendplugin.FeatureAccountingEvidence},
 			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 	}, tp)
@@ -122,6 +123,23 @@ func TestSupportedContractTCK(t *testing.T) {
 	if result.Negotiated.NegotiatedMinor != backendplugin.ProtocolMinorCancellationHandshake {
 		t.Fatalf("negotiated minor=%d want %d", result.Negotiated.NegotiatedMinor, backendplugin.ProtocolMinorCancellationHandshake)
 	}
+	if !containsFeature(result.Negotiated.EnabledFeatures, backendplugin.FeatureAccountingEvidence) {
+		t.Fatalf("V1 accounting sideband must be negotiated for the Vertex bridge, got negotiated=%+v", result.Negotiated)
+	}
+	if backendplugin.AccountingEvidenceV2Negotiated(result.Negotiated) || containsFeature(result.Negotiated.EnabledFeatures, backendplugin.FeatureAccountingEvidenceV2) {
+		t.Fatalf("Vertex must not claim or negotiate unsupported V2 evidence, got negotiated=%+v", result.Negotiated)
+	}
+
+	desc, err := service.New().Describe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsFeatureDescriptor(desc.Features, backendplugin.FeatureAccountingEvidenceV2) {
+		t.Fatalf("Vertex descriptor advertises unsupported V2 evidence: %+v", desc.Features)
+	}
+	if len(desc.Factories) != 1 || desc.Factories[0].SupportsAccountingEvidenceV2 {
+		t.Fatalf("Vertex factory advertises unsupported V2 capability: %+v", desc.Factories)
+	}
 }
 
 func TestSupportedContractTCK_LegacyFallback(t *testing.T) {
@@ -168,4 +186,13 @@ func TestSupportedContractTCK_LegacyFallback(t *testing.T) {
 
 func containsFeature(features []string, want string) bool {
 	return slices.Contains(features, want)
+}
+
+func containsFeatureDescriptor(features []backendplugin.Feature, want string) bool {
+	for _, feature := range features {
+		if feature.Name == want {
+			return true
+		}
+	}
+	return false
 }

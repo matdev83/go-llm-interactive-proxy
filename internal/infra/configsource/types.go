@@ -29,9 +29,22 @@ const (
 	CategoryPartialUnreadable = config.CategoryPartialUnreadable
 )
 
+// FileIdentity scheme names. A scheme identifies which metadata produced
+// Opaque. Identities from different schemes are never comparable: comparing
+// them must fail closed, because a coarser scheme (device+inode only) cannot
+// prove that a candidate is not the same physical file as the accepted one.
+const (
+	identitySchemeStatxBirthTime = "statx-btime" // Linux: device + inode + inode birth time
+	identitySchemeDeviceInode    = "dev-ino"     // portable Unix fallback: device + inode
+	identitySchemeFileID         = "win-fileid"  // Windows: volume serial + file index
+)
+
 // FileIdentity is a platform-stable handle identity used to prove atomic replacement.
+// Scheme records the provenance of Opaque so identities derived from different
+// metadata can never be mistaken for the same physical file.
 type FileIdentity struct {
 	Platform string
+	Scheme   string
 	Opaque   [32]byte
 }
 

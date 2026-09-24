@@ -26,7 +26,12 @@ type requestAuthorityKey struct{}
 
 // requestAuthorityState holds the once-per-request coordinator result for settle/release.
 type requestAuthorityState struct {
-	Decision                 authoritycoord.CompositeDecision
+	Decision authoritycoord.CompositeDecision
+	// Coordinator is the immutable evaluator actually used for admission. It
+	// may be candidate-local when a generation-scoped provider (such as the
+	// nonfinancial quota gate) is configured; ExecutableGen still pins the
+	// process snapshot used for existing providers and version evidence.
+	Coordinator              *authoritycoord.RequestCoordinator
 	RequestID                string
 	AttemptID                string
 	TraceID                  string
@@ -207,6 +212,9 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 	coord := e.RequestCoordinator
 	if boundGen != nil && boundGen.RequestCoord != nil {
 		coord = boundGen.RequestCoord
+		if e.RequestCoordinator != nil && e.RequestCoordinator.HasGenerationScopedRequestProviders() {
+			coord = e.RequestCoordinator
+		}
 	}
 	if coord == nil {
 		if boundGen != nil {
@@ -241,6 +249,7 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	st := &requestAuthorityState{
 		Decision:        d,
+		Coordinator:     coord,
 		RequestID:       in.RequestID,
 		AttemptID:       strings.TrimSpace(aLegID),
 		TraceID:         strings.TrimSpace(traceID),
@@ -406,6 +415,9 @@ func (e *Executor) releaseRequestAuthority(ctx context.Context) error {
 }
 
 func (e *Executor) requestCoordinatorFor(st *requestAuthorityState) *authoritycoord.RequestCoordinator {
+	if st != nil && st.Coordinator != nil {
+		return st.Coordinator
+	}
 	if st != nil && st.ExecutableGen != nil && st.ExecutableGen.RequestCoord != nil {
 		return st.ExecutableGen.RequestCoord
 	}

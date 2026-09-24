@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -183,6 +184,47 @@ func TestComposeBilling(t *testing.T) {
 			t.Fatalf("exposure admission = %v, want identity/store validation", err)
 		}
 	})
+}
+
+func TestComposeBillingUsesAuthoritativeStoreIDForBillingIdentity(t *testing.T) {
+	t.Parallel()
+	in, _, _, _ := validComposeInput(t)
+	store := &storeScopedCompleteJournal{storeID: " store-a "}
+	in.Store = store
+	in.TerminalUsageSink = store
+	prod, err := runtimebundle.ComposeBilling(in)
+	if err != nil {
+		t.Fatalf("ComposeBilling: %v", err)
+	}
+	if prod.BillingIdentity.StoreID == nil {
+		t.Fatal("stock composition did not install trusted StoreID resolver")
+	}
+	if got := prod.BillingIdentity.StoreID(context.Background()); got != "store-a" {
+		t.Fatalf("StoreID = %q, want trimmed authoritative store id", got)
+	}
+}
+
+func TestComposeBillingPreservesCustomStoreIDResolver(t *testing.T) {
+	t.Parallel()
+	in, _, _, _ := validComposeInput(t)
+	store := &storeScopedCompleteJournal{storeID: "stock-store"}
+	in.Store = store
+	in.TerminalUsageSink = store
+	want := "custom-store"
+	in.Identity = &coreRuntime.BillingIdentity{
+		AccountID: func(context.Context, lipapi.Call) string { return "custom-acct" },
+		StoreID:   func(context.Context) string { return want },
+	}
+	prod, err := runtimebundle.ComposeBilling(in)
+	if err != nil {
+		t.Fatalf("ComposeBilling: %v", err)
+	}
+	if prod.BillingIdentity.StoreID == nil {
+		t.Fatal("custom StoreID resolver was dropped")
+	}
+	if got := prod.BillingIdentity.StoreID(context.Background()); got != want {
+		t.Fatalf("custom StoreID = %q, want %q", got, want)
+	}
 }
 
 func assertCompleteProduction(t *testing.T, prod runtimebundle.ProductionOptions, store *completeJournal, in runtimebundle.ComposeBillingInput) {
@@ -475,6 +517,52 @@ type completeJournal struct {
 	journalCallUsage
 	journalExposure
 	journalProvision
+}
+
+// GetCutoverClaimMetadata exposes the narrow B2a claim port for the complete
+// production test double (explicit port, legacy empty-claim behavior).
+func (completeJournal) GetCutoverClaimMetadata(context.Context, billing.PostingOperationKind, string) (billing.CutoverClaimMetadata, error) {
+	return billing.CutoverClaimMetadata{}, billing.ErrPostingOwnershipNotFound
+}
+
+// ClaimCompleteCallsWithCutover exposes the F6+F8 token-carrying claim port
+// for the complete production test double. No durable work exists in this
+// in-memory double, so it returns no claims; production DurableStore returns
+// current-marker tokens.
+func (completeJournal) ClaimCompleteCallsWithCutover(context.Context, int) ([]billing.ClaimedCompleteCall, error) {
+	return nil, nil
+}
+
+// ClaimProviderCostWorkWithCutover exposes the F6+F8 token-carrying provider
+// port for the complete production test double (no durable work).
+func (completeJournal) ClaimProviderCostWorkWithCutover(context.Context, int) ([]billing.ClaimedProviderCostWork, error) {
+	return nil, nil
+}
+
+// ClaimEconomicRevisionWorkWithCutover exposes the F6+F8 atomic lease+token
+// port for the complete production test double (no durable work).
+func (completeJournal) ClaimEconomicRevisionWorkWithCutover(context.Context, billing.EconomicRevisionWork, string, time.Duration) (billing.EconomicRevisionWorkClaim, *billing.CutoverClaimMetadata, bool, error) {
+	return billing.EconomicRevisionWorkClaim{}, nil, false, nil
+}
+
+// GetAccountingRecoverySnapshot exposes the explicit safe snapshot for the
+// complete production test double: a legacy-compatible V1 floor with no
+// marker and no V2 monetary postings. Internal store-backed composition
+// requires this port; a decorator hiding it is rejected at startup.
+func (completeJournal) GetAccountingRecoverySnapshot(context.Context) (billing.AccountingRecoverySnapshot, error) {
+	return billing.AccountingRecoverySnapshot{StoreID: "compose-test"}, nil
+}
+
+type storeScopedCompleteJournal struct {
+	completeJournal
+	storeID string
+}
+
+func (s *storeScopedCompleteJournal) StoreID() string {
+	if s == nil {
+		return ""
+	}
+	return s.storeID
 }
 
 type journalWithoutTerminalSink struct {

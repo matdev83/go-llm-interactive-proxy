@@ -86,7 +86,7 @@ func (e *benchWireExecutor) ExecuteLargeBody(ctx context.Context, accepted large
 	if err != nil {
 		return largebody.ExecutionResult{}, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	buf := make([]byte, 32*1024)
 	for {
 		_, rerr := rc.Read(buf)
@@ -146,7 +146,7 @@ func newBenchWireSpec(
 		Profile:              openairesponses.NewProfile(),
 	}
 	spec := h.Spec()
-	spec.Config.LargePayload = frontendpipe.LargePayloadConfig{
+	spec.LargePayload = frontendpipe.LargePayloadConfig{
 		Enabled:          true,
 		ThresholdBytes:   threshold,
 		SpoolDir:         spoolDir,
@@ -376,7 +376,7 @@ func BenchmarkLargePayloadStages_Assessment(b *testing.B) {
 			})
 			_, _ = spill.Write(body)
 			src, _ := spill.Complete()
-			defer src.Close()
+			defer func() { _ = src.Close() }()
 
 			proofIn := frontendpipe.ProofInput{
 				Ctx:                  b.Context(),
@@ -624,7 +624,7 @@ func BenchmarkLargePayloadStages_Shapes(b *testing.B) {
 				if err != nil {
 					return largebody.ExecutionResult{}, err
 				}
-				defer rc2.Close()
+				defer func() { _ = rc2.Close() }()
 				for {
 					_, rerr := rc2.Read(buf)
 					if rerr != nil {

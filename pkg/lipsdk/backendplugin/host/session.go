@@ -147,13 +147,14 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 	cleanup := func() { _ = gc.Close() }
 	client := backendpluginv1.NewBackendPluginClient(gc)
 	offer := backendplugin.ProtocolOffer{
-		Major: 1, Minor: backendplugin.ProtocolMinorCancellationHandshake,
+		Major: 1, Minor: backendplugin.ProtocolMinorAccountingEvidenceV2,
 		Features: []backendplugin.Feature{
 			{Name: backendplugin.FeatureExactReasoningParts},
 			{Name: backendplugin.FeatureOrderedItems},
 			{Name: backendplugin.FeatureExactOpenResponsesFields},
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
 			{Name: backendplugin.FeatureAccountingEvidence},
+			{Name: backendplugin.FeatureAccountingEvidenceV2},
 			{Name: backendplugin.FeatureSemanticExtensions},
 			{Name: backendplugin.FeaturePromptCacheResidency},
 			{Name: backendplugin.FeatureCancellationHandshake},
@@ -168,6 +169,7 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 			{Name: backendplugin.FeatureExactOpenResponsesFields},
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
 			{Name: backendplugin.FeatureAccountingEvidence},
+			{Name: backendplugin.FeatureAccountingEvidenceV2},
 			{Name: backendplugin.FeatureSemanticExtensions},
 			{Name: backendplugin.FeaturePromptCacheResidency},
 			{Name: backendplugin.FeatureCancellationHandshake},
@@ -383,6 +385,10 @@ func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
 			closePump()
 			return &ProtocolViolationError{Err: convErr}
 		}
+		if frame.AccountingV2 != nil && !backendplugin.AccountingEvidenceV2Negotiated(s.negotiation) {
+			closePump()
+			return &ProtocolViolationError{Err: backendplugin.ErrAccountingEvidenceV2Unsupported}
+		}
 		if terminal {
 			closePump()
 			return &ProtocolViolationError{Err: fmt.Errorf("session: unexpected server frame after terminal")}
@@ -500,7 +506,14 @@ func (s *Session) FinalizeBilling(ctx context.Context, req backendplugin.Finaliz
 	if err != nil {
 		return backendplugin.FinalizeBillingResponse{}, err
 	}
-	return backendplugin.FinalizeBillingResponseFromProto(resp)
+	out, err := backendplugin.FinalizeBillingResponseFromProto(resp)
+	if err != nil {
+		return backendplugin.FinalizeBillingResponse{}, err
+	}
+	if len(out.AccountingV2) != 0 && !backendplugin.AccountingEvidenceV2Negotiated(s.negotiation) {
+		return backendplugin.FinalizeBillingResponse{}, backendplugin.ErrAccountingEvidenceV2Unsupported
+	}
+	return out, nil
 }
 
 func firstSessionError(ch <-chan error) error {

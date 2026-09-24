@@ -77,6 +77,9 @@ type FactoryDescriptor struct {
 	Deprecated                bool
 	StaticCapabilities        CapabilitySummary
 	TransportCapabilities     TransportCapabilitySummary
+	// SupportsAccountingEvidenceV2 is an explicit descriptor capability. The
+	// negotiated feature remains the transport authority for each session.
+	SupportsAccountingEvidenceV2 bool
 }
 
 // SecretBundle carries configure-time secrets (never logged by this package).
@@ -129,6 +132,8 @@ type ResolvedProfile struct {
 	EvidenceSource           string
 	ProfileVersion           string
 	PromptCacheProfile       promptcache.Profile
+	// SupportsAccountingEvidenceV2 is the resolved instance capability bit.
+	SupportsAccountingEvidenceV2 bool
 }
 
 // ModelDescriptor is one inventory row.
@@ -272,6 +277,9 @@ type FinalizeBillingRequest struct {
 type FinalizeBillingResponse struct {
 	Usage           UsageEvidence
 	EvidenceQuality string
+	// AccountingV2 retains every provider observation returned by the finalizer.
+	// It is host-only and may include multiple charge events for one attempt.
+	AccountingV2 []AccountingEvidenceV2
 }
 
 // PluginError is a classified plugin error.
@@ -333,13 +341,16 @@ type ClientFrame struct {
 
 // ServerFrame is a plugin-to-host Execute frame.
 type ServerFrame struct {
-	Kind                   ServerFrameKind
-	Sequence               uint64
-	Event                  *CanonicalEvent
-	Diagnostic             string
-	CancelOutcome          *CancelOutcome
-	Terminal               *Terminal
-	Accounting             *AccountingEvidence
+	Kind          ServerFrameKind
+	Sequence      uint64
+	Event         *CanonicalEvent
+	Diagnostic    string
+	CancelOutcome *CancelOutcome
+	Terminal      *Terminal
+	Accounting    *AccountingEvidence
+	// AccountingV2 is the additive typed V2 sideband. It is never a canonical
+	// client event and is legal only after explicit feature negotiation.
+	AccountingV2           *AccountingEvidenceV2
 	PromptCacheObservation *promptcache.Observation
 }
 
@@ -363,6 +374,18 @@ type AccountingEvidence struct {
 // evidence without yielding it from the canonical EventStream.
 type AccountingEvidenceSource interface {
 	DrainAccountingEvidence() []AccountingEvidence
+}
+
+// AccountingEvidenceV2Source is the host-only drain seam for typed economic
+// observations. Implementations must return copies and retain no caller-owned
+// mutable buffers.
+type AccountingEvidenceV2Source interface {
+	DrainAccountingEvidenceV2() []AccountingEvidenceV2
+}
+
+// EconomicEvidenceSource is a neutral alias for AccountingEvidenceV2Source.
+type EconomicEvidenceSource interface {
+	DrainEconomicEvidence() []AccountingEvidenceV2
 }
 
 // HealthResponse reports plugin health.

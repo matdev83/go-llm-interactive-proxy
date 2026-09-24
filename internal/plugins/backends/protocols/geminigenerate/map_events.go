@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -41,15 +42,17 @@ type genaiStream struct {
 	afterFinish  bool
 	closed       bool
 	activeToolID string
+	*coremetering.ProviderEvidenceBuffer
 }
 
 func newGenaiStream(seq iter.Seq2[*genai.GenerateContentResponse, error], backendID string, maxPending int) lipapi.ManagedEventStream {
 	next, stop := iter.Pull2(seq)
 	return &genaiStream{
-		next:      next,
-		stop:      stop,
-		backendID: backendID,
-		pending:   stream.NewPendingEventQueue(maxPending),
+		next:                   next,
+		stop:                   stop,
+		backendID:              backendID,
+		pending:                stream.NewPendingEventQueue(maxPending),
+		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
 	}
 }
 
@@ -134,6 +137,9 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) error 
 	if u := usageEvent(resp); u != nil {
 		if err := s.pending.Push(*u); err != nil {
 			return err
+		}
+		if s.ProviderEvidenceBuffer != nil {
+			s.Add(geminiEvidenceDraft(*u, resp.UsageMetadata))
 		}
 	}
 
@@ -256,30 +262,78 @@ func usageEvent(resp *genai.GenerateContentResponse) *lipapi.Event {
 	if u == nil {
 		return nil
 	}
-	// genai reports usage as integer counts; clamp to int for [lipapi.Event] (same as other backends).
-	in := safecast.IntFromInt64Clamp(int64(u.PromptTokenCount))
-	outputTokens := int64(u.CandidatesTokenCount) + int64(u.ThoughtsTokenCount)
-	out := safecast.IntFromInt64Clamp(outputTokens)
-	if in == 0 && out == 0 && u.TotalTokenCount == 0 {
-		ev := lipapi.Event{Kind: lipapi.EventUsageDelta, UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true}}
-		ev.RawUsageJSON = rawUsageJSON(u)
-		return &ev
+	// genai reports usage as integer counts; reject malformed negative fields
+	// before clamping to the canonical int representation.
+	in, inputPresent := geminiNonNegativeInt(int64(u.PromptTokenCount))
+	total, totalPresent := geminiNonNegativeInt(int64(u.TotalTokenCount))
+	cache, cachePresent := geminiNonNegativeInt(int64(u.CachedContentTokenCount))
+	reasoning, reasoningPresent := geminiNonNegativeInt(int64(u.ThoughtsTokenCount))
+	candidates, candidatesPresent := geminiNonNegativeInt(int64(u.CandidatesTokenCount))
+	out := candidates
+	outputPresent := candidatesPresent
+	if candidatesPresent && reasoningPresent {
+		if int64(candidates) > int64(^uint(0)>>1)-int64(reasoning) {
+			out, outputPresent = 0, false
+		} else {
+			out += reasoning
+		}
+	} else if !outputPresent {
+		out, outputPresent = reasoning, reasoningPresent
 	}
-	if out == 0 && u.TotalTokenCount > u.PromptTokenCount {
-		diff := int64(u.TotalTokenCount) - int64(u.PromptTokenCount)
-		if diff < 0 {
+	if !inputPresent && !outputPresent && !totalPresent && !cachePresent && !reasoningPresent {
+		// A usage object whose only counters are malformed is not evidence.
+		return nil
+	}
+	if out == 0 && u.CandidatesTokenCount >= 0 && u.ThoughtsTokenCount >= 0 && totalPresent && inputPresent && total > in {
+		diff := int64(total) - int64(in)
+		// Gemini's total includes tokens returned by grounded/server-side tool
+		// execution. Those are input-side native evidence, not generated output;
+		// remove a reported non-zero tool count before deriving the legacy output
+		// convenience counter.
+		if u.ToolUsePromptTokenCount > 0 {
+			tool := int64(u.ToolUsePromptTokenCount)
+			if diff < tool {
+				outputPresent = false
+			} else {
+				diff -= tool
+			}
+		}
+		if !outputPresent || diff < 0 {
 			out = 0
 		} else {
 			out = safecast.IntFromInt64Clamp(diff)
 		}
 	}
 	ev := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: in, OutputTokens: out}
-	ev.UsagePresence = lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true}
-	ev.CacheReadTokens = safecast.IntFromInt64Clamp(int64(u.CachedContentTokenCount))
-	ev.ReasoningTokens = safecast.IntFromInt64Clamp(int64(u.ThoughtsTokenCount))
-	ev.TotalTokens = safecast.IntFromInt64Clamp(int64(u.TotalTokenCount))
+	ev.UsagePresence = lipapi.UsagePresence{InputTokens: inputPresent, OutputTokens: outputPresent, TotalTokens: totalPresent, CacheReadTokens: cachePresent, ReasoningTokens: reasoningPresent}
+	ev.CacheReadTokens = cache
+	ev.ReasoningTokens = reasoning
+	ev.TotalTokens = total
 	ev.RawUsageJSON = rawUsageJSON(u)
+	ev.Accounting = geminiUsageAccounting(u)
 	return &ev
+}
+
+func geminiNonNegativeInt(value int64) (int, bool) {
+	if value < 0 {
+		return 0, false
+	}
+	converted := safecast.IntFromInt64Clamp(value)
+	if int64(converted) != value {
+		return 0, false
+	}
+	return converted, true
+}
+
+func geminiUsageAccounting(u *genai.GenerateContentResponseUsageMetadata) lipapi.UsageAccountingMetadata {
+	if u == nil {
+		return lipapi.UsageAccountingMetadata{}
+	}
+	return lipapi.UsageAccountingMetadata{
+		Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported,
+		Authority: lipapi.UsageAuthorityAuthoritative, DedupeKey: "gemini.generate.usage:stream",
+		ServiceContext: strings.TrimSpace(string(u.TrafficType)),
+	}
 }
 
 func rawUsageJSON(usage any) string {

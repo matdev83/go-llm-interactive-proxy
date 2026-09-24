@@ -48,6 +48,10 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 	}
 
 	sequencer := newFrameSequencer(stream)
+	negotiation := Negotiation{}
+	if ns, ok := stream.(OptionalNegotiatedStream); ok {
+		negotiation = ns.Negotiation()
+	}
 	call, err := CallFromInvocation(*start.Invocation)
 	if err != nil {
 		return err
@@ -57,7 +61,7 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 	if err != nil {
 		if ms != nil {
 			defer func() { _ = ms.Close() }()
-			if evidenceErr := forwardAccountingEvidence(sequencer, ms); evidenceErr != nil {
+			if evidenceErr := forwardAllAccountingEvidence(sequencer, ms, negotiation); evidenceErr != nil {
 				return evidenceErr
 			}
 		}
@@ -72,12 +76,12 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 		handshakeNegotiated = CancellationHandshakeNegotiated(ns.Negotiation())
 	}
 	if !handshakeNegotiated {
-		return forwardLegacyExecute(stream, sequencer, ms)
+		return forwardLegacyExecute(stream, sequencer, ms, negotiation)
 	}
-	return forwardActiveExecute(stream, sequencer, ms)
+	return forwardActiveExecute(stream, sequencer, ms, negotiation)
 }
 
-func forwardLegacyExecute(stream ExecuteStream, sequencer *frameSequencer, ms lipapi.ManagedEventStream) error {
+func forwardLegacyExecute(stream ExecuteStream, sequencer *frameSequencer, ms lipapi.ManagedEventStream, negotiation Negotiation) error {
 	ctx := stream.Context()
 	var closeOnce sync.Once
 	closeManaged := func() { closeOnce.Do(func() { _ = ms.Close() }) }
@@ -102,7 +106,7 @@ func forwardLegacyExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 		}
 		ev, err := ms.Recv(ctx)
 		if errors.Is(err, io.EOF) {
-			if err := forwardAccountingEvidence(sequencer, ms); err != nil {
+			if err := forwardAllAccountingEvidence(sequencer, ms, negotiation); err != nil {
 				return err
 			}
 			if err := forwardPromptCacheObservations(sequencer, ms); err != nil {
@@ -111,7 +115,7 @@ func forwardLegacyExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 			return sequencer.Send(ServerFrame{Kind: ServerFrameTerminal, Terminal: &Terminal{Status: TerminalSuccess}})
 		}
 		if err != nil {
-			if evidenceErr := forwardAccountingEvidence(sequencer, ms); evidenceErr != nil {
+			if evidenceErr := forwardAllAccountingEvidence(sequencer, ms, negotiation); evidenceErr != nil {
 				return evidenceErr
 			}
 			if ctx.Err() != nil {
@@ -119,7 +123,7 @@ func forwardLegacyExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 			}
 			return err
 		}
-		if err := forwardAccountingEvidence(sequencer, ms); err != nil {
+		if err := forwardAllAccountingEvidence(sequencer, ms, negotiation); err != nil {
 			return err
 		}
 		if err := sequencer.Send(ServerFrame{Kind: ServerFrameEvent, Event: CanonicalEventFromLipapi(ev)}); err != nil {
@@ -220,6 +224,42 @@ func forwardAccountingEvidence(sequencer *frameSequencer, ms lipapi.ManagedEvent
 		}
 	}
 	return nil
+}
+
+// forwardEconomicEvidence drains typed V2 observations only when the exact
+// negotiated capability is present. An optional empty V2 source remains
+// compatible with an older host; an actual V2 payload without the capability
+// fails closed rather than dropping provider evidence.
+func forwardEconomicEvidence(sequencer *frameSequencer, ms lipapi.ManagedEventStream, negotiation Negotiation) error {
+	var drain func() []AccountingEvidenceV2
+	if source, ok := ms.(AccountingEvidenceV2Source); ok {
+		drain = source.DrainAccountingEvidenceV2
+	} else if source, ok := ms.(EconomicEvidenceSource); ok {
+		drain = source.DrainEconomicEvidence
+	}
+	if drain == nil {
+		return nil
+	}
+	evidence := drain()
+	if len(evidence) == 0 {
+		return nil
+	}
+	if err := RequireAccountingEvidenceV2(negotiation); err != nil {
+		return err
+	}
+	for i := range evidence {
+		if err := sequencer.Send(ServerFrame{Kind: ServerFrameAccountingEvidence, AccountingV2: &evidence[i]}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func forwardAllAccountingEvidence(sequencer *frameSequencer, ms lipapi.ManagedEventStream, negotiation Negotiation) error {
+	if err := forwardAccountingEvidence(sequencer, ms); err != nil {
+		return err
+	}
+	return forwardEconomicEvidence(sequencer, ms, negotiation)
 }
 
 func forwardPromptCacheObservations(sequencer *frameSequencer, ms lipapi.ManagedEventStream) error {

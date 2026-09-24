@@ -83,6 +83,15 @@ func (s *DurableStore) DeferProviderCostWork(ctx context.Context, work billing.P
 	if reason == "" {
 		reason = "provider_cost_failed"
 	}
+	// Concurrent defers contend on the same row; SQLite topologies can report
+	// locked/deadlocked contention under load, so this write path uses the
+	// same retry wrapper as the other account write paths.
+	return withAccountTxErr(ctx, accountTxRetry{Attempts: 40, Delay: 3 * time.Millisecond}, func() error {
+		return s.deferProviderCostWorkAttempt(ctx, leg, reason)
+	})
+}
+
+func (s *DurableStore) deferProviderCostWorkAttempt(ctx context.Context, leg billing.CallLegUsageRecord, reason string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("billingstore: begin provider-cost defer: %w", err)

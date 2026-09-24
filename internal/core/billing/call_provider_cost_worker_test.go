@@ -47,7 +47,7 @@ func (providerCostResolverStub) ResolveProviderCost(_ context.Context, leg CallL
 	if err != nil {
 		return OperatorCostResult{}, err
 	}
-	return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Currency: "USD"}, AmountPresent: true, Reconciled: true}, nil
+	return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}, nil
 }
 
 func TestCallProviderCostWorkerUsesBoundedPendingWorkQueue(t *testing.T) {

@@ -142,13 +142,6 @@ func TestLargePayloadProof_TransientAllocBounded(t *testing.T) {
 		sizes       []sizeCase
 	}
 
-	stdSizes := []sizeCase{
-		{name: "1MiB", target: 1 << 20},
-	}
-	if !testing.Short() {
-		stdSizes = append(stdSizes, sizeCase{name: "5MiB", target: 5 << 20})
-	}
-
 	fullSizes := []sizeCase{
 		{name: "1MiB", target: 1 << 20},
 	}

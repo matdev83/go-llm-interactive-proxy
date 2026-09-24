@@ -230,7 +230,7 @@ func newLane1TestSpec(t *testing.T, exec *lane1TestAssessorExecutor, threshold i
 		RoutePrefixes:        routeselect.NewPrefixSet([]string{"test-backend", "route-prefix"}),
 	}
 	spec := h.Spec()
-	spec.Config.LargePayload = frontendpipe.LargePayloadConfig{
+	spec.LargePayload = frontendpipe.LargePayloadConfig{
 		Enabled:        true,
 		ThresholdBytes: threshold,
 	}
@@ -474,7 +474,7 @@ func TestLane1E2E_StreamAndNonStreamModes(t *testing.T) {
 				if err != nil {
 					return largebody.ExecutionResult{}, err
 				}
-				defer rc.Close()
+				defer func() { _ = rc.Close() }()
 				wireReq := buildLane1WireOpenRequest(accepted, rc, src.Size(), nil)
 				stream, err := prims.OpenWire(ctx, wireReq)
 				if err != nil {
@@ -584,7 +584,7 @@ func TestLane1E2E_ErrorMapping(t *testing.T) {
 		exec := &lane1TestAssessorExecutor{
 			executeLargeFunc: func(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error) {
 				rc, _ := src.Open()
-				defer rc.Close()
+				defer func() { _ = rc.Close() }()
 				wireReq := buildLane1WireOpenRequest(accepted, rc, src.Size(), nil)
 				_, err := prims.OpenWire(ctx, wireReq)
 				capturedErr = err
@@ -638,7 +638,7 @@ func TestLane1E2E_ErrorMapping(t *testing.T) {
 		exec := &lane1TestAssessorExecutor{
 			executeLargeFunc: func(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error) {
 				rc, _ := src.Open()
-				defer rc.Close()
+				defer func() { _ = rc.Close() }()
 				wireReq := buildLane1WireOpenRequest(accepted, rc, src.Size(), nil)
 				_, err := prims.OpenWire(ctx, wireReq)
 				capturedErr = err
@@ -705,7 +705,7 @@ func TestLane1E2E_ErrorMapping(t *testing.T) {
 
 		exec := &lane1TestAssessorExecutor{}
 		spec := newLane1TestSpec(t, exec, 20)
-		spec.Config.MaxRequestBodyBytes = 30
+		spec.MaxRequestBodyBytes = 30
 
 		payload := bytes.Repeat([]byte("a"), 100)
 		req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(payload))
@@ -781,7 +781,7 @@ func TestLane1E2E_CanonicalResponseEventParity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenWire failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	var events []lipapi.Event
 	for {
@@ -914,7 +914,7 @@ func TestLane1E2E_CancellationByReturnedID(t *testing.T) {
 		RoutePrefixes:        routeselect.NewPrefixSet([]string{"test-backend"}),
 	}
 	spec := h.Spec()
-	spec.Config.LargePayload = frontendpipe.LargePayloadConfig{
+	spec.LargePayload = frontendpipe.LargePayloadConfig{
 		Enabled:        true,
 		ThresholdBytes: 20,
 	}
@@ -1049,7 +1049,7 @@ func TestLane1E2E_SessionResumeTurn2(t *testing.T) {
 	}
 	exec.executeLargeFunc = func(ctx context.Context, accepted largebody.Assessment, src largebody.Source) (largebody.ExecutionResult, error) {
 		rc, _ := src.Open()
-		defer rc.Close()
+		defer func() { _ = rc.Close() }()
 		wireReq := buildLane1WireOpenRequest(accepted, rc, src.Size(), req2.Header)
 		stream, err := prims.OpenWire(ctx, wireReq)
 		if err != nil {
@@ -1299,7 +1299,7 @@ func TestLane1E2E_RetryFailoverRaceCredentialEconomics(t *testing.T) {
 		t.Parallel()
 
 		src := largebody.NewMemorySource([]byte(`{"model":"gpt-4o","input":"concurrent race test"}`))
-		defer src.Close()
+		defer func() { _ = src.Close() }()
 
 		var wg sync.WaitGroup
 		errs := make(chan error, 2)
@@ -1312,7 +1312,7 @@ func TestLane1E2E_RetryFailoverRaceCredentialEconomics(t *testing.T) {
 					errs <- err
 					return
 				}
-				defer r.Close()
+				defer func() { _ = r.Close() }()
 				data, err := io.ReadAll(r)
 				if err != nil {
 					errs <- err
@@ -1399,7 +1399,7 @@ func TestLane1E2E_Keepalive102(t *testing.T) {
 			},
 		}
 		spec := newLane1TestSpec(t, exec, 20)
-		spec.Config.PreRequestKeepalive = lipsdk.FrontendKeepaliveConfig{
+		spec.PreRequestKeepalive = lipsdk.FrontendKeepaliveConfig{
 			Enabled:  true,
 			Interval: 15 * time.Millisecond,
 		}
@@ -1437,7 +1437,7 @@ func TestLane1E2E_Keepalive102(t *testing.T) {
 			},
 		}
 		spec := newLane1TestSpec(t, exec, 20)
-		spec.Config.PreRequestKeepalive = lipsdk.FrontendKeepaliveConfig{
+		spec.PreRequestKeepalive = lipsdk.FrontendKeepaliveConfig{
 			Enabled:  true,
 			Interval: 15 * time.Millisecond,
 		}
@@ -1585,10 +1585,10 @@ func TestLane1E2E_WireSupportNotAdvertised(t *testing.T) {
 	exec := &lane1TestAssessorExecutor{}
 	h := &openairesponses.Handler{Exec: exec}
 	spec := h.Spec()
-	if spec.Config.LargePayload.Enabled {
+	if spec.LargePayload.Enabled {
 		t.Fatal("Handler.Spec() must have LargePayload.Enabled == false by default")
 	}
-	if spec.Config.LargePayload.ThresholdBytes != 0 {
-		t.Fatalf("expected default 0 ThresholdBytes, got %d", spec.Config.LargePayload.ThresholdBytes)
+	if spec.LargePayload.ThresholdBytes != 0 {
+		t.Fatalf("expected default 0 ThresholdBytes, got %d", spec.LargePayload.ThresholdBytes)
 	}
 }

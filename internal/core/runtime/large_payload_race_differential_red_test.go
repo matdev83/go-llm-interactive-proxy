@@ -169,7 +169,7 @@ func TestFindingB2a_RaceWinnerRequiresTextOrReasoningDeltaNotMessageStarted(t *t
 
 	res, err := ex.ExecuteLargeBody(ctx, acc, src)
 	require.NoError(t, err)
-	defer res.Stream.Close()
+	defer func() { _ = res.Stream.Close() }()
 
 	var firstText string
 	for {
@@ -230,7 +230,7 @@ func TestFindingB2b_ParallelRaceHonorsHandicapDelays(t *testing.T) {
 
 	res, err := ex.ExecuteLargeBody(ctx, acc, src)
 	require.NoError(t, err)
-	defer res.Stream.Close()
+	defer func() { _ = res.Stream.Close() }()
 
 	ev, err := res.Stream.Recv(ctx)
 	require.NoError(t, err)

@@ -93,7 +93,7 @@ func TestSQLiteApplyCallBillingResultClosesExposureAndPostsCustomerCharge(t *tes
 	}
 }
 
-func TestSQLiteApplyCallBillingResultActualExceedsMaxMarksReconcileRequired(t *testing.T) {
+func TestSQLiteApplyCallBillingResultActualExceedsMaxSettlesActualWithBreach(t *testing.T) {
 	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
@@ -124,45 +124,59 @@ func TestSQLiteApplyCallBillingResultActualExceedsMaxMarksReconcileRequired(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
+	settled, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
 		Call: call, Exposure: exposure,
 		Result: billing.CallRatingResult{CallID: callID, CustomerCharge: billing.Money{Nano: 25, Currency: "USD"}, Fingerprint: "over-max"},
 	})
-	if !errors.Is(err, billing.ErrSettlementReconcileRequired) || !errors.Is(err, billing.ErrExposureActualExceedsMax) {
-		t.Fatalf("settle over max = %v, want reconcile + exceeds max", err)
+	if err != nil {
+		t.Fatalf("settle over max = %v, want breach settlement retaining actual 25", err)
+	}
+	if !settled.Breached || settled.OverrunNano != 15 {
+		t.Fatalf("settlement = %+v, want Breached with OverrunNano 15", settled)
 	}
 	after, err := store.GetAccount(ctx, account.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.State != billing.AccountReconcileRequired {
-		t.Fatalf("account state = %s, want reconcile_required", after.State)
+	if after.State != billing.AccountReady {
+		t.Fatalf("account state = %s, want ready (spendable covers actual)", after.State)
 	}
-	if after.BalanceNano != before.BalanceNano {
-		t.Fatalf("balance mutated: before=%d after=%d", before.BalanceNano, after.BalanceNano)
+	if after.BalanceNano != before.BalanceNano-25 {
+		t.Fatalf("balance: before=%d after=%d, want actual 25 debited", before.BalanceNano, after.BalanceNano)
 	}
 	open, err := store.GetCallExposure(ctx, callID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !open.IsOpen() {
-		t.Fatal("exposure must remain open after reconcile-required overage")
+	if open.IsOpen() {
+		t.Fatal("breached exposure must close with its actual posted, not remain open")
+	}
+	if open.Max.Nano != 10 {
+		t.Fatalf("closed exposure max = %d, want original 10 retained", open.Max.Nano)
 	}
 	transactions, err := store.JournalTransactions(ctx, account.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var posted int64 = -1
 	for _, transaction := range transactions {
 		if transaction.OperationKind == "customer_call_settlement" {
-			t.Fatalf("over-max settlement posted journal: %+v", transaction)
+			for _, entry := range transaction.Entries {
+				if entry.Side == billing.JournalDebit {
+					posted = entry.Amount.Nano
+				}
+			}
 		}
+	}
+	if posted != 25 {
+		t.Fatalf("posted debit = %d, want actual 25 (not the 10 quote)", posted)
 	}
 	var claimStatus string
 	if err := store.db.NewRaw(`SELECT claim_status FROM usage_call_records WHERE call_id = ?`, callID.String()).Scan(ctx, &claimStatus); err != nil {
 		t.Fatal(err)
 	}
-	if claimStatus == "processed" {
-		t.Fatal("over-max settlement must not mark call processed")
+	if claimStatus != "processed" {
+		t.Fatalf("claim status = %q, want processed", claimStatus)
 	}
 }
 

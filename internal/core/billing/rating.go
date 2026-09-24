@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 var (
@@ -19,6 +21,13 @@ var (
 	ErrBillingAttemptSequenceUnknown = errors.New("billing: customer leg selection requires unknown attempt sequence")
 )
 
+// OperatorRateSnapshot is a historical V1 compatibility record (Migration
+// Strategy step 8, Task 18.2). The scalar token-to-money fallback was retired
+// in Task 18.1: live estimates belong to the V2 provider-quantity valuation,
+// and RateProviderCost ignores rate bodies. Retained records support
+// historical replay and OperatorRateRef lineage on sealed B-legs. Operator
+// migration: stop publishing operator rates for live rating; V2 tariffs own
+// estimates; historical bodies remain readable.
 type OperatorRateSnapshot struct {
 	Ref                      VersionRef
 	Currency                 string
@@ -51,19 +60,19 @@ func (r OperatorRateSnapshot) Validate() error {
 
 type OperatorRateSet []OperatorRateSnapshot
 
-func (s OperatorRateSet) Resolve(ref VersionRef) (OperatorRateSnapshot, bool) {
-	for _, candidate := range s {
-		if candidate.Ref == ref {
-			return candidate, true
-		}
-	}
-	return OperatorRateSnapshot{}, false
-}
-
 type ModelCustomerPricing struct {
 	BackendID string
 	ModelID   string
 	Pricing   PricingSnapshot
+}
+
+// ModelCustomerTariff carries the immutable component tariff selected for a
+// backend/model route. It is separate from the legacy scalar pricing card so
+// callers cannot accidentally substitute one valuation basis for another.
+type ModelCustomerTariff struct {
+	BackendID string
+	ModelID   string
+	Tariff    economics.TariffSnapshot
 }
 type OperatorCostResult struct {
 	LURKey             string
@@ -75,18 +84,38 @@ type OperatorCostResult struct {
 }
 
 func rateCustomerCharge(legs []CallLegUsageRecord, outcome TurnOutcome, pricing PricingSnapshot, policy ChargePolicy, modelPricing []ModelCustomerPricing) (Money, error) {
-	selected, err := selectCustomerLegs(legs, policy.Scope, outcome)
+	retailPolicy, err := ResolveRetailSelectionPolicy(policy)
+	if err != nil {
+		return Money{}, err
+	}
+	selected, err := selectRetailBLegsForPolicy(legs, retailPolicy, outcome)
 	if err != nil {
 		return Money{}, err
 	}
 	var total int64
+	// Fixed and resource components are call-scoped commercial charges. They
+	// are applied once after per-B-leg usage, so retry/loser/winner selection
+	// cannot multiply a request fee by the number of executed legs.
+	legPolicy := policy
+	legPolicy.IncludeFixedCharges = false
+	legPolicy.IncludeResourceCharges = false
 	for _, leg := range selected {
 		legPricing, err := customerPricingForLeg(leg, pricing, modelPricing)
 		if err != nil {
 			return Money{}, err
 		}
 		strictEvidence := outcome == TurnOutcomeCompleted && leg.Surfaced == SurfacedYes
-		amount, err := chargeLeg(leg, legPricing, policy, strictEvidence)
+		amount, err := chargeLeg(leg, legPricing, legPolicy, strictEvidence)
+		if err != nil {
+			return Money{}, err
+		}
+		total, err = addNonNegative(total, amount)
+		if err != nil {
+			return Money{}, err
+		}
+	}
+	if len(selected) != 0 {
+		amount, err := chargeScopeComponents(pricing, policy)
 		if err != nil {
 			return Money{}, err
 		}
@@ -96,6 +125,34 @@ func rateCustomerCharge(legs []CallLegUsageRecord, outcome TurnOutcome, pricing 
 		}
 	}
 	return Money{Nano: total, Currency: pricing.Currency}, nil
+}
+
+func chargeScopeComponents(pricing PricingSnapshot, policy ChargePolicy) (int64, error) {
+	var total int64
+	addComponents := func(components []ChargeComponent) error {
+		for _, component := range components {
+			amount, err := componentAmount(component, pricing.Currency)
+			if err != nil {
+				return err
+			}
+			total, err = addNonNegative(total, amount)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if policy.IncludeFixedCharges {
+		if err := addComponents(pricing.FixedCharges); err != nil {
+			return 0, err
+		}
+	}
+	if policy.IncludeResourceCharges {
+		if err := addComponents(pricing.ResourceCharges); err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
 }
 
 func customerPricingForLeg(leg CallLegUsageRecord, defaultPricing PricingSnapshot, modelPricing []ModelCustomerPricing) (PricingSnapshot, error) {
@@ -114,65 +171,49 @@ func customerPricingForLeg(leg CallLegUsageRecord, defaultPricing PricingSnapsho
 // selection. In particular, all-potential means every accepted evidence leg,
 // never a planned, rejected, never-started, or evidence-unavailable leg.
 func selectCustomerLegs(legs []CallLegUsageRecord, scope ChargePolicyScope, outcome TurnOutcome) ([]CallLegUsageRecord, error) {
-	accepted := acceptedCustomerLegs(legs)
-	if scope == ChargeAllPotentialLegs {
-		return accepted, nil
+	retailPolicy, err := ResolveRetailSelectionPolicy(ChargePolicy{Scope: scope})
+	if err != nil {
+		return nil, err
 	}
-	if outcome != TurnOutcomeCompleted {
-		return oneLogicalAcceptedTurn(accepted)
+	return selectRetailBLegsForPolicy(legs, retailPolicy, outcome)
+}
+
+// SelectRetailBLegs exposes the narrow default retail selector without
+// coupling it to supplier COGS attribution. The default surfaced-turn policy
+// selects the surfaced B-leg for a completed call; interrupted calls retain
+// the existing one-logical-accepted-leg ordering rule.
+func SelectRetailBLegs(legs []CallLegUsageRecord, outcome TurnOutcome) ([]CallLegUsageRecord, error) {
+	selected, err := selectCustomerLegs(legs, ChargeSurfacedTurn, outcome)
+	if err != nil {
+		return nil, err
 	}
-	selected := make([]CallLegUsageRecord, 0, len(accepted))
-	for _, leg := range accepted {
-		if leg.Surfaced == SurfacedYes {
-			selected = append(selected, leg)
-		}
-	}
-	return selected, nil
+	return append([]CallLegUsageRecord(nil), selected...), nil
 }
 
 func acceptedCustomerLegs(legs []CallLegUsageRecord) []CallLegUsageRecord {
 	accepted := make([]CallLegUsageRecord, 0, len(legs))
 	for _, leg := range legs {
-		if providerAcceptedEvidence(leg.Evidence) {
+		if leg.Outcome == LegOutcomeNeverStarted || leg.Outcome == LegOutcomeRejected {
+			continue
+		}
+		if providerAcceptedEvidence(leg.Evidence) || selectableV2Evidence(leg) {
 			accepted = append(accepted, leg)
 		}
 	}
 	return accepted
 }
 
-// oneLogicalAcceptedTurn selects a single billable accepted leg for an
-// interrupted (failed/canceled) call. A surfaced leg is unambiguous and needs
-// no order. Without a surfaced leg the latest accepted attempt is chosen using
-// the persisted B2BUA sequence; when the sequence is unknown for more than one
-// accepted leg the selection is indeterminate and fails closed.
-func oneLogicalAcceptedTurn(accepted []CallLegUsageRecord) ([]CallLegUsageRecord, error) {
-	if len(accepted) == 0 {
-		return accepted, nil
-	}
-	surfaced := make([]CallLegUsageRecord, 0, 1)
-	for _, leg := range accepted {
-		if leg.Surfaced == SurfacedYes {
-			surfaced = append(surfaced, leg)
+// selectableV2Evidence lets the narrow retail selector operate on a record
+// whose immutable V2 envelope is present even when the compatibility scalar
+// has no accepted V1 quantity. Rating the selected quantities remains the
+// responsibility of the later V2 rater; this helper only decides ownership.
+func selectableV2Evidence(leg CallLegUsageRecord) bool {
+	for _, observation := range leg.Observations {
+		if len(observation.Measures) != 0 || len(observation.Charges) != 0 {
+			return true
 		}
 	}
-	if len(surfaced) > 0 {
-		return surfaced, nil
-	}
-	if len(accepted) == 1 {
-		return accepted, nil
-	}
-	for _, leg := range accepted {
-		if leg.AttemptSeq <= 0 {
-			return nil, fmt.Errorf("%w: interrupted call has %d accepted legs and requires the latest accepted attempt", ErrBillingAttemptSequenceUnknown, len(accepted))
-		}
-	}
-	best := accepted[0]
-	for _, leg := range accepted[1:] {
-		if leg.AttemptSeq > best.AttemptSeq {
-			best = leg
-		}
-	}
-	return []CallLegUsageRecord{best}, nil
+	return false
 }
 
 func providerAcceptedEvidence(e FinalBillingEvidence) bool {
@@ -242,45 +283,4 @@ func chargeLeg(leg CallLegUsageRecord, pricing PricingSnapshot, policy ChargePol
 
 func authoritativeProviderCost(e FinalBillingEvidence) bool {
 	return e.Cost.Present && e.Authority == EvidenceAuthorityAuthoritative
-}
-
-func fallbackOperatorCost(leg CallLegUsageRecord, rate OperatorRateSnapshot, found bool, currency string) (int64, string, bool) {
-	if !found || rate.Validate() != nil || rate.Currency != currency {
-		return 0, "exact_operator_rate_unavailable", false
-	}
-	type dimension struct {
-		quantity Quantity
-		rate     int64
-		present  bool
-	}
-	dimensions := []dimension{
-		{leg.Evidence.InputTokens, rate.InputPerMillionNano, rate.InputRatePresent},
-		{leg.Evidence.OutputTokens, rate.OutputPerMillionNano, rate.OutputRatePresent},
-		{leg.Evidence.CacheReadTokens, rate.CacheReadPerMillionNano, rate.CacheReadRatePresent},
-		{leg.Evidence.CacheWriteTokens, rate.CacheWritePerMillionNano, rate.CacheWriteRatePresent},
-		{leg.Evidence.ReasoningTokens, rate.ReasoningPerMillionNano, rate.ReasoningRatePresent},
-	}
-	var total int64
-	matched := false
-	for _, d := range dimensions {
-		if !d.quantity.Present {
-			continue
-		}
-		if !d.present {
-			return 0, "operator_rate_or_quantity_incomplete", false
-		}
-		matched = true
-		value, err := exactTokensAtRate(d.quantity.Value, d.rate)
-		if err != nil {
-			return 0, "operator_rate_arithmetic_overflow", false
-		}
-		total, err = addNonNegative(total, value)
-		if err != nil {
-			return 0, "operator_rate_arithmetic_overflow", false
-		}
-	}
-	if !matched {
-		return 0, "operator_rate_or_quantity_incomplete", false
-	}
-	return total, "", true
 }

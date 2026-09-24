@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -21,6 +22,9 @@ type requestTerminalFacts struct {
 	traceID                      string
 	aLegID                       string
 	billingCallID                billing.BillingCallID
+	submissionID                 string
+	storeID                      string
+	storeIDStamped               bool
 	billingState                 *billingCallState
 	accountID                    string
 	sessionID                    string
@@ -78,6 +82,9 @@ func (f recvTurnFacts) terminalFacts() requestTerminalFacts {
 		traceID:                      f.traceID,
 		aLegID:                       f.aLegID,
 		billingCallID:                f.billingCallID,
+		submissionID:                 strings.TrimSpace(f.submissionID),
+		storeID:                      strings.TrimSpace(f.billingStoreID),
+		storeIDStamped:               f.billingStoreIDStamped,
 		billingState:                 f.billingCallState,
 		accountID:                    f.billingAccountID,
 		sessionID:                    f.baseline.Session.AuthoritativeSessionID,

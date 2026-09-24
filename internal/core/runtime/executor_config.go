@@ -48,7 +48,11 @@ import (
 // BillingIdentity is the composition-root identity bundle shared by billing
 // exposure admission and terminal call-closure stamping so those seams cannot drift.
 type BillingIdentity struct {
-	AccountID          func(context.Context, lipapi.Call) string
+	AccountID func(context.Context, lipapi.Call) string
+	// StoreID resolves the trusted durable billing/metering store identity for a
+	// request. It is captured with the terminal billing facts and is intentionally
+	// absent from public runtime options.
+	StoreID            func(context.Context) string
 	CustomerPricingRef func(context.Context, lipapi.Call) billing.VersionRef
 	ChargePolicyRef    func(context.Context, lipapi.Call) billing.VersionRef
 	OperatorRateRef    func(context.Context, string, string) billing.VersionRef
@@ -243,6 +247,14 @@ type AccountingRuntime struct {
 	// MeteringRecorder is the optional Phase 3 metering journal port. Nil means
 	// checkpoints are retained in-request only (no durable append until Phase 5).
 	MeteringRecorder metering.Recorder
+	// MeteringObservationSink is the optional V2 evidence journal port. It is
+	// deliberately separate from MeteringRecorder because pre-terminal economic
+	// checkpoints persist immutable observations only; they never rate or mutate
+	// money from a receive callback. Runtime checkpoint flushing requires the
+	// sink to also implement metering.AtomicObservationSink; a plain
+	// ObservationSink is retained for source compatibility but is not retried or
+	// invoked by that path.
+	MeteringObservationSink metering.ObservationSink
 	// RequestCoordinator admits customer/logical-request authority once per request (Phase 6).
 	RequestCoordinator *authoritycoord.RequestCoordinator
 	// AttemptCoordinator admits operator/attempt authority per B-leg (Phase 6).

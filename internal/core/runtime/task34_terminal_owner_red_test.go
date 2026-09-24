@@ -139,7 +139,9 @@ func TestTask34TerminalOwner_CommandsAndEffects(t *testing.T) {
 		turn.markCommitted(attempt)
 		var attemptEffects atomic.Int32
 		requestEffects := func(ctx context.Context, _ coreterm.Outcome) error {
-			stream.terminal.handoffBillingTurn(ctx, stream.facts.terminalFacts(), sdkterminal.CommandGateReplacement)
+			if err := stream.terminal.handoffBillingTurn(ctx, stream.facts.terminalFacts(), sdkterminal.CommandGateReplacement); err != nil {
+				t.Fatalf("handoffBillingTurn: %v", err)
+			}
 			return nil
 		}
 		snap := coreterm.NewAccumulatorSnapshot(nil, false)

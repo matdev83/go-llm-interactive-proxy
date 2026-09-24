@@ -32,7 +32,7 @@ func TestSpillBuffer_MemoryOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer failed: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	payload := []byte("hello, bounded memory spool!")
 	n, err := buf.Write(payload)
@@ -70,7 +70,7 @@ func TestSpillBuffer_MemoryOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	readData, err := io.ReadAll(rc)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestSpillBuffer_SpillToFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer failed: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// Write 100 bytes: 64 to memory, 36 to spill file
 	payload := make([]byte, 100)
@@ -141,7 +141,7 @@ func TestSpillBuffer_SpillToFile(t *testing.T) {
 		if statErr != nil {
 			t.Fatalf("Stat failed: %v", statErr)
 		}
-		if perm := info.Mode().Perm(); perm != 0600 {
+		if perm := info.Mode().Perm(); perm != 0o600 {
 			t.Fatalf("spill file permissions got %04o, want 0600", perm)
 		}
 	}
@@ -167,7 +167,7 @@ func TestSpillBuffer_SpillToFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	readData, err := io.ReadAll(rc)
 	if err != nil {
@@ -193,7 +193,7 @@ func TestSpillBuffer_ParallelIndependentReaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer failed: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	payload := make([]byte, 256)
 	if _, err := rand.Read(payload); err != nil {
@@ -213,7 +213,7 @@ func TestSpillBuffer_ParallelIndependentReaders(t *testing.T) {
 				t.Errorf("reader %d: Open failed: %v", readerIdx, err)
 				return
 			}
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 
 			got, err := io.ReadAll(rc)
 			if err != nil {
@@ -254,7 +254,7 @@ func TestSpillBuffer_ReservationAccounting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer failed: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// Write 64 bytes (fits in memory)
 	chunk1 := bytes.Repeat([]byte("A"), 64)
@@ -330,7 +330,7 @@ func TestSpillBuffer_ReservationExhaustion_PreservesUnwrittenSuffix(t *testing.T
 	if err != nil {
 		t.Fatalf("NewSpillBuffer failed: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// Write 60 bytes successfully
 	chunk1 := bytes.Repeat([]byte("X"), 60)
@@ -399,7 +399,7 @@ func TestSpillBuffer_ShortWrite_PreservesUnwrittenSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer failed: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	chunk := []byte("0123456789ABCDEFGHIJ") // 20 bytes
 	n, err := buf.Write(chunk)
@@ -442,7 +442,7 @@ func TestSpillBuffer_FileCreateFailure_PreservesUnwrittenSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer failed: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	payload := []byte("0123456789EXCESS_BYTES") // 10 memory bytes + 12 excess
 	n, err := buf.Write(payload)
@@ -484,7 +484,7 @@ func TestSpillBuffer_ReadFrom_FixedCopyBuffer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer failed: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// 1024 bytes payload
 	payload := make([]byte, 1024)
@@ -508,7 +508,7 @@ func TestSpillBuffer_ReadFrom_FixedCopyBuffer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	readData, err := io.ReadAll(rc)
 	if err != nil {
@@ -620,7 +620,7 @@ func TestSpillBuffer_ZeroMemorySpool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer failed: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	payload := []byte("spill immediately without memory buffering")
 	if _, err := buf.Write(payload); err != nil {
@@ -651,7 +651,7 @@ func TestSpillBuffer_Confidentiality(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer failed: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	secretPrompt := "super-secret-user-prompt-content-12345"
 	if _, err := buf.Write([]byte(secretPrompt)); err != nil {

@@ -68,8 +68,10 @@ func (e *recordingGzipExecutor) LargeBodyStaticDisposition(profileID string) (la
 	return largebody.StaticWireNeedsRequestAssessment, largebody.StaticWireReasonNone
 }
 
-var _ frontendpipe.StaticDispositionProvider = (*recordingGzipExecutor)(nil)
-var _ largebody.LargeBodyExecutor = (*recordingGzipExecutor)(nil)
+var (
+	_ frontendpipe.StaticDispositionProvider = (*recordingGzipExecutor)(nil)
+	_ largebody.LargeBodyExecutor            = (*recordingGzipExecutor)(nil)
+)
 
 type recordingGzipProfile struct {
 	mu         sync.Mutex

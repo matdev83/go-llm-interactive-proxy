@@ -116,7 +116,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	if err != nil {
 		return frontendpipe.ProofOutput{}, fmt.Errorf("openailegacy: open replay source: %w", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	// 2. Pass 1: Streaming scan over replay bytes using jsonshape.Scanner + SHA-256 in fixed buffers (no ReadAll).
 	// Enforces:
@@ -147,7 +147,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	var arrayItemCount int
 	var largeArrayRoles []lipapi.Role
 	var largeArrayDeclineErr error
-	var currentItemRole lipapi.Role = lipapi.RoleUser
+	currentItemRole := lipapi.RoleUser
 	var currentItemHasContent bool
 	var currentItemHasRole bool
 	var itemRoleBuf bytes.Buffer
@@ -331,7 +331,8 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		}
 
 		if e.TopLevel {
-			if e.Type == jsonshape.EventArrayEnd {
+			switch e.Type {
+			case jsonshape.EventArrayEnd:
 				if e.Key == "messages" {
 					if capturingMessagesArray && !messagesArrayIsLarge {
 						start := max(chunkStartOffset, messagesArrayStart)
@@ -363,7 +364,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					capturingKey = ""
 					capturingBuf = nil
 				}
-			} else if e.Type == jsonshape.EventObjectEnd {
+			case jsonshape.EventObjectEnd:
 				if e.Key == capturingKey && capturingBuf != nil {
 					start := max(chunkStartOffset, capturingStart)
 					end := e.Offset + e.Length
@@ -386,7 +387,8 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		// Item 2: Inspect message array items inside messages
 		if !e.TopLevel && len(e.Path) >= 1 && e.Path[0] == "messages" {
 			if len(e.Path) == 1 {
-				if e.Type == jsonshape.EventObjectStart {
+				switch e.Type {
+				case jsonshape.EventObjectStart:
 					arrayItemCount++
 					if arrayItemCount > frontendlimits.MaxMessages {
 						return frontendlimits.Count("messages", arrayItemCount, frontendlimits.MaxMessages)
@@ -394,7 +396,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					currentItemRole = lipapi.RoleUser
 					currentItemHasContent = false
 					currentItemHasRole = false
-				} else if e.Type == jsonshape.EventObjectEnd {
+				case jsonshape.EventObjectEnd:
 					if !currentItemHasRole && largeArrayDeclineErr == nil {
 						largeArrayDeclineErr = errors.New("openailegacy: message role is required")
 					}
@@ -409,17 +411,18 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					currentItemRole = lipapi.RoleUser
 					itemRoleBuf.Reset()
 					itemTypeBuf.Reset()
-				} else {
+				default:
 					if largeArrayDeclineErr == nil {
 						largeArrayDeclineErr = errors.New("openailegacy: message array item must be an object")
 					}
 				}
 			} else if len(e.Path) == 2 {
-				if e.Type == jsonshape.EventKey {
+				switch e.Type {
+				case jsonshape.EventKey:
 					if e.Key != "role" && e.Key != "content" && e.Key != "type" && largeArrayDeclineErr == nil {
 						largeArrayDeclineErr = fmt.Errorf("openailegacy: unsupported message item field %q requires canonical decode", e.Key)
 					}
-				} else if e.Type == jsonshape.EventString {
+				case jsonshape.EventString:
 					switch e.Key {
 					case "role":
 						currentItemHasRole = true
@@ -452,7 +455,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					case "content":
 						currentItemHasContent = true
 					}
-				} else {
+				default:
 					if e.Key == "content" {
 						if largeArrayDeclineErr == nil {
 							largeArrayDeclineErr = errors.New("openailegacy: complex message content requires canonical decode")
@@ -794,7 +797,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		if err != nil {
 			return frontendpipe.ProofOutput{}, fmt.Errorf("openailegacy: open replay source (pass 2): %w", err)
 		}
-		defer rc2.Close()
+		defer func() { _ = rc2.Close() }()
 
 		idWriter, err := largebody.NewCallIdentityWriter(idCfg)
 		if err != nil {
@@ -1126,7 +1129,7 @@ func compileStreamingCompactionFacts(
 	if err != nil {
 		return compactionfacts.RequestFacts{}, false, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	factBuilder := compactionfacts.NewBuilderWithByteBudget(lipapi.OperationOpenAIChatCompletions, int(maxFactBytes))
 	factBuilder.AddToolCount(len(tools))

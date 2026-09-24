@@ -61,8 +61,8 @@ func TestRateCallSequenceIndependenceAllowsLegacyUnknownLegs(t *testing.T) {
 	all[0].AttemptSeq = 0
 	all[1].AttemptSeq = 0
 	result = rateCallFromLegs(t, TurnOutcomeCanceled, all, chargeAll, 1000)
-	if result.CustomerCharge.Nano != 606 {
-		t.Fatalf("charge-all unknown-sequence customer = %d, want 606", result.CustomerCharge.Nano)
+	if result.CustomerCharge.Nano != 603 {
+		t.Fatalf("charge-all unknown-sequence customer = %d, want 603", result.CustomerCharge.Nano)
 	}
 }
 

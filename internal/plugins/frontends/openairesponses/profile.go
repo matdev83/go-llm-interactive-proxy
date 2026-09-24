@@ -148,7 +148,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	if err != nil {
 		return frontendpipe.ProofOutput{}, fmt.Errorf("openairesponses: open replay source: %w", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	// 2. Pass 1: Streaming scan over replay bytes using jsonshape.Scanner + SHA-256 in fixed buffers (no ReadAll).
 	// Enforces:
@@ -177,7 +177,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	var arrayItemCount int
 	var largeArrayRoles []lipapi.Role
 	var largeArrayDeclineErr error
-	var currentItemRole lipapi.Role = lipapi.RoleUser
+	currentItemRole := lipapi.RoleUser
 	var currentItemHasContent bool
 	var itemRoleBuf bytes.Buffer
 	var itemTypeBuf bytes.Buffer
@@ -343,14 +343,15 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					return errors.New("openairesponses: model must be a string")
 				}
 			case "input":
-				if e.Type == jsonshape.EventString {
+				switch e.Type {
+				case jsonshape.EventString:
 					inputIsString = true
-				} else if e.Type == jsonshape.EventArrayStart {
+				case jsonshape.EventArrayStart:
 					inputIsArray = true
 					capturingInputArray = true
 					inputArrayStart = e.Offset
 					inputArrayBuf.Reset()
-				} else {
+				default:
 					return errors.New("openairesponses: input must be a string or array")
 				}
 			case "metadata":
@@ -366,7 +367,8 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		}
 
 		if e.TopLevel {
-			if e.Type == jsonshape.EventArrayEnd {
+			switch e.Type {
+			case jsonshape.EventArrayEnd:
 				if e.Key == "input" {
 					if capturingInputArray && !inputArrayIsLarge {
 						start := max(chunkStartOffset, inputArrayStart)
@@ -398,7 +400,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					capturingKey = ""
 					capturingBuf = nil
 				}
-			} else if e.Type == jsonshape.EventObjectEnd {
+			case jsonshape.EventObjectEnd:
 				if e.Key == capturingKey && capturingBuf != nil {
 					start := max(chunkStartOffset, capturingStart)
 					end := e.Offset + e.Length
@@ -421,14 +423,15 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		// Item 2: Inspect array items inside input
 		if !e.TopLevel && len(e.Path) >= 1 && e.Path[0] == "input" {
 			if len(e.Path) == 1 {
-				if e.Type == jsonshape.EventObjectStart {
+				switch e.Type {
+				case jsonshape.EventObjectStart:
 					arrayItemCount++
 					if arrayItemCount > frontendlimits.MaxMessages {
 						return frontendlimits.Count("input", arrayItemCount, frontendlimits.MaxMessages)
 					}
 					currentItemRole = lipapi.RoleUser
 					currentItemHasContent = false
-				} else if e.Type == jsonshape.EventObjectEnd {
+				case jsonshape.EventObjectEnd:
 					if !currentItemHasContent && largeArrayDeclineErr == nil {
 						largeArrayDeclineErr = errors.New("openairesponses: input item missing content")
 					}
@@ -436,17 +439,18 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					currentItemRole = lipapi.RoleUser
 					itemRoleBuf.Reset()
 					itemTypeBuf.Reset()
-				} else {
+				default:
 					if largeArrayDeclineErr == nil {
 						largeArrayDeclineErr = errors.New("openairesponses: input array item must be an object")
 					}
 				}
 			} else if len(e.Path) == 2 {
-				if e.Type == jsonshape.EventKey {
+				switch e.Type {
+				case jsonshape.EventKey:
 					if e.Key != "role" && e.Key != "content" && e.Key != "type" && largeArrayDeclineErr == nil {
 						largeArrayDeclineErr = fmt.Errorf("openairesponses: unsupported input item field %q requires canonical decode", e.Key)
 					}
-				} else if e.Type == jsonshape.EventString {
+				case jsonshape.EventString:
 					switch e.Key {
 					case "role":
 						rStr := strings.TrimSpace(itemRoleBuf.String())
@@ -470,7 +474,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					case "content":
 						currentItemHasContent = true
 					}
-				} else {
+				default:
 					if largeArrayDeclineErr == nil {
 						largeArrayDeclineErr = fmt.Errorf("openairesponses: input item field %q must be a string", e.Key)
 					}
@@ -766,7 +770,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		if err != nil {
 			return frontendpipe.ProofOutput{}, fmt.Errorf("openairesponses: open replay source (pass 2): %w", err)
 		}
-		defer rc2.Close()
+		defer func() { _ = rc2.Close() }()
 
 		streamingCfg := largebody.StreamingProofConfig{
 			Reader:             rc2,
@@ -886,7 +890,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		if err != nil {
 			return frontendpipe.ProofOutput{}, fmt.Errorf("openairesponses: open replay source (pass 2): %w", err)
 		}
-		defer rc2.Close()
+		defer func() { _ = rc2.Close() }()
 
 		idWriter, err := largebody.NewCallIdentityWriter(idCfg)
 		if err != nil {
@@ -901,7 +905,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		var currTrimmer *largebody.TrimSpaceWriter
 		var turnItems []largebody.ClientTurnItemShape
 		var totalPartBytes int64
-		var ordinal int64 = int64(len(instructions))
+		ordinal := int64(len(instructions))
 
 		arrayStrResolver := func(sctx jsonshape.StringContext) (io.Writer, error) {
 			if len(sctx.Path) >= 2 && sctx.Path[0] == "input" && sctx.Key == "content" {
@@ -1140,7 +1144,7 @@ func compileStreamingCompactionFacts(
 	if err != nil {
 		return compactionfacts.RequestFacts{}, false, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	if inputIsString {
 		var trimmer *largebody.TrimSpaceWriter

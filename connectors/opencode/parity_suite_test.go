@@ -38,6 +38,48 @@ func TestDescribe_BothFactories(t *testing.T) {
 	}
 }
 
+func TestMediaCapabilitiesRequireCanonicalMediaMapping(t *testing.T) {
+	t.Parallel()
+
+	d, err := service.New().Describe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, factory := range d.Factories {
+		if factory.StaticCapabilities.Vision || factory.StaticCapabilities.Documents {
+			t.Fatalf("factory %q advertises media without a canonical mapping: %+v", factory.Kind, factory.StaticCapabilities)
+		}
+	}
+
+	srv, _ := opencodeModelServer(t, `{"data":[{"id":"emu-model"}]}`)
+	//nolint:paralleltest // subtests share one httptest server whose handler mutates captured auth state
+	for _, kind := range []string{service.FactoryKindGo, service.FactoryKindZen} {
+		t.Run(kind, func(t *testing.T) {
+			inst, err := service.New().Configure(context.Background(), mustCfg(t, kind,
+				"base_url: "+srv.URL+"\napi_key: test-key\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			profile, err := inst.Resolve(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if profile.Capabilities.Vision || profile.Capabilities.Documents {
+				t.Fatalf("factory %q resolved media without a canonical mapping: %+v", kind, profile.Capabilities)
+			}
+			models, err := inst.ListModels(context.Background(), 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, model := range models.Models {
+				if model.Capabilities.Vision || model.Capabilities.Documents {
+					t.Fatalf("model %q advertises media without a canonical mapping: %+v", model.NativeModelID, model.Capabilities)
+				}
+			}
+		})
+	}
+}
+
 //nolint:paralleltest // t.Setenv modifies process-global environment
 func TestConfigure_RequiresAPIKey(t *testing.T) {
 	t.Setenv("OPENCODE_GO_API_KEY", "")
@@ -315,8 +357,8 @@ func TestParity_ConformanceGo(t *testing.T) {
 	t.Parallel()
 	var capture RequestCapture
 	srv := NewFlavorServer(t, &capture)
-	// SkipExecute: static caps include Tools/Vision/Documents; kit execute proof
-	// requires tool/image events. Dedicated TestParity_Execute* covers streaming.
+	// SkipExecute: this fixture focuses on descriptor/inventory conformance;
+	// dedicated TestParity_Execute* covers streaming on the text-only route.
 	rep := conformance.RunWith(context.Background(), service.New(), conformance.Options{
 		FactoryKind: service.FactoryKindGo,
 		ConfigYAML:  []byte("base_url: " + srv.URL + "\napi_key: sk\nmodels:\n  - id: emu-model\n    endpoint: " + srv.URL + "/v1/chat/completions\n"),

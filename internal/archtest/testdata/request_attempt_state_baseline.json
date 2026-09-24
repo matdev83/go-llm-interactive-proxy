@@ -136,7 +136,8 @@
       "interleavedTurn",
       "isLocal",
       "localHandlerID",
-      "localStream"
+      "localStream",
+      "submission"
     ],
     "route_plan_state_fields": [
       "progress"
@@ -148,7 +149,7 @@
     "translation_sites": [
       "internal/core/runtime/executor_route_plan.go:168"
     ],
-    "direct_field_copy_assignments": 323,
+    "direct_field_copy_assignments": 370,
     "context_business_state_rereads": 17,
     "pre_handoff_cleanup_sites": 26
   },
@@ -157,7 +158,7 @@
     "max_pointer_out_fields": 0,
     "max_route_progress_duplicates": 0,
     "max_translation_sites": 1,
-    "max_direct_field_copy_assignments": 323,
+    "max_direct_field_copy_assignments": 370,
     "max_context_business_state_rereads": 17,
     "max_pre_handoff_cleanup_sites": 26
   }

@@ -36,6 +36,21 @@ source, authority, plane, and dedupe key. It is not a canonical event and must
 be consumed by the host exactly once; older peers must disable native compaction
 rather than synthesize a native usage lifecycle.
 
+`ExecuteServerFrame.accounting_evidence_v2` and
+`FinalizeBillingResponse.accounting_evidence_v2` are additive protocol-minor-9
+payloads gated by `accounting_evidence_v2`. They carry the canonical typed
+`metering.Observation` envelope, including directional/native media units,
+exact decimal values, source revisions, charge coverage, subject/correlation,
+and allowlisted safe evidence fields. The payload is host-only: it must never
+be projected as a canonical client event. A V1 connector can use the explicit
+partial token-only bridge, but must not claim complete V2 coverage. Strict
+offers require the negotiated feature; unsupported V2 evidence fails closed.
+
+`FactoryDescriptor.supports_accounting_evidence_v2` and
+`ResolvedProfile.supports_accounting_evidence_v2` are explicit capability
+metadata. The feature/minor negotiation remains authoritative for a live
+session, and all V1 field numbers and meanings remain unchanged.
+
 `Invocation.semantic_extensions` is an additive minor-6 carrier gated by
 `semantic_extensions_v1`. It is optional and hosts must not advertise or emit it
 for a peer that cannot negotiate minor 6. The carrier preserves one bounded

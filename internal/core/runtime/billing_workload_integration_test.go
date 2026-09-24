@@ -95,7 +95,9 @@ func TestBillingWorkloadIdentitySurvivesBareTerminalContextAndMatchesClosure(t *
 		}),
 	}
 	bindTestRuntimeOwners(stream, ex)
-	stream.terminal.handoffBillingTurn(bare, stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish)
+	if err := stream.terminal.handoffBillingTurn(bare, stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish); err != nil {
+		t.Fatalf("handoffBillingTurn: %v", err)
+	}
 	if gotCall.Workload != want {
 		t.Fatalf("call workload=%+v, want %+v", gotCall.Workload, want)
 	}

@@ -55,7 +55,7 @@ func (a *usageAuthorityProviderAdapter) AdmitRequest(ctx context.Context, in aut
 	}
 	res, err := a.svc.Admit(ctx, input)
 	if err != nil {
-		return authority.Decision{}, err
+		return mapAdmissionDecisionOnError(res, usageAuthorityRequestProviderID, authority.StageRequestAdmit), err
 	}
 	return mapAdmissionDecision(res, usageAuthorityRequestProviderID, authority.StageRequestAdmit), nil
 }
@@ -153,7 +153,7 @@ func (a *usageAuthorityProviderAdapter) AdmitAttempt(ctx context.Context, in aut
 	}
 	res, err := a.svc.Admit(ctx, attemptAdmissionInput(in, false))
 	if err != nil {
-		return authority.Decision{}, err
+		return mapAdmissionDecisionOnError(res, usageAuthorityAttemptProviderID, authority.StageAttemptAdmit), err
 	}
 	return mapAdmissionDecision(res, usageAuthorityAttemptProviderID, authority.StageAttemptAdmit), nil
 }
@@ -169,12 +169,31 @@ func (a *usageAuthorityProviderAdapter) PreviewAttempt(ctx context.Context, in a
 	admitIn.SkipEvidence = true
 	res, err := a.svc.Admit(ctx, admitIn)
 	if err != nil {
-		return authority.Decision{}, err
+		d := mapAdmissionDecisionOnError(res, usageAuthorityAttemptProviderID, authority.StageAttemptAdmit)
+		d.Reservations = nil
+		d.CompensationHandle = ""
+		return d, err
 	}
 	d := mapAdmissionDecision(res, usageAuthorityAttemptProviderID, authority.StageAttemptAdmit)
 	d.Reservations = nil
 	d.CompensationHandle = ""
 	return d, nil
+}
+
+func mapAdmissionDecisionOnError(res authorityapp.AdmissionResult, providerID string, stage authority.Stage) authority.Decision {
+	if !admissionResultPresent(res) {
+		return authority.Decision{}
+	}
+	return mapAdmissionDecision(res, providerID, stage)
+}
+
+func admissionResultPresent(res authorityapp.AdmissionResult) bool {
+	return res.Allowed || res.Outcome != "" || len(res.RuleIDs) > 0 || len(res.AdvisoryRuleIDs) > 0 ||
+		len(res.UnreservedRuleIDs) > 0 || strings.TrimSpace(res.SelectedRuleID) != "" || res.RuleKind != "" ||
+		strings.TrimSpace(res.ReservationID) != "" || res.Reserved || res.ReservedAmount.Unit != "" ||
+		len(res.Reservations) > 0 || res.PolicyRecord.ReasonCode != "" || res.PolicyRecord.ClientCategory != "" ||
+		res.BoundVersion.ID != "" || res.BoundVersion.Version != "" || res.BoundVersion.PolicyID != "" ||
+		res.BoundRatingVersion.ID != "" || res.BoundRatingVersion.Version != ""
 }
 
 func (a *usageAuthorityProviderAdapter) SettleAttempt(ctx context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {

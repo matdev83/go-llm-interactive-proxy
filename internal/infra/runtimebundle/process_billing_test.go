@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	runtimecore "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -39,6 +40,62 @@ func (s *processBillingSink) Stop(context.Context) error {
 func (s *processBillingSink) Close() error { s.mu.Lock(); s.closes++; s.mu.Unlock(); return nil }
 
 type processBillingStore struct{}
+
+// GetCutoverClaimMetadata exposes the narrow B2a claim port for production
+// test doubles. It returns NotFound so workers degrade to legacy empty-claim
+// behavior in these unit tests; production DurableStore returns durable pins.
+func (processBillingStore) GetCutoverClaimMetadata(context.Context, billing.PostingOperationKind, string) (billing.CutoverClaimMetadata, error) {
+	return billing.CutoverClaimMetadata{}, billing.ErrPostingOwnershipNotFound
+}
+
+func (processBillingStore) ClaimCompleteCallsWithCutover(context.Context, int) ([]billing.ClaimedCompleteCall, error) {
+	return nil, nil
+}
+
+func (processBillingStore) ClaimProviderCostWorkWithCutover(context.Context, int) ([]billing.ClaimedProviderCostWork, error) {
+	return nil, nil
+}
+
+func (processBillingStore) ClaimEconomicRevisionWorkWithCutover(context.Context, billing.EconomicRevisionWork, string, time.Duration) (billing.EconomicRevisionWorkClaim, *billing.CutoverClaimMetadata, bool, error) {
+	return billing.EconomicRevisionWorkClaim{}, nil, false, nil
+}
+
+// GetAccountingRecoverySnapshot exposes the explicit safe snapshot for the
+// production process test double: a legacy-compatible V1 floor with no
+// marker and no V2 monetary postings. Internal store-backed composition
+// requires this port (a decorator hiding it is rejected at startup); the
+// real DurableStore loads the snapshot from its cutover marker plus V2
+// pin/work presence.
+func (processBillingStore) GetAccountingRecoverySnapshot(context.Context) (billing.AccountingRecoverySnapshot, error) {
+	return billing.AccountingRecoverySnapshot{StoreID: "process-billing-test"}, nil
+}
+
+// customerOnlyProcessBillingStore deliberately exposes the customer settlement
+// and reporting ports without exposing provider-cost work. A store may be in
+// this state while supplier queue infrastructure is unavailable; independent
+// retail settlement must still be constructible and runnable.
+type customerOnlyProcessBillingStore struct {
+	billing.AuthoritativeBilling
+	billing.CallUsageStore
+}
+
+// GetCutoverClaimMetadata exposes the narrow B2a claim port for the customer-
+// only production test double (explicit port, legacy empty-claim behavior).
+func (customerOnlyProcessBillingStore) GetCutoverClaimMetadata(context.Context, billing.PostingOperationKind, string) (billing.CutoverClaimMetadata, error) {
+	return billing.CutoverClaimMetadata{}, billing.ErrPostingOwnershipNotFound
+}
+
+func (customerOnlyProcessBillingStore) ClaimCompleteCallsWithCutover(context.Context, int) ([]billing.ClaimedCompleteCall, error) {
+	return nil, nil
+}
+
+// GetAccountingRecoverySnapshot exposes the explicit safe snapshot for the
+// customer-only production test double (V1 floor, no marker, no V2
+// postings). Interface embedding hides the wrapped store's snapshot port,
+// so this explicit method keeps the internal composition verifiable.
+func (customerOnlyProcessBillingStore) GetAccountingRecoverySnapshot(context.Context) (billing.AccountingRecoverySnapshot, error) {
+	return billing.AccountingRecoverySnapshot{StoreID: "process-billing-customer-only"}, nil
+}
 
 func (processBillingStore) ApplyCallBillingResult(context.Context, billing.ApplyCallBillingInput) (billing.CallSettlement, error) {
 	return billing.CallSettlement{}, nil
@@ -168,5 +225,39 @@ func TestBuildProcessBillingRuntimeRequiresInjectedTerminalSink(t *testing.T) {
 	}
 	if len(closers) != 0 {
 		t.Fatalf("incomplete billing composition registered %d process resources", len(closers))
+	}
+}
+
+func TestBuildProcessBillingRuntimeAllowsIndependentRetailWithoutSupplierWorker(t *testing.T) {
+	t.Parallel()
+	sink := &processBillingSink{}
+	var closers []func() error
+	owner := &processResourceOwner{register: func(close func() error) { closers = append(closers, close) }}
+	t.Cleanup(func() {
+		for i := len(closers) - 1; i >= 0; i-- {
+			if err := closers[i](); err != nil {
+				t.Errorf("cleanup process resource: %v", err)
+			}
+		}
+	})
+	store := customerOnlyProcessBillingStore{
+		AuthoritativeBilling: processBillingStore{},
+		CallUsageStore:       processBillingStore{},
+	}
+	prod := ProductionOptions{
+		BillingStore:             store,
+		BillingTerminalUsageSink: sink,
+		BillingCreditGate:        processBillingCreditGate{},
+		BillingExposureAdmission: processBillingAdmission{},
+		BillingIdentity: runtimecore.BillingIdentity{
+			AccountID: func(context.Context, lipapi.Call) string { return "account" },
+		},
+		BillingCallRatingResolver: processBillingCallResolver{},
+	}
+	if _, err := buildProcessBillingRuntime(owner, "", prod); err != nil {
+		t.Fatalf("buildProcessBillingRuntime = %v, want independent customer runtime", err)
+	}
+	if len(closers) != 3 {
+		t.Fatalf("registered process resources = %d, want terminal sink plus customer worker only", len(closers))
 	}
 }

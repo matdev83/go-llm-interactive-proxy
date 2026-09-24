@@ -137,9 +137,9 @@ func TestRateCallAllPotentialLegsSumsAccepted(t *testing.T) {
 		testLeg("b-1", SurfacedYes, 1_000_000, 1_000_000, MoneyEvidence{}, true),
 		testLeg("b-2", SurfacedNo, 1_000_000, 1_000_000, MoneyEvidence{}, true),
 	}, policy, 1000)
-	// two legs: 2*(100+200) + 2*3 fixed = 606
-	if result.CustomerCharge.Nano != 606 {
-		t.Fatalf("customer = %d, want 606", result.CustomerCharge.Nano)
+	// two legs: 2*(100+200) + one call-scoped 3 fixed = 603
+	if result.CustomerCharge.Nano != 603 {
+		t.Fatalf("customer = %d, want 603", result.CustomerCharge.Nano)
 	}
 }
 
@@ -196,7 +196,7 @@ func TestRateCallInterruptedFailsClosedWhenIncludedRateMissing(t *testing.T) {
 	}
 }
 
-func TestRateProviderCostAuthoritativeAndFallback(t *testing.T) {
+func TestRateProviderCostAuthoritativeAndUnreconciled(t *testing.T) {
 	t.Parallel()
 	callID := mustBillingCallID(t)
 	auth := testCallLegUsageRecord(callID, "b-auth")
@@ -207,12 +207,15 @@ func TestRateProviderCostAuthoritativeAndFallback(t *testing.T) {
 		t.Fatalf("authoritative = %+v err=%v", got, err)
 	}
 
+	// Task 18.1: token-only evidence without provider-reported money is
+	// unreconciled. The scalar per-million fallback is retired; estimates
+	// belong to the V2 provider-quantity valuation.
 	fallback := testCallLegUsageRecord(callID, "b-fb")
 	fallback.Evidence.Cost = MoneyEvidence{}
 	fallback.OperatorRateRef = operatorRate().Ref
-	got, err = RateProviderCost(fallback, OperatorRateSet{operatorRate()}, "USD")
-	if err != nil || !got.Reconciled || got.Authoritative {
-		t.Fatalf("fallback = %+v err=%v", got, err)
+	_, err = RateProviderCost(fallback, OperatorRateSet{operatorRate()}, "USD")
+	if !errors.Is(err, ErrUnreconciledCost) {
+		t.Fatalf("token-only err = %v, want %v", err, ErrUnreconciledCost)
 	}
 }
 

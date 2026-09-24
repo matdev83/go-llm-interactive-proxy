@@ -867,7 +867,15 @@ func TestBackendResourcePoolCloseLateSuccessfulBuildCleansExactlyOnceAndNeverPub
 }
 
 func TestBackendResourcePoolCloseCanceledWaiterAndPendingBuilderNoLeak(t *testing.T) {
-	defer goleak.VerifyNone(t)
+	// This test owns only the in-memory pool and its builder/waiter/handoff
+	// goroutines. Other package tests (for example the provider-profile
+	// diagnostics test) perform real HTTPS discovery through a shared
+	// process-global transport and leave an idle net/http HTTP/2 keep-alive
+	// readLoop behind; that connection is created before this test starts and
+	// is not owned here. IgnoreCurrent snapshots the goroutines already running
+	// at this point so the assertion still fails on any goroutine this test
+	// actually leaks while not misattributing unrelated pooled HTTP connections.
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 
 	id := backendResourcePoolTestIdentity(t, "pool-close-canceled-waiter")
 	pool := newBackendResourcePool()

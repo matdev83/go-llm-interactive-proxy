@@ -33,6 +33,7 @@ var genericABIFieldTerms = map[string]bool{
 	"exact":        true,
 	"accounting":   true,
 	"evidence":     true,
+	"v2":           true,
 	"cancellation": true,
 	"handshake":    true,
 	"v1":           true,
@@ -87,6 +88,7 @@ var neutralABITerms = map[string]bool{
 	"success": true, "developer": true, "system": true,
 	"meta": true, "delivery": true, "operation": true, "param": true,
 	"per": true, "shared": true, "artifact": true, "index": true, "phase": true,
+	"v": true, "v1": true, "v2": true,
 	"refs": true, "acknowledged": true, "detail": true,
 	// Package and language vocabulary is neutral even when it is not a wire term.
 	"grpc": true, "backend": true, "lip": true, "sdk": true, "any": true,

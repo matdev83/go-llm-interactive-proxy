@@ -478,7 +478,7 @@ func TestTask13_3_Cancellation_ClosesReadersAndSource_CleansUpLifecycleAndEconom
 		tmpDir := t.TempDir()
 		spillPath := filepath.Join(tmpDir, "cancel_spill.tmp")
 		content := []byte(`{"model":"gpt-4o","prompt":"cancel me"}`)
-		if err := os.WriteFile(spillPath, content, 0600); err != nil {
+		if err := os.WriteFile(spillPath, content, 0o600); err != nil {
 			t.Fatal(err)
 		}
 

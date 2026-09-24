@@ -2,12 +2,15 @@ package openaiusage
 
 import (
 	"encoding/json"
+	"math"
 	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdkmetering "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/respjson"
 	"github.com/openai/openai-go/v3/responses"
@@ -21,21 +24,28 @@ const (
 )
 
 func ChatUsageEvent(usage openai.CompletionUsage) lipapi.Event {
+	input, inputPresent := nonNegativeProviderCount(usage.PromptTokens, usage.JSON.PromptTokens.Valid())
+	output, outputPresent := nonNegativeProviderCount(usage.CompletionTokens, usage.JSON.CompletionTokens.Valid())
+	cached, cachedPresent := nonNegativeProviderCount(usage.PromptTokensDetails.CachedTokens, usage.PromptTokensDetails.JSON.CachedTokens.Valid())
+	reasoning, reasoningPresent := nonNegativeProviderCount(usage.CompletionTokensDetails.ReasoningTokens, usage.CompletionTokensDetails.JSON.ReasoningTokens.Valid())
+	total, totalPresent := nonNegativeProviderCount(usage.TotalTokens, usage.JSON.TotalTokens.Valid())
 	ev := lipapi.Event{
 		Kind:            lipapi.EventUsageDelta,
-		InputTokens:     safecast.IntFromInt64Clamp(usage.PromptTokens),
-		OutputTokens:    safecast.IntFromInt64Clamp(usage.CompletionTokens),
-		CacheReadTokens: safecast.IntFromInt64Clamp(usage.PromptTokensDetails.CachedTokens),
-		ReasoningTokens: safecast.IntFromInt64Clamp(usage.CompletionTokensDetails.ReasoningTokens),
-		TotalTokens:     safecast.IntFromInt64Clamp(usage.TotalTokens),
+		InputTokens:     input,
+		OutputTokens:    output,
+		CacheReadTokens: cached,
+		ReasoningTokens: reasoning,
+		TotalTokens:     total,
 		UsagePresence: lipapi.UsagePresence{
-			InputTokens:     usage.JSON.PromptTokens.Valid(),
-			OutputTokens:    usage.JSON.CompletionTokens.Valid(),
-			CacheReadTokens: usage.PromptTokensDetails.JSON.CachedTokens.Valid(),
-			ReasoningTokens: usage.CompletionTokensDetails.JSON.ReasoningTokens.Valid(),
-			TotalTokens:     usage.JSON.TotalTokens.Valid(),
+			InputTokens: inputPresent, OutputTokens: outputPresent,
+			CacheReadTokens: cachedPresent, ReasoningTokens: reasoningPresent,
+			TotalTokens: totalPresent,
 		},
 		RawUsageJSON: rawJSON(usage.RawJSON(), usage),
+		Accounting: lipapi.UsageAccountingMetadata{
+			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported,
+			Authority: lipapi.UsageAuthorityAuthoritative, DedupeKey: "openai.chat.usage:stream",
+		},
 	}
 	applyPromptDetailsExtensions(&ev, usage.PromptTokensDetails.JSON.ExtraFields, usage.PromptTokensDetails.RawJSON())
 	applyUsageCostExtensions(&ev, usage.JSON.ExtraFields, usage.RawJSON())
@@ -43,25 +53,43 @@ func ChatUsageEvent(usage openai.CompletionUsage) lipapi.Event {
 }
 
 func ResponsesUsageEvent(u responses.ResponseUsage) lipapi.Event {
+	input, inputPresent := nonNegativeProviderCount(u.InputTokens, u.JSON.InputTokens.Valid())
+	output, outputPresent := nonNegativeProviderCount(u.OutputTokens, u.JSON.OutputTokens.Valid())
+	cached, cachedPresent := nonNegativeProviderCount(u.InputTokensDetails.CachedTokens, u.InputTokensDetails.JSON.CachedTokens.Valid())
+	reasoning, reasoningPresent := nonNegativeProviderCount(u.OutputTokensDetails.ReasoningTokens, u.OutputTokensDetails.JSON.ReasoningTokens.Valid())
+	total, totalPresent := nonNegativeProviderCount(u.TotalTokens, u.JSON.TotalTokens.Valid())
 	ev := lipapi.Event{
 		Kind:            lipapi.EventUsageDelta,
-		InputTokens:     safecast.IntFromInt64Clamp(u.InputTokens),
-		OutputTokens:    safecast.IntFromInt64Clamp(u.OutputTokens),
-		CacheReadTokens: safecast.IntFromInt64Clamp(u.InputTokensDetails.CachedTokens),
-		ReasoningTokens: safecast.IntFromInt64Clamp(u.OutputTokensDetails.ReasoningTokens),
-		TotalTokens:     safecast.IntFromInt64Clamp(u.TotalTokens),
+		InputTokens:     input,
+		OutputTokens:    output,
+		CacheReadTokens: cached,
+		ReasoningTokens: reasoning,
+		TotalTokens:     total,
 		UsagePresence: lipapi.UsagePresence{
-			InputTokens:     u.JSON.InputTokens.Valid(),
-			OutputTokens:    u.JSON.OutputTokens.Valid(),
-			CacheReadTokens: u.InputTokensDetails.JSON.CachedTokens.Valid(),
-			ReasoningTokens: u.OutputTokensDetails.JSON.ReasoningTokens.Valid(),
-			TotalTokens:     u.JSON.TotalTokens.Valid(),
+			InputTokens: inputPresent, OutputTokens: outputPresent,
+			CacheReadTokens: cachedPresent, ReasoningTokens: reasoningPresent,
+			TotalTokens: totalPresent,
 		},
 		RawUsageJSON: rawJSON(u.RawJSON(), u),
+		Accounting: lipapi.UsageAccountingMetadata{
+			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported,
+			Authority: lipapi.UsageAuthorityAuthoritative, DedupeKey: "openai.responses.usage:stream",
+		},
 	}
 	applyPromptDetailsExtensions(&ev, u.InputTokensDetails.JSON.ExtraFields, u.InputTokensDetails.RawJSON())
 	applyUsageCostExtensions(&ev, u.JSON.ExtraFields, u.RawJSON())
 	return ev
+}
+
+func nonNegativeProviderCount(value int64, present bool) (int, bool) {
+	if !present || value < 0 {
+		return 0, false
+	}
+	converted := safecast.IntFromInt64Clamp(value)
+	if int64(converted) != value {
+		return 0, false
+	}
+	return converted, true
 }
 
 func rawJSON(raw string, usage any) string {
@@ -81,8 +109,10 @@ func applyPromptDetailsExtensions(ev *lipapi.Event, extras map[string]respjson.F
 	}
 	if len(extras) > 0 {
 		if f, ok := extras[lipCacheWriteTokensKey]; ok && f.Valid() {
-			ev.CacheWriteTokens = intFieldFromJSON(f.Raw())
-			ev.UsagePresence.CacheWriteTokens = true
+			if value, valid := parseIntFieldFromJSON(f.Raw()); valid {
+				ev.CacheWriteTokens = value
+				ev.UsagePresence.CacheWriteTokens = true
+			}
 		}
 	}
 	if ev.CacheWriteTokens == 0 {
@@ -106,7 +136,7 @@ func cacheWriteFromDetailsJSON(raw string) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	return intFieldFromJSON(string(value)), true
+	return parseIntFieldFromJSON(string(value))
 }
 
 func applyUsageCostExtensions(ev *lipapi.Event, extras map[string]respjson.Field, usageRaw string) {
@@ -149,19 +179,24 @@ func applyProviderCost(ev *lipapi.Event, raw string) {
 }
 
 func intFieldFromJSON(raw string) int {
+	value, _ := parseIntFieldFromJSON(raw)
+	return value
+}
+
+func parseIntFieldFromJSON(raw string) (int, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return 0
+		return 0, false
 	}
-	var n int64
-	if err := json.Unmarshal([]byte(raw), &n); err == nil {
-		return safecast.IntFromInt64Clamp(n)
+	decimal, err := sdkmetering.ParseDecimal(raw)
+	if err != nil || decimal.Scale != 0 || strings.HasPrefix(raw, "-") || strings.HasPrefix(decimal.Coefficient, "-") {
+		return 0, false
 	}
-	var f float64
-	if err := json.Unmarshal([]byte(raw), &f); err == nil {
-		return safecast.IntFromInt64Clamp(int64(f))
+	n, err := strconv.ParseInt(decimal.Coefficient, 10, 0)
+	if err != nil || n < 0 {
+		return 0, false
 	}
-	return 0
+	return int(n), true
 }
 
 func providerCostNanoUnits(raw string) (int64, bool) {
@@ -175,10 +210,14 @@ func providerCostNanoUnits(raw string) (int64, bool) {
 		if err := json.Unmarshal([]byte(raw), &f); err != nil {
 			return 0, false
 		}
-		if f < 0 {
+		if f < 0 || math.IsNaN(f) || math.IsInf(f, 0) {
 			return 0, false
 		}
-		return int64(f*float64(providerCostNanoScale) + 0.5), true
+		scaled := f * float64(providerCostNanoScale)
+		if math.IsInf(scaled, 0) || scaled >= float64(math.MaxInt64) {
+			return 0, false
+		}
+		return int64(scaled + 0.5), true
 	}
 	if rat.Sign() < 0 {
 		return 0, false

@@ -64,7 +64,7 @@ func factFiltersForQuery(q metering.Query) []factFilter {
 
 func buildDurableListQuery(storeID string, q metering.Query, limit, offset int) (string, []any) {
 	filters := factFiltersForQuery(q)
-	where := []string{"f.store_id = ?"}
+	where := []string{"f.store_id = ?", "COALESCE(f.payload_kind, 'fact') = 'fact'"}
 	args := []any{storeID}
 
 	for _, filter := range filters {

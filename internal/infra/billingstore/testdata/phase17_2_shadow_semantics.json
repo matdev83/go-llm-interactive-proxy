@@ -1,0 +1,106 @@
+{
+  "version": 2,
+  "provenance": "synthetic raw provider evidence with independent line-level expectations; no raw content or credentials",
+  "rate_schedule_nano_per_token": {
+    "output": 2000000,
+    "reasoning_t1": 0,
+    "reasoning_t2": 4000000,
+    "input_uncached": 1000000,
+    "input_token": 1000000,
+    "cache_read": 500000,
+    "cache_write": 500000
+  },
+  "vectors": [
+    {
+      "label": "reasoning-once-fix",
+      "currency": "USD",
+      "reason_code": "reasoning-in-output-once",
+      "expect_verdict": "expected_fix",
+      "mapping": "reasoning-included",
+      "tariff": "t1",
+      "basis": "Q",
+      "fields": {"input": "300", "output": "200", "reasoning": "50"},
+      "v1_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}, {"tokens": "50", "rate_key": "output"}],
+      "expected_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}],
+      "note": "V1 bills output plus included reasoning at the output rate; production bills output once with an explicit-free reasoning line."
+    },
+    {
+      "label": "inclusive-partition-fix",
+      "currency": "USD",
+      "reason_code": "inclusive-input-total-once",
+      "expect_verdict": "expected_fix",
+      "mapping": "inclusive",
+      "tariff": "t1",
+      "basis": "Q",
+      "fields": {"total": "1000", "read": "600", "write": "100", "output": "200"},
+      "v1_lines": [{"tokens": "1000", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}],
+      "expected_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "600", "rate_key": "cache_read"}, {"tokens": "100", "rate_key": "cache_write"}, {"tokens": "200", "rate_key": "output"}],
+      "note": "V1 bills the inclusive total as chargeable; production partitions exclusive uncached/cache/output quantities."
+    },
+    {
+      "label": "eqp-quantity-fix",
+      "currency": "USD",
+      "reason_code": "eqp-quantity-cost-effect",
+      "expect_verdict": "expected_fix",
+      "mapping": "direct",
+      "tariff": "t1",
+      "basis": "E",
+      "fields": {"local_tokens": "100", "provider_tokens": "110"},
+      "v1_lines": [{"tokens": "110", "rate_key": "input_token"}],
+      "expected_lines": [{"tokens": "100", "rate_key": "input_token"}],
+      "note": "V1 bills the provider count as the expected quantity; production keeps the local-expected and provider-quantity planes independent."
+    },
+    {
+      "label": "exact-match",
+      "currency": "USD",
+      "reason_code": "",
+      "expect_verdict": "match",
+      "mapping": "reasoning-included",
+      "tariff": "t1",
+      "basis": "Q",
+      "fields": {"input": "300", "output": "200"},
+      "v1_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}],
+      "expected_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}],
+      "note": "Both engines agree with no claimed fix."
+    },
+    {
+      "label": "wrong-magnitude-same-reason",
+      "currency": "USD",
+      "reason_code": "reasoning-in-output-once",
+      "expect_verdict": "unexpected_drift",
+      "mapping": "reasoning-disjoint",
+      "tariff": "t1",
+      "basis": "Q",
+      "fields": {"input": "300", "output": "200", "reasoning": "50"},
+      "v1_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}, {"tokens": "50", "rate_key": "output"}],
+      "expected_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}],
+      "note": "Same fix label, but the disjoint mapping derives visible output plus a free reasoning line, missing the expected total."
+    },
+    {
+      "label": "wrong-direction-drift",
+      "currency": "USD",
+      "reason_code": "reasoning-in-output-once",
+      "expect_verdict": "unexpected_drift",
+      "mapping": "reasoning-included",
+      "tariff": "t2",
+      "basis": "Q",
+      "fields": {"input": "300", "output": "200", "reasoning": "50"},
+      "v1_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}],
+      "expected_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}],
+      "note": "A regressed tariff prices included reasoning, pushing actual above both V1 and expected."
+    },
+    {
+      "label": "unexplained-drift",
+      "currency": "USD",
+      "reason_code": "",
+      "expect_verdict": "unexpected_drift",
+      "mapping": "reasoning-included",
+      "tariff": "t1",
+      "basis": "Q",
+      "fields": {"input": "300", "output": "200", "read": "50"},
+      "v1_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}],
+      "expected_lines": [{"tokens": "300", "rate_key": "input_uncached"}, {"tokens": "200", "rate_key": "output"}],
+      "note": "No fix claimed, yet extra cache evidence moves actual above expectation."
+    }
+  ]
+}

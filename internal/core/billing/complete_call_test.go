@@ -127,3 +127,24 @@ func TestJoinCompleteCallEmptyExpectedSetIsComplete(t *testing.T) {
 		t.Fatalf("legs = %d, want 0", len(got.Legs))
 	}
 }
+
+func TestJoinCompleteCallDoesNotCrossSubmissionIdentity(t *testing.T) {
+	t.Parallel()
+	callID := mustBillingCallID(t)
+	closureSource := testCallUsageRecord(callID)
+	closureSource.SubmissionID = "submission-1"
+	closureSource.ExpectedBLegIDs = []string{"b-1"}
+	closure, err := closureSource.Seal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := testCallLegUsageRecord(callID, "b-1")
+	foreign.SubmissionID = "submission-2"
+	sealedForeign, err := foreign.Seal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := JoinCompleteCall(closure, []CallLegUsageRecord{sealedForeign}); !errors.Is(err, ErrCallIncomplete) {
+		t.Fatalf("foreign submission join error = %v, want ErrCallIncomplete", err)
+	}
+}

@@ -5,13 +5,20 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 type CallUsageRecord struct {
-	SchemaVersion      int
-	Key                string
-	Fingerprint        string
-	CallID             BillingCallID
+	SchemaVersion int
+	Key           string
+	Fingerprint   string
+	CallID        BillingCallID
+	// SubmissionID is optional trusted customer scope. It is independent from
+	// BillingCallID: one A-leg may resume with a new call/submission identity.
+	SubmissionID       string `json:"SubmissionID,omitempty"`
 	AccountID          string
 	ALegID             string
 	SessionID          string
@@ -24,22 +31,38 @@ type CallUsageRecord struct {
 	Workload           WorkloadIdentity
 }
 type CallLegUsageRecord struct {
-	Key             string
-	Fingerprint     string
-	CallID          BillingCallID
-	ALegID          string
-	BLegID          string
-	AttemptSeq      int
-	BackendID       string
-	ProviderID      string
-	ModelID         string
-	StartedAt       time.Time
-	FinishedAt      time.Time
-	Outcome         LegOutcome
-	Surfaced        SurfacedState
-	Evidence        FinalBillingEvidence
-	OperatorRateRef VersionRef
-	Workload        WorkloadIdentity
+	Key         string
+	Fingerprint string
+	CallID      BillingCallID
+	// SubmissionID is optional trusted customer scope and is never a provider
+	// usage meter. B-leg observations retain the same lineage separately.
+	SubmissionID string `json:"SubmissionID,omitempty"`
+	ALegID       string
+	BLegID       string
+	AttemptSeq   int
+	BackendID    string
+	ProviderID   string
+	ModelID      string
+	StartedAt    time.Time
+	FinishedAt   time.Time
+	Outcome      LegOutcome
+	Surfaced     SurfacedState
+	Evidence     FinalBillingEvidence
+	// EvidenceVersion is zero for legacy V1 rows. Version 2 carries the
+	// source-separated immutable observations captured for this concrete
+	// B-leg; Evidence remains the explicitly labelled V1 projection.
+	EvidenceVersion    int                       `json:"evidence_version,omitempty"`
+	EvidenceProjection string                    `json:"evidence_projection,omitempty"`
+	Observations       []metering.Observation    `json:"observations,omitempty"`
+	ObservationRefs    []metering.ObservationRef `json:"observation_refs,omitempty"`
+	EvidenceConflicts  []EvidenceConflict        `json:"evidence_conflicts,omitempty"`
+	// EconomicEvidenceVersion and EconomicDispositions are an additive,
+	// source-separated carrier for connector coverage. The observation payload
+	// remains unchanged and is still the only input to meter/charge semantics.
+	EconomicEvidenceVersion int                           `json:"economic_evidence_version,omitempty"`
+	EconomicDispositions    []EconomicEvidenceDisposition `json:"economic_dispositions,omitempty"`
+	OperatorRateRef         VersionRef
+	Workload                WorkloadIdentity
 }
 
 func CallUsageKey(callID BillingCallID) (string, error) {
@@ -95,6 +118,10 @@ func (r CallUsageRecord) SemanticFingerprint() (string, error) {
 	c.string("cur")
 	c.u64(uint64(r.SchemaVersion))
 	c.string(r.CallID.String())
+	if strings.TrimSpace(r.SubmissionID) != "" {
+		c.string("submission")
+		c.string(r.SubmissionID)
+	}
 	c.string(r.AccountID)
 	c.string(r.ALegID)
 	c.string(r.SessionID)
@@ -122,16 +149,31 @@ func canonicalExpectedBLegIDs(ids []string) []string {
 }
 
 func (l CallLegUsageRecord) Seal() (CallLegUsageRecord, error) {
-	if err := l.validate(); err != nil {
+	prepared := l
+	prepared.BLegID = strings.TrimSpace(prepared.BLegID)
+	if prepared.EvidenceVersion == 0 && (len(prepared.Observations) != 0 || len(prepared.ObservationRefs) != 0 || len(prepared.EvidenceConflicts) != 0 || len(prepared.EconomicDispositions) != 0) {
+		prepared.EvidenceVersion = EvidenceFormatVersionV2
+	}
+	if len(prepared.EconomicDispositions) != 0 && prepared.EconomicEvidenceVersion == 0 {
+		prepared.EconomicEvidenceVersion = EconomicEvidenceDispositionVersionV1
+	}
+	if prepared.EvidenceVersion >= EvidenceFormatVersionV2 && prepared.EvidenceProjection == "" {
+		prepared.EvidenceProjection = EvidenceProjectionV1
+	}
+	if err := prepared.validate(); err != nil {
 		return CallLegUsageRecord{}, err
 	}
-	out := l
-	workload, err := normalizeWorkloadIdentity(l.Workload)
+	out := prepared
+	workload, err := normalizeWorkloadIdentity(prepared.Workload)
 	if err != nil {
 		return CallLegUsageRecord{}, err
 	}
 	out.Workload = workload
-	out.BLegID = strings.TrimSpace(l.BLegID)
+	out.BLegID = strings.TrimSpace(prepared.BLegID)
+	out.Observations = cloneAndCanonicalizeObservations(prepared.Observations)
+	out.ObservationRefs = canonicalObservationRefs(prepared.ObservationRefs)
+	out.EvidenceConflicts = canonicalEvidenceConflicts(prepared.EvidenceConflicts)
+	out.EconomicDispositions = canonicalEconomicEvidenceDispositions(prepared.EconomicDispositions)
 	key, err := CallLegUsageKey(out.CallID, out.BLegID)
 	if err != nil {
 		return CallLegUsageRecord{}, err
@@ -159,12 +201,27 @@ func (l CallLegUsageRecord) Seal() (CallLegUsageRecord, error) {
 // A zero AttemptSeq never represents a known sequence; the runtime append seam
 // requires a positive sequence for every new record.
 func (l CallLegUsageRecord) SemanticFingerprint() (string, error) {
-	if err := l.validate(); err != nil {
+	prepared := l
+	if prepared.EvidenceVersion == 0 && (len(prepared.Observations) != 0 || len(prepared.ObservationRefs) != 0 || len(prepared.EvidenceConflicts) != 0 || len(prepared.EconomicDispositions) != 0) {
+		prepared.EvidenceVersion = EvidenceFormatVersionV2
+	}
+	if len(prepared.EconomicDispositions) != 0 && prepared.EconomicEvidenceVersion == 0 {
+		prepared.EconomicEvidenceVersion = EconomicEvidenceDispositionVersionV1
+	}
+	if prepared.EvidenceVersion >= EvidenceFormatVersionV2 && prepared.EvidenceProjection == "" {
+		prepared.EvidenceProjection = EvidenceProjectionV1
+	}
+	if err := prepared.validate(); err != nil {
 		return "", err
 	}
+	l = prepared
 	var c canonicalWriter
 	c.string("clur")
 	c.string(l.CallID.String())
+	if strings.TrimSpace(l.SubmissionID) != "" {
+		c.string("submission")
+		c.string(l.SubmissionID)
+	}
 	c.string(l.ALegID)
 	c.string(strings.TrimSpace(l.BLegID))
 	c.string(l.BackendID)
@@ -188,6 +245,52 @@ func (l CallLegUsageRecord) SemanticFingerprint() (string, error) {
 	c.string(l.Evidence.DedupeKey)
 	writeVersionRef(&c, l.OperatorRateRef)
 	writeWorkloadIdentity(&c, l.Workload)
+	if l.EvidenceVersion >= EvidenceFormatVersionV2 {
+		c.u64(uint64(l.EvidenceVersion))
+		c.string(l.EvidenceProjection)
+		observations := canonicalObservations(l.Observations)
+		c.u64(uint64(len(observations)))
+		for _, observation := range observations {
+			// Receipt time is transport metadata. Keep record replay stable when
+			// one immutable source revision is delivered through a later store
+			// boundary, matching the shared metering replay contract.
+			c.string(evidenceReplayFingerprint(observation))
+			c.string(observation.IdentityKey())
+		}
+		refs := canonicalObservationRefs(l.ObservationRefs)
+		c.u64(uint64(len(refs)))
+		for _, ref := range refs {
+			c.string(ref.StoreID)
+			c.string(ref.ObservationID)
+			c.u64(ref.Revision)
+			c.string(ref.PayloadHash)
+		}
+		conflicts := canonicalEvidenceConflicts(l.EvidenceConflicts)
+		c.u64(uint64(len(conflicts)))
+		for _, conflict := range conflicts {
+			c.string(conflict.Identity)
+			c.string(conflict.ExistingHash)
+			c.string(conflict.IncomingHash)
+			if conflict.HasCoverageMetadata() {
+				c.string("coverage-disposition")
+				c.string(string(conflict.ExistingCoverage))
+				c.string(conflict.ExistingCoverageReason)
+				c.string(string(conflict.IncomingCoverage))
+				c.string(conflict.IncomingCoverageReason)
+			}
+		}
+		dispositions := canonicalEconomicEvidenceDispositions(l.EconomicDispositions)
+		if len(dispositions) != 0 {
+			c.u64(uint64(l.EconomicEvidenceVersion))
+			c.u64(uint64(len(dispositions)))
+			for _, disposition := range dispositions {
+				c.string(disposition.ObservationIdentity)
+				c.string(disposition.ObservationHash)
+				c.string(string(disposition.Coverage))
+				c.string(disposition.CoverageReason)
+			}
+		}
+	}
 	if l.AttemptSeq > 0 {
 		c.u64(uint64(l.AttemptSeq))
 	}
@@ -269,6 +372,9 @@ func (r CallUsageRecord) validate() error {
 	if err := r.CallID.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRecord, err)
 	}
+	if err := validateOptionalSubmissionID(r.SubmissionID); err != nil {
+		return err
+	}
 	for name, value := range map[string]string{
 		"account": r.AccountID, "A-leg": r.ALegID,
 	} {
@@ -305,6 +411,9 @@ func (l CallLegUsageRecord) validate() error {
 	if err := l.CallID.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRecord, err)
 	}
+	if err := validateOptionalSubmissionID(l.SubmissionID); err != nil {
+		return err
+	}
 	if strings.TrimSpace(l.ALegID) == "" || strings.TrimSpace(l.BLegID) == "" {
 		return fmt.Errorf("%w: call-leg lineage is required", ErrInvalidRecord)
 	}
@@ -328,5 +437,78 @@ func (l CallLegUsageRecord) validate() error {
 	if l.AttemptSeq < 0 {
 		return fmt.Errorf("%w: call-leg attempt sequence cannot be negative", ErrInvalidRecord)
 	}
-	return validateEvidence(l.Evidence)
+	if err := validateEvidence(l.Evidence); err != nil {
+		return err
+	}
+	if l.EvidenceVersion != 0 && l.EvidenceVersion != EvidenceFormatVersionV2 {
+		return fmt.Errorf("%w: unsupported evidence format version %d", ErrInvalidRecord, l.EvidenceVersion)
+	}
+	if l.EvidenceVersion == 0 && (len(l.Observations) != 0 || len(l.ObservationRefs) != 0 || len(l.EvidenceConflicts) != 0 || len(l.EconomicDispositions) != 0) {
+		return fmt.Errorf("%w: V2 evidence requires format version %d", ErrInvalidRecord, EvidenceFormatVersionV2)
+	}
+	if l.EvidenceVersion == 0 && l.EvidenceProjection != "" {
+		return fmt.Errorf("%w: V1 evidence cannot carry a V2 projection label", ErrInvalidRecord)
+	}
+	if l.EvidenceVersion >= EvidenceFormatVersionV2 && l.EvidenceProjection != EvidenceProjectionV1 {
+		return fmt.Errorf("%w: V2 evidence requires projection label %q", ErrInvalidRecord, EvidenceProjectionV1)
+	}
+	if l.EconomicEvidenceVersion != 0 && l.EconomicEvidenceVersion != EconomicEvidenceDispositionVersionV1 {
+		return fmt.Errorf("%w: unsupported economic evidence disposition version %d", ErrInvalidRecord, l.EconomicEvidenceVersion)
+	}
+	if l.EconomicEvidenceVersion == 0 && len(l.EconomicDispositions) != 0 {
+		return fmt.Errorf("%w: economic dispositions require format version %d", ErrInvalidRecord, EconomicEvidenceDispositionVersionV1)
+	}
+	if l.EconomicEvidenceVersion == EconomicEvidenceDispositionVersionV1 && len(l.EconomicDispositions) == 0 {
+		return fmt.Errorf("%w: economic evidence disposition version requires dispositions", ErrInvalidRecord)
+	}
+	if len(l.EconomicDispositions) > MaxCallLegEvidenceObservations {
+		return fmt.Errorf("%w: economic evidence disposition bound exceeded", ErrInvalidRecord)
+	}
+	if len(l.Observations) > MaxCallLegEvidenceObservations {
+		return fmt.Errorf("%w: call-leg observation bound exceeded", ErrInvalidRecord)
+	}
+	if len(l.ObservationRefs) > MaxCallLegEvidenceRefs {
+		return fmt.Errorf("%w: call-leg observation reference bound exceeded", ErrInvalidRecord)
+	}
+	if len(l.EvidenceConflicts) > MaxCallLegEvidenceConflicts {
+		return fmt.Errorf("%w: call-leg evidence conflict bound exceeded", ErrInvalidRecord)
+	}
+	if err := validateCallLegObservations(l); err != nil {
+		return err
+	}
+	if err := validateEconomicEvidenceDispositions(l); err != nil {
+		return err
+	}
+	seenRefs := make(map[string]struct{}, len(l.ObservationRefs))
+	for i, ref := range l.ObservationRefs {
+		if err := ref.Validate(); err != nil {
+			return fmt.Errorf("%w: observation ref %d: %v", ErrInvalidRecord, i, err)
+		}
+		key := fmt.Sprintf("%s\x00%s\x00%d", ref.StoreID, ref.ObservationID, ref.Revision)
+		if _, exists := seenRefs[key]; exists {
+			return fmt.Errorf("%w: duplicate observation ref %q", ErrInvalidRecord, key)
+		}
+		seenRefs[key] = struct{}{}
+	}
+	for i, conflict := range l.EvidenceConflicts {
+		if !conflict.valid() {
+			return fmt.Errorf("%w: invalid evidence conflict %d", ErrInvalidRecord, i)
+		}
+	}
+	return nil
+}
+
+func validateOptionalSubmissionID(id string) error {
+	if id == "" {
+		return nil
+	}
+	if id != strings.TrimSpace(id) || len(id) > 512 || !utf8.ValidString(id) {
+		return fmt.Errorf("%w: invalid submission identity", ErrInvalidRecord)
+	}
+	for _, r := range id {
+		if r < 0x20 || r == 0x7f || !unicode.IsPrint(r) {
+			return fmt.Errorf("%w: invalid submission identity", ErrInvalidRecord)
+		}
+	}
+	return nil
 }

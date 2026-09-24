@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +10,9 @@ import (
 	runtimecore "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingadmission"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingcompose"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 var ErrComposeBillingIncomplete = errors.New("runtimebundle: billing composition is incomplete")
@@ -26,6 +30,10 @@ type ComposeBillingInput struct {
 	MaintenanceAccounting   billing.ProviderMaintenanceUsageObserver
 	PostTurnBatchSize       int
 	MinPreRouteHeadroomNano int64
+	// ObservationEconomicWorkBuilder optionally overrides the stock immutable
+	// observation-to-work classifier. A nil value uses the catalog-bound stock
+	// provider/customer builder.
+	ObservationEconomicWorkBuilder billing.ObservationEconomicWorkBuilder
 }
 
 func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
@@ -77,34 +85,91 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("%w: provider-cost resolver: %w", ErrComposeBillingIncomplete, err)
 	}
+	workBuilder := in.ObservationEconomicWorkBuilder
+	if workBuilder == nil {
+		workBuilder, err = stockObservationEconomicWorkBuilder(in.Catalog)
+		if err != nil {
+			return ProductionOptions{}, fmt.Errorf("%w: observation work builder: %w", ErrComposeBillingIncomplete, err)
+		}
+	}
+	var economicRater billing.PostUsageRater
+	_, economicWorkOK := in.Store.(billing.EconomicRevisionWorkReader)
+	_, economicResultsOK := in.Store.(billing.EconomicRevisionResultStore)
+	_, providerCostRevisionOK := in.Store.(billing.ProviderCostRevisionStore)
+	if economicWorkOK && economicResultsOK {
+		economicRater, _ = callResolver.(billing.PostUsageRater)
+		if economicRater != nil && providerCostRevisionOK {
+			if _, cutoverOK := in.Store.(billing.ProviderCostWorkCutoverStore); !cutoverOK {
+				return ProductionOptions{}, fmt.Errorf("%w: %w", ErrComposeBillingIncomplete, ErrProviderCostCutoverRequired)
+			}
+		}
+	}
+	customerUnitLedger, _ := in.Store.(billing.CustomerUnitLedger)
+	costPassThroughSettlement, _ := in.Store.(billing.CostPassThroughSettlementStore)
 	maintenanceObserver, err := billingcompose.ComposeMaintenanceAccounting(in.Store, in.MaintenanceAccounting)
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("%w: maintenance accounting: %w", ErrComposeBillingIncomplete, err)
 	}
 	return ProductionOptions{
-		BillingTerminalUsageSink:    in.TerminalUsageSink,
-		BillingCreditGate:           billing.CheapCreditScreen{Store: creditStore, Currency: in.Currency, MinPreRouteHeadroomNano: in.MinPreRouteHeadroomNano},
-		BillingExposureAdmission:    adapter,
-		BillingStore:                in.Store,
-		BillingReports:              in.Store,
-		BillingReportsPath:          in.ReportsPath,
-		BillingIdentity:             identity,
-		BillingCallRatingResolver:   callResolver,
-		BillingProviderCostResolver: providerCostResolver,
-		MaintenanceAccounting:       maintenanceObserver,
-		BillingPostTurnBatchSize:    in.PostTurnBatchSize,
+		BillingTerminalUsageSink:              in.TerminalUsageSink,
+		BillingCreditGate:                     billing.CheapCreditScreen{Store: creditStore, Currency: in.Currency, MinPreRouteHeadroomNano: in.MinPreRouteHeadroomNano},
+		BillingExposureAdmission:              adapter,
+		BillingStore:                          in.Store,
+		BillingReports:                        in.Store,
+		BillingReportsPath:                    in.ReportsPath,
+		BillingIdentity:                       identity,
+		BillingCallRatingResolver:             callResolver,
+		BillingProviderCostResolver:           providerCostResolver,
+		BillingEconomicRevisionRater:          economicRater,
+		BillingObservationEconomicWorkBuilder: workBuilder,
+		BillingCostPassThroughSettlementStore: costPassThroughSettlement,
+		BillingCustomerUnitLedger:             customerUnitLedger,
+		MaintenanceAccounting:                 maintenanceObserver,
+		BillingPostTurnBatchSize:              in.PostTurnBatchSize,
 	}, nil
 }
 
-func stockOrOverrideIdentity(in ComposeBillingInput) runtimecore.BillingIdentity {
-	if in.Identity != nil {
-		return *in.Identity
+func stockObservationEconomicWorkBuilder(catalog *billingcompose.SnapshotCatalog) (billing.ObservationEconomicWorkBuilder, error) {
+	if catalog == nil {
+		return nil, fmt.Errorf("catalog is required")
 	}
-	return billingcompose.PrincipalSessionIdentity(billingcompose.SnapshotRefFuncs{
-		CustomerPricingRef: in.Catalog.CustomerPricingRef,
-		ChargePolicyRef:    in.Catalog.ChargePolicyRef,
-		OperatorRateRef:    in.Catalog.OperatorRateRef,
+	ctx := context.Background()
+	tariff, err := catalog.DefaultTariff(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("default tariff: %w", err)
+	}
+	policy, err := catalog.Policy(ctx, lipapi.Call{})
+	if err != nil {
+		return nil, fmt.Errorf("default policy: %w", err)
+	}
+	return billing.NewObservationEconomicWorkBuilder(billing.ObservationEconomicWorkBuilderConfig{
+		CustomerInput: func(_ context.Context, subject metering.SubjectRef, observations []metering.Observation) (economics.PostUsageRatingInput, error) {
+			return billing.BuildCustomerPolicyObservationInput(subject, observations, policy.Clone(), tariff.Clone())
+		},
 	})
+}
+
+func stockOrOverrideIdentity(in ComposeBillingInput) runtimecore.BillingIdentity {
+	var identity runtimecore.BillingIdentity
+	if in.Identity != nil {
+		identity = *in.Identity
+	} else {
+		identity = billingcompose.PrincipalSessionIdentity(billingcompose.SnapshotRefFuncs{
+			CustomerPricingRef: in.Catalog.CustomerPricingRef,
+			ChargePolicyRef:    in.Catalog.ChargePolicyRef,
+			OperatorRateRef:    in.Catalog.OperatorRateRef,
+		})
+	}
+	// The authoritative store is the only trusted source for durable lineage.
+	// Preserve an explicitly supplied custom resolver; stock composition fills
+	// the resolver only when the custom identity leaves it absent.
+	if identity.StoreID == nil {
+		if store, ok := in.Store.(interface{ StoreID() string }); ok {
+			storeID := strings.TrimSpace(store.StoreID())
+			identity.StoreID = func(context.Context) string { return storeID }
+		}
+	}
+	return identity
 }
 
 func copyMoney(m *billing.Money) *billing.Money {

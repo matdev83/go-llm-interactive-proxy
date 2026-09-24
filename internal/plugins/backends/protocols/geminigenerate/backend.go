@@ -71,6 +71,7 @@ func NewBackend(cfg Config) execbackend.Backend {
 				if cerr != nil {
 					return nil, fmt.Errorf("%s: client: %w", id, cerr)
 				}
+				observePreparedInput(ctx, sp)
 				seq := cli.Models.GenerateContentStream(ctx, sp.Model, sp.Contents, sp.Config)
 				es := newGenaiStream(seq, id, call.MaxPendingWireEvents)
 				ev, rerr := es.Recv(ctx)

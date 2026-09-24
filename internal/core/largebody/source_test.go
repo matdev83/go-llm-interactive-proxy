@@ -41,7 +41,7 @@ func TestCompletedSource_MemoryOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open r1 failed: %v", err)
 	}
-	defer r1.Close()
+	defer func() { _ = r1.Close() }()
 
 	data1, err := io.ReadAll(r1)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestCompletedSource_MemoryOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open r2 failed: %v", err)
 	}
-	defer r2.Close()
+	defer func() { _ = r2.Close() }()
 
 	data2, err := io.ReadAll(r2)
 	if err != nil {
@@ -103,7 +103,7 @@ func TestCompletedSource_SpillToFile_ParallelIndependentReaders(t *testing.T) {
 	memPrefix := payload[:128]
 	diskSuffix := payload[128:]
 
-	if err := os.WriteFile(filePath, diskSuffix, 0600); err != nil {
+	if err := os.WriteFile(filePath, diskSuffix, 0o600); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -115,7 +115,7 @@ func TestCompletedSource_SpillToFile_ParallelIndependentReaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompletedSource failed: %v", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	if src.Size() != int64(len(payload)) {
 		t.Fatalf("Size got %d, want %d", src.Size(), len(payload))
@@ -142,7 +142,7 @@ func TestCompletedSource_SpillToFile_ParallelIndependentReaders(t *testing.T) {
 				errs <- fmt.Errorf("reader %d: Open failed: %w", readerIdx, err)
 				return
 			}
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 
 			// Read chunk by chunk with varied buffer sizes to test independence
 			bufSize := 17 + (readerIdx*11)%64
@@ -201,7 +201,7 @@ func TestCompletedSource_RetrySecondAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buf.Complete: %v", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	// Attempt 1: read partially (simulate connection failure mid-stream), then close
 	r1, err := src.Open()
@@ -223,7 +223,7 @@ func TestCompletedSource_RetrySecondAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("attempt 2 Open: %v", err)
 	}
-	defer r2.Close()
+	defer func() { _ = r2.Close() }()
 
 	fullData, err := io.ReadAll(r2)
 	if err != nil {
@@ -461,7 +461,7 @@ func TestCompletedSource_FaultInjection_OpenFileFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompletedSource: %v", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	_, err = src.Open()
 	if !errors.Is(err, injectedErr) {
@@ -518,7 +518,7 @@ func TestCompletedSource_Confidentiality(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buf.Complete: %v", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	str := fmt.Sprint(src)
 	if bytes.Contains([]byte(str), []byte(secretPrompt)) {
@@ -554,7 +554,7 @@ func TestSpillBuffer_Complete_TransitionsToImmutableSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buf.Complete: %v", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	// Subsequent Write on buf MUST fail (immutable completed source; Requirement 10.1)
 	if _, err := buf.Write([]byte("cannot write after complete")); !errors.Is(err, largebody.ErrAlreadyCompleted) && !errors.Is(err, largebody.ErrSpillClosed) {
@@ -571,7 +571,7 @@ func TestSpillBuffer_Complete_TransitionsToImmutableSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buf.Open after Complete: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		t.Fatalf("ReadAll: %v", err)
@@ -596,7 +596,7 @@ func TestCaptureRequestBody_CompletesToSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	result := largebody.CaptureRequestBody(body, buf, largebody.CaptureConfig{
 		MaxBytes: 1024,
@@ -616,7 +616,7 @@ func TestCaptureRequestBody_CompletesToSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Source.Open: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	captured, err := io.ReadAll(rc)
 	if err != nil {

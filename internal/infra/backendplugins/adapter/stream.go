@@ -9,9 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
@@ -156,8 +158,23 @@ type managedStream struct {
 	stderrBytes       int
 	usageMu           sync.Mutex
 	usageEvidence     []lipapi.Event
+	economicMu        sync.Mutex
+	economicEvidence  economicEvidenceBuffer
 	promptCacheMu     sync.Mutex
 	promptCacheBuffer promptcache.ObservationBuffer
+}
+
+// AccountingEvidenceEnabled reports whether this adapter negotiated a typed
+// host-only accounting sideband that owns the canonical provider usage path.
+// Legacy V1 is deliberately not reported here: its six counters have no
+// source-role marker, so each connector must project its own canonical key
+// when V1 is authoritative. Keeping V1 false also preserves auxiliary/native
+// V1 evidence (for example Codex compaction) alongside primary usage.
+func (s *managedStream) AccountingEvidenceEnabled() bool {
+	if s == nil {
+		return false
+	}
+	return backendplugin.AccountingEvidenceV2Negotiated(s.opt.Negotiation)
 }
 
 func (s *managedStream) CancellationProgress() CancellationProgress {
@@ -425,6 +442,18 @@ func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {
 		}
 		return nil
 	case backendplugin.ServerFrameAccountingEvidence:
+		if frame.AccountingV2 != nil {
+			if !backendplugin.AccountingEvidenceV2Negotiated(s.opt.Negotiation) {
+				return ProtocolViolation(backendplugin.ErrAccountingEvidenceV2Unsupported)
+			}
+			s.economicMu.Lock()
+			err := s.economicEvidence.append(*frame.AccountingV2)
+			s.economicMu.Unlock()
+			if err != nil {
+				return ProtocolViolation(err)
+			}
+			return nil
+		}
 		if !slices.Contains(s.opt.Negotiation.EnabledFeatures, backendplugin.FeatureAccountingEvidence) {
 			return ProtocolViolation(backendplugin.ErrInvalidFrame)
 		}
@@ -503,6 +532,65 @@ func (s *managedStream) DrainUsageEvidence() []lipapi.Event {
 	s.usageEvidence = nil
 	return out
 }
+
+// DrainAccountingEvidenceV2 returns host-only canonical observations and never
+// publishes them on the client-visible event stream.
+func (s *managedStream) DrainAccountingEvidenceV2() []backendplugin.AccountingEvidenceV2 {
+	if s == nil {
+		return nil
+	}
+	s.economicMu.Lock()
+	defer s.economicMu.Unlock()
+	return s.economicEvidence.drain()
+}
+
+// DrainEconomicEvidence is the neutral naming alias used by shared connector
+// support. Both methods drain the same buffer and therefore cannot duplicate a
+// provider charge.
+func (s *managedStream) DrainEconomicEvidence() []backendplugin.AccountingEvidenceV2 {
+	return s.DrainAccountingEvidenceV2()
+}
+
+// DrainEconomicEvidenceRecords is the internal core projection. It retains
+// the transport coverage disposition while handing the canonical observation
+// to runtime without importing the backend-plugin wire package into core.
+func (s *managedStream) DrainEconomicEvidenceRecords() []execbackend.EconomicEvidence {
+	evidence := s.DrainAccountingEvidenceV2()
+	if len(evidence) == 0 {
+		return nil
+	}
+	out := make([]execbackend.EconomicEvidence, len(evidence))
+	for i, item := range evidence {
+		out[i] = execbackend.EconomicEvidence{
+			Observation:    item.Observation.Clone(),
+			Coverage:       string(item.Coverage),
+			CoverageReason: item.CoverageReason,
+		}
+	}
+	return out
+}
+
+// DrainEconomicObservations is the core-facing projection of the validated
+// host-only V2 sideband. Coverage is a transport disposition and the
+// canonical observation remains the durable economic payload.
+func (s *managedStream) DrainEconomicObservations() []metering.Observation {
+	evidence := s.DrainAccountingEvidenceV2()
+	if len(evidence) == 0 {
+		return nil
+	}
+	out := make([]metering.Observation, 0, len(evidence))
+	for _, item := range evidence {
+		out = append(out, item.Observation.Clone())
+	}
+	return out
+}
+
+var (
+	_ backendplugin.AccountingEvidenceV2Source = (*managedStream)(nil)
+	_ backendplugin.EconomicEvidenceSource     = (*managedStream)(nil)
+	_ execbackend.EconomicEvidenceSource       = (*managedStream)(nil)
+	_ metering.ObservationSource               = (*managedStream)(nil)
+)
 
 func accountingEvidenceToEvent(e *backendplugin.AccountingEvidence) (lipapi.Event, error) {
 	if e == nil {

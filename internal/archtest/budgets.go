@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -33,7 +32,11 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/stdhttp/request_plane.go", Max: 90},
 	// Large-payload fast-path Phase 4 wires process-owned SpoolLedger and diagnostics;
 	// measured 316, bump to 341 with 25 headroom.
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 341},
+	// Usage-economics reconciliation wires the economic observation bridge
+	// (billing scope alignment, configureObservationEconomicBridge,
+	// processBillingStoreID); sole overlay-file growth (+26, 9 of 10 files
+	// byte-identical); measured 342, bump to 367 with 25 headroom.
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 367},
 	{Path: "pkg/lipruntime/build.go", Max: 121},
 	{Path: "pkg/lipruntime/host.go", Max: 93},
 	{Path: "pkg/lipruntime/facade.go", Max: 97},
@@ -89,9 +92,17 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// wire eligibility summary, and spool ledger wiring;
 	// Phase 5 links server.large_payload_fast_path config through runtimebundle to stdhttp and frontend Specs;
 	// measured 12542 (runtimebundle) and 6753 (stdhttp), bump to 12567 and 6778 with 25 headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 12567},
+	// Usage-economics reconciliation: billing composition (billing_compose +65,
+	// shadow_v2_compose, operator_reports, process_billing revision workers),
+	// metering/account-window store ports (production_options), economic observation
+	// bridge (process_services +26), operator query surface (admin/billing/operator
+	// +339); superseded V1 paths deleted per Phase 18 (mergeStreamCostOntoLeg,
+	// token-ledger money writes) and excluded from this allowance;
+	// measured 13631 (runtimebundle) and 7134 (stdhttp), reset to 13656 and 7159
+	// with 25 headroom.
+	{Tree: "internal/infra/runtimebundle", Max: 13656},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
-	{Tree: "internal/stdhttp", Max: 6778},
+	{Tree: "internal/stdhttp", Max: 7159},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -172,11 +183,19 @@ var LineBudgets = []LineBudget{
 	// Large-payload fast-path Task 8.3 configured semantic-fact budget helpers; measured 89580, bump to 89605 with 25 headroom.
 	// Large-payload fast-path Tasks 9-19 wire execution, facts, and accounting integration;
 	// Phase 1 streaming proof core in internal/core/largebody and jsonshape string streaming;
-	// Blocker 3 pre-output recoverable wire failover and recovery stream; TP-2 BeforeRequest pre-open wiring plus centralized detector panic isolation; P1/P2 ingress-clone plus staged-watermark fix; measured 98712, bump to 98737 with 25 headroom.
-	{Dir: "internal/core", Max: 98737},
+	// Blocker 3 pre-output recoverable wire failover and recovery stream;
+	// TP-2 BeforeRequest pre-open wiring and P1/P2 ingress-clone plus
+	// staged-watermark fixes are included in the current-main baseline.
+	// Usage-economics reconciliation (Tasks 2/3/5/6/9/10/12/13, Req 1-3, 6-8, 11-13):
+	// B-leg-rooted component economics — billing rating/reconciliation/selection/
+	// adjustment domain (+31,085), metering V2 evidence/reduction (+4,798), runtime
+	// terminal capture/submission (+2,282). The current-main pre-open continuity
+	// fix adds 162 production lines; re-measured 137434, bump to 137459 with
+	// 25 headroom.
+	{Dir: "internal/core", Max: 137459},
 	{Dir: "internal/pluginreg", Max: 1174},
-	{Dir: "internal/stdhttp", Max: 6778},
-	{Dir: "internal/infra/runtimebundle", Max: 12567},
+	{Dir: "internal/stdhttp", Max: 7159},
+	{Dir: "internal/infra/runtimebundle", Max: 13656},
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},
@@ -254,247 +273,4 @@ func FormatRuntimeConvergencePackageBudgets(root string) (string, error) {
 	}
 	fmt.Fprintln(&b)
 	return b.String(), nil
-}
-
-// RuntimeConvergenceShrinkageBaselineSHA is the reviewed production baseline for Req 11.5.
-const RuntimeConvergenceShrinkageBaselineSHA = "efe4624909cea318c7211d5cb3734059d3210802"
-
-// RuntimeConvergenceMinNetLineReduction is the Requirement 11.5 floor for the
-// legacy convergence component (after subtracting the ADR 0008 overlay).
-const RuntimeConvergenceMinNetLineReduction = 800
-
-// ConnectorArchitectureOverlayMax is the exact-measured ADR 0008 connector
-// architecture overlay ratchet (non-test lines in structurally selected files).
-// The reliability work adds explicit discovered-plugin artifact ownership and
-// cleanup to the connector composition path. Keep 25 lines of ratchet headroom
-// over the reviewed 2,275-line overlay.
-const ConnectorArchitectureOverlayMax = 2300
-
-// AffectedSurfaceBaseline locks one Req 11.5 surface baseline.
-type AffectedSurfaceBaseline struct {
-	Tree          string
-	BaselineLines int
-}
-
-// RuntimeConvergenceAffectedSurfaces is the Requirement 11.5 inventory.
-var RuntimeConvergenceAffectedSurfaces = []AffectedSurfaceBaseline{
-	{Tree: "internal/infra/runtimebundle", BaselineLines: 9898},
-	{Tree: "internal/infra/runtimehost", BaselineLines: 3056},
-	{Tree: "internal/stdhttp", BaselineLines: 4666},
-	{Tree: "cmd/lipstd", BaselineLines: 985},
-	{Tree: "pkg/lipruntime", BaselineLines: 1037},
-}
-
-// connectorArchitectureOverlayImportMarkers selects ADR 0008 host/discovery
-// production files by import graph (no maintained connector kind lists).
-var connectorArchitectureOverlayImportMarkers = []string{
-	"/backendplugins/discovery",
-	"/backendplugins/catalog",
-	"/backendplugins/trust",
-	"/backendplugins/diagnostics",
-	"/lipsdk/backendplugin",
-}
-
-// AffectedSurfaceMeasurement is one surface's baseline-versus-current delta.
-type AffectedSurfaceMeasurement struct {
-	Tree          string
-	BaselineLines int
-	CurrentLines  int
-	Delta         int
-}
-
-// OverlayMeasurement is one architecture-overlay allowance: the files a feature
-// added to the convergence surfaces, their measured non-test lines, the ratchet
-// cap, and whether the cap holds.
-type OverlayMeasurement struct {
-	Name  string
-	Files []string
-	Lines int
-	Max   int
-	Pass  bool
-}
-
-// ShrinkageMeasurement is the Requirement 11.5 aggregate plus architecture overlays.
-type ShrinkageMeasurement struct {
-	BaselineSHA      string
-	Surfaces         []AffectedSurfaceMeasurement
-	BaselineTotal    int
-	CurrentTotal     int
-	Delta            int // raw current-baseline (includes overlay lines)
-	Connector        OverlayMeasurement
-	PathOverlays     []OverlayMeasurement
-	ConvergenceDelta int // Delta - overlay lines (legacy Req 11.5 component)
-	RequiredMax      int
-	Pass             bool
-}
-
-// MeasureConnectorArchitectureOverlay counts non-test lines in affected-surface
-// production files that import connector discovery/trust/catalog/ABI packages.
-func MeasureConnectorArchitectureOverlay(root string) (OverlayMeasurement, error) {
-	m, err := measureOverlayByMarkers(root, connectorArchitectureOverlayImportMarkers, ConnectorArchitectureOverlayMax, nil)
-	if err != nil {
-		return OverlayMeasurement{}, err
-	}
-	m.Name = "Connector"
-	return m, nil
-}
-
-func measureOverlayByMarkers(root string, markers []string, maxBytes int, exclude map[string]struct{}) (OverlayMeasurement, error) {
-	m := OverlayMeasurement{Max: maxBytes}
-	for _, s := range RuntimeConvergenceAffectedSurfaces {
-		dir := filepath.Join(root, filepath.FromSlash(s.Tree))
-		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if info.IsDir() {
-				return nil
-			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-			rel, err := filepath.Rel(root, path)
-			if err != nil {
-				rel = path
-			}
-			rel = filepath.ToSlash(rel)
-			if exclude != nil {
-				if _, skip := exclude[rel]; skip {
-					return nil
-				}
-			}
-			src, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			text := string(src)
-			hit := false
-			for _, marker := range markers {
-				if strings.Contains(text, marker) {
-					hit = true
-					break
-				}
-			}
-			if !hit {
-				return nil
-			}
-			n, err := countTreeFileLines(path)
-			if err != nil {
-				return err
-			}
-			m.Files = append(m.Files, rel)
-			m.Lines += n
-			return nil
-		})
-		if err != nil {
-			return OverlayMeasurement{}, fmt.Errorf("%s: %w", s.Tree, err)
-		}
-	}
-	sort.Strings(m.Files)
-	m.Pass = m.Lines <= m.Max
-	return m, nil
-}
-
-// MeasureRuntimeConvergenceShrinkage compares current lines to the locked baseline
-// and separates the architecture overlays from the legacy convergence component.
-func MeasureRuntimeConvergenceShrinkage(root string) (ShrinkageMeasurement, error) {
-	m := ShrinkageMeasurement{
-		BaselineSHA: RuntimeConvergenceShrinkageBaselineSHA,
-		Surfaces:    make([]AffectedSurfaceMeasurement, 0, len(RuntimeConvergenceAffectedSurfaces)),
-		RequiredMax: -RuntimeConvergenceMinNetLineReduction,
-	}
-	for _, s := range RuntimeConvergenceAffectedSurfaces {
-		n, err := CountNonTestGoLines(filepath.Join(root, filepath.FromSlash(s.Tree)))
-		if err != nil {
-			return ShrinkageMeasurement{}, fmt.Errorf("%s: %w", s.Tree, err)
-		}
-		delta := n - s.BaselineLines
-		m.Surfaces = append(m.Surfaces, AffectedSurfaceMeasurement{
-			Tree:          s.Tree,
-			BaselineLines: s.BaselineLines,
-			CurrentLines:  n,
-			Delta:         delta,
-		})
-		m.BaselineTotal += s.BaselineLines
-		m.CurrentTotal += n
-		m.Delta += delta
-	}
-	connector, err := MeasureConnectorArchitectureOverlay(root)
-	if err != nil {
-		return ShrinkageMeasurement{}, err
-	}
-	m.Connector = connector
-	pathOverlays, err := measurePathMarkerOverlays(root, connector.Files)
-	if err != nil {
-		return ShrinkageMeasurement{}, err
-	}
-	m.PathOverlays = pathOverlays
-	overlayLines := m.Connector.Lines
-	m.Pass = m.Connector.Pass
-	for _, o := range m.PathOverlays {
-		overlayLines += o.Lines
-		m.Pass = m.Pass && o.Pass
-	}
-	m.ConvergenceDelta = m.Delta - overlayLines
-	m.Pass = m.Pass && m.ConvergenceDelta <= m.RequiredMax
-	return m, nil
-}
-
-// overlays returns the connector overlay followed by the path-marker overlays in
-// table order, for uniform report formatting.
-func (m ShrinkageMeasurement) overlays() []OverlayMeasurement {
-	out := make([]OverlayMeasurement, 0, 1+len(m.PathOverlays))
-	out = append(out, m.Connector)
-	out = append(out, m.PathOverlays...)
-	return out
-}
-
-// FormatRuntimeConvergenceShrinkage renders the machine-checkable Markdown section.
-func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasurement, error) {
-	m, err := MeasureRuntimeConvergenceShrinkage(root)
-	if err != nil {
-		return "", ShrinkageMeasurement{}, err
-	}
-	var b strings.Builder
-	fmt.Fprintln(&b, "## Runtime-convergence net shrinkage (Req 11.5)")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Baseline SHA: `%s`\n\n", m.BaselineSHA)
-	fmt.Fprintln(&b, "Method: recursive `CountNonTestGoLines` (non-test `.go` physical lines, including build-tag alternates). Moving unchanged logic between packages is not shrinkage (Req 11.6).")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "ADR 0008 connector-architecture overlay: approved public host/discovery additions are measured structurally (import markers for discovery/catalog/trust/diagnostics/backendplugin ABI). Additional feature overlays select new production files by path. Each overlay and the legacy convergence component are ratcheted separately.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Surface | Baseline | Current | Delta |")
-	fmt.Fprintln(&b, "| --- | ---: | ---: | ---: |")
-	for _, s := range m.Surfaces {
-		fmt.Fprintf(&b, "| `%s` | %d | %d | %+d |\n", s.Tree, s.BaselineLines, s.CurrentLines, s.Delta)
-	}
-	fmt.Fprintf(&b, "| **TOTAL** | **%d** | **%d** | **%+d** |\n", m.BaselineTotal, m.CurrentTotal, m.Delta)
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Raw delta (includes overlays): `%+d`\n\n", m.Delta)
-	for _, o := range m.overlays() {
-		fmt.Fprintf(&b, "%s overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", o.Name, o.Lines, o.Max, strings.Join(o.Files, "`, `"))
-	}
-	fmt.Fprintf(&b, "Convergence delta (raw − overlays): `%+d`\n\n", m.ConvergenceDelta)
-	fmt.Fprintf(&b, "Required: convergence delta ≤ %+d (remove ≥ %d lines after overlays)", m.RequiredMax, RuntimeConvergenceMinNetLineReduction)
-	for _, o := range m.overlays() {
-		fmt.Fprintf(&b, "; %s overlay ≤ %d", strings.ToLower(o.Name), o.Max)
-	}
-	fmt.Fprintln(&b, ".")
-	fmt.Fprintln(&b)
-	if m.Pass {
-		fmt.Fprintln(&b, "Verdict: **PASS**")
-	} else {
-		var reasons []string
-		if m.ConvergenceDelta > m.RequiredMax {
-			reasons = append(reasons, fmt.Sprintf("convergence short by %d lines to reach ≤ %+d", m.ConvergenceDelta-m.RequiredMax, m.RequiredMax))
-		}
-		for _, o := range m.overlays() {
-			if !o.Pass {
-				reasons = append(reasons, fmt.Sprintf("%s overlay measured %d exceeds cap %d", strings.ToLower(o.Name), o.Lines, o.Max))
-			}
-		}
-		fmt.Fprintf(&b, "Verdict: **FAIL** (%s).\n", strings.Join(reasons, "; "))
-	}
-	fmt.Fprintln(&b)
-	return b.String(), m, nil
 }

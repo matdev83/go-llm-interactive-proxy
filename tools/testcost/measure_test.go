@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -81,12 +82,41 @@ func TestBuildQualityChecksRequestExactEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantArgv := []string{"powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/quality-checks.ps1"}
-	wantEnv := []string{"CI=", "LIP_VERIFY_MODULE_CACHE=", "LIP_SKIP_ARCHTEST=1", "LIP_SKIP_GO_COMPILE_CHECKS=1", "LIP_TEST_PARALLEL=3", "TEMP=" + tempRoot, "TMP=" + tempRoot}
+	wantEnv := []string{"CI=", "LIP_VERIFY_MODULE_CACHE=", "LIP_SKIP_ARCHTEST=1", "LIP_SKIP_GO_COMPILE_CHECKS=1", "LIP_SKIP_LINT=1", "LIP_TEST_PARALLEL=3", "TEMP=" + tempRoot, "TMP=" + tempRoot}
 	if !reflect.DeepEqual(request.Argv, wantArgv) || !reflect.DeepEqual(request.Env, wantEnv) || request.ClearEnv {
 		t.Fatalf("quality request argv/env/clear = %#v/%#v/%v", request.Argv, request.Env, request.ClearEnv)
 	}
 	if !request.RestrictAdmin {
 		t.Fatal("quality measurement must run with an administrative SID disabled")
+	}
+}
+
+func TestBuildQualityChecksRequestSkipsLintOnlyForCostMeasurement(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS != "windows" {
+		t.Skip("quality-checks measurement is Windows-only")
+	}
+	root := t.TempDir()
+	tempRoot := t.TempDir()
+	quality, err := BuildQualityChecksRequest(MeasureOptions{Root: root, TempRoot: tempRoot, Parallel: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(quality.Env, "LIP_SKIP_LINT=1") {
+		t.Fatalf("quality-checks cost measurement must set LIP_SKIP_LINT=1 for anchor/head fairness: env = %#v", quality.Env)
+	}
+	for name, build := range map[string]func(MeasureOptions) (taskrunner.Request, error){
+		"test-unit":          BuildTestUnitRequest,
+		"qa-tagged-hotspots": BuildQATaggedHotspotsRequest,
+	} {
+		request, err := build(MeasureOptions{Root: root, TempRoot: tempRoot, Parallel: 3})
+		if err != nil {
+			t.Fatalf("%s request: %v", name, err)
+		}
+		if slices.Contains(request.Env, "LIP_SKIP_LINT=1") {
+			t.Fatalf("LIP_SKIP_LINT must stay isolated to the quality-checks cost target; %s env = %#v", name, request.Env)
+		}
 	}
 }
 

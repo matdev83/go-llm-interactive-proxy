@@ -76,6 +76,7 @@ type WireBillingExposureArgs struct {
 // WireExposureAbortArgs carries bounded facts for recording an exposure abort closure (Req 15.6, 19).
 type WireExposureAbortArgs struct {
 	BillingCallID   billing.BillingCallID
+	SubmissionID    string
 	Exposure        billing.CallExposure
 	ALegID          string
 	SessionID       string
@@ -249,6 +250,10 @@ func (e *Executor) stampExposureIdentity(ctx context.Context, prep *preparedRequ
 	if e == nil || prep == nil {
 		return
 	}
+	// Direct admission tests and alternate composition paths may stamp account
+	// identity without passing through prepareRequest. Preserve the same
+	// once-only trusted StoreID freeze for those paths.
+	e.stampBillingStoreID(ctx, prep)
 	fallbackAccount := ""
 	if e.BillingIdentity.AccountID != nil {
 		fallbackAccount = e.BillingIdentity.AccountID(ctx, *prep.call)
@@ -270,6 +275,12 @@ func (e *Executor) stampExposureIdentity(ctx context.Context, prep *preparedRequ
 	prep.billingAccountID = resolved.AccountID
 	prep.billingCustomerPricing = resolved.PricingRef
 	prep.billingChargePolicy = resolved.ChargePolicyRef
+	// Freeze the trusted customer scope on the per-call billing state while
+	// the admission context is live, so terminal handoffs on detached
+	// contexts still observe it.
+	if sc, ok := scope.ScopeFromContext(ctx); ok {
+		prep.billingCallState.freezeScope(sc)
+	}
 }
 
 // AuthorizeWireBilling admits operational exposure from bounded wire facts post-quote
@@ -333,6 +344,37 @@ func (e *Executor) AuthorizeWireBilling(ctx context.Context, args WireBillingExp
 	return stamped, nil
 }
 
+// frozenPrepScope resolves the frozen trusted request scope: the
+// identity-bound scope first, the request context scope as fallback. It
+// carries values only and never invents identity.
+func frozenPrepScope(ctx context.Context, prep *preparedRequest) scope.PrincipalScopeView {
+	if prep != nil && prep.identity != nil && prep.identity.hasPrincipal {
+		return prep.identity.scope
+	}
+	if sc, ok := scope.ScopeFromContext(ctx); ok {
+		return sc
+	}
+	return scope.PrincipalScopeView{}
+}
+
+// withTerminalScope carries frozen trusted scope onto a terminal handoff
+// context without touching cancellation or deadlines. The frozen admission
+// scope is authoritative for monetary terminalization: when present it is
+// carried regardless of absent or conflicting live context, and a live
+// context may never replace it. Fields are never merged across principals.
+// Without frozen scope the live context passes through unchanged, which is
+// valid only for non-admitted and pre-freeze paths; admitted monetary paths
+// fail closed downstream when scope is still missing.
+func withTerminalScope(ctx context.Context, frozen scope.PrincipalScopeView) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if frozen.PrincipalID.IsKnown() {
+		return scope.WithScope(ctx, frozen)
+	}
+	return ctx
+}
+
 func (e *Executor) billingRoutePlanInput(ctx context.Context, prep *preparedRequest, plan *routePlanState) BillingRoutePlanInput {
 	if prep == nil || plan == nil {
 		return BillingRoutePlanInput{}
@@ -346,6 +388,11 @@ func (e *Executor) billingRoutePlanInput(ctx context.Context, prep *preparedRequ
 		v := *prep.call.Options.MaxOutputTokens
 		maxOut = &v
 	}
+	// The frozen trusted request scope rides the admission input exactly
+	// like the wire path carries it: identity-bound scope first, request
+	// context scope as the fallback. The credited account follows the
+	// shared wire fallback chain so canonical and wire admission agree.
+	sc := frozenPrepScope(ctx, prep)
 	return BillingRoutePlanInput{
 		Call:            lipapi.CloneCall(*prep.call),
 		TraceID:         prep.identity.traceID,
@@ -353,8 +400,10 @@ func (e *Executor) billingRoutePlanInput(ctx context.Context, prep *preparedRequ
 		BillingCallID:   prep.billingCallID.String(),
 		Route:           plan.sel,
 		RequestSize:     e.billingRequestSize(ctx, prep, plan),
+		Scope:           sc,
 		SessionID:       sessID,
 		MaxOutputTokens: maxOut,
+		AccountID:       e.wireBillingAccountID(ctx, "", sc),
 	}
 }
 
@@ -396,6 +445,7 @@ func (e *Executor) appendAbortClosureRecord(ctx context.Context, args WireExposu
 	record := billing.CallUsageRecord{
 		SchemaVersion:      billing.CurrentRecordSchemaVersion,
 		CallID:             args.BillingCallID,
+		SubmissionID:       strings.TrimSpace(args.SubmissionID),
 		AccountID:          accountID,
 		ALegID:             strings.TrimSpace(args.ALegID),
 		SessionID:          strings.TrimSpace(args.SessionID),
@@ -437,8 +487,11 @@ func (e *Executor) appendExposureAbortClosure(ctx context.Context, prep *prepare
 	if prep.billingCallState != nil {
 		bLegs = prep.billingCallState.freezeAllocatedBLegs()
 	}
-	_ = e.appendAbortClosureRecord(ctx, WireExposureAbortArgs{
+	// The frozen prep scope rides the abort handoff even on detached
+	// contexts, matching the wire abort path which carries explicit scope.
+	_ = e.appendAbortClosureRecord(withTerminalScope(ctx, frozenPrepScope(ctx, prep)), WireExposureAbortArgs{
 		BillingCallID:   prep.billingCallID,
+		SubmissionID:    submissionIDForBilling(prep.submission),
 		Exposure:        prep.billingExposure,
 		ALegID:          aLegID,
 		SessionID:       sessID,

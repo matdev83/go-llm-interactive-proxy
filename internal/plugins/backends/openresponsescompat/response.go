@@ -112,8 +112,8 @@ func resourceToEvents(id string, resource *proto.WireResponseResource, limits Re
 		}
 	}
 
-	if usagePresent(resource.Usage) {
-		events = append(events, usageEvent(resource.Usage))
+	if resource.UsagePresent || usagePresent(resource.Usage) {
+		events = append(events, usageEventWithContext(resource.Usage, resource.ID, resource.ServiceTier))
 	}
 
 	switch resource.Status {
@@ -279,18 +279,52 @@ func resourceIncompleteReason(data []byte) string {
 }
 
 func usageEvent(u proto.WireUsage) lipapi.Event {
-	return lipapi.Event{
+	return usageEventWithContext(u, "", "")
+}
+
+func usageEventWithContext(u proto.WireUsage, requestID, serviceTier string) lipapi.Event {
+	raw := u.RawJSON
+	if len(raw) == 0 {
+		raw, _ = json.Marshal(u)
+	}
+	ev := lipapi.Event{
 		Kind:            lipapi.EventUsageDelta,
 		InputTokens:     u.InputTokens,
 		OutputTokens:    u.OutputTokens,
 		TotalTokens:     u.TotalTokens,
 		CacheReadTokens: u.InputTokensDetails.CachedTokens,
 		ReasoningTokens: u.OutputTokensDetails.ReasoningTokens,
+		RawUsageJSON:    string(raw),
+		Accounting: lipapi.UsageAccountingMetadata{
+			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported,
+			Authority:         lipapi.UsageAuthorityAuthoritative,
+			ProviderRequestID: strings.TrimSpace(requestID),
+			ServiceContext:    strings.TrimSpace(serviceTier),
+			DedupeKey:         "openresponses.compat.usage:stream",
+		},
 	}
+	ev.UsagePresence = lipapi.UsagePresence{
+		InputTokens:     u.InputTokensPresent || u.InputTokens != 0,
+		OutputTokens:    u.OutputTokensPresent || u.OutputTokens != 0,
+		CacheReadTokens: u.InputTokensDetails.CachedTokensPresent || u.InputTokensDetails.CachedTokens != 0,
+		ReasoningTokens: u.OutputTokensDetails.ReasoningTokensPresent || u.OutputTokensDetails.ReasoningTokens != 0,
+		TotalTokens:     u.TotalTokensPresent || u.TotalTokens != 0,
+	}
+	return ev
 }
 
 func usagePresent(u proto.WireUsage) bool {
-	return u.InputTokens != 0 || u.OutputTokens != 0 || u.TotalTokens != 0
+	return u.InputTokens != 0 || u.OutputTokens != 0 || u.TotalTokens != 0 ||
+		u.InputTokensDetails.CachedTokens != 0 || u.InputTokensDetails.TextTokens != 0 ||
+		u.InputTokensDetails.AudioTokens != 0 || u.InputTokensDetails.Images != 0 ||
+		u.OutputTokensDetails.ReasoningTokens != 0 || u.OutputTokensDetails.TextTokens != 0 ||
+		u.OutputTokensDetails.AudioTokens != 0 || u.OutputTokensDetails.Images != 0 ||
+		u.InputTokensPresent || u.OutputTokensPresent || u.TotalTokensPresent ||
+		u.InputTokensDetails.CachedTokensPresent || u.InputTokensDetails.TextTokensPresent ||
+		u.InputTokensDetails.AudioTokensPresent || u.InputTokensDetails.ImagesPresent ||
+		u.OutputTokensDetails.ReasoningTokensPresent || u.OutputTokensDetails.TextTokensPresent ||
+		u.OutputTokensDetails.AudioTokensPresent || u.OutputTokensDetails.ImagesPresent ||
+		len(nativeUsageMeasures(string(u.RawJSON))) > 0
 }
 
 func errorFromResource(resource *proto.WireResponseResource) (code, message string) {

@@ -56,13 +56,13 @@ func TestItem3_PrepareSelector_DoubleRunDedupe(t *testing.T) {
 	require.NotNil(t, plan)
 
 	// Invariant 1: buildRoutePlan must reuse the pre-computed selector instance without re-allocating
-	assert.Same(t, directSel, plan.routeFacts.sel,
+	assert.Same(t, directSel, plan.sel,
 		"buildRoutePlan must reuse wp.selector pointer rather than re-running routing.PrepareSelector")
 
 	// Invariant 2: Outcome parity - selector contents must match PrepareSelector result identically
-	assert.Equal(t, directSel.Affinity, plan.routeFacts.sel.Affinity)
-	assert.Equal(t, directSel.GlobalTTFTTimeout, plan.routeFacts.sel.GlobalTTFTTimeout)
-	require.Equal(t, len(directSel.Alternatives), len(plan.routeFacts.sel.Alternatives))
+	assert.Equal(t, directSel.Affinity, plan.sel.Affinity)
+	assert.Equal(t, directSel.GlobalTTFTTimeout, plan.sel.GlobalTTFTTimeout)
+	require.Equal(t, len(directSel.Alternatives), len(plan.sel.Alternatives))
 	assert.Equal(t, *directSel.Alternatives[0].Primary, *plan.routeFacts.sel.Alternatives[0].Primary)
 
 	// 3. Fallback verification: When wp.selector is nil, buildRoutePlan still computes an identical selector
@@ -81,8 +81,8 @@ func TestItem3_PrepareSelector_DoubleRunDedupe(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, planFallback)
 
-	assert.Equal(t, directSel.Affinity, planFallback.routeFacts.sel.Affinity)
-	assert.Equal(t, directSel.GlobalTTFTTimeout, planFallback.routeFacts.sel.GlobalTTFTTimeout)
-	require.Equal(t, len(directSel.Alternatives), len(planFallback.routeFacts.sel.Alternatives))
+	assert.Equal(t, directSel.Affinity, planFallback.sel.Affinity)
+	assert.Equal(t, directSel.GlobalTTFTTimeout, planFallback.sel.GlobalTTFTTimeout)
+	require.Equal(t, len(directSel.Alternatives), len(planFallback.sel.Alternatives))
 	assert.Equal(t, *directSel.Alternatives[0].Primary, *planFallback.routeFacts.sel.Alternatives[0].Primary)
 }

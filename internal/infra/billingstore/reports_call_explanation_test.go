@@ -118,3 +118,34 @@ func TestSQLiteCallExplanationMissingCallIsNotFound(t *testing.T) {
 		t.Fatalf("missing call explanation = %v, want ErrReportNotFound", err)
 	}
 }
+
+// TestSQLiteCallExplanationMissingExposureWithMalformedClosureIsNotFound
+// pins the public absence precedence: a missing exposure is the first
+// report-not-found boundary even when dependent closure data is malformed.
+// The tx-aware loader must not let a dependent-row decode error escape
+// ahead of the exposure boundary on the public path.
+func TestSQLiteCallExplanationMissingExposureWithMalformedClosureIsNotFound(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	_, err = store.db.NewRaw(`INSERT INTO usage_call_records(
+		usage_call_key, fingerprint, call_id, account_id, a_leg_id, session_id,
+		started_at, finished_at, outcome, expected_b_leg_ids, payload_json,
+		sealed_at, next_claim_at
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		"drift-key", "drift-fp", callID.String(), "drift-acct", "a-drift", "sess-drift",
+		now, now, "completed", "[]", "not-json{{{",
+		now, now).Exec(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.CallExplanation(ctx, callID.String())
+	if !errors.Is(err, billing.ErrReportNotFound) {
+		t.Fatalf("missing exposure with malformed closure = %v, want ErrReportNotFound", err)
+	}
+}

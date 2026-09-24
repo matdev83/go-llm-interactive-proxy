@@ -27,7 +27,7 @@ func (i *instance) ListModels(ctx context.Context, limit uint32) (backendplugin.
 			NativeModelID:    m.NativeID,
 			FactoryKind:      i.kind,
 			Capabilities: backendplugin.CapabilitySummary{
-				Streaming: true, Tools: true, Vision: true, Documents: true, ParallelToolCalls: true,
+				Streaming: true, Tools: true, ParallelToolCalls: true,
 			},
 		})
 	}

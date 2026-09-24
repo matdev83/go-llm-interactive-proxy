@@ -317,9 +317,10 @@ func compileSummaryWithPlane(t *testing.T, planeID string) largebody.WireEligibi
 			t.Fatalf("unknown plane index %d", i)
 		}
 		acc := largebody.PlaneAccessMetadataOnly
-		if id == "response_part_hooks" || id == "completion_gates" || id == "stream_observer_factories" || id == "usage_observers" {
+		switch id {
+		case "response_part_hooks", "completion_gates", "stream_observer_factories", "usage_observers":
 			acc = largebody.PlaneAccessResponseOnly
-		} else if id == planeID {
+		case planeID:
 			acc = largebody.PlaneAccessCanonicalRequired
 		}
 		planes[i] = largebody.PlaneEligibilityInput{

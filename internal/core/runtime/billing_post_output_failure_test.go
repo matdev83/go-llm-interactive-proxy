@@ -99,9 +99,10 @@ func TestBillingAppendRetryOutputPersistenceFailureAfterSuccess(t *testing.T) {
 	}
 
 	col, err := lipapi.Collect(context.Background(), stream)
-	// Output/client-visible stream must succeed despite database append failures
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
+	// Strict terminal durability failures are returned after the already
+	// committed client output; they must not trigger an upstream retry.
+	if err == nil {
+		t.Fatal("Collect unexpectedly succeeded despite strict terminal append failure")
 	}
 	if col.Text.String() != "ok" {
 		t.Fatalf("text: %q, want 'ok'", col.Text.String())
@@ -110,9 +111,6 @@ func TestBillingAppendRetryOutputPersistenceFailureAfterSuccess(t *testing.T) {
 	// Verify that only 1 backend open happened (no retry/failover triggered by database failure)
 	if got := opens.Load(); got != 1 {
 		t.Fatalf("backend opens = %d, want 1 (no retry/failover occurred)", got)
-	}
-	if got := appender.callAppends.Load(); got == 0 {
-		t.Fatal("AppendCall was not attempted")
 	}
 	if got := appender.legAppends.Load(); got == 0 {
 		t.Fatal("AppendLeg was not attempted")

@@ -180,7 +180,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	if err != nil {
 		return frontendpipe.ProofOutput{}, fmt.Errorf("openresponses: open replay source: %w", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	// 2. Pass 1: Streaming scan over replay bytes using jsonshape.Scanner + SHA-256 in fixed buffers (no ReadAll).
 	tracker := jsonshape.NewTopLevelSpanTracker("model", "input")
@@ -209,7 +209,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 	var largeArrayStatuses []lipapi.ItemStatus
 	var largeArrayDeclineErr error
 	var largeArrayHasID bool
-	var currentItemRole lipapi.Role = lipapi.RoleUser
+	currentItemRole := lipapi.RoleUser
 	var currentItemStatus lipapi.ItemStatus
 	var currentItemHasContent bool
 	var currentItemType string
@@ -278,18 +278,19 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 			switch e.Key {
 			case "store":
 				hasStore = true
-				if e.Type == jsonshape.EventFalse {
+				switch e.Type {
+				case jsonshape.EventFalse:
 					storeIsFalse = true
 					storeVal = "false"
-				} else if e.Type == jsonshape.EventTrue {
+				case jsonshape.EventTrue:
 					storeVal = "true"
-				} else if e.Type == jsonshape.EventNull {
+				case jsonshape.EventNull:
 					storeVal = "null"
-				} else if e.Type == jsonshape.EventString {
+				case jsonshape.EventString:
 					storeVal = fmt.Sprintf("%q", storeBuf.String())
-				} else if e.Type == jsonshape.EventNumber {
+				case jsonshape.EventNumber:
 					storeVal = "number"
-				} else {
+				default:
 					storeVal = "invalid"
 				}
 			case "stream":
@@ -411,14 +412,15 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					return errors.New("openresponses: model must be a string")
 				}
 			case "input":
-				if e.Type == jsonshape.EventString {
+				switch e.Type {
+				case jsonshape.EventString:
 					inputIsString = true
-				} else if e.Type == jsonshape.EventArrayStart {
+				case jsonshape.EventArrayStart:
 					inputIsArray = true
 					capturingInputArray = true
 					inputArrayStart = e.Offset
 					inputArrayBuf.Reset()
-				} else {
+				default:
 					return errors.New("openresponses: input must be a string or array")
 				}
 			// Unsupported controls fail-closed when non-null
@@ -478,7 +480,8 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		}
 
 		if e.TopLevel {
-			if e.Type == jsonshape.EventArrayEnd {
+			switch e.Type {
+			case jsonshape.EventArrayEnd:
 				if e.Key == "input" {
 					if capturingInputArray && !inputArrayIsLarge {
 						start := max(chunkStartOffset, inputArrayStart)
@@ -509,7 +512,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					capturingKey = ""
 					capturingBuf = nil
 				}
-			} else if e.Type == jsonshape.EventObjectEnd {
+			case jsonshape.EventObjectEnd:
 				if e.Key == capturingKey && capturingBuf != nil {
 					start := max(chunkStartOffset, capturingStart)
 					end := e.Offset + e.Length
@@ -531,7 +534,8 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		// Array items inside input
 		if !e.TopLevel && len(e.Path) >= 1 && e.Path[0] == "input" {
 			if len(e.Path) == 1 {
-				if e.Type == jsonshape.EventObjectStart {
+				switch e.Type {
+				case jsonshape.EventObjectStart:
 					arrayItemCount++
 					if arrayItemCount > frontendlimits.MaxMessages {
 						return frontendlimits.Count("input", arrayItemCount, frontendlimits.MaxMessages)
@@ -540,7 +544,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					currentItemStatus = ""
 					currentItemHasContent = false
 					currentItemType = ""
-				} else if e.Type == jsonshape.EventObjectEnd {
+				case jsonshape.EventObjectEnd:
 					if inputArrayIsLarge {
 						if currentItemType != "" && currentItemType != "message" && largeArrayDeclineErr == nil {
 							largeArrayDeclineErr = fmt.Errorf("openresponses: input item type %q requires canonical decode", currentItemType)
@@ -556,17 +560,20 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 					itemRoleBuf.Reset()
 					itemTypeBuf.Reset()
 					itemStatusBuf.Reset()
-				} else if e.Type != jsonshape.EventArrayEnd {
+				case jsonshape.EventArrayEnd:
+					// Array end needs no item action.
+				default:
 					return errors.New("openresponses: input array item must be an object")
 				}
 			} else if len(e.Path) == 2 {
-				if e.Type == jsonshape.EventKey {
+				switch e.Type {
+				case jsonshape.EventKey:
 					if e.Key == "id" {
 						largeArrayHasID = true
 					} else if e.Key != "role" && e.Key != "content" && e.Key != "type" && e.Key != "status" && largeArrayDeclineErr == nil {
 						largeArrayDeclineErr = fmt.Errorf("openresponses: unsupported input item field %q requires canonical decode", e.Key)
 					}
-				} else if e.Type == jsonshape.EventString {
+				case jsonshape.EventString:
 					switch e.Key {
 					case "role":
 						rStr := strings.TrimSpace(itemRoleBuf.String())
@@ -878,7 +885,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		if err != nil {
 			return frontendpipe.ProofOutput{}, fmt.Errorf("openresponses: open replay source (pass 2): %w", err)
 		}
-		defer rc2.Close()
+		defer func() { _ = rc2.Close() }()
 
 		idWriter, err := largebody.NewCallIdentityWriter(idCfg)
 		if err != nil {
@@ -1059,7 +1066,7 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		if err != nil {
 			return frontendpipe.ProofOutput{}, fmt.Errorf("openresponses: open replay source (pass 2): %w", err)
 		}
-		defer rc2.Close()
+		defer func() { _ = rc2.Close() }()
 
 		idWriter, err := largebody.NewCallIdentityWriter(idCfg)
 		if err != nil {
@@ -1540,7 +1547,7 @@ func compileStreamingCompactionFacts(
 	if err != nil {
 		return compactionfacts.RequestFacts{}, false, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	if inputIsString {
 		var hasher *compactionfacts.ItemHasher

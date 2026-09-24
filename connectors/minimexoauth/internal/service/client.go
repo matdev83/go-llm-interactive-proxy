@@ -19,10 +19,11 @@ import (
 
 // Client handles MiniMax OAuth communication and Anthropic Messages inference.
 type Client struct {
-	Config        Config
-	TokenProvider TokenProvider
-	OAuthSession  *oauthcred.Session
-	HTTPClient    *http.Client
+	Config               Config
+	TokenProvider        TokenProvider
+	OAuthSession         *oauthcred.Session
+	HTTPClient           *http.Client
+	accountingEvidenceV1 bool
 }
 
 func (c *Client) getHTTPClient() *http.Client {
@@ -266,10 +267,17 @@ func (c *Client) Execute(ctx context.Context, inv backendplugin.Invocation, call
 	}
 
 	if isStreaming {
-		return newAnthropicManagedSSEStream(resp), nil
+		stream := newAnthropicManagedSSEStream(resp)
+		stream.SetEnabled(c.accountingEvidenceV1)
+		return stream, nil
 	}
 
-	return newUnaryAnthropicStream(resp)
+	stream, err := newUnaryAnthropicStream(resp)
+	if err != nil {
+		return nil, err
+	}
+	stream.SetEnabled(c.accountingEvidenceV1)
+	return stream, nil
 }
 
 func extractAnthropicMessages(call lipapi.Call, inv backendplugin.Invocation) ([]messageItem, string) {
@@ -367,23 +375,42 @@ func extractTools(call lipapi.Call, inv backendplugin.Invocation) []map[string]a
 
 // anthropicManagedSSEStream processes SSE chunks from Anthropic proxy.
 type anthropicManagedSSEStream struct {
-	resp      *http.Response
-	sc        *bufio.Scanner
-	mu        sync.Mutex
-	closed    bool
-	started   bool
-	msgStart  bool
-	finished  bool
-	done      bool
-	pending   []lipapi.Event
-	toolCalls map[int]string
+	resp              *http.Response
+	sc                *bufio.Scanner
+	mu                sync.Mutex
+	closed            bool
+	started           bool
+	msgStart          bool
+	finished          bool
+	done              bool
+	pending           []lipapi.Event
+	toolCalls         map[int]string
+	providerUsage     lipapi.Event
+	providerUsageSeen bool
+	*backendplugin.UsageEvidenceBuffer
 }
 
 func newAnthropicManagedSSEStream(resp *http.Response) *anthropicManagedSSEStream {
 	sc := bufio.NewScanner(resp.Body)
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 1024*1024)
-	return &anthropicManagedSSEStream{resp: resp, sc: sc, toolCalls: make(map[int]string)}
+	return &anthropicManagedSSEStream{
+		resp: resp, sc: sc, toolCalls: make(map[int]string),
+		UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer(),
+	}
+}
+
+type anthropicUsageFields struct {
+	InputTokens              *int                          `json:"input_tokens"`
+	OutputTokens             *int                          `json:"output_tokens"`
+	CacheCreationInputTokens *int                          `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int                          `json:"cache_read_input_tokens"`
+	ReasoningTokens          *int                          `json:"reasoning_tokens"`
+	ThinkingTokens           *int                          `json:"thinking_tokens"`
+	TotalTokens              *int                          `json:"total_tokens"`
+	CacheCreation            *anthropicCacheCreationFields `json:"cache_creation"`
+	ServerToolUse            *anthropicServerToolUseFields `json:"server_tool_use"`
+	ServiceTier              string                        `json:"service_tier"`
 }
 
 type anthropicSSEPayload struct {
@@ -404,19 +431,15 @@ type anthropicSSEPayload struct {
 		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
 	Message struct {
-		Usage struct {
-			InputTokens              int `json:"input_tokens"`
-			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-		} `json:"usage"`
+		ID    string               `json:"id"`
+		Usage anthropicUsageFields `json:"usage"`
 	} `json:"message"`
-	Usage struct {
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage anthropicUsageFields `json:"usage"`
 	Error struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
 	} `json:"error"`
+	usagePresent bool
 }
 
 func (s *anthropicManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -432,13 +455,14 @@ func (s *anthropicManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, err
 		if len(s.pending) > 0 {
 			ev := s.pending[0]
 			s.pending = s.pending[1:]
-			return ev, nil
+			return s.canonicalUsageEvent(ev), nil
 		}
 		if s.done {
 			return lipapi.Event{}, io.EOF
 		}
 		if !s.sc.Scan() {
 			if err := s.sc.Err(); err != nil {
+				s.flushUsage()
 				return lipapi.Event{}, err
 			}
 			s.done = true
@@ -446,7 +470,7 @@ func (s *anthropicManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, err
 			if len(s.pending) > 0 {
 				ev := s.pending[0]
 				s.pending = s.pending[1:]
-				return ev, nil
+				return s.canonicalUsageEvent(ev), nil
 			}
 			return lipapi.Event{}, io.EOF
 		}
@@ -464,7 +488,7 @@ func (s *anthropicManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, err
 			if len(s.pending) > 0 {
 				ev := s.pending[0]
 				s.pending = s.pending[1:]
-				return ev, nil
+				return s.canonicalUsageEvent(ev), nil
 			}
 			continue
 		}
@@ -472,13 +496,14 @@ func (s *anthropicManagedSSEStream) Recv(ctx context.Context) (lipapi.Event, err
 		if err := json.Unmarshal([]byte(data), &p); err != nil {
 			continue
 		}
+		p.usagePresent = strings.Contains(data, `"usage"`)
 		if err := s.handlePayload(p); err != nil {
 			return lipapi.Event{}, err
 		}
 		if len(s.pending) > 0 {
 			ev := s.pending[0]
 			s.pending = s.pending[1:]
-			return ev, nil
+			return s.canonicalUsageEvent(ev), nil
 		}
 	}
 }
@@ -495,6 +520,7 @@ func (s *anthropicManagedSSEStream) ensureStarted() {
 }
 
 func (s *anthropicManagedSSEStream) emitFinishIfStarted(reason string) {
+	s.flushUsage()
 	if s.finished || !s.started {
 		return
 	}
@@ -509,14 +535,8 @@ func (s *anthropicManagedSSEStream) handlePayload(p anthropicSSEPayload) error {
 			s.started = true
 			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
-		u := p.Message.Usage
-		if u.InputTokens > 0 || u.CacheReadInputTokens > 0 || u.CacheCreationInputTokens > 0 {
-			s.pending = append(s.pending, lipapi.Event{
-				Kind:             lipapi.EventUsageDelta,
-				InputTokens:      u.InputTokens,
-				CacheReadTokens:  u.CacheReadInputTokens,
-				CacheWriteTokens: u.CacheCreationInputTokens,
-			})
+		if ev := minimaxAnthropicUsageEvent(p.Message.Usage, p.usagePresent, p.Message.ID); ev != nil {
+			s.addAnthropicUsage(*ev)
 		}
 	case "content_block_start":
 		s.ensureStarted()
@@ -559,10 +579,11 @@ func (s *anthropicManagedSSEStream) handlePayload(p anthropicSSEPayload) error {
 			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: toolID})
 		}
 	case "message_delta":
-		if p.Usage.OutputTokens > 0 {
-			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventUsageDelta, OutputTokens: p.Usage.OutputTokens})
+		if ev := minimaxAnthropicUsageEvent(p.Usage, p.usagePresent, p.Message.ID); ev != nil {
+			s.addAnthropicUsage(*ev)
 		}
 		if p.Delta.StopReason != "" {
+			s.flushUsage()
 			if s.finished {
 				break
 			}
@@ -573,9 +594,40 @@ func (s *anthropicManagedSSEStream) handlePayload(p anthropicSSEPayload) error {
 		s.done = true
 		s.emitFinishIfStarted("")
 	case "error":
+		s.flushUsage()
 		return fmt.Errorf("anthropic stream error: %s (%s)", p.Error.Message, p.Error.Type)
 	}
 	return nil
+}
+
+func (s *anthropicManagedSSEStream) addAnthropicUsage(ev lipapi.Event) {
+	// Keep the provider key until Recv. A negotiated sideband then projects the
+	// canonical event as observer-only; an unnegotiated legacy host keeps the
+	// original V1 durable path.
+	s.pending = append(s.pending, ev)
+	if s.providerUsageSeen {
+		s.providerUsage = mergeAnthropicUsageEvent(s.providerUsage, ev)
+	} else {
+		s.providerUsage = ev
+		s.providerUsageSeen = true
+	}
+	if strings.TrimSpace(ev.RawUsageJSON) != "" {
+		s.providerUsage.RawUsageJSON = ev.RawUsageJSON
+	}
+}
+
+func (s *anthropicManagedSSEStream) canonicalUsageEvent(ev lipapi.Event) lipapi.Event {
+	if ev.Kind == lipapi.EventUsageDelta && s.UsageEvidenceBuffer != nil && s.AccountingEvidenceEnabled() {
+		ev.Accounting.DedupeKey = ""
+	}
+	return ev
+}
+
+func (s *anthropicManagedSSEStream) flushUsage() {
+	if s == nil || !s.providerUsageSeen || s.UsageEvidenceBuffer == nil {
+		return
+	}
+	s.AddUsageEvent(s.providerUsage, "minimexoauth.anthropic:stream")
 }
 
 func (s *anthropicManagedSSEStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {
@@ -590,6 +642,7 @@ func (s *anthropicManagedSSEStream) Close() error {
 		return nil
 	}
 	s.closed = true
+	s.flushUsage()
 	if s.resp != nil && s.resp.Body != nil {
 		return s.resp.Body.Close()
 	}
@@ -597,7 +650,7 @@ func (s *anthropicManagedSSEStream) Close() error {
 }
 
 // newUnaryAnthropicStream converts a unary JSON response into a managed event stream.
-func newUnaryAnthropicStream(resp *http.Response) (lipapi.ManagedEventStream, error) {
+func newUnaryAnthropicStream(resp *http.Response) (*unaryAnthropicStream, error) {
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -605,15 +658,13 @@ func newUnaryAnthropicStream(resp *http.Response) (lipapi.ManagedEventStream, er
 	}
 
 	var res struct {
+		ID      string `json:"id"`
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		StopReason string `json:"stop_reason"`
-		Usage      struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-		} `json:"usage"`
+		StopReason string               `json:"stop_reason"`
+		Usage      anthropicUsageFields `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
 		return nil, fmt.Errorf("minimax-oauth: decode unary anthropic response: %w", err)
@@ -622,20 +673,17 @@ func newUnaryAnthropicStream(resp *http.Response) (lipapi.ManagedEventStream, er
 	var events []lipapi.Event
 	events = append(events, lipapi.Event{Kind: lipapi.EventResponseStarted})
 	events = append(events, lipapi.Event{Kind: lipapi.EventMessageStarted})
-	if res.Usage.InputTokens > 0 {
-		events = append(events, lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: res.Usage.InputTokens})
+	if ev := minimaxAnthropicUsageEvent(res.Usage, bytes.Contains(body, []byte(`"usage"`)), res.ID); ev != nil {
+		events = append(events, *ev)
 	}
 	for _, c := range res.Content {
 		if c.Type == "text" && c.Text != "" {
 			events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: c.Text})
 		}
 	}
-	if res.Usage.OutputTokens > 0 {
-		events = append(events, lipapi.Event{Kind: lipapi.EventUsageDelta, OutputTokens: res.Usage.OutputTokens})
-	}
 	events = append(events, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: res.StopReason})
 
-	return &unaryAnthropicStream{events: events}, nil
+	return newUnaryAnthropicEventStream(events), nil
 }
 
 type unaryAnthropicStream struct {
@@ -643,6 +691,28 @@ type unaryAnthropicStream struct {
 	idx    int
 	mu     sync.Mutex
 	closed bool
+	*backendplugin.UsageEvidenceBuffer
+}
+
+func newUnaryAnthropicEventStream(events []lipapi.Event) *unaryAnthropicStream {
+	u := &unaryAnthropicStream{events: append([]lipapi.Event(nil), events...), UsageEvidenceBuffer: backendplugin.NewUsageEvidenceBuffer()}
+	var cumulative lipapi.Event
+	seenUsage := false
+	for _, ev := range events {
+		if ev.Kind != lipapi.EventUsageDelta {
+			continue
+		}
+		if seenUsage {
+			cumulative = mergeAnthropicUsageEvent(cumulative, ev)
+		} else {
+			cumulative = ev
+			seenUsage = true
+		}
+	}
+	if seenUsage {
+		u.AddUsageEvent(cumulative, "minimexoauth.anthropic:stream")
+	}
+	return u
 }
 
 func (u *unaryAnthropicStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -659,6 +729,9 @@ func (u *unaryAnthropicStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 	ev := u.events[u.idx]
 	u.idx++
+	if ev.Kind == lipapi.EventUsageDelta && u.AccountingEvidenceEnabled() {
+		ev.Accounting.DedupeKey = ""
+	}
 	return ev, nil
 }
 

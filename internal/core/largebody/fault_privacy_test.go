@@ -93,7 +93,7 @@ func TestFault_ReservationExhaustion_DeclineNot413(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	// 512 bytes payload exceeds the 256 byte global reservation budget
 	payload := make([]byte, 512)
@@ -161,7 +161,7 @@ func TestFault_FileCreationFailure_DeclineToCanonical(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	payload := make([]byte, 128)
 	for i := range payload {
@@ -225,7 +225,7 @@ func TestFault_ShortWrite_PreservesSuffixAndRecovers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpillBuffer: %v", err)
 	}
-	defer buf.Close()
+	defer func() { _ = buf.Close() }()
 
 	payload := make([]byte, 80)
 	for i := range payload {
@@ -331,7 +331,7 @@ func TestFault_OpenFileFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompletedSource: %v", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	rc, err := src.Open()
 	if err == nil {
@@ -359,13 +359,13 @@ func TestFault_SpillReadError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompletedSource: %v", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	rc, err := src.Open()
 	if err != nil {
 		t.Fatalf("src.Open: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	buf := make([]byte, 32)
 	_, rErr := rc.Read(buf)
@@ -523,7 +523,7 @@ func TestLimits_ExactLimitAndLimitPlusOne(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSpillBuffer: %v", err)
 		}
-		defer buf.Close()
+		defer func() { _ = buf.Close() }()
 
 		exactPayload := bytes.Repeat([]byte("E"), int(maxBytes))
 		body := io.NopCloser(bytes.NewReader(exactPayload))
@@ -551,7 +551,7 @@ func TestLimits_ExactLimitAndLimitPlusOne(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open: %v", err)
 		}
-		defer rc.Close()
+		defer func() { _ = rc.Close() }()
 		readBack, err := io.ReadAll(rc)
 		if err != nil {
 			t.Fatalf("ReadAll: %v", err)
@@ -629,7 +629,7 @@ func TestLimits_ExactLimitAndLimitPlusOne(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSpillBuffer: %v", err)
 		}
-		defer buf.Close()
+		defer func() { _ = buf.Close() }()
 
 		if _, err := buf.Write(bytes.Repeat([]byte("P"), 64)); err != nil {
 			t.Fatalf("buf.Write: %v", err)
@@ -647,7 +647,7 @@ func TestLimits_ExactLimitAndLimitPlusOne(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewCaptureReader: %v", err)
 		}
-		defer cont.Close()
+		defer func() { _ = cont.Close() }()
 
 		_, rErr := io.ReadAll(cont)
 		if rErr == nil {
@@ -936,7 +936,7 @@ func TestPrivacy_Redaction_NoPromptOrPathOrSecretInErrorsOrLogs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("buf.Complete: %v", err)
 		}
-		defer src.Close()
+		defer func() { _ = src.Close() }()
 
 		for _, verb := range []string{"%s", "%v", "%+v", "%#v"} {
 			out := fmt.Sprintf(verb, src)
@@ -954,7 +954,7 @@ func TestPrivacy_Redaction_NoPromptOrPathOrSecretInErrorsOrLogs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSpillBuffer: %v", err)
 		}
-		defer buf.Close()
+		defer func() { _ = buf.Close() }()
 		if _, err := buf.Write([]byte(secretPrompt)); err != nil {
 			t.Fatalf("buf.Write: %v", err)
 		}

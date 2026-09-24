@@ -385,6 +385,7 @@ func TestTask11_3_OccupiedBlocker_Declines(t *testing.T) {
 		})
 	}
 }
+
 func TestTask11_3_SentinelHarness_AllSentinelsUntouched(t *testing.T) {
 	harness := NewSentinelHarness()
 	genID := "gen-task-11-3"

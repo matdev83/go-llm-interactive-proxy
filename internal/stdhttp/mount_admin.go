@@ -54,10 +54,16 @@ func mountBillingReports(in billingReportsMount) {
 	if path == "" {
 		path = "/admin/billing"
 	}
+	var healthSink billingadmin.EconomicHealthSink
+	if in.Operations.Metrics != nil && in.Operations.Metrics.EconomicHealth != nil {
+		healthSink = in.Operations.Metrics.EconomicHealth.ApplySnapshot
+	}
 	handler := billingadmin.NewHandler(billingadmin.Options{
-		Queries:  in.Operations.BillingReports,
-		Commands: in.Operations.BillingProvisioner,
-		Recovery: in.Operations.BillingExposureRecovery,
+		Queries:    in.Operations.BillingReports,
+		Commands:   in.Operations.BillingProvisioner,
+		Recovery:   in.Operations.BillingExposureRecovery,
+		Operator:   in.Operations.BillingOperatorReports,
+		HealthSink: healthSink,
 	})
 	protected := wrapDiagnostics(in.Cfg, http.StripPrefix(path, handler))
 	in.Mux.Handle(path, protected)

@@ -800,7 +800,7 @@ func (s *testLogSpy) Handle(_ context.Context, r slog.Record) error {
 		b.WriteString(" ")
 		b.WriteString(a.Key)
 		b.WriteString("=")
-		b.WriteString(fmt.Sprintf("%v", val.Any()))
+		fmt.Fprintf(&b, "%v", val.Any())
 		return true
 	})
 	s.records = append(s.records, b.String())

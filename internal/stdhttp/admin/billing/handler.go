@@ -9,6 +9,7 @@ import (
 	"time"
 
 	corebilling "github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 // Queries is the read-only billing report port. Implementations must return
@@ -16,10 +17,18 @@ import (
 type Queries = corebilling.ReportingStore
 
 // Options configures the bounded billing report and trusted-command handler.
+// Operator carries the optional 16.2A operator readers; its zero value
+// leaves every new operator route reporting disabled while the pre-existing
+// surface behaves exactly as before.
 type Options struct {
-	Queries         Queries
-	Commands        corebilling.AccountProvisioner
-	Recovery        corebilling.ExposureRecovery
+	Queries  Queries
+	Commands corebilling.AccountProvisioner
+	Recovery corebilling.ExposureRecovery
+	Operator OperatorReports
+	// HealthSink optionally projects the bounded economics health snapshot
+	// into an observability port (for example Prometheus gauges). A nil sink
+	// leaves the protected JSON health route fully functional.
+	HealthSink      EconomicHealthSink
 	DefaultPageSize int
 	MaxPageSize     int
 }
@@ -59,6 +68,7 @@ func NewHandler(opts Options) http.Handler {
 	mux.HandleFunc("/exposures", exposuresHandler(opts, defaultSize, maxSize))
 	mux.HandleFunc("/call", callHandler(opts))
 	mux.HandleFunc("/reconcile-required", reconcileRequiredHandler(opts, defaultSize, maxSize))
+	registerOperatorRoutes(mux, opts)
 	return mux
 }
 
@@ -271,9 +281,19 @@ func invalid(w http.ResponseWriter) {
 func writeResult(w http.ResponseWriter, value any, err error) {
 	if err != nil {
 		switch {
-		case errors.Is(err, corebilling.ErrReportInvalid), errors.Is(err, corebilling.ErrMoneyCurrencyMismatch):
+		case errors.Is(err, economics.ErrOperatorCursorStale):
+			// The frozen full-scope snapshot changed since the cursor was
+			// issued. A stable, storage-neutral classification tells the
+			// operator to restart pagination instead of consuming a mixed
+			// snapshot.
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "stale_cursor"})
+		case errors.Is(err, corebilling.ErrReportInvalid), errors.Is(err, corebilling.ErrMoneyCurrencyMismatch),
+			errors.Is(err, economics.ErrOperatorQueryInvalid), errors.Is(err, economics.ErrOperatorCursorInvalid),
+			errors.Is(err, economics.ErrOperatorBoundExceeded), errors.Is(err, corebilling.ErrEconomicDetailInvalid),
+			errors.Is(err, corebilling.ErrEconomicDetailBoundExceeded):
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_query"})
-		case errors.Is(err, corebilling.ErrReportNotFound):
+		case errors.Is(err, corebilling.ErrReportNotFound), errors.Is(err, economics.ErrOperatorScopeMismatch),
+			errors.Is(err, corebilling.ErrEconomicDetailScopeMismatch):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 		default:
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "billing_report_unavailable"})

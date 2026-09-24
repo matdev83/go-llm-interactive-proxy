@@ -7,18 +7,22 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 )
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes synthetic fixtures under a private temp root
 func TestDiscoverModules_StructuralAndSynthetic(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
+	seedRealConnector(t, root, "localstub")
 	out := runTool(t, root, "./tools/backendplugin/discover_modules", "-root", root)
 	if !strings.Contains(out, "connectors/localstub") {
 		t.Fatalf("expected localstub, got %q", out)
@@ -49,9 +53,9 @@ func TestPackage_MinimalHasNoOptionalExecutable(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes synthetic fixtures under a private temp root
 func TestPackage_OmitsUnsupportedNativePlatform_MixedSelect(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
 	supportedName := "_synthetic_pkg_native_ok"
 	unsupportedName := "_synthetic_pkg_native_skip"
 	supported := filepath.Join(root, "connectors", supportedName)
@@ -107,9 +111,9 @@ func TestPackage_OmitsUnsupportedNativePlatform_MixedSelect(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes synthetic fixtures under a private temp root
 func TestPackage_ExplicitSelectUnsupportedYieldsEmptyPackage(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
 	name := "_synthetic_pkg_select_unsupported"
 	syn := filepath.Join(root, "connectors", name)
 	t.Cleanup(func() { _ = os.RemoveAll(syn) })
@@ -139,9 +143,10 @@ func TestPackage_ExplicitSelectUnsupportedYieldsEmptyPackage(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes staging under a private temp root
 func TestPackage_FullRelativeDestPlacesExecutable(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
+	seedRealConnector(t, root, "localstub")
 	requireNativeClaimedConnector(t, root, "localstub")
 	relDest := filepath.Join(".golip-package-staging-test", "full-rel")
 	absDest := filepath.Join(root, relDest)
@@ -159,7 +164,8 @@ func TestPackage_FullRelativeDestPlacesExecutable(t *testing.T) {
 
 func TestPackage_FullInstallLayoutDigestAndRemoval(t *testing.T) {
 	t.Parallel()
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
+	seedRealConnector(t, root, "localstub")
 	requireNativeClaimedConnector(t, root, "localstub")
 	dest := t.TempDir()
 	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest, "-select", "localstub")
@@ -231,9 +237,10 @@ func TestPackage_FullInstallLayoutDigestAndRemoval(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes synthetic fixtures under a private temp root
 func TestPackage_SyntheticReleaseAutoPackagedAndRemovalLeavesOther(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
+	seedRealConnector(t, root, "localstub")
 	synName := "_synthetic_pkg_probe"
 	syn := filepath.Join(root, "connectors", synName)
 	t.Cleanup(func() { _ = os.RemoveAll(syn) })
@@ -273,9 +280,9 @@ func TestPackage_SyntheticReleaseAutoPackagedAndRemovalLeavesOther(t *testing.T)
 	}
 }
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes synthetic fixtures under a private temp root
 func TestPackage_PrivateCompanionsExplicitFile(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
 	synName := "_synthetic_companion_file"
 	syn := filepath.Join(root, "connectors", synName)
 	t.Cleanup(func() { _ = os.RemoveAll(syn) })
@@ -301,9 +308,9 @@ func TestPackage_PrivateCompanionsExplicitFile(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes synthetic fixtures under a private temp root
 func TestPackage_PrivateCompanionsExplicitDirectory(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
 	synName := "_synthetic_companion_dir"
 	syn := filepath.Join(root, "connectors", synName)
 	t.Cleanup(func() { _ = os.RemoveAll(syn) })
@@ -351,9 +358,9 @@ func TestPackage_PrivateCompanionsExplicitDirectory(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes synthetic fixtures under a private temp root
 func TestPackage_PrivateCompanionsNestedSymlinkEscapeRejected(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
 	synName := "_synthetic_companion_linkesc"
 	syn := filepath.Join(root, "connectors", synName)
 	t.Cleanup(func() { _ = os.RemoveAll(syn) })
@@ -386,7 +393,8 @@ func TestPackage_PrivateCompanionsNestedSymlinkEscapeRejected(t *testing.T) {
 
 func TestPackage_DeterministicIndexAndDigestChangesOnRebuild(t *testing.T) {
 	t.Parallel()
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
+	seedRealConnector(t, root, "localstub")
 	requireNativeClaimedConnector(t, root, "localstub")
 	dest1 := t.TempDir()
 	dest2 := t.TempDir()
@@ -423,9 +431,10 @@ func TestPackage_DeterministicIndexAndDigestChangesOnRebuild(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes synthetic fixtures under a private temp root
 func TestPackage_FailedBuildLeavesPriorStagingUntouched(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
+	seedRealConnector(t, root, "localstub")
 	requireNativeClaimedConnector(t, root, "localstub")
 	dest := t.TempDir()
 	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest, "-select", "localstub")
@@ -496,9 +505,9 @@ replace_policy: development-replace-to-monorepo-root
 	}
 }
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes synthetic fixtures under a private temp root
 func TestPackage_RejectsUnknownReleaseFields(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
 	bad := filepath.Join(root, "connectors", "_bad_release_fields")
 	t.Cleanup(func() { _ = os.RemoveAll(bad) })
 	if err := os.MkdirAll(bad, 0o755); err != nil {
@@ -553,9 +562,9 @@ func TestModuleChecksScripts_RequireRootGoTest(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // writes under shared repo paths
+//nolint:paralleltest // writes synthetic fixtures under a private temp root
 func TestCrossPlatformQA_RejectsUnsupportedHostChannelClaim(t *testing.T) {
-	root := repoRoot(t)
+	root := isolatedConnectorRoot(t)
 	synName := "_synthetic_xplat_darwin_claim"
 	syn := filepath.Join(root, "connectors", synName)
 	t.Cleanup(func() { _ = os.RemoveAll(syn) })
@@ -1127,4 +1136,215 @@ func repoRoot(t *testing.T) string {
 		}
 		dir = parent
 	}
+}
+
+// isolatedConnectorRoot returns a private temporary repository root that the
+// backendplugin tools scan instead of the shared checkout. Synthetic connector
+// fixtures are written only under this root, so concurrent whole-repository
+// architecture scans (internal/archtest shrinkage walks) never observe
+// transient test paths appearing or disappearing under the real connectors/.
+func isolatedConnectorRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	real := repoRoot(t)
+	if isWithinDir(real, root) {
+		t.Fatalf("isolated connector root %q must not live inside real repo %q", root, real)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "connectors"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// seedRealConnector copies a real connector module (for example localstub) into
+// the isolated root and repoints its development go.mod replace at the real
+// checkout, so GOWORK=off builds still resolve the monorepo without copying it.
+// Real connector coverage is preserved while the module itself lives outside the
+// architecture-scanned tree.
+func seedRealConnector(t *testing.T, root, name string) {
+	t.Helper()
+	real := repoRoot(t)
+	src := filepath.Join(real, "connectors", name)
+	dst := filepath.Join(root, "connectors", name)
+	if err := seedConnectorModule(src, dst, real); err != nil {
+		t.Fatalf("seed connector %s: %v", name, err)
+	}
+}
+
+// seedConnectorModule copies connector source into dst and rewrites the
+// development replace in its go.mod to point at replaceRoot instead of the
+// relative ../.. form.
+func seedConnectorModule(src, dst, replaceRoot string) error {
+	if err := copyTreeFiles(src, dst); err != nil {
+		return err
+	}
+	goMod := filepath.Join(dst, "go.mod")
+	raw, err := os.ReadFile(goMod)
+	if err != nil {
+		return err
+	}
+	body := strings.ReplaceAll(string(raw), "=> ../..", "=> "+goModPathLiteral(replaceRoot))
+	if body == string(raw) {
+		return fmt.Errorf("connector go.mod at %s is missing the development replace to the monorepo root", src)
+	}
+	return os.WriteFile(goMod, []byte(body), 0o644)
+}
+
+// goModPathLiteral renders a filesystem path as a go.mod replacement literal.
+// go.mod lexes an unquoted replacement as a bare token, so a checkout rooted at
+// a path containing spaces (or other go.mod metacharacters) would produce an
+// unparseable directive; Go string quoting after ToSlash keeps it valid while
+// remaining byte-identical to the previous bare form for ordinary paths.
+func goModPathLiteral(path string) string {
+	return strconv.Quote(filepath.ToSlash(path))
+}
+
+func copyTreeFiles(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode().Perm())
+		}
+		return copyOneFile(path, target, info.Mode().Perm())
+	})
+}
+
+func copyOneFile(src, dst string, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+func isWithinDir(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	return !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func dirEntries(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	return names
+}
+
+// TestSyntheticFixtures_NeverWrittenUnderRealRepoConnectors pins the fix for the
+// Windows qa-tagged-hotspots cross-package race: synthetic connector fixtures
+// must be created under a private temporary root so internal/archtest's
+// whole-repository walks cannot observe them appear or disappear. The RED
+// evidence is the retained test-cost ratchet log; this test guards the invariant
+// deterministically because the underlying OS-level race is timing dependent.
+//
+//nolint:paralleltest // asserts real-repo immutability, must not interleave
+func TestSyntheticFixtures_NeverWrittenUnderRealRepoConnectors(t *testing.T) {
+	real := repoRoot(t)
+	realConnectors := filepath.Join(real, "connectors")
+	before := dirEntries(t, realConnectors)
+
+	root := isolatedConnectorRoot(t)
+	synName := "_synthetic_isolation_regression"
+	syn := filepath.Join(root, "connectors", synName)
+	writeSyntheticConnectorWithCompanions(t, syn, synName, []string{"private/note.txt"}, func(connRoot string) {
+		if err := os.WriteFile(filepath.Join(connRoot, "private", "note.txt"), []byte("private\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if !isWithinDir(root, syn) {
+		t.Fatalf("synthetic fixture %q must live under isolated root %q", syn, root)
+	}
+	if _, err := os.Stat(filepath.Join(realConnectors, synName)); !os.IsNotExist(err) {
+		t.Fatalf("synthetic fixture leaked into real repo connectors: err=%v", err)
+	}
+	after := dirEntries(t, realConnectors)
+	if strings.Join(before, "\n") != strings.Join(after, "\n") {
+		t.Fatalf("real repo connectors mutated by fixture setup:\nbefore=%v\nafter=%v", before, after)
+	}
+}
+
+// TestSeedConnectorModule_QuotesReplacePathWithSpaces pins the portability fix
+// for seeding a real connector from a checkout whose absolute path contains
+// spaces: go.mod replacement paths are bare tokens unless quoted, so an
+// unquoted spaced path makes go.mod unparseable and breaks localstub packaging.
+// The seeded module must stay parseable and resolve the replacement to the exact
+// spaced path.
+//
+//nolint:paralleltest // copies a fixture and shells out to go mod edit
+func TestSeedConnectorModule_QuotesReplacePathWithSpaces(t *testing.T) {
+	real := repoRoot(t)
+	src := filepath.Join(real, "connectors", "localstub")
+
+	base := t.TempDir()
+	spacedRoot := filepath.Join(base, "checkout with spaces")
+	if err := os.MkdirAll(spacedRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(base, "connectors", "localstub")
+	if err := seedConnectorModule(src, dst, spacedRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	out := goModEditJSON(t, dst)
+	var parsed struct {
+		Replace []struct {
+			New struct {
+				Path string `json:"Path"`
+			} `json:"New"`
+		} `json:"Replace"`
+	}
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatalf("parse go mod edit -json: %v\n%s", err, out)
+	}
+	want := filepath.ToSlash(spacedRoot)
+	for _, r := range parsed.Replace {
+		if r.New.Path == want {
+			return
+		}
+	}
+	t.Fatalf("replacement path %q not found in %s", want, out)
+}
+
+func goModEditJSON(t *testing.T, dir string) []byte {
+	t.Helper()
+	cmd := exec.Command("go", "mod", "edit", "-json")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go mod edit -json in %s: %v\n%s", dir, err, out)
+	}
+	return out
 }

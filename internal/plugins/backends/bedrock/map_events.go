@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -52,6 +53,7 @@ type converseStream struct {
 	afterFinish bool
 
 	activeToolID string
+	*coremetering.ProviderEvidenceBuffer
 }
 
 func newConverseStream(sdk *bedrockruntime.ConverseStreamEventStream, maxPending int) lipapi.ManagedEventStream {
@@ -59,9 +61,10 @@ func newConverseStream(sdk *bedrockruntime.ConverseStreamEventStream, maxPending
 		return lipapi.NewFixedEventStream(nil)
 	}
 	return &converseStream{
-		sdk:     sdk,
-		ch:      sdk.Events(),
-		pending: stream.NewPendingEventQueue(maxPending),
+		sdk:                    sdk,
+		ch:                     sdk.Events(),
+		pending:                stream.NewPendingEventQueue(maxPending),
+		ProviderEvidenceBuffer: coremetering.NewProviderEvidenceBuffer(),
 	}
 }
 
@@ -185,45 +188,52 @@ func (s *converseStream) handleOutput(out types.ConverseStreamOutput) error {
 		_ = v
 	case *types.ConverseStreamOutputMemberMetadata:
 		if u := v.Value.Usage; u != nil {
-			// AWS ConverseStream usage uses *int32 token fields; ToInt32 returns int32, then [safecast] for int.
-			inT := 0
-			outT := 0
-			totalT := int64(aws.ToInt32(u.TotalTokens))
-			cacheReadT := int64(aws.ToInt32(u.CacheReadInputTokens))
-			cacheWriteT := int64(aws.ToInt32(u.CacheWriteInputTokens))
-			if u.InputTokens != nil {
-				inT = safecast.IntFromInt64Clamp(int64(aws.ToInt32(u.InputTokens)))
-			}
-			if u.OutputTokens != nil {
-				outT = safecast.IntFromInt64Clamp(int64(aws.ToInt32(u.OutputTokens)))
-			}
+			// AWS ConverseStream usage uses *int32 token fields; preserve
+			// explicit presence while rejecting malformed negative values.
+			inT, inputPresent := bedrockUsageCount(u.InputTokens)
+			outT, outputPresent := bedrockUsageCount(u.OutputTokens)
+			totalT, totalPresent := bedrockUsageCount(u.TotalTokens)
+			cacheReadT, cacheReadPresent := bedrockUsageCount(u.CacheReadInputTokens)
+			cacheWriteT, cacheWritePresent := bedrockUsageCount(u.CacheWriteInputTokens)
 			presence := lipapi.UsagePresence{
-				InputTokens:      u.InputTokens != nil,
-				OutputTokens:     u.OutputTokens != nil,
-				CacheReadTokens:  u.CacheReadInputTokens != nil,
-				CacheWriteTokens: u.CacheWriteInputTokens != nil,
-				TotalTokens:      u.TotalTokens != nil,
+				InputTokens: inputPresent, OutputTokens: outputPresent,
+				CacheReadTokens: cacheReadPresent, CacheWriteTokens: cacheWritePresent,
+				TotalTokens: totalPresent,
 			}
 			if presence.Any() {
 				ev := lipapi.Event{
 					Kind:             lipapi.EventUsageDelta,
 					InputTokens:      inT,
 					OutputTokens:     outT,
-					CacheReadTokens:  safecast.IntFromInt64Clamp(cacheReadT),
-					CacheWriteTokens: safecast.IntFromInt64Clamp(cacheWriteT),
-					TotalTokens:      safecast.IntFromInt64Clamp(totalT),
+					CacheReadTokens:  cacheReadT,
+					CacheWriteTokens: cacheWriteT,
+					TotalTokens:      totalT,
 					UsagePresence:    presence,
 					RawUsageJSON:     rawUsageJSON(u),
+					Accounting: lipapi.UsageAccountingMetadata{
+						Plane:     lipapi.UsagePlaneProviderBillable,
+						Source:    lipapi.UsageSourceProviderReported,
+						Authority: lipapi.UsageAuthorityAuthoritative,
+						DedupeKey: "bedrock.converse:stream",
+					},
 				}
 				if err := s.pending.Push(ev); err != nil {
 					return err
 				}
+				s.Add(bedrockEvidenceDraft(ev, u))
 			}
 		}
 	default:
 		// ignore unknown union members
 	}
 	return nil
+}
+
+func bedrockUsageCount(value *int32) (int, bool) {
+	if value == nil || *value < 0 {
+		return 0, false
+	}
+	return safecast.IntFromInt64Clamp(int64(*value)), true
 }
 
 func (s *converseStream) handleBlockStart(ev types.ContentBlockStartEvent) error {

@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/reasoning"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/responseitem"
@@ -32,6 +34,7 @@ type codexEventMapper struct {
 	toolCallIDs               map[string]string
 	provisional               map[string]bool
 	terminal                  bool
+	providerAccountKey        string
 }
 
 func newCodexEventMapper(maxPending int) *codexEventMapper {
@@ -171,6 +174,9 @@ func (m *codexEventMapper) handleResponseCompleted(data string) error {
 		}
 	}
 	if usage := ev.Response.usageEvent(); usage != nil {
+		usage.Accounting.ProviderAccountKey = strings.TrimSpace(m.providerAccountKey)
+		usage.Accounting.ProviderRequestID = strings.TrimSpace(m.responseID)
+		usage.Accounting.DedupeKey = "codex.responses:" + strings.TrimSpace(m.responseID)
 		if err := m.mapper.PushUsage(usage); err != nil {
 			return err
 		}
@@ -221,19 +227,20 @@ func (r completedResponse) usageEvent() *lipapi.Event {
 	if u == nil {
 		return nil
 	}
+	input, inputPresent := validCompletedUsageValue(u.InputTokens)
+	output, outputPresent := validCompletedUsageValue(u.OutputTokens)
+	total, totalPresent := validCompletedUsageValue(u.TotalTokens)
 	presence := lipapi.UsagePresence{
-		InputTokens:  u.InputTokens != nil,
-		OutputTokens: u.OutputTokens != nil,
-		TotalTokens:  u.TotalTokens != nil,
+		InputTokens: inputPresent, OutputTokens: outputPresent, TotalTokens: totalPresent,
 	}
 	if !presence.Any() {
 		return nil
 	}
 	return &lipapi.Event{
 		Kind:          lipapi.EventUsageDelta,
-		InputTokens:   completedUsageValue(u.InputTokens),
-		OutputTokens:  completedUsageValue(u.OutputTokens),
-		TotalTokens:   completedUsageValue(u.TotalTokens),
+		InputTokens:   input,
+		OutputTokens:  output,
+		TotalTokens:   total,
 		UsagePresence: presence,
 		Accounting: lipapi.UsageAccountingMetadata{
 			Plane:     lipapi.UsagePlaneProviderBillable,
@@ -243,11 +250,20 @@ func (r completedResponse) usageEvent() *lipapi.Event {
 	}
 }
 
-func completedUsageValue(value *int64) int {
-	if value == nil {
-		return 0
+func validCompletedUsageValue(value *int64) (int, bool) {
+	if value == nil || *value < 0 {
+		return 0, false
 	}
-	return safecast.IntFromInt64Clamp(*value)
+	converted := safecast.IntFromInt64Clamp(*value)
+	if int64(converted) != *value {
+		return 0, false
+	}
+	return converted, true
+}
+
+func completedUsageValue(value *int64) int {
+	result, _ := validCompletedUsageValue(value)
+	return result
 }
 
 func (m *codexEventMapper) handleOutputItemDone(data string) error {
@@ -483,23 +499,64 @@ func (m *codexEventMapper) toolCallID(itemID, callID string) string {
 
 var _ lipapi.ManagedEventStream = (*codexStream)(nil)
 
+const maxAccountWindowSnapshots = 128
+
 type codexStream struct {
-	mapper  *codexEventMapper
-	mu      sync.Mutex
-	body    io.ReadCloser
-	scanner *bufio.Scanner
-	closed  bool
+	mapper         *codexEventMapper
+	mu             sync.Mutex
+	body           io.ReadCloser
+	scanner        *bufio.Scanner
+	closed         bool
+	accountWindows []AccountWindowSnapshot
 }
 
-func newCodexStream(body io.ReadCloser, maxPending int) *codexStream {
+func newCodexStream(body io.ReadCloser, maxPending int, providerAccountKey ...string) *codexStream {
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
+	mapper := newCodexEventMapper(maxPending)
+	if len(providerAccountKey) > 0 {
+		mapper.providerAccountKey = strings.TrimSpace(providerAccountKey[0])
+	}
 	st := &codexStream{
-		mapper:  newCodexEventMapper(maxPending),
+		mapper:  mapper,
 		body:    body,
 		scanner: sc,
 	}
 	return st
+}
+
+func (s *codexStream) captureAccountWindowSnapshots(headers http.Header, accountID string, observedAt time.Time) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.accountWindows = appendBoundedAccountWindowSnapshots(s.accountWindows, accountWindowSnapshots(headers, accountID, observedAt))
+}
+
+func appendBoundedAccountWindowSnapshots(existing, incoming []AccountWindowSnapshot) []AccountWindowSnapshot {
+	if len(incoming) == 0 {
+		return existing
+	}
+	all := append(existing, incoming...)
+	if len(all) <= maxAccountWindowSnapshots {
+		return all
+	}
+	return append([]AccountWindowSnapshot(nil), all[len(all)-maxAccountWindowSnapshots:]...)
+}
+
+func (s *codexStream) DrainAccountWindowSnapshots() []AccountWindowSnapshot {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.accountWindows) == 0 {
+		return nil
+	}
+	out := append([]AccountWindowSnapshot(nil), s.accountWindows...)
+	s.accountWindows = nil
+	return out
 }
 
 func (s *codexStream) Recv(ctx context.Context) (lipapi.Event, error) {

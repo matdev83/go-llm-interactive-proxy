@@ -23,6 +23,7 @@ func (p *stubStandardFullCallRouteHintProvider) Order() int { return 0 }
 func (p *stubStandardFullCallRouteHintProvider) FailureMode() sdkhooks.FailureMode {
 	return sdkhooks.FailOpen
 }
+
 func (p *stubStandardFullCallRouteHintProvider) Hint(_ context.Context, _ routehint.Input) (routehint.Result, error) {
 	return routehint.Result{PreferredCandidateKeys: []string{"backend-1:gpt-4o"}}, nil
 }
@@ -39,9 +40,11 @@ func (p *stubCertifiedBoundedRouteHintProvider) Order() int { return 0 }
 func (p *stubCertifiedBoundedRouteHintProvider) FailureMode() sdkhooks.FailureMode {
 	return sdkhooks.FailOpen
 }
+
 func (p *stubCertifiedBoundedRouteHintProvider) Hint(_ context.Context, _ routehint.Input) (routehint.Result, error) {
 	return routehint.Result{}, nil
 }
+
 func (p *stubCertifiedBoundedRouteHintProvider) BoundedRouteDomainContract() (largebody.BoundedRouteDomainContract, bool) {
 	return p.contract, true
 }

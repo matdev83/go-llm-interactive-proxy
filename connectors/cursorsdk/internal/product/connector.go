@@ -16,23 +16,25 @@ import (
 )
 
 type runtimeOpts struct {
-	Starter         ProcessStarter
-	HostEnv         []string
-	ModelListSource ModelListSource
-	Log             *slog.Logger
-	InstanceID      string
+	Starter                     ProcessStarter
+	HostEnv                     []string
+	ModelListSource             ModelListSource
+	Log                         *slog.Logger
+	InstanceID                  string
+	DisableAccountingEvidenceV1 bool
 }
 
 type backendRuntime struct {
-	cfg      Config
-	catalog  *Catalog
-	index    *acp.ModelIndex
-	tracking *acp.TrackingInventory
-	bp       *bridgeProcess
-	agent    AgentBridge
-	pool     *SessionPool
-	coord    *FailureCoordinator
-	diag     *Diag
+	cfg                         Config
+	catalog                     *Catalog
+	index                       *acp.ModelIndex
+	tracking                    *acp.TrackingInventory
+	bp                          *bridgeProcess
+	agent                       AgentBridge
+	pool                        *SessionPool
+	coord                       *FailureCoordinator
+	diag                        *Diag
+	disableAccountingEvidenceV1 bool
 
 	discoveryState atomic.Value // string
 	discoveryCode  atomic.Value // string
@@ -67,15 +69,16 @@ func newBackendRuntime(cfg Config, opts runtimeOpts) *backendRuntime {
 	}
 
 	rt := &backendRuntime{
-		cfg:      cfg,
-		catalog:  catalog,
-		index:    index,
-		tracking: tracking,
-		bp:       bp,
-		agent:    agent,
-		pool:     pool,
-		coord:    coord,
-		diag:     diag,
+		cfg:                         cfg,
+		catalog:                     catalog,
+		index:                       index,
+		tracking:                    tracking,
+		bp:                          bp,
+		agent:                       agent,
+		pool:                        pool,
+		coord:                       coord,
+		diag:                        diag,
+		disableAccountingEvidenceV1: opts.DisableAccountingEvidenceV1,
 	}
 	rt.discoveryState.Store("unknown")
 	rt.discoveryCode.Store("")
@@ -224,11 +227,12 @@ func (rt *backendRuntime) Open(ctx context.Context, call lipapi.Call, cand Attem
 	rt.pool.CommitSend(lease)
 
 	return NewRunStream(ctx, rt.agent, lease, rt.pool, RunStreamOpts{
-		CancelTimeout:    rt.cfg.CancelTimeout,
-		GenerationKiller: rt.bp,
-		APIKey:           rt.cfg.APIKey,
-		Diag:             rt.diag,
-		Corr:             corr,
+		CancelTimeout:               rt.cfg.CancelTimeout,
+		GenerationKiller:            rt.bp,
+		DisableAccountingEvidenceV1: rt.disableAccountingEvidenceV1,
+		APIKey:                      rt.cfg.APIKey,
+		Diag:                        rt.diag,
+		Corr:                        corr,
 	}), nil
 }
 

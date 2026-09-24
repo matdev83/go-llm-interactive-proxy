@@ -43,12 +43,16 @@ type perRequestTrackingLimiter struct {
 	records    map[string]*reqAdmissionRecord
 	totalCalls int64
 	rejectAll  bool
+
+	firstRejectOnce sync.Once
+	firstReject     chan struct{}
 }
 
 func newPerRequestTrackingLimiter(underlying decodeqos.TryAcquirer) *perRequestTrackingLimiter {
 	return &perRequestTrackingLimiter{
-		underlying: underlying,
-		records:    make(map[string]*reqAdmissionRecord),
+		underlying:  underlying,
+		records:     make(map[string]*reqAdmissionRecord),
+		firstReject: make(chan struct{}),
 	}
 }
 
@@ -71,6 +75,7 @@ func (l *perRequestTrackingLimiter) TryAcquire(ctx context.Context, weight int64
 	l.mu.Unlock()
 
 	if rejectAll {
+		l.signalFirstReject()
 		return nil, false, nil
 	}
 
@@ -91,6 +96,7 @@ func (l *perRequestTrackingLimiter) TryAcquire(ctx context.Context, weight int64
 	l.mu.Unlock()
 
 	if !ok || err != nil {
+		l.signalFirstReject()
 		return nil, ok, err
 	}
 
@@ -131,6 +137,124 @@ func (l *perRequestTrackingLimiter) MaxCallsPerRequest() int {
 		}
 	}
 	return maxCalls
+}
+
+// signalFirstReject closes the firstReject channel exactly once, when the
+// underlying limiter rejects an admission attempt.
+func (l *perRequestTrackingLimiter) signalFirstReject() {
+	if l.firstReject == nil {
+		return
+	}
+	l.firstRejectOnce.Do(func() { close(l.firstReject) })
+}
+
+// saturationRejectWait bounds how long a permit-holding candidate callback waits
+// for a competing admission to be rejected. It is generous for loaded Windows CI
+// but is only ever reached on a regression (a limiter that admits every request,
+// or a permit released before the holding callback); the passing path returns as
+// soon as a rejection is observed.
+const saturationRejectWait = 10 * time.Second
+
+// testErrorReporter is the minimal reporting surface the bounded saturation wait
+// needs. *testing.T satisfies it; tests substitute a recording fake to assert the
+// timeout is reported without failing the enclosing test.
+type testErrorReporter interface {
+	Helper()
+	Errorf(format string, args ...any)
+}
+
+// waitFirstReject blocks until the limiter has recorded a rejected admission or
+// bound elapses, reporting whether a rejection was observed. It never closes or
+// mutates firstReject, so the saturation assertions stay strict.
+func (l *perRequestTrackingLimiter) waitFirstReject(bound time.Duration) bool {
+	select {
+	case <-l.firstReject:
+		return true
+	case <-time.After(bound):
+		return false
+	}
+}
+
+// awaitFirstReject is the shared bounded wait used by the permit-holding
+// callbacks (proof compile and assessment). Admitted requests keep their permit
+// in flight until a competing request is provably saturated, which replaces the
+// sleep-based scheduling assumption. On timeout it records an explicit error
+// through the reporter (safe from the request goroutines, unlike t.Fatal) and
+// returns normally so every goroutine unwinds and wg.Wait completes instead of
+// hanging the suite.
+func (l *perRequestTrackingLimiter) awaitFirstReject(r testErrorReporter, bound time.Duration) {
+	r.Helper()
+	if !l.waitFirstReject(bound) {
+		r.Errorf("saturation race: no admission rejection observed within %s; the limiter admitted every request (regression) or released its permit before the holding callback", bound)
+	}
+}
+
+// recordingErrorReporter captures Errorf calls so the bounded wait's fail-fast
+// reporting can be asserted without failing the enclosing test.
+type recordingErrorReporter struct {
+	mu     sync.Mutex
+	errors int
+}
+
+func (r *recordingErrorReporter) Helper() {}
+
+func (r *recordingErrorReporter) Errorf(string, ...any) {
+	r.mu.Lock()
+	r.errors++
+	r.mu.Unlock()
+}
+
+func (r *recordingErrorReporter) errorCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.errors
+}
+
+// TestCandidateProof_SaturationRace_BoundedWait_FailsFast is the controlled
+// regression for the bounded saturation wait:
+//   - RED: a limiter that admits every request never rejects, so the shared wait
+//     must report an explicit error and return quickly instead of blocking
+//     forever (which would hang wg.Wait and the whole suite).
+//   - GREEN: a real capacity limiter signals firstReject once it rejects an
+//     admission, so the same wait observes the rejection and reports nothing.
+func TestCandidateProof_SaturationRace_BoundedWait_FailsFast(t *testing.T) {
+	t.Parallel()
+
+	const (
+		shortBound  = 100 * time.Millisecond
+		payloadSize = 1200 * 1024
+	)
+
+	// RED: nil underlying admits every request, so no rejection is ever recorded.
+	admitting := newPerRequestTrackingLimiter(nil)
+	redReporter := &recordingErrorReporter{}
+	start := time.Now()
+	admitting.awaitFirstReject(redReporter, shortBound)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("no-rejection limiter: bounded wait returned after %s, want ~%s", elapsed, shortBound)
+	}
+	if got := redReporter.errorCount(); got != 1 {
+		t.Fatalf("no-rejection limiter: got %d reported errors, want 1 (bounded wait must fail fast)", got)
+	}
+
+	// GREEN: a real capacity-1 limiter must signal after the second admission is rejected.
+	realLimiter := decodeqos.New(1, int64(payloadSize))
+	limiting := newPerRequestTrackingLimiter(realLimiter)
+
+	release, ok, err := limiting.TryAcquire(context.Background(), int64(payloadSize))
+	if err != nil || !ok {
+		t.Fatalf("first admission: got ok=%t err=%v, want true/nil", ok, err)
+	}
+	defer release()
+
+	if _, ok, err := limiting.TryAcquire(context.Background(), int64(payloadSize)); ok || err != nil {
+		t.Fatalf("second admission: got ok=%t err=%v, want false/nil", ok, err)
+	}
+	greenReporter := &recordingErrorReporter{}
+	limiting.awaitFirstReject(greenReporter, shortBound)
+	if got := greenReporter.errorCount(); got != 0 {
+		t.Fatalf("real limiter: got %d reported errors, want 0", got)
+	}
 }
 
 // TestCandidateProof_SaturationRace_FullySaturatedLimiter verifies that when
@@ -280,8 +404,12 @@ func TestCandidateProof_SaturationRace_ConcurrentProofDecline_SingleAdmissionPer
 			profileID: "test_decline_race_profile",
 			compileFunc: func(ctx context.Context, in frontendpipe.ProofInput) (frontendpipe.ProofOutput, error) {
 				atomic.AddInt64(&compileCalls, 1)
-				// Small synthetic delay to ensure competing goroutines hit the limiter while permits are held
-				time.Sleep(10 * time.Millisecond)
+				// Hold the permit until the limiter has actually rejected a competing
+				// request. This forces contention while the limit is held instead of
+				// assuming overlapping goroutine scheduling. The shared wait is
+				// bounded and reports through t (no t.Fatal from this goroutine), so a
+				// limiter regression cannot hang the suite.
+				limiter.awaitFirstReject(t, saturationRejectWait)
 				return frontendpipe.ProofOutput{}, errors.New("proof declined: fallback to canonical decode")
 			},
 		}

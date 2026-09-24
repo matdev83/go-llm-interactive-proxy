@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicaps"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicred"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
@@ -88,12 +89,14 @@ func New(cfg Config) execbackend.Backend {
 			return openaicred.ExecuteWithCredentialPool(ctx, ID, pool, openAIRateLimitFallback, func(ctx context.Context, cred credpool.Credential) (lipapi.ManagedEventStream, error) {
 				cli := openaicred.NewClient(cfg.BaseURL, cred.Secret, cfg.HTTPClient, cfg.SDKMaxRetries)
 				if call.Invocation.TransportMode == lipapi.TransportModeNonStreaming {
+					observePreparedInput(ctx, p)
 					comp, nerr := cli.Chat.Completions.New(ctx, p)
 					if nerr != nil {
 						return nil, nerr
 					}
-					return lipapi.NewFixedEventStream(CompletionEvents(*comp)), nil
+					return openaiusage.NewProviderEvidenceStream(CompletionEvents(*comp), "openai.chat.v2"), nil
 				}
+				observePreparedInput(ctx, p)
 				raw := cli.Chat.Completions.NewStreaming(ctx, p)
 				es := NewChatStream(raw, call.MaxPendingWireEvents)
 				return streampeek.PeekFirst(ctx, es)

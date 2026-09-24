@@ -34,7 +34,26 @@ func buildProcessBillingRuntime(owner *processResourceOwner, cfgReportsPath stri
 	if !billingCompositionConfigured(prod) {
 		return prod, nil
 	}
+	if externalBillingBindingConfigured(prod) {
+		if err := configureExternalBilling(owner, prod); err != nil {
+			return ProductionOptions{}, err
+		}
+		return prod, nil
+	}
 	if err := requireCompleteBillingComposition(prod); err != nil {
+		return ProductionOptions{}, err
+	}
+	// Task 17.4 (Migration Strategy step 7): prove the serving binary can
+	// read and fence the durable accounting state before starting workers.
+	// Every non-nil internal store is verified here and fails closed when
+	// it hides the recovery port or carries malformed, unreadable, or V2
+	// financial state this binary cannot serve. Only the storeless public
+	// external binding skips this check (it starts no store-backed
+	// workers). The check is read-only: it never claims, posts, or drains.
+	if err := verifyBillingAccountingStartup(context.Background(), prod.BillingStore); err != nil {
+		return ProductionOptions{}, err
+	}
+	if err := validateProviderCostRevisionRuntime(prod); err != nil {
 		return ProductionOptions{}, err
 	}
 	prod.BillingReports = prod.BillingStore
@@ -51,20 +70,41 @@ func buildProcessBillingRuntime(owner *processResourceOwner, cfgReportsPath stri
 	if !usageOK || !settlementOK || prod.BillingCallRatingResolver == nil {
 		return ProductionOptions{}, ErrAuthoritativeBillingRequired
 	}
-	callWorker, err := billing.NewCallPostUsageWorker(callUsage, callSettlement, prod.BillingCallRatingResolver, prod.BillingPostTurnBatchSize)
+	// F6+F8 production wiring requires the token-carrying cutover claim port so
+	// customer postings carry current-marker tokens issued atomically with the
+	// claim. A decorator hiding ClaimCompleteCallsWithCutover must not reach
+	// production posting; legacy NewCallPostUsageWorker/WithClaim remain
+	// test-only and a decorator returning error/malformed tokens fails closed
+	// in the worker (never swallowed).
+	customerClaim, customerClaimOK := prod.BillingStore.(billing.ClaimedCompleteCallClaimer)
+	if !customerClaimOK {
+		return ProductionOptions{}, fmt.Errorf("%w: complete-call worker requires cutover claim metadata port", ErrAuthoritativeBillingRequired)
+	}
+	callWorker, err := billing.NewCallPostUsageWorkerWithCutover(callUsage, callSettlement, prod.BillingCallRatingResolver, customerClaim, prod.BillingPostTurnBatchSize)
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("runtimebundle: complete-call billing worker: %w", err)
 	}
 	if err := startProcessBillingWorker(owner, callWorker); err != nil {
 		return ProductionOptions{}, fmt.Errorf("runtimebundle: start complete-call billing worker: %w", err)
 	}
+	if err := startEconomicRevisionWorkers(owner, prod); err != nil {
+		return ProductionOptions{}, err
+	}
 
 	providerWork, providerWorkOK := prod.BillingStore.(billing.ProviderCostWorkReader)
 	providerStore, providerStoreOK := prod.BillingStore.(billing.ProviderCostStore)
 	if !providerWorkOK || !providerStoreOK || prod.BillingProviderCostResolver == nil {
-		return ProductionOptions{}, ErrAuthoritativeBillingRequired
+		return prod, nil // Supplier costing is optional; retail settlement is independent.
 	}
-	providerWorker, err := billing.NewCallProviderCostWorker(providerWork, providerStore, prod.BillingProviderCostResolver, prod.BillingPostTurnBatchSize)
+	// F6+F8 production wiring requires the token-carrying cutover claim port so
+	// provider postings carry current-marker tokens issued atomically with the
+	// claim. A decorator hiding ClaimProviderCostWorkWithCutover must not reach
+	// production; legacy constructors remain test-only.
+	claimProvider, claimOK := prod.BillingStore.(billing.ClaimedProviderCostWorkClaimer)
+	if !claimOK {
+		return ProductionOptions{}, fmt.Errorf("%w: provider-cost worker requires cutover claim metadata port", ErrAuthoritativeBillingRequired)
+	}
+	providerWorker, err := billing.NewCallProviderCostWorkerWithCutover(providerWork, providerStore, prod.BillingProviderCostResolver, claimProvider, prod.BillingPostTurnBatchSize)
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("runtimebundle: provider-cost worker: %w", err)
 	}
@@ -72,4 +112,72 @@ func buildProcessBillingRuntime(owner *processResourceOwner, cfgReportsPath stri
 		return ProductionOptions{}, fmt.Errorf("runtimebundle: start provider-cost worker: %w", err)
 	}
 	return prod, nil
+}
+
+func startEconomicRevisionWorkers(owner *processResourceOwner, prod ProductionOptions) error {
+	if prod.BillingEconomicRevisionRater == nil {
+		return nil
+	}
+	economicWork, workOK := prod.BillingStore.(billing.EconomicRevisionWorkReader)
+	economicResults, resultsOK := prod.BillingStore.(billing.EconomicRevisionResultStore)
+	if !workOK || !resultsOK {
+		return ErrAuthoritativeBillingRequired
+	}
+	providerCost, providerCostOK := prod.BillingStore.(billing.ProviderCostRevisionStore)
+	if providerCostOK {
+		if _, cutoverOK := prod.BillingStore.(billing.ProviderCostWorkCutoverStore); !cutoverOK {
+			return fmt.Errorf("%w: %w", ErrAuthoritativeBillingRequired, ErrProviderCostCutoverRequired)
+		}
+	}
+	// F6+F8: provider-queue economic posting requires the token-carrying lease
+	// port. A decorator hiding ClaimEconomicRevisionWorkWithCutover must not
+	// reach production posting; legacy non-claim/non-cutover constructors
+	// remain test-only.
+	var economicClaim billing.EconomicRevisionWorkCutoverClaimer
+	if providerCostOK {
+		claim, ok := prod.BillingStore.(billing.EconomicRevisionWorkCutoverClaimer)
+		if !ok {
+			return fmt.Errorf("%w: economic revision provider worker requires cutover claim metadata port", ErrAuthoritativeBillingRequired)
+		}
+		economicClaim = claim
+	}
+	for _, queue := range []billing.EconomicQueue{billing.EconomicQueueCustomer, billing.EconomicQueueProvider} {
+		var economicWorker *billing.EconomicRevisionWorker
+		var workerErr error
+		if queue == billing.EconomicQueueProvider && providerCostOK {
+			economicWorker, workerErr = billing.NewEconomicRevisionWorkerWithReconcilerAndProviderCostWithCutover(
+				economicWork, economicResults, prod.BillingEconomicRevisionRater,
+				prod.BillingEconomicRevisionReconciler, providerCost, economicClaim, queue, prod.BillingPostTurnBatchSize,
+			)
+		} else {
+			economicWorker, workerErr = billing.NewEconomicRevisionWorkerWithReconciler(
+				economicWork, economicResults, prod.BillingEconomicRevisionRater,
+				prod.BillingEconomicRevisionReconciler, queue, prod.BillingPostTurnBatchSize,
+			)
+		}
+		if workerErr != nil {
+			return fmt.Errorf("runtimebundle: economic revision worker: %w", workerErr)
+		}
+		if workerErr := startProcessBillingWorker(owner, economicWorker); workerErr != nil {
+			return fmt.Errorf("runtimebundle: start %s economic revision worker: %w", queue, workerErr)
+		}
+	}
+	return nil
+}
+
+// validateProviderCostRevisionRuntime rejects a monetary revision writer
+// unless the same durable store exposes the cross-path execution/cutover
+// fence. Pure economic valuation is intentionally unaffected when no provider
+// revision store is present, and legacy-only costing remains compatible.
+func validateProviderCostRevisionRuntime(prod ProductionOptions) error {
+	if prod.BillingEconomicRevisionRater == nil || prod.BillingStore == nil {
+		return nil
+	}
+	if _, revisionOK := prod.BillingStore.(billing.ProviderCostRevisionStore); !revisionOK {
+		return nil
+	}
+	if _, cutoverOK := prod.BillingStore.(billing.ProviderCostWorkCutoverStore); !cutoverOK {
+		return fmt.Errorf("%w: %w", ErrAuthoritativeBillingRequired, ErrProviderCostCutoverRequired)
+	}
+	return nil
 }
