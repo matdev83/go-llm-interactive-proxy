@@ -91,6 +91,13 @@ func TestR6UnselectedLoserConflictDoesNotBlockWinnerOnlyRating(t *testing.T) {
 	if err != nil {
 		t.Fatalf("control winner-only rating: %v", err)
 	}
+	// Fixture winner quantity 1 at the frozen linear rate of 100 USD/unit gives
+	// exactly 100 USD. Asserting the nonzero control amount prevents a
+	// degenerate both-zero comparison from satisfying the equality below.
+	expected := Money{Nano: 100_000_000_000, Currency: "USD"}
+	if control.CustomerCharge != expected {
+		t.Fatalf("control winner-only charge = %+v, want exact nonzero %+v", control.CustomerCharge, expected)
+	}
 
 	call, legs := build(true)
 	got, err := RateSelectedRetailBLegs(context.Background(), RetailRatingInput{

@@ -584,7 +584,7 @@ func (s TariffSnapshot) Validate() error {
 		return err
 	}
 	if err := metering.ValidateComponentSchemas(s.Schemas); err != nil {
-		return fmt.Errorf("%w: schemas: %v", ErrInvalidTariffSnapshot, err)
+		return fmt.Errorf("%w: schemas: %w", ErrInvalidTariffSnapshot, err)
 	}
 	if s.Content.ContentRef != "" || s.Content.ContentHash != "" {
 		if err := s.Content.Validate(); err != nil {
@@ -764,7 +764,7 @@ func (v RatingCatalogView) Validate() error {
 		return err
 	}
 	if err := metering.ValidateComponentSchemas(v.Schemas); err != nil {
-		return fmt.Errorf("%w: schemas: %v", ErrInvalidTariffSnapshot, err)
+		return fmt.Errorf("%w: schemas: %w", ErrInvalidTariffSnapshot, err)
 	}
 	return nil
 }
