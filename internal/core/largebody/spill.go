@@ -200,7 +200,7 @@ func defaultCreateSpillFile(dir string) (SpillFile, string, error) {
 			ErrSpillFileCreationFailed, dir, err)
 	}
 
-	for attempts := 0; attempts < 3; attempts++ {
+	for range 3 {
 		var nonce [16]byte
 		if _, err := rand.Read(nonce[:]); err != nil {
 			return nil, "", fmt.Errorf("%w: crypto/rand read failure: %v",

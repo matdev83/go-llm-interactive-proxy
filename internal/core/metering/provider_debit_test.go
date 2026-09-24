@@ -11,6 +11,7 @@ import (
 )
 
 func TestProviderDebitReduction_IsolatedAndDeterministic(t *testing.T) {
+	t.Parallel()
 	first := phase11DebitForCore(t, "core-debit-1", "1.25")
 	first.Sequence = 2
 	second := phase11DebitForCore(t, "core-debit-2", "2.25")
@@ -60,6 +61,7 @@ func TestProviderDebitReduction_IsolatedAndDeterministic(t *testing.T) {
 }
 
 func TestProviderDebitReduction_ReplayConflictAndCorrectionsFailClosed(t *testing.T) {
+	t.Parallel()
 	base := phase11DebitForCore(t, "core-debit-revision", "5")
 	duplicate := base.Clone()
 	duplicate.ReceivedAt = phase11Time(9_999)
@@ -119,6 +121,7 @@ func TestProviderDebitReduction_ReplayConflictAndCorrectionsFailClosed(t *testin
 }
 
 func TestProviderDebitReduction_UnsupportedAndPartialEvidenceRemainAbsent(t *testing.T) {
+	t.Parallel()
 	if _, err := ReduceProviderDebits(nil); !errors.Is(err, sdkmetering.ErrProviderDebitAbsent) {
 		t.Fatalf("empty reduction error = %v, want ErrProviderDebitAbsent", err)
 	}

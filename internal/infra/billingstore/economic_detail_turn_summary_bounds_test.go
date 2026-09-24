@@ -21,7 +21,7 @@ import (
 
 func edTestPlantJournalHistory(t *testing.T, store *DurableStore, accountID, callID, aLegID string, seqBase uint64, count int) {
 	t.Helper()
-	for i := 0; i < count; i++ {
+	for i := range count {
 		plantALegSettlementJournal(t, store, fmt.Sprintf("jrn-%s-%05d", callID, i), accountID,
 			callID, aLegID, "customer_call_settlement",
 			"customer_financial_account", "usage_revenue", 1, seqBase+uint64(i+1), "", "", "")
@@ -30,7 +30,7 @@ func edTestPlantJournalHistory(t *testing.T, store *DurableStore, accountID, cal
 
 func edTestPlantSnapshotHistory(t *testing.T, store *DurableStore, accountID, callID string, count int) {
 	t.Helper()
-	for i := 0; i < count; i++ {
+	for i := range count {
 		// The durable writer enforces UNIQUE(account_id, operation_kind,
 		// source_key), so a long operation history varies the kind. The first
 		// row stays a mapped settlement kind so a below-cap summary is

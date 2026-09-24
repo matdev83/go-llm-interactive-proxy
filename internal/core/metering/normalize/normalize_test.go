@@ -78,6 +78,7 @@ func TestNormalize_UnknownOperandAndNegativeResidualNeverInventZero(t *testing.T
 	t.Parallel()
 
 	t.Run("missing operand is partial", func(t *testing.T) {
+		t.Parallel()
 		result, err := normalize.Normalize(normalize.Input{
 			Mapping: tokenMapping(normalize.InputInclusive),
 			Fields:  []normalize.Field{field("total", "1000"), field("read", "600")},
@@ -94,6 +95,7 @@ func TestNormalize_UnknownOperandAndNegativeResidualNeverInventZero(t *testing.T
 	})
 
 	t.Run("negative residual is conflict", func(t *testing.T) {
+		t.Parallel()
 		result, err := normalize.Normalize(normalize.Input{
 			Mapping: tokenMapping(normalize.InputInclusive),
 			Fields:  []normalize.Field{field("total", "100"), field("read", "60"), field("write", "50")},
@@ -110,6 +112,7 @@ func TestNormalize_UnknownOperandAndNegativeResidualNeverInventZero(t *testing.T
 	})
 
 	t.Run("negative cache operand is conflict and cannot derive residual", func(t *testing.T) {
+		t.Parallel()
 		result, err := normalize.Normalize(normalize.Input{
 			Mapping: tokenMapping(normalize.InputInclusive),
 			Fields:  []normalize.Field{field("total", "100"), field("read", "-10"), field("write", "5")},

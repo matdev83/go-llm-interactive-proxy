@@ -11,6 +11,7 @@ import (
 )
 
 func TestProjectAccountWindows_GaugesArePartialResetScopedAndOrderIndependent(t *testing.T) {
+	t.Parallel()
 	resetOne := time.Unix(1_000, 0).UTC()
 	resetTwo := time.Unix(2_000, 0).UTC()
 	base := accountWindowObservation("base", "acct-a", "pool-a", "window-a", resetOne, time.Unix(10, 0),
@@ -52,6 +53,7 @@ func TestProjectAccountWindows_GaugesArePartialResetScopedAndOrderIndependent(t 
 }
 
 func TestProjectAccountWindows_ReplayIsIdempotentAndConflictIsRejected(t *testing.T) {
+	t.Parallel()
 	observation := accountWindowObservation("replay", "acct-a", "pool-a", "window-a", time.Unix(1_000, 0).UTC(), time.Unix(10, 0),
 		accountWindowMeasure("used_percent", "12.5"))
 	lateReceipt := observation.Clone()

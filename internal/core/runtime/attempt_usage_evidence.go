@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -485,10 +486,8 @@ func hasCapturedEvidenceKey(keys map[string]struct{}, key string) bool {
 }
 
 func appendBoundedEvidenceConflict(conflicts []billing.EvidenceConflict, conflict billing.EvidenceConflict) []billing.EvidenceConflict {
-	for _, prior := range conflicts {
-		if prior == conflict {
-			return conflicts
-		}
+	if slices.Contains(conflicts, conflict) {
+		return conflicts
 	}
 	if len(conflicts) >= billing.MaxCallLegEvidenceConflicts {
 		return conflicts

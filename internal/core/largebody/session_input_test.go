@@ -25,6 +25,7 @@ func TestSessionInput_Precedence(t *testing.T) {
 	t.Parallel()
 
 	t.Run("header only extracts authoritative fields", func(t *testing.T) {
+		t.Parallel()
 		src := largebody.SessionInputSource{
 			HeaderAuthoritativeSessionID: "  sess-auth-1  ",
 			HeaderResumeToken:            "  tok-resume-1  ",
@@ -56,6 +57,7 @@ func TestSessionInput_Precedence(t *testing.T) {
 	})
 
 	t.Run("header wins over body metadata when body metadata is permitted", func(t *testing.T) {
+		t.Parallel()
 		src := largebody.SessionInputSource{
 			HeaderAuthoritativeSessionID: "hdr-sess-id",
 			HeaderResumeToken:            "hdr-resume-tok",
@@ -85,6 +87,7 @@ func TestSessionInput_Precedence(t *testing.T) {
 	})
 
 	t.Run("body metadata used when headers absent and body metadata is permitted", func(t *testing.T) {
+		t.Parallel()
 		src := largebody.SessionInputSource{
 			BodyAuthoritativeSessionID: "body-sess-id",
 			BodyResumeToken:            "body-resume-tok",
@@ -107,6 +110,7 @@ func TestSessionInput_Precedence(t *testing.T) {
 	})
 
 	t.Run("new session requested when no authoritative session ID or resume token", func(t *testing.T) {
+		t.Parallel()
 		src := largebody.SessionInputSource{
 			HeaderClientSessionHint: "client-only-hint",
 		}
@@ -132,6 +136,7 @@ func TestSessionInput_Precedence(t *testing.T) {
 	})
 
 	t.Run("resume detected if only session id or only resume token present", func(t *testing.T) {
+		t.Parallel()
 		in1, err := largebody.BuildSessionInput(largebody.SessionInputSource{
 			HeaderAuthoritativeSessionID: "sess-only",
 		}, 64*1024)
@@ -148,6 +153,7 @@ func TestSessionInput_Precedence(t *testing.T) {
 	})
 
 	t.Run("bounds enforcement rejects oversized fields", func(t *testing.T) {
+		t.Parallel()
 		cases := []struct {
 			name string
 			src  largebody.SessionInputSource
@@ -180,6 +186,7 @@ func TestSessionInput_Precedence(t *testing.T) {
 
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
 				_, err := largebody.BuildSessionInput(tc.src, 64*1024)
 				if err == nil {
 					t.Fatal("expected error for oversized field, got nil")
@@ -189,6 +196,7 @@ func TestSessionInput_Precedence(t *testing.T) {
 	})
 
 	t.Run("fact budget bounds enforcement", func(t *testing.T) {
+		t.Parallel()
 		src := largebody.SessionInputSource{
 			HeaderAuthoritativeSessionID: strings.Repeat("s", 100),
 		}
@@ -204,6 +212,7 @@ func TestSessionInput_BodyMetadataRejection(t *testing.T) {
 	t.Parallel()
 
 	t.Run("rejects body-carried session ID when RejectBodyMetadata is true", func(t *testing.T) {
+		t.Parallel()
 		src := largebody.SessionInputSource{
 			BodyAuthoritativeSessionID: "body-session-id",
 			HasBodySessionMetadata:     true,
@@ -219,6 +228,7 @@ func TestSessionInput_BodyMetadataRejection(t *testing.T) {
 	})
 
 	t.Run("rejects body-carried resume token when RejectBodyMetadata is true", func(t *testing.T) {
+		t.Parallel()
 		src := largebody.SessionInputSource{
 			BodyResumeToken:        "body-resume-token",
 			HasBodySessionMetadata: true,
@@ -234,6 +244,7 @@ func TestSessionInput_BodyMetadataRejection(t *testing.T) {
 	})
 
 	t.Run("rejects body-carried session metadata even if headers are also present", func(t *testing.T) {
+		t.Parallel()
 		src := largebody.SessionInputSource{
 			HeaderAuthoritativeSessionID: "hdr-session-id",
 			BodyAuthoritativeSessionID:   "body-session-id",
@@ -250,6 +261,7 @@ func TestSessionInput_BodyMetadataRejection(t *testing.T) {
 	})
 
 	t.Run("accepts authoritative headers when body metadata is absent", func(t *testing.T) {
+		t.Parallel()
 		src := largebody.SessionInputSource{
 			HeaderAuthoritativeSessionID: "hdr-session-id",
 			HeaderResumeToken:            "hdr-resume-token",
@@ -284,6 +296,7 @@ func TestSessionInput_ResumeTokenNeverEntersBackendFactsOrTelemetry(t *testing.T
 	}
 
 	t.Run("telemetry format verbs never leak resume token", func(t *testing.T) {
+		t.Parallel()
 		for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
 			rendered := fmt.Sprintf(verb, in)
 			if strings.Contains(rendered, secretToken) {
@@ -299,6 +312,7 @@ func TestSessionInput_ResumeTokenNeverEntersBackendFactsOrTelemetry(t *testing.T
 	})
 
 	t.Run("JSON marshal never leaks resume token", func(t *testing.T) {
+		t.Parallel()
 		raw, err := json.Marshal(in)
 		if err != nil {
 			t.Fatalf("json.Marshal failed: %v", err)
@@ -309,6 +323,7 @@ func TestSessionInput_ResumeTokenNeverEntersBackendFactsOrTelemetry(t *testing.T
 	})
 
 	t.Run("slog handlers never leak resume token", func(t *testing.T) {
+		t.Parallel()
 		for _, format := range []string{"json", "text"} {
 			var buf bytes.Buffer
 			var handler slog.Handler
@@ -326,10 +341,10 @@ func TestSessionInput_ResumeTokenNeverEntersBackendFactsOrTelemetry(t *testing.T
 	})
 
 	t.Run("backend WireRequestFacts and WireDomainFacts do not contain session or token fields", func(t *testing.T) {
+		t.Parallel()
 		// Reflect over WireRequestFacts to ensure no SessionInput or resume token fields exist
 		reqType := reflect.TypeFor[largebody.WireRequestFacts]()
-		for i := 0; i < reqType.NumField(); i++ {
-			f := reqType.Field(i)
+		for f := range reqType.Fields() {
 			name := strings.ToLower(f.Name)
 			if strings.Contains(name, "session") || strings.Contains(name, "resumetoken") || strings.Contains(name, "resume") {
 				t.Fatalf("WireRequestFacts contains forbidden field %q (resume tokens/session input must not enter backend facts)", f.Name)
@@ -341,8 +356,7 @@ func TestSessionInput_ResumeTokenNeverEntersBackendFactsOrTelemetry(t *testing.T
 
 		// Reflect over WireDomainFacts to ensure no SessionInput or resume token fields exist
 		domType := reflect.TypeFor[largebody.WireDomainFacts]()
-		for i := 0; i < domType.NumField(); i++ {
-			f := domType.Field(i)
+		for f := range domType.Fields() {
 			name := strings.ToLower(f.Name)
 			if strings.Contains(name, "session") || strings.Contains(name, "resumetoken") || strings.Contains(name, "resume") {
 				t.Fatalf("WireDomainFacts contains forbidden field %q (resume tokens/session input must not enter backend facts)", f.Name)
@@ -433,6 +447,7 @@ func TestSessionInput_ProvesFreshALeg(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := tc.in.ProvesFreshALeg()
 			if got != tc.want {
 				t.Errorf("ProvesFreshALeg() = %v, want %v for %+v", got, tc.want, tc.in)

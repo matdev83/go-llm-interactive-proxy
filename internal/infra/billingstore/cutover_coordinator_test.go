@@ -84,7 +84,7 @@ func TestB2aConcurrentAppendVsBeginDrainClosesGateFirst(t *testing.T) {
 	const appenders = 8
 	var wg sync.WaitGroup
 	fenced := make([]error, appenders)
-	for i := 0; i < appenders; i++ {
+	for i := range appenders {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -145,7 +145,7 @@ func TestB2aBoundedMultiBatchClassificationPinsAll(t *testing.T) {
 	ctx := context.Background()
 	_ = b2aEnsureShadow(t, store)
 	const total = 25
-	for i := 0; i < total; i++ {
+	for i := range total {
 		b2aAppendCompleteCall(t, store, "acct-b2a-batch", fmt.Sprintf("b-%d", i))
 		// Distinct calls need distinct B-legs; each call has one leg above.
 		// The loop helper already creates one call+leg per iteration.
@@ -238,7 +238,7 @@ func TestB2aRestartMidClassificationResumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = shadow
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		callID := b2aMustCallID(t)
 		call := testIndependentCallUsageFor(callID, []string{fmt.Sprintf("b-%d", i)})
 		call.AccountID = "acct-b2a-restart"

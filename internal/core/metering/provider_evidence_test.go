@@ -9,6 +9,7 @@ import (
 )
 
 func TestProviderEvidenceBufferRequiresTrustedBLegBinding(t *testing.T) {
+	t.Parallel()
 	b := NewProviderEvidenceBuffer()
 	b.AddUsageEvent(providerUsageEvent(3, 2), "test.provider.v2")
 	if got := b.DrainEconomicObservations(); len(got) != 0 {
@@ -28,6 +29,7 @@ func TestProviderEvidenceBufferRequiresTrustedBLegBinding(t *testing.T) {
 }
 
 func TestProviderEvidenceBufferDeduplicatesReplayAndRetainsRevision(t *testing.T) {
+	t.Parallel()
 	b := NewProviderEvidenceBuffer()
 	b.AddUsageEvent(providerUsageEvent(3, 2), "test.provider.v2")
 	b.AddUsageEvent(providerUsageEvent(3, 2), "test.provider.v2")
@@ -195,6 +197,7 @@ func TestProviderEvidenceBufferRejectsConflictingExplicitSourceRevision(t *testi
 }
 
 func TestProviderEvidenceBufferPreservesMediaChargeAndProviderLineage(t *testing.T) {
+	t.Parallel()
 	b := NewProviderEvidenceBuffer()
 	amount := sdkmetering.Decimal{Coefficient: "0"}
 	b.Add(ProviderEvidenceDraft{
@@ -234,6 +237,7 @@ func TestProviderEvidenceBufferPreservesMediaChargeAndProviderLineage(t *testing
 }
 
 func TestProviderEvidenceBufferRejectsUnsafeEvidenceWithoutDroppingOtherDrafts(t *testing.T) {
+	t.Parallel()
 	b := NewProviderEvidenceBuffer()
 	b.Add(ProviderEvidenceDraft{
 		SourceEventKey: "unsafe",

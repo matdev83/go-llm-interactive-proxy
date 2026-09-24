@@ -368,10 +368,7 @@ func (s *DurableStore) completePostingPinAttempt(ctx context.Context, req billin
 	if !billing.IsPostingPinCompleteAllowed(currentMarker.State, pin) {
 		return billing.PostingPin{}, fmt.Errorf("%w: %s %q completion not allowed in %q", billing.ErrPostingOwnershipFence, string(req.Kind), operationKey, string(currentMarker.State))
 	}
-	now := time.Now().UTC().UnixNano()
-	if now < pin.CreatedAtUnix {
-		now = pin.CreatedAtUnix
-	}
+	now := max(time.Now().UTC().UnixNano(), pin.CreatedAtUnix)
 	res, err := tx.NewRaw(`UPDATE billing_posting_ownership_pins SET status = ?, completion_operation_key = ?, completion_transaction_id = ?, updated_at_unix = ?, completed_at_unix = ? WHERE store_id = ? AND operation_kind = ? AND operation_key = ? AND status = ?`,
 		string(billing.PostingPinCompleted), req.CompletionOperationKey, req.CompletionTransactionID, now, now,
 		s.storeID, string(req.Kind), operationKey, string(billing.PostingPinPinned)).Exec(ctx)

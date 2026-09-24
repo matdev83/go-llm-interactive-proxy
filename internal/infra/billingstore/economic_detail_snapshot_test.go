@@ -190,7 +190,7 @@ func TestQueryEconomicDetailContinuationUnchangedSurvivesReopen(t *testing.T) {
 	callID := edTestCallID(t)
 	subject := edTestBLegSubject(first.StoreID(), "tenant-ed", account.ID, "a-ed-snapshot-reopen", callID.String(), "b-ed-snapshot-reopen")
 	var observations []metering.Observation
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		observations = append(observations, edTestObservation(t, "obs-snapshot-reopen-"+string(rune('a'+i)), metering.OriginLocal, "stream-reopen", uint64(i+1), subject,
 			[]metering.Measure{edTestMeasure(t, metering.ComponentInputToken, "10")}, nil))
 	}

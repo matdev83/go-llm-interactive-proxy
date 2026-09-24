@@ -13,6 +13,7 @@ import (
 )
 
 func TestClientTurnShapeFromCall_NoPromptText(t *testing.T) {
+	t.Parallel()
 	const secretPrompt = "SUPER_CONFIDENTIAL_PROMPT_DO_NOT_STORE_OR_LOG_98765"
 
 	call := &lipapi.Call{
@@ -67,8 +68,7 @@ func TestClientTurnShapeFromCall_NoPromptText(t *testing.T) {
 	for i, it := range shape.Items {
 		for j, p := range it.Parts {
 			typ := reflect.TypeOf(p)
-			for f := 0; f < typ.NumField(); f++ {
-				field := typ.Field(f)
+			for field := range typ.Fields() {
 				if field.Type.Kind() == reflect.String && field.Name != "Kind" {
 					t.Fatalf("item %d part %d has unexpected string field %s", i, j, field.Name)
 				}
@@ -78,6 +78,7 @@ func TestClientTurnShapeFromCall_NoPromptText(t *testing.T) {
 }
 
 func TestClientTurnShapeFromCall_BudgetOverflow(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{
 		Messages: []lipapi.Message{
 			{
@@ -114,6 +115,7 @@ func TestClientTurnShapeFromCall_BudgetOverflow(t *testing.T) {
 }
 
 func TestClientTurnShape_BudgetOverflowSentinel(t *testing.T) {
+	t.Parallel()
 	shape := largebody.ClientTurnShape{
 		Items: []largebody.ClientTurnItemShape{
 			{

@@ -264,6 +264,7 @@ func TestLifecycleFreeze_DenialPerformsNoLineageCreate(t *testing.T) {
 }
 
 func TestLifecycleFreeze_FinishTurnAppendsOneAuditRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	key := testFingerprintKey(t)
 	st := memory.New(memory.Options{SimulateDurable: true})

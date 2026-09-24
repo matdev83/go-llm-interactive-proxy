@@ -421,17 +421,15 @@ func TestSpoolLedger_ConcurrentReleaseSafety(t *testing.T) {
 	var totalFreed int64
 	var mu sync.Mutex
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			freed := res.Release()
 			if freed > 0 {
 				mu.Lock()
 				totalFreed += freed
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -657,11 +655,11 @@ func TestSpoolLedger_ConcurrentOperations(t *testing.T) {
 	const iterations = 50
 	var wg sync.WaitGroup
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for j := range iterations {
 				// Mix early reservation and incremental reservation
 				if (workerID+j)%2 == 0 {
 					res, err := ledger.Reserve(10 * 1024)

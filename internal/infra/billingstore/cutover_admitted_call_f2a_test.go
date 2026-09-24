@@ -514,7 +514,7 @@ func TestF2AAppendRaceWithBeginSerialized(t *testing.T) {
 	const appenders = 8
 	var wg sync.WaitGroup
 	results := make([]error, appenders)
-	for i := 0; i < appenders; i++ {
+	for i := range appenders {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

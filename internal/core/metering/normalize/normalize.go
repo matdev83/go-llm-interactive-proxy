@@ -607,10 +607,7 @@ func subtractDecimal(a, b metering.Decimal) (metering.Decimal, error) {
 	if !ok {
 		return metering.Decimal{}, fmt.Errorf("%w: invalid right coefficient", ErrInvalidField)
 	}
-	scale := left.Scale
-	if right.Scale > scale {
-		scale = right.Scale
-	}
+	scale := max(right.Scale, left.Scale)
 	if scale > left.Scale {
 		leftInt.Mul(leftInt, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(scale-left.Scale)), nil))
 	}

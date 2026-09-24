@@ -207,9 +207,9 @@ func TestEconomicDetailValuationStreamSubjectFieldsCoverSubjectRef(t *testing.T)
 	for _, field := range economicDetailValuationStreamSubjectFields {
 		covered[field] = struct{}{}
 	}
-	typ := reflect.TypeOf(metering.SubjectRef{})
-	for i := 0; i < typ.NumField(); i++ {
-		tag := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
+	typ := reflect.TypeFor[metering.SubjectRef]()
+	for field := range typ.Fields() {
+		tag := strings.Split(field.Tag.Get("json"), ",")[0]
 		if tag == "" || tag == "-" {
 			continue
 		}

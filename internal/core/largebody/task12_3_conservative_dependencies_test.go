@@ -9,6 +9,7 @@ import (
 // Test 1: Metadata-only receive view is bounded, carries all facts required for
 // receive/dispatch, and contains no lipapi.Call or prompt content (Requirements 13.7, 19.1, 19.4).
 func TestTask12_3_MetadataOnly_ReceiveView_BoundedAndCallFree(t *testing.T) {
+	t.Parallel()
 	turnFacts := largebody.DefaultTestWireTurnFacts()
 	recvView := turnFacts.ToReceiveView()
 
@@ -73,6 +74,7 @@ func TestTask12_3_MetadataOnly_ReceiveView_BoundedAndCallFree(t *testing.T) {
 // Test 2: Metadata-only terminal facts view is bounded, carries facts needed for
 // settlement, metering, billing, and affinity commit, and contains no lipapi.Call (Requirements 13.7, 19.1, 19.4).
 func TestTask12_3_MetadataOnly_TerminalFacts_BoundedAndCallFree(t *testing.T) {
+	t.Parallel()
 	turnFacts := largebody.DefaultTestWireTurnFacts()
 	termFacts := turnFacts.ToTerminalFacts()
 
@@ -110,6 +112,7 @@ func TestTask12_3_MetadataOnly_TerminalFacts_BoundedAndCallFree(t *testing.T) {
 // Test 3: Metadata-only conversation observation view carries bounded metadata
 // without prompt content (Requirements 13.7, 19.4).
 func TestTask12_3_MetadataOnly_ConversationObserver_Bounded(t *testing.T) {
+	t.Parallel()
 	turnFacts := largebody.DefaultTestWireTurnFacts()
 	obsFacts := turnFacts.ToConversationObserverFacts("stage_early", "rev_1", 3)
 
@@ -140,6 +143,7 @@ func TestTask12_3_MetadataOnly_ConversationObserver_Bounded(t *testing.T) {
 // Test 4: Metadata-only continuation lineage carries bounded identifiers
 // without parent trajectory or message items (Requirements 13.7, 19.4).
 func TestTask12_3_MetadataOnly_ContinuationLineage_Bounded(t *testing.T) {
+	t.Parallel()
 	turnFacts := largebody.DefaultTestWireTurnFacts()
 	lineage := turnFacts.ToContinuationLineage()
 
@@ -161,6 +165,7 @@ func TestTask12_3_MetadataOnly_ContinuationLineage_Bounded(t *testing.T) {
 // Test 5: Metadata-only compaction preservation carries bounded correlation
 // without prompt content (Requirements 13.7, 19.4).
 func TestTask12_3_MetadataOnly_CompactionMeta_Bounded(t *testing.T) {
+	t.Parallel()
 	turnFacts := largebody.DefaultTestWireTurnFacts()
 	compMeta := turnFacts.ToCompactionMeta("bleg-1", 1, "tx-99", "rule-42")
 
@@ -189,6 +194,7 @@ func TestTask12_3_MetadataOnly_CompactionMeta_Bounded(t *testing.T) {
 // active overlays, neverBackend rules) are assessment blockers and cause decline
 // with DeclineReasonAuthorityBlocker (Requirements 13.3, 19.2, 19.4).
 func TestTask12_3_ContentTrajectory_Conversation_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-3"
 	summary := buildValidSummary(genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -247,6 +253,7 @@ func TestTask12_3_ContentTrajectory_Conversation_Declines(t *testing.T) {
 // Test 7: Content/trajectory continuation uses (continuation intent, parent continuation,
 // continuation port) are assessment blockers (Requirements 13.5, 19.2, 19.4).
 func TestTask12_3_ContentTrajectory_Continuation_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-3"
 	summary := buildValidSummary(genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -283,6 +290,7 @@ func TestTask12_3_ContentTrajectory_Continuation_Declines(t *testing.T) {
 // Test 8: Content/trajectory interleaved thinking uses (processor occupied, interleaved active)
 // are assessment blockers (Requirements 13.3, 19.2, 19.4).
 func TestTask12_3_ContentTrajectory_Interleaved_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-3"
 	summary := buildValidSummary(genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -310,6 +318,7 @@ func TestTask12_3_ContentTrajectory_Interleaved_Declines(t *testing.T) {
 // Test 9: Content/trajectory compaction uses (detector on request leg, preservers)
 // are assessment blockers (Requirements 13.3, 19.2, 19.4).
 func TestTask12_3_ContentTrajectory_Compaction_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-3"
 	summary := buildValidSummary(genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -337,6 +346,7 @@ func TestTask12_3_ContentTrajectory_Compaction_Declines(t *testing.T) {
 // Test 10: Content/trajectory terminal decision uses (terminal decision active)
 // are assessment blockers (Requirements 13.5, 19.2, 19.4).
 func TestTask12_3_ContentTrajectory_TerminalDecision_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-3"
 	summary := buildValidSummary(genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -355,6 +365,7 @@ func TestTask12_3_ContentTrajectory_TerminalDecision_Declines(t *testing.T) {
 // Test 11: Under Blocker 2 conservative fail-safe, occupied response-only planes
 // cause assessment to decline because wire streaming bypasses response machinery.
 func TestTask12_3_ResponseOnly_CompactionAndTerminal_DeclinesUnderBlocker2(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-3"
 	summary := buildValidSummary(genID)
 	census := largebody.NewStandardDependencyCensus(genID)
@@ -386,6 +397,7 @@ func TestTask12_3_ResponseOnly_CompactionAndTerminal_DeclinesUnderBlocker2(t *te
 // Test 12: Standard narrow port census includes continuation and terminal decision
 // ports classified as DependencyClassBlocker (Requirements 13, 19.4).
 func TestTask12_3_StandardNarrowPortCensus_ContinuationAndTerminalPorts(t *testing.T) {
+	t.Parallel()
 	for _, port := range []string{
 		"core.continuation",
 		"continuation.resolver",
@@ -413,7 +425,7 @@ func buildValidSummary(genID string) largebody.WireEligibilitySummary {
 		},
 		TwoPhaseExecutorAvailable: true,
 	}
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		id, _ := largebody.WireEligibilityPlaneID(i)
 		input.Planes[i] = largebody.PlaneEligibilityInput{
 			ID:       id,
@@ -477,6 +489,7 @@ func TestTask12_3_IdentityStamped_ParityWithCanonical(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			facts := largebody.WireTurnFacts{
 				Identity: largebody.WireIdentityFacts{RequestID: "req-1"},
 				Economic: largebody.WireEconomicFacts{

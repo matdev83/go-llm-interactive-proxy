@@ -44,7 +44,6 @@ func TestPhase9Repair8_MeasureSupersessionRejectsForeignSourceScopeInAnyOrder(t 
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -142,7 +141,6 @@ func TestPhase9Repair8_ProviderChargeSupersessionRejectsForeignChargeScopeInAnyO
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 

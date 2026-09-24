@@ -32,11 +32,10 @@ import (
 // - Whole-message-marshal mutation test catches regression to whole-message json.Marshal.
 // =============================================================================
 
-func float64Ptr(f float64) *float64 { return &f }
+//go:fix inline
+func float64Ptr(f float64) *float64 { return new(f) }
 
 func TestStreamingProofDifferential_OpenAIResponsesCorpus(t *testing.T) {
-	t.Parallel()
-
 	testCases := []struct {
 		name           string
 		body           string
@@ -81,10 +80,7 @@ func TestStreamingProofDifferential_OpenAIResponsesCorpus(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			// Decode canonically via frontend decoder oracle
 			opts := openairesponses.DecodeOptions{
 				RouteSelector: "stub:gpt-4o",
@@ -173,8 +169,6 @@ func TestStreamingProofDifferential_OpenAIResponsesCorpus(t *testing.T) {
 }
 
 func TestStreamingProofDifferential_OpenAIChatCorpus(t *testing.T) {
-	t.Parallel()
-
 	testCases := []struct {
 		name    string
 		body    string
@@ -208,10 +202,7 @@ func TestStreamingProofDifferential_OpenAIChatCorpus(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			opts := openailegacy.DecodeOptions{
 				RouteSelector: "stub:gpt-4o",
 				Headers:       tc.headers,
@@ -259,8 +250,6 @@ func TestStreamingProofDifferential_OpenAIChatCorpus(t *testing.T) {
 }
 
 func TestStreamingProofDifferential_OpenResponsesCorpus(t *testing.T) {
-	t.Parallel()
-
 	testCases := []struct {
 		name string
 		body string
@@ -288,10 +277,7 @@ func TestStreamingProofDifferential_OpenResponsesCorpus(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			opts := openresponses.DecodeCreateOptions{
 				RouteSelector: "stub:gpt-4o",
 			}
@@ -330,8 +316,6 @@ func TestStreamingProofDifferential_OpenResponsesCorpus(t *testing.T) {
 }
 
 func TestStreamingProofDifferential_LateModelAndEscapes(t *testing.T) {
-	t.Parallel()
-
 	// JSON payload where "model" appears AFTER "input" and "messages", with unicode/surrogate escapes
 	body := `{"input":"Prefix \u003cdiv\u003e & \uD83D\uDE80 \\n\\t string","temperature":0.7,"model":"gpt-4o-late"}`
 
@@ -437,13 +421,11 @@ func TestStreamingProofDifferential_LateModelAndEscapes(t *testing.T) {
 }
 
 func TestStreamingProofDifferential_LargeStringPayload(t *testing.T) {
-	t.Parallel()
-
 	// Build 1 MiB large string with varied unicode and JSON escape characters
 	pattern := "Lorem ipsum dolor sit amet, <div>&\"'</div> \u2028\u2029 🧪 café \\u0041 \n\t\r 🚀🌍 "
 	repeats := (1024 * 1024) / len(pattern)
 	var sb strings.Builder
-	for i := 0; i < repeats; i++ {
+	for range repeats {
 		sb.WriteString(pattern)
 	}
 	largeText := sb.String()
@@ -489,8 +471,6 @@ func TestStreamingProofDifferential_LargeStringPayload(t *testing.T) {
 }
 
 func TestStreamingProofDifferential_ReasoningItems(t *testing.T) {
-	t.Parallel()
-
 	// Items with reasoning parts and dialects
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "stub:reasoning-route"},
@@ -624,8 +604,6 @@ func TestWholeMessageMarshalMutation(t *testing.T) {
 }
 
 func TestTrimSpaceWriter_NormalTrimming(t *testing.T) {
-	t.Parallel()
-
 	var buf bytes.Buffer
 	w := largebody.NewTrimSpaceWriter(&buf)
 
@@ -655,8 +633,6 @@ func TestTrimSpaceWriter_NormalTrimming(t *testing.T) {
 }
 
 func TestTrimSpaceWriter_TrailingWhitespaceBounded(t *testing.T) {
-	t.Parallel()
-
 	var buf bytes.Buffer
 	w := largebody.NewTrimSpaceWriter(&buf)
 

@@ -66,7 +66,7 @@ func TestWireComposition_NoAccounting_ReachesWireModeAndCompletesLifecycle(t *te
 	// Step 1: Wire Eligibility Compilation Proof (Req 15.4, 21.6)
 	// Build generation-pinned eligibility with disabled accounting ports.
 	planes := make([]largebody.PlaneEligibilityInput, largebody.WireEligibilityPlaneCount)
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		id, ok := largebody.WireEligibilityPlaneID(i)
 		if !ok {
 			t.Fatalf("missing plane ID for index %d", i)
@@ -373,7 +373,7 @@ func TestWireComposition_AccountingEnabledWithoutWireCounter_BlocksWireMode(t *t
 	t.Parallel()
 
 	planes := make([]largebody.PlaneEligibilityInput, largebody.WireEligibilityPlaneCount)
-	for i := 0; i < largebody.WireEligibilityPlaneCount; i++ {
+	for i := range largebody.WireEligibilityPlaneCount {
 		id, ok := largebody.WireEligibilityPlaneID(i)
 		if !ok {
 			t.Fatalf("missing plane ID for index %d", i)
@@ -423,7 +423,6 @@ func TestWireComposition_AccountingEnabledWithoutWireCounter_BlocksWireMode(t *t
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

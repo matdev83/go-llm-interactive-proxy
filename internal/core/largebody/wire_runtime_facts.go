@@ -425,7 +425,7 @@ var shadowCallForbiddenTokens = []string{
 // history, and no lipapi.Call reference anywhere in the 8 fact domains
 // (Requirements 19.1, 19.4, 19.7).
 func (f WireTurnFacts) AssertNoShadowCall() error {
-	callType := reflect.TypeOf(lipapi.Call{})
+	callType := reflect.TypeFor[lipapi.Call]()
 	seen := make(map[reflect.Type]bool)
 	var walk func(current reflect.Type, path string) error
 	walk = func(current reflect.Type, path string) error {
@@ -448,8 +448,7 @@ func (f WireTurnFacts) AssertNoShadowCall() error {
 				return nil
 			}
 			seen[current] = true
-			for i := 0; i < current.NumField(); i++ {
-				field := current.Field(i)
+			for field := range current.Fields() {
 				upperName := strings.ToUpper(field.Name)
 				for _, forbidden := range shadowCallForbiddenTokens {
 					if upperName == forbidden || upperName == forbidden+"S" {
@@ -465,7 +464,7 @@ func (f WireTurnFacts) AssertNoShadowCall() error {
 			return nil
 		}
 	}
-	return walk(reflect.TypeOf(f), "WireTurnFacts")
+	return walk(reflect.TypeFor[WireTurnFacts](), "WireTurnFacts")
 }
 
 // wireFactConsumerAliases maps irregular struct field paths to their canonical
@@ -508,9 +507,8 @@ func wireFactDomainKey(typeName string) string {
 // audit key must resolve to a real struct field (stale entries fail too).
 func (f WireTurnFacts) AssertConsumerCoverage() error {
 	consumers := f.AuditNamedConsumers()
-	turnType := reflect.TypeOf(f)
-	for i := 0; i < turnType.NumField(); i++ {
-		domainField := turnType.Field(i)
+	turnType := reflect.TypeFor[WireTurnFacts]()
+	for domainField := range turnType.Fields() {
 		domainType := domainField.Type
 		for domainType.Kind() == reflect.Pointer {
 			domainType = domainType.Elem()
@@ -519,8 +517,7 @@ func (f WireTurnFacts) AssertConsumerCoverage() error {
 			return fmt.Errorf("largebody: wire facts domain %q is not a struct", domainField.Name)
 		}
 		domain := wireFactDomainKey(domainType.Name())
-		for j := 0; j < domainType.NumField(); j++ {
-			factField := domainType.Field(j)
+		for factField := range domainType.Fields() {
 			if !factField.IsExported() {
 				continue
 			}
@@ -552,8 +549,7 @@ func (f WireTurnFacts) AssertConsumerCoverage() error {
 			if domainType.Kind() != reflect.Struct || wireFactDomainKey(domainType.Name()) != domain {
 				continue
 			}
-			for j := 0; j < domainType.NumField(); j++ {
-				factField := domainType.Field(j)
+			for factField := range domainType.Fields() {
 				if !factField.IsExported() {
 					continue
 				}

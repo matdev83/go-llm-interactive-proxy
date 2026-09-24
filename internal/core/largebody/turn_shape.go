@@ -27,7 +27,7 @@ func buildTurnShape(count int, maxFactBytes int64, buildItem func(ord int) (lipa
 	}
 	items := make([]ClientTurnItemShape, 0, count)
 	var totalBytes int64
-	for ord := 0; ord < count; ord++ {
+	for ord := range count {
 		kind, role, parts, err := buildItem(ord)
 		if err != nil {
 			return ClientTurnShape{}, err

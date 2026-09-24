@@ -31,6 +31,7 @@ func (s *stubWireBackend) ResolveWireDomain(ctx context.Context, facts largebody
 var _ largebody.WireBackend = (*stubWireBackend)(nil)
 
 func TestWireSupportReason_StringsAndUnknown(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		reason largebody.WireSupportReason
 		want   string
@@ -55,6 +56,7 @@ func TestWireSupportReason_StringsAndUnknown(t *testing.T) {
 }
 
 func TestWireRequestSupport_Validate(t *testing.T) {
+	t.Parallel()
 	validCompatible := largebody.WireRequestSupport{
 		Compatible: true,
 		Reason:     largebody.WireSupportReasonNone,
@@ -97,6 +99,7 @@ func TestWireRequestSupport_Validate(t *testing.T) {
 }
 
 func TestWireDomainSupport_Validate(t *testing.T) {
+	t.Parallel()
 	validCompatible := largebody.WireDomainSupport{
 		Compatible:       true,
 		AnyAcceptedModel: true,
@@ -132,13 +135,14 @@ func TestWireDomainSupport_Validate(t *testing.T) {
 }
 
 func TestWireBackend_InterfaceContract(t *testing.T) {
-	typ := reflect.TypeOf((*largebody.WireBackend)(nil)).Elem()
+	t.Parallel()
+	typ := reflect.TypeFor[largebody.WireBackend]()
 	if typ.Kind() != reflect.Interface {
 		t.Fatalf("largebody.WireBackend is %s, want interface", typ.Kind())
 	}
 	var names []string
-	for i := 0; i < typ.NumMethod(); i++ {
-		names = append(names, typ.Method(i).Name)
+	for method := range typ.Methods() {
+		names = append(names, method.Name)
 	}
 	sort.Strings(names)
 	want := []string{"ResolveWireDomain", "ResolveWireRequest"}
@@ -148,6 +152,7 @@ func TestWireBackend_InterfaceContract(t *testing.T) {
 }
 
 func TestAsWireBackend_Probing(t *testing.T) {
+	t.Parallel()
 	if got, ok := largebody.AsWireBackend(nil); ok || got != nil {
 		t.Fatalf("AsWireBackend(nil) = (%v, %v), want (nil, false)", got, ok)
 	}
@@ -175,6 +180,7 @@ func TestAsWireBackend_Probing(t *testing.T) {
 }
 
 func TestSemanticFactBudget(t *testing.T) {
+	t.Parallel()
 	if largebody.DefaultMaxSemanticFactBytes != 256*1024 {
 		t.Fatalf("DefaultMaxSemanticFactBytes = %d, want %d", largebody.DefaultMaxSemanticFactBytes, 256*1024)
 	}

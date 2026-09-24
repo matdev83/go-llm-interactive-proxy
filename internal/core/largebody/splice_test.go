@@ -62,7 +62,6 @@ func TestSpliceModelToken_SameShorterLonger(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -134,8 +133,8 @@ func TestSpliceModelToken_EscapedModel(t *testing.T) {
 		span := scanModelSpan(t, sourceBytes)
 
 		for _, repl := range replacements {
-			repl := repl
 			t.Run(repl, func(t *testing.T) {
+				t.Parallel()
 				reader, err := largebody.SpliceModelToken(sourceBytes, span, repl)
 				if err != nil {
 					t.Fatalf("SpliceModelToken failed for replacement %q: %v", repl, err)
@@ -210,7 +209,7 @@ func TestSpliceModelToken_LateModel(t *testing.T) {
 	// Construct a large payload where "model" is at the very end.
 	var sb strings.Builder
 	sb.WriteString(`{"messages": [`)
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		if i > 0 {
 			sb.WriteString(`,`)
 		}
@@ -497,7 +496,6 @@ func TestSpliceModelToken_InvalidSpans(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -728,8 +726,8 @@ func TestSpliceModelToken_StreamingChunkVariations(t *testing.T) {
 
 	chunkSizes := []int{1, 2, 3, 7, 13, 31, 64, 128, 1024, 4096}
 	for _, chunk := range chunkSizes {
-		chunk := chunk
 		t.Run(fmt.Sprintf("buffer_size_%d", chunk), func(t *testing.T) {
+			t.Parallel()
 			reader, err := largebody.SpliceModelToken(sourceBytes, span, replacement)
 			if err != nil {
 				t.Fatalf("SpliceModelToken failed: %v", err)

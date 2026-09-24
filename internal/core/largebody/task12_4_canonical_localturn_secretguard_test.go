@@ -47,6 +47,7 @@ func buildCleanSummaryAndCensus(t *testing.T, genID string) (largebody.WireEligi
 // Test 1: Occupied PlaneLocalTurnHandlers in census causes assessment decline in both
 // AuthorityAssessmentGate and ConservativeDependencyAssessmentGate (Requirements 5.4, 13.4, 19.2).
 func TestTask12_4_LocalTurnOccupied_InCensus_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-4-lt"
 	summary, census := buildCleanSummaryAndCensus(t, genID)
 
@@ -96,6 +97,7 @@ func TestTask12_4_LocalTurnOccupied_InCensus_Declines(t *testing.T) {
 // assessment decline in both AuthorityAssessmentGate and ConservativeDependencyAssessmentGate
 // (Requirements 5.4, 13.3, 13.4, 19.2).
 func TestTask12_4_SecretGuardOccupied_InCensus_Declines(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name    string
 		planeID string
@@ -106,6 +108,7 @@ func TestTask12_4_SecretGuardOccupied_InCensus_Declines(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			genID := "gen-task12-4-sg-" + tc.planeID
 			summary, census := buildCleanSummaryAndCensus(t, genID)
 
@@ -142,6 +145,7 @@ func TestTask12_4_SecretGuardOccupied_InCensus_Declines(t *testing.T) {
 // Test 3: Both Local Turn and Secret Guard planes occupied simultaneously decline
 // (Requirements 5.4, 13.4, 19.2).
 func TestTask12_4_BothLocalTurnAndSecretGuardOccupied_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-4-both"
 	summary, census := buildCleanSummaryAndCensus(t, genID)
 
@@ -170,6 +174,7 @@ func TestTask12_4_BothLocalTurnAndSecretGuardOccupied_Declines(t *testing.T) {
 // Test 4: Occupied Local Turn in WireEligibilitySummary causes ConservativeDependencyAssessmentGate
 // to decline even with clean per-request dependency facts (Requirements 5.4, 13.4, 19.2).
 func TestTask12_4_LocalTurnOccupied_InSummary_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-4-summary-lt"
 	census := largebody.NewStandardDependencyCensus(genID)
 
@@ -211,11 +216,13 @@ func TestTask12_4_LocalTurnOccupied_InSummary_Declines(t *testing.T) {
 // Test 5: Occupied Secret Guard in WireEligibilitySummary causes ConservativeDependencyAssessmentGate
 // to decline even with clean per-request dependency facts (Requirements 5.4, 13.3, 13.4, 19.2).
 func TestTask12_4_SecretGuardOccupied_InSummary_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-4-summary-sg"
 	census := largebody.NewStandardDependencyCensus(genID)
 
 	for _, id := range []string{"secret_guards", "secret_guard_execution"} {
 		t.Run(id, func(t *testing.T) {
+			t.Parallel()
 			planes := make([]largebody.PlaneEligibilityInput, len(census.Planes))
 			copy(planes, census.Planes)
 			idx, ok := largebody.WireEligibilityPlaneIndex(id)
@@ -255,6 +262,7 @@ func TestTask12_4_SecretGuardOccupied_InSummary_Declines(t *testing.T) {
 // classification in census (e.g. marking MetadataOnly, ResponseOnly, or WireContract) MUST DECLINE
 // (Requirements 5.4, 13.4, 19.4).
 func TestTask12_4_AntiTamper_WeakenedAccessInCensus_Declines(t *testing.T) {
+	t.Parallel()
 	weakenedAccesses := []struct {
 		name   string
 		access largebody.PlaneAccess
@@ -273,6 +281,7 @@ func TestTask12_4_AntiTamper_WeakenedAccessInCensus_Declines(t *testing.T) {
 	for _, planeID := range canonicalPlanes {
 		for _, wa := range weakenedAccesses {
 			t.Run(planeID+"_"+wa.name, func(t *testing.T) {
+				t.Parallel()
 				genID := "gen-task12-4-tamper-" + planeID + "-" + wa.name
 				summary, census := buildCleanSummaryAndCensus(t, genID)
 
@@ -311,6 +320,7 @@ func TestTask12_4_AntiTamper_WeakenedAccessInCensus_Declines(t *testing.T) {
 // weakened access for occupied Local Turn or Secret Guard MUST still register static blocker
 // (Requirements 5.4, 13.4, 19.4).
 func TestTask12_4_AntiTamper_WeakenedAccessInSummary_SetsBlocker(t *testing.T) {
+	t.Parallel()
 	weakenedAccesses := []largebody.PlaneAccess{
 		largebody.PlaneAccessMetadataOnly,
 		largebody.PlaneAccessResponseOnly,
@@ -352,6 +362,7 @@ func TestTask12_4_AntiTamper_WeakenedAccessInSummary_SetsBlocker(t *testing.T) {
 // Test 8: Feature plane declaration regression proof: SDK plane declarations for
 // Local Turn and Secret Guard must be RequestBodyCanonicalRequired (Requirements 5.4, 13.4).
 func TestTask12_4_FeatureSDKDeclarations_RemainCanonicalRequired(t *testing.T) {
+	t.Parallel()
 	if feature.PlaneLocalTurnHandlers.RequestAccess != feature.RequestBodyCanonicalRequired {
 		t.Fatalf("expected PlaneLocalTurnHandlers to have RequestBodyCanonicalRequired, got %v", feature.PlaneLocalTurnHandlers.RequestAccess)
 	}
@@ -366,6 +377,7 @@ func TestTask12_4_FeatureSDKDeclarations_RemainCanonicalRequired(t *testing.T) {
 // Test 9: Standard narrow port census does not contain any wire-safe entries for
 // Local Turn or Secret Guard (Requirements 13.4, 19.4).
 func TestTask12_4_StandardNarrowPorts_NoWireSafeLocalTurnOrSecretGuard(t *testing.T) {
+	t.Parallel()
 	for _, portName := range []string{
 		"local_turn.handlers",
 		"local_turn.handler",
@@ -383,6 +395,7 @@ func TestTask12_4_StandardNarrowPorts_NoWireSafeLocalTurnOrSecretGuard(t *testin
 // Test 10: Clean unoccupied Local Turn and Secret Guard permits wire assessment
 // (Requirements 5.4, 13.4, 19.4).
 func TestTask12_4_UnoccupiedLocalTurnAndSecretGuard_Accepts(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-4-clean"
 	summary, census := buildCleanSummaryAndCensus(t, genID)
 

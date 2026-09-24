@@ -41,9 +41,11 @@ func (*phase7EconomicFinalizerSession) FinalizeBilling(context.Context, backendp
 	}, nil
 }
 
-func int64Ptr(value int64) *int64 { return &value }
+//go:fix inline
+func int64Ptr(value int64) *int64 { return new(value) }
 
 func TestFinalizeBillingV2PreservesHostOnlyEvidence(t *testing.T) {
+	t.Parallel()
 	session := &phase7EconomicFinalizerSession{}
 	profile, err := session.Resolve(context.Background(), nil)
 	if err != nil {

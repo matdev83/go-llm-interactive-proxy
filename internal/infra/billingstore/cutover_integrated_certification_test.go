@@ -281,7 +281,7 @@ func TestCutoverIntegratedSeedGateAndDrain(t *testing.T) {
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	results := make([]error, appenders)
-	for i := 0; i < appenders; i++ {
+	for i := range appenders {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -389,7 +389,7 @@ func TestCutoverIntegratedPauseResumeActivation(t *testing.T) {
 	// F4 ordinary completed provider history: completed revision heads with
 	// completed provider_charge pins and no pending adjustment. These must not
 	// invent phantom financial_adjustment pins.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		histCall := c3cMustCallID(t)
 		histInput := f4ProviderRevisionInput(store.StoreID(), "acct-c3c-pause", histCall, fmt.Sprintf("f4-pause-hist-%d", i), 1, 10)
 		if _, err := store.ApplyProviderCostRevision(ctx, histInput); err != nil {
@@ -592,7 +592,7 @@ func TestCutoverIntegratedStaleWorkerFenced(t *testing.T) {
 // owner/effect.
 func TestCutoverIntegratedConcurrentV1V2SingleWinner(t *testing.T) {
 	t.Parallel()
-	for repeat := 0; repeat < 3; repeat++ {
+	for repeat := range 3 {
 		store := c3cNewStore(t, fmt.Sprintf("c3c-race-%d", repeat))
 		ctx := context.Background()
 		c3cSetupAccount(t, store, "acct-c3c-race", 5000)
@@ -872,10 +872,10 @@ func TestCutoverIntegratedWrapperRequiresExplicitClaimPorts(t *testing.T) {
 	// so type-asserts for GetCutoverClaimMetadata fail.
 	usageHiding := &c3cHideClaimUsage{CallUsageStore: store}
 	settlementHiding := &c3cHideClaimSettlement{CallSettlementStore: store}
-	if _, ok := interface{}(usageHiding).(billing.CutoverClaimMetadataProvider); ok {
+	if _, ok := any(usageHiding).(billing.CutoverClaimMetadataProvider); ok {
 		t.Fatalf("hiding usage decorator must not expose claim port")
 	}
-	if _, ok := interface{}(settlementHiding).(billing.CutoverClaimMetadataProvider); ok {
+	if _, ok := any(settlementHiding).(billing.CutoverClaimMetadataProvider); ok {
 		t.Fatalf("hiding settlement decorator must not expose claim port")
 	}
 	legacyWorker, err := billing.NewCallPostUsageWorker(usageHiding, settlementHiding, resolver, 8)
@@ -1093,7 +1093,7 @@ func TestCutoverIntegratedFullLegalLifecycleFileBacked(t *testing.T) {
 	// F4 ordinary completed provider history: completed revision heads with
 	// completed provider_charge pins and no pending adjustment. Drain must
 	// never invent phantom financial_adjustment pins for these.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		histCall := c3cMustCallID(t)
 		histInput := f4ProviderRevisionInput(store.StoreID(), accountID, histCall, fmt.Sprintf("f9-hist-%d", i), 1, 10)
 		if _, err := store.ApplyProviderCostRevision(ctx, histInput); err != nil {
@@ -1222,7 +1222,8 @@ func TestCutoverIntegratedFullLegalLifecycleFileBacked(t *testing.T) {
 	// with actual claim tokens and posting ownership. Each family posts
 	// exactly once; replays post nothing.
 	ecoWorker, err := billing.NewEconomicRevisionWorkerWithReconcilerAndProviderCostWithCutover(
-		store, store, f2bRater{}, nil, store, store, billing.EconomicQueueProvider, 8)
+		store, store, f2bRater{}, nil, store, store, billing.EconomicQueueProvider, 8,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1239,7 +1240,7 @@ func TestCutoverIntegratedFullLegalLifecycleFileBacked(t *testing.T) {
 	// Production drain: economic monetary work first (provider COGS), then
 	// legacy provider work, then customer settlement (closes the admitted
 	// open exposure). Bounded passes, no sleeps; each pass makes progress.
-	for pass := 0; pass < 5; pass++ {
+	for pass := range 5 {
 		if err := ecoWorker.ProcessOnce(ctx); err != nil {
 			t.Fatalf("economic worker pass %d: %v", pass, err)
 		}

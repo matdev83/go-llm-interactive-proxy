@@ -132,7 +132,7 @@ func TestCompletedSource_SpillToFile_ParallelIndependentReaders(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, numReaders)
 
-	for i := 0; i < numReaders; i++ {
+	for i := range numReaders {
 		wg.Add(1)
 		go func(readerIdx int) {
 			defer wg.Done()

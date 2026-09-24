@@ -174,7 +174,7 @@ func TestEconomicDetailValuationLatestPerStreamAndDatabaseBound(t *testing.T) {
 
 	historySubject := edTestBLegSubject(store.StoreID(), "tenant-ed", account.ID, "a-ed-val-history", "call-ed-val-history", "b-ed-val-history")
 	var latestID string
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		ref := metering.ObservationRef{
 			StoreID: store.StoreID(), ObservationID: fmt.Sprintf("obs-ed-val-history-%03d", i),
 			Revision: 1, PayloadHash: strings.Repeat("a", 64),
@@ -187,7 +187,7 @@ func TestEconomicDetailValuationLatestPerStreamAndDatabaseBound(t *testing.T) {
 	}
 
 	subjects := []economicDetailSubject{{kind: metering.SubjectBLeg, id: "b-ed-val-history"}}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		valuation, subject := edTestBoundValuation(t, store, account.ID, i, economics.BasisLocalExpected, time.Unix(1_700_030_100+int64(i), 0).UTC())
 		require.NoError(t, store.AppendValuation(ctx, valuation))
 		subjects = append(subjects, subject)
@@ -244,7 +244,7 @@ func TestEconomicDetailValuationStreamsBoundaryPasses(t *testing.T) {
 	account := edTestAccount(t, store, "ed-val-max", "USD")
 
 	subjects := make([]economicDetailSubject, 0, billing.MaxEconomicDetailValuations)
-	for i := 0; i < billing.MaxEconomicDetailValuations; i++ {
+	for i := range billing.MaxEconomicDetailValuations {
 		valuation, subject := edTestBoundValuation(t, store, account.ID, i, economics.BasisLocalExpected, time.Unix(1_700_050_000+int64(i), 0).UTC())
 		require.NoError(t, store.AppendValuation(ctx, valuation))
 		subjects = append(subjects, subject)
@@ -309,7 +309,7 @@ func TestEconomicDetailHeadsBoundaryAndGlobalBudget(t *testing.T) {
 	secondCall, _ := edCompleteCall(t, store, account.ID, "a-ed-head-global", "edHG2")
 	firstSubject := edTestBLegSubject(store.StoreID(), "tenant-ed", account.ID, "a-ed-head-global", firstCall.String(), "b-edHG1")
 	secondSubject := edTestBLegSubject(store.StoreID(), "tenant-ed", account.ID, "a-ed-head-global", secondCall.String(), "b-edHG2")
-	for i := 0; i < billing.MaxEconomicDetailHeads; i++ {
+	for i := range billing.MaxEconomicDetailHeads {
 		edTestPostSelectedHead(t, store, account.ID, firstCall, firstSubject, fmt.Sprintf("head-ed-hg1-%04d", i),
 			billing.OperatorCostBasisP, billing.OperatorCostSelectionStatusFinal, billing.OperatorCostProvenanceAttempted, "USD", "1.32")
 	}

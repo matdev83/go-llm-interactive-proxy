@@ -44,10 +44,7 @@ func (s *shortWriteFile) Write(p []byte) (int, error) {
 	if s.maxWrite <= 0 {
 		return 0, io.ErrShortWrite
 	}
-	toWrite := len(p)
-	if toWrite > s.maxWrite {
-		toWrite = s.maxWrite
-	}
+	toWrite := min(len(p), s.maxWrite)
 	n, err := s.buf.Write(p[:toWrite])
 	s.written += n
 	if toWrite < len(p) {
@@ -1021,16 +1018,19 @@ func TestPrivacy_Redaction_NoPromptOrPathOrSecretInErrorsOrLogs(t *testing.T) {
 			logger := slog.New(handler)
 
 			// Log various operations that might fail
-			logger.Info("reservation_exhausted",
+			logger.Info(
+				"reservation_exhausted",
 				"error", largebody.ErrSpoolBudgetExhausted,
 				"outcome", largebody.CaptureOutcomeDeclined,
 				"prompt_len", len(secretPrompt),
 			)
-			logger.Warn("limit_exceeded",
+			logger.Warn(
+				"limit_exceeded",
 				"outcome", largebody.CaptureOutcomeLimitExceeded,
 				"error", &http.MaxBytesError{Limit: 1024},
 			)
-			logger.Error("spill_create_failure",
+			logger.Error(
+				"spill_create_failure",
 				"error", largebody.ErrSpillFileCreationFailed,
 				"outcome", largebody.CaptureOutcomeDeclined,
 			)

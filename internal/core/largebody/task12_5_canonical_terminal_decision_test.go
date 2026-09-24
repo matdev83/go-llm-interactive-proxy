@@ -32,6 +32,7 @@ import (
 // AuthorityAssessmentGate, ConservativeDependencyAssessmentGate, and AuthorityAssessor
 // (Requirements 5.4, 13.5, 19.2).
 func TestTask12_5_TerminalDecisionOccupied_InCensus_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-5-td"
 	summary, census := buildCleanSummaryAndCensus(t, genID)
 
@@ -80,6 +81,7 @@ func TestTask12_5_TerminalDecisionOccupied_InCensus_Declines(t *testing.T) {
 // static blocker bit, definitely-canonical disposition, and assessment decline
 // (Requirements 5.4, 13.5, 19.2).
 func TestTask12_5_TerminalDecisionOccupied_InSummary_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-5-summary-td"
 	census := largebody.NewStandardDependencyCensus(genID)
 
@@ -137,6 +139,7 @@ func TestTask12_5_TerminalDecisionOccupied_InSummary_Declines(t *testing.T) {
 // classification in census (e.g. marking MetadataOnly, ResponseOnly, or WireContract) MUST DECLINE
 // (Requirements 5.4, 13.5, 19.4).
 func TestTask12_5_AntiTamper_WeakenedAccessInCensus_Declines(t *testing.T) {
+	t.Parallel()
 	weakenedAccesses := []struct {
 		name   string
 		access largebody.PlaneAccess
@@ -149,6 +152,7 @@ func TestTask12_5_AntiTamper_WeakenedAccessInCensus_Declines(t *testing.T) {
 	planeID := "terminal_decision_provider"
 	for _, wa := range weakenedAccesses {
 		t.Run(wa.name, func(t *testing.T) {
+			t.Parallel()
 			genID := "gen-task12-5-tamper-" + wa.name
 			summary, census := buildCleanSummaryAndCensus(t, genID)
 
@@ -186,6 +190,7 @@ func TestTask12_5_AntiTamper_WeakenedAccessInCensus_Declines(t *testing.T) {
 // weakened access for occupied terminal_decision_provider MUST still register static blocker
 // (Requirements 5.4, 13.5, 19.4).
 func TestTask12_5_AntiTamper_WeakenedAccessInSummary_SetsBlocker(t *testing.T) {
+	t.Parallel()
 	weakenedAccesses := []largebody.PlaneAccess{
 		largebody.PlaneAccessMetadataOnly,
 		largebody.PlaneAccessResponseOnly,
@@ -195,6 +200,7 @@ func TestTask12_5_AntiTamper_WeakenedAccessInSummary_SetsBlocker(t *testing.T) {
 	planeID := "terminal_decision_provider"
 	for _, wa := range weakenedAccesses {
 		t.Run(string(rune(wa)), func(t *testing.T) {
+			t.Parallel()
 			genID := "gen-task12-5-summary-tamper"
 			census := largebody.NewStandardDependencyCensus(genID)
 			planes := make([]largebody.PlaneEligibilityInput, len(census.Planes))
@@ -228,6 +234,7 @@ func TestTask12_5_AntiTamper_WeakenedAccessInSummary_SetsBlocker(t *testing.T) {
 // Test 5: Anti-tamper regression proof: attempting to register an occupied extra port
 // for terminal decision as wire-safe MUST decline (Requirements 13.5, 19.4).
 func TestTask12_5_AntiTamper_ExtraPort_Declines(t *testing.T) {
+	t.Parallel()
 	for _, portName := range []string{
 		"terminal.decision_provider",
 		"terminal_decision.provider",
@@ -235,6 +242,7 @@ func TestTask12_5_AntiTamper_ExtraPort_Declines(t *testing.T) {
 		"custom_terminal_decision_evaluator",
 	} {
 		t.Run(portName, func(t *testing.T) {
+			t.Parallel()
 			genID := "gen-task12-5-port-" + portName
 			summary, census := buildCleanSummaryAndCensus(t, genID)
 
@@ -256,6 +264,7 @@ func TestTask12_5_AntiTamper_ExtraPort_Declines(t *testing.T) {
 // Test 6: Feature plane declaration regression proof: SDK plane declaration for
 // TerminalDecisionProvider must remain RequestBodyCanonicalRequired (Requirements 5.4, 13.5).
 func TestTask12_5_FeatureSDKDeclaration_RemainsCanonicalRequired(t *testing.T) {
+	t.Parallel()
 	if feature.PlaneTerminalDecisionProvider.RequestAccess != feature.RequestBodyCanonicalRequired {
 		t.Fatalf("expected PlaneTerminalDecisionProvider to have RequestBodyCanonicalRequired, got %v", feature.PlaneTerminalDecisionProvider.RequestAccess)
 	}
@@ -277,6 +286,7 @@ func TestTask12_5_FeatureSDKDeclaration_RemainsCanonicalRequired(t *testing.T) {
 // Test 7: Standard narrow port census contains terminal.decision_provider as DependencyClassBlocker
 // and no terminal decision port is wire-safe (Requirements 13.5, 19.4).
 func TestTask12_5_StandardNarrowPorts_NoWireSafeTerminalDecision(t *testing.T) {
+	t.Parallel()
 	class, ok := largebody.LookupStandardPort("terminal.decision_provider")
 	if !ok {
 		t.Fatalf("expected terminal.decision_provider to be registered in standard narrow port census")
@@ -300,6 +310,7 @@ func TestTask12_5_StandardNarrowPorts_NoWireSafeTerminalDecision(t *testing.T) {
 // Test 8: Per-request dependency facts with TerminalDecisionActive = true
 // causes ConservativeDependencyAssessmentGate to decline (Requirements 13.5, 19.2).
 func TestTask12_5_PerRequestDependencyFacts_TerminalDecisionActive_Declines(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-5-turnfacts"
 	summary, census := buildCleanSummaryAndCensus(t, genID)
 
@@ -319,6 +330,7 @@ func TestTask12_5_PerRequestDependencyFacts_TerminalDecisionActive_Declines(t *t
 // Test 9: Clean unoccupied TerminalDecisionProvider permits wire assessment
 // when all other authorities are clean/unoccupied (Requirements 5.4, 13.5, 19.4).
 func TestTask12_5_UnoccupiedTerminalDecision_Accepts(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-5-clean"
 	summary, census := buildCleanSummaryAndCensus(t, genID)
 
@@ -337,6 +349,7 @@ func TestTask12_5_UnoccupiedTerminalDecision_Accepts(t *testing.T) {
 // and continuation transactions remain intact), rather than partially executing wire
 // mode and silently breaking or altering DecisionContinue semantics (Task 12.5 guardrail).
 func TestTask12_5_NoSilentDecisionContinueSemanticAlteration(t *testing.T) {
+	t.Parallel()
 	genID := "gen-task12-5-guardrail"
 	summary, census := buildCleanSummaryAndCensus(t, genID)
 

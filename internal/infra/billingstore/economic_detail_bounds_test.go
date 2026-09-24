@@ -40,7 +40,7 @@ func edTestLegObservations(t *testing.T, storeID, accountID, aLegID, callID, bLe
 	subject := edTestBLegSubject(storeID, "tenant-ed", accountID, aLegID, callID, bLegID)
 	measure := edTestMeasure(t, metering.ComponentInputToken, "10")
 	out := make([]metering.Observation, 0, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		id := fmt.Sprintf("%s-%04d", prefix, i)
 		out = append(out, edTestObservation(t, id, metering.OriginLocal, "stream-"+prefix, uint64(i+1), subject,
 			[]metering.Measure{measure}, nil))
@@ -84,7 +84,7 @@ func TestEconomicDetailLegRecordsBoundFailsClosed(t *testing.T) {
 	account := edTestAccount(t, store, "ed-leg-over", "USD")
 	callID := edTestCallID(t)
 	legs := make([]billing.CallLegUsageRecord, 0, economicDetailMaxLegRecords+1)
-	for i := 0; i < economicDetailMaxLegRecords+1; i++ {
+	for i := range economicDetailMaxLegRecords + 1 {
 		leg := edTestLeg(t, fmt.Sprintf("b-ed-leg-over-%04d", i))
 		leg.AttemptSeq = i + 1
 		legs = append(legs, leg)
@@ -105,7 +105,7 @@ func TestEconomicDetailLegRecordsBoundaryPasses(t *testing.T) {
 	account := edTestAccount(t, store, "ed-leg-max", "USD")
 	callID := edTestCallID(t)
 	legs := make([]billing.CallLegUsageRecord, 0, economicDetailMaxLegRecords)
-	for i := 0; i < economicDetailMaxLegRecords; i++ {
+	for i := range economicDetailMaxLegRecords {
 		leg := edTestLeg(t, fmt.Sprintf("b-ed-leg-max-%04d", i))
 		leg.AttemptSeq = i + 1
 		legs = append(legs, leg)
@@ -130,7 +130,7 @@ func TestEconomicDetailLegBoundIsGlobalAcrossChunks(t *testing.T) {
 	perCall := economicDetailMaxLegRecords - 28 // two chunks stay individually under the bound
 	for callIndex, callID := range []billing.BillingCallID{first, second} {
 		legs := make([]billing.CallLegUsageRecord, 0, perCall)
-		for i := 0; i < perCall; i++ {
+		for i := range perCall {
 			leg := edTestLeg(t, fmt.Sprintf("b-ed-leg-chunk-%d-%04d", callIndex, i))
 			leg.AttemptSeq = i + 1
 			legs = append(legs, leg)
@@ -141,7 +141,7 @@ func TestEconomicDetailLegBoundIsGlobalAcrossChunks(t *testing.T) {
 	// Pad the ID list so the two real calls land in different SQL chunks.
 	padded := make([]string, 0, economicDetailChunkSize+2)
 	padded = append(padded, first.String())
-	for i := 0; i < economicDetailChunkSize; i++ {
+	for i := range economicDetailChunkSize {
 		padded = append(padded, fmt.Sprintf("call-pad-%04d", i))
 	}
 	padded = append(padded, second.String())
@@ -198,7 +198,8 @@ func TestEconomicDetailCorruptLegPayloadFailsClosedSecretSafe(t *testing.T) {
 		`INSERT INTO usage_leg_records( usage_leg_key, fingerprint, call_id, a_leg_id, b_leg_id, backend_id, provider_id, model_id, started_at, finished_at, outcome, surfaced, payload_json, sealed_at ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		"corrupt-leg-key", "corrupt-leg-fingerprint", callID.String(), "a-ed-corrupt", "b-ed-corrupt",
 		"backend-ed", "provider-ed", "model-ed", now, now, "winner", "yes",
-		`{"secret":"`+secret, now).Exec(ctx)
+		`{"secret":"`+secret, now,
+	).Exec(ctx)
 	require.NoError(t, err)
 
 	_, err = store.detailLegsByCalls(ctx, []string{callID.String()})

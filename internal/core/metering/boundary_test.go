@@ -10,6 +10,7 @@ import (
 )
 
 func TestPhase6BoundaryPreparedInputUsesAdapterFinalRepresentation(t *testing.T) {
+	t.Parallel()
 	acc := NewBoundaryAccumulator(BoundaryConfig{MaxTextBytes: 64, MaxMediaEntries: 8})
 	acc.PrepareCall(lipapi.Call{Messages: []lipapi.Message{{
 		Role:  lipapi.RoleUser,
@@ -54,6 +55,7 @@ func TestPhase6BoundaryPreparedInputUsesAdapterFinalRepresentation(t *testing.T)
 }
 
 func TestPhase6BoundaryOutputIsChunkInvariantAndSeparatesCustomerEgress(t *testing.T) {
+	t.Parallel()
 	one := NewBoundaryAccumulator(BoundaryConfig{MaxTextBytes: 64, MaxMediaEntries: 8})
 	two := NewBoundaryAccumulator(BoundaryConfig{MaxTextBytes: 64, MaxMediaEntries: 8})
 	for _, acc := range []*BoundaryAccumulator{one, two} {
@@ -97,6 +99,7 @@ func TestPhase6BoundaryOutputIsChunkInvariantAndSeparatesCustomerEgress(t *testi
 }
 
 func TestPhase6BoundaryMarksUnknownProviderEconomicsUnavailable(t *testing.T) {
+	t.Parallel()
 	acc := NewBoundaryAccumulator(BoundaryConfig{MaxTextBytes: 64, MaxMediaEntries: 8})
 	observations := acc.Observations(testBoundaryIdentity())
 	if len(observations) != 3 {
@@ -132,6 +135,7 @@ func TestPhase6BoundaryMarksUnknownProviderEconomicsUnavailable(t *testing.T) {
 }
 
 func TestPhase6BoundaryBoundsCaptureAndContextObserver(t *testing.T) {
+	t.Parallel()
 	acc := NewBoundaryAccumulator(BoundaryConfig{MaxTextBytes: 4, MaxMediaEntries: 1})
 	acc.ObserveProviderEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "0123456789"})
 	acc.ObserveProviderEvent(lipapi.Event{Kind: lipapi.EventAssistantImageRef, AssistantMIME: "image/png"})
@@ -155,8 +159,9 @@ func TestPhase6BoundaryBoundsCaptureAndContextObserver(t *testing.T) {
 }
 
 func TestPhase6BoundaryObservationMeasureBound(t *testing.T) {
+	t.Parallel()
 	acc := NewBoundaryAccumulator(BoundaryConfig{MaxMediaEntries: DefaultBoundaryMaxMediaEntries})
-	for i := 0; i < DefaultBoundaryMaxMediaEntries; i++ {
+	for i := range DefaultBoundaryMaxMediaEntries {
 		acc.ObserveProviderEvent(lipapi.Event{Kind: lipapi.EventAssistantImageRef, AssistantMIME: "image/png"}, MediaSummary{
 			Kind: MediaImage, Count: 1, Bytes: int64(i + 1), BytesPresent: true,
 			WidthPixels: 1024, WidthPresent: true, HeightPixels: 1024, HeightPresent: true,
@@ -173,6 +178,7 @@ func TestPhase6BoundaryObservationMeasureBound(t *testing.T) {
 }
 
 func TestPhase6BoundaryLifecycleStatesAreDurableAndReplayStable(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		mark          func(*BoundaryAccumulator)
@@ -213,6 +219,7 @@ func TestPhase6BoundaryLifecycleStatesAreDurableAndReplayStable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			acc := NewBoundaryAccumulator()
 			tt.mark(acc)
 			identity := testBoundaryIdentity()

@@ -184,7 +184,7 @@ func TestF4MultipleHeadsBatchesNoPhantom(t *testing.T) {
 	}
 	f4EnsureShadow(t, store)
 	const total = 7
-	for i := 0; i < total; i++ {
+	for i := range total {
 		callID, err := billing.NewBillingCallID()
 		if err != nil {
 			t.Fatal(err)
@@ -257,7 +257,7 @@ func TestF4ReopenPreservesNoPhantomActivation(t *testing.T) {
 	if _, err := store.TransitionAccountingCutover(ctx, billing.AccountingCutoverTransition{ExpectedVersion: m.Version, ExpectedEpoch: m.Epoch, NextState: billing.AccountingCutoverV2Shadow, TransitionID: "f4-reopen-shadow"}); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		callID, err := billing.NewBillingCallID()
 		if err != nil {
 			t.Fatal(err)

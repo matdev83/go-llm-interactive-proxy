@@ -207,10 +207,7 @@ func (s *DurableStore) applyProviderCostAttempt(ctx context.Context, accountID s
 			return nil
 		}
 		if pinFound && pin.Status == billing.PostingPinPinned {
-			nowUnix := nowUnixNano()
-			if nowUnix < pin.CreatedAtUnix {
-				nowUnix = pin.CreatedAtUnix
-			}
+			nowUnix := max(nowUnixNano(), pin.CreatedAtUnix)
 			if err := b2b2CompleteProviderPinTx(ctx, tx, s.storeID, operationKey, operationKey, expectedTxID, nowUnix); err != nil {
 				rrow, rfound, rerr := s.loadPostingOwnershipPin(ctx, tx, billing.PostingOperationProviderCharge, operationKey)
 				if rerr != nil {

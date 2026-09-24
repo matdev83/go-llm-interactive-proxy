@@ -13,6 +13,7 @@ import (
 )
 
 func TestInitialCandidates_NilOrEmpty(t *testing.T) {
+	t.Parallel()
 	if got := routing.InitialCandidates(nil); got != nil {
 		t.Fatalf("expected nil for nil selector, got %v", got)
 	}
@@ -23,6 +24,7 @@ func TestInitialCandidates_NilOrEmpty(t *testing.T) {
 }
 
 func TestInitialCandidates_Primary(t *testing.T) {
+	t.Parallel()
 	sel, err := routing.Parse("be1:m1")
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
@@ -40,6 +42,7 @@ func TestInitialCandidates_Primary(t *testing.T) {
 }
 
 func TestInitialCandidates_SequentialFailover(t *testing.T) {
+	t.Parallel()
 	sel, err := routing.Parse("be1:m1 | be2:m2 | be3:m3")
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
@@ -64,6 +67,7 @@ func TestInitialCandidates_SequentialFailover(t *testing.T) {
 }
 
 func TestInitialCandidates_Weighted(t *testing.T) {
+	t.Parallel()
 	sel, err := routing.Parse("[weight=7][first]be1:m1^[weight=3]be2:m2")
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
@@ -81,6 +85,7 @@ func TestInitialCandidates_Weighted(t *testing.T) {
 }
 
 func TestInitialCandidates_ParallelRace(t *testing.T) {
+	t.Parallel()
 	sel, err := routing.Parse("be1:m1![handicap=5]be2:m2")
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
@@ -98,6 +103,7 @@ func TestInitialCandidates_ParallelRace(t *testing.T) {
 }
 
 func TestInitialCandidates_ThinkerHybridParallel(t *testing.T) {
+	t.Parallel()
 	sel, err := routing.Parse("[thinker]thinkbe:m^exec1:m!exec2:m")
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
@@ -118,6 +124,7 @@ func TestInitialCandidates_ThinkerHybridParallel(t *testing.T) {
 }
 
 func TestCandidateSetsEqual(t *testing.T) {
+	t.Parallel()
 	c1 := routing.AttemptCandidate{
 		Primary: routing.Primary{Backend: "b1", Model: "m1"},
 		Key:     "b1:m1",
@@ -158,6 +165,7 @@ func (r testNativeResolver) ResolveModelBinding(backendID, model string) routing
 }
 
 func TestComposeInitialCandidates(t *testing.T) {
+	t.Parallel()
 	aliases, err := routing.NewAliasResolver([]routing.ModelAliasRule{
 		{Pattern: "^fast$", Replacement: "primary-be:fast-model"},
 	})

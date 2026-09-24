@@ -713,7 +713,7 @@ func rejectAmbiguousSnapshots(observations []metering.Observation) error {
 		positions[key] = append(positions[key], observation)
 	}
 	for _, samePosition := range positions {
-		for i := 0; i < len(samePosition); i++ {
+		for i := range samePosition {
 			for j := i + 1; j < len(samePosition); j++ {
 				if overlappingMeasureKey(samePosition[i], samePosition[j]) {
 					return fmt.Errorf("%w: sequence=%d revision=%d scope=%s", ErrAmbiguousCumulative,
@@ -1309,10 +1309,7 @@ func addDecimal(a, b metering.Decimal) (metering.Decimal, error) {
 	if !ok {
 		return metering.Decimal{}, fmt.Errorf("%w: invalid right coefficient", ErrOverflow)
 	}
-	scale := left.Scale
-	if right.Scale > scale {
-		scale = right.Scale
-	}
+	scale := max(right.Scale, left.Scale)
 	if scale > left.Scale {
 		leftInt.Mul(leftInt, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(scale-left.Scale)), nil))
 	}

@@ -8,6 +8,7 @@ import (
 )
 
 func TestRevisionIdentityIncludesRevisionAndInputHash(t *testing.T) {
+	t.Parallel()
 	hashA := strings.Repeat("a", 64)
 	hashB := strings.Repeat("b", 64)
 	a, err := NewRevisionIdentity("customer", "b-leg", 1, hashA)
@@ -26,6 +27,7 @@ func TestRevisionIdentityIncludesRevisionAndInputHash(t *testing.T) {
 }
 
 func TestRevisionIdentityRejectsInvalidHash(t *testing.T) {
+	t.Parallel()
 	_, err := NewRevisionIdentity("customer", "b-leg", 1, strings.Repeat("A", 64))
 	require.ErrorIs(t, err, ErrInvalidRevisionIdentity)
 	_, err = NewRevisionIdentity("customer", "b-leg", 1, " "+strings.Repeat("a", 64))

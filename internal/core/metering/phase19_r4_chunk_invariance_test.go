@@ -29,7 +29,7 @@ func TestPhase19R4ChunkInvariantWholeVsAdversarialPartitions(t *testing.T) {
 	wantTokens := (fullBytes + 3) / 4
 
 	byteByByte := make([]string, 0, len(full))
-	for i := 0; i < len(full); i++ {
+	for i := range len(full) {
 		byteByByte = append(byteByByte, full[i:i+1])
 	}
 	runeByRune := make([]string, 0)

@@ -81,6 +81,7 @@ func inferenceResolver() routing.BackendExecutionResolver {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_ExactCandidateSet_AllCompatible_Accepts(t *testing.T) {
+	t.Parallel()
 	be1 := &testStubBackend{compatible: true}
 	be2 := &testStubBackend{compatible: true}
 
@@ -125,6 +126,7 @@ func TestTask11_4_ExactCandidateSet_AllCompatible_Accepts(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_Fallback_IncompatibleCandidate_DeclinesEntireRequest_NoPruning(t *testing.T) {
+	t.Parallel()
 	be1 := &testStubBackend{compatible: true}
 	be2 := &testStubBackend{compatible: false, reason: largebody.WireSupportReasonModelUnsupported}
 
@@ -157,6 +159,7 @@ func TestTask11_4_Fallback_IncompatibleCandidate_DeclinesEntireRequest_NoPruning
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_Weighted_IncompatibleCandidate_DeclinesEntireRequest_NoPruning(t *testing.T) {
+	t.Parallel()
 	be1 := &testStubBackend{compatible: true}
 	be2 := &testStubBackend{compatible: false, reason: largebody.WireSupportReasonUnsupported}
 
@@ -189,6 +192,7 @@ func TestTask11_4_Weighted_IncompatibleCandidate_DeclinesEntireRequest_NoPruning
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_ParallelRace_IncompatibleCandidate_DeclinesEntireRequest_NoPruning(t *testing.T) {
+	t.Parallel()
 	be1 := &testStubBackend{compatible: true}
 	be2 := &testStubBackend{compatible: false, reason: largebody.WireSupportReasonDeliveryUnsupported}
 
@@ -220,6 +224,7 @@ func TestTask11_4_ParallelRace_IncompatibleCandidate_DeclinesEntireRequest_NoPru
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_ThinkerHybridParallel_AllCompatible_Accepts(t *testing.T) {
+	t.Parallel()
 	thinkbe := &testStubBackend{compatible: true}
 	exec1 := &testStubBackend{compatible: true}
 	exec2 := &testStubBackend{compatible: true}
@@ -278,6 +283,7 @@ func TestTask11_4_ThinkerHybridParallel_AllCompatible_Accepts(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_UnknownBackend_Declines(t *testing.T) {
+	t.Parallel()
 	gate := largebody.InitialRouteAssessmentGate{
 		BackendExecutionResolver:   inferenceResolver(),
 		ExecutionCompositionPolicy: config.ExecutionCompositionSafe,
@@ -301,6 +307,7 @@ func TestTask11_4_UnknownBackend_Declines(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_AliasAndDefaultBackend_Reuse(t *testing.T) {
+	t.Parallel()
 	be := &testStubBackend{compatible: true}
 	backends := largebody.WireBackendMap{
 		"primary-be": be,
@@ -358,6 +365,7 @@ func TestTask11_4_AliasAndDefaultBackend_Reuse(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_UnsafeExecutionComposition_Declines(t *testing.T) {
+	t.Parallel()
 	be := &testStubBackend{compatible: true}
 	backends := largebody.WireBackendMap{
 		"be1": be,
@@ -391,6 +399,7 @@ func TestTask11_4_UnsafeExecutionComposition_Declines(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_ProveCandidateSet_OrderOrMembershipMismatch_Declines(t *testing.T) {
+	t.Parallel()
 	be1 := &testStubBackend{compatible: true}
 	be2 := &testStubBackend{compatible: true}
 	backends := largebody.WireBackendMap{
@@ -434,6 +443,7 @@ func TestTask11_4_ProveCandidateSet_OrderOrMembershipMismatch_Declines(t *testin
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_InitialRouteAssessor_Integration(t *testing.T) {
+	t.Parallel()
 	be := &testStubBackend{compatible: true}
 	backends := largebody.WireBackendMap{"be": be}
 
@@ -503,6 +513,7 @@ func (r testGateNativeResolver) ResolveModelBinding(backendID, model string) rou
 }
 
 func TestTask11_4_NativeModelBinding_WireModelUsed(t *testing.T) {
+	t.Parallel()
 	be := &testStubBackend{compatible: true}
 	backends := largebody.WireBackendMap{"be": be}
 
@@ -546,6 +557,7 @@ func TestTask11_4_NativeModelBinding_WireModelUsed(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_ModelRewriteUnsupported_Declines(t *testing.T) {
+	t.Parallel()
 	be := &testStubBackend{compatible: true, needsModelRewrite: true}
 	backends := largebody.WireBackendMap{"be": be}
 
@@ -575,6 +587,7 @@ func TestTask11_4_ModelRewriteUnsupported_Declines(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_CanceledContext_Declines(t *testing.T) {
+	t.Parallel()
 	be := &testStubBackend{compatible: true}
 	backends := largebody.WireBackendMap{"be": be}
 
@@ -604,6 +617,7 @@ func TestTask11_4_CanceledContext_Declines(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_EmptyProfileID_Declines(t *testing.T) {
+	t.Parallel()
 	gate := largebody.InitialRouteAssessmentGate{
 		BackendExecutionResolver:   inferenceResolver(),
 		ExecutionCompositionPolicy: config.ExecutionCompositionSafe,
@@ -623,6 +637,7 @@ func TestTask11_4_EmptyProfileID_Declines(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_EmptySelectorAndModel_Declines(t *testing.T) {
+	t.Parallel()
 	gate := largebody.InitialRouteAssessmentGate{
 		BackendExecutionResolver:   inferenceResolver(),
 		ExecutionCompositionPolicy: config.ExecutionCompositionSafe,
@@ -643,6 +658,7 @@ func TestTask11_4_EmptySelectorAndModel_Declines(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestTask11_4_WrongBackendCanonical_Declines(t *testing.T) {
+	t.Parallel()
 	be := &testStubBackend{compatible: true}
 	backends := largebody.WireBackendMap{"be": be}
 

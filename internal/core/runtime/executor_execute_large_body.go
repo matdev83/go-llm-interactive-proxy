@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -515,21 +516,12 @@ func (e *Executor) ExecuteLargeBody(
 			if accepted.WireDomain.UniversalModel {
 				effectiveModel = overrideSel
 			} else {
-				matched := false
-				for _, m := range accepted.WireDomain.CandidateModels {
-					if m == overrideSel {
-						matched = true
-						break
-					}
-				}
+				matched := slices.Contains(accepted.WireDomain.CandidateModels, overrideSel)
 				if !matched && e.SelectorAliases != nil {
 					resolved := e.SelectorAliases.Resolve(overrideSel)
-					for _, m := range accepted.WireDomain.CandidateModels {
-						if m == resolved {
-							matched = true
-							overrideSel = resolved
-							break
-						}
+					if slices.Contains(accepted.WireDomain.CandidateModels, resolved) {
+						matched = true
+						overrideSel = resolved
 					}
 				}
 				if !matched {
