@@ -791,12 +791,12 @@ type partitionMember struct {
 // arithmetic contradiction. A contradicted or incomparable parent is never
 // covered.
 //
-// Ambiguity isolation is per parent: a globally shared child disables all
-// coverage (conservative), but it only taints the specific parents that declare
-// that shared child. An independent unambiguous partition elsewhere in the same
-// schema set therefore still contributes its bounded arithmetic contradiction,
-// and an unobserved tainted parent (whose schema is merely declared but never
-// observed) contributes nothing.
+// Ambiguity isolation is per parent: a shared child only taints the specific
+// parents that declare it, never unrelated cover proofs. An independent
+// unambiguous partition elsewhere in the same schema set therefore still
+// contributes its bounded arithmetic contradiction, and an unobserved tainted
+// parent (whose schema is merely declared but never observed) contributes
+// nothing.
 func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMeasure, qualifiers []metering.Dimension) (map[string]map[string]struct{}, map[string]map[string]struct{}, map[string]map[string]struct{}) {
 	var covered, contradicted, incomparable map[string]map[string]struct{}
 	if r == nil || len(r.snapshot.Schemas) == 0 || len(aggregates) == 0 {
@@ -804,7 +804,6 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 	}
 	childrenByParent := make(map[string][]partitionMember)
 	parentByChild := make(map[string]string)
-	ambiguous := false
 	sharedChild := make(map[string]struct{})
 	for _, schema := range r.snapshot.Schemas {
 		for _, relationship := range schema.Relationships {
@@ -823,7 +822,6 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 			childKey := child.CanonicalKey()
 			childrenByParent[parentKey] = append(childrenByParent[parentKey], partitionMember{key: child, optional: relationship.Optional})
 			if prior, ok := parentByChild[childKey]; ok && prior != parentKey {
-				ambiguous = true
 				sharedChild[childKey] = struct{}{}
 			}
 			parentByChild[childKey] = parentKey
@@ -1001,12 +999,6 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 				// conserved sum still fails coverage when a required child has
 				// no resolving rule. The parent stays uncovered and keeps its
 				// own diagnostic rather than being silently excused.
-				continue
-			}
-			if ambiguous {
-				// Coverage stays conservatively disabled while any complete
-				// child is shared between distinct parents; only the isolated
-				// contradiction and incomparable diagnoses above are per-parent.
 				continue
 			}
 			if covered == nil {
@@ -1257,7 +1249,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 	completeChildrenByParent := make(map[string][]partitionMember)
 	subsetChildrenByParent := make(map[string][]metering.ComponentKey)
 	parentByCompleteChild := make(map[string]string)
-	ambiguousComplete := false
+	sharedCompleteChild := make(map[string]struct{})
 	for _, schema := range r.snapshot.Schemas {
 		for _, relationship := range schema.Relationships {
 			if !inclusionRelationship(relationship.Kind) {
@@ -1285,16 +1277,28 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 			completeChildrenByParent[parentKey] = append(completeChildrenByParent[parentKey], partitionMember{key: child, optional: relationship.Optional})
 			childKey := child.CanonicalKey()
 			if prior, ok := parentByCompleteChild[childKey]; ok && prior != parentKey {
-				ambiguousComplete = true
+				// Collect the full shared-child set so every declaring parent
+				// is tainted, not only the last pair encountered.
+				sharedCompleteChild[childKey] = struct{}{}
 			}
 			parentByCompleteChild[childKey] = parentKey
 		}
 	}
-	if ambiguousComplete {
-		// An ambiguous complete partition (a child shared by two distinct
-		// parents) proves nothing about any parent's coverage, mirroring the
-		// completeChildPartitionCoverage fail-closed rule.
-		completeChildrenByParent = nil
+	// An ambiguous complete partition (a child shared by two distinct parents)
+	// proves nothing about the coverage of the parents that declare it, but the
+	// ambiguity is LOCAL: only those tainted parents are denied, so an unrelated
+	// parent's cover proof still stands. A tainted parent is denied at entry to
+	// the recursive cover resolver -- including an absent tainted intermediate
+	// reached from an untainted ancestor -- so a cover can never silently use a
+	// shared child.
+	taintedCompleteParent := make(map[string]struct{})
+	for parentKey, children := range completeChildrenByParent {
+		for _, child := range children {
+			if _, shared := sharedCompleteChild[child.key.CanonicalKey()]; shared {
+				taintedCompleteParent[parentKey] = struct{}{}
+				break
+			}
+		}
 	}
 	var conflicts map[string]map[string]struct{}
 	var firstErr error
@@ -1390,6 +1394,30 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 		}
 		presence[key.CanonicalKey()] = struct{}{}
 	}
+	// zeroShareByScope names the PRESENT, COMPLETE, EXACT ZERO effective
+	// quantities from the same reduced/mask-filtered consistency evidence the
+	// pricing path already uses. Such a member is a genuine zero share: it
+	// accounts for its partition share without a pricing rule, but it must never
+	// be invented as a priced line and never counted as a positive contributor.
+	// A positive unpriced member, an absent required member, an
+	// incomplete/unavailable member, and an unknown-zero member (no comparable
+	// quantity) stay out of this set, so they still fail the cover proof.
+	zeroShareByScope := make(map[string]map[string]struct{})
+	for _, item := range consistencyAggregates {
+		if !item.complete || item.rat == nil || item.rat.Sign() != 0 {
+			continue
+		}
+		key, keyErr := item.key.Normalize()
+		if keyErr != nil {
+			continue
+		}
+		zeroShare := zeroShareByScope[item.scopeKey]
+		if zeroShare == nil {
+			zeroShare = make(map[string]struct{})
+			zeroShareByScope[item.scopeKey] = zeroShare
+		}
+		zeroShare[key.CanonicalKey()] = struct{}{}
+	}
 	for scope, keys := range rateableByScope {
 		parents := make([]string, 0, len(completeChildrenByParent))
 		for parentKey := range completeChildrenByParent {
@@ -1399,6 +1427,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 		sort.Strings(parents)
 		payable := payableByScope[scope]
 		presence := presenceByScope[scope]
+		zeroShare := zeroShareByScope[scope]
 		provenPartitions := completePartitionParents[scope]
 		for _, parentKey := range parents {
 			children := completeChildrenByParent[parentKey]
@@ -1415,7 +1444,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 			// and nested members too; contributors is its positive payable
 			// subset, the money the cover actually carries.
 			members := make(map[string]struct{})
-			if !collectCompleteCoverMembers(parentKey, completeChildrenByParent, keys, provenPartitions, presence, members, make(map[string]struct{})) {
+			if !collectCompleteCoverMembers(parentKey, completeChildrenByParent, keys, provenPartitions, presence, zeroShare, taintedCompleteParent, members, make(map[string]struct{})) {
 				continue
 			}
 			contributors := make(map[string]struct{}, len(members))
@@ -1484,27 +1513,43 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 // that is not directly rateable may be accounted for only through its own
 // evidence-consistent complete partition (provenPartitions, the proven set from
 // completeChildPartitionCoverage), so an observed quantity is never treated as
-// covered unless its physical conservation was already proven. A truly absent
-// optional member contributes the schema's optional zero and is skipped. A
-// genuinely absent required member -- an intermediate aggregate node whose own
-// quantity is not part of the evidence -- may still be accounted for
-// recursively through its own frozen complete partition when every required
-// descendant share resolves to a rateable line: an absent aggregate is covered
-// by its complete priced partition without faking its quantity. Any other
-// present-but-unaccounted member, or a member with no declared complete
-// partition, fails the proof. At least one member must actually account for a
-// share, so an all-absent optional declaration proves nothing. The visiting set
-// bounds the recursion and guards a malformed cyclic schema even though schema
-// validation is expected to reject it first.
+// covered unless its physical conservation was already proven. A PRESENT,
+// COMPLETE, EXACT ZERO member (zeroShare) is the one exception: its zero share
+// needs no pricing rule to be accounted for, so it completes the partition
+// without a rule while still being unable to contribute money (it is not in the
+// positive payable set). A truly absent optional member contributes the schema's
+// optional zero and is skipped. A genuinely absent required member -- an
+// intermediate aggregate node whose own quantity is not part of the evidence --
+// may still be accounted for recursively through its own frozen complete
+// partition when every required descendant share resolves to a rateable line: an
+// absent aggregate is covered by its complete priced partition without faking
+// its quantity. Any other present-but-unaccounted member, or a member with no
+// declared complete partition, fails the proof. A positive unpriced member, an
+// incomplete/unavailable member, and an unknown-zero member are never in
+// zeroShare and still fail. At least one member must actually account for a
+// share, so an all-absent optional declaration proves nothing. A tainted parent
+// -- one whose declared children include a child shared with another complete
+// parent -- is refused at entry, so an ambiguous partition never authorizes a
+// cover. The visiting set bounds the recursion and guards a malformed cyclic
+// schema even though schema validation is expected to reject it first.
 func collectCompleteCoverMembers(
 	parentKey string,
 	childrenByParent map[string][]partitionMember,
 	rateable map[string]struct{},
 	provenPartitions map[string]struct{},
 	present map[string]struct{},
+	zeroShare map[string]struct{},
+	tainted map[string]struct{},
 	members map[string]struct{},
 	visiting map[string]struct{},
 ) bool {
+	if _, isTainted := tainted[parentKey]; isTainted {
+		// This parent declares a child shared with another complete parent, so
+		// its partition cannot prove coverage. Refusing at entry also blocks an
+		// absent tainted intermediate reached recursively from an untainted
+		// ancestor, so no cover can silently route through a shared child.
+		return false
+	}
 	if _, cycle := visiting[parentKey]; cycle {
 		return false
 	}
@@ -1514,6 +1559,13 @@ func collectCompleteCoverMembers(
 	for _, child := range childrenByParent[parentKey] {
 		childKey := child.key.CanonicalKey()
 		if _, ok := rateable[childKey]; ok {
+			accounted = true
+			members[childKey] = struct{}{}
+			continue
+		}
+		if _, isZeroShare := zeroShare[childKey]; isZeroShare {
+			// A present, complete, exactly-zero effective quantity accounts for
+			// its share without a pricing rule and contributes no money.
 			accounted = true
 			members[childKey] = struct{}{}
 			continue
@@ -1537,7 +1589,7 @@ func collectCompleteCoverMembers(
 		if len(childrenByParent[childKey]) == 0 {
 			return false
 		}
-		if !collectCompleteCoverMembers(childKey, childrenByParent, rateable, provenPartitions, present, members, visiting) {
+		if !collectCompleteCoverMembers(childKey, childrenByParent, rateable, provenPartitions, present, zeroShare, tainted, members, visiting) {
 			return false
 		}
 		members[childKey] = struct{}{}

@@ -213,7 +213,9 @@ var LineBudgets = []LineBudget{
 	// PR #666 5B-1/2/3 settlement repair adds 172 verified component_rater
 	// production lines; internal/core re-measured 140302,
 	// bump to 140327 with 25 headroom.
-	{Dir: "internal/core", Max: 140327},
+	// PR #666 P1-A/P1-B rater fix adds 52 verified component_rater production
+	// lines; internal/core re-measured 140354, bump to 140379 with 25 headroom.
+	{Dir: "internal/core", Max: 140379},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
 	// PR #666 adversarial F1 native-audio admission guard; re-measured 13817,
