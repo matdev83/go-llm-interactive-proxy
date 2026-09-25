@@ -203,10 +203,82 @@ func TestReasonConstantSetIsClosed(t *testing.T) {
 			t.Errorf("%s = %q, want %q", name, got, value)
 		}
 	}
+	for name, value := range found {
+		if value == "" {
+			t.Errorf("%s must be a plain literal reason string; an untyped or derived reason cannot extend the closed set", name)
+		}
+	}
 }
 
-// declaredReasonConstants reads every Reason-typed constant of the package so an
-// unbounded reason vocabulary cannot be added without failing the closed set.
+func TestReasonConstantGateRejectsUntypedAndAliasedReasons(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		src        string
+		wantNames  int
+		probe      string
+		probeValue string
+	}{
+		{
+			name:       "untyped literal constant",
+			src:        "package p\n\nconst ReasonSneaky = \"sneaky\"\n",
+			wantNames:  1,
+			probe:      "ReasonSneaky",
+			probeValue: "sneaky",
+		},
+		{
+			name:       "alias of an admitted reason",
+			src:        "package p\n\ntype Reason string\n\nconst ReasonAlias = ReasonImpossiblePath\n",
+			wantNames:  1,
+			probe:      "ReasonAlias",
+			probeValue: "",
+		},
+		{
+			name:       "untyped constant inside a block",
+			src:        "package p\n\nconst (\n\tReasonOne = \"one\"\n\tReasonTwo = \"two\"\n)\n",
+			wantNames:  2,
+			probe:      "ReasonTwo",
+			probeValue: "two",
+		},
+		{
+			name:       "derived expression value",
+			src:        "package p\n\nconst ReasonConcat = \"im\" + \"possible_path\"\n",
+			wantNames:  1,
+			probe:      "ReasonConcat",
+			probeValue: "",
+		},
+		{
+			name:       "repeated name without its own value",
+			src:        "package p\n\nconst (\n\tReasonOmitted = \"omitted\"\n\tReasonOmitted\n)\n",
+			wantNames:  1,
+			probe:      "ReasonOmitted",
+			probeValue: "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			file, err := parser.ParseFile(token.NewFileSet(), "synthetic.go", tc.src, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := reasonConstants(file)
+			if len(found) != tc.wantNames {
+				t.Fatalf("collected %d reason constants %v, want %d", len(found), found, tc.wantNames)
+			}
+			if value, ok := found[tc.probe]; !ok || value != tc.probeValue {
+				t.Fatalf("%s collected as %q (present=%v), want %q; the closed-set gate would miss it", tc.probe, value, ok, tc.probeValue)
+			}
+		})
+	}
+}
+
+// declaredReasonConstants reads every reason constant of the package so an
+// unbounded reason vocabulary cannot be added without failing the closed set. Any
+// constant whose name begins with Reason is collected whether or not it carries
+// the Reason type identifier, so an untyped literal or an alias of an existing
+// reason cannot slip past the closed set.
 func declaredReasonConstants(t *testing.T, dir string) map[string]string {
 	t.Helper()
 
@@ -220,34 +292,55 @@ func declaredReasonConstants(t *testing.T, dir string) map[string]string {
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, 0)
-		if err != nil {
-			t.Fatal(err)
+		maps.Copy(found, reasonConstants(parseSource(t, filepath.Join(dir, name))))
+	}
+	return found
+}
+
+// reasonConstants maps every constant name prefixed Reason in one parsed file to
+// its string value. A name whose value is not a plain string literal maps to the
+// empty string so the caller rejects it: an untyped alias, a derived expression
+// or a repeated const spec can never add a fifth reason.
+func reasonConstants(file *ast.File) map[string]string {
+	found := map[string]string{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
 		}
-		for _, decl := range file.Decls {
-			gen, ok := decl.(*ast.GenDecl)
-			if !ok || gen.Tok != token.CONST {
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
 				continue
 			}
-			for _, spec := range gen.Specs {
-				value, ok := spec.(*ast.ValueSpec)
-				if !ok {
+			for i, ident := range value.Names {
+				if !strings.HasPrefix(ident.Name, "Reason") {
 					continue
 				}
-				if ident, ok := value.Type.(*ast.Ident); !ok || ident.Name != "Reason" {
+				if i >= len(value.Values) {
+					found[ident.Name] = ""
 					continue
 				}
-				for i, ident := range value.Names {
-					literal, ok := value.Values[i].(*ast.BasicLit)
-					if !ok {
-						t.Fatalf("%s: reason constant %s must use a literal value", name, ident.Name)
-					}
-					found[ident.Name] = strings.Trim(literal.Value, `"`)
+				literal, ok := value.Values[i].(*ast.BasicLit)
+				if !ok || literal.Kind != token.STRING {
+					found[ident.Name] = ""
+					continue
 				}
+				found[ident.Name] = strings.Trim(literal.Value, `"`)
 			}
 		}
 	}
 	return found
+}
+
+func parseSource(t *testing.T, path string) *ast.File {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
 }
 
 func TestPolicyValueSurfaceRejectsAttackerControlledData(t *testing.T) {

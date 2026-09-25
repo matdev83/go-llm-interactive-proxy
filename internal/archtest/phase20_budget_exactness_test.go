@@ -13,10 +13,12 @@ import (
 // 137621, bump to 137646 with 25 headroom. Task 1.2 admits the core
 // ingressdefense kernel package and its single authoritative policy projection
 // from core config: re-measured 137824, bump to 137849 with 25 headroom.
+// Tasks 2.1 and 2.2 add the bounded sharded adaptive source state: re-measured
+// 138172, bump to 138197 with 25 headroom.
 const (
 	phase20AuditRuntimebundleLines    = 13631
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 137824
+	phase20AuditCoreLines             = 138172
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

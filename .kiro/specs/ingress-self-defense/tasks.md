@@ -23,7 +23,7 @@ The implementation is intentionally staged around the smallest useful v1. Every 
     - _Validation: `go test ./internal/core/ingressdefense/... ./internal/archtest/...`_
 
 - [ ] 2. Implement bounded process-local adaptive state
-  - [ ] 2.1 Implement failure-window and exponential-quarantine transitions with fake time
+  - [x] 2.1 Implement failure-window and exponential-quarantine transitions with fake time
     - RED-test isolated failures, threshold crossing, window reset, repeated offense escalation, maximum cap, quarantine expiry, probe offense, successful-auth clear, and inactivity TTL.
     - Use saturating duration arithmetic; reads must not refresh hostile inactivity TTL.
     - An impossible-path offense increments the same offense level used by thresholded auth failures; no generic weighted scoring engine.
@@ -32,7 +32,7 @@ The implementation is intentionally staged around the smallest useful v1. Every 
     - _Depends: 1.2_
     - _Validation: `go test ./internal/core/ingressdefense/...`_
 
-  - [ ] 2.2 Prove hard capacity, eviction, exact-IP isolation, and concurrency bounds
+  - [x] 2.2 Prove hard capacity, eviction, exact-IP isolation, and concurrency bounds
     - RED-test unique-IP churn above capacity, lazy TTL expiry, deterministic bounded eviction/replacement, IPv4-mapped normalization at the adapter boundary, and exact address isolation.
     - Prove one source never creates `/24`, `/64`, ASN or country state.
     - Use sharded or equivalently fine-grained synchronization; add barriers/race evidence proving unrelated addresses do not wait on a long-held global request lock.
@@ -178,3 +178,8 @@ The implementation is intentionally staged around the smallest useful v1. Every 
 - Task 1.2 gate-hardening follow-ups for 2.1: (a) `TestReasonConstantSetIsClosed` only counts const specs with an explicit `Reason` type, so an untyped or aliased `Reason*` constant evades it — widen to any const whose name begins with `Reason`; (b) the 5.6 aggregate-network guard text-bans `netip.PrefixFrom`/`ASN`/`Country` but cannot ban bare `netip.Prefix` (legitimately used by `Policy.AdaptiveExemptCIDRs`), so a future `map[netip.Prefix]*entry` in `state.go` would pass — add an AST check for prefix-typed map keys; (c) `Policy.Validate()` is only meaningful for a filled/enabled policy, while `CompiledSelfDefense.Policy()` returns a zero `Policy{}` for a nil receiver — document that on `Validate`.
 - Task 1.2: `scripts/quality-checks.ps1` derives its package scope from tracked modifications only, so a brand-new UNTRACKED package is not built/vetted by `make quality-checks` (repo-wide gofmt and module-wide golangci-lint still cover it). Lint new packages explicitly before relying on `make quality-checks`.
 - Task 1.2: `config.CompiledSelfDefense` still exposes scalar accessors that duplicate `Policy()`/`StateLimits()`. No production consumer reads them yet; decide in 5.1 whether to retire them so 5.1/5.2 cannot bypass the domain type.
+- Tasks 2.1/2.2 — contracts the HTTP/auth adapters (3.2, 4.2, 5.2) MUST honour, documented on `State`: (a) check `Policy.Enabled` before consulting the state at all, because the process store survives a reload that disables self-defense; (b) apply `Policy.AdaptiveExempt` before BOTH `IsQuarantined` and `RecordProbe` (and `RecordAuthFailure`), because the state deliberately does not evaluate the exemption allowlist.
+- Tasks 2.1/2.2 interpretation: a counted auth failure BELOW the threshold returns the zero `Transition` (empty `Reason`) so the closed four-value reason vocabulary is never widened. Callers must read `Reason` only when `QuarantineStarted` is true; the metrics adapter (6.1) must not derive a label from a zero `Reason`.
+- Tasks 2.1/2.2 eviction rule: fixed-capacity insertion-order ring per shard, address→shard is a fixed FNV-1a over the 16-byte address, cursor advances unconditionally so a stale slot is overwritten without evicting a live key. It is admission-order, NOT LRU. Capacity is enforced per shard as `ceil(MaxEntries/shards)`.
+- `-race` cannot run on this Windows machine: `runtime/cgo: ...\windows_amd64\cgo.exe: exit status 2` (broken cgo toolchain, reproducible with a standalone `import "C"` program). Linux CI must run `go test -race ./internal/core/ingressdefense/...` before merge; that is the only way to close the stated 2.1/2.2 race evidence.
+- Review lesson worth reusing: several state-machine rules survived mutation because a test's fixture accidentally let a second code path produce the same observable outcome. Pin normative boundaries by placing the triggering event EXACTLY on the documented threshold (e.g. `lastHostileAt + StateTTL` for the `>=` in transition rule 1) and assert exact equality, not a lower bound.

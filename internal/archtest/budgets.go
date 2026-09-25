@@ -198,7 +198,11 @@ var LineBudgets = []LineBudget{
 	// Ingress self-defense (task 1.2) admits the core ingressdefense kernel
 	// package and the single authoritative config-to-core policy projection;
 	// re-measured 137824, bump to 137849 with 25 headroom.
-	{Dir: "internal/core", Max: 137849},
+	// Ingress self-defense (tasks 2.1 and 2.2) adds the bounded sharded
+	// adaptive source state with lazy expiry, deterministic eviction and
+	// saturating quarantine arithmetic; re-measured 138172, bump to 138197
+	// with 25 headroom.
+	{Dir: "internal/core", Max: 138197},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
 	{Dir: "internal/infra/runtimebundle", Max: 13656},

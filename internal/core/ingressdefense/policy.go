@@ -62,7 +62,9 @@ type Policy struct {
 // Validate reports whether the policy satisfies the bounded domain invariants
 // the state machine depends on: a finite positive threshold and window, a
 // positive first-offense duration, a ceiling that is not below it, and a
-// normalized exemption allowlist.
+// normalized exemption allowlist. It applies to a filled, enabled policy: the
+// zero value a nil CompiledSelfDefense projects is not a valid request policy and
+// the state machine records nothing for a disabled one.
 func (p Policy) Validate() error {
 	if p.AuthFailures < 1 {
 		return fmt.Errorf("ingressdefense: policy.auth_failures: must be at least 1, got %d", p.AuthFailures)
