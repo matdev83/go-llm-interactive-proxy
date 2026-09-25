@@ -192,7 +192,10 @@ var LineBudgets = []LineBudget{
 	// terminal capture/submission (+2,282). The current-main pre-open continuity
 	// fix adds 162 production lines; re-measured 137434, bump to 137459 with
 	// 25 headroom.
-	{Dir: "internal/core", Max: 137459},
+	// Ingress self-defense (task 1.1) adds typed presence-aware self-defense
+	// config, pure CompileSelfDefense validation, and shared prefix compilation;
+	// re-measured 137621, bump to 137646 with 25 headroom.
+	{Dir: "internal/core", Max: 137646},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
 	{Dir: "internal/infra/runtimebundle", Max: 13656},

@@ -8,11 +8,13 @@ import (
 // Audited remediation-3A baselines: exact live measurements behind the refreshed
 // ceilings. Each ceiling must equal its audited baseline + 25 (repository headroom
 // convention); the live tree may only shrink below the audit (deletions allowed)
-// and must never exceed its ceiling.
+// and must never exceed its ceiling. The internal/core baseline is re-audited
+// after the ingress-self-defense pure config compilation (task 1.1): re-measured
+// 137621, bump to 137646 with 25 headroom.
 const (
 	phase20AuditRuntimebundleLines    = 13631
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 137434
+	phase20AuditCoreLines             = 137621
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

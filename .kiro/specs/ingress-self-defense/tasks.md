@@ -3,7 +3,7 @@
 The implementation is intentionally staged around the smallest useful v1. Every production task starts with focused RED evidence; no threat-feed/WAF/persistence framework is introduced.
 
 - [ ] 1. Establish the self-defense configuration and domain contracts
-  - [ ] 1.1 RED-test default-on configuration, validation, and reload classification
+  - [x] 1.1 RED-test default-on configuration, validation, and reload classification
     - Add tests proving omitted `access.self_defense` resolves to enabled + impossible paths enabled + the documented adaptive defaults, while explicit `false` is preserved.
     - Cover duration/count/CIDR bounds, `max_quarantine >= initial_quarantine`, offline `check-config`, and invalid candidate rollback.
     - Prove policy fields are reloadable while `state_ttl` / `max_entries` are restart-required and mixed changes reject atomically.
@@ -169,3 +169,8 @@ The implementation is intentionally staged around the smallest useful v1. Every 
     - _Boundary: final release-grade certification/spec lifecycle_
     - _Depends: 8.1_
     - _Validation: `make qa`; applicable race run; merged-main focused rerun_
+
+## Implementation Notes
+
+- Task 1.1: any change that adds non-test lines under `internal/core` breaks the `internal/archtest` line-budget ratchet (`budgets.go` `internal/core` entry plus `phase20_budget_exactness_test.go` `phase20AuditCoreLines`, which must move together as `measured + 25`). The task-local `_Validation:` command cannot detect this; run `go test -count=1 ./internal/archtest` and re-measure whenever `internal/core` grows. Task 1.2 adds a new core package, so expect another ratchet there.
+- Task 1.1: `time.ParseDuration` has no `d` unit, so the `state_ttl` upper bound must be written as `168h`; operator documentation (task 6.2) must not print `7d`.
