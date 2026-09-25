@@ -21,7 +21,7 @@ import (
 
 // TestBillingEconomicsGrowthManifestLocked pins the remediation-3C allowance
 // table: 161 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at
-// c7fa4169), audited-credit sum 55,868, cap 55,866. The per-entry re-audit history
+// c7fa4169), audited-credit sum 55,970, cap 55,968. The per-entry re-audit history
 // lives on EconomicsConvergenceGrowthOverlayMax and the manifest in
 // billing_convergence_growth.go; this test only locks the arithmetic. Schema,
 // order, uniqueness, and attribution rules run through the shared table validator
@@ -36,8 +36,8 @@ func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	if len(economicsConvergenceGrowthManifest) != 161 {
 		t.Fatalf("growth manifest entries = %d, want 161", len(economicsConvergenceGrowthManifest))
 	}
-	if EconomicsConvergenceGrowthOverlayMax != 55866 {
-		t.Fatalf("growth cap drift: %d, want 55866", EconomicsConvergenceGrowthOverlayMax)
+	if EconomicsConvergenceGrowthOverlayMax != 55968 {
+		t.Fatalf("growth cap drift: %d, want 55968", EconomicsConvergenceGrowthOverlayMax)
 	}
 	if msg := validateEconomicsConvergenceGrowthManifest(economicsConvergenceGrowthManifest); msg != "" {
 		t.Fatalf("growth manifest schema rejected: %s", msg)
@@ -50,8 +50,8 @@ func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	if sumBaseline != 9593 {
 		t.Fatalf("manifest baseline sum = %d, want 9593 (fork roots 8209 + files 1384)", sumBaseline)
 	}
-	if sumCredit != 55868 {
-		t.Fatalf("manifest audited credit sum = %d, want 55868", sumCredit)
+	if sumCredit != 55970 {
+		t.Fatalf("manifest audited credit sum = %d, want 55970", sumCredit)
 	}
 	// Spot-check representative entries across roots and provenances so a
 	// silent baseline/credit/category edit fails loudly.

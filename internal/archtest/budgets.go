@@ -226,7 +226,13 @@ var LineBudgets = []LineBudget{
 	// the unobserved-parent fail-closed cover denial: 276 more verified
 	// production lines; internal/core re-measured 140951, bump to 140976 with
 	// 25 headroom.
-	{Dir: "internal/core", Max: 140976},
+	// PR #666 63c follow-up replaces the remaining direct-only checks with one
+	// bounded, scope-aware inclusion graph, so an unprovable cover's commercial
+	// relevance follows recursively represented payable descendants and subset
+	// quantity consistency follows transitive subset ancestry: 102 more
+	// verified production lines; internal/core re-measured 141053, bump to
+	// 141078 with 25 headroom.
+	{Dir: "internal/core", Max: 141078},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
 	// PR #666 adversarial F1 native-audio admission guard; re-measured 13817,

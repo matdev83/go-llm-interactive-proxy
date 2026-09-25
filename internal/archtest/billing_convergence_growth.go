@@ -39,7 +39,14 @@ import (
 // component_rater_partition.go 1279 -> 1513 (1976 + 1513 = 3489, +276 measured
 // against the 3213 audited pair); the allowance re-measured 55,565 -> 55,841
 // lines, reset to 55,866 with 25 headroom.
-const EconomicsConvergenceGrowthOverlayMax = 55866
+// PR #666 63c follow-up replaces the remaining direct-only checks with one
+// bounded, scope-aware inclusion graph: an unprovable cover's commercial
+// relevance now follows recursively represented payable descendants, and subset
+// quantity consistency follows the transitive subset ancestry the monetary
+// overlap rules already use. component_rater_partition.go 1513 -> 1615 (+102
+// measured); the allowance re-measured 55,841 -> 55,943 lines, reset to 55,968
+// with 25 headroom.
+const EconomicsConvergenceGrowthOverlayMax = 55968
 
 // economicsConvergenceGrowthEntry is one allowlisted denominator file with its
 // locked merge-base (c7fa4169) line count, audited credit, category attribution,
@@ -85,7 +92,7 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/billing/complete_call.go", baseline: 43, credit: 3, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1976, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_finalize.go", baseline: 0, credit: 394, category: "rating", provenance: "new"},
-	{path: "internal/core/billing/component_rater_partition.go", baseline: 0, credit: 1513, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_partition.go", baseline: 0, credit: 1615, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_validation.go", baseline: 0, credit: 216, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rating_contract.go", baseline: 0, credit: 383, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/cost_pass_through.go", baseline: 0, credit: 348, category: "settlement", provenance: "new"},

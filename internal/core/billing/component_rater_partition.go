@@ -104,24 +104,29 @@ func chargeCarryingIncompletePartitions(
 }
 
 // subsetQuantityContradictions returns, per reduction scope, the canonical keys
-// of declared subset children whose effective quantity strictly exceeds their
-// declared parent's effective quantity in that exact same scope.
+// of components whose effective quantity strictly exceeds that of a declared
+// subset ANCESTOR in that exact same scope.
 //
-// A subset is contained in its parent, so subset > parent is unambiguously
-// inconsistent evidence. The check is a property of the reduced quantities
-// alone, so it deliberately runs on the same consistency evidence as the
-// partition conservation proof and never on effective charge positivity: a
-// zero-priced, explicit-free, or wholly unpriced parent is exactly the case
-// where a monetary overlap graph has already dropped the parent and could hide
-// the inconsistency.
+// A subset is contained in its parent, and that containment is transitive, so
+// subset > parent is unambiguously inconsistent evidence for every reachable
+// subset descendant and not only for the immediate child. The check is a
+// property of the reduced quantities alone, so it deliberately runs on the same
+// consistency evidence as the partition conservation proof and never on
+// effective charge positivity: a zero-priced, explicit-free, or wholly unpriced
+// ancestor is exactly the case where a monetary overlap graph has already
+// dropped that side and could hide the inconsistency.
 //
-// Scope rules mirror the partition proof. Only partition-equivalent containment
-// edges with equal economic direction and unit are considered, a transform edge
-// is a separately governed unit derivation and never a containment, and both
-// operands must be present, complete and comparable in the same scope. A
-// missing, unavailable, or otherwise unquantified operand is NOT reported here:
-// the arithmetic is simply not comparable, the operand stays missing, and the
-// existing quantity/missing-rate diagnostics carry that gap.
+// Scope rules mirror the partition proof. Only subset containment edges with
+// equal economic direction and unit are considered, an aggregate or partition
+// edge asserts complete coverage and is already proved by the conservation test,
+// and a transform edge is a separately governed unit derivation and never a
+// containment. Both the ancestor and the descendant must be present, complete and
+// comparable in the same scope. A missing, unavailable, or otherwise
+// unquantified endpoint is NOT reported here: the arithmetic is simply not
+// comparable, that endpoint stays missing, and the existing
+// quantity/missing-rate diagnostics carry the gap. An intermediate hop with no
+// quantity is exactly the shape the transitive walk is for, and it never
+// invents a value for it.
 func (r *ReferenceRater) subsetQuantityContradictions(aggregates []aggregateMeasure) map[string]map[string]struct{} {
 	var contradictions map[string]map[string]struct{}
 	if r == nil || len(r.snapshot.Schemas) == 0 || len(aggregates) == 0 {
@@ -152,40 +157,33 @@ func (r *ReferenceRater) subsetQuantityContradictions(aggregates []aggregateMeas
 	if len(quantity) == 0 {
 		return nil
 	}
-	for _, schema := range r.snapshot.Schemas {
-		for _, relationship := range schema.Relationships {
-			// Only a declared subset is a partial containment. An aggregate or
-			// partition edge asserts complete coverage and is already proved by
-			// the conservation test above; a transform edge is a separately
-			// governed unit derivation, never a containment.
-			if relationship.Kind != metering.RelationshipSubset {
+	// Only a declared subset is a partial containment. An aggregate or partition
+	// edge asserts complete coverage and is already proved by the conservation
+	// test above; a transform edge is a separately governed unit derivation,
+	// never a containment. Subset containment is TRANSITIVE, exactly as the
+	// monetary overlap rules already treat it, so the comparison is made against
+	// every reachable subset descendant rather than only the immediate child. A
+	// two-level chain A -> B -> C with B unobserved has no comparable quantity on
+	// either direct edge, yet C is contained in A and 20 > 10 is still
+	// inconsistent evidence.
+	graph := newInclusionGraph(r.snapshot.Schemas)
+	for scopeKey, byKey := range present {
+		for parentKey := range graph.subset {
+			if _, parentPresent := byKey[parentKey]; !parentPresent {
 				continue
 			}
-			if relationship.Parent.Direction != relationship.Child.Direction || relationship.Parent.Unit != relationship.Child.Unit {
+			if _, parentComplete := complete[scopeKey][parentKey]; !parentComplete {
 				continue
 			}
-			parent, parentErr := relationship.Parent.Normalize()
-			child, childErr := relationship.Child.Normalize()
-			if parentErr != nil || childErr != nil {
+			parentRat, hasParentQuantity := quantity[scopeKey][parentKey]
+			if !hasParentQuantity {
 				continue
 			}
-			parentKey := parent.CanonicalKey()
-			childKey := child.CanonicalKey()
-			for scopeKey, byKey := range present {
-				if _, parentPresent := byKey[parentKey]; !parentPresent {
-					continue
-				}
+			for childKey := range graph.reachable(parentKey, graph.subset) {
 				if _, childPresent := byKey[childKey]; !childPresent {
 					continue
 				}
-				if _, parentComplete := complete[scopeKey][parentKey]; !parentComplete {
-					continue
-				}
 				if _, childComplete := complete[scopeKey][childKey]; !childComplete {
-					continue
-				}
-				parentRat, hasParentQuantity := quantity[scopeKey][parentKey]
-				if !hasParentQuantity {
 					continue
 				}
 				childRat, hasChildQuantity := quantity[scopeKey][childKey]
@@ -226,6 +224,106 @@ func (r *ReferenceRater) subsetQuantityContradictions(aggregates []aggregateMeas
 // charge. An absent OPTIONAL member is not this condition; the frozen schema
 // declares its own optional zero for it.
 var ErrSchemaPartitionIncomplete = errors.New("billing: frozen schema complete partition is missing required members")
+
+// inclusionGraph is the frozen component-schema inclusion graph, split by edge
+// class and with all reachability expressed as a bounded, scope-aware traversal.
+//
+// The rater's monetary overlap rules already treat inclusion TRANSITIVELY: a
+// payable component is reachable from a parent through any chain of declared
+// inclusion edges, however deep. A quantity or cover check that inspects only a
+// node's immediate neighbours is therefore unsound, because the money or the
+// quantity on the far side of a nested declaration is invisible to it. Keeping
+// the two edge classes in one place is what makes the containment and cover
+// semantics agree with the overlap semantics instead of drifting apart.
+//
+// Both edge classes are already restricted to equal economic direction and unit,
+// so every traversal here is direction- and unit-safe by construction. A
+// transform edge is a separately governed unit derivation and is never a
+// containment, so it is not in either class.
+type inclusionGraph struct {
+	// complete holds the declared aggregate and partition children: a parent
+	// composed of them as complete coverage. Money on this side of a parent is
+	// what pays for the parent's own quantity.
+	complete map[string][]metering.ComponentKey
+	// subset holds the declared subset children: partial containment, which
+	// still bounds the child's quantity by the parent's.
+	subset map[string][]metering.ComponentKey
+}
+
+// newInclusionGraph indexes one frozen snapshot's inclusion edges. It returns the
+// zero graph when the snapshot declares none, so callers can range over it
+// unconditionally.
+func newInclusionGraph(schemas []metering.ComponentSchema) inclusionGraph {
+	graph := inclusionGraph{
+		complete: make(map[string][]metering.ComponentKey),
+		subset:   make(map[string][]metering.ComponentKey),
+	}
+	for _, schema := range schemas {
+		for _, relationship := range schema.Relationships {
+			if !inclusionRelationship(relationship.Kind) {
+				continue
+			}
+			if relationship.Parent.Direction != relationship.Child.Direction || relationship.Parent.Unit != relationship.Child.Unit {
+				continue
+			}
+			parent, parentErr := relationship.Parent.Normalize()
+			child, childErr := relationship.Child.Normalize()
+			if parentErr != nil || childErr != nil {
+				continue
+			}
+			parentKey, childKey := parent.CanonicalKey(), child.CanonicalKey()
+			if parentKey == "" || childKey == "" {
+				continue
+			}
+			if relationship.Kind == metering.RelationshipSubset {
+				graph.subset[parentKey] = appendUniqueComponentKey(graph.subset[parentKey], child)
+				continue
+			}
+			graph.complete[parentKey] = appendUniqueComponentKey(graph.complete[parentKey], child)
+		}
+	}
+	if len(graph.complete) == 0 && len(graph.subset) == 0 {
+		return inclusionGraph{}
+	}
+	return graph
+}
+
+// reachable returns the canonical keys reachable from parentKey over one edge
+// class, excluding parentKey itself. The walk visits each key at most once, so it
+// is bounded by the declared graph even under a malformed cyclic schema, and it
+// is order independent because it collects a set rather than a path.
+func (g inclusionGraph) reachable(parentKey string, edges map[string][]metering.ComponentKey) map[string]struct{} {
+	seen := make(map[string]struct{})
+	queue := append([]metering.ComponentKey(nil), edges[parentKey]...)
+	for len(queue) != 0 {
+		current := queue[0]
+		queue = queue[1:]
+		key := current.CanonicalKey()
+		if key == "" {
+			continue
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		queue = append(queue, edges[key]...)
+	}
+	return seen
+}
+
+// payableReachable reports whether any component reachable from parentKey over
+// the given edge class bills a positive effective amount in this scope. Reach
+// matters, not adjacency: a partition member represented two complete-coverage
+// hops below an unobserved parent is still money on that parent's side, and it
+// is exactly the case a direct-child test cannot see.
+func (g inclusionGraph) payableReachable(parentKey string, edges map[string][]metering.ComponentKey, payable map[string]struct{}) bool {
+	for key := range g.reachable(parentKey, edges) {
+		if _, positive := payable[key]; positive {
+			return true
+		}
+	}
+	return false
+}
 
 // ErrSchemaSubsetContradiction reports a frozen subset containment relationship
 // whose child quantity strictly exceeds its parent quantity in the exact same
@@ -971,6 +1069,10 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 			}
 		}
 	}
+	// graph is the frozen inclusion graph this scope's reachability questions are
+	// answered from, so the cover-contributor and subset-ancestry walks use the
+	// same transitive semantics as the payable overlap walk below.
+	graph := newInclusionGraph(r.snapshot.Schemas)
 	var conflicts map[string]map[string]struct{}
 	// ambiguousCovered names the (scope, parent) pairs whose complete cover
 	// could not be proven because a declared child is shared with another
@@ -1177,7 +1279,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 				// distinguished because they carry different diagnoses: an
 				// ambiguous partition is incomparable, an unknown one is
 				// incomplete.
-				if resolution == coverUnresolved && !unprovableCoverNeedsDiagnosis(parentKey, presence, payable, children) {
+				if resolution == coverUnresolved && !unprovableCoverNeedsDiagnosis(graph, parentKey, presence, payable) {
 					// An OBSERVED parent already owns a diagnosis: the
 					// conservation proof ran on its own quantity, found the
 					// missing required member, and classified the valuation
@@ -1268,29 +1370,29 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 //
 // An UNOBSERVED parent gets no proof and no diagnostic at all, so the additive
 // settlement would otherwise be certified complete. That is the real hole, and
-// it is only load-bearing when this scope's money actually spans both sides of
-// the unknown partition: a payable declared partition member AND a payable
-// descendant of a declared subset child. When the subset's money sits in a
-// scope with no payable partition member, there is nothing in that scope for it
-// to double-charge, so per-scope isolation is preserved and the subset stays
-// payable.
+// it is load-bearing exactly when this scope's money spans both sides of the
+// unknown partition: some component on the parent's COMPLETE-COVERAGE side bills
+// a positive amount, reachable however deeply nested, AND a payable descendant
+// of a declared subset child. Reach rather than adjacency is what closes it: with
+// A --partition--> {B, C} and B --partition--> {X} and A absent, the partition
+// money is X, not B, so a direct-child test would find nothing to price and would
+// certify X together with the subset as complete additive money.
+//
+// When the subset's money sits in a scope with no payable partition-side money at
+// all, there is nothing in that scope for it to double-charge, so per-scope
+// isolation is preserved and the subset stays payable.
 func unprovableCoverNeedsDiagnosis(
+	graph inclusionGraph,
 	parentKey string,
 	presence map[string]struct{},
 	payable map[string]struct{},
-	children []partitionMember,
 ) bool {
 	if _, parentObserved := presence[parentKey]; parentObserved {
 		// The conservation proof already inspected this parent and classified
 		// its missing required member, so the shape is diagnosed.
 		return false
 	}
-	for _, child := range children {
-		if _, positive := payable[child.key.CanonicalKey()]; positive {
-			return true
-		}
-	}
-	return false
+	return graph.payableReachable(parentKey, graph.complete, payable)
 }
 
 // recordUnplaceableSubsetOverlap fails closed for a complete-partition parent

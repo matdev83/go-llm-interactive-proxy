@@ -53,6 +53,12 @@ func f62aKey(role string) metering.ComponentKey {
 	return f356Key("vendor:reviewf356_62a_" + role)
 }
 
+// f63Key is the same factory for the 63c transitive cases, kept separate so the
+// two rounds' graphs cannot collide on a component identity.
+func f63Key(role string) metering.ComponentKey {
+	return f356Key("vendor:reviewf356_63c_" + role)
+}
+
 func f356LinearRule(t *testing.T, id string, key metering.ComponentKey, price string) economics.RatingRule {
 	t.Helper()
 	return economics.RatingRule{ID: id, Kind: economics.RatingRuleLinear, Component: &key, Currency: "USD", UnitPrice: ref83intDecimal(t, price)}
@@ -420,6 +426,52 @@ func runReviewF356SettlementFence(t *testing.T, open func(t *testing.T) *Durable
 			measures: []f356Measure{
 				f356M(f62aKey("ub"), "60"),
 				f356M(f62aKey("ud"), "20"),
+			},
+		},
+		{
+			// 63c P1-1: the partition-side money is represented NESTED below an
+			// unobserved parent, so a direct-child relevance test finds nothing.
+			// A -partition-> {B, C}, B -partition-> {X, Y}, A -subset-> D with
+			// A, B, C absent must never certify X + D as complete.
+			name:       "nested_payable_descendant_unplaceable_subset_cannot_settle",
+			wantRating: billing.ErrSchemaPartitionIncomplete,
+			accountID:  "reviewf356-63c-nested",
+			bLegID:     "b-f356-63c-nested",
+			relationships: []metering.ComponentRelationship{
+				{Kind: metering.RelationshipPartition, Parent: f63Key("a"), Child: f63Key("b")},
+				{Kind: metering.RelationshipPartition, Parent: f63Key("a"), Child: f63Key("c")},
+				{Kind: metering.RelationshipPartition, Parent: f63Key("b"), Child: f63Key("x")},
+				{Kind: metering.RelationshipPartition, Parent: f63Key("b"), Child: f63Key("y")},
+				{Kind: metering.RelationshipSubset, Parent: f63Key("a"), Child: f63Key("d")},
+			},
+			rules: []economics.RatingRule{
+				f356LinearRule(t, "reviewf356-63c-x", f63Key("x"), "1"),
+				f356LinearRule(t, "reviewf356-63c-d", f63Key("d"), "1"),
+			},
+			measures: []f356Measure{
+				f356M(f63Key("x"), "60"),
+				f356M(f63Key("d"), "20"),
+			},
+		},
+		{
+			// 63c P1-2: subset containment is transitive, so C is bounded by A
+			// across the two-level chain A -subset-> B -subset-> C even with B
+			// unobserved, and 20 > 10 is inconsistent evidence.
+			name:       "transitive_subset_quantity_exceeding_ancestor_cannot_settle",
+			wantRating: billing.ErrSchemaSubsetContradiction,
+			accountID:  "reviewf356-63c-subset-chain",
+			bLegID:     "b-f356-63c-subset-chain",
+			relationships: []metering.ComponentRelationship{
+				{Kind: metering.RelationshipSubset, Parent: f63Key("chain_a"), Child: f63Key("chain_b")},
+				{Kind: metering.RelationshipSubset, Parent: f63Key("chain_b"), Child: f63Key("chain_c")},
+			},
+			rules: []economics.RatingRule{
+				f356LinearRule(t, "reviewf356-63c-chain-a", f63Key("chain_a"), "0"),
+				f356LinearRule(t, "reviewf356-63c-chain-c", f63Key("chain_c"), "1"),
+			},
+			measures: []f356Measure{
+				f356M(f63Key("chain_a"), "10"),
+				f356M(f63Key("chain_c"), "20"),
 			},
 		},
 	}
