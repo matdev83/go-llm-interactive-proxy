@@ -750,9 +750,15 @@ type partitionMember struct {
 //
 // Finally, the claim is arithmetically checked: the parent's comparable
 // effective reduced quantity in the same scope must equal the exact sum of the
-// present, complete and rateable declared children. An absent optional member
-// contributes zero (the schema's own optional-partition semantics), but any
-// present member -- optional or explicit zero -- participates in the sum.
+// present and complete declared children. An absent optional member contributes
+// zero (the schema's own optional-partition semantics), but any present member
+// -- optional or explicit zero -- participates in the sum. The arithmetic is
+// deliberately independent of rule resolution: a present, complete child
+// contributes its exact quantity whether or not it owns a rule, because an
+// unpriced zero child is economically irrelevant yet can still disprove
+// conservation. Rule resolution gates only covered status, so a conserved sum
+// with an unpriced required child is not covered (the parent keeps its own
+// diagnostic) but is never misreported as a contradiction.
 //
 // The function returns three per-scope sets. covered names the parents whose
 // conserved partition may excuse an unpriced parent's missing rule. contradicted
@@ -861,41 +867,63 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 			if _, ok := complete[scopeKey][parentKey]; !ok {
 				continue
 			}
+			// Arithmetic evidence and billable coverage are separate concerns.
+			// Every present, complete declared child contributes its exact
+			// quantity to the sum regardless of whether it owns a resolving
+			// rule, because conservation is a property of the quantities
+			// alone: an unpriced zero child is economically irrelevant yet
+			// still part of (and able to disprove) the partition sum. Coverage
+			// is granted only when the sum is comparable and conserved AND
+			// every required child is itself genuinely billable.
 			covers := true
+			comparable := true
 			accounted := false
 			childSum := new(big.Rat)
 			for _, child := range children {
 				childKey := child.key.CanonicalKey()
 				if _, childPresent := byKey[childKey]; !childPresent {
 					if child.optional {
+						// An absent optional member contributes zero, exactly
+						// the frozen schema's optional-partition semantics, so
+						// it preserves comparability.
 						continue
 					}
+					// An absent required member is missing evidence, not an
+					// arithmetic contradiction: the child sum is not
+					// comparable.
 					covers = false
+					comparable = false
 					break
 				}
 				accounted = true
 				if _, ok := complete[scopeKey][childKey]; !ok {
+					// A present but incomplete/unavailable child has no
+					// comparable quantity, so the comparison is impossible
+					// rather than contradictory.
 					covers = false
-					break
-				}
-				if _, ruleErr := r.resolveRule(child.key, qualifiers); ruleErr != nil {
-					// A declaring child proves the parent's coverage only when it
-					// is itself selected and rateable. An informational summary
-					// with no rule is skipped by the rating loop, and an
-					// unpriced/qualifier-incomplete child cannot stand in for
-					// the parent's share; accepting either would suppress the
-					// parent while nothing charges its quantity.
-					covers = false
+					comparable = false
 					break
 				}
 				childRat, hasChildQuantity := quantity[scopeKey][childKey]
 				if !hasChildQuantity {
 					covers = false
+					comparable = false
 					break
 				}
+				// Accumulate the exact quantity before considering the child's
+				// rule. A declaring child that is itself selected and rateable
+				// is required to prove coverage -- an informational summary with
+				// no rule is skipped by the rating loop, and an
+				// unpriced/qualifier-incomplete child cannot stand in for the
+				// parent's share -- but a failed rule must not hide the
+				// arithmetic evidence: the quantity stays in the sum so a
+				// genuine contradiction is still classified.
 				childSum.Add(childSum, childRat)
+				if _, ruleErr := r.resolveRule(child.key, qualifiers); ruleErr != nil {
+					covers = false
+				}
 			}
-			if !covers || !accounted {
+			if !accounted {
 				// An all-optional declaration with every member absent proves nothing.
 				continue
 			}
@@ -906,7 +934,12 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 				// partial/incomparable classification -- independent of the
 				// parent's own rating and missing-rate diagnostic -- so a zero
 				// or informational parent skipped from line emission cannot let
-				// the child-only money look complete.
+				// the child-only money look complete. The original structural
+				// gate is preserved: ambiguity is only reported when the
+				// partition would otherwise have been billable-covered.
+				if !covers {
+					continue
+				}
 				if incomparable == nil {
 					incomparable = make(map[string]map[string]struct{})
 				}
@@ -916,12 +949,13 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 				incomparable[scopeKey][parentKey] = struct{}{}
 				continue
 			}
-			if parentRat.Cmp(childSum) != 0 {
+			if comparable && parentRat.Cmp(childSum) != 0 {
 				// The declared complete partition is contradicted by the
-				// effective reduced quantities. Record the bounded
-				// contradiction so the enclosing valuation fails closed as
-				// partial even when this parent is a zero or informational
-				// summary the rating loop would otherwise skip entirely.
+				// effective reduced quantities, even when a contributing child
+				// is unpriced. Record the bounded contradiction so the
+				// enclosing valuation fails closed as partial even when this
+				// parent is a zero or informational summary the rating loop
+				// would otherwise skip entirely.
 				if contradicted == nil {
 					contradicted = make(map[string]map[string]struct{})
 				}
@@ -929,6 +963,13 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 					contradicted[scopeKey] = make(map[string]struct{})
 				}
 				contradicted[scopeKey][parentKey] = struct{}{}
+				continue
+			}
+			if !covers {
+				// Not contradictory and not billable-covered: a comparable,
+				// conserved sum still fails coverage when a required child has
+				// no resolving rule. The parent stays uncovered and keeps its
+				// own diagnostic rather than being silently excused.
 				continue
 			}
 			if ambiguous {
