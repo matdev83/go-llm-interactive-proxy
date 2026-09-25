@@ -431,7 +431,13 @@ func f4AssertLossMarkerBlocksCompleteRetail(t *testing.T, durable billing.CallLe
 // still show only the accepted 10 prefix: the final 20 has no durable
 // checkpoint owner, so the loss is genuine rather than a stale republish.
 func TestF4TerminalHandoffRetainsFinalLocalMeasurementAcrossDurableRestart(t *testing.T) {
-	t.Parallel()
+	// This durable proof drives the real 2-second terminal cleanup budget through
+	// a full 128-slot checkpoint flush on file-backed SQLite. Running it in the
+	// package parallel pool lets an unrelated heavy durable test share the core
+	// during that budget, so the batch append can consume the whole terminal
+	// deadline before the billing leg append begins. Keep it sequential: the
+	// assertion proof is unchanged, only the avoidable package-level contention
+	// is removed.
 	ctx := context.Background()
 
 	const storeID = "store-f4"
