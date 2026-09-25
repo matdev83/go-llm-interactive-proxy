@@ -245,7 +245,17 @@ func (b *ProviderEvidenceBuffer) Add(draft ProviderEvidenceDraft) {
 
 	key := strings.TrimSpace(draft.SourceEventKey)
 	draft.SourceEventKey = key
-	hash := draftFingerprint(draft)
+	hash, err := draftFingerprint(draft)
+	if err != nil {
+		// A payload whose canonical encoding fails cannot participate in replay
+		// suppression: an empty hash would otherwise compare equal to an absent
+		// baseline and be misread as an exact duplicate, silently dropping a
+		// brand-new source so an admitted prefix could reduce as complete.
+		// Record the bounded sanitized loss before any comparison and retain
+		// neither the malformed payload nor any partial anchor state.
+		b.recordProviderEvidenceLossLocked(providerEvidenceLossInvalidDraft)
+		return
+	}
 	if b.lastFingerprint == nil {
 		b.lastFingerprint = make(map[string]string)
 	}
@@ -262,7 +272,17 @@ func (b *ProviderEvidenceBuffer) Add(draft ProviderEvidenceDraft) {
 	latest := b.lastFingerprint[key]
 	for i := len(b.drafts) - 1; i >= 0; i-- {
 		if b.drafts[i].SourceEventKey == key {
-			latest = draftFingerprint(b.drafts[i])
+			pendingHash, pendingErr := draftFingerprint(b.drafts[i])
+			if pendingErr != nil {
+				// An accepted pending draft must always fingerprint. If the
+				// baseline can no longer be encoded, never let the failure
+				// compare equal to an empty hash; surface the loss and refuse
+				// the payload rather than risk suppressing a real revision
+				// against a baseline that could not be verified.
+				b.recordProviderEvidenceLossLocked(providerEvidenceLossInvalidDraft)
+				return
+			}
+			latest = pendingHash
 			break
 		}
 	}
@@ -453,7 +473,15 @@ func (b *ProviderEvidenceBuffer) DrainEconomicObservations() []lipsdkmetering.Ob
 		// Fingerprint the provider payload before adding host-owned supersession
 		// metadata. Runtime timestamps, revisions and source relations must not
 		// turn an unchanged provider snapshot into a new replay.
-		payloadFingerprint := draftFingerprint(draft)
+		payloadFingerprint, fingerprintErr := draftFingerprint(draft)
+		if fingerprintErr != nil {
+			// The draft passed Add-time bounds but cannot be canonically
+			// encoded, so it can never become an immutable observation or
+			// anchor. Record the bounded provider-neutral loss before building
+			// any supersession edge and retain no raw field content.
+			b.recordProviderEvidenceLossLocked(providerEvidenceLossInvalidDraft)
+			continue
+		}
 		// A changed payload is a new immutable observation, but it must retain
 		// the source relation to the last accepted revision. Build the relation
 		// only after the prior observation has passed validation so malformed
@@ -657,7 +685,7 @@ func providerAuthority(authority lipapi.UsageAuthority) string {
 	}
 }
 
-func draftFingerprint(draft ProviderEvidenceDraft) string {
+func draftFingerprint(draft ProviderEvidenceDraft) (string, error) {
 	data, err := json.Marshal(struct {
 		Key                string
 		Stream             string
@@ -685,10 +713,10 @@ func draftFingerprint(draft ProviderEvidenceDraft) string {
 		draft.Evidence, draft.Coverage, draft.CoverageReason,
 	})
 	if err != nil {
-		return ""
+		return "", err
 	}
 	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:])
+	return hex.EncodeToString(hash[:]), nil
 }
 
 // rememberAnchorLocked retains the bounded per-source replay/supersession
