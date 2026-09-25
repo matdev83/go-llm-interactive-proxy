@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/netip"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/ingressdefense"
 )
 
 const (
@@ -119,7 +121,7 @@ func CompileSelfDefense(in SelfDefenseConfig) (*CompiledSelfDefense, error) {
 		return nil, err
 	}
 
-	return &CompiledSelfDefense{
+	compiled := &CompiledSelfDefense{
 		enabled:           enabled,
 		impossiblePaths:   impossiblePaths,
 		authFailures:      authFailures,
@@ -129,14 +131,50 @@ func CompileSelfDefense(in SelfDefenseConfig) (*CompiledSelfDefense, error) {
 		stateTTL:          stateTTL,
 		maxEntries:        maxEntries,
 		exemptCIDRs:       exemptCIDRs,
-	}, nil
+	}
+	if err := compiled.Policy().Validate(); err != nil {
+		return nil, fmt.Errorf("access.self_defense: %w", err)
+	}
+	if err := compiled.StateLimits().Validate(); err != nil {
+		return nil, fmt.Errorf("access.self_defense: %w", err)
+	}
+	return compiled, nil
 }
 
 // Enabled reports whether request enforcement is enabled in this projection.
 func (c *CompiledSelfDefense) Enabled() bool { return c != nil && c.enabled }
 
 // ImpossiblePaths reports whether the fixed impossible-path matcher is enabled.
+// The toggle stays a request-graph concern; the core policy owns only adaptive
+// source-defense behavior.
 func (c *CompiledSelfDefense) ImpossiblePaths() bool { return c != nil && c.impossiblePaths }
+
+// Policy projects the compiled reloadable request policy onto the single
+// authoritative core domain type. The returned value is a copy: callers cannot
+// mutate the compiled projection through the returned exemption allowlist.
+func (c *CompiledSelfDefense) Policy() ingressdefense.Policy {
+	if c == nil {
+		return ingressdefense.Policy{}
+	}
+	return ingressdefense.Policy{
+		Enabled:             c.enabled,
+		AuthFailures:        c.authFailures,
+		FailureWindow:       c.failureWindow,
+		InitialQuarantine:   c.initialQuarantine,
+		MaxQuarantine:       c.maxQuarantine,
+		AdaptiveExemptCIDRs: c.AdaptiveExemptCIDRs(),
+	}
+}
+
+// StateLimits projects the process-owned adaptive-state sizing. These limits are
+// restart-required in v1 and are deliberately separate from Policy so they are
+// never carried into a per-request generation projection.
+func (c *CompiledSelfDefense) StateLimits() ingressdefense.StateLimits {
+	if c == nil {
+		return ingressdefense.StateLimits{}
+	}
+	return ingressdefense.StateLimits{MaxEntries: c.maxEntries, StateTTL: c.stateTTL}
+}
 
 // AuthFailures returns the configured unauthenticated-401 threshold.
 func (c *CompiledSelfDefense) AuthFailures() int {

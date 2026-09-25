@@ -2,6 +2,7 @@ package config
 
 import (
 	"net/netip"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -180,6 +181,53 @@ func TestCompiledSelfDefenseExemptCIDRsAreDefensiveCopy(t *testing.T) {
 	}
 }
 
+func TestCompileSelfDefenseProjectsCorePolicyAndStateLimits(t *testing.T) {
+	t.Parallel()
+
+	compiled, err := CompileSelfDefense(SelfDefenseConfig{Adaptive: SelfDefenseAdaptiveConfig{
+		ExemptCIDRs: []string{"192.0.2.0/24"},
+	}})
+	if err != nil {
+		t.Fatalf("CompileSelfDefense: %v", err)
+	}
+	policy := compiled.Policy()
+	if !policy.Enabled {
+		t.Error("projected policy must carry the enabled default")
+	}
+	if err := policy.Validate(); err != nil {
+		t.Fatalf("projected policy must satisfy the core domain invariants: %v", err)
+	}
+	if policy.AuthFailures != 5 || policy.FailureWindow != time.Minute ||
+		policy.InitialQuarantine != time.Minute || policy.MaxQuarantine != 2*time.Hour {
+		t.Fatalf("projected policy scalars = %+v", policy)
+	}
+	if !policy.AdaptiveExempt(netip.MustParseAddr("192.0.2.9")) {
+		t.Error("projected policy must carry the adaptive exemption allowlist")
+	}
+	policyType := reflect.TypeOf(policy)
+	for _, processOnly := range []string{"StateTTL", "MaxEntries"} {
+		if _, ok := policyType.FieldByName(processOnly); ok {
+			t.Fatalf("Policy must not carry process-state field %s; state sizing belongs to StateLimits", processOnly)
+		}
+	}
+
+	limits := compiled.StateLimits()
+	if err := limits.Validate(); err != nil {
+		t.Fatalf("projected state limits must satisfy the core domain invariants: %v", err)
+	}
+	if limits.MaxEntries != 100000 || limits.StateTTL != 24*time.Hour {
+		t.Fatalf("projected state limits = %+v", limits)
+	}
+	if limits.MaxEntries != compiled.MaxEntries() || limits.StateTTL != compiled.StateTTL() {
+		t.Fatal("projected state limits must match the compiled process-state fields")
+	}
+
+	policy.AdaptiveExemptCIDRs[0] = netip.MustParsePrefix("10.0.0.0/8")
+	if compiled.Policy().AdaptiveExempt(netip.MustParseAddr("192.0.2.9")) != true {
+		t.Fatal("projected policy must not alias the compiled exemption allowlist")
+	}
+}
+
 func TestCompiledSelfDefenseNilReceiverAccessors(t *testing.T) {
 	t.Parallel()
 
@@ -196,6 +244,12 @@ func TestCompiledSelfDefenseNilReceiverAccessors(t *testing.T) {
 	}
 	if compiled.AdaptiveExemptCIDRs() != nil {
 		t.Fatal("nil receiver must report no exempt cidrs")
+	}
+	if policy := compiled.Policy(); policy.Enabled || policy.AuthFailures != 0 || policy.AdaptiveExemptCIDRs != nil {
+		t.Fatalf("nil receiver must project a zero policy, got %+v", policy)
+	}
+	if limits := compiled.StateLimits(); limits.MaxEntries != 0 || limits.StateTTL != 0 {
+		t.Fatalf("nil receiver must project zero state limits, got %+v", limits)
 	}
 }
 

@@ -10,11 +10,13 @@ import (
 // convention); the live tree may only shrink below the audit (deletions allowed)
 // and must never exceed its ceiling. The internal/core baseline is re-audited
 // after the ingress-self-defense pure config compilation (task 1.1): re-measured
-// 137621, bump to 137646 with 25 headroom.
+// 137621, bump to 137646 with 25 headroom. Task 1.2 admits the core
+// ingressdefense kernel package and its single authoritative policy projection
+// from core config: re-measured 137824, bump to 137849 with 25 headroom.
 const (
 	phase20AuditRuntimebundleLines    = 13631
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 137621
+	phase20AuditCoreLines             = 137824
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

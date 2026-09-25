@@ -12,7 +12,7 @@ The implementation is intentionally staged around the smallest useful v1. Every 
     - _Depends: none_
     - _Validation: `go test ./internal/core/config/... ./internal/core/configreload/...`_
 
-  - [ ] 1.2 Define the minimal `core/ingressdefense` policy/state types and architecture admission
+  - [x] 1.2 Define the minimal `core/ingressdefense` policy/state types and architecture admission
     - Add RED compile/architecture tests before introducing the new top-level core package.
     - Define immutable policy/state-limit values, closed reason/transition values, and exact-IP-only state semantics with no HTTP/provider/public-SDK types.
     - Add the core-ownership census rationale: default provider-neutral ingress security remains required when optional features are absent.
@@ -174,3 +174,7 @@ The implementation is intentionally staged around the smallest useful v1. Every 
 
 - Task 1.1: any change that adds non-test lines under `internal/core` breaks the `internal/archtest` line-budget ratchet (`budgets.go` `internal/core` entry plus `phase20_budget_exactness_test.go` `phase20AuditCoreLines`, which must move together as `measured + 25`). The task-local `_Validation:` command cannot detect this; run `go test -count=1 ./internal/archtest` and re-measure whenever `internal/core` grows. Task 1.2 adds a new core package, so expect another ratchet there.
 - Task 1.1: `time.ParseDuration` has no `d` unit, so the `state_ttl` upper bound must be written as `168h`; operator documentation (task 6.2) must not print `7d`.
+- Task 1.2: `internal/core/ingressdefense` needs `doc.go` as well as `policy.go` — `TestCorePackagesHaveDocGo` requires it in every `internal/core/*` package, and the design File Structure Plan omits it.
+- Task 1.2 gate-hardening follow-ups for 2.1: (a) `TestReasonConstantSetIsClosed` only counts const specs with an explicit `Reason` type, so an untyped or aliased `Reason*` constant evades it — widen to any const whose name begins with `Reason`; (b) the 5.6 aggregate-network guard text-bans `netip.PrefixFrom`/`ASN`/`Country` but cannot ban bare `netip.Prefix` (legitimately used by `Policy.AdaptiveExemptCIDRs`), so a future `map[netip.Prefix]*entry` in `state.go` would pass — add an AST check for prefix-typed map keys; (c) `Policy.Validate()` is only meaningful for a filled/enabled policy, while `CompiledSelfDefense.Policy()` returns a zero `Policy{}` for a nil receiver — document that on `Validate`.
+- Task 1.2: `scripts/quality-checks.ps1` derives its package scope from tracked modifications only, so a brand-new UNTRACKED package is not built/vetted by `make quality-checks` (repo-wide gofmt and module-wide golangci-lint still cover it). Lint new packages explicitly before relying on `make quality-checks`.
+- Task 1.2: `config.CompiledSelfDefense` still exposes scalar accessors that duplicate `Policy()`/`StateLimits()`. No production consumer reads them yet; decide in 5.1 whether to retire them so 5.1/5.2 cannot bypass the domain type.

@@ -195,7 +195,10 @@ var LineBudgets = []LineBudget{
 	// Ingress self-defense (task 1.1) adds typed presence-aware self-defense
 	// config, pure CompileSelfDefense validation, and shared prefix compilation;
 	// re-measured 137621, bump to 137646 with 25 headroom.
-	{Dir: "internal/core", Max: 137646},
+	// Ingress self-defense (task 1.2) admits the core ingressdefense kernel
+	// package and the single authoritative config-to-core policy projection;
+	// re-measured 137824, bump to 137849 with 25 headroom.
+	{Dir: "internal/core", Max: 137849},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
 	{Dir: "internal/infra/runtimebundle", Max: 13656},
