@@ -1356,14 +1356,26 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 			}
 			payable := payableByScope[scope]
 			for _, subset := range subsetChildrenByParent[parentKey] {
-				if _, ok := payable[subset.CanonicalKey()]; !ok {
+				// A direct subset child is the common case; the same rule
+				// must also see every payable component transitively included
+				// through absent or unpriced intermediate subset children, so
+				// traverse the bounded inclusion graph from the parent's subset
+				// child and collect all of them. Traversal never starts at the
+				// parent, so the complete partition members B/C are not
+				// misreported as overlapping with their own cover.
+				hits := payableInclusionDescendants(kids, payable, subset)
+				if len(hits) == 0 {
 					continue
 				}
 				if firstErr == nil {
-					firstErr = fmt.Errorf("%w: complete partition parent %s has payable partition children and priced included subset child %s in one %q direction %q unit scope",
-						ErrSchemaOverlapConflict, parentKey, subset.CanonicalKey(), string(subset.Direction), subset.Unit)
+					descendants := make([]string, 0, len(hits))
+					for _, hit := range hits {
+						descendants = append(descendants, hit.CanonicalKey())
+					}
+					firstErr = fmt.Errorf("%w: complete partition parent %s has payable partition children and priced included subset child %s (payable descendants %s) in one %q direction %q unit scope",
+						ErrSchemaOverlapConflict, parentKey, subset.CanonicalKey(), strings.Join(descendants, ","), string(subset.Direction), subset.Unit)
 				}
-				record(scope, subset)
+				record(scope, hits...)
 				for _, child := range children {
 					record(scope, child.key)
 				}
@@ -1371,6 +1383,34 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 		}
 	}
 	return conflicts, firstErr
+}
+
+// payableInclusionDescendants collects every component reachable from start
+// over the bounded same-direction/same-unit inclusion graph whose effective
+// amount in the given scope is strictly positive, including start itself. The
+// graph is the same kids graph the direct and declared-transitive checks use, so
+// cross-direction, cross-unit (transform) and cross-scope edges are already
+// excluded. Callers start from a parent's declared subset children rather than
+// from the parent, which keeps the parent's complete partition cover out of the
+// traversal. The visited set bounds the walk to each reachable component once.
+func payableInclusionDescendants(kids map[string][]metering.ComponentKey, payable map[string]struct{}, start metering.ComponentKey) []metering.ComponentKey {
+	seen := make(map[string]struct{})
+	queue := []metering.ComponentKey{start}
+	var hits []metering.ComponentKey
+	for len(queue) != 0 {
+		current := queue[0]
+		queue = queue[1:]
+		currentKey := current.CanonicalKey()
+		if _, dup := seen[currentKey]; dup {
+			continue
+		}
+		seen[currentKey] = struct{}{}
+		if _, ok := payable[currentKey]; ok {
+			hits = append(hits, current)
+		}
+		queue = append(queue, kids[currentKey]...)
+	}
+	return hits
 }
 
 // appendUniqueComponentKey adds key to keys unless an equal canonical key is
