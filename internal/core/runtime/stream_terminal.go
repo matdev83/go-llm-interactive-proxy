@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
@@ -24,6 +25,10 @@ type streamTerminal struct {
 	done      chan struct{}
 	closed    bool
 	effectErr error
+	// cleanupTimeout overrides the detached terminal effect budget. Zero keeps
+	// the production default (defaultAuthorityCleanupTimeout); only tests that
+	// drive real durable stores inside the callback set it.
+	cleanupTimeout time.Duration
 }
 
 func newStreamTerminal(scope sdk.Scope) *streamTerminal {
@@ -84,7 +89,7 @@ func (t *streamTerminal) Terminalize(
 
 	defer t.signalDone()
 
-	cleanupCtx, cancel := cleanupContext(ctx, defaultAuthorityCleanupTimeout)
+	cleanupCtx, cancel := cleanupContext(ctx, t.cleanupTimeout)
 	defer cancel()
 
 	var effectErr error

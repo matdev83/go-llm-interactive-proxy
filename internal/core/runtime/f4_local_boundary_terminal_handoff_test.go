@@ -431,13 +431,13 @@ func f4AssertLossMarkerBlocksCompleteRetail(t *testing.T, durable billing.CallLe
 // still show only the accepted 10 prefix: the final 20 has no durable
 // checkpoint owner, so the loss is genuine rather than a stale republish.
 func TestF4TerminalHandoffRetainsFinalLocalMeasurementAcrossDurableRestart(t *testing.T) {
-	// This durable proof drives the real 2-second terminal cleanup budget through
-	// a full 128-slot checkpoint flush on file-backed SQLite. Running it in the
-	// package parallel pool lets an unrelated heavy durable test share the core
-	// during that budget, so the batch append can consume the whole terminal
-	// deadline before the billing leg append begins. Keep it sequential: the
-	// assertion proof is unchanged, only the avoidable package-level contention
-	// is removed.
+	// This durable proof drives the production terminal callback against real
+	// file-backed SQLite and must finish the full 128-slot checkpoint flush and
+	// the billing-leg append inside one bounded terminal budget. That work is far
+	// heavier than the in-memory variants, so the test bounds its own terminal
+	// cleanup explicitly instead of relying on the production 2-second default,
+	// which a race-instrumented or loaded CI host can exhaust. Production callers
+	// keep the default unchanged.
 	ctx := context.Background()
 
 	const storeID = "store-f4"
@@ -449,6 +449,7 @@ func TestF4TerminalHandoffRetainsFinalLocalMeasurementAcrossDurableRestart(t *te
 	billingFile := f4OpenFileBillingStore(t, billingPath, storeID)
 
 	session, boundary := f4LocalBoundaryAttempt(journalstore.NewObservationSink(journal.store))
+	session.terminal.cleanupTimeout = 20 * time.Second
 	session.submissionID = "submission-f4"
 	session.appendBillingLegStrict = func(appendCtx context.Context, _ billing.BillingCallID, record billing.CallLegUsageRecord) error {
 		return billingFile.store.AppendCallLegUsage(appendCtx, record)
