@@ -470,13 +470,30 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 		exclusions = r.includedChildExclusions(input.Observations, selected, mask, qualifiers)
 	}
 	aggregates, unavailable, err := aggregateMeasures(input.Observations, input.Subject.StoreID, selected, mask, exclusionPredicate(exclusions))
+	// Conservation is a property of the full selected, mask-filtered, reduced
+	// quantity evidence, before a priced parent's inclusion exclusion removes an
+	// unpriced child from the arithmetic. Rating keeps using the excluded
+	// projection (an included child is not separately billable), but the partition
+	// consistency proof must still see the declared child quantities so a
+	// contradicted partition cannot be hidden behind that exclusion. The second
+	// reduction runs only when exclusions actually apply; otherwise the original
+	// projection already is the full one. Its error/completeness diagnostics are
+	// deliberately discarded: pricing and consistency stay separate concerns, so
+	// an unpriced child never leaks a rate or evidence diagnostic into rated
+	// lines.
+	consistencyAggregates := aggregates
+	if len(exclusions) != 0 {
+		if full, _, reduceErr := aggregateMeasures(input.Observations, input.Subject.StoreID, selected, mask, nil); reduceErr == nil && full != nil {
+			consistencyAggregates = full
+		}
+	}
 	// A child-only tariff leaves the aggregate parent unpriced. When the frozen
 	// schema declares that parent's complete child partition and every declared
 	// child is present and complete in the same scope, the parent's missing rule
 	// is not an independent missing charge: the children are the authoritative
 	// billers for that share. The evidence and observation references are never
 	// removed; only the spurious rate-missing diagnostic is excused.
-	completePartitionParents, contradictedPartitions, incomparablePartitions := r.completeChildPartitionCoverage(aggregates, qualifiers)
+	completePartitionParents, contradictedPartitions, incomparablePartitions := r.completeChildPartitionCoverage(consistencyAggregates, qualifiers)
 	if err != nil {
 		valuation.Completeness = economics.CompletenessPartial
 		// A reduction may contain both independently complete and incomplete
@@ -577,7 +594,7 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	// quantity lines are suppressed rather than choosing a winner. Unrelated
 	// scopes and unrelated components stay payable; independent fixed fees are
 	// owned by their own trusted scope and remain payable.
-	overlapConflicts, overlapErr := r.overlappingSchemaInclusionConflicts(payableByScope, rateableByScope)
+	overlapConflicts, overlapErr := r.overlappingSchemaInclusionConflicts(payableByScope, rateableByScope, consistencyAggregates, completePartitionParents)
 	if overlapErr != nil {
 		valuation.Completeness = economics.CompletenessConflict
 	}
@@ -930,13 +947,27 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 			if taintedParent[parentKey] {
 				// This observed parent declares a child that another complete
 				// parent also declares, so its coverage cannot be proven and its
-				// child sum is not comparable. Record an explicit
-				// partial/incomparable classification -- independent of the
-				// parent's own rating and missing-rate diagnostic -- so a zero
-				// or informational parent skipped from line emission cannot let
-				// the child-only money look complete. The original structural
-				// gate is preserved: ambiguity is only reported when the
-				// partition would otherwise have been billable-covered.
+				// child sum is not comparable against a single unambiguous
+				// owner. When the full child arithmetic is nonetheless
+				// comparable and disagrees with the parent, pricing must not
+				// erase that physical inconsistency: record the typed
+				// contradiction even though no child is billable-covered (an
+				// unpriced required child previously skipped this parent
+				// entirely, letting child-only money look complete). When
+				// billable coverage does exist, retain the conservative
+				// incomparable classification so a genuine ambiguity is never
+				// mislabelled an arithmetic contradiction, and an unobserved
+				// tainted parent still contributes nothing.
+				if !covers && comparable && parentRat.Cmp(childSum) != 0 {
+					if contradicted == nil {
+						contradicted = make(map[string]map[string]struct{})
+					}
+					if contradicted[scopeKey] == nil {
+						contradicted[scopeKey] = make(map[string]struct{})
+					}
+					contradicted[scopeKey][parentKey] = struct{}{}
+					continue
+				}
 				if !covers {
 					continue
 				}
@@ -1199,7 +1230,20 @@ func exclusionPredicate(exclusions map[string]map[string]struct{}) func(scopeKey
 // conflict, so a zero-valued subset stays nonconflicting, exactly as a
 // zero-valued partition member stays payable-free. An absent or unavailable
 // child is in neither set and therefore cannot complete the partition.
-func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[string]map[string]struct{}, rateableByScope map[string]map[string]struct{}) (map[string]map[string]struct{}, error) {
+//
+// Coverage is resolved recursively so a nested, unpriced partition (A -> B with
+// B -> {X, Y} priced) still proves the absent parent's cover: a present but
+// unpriced member is accounted for through its own evidence-consistent complete
+// partition (completePartitionParents), and only then may its priced children
+// stand in for the parent's share. consistencyAggregates supplies the full
+// effective reduced evidence so an optional member that is present but unpriced
+// is not mistaken for an absent one. A priced subset descendant that is already
+// one of the parent's actual paid cover contributors is the same charge reached
+// by an alternate path, not an extra one; only a positive payable descendant
+// outside that contributor set is an additive double charge, and a conflict
+// suppresses the extra hits together with every actual paid contributor so no
+// partial winner survives.
+func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[string]map[string]struct{}, rateableByScope map[string]map[string]struct{}, consistencyAggregates []aggregateMeasure, completePartitionParents map[string]map[string]struct{}) (map[string]map[string]struct{}, error) {
 	if r == nil || len(r.snapshot.Schemas) == 0 || len(payableByScope) == 0 {
 		return nil, nil
 	}
@@ -1329,60 +1373,188 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 			}
 		}
 	}
+	// presenceByScope is the full effective reduced evidence per scope. It lets a
+	// genuinely absent optional partition member keep the schema's optional zero
+	// while a PRESENT but unpriced member is recognized as a real, unaccounted
+	// share rather than silently treated as absent.
+	presenceByScope := make(map[string]map[string]struct{})
+	for _, item := range consistencyAggregates {
+		key, keyErr := item.key.Normalize()
+		if keyErr != nil {
+			continue
+		}
+		presence := presenceByScope[item.scopeKey]
+		if presence == nil {
+			presence = make(map[string]struct{})
+			presenceByScope[item.scopeKey] = presence
+		}
+		presence[key.CanonicalKey()] = struct{}{}
+	}
 	for scope, keys := range rateableByScope {
-		for parentKey, children := range completeChildrenByParent {
+		parents := make([]string, 0, len(completeChildrenByParent))
+		for parentKey := range completeChildrenByParent {
+			parents = append(parents, parentKey)
+		}
+		// Sorted parent order keeps the first conflict diagnostic deterministic.
+		sort.Strings(parents)
+		payable := payableByScope[scope]
+		presence := presenceByScope[scope]
+		provenPartitions := completePartitionParents[scope]
+		for _, parentKey := range parents {
+			children := completeChildrenByParent[parentKey]
 			if len(children) == 0 {
 				continue
 			}
 			// A subset is contained in the parent whenever its partition is
-			// accounted for here: prove it from required members (present and
-			// rateable) plus any present optional member, requiring at least
-			// one present rateable member so an all-absent optional cannot win.
-			complete := true
-			proven := false
-			for _, child := range children {
-				if _, ok := keys[child.key.CanonicalKey()]; ok {
-					proven = true
-					continue
-				}
-				if child.optional {
-					continue
-				}
-				complete = false
-				break
-			}
-			if !complete || !proven {
+			// accounted for here. Coverage is resolved recursively: a declared
+			// member satisfies its share directly when its rule resolved, or --
+			// when it is present but unpriced -- through its own proven complete
+			// partition, so an absent parent A with a nested priced cover
+			// B = X + Y still has a complete, billable partition. members holds
+			// every accounted member so a rejected conflict suppresses the zero
+			// and nested members too; contributors is its positive payable
+			// subset, the money the cover actually carries.
+			members := make(map[string]struct{})
+			if !collectCompleteCoverMembers(parentKey, completeChildrenByParent, keys, provenPartitions, presence, members, make(map[string]struct{})) {
 				continue
 			}
-			payable := payableByScope[scope]
+			contributors := make(map[string]struct{}, len(members))
+			for memberKey := range members {
+				if _, positive := payable[memberKey]; positive {
+					contributors[memberKey] = struct{}{}
+				}
+			}
 			for _, subset := range subsetChildrenByParent[parentKey] {
 				// A direct subset child is the common case; the same rule
 				// must also see every payable component transitively included
 				// through absent or unpriced intermediate subset children, so
 				// traverse the bounded inclusion graph from the parent's subset
 				// child and collect all of them. Traversal never starts at the
-				// parent, so the complete partition members B/C are not
+				// parent, so the complete partition members are not
 				// misreported as overlapping with their own cover.
 				hits := payableInclusionDescendants(kids, payable, subset)
-				if len(hits) == 0 {
+				// A hit already carrying the parent's own money through the
+				// partition cover is the same charge reached by an alternate,
+				// redundant path, not an extra one. Only a positive payable
+				// descendant outside the actual paid contributor set is an
+				// independent additive double charge.
+				extra := make([]metering.ComponentKey, 0, len(hits))
+				for _, hit := range hits {
+					if _, isContributor := contributors[hit.CanonicalKey()]; isContributor {
+						continue
+					}
+					extra = append(extra, hit)
+				}
+				if len(extra) == 0 {
 					continue
 				}
 				if firstErr == nil {
-					descendants := make([]string, 0, len(hits))
-					for _, hit := range hits {
+					descendants := make([]string, 0, len(extra))
+					for _, hit := range extra {
 						descendants = append(descendants, hit.CanonicalKey())
 					}
+					sort.Strings(descendants)
 					firstErr = fmt.Errorf("%w: complete partition parent %s has payable partition children and priced included subset child %s (payable descendants %s) in one %q direction %q unit scope",
 						ErrSchemaOverlapConflict, parentKey, subset.CanonicalKey(), strings.Join(descendants, ","), string(subset.Direction), subset.Unit)
 				}
-				record(scope, hits...)
-				for _, child := range children {
-					record(scope, child.key)
+				// Suppress the extra additive hits together with every actual
+				// cover member (including a zero-valued or nested member), so a
+				// rejected conflict never leaves a partial winner on either
+				// side; contributors is used only to subtract a redundant path
+				// from the extra-hit set, not to limit suppression.
+				record(scope, extra...)
+				for _, memberKey := range sortedCanonicalKeys(members) {
+					if member, ok := keyOf[memberKey]; ok {
+						record(scope, member)
+					}
 				}
 			}
 		}
 	}
 	return conflicts, firstErr
+}
+
+// collectCompleteCoverMembers resolves whether every declared member of a
+// complete partition is accounted for in one scope, collecting the canonical
+// keys of every member that actually carries a share (whether its effective
+// charge is positive or exactly zero). A member is accounted for directly when
+// its rule resolved under the effective qualifiers (rateable, including an
+// explicitly observed zero whose effective charge is zero: a zero-valued member
+// still completes the partition without contributing money). A PRESENT member
+// that is not directly rateable may be accounted for only through its own
+// evidence-consistent complete partition (provenPartitions, the proven set from
+// completeChildPartitionCoverage), so an observed quantity is never treated as
+// covered unless its physical conservation was already proven. A truly absent
+// optional member contributes the schema's optional zero and is skipped. A
+// genuinely absent required member -- an intermediate aggregate node whose own
+// quantity is not part of the evidence -- may still be accounted for
+// recursively through its own frozen complete partition when every required
+// descendant share resolves to a rateable line: an absent aggregate is covered
+// by its complete priced partition without faking its quantity. Any other
+// present-but-unaccounted member, or a member with no declared complete
+// partition, fails the proof. At least one member must actually account for a
+// share, so an all-absent optional declaration proves nothing. The visiting set
+// bounds the recursion and guards a malformed cyclic schema even though schema
+// validation is expected to reject it first.
+func collectCompleteCoverMembers(
+	parentKey string,
+	childrenByParent map[string][]partitionMember,
+	rateable map[string]struct{},
+	provenPartitions map[string]struct{},
+	present map[string]struct{},
+	members map[string]struct{},
+	visiting map[string]struct{},
+) bool {
+	if _, cycle := visiting[parentKey]; cycle {
+		return false
+	}
+	visiting[parentKey] = struct{}{}
+	defer delete(visiting, parentKey)
+	accounted := false
+	for _, child := range childrenByParent[parentKey] {
+		childKey := child.key.CanonicalKey()
+		if _, ok := rateable[childKey]; ok {
+			accounted = true
+			members[childKey] = struct{}{}
+			continue
+		}
+		if _, isPresent := present[childKey]; isPresent {
+			// Present but not directly rateable: only its own proven complete
+			// partition can account for the observed share.
+			if _, isProven := provenPartitions[childKey]; !isProven {
+				return false
+			}
+		} else if child.optional {
+			// A truly absent optional member contributes the schema's
+			// optional zero.
+			continue
+		}
+		// Either a present member with a proven complete partition or a
+		// missing required intermediate: both are accounted for through their
+		// own declared complete partition, recursively. The absent
+		// intermediate has no observed quantity to conserve, so its declared
+		// children must themselves account for the share.
+		if len(childrenByParent[childKey]) == 0 {
+			return false
+		}
+		if !collectCompleteCoverMembers(childKey, childrenByParent, rateable, provenPartitions, present, members, visiting) {
+			return false
+		}
+		members[childKey] = struct{}{}
+		accounted = true
+	}
+	return accounted
+}
+
+// sortedCanonicalKeys returns the canonical keys of a component key set in
+// deterministic order for stable conflict reporting and recording.
+func sortedCanonicalKeys(keys map[string]struct{}) []string {
+	sorted := make([]string, 0, len(keys))
+	for key := range keys {
+		sorted = append(sorted, key)
+	}
+	sort.Strings(sorted)
+	return sorted
 }
 
 // payableInclusionDescendants collects every component reachable from start
