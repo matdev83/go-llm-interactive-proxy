@@ -20,7 +20,10 @@ import (
 // PR #666 adversarial F1 pre-execution rejection grows billingadmission/adapter.go
 // (367 -> 429) with the immutable V2 native-usage binding; the allowance
 // re-measured 54,939 lines, reset to 54,964 with 25 headroom.
-const EconomicsConvergenceGrowthOverlayMax = 54964
+// PR #666 reviewed N1/N2 behavior repairs grow component_rater.go (2587 -> 2668,
+// +81 measured); the allowance re-measured 54,939 -> 55,020 lines, reset to
+// 55,045 with 25 headroom.
+const EconomicsConvergenceGrowthOverlayMax = 55045
 
 // economicsConvergenceGrowthEntry is one allowlisted denominator file with its
 // locked merge-base (c7fa4169) line count, audited credit, category attribution,
@@ -64,7 +67,7 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/billing/call_usage.go", baseline: 332, credit: 182, category: "terminal", provenance: "modified"},
 	{path: "internal/core/billing/commands.go", baseline: 213, credit: 9, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/complete_call.go", baseline: 43, credit: 3, category: "lifecycle", provenance: "modified"},
-	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2587, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2668, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_finalize.go", baseline: 0, credit: 394, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_validation.go", baseline: 0, credit: 216, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rating_contract.go", baseline: 0, credit: 383, category: "rating", provenance: "new"},

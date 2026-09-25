@@ -20,11 +20,15 @@ import (
 // unchanged. PR #666 adversarial F1 pre-execution rejection re-audited
 // runtimebundle to 13817 (generation backend-kind inventory + candidate-local
 // V2 binding); internal/core, stdhttp, process_services.go, and the
-// connector overlay are unchanged by that F1 guard.
+// connector overlay are unchanged by that F1 guard. PR #666 reviewed N1/N2
+// component_rater (+81), N3 provider_evidence (+28), and F4 stream_terminal
+// cleanup (+5) production additions re-audited internal/core to 140130;
+// runtimebundle, stdhttp, process_services.go, and the
+// connector overlay are unchanged by that growth-budget refresh.
 const (
 	phase20AuditRuntimebundleLines    = 13817
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 140016
+	phase20AuditCoreLines             = 140130
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25
