@@ -460,6 +460,14 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	// billers for that share. The evidence and observation references are never
 	// removed; only the spurious rate-missing diagnostic is excused.
 	completePartitionParents, contradictedPartitions, incomparablePartitions, incompletePartitions := r.completeChildPartitionCoverage(consistencyAggregates, qualifiers)
+	// A declared subset is contained in its parent, so a subset quantity that
+	// strictly exceeds its parent's is inconsistent evidence whatever either
+	// side costs. This is a quantity fact, so it is proved on the same reduced
+	// consistency evidence as the partition conservation check and before
+	// effective charge positivity can drop the parent out of the monetary
+	// overlap graph. A missing or unavailable operand is deliberately not
+	// reported: the arithmetic is not comparable, so the operand stays missing.
+	subsetContradictions := r.subsetQuantityContradictions(consistencyAggregates)
 	if err != nil {
 		valuation.Completeness = economics.CompletenessPartial
 		// A reduction may contain both independently complete and incomplete
@@ -560,29 +568,49 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	// quantity lines are suppressed rather than choosing a winner. Unrelated
 	// scopes and unrelated components stay payable; independent fixed fees are
 	// owned by their own trusted scope and remain payable.
-	overlapConflicts, ambiguousCoveredParents, overlapErr := r.overlappingSchemaInclusionConflicts(payableByScope, rateableByScope, consistencyAggregates, completePartitionParents)
+	overlapConflicts, ambiguousCoveredParents, unresolvedCoveredParents, overlapErr := r.overlappingSchemaInclusionConflicts(payableByScope, rateableByScope, consistencyAggregates, completePartitionParents)
 	if overlapErr != nil {
 		valuation.Completeness = economics.CompletenessConflict
 	}
-	// An unobserved tainted parent cannot contribute to the conservation proof
-	// above, yet it can still be economically relevant: it declares a subset
-	// child whose positive payable descendant cannot be proven disjoint from
-	// the parent's unknown paid partition. Merge those parents into the same
-	// typed partition-ambiguity classification an observed tainted parent
-	// already receives, so the enclosing valuation is partial/incomparable
-	// instead of silently summing both sides. The suppression of the ambiguous
-	// subset descendants is already in overlapConflicts.
-	for scopeKey, parents := range ambiguousCoveredParents {
-		for parentKey := range parents {
-			if incomparablePartitions == nil {
-				incomparablePartitions = make(map[string]map[string]struct{})
+	// An unobserved parent whose complete cover is unprovable cannot contribute
+	// to the conservation proof above, yet it can still be economically
+	// relevant: it declares a subset child whose positive payable descendant
+	// cannot be proven disjoint from the parent's unknown paid partition. Merge
+	// those parents into the typed partition classification that matches the
+	// reason, so the enclosing valuation is partial instead of silently summing
+	// both sides. The suppression of the unplaceable subset descendants is
+	// already in overlapConflicts.
+	//
+	// The two reasons carry different diagnoses and are deliberately not
+	// merged: an ambiguous partition is incomparable (the evidence exists but
+	// cannot be attributed), while an unknown partition is incomplete (a
+	// required member was never observed). An observed parent of the same shape
+	// already receives the matching classification from the conservation proof.
+	mergePartitionSet := func(dst *map[string]map[string]struct{}, src map[string]map[string]struct{}) {
+		for scopeKey, parents := range src {
+			for parentKey := range parents {
+				if *dst == nil {
+					*dst = make(map[string]map[string]struct{})
+				}
+				if (*dst)[scopeKey] == nil {
+					(*dst)[scopeKey] = make(map[string]struct{})
+				}
+				(*dst)[scopeKey][parentKey] = struct{}{}
 			}
-			if incomparablePartitions[scopeKey] == nil {
-				incomparablePartitions[scopeKey] = make(map[string]struct{})
-			}
-			incomparablePartitions[scopeKey][parentKey] = struct{}{}
 		}
 	}
+	mergePartitionSet(&incomparablePartitions, ambiguousCoveredParents)
+	mergePartitionSet(&incompletePartitions, unresolvedCoveredParents)
+	// A partition with a missing REQUIRED member is load-bearing only when the
+	// parent does not itself bill a positive effective amount. payableByScope is
+	// exactly that signal, and it is the correct one: a resolving rule can still
+	// evaluate to zero, from a zero quantity, an explicit-free unit rate, or any
+	// tier/minimum/block shape that produces no charge, and in every one of those
+	// cases the children are the only money left in the scope. When the parent
+	// DOES bill a positive amount, its own line already carries the partition's
+	// money and an unreported unpriced child certifies nothing about it, which
+	// keeps the stock aggregate-only OpenAI family rating complete.
+	incompletePartitions = chargeCarryingIncompletePartitions(incompletePartitions, payableByScope)
 	for _, entry := range rated {
 		if schemaConflictSuppressed(overlapConflicts, entry.item) {
 			continue
@@ -685,6 +713,20 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 				unavailable = incompleteErr
 			} else {
 				unavailable = errors.Join(unavailable, incompleteErr)
+			}
+		}
+	}
+	if overlapErr == nil && len(subsetContradictions) != 0 {
+		// A subset that exceeds its own parent is physically impossible
+		// evidence. It is neither an ambiguity nor a missing operand, so it gets
+		// its own typed classification; independent lines stay payable and the
+		// residual is never invented.
+		valuation.Completeness = economics.CompletenessPartial
+		if subsetErr := schemaPartitionDiagnostic(ErrSchemaSubsetContradiction, subsetContradictions); subsetErr != nil {
+			if unavailable == nil {
+				unavailable = subsetErr
+			} else {
+				unavailable = errors.Join(unavailable, subsetErr)
 			}
 		}
 	}

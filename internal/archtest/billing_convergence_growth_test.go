@@ -20,26 +20,24 @@ import (
 // entry counts toward the capped total.
 
 // TestBillingEconomicsGrowthManifestLocked pins the remediation-3C allowance
-// table: 161 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at c7fa4169),
-// audited-credit sum 55,592 (PR #659 adversarial repair R1-R10 re-audited component_rater.go 1652 -> 2327 and runtime/billing_leg.go 270 -> 412; PR #666
-// adversarial F1-F6 behavior repairs re-audited component_rater.go 2327 -> 2587 and
-// runtime/billing_leg.go 412 -> 454; F1 pre-execution rejection re-audited
-// billingadmission/adapter.go 367 -> 429; reviewed N1/N2 then 5B-1/2/3 settlement
-// repair re-audited component_rater.go 2587 -> 2668 -> 2840 -> 2892; the f356 partition repair split the
-// inclusion/partition state machine into component_rater_partition.go, 1934 + 1279 = 3213), cap 55,590
-// (live-measured 55,565 + 25). Schema, order, uniqueness, and attribution rules run through the shared table
-// validator so production and injected-negative tests enforce identical rules;
-// per-entry fork values are verified mechanically against the pinned fork tree
-// by TestBillingEconomicsGrowthForkBaselinesExact, so offsetting baseline edits
-// cannot hide in the sums. Any broadening, rebasing, or attribution change
-// requires an explicit table edit that review must approve.
+// table: 161 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at
+// c7fa4169), audited-credit sum 55,868, cap 55,866. The per-entry re-audit history
+// lives on EconomicsConvergenceGrowthOverlayMax and the manifest in
+// billing_convergence_growth.go; this test only locks the arithmetic. Schema,
+// order, uniqueness, and attribution rules run through the shared table validator
+// so production and injected-negative tests enforce identical rules; per-entry fork
+// values are verified mechanically against the pinned fork tree by
+// TestBillingEconomicsGrowthForkBaselinesExact, so offsetting baseline edits cannot
+// hide in the sums. Any broadening, rebasing, or attribution change requires an
+// explicit table edit that review must approve.
+
 func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	t.Parallel()
 	if len(economicsConvergenceGrowthManifest) != 161 {
 		t.Fatalf("growth manifest entries = %d, want 161", len(economicsConvergenceGrowthManifest))
 	}
-	if EconomicsConvergenceGrowthOverlayMax != 55590 {
-		t.Fatalf("growth cap drift: %d, want 55590", EconomicsConvergenceGrowthOverlayMax)
+	if EconomicsConvergenceGrowthOverlayMax != 55866 {
+		t.Fatalf("growth cap drift: %d, want 55866", EconomicsConvergenceGrowthOverlayMax)
 	}
 	if msg := validateEconomicsConvergenceGrowthManifest(economicsConvergenceGrowthManifest); msg != "" {
 		t.Fatalf("growth manifest schema rejected: %s", msg)
@@ -52,15 +50,15 @@ func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	if sumBaseline != 9593 {
 		t.Fatalf("manifest baseline sum = %d, want 9593 (fork roots 8209 + files 1384)", sumBaseline)
 	}
-	if sumCredit != 55592 {
-		t.Fatalf("manifest audited credit sum = %d, want 55592", sumCredit)
+	if sumCredit != 55868 {
+		t.Fatalf("manifest audited credit sum = %d, want 55868", sumCredit)
 	}
 	// Spot-check representative entries across roots and provenances so a
 	// silent baseline/credit/category edit fails loudly.
 	spot := []economicsConvergenceGrowthEntry{
 		{path: "internal/core/billing/account.go", baseline: 102, credit: 0, category: "settlement", provenance: "modified"},
 		{path: "internal/core/billing/append.go", baseline: 50, credit: 10, category: "lifecycle", provenance: "modified"},
-		{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1934, category: "rating", provenance: "new"},
+		{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1976, category: "rating", provenance: "new"},
 		{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 454, category: "terminal", provenance: "modified"},
 		{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 243, category: "admission", provenance: "modified"},
 		{path: "internal/infra/billingcompose/catalog.go", baseline: 467, credit: 247, category: "composition", provenance: "modified"},

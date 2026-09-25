@@ -221,7 +221,12 @@ var LineBudgets = []LineBudget{
 	// resolution, the recursive least-fixpoint cover proof, and the fourth
 	// (incomplete) partition classification: 321 verified production lines;
 	// internal/core re-measured 140675, bump to 140700 with 25 headroom.
-	{Dir: "internal/core", Max: 140700},
+	// PR #666 62a follow-up adds the post-pricing commercial-relevance gate for
+	// incomplete partitions, the frozen subset quantity-consistency proof, and
+	// the unobserved-parent fail-closed cover denial: 276 more verified
+	// production lines; internal/core re-measured 140951, bump to 140976 with
+	// 25 headroom.
+	{Dir: "internal/core", Max: 140976},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
 	// PR #666 adversarial F1 native-audio admission guard; re-measured 13817,

@@ -39,10 +39,16 @@ import (
 // re-auditing internal/core to 140675; runtimebundle, stdhttp,
 // process_services.go, and the connector overlay are unchanged by that
 // growth-budget refresh.
+// PR #666 62a follow-up adds the post-pricing commercial-relevance gate for
+// incomplete partitions, the frozen subset quantity-consistency proof, and the
+// unobserved-parent fail-closed cover denial: 276 more verified production
+// lines, re-auditing internal/core to 140951; runtimebundle, stdhttp,
+// process_services.go, and the connector overlay are unchanged by that
+// growth-budget refresh.
 const (
 	phase20AuditRuntimebundleLines    = 13817
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 140675
+	phase20AuditCoreLines             = 140951
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

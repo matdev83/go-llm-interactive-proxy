@@ -47,6 +47,12 @@ func f356Key(component string) metering.ComponentKey {
 	return ref83intKey(metering.DirectionInput, component, metering.UnitToken)
 }
 
+// f62aKey is the shared-schema component factory for the 62a follow-up cases, so
+// they read as role names (zero_parent, cached_subset, ...) instead of hashes.
+func f62aKey(role string) metering.ComponentKey {
+	return f356Key("vendor:reviewf356_62a_" + role)
+}
+
 func f356LinearRule(t *testing.T, id string, key metering.ComponentKey, price string) economics.RatingRule {
 	t.Helper()
 	return economics.RatingRule{ID: id, Kind: economics.RatingRuleLinear, Component: &key, Currency: "USD", UnitPrice: ref83intDecimal(t, price)}
@@ -219,6 +225,67 @@ func f356RequirePinnedOpenV2(t *testing.T, before f356Snapshot) {
 	}
 }
 
+// f356RequireSettlesOnce drives the full happy-path durable proof for one valid
+// control: the V2 fence accepts it, the first apply posts exactly once, the
+// exposure closes, the pin completes, and an exact replay is a durable no-op.
+// Every expected value is the literal nano amount the handoff arithmetic
+// produces, never a value echoed back by the store.
+func f356RequireSettlesOnce(
+	t *testing.T,
+	store *DurableStore,
+	call billing.CallUsageRecord,
+	exposure billing.CallExposure,
+	rated billing.CallRatingResult,
+	chargeNano int64,
+	label string,
+) {
+	t.Helper()
+	ctx := context.Background()
+	if rateErr := billing.ValidateCallRatingResultForSettlement(rated, call, exposure, billing.PostingOwnerV2); rateErr != nil {
+		t.Fatalf("%s must pass the V2 fence, got %v", label, rateErr)
+	}
+	before := f356SnapshotOf(t, store, call.AccountID, call.CallID)
+	f356RequirePinnedOpenV2(t, before)
+	settled, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
+		Call: call, Exposure: exposure, Result: rated, PostingOwner: billing.PostingOwnerV2,
+	})
+	if err != nil {
+		t.Fatalf("%s ApplyCallBillingResult V2: %v", label, err)
+	}
+	if settled.Replayed {
+		t.Fatalf("%s first valid V2 settlement reported Replayed: %+v", label, settled)
+	}
+	after := f356SnapshotOf(t, store, call.AccountID, call.CallID)
+	if after.balanceNano != f356BalanceNano-chargeNano {
+		t.Fatalf("%s balance=%d, want %d", label, after.balanceNano, f356BalanceNano-chargeNano)
+	}
+	if after.accountVersion != before.accountVersion+1 || after.journals != before.journals+1 {
+		t.Fatalf("%s account/journal effect = %+v (before %+v)", label, after, before)
+	}
+	if after.exposure.IsOpen() {
+		t.Fatalf("%s must close the exposure: %+v", label, after.exposure)
+	}
+	if !after.pinPresent || after.pin.Owner != billing.PostingOwnerV2 || !after.pin.IsCompleted() {
+		t.Fatalf("%s must complete the V2 pin: %+v", label, after.pin)
+	}
+	t.Logf("%s settled Replayed=%v charge=%+v completeness=%q before=%+v after=%+v pin=%+v",
+		label, settled.Replayed, rated.CustomerCharge, rated.CustomerValuation.Completeness, before, after, after.pin)
+
+	replay, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
+		Call: call, Exposure: exposure, Result: rated, PostingOwner: billing.PostingOwnerV2,
+	})
+	if err != nil {
+		t.Fatalf("%s replay ApplyCallBillingResult V2: %v", label, err)
+	}
+	if !replay.Replayed {
+		t.Fatalf("%s exact replay must report Replayed: %+v", label, replay)
+	}
+	afterReplay := f356SnapshotOf(t, store, call.AccountID, call.CallID)
+	if !f356SameSnapshot(after, afterReplay) {
+		t.Fatalf("%s exact replay changed settlement effects:\n after=%+v\n  replay=%+v", label, after, afterReplay)
+	}
+}
+
 // runReviewF356SettlementFence is the dialect-shared body, invoked from
 // TestDBParity_SQLite and TestDBParity_PostgresDirect so one body proves the
 // money behaviour on both supported dialects. open must hand out one freshly
@@ -288,6 +355,72 @@ func runReviewF356SettlementFence(t *testing.T, open func(t *testing.T) *Durable
 				f356LinearRule(t, "reviewf356-p2-d", p2D, "1"),
 			},
 			measures: []f356Measure{f356M(p2B, "60"), f356M(p2C, "40"), f356M(p2D, "20")},
+		},
+		{
+			// 62a P1-A: a resolving parent rule is not a commercial basis. The
+			// parent's own quantity is zero, so its rated line is worth nothing
+			// and the children are the only money in the scope, yet the missing
+			// REQUIRED member must still fail closed.
+			name:       "zero_charge_parent_missing_required_member_cannot_settle",
+			wantRating: billing.ErrSchemaPartitionIncomplete,
+			accountID:  "reviewf356-62a-zero-parent",
+			bLegID:     "b-f356-62a-zero-parent",
+			relationships: []metering.ComponentRelationship{
+				{Kind: metering.RelationshipPartition, Parent: f62aKey("zero_parent"), Child: f62aKey("b")},
+				{Kind: metering.RelationshipPartition, Parent: f62aKey("zero_parent"), Child: f62aKey("c")},
+			},
+			rules: []economics.RatingRule{
+				f356LinearRule(t, "reviewf356-62a-parent", f62aKey("zero_parent"), "1"),
+				f356LinearRule(t, "reviewf356-62a-b", f62aKey("b"), "1"),
+				f356LinearRule(t, "reviewf356-62a-c", f62aKey("c"), "1"),
+			},
+			measures: []f356Measure{
+				f356M(f62aKey("zero_parent"), "0"),
+				f356M(f62aKey("b"), "60"),
+			},
+		},
+		{
+			// 62a P1-B: a declared subset quantity may never exceed its parent's.
+			// The OpenAI cache-read shape is the live stock instance, so the
+			// generic contract is pinned on the provider-family key.
+			name:       "subset_quantity_exceeding_parent_cannot_settle",
+			wantRating: billing.ErrSchemaSubsetContradiction,
+			accountID:  "reviewf356-62a-subset",
+			bLegID:     "b-f356-62a-subset",
+			relationships: []metering.ComponentRelationship{
+				{Kind: metering.RelationshipSubset, Parent: f62aKey("subset_parent"), Child: f62aKey("cached_subset")},
+			},
+			rules: []economics.RatingRule{
+				f356LinearRule(t, "reviewf356-62a-subset-parent", f62aKey("subset_parent"), "1"),
+				f356LinearRule(t, "reviewf356-62a-cached", f62aKey("cached_subset"), "1"),
+			},
+			measures: []f356Measure{
+				f356M(f62aKey("subset_parent"), "0"),
+				f356M(f62aKey("cached_subset"), "40"),
+			},
+		},
+		{
+			// 62a defensive matrix: an UNOBSERVED parent with an unprovable
+			// complete partition and a payable subset descendant. Nothing else
+			// classifies the shape, so without the fail-closed denial B + D
+			// settles as complete additive money.
+			name:       "unobserved_parent_unplaceable_subset_cannot_settle",
+			wantRating: billing.ErrSchemaPartitionIncomplete,
+			accountID:  "reviewf356-62a-unobserved",
+			bLegID:     "b-f356-62a-unobserved",
+			relationships: []metering.ComponentRelationship{
+				{Kind: metering.RelationshipPartition, Parent: f62aKey("unobserved"), Child: f62aKey("ub")},
+				{Kind: metering.RelationshipPartition, Parent: f62aKey("unobserved"), Child: f62aKey("uc")},
+				{Kind: metering.RelationshipSubset, Parent: f62aKey("unobserved"), Child: f62aKey("ud")},
+			},
+			rules: []economics.RatingRule{
+				f356LinearRule(t, "reviewf356-62a-ub", f62aKey("ub"), "1"),
+				f356LinearRule(t, "reviewf356-62a-ud", f62aKey("ud"), "1"),
+			},
+			measures: []f356Measure{
+				f356M(f62aKey("ub"), "60"),
+				f356M(f62aKey("ud"), "20"),
+			},
 		},
 	}
 	for _, testCase := range rejects {
@@ -378,46 +511,39 @@ func runReviewF356SettlementFence(t *testing.T, open func(t *testing.T) *Durable
 		if err := billing.ValidateCallRatingResultForSettlement(rated, call, exposure, billing.PostingOwnerV2); err != nil {
 			t.Fatalf("nested conserved cover must pass the V2 fence, got %v", err)
 		}
+		f356RequireSettlesOnce(t, store, call, exposure, rated, f356ValidChargeNano, "nested conserved control")
+	})
 
-		before := f356SnapshotOf(t, store, call.AccountID, call.CallID)
-		f356RequirePinnedOpenV2(t, before)
-		settled, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
-			Call: call, Exposure: exposure, Result: rated, PostingOwner: billing.PostingOwnerV2,
-		})
-		if err != nil {
-			t.Fatalf("ApplyCallBillingResult V2: %v", err)
+	// 62a P1-B control: a CONSISTENT subset relationship. The parent bills its
+	// own complete USD100 at USD1 and the provider reported no subset quantity,
+	// so 0 <= subset <= parent holds vacuously, no subset contradiction may be
+	// raised, and the ordinary aggregate-only settlement must post exactly once
+	// and replay as a no-op.
+	t.Run("consistent_subset_settles_once", func(t *testing.T) {
+		store := open(t)
+		parent := f62aKey("valid_subset_parent")
+		cached := f62aKey("valid_cached_subset")
+		call, exposure, rated, rateErr := f356Setup(t, store, "reviewf356-62a-valid-subset", "b-f356-62a-valid-subset",
+			f356Tariff(t,
+				[]economics.RatingRule{f356LinearRule(t, "reviewf356-62a-valid-parent", parent, "1")},
+				[]metering.ComponentRelationship{
+					{Kind: metering.RelationshipSubset, Parent: parent, Child: cached},
+				}),
+			f356M(parent, "100"),
+		)
+		if rateErr != nil {
+			t.Fatalf("RateCall: %v; valuation=%+v", rateErr, rated.CustomerValuation)
 		}
-		if settled.Replayed {
-			t.Fatalf("first nested valid V2 settlement reported Replayed: %+v", settled)
+		if errors.Is(rateErr, billing.ErrSchemaSubsetContradiction) {
+			t.Fatalf("a consistent subset relationship must never report a contradiction: %v", rateErr)
 		}
-		after := f356SnapshotOf(t, store, call.AccountID, call.CallID)
-		if after.balanceNano != f356BalanceNano-f356ValidChargeNano {
-			t.Fatalf("balance=%d, want %d", after.balanceNano, f356BalanceNano-f356ValidChargeNano)
+		if rated.CustomerValuation.Completeness != economics.CompletenessComplete {
+			t.Fatalf("completeness=%q, want complete; valuation=%+v",
+				rated.CustomerValuation.Completeness, rated.CustomerValuation)
 		}
-		if after.accountVersion != before.accountVersion+1 || after.journals != before.journals+1 {
-			t.Fatalf("nested valid settlement account/journal effect = %+v (before %+v)", after, before)
+		if rated.CustomerCharge != (billing.Money{Nano: f356ValidChargeNano, Currency: "USD"}) {
+			t.Fatalf("customer charge=%+v, want 100 USD (parent 100 at USD1)", rated.CustomerCharge)
 		}
-		if after.exposure.IsOpen() {
-			t.Fatalf("nested valid settlement must close the exposure: %+v", after.exposure)
-		}
-		if !after.pinPresent || after.pin.Owner != billing.PostingOwnerV2 || !after.pin.IsCompleted() {
-			t.Fatalf("nested valid settlement must complete the V2 pin: %+v", after.pin)
-		}
-		t.Logf("nested control RateCall charge=%+v completeness=%q", rated.CustomerCharge, rated.CustomerValuation.Completeness)
-		t.Logf("nested control settled Replayed=%v before=%+v after=%+v pin=%+v", settled.Replayed, before, after, after.pin)
-
-		replay, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
-			Call: call, Exposure: exposure, Result: rated, PostingOwner: billing.PostingOwnerV2,
-		})
-		if err != nil {
-			t.Fatalf("replay ApplyCallBillingResult V2: %v", err)
-		}
-		if !replay.Replayed {
-			t.Fatalf("exact replay must report Replayed: %+v", replay)
-		}
-		afterReplay := f356SnapshotOf(t, store, call.AccountID, call.CallID)
-		if !f356SameSnapshot(after, afterReplay) {
-			t.Fatalf("exact replay changed settlement effects:\n after=%+v\n  replay=%+v", after, afterReplay)
-		}
+		f356RequireSettlesOnce(t, store, call, exposure, rated, f356ValidChargeNano, "consistent subset control")
 	})
 }

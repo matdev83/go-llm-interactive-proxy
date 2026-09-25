@@ -58,22 +58,192 @@ var ErrSchemaPartitionContradiction = errors.New("billing: frozen schema complet
 // classifies the enclosing valuation partial.
 var ErrSchemaPartitionIncomparable = errors.New("billing: frozen schema complete partition has ambiguously shared children")
 
+// chargeCarryingIncompletePartitions narrows the observed parents whose complete
+// partition has a missing required member to the ones for which that
+// incompleteness actually governs the money in the scope: parents that do not
+// themselves bill a positive effective amount.
+//
+// This is the only correct place to decide it, because it is a question about
+// money rather than about evidence or rules. A parent that rates a positive
+// amount already carries its partition's charge on its own line, so an
+// unreported unpriced child changes nothing about that charge. A parent that
+// bills nothing leaves its children as the only money in the scope, and an
+// unknown partition must not be allowed to certify those children as a complete
+// valuation. The distinction is deliberately NOT "does a rule resolve": a
+// resolving rule can evaluate to zero from a zero quantity, an explicit-free
+// unit rate, or any tiered/minimum/block shape that produces no charge.
+//
+// payableByScope is precisely the positive-amount-without-error signal the
+// overlap graph already computes, so no pricing decision is duplicated here.
+// The result is the same per-scope map shape, so the caller's diagnostic and
+// determinism are unchanged.
+func chargeCarryingIncompletePartitions(
+	incomplete map[string]map[string]struct{},
+	payableByScope map[string]map[string]struct{},
+) map[string]map[string]struct{} {
+	if len(incomplete) == 0 {
+		return nil
+	}
+	filtered := make(map[string]map[string]struct{}, len(incomplete))
+	for scopeKey, parents := range incomplete {
+		payable := payableByScope[scopeKey]
+		for parentKey := range parents {
+			if _, chargesMoney := payable[parentKey]; chargesMoney {
+				continue
+			}
+			if filtered[scopeKey] == nil {
+				filtered[scopeKey] = make(map[string]struct{}, len(parents))
+			}
+			filtered[scopeKey][parentKey] = struct{}{}
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
+}
+
+// subsetQuantityContradictions returns, per reduction scope, the canonical keys
+// of declared subset children whose effective quantity strictly exceeds their
+// declared parent's effective quantity in that exact same scope.
+//
+// A subset is contained in its parent, so subset > parent is unambiguously
+// inconsistent evidence. The check is a property of the reduced quantities
+// alone, so it deliberately runs on the same consistency evidence as the
+// partition conservation proof and never on effective charge positivity: a
+// zero-priced, explicit-free, or wholly unpriced parent is exactly the case
+// where a monetary overlap graph has already dropped the parent and could hide
+// the inconsistency.
+//
+// Scope rules mirror the partition proof. Only partition-equivalent containment
+// edges with equal economic direction and unit are considered, a transform edge
+// is a separately governed unit derivation and never a containment, and both
+// operands must be present, complete and comparable in the same scope. A
+// missing, unavailable, or otherwise unquantified operand is NOT reported here:
+// the arithmetic is simply not comparable, the operand stays missing, and the
+// existing quantity/missing-rate diagnostics carry that gap.
+func (r *ReferenceRater) subsetQuantityContradictions(aggregates []aggregateMeasure) map[string]map[string]struct{} {
+	var contradictions map[string]map[string]struct{}
+	if r == nil || len(r.snapshot.Schemas) == 0 || len(aggregates) == 0 {
+		return nil
+	}
+	present := make(map[string]map[string]struct{})
+	complete := make(map[string]map[string]struct{})
+	quantity := make(map[string]map[string]*big.Rat)
+	for _, item := range aggregates {
+		key, keyErr := item.key.Normalize()
+		if keyErr != nil {
+			continue
+		}
+		if present[item.scopeKey] == nil {
+			present[item.scopeKey] = make(map[string]struct{})
+			complete[item.scopeKey] = make(map[string]struct{})
+			quantity[item.scopeKey] = make(map[string]*big.Rat)
+		}
+		canonical := key.CanonicalKey()
+		present[item.scopeKey][canonical] = struct{}{}
+		if item.complete {
+			complete[item.scopeKey][canonical] = struct{}{}
+		}
+		if item.rat != nil {
+			quantity[item.scopeKey][canonical] = item.rat
+		}
+	}
+	if len(quantity) == 0 {
+		return nil
+	}
+	for _, schema := range r.snapshot.Schemas {
+		for _, relationship := range schema.Relationships {
+			// Only a declared subset is a partial containment. An aggregate or
+			// partition edge asserts complete coverage and is already proved by
+			// the conservation test above; a transform edge is a separately
+			// governed unit derivation, never a containment.
+			if relationship.Kind != metering.RelationshipSubset {
+				continue
+			}
+			if relationship.Parent.Direction != relationship.Child.Direction || relationship.Parent.Unit != relationship.Child.Unit {
+				continue
+			}
+			parent, parentErr := relationship.Parent.Normalize()
+			child, childErr := relationship.Child.Normalize()
+			if parentErr != nil || childErr != nil {
+				continue
+			}
+			parentKey := parent.CanonicalKey()
+			childKey := child.CanonicalKey()
+			for scopeKey, byKey := range present {
+				if _, parentPresent := byKey[parentKey]; !parentPresent {
+					continue
+				}
+				if _, childPresent := byKey[childKey]; !childPresent {
+					continue
+				}
+				if _, parentComplete := complete[scopeKey][parentKey]; !parentComplete {
+					continue
+				}
+				if _, childComplete := complete[scopeKey][childKey]; !childComplete {
+					continue
+				}
+				parentRat, hasParentQuantity := quantity[scopeKey][parentKey]
+				if !hasParentQuantity {
+					continue
+				}
+				childRat, hasChildQuantity := quantity[scopeKey][childKey]
+				if !hasChildQuantity {
+					continue
+				}
+				if childRat.Cmp(parentRat) <= 0 {
+					continue
+				}
+				if contradictions == nil {
+					contradictions = make(map[string]map[string]struct{})
+				}
+				if contradictions[scopeKey] == nil {
+					contradictions[scopeKey] = make(map[string]struct{})
+				}
+				contradictions[scopeKey][childKey] = struct{}{}
+			}
+		}
+	}
+	return contradictions
+}
+
 // ErrSchemaPartitionIncomplete reports an observed parent whose declared
 // complete child partition cannot be evaluated because a REQUIRED declared
 // member is absent from the evidence, unavailable, or has no complete
-// comparable quantity, and which owns no resolving rule of its own. A declared
-// complete partition is usable only when its required members are known:
-// missing operands stay missing, so the children-only money must never be
-// certified complete from an incomplete partition. The classification is
-// deliberately scoped to the case that carries the failure: an unpriced parent
-// that the rating loop also skips from line emission (an informational summary,
-// or a complete exactly-zero quantity) emits no line at all, so without this
-// the surviving sibling line would look complete. A parent that owns a rule
-// already bills its own observed quantity, and a priced child in the same scope
-// is caught by the payable overlap check, so neither needs this sentinel. An
-// absent OPTIONAL member is not this condition; the frozen schema declares its
-// own optional zero for it.
+// comparable quantity. A declared complete partition is usable only when its
+// required members are known: missing operands stay missing, so the
+// children-only money must never be certified complete from an incomplete
+// partition.
+//
+// The sentinel is raised for the parents where that incompleteness governs the
+// money, which is decided against the parent's own effective charge and never
+// against rule existence: a parent that rates a positive amount already carries
+// its partition's charge on its own line, while a parent that rates nothing
+// leaves its children as the only money in the scope. A resolving rule is not a
+// commercial basis, because it can evaluate to zero from a zero quantity, an
+// explicit-free unit rate, or any tiered/minimum/block shape that produces no
+// charge. An absent OPTIONAL member is not this condition; the frozen schema
+// declares its own optional zero for it.
 var ErrSchemaPartitionIncomplete = errors.New("billing: frozen schema complete partition is missing required members")
+
+// ErrSchemaSubsetContradiction reports a frozen subset containment relationship
+// whose child quantity strictly exceeds its parent quantity in the exact same
+// reduction scope, economic direction and unit, with both quantities present,
+// complete and comparable. A subset is contained in its parent, so
+// subset > parent is unambiguously inconsistent evidence, and it is
+// inconsistent regardless of what either side costs. The rater therefore keeps
+// the independent lines payable but classifies the enclosing valuation partial
+// rather than certifying a complete money figure from contradictory
+// quantities.
+//
+// The check is a quantity fact, so it runs on the same reduced evidence as the
+// partition conservation proof and never on effective charge positivity: a
+// zero-priced parent and an absent priced parent are equally unable to hide the
+// inconsistency. A missing, unavailable or otherwise unquantified operand is
+// NOT this condition: the arithmetic is simply not comparable, the operand
+// stays missing, and the existing quantity/missing-rate diagnostics carry it.
+var ErrSchemaSubsetContradiction = errors.New("billing: frozen schema subset quantity exceeds its parent quantity")
 
 // inclusionRelationship reports whether a frozen schema relationship declares
 // that the parent aggregate already includes the child. Aggregate, subset and
@@ -194,19 +364,20 @@ const (
 // classified partial/incomparable rather than an arithmetic contradiction.
 // incomplete names the OBSERVED parents whose partition is not comparable at
 // all because a REQUIRED declared member is absent, unavailable, or has no
-// complete comparable quantity, AND which own no resolving rule of their own.
-// A complete declared partition is usable only when its required members are
-// known: missing operands stay missing, so the children-only money must never be
-// certified complete. That classification is scoped exactly to the case where
-// it carries the failure: an unpriced parent that is additionally skipped from
-// line emission by the rating loop (an informational summary, or a complete
-// exactly-zero quantity) emits no line at all, so nothing else would keep the
-// surviving sibling line from looking complete. An unpriced parent that does
-// emit a line already carries its own missing-rate diagnostic, and a parent that
-// owns a rule bills its own observed quantity directly, so a missing unpriced
-// child certifies nothing about either. An absent OPTIONAL member is never
-// incomplete: the frozen schema declares its own zero. A contradicted,
-// incomparable or incomplete parent is never covered.
+// complete comparable quantity. A complete declared partition is usable only
+// when its required members are known: missing operands stay missing and the
+// residual is never invented. The child's sum is then partial, so this
+// classification deliberately precedes every arithmetic one.
+//
+// Whether that incompleteness is commercially load-bearing is NOT decided here.
+// This function sees quantities and rule resolution, not money: a resolving
+// rule can still evaluate to a zero amount, so rule existence is not evidence
+// that the parent line carries the commercial basis. The caller narrows the set
+// to the parents that do not themselves bill a positive effective amount,
+// which is the only case where the children are the surviving money and an
+// unknown partition would otherwise certify it as complete. An absent OPTIONAL
+// member is never incomplete: the frozen schema declares its own zero. A
+// contradicted, incomparable or incomplete parent is never covered.
 //
 // Ambiguity isolation is per parent: a shared child only taints the specific
 // parents that declare it, never unrelated cover proofs. An independent
@@ -220,10 +391,6 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 		return nil, nil, nil, nil
 	}
 	childrenByParent := make(map[string][]partitionMember)
-	// parentComponentKey keeps the declaring component key beside its canonical
-	// form so rule resolution uses the same identity the schema published,
-	// exactly as it does for every declared child.
-	parentComponentKey := make(map[string]metering.ComponentKey)
 	parentByChild := make(map[string]string)
 	sharedChild := make(map[string]struct{})
 	for _, schema := range r.snapshot.Schemas {
@@ -242,7 +409,6 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 			parentKey := parent.CanonicalKey()
 			childKey := child.CanonicalKey()
 			childrenByParent[parentKey] = append(childrenByParent[parentKey], partitionMember{key: child, optional: relationship.Optional})
-			parentComponentKey[parentKey] = parent
 			if prior, ok := parentByChild[childKey]; ok && prior != parentKey {
 				sharedChild[childKey] = struct{}{}
 			}
@@ -313,17 +479,8 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 		parentUsable bool
 		parentRat    *big.Rat
 		childSum     *big.Rat
-		// parentUnpriced is set when the parent has no resolving rule of its
-		// own. That is precisely when the surviving money in this scope would
-		// be children-only: the rating loop skips an informational or
-		// complete-zero unpriced parent entirely and emits no line at all, so
-		// nothing about an unprovable partition would otherwise keep the
-		// children-only total from looking complete. A parent that owns a rule
-		// bills its own observed quantity, so its money is already carried by
-		// that line and a missing unpriced child does not certify anything.
-		parentUnpriced bool
-		tainted        bool
-		unpriced       []string
+		tainted      bool
+		unpriced     []string
 	}
 	// billable reports whether every declared member of this partition
 	// actually bills its share: either it has its own resolving rule, or it is
@@ -391,9 +548,6 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 					ev.parentRat = parentRat
 				}
 			}
-			if _, parentRuleErr := r.resolveRule(parentComponentKey[parentKey], qualifiers); errors.Is(parentRuleErr, ErrRateMissing) {
-				ev.parentUnpriced = true
-			}
 			observed = append(observed, ev)
 		}
 		// Least fixpoint of the recursive cover proof, iterated to stability so
@@ -424,16 +578,20 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 			case !ev.anyMemberPresent:
 				// An all-optional declaration with every member absent proves
 				// nothing.
-			case ev.missingMember && ev.parentUnpriced:
+			case ev.missingMember:
 				// A declared complete partition whose REQUIRED member is not
-				// known is incomplete evidence, and this parent has no rule of
-				// its own, so the only money left in this scope is the
-				// children's. The classification is independent of the parent's
-				// own rating because the rating loop skips an informational or
-				// complete-zero unpriced parent entirely and emits no line at
-				// all: without this the children-only total would look
-				// complete. Missing operands stay missing; the residual is
-				// never invented.
+				// known is incomplete evidence, full stop. The child's sum is
+				// partial, so neither conservation nor shared-child ambiguity
+				// can be asserted from it, and a missing operand stays missing
+				// rather than being back-filled with a zero.
+				//
+				// Whether that incompleteness is commercially load-bearing is
+				// decided by the caller against the parent's own effective
+				// charge, never against rule existence: a resolving rule can
+				// still evaluate to a zero amount, and a parent that charges
+				// nothing leaves its children as the only money in the scope.
+				// Deciding it here would require pricing, and a rule that
+				// resolves is not a commercial basis.
 				if incomplete == nil {
 					incomplete = make(map[string]map[string]struct{})
 				}
@@ -441,14 +599,6 @@ func (r *ReferenceRater) completeChildPartitionCoverage(aggregates []aggregateMe
 					incomplete[scopeKey] = make(map[string]struct{})
 				}
 				incomplete[scopeKey][ev.parentKey] = struct{}{}
-			case ev.missingMember:
-				// The partition is not comparable, so neither conservation nor
-				// shared-child ambiguity can be asserted from it. This parent
-				// owns a resolving rule, so its own observed quantity is
-				// already billed on its own line and the missing unpriced
-				// child certifies nothing about that money. A child that is
-				// also priced in the same scope is caught by the payable
-				// overlap check instead.
 			case !ev.parentUsable:
 				// The parent's own quantity is not a complete comparable
 				// measure, so no conservation claim can be made. Its own
@@ -754,9 +904,9 @@ func exclusionPredicate(exclusions map[string]map[string]struct{}) func(scopeKey
 // outside that contributor set is an additive double charge, and a conflict
 // suppresses the extra hits together with every actual paid contributor so no
 // partial winner survives.
-func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[string]map[string]struct{}, rateableByScope map[string]map[string]struct{}, consistencyAggregates []aggregateMeasure, completePartitionParents map[string]map[string]struct{}) (map[string]map[string]struct{}, map[string]map[string]struct{}, error) {
+func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[string]map[string]struct{}, rateableByScope map[string]map[string]struct{}, consistencyAggregates []aggregateMeasure, completePartitionParents map[string]map[string]struct{}) (map[string]map[string]struct{}, map[string]map[string]struct{}, map[string]map[string]struct{}, error) {
 	if r == nil || len(r.snapshot.Schemas) == 0 || len(payableByScope) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	type schemaEdge struct {
 		schemaID string
@@ -833,6 +983,16 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 	// into the same typed partition-ambiguity classification an observed
 	// tainted parent already receives.
 	ambiguousCovered := make(map[string]map[string]struct{})
+	// unresolvedCovered names the (scope, parent) pairs whose complete cover
+	// could not be proven because a required member is missing or an unaccounted
+	// member cannot be placed, while the parent is still economically relevant
+	// for the same reason. The partition is not known at all, so the enclosing
+	// valuation is classified partial/incomplete rather than silently summing a
+	// paid partition member together with a paid subset descendant whose
+	// disjointness the schema never allocated. This is deliberately distinct from
+	// ambiguousCovered: an unknown partition is missing evidence, an ambiguous
+	// one is undecidable evidence, and the two carry different diagnoses.
+	unresolvedCovered := make(map[string]map[string]struct{})
 	var firstErr error
 	record := func(scope string, keys ...metering.ComponentKey) {
 		if len(keys) == 0 {
@@ -857,6 +1017,21 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 			ambiguousCovered[scope] = scopeSet
 		}
 		scopeSet[parentKey] = struct{}{}
+	}
+	recordUnresolved := func(scope, parentKey string) {
+		scopeSet := unresolvedCovered[scope]
+		if scopeSet == nil {
+			scopeSet = make(map[string]struct{})
+			unresolvedCovered[scope] = scopeSet
+		}
+		scopeSet[parentKey] = struct{}{}
+	}
+	// recorder picks the right denial ledger for the resolution at hand.
+	recorder := func(resolution coverResolution) func(scope, parentKey string) {
+		if resolution == coverUnresolved {
+			return recordUnresolved
+		}
+		return recordAmbiguous
 	}
 	for _, edge := range edges {
 		for scope, keys := range payableByScope {
@@ -985,22 +1160,36 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 			// subset, the money the cover actually carries.
 			members := make(map[string]struct{})
 			resolution := collectCompleteCoverMembers(parentKey, completeChildrenByParent, keys, provenPartitions, presence, zeroShare, taintedCompleteParent, members, make(map[string]struct{}))
-			if resolution == coverAmbiguous {
-				// This parent's complete cover cannot be proven because a
-				// declared child is shared with another complete parent. That is
-				// not the same as "no cover": it is a positive statement that
-				// the parent's paid partition is unknown, so nothing declared
-				// inside the parent may be assumed disjoint from it. The
-				// taint is therefore propagated to the caller instead of
-				// silently skipping the overlap analysis. It is only
-				// economically relevant when a declared subset child actually
-				// carries a positive payable amount in this scope, so an
-				// unrelated ambiguous fragment with no payable subset keeps its
-				// prior behaviour and cannot poison an independent cover.
-				recordAmbiguousSubsetOverlap(scope, parentKey, subsetChildrenByParent[parentKey], kids, payable, keyOf, recordAmbiguous, record)
-				continue
-			}
 			if resolution != coverProven {
+				// The parent's complete cover could not be proven. Both denial
+				// outcomes are positive statements, not absences:
+				//
+				//   - coverAmbiguous: a declared child is shared with another
+				//     complete parent, so the true owner cannot be chosen.
+				//   - coverUnresolved: a required member is missing or an
+				//     unaccounted member cannot be placed, so the partition is
+				//     not known at all.
+				//
+				// Either way the parent's paid partition is unknown, so nothing
+				// declared inside the parent may be assumed disjoint from it and
+				// the denial is reported to the caller instead of silently
+				// skipping the overlap analysis. The two denials are
+				// distinguished because they carry different diagnoses: an
+				// ambiguous partition is incomparable, an unknown one is
+				// incomplete.
+				if resolution == coverUnresolved && !unprovableCoverNeedsDiagnosis(parentKey, presence, payable, children) {
+					// An OBSERVED parent already owns a diagnosis: the
+					// conservation proof ran on its own quantity, found the
+					// missing required member, and classified the valuation
+					// partial, so its additive subset money can never settle.
+					// That is the repository's deliberate contract, pinned by the
+					// R7 preservation suite. An unobserved parent gets no such
+					// proof and therefore no such diagnostic, so the unplaceable
+					// case below is the only one that would otherwise certify
+					// complete additive money.
+					continue
+				}
+				recordUnplaceableSubsetOverlap(scope, parentKey, subsetChildrenByParent[parentKey], kids, payable, recorder(resolution), record)
 				continue
 			}
 			contributors := make(map[string]struct{}, len(members))
@@ -1059,28 +1248,73 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(payableByScope map[
 	if len(ambiguousCovered) == 0 {
 		ambiguousCovered = nil
 	}
-	return conflicts, ambiguousCovered, firstErr
+	if len(unresolvedCovered) == 0 {
+		unresolvedCovered = nil
+	}
+	return conflicts, ambiguousCovered, unresolvedCovered, firstErr
 }
 
-// recordAmbiguousSubsetOverlap fails closed for a complete-partition parent
-// whose cover is unprovable because a declared child is shared with another
-// complete parent. Disjointness between that unknown paid partition and the
-// parent's declared subset children cannot be proven, so any positive payable
-// descendant of such a subset child is suppressed and the parent is recorded
-// as ambiguously covered. Without this the payer's two sides would settle
-// additively as a false complete total.
+// unprovableCoverNeedsDiagnosis reports whether an UNPROVABLE complete-partition
+// cover still needs a fail-closed classification after the conservation proof
+// has had its say, or whether the repository's deliberate additive-subset policy
+// already covers the shape.
 //
-// The taint stays LOCAL: a parent that declares no subset child, or whose
+// The conservation proof only ever inspects OBSERVED parents: it needs the
+// parent's own comparable quantity to assert conservation, and it is the thing
+// that classifies a missing required member as incomplete. An observed parent
+// with an unprovable cover therefore already carries a partial diagnosis, so its
+// payable subset money can never settle and stays additive, which is exactly the
+// contract the R7 preservation suite pins.
+//
+// An UNOBSERVED parent gets no proof and no diagnostic at all, so the additive
+// settlement would otherwise be certified complete. That is the real hole, and
+// it is only load-bearing when this scope's money actually spans both sides of
+// the unknown partition: a payable declared partition member AND a payable
+// descendant of a declared subset child. When the subset's money sits in a
+// scope with no payable partition member, there is nothing in that scope for it
+// to double-charge, so per-scope isolation is preserved and the subset stays
+// payable.
+func unprovableCoverNeedsDiagnosis(
+	parentKey string,
+	presence map[string]struct{},
+	payable map[string]struct{},
+	children []partitionMember,
+) bool {
+	if _, parentObserved := presence[parentKey]; parentObserved {
+		// The conservation proof already inspected this parent and classified
+		// its missing required member, so the shape is diagnosed.
+		return false
+	}
+	for _, child := range children {
+		if _, positive := payable[child.key.CanonicalKey()]; positive {
+			return true
+		}
+	}
+	return false
+}
+
+// recordUnplaceableSubsetOverlap fails closed for a complete-partition parent
+// whose cover could not be proven, for either denial reason: an ambiguous
+// partition (a declared child shared with another complete parent) or an
+// unknown one (a required member missing, or an unaccounted member that cannot
+// be placed). In both cases the parent's paid partition exists but is unknown,
+// so disjointness between it and the parent's declared subset children cannot be
+// proven. Any positive payable descendant of such a subset child is therefore
+// suppressed and the parent is recorded through the ledger matching the reason.
+// Without this the payer's two sides would settle additively as a false
+// complete total: "could not prove cover" is not permission to assume that
+// everything declared inside the parent lies outside it.
+//
+// The denial stays LOCAL: a parent that declares no subset child, or whose
 // subset children carry no positive payable descendant in this scope, is not
-// economically relevant and is left untouched, so an unrelated ambiguous
-// fragment can never poison an independent valid cover proof.
-func recordAmbiguousSubsetOverlap(
+// economically relevant and is left untouched, so an unrelated ambiguous or
+// incomplete fragment can never poison an independent valid cover proof.
+func recordUnplaceableSubsetOverlap(
 	scope, parentKey string,
 	subsets []metering.ComponentKey,
 	kids map[string][]metering.ComponentKey,
 	payable map[string]struct{},
-	keyOf map[string]metering.ComponentKey,
-	recordAmbiguous func(scope, parentKey string),
+	recorder func(scope, parentKey string),
 	record func(scope string, keys ...metering.ComponentKey),
 ) {
 	for _, subset := range subsets {
@@ -1088,11 +1322,11 @@ func recordAmbiguousSubsetOverlap(
 		if len(hits) == 0 {
 			continue
 		}
-		recordAmbiguous(scope, parentKey)
-		// Only the ambiguous side is withheld. The partition children keep
+		recorder(scope, parentKey)
+		// Only the unplaceable side is withheld. The partition children keep
 		// their own independently payable lines: the enclosing valuation is
-		// classified partial/incomparable, so it can never settle, and the
-		// suppressed side is the one whose disjointness could not be proven.
+		// classified partial, so it can never settle, and the suppressed side is
+		// the one whose disjointness could not be proven.
 		record(scope, hits...)
 	}
 }
