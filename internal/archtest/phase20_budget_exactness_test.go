@@ -31,10 +31,18 @@ import (
 // lines, re-auditing internal/core to 140354; runtimebundle, stdhttp,
 // process_services.go, and the connector overlay are unchanged by that
 // growth-budget refresh.
+// PR #666 f356 P1-1/P1-2/P2 partition repair splits the frozen
+// component-schema inclusion/partition state machine out of component_rater.go
+// into the new component_rater_partition.go and adds the tri-state cover
+// resolution, the recursive least-fixpoint cover proof, and the fourth
+// (incomplete) partition classification: 321 verified production lines,
+// re-auditing internal/core to 140675; runtimebundle, stdhttp,
+// process_services.go, and the connector overlay are unchanged by that
+// growth-budget refresh.
 const (
 	phase20AuditRuntimebundleLines    = 13817
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 140354
+	phase20AuditCoreLines             = 140675
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

@@ -28,7 +28,12 @@ import (
 // PR #666 P1-A/P1-B rater fix grows component_rater.go (2840 -> 2892, +52
 // measured); the allowance re-measured 55,192 -> 55,244 lines, reset to
 // 55,269 with 25 headroom.
-const EconomicsConvergenceGrowthOverlayMax = 55269
+// PR #666 f356 P1-1/P1-2/P2 partition repair splits the frozen
+// component-schema inclusion/partition state machine out of component_rater.go
+// into the new component_rater_partition.go (1934 + 1279 = 3213, +321 measured
+// against the 2892 audited pair); the allowance re-measured 55,244 -> 55,565
+// lines, reset to 55,590 with 25 headroom.
+const EconomicsConvergenceGrowthOverlayMax = 55590
 
 // economicsConvergenceGrowthEntry is one allowlisted denominator file with its
 // locked merge-base (c7fa4169) line count, audited credit, category attribution,
@@ -72,8 +77,9 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/billing/call_usage.go", baseline: 332, credit: 182, category: "terminal", provenance: "modified"},
 	{path: "internal/core/billing/commands.go", baseline: 213, credit: 9, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/complete_call.go", baseline: 43, credit: 3, category: "lifecycle", provenance: "modified"},
-	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2892, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1934, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_finalize.go", baseline: 0, credit: 394, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_partition.go", baseline: 0, credit: 1279, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_validation.go", baseline: 0, credit: 216, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rating_contract.go", baseline: 0, credit: 383, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/cost_pass_through.go", baseline: 0, credit: 348, category: "settlement", provenance: "new"},

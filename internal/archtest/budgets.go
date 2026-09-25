@@ -215,7 +215,13 @@ var LineBudgets = []LineBudget{
 	// bump to 140327 with 25 headroom.
 	// PR #666 P1-A/P1-B rater fix adds 52 verified component_rater production
 	// lines; internal/core re-measured 140354, bump to 140379 with 25 headroom.
-	{Dir: "internal/core", Max: 140379},
+	// PR #666 f356 P1-1/P1-2/P2 partition repair splits the frozen
+	// component-schema inclusion/partition state machine out of component_rater.go
+	// into the new component_rater_partition.go and adds the tri-state cover
+	// resolution, the recursive least-fixpoint cover proof, and the fourth
+	// (incomplete) partition classification: 321 verified production lines;
+	// internal/core re-measured 140675, bump to 140700 with 25 headroom.
+	{Dir: "internal/core", Max: 140700},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
 	// PR #666 adversarial F1 native-audio admission guard; re-measured 13817,
