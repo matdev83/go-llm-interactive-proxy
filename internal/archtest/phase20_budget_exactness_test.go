@@ -17,9 +17,12 @@ import (
 // overlay unchanged. PR #666 adversarial F1-F6 behavior repairs re-audited
 // internal/core to 140016 from the reviewed economics production additions;
 // runtimebundle, stdhttp, process_services.go, and the connector overlay are
-// unchanged.
+// unchanged. PR #666 adversarial F1 pre-execution rejection re-audited
+// runtimebundle to 13817 (generation backend-kind inventory + candidate-local
+// V2 binding); internal/core, stdhttp, process_services.go, and the
+// connector overlay are unchanged by that F1 guard.
 const (
-	phase20AuditRuntimebundleLines    = 13757
+	phase20AuditRuntimebundleLines    = 13817
 	phase20AuditStdhttpLines          = 7134
 	phase20AuditCoreLines             = 140016
 	phase20AuditProcessServicesLines  = 342

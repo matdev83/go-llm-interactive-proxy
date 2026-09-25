@@ -106,7 +106,10 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// PR #659 CodeRabbit durable candidate-budget backoff/logging (commit 652b9773)
 	// grows observation_economic_bridge.go; runtimebundle re-measured 13757, reset
 	// to 13782 with 25 headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 13782},
+	// PR #666 adversarial F1 native-audio admission guard adds the generation
+	// backend-kind inventory and the candidate-local V2 binding;
+	// runtimebundle re-measured 13817, reset to 13842 with 25 headroom.
+	{Tree: "internal/infra/runtimebundle", Max: 13842},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
 	{Tree: "internal/stdhttp", Max: 7159},
 	{Tree: "cmd/lipstd", Max: 979},
@@ -208,7 +211,9 @@ var LineBudgets = []LineBudget{
 	{Dir: "internal/core", Max: 140041},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
-	{Dir: "internal/infra/runtimebundle", Max: 13782},
+	// PR #666 adversarial F1 native-audio admission guard; re-measured 13817,
+	// reset to 13842 with 25 headroom.
+	{Dir: "internal/infra/runtimebundle", Max: 13842},
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},

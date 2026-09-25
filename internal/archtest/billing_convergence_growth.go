@@ -17,7 +17,10 @@ import (
 // behavior repairs grow component_rater.go (2327 -> 2587) and
 // runtime/billing_leg.go (412 -> 454); the allowance re-measured 54,877 lines,
 // reset to 54,902 with 25 headroom.
-const EconomicsConvergenceGrowthOverlayMax = 54902
+// PR #666 adversarial F1 pre-execution rejection grows billingadmission/adapter.go
+// (367 -> 429) with the immutable V2 native-usage binding; the allowance
+// re-measured 54,939 lines, reset to 54,964 with 25 headroom.
+const EconomicsConvergenceGrowthOverlayMax = 54964
 
 // economicsConvergenceGrowthEntry is one allowlisted denominator file with its
 // locked merge-base (c7fa4169) line count, audited credit, category attribution,
@@ -134,7 +137,7 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/runtime/billing_call_id.go", baseline: 22, credit: 61, category: "identity", provenance: "modified"},
 	{path: "internal/core/runtime/billing_collector.go", baseline: 214, credit: 89, category: "terminal", provenance: "modified"},
 	{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 454, category: "terminal", provenance: "modified"},
-	{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 181, category: "admission", provenance: "modified"},
+	{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 243, category: "admission", provenance: "modified"},
 	{path: "internal/infra/billingadmission/doc.go", baseline: 1, credit: 0, category: "package", provenance: "modified"},
 	{path: "internal/infra/billingcompose/catalog.go", baseline: 467, credit: 247, category: "composition", provenance: "modified"},
 	{path: "internal/infra/billingcompose/doc.go", baseline: 1, credit: 0, category: "package", provenance: "modified"},
