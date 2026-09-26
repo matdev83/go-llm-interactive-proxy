@@ -100,9 +100,13 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// token-ledger money writes) and excluded from this allowance;
 	// measured 13631 (runtimebundle) and 7134 (stdhttp), reset to 13656 and 7159
 	// with 25 headroom.
+	// Ingress self-defense (tasks 3.1 and 3.2) adds the stdhttp self-defense
+	// driving adapter (fixed impossible-path matcher + early path/quarantine
+	// gate) and the cycle-neutral request-context source-address helper;
+	// harness-re-measured 7607 (stdhttp), bump to 7632 with 25 headroom.
 	{Tree: "internal/infra/runtimebundle", Max: 13656},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
-	{Tree: "internal/stdhttp", Max: 7159},
+	{Tree: "internal/stdhttp", Max: 7632},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -204,7 +208,11 @@ var LineBudgets = []LineBudget{
 	// with 25 headroom.
 	{Dir: "internal/core", Max: 138197},
 	{Dir: "internal/pluginreg", Max: 1174},
-	{Dir: "internal/stdhttp", Max: 7159},
+	// Ingress self-defense (tasks 3.1 and 3.2) adds the stdhttp self-defense
+	// driving adapter (fixed impossible-path matcher + early path/quarantine
+	// gate) and the cycle-neutral request-context source-address helper;
+	// harness-re-measured 7607, bump to 7632 with 25 headroom.
+	{Dir: "internal/stdhttp", Max: 7632},
 	{Dir: "internal/infra/runtimebundle", Max: 13656},
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.

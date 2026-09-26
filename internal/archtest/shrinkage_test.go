@@ -36,8 +36,8 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if AtomicOwnedResourceLifecycleOverlayMax != 92 {
 		t.Fatalf("atomic owned resource lifecycle overlay cap drift: %d", AtomicOwnedResourceLifecycleOverlayMax)
 	}
-	if len(pathMarkerOverlaySpecs) != 9 {
-		t.Fatalf("path-marker overlay table drift: got %d specs, want 9", len(pathMarkerOverlaySpecs))
+	if len(pathMarkerOverlaySpecs) != 10 {
+		t.Fatalf("path-marker overlay table drift: got %d specs, want 10", len(pathMarkerOverlaySpecs))
 	}
 	if UsageEconomicsOverlayMax != 1393 {
 		t.Fatalf("usage economics overlay cap drift: %d", UsageEconomicsOverlayMax)
@@ -72,6 +72,9 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	}
 	if TerminalDecisionFeatureExtensionOverlayMax != 622 {
 		t.Fatalf("terminal decision feature extension overlay cap drift: %d", TerminalDecisionFeatureExtensionOverlayMax)
+	}
+	if IngressSelfDefenseOverlayMax != 492 {
+		t.Fatalf("ingress self-defense overlay cap drift: %d", IngressSelfDefenseOverlayMax)
 	}
 	want := []AffectedSurfaceBaseline{
 		{Tree: "internal/infra/runtimebundle", BaselineLines: 9898},

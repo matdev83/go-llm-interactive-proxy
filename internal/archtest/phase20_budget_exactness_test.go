@@ -14,10 +14,13 @@ import (
 // ingressdefense kernel package and its single authoritative policy projection
 // from core config: re-measured 137824, bump to 137849 with 25 headroom.
 // Tasks 2.1 and 2.2 add the bounded sharded adaptive source state: re-measured
-// 138172, bump to 138197 with 25 headroom.
+// 138172, bump to 138197 with 25 headroom. Tasks 3.1 and 3.2 add the stdhttp
+// self-defense driving adapter and the cycle-neutral request-context
+// source-address helper: re-measured 7607 (stdhttp), bump to 7632 with 25
+// headroom.
 const (
 	phase20AuditRuntimebundleLines    = 13631
-	phase20AuditStdhttpLines          = 7134
+	phase20AuditStdhttpLines          = 7607
 	phase20AuditCoreLines             = 138172
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321

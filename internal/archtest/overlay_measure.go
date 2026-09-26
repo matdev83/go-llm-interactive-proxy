@@ -56,6 +56,14 @@ const TerminalDecisionFeatureExtensionOverlayMax = 622
 // the measured 266-line overlay.
 const LargePayloadHostCompositionOverlayMax = 291
 
+// IngressSelfDefenseOverlayMax ratchets the ingress self-defense request-side
+// classification (the fixed impossible-path matcher, the early gate, and the
+// cycle-neutral request-context source-address helper) independently from the
+// legacy convergence delta, exactly as the preceding GeoIP ingress overlay does
+// for the resolver and early gate it reuses. Harness-measured 467, reset to 492
+// with 25 headroom.
+const IngressSelfDefenseOverlayMax = 492
+
 // UsageEconomicsOverlayMax caps the extensible usage-economics reconciliation
 // growth allowance: only lines above each allowlisted file's locked baseline enter
 // the allowance, so pre-existing baseline code can never enter. Seven files are new
@@ -120,6 +128,13 @@ var terminalDecisionFeatureExtensionOverlayPathMarkers = []string{
 var largePayloadHostCompositionOverlayPathMarkers = []string{
 	"/runtimebundle/build_large_body_assessor.go",
 	"/stdhttp/contract/large_payload_input.go",
+}
+
+// ingressSelfDefenseOverlayPathMarkers selects the new production files the
+// ingress self-defense HTTP driving adapter adds to the convergence surfaces.
+var ingressSelfDefenseOverlayPathMarkers = []string{
+	"/stdhttp/selfdefense/",
+	"/stdhttp/contract/source_addr.go",
 }
 
 // usageEconomicsGrowthFile is one allowlisted production file with its locked
@@ -194,6 +209,7 @@ var pathMarkerOverlaySpecs = []pathMarkerOverlaySpec{
 	{name: "Reasoning semantic compression", max: ReasoningSemanticCompressionOverlayMax, markers: reasoningSemanticCompressionOverlayPathMarkers},
 	{name: "Terminal decision feature extension", max: TerminalDecisionFeatureExtensionOverlayMax, markers: terminalDecisionFeatureExtensionOverlayPathMarkers},
 	{name: "Large payload host composition", max: LargePayloadHostCompositionOverlayMax, markers: largePayloadHostCompositionOverlayPathMarkers},
+	{name: "Ingress self-defense", max: IngressSelfDefenseOverlayMax, markers: ingressSelfDefenseOverlayPathMarkers},
 }
 
 // measurePathMarkerOverlays measures every path-marker overlay in table order.
