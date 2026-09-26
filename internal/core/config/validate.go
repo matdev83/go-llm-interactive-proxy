@@ -71,6 +71,9 @@ func Validate(cfg *Config) error {
 	if _, err := CompileGeoIP(cfg.Access.GeoIP); err != nil {
 		return err
 	}
+	if _, err := CompileSelfDefense(cfg.Access.SelfDefense); err != nil {
+		return err
+	}
 	if err := validateSecureSession(cfg); err != nil {
 		return err
 	}

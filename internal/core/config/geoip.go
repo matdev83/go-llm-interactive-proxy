@@ -34,7 +34,7 @@ func CompileGeoIP(in GeoIPConfig) (*CompiledGeoIP, error) {
 	default:
 		return nil, fmt.Errorf("access.geoip.client_ip.source: invalid source %q", in.ClientIP.Source)
 	}
-	trusted, err := compileTrustedProxies(in.ClientIP.TrustedProxies)
+	trusted, err := compilePrefixes("access.geoip.client_ip.trusted_proxies", in.ClientIP.TrustedProxies)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,10 @@ func compileGeoIPPolicy(in GeoIPConfig) (*coregeoip.Policy, error) {
 	return policy, nil
 }
 
-func compileTrustedProxies(raw []string) ([]netip.Prefix, error) {
+// compilePrefixes parses a list of IPv4/IPv6 addresses and CIDRs into
+// normalized, masked prefixes. Bare addresses become host prefixes and
+// IPv4-mapped IPv6 values are unmapped consistently.
+func compilePrefixes(field string, raw []string) ([]netip.Prefix, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -93,12 +96,12 @@ func compileTrustedProxies(raw []string) ([]netip.Prefix, error) {
 	for i, value := range raw {
 		value = strings.TrimSpace(value)
 		if value == "" {
-			return nil, fmt.Errorf("access.geoip.client_ip.trusted_proxies[%d]: empty value", i)
+			return nil, fmt.Errorf("%s[%d]: empty value", field, i)
 		}
 		if strings.Contains(value, "/") {
 			prefix, err := netip.ParsePrefix(value)
 			if err != nil {
-				return nil, fmt.Errorf("access.geoip.client_ip.trusted_proxies[%d]: invalid CIDR %q: %w", i, value, err)
+				return nil, fmt.Errorf("%s[%d]: invalid CIDR %q: %w", field, i, value, err)
 			}
 			addr := prefix.Addr()
 			bits := prefix.Bits()
@@ -106,7 +109,7 @@ func compileTrustedProxies(raw []string) ([]netip.Prefix, error) {
 				addr = addr.Unmap()
 				bits -= 96
 				if bits < 0 {
-					return nil, fmt.Errorf("access.geoip.client_ip.trusted_proxies[%d]: invalid mapped IPv6 prefix %q", i, value)
+					return nil, fmt.Errorf("%s[%d]: invalid mapped IPv6 prefix %q", field, i, value)
 				}
 			}
 			out = append(out, netip.PrefixFrom(addr.Unmap(), bits).Masked())
@@ -114,7 +117,7 @@ func compileTrustedProxies(raw []string) ([]netip.Prefix, error) {
 		}
 		addr, err := netip.ParseAddr(value)
 		if err != nil {
-			return nil, fmt.Errorf("access.geoip.client_ip.trusted_proxies[%d]: invalid address %q: %w", i, value, err)
+			return nil, fmt.Errorf("%s[%d]: invalid address %q: %w", field, i, value, err)
 		}
 		addr = addr.Unmap()
 		bits := 128

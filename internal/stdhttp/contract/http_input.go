@@ -52,6 +52,7 @@ type HTTPSecurityInput struct {
 	UsageAuthority       cpadmin.AccountingAuthorityQueries
 	ConcurrencyAuthority cpadmin.ConcurrencyAuthorityQueries
 	GeoIP                GeoIPSecurityInput
+	SelfDefense          SelfDefenseSecurityInput
 }
 
 // GeoIPResolverConfig carries only generation-scoped address-source policy.

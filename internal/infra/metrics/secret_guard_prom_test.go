@@ -79,7 +79,7 @@ func TestSecretGuardDecisionSink_boundedLabelsAndCounters(t *testing.T) {
 func TestNewBundle_includesSecretGuardDecisionSink(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{Observability: config.ObservabilityConfig{Metrics: config.MetricsConfig{Enabled: true}}}
-	b := NewBundle(cfg, nil)
+	b := NewBundle(cfg, nil, nil)
 	if b.SecretGuard == nil {
 		t.Fatal("expected SecretGuard prom")
 	}

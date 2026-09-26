@@ -8,11 +8,31 @@ import (
 // Audited remediation-3A baselines: exact live measurements behind the refreshed
 // ceilings. Each ceiling must equal its audited baseline + 25 (repository headroom
 // convention); the live tree may only shrink below the audit (deletions allowed)
-// and must never exceed its ceiling.
+// and must never exceed its ceiling. The internal/core baseline is re-audited
+// after the ingress-self-defense pure config compilation (task 1.1): re-measured
+// 137621, bump to 137646 with 25 headroom. Task 1.2 admits the core
+// ingressdefense kernel package and its single authoritative policy projection
+// from core config: re-measured 137824, bump to 137849 with 25 headroom.
+// Tasks 2.1 and 2.2 add the bounded sharded adaptive source state: re-measured
+// 138172, bump to 138197 with 25 headroom. Tasks 3.1 and 3.2 add the stdhttp
+// self-defense driving adapter and the cycle-neutral request-context
+// source-address helper: re-measured 7611 (stdhttp), superseded by the tasks 4.1/4.2
+// headroom. Tasks 4.1 and 4.2 add the transport-auth self-defense outcome
+// observer and the private conservative credential-presence probe under
+// internal/stdhttp/auth: re-measured 7789 (stdhttp), superseded by the tasks 5.1/5.2
+// headroom. Tasks 5.1 and 5.2 add the process-owned adaptive state, the
+// cycle-neutral self-defense security projection with its credential-disposition
+// probe, and the standard data-plane gate and auth observation wiring:
+// re-measured 13762 (runtimebundle) and 8013 (stdhttp), reset to 13787 and 8038
+// with 25 headroom. Tasks 7.1/7.2 and the adaptive-exemption filter on the
+// auth-observation path added 8 further production lines to internal/stdhttp, so
+// the live tree now measures 8021 and the unchanged 8038 cap leaves 17 lines of
+// headroom rather than 25. The cap was deliberately not raised: the next change
+// in this tree must re-measure with the harness before it can be relied on.
 const (
-	phase20AuditRuntimebundleLines    = 13631
-	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 137434
+	phase20AuditRuntimebundleLines    = 13762
+	phase20AuditStdhttpLines          = 8013
+	phase20AuditCoreLines             = 138172
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

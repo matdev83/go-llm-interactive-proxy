@@ -61,6 +61,7 @@ var CoreOwnershipManifest = []CoreOwnershipEntry{
 	{Package: "hooks", Category: CoreOwnershipGenericExtension, Reason: "Extension hook pipeline execution and phase ordering.", Consumers: "extensions, runtime, testkit conformance"},
 	{Package: "http", Category: CoreOwnershipKernelInvariant, Reason: "HTTP protocol utilities, header normalization, status mapping."},
 	{Package: "identity", Category: CoreOwnershipKernelInvariant, Reason: "Tenant, organization, user identity representation."},
+	{Package: "ingressdefense", Category: CoreOwnershipKernelInvariant, Reason: "Default provider-neutral ingress self-defense policy and bounded exact-address hostile source state, required with optional features absent."},
 	{Package: "interleavedstate", Category: CoreOwnershipKernelInvariant, Reason: "Routing-required thinker cycle state for route selection and continuity."},
 	{Package: "jsonpresence", Category: CoreOwnershipKernelInvariant, Reason: "JSON empty-vs-null presence semantics."},
 	{Package: "jsonshape", Category: CoreOwnershipKernelInvariant, Reason: "Structural JSON validation for streams and frontends."},

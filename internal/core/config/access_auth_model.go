@@ -3,8 +3,30 @@ package config
 // AccessConfig selects deployment access posture (single-user vs multi-user).
 // Empty Mode is normalized to single_user during validation/load.
 type AccessConfig struct {
-	Mode  string      `yaml:"mode"`
-	GeoIP GeoIPConfig `yaml:"geoip"`
+	Mode        string            `yaml:"mode"`
+	GeoIP       GeoIPConfig       `yaml:"geoip"`
+	SelfDefense SelfDefenseConfig `yaml:"self_defense"`
+}
+
+// SelfDefenseConfig is the typed ingress self-defense surface. Enabled and
+// ImpossiblePaths are presence-aware so omitted means the documented default
+// true while explicit false is preserved. No process state is represented here.
+type SelfDefenseConfig struct {
+	Enabled         *bool                     `yaml:"enabled"`
+	ImpossiblePaths *bool                     `yaml:"impossible_paths"`
+	Adaptive        SelfDefenseAdaptiveConfig `yaml:"adaptive"`
+}
+
+// SelfDefenseAdaptiveConfig carries the request-policy fields (reloadable) plus
+// the process-state sizing fields (restart-required in v1).
+type SelfDefenseAdaptiveConfig struct {
+	AuthFailures      *int     `yaml:"auth_failures"`
+	Window            string   `yaml:"window"`
+	InitialQuarantine string   `yaml:"initial_quarantine"`
+	MaxQuarantine     string   `yaml:"max_quarantine"`
+	StateTTL          string   `yaml:"state_ttl"`
+	MaxEntries        *int     `yaml:"max_entries"`
+	ExemptCIDRs       []string `yaml:"exempt_cidrs"`
 }
 
 // GeoIPConfig describes the reloadable request-plane policy and the optional

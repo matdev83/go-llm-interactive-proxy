@@ -100,9 +100,33 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// token-ledger money writes) and excluded from this allowance;
 	// measured 13631 (runtimebundle) and 7134 (stdhttp), reset to 13656 and 7159
 	// with 25 headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 13656},
+	// Ingress self-defense (tasks 3.1 and 3.2) adds the stdhttp self-defense
+	// driving adapter (fixed impossible-path matcher + early path/quarantine
+	// gate) and the cycle-neutral request-context source-address helper;
+	// harness-re-measured 7611 (stdhttp, including the matcher query-cut note), superseded by the tasks 4.1/4.2 re-measure below.
+	// Ingress self-defense (tasks 4.1 and 4.2) adds the transport-auth
+	// self-defense outcome observer and the private conservative
+	// credential-presence probe under internal/stdhttp/auth;
+	// harness-re-measured 7789 (stdhttp), superseded by the tasks 5.1/5.2
+	// re-measure below.
+	// Ingress self-defense (tasks 5.1 and 5.2) adds the process-owned adaptive
+	// state, the cycle-neutral self-defense security projection with the
+	// credential-disposition probe, and the standard data-plane gate and auth
+	// observation wiring; harness-re-measured 13762 (runtimebundle) and 8013
+	// (stdhttp), reset to 13787 and 8038 with 25 headroom.
+	// Tasks 7.1/7.2 and the adaptive-exemption filter on the auth-observation
+	// path added 8 further production lines to internal/stdhttp, so the live tree
+	// now measures 8021 and the unchanged 8038 cap leaves 17 lines of headroom
+	// rather than 25. The cap was deliberately not raised: the next change in this
+	// tree must re-measure with the harness before it can be relied on again.
+	// Ingress self-defense (tasks 6.1 and 6.2) adds the self-defense metrics
+	// collector wiring, the process-services projection and the generation
+	// composition: measured 13786 of the 13787 runtimebundle cap, so only 1 line
+	// of headroom remains and the next change in that tree must re-measure with the
+	// harness before this cap can be relied on again.
+	{Tree: "internal/infra/runtimebundle", Max: 13787},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
-	{Tree: "internal/stdhttp", Max: 7159},
+	{Tree: "internal/stdhttp", Max: 8038},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -192,10 +216,35 @@ var LineBudgets = []LineBudget{
 	// terminal capture/submission (+2,282). The current-main pre-open continuity
 	// fix adds 162 production lines; re-measured 137434, bump to 137459 with
 	// 25 headroom.
-	{Dir: "internal/core", Max: 137459},
+	// Ingress self-defense (task 1.1) adds typed presence-aware self-defense
+	// config, pure CompileSelfDefense validation, and shared prefix compilation;
+	// re-measured 137621, bump to 137646 with 25 headroom.
+	// Ingress self-defense (task 1.2) admits the core ingressdefense kernel
+	// package and the single authoritative config-to-core policy projection;
+	// re-measured 137824, bump to 137849 with 25 headroom.
+	// Ingress self-defense (tasks 2.1 and 2.2) adds the bounded sharded
+	// adaptive source state with lazy expiry, deterministic eviction and
+	// saturating quarantine arithmetic; re-measured 138172, bump to 138197
+	// with 25 headroom.
+	{Dir: "internal/core", Max: 138197},
 	{Dir: "internal/pluginreg", Max: 1174},
-	{Dir: "internal/stdhttp", Max: 7159},
-	{Dir: "internal/infra/runtimebundle", Max: 13656},
+	// Ingress self-defense (tasks 3.1 and 3.2) adds the stdhttp self-defense
+	// driving adapter (fixed impossible-path matcher + early path/quarantine
+	// gate) and the cycle-neutral request-context source-address helper;
+	// harness-re-measured 7611 (stdhttp, including the matcher query-cut note), superseded by the tasks 4.1/4.2 re-measure below.
+	// Ingress self-defense (tasks 4.1 and 4.2) adds the transport-auth
+	// self-defense outcome observer and the private conservative
+	// credential-presence probe under internal/stdhttp/auth;
+	// harness-re-measured 7789 (stdhttp), superseded by the tasks 5.1/5.2
+	// re-measure below.
+	// Ingress self-defense (tasks 5.1 and 5.2) adds the cycle-neutral
+	// self-defense security projection, the credential-disposition probe
+	// sibling, and the standard data-plane gate plus auth observation wiring;
+	// harness-re-measured 13762 (runtimebundle) and 8013 (stdhttp);
+	// reset to 13787 and 8038 with 25 headroom.
+	{Dir: "internal/stdhttp", Max: 8038},
+	{Dir: "internal/infra/runtimebundle", Max: 13787},
+
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},

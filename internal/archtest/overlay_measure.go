@@ -56,6 +56,27 @@ const TerminalDecisionFeatureExtensionOverlayMax = 622
 // the measured 266-line overlay.
 const LargePayloadHostCompositionOverlayMax = 291
 
+// IngressSelfDefenseOverlayMax ratchets the ingress self-defense request-side
+// classification (the fixed impossible-path matcher, the early gate, the
+// cycle-neutral request-context source-address helper, and the transport-auth
+// observer and conservative credential-presence probe) independently from the
+// legacy convergence delta, exactly as the preceding GeoIP ingress overlay does
+// for the resolver and early gate it reuses, plus the task 4.1/4.2 auth-adapter
+// files. Tasks 5.1 and 5.2 add the cycle-neutral self-defense security
+// projection, the credential-disposition probe sibling, and the process-owned
+// state plus its generation projection, whose new production files join this
+// overlay: harness-re-measured 869, reset to 894 with 25 headroom.
+// Tasks 6.1 and 6.2 add the bounded ingress self-defense process metrics
+// collector under internal/infra/metrics, which is outside every Req 11.5
+// affected surface and was therefore outside every budget; selecting it by the
+// "/infra/metrics/self_defense_" prefix gives this feature an explicit ratchet
+// there. Harness-re-measured 1034 (889 + 145 for
+// internal/infra/metrics/self_defense_prom.go), so the unchanged 1049 cap leaves
+// 15 lines of headroom — 10 below the usual 25-line ratchet — which the next
+// change in this overlay must restore by re-measuring before the cap can be
+// relied on again.
+const IngressSelfDefenseOverlayMax = 1049
+
 // UsageEconomicsOverlayMax caps the extensible usage-economics reconciliation
 // growth allowance: only lines above each allowlisted file's locked baseline enter
 // the allowance, so pre-existing baseline code can never enter. Seven files are new
@@ -120,6 +141,25 @@ var terminalDecisionFeatureExtensionOverlayPathMarkers = []string{
 var largePayloadHostCompositionOverlayPathMarkers = []string{
 	"/runtimebundle/build_large_body_assessor.go",
 	"/stdhttp/contract/large_payload_input.go",
+}
+
+// ingressSelfDefenseOverlayPathMarkers selects the new production files the
+// ingress self-defense HTTP driving adapter adds to the convergence surfaces.
+// Tasks 5.1 and 5.2 add the cycle-neutral projection, the credential-disposition
+// probe sibling and the process-owned state plus its generation projection by
+// exact file path. Task 6.1 adds the bounded process metrics collector, whose
+// package is outside every affected surface, by the self_defense_ filename
+// prefix so any later self-defense metrics file is ratcheted here too.
+var ingressSelfDefenseOverlayPathMarkers = []string{
+	"/stdhttp/selfdefense/",
+	"/stdhttp/contract/source_addr.go",
+	"/stdhttp/contract/self_defense_input.go",
+	"/stdhttp/auth/credential_probe.go",
+	"/stdhttp/auth/credential_disposition_probe.go",
+	"/stdhttp/auth/selfdefense_observation.go",
+	"/runtimebundle/self_defense_process.go",
+	"/runtimebundle/self_defense_http.go",
+	"/infra/metrics/self_defense_",
 }
 
 // usageEconomicsGrowthFile is one allowlisted production file with its locked
@@ -194,6 +234,7 @@ var pathMarkerOverlaySpecs = []pathMarkerOverlaySpec{
 	{name: "Reasoning semantic compression", max: ReasoningSemanticCompressionOverlayMax, markers: reasoningSemanticCompressionOverlayPathMarkers},
 	{name: "Terminal decision feature extension", max: TerminalDecisionFeatureExtensionOverlayMax, markers: terminalDecisionFeatureExtensionOverlayPathMarkers},
 	{name: "Large payload host composition", max: LargePayloadHostCompositionOverlayMax, markers: largePayloadHostCompositionOverlayPathMarkers},
+	{name: "Ingress self-defense", max: IngressSelfDefenseOverlayMax, markers: ingressSelfDefenseOverlayPathMarkers},
 }
 
 // measurePathMarkerOverlays measures every path-marker overlay in table order.

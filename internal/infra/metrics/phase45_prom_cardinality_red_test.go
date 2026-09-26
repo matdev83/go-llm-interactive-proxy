@@ -53,7 +53,7 @@ func TestPhase45_TerminalWorkPromProviderLabelBoundedCardinality(t *testing.T) {
 
 func TestPhase45_MetricsBundleWiresTerminalWorkProm(t *testing.T) {
 	t.Parallel()
-	b := NewBundle(nil, nil)
+	b := NewBundle(nil, nil, nil)
 	if b == nil || b.TerminalWork == nil {
 		t.Fatal("metrics.Bundle must own TerminalWorkProm")
 	}

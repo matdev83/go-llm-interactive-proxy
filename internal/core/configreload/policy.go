@@ -122,6 +122,28 @@ func classifyAccess(active, candidate *config.Config, reload, restart noteFn) {
 		restart("access")
 	}
 	classifyGeoIP(active, candidate, restart, reload)
+	classifySelfDefense(active, candidate, reload, restart)
+}
+
+func classifySelfDefense(active, candidate *config.Config, reload, restart noteFn) {
+	a, c := active.Access.SelfDefense, candidate.Access.SelfDefense
+	if !ptrBoolEqual(a.Enabled, c.Enabled) {
+		reload("access.self_defense.enabled")
+	}
+	if !ptrBoolEqual(a.ImpossiblePaths, c.ImpossiblePaths) {
+		reload("access.self_defense.impossible_paths")
+	}
+	if !ptrIntEqual(a.Adaptive.AuthFailures, c.Adaptive.AuthFailures) {
+		reload("access.self_defense.adaptive.auth_failures")
+	}
+	diffStr(reload, "access.self_defense.adaptive.window", a.Adaptive.Window, c.Adaptive.Window)
+	diffStr(reload, "access.self_defense.adaptive.initial_quarantine", a.Adaptive.InitialQuarantine, c.Adaptive.InitialQuarantine)
+	diffStr(reload, "access.self_defense.adaptive.max_quarantine", a.Adaptive.MaxQuarantine, c.Adaptive.MaxQuarantine)
+	diffStrSlice(reload, "access.self_defense.adaptive.exempt_cidrs", a.Adaptive.ExemptCIDRs, c.Adaptive.ExemptCIDRs)
+	diffStr(restart, "access.self_defense.adaptive.state_ttl", a.Adaptive.StateTTL, c.Adaptive.StateTTL)
+	if !ptrIntEqual(a.Adaptive.MaxEntries, c.Adaptive.MaxEntries) {
+		restart("access.self_defense.adaptive.max_entries")
+	}
 }
 
 func classifyGeoIP(active, candidate *config.Config, restart, reload noteFn) {
