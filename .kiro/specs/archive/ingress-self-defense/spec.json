@@ -1,0 +1,29 @@
+{
+  "feature_name": "Ingress Self-Defense",
+  "created_at": "2026-09-19T16:40:00+02:00",
+  "updated_at": "2026-09-27T02:05:00+02:00",
+  "language": "en",
+  "phase": "completed",
+  "completed": true,
+  "ready_for_implementation": false,
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "implementation": {
+    "pull_request": "https://github.com/matdev83/go-llm-interactive-proxy/pull/670",
+    "merge_commit": "b4297dd9c2a7f0c0f07bd1db94c9f98db68abd5c",
+    "merged_at": "2026-09-26T23:46:40Z",
+    "closes_issue": 650
+  }
+}
