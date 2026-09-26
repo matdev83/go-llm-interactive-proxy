@@ -79,6 +79,13 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	fail := func(err error) (*ProcessServices, error) {
 		return nil, withDisposedClosers(err, ps.closers)
 	}
+	// Ingress self-defense adaptive state is process-owned and startup-sized, so
+	// it is configured before the GeoIP process service: an invalid self-defense
+	// configuration then fails startup through the same rollback path that
+	// disposes every resource acquired so far.
+	if err := configureSelfDefenseProcessService(ps, in.Cfg); err != nil {
+		return fail(err)
+	}
 	if err := configureGeoIPProcessService(parent, ps, in.Cfg, register); err != nil {
 		return fail(err)
 	}

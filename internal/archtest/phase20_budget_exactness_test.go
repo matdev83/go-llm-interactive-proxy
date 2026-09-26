@@ -19,11 +19,15 @@ import (
 // source-address helper: re-measured 7611 (stdhttp), superseded by the tasks 4.1/4.2
 // headroom. Tasks 4.1 and 4.2 add the transport-auth self-defense outcome
 // observer and the private conservative credential-presence probe under
-// internal/stdhttp/auth: re-measured 7789 (stdhttp), bump to 7814 with 25
-// headroom.
+// internal/stdhttp/auth: re-measured 7789 (stdhttp), superseded by the tasks 5.1/5.2
+// headroom. Tasks 5.1 and 5.2 add the process-owned adaptive state, the
+// cycle-neutral self-defense security projection with its credential-disposition
+// probe, and the standard data-plane gate and auth observation wiring:
+// re-measured 13762 (runtimebundle) and 8013 (stdhttp), reset to 13787 and 8038
+// with 25 headroom.
 const (
-	phase20AuditRuntimebundleLines    = 13631
-	phase20AuditStdhttpLines          = 7789
+	phase20AuditRuntimebundleLines    = 13762
+	phase20AuditStdhttpLines          = 8013
 	phase20AuditCoreLines             = 138172
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321

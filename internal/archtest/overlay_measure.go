@@ -62,11 +62,11 @@ const LargePayloadHostCompositionOverlayMax = 291
 // observer and conservative credential-presence probe) independently from the
 // legacy convergence delta, exactly as the preceding GeoIP ingress overlay does
 // for the resolver and early gate it reuses, plus the task 4.1/4.2 auth-adapter
-// files. Tasks 4.1 and 4.2 add the transport-auth self-defense
-// outcome observer and the private conservative credential-presence probe, whose
-// new production files join this overlay: re-measured 622, reset to 647 with 25
-// headroom.
-const IngressSelfDefenseOverlayMax = 647
+// files. Tasks 5.1 and 5.2 add the cycle-neutral self-defense security
+// projection, the credential-disposition probe sibling, and the process-owned
+// state plus its generation projection, whose new production files join this
+// overlay: harness-re-measured 869, reset to 894 with 25 headroom.
+const IngressSelfDefenseOverlayMax = 894
 
 // UsageEconomicsOverlayMax caps the extensible usage-economics reconciliation
 // growth allowance: only lines above each allowlisted file's locked baseline enter
@@ -136,11 +136,18 @@ var largePayloadHostCompositionOverlayPathMarkers = []string{
 
 // ingressSelfDefenseOverlayPathMarkers selects the new production files the
 // ingress self-defense HTTP driving adapter adds to the convergence surfaces.
+// Tasks 5.1 and 5.2 add the cycle-neutral projection, the credential-disposition
+// probe sibling and the process-owned state plus its generation projection by
+// exact file path.
 var ingressSelfDefenseOverlayPathMarkers = []string{
 	"/stdhttp/selfdefense/",
 	"/stdhttp/contract/source_addr.go",
+	"/stdhttp/contract/self_defense_input.go",
 	"/stdhttp/auth/credential_probe.go",
+	"/stdhttp/auth/credential_disposition_probe.go",
 	"/stdhttp/auth/selfdefense_observation.go",
+	"/runtimebundle/self_defense_process.go",
+	"/runtimebundle/self_defense_http.go",
 }
 
 // usageEconomicsGrowthFile is one allowlisted production file with its locked

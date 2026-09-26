@@ -3,6 +3,7 @@ package auth
 import (
 	"net/http"
 
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
@@ -61,27 +62,17 @@ func (p *PolicyProvider) credentialPresence(r *http.Request) credentialDispositi
 // shared NAT, VPN or corporate egress is never locked out by another actor on the
 // same public address.
 //
-// The composition root projects this answer through the cycle-neutral
-// self-defense contract disposition; it must not be reimplemented there.
+// The decision itself lives in [NewCredentialPresenceDispositionProbe], the
+// disposition-returning sibling the composition root projects through the
+// cycle-neutral self-defense contract; it must not be reimplemented there. This
+// boolean form is only its inverse view, so the two can never answer differently
+// for the same request and the composition root needs no second aggregate.
 func NewCredentialPresenceProbe(providers []httpauth.Provider) func(r *http.Request) bool {
-	active := compactNonNilHTTPAuthProviders(providers)
-	if len(active) == 0 {
+	probe := NewCredentialPresenceDispositionProbe(providers)
+	if probe == nil {
 		return nil
 	}
-	probers := make([]credentialPresenceProber, 0, len(active))
-	for _, p := range active {
-		prober, ok := p.(credentialPresenceProber)
-		if !ok {
-			return nil
-		}
-		probers = append(probers, prober)
-	}
 	return func(r *http.Request) bool {
-		for _, prober := range probers {
-			if prober.credentialPresence(r) != definitelyNoCredential {
-				return true
-			}
-		}
-		return false
+		return probe(r) != httpcontract.DefinitelyNoCredential
 	}
 }
