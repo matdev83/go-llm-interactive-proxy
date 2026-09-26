@@ -24,7 +24,11 @@ import (
 // cycle-neutral self-defense security projection with its credential-disposition
 // probe, and the standard data-plane gate and auth observation wiring:
 // re-measured 13762 (runtimebundle) and 8013 (stdhttp), reset to 13787 and 8038
-// with 25 headroom.
+// with 25 headroom. Tasks 7.1/7.2 and the adaptive-exemption filter on the
+// auth-observation path added 8 further production lines to internal/stdhttp, so
+// the live tree now measures 8021 and the unchanged 8038 cap leaves 17 lines of
+// headroom rather than 25. The cap was deliberately not raised: the next change
+// in this tree must re-measure with the harness before it can be relied on.
 const (
 	phase20AuditRuntimebundleLines    = 13762
 	phase20AuditStdhttpLines          = 8013

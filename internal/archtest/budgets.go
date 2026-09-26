@@ -114,6 +114,11 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// credential-disposition probe, and the standard data-plane gate and auth
 	// observation wiring; harness-re-measured 13762 (runtimebundle) and 8013
 	// (stdhttp), reset to 13787 and 8038 with 25 headroom.
+	// Tasks 7.1/7.2 and the adaptive-exemption filter on the auth-observation
+	// path added 8 further production lines to internal/stdhttp, so the live tree
+	// now measures 8021 and the unchanged 8038 cap leaves 17 lines of headroom
+	// rather than 25. The cap was deliberately not raised: the next change in this
+	// tree must re-measure with the harness before it can be relied on again.
 	// Ingress self-defense (tasks 6.1 and 6.2) adds the self-defense metrics
 	// collector wiring, the process-services projection and the generation
 	// composition: measured 13786 of the 13787 runtimebundle cap, so only 1 line
