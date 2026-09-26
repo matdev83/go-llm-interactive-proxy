@@ -61,7 +61,8 @@ type shard struct {
 // and only the two recorders can see a per-generation policy: a caller must
 // check Policy.Enabled before consulting this state at all, since the process
 // store survives a reload that disables self-defense, and it must apply
-// Policy.AdaptiveExempt before both IsQuarantined and RecordProbe.
+// Policy.AdaptiveExempt before IsQuarantined, before RecordProbe, and before
+// RecordAuthFailure.
 type State struct {
 	limits StateLimits
 	shards []shard
