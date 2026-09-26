@@ -172,6 +172,46 @@ func TestSafeEvidenceReproducedBypassPaths(t *testing.T) {
 	}
 }
 
+// TestSafeEvidenceProviderNestedImageTokenPath is the R7-C1B contract for the
+// true OpenAI Chat provider-family location
+// $.usage.prompt_tokens_details.image_tokens. The exact nested wire path is a
+// bounded non-negative integer count and must be allowlisted with the generic
+// count grammar, so a real prompt image token quantity can be retained at its
+// provider identity instead of being rewritten onto a substitute canonical
+// location.
+func TestSafeEvidenceProviderNestedImageTokenPath(t *testing.T) {
+	t.Parallel()
+	const location = "$.usage.prompt_tokens_details.image_tokens"
+	for _, valid := range []string{"0", "2", "1000"} {
+		valid := valid
+		t.Run("valid/"+valid, func(t *testing.T) {
+			t.Parallel()
+			if err := sanitizeTestField(location, valid).Validate(); err != nil {
+				t.Fatalf("valid count %q rejected at %q: %v", valid, location, err)
+			}
+		})
+	}
+	for _, probe := range []struct {
+		name   string
+		lexeme string
+	}{
+		{name: "string", lexeme: "oops"},
+		{name: "negative", lexeme: "-1"},
+		{name: "fractional", lexeme: "2.5"},
+		{name: "exponent", lexeme: "1e3"},
+		{name: "overflow", lexeme: strings.Repeat("9", 20)},
+		{name: "leading zero", lexeme: "007"},
+	} {
+		probe := probe
+		t.Run("invalid/"+probe.name, func(t *testing.T) {
+			t.Parallel()
+			if err := sanitizeTestField(location, probe.lexeme).Validate(); err == nil {
+				t.Fatalf("non-canonical lexeme %q accepted at %q", probe.lexeme, location)
+			}
+		})
+	}
+}
+
 func TestSafeEvidenceIntegerLocationsRejectSignsFractionsAndOverflow(t *testing.T) {
 	t.Parallel()
 	invalid := []struct {

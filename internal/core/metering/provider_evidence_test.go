@@ -1,9 +1,11 @@
 package metering
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/aggregate"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkmetering "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
@@ -142,57 +144,112 @@ func TestProviderEvidenceBufferIgnoresTimestampOnlyReplay(t *testing.T) {
 	}
 }
 
-func TestProviderEvidenceBufferRetainsDistinctExplicitSourceRevisions(t *testing.T) {
+// A provider-supplied explicit source revision is an UNSUPPORTED capability.
+// The SDK observation cannot carry source-vs-host revision provenance, so a
+// late older explicit revision is observationally identical to a valid
+// cumulative/delta update and could duplicate a charge. Add rejects every
+// explicit Revision/Sequence draft and surfaces one sticky unavailable loss
+// marker; no provider revision evidence is accepted, so the reduction cannot be
+// COMPLETE.
+func TestProviderEvidenceBufferRejectsExplicitSourceRevision(t *testing.T) {
 	t.Parallel()
 	b := NewProviderEvidenceBuffer()
 	b.BindEconomicEvidence(testObservationIdentity())
-	usage := providerUsageEvent(3, 2)
-	draft := ProviderEvidenceDraft{
-		SourceEventKey: "provider.explicit-revision", StreamID: "provider.v2", Revision: 1,
-		Measures: providerTokenMeasures(usage, "provider.v2"), Evidence: providerTokenEvidence(usage),
+
+	// RED motivation: newer then older explicit revisions of one source, each
+	// carrying its own provider charge.
+	for _, revision := range []uint64{2, 1} {
+		b.Add(nativeExplicitMediaMoneyDraft("provider.explicit-revision", revision))
 	}
-	b.Add(draft)
-	revisionTwo := draft
-	revisionTwo.Revision = 2
-	b.Add(revisionTwo)
+
 	observations := b.DrainEconomicObservations()
-	if len(observations) != 2 {
-		t.Fatalf("explicit source revisions observations=%d, want 2", len(observations))
+	marker, ok := r5UnavailableMarker(observations)
+	if !ok {
+		t.Fatalf("explicit source revision must surface one loss marker, got %d observations", len(observations))
 	}
-	if observations[0].Revision != 1 || observations[1].Revision != 2 {
-		t.Fatalf("explicit revisions=%d,%d, want 1,2", observations[0].Revision, observations[1].Revision)
+	if r5UnavailableCause(marker) != providerEvidenceLossUnsupportedOrderingIdentity {
+		t.Fatalf("loss reason=%q, want %q", r5UnavailableCause(marker), providerEvidenceLossUnsupportedOrderingIdentity)
 	}
-	// A replay of the older explicit source revision is still a replay even
-	// after a later revision has been accepted.
-	b.Add(draft)
-	if got := b.DrainEconomicObservations(); len(got) != 0 {
-		t.Fatalf("replayed explicit source revision observations=%d, want 0", len(got))
+	for _, observation := range observations {
+		if observation.SourceEventKey == "provider.explicit-revision" {
+			t.Fatalf("explicit source revision leaked into accepted provider evidence: %+v", observation)
+		}
+	}
+	snapshot, err := aggregate.ApplyObservations(observations)
+	if err != nil {
+		t.Fatalf("apply unsupported-revision evidence: %v", err)
+	}
+	if snapshot.Complete {
+		t.Fatal("unsupported explicit revision must keep the reduction incomplete")
 	}
 }
 
-func TestProviderEvidenceBufferRejectsConflictingExplicitSourceRevision(t *testing.T) {
+// Both explicit-revision variants are unsupported: an exact duplicate and a
+// changed payload at the same revision. Neither is misrated as a correction or
+// conflict, and rejection stays visible on a later drain.
+func TestProviderEvidenceBufferExplicitRevisionVariantsUnsupported(t *testing.T) {
 	t.Parallel()
 	b := NewProviderEvidenceBuffer()
 	b.BindEconomicEvidence(testObservationIdentity())
-	first := ProviderEvidenceDraft{
-		SourceEventKey: "provider.explicit-conflict", StreamID: "provider.v2", Revision: 7,
-		Measures: providerTokenMeasures(providerUsageEvent(3, 2), "provider.v2"),
+	b.Add(nativeExplicitMediaMoneyDraft("provider.explicit-variants", 7))
+	b.Add(nativeExplicitMediaMoneyDraft("provider.explicit-variants", 7)) // exact duplicate
+	changed := nativeExplicitMediaMoneyDraft("provider.explicit-variants", 9)
+	changed.Revision = 7 // changed payload under the same explicit revision
+	b.Add(changed)
+
+	observations := b.DrainEconomicObservations()
+	marker, ok := r5UnavailableMarker(observations)
+	if !ok || r5UnavailableCause(marker) != providerEvidenceLossUnsupportedOrderingIdentity {
+		t.Fatalf("explicit revision variants must surface an unsupported-ordering loss marker: %+v", observations)
 	}
-	b.Add(first)
-	if got := b.DrainEconomicObservations(); len(got) != 1 {
-		t.Fatalf("initial explicit source revision observations=%d, want 1", len(got))
+	// A later explicit revision remains visibly unsupported rather than becoming
+	// an apparently complete accepted prefix.
+	b.Add(nativeExplicitMediaMoneyDraft("provider.explicit-variants", 1))
+	again := b.DrainEconomicObservations()
+	marker, ok = r5UnavailableMarker(again)
+	if !ok || r5UnavailableCause(marker) != providerEvidenceLossUnsupportedOrderingIdentity {
+		t.Fatalf("later explicit revision was not visibly rejected: %+v", again)
 	}
-	conflict := first
-	conflict.Measures = providerTokenMeasures(providerUsageEvent(4, 2), "provider.v2")
-	b.Add(conflict)
-	if got := b.DrainEconomicObservations(); len(got) != 0 {
-		t.Fatalf("conflicting explicit source revision observations=%d, want 0", len(got))
+}
+
+// A provider-supplied Sequence is part of the same unsupported ordering
+// identity and is rejected without accepting the payload.
+func TestProviderEvidenceBufferRejectsProviderSequence(t *testing.T) {
+	t.Parallel()
+	b := NewProviderEvidenceBuffer()
+	b.BindEconomicEvidence(testObservationIdentity())
+	draft := nativeMediaMoneyDraft("provider.sequence", 0)
+	draft.Sequence = 9
+	b.Add(draft)
+	observations := b.DrainEconomicObservations()
+	marker, ok := r5UnavailableMarker(observations)
+	if !ok || r5UnavailableCause(marker) != providerEvidenceLossUnsupportedOrderingIdentity {
+		t.Fatalf("provider sequence must be visibly rejected: %+v", observations)
 	}
-	// Retrying the conflicting payload remains closed rather than becoming a
-	// new immutable revision or repeatedly producing the same conflict.
-	b.Add(conflict)
-	if got := b.DrainEconomicObservations(); len(got) != 0 {
-		t.Fatalf("retried conflicting explicit source revision observations=%d, want 0", len(got))
+}
+
+// The healthy implicit path is unaffected: a draft that supplies no ordering
+// identity is accepted, assigned a host revision/sequence, and reduced to a
+// complete snapshot.
+func TestProviderEvidenceBufferImplicitPathUnaffected(t *testing.T) {
+	t.Parallel()
+	b := NewProviderEvidenceBuffer()
+	b.BindEconomicEvidence(testObservationIdentity())
+	b.Add(nativeMediaMoneyDraft("provider.implicit", 0))
+	b.Add(nativeMediaMoneyDraft("provider.implicit", 0)) // exact replay suppressed
+	observations := b.DrainEconomicObservations()
+	if len(observations) != 1 {
+		t.Fatalf("implicit observations=%d, want 1", len(observations))
+	}
+	if observations[0].Revision == 0 || observations[0].Sequence == 0 {
+		t.Fatalf("buffer must assign revision/sequence: %+v", observations[0])
+	}
+	snapshot, err := aggregate.ApplyObservations(observations)
+	if err != nil {
+		t.Fatalf("apply implicit evidence: %v", err)
+	}
+	if !snapshot.Complete {
+		t.Fatal("healthy implicit evidence must stay complete")
 	}
 }
 
@@ -246,11 +303,30 @@ func TestProviderEvidenceBufferRejectsUnsafeEvidenceWithoutDroppingOtherDrafts(t
 	b.AddUsageEvent(providerUsageEvent(1, 1), "test.provider.v2")
 	b.BindEconomicEvidence(testObservationIdentity())
 	observations := b.DrainEconomicObservations()
-	if len(observations) != 1 {
-		t.Fatalf("unsafe draft should be suppressed while valid draft remains: %d", len(observations))
+	// The unsafe field is never retained and the unrelated valid draft survives.
+	// Its rejection is now visible as a bounded loss marker instead of a silent
+	// drop, so an admitted prefix cannot reduce as complete (F6).
+	valid, ok := f6ObservationByKey(observations, "test.provider.v2:stream")
+	if !ok {
+		t.Fatalf("valid draft was dropped alongside the unsafe draft: %+v", observations)
 	}
-	if observations[0].SourceEventKey != "test.provider.v2:stream" {
-		t.Fatalf("remaining source key = %q", observations[0].SourceEventKey)
+	for _, observation := range observations {
+		for _, field := range observation.Evidence {
+			if field.Lexeme == "should-not-retain" {
+				t.Fatalf("unsafe evidence leaked into an observation: %+v", observation)
+			}
+		}
+	}
+	marker, ok := r5UnavailableMarker(observations)
+	if !ok || r5UnavailableCause(marker) != providerEvidenceLossInvalidDraft {
+		t.Fatalf("unsafe draft must surface a %q loss marker: %+v", providerEvidenceLossInvalidDraft, observations)
+	}
+	snapshot, err := aggregate.ApplyObservations([]sdkmetering.Observation{valid, marker})
+	if err != nil {
+		t.Fatalf("apply retained evidence: %v", err)
+	}
+	if snapshot.Complete {
+		t.Fatal("rejected unsafe evidence must keep the reduction incomplete")
 	}
 }
 
@@ -277,4 +353,43 @@ func testObservationIdentity() ObservationIdentity {
 func decimalPtr(coefficient string) *sdkmetering.Decimal {
 	value := sdkmetering.Decimal{Coefficient: coefficient}
 	return &value
+}
+
+func canonicalCoefficient(coefficient string) string {
+	return sdkmetering.Decimal{Coefficient: coefficient}.CanonicalString()
+}
+
+func imageKey() sdkmetering.ComponentKey {
+	return sdkmetering.ComponentKey{
+		Direction: sdkmetering.DirectionInput, Component: sdkmetering.ComponentImage,
+		Unit: sdkmetering.UnitImage, SchemaID: "provider.test.v1",
+	}
+}
+
+// nativeMediaMoneyDraft carries one native provider media field and one genuine
+// monetary charge so a provider value cannot hide behind a generic token
+// quantity. It supplies no ordering identity: the buffer assigns the revision
+// and sequence.
+func nativeMediaMoneyDraft(key string, count uint64) ProviderEvidenceDraft {
+	quantity := strconv.FormatUint(count, 10)
+	money := sdkmetering.Decimal{Coefficient: strconv.FormatUint(count*100, 10)}
+	return ProviderEvidenceDraft{
+		SourceEventKey: key, StreamID: "provider.v2",
+		Measures: []sdkmetering.Measure{{
+			Key: imageKey(), Value: &sdkmetering.Decimal{Coefficient: quantity},
+			Quality: sdkmetering.QualityObserved,
+		}},
+		Charges: []sdkmetering.ReportedCharge{{
+			ChargeItemID: "charge:" + key, Amount: &money, Currency: "USD", Kind: sdkmetering.ChargeKindAggregate,
+		}},
+	}
+}
+
+// nativeExplicitMediaMoneyDraft is nativeMediaMoneyDraft with an unsupported
+// caller-supplied explicit source revision, used to prove the enforceable
+// boundary rejects it.
+func nativeExplicitMediaMoneyDraft(key string, revision uint64) ProviderEvidenceDraft {
+	draft := nativeMediaMoneyDraft(key, revision)
+	draft.Revision = revision
+	return draft
 }

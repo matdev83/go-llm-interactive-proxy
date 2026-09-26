@@ -232,7 +232,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	if ps.meteringRT != nil {
 		ps.MeteringRecorder = ps.meteringRT.Recorder
 	}
-	if err := configureObservationEconomicBridge(parent, owner, in.Opts, ps.meteringRT); err != nil {
+	if err := configureObservationEconomicBridge(parent, owner, in.Opts, ps.meteringRT, in.Log); err != nil {
 		return fail(err)
 	}
 

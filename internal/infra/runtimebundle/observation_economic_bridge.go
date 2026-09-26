@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,7 +22,36 @@ const (
 	observationEconomicRelayLease    = 30 * time.Second
 	observationEconomicRelayRetry    = 100 * time.Millisecond
 	observationEconomicEvidenceLimit = 500
+	// observationEconomicCandidateBudgetRetryFloor is the minimum durable delay
+	// before an over-budget linked-statement item is rescanned. The candidate
+	// budget sentinel is permanent under immutable append-only evidence, so the
+	// generic 100ms transient retry would rescan the same B-leg on every relay
+	// tick without any chance of progress.
+	observationEconomicCandidateBudgetRetryFloor = time.Minute
+	// observationEconomicCandidateBudgetRetryCap bounds the exponential growth
+	// so a permanently over-budget item is retried rarely rather than never.
+	observationEconomicCandidateBudgetRetryCap = time.Hour
+	// observationEconomicCandidateBudgetDeferralEvent is the bounded structured
+	// diagnostic emitted at the relay boundary when the permanent failure is
+	// durably deferred. It names no raw evidence, payload, or provider content.
+	observationEconomicCandidateBudgetDeferralEvent = "lip.observation_economic_relay_candidate_budget_deferred"
+	// observationEconomicCandidateBudgetPersistFailureEvent is the bounded
+	// structured diagnostic emitted when the retry update that would persist a
+	// candidate-budget deferral fails. It deliberately carries no raw error text
+	// and no evidence or payload content.
+	observationEconomicCandidateBudgetPersistFailureEvent = "lip.observation_economic_relay_candidate_budget_deferral_persist_failed"
+	// observationEconomicStatementCandidateBudget is the hard bound on raw
+	// verified statement-line rows a single B-leg relay item may enumerate. It
+	// is deliberately a small multiple of the accepted-evidence cap so normal
+	// volumes pass and pathological candidate growth fails closed instead of
+	// paging without bound.
+	observationEconomicStatementCandidateBudget = 4 * economics.MaxRatingObservations
 )
+
+// errObservationEconomicStatementCandidateBudget is a retryable, fail-closed
+// refusal: the durable outbox item stays pending and no truncated work marker
+// is ever emitted for the prefix that was read.
+var errObservationEconomicStatementCandidateBudget = errors.New("runtimebundle: linked statement candidate budget exceeded")
 
 var observationEconomicRelaySequence atomic.Uint64
 
@@ -36,6 +66,11 @@ type observationEconomicRelay struct {
 	interval time.Duration
 	lease    time.Duration
 	owner    string
+	// statementCandidateBudget is a test seam for the package hard budget.
+	// Zero uses observationEconomicStatementCandidateBudget.
+	statementCandidateBudget int
+	// log is the optional process logger seam. Nil disables diagnostics.
+	log *slog.Logger
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -46,7 +81,7 @@ type observationEconomicRelay struct {
 // observation sink and starts its restartable relay after all billing workers
 // have been composed. Memory/disabled/injected non-durable recorders remain a
 // no-op because they cannot provide the atomic observation/outbox guarantee.
-func configureObservationEconomicBridge(parent context.Context, owner *processResourceOwner, opts *BuildOptions, runtime *meteringRuntime) error {
+func configureObservationEconomicBridge(parent context.Context, owner *processResourceOwner, opts *BuildOptions, runtime *meteringRuntime, log *slog.Logger) error {
 	if owner == nil || opts == nil || runtime == nil || runtime.Recorder == nil {
 		return nil
 	}
@@ -68,6 +103,7 @@ func configureObservationEconomicBridge(parent context.Context, owner *processRe
 		opts.Production.BillingObservationEconomicWorkBuilder = builder
 	}
 	relay := newObservationEconomicRelay(journal, appender, builder)
+	relay.log = log
 	runtime.ObservationSink = journalstore.NewObservationSinkWithOutbox(journal)
 	owner.Own(func() error { return relay.Stop(context.Background()) })
 	if err := relay.Start(parent); err != nil {
@@ -80,8 +116,9 @@ func newObservationEconomicRelay(journal *journalstore.DurableStore, appender bi
 	return &observationEconomicRelay{
 		journal: journal, appender: appender, builder: builder,
 		batch: observationEconomicRelayBatch, interval: observationEconomicRelayInterval,
-		lease: observationEconomicRelayLease,
-		owner: fmt.Sprintf("observation-economic-relay-%d", observationEconomicRelaySequence.Add(1)),
+		lease:                    observationEconomicRelayLease,
+		owner:                    fmt.Sprintf("observation-economic-relay-%d", observationEconomicRelaySequence.Add(1)),
+		statementCandidateBudget: observationEconomicStatementCandidateBudget,
 	}
 }
 
@@ -164,8 +201,27 @@ func (r *observationEconomicRelay) ProcessOnce(ctx context.Context) error {
 			continue
 		}
 		if err := r.processItem(ctx, item); err != nil {
-			if retryErr := r.journal.RetryObservationOutbox(context.Background(), item.ID, r.owner, observationEconomicRelayRetry, err); retryErr != nil {
+			isCandidateBudget := errors.Is(err, errObservationEconomicStatementCandidateBudget)
+			retryDelay := observationEconomicRelayRetry
+			if isCandidateBudget {
+				// The candidate budget sentinel is permanent for immutable
+				// append-only evidence, so back the retry off from the
+				// persisted attempt count.
+				retryDelay = observationEconomicCandidateBudgetRetryDelay(item.AttemptCount)
+			}
+			retryErr := r.journal.RetryObservationOutbox(context.Background(), item.ID, r.owner, retryDelay, err)
+			if retryErr != nil {
+				// The deferral was never persisted (failed update or lost
+				// claim), so it must never be logged as durable. Emit only a
+				// bounded safe diagnostic because Start discards the error.
+				if isCandidateBudget {
+					r.logCandidateBudgetDeferralPersistFailure(ctx, item)
+				}
 				err = errors.Join(err, retryErr)
+			} else if isCandidateBudget {
+				// Only a successful durable update may be reported as a
+				// deferral, so the warning reflects persisted outcome.
+				r.logCandidateBudgetDeferral(ctx, item, retryDelay)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -179,6 +235,66 @@ func (r *observationEconomicRelay) ProcessOnce(ctx context.Context) error {
 		}
 	}
 	return firstErr
+}
+
+// observationEconomicCandidateBudgetRetryDelay derives a bounded exponential
+// backoff from the durable attempt count. The first deferral waits the floor
+// and each later attempt doubles it until the cap. It is overflow-safe because
+// it stops at the cap well before any shift could overflow, and it is bounded
+// because the loop returns as soon as the cap is reached.
+func observationEconomicCandidateBudgetRetryDelay(attemptCount int) time.Duration {
+	delay := observationEconomicCandidateBudgetRetryFloor
+	if attemptCount <= 1 {
+		return delay
+	}
+	for attempt := 1; attempt < attemptCount; attempt++ {
+		if delay >= observationEconomicCandidateBudgetRetryCap {
+			return observationEconomicCandidateBudgetRetryCap
+		}
+		delay *= 2
+	}
+	if delay > observationEconomicCandidateBudgetRetryCap {
+		return observationEconomicCandidateBudgetRetryCap
+	}
+	return delay
+}
+
+// logCandidateBudgetDeferral emits one bounded structured diagnostic when an
+// over-budget item is durably deferred. It must only be called after the retry
+// update has committed, so the record reflects a durable outcome. Because the
+// deferral is backed off, the record is emitted at most once per computed delay
+// per item rather than on every relay tick, and it carries only relay identity
+// and timing.
+func (r *observationEconomicRelay) logCandidateBudgetDeferral(ctx context.Context, item journalstore.ObservationOutboxItem, delay time.Duration) {
+	if r == nil || r.log == nil {
+		return
+	}
+	r.log.LogAttrs(
+		ctx, slog.LevelWarn, observationEconomicCandidateBudgetDeferralEvent,
+		slog.Int64("outbox_id", item.ID),
+		slog.String("observation_id", item.Observation.ID),
+		slog.String("subject_kind", string(item.Observation.Subject.Kind)),
+		slog.Int("attempt_count", item.AttemptCount),
+		slog.Duration("retry_delay", delay),
+	)
+}
+
+// logCandidateBudgetDeferralPersistFailure emits a bounded structured
+// diagnostic when the durable retry update that would defer an over-budget item
+// failed (for example a lost claim or a database write error). It deliberately
+// omits the raw error and any evidence or payload content; the caller still
+// joins the underlying error for the relay loop's normal handling.
+func (r *observationEconomicRelay) logCandidateBudgetDeferralPersistFailure(ctx context.Context, item journalstore.ObservationOutboxItem) {
+	if r == nil || r.log == nil {
+		return
+	}
+	r.log.LogAttrs(
+		ctx, slog.LevelWarn, observationEconomicCandidateBudgetPersistFailureEvent,
+		slog.Int64("outbox_id", item.ID),
+		slog.String("observation_id", item.Observation.ID),
+		slog.String("subject_kind", string(item.Observation.Subject.Kind)),
+		slog.Int("attempt_count", item.AttemptCount),
+	)
 }
 
 func (r *observationEconomicRelay) processItem(ctx context.Context, item journalstore.ObservationOutboxItem) error {
@@ -249,49 +365,64 @@ func (r *observationEconomicRelay) processItem(ctx context.Context, item journal
 	return nil
 }
 
+// appendLinkedStatementEvidence resolves verified statement/correction
+// observations for the source B-leg through a selective indexed correlation
+// bound. Candidates are restricted at the database to verified statement-line
+// rows for the trusted store + B-leg, so a B-leg's unrelated usage history and
+// unverified statement rows are never paged. Candidate work is additionally
+// hard-bounded: once the documented budget is exhausted while more candidates
+// remain, the lookup fails closed with a retryable error instead of
+// acknowledging a truncated prefix. linkedStatementObservation still enforces
+// store, account, A-leg and call/request lineage isolation and remains the
+// authoritative validator for every accepted candidate.
 func (r *observationEconomicRelay) appendLinkedStatementEvidence(ctx context.Context, source metering.Observation, blegID string, evidence *[]metering.Observation) error {
 	if r == nil || r.journal == nil || evidence == nil {
 		return fmt.Errorf("runtimebundle: incomplete statement evidence lookup")
 	}
-	providerAccountKey := strings.TrimSpace(source.Subject.ProviderAccountKey)
-	if providerAccountKey == "" {
-		providerAccountKey = strings.TrimSpace(source.Correlation.ProviderAccountKey)
-	}
-	streamID := strings.TrimSpace(source.StreamID)
-	if providerAccountKey == "" && streamID == "" {
+	blegID = strings.TrimSpace(blegID)
+	if blegID == "" {
 		return nil
 	}
-	queries := make([]journalstore.ObservationQuery, 0, 2)
-	if providerAccountKey != "" {
-		queries = append(queries, journalstore.ObservationQuery{StoreID: source.Subject.StoreID, ProviderAccountKey: providerAccountKey, Limit: observationEconomicEvidenceLimit})
+	budget := r.statementCandidateBudget
+	if budget <= 0 {
+		budget = observationEconomicStatementCandidateBudget
 	}
-	if streamID != "" && streamID != source.Subject.BLegID {
-		queries = append(queries, journalstore.ObservationQuery{StoreID: source.Subject.StoreID, StreamID: streamID, Limit: observationEconomicEvidenceLimit})
+	query := journalstore.ObservationQuery{
+		StoreID: source.Subject.StoreID, CorrelationBLegID: blegID,
+		StatementEvidenceOnly: true, Limit: observationEconomicEvidenceLimit,
 	}
-	for _, query := range queries {
-		for {
-			remaining := economics.MaxRatingObservations - len(*evidence)
-			if remaining <= 0 {
+	examined := 0
+	for {
+		// The candidate budget is enforced before each page so total examined
+		// rows can never exceed it; a page is only fetched while work remains.
+		left := budget - examined
+		if left <= 0 {
+			return fmt.Errorf("%w: examined %d verified statement candidates for B-leg %q (budget %d)",
+				errObservationEconomicStatementCandidateBudget, examined, blegID, budget)
+		}
+		if left < observationEconomicEvidenceLimit {
+			query.Limit = left
+		} else {
+			query.Limit = observationEconomicEvidenceLimit
+		}
+		page, err := r.journal.ListObservations(ctx, query)
+		if err != nil {
+			return fmt.Errorf("runtimebundle: load linked statement evidence: %w", err)
+		}
+		examined += len(page.Observations)
+		for _, candidate := range page.Observations {
+			if !linkedStatementObservation(candidate, source, blegID) {
+				continue
+			}
+			if len(*evidence) >= economics.MaxRatingObservations {
 				return fmt.Errorf("runtimebundle: durable economic evidence exceeds %d observations", economics.MaxRatingObservations)
 			}
-			if query.Limit > remaining {
-				query.Limit = remaining
-			}
-			page, err := r.journal.ListObservations(ctx, query)
-			if err != nil {
-				return fmt.Errorf("runtimebundle: load linked statement evidence: %w", err)
-			}
-			for _, candidate := range page.Observations {
-				if !linkedStatementObservation(candidate, source, blegID) {
-					continue
-				}
-				appendRelayObservation(evidence, candidate)
-			}
-			if page.NextCursor == "" {
-				break
-			}
-			query.Cursor = page.NextCursor
+			appendRelayObservation(evidence, candidate)
 		}
+		if page.NextCursor == "" {
+			break
+		}
+		query.Cursor = page.NextCursor
 	}
 	return nil
 }

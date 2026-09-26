@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -22,6 +23,176 @@ const (
 	maxAttemptAccumulatedUsage    = 1024
 	maxAttemptUsageDedupeKeyBytes = 4096
 )
+
+// evidenceCaptureLossCause is the finite, closed set of causes for an
+// observation that a destructively drained source surrendered and admission
+// then rejected. The zero value means no loss. No source-controlled value can
+// select a cause.
+type evidenceCaptureLossCause uint8
+
+const (
+	evidenceCaptureLossNone evidenceCaptureLossCause = iota
+	evidenceCaptureLossObservationCap
+	evidenceCaptureLossCheckpointCapacity
+	evidenceCaptureLossInvalidEvidence
+)
+
+// reason returns a bounded printable diagnostic for one cause.
+func (c evidenceCaptureLossCause) reason() string {
+	switch c {
+	case evidenceCaptureLossObservationCap:
+		return "observation capacity"
+	case evidenceCaptureLossCheckpointCapacity:
+		return "checkpoint capacity"
+	case evidenceCaptureLossInvalidEvidence:
+		return "invalid evidence"
+	default:
+		return "unknown"
+	}
+}
+
+// evidenceCaptureLossCauseSet is a bounded bitmask over the closed cause set, so
+// retained loss state never grows with the number of distinct causes observed.
+type evidenceCaptureLossCauseSet uint8
+
+func (s evidenceCaptureLossCauseSet) with(cause evidenceCaptureLossCause) evidenceCaptureLossCauseSet {
+	if cause == evidenceCaptureLossNone {
+		return s
+	}
+	return s | 1<<(cause-1)
+}
+
+func (s evidenceCaptureLossCauseSet) has(cause evidenceCaptureLossCause) bool {
+	return cause != evidenceCaptureLossNone && s&(1<<(cause-1)) != 0
+}
+
+// maxEvidenceCaptureLossIdentityBytes bounds the retained first-loss identity so
+// adversarial source keys cannot grow sticky loss state.
+const maxEvidenceCaptureLossIdentityBytes = 256
+
+const (
+	evidenceCaptureLossConflictIdentityPrefix = "runtime:capture-loss:"
+	evidenceCaptureLossConflictReasonPrefix   = "economic evidence capture loss: "
+	evidenceCaptureLossExistingHash           = "capture-loss-baseline"
+	evidenceCaptureLossIncomingHash           = "capture-loss-rejected"
+)
+
+// evidenceCaptureLoss is the sticky, attempt-owned record of observations that
+// were destructively drained and then rejected by admission. It is bounded by a
+// count, a byte total, and the closed cause set, and retains only the first
+// loss's bounded identity and cause. It is deliberately never cleared by a
+// later successful flush or by terminal accumulator resets, so a terminal owner
+// can always see that the accepted prefix is known-truncated.
+type evidenceCaptureLoss struct {
+	present       bool
+	count         uint64
+	bytes         uint64
+	causes        evidenceCaptureLossCauseSet
+	firstIdentity string
+	firstCause    evidenceCaptureLossCause
+}
+
+// economicEvidenceAdmissionDisposition is the explicit, closed classification of
+// one native economic observation admission attempt.
+type economicEvidenceAdmissionDisposition uint8
+
+const (
+	economicEvidenceAdmissionIgnored economicEvidenceAdmissionDisposition = iota
+	economicEvidenceAdmissionRetained
+	economicEvidenceAdmissionReplay
+	economicEvidenceAdmissionConflict
+	economicEvidenceAdmissionRejected
+)
+
+// economicEvidenceAdmission is the explicit outcome of
+// rememberEconomicEvidenceOnce. cause is set only when the disposition is
+// rejected and the observation became an irreversible capture loss.
+type economicEvidenceAdmission struct {
+	disposition economicEvidenceAdmissionDisposition
+	cause       evidenceCaptureLossCause
+}
+
+func boundEvidenceCaptureLossIdentity(identity string) string {
+	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		return ""
+	}
+	if len(identity) <= maxEvidenceCaptureLossIdentityBytes {
+		return strings.Clone(identity)
+	}
+	limit := maxEvidenceCaptureLossIdentityBytes
+	for limit > 0 && !utf8.ValidString(identity[:limit]) {
+		limit--
+	}
+	return strings.Clone(identity[:limit])
+}
+
+func economicEvidenceCaptureLossBytes(canonical metering.Observation) int {
+	payload, err := canonical.CanonicalJSON()
+	if err != nil {
+		return 0
+	}
+	return len(payload)
+}
+
+// recordEconomicCaptureLoss retains sticky bounded loss state for one
+// destructively drained observation rejected by admission.
+func (a *attemptSession) recordEconomicCaptureLoss(cause evidenceCaptureLossCause, identity string, size int) {
+	if a == nil {
+		return
+	}
+	a.economicMu.Lock()
+	defer a.economicMu.Unlock()
+	a.recordEconomicCaptureLossLocked(cause, identity, size)
+}
+
+// recordEconomicCaptureLossLocked retains sticky bounded loss state. Callers
+// hold economicMu. Only the first loss's identity and cause are retained; later
+// losses extend the bounded count/byte totals and the closed cause set.
+func (a *attemptSession) recordEconomicCaptureLossLocked(cause evidenceCaptureLossCause, identity string, size int) {
+	if a == nil || cause == evidenceCaptureLossNone {
+		return
+	}
+	loss := &a.evidenceCaptureLoss
+	loss.present = true
+	loss.count++
+	if size > 0 {
+		loss.bytes += uint64(size)
+	}
+	loss.causes = loss.causes.with(cause)
+	if loss.firstCause == evidenceCaptureLossNone {
+		loss.firstCause = cause
+		loss.firstIdentity = boundEvidenceCaptureLossIdentity(identity)
+	}
+}
+
+// evidenceCaptureLossSnapshot returns a copy of the sticky capture-loss state
+// without clearing it, so every terminal owner observes the same loss.
+func (a *attemptSession) evidenceCaptureLossSnapshot() evidenceCaptureLoss {
+	if a == nil {
+		return evidenceCaptureLoss{}
+	}
+	a.economicMu.Lock()
+	defer a.economicMu.Unlock()
+	return a.evidenceCaptureLoss
+}
+
+// captureLossEvidenceConflicts projects the sticky loss state into the
+// runtime-owned reserved conflict channel. The marker can never be forged from
+// source-controlled coverage or free-text fields because it is derived only
+// from attempt-owned loss state.
+func captureLossEvidenceConflicts(loss evidenceCaptureLoss) []billing.EvidenceConflict {
+	if !loss.present {
+		return nil
+	}
+	return []billing.EvidenceConflict{{
+		Identity:               evidenceCaptureLossConflictIdentityPrefix + loss.firstIdentity,
+		ExistingHash:           evidenceCaptureLossExistingHash,
+		IncomingHash:           evidenceCaptureLossIncomingHash,
+		IncomingCoverage:       billing.EconomicEvidenceCoverageUnsupported,
+		IncomingCoverageReason: evidenceCaptureLossConflictReasonPrefix + loss.firstCause.reason(),
+	}}
+}
 
 func (a *attemptSession) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
 	return a.rememberUsageEvidenceOnceAs(ev, billingEvidenceRoleStream)
@@ -124,88 +295,290 @@ func (a *attemptSession) billingEvidenceConflictsSnapshot() []billing.EvidenceCo
 	return append([]billing.EvidenceConflict(nil), a.usageConflicts...)
 }
 
+// maxEconomicIdentityConflictVariants bounds how many distinct changed payloads
+// one source identity quarantines as conflict refs. The first accepted payload
+// is the deterministic canonical baseline observation; later distinct payloads
+// retain only bounded hash/coverage metadata and never become terminal
+// observations. Once the cap is reached the identity is marked degraded and
+// every further variant keeps the same sticky conflict without extending
+// retention or rescanning retained history.
+const maxEconomicIdentityConflictVariants = 8
+
+// economicEvidenceRetentionBoundReason labels the sticky degraded conflict
+// emitted once one identity's variant quarantine bound is exceeded. The
+// disposition is deliberately fail-closed: the retained baseline and the
+// quarantined refs stay visible so retail rating refuses the whole B-leg.
+const economicEvidenceRetentionBoundReason = "economic evidence variant retention bound exceeded"
+
+// economicEvidenceHashBytes is the fixed hex-SHA-256 length of a retained
+// observation evidence hash.
+const economicEvidenceHashBytes = 64
+
+// maxEconomicEvidenceRetainedReasonBytes bounds one retained coverage reason.
+// Coverage classification is carried by EconomicEvidenceCoverage, so bounding
+// the free-text reason cannot change complete/partial/unsupported
+// classification and cannot empty a non-empty reason that an incomplete
+// disposition requires. It keeps per-identity and aggregate diagnostic
+// retention independent of the canonical observation's 64KiB envelope.
+const maxEconomicEvidenceRetainedReasonBytes = 256
+
+// economicEvidenceReasonTruncationMarker makes display truncation explicit in
+// the durable record instead of presenting an over-long reason as a normal
+// prefix. It is printable ASCII so it passes coverage-reason validation.
+const economicEvidenceReasonTruncationMarker = "~[truncated]"
+
+// maxEconomicEvidenceReasonDigestBytes bounds the raw coverage-reason bytes fed
+// into the per-event reason digest, so an adversarial multi-megabyte reason
+// cannot force unbounded hashing. A reason at or below the cap is hashed in
+// full; a longer reason is explicitly degraded and sampled by head, exact
+// length, and tail, so distinct reasons sharing a long common prefix do not
+// silently collapse.
+const maxEconomicEvidenceReasonDigestBytes = 4096
+
+// economicEvidenceReasonDigestBytes is the fixed hex-SHA-256 length of one
+// retained coverage-reason digest.
+const economicEvidenceReasonDigestBytes = economicEvidenceHashBytes
+
+// maxEconomicRetentionConflicts reserves bounded conflict capacity for the
+// retention-overflow disposition, independent of the ordinary conflict cap.
+// Evidence retention loss must stay visible even when ordinary conflicts are
+// full. Capacity is derived from the closed retention-overflow disposition set
+// (exactly one disposition), so a future disposition cannot silently overflow.
+const maxEconomicRetentionConflicts = 1
+
+// maxEconomicIdentityRetainedMetadataBytes bounds the coverage diagnostic
+// metadata retained for one identity: one canonical baseline hash, its
+// full-reason digest and bounded display reason, plus the bounded quarantine
+// refs (each with its own hash, digest, coverage, and display reason). It is
+// independent of the canonical observation's 64KiB envelope, so a baseline
+// count of one plus at most maxEconomicIdentityConflictVariants refs is not by
+// itself a total-byte proof.
+const maxEconomicIdentityRetainedMetadataBytes = economicEvidenceHashBytes + economicEvidenceReasonDigestBytes + maxEconomicEvidenceRetainedReasonBytes +
+	maxEconomicIdentityConflictVariants*(economicEvidenceHashBytes+economicEvidenceReasonDigestBytes+len(billing.EconomicEvidenceCoverageUnsupported)+maxEconomicEvidenceRetainedReasonBytes)
+
+// retentionEvidenceConflict is a runtime-owned reserved retention-overflow
+// disposition. It is produced only by the internal variant-quarantine overflow
+// path in rememberEconomicEvidenceOnce and carried through the attempt and the
+// terminal handoff in its own typed channel. Keeping it separate from every
+// provider Observation/EvidenceConflict makes the terminal reserved-priority
+// decision a function of provenance rather than of forgeable coverage fields or
+// free-text coverage reason: no source-controlled value can populate or
+// reconstruct this channel.
+type retentionEvidenceConflict struct {
+	conflict billing.EvidenceConflict
+}
+
+// economicVariantQuarantine is the bounded conflict metadata retained for one
+// distinct changed payload under a source identity. The full observation is
+// deliberately discarded: a changed payload is diagnostic evidence, never a
+// second economic observation.
+type economicVariantQuarantine struct {
+	coverage       billing.EconomicEvidenceCoverage
+	coverageReason string
+	reasonDigest   string
+	reasonDegraded bool
+}
+
+// economicIdentityRecord is the bounded per-identity economic evidence state:
+// exactly one canonical baseline observation plus a bounded quarantine of
+// changed-payload refs. It replaces an unbounded hash -> full-evidence map so a
+// single adversarial identity cannot grow memory or make conflict baseline
+// selection quadratic in the number of previously rejected variants.
+type economicIdentityRecord struct {
+	baselineHash           string
+	baselineCoverage       billing.EconomicEvidenceCoverage
+	baselineCoverageReason string
+	baselineReasonDigest   string
+	baselineReasonDegraded bool
+	quarantine             map[string]economicVariantQuarantine
+	degraded               bool
+}
+
 // rememberEconomicEvidenceOnce owns validated connector V2 observations until
-// the B-leg terminal owner builds its durable record. Exact source replays are
-// ignored; a changed payload under the same identity remains a bounded visible
-// conflict. Coverage metadata remains attached until the terminal handoff.
-func (a *attemptSession) rememberEconomicEvidenceOnce(evidence execbackend.EconomicEvidence) {
+// the B-leg terminal owner builds its durable record. Semantic source replays
+// (same identity/revision and payload, ignoring receipt time and approved
+// Subject/Correlation carrier placement) are ignored; a changed payload under
+// the same identity remains a bounded visible conflict, and a coverage
+// disposition change is reported separately without a second economic event.
+// Coverage metadata remains attached until the terminal handoff.
+//
+// Retention is bounded per source identity. The first accepted payload becomes
+// the deterministic canonical baseline; later distinct payloads are quarantined
+// as hash/coverage refs up to maxEconomicIdentityConflictVariants. Once that cap
+// is reached the identity is degraded and every further variant maps to one
+// sticky conflict, so per-event work stays O(1) in the number of previously
+// rejected variants instead of rescanning an unbounded hash map.
+func (a *attemptSession) rememberEconomicEvidenceOnce(evidence execbackend.EconomicEvidence) economicEvidenceAdmission {
 	if a == nil {
-		return
+		return economicEvidenceAdmission{disposition: economicEvidenceAdmissionIgnored}
 	}
 	canonical, err := evidence.Observation.Canonical()
 	if err != nil {
-		return
+		a.recordEconomicCaptureLoss(evidenceCaptureLossInvalidEvidence, evidence.Observation.SourceEventKey, 0)
+		return economicEvidenceAdmission{disposition: economicEvidenceAdmissionRejected, cause: evidenceCaptureLossInvalidEvidence}
 	}
 	if evidence.Coverage == "" {
 		evidence.Coverage = "complete"
 	}
 	evidence.Observation = canonical
 	identity := canonical.IdentityKey()
-	hash := canonical.Fingerprint() + "\x00" + evidence.Coverage + "\x00" + evidence.CoverageReason
+	// Replay identity is the shared semantic preimage: receipt arrival time and
+	// approved Subject/Correlation carrier placement are normalized, so an
+	// equivalent redelivery is the same effective economic event. Coverage is
+	// compared separately because a genuine disposition change stays visible.
+	hash := billing.ObservationEvidenceHash(canonical)
 	if identity == "" || hash == "" {
-		return
+		a.recordEconomicCaptureLoss(evidenceCaptureLossInvalidEvidence, canonical.SourceEventKey, 0)
+		return economicEvidenceAdmission{disposition: economicEvidenceAdmissionRejected, cause: evidenceCaptureLossInvalidEvidence}
 	}
+	coverage := billing.EconomicEvidenceCoverage(evidence.Coverage)
+	// Bound the free-text reason before it is cloned into the identity record,
+	// the retained observation, or any conflict, so neither per-identity nor
+	// aggregate diagnostic retention can grow past the byte bound. The coverage
+	// classification (complete/partial/unsupported) is carried separately and
+	// is never changed by this normalization. A full-reason digest is retained
+	// alongside the bounded display text so two distinct reasons that share the
+	// display prefix cannot collapse into an exact replay.
+	rawReason := strings.TrimSpace(evidence.CoverageReason)
+	reason := boundEconomicEvidenceReason(rawReason)
+	reasonDigest, reasonDegraded := economicEvidenceReasonFingerprint(rawReason)
+	evidence.CoverageReason = reason
+
 	a.economicMu.Lock()
 	defer a.economicMu.Unlock()
-	// Keep the map allocation below the queue admission. A checkpoint
+	// Keep the record allocation below the queue admission. A checkpoint
 	// rejection must leave no dedupe marker behind, so a later replay can
 	// retry after bounded capacity is released.
-	fingerprints := a.economicObservationHashes[identity]
-	if fingerprints != nil {
-		if _, exists := fingerprints[hash]; exists {
-			return
+	record := a.economicIdentities[identity]
+	if record == nil {
+		if len(a.economicObservations) >= billing.MaxCallLegEvidenceObservations {
+			a.recordEconomicCaptureLossLocked(evidenceCaptureLossObservationCap, canonical.SourceEventKey, economicEvidenceCaptureLossBytes(canonical))
+			return economicEvidenceAdmission{disposition: economicEvidenceAdmissionRejected, cause: evidenceCaptureLossObservationCap}
 		}
-	}
-	if len(fingerprints) != 0 {
-		prior := ""
-		for candidate := range fingerprints {
-			if prior == "" || candidate < prior {
-				prior = candidate
-			}
+		// Queue admission precedes the terminal evidence dedupe marker. If the
+		// bounded checkpoint state is exhausted, this observation remains
+		// retryable rather than being irreversibly accepted and suppressed on
+		// replay. A nil sink reports Ignored, preserving the legacy terminal-only
+		// path.
+		if a.queueEconomicCheckpoint(canonical) == economicCheckpointRejected {
+			a.recordEconomicCaptureLossLocked(evidenceCaptureLossCheckpointCapacity, canonical.SourceEventKey, economicEvidenceCaptureLossBytes(canonical))
+			return economicEvidenceAdmission{disposition: economicEvidenceAdmissionRejected, cause: evidenceCaptureLossCheckpointCapacity}
 		}
-		priorEvidence := fingerprints[prior]
-		a.economicConflicts = appendBoundedEvidenceConflict(a.economicConflicts, billing.EvidenceConflict{
-			Identity:               identity,
-			ExistingHash:           prior,
-			IncomingHash:           hash,
-			ExistingCoverage:       billing.EconomicEvidenceCoverage(priorEvidence.Coverage),
-			ExistingCoverageReason: priorEvidence.CoverageReason,
-			IncomingCoverage:       billing.EconomicEvidenceCoverage(evidence.Coverage),
-			IncomingCoverageReason: evidence.CoverageReason,
-		})
-		fingerprints[hash] = evidence
-		return
+		if a.economicIdentities == nil {
+			a.economicIdentities = make(map[string]*economicIdentityRecord)
+		}
+		a.economicIdentities[identity] = &economicIdentityRecord{
+			baselineHash:           hash,
+			baselineCoverage:       coverage,
+			baselineCoverageReason: reason,
+			baselineReasonDigest:   reasonDigest,
+			baselineReasonDegraded: reasonDegraded,
+		}
+		a.economicObservations = append(a.economicObservations, evidence)
+		// Keep the durable checkpoint queue separate from terminal billing
+		// evidence. The queue only persists immutable V2 observations; it never
+		// invokes valuation, authority, or money mutation paths.
+		return economicEvidenceAdmission{disposition: economicEvidenceAdmissionRetained}
 	}
-	if len(a.economicObservations) >= billing.MaxCallLegEvidenceObservations {
-		return
+	// An exact semantic replay is a no-op. A changed coverage disposition, a
+	// changed full-reason digest, or an explicitly degraded (over-cap) reason
+	// for the retained baseline stays a visible conflict, so two reasons we
+	// could not fully compare are never silently equated.
+	if hash == record.baselineHash {
+		if record.baselineCoverage != coverage || record.baselineCoverageReason != reason ||
+			record.baselineReasonDigest != reasonDigest || record.baselineReasonDegraded || reasonDegraded {
+			a.economicConflicts = appendBoundedEvidenceConflict(a.economicConflicts, billing.EvidenceConflict{
+				Identity:               identity,
+				ExistingHash:           hash,
+				IncomingHash:           hash,
+				ExistingCoverage:       record.baselineCoverage,
+				ExistingCoverageReason: record.baselineCoverageReason,
+				IncomingCoverage:       coverage,
+				IncomingCoverageReason: reason,
+			})
+			return economicEvidenceAdmission{disposition: economicEvidenceAdmissionConflict}
+		}
+		return economicEvidenceAdmission{disposition: economicEvidenceAdmissionReplay}
 	}
-	// Queue admission precedes the terminal evidence dedupe marker. If the
-	// bounded checkpoint state is exhausted, this observation remains
-	// retryable rather than being irreversibly accepted and suppressed on
-	// replay. A nil sink reports Ignored, preserving the legacy terminal-only
-	// path.
-	if a.queueEconomicCheckpoint(canonical) == economicCheckpointRejected {
-		return
+	if variant, exists := record.quarantine[hash]; exists {
+		// A repeated quarantined variant is a no-op unless its coverage
+		// disposition, full-reason digest, or degraded classification changed,
+		// which stays a visible conflict.
+		if variant.coverage != coverage || variant.coverageReason != reason ||
+			variant.reasonDigest != reasonDigest || variant.reasonDegraded || reasonDegraded {
+			a.economicConflicts = appendBoundedEvidenceConflict(a.economicConflicts, billing.EvidenceConflict{
+				Identity:               identity,
+				ExistingHash:           hash,
+				IncomingHash:           hash,
+				ExistingCoverage:       variant.coverage,
+				ExistingCoverageReason: variant.coverageReason,
+				IncomingCoverage:       coverage,
+				IncomingCoverageReason: reason,
+			})
+			return economicEvidenceAdmission{disposition: economicEvidenceAdmissionConflict}
+		}
+		return economicEvidenceAdmission{disposition: economicEvidenceAdmissionReplay}
 	}
-	if a.economicObservationHashes == nil {
-		a.economicObservationHashes = make(map[string]map[string]execbackend.EconomicEvidence)
+	// A genuinely distinct payload under the same identity is a visible
+	// conflict. Retention stops at the cap; the identity then carries one
+	// sticky degraded conflict so the disposition stays fail-closed without
+	// unbounded work.
+	if record.degraded || len(record.quarantine) >= maxEconomicIdentityConflictVariants {
+		if !record.degraded {
+			record.degraded = true
+			a.economicRetentionConflicts = appendRetentionEvidenceConflict(a.economicRetentionConflicts, billing.EvidenceConflict{
+				Identity:               identity,
+				ExistingHash:           record.baselineHash,
+				IncomingHash:           hash,
+				ExistingCoverage:       record.baselineCoverage,
+				ExistingCoverageReason: record.baselineCoverageReason,
+				IncomingCoverage:       billing.EconomicEvidenceCoverageUnsupported,
+				IncomingCoverageReason: economicEvidenceRetentionBoundReason,
+			})
+		}
+		return economicEvidenceAdmission{disposition: economicEvidenceAdmissionConflict}
 	}
-	fingerprints = make(map[string]execbackend.EconomicEvidence)
-	a.economicObservationHashes[identity] = fingerprints
-	fingerprints[hash] = evidence
-	a.economicObservations = append(a.economicObservations, evidence)
-	// Keep the durable checkpoint queue separate from terminal billing
-	// evidence. The queue only persists immutable V2 observations; it never
-	// invokes valuation, authority, or money mutation paths.
+	if record.quarantine == nil {
+		record.quarantine = make(map[string]economicVariantQuarantine)
+	}
+	record.quarantine[hash] = economicVariantQuarantine{coverage: coverage, coverageReason: reason, reasonDigest: reasonDigest, reasonDegraded: reasonDegraded}
+	a.economicConflicts = appendBoundedEvidenceConflict(a.economicConflicts, billing.EvidenceConflict{
+		Identity:               identity,
+		ExistingHash:           record.baselineHash,
+		IncomingHash:           hash,
+		ExistingCoverage:       record.baselineCoverage,
+		ExistingCoverageReason: record.baselineCoverageReason,
+		IncomingCoverage:       coverage,
+		IncomingCoverageReason: reason,
+	})
+	return economicEvidenceAdmission{disposition: economicEvidenceAdmissionConflict}
 }
 
 func (a *attemptSession) rememberEconomicObservationOnce(observation metering.Observation) {
 	a.rememberEconomicEvidenceOnce(execbackend.EconomicEvidence{Observation: observation})
 }
 
+// economicEvidenceDrain returns attempt-owned economic observations plus the
+// combined conflict view used by direct probes and the deferred terminal
+// release. Runtime-owned retention markers are emitted ahead of ordinary
+// conflicts; the terminal record builder uses economicEvidenceDrainPartitioned
+// so reserved priority is granted from provenance, not from this merged view.
 func (a *attemptSession) economicEvidenceDrain() ([]execbackend.EconomicEvidence, []billing.EvidenceConflict) {
+	observations, ordinary, retention := a.economicEvidenceDrainPartitioned()
+	return observations, mergeEconomicEvidenceConflicts(retention, ordinary)
+}
+
+// economicEvidenceDrainPartitioned returns attempt-owned economic observations
+// together with the two conflict origins kept strictly separate: the
+// runtime-owned reserved retention markers and the provider/source-derived
+// ordinary conflicts. Only the internal variant-quarantine overflow path can
+// populate the reserved channel, so the terminal handoff can grant reserved
+// priority from unforgeable provenance instead of from provider-controlled
+// coverage or free-text reason. Draining clears every attempt-owned economic
+// accumulator, so a later callback sees no stale state.
+func (a *attemptSession) economicEvidenceDrainPartitioned() ([]execbackend.EconomicEvidence, []billing.EvidenceConflict, []billing.EvidenceConflict) {
 	if a == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	a.economicMu.Lock()
 	defer a.economicMu.Unlock()
@@ -214,11 +587,21 @@ func (a *attemptSession) economicEvidenceDrain() ([]execbackend.EconomicEvidence
 		observations[i] = evidence
 		observations[i].Observation = evidence.Observation.Clone()
 	}
-	conflicts := append([]billing.EvidenceConflict(nil), a.economicConflicts...)
+	ordinary := append([]billing.EvidenceConflict(nil), a.economicConflicts...)
+	retention := make([]billing.EvidenceConflict, 0, len(a.economicRetentionConflicts))
+	for _, marker := range a.economicRetentionConflicts {
+		retention = append(retention, marker.conflict)
+	}
+	// Sticky capture loss is projected from attempt-owned state on every drain
+	// so no terminal accumulator reset can hide a destructively drained
+	// rejection. The marker grants reserved priority by provenance, never from
+	// source-controlled fields.
+	retention = append(retention, captureLossEvidenceConflicts(a.evidenceCaptureLoss)...)
 	a.economicObservations = nil
-	a.economicObservationHashes = nil
+	a.economicIdentities = nil
 	a.economicConflicts = nil
-	return observations, conflicts
+	a.economicRetentionConflicts = nil
+	return observations, ordinary, retention
 }
 
 func (a *attemptSession) finalizeBillingResult(ctx context.Context, state *billingCallState, in execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, bool) {
@@ -382,7 +765,7 @@ func cloneBillingEvidenceEvent(ev lipapi.Event) lipapi.Event {
 	}
 }
 
-func observationsFromBillingEvidence(draft billingLegDraft, captured []capturedBillingEvidence) ([]metering.Observation, []billing.EvidenceConflict) {
+func observationsFromBillingEvidence(draft billingLegDraft, captured []capturedBillingEvidence) ([]metering.Observation, []billing.EvidenceConflict, int) {
 	inputs := make([]billingObservationInput, 0, len(captured)+2)
 	capturedKeys := make(map[string]struct{}, len(captured))
 	for i, evidence := range captured {
@@ -421,6 +804,7 @@ func observationsFromBillingEvidence(draft billingLegDraft, captured []capturedB
 	// member; a later corrected source must arrive through the V2 observation
 	// contract rather than being guessed here.
 	seenSourceEvents := make(map[string]string, len(inputs))
+	dropped := 0
 	for _, input := range inputs {
 		observation, ok := billingObservationFromEvent(draft, input)
 		if !ok {
@@ -440,12 +824,16 @@ func observationsFromBillingEvidence(draft billingLegDraft, captured []capturedB
 		if len(observations) >= billing.MaxCallLegEvidenceObservations {
 			// The attempt accumulator is intentionally bounded. Preserve the
 			// V1 scalar fallback for any dropped terminal source while keeping
-			// the immutable V2 collection within the record contract.
+			// the immutable V2 collection within the record contract. Report
+			// the drop so the terminal builder can surface a trusted reserved
+			// fail-closed disposition instead of silently truncating a
+			// validated origin before it ever reaches the builder.
+			dropped++
 			continue
 		}
 		observations = append(observations, observation)
 	}
-	return observations, conflicts
+	return observations, conflicts, dropped
 }
 
 // directEvidenceCoveredByEconomicObservation prevents a canonical provider
@@ -483,6 +871,138 @@ func directEvidenceCoveredByEconomicObservation(draft billingLegDraft, event lip
 func hasCapturedEvidenceKey(keys map[string]struct{}, key string) bool {
 	_, ok := keys[strings.TrimSpace(key)]
 	return ok
+}
+
+// mergeEconomicEvidenceConflicts emits the reserved retention-overflow
+// dispositions first, then ordinary conflicts, so a saturated ordinary conflict
+// set can never displace the explicit retention-overflow cause. The merged
+// result never exceeds the durable conflict cap; when it would, ordinary
+// conflicts are dropped from the tail deterministically after every reserved
+// marker is retained.
+func mergeEconomicEvidenceConflicts(retention, ordinary []billing.EvidenceConflict) []billing.EvidenceConflict {
+	if len(retention) == 0 {
+		return append([]billing.EvidenceConflict(nil), ordinary...)
+	}
+	out := make([]billing.EvidenceConflict, 0, billing.MaxCallLegEvidenceConflicts)
+	for _, conflict := range retention {
+		out = appendBoundedEvidenceConflict(out, conflict)
+		if len(out) >= billing.MaxCallLegEvidenceConflicts {
+			return out
+		}
+	}
+	for _, conflict := range ordinary {
+		out = appendBoundedEvidenceConflict(out, conflict)
+		if len(out) >= billing.MaxCallLegEvidenceConflicts {
+			break
+		}
+	}
+	return out
+}
+
+// mergeTerminalEvidenceConflicts merges the conflict origins of one terminal
+// B-leg record. reserved carries the runtime-owned retention-overflow
+// dispositions and is emitted first, so a saturated ordinary conflict set from
+// any origin can never displace the explicit fail-closed cause. Every other
+// origin is ordinary and fills the remaining capacity in origin order, dropped
+// deterministically from the tail. Reserved priority is granted from the trusted
+// reserved channel alone; it is never re-derived from coverage or free-text
+// reason fields that a provider can control. The durable cap is never exceeded,
+// no origin slice is mutated, and immutable evidence is only read.
+func mergeTerminalEvidenceConflicts(reserved []billing.EvidenceConflict, origins ...[]billing.EvidenceConflict) []billing.EvidenceConflict {
+	if len(reserved) == 0 && len(origins) == 0 {
+		return nil
+	}
+	out := make([]billing.EvidenceConflict, 0, billing.MaxCallLegEvidenceConflicts)
+	for _, conflict := range reserved {
+		out = appendBoundedEvidenceConflict(out, conflict)
+		if len(out) >= billing.MaxCallLegEvidenceConflicts {
+			return out
+		}
+	}
+	for _, origin := range origins {
+		for _, conflict := range origin {
+			out = appendBoundedEvidenceConflict(out, conflict)
+			if len(out) >= billing.MaxCallLegEvidenceConflicts {
+				return out
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// appendRetentionEvidenceConflict retains one runtime-owned retention-overflow
+// disposition in reserved capacity independent of the ordinary conflict cap.
+// Repeated identical dispositions are deduplicated and the reserved set is
+// bounded by the closed disposition set, so retention overflow stays visible
+// without unbounded growth even when ordinary conflicts are full. The reserved
+// slice is a distinct type so this is the only writer that can populate the
+// trusted terminal channel.
+func appendRetentionEvidenceConflict(retention []retentionEvidenceConflict, conflict billing.EvidenceConflict) []retentionEvidenceConflict {
+	for _, prior := range retention {
+		if prior.conflict == conflict {
+			return retention
+		}
+	}
+	if len(retention) >= maxEconomicRetentionConflicts {
+		return retention
+	}
+	return append(retention, retentionEvidenceConflict{conflict: conflict})
+}
+
+// boundEconomicEvidenceReason normalizes one coverage reason to an owned,
+// bounded, UTF-8-valid diagnostic string. Truncation never changes the coverage
+// classification and never empties a non-empty reason, so an incomplete
+// disposition keeps the non-empty reason its validation requires. The returned
+// string never aliases the caller's (possibly multi-megabyte) backing
+// allocation, and an over-long input carries an explicit truncation marker so
+// the loss is visible in the durable record.
+func boundEconomicEvidenceReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ""
+	}
+	if len(reason) <= maxEconomicEvidenceRetainedReasonBytes {
+		return strings.Clone(reason)
+	}
+	limit := maxEconomicEvidenceRetainedReasonBytes - len(economicEvidenceReasonTruncationMarker)
+	bounded := reason[:limit]
+	for len(bounded) > 0 && !utf8.ValidString(bounded) {
+		bounded = bounded[:len(bounded)-1]
+	}
+	// Concatenation allocates a fresh buffer, so the result cannot alias the
+	// original backing allocation.
+	return bounded + economicEvidenceReasonTruncationMarker
+}
+
+// economicEvidenceReasonFingerprint returns a bounded digest of the full
+// coverage reason and whether the raw reason exceeded the safe hashing cap. A
+// reason at or below the cap is hashed in full. A longer reason is explicitly
+// degraded and sampled by head, exact length, and tail: distinct reasons that
+// share a long common prefix cannot silently collapse, while per-event hashing
+// stays bounded at a few KiB regardless of adversarial input size. Callers must
+// treat any degraded reason as a visible conflict rather than an exact replay.
+func economicEvidenceReasonFingerprint(reason string) (digest string, degraded bool) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "", false
+	}
+	preimage := reason
+	if len(reason) > maxEconomicEvidenceReasonDigestBytes {
+		degraded = true
+		var b strings.Builder
+		b.Grow(2*maxEconomicEvidenceReasonDigestBytes + 32)
+		b.WriteString(reason[:maxEconomicEvidenceReasonDigestBytes])
+		b.WriteByte(0)
+		b.WriteString(strconv.Itoa(len(reason)))
+		b.WriteByte(0)
+		b.WriteString(reason[len(reason)-maxEconomicEvidenceReasonDigestBytes:])
+		preimage = b.String()
+	}
+	sum := sha256.Sum256([]byte(preimage))
+	return hex.EncodeToString(sum[:]), degraded
 }
 
 func appendBoundedEvidenceConflict(conflicts []billing.EvidenceConflict, conflict billing.EvidenceConflict) []billing.EvidenceConflict {

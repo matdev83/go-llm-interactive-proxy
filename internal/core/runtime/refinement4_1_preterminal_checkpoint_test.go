@@ -602,7 +602,7 @@ func TestRefinement41LocalCumulativeHeadWaitsForBoundedQueueAdmission(t *testing
 		ObservedAt: attempt.economicCheckpointNow(), ReceivedAt: attempt.economicCheckpointNow(),
 	}
 	local := boundary.Observations(identity)
-	if got := attempt.versionLocalBoundaryObservations(local); len(got) != len(local) {
+	if got := attempt.versionLocalBoundaryObservations(local, false); len(got) != len(local) {
 		t.Fatalf("local observations after rejected admission = %d, want %d", len(got), len(local))
 	}
 	attempt.checkpointMu.Lock()
@@ -617,7 +617,7 @@ func TestRefinement41LocalCumulativeHeadWaitsForBoundedQueueAdmission(t *testing
 	if err := attempt.flushEconomicCheckpoints(context.Background(), true); err != nil {
 		t.Fatalf("capacity recovery flush: %v", err)
 	}
-	if got := attempt.versionLocalBoundaryObservations(local); len(got) != len(local) {
+	if got := attempt.versionLocalBoundaryObservations(local, false); len(got) != len(local) {
 		t.Fatalf("local observations after capacity recovery = %d, want %d", len(got), len(local))
 	}
 	attempt.checkpointMu.Lock()

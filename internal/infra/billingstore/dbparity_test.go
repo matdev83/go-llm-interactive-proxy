@@ -19,6 +19,13 @@ func TestDBParity_SQLite(t *testing.T) {
 		runBillingStoreContract(t, store, "contract-parity-sqlite")
 	})
 
+	t.Run("ComponentSettlementFence", func(t *testing.T) {
+		t.Parallel()
+		// Same dialect-shared body the PostgreSQL parity entry point runs, so
+		// the rejected/settled money proof is not a single-dialect claim.
+		runReviewF356SettlementFence(t, newSQLiteTestStore)
+	})
+
 	t.Run("CreateAndVerifySchema", func(t *testing.T) {
 		t.Parallel()
 		store := newSQLiteTestStore(t)

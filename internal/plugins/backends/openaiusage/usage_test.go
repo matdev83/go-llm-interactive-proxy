@@ -156,6 +156,42 @@ func TestChatUsageEvent_ignoresMalformedCacheWriteExtension(t *testing.T) {
 	}
 }
 
+// TestChatUsageEvent_standardCacheWriteNotDuplicatedByExtension pins the
+// provenance split introduced by R7-C1E: the standard provider-family
+// cache_write_tokens member is owned by the native usage mapping
+// (NativeUsageMeasures) and must not also populate the host-neutral
+// cache-write field, even when a conflicting x_lip_cache_write_tokens extension
+// alias is present. That keeps exactly one cache-write measure per observation.
+func TestChatUsageEvent_standardCacheWriteNotDuplicatedByExtension(t *testing.T) {
+	t.Parallel()
+	var usage openai.CompletionUsage
+	raw := `{"prompt_tokens":11,"completion_tokens":9,"total_tokens":20,"prompt_tokens_details":{"cache_write_tokens":6,"x_lip_cache_write_tokens":9}}`
+	if err := json.Unmarshal([]byte(raw), &usage); err != nil {
+		t.Fatal(err)
+	}
+	ev := ChatUsageEvent(usage)
+	if ev.UsagePresence.CacheWriteTokens || ev.CacheWriteTokens != 0 {
+		t.Fatalf("standard cache_write_tokens must be native-mapping owned, not event-populated: %+v", ev)
+	}
+}
+
+// TestResponsesUsageEvent_standardCacheWriteNotDuplicatedByExtension is the
+// Responses counterpart: the standard input_tokens_details.cache_write_tokens
+// member is native-mapping owned and the extension alias must not add a second,
+// conflicting host-neutral cache-write value.
+func TestResponsesUsageEvent_standardCacheWriteNotDuplicatedByExtension(t *testing.T) {
+	t.Parallel()
+	var usage responses.ResponseUsage
+	raw := `{"input_tokens":11,"output_tokens":9,"total_tokens":20,"input_tokens_details":{"cache_write_tokens":6,"x_lip_cache_write_tokens":9}}`
+	if err := json.Unmarshal([]byte(raw), &usage); err != nil {
+		t.Fatal(err)
+	}
+	ev := ResponsesUsageEvent(usage)
+	if ev.UsagePresence.CacheWriteTokens || ev.CacheWriteTokens != 0 {
+		t.Fatalf("standard cache_write_tokens must be native-mapping owned, not event-populated: %+v", ev)
+	}
+}
+
 func TestUsageEvent_RejectsNegativeProviderCounters(t *testing.T) {
 	t.Parallel()
 	var chat openai.CompletionUsage

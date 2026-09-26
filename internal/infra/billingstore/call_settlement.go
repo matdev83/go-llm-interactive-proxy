@@ -166,7 +166,11 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 		return billing.CallSettlement{}, err
 	}
 	effectiveCharge := result.CustomerCharge
-	if submissionClaimFound {
+	// The call that created the immutable claim already included the
+	// submission fee in its own posting. Preserve that amount on exact replay
+	// so breach disposition and the operation fingerprint remain stable;
+	// deduct the claim only for a sibling call.
+	if submissionClaimFound && !submissionFeeClaimBelongsToCall(existingSubmissionClaim, call.CallID.String()) {
 		effectiveCharge, err = result.CustomerCharge.Sub(submissionClaim.Amount)
 		if err != nil {
 			return billing.CallSettlement{}, fmt.Errorf("%w: submission fee deduction: %v", billing.ErrSettlementInvalid, err)

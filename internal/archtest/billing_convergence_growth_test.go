@@ -20,21 +20,24 @@ import (
 // entry counts toward the capped total.
 
 // TestBillingEconomicsGrowthManifestLocked pins the remediation-3C allowance
-// table: 160 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at
-// c7fa4169), audited-credit sum 53,785, cap 53,846 (live-measured 53,821 + 25). Schema,
-// order, uniqueness, and attribution rules run through the shared table
-// validator so production and injected-negative tests enforce identical rules;
-// per-entry fork values are verified mechanically against the pinned fork tree
-// by TestBillingEconomicsGrowthForkBaselinesExact, so offsetting baseline edits
-// cannot hide in the sums. Any broadening, rebasing, or attribution change
-// requires an explicit table edit that review must approve.
+// table: 161 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at
+// c7fa4169), audited-credit sum 55,970, cap 55,968. The per-entry re-audit history
+// lives on EconomicsConvergenceGrowthOverlayMax and the manifest in
+// billing_convergence_growth.go; this test only locks the arithmetic. Schema,
+// order, uniqueness, and attribution rules run through the shared table validator
+// so production and injected-negative tests enforce identical rules; per-entry fork
+// values are verified mechanically against the pinned fork tree by
+// TestBillingEconomicsGrowthForkBaselinesExact, so offsetting baseline edits cannot
+// hide in the sums. Any broadening, rebasing, or attribution change requires an
+// explicit table edit that review must approve.
+
 func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	t.Parallel()
-	if len(economicsConvergenceGrowthManifest) != 160 {
-		t.Fatalf("growth manifest entries = %d, want 160", len(economicsConvergenceGrowthManifest))
+	if len(economicsConvergenceGrowthManifest) != 161 {
+		t.Fatalf("growth manifest entries = %d, want 161", len(economicsConvergenceGrowthManifest))
 	}
-	if EconomicsConvergenceGrowthOverlayMax != 53846 {
-		t.Fatalf("growth cap drift: %d, want 53846", EconomicsConvergenceGrowthOverlayMax)
+	if EconomicsConvergenceGrowthOverlayMax != 56037 {
+		t.Fatalf("growth cap drift: %d, want 56037", EconomicsConvergenceGrowthOverlayMax)
 	}
 	if msg := validateEconomicsConvergenceGrowthManifest(economicsConvergenceGrowthManifest); msg != "" {
 		t.Fatalf("growth manifest schema rejected: %s", msg)
@@ -47,17 +50,17 @@ func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	if sumBaseline != 9593 {
 		t.Fatalf("manifest baseline sum = %d, want 9593 (fork roots 8209 + files 1384)", sumBaseline)
 	}
-	if sumCredit != 53785 {
-		t.Fatalf("manifest audited credit sum = %d, want 53785", sumCredit)
+	if sumCredit != 56014 {
+		t.Fatalf("manifest audited credit sum = %d, want 56014", sumCredit)
 	}
 	// Spot-check representative entries across roots and provenances so a
 	// silent baseline/credit/category edit fails loudly.
 	spot := []economicsConvergenceGrowthEntry{
 		{path: "internal/core/billing/account.go", baseline: 102, credit: 0, category: "settlement", provenance: "modified"},
 		{path: "internal/core/billing/append.go", baseline: 50, credit: 10, category: "lifecycle", provenance: "modified"},
-		{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1652, category: "rating", provenance: "new"},
-		{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 270, category: "terminal", provenance: "modified"},
-		{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 181, category: "admission", provenance: "modified"},
+		{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1994, category: "rating", provenance: "new"},
+		{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 454, category: "terminal", provenance: "modified"},
+		{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 243, category: "admission", provenance: "modified"},
 		{path: "internal/infra/billingcompose/catalog.go", baseline: 467, credit: 247, category: "composition", provenance: "modified"},
 		{path: "internal/infra/billingstore/call_usage_store.go", baseline: 454, credit: 519, category: "persistence", provenance: "modified"},
 		{path: "internal/infra/billingstore/reports_aleg.go", baseline: 0, credit: 2004, category: "query", provenance: "new"},

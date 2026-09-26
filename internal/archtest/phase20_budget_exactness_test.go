@@ -8,11 +8,54 @@ import (
 // Audited remediation-3A baselines: exact live measurements behind the refreshed
 // ceilings. Each ceiling must equal its audited baseline + 25 (repository headroom
 // convention); the live tree may only shrink below the audit (deletions allowed)
-// and must never exceed its ceiling.
+// and must never exceed its ceiling. PR #659 adversarial repair (R1-R10) re-audited
+// runtimebundle to 13659 and internal/core to 139708 from the reviewed production
+// additions; stdhttp, process_services.go, and the connector overlay are unchanged.
+// PR #659 CodeRabbit durable candidate-budget backoff/logging (commit 652b9773)
+// re-audited runtimebundle to 13757 (observation_economic_bridge.go); the same
+// change leaves stdhttp, internal/core, process_services.go, and the connector
+// overlay unchanged. PR #666 adversarial F1-F6 behavior repairs re-audited
+// internal/core to 140016 from the reviewed economics production additions;
+// runtimebundle, stdhttp, process_services.go, and the connector overlay are
+// unchanged. PR #666 adversarial F1 pre-execution rejection re-audited
+// runtimebundle to 13817 (generation backend-kind inventory + candidate-local
+// V2 binding); internal/core, stdhttp, process_services.go, and the
+// connector overlay are unchanged by that F1 guard. PR #666 reviewed N1/N2
+// component_rater (+81), N3 provider_evidence (+28), and F4 stream_terminal
+// cleanup (+5) production additions re-audited internal/core to 140130.
+// PR #666 5B-1/2/3 settlement repair adds 172 verified component_rater
+// production lines, re-auditing internal/core to 140302; runtimebundle,
+// stdhttp, process_services.go, and the connector overlay are unchanged by
+// that growth-budget refresh.
+// PR #666 P1-A/P1-B rater fix adds 52 verified component_rater production
+// lines, re-auditing internal/core to 140354; runtimebundle, stdhttp,
+// process_services.go, and the connector overlay are unchanged by that
+// growth-budget refresh.
+// PR #666 f356 P1-1/P1-2/P2 partition repair splits the frozen
+// component-schema inclusion/partition state machine out of component_rater.go
+// into the new component_rater_partition.go and adds the tri-state cover
+// resolution, the recursive least-fixpoint cover proof, and the fourth
+// (incomplete) partition classification: 321 verified production lines,
+// re-auditing internal/core to 140675; runtimebundle, stdhttp,
+// process_services.go, and the connector overlay are unchanged by that
+// growth-budget refresh.
+// PR #666 62a follow-up adds the post-pricing commercial-relevance gate for
+// incomplete partitions, the frozen subset quantity-consistency proof, and the
+// unobserved-parent fail-closed cover denial: 276 more verified production
+// lines, re-auditing internal/core to 140951; runtimebundle, stdhttp,
+// process_services.go, and the connector overlay are unchanged by that
+// growth-budget refresh.
+// PR #666 63c follow-up replaces the remaining direct-only checks with one
+// bounded, scope-aware inclusion graph, so an unprovable cover's commercial
+// relevance follows recursively represented payable descendants and subset
+// quantity consistency follows transitive subset ancestry: 102 more verified
+// production lines, re-auditing internal/core to 141095; runtimebundle, stdhttp,
+// process_services.go, and the connector overlay are unchanged by that
+// growth-budget refresh.
 const (
-	phase20AuditRuntimebundleLines    = 13631
+	phase20AuditRuntimebundleLines    = 13817
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 137434
+	phase20AuditCoreLines             = 141095
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

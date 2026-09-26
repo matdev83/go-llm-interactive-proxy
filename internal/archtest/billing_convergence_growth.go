@@ -11,8 +11,51 @@ import (
 // EconomicsConvergenceGrowthOverlayMax caps the approved usage-economics growth
 // allowance inside the billing-convergence denominator: only per-entry growth above
 // the locked merge-base lines enters the allowance, so historical baseline code can
-// never enter. Measured 53,821-line allowance; keep 25 lines of ratchet headroom.
-const EconomicsConvergenceGrowthOverlayMax = 53846
+// never enter. PR #659 adversarial repair (R1-R10) grows component_rater.go
+// (1652 -> 2327) and runtime/billing_leg.go (270 -> 412); the allowance re-measured
+// 54,687 lines, reset to 54,712 with 25 headroom. PR #666 adversarial F1-F6
+// behavior repairs grow component_rater.go (2327 -> 2587) and
+// runtime/billing_leg.go (412 -> 454); the allowance re-measured 54,877 lines,
+// reset to 54,902 with 25 headroom.
+// PR #666 adversarial F1 pre-execution rejection grows billingadmission/adapter.go
+// (367 -> 429) with the immutable V2 native-usage binding; the allowance
+// re-measured 54,939 lines, reset to 54,964 with 25 headroom.
+// PR #666 reviewed N1/N2 behavior repairs grow component_rater.go (2587 -> 2668,
+// +81 measured); the allowance re-measured 54,939 -> 55,020 lines, reset to
+// 55,045 with 25 headroom. PR #666 5B-1/2/3 settlement repair grows
+// component_rater.go (2668 -> 2840, +172 measured); the allowance re-measured
+// 55,020 -> 55,192 lines, reset to 55,217 with 25 headroom.
+// PR #666 P1-A/P1-B rater fix grows component_rater.go (2840 -> 2892, +52
+// measured); the allowance re-measured 55,192 -> 55,244 lines, reset to
+// 55,269 with 25 headroom.
+// PR #666 f356 P1-1/P1-2/P2 partition repair splits the frozen
+// component-schema inclusion/partition state machine out of component_rater.go
+// into the new component_rater_partition.go (1934 + 1279 = 3213, +321 measured
+// against the 2892 audited pair); the allowance re-measured 55,244 -> 55,565
+// lines, reset to 55,590 with 25 headroom.
+// PR #666 62a follow-up adds the post-pricing commercial-relevance gate, the
+// frozen subset quantity-consistency proof, and the unobserved-parent
+// fail-closed cover denial: component_rater.go 1934 -> 1976 and
+// component_rater_partition.go 1279 -> 1513 (1976 + 1513 = 3489, +276 measured
+// against the 3213 audited pair); the allowance re-measured 55,565 -> 55,841
+// lines, reset to 55,866 with 25 headroom.
+// PR #666 63c follow-up replaces the remaining direct-only checks with one
+// bounded, scope-aware inclusion graph: an unprovable cover's commercial
+// relevance now follows recursively represented payable descendants, and subset
+// quantity consistency follows the transitive subset ancestry the monetary
+// overlap rules already use. component_rater_partition.go 1513 -> 1615 (+102
+// measured); the allowance re-measured 55,841 -> 55,943 lines, reset to 55,968
+// with 25 headroom.
+// PR #666 64a repair makes containment ONE relation across all inclusion classes:
+// the graph carries a merged containment view, so a chain that changes class
+// partway (A subset B, B partition C) is bounded like a pure chain, and an
+// ancestor the partition proof already classified is left to that more precise
+// diagnosis instead of being restated. The complete-coverage proof also no longer
+// skips a partition whose members are ALL absent when one of them is REQUIRED.
+// component_rater.go 1976 -> 1994 and component_rater_partition.go 1615 -> 1641
+// (+44 measured); the allowance re-measured 55,968 -> 56,014 lines, reset to
+// 56,037 with 25 headroom.
+const EconomicsConvergenceGrowthOverlayMax = 56037
 
 // economicsConvergenceGrowthEntry is one allowlisted denominator file with its
 // locked merge-base (c7fa4169) line count, audited credit, category attribution,
@@ -56,8 +99,9 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/billing/call_usage.go", baseline: 332, credit: 182, category: "terminal", provenance: "modified"},
 	{path: "internal/core/billing/commands.go", baseline: 213, credit: 9, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/complete_call.go", baseline: 43, credit: 3, category: "lifecycle", provenance: "modified"},
-	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1652, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1994, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_finalize.go", baseline: 0, credit: 394, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_partition.go", baseline: 0, credit: 1641, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_validation.go", baseline: 0, credit: 216, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rating_contract.go", baseline: 0, credit: 383, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/cost_pass_through.go", baseline: 0, credit: 348, category: "settlement", provenance: "new"},
@@ -128,8 +172,8 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/runtime/billing_call_closure.go", baseline: 94, credit: 8, category: "terminal", provenance: "modified"},
 	{path: "internal/core/runtime/billing_call_id.go", baseline: 22, credit: 61, category: "identity", provenance: "modified"},
 	{path: "internal/core/runtime/billing_collector.go", baseline: 214, credit: 89, category: "terminal", provenance: "modified"},
-	{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 270, category: "terminal", provenance: "modified"},
-	{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 181, category: "admission", provenance: "modified"},
+	{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 454, category: "terminal", provenance: "modified"},
+	{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 243, category: "admission", provenance: "modified"},
 	{path: "internal/infra/billingadmission/doc.go", baseline: 1, credit: 0, category: "package", provenance: "modified"},
 	{path: "internal/infra/billingcompose/catalog.go", baseline: 467, credit: 247, category: "composition", provenance: "modified"},
 	{path: "internal/infra/billingcompose/doc.go", baseline: 1, credit: 0, category: "package", provenance: "modified"},

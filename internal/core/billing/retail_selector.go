@@ -244,9 +244,6 @@ func SelectRetailBLegEvidence(in RetailSelectionInput) (RetailSelectionResult, e
 		if err := validateRetailObservationRefs(leg.ObservationRefs); err != nil {
 			return RetailSelectionResult{}, fmt.Errorf("%w: leg %q: %w", ErrRetailSelectionInvalid, leg.BLegID, err)
 		}
-		if len(leg.EvidenceConflicts) != 0 {
-			return RetailSelectionResult{}, fmt.Errorf("%w: leg %q has conflicting evidence", ErrRetailSelectionUntrusted, leg.BLegID)
-		}
 		if len(leg.Observations) != 0 {
 			if _, _, _, err := retailObservationRefs(leg, in.Call, in.TenantID); err != nil {
 				return RetailSelectionResult{}, fmt.Errorf("%w: leg %q: %w", errorClass(err), leg.BLegID, err)
@@ -285,6 +282,14 @@ func SelectRetailBLegEvidence(in RetailSelectionInput) (RetailSelectionResult, e
 	tenantSet, tenantMissing := false, false
 	seenSelectedRefs := make(map[string]struct{})
 	for _, info := range selected {
+		// The frozen policy has now chosen the retail set, so supplier-side
+		// evidence conflicts fence only the legs that actually reach customer
+		// settlement. An unresolved conflict on an unselected loser stays on
+		// its durable record for independent supplier reconciliation and must
+		// never block an unambiguous winner-only settlement.
+		if len(info.leg.EvidenceConflicts) != 0 {
+			return RetailSelectionResult{}, fmt.Errorf("%w: leg %q has conflicting evidence", ErrRetailSelectionUntrusted, info.leg.BLegID)
+		}
 		refs, tenant, store, err := retailObservationRefs(info.leg, in.Call, in.TenantID)
 		if err != nil {
 			return RetailSelectionResult{}, fmt.Errorf("%w: leg %q: %v", errorClass(err), info.leg.BLegID, err)

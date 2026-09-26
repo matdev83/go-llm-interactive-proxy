@@ -60,9 +60,12 @@ const LargePayloadHostCompositionOverlayMax = 291
 // growth allowance: only lines above each allowlisted file's locked baseline enter
 // the allowance, so pre-existing baseline code can never enter. Seven files are new
 // (baseline 0); production_options.go and process_billing.go carry approved economics
-// composition growth above their merge-base lines. Keep 25 lines of ratchet headroom
-// over the measured 1,368-line allowance.
-const UsageEconomicsOverlayMax = 1393
+// composition growth above their merge-base lines. PR #659 adversarial repair
+// (R1-R10) extends observation_economic_bridge.go; the allowance re-measured
+// 1,396 lines, reset to 1,421 with 25 headroom. PR #659 CodeRabbit durable
+// candidate-budget backoff/logging (commit 652b9773) grows the same bridge; the
+// allowance re-measured 1,494 lines, reset to 1,519 with 25 headroom.
+const UsageEconomicsOverlayMax = 1519
 
 var genericCompatibleBackendOverlayPathMarkers = []string{
 	"/core/concurrencyauthority/compatible/",

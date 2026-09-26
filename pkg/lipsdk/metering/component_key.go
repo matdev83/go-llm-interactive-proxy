@@ -25,6 +25,10 @@ const (
 	// bounded without adding a separate batch-size policy. It is aligned with
 	// the existing per-observation component-entry bound.
 	MaxComponentSchemaRelationships = 128
+	// MaxComponentSchemas bounds the frozen schema set published with one
+	// rating snapshot. It is independent of the per-schema relationship bound
+	// so nested graphs stay reviewable without an unbounded publication size.
+	MaxComponentSchemas = 64
 )
 
 var (
@@ -391,10 +395,21 @@ func (k RelationshipKind) Validate() error {
 // ComponentRelationship is one schema-declared parent/child or transform
 // edge. Parent and child may retain different native units only for an
 // explicitly declared transform relationship.
+//
+// Optional marks a member of a complete aggregate/partition coverage that the
+// provider may omit. When the member is present it is a required part of the
+// coverage and must be complete and rateable; when it is absent the parent's
+// coverage is still proven by the remaining members. It is therefore the
+// truthful encoding of a wire family that reports a disjoint detail member
+// conditionally, keeping absence distinct from an explicit provider zero.
+// Optional is only meaningful for an aggregate or partition relationship; a
+// subset is already a partial containment and a transform is a separately
+// governed unit derivation.
 type ComponentRelationship struct {
-	Kind   RelationshipKind `json:"kind"`
-	Parent ComponentKey     `json:"parent"`
-	Child  ComponentKey     `json:"child"`
+	Kind     RelationshipKind `json:"kind"`
+	Parent   ComponentKey     `json:"parent"`
+	Child    ComponentKey     `json:"child"`
+	Optional bool             `json:"optional,omitempty"`
 }
 
 func (r ComponentRelationship) Validate() error {
@@ -412,6 +427,9 @@ func (r ComponentRelationship) Validate() error {
 	}
 	if r.Kind != RelationshipTransform && r.Parent.Unit != r.Child.Unit {
 		return fmt.Errorf("%w: %s relationship requires equal units", ErrInvalidComponentSchema, r.Kind)
+	}
+	if r.Optional && r.Kind != RelationshipAggregate && r.Kind != RelationshipPartition {
+		return fmt.Errorf("%w: optional membership requires an aggregate or partition relationship", ErrInvalidComponentSchema)
 	}
 	return nil
 }
@@ -443,6 +461,110 @@ func (s ComponentSchema) Validate() error {
 			return fmt.Errorf("%w: duplicate relationship", ErrInvalidComponentSchema)
 		}
 		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+// Clone returns a deep copy of r, including both component keys.
+func (r ComponentRelationship) Clone() ComponentRelationship {
+	out := r
+	out.Parent = r.Parent.Clone()
+	out.Child = r.Child.Clone()
+	return out
+}
+
+// Clone returns a deep copy of s, including relationship keys and dimensions.
+func (s ComponentSchema) Clone() ComponentSchema {
+	out := s
+	if s.Relationships != nil {
+		out.Relationships = make([]ComponentRelationship, len(s.Relationships))
+		for i, relationship := range s.Relationships {
+			out.Relationships[i] = relationship.Clone()
+		}
+	}
+	return out
+}
+
+// ValidateComponentSchemas validates a bounded, frozen set of component
+// schemas. Beyond each schema's own edge bound and self/unit rules it enforces
+// set-level semantics: schema IDs are unique, relationship edges form an
+// acyclic directed graph, and no ordered parent/child pair is declared with
+// more than one meaning. Nil or empty input is valid and preserves legacy
+// publication identity.
+func ValidateComponentSchemas(schemas []ComponentSchema) error {
+	if len(schemas) > MaxComponentSchemas {
+		return fmt.Errorf("%w: schema bound exceeds %d", ErrInvalidComponentSchema, MaxComponentSchemas)
+	}
+	ids := make(map[string]struct{}, len(schemas))
+	pairs := make(map[string]struct{})
+	edges := make(map[string]map[string]struct{})
+	for i, schema := range schemas {
+		if err := schema.Validate(); err != nil {
+			return fmt.Errorf("%w: schemas[%d]: %v", ErrInvalidComponentSchema, i, err)
+		}
+		if _, exists := ids[schema.ID]; exists {
+			return fmt.Errorf("%w: duplicate schema id %q", ErrInvalidComponentSchema, schema.ID)
+		}
+		ids[schema.ID] = struct{}{}
+		for _, relationship := range schema.Relationships {
+			parent := relationship.Parent.CanonicalKey()
+			child := relationship.Child.CanonicalKey()
+			pair := parent + "\x00" + child
+			if _, exists := pairs[pair]; exists {
+				return fmt.Errorf("%w: ambiguous duplicate relationship between parent %s and child %s", ErrInvalidComponentSchema, parent, child)
+			}
+			pairs[pair] = struct{}{}
+			if edges[parent] == nil {
+				edges[parent] = make(map[string]struct{})
+			}
+			edges[parent][child] = struct{}{}
+		}
+	}
+	return validateComponentRelationshipAcyclic(edges)
+}
+
+// validateComponentRelationshipAcyclic rejects any cycle reachable from the
+// declared parent/child edges. Inclusion, partition and transform relationships
+// are all directed containment/derivation edges, so a cycle is always an
+// ambiguous component identity rather than a valid graph.
+func validateComponentRelationshipAcyclic(edges map[string]map[string]struct{}) error {
+	const (
+		unvisited = 0
+		visiting  = 1
+		done      = 2
+	)
+	state := make(map[string]int, len(edges))
+	var visit func(node string) error
+	visit = func(node string) error {
+		switch state[node] {
+		case visiting:
+			return fmt.Errorf("%w: relationship cycle at %s", ErrInvalidComponentSchema, node)
+		case done:
+			return nil
+		}
+		state[node] = visiting
+		children := make([]string, 0, len(edges[node]))
+		for child := range edges[node] {
+			children = append(children, child)
+		}
+		slices.Sort(children)
+		for _, child := range children {
+			if err := visit(child); err != nil {
+				return err
+			}
+		}
+		state[node] = done
+		return nil
+	}
+	nodes := make([]string, 0, len(edges))
+	for node := range edges {
+		nodes = append(nodes, node)
+	}
+	slices.Sort(nodes)
+	for _, node := range nodes {
+		if err := visit(node); err != nil {
+			return err
+		}
 	}
 	return nil
 }

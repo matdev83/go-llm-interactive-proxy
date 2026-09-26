@@ -27,6 +27,9 @@ func registerMigrations() {
 		registerAccountWindowProjectionMigration()
 		registerObservationEconomicOutboxMigration()
 		registerPresenceBooleanRepairMigration()
+		registerLinkedStatementIndexMigration()
+		registerLinkedStatementOrderedIndexMigration()
+		registerLinkedStatementCandidateIndexMigration()
 	})
 }
 

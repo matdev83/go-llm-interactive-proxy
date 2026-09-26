@@ -100,7 +100,16 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// token-ledger money writes) and excluded from this allowance;
 	// measured 13631 (runtimebundle) and 7134 (stdhttp), reset to 13656 and 7159
 	// with 25 headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 13656},
+	// PR #659 adversarial repair (R1-R10) extends the economic observation bridge
+	// (observation_economic_bridge.go +30); runtimebundle re-measured 13659, reset
+	// to 13684 with 25 headroom.
+	// PR #659 CodeRabbit durable candidate-budget backoff/logging (commit 652b9773)
+	// grows observation_economic_bridge.go; runtimebundle re-measured 13757, reset
+	// to 13782 with 25 headroom.
+	// PR #666 adversarial F1 native-audio admission guard adds the generation
+	// backend-kind inventory and the candidate-local V2 binding;
+	// runtimebundle re-measured 13817, reset to 13842 with 25 headroom.
+	{Tree: "internal/infra/runtimebundle", Max: 13842},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
 	{Tree: "internal/stdhttp", Max: 7159},
 	{Tree: "cmd/lipstd", Max: 979},
@@ -192,10 +201,46 @@ var LineBudgets = []LineBudget{
 	// terminal capture/submission (+2,282). The current-main pre-open continuity
 	// fix adds 162 production lines; re-measured 137434, bump to 137459 with
 	// 25 headroom.
-	{Dir: "internal/core", Max: 137459},
+	// PR #659 adversarial repair (R1-R10) adds reviewed component rating/selection
+	// and metering-evidence plus runtime terminal-capture economics production
+	// lines; internal/core re-measured 139708, bump to 139733 with 25 headroom.
+	// PR #666 adversarial F1-F6 behavior repairs add reviewed economics production
+	// in internal/core (component_rater, billing_leg, economic_checkpoint,
+	// provider_evidence, attempt_usage_evidence); internal/core re-measured 140016,
+	// bump to 140041 with 25 headroom.
+	// PR #666 reviewed N1/N2 component_rater (+81), N3 provider_evidence (+28),
+	// and F4 stream_terminal cleanup (+5) add 114 verified production lines;
+	// PR #666 5B-1/2/3 settlement repair adds 172 verified component_rater
+	// production lines; internal/core re-measured 140302,
+	// bump to 140327 with 25 headroom.
+	// PR #666 P1-A/P1-B rater fix adds 52 verified component_rater production
+	// lines; internal/core re-measured 140354, bump to 140379 with 25 headroom.
+	// PR #666 f356 P1-1/P1-2/P2 partition repair splits the frozen
+	// component-schema inclusion/partition state machine out of component_rater.go
+	// into the new component_rater_partition.go and adds the tri-state cover
+	// resolution, the recursive least-fixpoint cover proof, and the fourth
+	// (incomplete) partition classification: 321 verified production lines;
+	// internal/core re-measured 140675, bump to 140700 with 25 headroom.
+	// PR #666 62a follow-up adds the post-pricing commercial-relevance gate for
+	// incomplete partitions, the frozen subset quantity-consistency proof, and
+	// the unobserved-parent fail-closed cover denial: 276 more verified
+	// production lines; internal/core re-measured 140951, bump to 140976 with
+	// 25 headroom.
+	// PR #666 63c follow-up replaces the remaining direct-only checks with one
+	// bounded, scope-aware inclusion graph, so an unprovable cover's commercial
+	// relevance follows recursively represented payable descendants and subset
+	// quantity consistency follows transitive subset ancestry: 102 more
+	// verified production lines.
+	// PR #666 64a repair makes containment one relation across all inclusion
+	// classes and lets the partition proof own an already-classified ancestor,
+	// adding 42 more; internal/core re-measured 141095, bump to 141120 with 25
+	// headroom.
+	{Dir: "internal/core", Max: 141120},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
-	{Dir: "internal/infra/runtimebundle", Max: 13656},
+	// PR #666 adversarial F1 native-audio admission guard; re-measured 13817,
+	// reset to 13842 with 25 headroom.
+	{Dir: "internal/infra/runtimebundle", Max: 13842},
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},

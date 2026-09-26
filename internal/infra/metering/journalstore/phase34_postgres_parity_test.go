@@ -170,6 +170,10 @@ func restoreV2IndexSQL(name string) string {
 		return `CREATE INDEX IF NOT EXISTS idx_metering_components_store_provider_account ON metering_components(store_id, provider_account_key, stream_id, sequence, observation_id, observation_revision, item_kind, item_id)`
 	case "idx_metering_components_observation":
 		return `CREATE INDEX IF NOT EXISTS idx_metering_components_observation ON metering_components(observation_row_id, item_kind, item_id)`
+	case "idx_metering_facts_store_bleg":
+		return `CREATE INDEX IF NOT EXISTS idx_metering_facts_store_bleg ON metering_facts(store_id, b_leg_id, stream_id, sequence, observation_id, observation_revision, id) WHERE payload_kind = 'observation'`
+	case "idx_metering_facts_store_bleg_statement":
+		return `CREATE INDEX IF NOT EXISTS idx_metering_facts_store_bleg_statement ON metering_facts(store_id, b_leg_id, stream_id, sequence, observation_id, observation_revision, id) WHERE payload_kind = 'observation' AND observation_subject_kind = 'statement_line' AND observation_origin = 'statement' AND observation_acquisition = 'statement_importer' AND authority = 'verified_statement'`
 	default:
 		return `SELECT 1`
 	}

@@ -427,7 +427,39 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 			return observation.Origin == metering.OriginLocal
 		}
 	}
-	aggregates, unavailable, err := aggregateMeasures(input.Observations, input.Subject.StoreID, selected, mask)
+	// Qualifiers are needed before reduction because a frozen inclusion edge
+	// only excuses an included child when the parent's rule actually resolves
+	// under the effective qualifiers.
+	qualifiers, qualifierErr := effectiveQualifiers(r.snapshot.EffectiveQualifiers, input.EffectiveQualifiers)
+	var exclusions map[string]map[string]struct{}
+	if qualifierErr == nil {
+		exclusions = r.includedChildExclusions(input.Observations, selected, mask, qualifiers)
+	}
+	aggregates, unavailable, err := aggregateMeasures(input.Observations, input.Subject.StoreID, selected, mask, exclusionPredicate(exclusions))
+	// Conservation is a property of the full selected, mask-filtered, reduced
+	// quantity evidence, before a priced parent's inclusion exclusion removes an
+	// unpriced child from the arithmetic. Rating keeps using the excluded
+	// projection (an included child is not separately billable), but the partition
+	// consistency proof must still see the declared child quantities so a
+	// contradicted partition cannot be hidden behind that exclusion. The second
+	// reduction runs only when exclusions actually apply; otherwise the original
+	// projection already is the full one. Its error/completeness diagnostics are
+	// deliberately discarded: pricing and consistency stay separate concerns, so
+	// an unpriced child never leaks a rate or evidence diagnostic into rated
+	// lines.
+	consistencyAggregates := aggregates
+	if len(exclusions) != 0 {
+		if full, _, reduceErr := aggregateMeasures(input.Observations, input.Subject.StoreID, selected, mask, nil); reduceErr == nil && full != nil {
+			consistencyAggregates = full
+		}
+	}
+	// A child-only tariff leaves the aggregate parent unpriced. When the frozen
+	// schema declares that parent's complete child partition and every declared
+	// child is present and complete in the same scope, the parent's missing rule
+	// is not an independent missing charge: the children are the authoritative
+	// billers for that share. The evidence and observation references are never
+	// removed; only the spurious rate-missing diagnostic is excused.
+	completePartitionParents, contradictedPartitions, incomparablePartitions, incompletePartitions := r.completeChildPartitionCoverage(consistencyAggregates, qualifiers)
 	if err != nil {
 		valuation.Completeness = economics.CompletenessPartial
 		// A reduction may contain both independently complete and incomplete
@@ -437,31 +469,186 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 			return valuation, err
 		}
 	}
-	qualifiers, err := effectiveQualifiers(r.snapshot.EffectiveQualifiers, input.EffectiveQualifiers)
-	if err != nil {
+	if qualifierErr != nil {
 		valuation.Completeness = economics.CompletenessConflict
-		return valuation, err
+		return valuation, qualifierErr
 	}
+	// A covered aggregate summary is removed from the economic context used for
+	// sibling whole-context tier/threshold selection, not only from line
+	// emission. Its quantity is already represented by the complete child
+	// partition that proved coverage, so counting the parent again would inflate
+	// the context and select an overcharged tier. The exclusion is derived from
+	// the frozen selected basis itself (the reduced, mask-filtered aggregates)
+	// minus exactly the proven, genuinely unpriced covered parents; it is never a
+	// filter over arbitrary raw source evidence, and a priced parent keeps
+	// contributing its own quantity to its tier.
+	contextAggregates := aggregates
+	if len(completePartitionParents) != 0 {
+		contextAggregates = make([]aggregateMeasure, 0, len(aggregates))
+		for _, item := range aggregates {
+			if r.suppressedCompletePartitionParent(completePartitionParents, item, qualifiers) {
+				continue
+			}
+			contextAggregates = append(contextAggregates, item)
+		}
+	}
+	// Rate each aggregate exactly once. The frozen-schema overlap check must
+	// judge a component by its effective payable monetary contribution after
+	// rule evaluation, not by its raw quantity or by the mere resolvability of a
+	// rule: a zero-quantity minimum charge is priced, while a positive quantity
+	// at an explicit zero rate is free. Reusing the rated line keeps the priced
+	// signal and the emitted line from diverging.
+	type ratedAggregate struct {
+		item    aggregateMeasure
+		line    economics.LineItem
+		lineErr error
+	}
+	rated := make([]ratedAggregate, 0, len(aggregates))
 	ratedMeasureCount := 0
 	for _, item := range aggregates {
-		if isInformationalMeasure(item.key) {
+		if isInformationalMeasure(item.key) || (item.complete && item.rat != nil && item.rat.Sign() == 0) {
 			if _, probeErr := r.resolveRule(item.key, qualifiers); errors.Is(probeErr, ErrRateMissing) {
-				// Totals/reasoning observations are retained as evidence but do
-				// not become billable lines unless the tariff explicitly prices
-				// that component.
+				// Totals/reasoning and complete, exactly-zero quantities are
+				// retained as evidence but not billed unless priced; positive
+				// unmatched quantities stay independent missing charges.
 				continue
 			}
 		}
+		line, lineErr := r.rateMeasureLine(item, contextAggregates, qualifiers, input, valuation.InputObservations)
 		ratedMeasureCount++
-		line, lineErr := r.rateMeasureLine(item, aggregates, qualifiers, input, valuation.InputObservations)
-		valuation.Lines = append(valuation.Lines, line)
-		for _, ref := range item.issueRefs {
+		rated = append(rated, ratedAggregate{item: item, line: line, lineErr: lineErr})
+	}
+	// Two distinct sets drive the frozen-schema overlap check. rateableByScope
+	// carries every component whose rule resolved under the effective qualifiers,
+	// including an observed zero quantity whose effective charge is zero: a
+	// zero-valued child is still a genuine member of a complete partition.
+	// payableByScope carries only components with a positive effective amount,
+	// which is the signal for an independently payable subset. Keeping them
+	// separate lets a zero-valued partition member complete the partition
+	// without turning a zero-valued subset into a conflict.
+	rateableByScope := make(map[string]map[string]struct{}, len(rated))
+	payableByScope := make(map[string]map[string]struct{}, len(rated))
+	for _, entry := range rated {
+		if entry.lineErr != nil {
+			continue
+		}
+		key, keyErr := entry.item.key.Normalize()
+		if keyErr != nil {
+			continue
+		}
+		canonical := key.CanonicalKey()
+		rateable := rateableByScope[entry.item.scopeKey]
+		if rateable == nil {
+			rateable = make(map[string]struct{})
+			rateableByScope[entry.item.scopeKey] = rateable
+		}
+		rateable[canonical] = struct{}{}
+		amount, ok := lineAmountRat(entry.line)
+		if !ok || amount.Sign() <= 0 {
+			continue
+		}
+		payable := payableByScope[entry.item.scopeKey]
+		if payable == nil {
+			payable = make(map[string]struct{})
+			payableByScope[entry.item.scopeKey] = payable
+		}
+		payable[canonical] = struct{}{}
+	}
+	// A frozen schema may declare that the parent aggregate already includes a
+	// priced child. Emitting both quantity lines would additively double-charge
+	// the same source/B-leg/work evidence, so only those specific overlapping
+	// quantity lines are suppressed rather than choosing a winner. Unrelated
+	// scopes and unrelated components stay payable; independent fixed fees are
+	// owned by their own trusted scope and remain payable.
+	overlapConflicts, ambiguousCoveredParents, unresolvedCoveredParents, overlapErr := r.overlappingSchemaInclusionConflicts(payableByScope, rateableByScope, consistencyAggregates, completePartitionParents)
+	if overlapErr != nil {
+		valuation.Completeness = economics.CompletenessConflict
+	}
+	// An unobserved parent whose complete cover is unprovable cannot contribute
+	// to the conservation proof above, yet it can still be economically
+	// relevant: it declares a subset child whose positive payable descendant
+	// cannot be proven disjoint from the parent's unknown paid partition. Merge
+	// those parents into the typed partition classification that matches the
+	// reason, so the enclosing valuation is partial instead of silently summing
+	// both sides. The suppression of the unplaceable subset descendants is
+	// already in overlapConflicts.
+	//
+	// The two reasons carry different diagnoses and are deliberately not
+	// merged: an ambiguous partition is incomparable (the evidence exists but
+	// cannot be attributed), while an unknown partition is incomplete (a
+	// required member was never observed). An observed parent of the same shape
+	// already receives the matching classification from the conservation proof.
+	mergePartitionSet := func(dst *map[string]map[string]struct{}, src map[string]map[string]struct{}) {
+		for scopeKey, parents := range src {
+			for parentKey := range parents {
+				if *dst == nil {
+					*dst = make(map[string]map[string]struct{})
+				}
+				if (*dst)[scopeKey] == nil {
+					(*dst)[scopeKey] = make(map[string]struct{})
+				}
+				(*dst)[scopeKey][parentKey] = struct{}{}
+			}
+		}
+	}
+	mergePartitionSet(&incomparablePartitions, ambiguousCoveredParents)
+	mergePartitionSet(&incompletePartitions, unresolvedCoveredParents)
+	// A partition with a missing REQUIRED member is load-bearing only when the
+	// parent does not itself bill a positive effective amount. payableByScope is
+	// exactly that signal, and it is the correct one: a resolving rule can still
+	// evaluate to zero, from a zero quantity, an explicit-free unit rate, or any
+	// tier/minimum/block shape that produces no charge, and in every one of those
+	// cases the children are the only money left in the scope. When the parent
+	// DOES bill a positive amount, its own line already carries the partition's
+	// money and an unreported unpriced child certifies nothing about it, which
+	// keeps the stock aggregate-only OpenAI family rating complete.
+	incompletePartitions = chargeCarryingIncompletePartitions(incompletePartitions, payableByScope)
+	// Every non-transform inclusion edge means the child is contained in its
+	// parent, so a contained quantity that strictly exceeds its ancestor's is
+	// inconsistent evidence whatever either side costs. This is a quantity fact,
+	// so it is proved on the same reduced consistency evidence as the partition
+	// conservation check and never on effective charge positivity: a zero-priced,
+	// explicit-free or wholly unpriced ancestor is exactly the side a monetary
+	// overlap graph drops from its own view. A missing or unavailable operand is
+	// deliberately not reported: the arithmetic is not comparable, so the operand
+	// stays missing.
+	//
+	// A parent the partition proof already classified owns that same
+	// inconsistency more precisely, so the walk skips it rather than adding a
+	// second, differently-worded diagnosis for one root cause. The three
+	// classifications are exactly the set of declared complete partitions the
+	// proof rejected: conservation violated, children ambiguously shared, or a
+	// required member never observed. The commercial-relevance filter above is
+	// already applied, so a parent that bills a positive amount is NOT treated as
+	// diagnosed: its partition rejection is silent, leaving this walk as the only
+	// thing that can catch a violated bound. The unobserved classifications merged
+	// above are absent on purpose, because the walk only starts from an OBSERVED
+	// parent and an unobserved one can never be an ancestor.
+	diagnosedAncestors := make(map[string]map[string]struct{})
+	mergePartitionSet(&diagnosedAncestors, contradictedPartitions)
+	mergePartitionSet(&diagnosedAncestors, incomparablePartitions)
+	mergePartitionSet(&diagnosedAncestors, incompletePartitions)
+	containmentContradictions := r.containmentQuantityContradictions(consistencyAggregates, diagnosedAncestors)
+	for _, entry := range rated {
+		if schemaConflictSuppressed(overlapConflicts, entry.item) {
+			continue
+		}
+		if errors.Is(entry.lineErr, ErrRateMissing) && parentCoveredByCompletePartition(completePartitionParents, entry.item) {
+			// The aggregate parent is fully covered by a proven complete
+			// disjoint child partition, so its own absent rule is not a missing
+			// charge. The observation (including the aggregate measure) stays in
+			// the immutable input set for audit; only the diagnostic line is
+			// withheld.
+			continue
+		}
+		valuation.Lines = append(valuation.Lines, entry.line)
+		for _, ref := range entry.item.issueRefs {
 			valuation.MissingObservations = appendUniqueObservationRef(valuation.MissingObservations, ref)
 		}
-		if lineErr != nil {
+		if entry.lineErr != nil {
 			valuation.Completeness = economics.CompletenessPartial
 			if unavailable == nil {
-				unavailable = lineErr
+				unavailable = entry.lineErr
 			}
 		}
 	}
@@ -480,9 +667,85 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 		// qualifier/scope/rate is still material evidence and therefore makes
 		// the enclosing valuation partial. Never let the presence of one valid
 		// line mask an unavailable required input.
-		valuation.Completeness = economics.CompletenessPartial
+		if valuation.Completeness == economics.CompletenessComplete {
+			valuation.Completeness = economics.CompletenessPartial
+		}
 		if unavailable == nil {
 			unavailable = fixedErr
+		}
+	}
+	if overlapErr != nil {
+		// The frozen-schema conflict is the authoritative classification even
+		// when an independent fixed fee also reported an issue.
+		valuation.Completeness = economics.CompletenessConflict
+		unavailable = overlapErr
+	}
+	if overlapErr == nil && len(contradictedPartitions) != 0 {
+		// A declared complete partition whose present, complete and rateable
+		// children do not account for the parent is inconsistent evidence.
+		// Classify the enclosing valuation partial even when the parent itself
+		// never produced a missing-rate diagnostic: a complete zero parent or an
+		// informational parent is skipped from line emission by the rating loop,
+		// so without this independent classification the children-only money
+		// would look complete. Independent child lines stay payable; the
+		// residual is never invented.
+		valuation.Completeness = economics.CompletenessPartial
+		if contradictionErr := schemaPartitionDiagnostic(ErrSchemaPartitionContradiction, contradictedPartitions); contradictionErr != nil {
+			if unavailable == nil {
+				unavailable = contradictionErr
+			} else {
+				unavailable = errors.Join(unavailable, contradictionErr)
+			}
+		}
+	}
+	if overlapErr == nil && len(incomparablePartitions) != 0 {
+		// An observed parent declares a complete partition whose child is also
+		// declared under another complete parent. Its coverage cannot be proven
+		// and its child sum is not comparable, so this is explicitly
+		// partial/incomparable rather than an arithmetic contradiction. Like the
+		// contradiction classification it is independent of the parent's own
+		// rating, so a skipped zero or informational parent cannot let the
+		// child-only money look complete. Independent child lines stay payable.
+		valuation.Completeness = economics.CompletenessPartial
+		if incomparableErr := schemaPartitionDiagnostic(ErrSchemaPartitionIncomparable, incomparablePartitions); incomparableErr != nil {
+			if unavailable == nil {
+				unavailable = incomparableErr
+			} else {
+				unavailable = errors.Join(unavailable, incomparableErr)
+			}
+		}
+	}
+	if overlapErr == nil && len(incompletePartitions) != 0 {
+		// A declared complete partition with a REQUIRED member that is absent,
+		// unavailable, or not comparable is incomplete evidence, not an
+		// arithmetic contradiction and not a shared-child ambiguity. Every
+		// parent named here is also unpriced, so it is the children that would
+		// carry the money; the rating loop skips an informational or
+		// complete-zero unpriced parent from line emission entirely and the
+		// missing child has no measure of its own, so without this the
+		// surviving sibling line would look complete. Missing operands stay
+		// missing; the residual is never invented.
+		valuation.Completeness = economics.CompletenessPartial
+		if incompleteErr := schemaPartitionDiagnostic(ErrSchemaPartitionIncomplete, incompletePartitions); incompleteErr != nil {
+			if unavailable == nil {
+				unavailable = incompleteErr
+			} else {
+				unavailable = errors.Join(unavailable, incompleteErr)
+			}
+		}
+	}
+	if overlapErr == nil && len(containmentContradictions) != 0 {
+		// A contained quantity that exceeds its own ancestor is physically
+		// impossible evidence. It is neither an ambiguity nor a missing operand,
+		// so it gets its own typed classification; independent lines stay payable
+		// and the residual is never invented.
+		valuation.Completeness = economics.CompletenessPartial
+		if containmentErr := schemaPartitionDiagnostic(ErrSchemaSubsetContradiction, containmentContradictions); containmentErr != nil {
+			if unavailable == nil {
+				unavailable = containmentErr
+			} else {
+				unavailable = errors.Join(unavailable, containmentErr)
+			}
 		}
 	}
 	if unavailable != nil && valuation.Completeness == economics.CompletenessComplete {
@@ -490,7 +753,7 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 		// quantity/authority failure to the valuation boundary.
 		valuation.Completeness = economics.CompletenessPartial
 	}
-	if ratedMeasureCount == 0 && len(fixedLines) == 0 && fixedErr == nil {
+	if overlapErr == nil && ratedMeasureCount == 0 && len(fixedLines) == 0 && fixedErr == nil {
 		valuation.Completeness = economics.CompletenessUnavailable
 		return finalizeValuation(valuation, fmt.Errorf("%w: no %s quantity observations", ErrRatingEvidenceMissing, input.Basis))
 	}
@@ -759,7 +1022,7 @@ func lineAmountRat(line economics.LineItem) (*big.Rat, bool) {
 	return new(big.Rat).SetFrac(numerator, denominator), true
 }
 
-func aggregateMeasures(observations []metering.Observation, store string, selected func(metering.Observation) bool, mask retailComponentMask) ([]aggregateMeasure, error, error) {
+func aggregateMeasures(observations []metering.Observation, store string, selected func(metering.Observation) bool, mask retailComponentMask, exclude func(scopeKey string, key metering.ComponentKey) bool) ([]aggregateMeasure, error, error) {
 	selectedObservations := make([]metering.Observation, 0, len(observations))
 	for _, observation := range observations {
 		if selected(observation) {
@@ -855,6 +1118,9 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 			if keyErr != nil {
 				return nil, nil, fmt.Errorf("%w: component key: %v", ErrRatingInvalid, keyErr)
 			}
+			if exclude != nil && exclude(scopeKey, key) {
+				continue
+			}
 			identity := scopeKey + "\x00" + key.CanonicalKey()
 			if keptEntries != nil {
 				if _, ok := keptEntries[identity]; !ok {
@@ -908,6 +1174,11 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 		}
 	}
 	for _, measure := range reduced.Measures {
+		if exclude != nil {
+			if key, keyErr := measure.Key.Normalize(); keyErr == nil && exclude(measure.Scope.Key(), key) {
+				continue
+			}
+		}
 		identity := measure.Scope.Key() + "\x00" + measure.Key.CanonicalKey()
 		if keptEntries != nil {
 			if _, ok := keptEntries[identity]; !ok {
@@ -958,6 +1229,9 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 			if keyErr != nil {
 				return nil, nil, fmt.Errorf("%w: component key: %v", ErrRatingInvalid, keyErr)
 			}
+			if exclude != nil && exclude(scopeKey, key) {
+				continue
+			}
 			identity := scopeKey + "\x00" + key.CanonicalKey()
 			if keptEntries != nil {
 				if _, ok := keptEntries[identity]; !ok {
@@ -990,7 +1264,7 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 	if len(reduced.UnusablePredecessors) != 0 {
 		setFirstErr(fmt.Errorf("%w: correction predecessor has no usable quantity baseline", ErrRatingEvidenceMissing))
 	}
-	if !reduced.Complete && firstErr == nil && keptEntries == nil {
+	if !reduced.Complete && firstErr == nil && keptEntries == nil && reductionIncompleteBeyondExclusions(reduced, exclude) {
 		firstErr = fmt.Errorf("%w: reduced quantity evidence is incomplete", ErrQuantityIncomplete)
 	}
 	// Under a retail selection mask every kept-side gap already sets firstErr
@@ -1016,6 +1290,76 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 
 func measureIsIncomplete(measure metering.Measure) bool {
 	return measure.Value == nil || measure.Quality == metering.QualityUnknown || measure.Quality == metering.QualityUnavailable
+}
+
+// reductionIncompleteBeyondExclusions reports whether the reduced snapshot
+// carries any incompleteness that is not attributable to an excluded
+// included-child. aggregate.ApplyObservations maintains one global Complete
+// flag, so a NULL included child that is already covered by its priced
+// aggregate still flips it false. The per-measure attribution loops skip
+// excluded children, which leaves the generic fallback as the only reason such
+// a child would poison the valuation. This predicate lets the fallback
+// distinguish "the only gap is an excluded child" from a genuine unrelated
+// reducer failure: an unavailable observation, an incomplete effective measure,
+// an incomplete charge, or (when no exclusion applies) the bare global flag
+// always keeps the failure visible.
+//
+// The audit envelope retains superseded revisions, so a historical null measure
+// can coexist with the complete replacement that supersedes it. Those
+// historical gaps are not effective state: SnapshotV2.Measures is the reducer's
+// effective projection and owns its own completeness. A gap in an audit
+// observation is therefore attributed only when no effective measure exists for
+// the same scope/component; if one exists, the reduced-measure loop below
+// decides. This matches the reducer's own effective-history completeness rule
+// instead of scanning superseded audit history, so a valid replacement can
+// never be poisoned by the null it replaced while an effective null or an
+// unresolved replay link still fails closed.
+func reductionIncompleteBeyondExclusions(reduced aggregate.SnapshotV2, exclude func(scopeKey string, key metering.ComponentKey) bool) bool {
+	if exclude == nil {
+		return true
+	}
+	effective := make(map[string]struct{}, len(reduced.Measures))
+	for _, measure := range reduced.Measures {
+		key, keyErr := measure.Key.Normalize()
+		if keyErr != nil {
+			continue
+		}
+		effective[measure.Scope.Key()+"\x00"+key.CanonicalKey()] = struct{}{}
+	}
+	for _, observation := range reduced.Observations {
+		scopeKey := aggregate.ScopeFor(observation).Key()
+		for _, measure := range observation.Measures {
+			if !measureIsIncomplete(measure) {
+				continue
+			}
+			key, keyErr := measure.Key.Normalize()
+			if keyErr != nil {
+				return true
+			}
+			if exclude(scopeKey, key) {
+				continue
+			}
+			if _, projected := effective[scopeKey+"\x00"+key.CanonicalKey()]; projected {
+				continue
+			}
+			return true
+		}
+	}
+	for _, measure := range reduced.Measures {
+		if measure.Complete {
+			continue
+		}
+		key, keyErr := measure.Key.Normalize()
+		if keyErr != nil || !exclude(measure.Scope.Key(), key) {
+			return true
+		}
+	}
+	for _, charge := range reduced.Charges {
+		if !charge.Complete {
+			return true
+		}
+	}
+	return false
 }
 
 func appendUniqueObservationRef(refs []metering.ObservationRef, ref metering.ObservationRef) []metering.ObservationRef {
