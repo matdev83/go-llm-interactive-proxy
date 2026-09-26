@@ -2,7 +2,7 @@
 
 The implementation is intentionally staged around the smallest useful v1. Every production task starts with focused RED evidence; no threat-feed/WAF/persistence framework is introduced.
 
-- [ ] 1. Establish the self-defense configuration and domain contracts
+- [x] 1. Establish the self-defense configuration and domain contracts
   - [x] 1.1 RED-test default-on configuration, validation, and reload classification
     - Add tests proving omitted `access.self_defense` resolves to enabled + impossible paths enabled + the documented adaptive defaults, while explicit `false` is preserved.
     - Cover duration/count/CIDR bounds, `max_quarantine >= initial_quarantine`, offline `check-config`, and invalid candidate rollback.
@@ -22,7 +22,7 @@ The implementation is intentionally staged around the smallest useful v1. Every 
     - _Depends: 1.1_
     - _Validation: `go test ./internal/core/ingressdefense/... ./internal/archtest/...`_
 
-- [ ] 2. Implement bounded process-local adaptive state
+- [x] 2. Implement bounded process-local adaptive state
   - [x] 2.1 Implement failure-window and exponential-quarantine transitions with fake time
     - RED-test isolated failures, threshold crossing, window reset, repeated offense escalation, maximum cap, quarantine expiry, probe offense, successful-auth clear, and inactivity TTL.
     - Use saturating duration arithmetic; reads must not refresh hostile inactivity TTL.
@@ -42,7 +42,7 @@ The implementation is intentionally staged around the smallest useful v1. Every 
     - _Depends: 2.1_
     - _Validation: `go test ./internal/core/ingressdefense/...`; `go test -race ./internal/core/ingressdefense/...` where supported_
 
-- [ ] 3. Add the conservative early HTTP gate
+- [x] 3. Add the conservative early HTTP gate
   - [x] 3.1 (P) Implement and certify the fixed impossible-path matcher
     - RED-test the small audited v1 exact/prefix/traversal set (for example `.env`, `.git`, WordPress, phpMyAdmin/Adminer, PHPUnit and selected obvious CGI/file traversal probes) plus near-miss legitimate paths.
     - Match request-target path structure only; never read request body/canonical messages/tool arguments or arbitrary query values.
@@ -62,7 +62,7 @@ The implementation is intentionally staged around the smallest useful v1. Every 
     - _Depends: 2.1,3.1_
     - _Validation: `go test ./internal/stdhttp/selfdefense/... ./internal/stdhttp/geoip/...`_
 
-- [ ] 4. Make dynamic quarantine authentication-aware
+- [x] 4. Make dynamic quarantine authentication-aware
   - [x] 4.1 (P) Add the private conservative credential-presence probe
     - RED-test local API-key requests with absent/present effective key headers, local-noop credential-free auth, future/custom/unknown providers, and mixed provider chains.
     - Implement a private optional provider capability; arbitrary providers that do not implement it must aggregate to `MayAuthenticate`.
@@ -83,7 +83,7 @@ The implementation is intentionally staged around the smallest useful v1. Every 
     - _Depends: 2.1,3.2,4.1_
     - _Validation: `go test ./internal/stdhttp/auth/...`_
 
-- [ ] 5. Compose process state and immutable generation policy
+- [x] 5. Compose process state and immutable generation policy
   - [x] 5.1 Own one bounded state instance in ProcessServices
     - RED-test construction, disabled-start lightweight ownership, process close, partial startup rollback and one-instance reuse across generation reload.
     - Construct state from effective startup-fixed `max_entries` / `state_ttl`; it owns no goroutine, file, database or network resource.
@@ -112,7 +112,7 @@ The implementation is intentionally staged around the smallest useful v1. Every 
     - _Depends: 5.2_
     - _Validation: `go test ./internal/core/configreload/... ./internal/infra/runtimebundle/... ./internal/stdhttp/admin/configreload/...`_
 
-- [ ] 6. Add bounded observability and operator documentation
+- [x] 6. Add bounded observability and operator documentation
   - [x] 6.1 (P) Add the three self-defense process metrics
     - RED-test counters/gauge registration and finite label values before wiring them into the metrics bundle.
     - Provide denial count by closed reason, quarantine-transition count by closed reason, and current state entry gauge.
@@ -132,7 +132,7 @@ The implementation is intentionally staged around the smallest useful v1. Every 
     - _Depends: 5.2_
     - _Validation: config example parse/check-config tests where available + doc review against effective defaults_
 
-- [ ] 7. Run the focused adversarial acceptance matrix
+- [x] 7. Run the focused adversarial acceptance matrix
   - [x] 7.1 Certify shared-address safety and auth classification
     - Scenario: hostile no-credential traffic at IP X triggers quarantine; a valid credential from IP X still reaches auth, succeeds, clears the entry, and reaches a legitimate frontend.
     - Cover local API key, local-noop, unknown/custom provider, invalid credential, principal-then-reject, 403 and 5xx outcomes.
