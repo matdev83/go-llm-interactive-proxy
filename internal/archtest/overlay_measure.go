@@ -66,7 +66,16 @@ const LargePayloadHostCompositionOverlayMax = 291
 // projection, the credential-disposition probe sibling, and the process-owned
 // state plus its generation projection, whose new production files join this
 // overlay: harness-re-measured 869, reset to 894 with 25 headroom.
-const IngressSelfDefenseOverlayMax = 894
+// Tasks 6.1 and 6.2 add the bounded ingress self-defense process metrics
+// collector under internal/infra/metrics, which is outside every Req 11.5
+// affected surface and was therefore outside every budget; selecting it by the
+// "/infra/metrics/self_defense_" prefix gives this feature an explicit ratchet
+// there. Harness-re-measured 1034 (889 + 145 for
+// internal/infra/metrics/self_defense_prom.go), so the unchanged 1049 cap leaves
+// 15 lines of headroom — 10 below the usual 25-line ratchet — which the next
+// change in this overlay must restore by re-measuring before the cap can be
+// relied on again.
+const IngressSelfDefenseOverlayMax = 1049
 
 // UsageEconomicsOverlayMax caps the extensible usage-economics reconciliation
 // growth allowance: only lines above each allowlisted file's locked baseline enter
@@ -138,7 +147,9 @@ var largePayloadHostCompositionOverlayPathMarkers = []string{
 // ingress self-defense HTTP driving adapter adds to the convergence surfaces.
 // Tasks 5.1 and 5.2 add the cycle-neutral projection, the credential-disposition
 // probe sibling and the process-owned state plus its generation projection by
-// exact file path.
+// exact file path. Task 6.1 adds the bounded process metrics collector, whose
+// package is outside every affected surface, by the self_defense_ filename
+// prefix so any later self-defense metrics file is ratcheted here too.
 var ingressSelfDefenseOverlayPathMarkers = []string{
 	"/stdhttp/selfdefense/",
 	"/stdhttp/contract/source_addr.go",
@@ -148,6 +159,7 @@ var ingressSelfDefenseOverlayPathMarkers = []string{
 	"/stdhttp/auth/selfdefense_observation.go",
 	"/runtimebundle/self_defense_process.go",
 	"/runtimebundle/self_defense_http.go",
+	"/infra/metrics/self_defense_",
 }
 
 // usageEconomicsGrowthFile is one allowlisted production file with its locked

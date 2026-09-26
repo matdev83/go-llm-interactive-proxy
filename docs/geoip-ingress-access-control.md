@@ -4,6 +4,8 @@ Go-LIP can optionally reject HTTP data-plane requests using a local Country MMDB
 
 GeoIP is approximate defense in depth. VPNs, proxies, relays, mobile networks, database lag, and misconfigured forwarding boundaries can produce false positives or negatives. It is not identity verification, proof of citizenship, sanctions screening, or legal-compliance evidence. Keep authentication, rate limiting, firewall/WAF, and identity policy enabled.
 
+The `client_ip` trust configuration documented below is shared with the default-on [ingress self-defense](ingress-self-defense.md) gate, which reuses it verbatim. Fixed country/IP/CIDR allow/deny policy stays exclusively here; self-defense owns only bounded adaptive quarantine, deterministic impossible-path rejection, and generic client-address resolution failure.
+
 ## Policy examples
 
 The policy order is exactly one of `deny_allow` or `allow_deny`. Within each class, countries and CIDRs are sets; configuration order does not matter.

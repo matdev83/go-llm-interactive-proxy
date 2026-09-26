@@ -172,7 +172,7 @@ func TestEconomicHealthPromMetricNamesAllowlisted(t *testing.T) {
 
 func TestEconomicHealthBundleWiresProm(t *testing.T) {
 	t.Parallel()
-	b := NewBundle(nil, nil)
+	b := NewBundle(nil, nil, nil)
 	if b == nil || b.EconomicHealth == nil {
 		t.Fatal("metrics.Bundle must own EconomicHealthProm")
 	}

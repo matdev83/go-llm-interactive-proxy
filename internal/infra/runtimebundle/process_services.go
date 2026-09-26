@@ -181,7 +181,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		ps.Concurrency = concurrencyRT.Service
 	}
 
-	ps.Metrics = buildProcessMetricsBundle(in.Cfg, postgresPools.Stats)
+	ps.Metrics = buildProcessMetricsBundle(in.Cfg, postgresPools.Stats, ps.IngressDefense)
 	if ps.Metrics != nil && ps.Metrics.GeoIP != nil && ps.GeoIP != nil {
 		status := ps.GeoIP.Status()
 		ps.Metrics.GeoIP.SetReady(status.Ready)

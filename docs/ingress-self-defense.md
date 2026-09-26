@@ -1,0 +1,119 @@
+# Ingress self-defense
+
+Go-LIP ships a small, **default-on** defense in front of the standard HTTP data plane. It rejects request targets that cannot plausibly belong to an AI proxy, tracks bounded per-source behaviour, and applies temporary exponential quarantine to repeated unauthenticated access attempts. It is deliberately *not* a WAF and not a threat-intelligence system.
+
+It runs as an early transport gate: a refusal happens before authentication, frontend decoding, routing, persistence, model execution, general HTTP tracing, and access logging. It applies only to the standard data-plane handler graph. The separate process-owned management/recovery listener is not wrapped, so the existing loopback or dedicated-token recovery path always stays available.
+
+## Default posture and explicit opt-out
+
+Omitting `access.self_defense` is identical to the documented defaults below. A normally exposed proxy therefore gets basic ingress self-defense with no extra setup.
+
+Opt out with an explicit boolean:
+
+```yaml
+access:
+  self_defense:
+    enabled: false          # removes the gate, the matcher, adaptive-state lookups and auth observation
+```
+
+Keep only the adaptive half, or only the deterministic path half, with the other explicit flag:
+
+```yaml
+access:
+  self_defense:
+    impossible_paths: false  # bypass the fixed matcher; adaptive quarantine still applies
+```
+
+A disabled generation is a structural fast path: no gate is installed, the process performs no request-side address resolution or state lookup, and the transport-auth chain is exactly the unobserved chain it was before the feature existed.
+
+## Shared client-address trust
+
+Self-defense resolves the source address with the **shared `access.geoip.client_ip`** configuration: the same direct-peer default, the same `source: x_forwarded_for` / `source: forwarded` selection, and the same `trusted_proxies` prefixes and parser bounds documented in [GeoIP ingress access control](geoip-ingress-access-control.md). There is deliberately no second self-defense forwarding-trust setting and no second trust boundary. If the immediate peer is not trusted, forwarding headers are ignored and the direct peer address is used; a malformed, ambiguous, oversized or overlong trusted chain fails closed with a generic refusal.
+
+Self-defense needs no GeoIP country database, so a deployment with country/CIDR enforcement switched off still receives the shared forwarding-trust boundary.
+
+## Adaptive exemptions
+
+`adaptive.exempt_cidrs` is an **allowlist** of sources exempt from adaptive state and quarantine. It is never a ban list:
+
+- It suppresses adaptive state mutation and quarantine only.
+- It never overrides an existing `access.geoip` hard denial.
+- It never makes a matched impossible-path request valid; an exempt source still receives the generic `404`.
+- It never creates prefix-keyed, subnet, ASN, or country state.
+
+```yaml
+access:
+  self_defense:
+    adaptive:
+      exempt_cidrs: [198.51.100.0/24, 2001:db8:1234::/48]
+```
+
+## Defaults and validation
+
+| Field | Default | Accepted range | Reload class |
+|---|---:|---|---|
+| `enabled` | `true` | boolean | reload |
+| `impossible_paths` | `true` | boolean | reload |
+| `adaptive.auth_failures` | `5` | `2`..`100` | reload |
+| `adaptive.window` | `1m` | `1s`..`1h` | reload |
+| `adaptive.initial_quarantine` | `1m` | `1s`..`1h` | reload |
+| `adaptive.max_quarantine` | `2h` | `>= initial_quarantine`, at most `24h` | reload |
+| `adaptive.state_ttl` | `24h` | `1m`..`168h` | restart |
+| `adaptive.max_entries` | `100000` | `1024`..`1000000` | restart |
+| `adaptive.exempt_cidrs` | empty | normalized IPv4/IPv6 prefixes | reload |
+
+Durations are Go duration strings, so `state_ttl` is written `168h` and **not** `7d`: the loader's duration parser has no day unit. The same applies to every other duration field.
+
+`lipstd check-config` validates this syntax, the durations, the entry bounds, the CIDRs, and the cross-field constraint above. It does not construct the process state table, bind a listener, download anything, or perform network I/O.
+
+## Reload and restart
+
+Request policy is generation-reloadable: `enabled`, `impossible_paths`, `auth_failures`, `window`, `initial_quarantine`, `max_quarantine`, and `exempt_cidrs`. A valid candidate is compiled and published as an immutable generation; in-flight SSE/WebSocket work stays pinned to the generation it started on, so a reload only affects requests admitted to the new generation.
+
+`state_ttl` and `max_entries` size the single process-owned adaptive table shared by every generation, so they are **restart-required**. A candidate that mixes reloadable changes with restart-required process-resource changes is rejected atomically: nothing is published and the last-good generation keeps serving with its existing state. Adaptive state survives a successful policy-only reload and is disposed only with the process.
+
+## Generic responses
+
+Refusals are generic and identical for every triggering request, so they never disclose a matched rule, a source address, a quarantine deadline, an offense level, a score, or any other security internal:
+
+- An impossible-path request receives a generic `404`. A generic 404 also hides the presence of the matcher itself.
+- An active quarantine that can positively prove the request cannot authenticate receives a generic `429`. No `Retry-After` hint is sent.
+- A source address that cannot be resolved into a usable identity receives a generic `403`.
+
+Credential-bearing and unknown-auth traffic may still **reach authentication** while an address is quarantined, so a legitimate user behind a shared public IP, VPN exit, carrier NAT, or corporate proxy is never locked out by another actor on the same address. Requests that reach authentication keep the existing authentication response semantics unchanged; self-defense never turns an authorization denial or a provider failure into a hostile verdict.
+
+## Successful authentication is a reset, not a trust cache
+
+A completed, successful full authentication chain clears that exact source address's accumulated adaptive state. That is a **reset**: it is not a trusted-IP entry, it expires nothing into permanence, and later hostile behaviour starts from a fresh offense level. A prior success never exempts a later impossible-path request and never overrides fixed `access.geoip` policy.
+
+## Observability
+
+Three bounded process metrics describe the feature, with a single finite label:
+
+| Metric | Type | Labels |
+|---|---|---|
+| `lip_self_defense_denials_total` | counter | `reason` |
+| `lip_self_defense_quarantine_transitions_total` | counter | `reason` |
+| `lip_self_defense_state_entries` | gauge | none |
+
+`reason` is one of `impossible_path`, `auth_failure_threshold`, `active_quarantine`, `client_ip_error`, or the finite `unknown` bucket. The metrics never label by source IP, CIDR text, request path, query, header, User-Agent, credential, principal, country, or any other attacker-controlled value, and the entry gauge reads the live process-owned state, so it reflects inserts, bounded eviction, successful-auth clears, and inactivity expiry.
+
+Metrics are not authoritative. A deployment with Prometheus scraping disabled projects no observer at all, and every security decision, state mutation, and response is identical. Per-request hostile-event **logging** is disabled: the refusals above carry no rule, address, or penalty detail, and the proxy adds no hostile-request log line by default.
+
+## Interaction with fixed access policy
+
+Fixed country, IP, and CIDR allow/deny policy remains exclusively under [`access.geoip`](geoip-ingress-access-control.md) and stays the authoritative network-access policy. Self-defense does not introduce a second general-purpose static IP/CIDR engine. When both are enabled, a GeoIP hard denial happens before any self-defense behaviour for the same request. `adaptive.exempt_cidrs` affects adaptive state and quarantine only and can never override a hard denial.
+
+## Deliberate non-goals for v1
+
+- No external reputation feed, threat-intelligence client, or updater framework.
+- No WAF, OWASP rule set, regex rule DSL, or request body/query-content inspection. Prompt and body content is never a reason to refuse a request on an otherwise legitimate proxy route.
+- No persistent or distributed ban state. The adaptive state is process-local and in-memory; a restart forgets it.
+- No automatic subnet escalation. One source address is never widened into a `/24`, `/64`, ASN, or country quarantine.
+- No volumetric L3/L4 DDoS protection, and no claim that every credential-bearing brute-force attempt is blocked before authentication.
+
+## See also
+
+- [GeoIP ingress access control](geoip-ingress-access-control.md) — the shared `client_ip` trust and the fixed network policy.
+- [Runtime configuration reload](runtime-config-reload.md) — generation publication, pinning, and restart-required fields.
+- [`config/config.yaml`](../config/config.yaml) — the commented and default-value reference block.

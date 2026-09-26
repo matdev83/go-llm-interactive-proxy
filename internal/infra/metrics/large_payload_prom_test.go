@@ -138,7 +138,7 @@ func TestLargePayloadProm_CardinalityAndRedaction(t *testing.T) {
 func TestLargePayloadProm_BundleIntegration(t *testing.T) {
 	t.Parallel()
 
-	b := NewBundle(nil, nil)
+	b := NewBundle(nil, nil, nil)
 	if b == nil {
 		t.Fatal("NewBundle returned nil")
 	}

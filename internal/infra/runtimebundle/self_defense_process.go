@@ -39,3 +39,15 @@ func configureSelfDefenseProcessService(ps *ProcessServices, cfg *config.Config)
 	ps.IngressDefense = state
 	return nil
 }
+
+// ingressDefenseEntryCount adapts the process-owned bounded adaptive state to the
+// scrape-driven source the self-defense entry-count gauge reads. State.Len is a
+// lock-free sum of per-shard atomic counters, so the read is bounded and cheap.
+func ingressDefenseEntryCount(state *ingressdefense.State) func() int {
+	return func() int {
+		if state == nil {
+			return 0
+		}
+		return state.Len()
+	}
+}

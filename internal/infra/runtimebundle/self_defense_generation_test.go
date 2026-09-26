@@ -89,8 +89,8 @@ func TestGenerationProjectsSelfDefenseWithoutGeoIPEnforcementPolicy(t *testing.T
 	if !sd.ImpossiblePaths {
 		t.Fatal("the default-on impossible-path matcher must be projected")
 	}
-	if sd.Observer != nil {
-		t.Fatal("no bounded self-defense metrics observer is registered yet; the projection must stay optional")
+	if sd.Observer != ps.Metrics.SelfDefense {
+		t.Fatalf("self-defense observer = %p, want the one process-owned bounded metrics collector %p", sd.Observer, ps.Metrics.SelfDefense)
 	}
 }
 

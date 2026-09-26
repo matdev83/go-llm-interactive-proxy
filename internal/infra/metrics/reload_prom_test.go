@@ -126,7 +126,7 @@ func TestReloadProm_CardinalityBoundedFixedLabels(t *testing.T) {
 
 func TestBundle_WiresReloadProm(t *testing.T) {
 	t.Parallel()
-	b := NewBundle(nil, nil)
+	b := NewBundle(nil, nil, nil)
 	if b == nil || b.Reload == nil {
 		t.Fatal("metrics.Bundle must own ReloadProm")
 	}

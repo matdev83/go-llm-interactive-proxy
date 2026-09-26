@@ -18,7 +18,7 @@ func TestNewBundle_executorSink(t *testing.T) {
 			Metrics: config.MetricsConfig{ExemplarsEnabled: true},
 		},
 	}
-	b := NewBundle(cfg, nil)
+	b := NewBundle(cfg, nil, nil)
 	allPresent := b != nil &&
 		b.Registry != nil &&
 		b.HTTP != nil &&
@@ -77,7 +77,7 @@ func TestNewBundle_executorSink(t *testing.T) {
 
 func TestTokenAccountingPromRecordsBoundedObservations(t *testing.T) {
 	t.Parallel()
-	b := NewBundle(&config.Config{}, nil)
+	b := NewBundle(&config.Config{}, nil, nil)
 	sink := b.TokenAccountingObservabilitySink()
 	if sink == nil {
 		t.Fatal("TokenAccountingObservabilitySink returned nil")
