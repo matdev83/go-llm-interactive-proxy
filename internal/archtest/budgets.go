@@ -230,9 +230,12 @@ var LineBudgets = []LineBudget{
 	// bounded, scope-aware inclusion graph, so an unprovable cover's commercial
 	// relevance follows recursively represented payable descendants and subset
 	// quantity consistency follows transitive subset ancestry: 102 more
-	// verified production lines; internal/core re-measured 141053, bump to
-	// 141078 with 25 headroom.
-	{Dir: "internal/core", Max: 141078},
+	// verified production lines.
+	// PR #666 64a repair makes containment one relation across all inclusion
+	// classes and lets the partition proof own an already-classified ancestor,
+	// adding 42 more; internal/core re-measured 141095, bump to 141120 with 25
+	// headroom.
+	{Dir: "internal/core", Max: 141120},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
 	// PR #666 adversarial F1 native-audio admission guard; re-measured 13817,

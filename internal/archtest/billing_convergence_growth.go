@@ -46,7 +46,16 @@ import (
 // overlap rules already use. component_rater_partition.go 1513 -> 1615 (+102
 // measured); the allowance re-measured 55,841 -> 55,943 lines, reset to 55,968
 // with 25 headroom.
-const EconomicsConvergenceGrowthOverlayMax = 55968
+// PR #666 64a repair makes containment ONE relation across all inclusion classes:
+// the graph carries a merged containment view, so a chain that changes class
+// partway (A subset B, B partition C) is bounded like a pure chain, and an
+// ancestor the partition proof already classified is left to that more precise
+// diagnosis instead of being restated. The complete-coverage proof also no longer
+// skips a partition whose members are ALL absent when one of them is REQUIRED.
+// component_rater.go 1976 -> 1994 and component_rater_partition.go 1615 -> 1641
+// (+44 measured); the allowance re-measured 55,968 -> 56,014 lines, reset to
+// 56,037 with 25 headroom.
+const EconomicsConvergenceGrowthOverlayMax = 56037
 
 // economicsConvergenceGrowthEntry is one allowlisted denominator file with its
 // locked merge-base (c7fa4169) line count, audited credit, category attribution,
@@ -90,9 +99,9 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/billing/call_usage.go", baseline: 332, credit: 182, category: "terminal", provenance: "modified"},
 	{path: "internal/core/billing/commands.go", baseline: 213, credit: 9, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/complete_call.go", baseline: 43, credit: 3, category: "lifecycle", provenance: "modified"},
-	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1976, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1994, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_finalize.go", baseline: 0, credit: 394, category: "rating", provenance: "new"},
-	{path: "internal/core/billing/component_rater_partition.go", baseline: 0, credit: 1615, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_partition.go", baseline: 0, credit: 1641, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_validation.go", baseline: 0, credit: 216, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rating_contract.go", baseline: 0, credit: 383, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/cost_pass_through.go", baseline: 0, credit: 348, category: "settlement", provenance: "new"},

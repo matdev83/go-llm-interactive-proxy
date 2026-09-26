@@ -460,14 +460,6 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	// billers for that share. The evidence and observation references are never
 	// removed; only the spurious rate-missing diagnostic is excused.
 	completePartitionParents, contradictedPartitions, incomparablePartitions, incompletePartitions := r.completeChildPartitionCoverage(consistencyAggregates, qualifiers)
-	// A declared subset is contained in its parent, so a subset quantity that
-	// strictly exceeds its parent's is inconsistent evidence whatever either
-	// side costs. This is a quantity fact, so it is proved on the same reduced
-	// consistency evidence as the partition conservation check and before
-	// effective charge positivity can drop the parent out of the monetary
-	// overlap graph. A missing or unavailable operand is deliberately not
-	// reported: the arithmetic is not comparable, so the operand stays missing.
-	subsetContradictions := r.subsetQuantityContradictions(consistencyAggregates)
 	if err != nil {
 		valuation.Completeness = economics.CompletenessPartial
 		// A reduction may contain both independently complete and incomplete
@@ -611,6 +603,32 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	// money and an unreported unpriced child certifies nothing about it, which
 	// keeps the stock aggregate-only OpenAI family rating complete.
 	incompletePartitions = chargeCarryingIncompletePartitions(incompletePartitions, payableByScope)
+	// Every non-transform inclusion edge means the child is contained in its
+	// parent, so a contained quantity that strictly exceeds its ancestor's is
+	// inconsistent evidence whatever either side costs. This is a quantity fact,
+	// so it is proved on the same reduced consistency evidence as the partition
+	// conservation check and never on effective charge positivity: a zero-priced,
+	// explicit-free or wholly unpriced ancestor is exactly the side a monetary
+	// overlap graph drops from its own view. A missing or unavailable operand is
+	// deliberately not reported: the arithmetic is not comparable, so the operand
+	// stays missing.
+	//
+	// A parent the partition proof already classified owns that same
+	// inconsistency more precisely, so the walk skips it rather than adding a
+	// second, differently-worded diagnosis for one root cause. The three
+	// classifications are exactly the set of declared complete partitions the
+	// proof rejected: conservation violated, children ambiguously shared, or a
+	// required member never observed. The commercial-relevance filter above is
+	// already applied, so a parent that bills a positive amount is NOT treated as
+	// diagnosed: its partition rejection is silent, leaving this walk as the only
+	// thing that can catch a violated bound. The unobserved classifications merged
+	// above are absent on purpose, because the walk only starts from an OBSERVED
+	// parent and an unobserved one can never be an ancestor.
+	diagnosedAncestors := make(map[string]map[string]struct{})
+	mergePartitionSet(&diagnosedAncestors, contradictedPartitions)
+	mergePartitionSet(&diagnosedAncestors, incomparablePartitions)
+	mergePartitionSet(&diagnosedAncestors, incompletePartitions)
+	containmentContradictions := r.containmentQuantityContradictions(consistencyAggregates, diagnosedAncestors)
 	for _, entry := range rated {
 		if schemaConflictSuppressed(overlapConflicts, entry.item) {
 			continue
@@ -716,17 +734,17 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 			}
 		}
 	}
-	if overlapErr == nil && len(subsetContradictions) != 0 {
-		// A subset that exceeds its own parent is physically impossible
-		// evidence. It is neither an ambiguity nor a missing operand, so it gets
-		// its own typed classification; independent lines stay payable and the
-		// residual is never invented.
+	if overlapErr == nil && len(containmentContradictions) != 0 {
+		// A contained quantity that exceeds its own ancestor is physically
+		// impossible evidence. It is neither an ambiguity nor a missing operand,
+		// so it gets its own typed classification; independent lines stay payable
+		// and the residual is never invented.
 		valuation.Completeness = economics.CompletenessPartial
-		if subsetErr := schemaPartitionDiagnostic(ErrSchemaSubsetContradiction, subsetContradictions); subsetErr != nil {
+		if containmentErr := schemaPartitionDiagnostic(ErrSchemaSubsetContradiction, containmentContradictions); containmentErr != nil {
 			if unavailable == nil {
-				unavailable = subsetErr
+				unavailable = containmentErr
 			} else {
-				unavailable = errors.Join(unavailable, subsetErr)
+				unavailable = errors.Join(unavailable, containmentErr)
 			}
 		}
 	}

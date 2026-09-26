@@ -49,13 +49,13 @@ import (
 // bounded, scope-aware inclusion graph, so an unprovable cover's commercial
 // relevance follows recursively represented payable descendants and subset
 // quantity consistency follows transitive subset ancestry: 102 more verified
-// production lines, re-auditing internal/core to 141053; runtimebundle, stdhttp,
+// production lines, re-auditing internal/core to 141095; runtimebundle, stdhttp,
 // process_services.go, and the connector overlay are unchanged by that
 // growth-budget refresh.
 const (
 	phase20AuditRuntimebundleLines    = 13817
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 141053
+	phase20AuditCoreLines             = 141095
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

@@ -474,6 +474,28 @@ func runReviewF356SettlementFence(t *testing.T, open func(t *testing.T) *Durable
 				f356M(f63Key("chain_c"), "20"),
 			},
 		},
+		{
+			// 64a P1: containment is one relation regardless of the edge class it
+			// was declared with, so the chain A -subset-> B -partition-> C bounds
+			// C by A even though no single edge class walks from A to C. B is
+			// unobserved, and 20 > 10 must not settle as complete money.
+			name:       "mixed_class_containment_chain_cannot_settle",
+			wantRating: billing.ErrSchemaSubsetContradiction,
+			accountID:  "reviewf356-64a-mixed-chain",
+			bLegID:     "b-f356-64a-mixed-chain",
+			relationships: []metering.ComponentRelationship{
+				{Kind: metering.RelationshipSubset, Parent: f63Key("mixed_a"), Child: f63Key("mixed_b")},
+				{Kind: metering.RelationshipPartition, Parent: f63Key("mixed_b"), Child: f63Key("mixed_c")},
+			},
+			rules: []economics.RatingRule{
+				f356LinearRule(t, "reviewf356-64a-mixed-a", f63Key("mixed_a"), "0"),
+				f356LinearRule(t, "reviewf356-64a-mixed-c", f63Key("mixed_c"), "1"),
+			},
+			measures: []f356Measure{
+				f356M(f63Key("mixed_a"), "10"),
+				f356M(f63Key("mixed_c"), "20"),
+			},
+		},
 	}
 	for _, testCase := range rejects {
 		testCase := testCase
