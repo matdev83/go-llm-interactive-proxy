@@ -49,7 +49,18 @@ func buildTerminalResponseHeaderNames() map[string]struct{} {
 // only; product wiring must supply providers so anonymous pass-through never replaces configured
 // authentication (auth-architecture 1.7 / 5.6). A non-empty nil-only list fails closed (HTTP 500).
 // When log is non-nil, provider failures emit one structured log line (trace via request context).
+// It is the zero-hook compatibility wrapper around [SelfDefenseMiddleware] and observes nothing.
 func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handler) http.Handler {
+	return middleware(log, providers, SelfDefenseHooks{}, next)
+}
+
+// middleware is the single provider-chain chokepoint. With no hooks the only added
+// request work is one local flag plus one bool store inside the already existing
+// principal case and the nil-checked hooks on the already existing terminal and
+// delegation paths: no allocation, no additional provider invocation, no
+// source-address read.
+func middleware(log *slog.Logger, providers []httpauth.Provider, hooks SelfDefenseHooks, next http.Handler) http.Handler {
+	observe := hooks.RecordAuthFailure != nil || hooks.ClearSource != nil
 	nonNil := compactNonNilHTTPAuthProviders(providers)
 	if len(nonNil) == 0 {
 		if len(providers) > 0 {
@@ -85,7 +96,10 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 		// Capture credential matchers at each Principal success while header state is current,
 		// but defer attaching the pending matcher until the full provider chain succeeds.
 		// Principal, scope, and ingress attribution still propagate during the chain.
+		// hadPrincipal only records that a provider accepted the request; the adaptive
+		// entry is cleared only once the whole chain completes without a terminal rejection.
 		var pendingMatcher secretguard.Matcher
+		var hadPrincipal bool
 		for _, p := range nonNil {
 			res, err := p.Authenticate(ctx, w, r)
 			if err != nil {
@@ -105,6 +119,7 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 			case httpauth.TypeContinue:
 				continue
 			case httpauth.TypePrincipal:
+				hadPrincipal = true
 				ctx = httpauth.WithPrincipal(ctx, res.Principal)
 				if res.Scope != nil {
 					ctx = httpauth.WithScope(ctx, *res.Scope)
@@ -119,6 +134,12 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 			case httpauth.TypeAnnotate:
 				mergeAnnotateResponseHeaders(ctx, log, w.Header(), res.ResponseHeaders)
 			case httpauth.TypeReject, httpauth.TypeChallenge:
+				// Score a qualifying unauthenticated failure before the existing
+				// termination response is written, so recorded state never depends
+				// on how that response renders.
+				if observe {
+					hooks.recordPrePrincipalFailure(ctx, hadPrincipal, res)
+				}
 				writeTermination(ctx, log, w, res)
 				return
 			default:
@@ -134,6 +155,12 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 		}
 		// Align with [PolicyProvider.frontendID] when [PolicyProvider.FrontendID] is nil (path-derived wire id).
 		ctx = execview.WithFrontendID(ctx, DefaultFrontendIDFromRequest(r))
+		// The full chain completed with no terminal rejection and at least one
+		// accepted principal: clear the exact-address adaptive state immediately
+		// before the route mux runs.
+		if observe && hadPrincipal {
+			hooks.clearSource(ctx)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

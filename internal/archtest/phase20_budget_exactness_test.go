@@ -16,11 +16,14 @@ import (
 // Tasks 2.1 and 2.2 add the bounded sharded adaptive source state: re-measured
 // 138172, bump to 138197 with 25 headroom. Tasks 3.1 and 3.2 add the stdhttp
 // self-defense driving adapter and the cycle-neutral request-context
-// source-address helper: re-measured 7607 (stdhttp), bump to 7632 with 25
+// source-address helper: re-measured 7611 (stdhttp), superseded by the tasks 4.1/4.2
+// headroom. Tasks 4.1 and 4.2 add the transport-auth self-defense outcome
+// observer and the private conservative credential-presence probe under
+// internal/stdhttp/auth: re-measured 7789 (stdhttp), bump to 7814 with 25
 // headroom.
 const (
 	phase20AuditRuntimebundleLines    = 13631
-	phase20AuditStdhttpLines          = 7607
+	phase20AuditStdhttpLines          = 7789
 	phase20AuditCoreLines             = 138172
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321

@@ -57,12 +57,16 @@ const TerminalDecisionFeatureExtensionOverlayMax = 622
 const LargePayloadHostCompositionOverlayMax = 291
 
 // IngressSelfDefenseOverlayMax ratchets the ingress self-defense request-side
-// classification (the fixed impossible-path matcher, the early gate, and the
-// cycle-neutral request-context source-address helper) independently from the
+// classification (the fixed impossible-path matcher, the early gate, the
+// cycle-neutral request-context source-address helper, and the transport-auth
+// observer and conservative credential-presence probe) independently from the
 // legacy convergence delta, exactly as the preceding GeoIP ingress overlay does
-// for the resolver and early gate it reuses. Harness-measured 467, reset to 492
-// with 25 headroom.
-const IngressSelfDefenseOverlayMax = 492
+// for the resolver and early gate it reuses, plus the task 4.1/4.2 auth-adapter
+// files. Tasks 4.1 and 4.2 add the transport-auth self-defense
+// outcome observer and the private conservative credential-presence probe, whose
+// new production files join this overlay: re-measured 622, reset to 647 with 25
+// headroom.
+const IngressSelfDefenseOverlayMax = 647
 
 // UsageEconomicsOverlayMax caps the extensible usage-economics reconciliation
 // growth allowance: only lines above each allowlisted file's locked baseline enter
@@ -135,6 +139,8 @@ var largePayloadHostCompositionOverlayPathMarkers = []string{
 var ingressSelfDefenseOverlayPathMarkers = []string{
 	"/stdhttp/selfdefense/",
 	"/stdhttp/contract/source_addr.go",
+	"/stdhttp/auth/credential_probe.go",
+	"/stdhttp/auth/selfdefense_observation.go",
 }
 
 // usageEconomicsGrowthFile is one allowlisted production file with its locked
