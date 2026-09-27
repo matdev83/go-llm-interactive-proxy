@@ -80,8 +80,8 @@ const LargePayloadHostCompositionOverlayMax = 291
 // itself) and publishes the inventory on the cycle-neutral projection, which is
 // the fix for a default-on layer silently shadowing an operator-configured
 // base_path: harness-re-measured 1218, reset to 1243 with the usual 25-line
-// headroom.
-const IngressSelfDefenseOverlayMax = 1243
+// headroom.`n// The carve-fidelity follow-up then replaces that string-root inventory with a`n// router-resolved typed one: [OwnedRoute] carries the method, the path and whether the`n// registration is a subtree, the resolver asks the real mux which candidates it owns`n// and with which semantics, and the gate compiles the result once at construction so`n// the request path allocates nothing. Harness-re-measured 1463, reset to 1488 with the`n// usual 25-line headroom.
+const IngressSelfDefenseOverlayMax = 1488
 
 // UsageEconomicsOverlayMax caps the extensible usage-economics reconciliation
 // growth allowance: only lines above each allowlisted file's locked baseline enter

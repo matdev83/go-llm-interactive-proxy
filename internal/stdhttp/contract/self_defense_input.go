@@ -54,6 +54,39 @@ type SelfDefenseObserver interface {
 	QuarantineTransition(reason ingressdefense.Reason, entryCount int)
 }
 
+// OwnedRoute is one data-plane route the running generation actually owns, with
+// the router's own match semantics.
+//
+// The deterministic impossible-path families are heuristic probe prefixes, but the
+// data-plane path surface is operator-configurable to any normalized absolute
+// non-root path, so those two spaces overlap and a published route must never be
+// refused. This type exists because a published route is not one concept but two:
+// an EXACT registration, which owns one method/path pair, and a SUBTREE
+// registration, which owns everything below a trailing-slash path. Collapsing both
+// into a plain string is what previously made the carve a case-insensitive subtree
+// and let probes through that the router does not route.
+type OwnedRoute struct {
+	// Method is the HTTP method this route is registered for, or empty when the
+	// registration carries no method and therefore answers every method.
+	Method string
+	// Path is the router's own pattern path, already normalized, and already
+	// carrying the trailing separator when Subtree is true.
+	Path string
+	// Subtree reports whether this route owns its whole subtree. It is true only
+	// when the router's pattern ends in a separator, which is exactly the
+	// trailing-slash registration form.
+	Subtree bool
+}
+
+// OwnedRouteCandidate is a method/path pair that MIGHT be published by this
+// generation. It is an input to ownership resolution, not a statement of
+// ownership: whether the router really owns the pair, and with which match
+// semantics, is decided by the router.
+type OwnedRouteCandidate struct {
+	Method string
+	Path   string
+}
+
 // SelfDefenseSecurityInput is the cycle-neutral, non-owning generation
 // projection of ingress self-defense into the standard data-plane handler graph.
 //
@@ -82,22 +115,23 @@ type SelfDefenseSecurityInput struct {
 	// ImpossiblePaths toggles the fixed impossible-path matcher. Disabling it
 	// bypasses only the matcher and retains adaptive quarantine behavior.
 	ImpossiblePaths bool
-	// OwnedRoots are the data-plane routes this generation publishes, already
-	// normalized to an absolute path: the operator-configured diagnostics,
-	// metrics and operator-mount paths, plus every enabled frontend's claimed
-	// route paths.
+	// OwnedRouteCandidates are the method/path pairs this configuration could
+	// publish: the operator-configured diagnostics, metrics and operator-mount
+	// paths, plus every enabled frontend's claimed route paths.
 	//
-	// A published route is authoritative, so the deterministic matcher never
-	// refuses one. The configuration surface for a frontend base path and for a
-	// diagnostics or metrics mount path is any normalized absolute non-root path,
-	// which includes paths inside the frozen impossible-path families; without
-	// this inventory a default-on security layer would silently make such a route
-	// unreachable while the configuration and compiler layers still accept it.
-	//
-	// The carve is exact per published root and never widens past these roots. An
-	// empty or absent inventory keeps the pre-carve behavior, so a generation that
-	// projects no inventory still refuses every frozen family.
-	OwnedRoots []string
+	// They are deliberately CANDIDATES, not an inventory. Reading a configured
+	// value does not mean the router owns it: a diagnostics block with
+	// enabled=false mounts nothing, and a path shape does not tell you whether the
+	// registration was exact or a trailing-slash subtree. Composition therefore
+	// resolves these against the real router, and the resolved owned routes are
+	// what the gate receives.
+	OwnedRouteCandidates []OwnedRouteCandidate
+	// OwnedRoutes is the resolved inventory: what the router that was just built
+	// actually owns, with the router's own match semantics. Composition fills it
+	// after the last mount and before the stack; it is deliberately not derivable
+	// from the candidates alone, because ownership and match semantics are
+	// properties of the router.
+	OwnedRoutes []OwnedRoute
 	// Probe is the optional conservative credential-presence probe.
 	Probe CredentialProbe
 	// Observer is the optional bounded metrics seam.

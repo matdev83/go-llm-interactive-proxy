@@ -1,7 +1,10 @@
 package selfdefense_test
 
 import (
+	"net/http"
+	"net/url"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
@@ -103,10 +106,14 @@ func standardFrontendRouteClaims(t *testing.T) []httpcontract.RouteClaim {
 // route". base_path is an arbitrary operator-configurable normalized absolute
 // non-root path, so overlap with a frozen family is a legitimate, accepted
 // configuration rather than a bug. The invariant that must hold is the one an
-// operator depends on: a published route is never refused, for ANY base path. Each
-// claim is therefore checked against the owned-route carve the generation actually
-// supplies, which is what makes this exhaustive over the base_path space instead of
-// dependent on a sampled list of configurations.
+// operator depends on: a published route is never refused, for ANY base path.
+//
+// Each claim is checked the way the gate actually decides: registered on a real
+// router, resolved into owned routes by that router, and then asked whether the
+// matcher refuses it. That makes the test exhaustive over the base_path space
+// instead of dependent on a sampled list of configurations, and it keeps the test
+// honest about exact-versus-subtree and case sensitivity, which a plain path string
+// cannot express.
 func TestBuiltInImpossiblePathSetNeverMakesAPublishedRouteUnreachable(t *testing.T) {
 	t.Parallel()
 
@@ -116,16 +123,34 @@ func TestBuiltInImpossiblePathSetNeverMakesAPublishedRouteUnreachable(t *testing
 	}
 	colliding := 0
 	for _, claim := range claims {
+		mux := http.NewServeMux()
+		mux.Handle(claim.Method+" "+claim.Path, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		owned := selfdefense.NewOwnedRoutes(selfdefense.OwnedRoutesFromMux(mux, []httpcontract.OwnedRouteCandidate{
+			{Method: claim.Method, Path: claim.Path},
+		}))
+		// The precise contract: the matcher refuses a path exactly when it matches a
+		// frozen family AND the router does not own it. That is checked for the route
+		// itself and for its trailing-slash form, because a trailing-slash form is a
+		// different path that a literal registration does not own.
 		for _, path := range []string{claim.Path, claim.Path + "/"} {
-			// The generation publishes this route, so the gate is given this route
-			// as an owned root.
-			if selfdefense.ImpossiblePath(path, path) {
-				t.Errorf("published route %s %s (owner %q, kind %q) is still refused as impossible for a self-owned route",
-					claim.Method, path, claim.OwnerID, claim.Kind)
+			refused := selfdefense.ImpossiblePathExcept(path, claim.Method, owned)
+			if want := selfdefense.ImpossiblePath(path) && !servesPattern(mux, claim.Method, path); refused != want {
+				t.Errorf("%s %s (owner %q): refused = %v, want %v (family match and not owned by the router)",
+					claim.Method, path, claim.OwnerID, refused, want)
 			}
 		}
+		// Where the route does collide with a frozen family, the carve must still
+		// stop at the route the router owns: a descendant and a case variant are
+		// different paths, so both stay probes. A non-colliding claim has nothing to
+		// check here, because those paths are ordinary traffic either way.
 		if selfdefense.ImpossiblePath(claim.Path) {
 			colliding++
+			for _, probe := range []string{claim.Path + "/adminer.php", strings.ToUpper(claim.Path)} {
+				if !selfdefense.ImpossiblePathExcept(probe, claim.Method, owned) {
+					t.Errorf("published route %q widened the carve: %q is not owned by the router and must stay refused",
+						claim.Path, probe)
+				}
+			}
 		}
 	}
 	// The fixture must actually exercise the overlapping case, or this test would
@@ -133,8 +158,6 @@ func TestBuiltInImpossiblePathSetNeverMakesAPublishedRouteUnreachable(t *testing
 	if colliding == 0 {
 		t.Fatal("no standard frontend claim collides with a frozen family: the colliding base paths in the fixture are no longer being exercised")
 	}
-	// That a published root does not widen the carve beyond the published routes
-	// is asserted precisely, with hand-picked colliding roots, in owned_routes_test.go.
 }
 
 // TestBuiltInImpossiblePathSetDoesNotOverlapManagementRecoverySurface proves the
@@ -152,4 +175,30 @@ func TestBuiltInImpossiblePathSetDoesNotOverlapManagementRecoverySurface(t *test
 			t.Errorf("built-in impossible-path set collides with management path %q", path)
 		}
 	}
+}
+
+// servesPattern reports whether the router routes this method/path to a dedicated
+// registration rather than to its fallback, using the router's own resolution.
+func servesPattern(mux *http.ServeMux, method, path string) bool {
+	req := &http.Request{Method: method, URL: &url.URL{Path: path}}
+	_, pattern := mux.Handler(req)
+	_, dedicated, _ := splitForTest(pattern)
+	return dedicated != ""
+}
+
+func splitForTest(pattern string) (method, path string, subtree bool) {
+	if pattern == "" {
+		return "", "", false
+	}
+	method, path = "", pattern
+	if before, rest, found := strings.Cut(pattern, " "); found {
+		method, path = before, strings.TrimSpace(rest)
+	}
+	if path == "" || path == "/" {
+		return "", "", false
+	}
+	if strings.HasSuffix(path, "/") {
+		return method, path, true
+	}
+	return method, path, false
 }

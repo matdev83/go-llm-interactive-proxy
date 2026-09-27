@@ -57,22 +57,25 @@ type Input struct {
 	// ImpossiblePaths toggles the fixed matcher. Disabling it bypasses only the
 	// matcher; adaptive quarantine behavior is retained.
 	ImpossiblePaths bool
-	// OwnedRoots are the data-plane routes this generation actually publishes:
-	// frontend claim paths and the operator-configured diagnostics, metrics and
-	// operator-mount paths, each already normalized to an absolute path.
+	// OwnedRoutes are the data-plane routes the RUNNING ROUTER owns, already
+	// resolved with the router's own match semantics: an exact registration owns
+	// one method/path pair, a trailing-slash registration owns its subtree, and
+	// comparison is case-sensitive exactly as the router's is.
 	//
 	// A published route is authoritative, so the deterministic matcher never
-	// refuses one. This is what keeps a default-on security layer from silently
-	// invalidating a configuration the config and compiler layers accept: the
-	// configuration surface for a frontend base path and for a diagnostics or
-	// metrics mount path is any normalized absolute non-root path, which includes
-	// paths inside the frozen impossible families.
+	// refuses one. The configuration surface for a frontend base path and for a
+	// diagnostics, metrics or operator-mount path is any normalized absolute
+	// non-root path, which includes paths inside the frozen impossible families, so
+	// without this inventory a default-on security layer would make a valid
+	// configuration's route unreachable.
 	//
-	// The carve is exact per published route and never widens past these roots: a
-	// probe beside a published route, in the same family, is still refused and
-	// still scores. An empty or absent inventory keeps the pre-carve behavior, so
-	// a generation that projects no inventory still refuses every frozen family.
-	OwnedRoots []string
+	// This is the router's answer, not a path-shaped guess: a configured path whose
+	// feature is disabled is not mounted and therefore carves nothing, and an exact
+	// registration does not carve its own subtree. An empty or absent inventory
+	// keeps the full pre-carve behavior, so a generation that projects no inventory
+	// still refuses every frozen family.
+	OwnedRoutes []httpcontract.OwnedRoute
+
 	// Probe is the optional conservative credential-presence probe consulted for
 	// a quarantined source.
 	Probe CredentialProbe
@@ -112,6 +115,9 @@ func Middleware(in Input, next http.Handler) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
+	// The owned-route inventory is compiled ONCE, here, so the request path is a
+	// slice comparison with no normalization and no allocation.
+	owned := NewOwnedRoutes(in.OwnedRoutes)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		addr, err := geoipingress.ResolveClientIP(r, in.Resolver)
 		if err != nil {
@@ -122,7 +128,7 @@ func Middleware(in Input, next http.Handler) http.Handler {
 		r = r.WithContext(httpcontract.WithSourceAddr(r.Context(), addr))
 		exempt := policy.AdaptiveExempt(addr)
 
-		if in.ImpossiblePaths && r.URL != nil && ImpossiblePath(r.URL.Path, in.OwnedRoots...) {
+		if in.ImpossiblePaths && r.URL != nil && ImpossiblePathExcept(r.URL.Path, r.Method, owned) {
 			if !exempt && in.State != nil {
 				recordTransition(in.Observer, in.State.RecordProbe(addr, now(), *policy))
 			}
