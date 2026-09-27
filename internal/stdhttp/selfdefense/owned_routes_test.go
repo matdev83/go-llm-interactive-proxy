@@ -4,219 +4,319 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/ingressdefense"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 )
 
-// clientAddr is the source address the owned-route cases use, so the carve
-// assertions and the probe assertions can be compared on one identity.
+// realMuxServed builds the gate in front of a real mux whose handlers answer 200, so
+// a delegated request is observable as 200 and a refused one as 404.
+func realMuxServed(t *testing.T, owned []httpcontract.OwnedRoute, downstream http.Handler) http.Handler {
+	t.Helper()
+	in := testInput(t, testState(t), &gateObserver{})
+	in.OwnedRoutes = owned
+	return Middleware(in, downstream)
+}
+
+// clientAddr is the source address the carve cases use, so the served and the
+// refused assertions compare on one identity.
 var clientAddr = netip.MustParseAddr("203.0.113.10")
 
-// TestFrozenFamiliesClaimOperatorConfiguredBasePaths is the matcher-level
-// statement of the defect this file exists for. OpenResponses accepts any
-// normalized absolute non-root base_path, so /wp-admin and /.github are valid
-// operator configurations that produce real data-plane routes, and the frozen
-// families claim them. Without an owned-route carve the gate answers those routes
-// with the generic 404 before the frontend ever sees them.
-//
-// This test is deliberately an assertion that the families DO collide: it is the
-// evidence that the carve is load-bearing rather than theoretical, and it fails
-// loudly if someone later narrows the families to where the carve would be dead
-// code.
-func TestFrozenFamiliesClaimOperatorConfiguredBasePaths(t *testing.T) {
+// realMuxCarve builds a real http.ServeMux with the registration forms the
+// distribution actually uses, resolves the owned routes from THAT router, and
+// returns a gate in front of it. Every assertion in this file is therefore about
+// the routing model the application has, not a downstream stub that returns 200
+// for anything.
+func realMuxCarve(t *testing.T, owned []httpcontract.OwnedRoute) (http.Handler, *gateObserver, *ingressdefense.State) {
+	t.Helper()
+	state := testState(t)
+	observer := &gateObserver{}
+	in := testInput(t, state, observer)
+	in.OwnedRoutes = owned
+	return Middleware(in, neverDownstream(t)), observer, state
+}
+
+// TestCarveModelsTheRouterNotACaseInsensitiveSubtree is the regression for the
+// carve-boundary defect. The carve must reproduce the real http.ServeMux, which is
+// case-sensitive and distinguishes an exact registration from a subtree one. An
+// earlier []string root model treated every published path as a case-insensitive
+// subtree, so with a real route POST /wp-admin/responses it also let through
+// /wp-admin/responses/.env (no such route) and /WP-ADMIN/responses (a different
+// path). Both are impossible-path probes and must still be refused and score.
+func TestCarveModelsTheRouterNotACaseInsensitiveSubtree(t *testing.T) {
 	t.Parallel()
 
-	for _, path := range []string{
-		"/wp-admin/responses",
-		"/wp-admin/responses/compact",
-		"/.github/responses",
-		"/cgi-bin/responses",
-		"/phpmyadmin/responses",
-		"/pma/responses",
-		"/vendor/phpunit/responses",
-	} {
-		if !ImpossiblePath(path) {
-			t.Errorf("ImpossiblePath(%q) = false, want true: the frozen families are expected to claim operator-configurable base paths, which is why the owned-route carve exists", path)
+	mux := http.NewServeMux()
+	mux.Handle("POST /wp-admin/responses", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	mux.Handle("GET /wp-admin/responses", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	owned := OwnedRoutesFromMux(mux, []httpcontract.OwnedRouteCandidate{
+		{Method: http.MethodPost, Path: "/wp-admin/responses"},
+		{Method: http.MethodGet, Path: "/wp-admin/responses"},
+	})
+	if len(owned) != 2 {
+		t.Fatalf("owned routes = %+v, want one exact route per method", owned)
+	}
+	for _, route := range owned {
+		if route.Subtree {
+			t.Errorf("route %+v must be exact: ServeMux registered a literal path, not a subtree", route)
 		}
+	}
+
+	handler, observer, state := realMuxCarve(t, owned)
+	// Only paths the router does NOT own belong in this table; the served case is
+	// TestOwnedRouteServesItsOwnRequest, which runs against a real downstream.
+	for _, tc := range []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"descendant of an exact route", http.MethodPost, "/wp-admin/responses/.env"},
+		{"case variant", http.MethodPost, "/WP-ADMIN/responses"},
+		{"mixed-case variant", http.MethodPost, "/Wp-Admin/Responses"},
+		{"trailing segment", http.MethodPost, "/wp-admin/responsesX"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			observer.denials = nil
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, newRequest(t, tc.method, tc.path, testClient))
+			// neverDownstream fails the test if a request is delegated, so a non-404
+			// status here has already failed. Assert the refusal and the scoring.
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("status = %d, want 404", rec.Code)
+			}
+			if servesRealRoute(mux, tc.method, tc.path) {
+				t.Fatalf("fixture: %s %s must NOT be a real route", tc.method, tc.path)
+			}
+			if len(observer.denials) == 0 {
+				t.Errorf("%s %s is not a real route but recorded no impossible-path denial", tc.method, tc.path)
+			}
+			if !state.IsQuarantined(clientAddr, testNow) {
+				t.Errorf("%s %s is not a real route but did not score a quarantine", tc.method, tc.path)
+			}
+		})
+	}
+	// And the owned route itself must be carved, checked through the matcher.
+	if ImpossiblePathExcept("/wp-admin/responses", http.MethodPost, NewOwnedRoutes(owned)) {
+		t.Error("the owned exact route must not be refused")
 	}
 }
 
-// TestOwnedRootsCarveExactlyThePublishedRoutes is the carve contract. A published
-// route inside an owned root reaches the data plane, a probe beside it in the same
-// impossible family does not, and the carve never widens past the roots the
-// generation actually publishes.
-func TestOwnedRootsCarveExactlyThePublishedRoutes(t *testing.T) {
+// TestOwnedRouteServesItsOwnRequest proves the positive case against the real
+// router: a request the mux actually owns must reach it, not be refused.
+func TestOwnedRouteServesItsOwnRequest(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct {
-		name       string
-		roots      []string
-		path       string
-		wantStatus int
-		wantDenied bool
-	}{
-		// Published routes, carved out of the frozen families.
-		{"carved create route", []string{"/wp-admin/responses"}, "/wp-admin/responses", http.StatusOK, false},
-		{"carved sibling route", []string{"/wp-admin/responses"}, "/wp-admin/responses/compact", http.StatusOK, false},
-		{"carved dotfile root", []string{"/.github/responses"}, "/.github/responses", http.StatusOK, false},
-		{"carved trailing slash", []string{"/wp-admin/responses"}, "/wp-admin/responses/", http.StatusOK, false},
-		{"carved leading slash run", []string{"/wp-admin/responses"}, "///wp-admin/responses", http.StatusOK, false},
-		{"carved with query string", []string{"/wp-admin/responses"}, "/wp-admin/responses?stream=true", http.StatusOK, false},
-		// A configured root is a root: everything under it is the operator's
-		// surface, and a deeper published path is carved with it.
-		{"carved below a root", []string{"/wp-admin"}, "/wp-admin/anything/at/all", http.StatusOK, false},
-		// A repeated INTERIOR separator is not a published route. The router
-		// answers it with a canonicalizing redirect rather than a handler, so the
-		// carve must not claim it: the matcher normalizes only a leading run of
-		// separators, and the carve compares against that same normalization.
-		{"interior slash run not carved", []string{"/wp-admin/responses"}, "//wp-admin//responses", http.StatusNotFound, true},
+	mux := http.NewServeMux()
+	served := make(chan string, 4)
+	mux.Handle("POST /wp-admin/responses", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		served <- r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	owned := OwnedRoutesFromMux(mux, []httpcontract.OwnedRouteCandidate{{Method: http.MethodPost, Path: "/wp-admin/responses"}})
 
-		// Probes in the SAME family but outside the published routes stay
-		// refused. This is the security value the carve must not cost.
-		{"probe beside a carved route", []string{"/wp-admin/responses"}, "/wp-admin/adminer.php", http.StatusNotFound, true},
-		{"probe outside a subtree carve", []string{"/wp-admin/responses"}, "/wp-admin/wp-login.php", http.StatusNotFound, true},
-		{"probe beside a carved dotfile route", []string{"/.github/responses"}, "/.github/workflows", http.StatusNotFound, true},
-		// A probe BELOW a carved route is also carved, because a published root
-		// owns its whole subtree: a frontend base path and a diagnostics path
-		// prefix both serve requests below the configured value, so an exact-only
-		// carve would make a legitimate prefix mount unreachable, which is the
-		// defect being fixed. The cost is bounded and fail-open in the harmless
-		// direction: the router still answers these with its own 404 because no
-		// handler is mounted there, and the published route itself stays guarded by
-		// the auth-failure offenses and quarantine the adaptive layer keeps.
-		{"probe below a carved route", []string{"/wp-admin/responses"}, "/wp-admin/responses/.env", http.StatusOK, false},
-		{"probe below a carved dotfile route", []string{"/.github/responses"}, "/.github/responses/x.php", http.StatusOK, false},
+	state := testState(t)
+	observer := &gateObserver{}
+	in := testInput(t, state, observer)
+	in.OwnedRoutes = owned
+	handler := Middleware(in, mux)
 
-		// Families with no owned root at all are untouched.
-		{"unrelated family refused", []string{"/wp-admin/responses"}, "/cgi-bin/responses", http.StatusNotFound, true},
-		{"unrelated family refused 2", []string{"/wp-admin/responses"}, "/phpmyadmin/responses", http.StatusNotFound, true},
-		{"unrelated exact path refused", []string{"/wp-admin/responses"}, "/.env", http.StatusNotFound, true},
-		{"unrelated traversal refused", []string{"/wp-admin/responses"}, "/wp-admin/../etc/passwd", http.StatusNotFound, true},
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newRequest(t, http.MethodPost, "/wp-admin/responses", testClient))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: a real route must be served", rec.Code)
+	}
+	if p := <-served; p != "/wp-admin/responses" {
+		t.Fatalf("served path = %q", p)
+	}
+	if state.IsQuarantined(clientAddr, testNow) {
+		t.Fatal("a served route must not score a probe offense")
+	}
+	if len(observer.denials) != 0 {
+		t.Fatalf("denials = %v, want none for a served route", observer.denials)
+	}
+}
+
+// TestSubtreeCarveOnlyWhenTheRealMountIsASubtree proves subtree semantics come
+// from the router, not from a path-shaped guess. A trailing-slash registration
+// really does own its subtree, and a bare path really does not.
+func TestSubtreeCarveOnlyWhenTheRealMountIsASubtree(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	served := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.Handle("/debug/pprof/", served)
+	mux.Handle("/wp-admin", served)
+
+	owned := OwnedRoutesFromMux(mux, []httpcontract.OwnedRouteCandidate{
+		{Path: "/debug/pprof"},
+		{Path: "/wp-admin"},
+	})
+	subtree := map[string]bool{}
+	for _, route := range owned {
+		subtree[route.Path] = route.Subtree
+	}
+	if !subtree["/debug/pprof/"] {
+		t.Errorf("owned routes %+v: /debug/pprof/ is a trailing-slash registration and must be a subtree", owned)
+	}
+	if subtree["/wp-admin"] {
+		t.Errorf("owned routes %+v: /wp-admin is a literal registration and must be exact", owned)
+	}
+
+	handler := realMuxServed(t, owned, mux)
+	// Under the real subtree mount: carved, because the router owns the subtree.
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newRequest(t, http.MethodGet, "/debug/pprof/heap", testClient))
+	if !servesRealRoute(mux, http.MethodGet, "/debug/pprof/heap") {
+		t.Fatal("fixture: /debug/pprof/heap must be a real route")
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("/debug/pprof/heap status = %d, want 200: a real subtree mount owns its whole subtree", rec.Code)
+	}
+	// Under the exact mount: NOT carved. The router owns no subtree here, so this is
+	// an impossible-path probe and is refused.
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, newRequest(t, http.MethodGet, "/wp-admin/anything", testClient))
+	if servesRealRoute(mux, http.MethodGet, "/wp-admin/anything") {
+		t.Fatal("fixture: /wp-admin/anything must NOT be a real route")
+	}
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("/wp-admin/anything status = %d, want 404: an exact mount owns no subtree", rec.Code)
+	}
+}
+
+// TestDisabledMountCarvesNothing is the second form of the same defect. Reading
+// the configured path is not the same as the router owning it: a diagnostics block
+// with enabled: false mounts nothing, so its path must not carve anything even
+// though the value is present in the configuration.
+func TestDisabledMountCarvesNothing(t *testing.T) {
+	t.Parallel()
+
+	// A mux with nothing mounted at all: exactly the disabled case.
+	mux := http.NewServeMux()
+	owned := OwnedRoutesFromMux(mux, []httpcontract.OwnedRouteCandidate{{Path: "/wp-admin"}})
+	if len(owned) != 0 {
+		t.Fatalf("owned routes = %+v, want none: nothing is mounted, so nothing is owned", owned)
+	}
+
+	handler, _, state := realMuxCarve(t, owned)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newRequest(t, http.MethodPost, "/wp-admin", testClient))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if !state.IsQuarantined(clientAddr, testNow) {
+		t.Fatal("an unmounted configured path must not carve, so this must score a probe offense")
+	}
+}
+
+// TestMethodScopedCarveKeepsOtherMethodsRefused keeps the carve faithful about
+// methods the way the router is: a route registered for POST is owned for POST
+// only, and a request the router would not route there is still a probe.
+func TestMethodScopedCarveKeepsOtherMethodsRefused(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	mux.Handle("POST /wp-admin/responses", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	owned := OwnedRoutesFromMux(mux, []httpcontract.OwnedRouteCandidate{
+		{Method: http.MethodPost, Path: "/wp-admin/responses"},
+	})
+
+	state := testState(t)
+	observer := &gateObserver{}
+	in := testInput(t, state, observer)
+	in.OwnedRoutes = owned
+	handler := Middleware(in, mux)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newRequest(t, http.MethodPost, "/wp-admin/responses", testClient))
+	if rec.Code != http.StatusOK {
+		t.Errorf("POST status = %d, want 200: the registered method is owned", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, newRequest(t, http.MethodDelete, "/wp-admin/responses", testClient))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("DELETE status = %d, want 404: the carve is scoped to the registered method", rec.Code)
+	}
+	if !state.IsQuarantined(clientAddr, testNow) {
+		t.Error("a method the router does not own must still score a probe offense")
+	}
+}
+
+// TestCarveNeverMatchesTheCatchAllRoot guards the resolver against the router's
+// fallback. Every path the mux does not own resolves to some fallback handler, so a
+// resolver that treated a fallback as ownership would carve the entire data plane.
+func TestCarveNeverMatchesTheCatchAllRoot(t *testing.T) {
+	t.Parallel()
+
+	// Both shapes: a "/" registration and an empty mux.
+	for name, build := range map[string]func() *http.ServeMux{
+		"root registration": func() *http.ServeMux {
+			mux := http.NewServeMux()
+			mux.Handle("/", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			return mux
+		},
+		"no registration": func() *http.ServeMux { return http.NewServeMux() },
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-
-			state := testState(t)
-			observer := &gateObserver{}
-			in := testInput(t, state, observer)
-			in.OwnedRoots = tc.roots
-			handler := Middleware(in, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			}))
-
+			mux := build()
+			owned := OwnedRoutesFromMux(mux, []httpcontract.OwnedRouteCandidate{
+				{Path: "/wp-admin"},
+				{Method: http.MethodPost, Path: "/wp-admin/responses"},
+				{Path: "/debug/pprof"},
+			})
+			for _, route := range owned {
+				if route.Path == "/" || route.Path == "" {
+					t.Errorf("owned routes %+v must not contain a fallback pattern", owned)
+				}
+			}
+			// Whatever was (not) resolved, nothing may carve /wp-admin/**.
+			handler, _, _ := realMuxCarve(t, owned)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, newRequest(t, http.MethodPost, tc.path, testClient))
-
-			if rec.Code != tc.wantStatus {
-				t.Errorf("status = %d, want %d", rec.Code, tc.wantStatus)
-			}
-			denied := len(observer.denials) == 1 && observer.denials[0] == ingressdefense.ReasonImpossiblePath
-			if denied != tc.wantDenied {
-				t.Errorf("impossible-path denial recorded = %v (%v), want %v", denied, observer.denials, tc.wantDenied)
-			}
-			if !observer.closed() {
-				t.Errorf("observer recorded %d reasons outside the closed vocabulary", observer.unknownCalls)
+			handler.ServeHTTP(rec, newRequest(t, http.MethodPost, "/wp-admin/responses/.env", testClient))
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("status = %d, want 404: a fallback must never become a carve", rec.Code)
 			}
 		})
 	}
 }
 
-// TestOwnedRouteCarveDoesNotAccrueProbeOffense proves the carve is a routing
-// decision, not a scoring decision. A request that reaches a published route must
-// not be counted as an impossible-path probe, or a legitimate client on a carved
-// route could quarantine itself out of a configuration that is valid by contract.
-func TestOwnedRouteCarveDoesNotAccrueProbeOffense(t *testing.T) {
+// TestDegenerateOwnedRoutesCarveNothing keeps a malformed inventory from widening
+// the carve.
+func TestDegenerateOwnedRoutesCarveNothing(t *testing.T) {
 	t.Parallel()
 
-	state := testState(t)
-	observer := &gateObserver{}
-	in := testInput(t, state, observer)
-	in.OwnedRoots = []string{"/wp-admin/responses"}
-	handler := Middleware(in, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newRequest(t, http.MethodPost, "/wp-admin/responses", testClient))
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-	if state.IsQuarantined(clientAddr, testNow) {
-		t.Fatal("a published route must not quarantine its own source as an impossible-path probe")
-	}
-	if len(observer.denials) != 0 {
-		t.Fatalf("denials = %v, want none for a published route", observer.denials)
-	}
-}
-
-// TestUnpublishedProbeUnderAPublishedRootStillScores keeps the two decisions
-// separable within one family: the probe beside the published route is still a
-// probe, so it is still refused and still scores.
-func TestUnpublishedProbeUnderAPublishedRootStillScores(t *testing.T) {
-	t.Parallel()
-
-	state := testState(t)
-	observer := &gateObserver{}
-	in := testInput(t, state, observer)
-	in.OwnedRoots = []string{"/wp-admin/responses"}
-	handler := Middleware(in, neverDownstream(t))
-
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newRequest(t, http.MethodGet, "/wp-admin/.env", testClient))
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", rec.Code)
-	}
-	if !state.IsQuarantined(clientAddr, testNow) {
-		t.Fatal("a refused probe must still score a quarantine")
-	}
-	if len(observer.denials) != 1 || observer.denials[0] != ingressdefense.ReasonImpossiblePath {
-		t.Fatalf("denials = %v, want exactly one impossible-path denial", observer.denials)
-	}
-}
-
-// TestAbsentOrUnusableOwnedRootsKeepTheFrozenFamiliesRefused is the
-// absent-inventory posture. A generation that publishes no owned roots, or only
-// unusable ones, keeps exactly the pre-carve behavior, so a missing or empty
-// inventory can never silently open the families.
-func TestAbsentOrUnusableOwnedRootsKeepTheFrozenFamiliesRefused(t *testing.T) {
-	t.Parallel()
-
-	for _, roots := range [][]string{nil, {}, {""}, {"  "}, {"/"}, {"relative/path"}} {
-		state := testState(t)
-		in := testInput(t, state, &gateObserver{})
-		in.OwnedRoots = roots
-		handler := Middleware(in, neverDownstream(t))
-
+	for _, owned := range [][]httpcontract.OwnedRoute{
+		nil,
+		{},
+		{{Path: ""}},
+		{{Path: "/"}},
+		{{Path: "  "}},
+		{{Path: "relative/path"}},
+		{{Path: "/wp-admin"}},
+	} {
+		handler, _, state := realMuxCarve(t, owned)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, newRequest(t, http.MethodPost, "/wp-admin/responses", testClient))
 		if rec.Code != http.StatusNotFound {
-			t.Fatalf("roots %q: status = %d, want 404", roots, rec.Code)
+			t.Errorf("owned %+v: status = %d, want 404", owned, rec.Code)
+		}
+		if !state.IsQuarantined(clientAddr, testNow) {
+			t.Errorf("owned %+v: a degenerate inventory must not carve", owned)
 		}
 	}
 }
 
-// TestOwnedRootsAreMatchedCaseInsensitivelyLikeTheFamilies keeps the carve and the
-// rules in one equivalence class. The frozen families fold ASCII case, so a carve
-// that folded less would leave a published route refusable by changing its case.
-func TestOwnedRootsAreMatchedCaseInsensitivelyLikeTheFamilies(t *testing.T) {
-	t.Parallel()
-
-	state := testState(t)
-	observer := &gateObserver{}
-	in := testInput(t, state, observer)
-	in.OwnedRoots = []string{"/wp-admin/responses"}
-	handler := Middleware(in, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	for _, path := range []string{"/WP-ADMIN/responses", "/Wp-Admin/Responses"} {
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, newRequest(t, http.MethodPost, path, testClient))
-		if rec.Code != http.StatusOK {
-			t.Errorf("%s status = %d, want 200: the carve must fold case like the rules do", path, rec.Code)
-		}
-	}
+// servesRealRoute reports whether the router actually owns this method/path, using
+// the router's own resolution. It is the oracle the tests above compare against, so
+// a carve can never be justified by a stub that answers 200 for everything.
+func servesRealRoute(mux *http.ServeMux, method, path string) bool {
+	req := &http.Request{Method: method, URL: &url.URL{Path: path}}
+	_, pattern := mux.Handler(req)
+	return isDedicatedPattern(pattern)
 }

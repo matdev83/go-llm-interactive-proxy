@@ -66,14 +66,15 @@ func TestSelfDefenseProjectionMemberSetIsExact(t *testing.T) {
 		"State":           true,
 		"Resolver":        true,
 		"ImpossiblePaths": true,
-		// OwnedRoots is this generation's published-route inventory: immutable
-		// routing data derived from the operator's own configuration, not a
-		// process-state sizing member. It is the same category as Resolver and
-		// ImpossiblePaths, and it still carries no MaxEntries/StateTTL.
-		"OwnedRoots": true,
-		"Probe":      true,
-		"Observer":   true,
-		"Now":        true,
+		// OwnedRouteCandidates and OwnedRoutes are this generation's routing
+		// inventory: immutable per-generation data derived from the operator's own
+		// configuration and then resolved against the real router. They are the same
+		// category as Resolver and ImpossiblePaths, and neither is a sizing member.
+		"OwnedRouteCandidates": true,
+		"OwnedRoutes":          true,
+		"Probe":                true,
+		"Observer":             true,
+		"Now":                  true,
 	}
 	typ := reflect.TypeOf(contract.SelfDefenseSecurityInput{})
 	if typ.NumField() != len(want) {

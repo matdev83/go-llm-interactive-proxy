@@ -132,7 +132,7 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// measurements with 25 lines of headroom, matching the convention above.
 	{Tree: "internal/infra/runtimebundle", Max: 13883},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
-	{Tree: "internal/stdhttp", Max: 8155},
+	{Tree: "internal/stdhttp", Max: 8400},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -253,11 +253,13 @@ var LineBudgets = []LineBudget{
 	// sibling, and the standard data-plane gate plus auth observation wiring;
 	// harness-re-measured 13762 (runtimebundle) and 8013 (stdhttp);
 	// reset to 13787 and 8038 with 25 headroom.
-	// The ingress self-defense review follow-up re-measures 8130 (stdhttp) and
-	// 13858 (runtimebundle) for the owned-route carve and its generation
-	// inventory; both caps are re-baselined to those measurements with 25 lines
-	// of headroom.
-	{Dir: "internal/stdhttp", Max: 8155},
+	// The ingress self-defense review follow-ups re-measure 13858 (runtimebundle)
+	// and 8130 (stdhttp) for the owned-route carve and its generation candidate
+	// projection. The carve-fidelity follow-up then replaces the string-root
+	// inventory with a router-resolved typed one, which lands mostly in stdhttp
+	// (the resolver, the exact-versus-subtree model and the gate wiring):
+	// re-measured 8375 (stdhttp), reset to 8400 with 25 lines of headroom.
+	{Dir: "internal/stdhttp", Max: 8400},
 	{Dir: "internal/infra/runtimebundle", Max: 13883},
 
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.

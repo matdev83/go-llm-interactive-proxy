@@ -78,13 +78,22 @@ Restart-required is decided on the **compiled** limits, not on how the YAML is s
 
 The fixed matcher is a set of audited commodity-probe prefixes, but the data-plane path surface is operator-configurable: the OpenResponses `base_path` and the `diagnostics`, `observability.metrics`, secure-session, model-diagnostics and protected operator mount paths all accept **any** normalized absolute non-root path. Those two spaces overlap, so some legitimate configurations name a path inside a probe family.
 
-A published route is therefore authoritative: the matcher never refuses a route this proxy actually serves. At composition the generation collects its own published routes — the configured mount paths plus every enabled frontend's claimed route paths, from the same seams that validate mount-path overlap and detect route takeover — and the matcher carves exactly those out. The carve is a routing decision only:
+A published route is therefore authoritative: the matcher never refuses a route this proxy actually serves. Each generation collects the method/path pairs its configuration *could* publish, and composition then resolves them against the real router that was just built. Ownership and match semantics are the **router's** answers, not a reading of the configuration:
 
-- A probe **beside** a published route, in the same family, is still refused and still scores. `/wp-admin/healthz` as a diagnostics path does not make `/wp-admin/adminer.php` reachable.
-- A probe **below** a published route is carved too, because a published root owns its whole subtree. A frontend base path and a diagnostics path prefix both serve requests below the configured value, so an exact-only carve would leave a legitimate prefix mount unreachable. Nothing is served there unless a handler is mounted, and the published route itself stays protected by the adaptive quarantine.
+- A configured path whose feature is disabled is not mounted, so it owns nothing and carves nothing.
+- A literal registration is exact: it owns its own method/path pair and nothing below it. OpenResponses' `POST <base>/responses`, the diagnostics and metrics paths, and the accounting admin path are all exact.
+- A trailing-slash registration is a subtree and owns everything below it. The pprof mount and the secure-session and control-plane query prefixes are subtrees.
+- Comparison is **case-sensitive**, like the router. `/WP-ADMIN/responses` is not the route `/wp-admin/responses`, so it stays a probe.
+- The route's method is part of ownership. A route registered for `POST` is not owned for `DELETE`.
+
+The carve is a routing decision only, and it is bounded by the router:
+
+- A probe **beside** a published route, in the same family, is still refused and still scores. `/wp-admin/healthz` does not make `/wp-admin/adminer.php` reachable, and it does not make `/wp-admin/responses/.env` reachable either, because an exact registration owns no subtree.
 - A request that reaches a published route is not counted as an impossible-path probe, so a legitimate client cannot quarantine itself out of a valid configuration.
+- The router's fallback is never ownership. Every unrouted path resolves to some fallback handler, so a fallback pattern would otherwise carve the entire data plane; both the bare root and the empty pattern are excluded.
 
 If the projection is ever absent, the matcher keeps its full pre-carve behavior: refusing a published route is never the safe default to *rely* on, but silently opening the families would be worse.
+
 
 ## Generic responses
 

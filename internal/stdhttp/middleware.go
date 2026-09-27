@@ -79,7 +79,7 @@ func stackHTTPHandler(in stackHTTPInput) http.Handler {
 			State:           selfDefense.State,
 			Resolver:        geoipingress.ResolverConfig{Source: geoipingress.Source(selfDefense.Resolver.Source), TrustedProxies: append([]netip.Prefix(nil), selfDefense.Resolver.TrustedProxies...)},
 			ImpossiblePaths: selfDefense.ImpossiblePaths,
-			OwnedRoots:      selfDefense.OwnedRoots,
+			OwnedRoutes:     selfDefense.OwnedRoutes,
 			Probe:           selfDefense.CredentialGateProbe(),
 			Observer:        selfDefense.Observer,
 			Now:             selfDefense.Now,

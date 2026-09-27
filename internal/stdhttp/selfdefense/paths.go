@@ -77,8 +77,11 @@ var impossibleSegmentPrefixes = []string{
 	".svn",
 }
 
-// ImpossiblePath reports whether the decoded request-target path cannot plausibly
-// belong to the standard data plane, given the routes this generation publishes.
+// ImpossiblePath reports whether the decoded request-target path matches any frozen
+// impossible-path family, ignoring the routes this generation owns.
+//
+// Use [ImpossiblePathExcept] for the gate's decision, which additionally carves the
+// routes the router actually owns. This function is the frozen rule set on its own.
 //
 // path must be the decoded path ([url.URL.Path]) of the request target, which
 // net/http has already percent-decoded exactly once; passing a raw escaped
@@ -86,16 +89,6 @@ var impossibleSegmentPrefixes = []string{
 // reads the request body, canonical messages or items, tool arguments, SQL or
 // code text, and never an arbitrary query value, and it retains no part of the
 // path.
-//
-// ownedRoots are the data-plane routes this generation actually publishes. A
-// published route is authoritative: the configuration and compiler layers accept
-// an arbitrary normalized absolute base path, so an operator may legitimately
-// mount a frontend, diagnostics or metrics surface inside one of the audited
-// families, and a frozen family must never make such a route unreachable. The
-// carve is therefore applied to the MATCHED path before the refusal decision, and
-// it is exact per published route: a probe beside a published route, in the same
-// family, is still refused and still scores. An empty or absent inventory keeps
-// the pre-carve behavior, so a missing projection can never open the families.
 //
 // A decoded path can itself contain a question mark, because one escaped "?" in
 // the request target decodes into a literal "?" plus the attacker's remaining
@@ -107,11 +100,10 @@ var impossibleSegmentPrefixes = []string{
 // offense; it still reaches no route, because the router sees the same decoded
 // "?" inside the path.
 //
-// The decision is deterministic and allocation-free on the standard surface. It
-// is case-insensitive over ASCII and ignores repeated leading slashes, because
-// the standard distribution is case-sensitive and never normalizes a target
-// into any of these families.
-func ImpossiblePath(path string, ownedRoots ...string) bool {
+// The decision is deterministic and allocation-free. It is case-insensitive over
+// ASCII and ignores repeated leading slashes, because the standard distribution is
+// case-sensitive and never normalizes a target into any of these families.
+func ImpossiblePath(path string) bool {
 	if path == "" {
 		return false
 	}
@@ -122,16 +114,21 @@ func ImpossiblePath(path string, ownedRoots ...string) bool {
 	if hasTraversal(target) {
 		return true
 	}
-	if !matchesAnyRule(target) {
+	return matchesAnyRule(target)
+}
+
+// ImpossiblePathExcept is the gate's decision: the frozen families, minus the routes
+// the router actually owns.
+//
+// owned is the pre-compiled inventory for this generation. It is a value, not a
+// slice, precisely so the request path performs no per-request normalization and no
+// allocation: an attacker controls how often this branch runs. The zero value
+// carves nothing and is therefore exactly [ImpossiblePath].
+func ImpossiblePathExcept(path, method string, owned OwnedRoutes) bool {
+	if !ImpossiblePath(path) {
 		return false
 	}
-	if len(ownedRoots) == 0 {
-		return true
-	}
-	// Roots are normalized here, after a family already matched, so the ordinary
-	// request path never pays for the inventory and no caller can pass a root in a
-	// form this function would silently misread.
-	return !underOwnedRoot(target, normalizeOwnedRoots(ownedRoots))
+	return !owned.Covers(method, path)
 }
 
 // matchesAnyRule reports whether the normalized target matches any audited family.
@@ -154,55 +151,6 @@ func matchesAnyRule(target string) bool {
 		}
 	}
 	return false
-}
-
-// underOwnedRoot reports whether the normalized target is a published route.
-//
-// A root owns itself and its whole subtree, because a published route is not
-// always a single path: a frontend base path, a diagnostics path prefix and a
-// metrics mount all serve requests below the configured value. Comparison folds
-// ASCII case exactly like the rule families do, so the carve and the rules share
-// one equivalence class and a published route cannot become refusable by changing
-// its case.
-//
-// roots must already be normalized by [normalizeOwnedRoots], so this stays
-// allocation-free and runs only after a frozen family matched.
-func underOwnedRoot(target string, roots []string) bool {
-	for _, root := range roots {
-		if foldEqual(target, root) {
-			return true
-		}
-		if len(target) > len(root) && foldEqual(target[:len(root)], root) && target[len(root)] == '/' {
-			return true
-		}
-	}
-	return false
-}
-
-// normalizeOwnedRoots reduces a generation's published-route inventory to the form
-// the carve compares against, once, when the gate is built.
-//
-// Normalization is the same normalization the matcher applies to a request target,
-// so the carve and the rules agree on what a path is. A root that is empty, blank,
-// relative, or the root path itself owns nothing, so a degenerate inventory cannot
-// widen the carve to the whole data plane. The result aliases no caller state and
-// is never mutated after construction.
-func normalizeOwnedRoots(ownedRoots []string) []string {
-	if len(ownedRoots) == 0 {
-		return nil
-	}
-	normalized := make([]string, 0, len(ownedRoots))
-	for _, root := range ownedRoots {
-		candidate := normalizeTarget(strings.TrimSpace(root))
-		if candidate == "" || candidate == "/" || !strings.HasPrefix(candidate, "/") {
-			continue
-		}
-		normalized = append(normalized, candidate)
-	}
-	if len(normalized) == 0 {
-		return nil
-	}
-	return normalized
 }
 
 // normalizeTarget is the single normalization entry point every rule family

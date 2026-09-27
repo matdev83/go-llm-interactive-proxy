@@ -46,53 +46,60 @@ func buildSelfDefenseSecurityInput(cand *candidateAssembly, frozen *config.Confi
 		observer = cand.process.metrics.SelfDefense
 	}
 	return httpcontract.SelfDefenseSecurityInput{
-		Policy:          &policy,
-		State:           cand.process.ingressDefense,
-		Resolver:        selfDefenseResolverConfig(cand),
-		ImpossiblePaths: cand.security.selfDefense.ImpossiblePaths(),
-		OwnedRoots:      selfDefenseOwnedRoots(frozen),
-		Probe:           probe,
-		Observer:        observer,
-		Now:             now,
+		Policy:               &policy,
+		State:                cand.process.ingressDefense,
+		Resolver:             selfDefenseResolverConfig(cand),
+		ImpossiblePaths:      cand.security.selfDefense.ImpossiblePaths(),
+		OwnedRouteCandidates: selfDefenseOwnedRouteCandidates(frozen),
+		Probe:                probe,
+		Observer:             observer,
+		Now:                  now,
 	}
 }
 
-// selfDefenseOwnedRoots returns the data-plane routes this generation publishes, so
-// the deterministic impossible-path matcher never refuses a route the router would
-// actually serve.
+// selfDefenseOwnedRouteCandidates returns the method/path pairs this configuration
+// COULD publish, so the deterministic impossible-path matcher can be told which
+// routes the router really owns before it refuses anything.
 //
 // The frozen families are heuristic probe prefixes, but the data-plane path surface
 // is operator-configurable: OpenResponses accepts any normalized absolute non-root
 // base_path, and the diagnostics, metrics and protected operator mounts accept any
-// normalized absolute path. Those spaces overlap, so without this inventory a valid,
+// normalized absolute path. Those two spaces overlap, so without this a valid,
 // already-compiled configuration such as base_path=/wp-admin would have its real
 // routes answered with the generic 404 before the frontend ever saw them.
+//
+// These are deliberately CANDIDATES, not an inventory of owned routes. Reading a
+// configured value does not mean the router owns it, and a path's shape does not
+// say whether the registration was exact or a trailing-slash subtree. Composition
+// resolves them against the real router, so a disabled feature contributes nothing
+// and the match semantics come from the router rather than from this list.
 //
 // Both halves come from the chokepoints that already own them: the configured paths
 // from [config.ConfiguredDataPlanePaths], the same collector that rejects duplicate
 // and nested mount paths, and the frontend paths from the registered route-claims
 // providers, the same seam that detects canonical route takeover before mounting. A
-// newly configurable mount path or a newly mounted frontend therefore becomes visible
-// here without a second registration.
-func selfDefenseOwnedRoots(frozen *config.Config) []string {
+// newly configurable mount path or a newly mounted frontend therefore becomes
+// visible here without a second registration.
+func selfDefenseOwnedRouteCandidates(frozen *config.Config) []httpcontract.OwnedRouteCandidate {
 	if frozen == nil {
 		return nil
 	}
-	seen := make(map[string]struct{}, 16)
-	roots := make([]string, 0, 16)
-	add := func(path string) {
+	seen := make(map[httpcontract.OwnedRouteCandidate]struct{}, 16)
+	candidates := make([]httpcontract.OwnedRouteCandidate, 0, 16)
+	add := func(method, path string) {
 		path = strings.TrimSuffix(strings.TrimSpace(path), "/")
 		if path == "" || path == "/" {
 			return
 		}
-		if _, duplicate := seen[path]; duplicate {
+		candidate := httpcontract.OwnedRouteCandidate{Method: method, Path: path}
+		if _, duplicate := seen[candidate]; duplicate {
 			return
 		}
-		seen[path] = struct{}{}
-		roots = append(roots, path)
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
 	}
 	for _, path := range config.ConfiguredDataPlanePaths(frozen) {
-		add(path)
+		add("", path)
 	}
 	providers := standardplugins.StandardFrontendRouteClaims()
 	for _, p := range frozen.Plugins.Frontends {
@@ -114,14 +121,17 @@ func selfDefenseOwnedRoots(frozen *config.Config) []string {
 			if err != nil {
 				continue
 			}
-			add(normalized.Path)
+			add(normalized.Method, normalized.Path)
 		}
 	}
-	// Canonical order so one configuration always publishes the same inventory,
-	// independent of the order the configured paths and the claims providers were
-	// visited in.
-	slices.Sort(roots)
-	return roots
+	// Canonical order so one configuration always publishes the same candidate set.
+	slices.SortFunc(candidates, func(a, b httpcontract.OwnedRouteCandidate) int {
+		if a.Path != b.Path {
+			return strings.Compare(a.Path, b.Path)
+		}
+		return strings.Compare(a.Method, b.Method)
+	})
+	return candidates
 }
 
 // selfDefenseResolverConfig reuses the compiled GeoIP client-address trust
