@@ -24,13 +24,29 @@ const (
 // only the normative counters, penalty state and timestamps: the address itself
 // is the map key, and no credential, principal, body, prompt, complete path,
 // header, User-Agent or other attacker-controlled string is ever stored. The
-// design's Adaptive entry model carries exactly these five fields.
+// design's Adaptive entry model carries exactly these fields plus one internal
+// admission counter, which is bounded ring bookkeeping rather than adaptive
+// state and exists so a ring slot can prove it still owns the entry it names.
 type entry struct {
 	windowStartedAt time.Time
 	failures        int
 	offenseLevel    int
 	quarantineUntil time.Time
 	lastHostileAt   time.Time
+	// admission is the identity of the admission that created this entry. It
+	// makes a live entry distinguishable from a later admission of the same
+	// address, which is what lets a ring slot prove it still owns the entry it
+	// names. It is not security state and never widens or narrows an offense.
+	admission uint64
+}
+
+// admissionSlot is one occupied position of a shard's admission ring. A slot owns
+// an entry only while the live entry for addr still carries the same admission
+// identity, so a slot left behind by Clear or by a TTL expiry can never evict the
+// newer entry a later re-admission of the same address created.
+type admissionSlot struct {
+	addr      netip.Addr
+	admission uint64
 }
 
 // shard is one independently locked slice of the process state. Its capacity is
@@ -39,12 +55,16 @@ type entry struct {
 type shard struct {
 	mu      sync.Mutex
 	entries map[netip.Addr]*entry
-	// order is the insertion-order ring of this shard's keys and cursor is its
-	// eviction cursor. See reserve for the deterministic eviction rule.
-	order  []netip.Addr
+	// order is the insertion-order ring of this shard's admissions and cursor is
+	// its eviction cursor. See reserve for the deterministic eviction rule.
+	order  []admissionSlot
 	cursor int
 	cap    int
 	count  atomic.Int64
+	// nextAdmission issues the per-shard admission identity stamped on every new
+	// entry. Zero is never issued, so a slot written before any admission can
+	// never alias a live entry.
+	nextAdmission uint64
 }
 
 // State is the bounded, process-local, exact-address adaptive hostile-source
@@ -244,39 +264,60 @@ func (sh *shard) touch(key netip.Addr, now time.Time, ttl time.Duration) (*entry
 		delete(sh.entries, key)
 		sh.count.Add(-1)
 	}
-	found = &entry{lastHostileAt: now}
-	sh.reserve(key)
+	found = &entry{lastHostileAt: now, admission: sh.issueAdmission()}
+	sh.reserve(key, found.admission)
 	sh.entries[key] = found
 	sh.count.Add(1)
 	return found, false
 }
 
+// issueAdmission returns a fresh, non-zero admission identity for one new entry.
+// The counter is per shard and monotonic, so the identity is unique among the
+// live entries of that shard. It is skipped over on wrap so it never returns
+// zero; aliasing a stale slot would therefore need 2^64 admissions into one
+// single shard, which no process reaches.
+func (sh *shard) issueAdmission() uint64 {
+	sh.nextAdmission++
+	if sh.nextAdmission == 0 {
+		sh.nextAdmission++
+	}
+	return sh.nextAdmission
+}
+
 // reserve makes room for one more address inside this shard's fixed capacity.
 //
 // Deterministic bounded eviction rule: the shard keeps an insertion-order ring of
-// the keys it has admitted. While the ring is still filling, a new key appends to
-// it. Once it is full, every new key unconditionally replaces the key in the
-// slot under the cursor and advances the cursor, so an evicted key is the least
-// recently ADMITTED key still occupying its slot. The ring records admission
-// order, not liveness: a slot whose key was already dropped by lazy expiry or by
-// Clear is overwritten without evicting any live key, and such an admission still
-// advances the cursor. The mapping from address to shard is a fixed FNV-1a hash,
-// so the admitted set after any sequence of addresses is reproducible.
+// the admissions it has made. While the ring is still filling, a new admission
+// appends to it. Once it is full, every new admission unconditionally replaces the
+// slot under the cursor and advances the cursor, so an evicted admission is the
+// least recently ADMITTED one still owning its slot. The ring records admission
+// order, not liveness: a slot whose entry was already dropped by lazy expiry or
+// by Clear is overwritten without evicting any live entry, and such an admission
+// still advances the cursor. The mapping from address to shard is a fixed FNV-1a
+// hash, so the admitted set after any sequence of addresses is reproducible.
+//
+// A slot evicts only the entry it still owns. Ownership is the pair (address,
+// admission identity), not the address alone: Clear and TTL expiry deliberately
+// leave the slot behind, so after an address is dropped and admitted again the
+// ring can hold the same address twice, and the stale slot must not delete the
+// live entry the newer admission created. Comparing the live entry's identity
+// with the slot's identity keeps the double-admission case bounded and exact
+// without scanning the ring or taking any lock beyond the one already held.
 //
 // Eviction only ever discards the evicted address's own state. It never widens an
 // offense, never denies an address that owns no state, and never rejects traffic
 // globally: a lost entry costs the attacker their own accumulated offense level,
 // which is the fail-open direction.
-func (sh *shard) reserve(key netip.Addr) {
+func (sh *shard) reserve(key netip.Addr, admission uint64) {
 	if len(sh.order) < sh.cap {
-		sh.order = append(sh.order, key)
+		sh.order = append(sh.order, admissionSlot{addr: key, admission: admission})
 		return
 	}
 	victim := sh.order[sh.cursor]
-	sh.order[sh.cursor] = key
+	sh.order[sh.cursor] = admissionSlot{addr: key, admission: admission}
 	sh.cursor = (sh.cursor + 1) % sh.cap
-	if _, tracked := sh.entries[victim]; tracked {
-		delete(sh.entries, victim)
+	if live, tracked := sh.entries[victim.addr]; tracked && live.admission == victim.admission {
+		delete(sh.entries, victim.addr)
 		sh.count.Add(-1)
 	}
 }

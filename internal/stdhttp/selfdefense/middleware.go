@@ -57,6 +57,22 @@ type Input struct {
 	// ImpossiblePaths toggles the fixed matcher. Disabling it bypasses only the
 	// matcher; adaptive quarantine behavior is retained.
 	ImpossiblePaths bool
+	// OwnedRoots are the data-plane routes this generation actually publishes:
+	// frontend claim paths and the operator-configured diagnostics, metrics and
+	// operator-mount paths, each already normalized to an absolute path.
+	//
+	// A published route is authoritative, so the deterministic matcher never
+	// refuses one. This is what keeps a default-on security layer from silently
+	// invalidating a configuration the config and compiler layers accept: the
+	// configuration surface for a frontend base path and for a diagnostics or
+	// metrics mount path is any normalized absolute non-root path, which includes
+	// paths inside the frozen impossible families.
+	//
+	// The carve is exact per published route and never widens past these roots: a
+	// probe beside a published route, in the same family, is still refused and
+	// still scores. An empty or absent inventory keeps the pre-carve behavior, so
+	// a generation that projects no inventory still refuses every frozen family.
+	OwnedRoots []string
 	// Probe is the optional conservative credential-presence probe consulted for
 	// a quarantined source.
 	Probe CredentialProbe
@@ -73,9 +89,10 @@ type Input struct {
 //  1. resolve the source address with the existing GeoIP resolver semantics; a
 //     resolver failure returns a generic 403 and stops;
 //  2. attach the normalized source address to the request context;
-//  3. when impossible-path matching is enabled and the path matches, record one
-//     probe offense for a non-adaptively-exempt source, record finite metrics and
-//     return a generic 404;
+//  3. when impossible-path matching is enabled and the path matches and is not a
+//     route this generation publishes, record one probe offense for a
+//     non-adaptively-exempt source, record finite metrics and return a generic
+//     404;
 //  4. an adaptively-exempt source delegates immediately, without inspecting
 //     adaptive quarantine state;
 //  5. a source that is not quarantined delegates;
@@ -105,7 +122,7 @@ func Middleware(in Input, next http.Handler) http.Handler {
 		r = r.WithContext(httpcontract.WithSourceAddr(r.Context(), addr))
 		exempt := policy.AdaptiveExempt(addr)
 
-		if in.ImpossiblePaths && r.URL != nil && ImpossiblePath(r.URL.Path) {
+		if in.ImpossiblePaths && r.URL != nil && ImpossiblePath(r.URL.Path, in.OwnedRoots...) {
 			if !exempt && in.State != nil {
 				recordTransition(in.Observer, in.State.RecordProbe(addr, now(), *policy))
 			}

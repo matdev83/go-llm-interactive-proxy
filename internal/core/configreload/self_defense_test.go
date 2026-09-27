@@ -79,6 +79,96 @@ func TestClassifySelfDefenseStateFieldsRestartRequired(t *testing.T) {
 	}
 }
 
+// TestClassifySelfDefenseEquivalentStateLimitsAreNotRestartRequired pins the
+// equivalence the operator documentation promises: omitting the whole
+// access.self_defense block, spelling the documented default, and spelling an
+// equivalent duration all compile to the same process-owned limits, so none of
+// them may be classified as restart-required. These are the same effective
+// process limits, and a default-on feature whose documentation says "omitted is
+// identical to the default" must not reject a reload that only spells the
+// default out.
+func TestClassifySelfDefenseEquivalentStateLimitsAreNotRestartRequired(t *testing.T) {
+	t.Parallel()
+
+	defaultEntries := 100000
+	omitted := func() *config.Config { return &config.Config{} }
+	explicit := func() *config.Config {
+		cfg := &config.Config{}
+		cfg.Access.SelfDefense.Adaptive.StateTTL = "24h"
+		cfg.Access.SelfDefense.Adaptive.MaxEntries = &defaultEntries
+		return cfg
+	}
+	equivalent := func() *config.Config {
+		cfg := &config.Config{}
+		cfg.Access.SelfDefense.Adaptive.StateTTL = "1440m"
+		cfg.Access.SelfDefense.Adaptive.MaxEntries = &defaultEntries
+		return cfg
+	}
+
+	for _, tc := range []struct {
+		name              string
+		active, candidate *config.Config
+	}{
+		{"omitted to explicit defaults", omitted(), explicit()},
+		{"explicit defaults to omitted", explicit(), omitted()},
+		{"equivalent duration spelling", explicit(), equivalent()},
+		{"omitted to equivalent duration", omitted(), equivalent()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			changes, err := Classify(tc.active, tc.candidate)
+			if err != nil {
+				t.Fatalf("equivalent effective state limits must not be restart-required: %v", err)
+			}
+			for _, change := range changes {
+				if change.Path == "access.self_defense.adaptive.state_ttl" ||
+					change.Path == "access.self_defense.adaptive.max_entries" {
+					t.Errorf("published a change for %q, want none: the effective limits are identical", change.Path)
+				}
+			}
+		})
+	}
+}
+
+// TestClassifySelfDefenseChangedStateLimitsRemainRestartRequired keeps the
+// effective-value comparison honest: a candidate whose COMPILED limits really do
+// differ must still be rejected, so comparing compiled values cannot silently
+// downgrade a genuine resize to a reload.
+func TestClassifySelfDefenseChangedStateLimitsRemainRestartRequired(t *testing.T) {
+	t.Parallel()
+
+	maxEntries200k := 200000
+	for _, tc := range []struct {
+		name      string
+		candidate *config.Config
+		want      string
+	}{
+		{"state ttl", selfDefenseConfigWith(func(a *config.SelfDefenseAdaptiveConfig) { a.StateTTL = "48h" }), "access.self_defense.adaptive.state_ttl"},
+		{"max entries", selfDefenseConfigWith(func(a *config.SelfDefenseAdaptiveConfig) { a.MaxEntries = &maxEntries200k }), "access.self_defense.adaptive.max_entries"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Classify(&config.Config{}, tc.candidate)
+			restart, ok := err.(*RestartRequiredError)
+			if !ok {
+				t.Fatalf("error = %v, want *RestartRequiredError", err)
+			}
+			if !slices.Contains(restart.RestartRequiredFields, tc.want) {
+				t.Fatalf("restart fields %v missing %q", restart.RestartRequiredFields, tc.want)
+			}
+		})
+	}
+}
+
+// selfDefenseConfigWith builds a config whose only non-default content is the
+// self-defense adaptive block the callback sets, so each case changes exactly one
+// restart-required field.
+func selfDefenseConfigWith(apply func(*config.SelfDefenseAdaptiveConfig)) *config.Config {
+	cfg := &config.Config{}
+	apply(&cfg.Access.SelfDefense.Adaptive)
+	return cfg
+}
+
 func TestClassifySelfDefenseMixedCandidateRejectsAtomically(t *testing.T) {
 	t.Parallel()
 

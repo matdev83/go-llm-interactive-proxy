@@ -82,6 +82,22 @@ type SelfDefenseSecurityInput struct {
 	// ImpossiblePaths toggles the fixed impossible-path matcher. Disabling it
 	// bypasses only the matcher and retains adaptive quarantine behavior.
 	ImpossiblePaths bool
+	// OwnedRoots are the data-plane routes this generation publishes, already
+	// normalized to an absolute path: the operator-configured diagnostics,
+	// metrics and operator-mount paths, plus every enabled frontend's claimed
+	// route paths.
+	//
+	// A published route is authoritative, so the deterministic matcher never
+	// refuses one. The configuration surface for a frontend base path and for a
+	// diagnostics or metrics mount path is any normalized absolute non-root path,
+	// which includes paths inside the frozen impossible-path families; without
+	// this inventory a default-on security layer would silently make such a route
+	// unreachable while the configuration and compiler layers still accept it.
+	//
+	// The carve is exact per published root and never widens past these roots. An
+	// empty or absent inventory keeps the pre-carve behavior, so a generation that
+	// projects no inventory still refuses every frozen family.
+	OwnedRoots []string
 	// Probe is the optional conservative credential-presence probe.
 	Probe CredentialProbe
 	// Observer is the optional bounded metrics seam.

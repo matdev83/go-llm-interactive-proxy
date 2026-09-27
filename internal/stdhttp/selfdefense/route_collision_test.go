@@ -1,7 +1,6 @@
 package selfdefense_test
 
 import (
-	"net/http"
 	"sort"
 	"testing"
 
@@ -24,6 +23,13 @@ func claimsConfigNode(t *testing.T, raw string) yaml.Node {
 // standardFrontendClaimConfigs are the configuration shapes the standard
 // distribution can present to a frontend route-claims provider. The inventory is
 // the real contribution map; only the provider input varies.
+//
+// base_path is an arbitrary operator-configurable normalized absolute non-root
+// path, not one of a fixed handful, so this list deliberately includes base paths
+// that fall INSIDE the frozen impossible-path families. Those are the cases that
+// used to be untested: they are valid configurations that publish real routes the
+// deterministic matcher would otherwise answer with a generic 404. They are
+// asserted against the owned-route carve rather than against the bare families.
 var standardFrontendClaimConfigs = []string{
 	"{}",
 	"websocket:\n  enabled: true\n",
@@ -32,6 +38,19 @@ var standardFrontendClaimConfigs = []string{
 	"base_path: /openresponses/v1\n",
 	"base_path: /openresponses/v1\nwebsocket:\n  enabled: true\n",
 	"base_path: /api/v1\n",
+	// Operator-chosen base paths inside frozen impossible-path families.
+	"base_path: /wp-admin\n",
+	"base_path: /wp-content\n",
+	"base_path: /cgi-bin\n",
+	"base_path: /phpmyadmin\n",
+	"base_path: /pma\n",
+	"base_path: /adminer\n",
+	"base_path: /vendor/phpunit\n",
+	"base_path: /.github\n",
+	"base_path: /.gitlab\n",
+	"base_path: /.ht\n",
+	"base_path: /.git\n",
+	"base_path: /.env\n",
 }
 
 func standardFrontendRouteClaims(t *testing.T) []httpcontract.RouteClaim {
@@ -75,26 +94,47 @@ func standardFrontendRouteClaims(t *testing.T) []httpcontract.RouteClaim {
 	return claims
 }
 
-// TestBuiltInImpossiblePathSetDoesNotOverlapStandardFrontendRoutes is the
+// TestBuiltInImpossiblePathSetNeverMakesAPublishedRouteUnreachable is the
 // requirement 3.6 non-collision regression. The inventory is the real standard
 // distribution route-claims seam, not a hand-written list, so a future frontend
-// that claims one of the built-in impossible paths fails here.
-func TestBuiltInImpossiblePathSetDoesNotOverlapStandardFrontendRoutes(t *testing.T) {
+// that claims a colliding path fails here.
+//
+// The invariant is deliberately NOT "the frozen families never overlap a standard
+// route". base_path is an arbitrary operator-configurable normalized absolute
+// non-root path, so overlap with a frozen family is a legitimate, accepted
+// configuration rather than a bug. The invariant that must hold is the one an
+// operator depends on: a published route is never refused, for ANY base path. Each
+// claim is therefore checked against the owned-route carve the generation actually
+// supplies, which is what makes this exhaustive over the base_path space instead of
+// dependent on a sampled list of configurations.
+func TestBuiltInImpossiblePathSetNeverMakesAPublishedRouteUnreachable(t *testing.T) {
 	t.Parallel()
 
 	claims := standardFrontendRouteClaims(t)
 	if len(claims) < 8 {
 		t.Fatalf("standard frontend claims = %d, want the full standard surface", len(claims))
 	}
+	colliding := 0
 	for _, claim := range claims {
-		if selfdefense.ImpossiblePath(claim.Path) {
-			t.Errorf("built-in impossible-path set collides with standard route %s %s (owner %q, kind %q)",
-				claim.Method, claim.Path, claim.OwnerID, claim.Kind)
+		for _, path := range []string{claim.Path, claim.Path + "/"} {
+			// The generation publishes this route, so the gate is given this route
+			// as an owned root.
+			if selfdefense.ImpossiblePath(path, path) {
+				t.Errorf("published route %s %s (owner %q, kind %q) is still refused as impossible for a self-owned route",
+					claim.Method, path, claim.OwnerID, claim.Kind)
+			}
 		}
-		if http.MethodGet == claim.Method && selfdefense.ImpossiblePath(claim.Path+"/") {
-			t.Errorf("built-in impossible-path set collides with the trailing-slash form of %s %s", claim.Method, claim.Path)
+		if selfdefense.ImpossiblePath(claim.Path) {
+			colliding++
 		}
 	}
+	// The fixture must actually exercise the overlapping case, or this test would
+	// pass vacuously on a distribution that never collides.
+	if colliding == 0 {
+		t.Fatal("no standard frontend claim collides with a frozen family: the colliding base paths in the fixture are no longer being exercised")
+	}
+	// That a published root does not widen the carve beyond the published routes
+	// is asserted precisely, with hand-picked colliding roots, in owned_routes_test.go.
 }
 
 // TestBuiltInImpossiblePathSetDoesNotOverlapManagementRecoverySurface proves the

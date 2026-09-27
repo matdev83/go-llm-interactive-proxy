@@ -1,8 +1,12 @@
 package runtimebundle
 
 import (
+	"slices"
+	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	stdauth "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -28,7 +32,7 @@ import (
 //
 // A disabled self-defense returns the zero projection, which is the structural
 // fast path: no gate, no matcher, no state lookup, no auth observation.
-func buildSelfDefenseSecurityInput(cand *candidateAssembly, authProviders []httpauth.Provider, now func() time.Time) httpcontract.SelfDefenseSecurityInput {
+func buildSelfDefenseSecurityInput(cand *candidateAssembly, frozen *config.Config, authProviders []httpauth.Provider, now func() time.Time) httpcontract.SelfDefenseSecurityInput {
 	if cand == nil || cand.security.selfDefense == nil || !cand.security.selfDefense.Enabled() {
 		return httpcontract.SelfDefenseSecurityInput{}
 	}
@@ -46,10 +50,78 @@ func buildSelfDefenseSecurityInput(cand *candidateAssembly, authProviders []http
 		State:           cand.process.ingressDefense,
 		Resolver:        selfDefenseResolverConfig(cand),
 		ImpossiblePaths: cand.security.selfDefense.ImpossiblePaths(),
+		OwnedRoots:      selfDefenseOwnedRoots(frozen),
 		Probe:           probe,
 		Observer:        observer,
 		Now:             now,
 	}
+}
+
+// selfDefenseOwnedRoots returns the data-plane routes this generation publishes, so
+// the deterministic impossible-path matcher never refuses a route the router would
+// actually serve.
+//
+// The frozen families are heuristic probe prefixes, but the data-plane path surface
+// is operator-configurable: OpenResponses accepts any normalized absolute non-root
+// base_path, and the diagnostics, metrics and protected operator mounts accept any
+// normalized absolute path. Those spaces overlap, so without this inventory a valid,
+// already-compiled configuration such as base_path=/wp-admin would have its real
+// routes answered with the generic 404 before the frontend ever saw them.
+//
+// Both halves come from the chokepoints that already own them: the configured paths
+// from [config.ConfiguredDataPlanePaths], the same collector that rejects duplicate
+// and nested mount paths, and the frontend paths from the registered route-claims
+// providers, the same seam that detects canonical route takeover before mounting. A
+// newly configurable mount path or a newly mounted frontend therefore becomes visible
+// here without a second registration.
+func selfDefenseOwnedRoots(frozen *config.Config) []string {
+	if frozen == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, 16)
+	roots := make([]string, 0, 16)
+	add := func(path string) {
+		path = strings.TrimSuffix(strings.TrimSpace(path), "/")
+		if path == "" || path == "/" {
+			return
+		}
+		if _, duplicate := seen[path]; duplicate {
+			return
+		}
+		seen[path] = struct{}{}
+		roots = append(roots, path)
+	}
+	for _, path := range config.ConfiguredDataPlanePaths(frozen) {
+		add(path)
+	}
+	providers := standardplugins.StandardFrontendRouteClaims()
+	for _, p := range frozen.Plugins.Frontends {
+		if !p.Enabled {
+			continue
+		}
+		provider := providers[p.FactoryID()]
+		if provider == nil {
+			continue
+		}
+		claims, err := provider(p.InstanceID(), p.Config)
+		if err != nil {
+			// An invalid frontend config is rejected by configuration validation
+			// and fails the candidate; it is not this projection's error to report.
+			continue
+		}
+		for _, claim := range claims {
+			normalized, err := claim.NormalizedClaim()
+			if err != nil {
+				continue
+			}
+			add(normalized.Path)
+		}
+	}
+	// Canonical order so one configuration always publishes the same inventory,
+	// independent of the order the configured paths and the claims providers were
+	// visited in.
+	slices.Sort(roots)
+	return roots
 }
 
 // selfDefenseResolverConfig reuses the compiled GeoIP client-address trust

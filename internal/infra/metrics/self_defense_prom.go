@@ -65,7 +65,11 @@ func RegisterSelfDefenseProm(reg prometheus.Registerer) *SelfDefenseProm {
 	m.entries = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Name:      "self_defense_state_entries",
-		Help:      "Current ingress self-defense adaptive state entries.",
+		Help: "Allocated ingress self-defense adaptive state entries. This counts entries " +
+			"currently held by the bounded state, including entries whose hostile inactivity " +
+			"has already reached state_ttl: expiry is lazy and happens on the next state " +
+			"lookup or mutation, so a source that is never touched again stays counted " +
+			"until then. Treat this as allocated capacity in use, not as live sources.",
 	}, func() float64 {
 		source := m.entrySource.Load()
 		if source == nil || *source == nil {

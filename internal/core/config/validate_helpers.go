@@ -111,22 +111,25 @@ var protectedMountPaths = []protectedMountPath{
 	},
 }
 
-func validateProtectedMountPath(cfg *Config, mount protectedMountPath, norm func(string) string, add func(string) error) error {
+// validateProtectedMountPath validates one protected operator mount and returns its
+// normalized path, or an empty string when the mount is not enabled and therefore
+// publishes nothing. An empty result is not a path and must not be collected.
+func validateProtectedMountPath(cfg *Config, mount protectedMountPath, norm func(string) string) (string, error) {
 	if cfg == nil || !mount.enabled(cfg) {
-		return nil
+		return "", nil
 	}
 	p := strings.TrimSpace(mount.path(cfg))
 	if mount.field == "accounting.authority.query.path_prefix" || mount.field == "control_plane.query.path_prefix" {
 		if !strings.HasPrefix(p, "/") {
-			return fmt.Errorf("%s: must start with /", mount.field)
+			return "", fmt.Errorf("%s: must start with /", mount.field)
 		}
 	} else if p == "" {
-		return nil
+		return "", nil
 	} else if !strings.HasPrefix(p, "/") {
-		return fmt.Errorf("%s: must start with /", mount.field)
+		return "", fmt.Errorf("%s: must start with /", mount.field)
 	}
 	if err := rejectHTTPPathDotDot(mount.field, p); err != nil {
-		return err
+		return "", err
 	}
-	return add(norm(p))
+	return norm(p), nil
 }
