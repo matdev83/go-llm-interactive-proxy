@@ -66,9 +66,14 @@ func TestSelfDefenseProjectionMemberSetIsExact(t *testing.T) {
 		"State":           true,
 		"Resolver":        true,
 		"ImpossiblePaths": true,
-		"Probe":           true,
-		"Observer":        true,
-		"Now":             true,
+		// OwnedRoots is this generation's published-route inventory: immutable
+		// routing data derived from the operator's own configuration, not a
+		// process-state sizing member. It is the same category as Resolver and
+		// ImpossiblePaths, and it still carries no MaxEntries/StateTTL.
+		"OwnedRoots": true,
+		"Probe":      true,
+		"Observer":   true,
+		"Now":        true,
 	}
 	typ := reflect.TypeOf(contract.SelfDefenseSecurityInput{})
 	if typ.NumField() != len(want) {
@@ -78,8 +83,16 @@ func TestSelfDefenseProjectionMemberSetIsExact(t *testing.T) {
 		name := typ.Field(i).Name
 		if !want[name] {
 			t.Fatalf("unexpected self-defense projection member %q; the projection carries policy, "+
-				"non-owning state, the shared resolver config, the matcher toggle, the credential probe, "+
-				"the bounded observer and the request clock only", name)
+				"non-owning state, the shared resolver config, the matcher toggle, the published-route "+
+				"inventory, the credential probe, the bounded observer and the request clock only", name)
+		}
+	}
+	// The published-route inventory must never become a second sizing surface.
+	for i := range typ.NumField() {
+		switch typ.Field(i).Name {
+		case "MaxEntries", "StateTTL", "Limits":
+			t.Fatalf("self-defense projection member %q is process-state sizing and must stay "+
+				"restart-required, never a per-request projection", typ.Field(i).Name)
 		}
 	}
 }

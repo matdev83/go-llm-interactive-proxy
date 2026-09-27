@@ -124,9 +124,15 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// composition: measured 13786 of the 13787 runtimebundle cap, so only 1 line
 	// of headroom remains and the next change in that tree must re-measure with the
 	// harness before this cap can be relied on again.
-	{Tree: "internal/infra/runtimebundle", Max: 13787},
+	// The ingress self-defense review follow-up adds the owned-route inventory to
+	// the generation composition (selfDefenseOwnedRoots) and the owned-route carve
+	// to the data-plane gate, which is the fix for a default-on layer silently
+	// shadowing an operator-configured base_path. Harness-re-measured 13858
+	// (runtimebundle) and 8130 (stdhttp); both caps are re-baselined to those
+	// measurements with 25 lines of headroom, matching the convention above.
+	{Tree: "internal/infra/runtimebundle", Max: 13883},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
-	{Tree: "internal/stdhttp", Max: 8038},
+	{Tree: "internal/stdhttp", Max: 8155},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -226,7 +232,12 @@ var LineBudgets = []LineBudget{
 	// adaptive source state with lazy expiry, deterministic eviction and
 	// saturating quarantine arithmetic; re-measured 138172, bump to 138197
 	// with 25 headroom.
-	{Dir: "internal/core", Max: 138197},
+	// The ingress self-defense review follow-up adds the admission identity that
+	// stops a stale admission-ring slot from evicting a re-admitted live entry,
+	// plus the effective-value state-limit reload classification and the
+	// data-plane path collector that feeds the owned-route carve; re-measured
+	// 138280, bump to 138305 with 25 headroom.
+	{Dir: "internal/core", Max: 138305},
 	{Dir: "internal/pluginreg", Max: 1174},
 	// Ingress self-defense (tasks 3.1 and 3.2) adds the stdhttp self-defense
 	// driving adapter (fixed impossible-path matcher + early path/quarantine
@@ -242,8 +253,12 @@ var LineBudgets = []LineBudget{
 	// sibling, and the standard data-plane gate plus auth observation wiring;
 	// harness-re-measured 13762 (runtimebundle) and 8013 (stdhttp);
 	// reset to 13787 and 8038 with 25 headroom.
-	{Dir: "internal/stdhttp", Max: 8038},
-	{Dir: "internal/infra/runtimebundle", Max: 13787},
+	// The ingress self-defense review follow-up re-measures 8130 (stdhttp) and
+	// 13858 (runtimebundle) for the owned-route carve and its generation
+	// inventory; both caps are re-baselined to those measurements with 25 lines
+	// of headroom.
+	{Dir: "internal/stdhttp", Max: 8155},
+	{Dir: "internal/infra/runtimebundle", Max: 13883},
 
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.

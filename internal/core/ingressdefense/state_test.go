@@ -589,6 +589,12 @@ var boundedEntryFields = map[string]reflect.Type{
 	"offenseLevel":    reflect.TypeOf(int(0)),
 	"quarantineUntil": reflect.TypeOf(time.Time{}),
 	"lastHostileAt":   reflect.TypeOf(time.Time{}),
+	// admission is internal ring bookkeeping, not adaptive state: a bounded
+	// monotonic counter that lets a ring slot prove it still owns the live entry
+	// it names, after Clear or a TTL expiry left that same address re-admitted
+	// into a second slot. It carries no request data, influences no offense
+	// decision, and is never read outside the shard lock.
+	"admission": reflect.TypeOf(uint64(0)),
 }
 
 // checkBoundedEntryField keeps one source entry limited to the normative
@@ -990,6 +996,145 @@ func TestEvictionCursorAdvancesPastAStaleRingSlotWithoutEvictingALiveKey(t *test
 	}
 	if got := s.Len(); got != 2 {
 		t.Fatalf("Len() = %d, want 2: eviction replaces, it never grows", got)
+	}
+}
+
+// staleSlotReAdmission drives one capacity-2 shard into the state where the ring
+// holds the same address twice: once in a slot whose entry is gone, and once in
+// the slot that owns the address's current live entry. The cursor is then parked
+// on the STALE slot, so the next admission reads that stale slot as if it owned
+// the live entry.
+//
+// The sequence, on a shard of capacity 2:
+//
+//	admit first, second   ring [first, second] cursor 0
+//	admit third           ring [third, second] cursor 1, first evicted
+//	drop the third entry  ring still [third, second], the third slot is now stale
+//	re-admit third        ring [third, third] cursor 0, second evicted
+//
+// Both slots now name third, and the cursor points at the stale one. A rule that
+// decides ownership from the address alone reads the stale slot as owning the live
+// entry and evicts it, even though the live entry was admitted more recently than
+// every other address in the shard. Admission identity, not address identity, is
+// what a slot owns.
+func staleSlotReAdmission(t *testing.T, s *State, policy Policy, ring []netip.Addr, dropThird func()) {
+	t.Helper()
+	first, second, third, fourth := ring[0], ring[1], ring[2], ring[3]
+
+	s.RecordProbe(first, stateBase, policy)
+	s.RecordProbe(second, stateBase, policy)
+	s.RecordProbe(third, stateBase, policy)
+	if s.IsQuarantined(first, stateBase) {
+		t.Fatal("the least recently admitted address must have been evicted")
+	}
+	dropThird()
+	if s.IsQuarantined(third, stateBase) {
+		t.Fatal("the third entry must be gone, so its ring slot is stale")
+	}
+	s.RecordProbe(third, stateBase, policy)
+	if !s.IsQuarantined(third, stateBase) {
+		t.Fatal("the re-admitted address must hold its own live entry")
+	}
+	if s.IsQuarantined(second, stateBase) {
+		t.Fatal("the re-admission must have evicted the live second address")
+	}
+	if got := s.Len(); got != 1 {
+		t.Fatalf("Len() = %d, want 1: the ring is full of slots but only the re-admitted entry is live", got)
+	}
+
+	// The cursor is now on the stale third slot while the live third entry is
+	// owned by the other slot. Admitting fourth must reuse the stale slot
+	// without evicting the live third entry.
+	s.RecordProbe(fourth, stateBase, policy)
+	if !s.IsQuarantined(third, stateBase) {
+		t.Fatal("a stale ring slot must not evict the live entry that re-admission gave the same address")
+	}
+	if !s.IsQuarantined(fourth, stateBase) {
+		t.Fatal("the newly admitted address must keep its own state")
+	}
+	if got := s.Len(); got != 2 {
+		t.Fatalf("Len() = %d, want 2: the stale slot overwrote itself without evicting a live entry", got)
+	}
+}
+
+// TestStaleAdmissionSlotDoesNotEvictTheLiveEntryOfAReAdmittedAddress is the
+// Clear -> re-admit -> stale-slot regression. Clear is an ordinary
+// successful-authentication transition, so this sequence is reachable in normal
+// operation and must not shorten a re-quarantined source's state.
+func TestStaleAdmissionSlotDoesNotEvictTheLiveEntryOfAReAdmittedAddress(t *testing.T) {
+	t.Parallel()
+
+	s := mustState(t, StateLimits{MaxEntries: 64, StateTTL: 24 * time.Hour})
+	ring := addressesInSameShard(t, s, 0, 4)
+	staleSlotReAdmission(t, s, validPolicy(), ring, func() {
+		s.Clear(ring[2])
+	})
+}
+
+// TestStaleAdmissionSlotDoesNotEvictTheLiveEntryAfterTTLExpiry is the same
+// regression through the other stale-slot producer. A hostile-inactivity TTL
+// expiry drops the entry lazily on the next lookup and leaves exactly the same
+// stale ring slot Clear leaves.
+func TestStaleAdmissionSlotDoesNotEvictTheLiveEntryAfterTTLExpiry(t *testing.T) {
+	t.Parallel()
+
+	ttl := time.Hour
+	s := mustState(t, StateLimits{MaxEntries: 64, StateTTL: ttl})
+	ring := addressesInSameShard(t, s, 0, 4)
+	// The lazy expiry runs inside the state on this read, so the helper's own
+	// stateBase reads must see a pre-expiry third entry and a post-expiry one.
+	expired := stateBase.Add(2 * ttl)
+	staleSlotReAdmission(t, s, validPolicy(), ring, func() {
+		if s.IsQuarantined(ring[2], expired) {
+			t.Fatal("the entry must expire once the hostile-inactivity TTL has elapsed")
+		}
+	})
+}
+
+// TestAdmissionRingIsDeterministicAcrossClearAndReAdmit guards the ownership
+// rule from the other side. Tagging slots with admission identity must not change
+// WHICH addresses survive an ordinary fill/clear/re-fill cycle: clearing every
+// entry and re-admitting the same addresses in the same order has to reproduce
+// the first pass exactly. A fix that compacts the ring, reorders slots, or skips
+// the cursor advance on a stale slot changes this result even though it removes
+// the double-eviction, so this test keeps the fix honest.
+func TestAdmissionRingIsDeterministicAcrossClearAndReAdmit(t *testing.T) {
+	t.Parallel()
+
+	s := mustState(t, StateLimits{MaxEntries: 64, StateTTL: 24 * time.Hour})
+	policy := validPolicy()
+	ring := addressesInSameShard(t, s, 0, 4)
+
+	survivors := func() []netip.Addr {
+		t.Helper()
+		var live []netip.Addr
+		for _, addr := range ring {
+			if s.IsQuarantined(addr, stateBase) {
+				live = append(live, addr)
+			}
+		}
+		return live
+	}
+
+	for _, addr := range ring {
+		s.RecordProbe(addr, stateBase, policy)
+	}
+	firstPass := survivors()
+	if len(firstPass) != 2 {
+		t.Fatalf("first pass survivors = %v, want the 2 the capacity-2 ring holds", firstPass)
+	}
+	for _, addr := range ring {
+		s.Clear(addr)
+	}
+	if got := s.Len(); got != 0 {
+		t.Fatalf("Len() = %d after clearing every entry, want 0", got)
+	}
+	for _, addr := range ring {
+		s.RecordProbe(addr, stateBase, policy)
+	}
+	secondPass := survivors()
+	if !reflect.DeepEqual(secondPass, firstPass) {
+		t.Fatalf("re-admitting after a clear-all kept %v, want the first pass's %v", secondPass, firstPass)
 	}
 }
 

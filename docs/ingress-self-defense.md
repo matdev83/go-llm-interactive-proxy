@@ -72,6 +72,20 @@ Request policy is generation-reloadable: `enabled`, `impossible_paths`, `auth_fa
 
 `state_ttl` and `max_entries` size the single process-owned adaptive table shared by every generation, so they are **restart-required**. A candidate that mixes reloadable changes with restart-required process-resource changes is rejected atomically: nothing is published and the last-good generation keeps serving with its existing state. Adaptive state survives a successful policy-only reload and is disposed only with the process.
 
+Restart-required is decided on the **compiled** limits, not on how the YAML is spelled, so it agrees with the defaults above. Omitting the whole `access.self_defense` block, spelling the documented default out (`state_ttl: 24h`, `max_entries: 100000`), and spelling an equivalent duration (`1440m` is the same instant as `24h`) all produce identical process limits, and none of them forces a restart. Only a candidate whose compiled limits actually differ is rejected.
+
+## Configured routes are never shadowed
+
+The fixed matcher is a set of audited commodity-probe prefixes, but the data-plane path surface is operator-configurable: the OpenResponses `base_path` and the `diagnostics`, `observability.metrics`, secure-session, model-diagnostics and protected operator mount paths all accept **any** normalized absolute non-root path. Those two spaces overlap, so some legitimate configurations name a path inside a probe family.
+
+A published route is therefore authoritative: the matcher never refuses a route this proxy actually serves. At composition the generation collects its own published routes — the configured mount paths plus every enabled frontend's claimed route paths, from the same seams that validate mount-path overlap and detect route takeover — and the matcher carves exactly those out. The carve is a routing decision only:
+
+- A probe **beside** a published route, in the same family, is still refused and still scores. `/wp-admin/healthz` as a diagnostics path does not make `/wp-admin/adminer.php` reachable.
+- A probe **below** a published route is carved too, because a published root owns its whole subtree. A frontend base path and a diagnostics path prefix both serve requests below the configured value, so an exact-only carve would leave a legitimate prefix mount unreachable. Nothing is served there unless a handler is mounted, and the published route itself stays protected by the adaptive quarantine.
+- A request that reaches a published route is not counted as an impossible-path probe, so a legitimate client cannot quarantine itself out of a valid configuration.
+
+If the projection is ever absent, the matcher keeps its full pre-carve behavior: refusing a published route is never the safe default to *rely* on, but silently opening the families would be worse.
+
 ## Generic responses
 
 Refusals are generic and identical for every triggering request, so they never disclose a matched rule, a source address, a quarantine deadline, an offense level, a score, or any other security internal:
@@ -96,7 +110,7 @@ Three bounded process metrics describe the feature, with a single finite label:
 | `lip_self_defense_quarantine_transitions_total` | counter | `reason` |
 | `lip_self_defense_state_entries` | gauge | none |
 
-`reason` is one of `impossible_path`, `auth_failure_threshold`, `active_quarantine`, `client_ip_error`, or the finite `unknown` bucket. The metrics never label by source IP, CIDR text, request path, query, header, User-Agent, credential, principal, country, or any other attacker-controlled value, and the entry gauge reads the live process-owned state, so it reflects inserts, bounded eviction, successful-auth clears, and inactivity expiry.
+`reason` is one of `impossible_path`, `auth_failure_threshold`, `active_quarantine`, `client_ip_error`, or the finite `unknown` bucket. The metrics never label by source IP, CIDR text, request path, query, header, User-Agent, credential, principal, country, or any other attacker-controlled value, and the entry gauge reads the live process-owned state, so it reflects inserts, bounded eviction and successful-auth clears immediately. Inactivity expiry is **lazy**: it happens on the next state lookup or mutation for that source, so a source that has passed `state_ttl` and is never touched again stays counted until something looks it up. Read `lip_self_defense_state_entries` as allocated capacity in use, not as a count of currently hostile sources.
 
 Metrics are not authoritative. A deployment with Prometheus scraping disabled projects no observer at all, and every security decision, state mutation, and response is identical. Per-request hostile-event **logging** is disabled: the refusals above carry no rule, address, or penalty detail, and the proxy adds no hostile-request log line by default.
 

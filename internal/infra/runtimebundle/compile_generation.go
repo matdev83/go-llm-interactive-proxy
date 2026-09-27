@@ -313,7 +313,7 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			// compiled client-IP trust configuration whether or not fixed
 			// country/CIDR enforcement is active, and it shares the auth provider
 			// slice with the transport-auth chain.
-			SelfDefense: buildSelfDefenseSecurityInput(cand, authProviders, time.Now),
+			SelfDefense: buildSelfDefenseSecurityInput(cand, frozen, authProviders, time.Now),
 		},
 		Operations: httpcontract.HTTPOperationsInput{
 			BillingReports: billingReports, BillingReportsPath: billingReportsPath,

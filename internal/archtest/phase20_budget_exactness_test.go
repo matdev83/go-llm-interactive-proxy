@@ -29,10 +29,16 @@ import (
 // the live tree now measures 8021 and the unchanged 8038 cap leaves 17 lines of
 // headroom rather than 25. The cap was deliberately not raised: the next change
 // in this tree must re-measure with the harness before it can be relied on.
+// The ingress self-defense review follow-up re-audits all three trees for the
+// owned-route carve (the carve in the fixed matcher plus the generation-side
+// published-route inventory), the admission-ring admission identity, and the
+// effective-value state-limit reload classification: re-measured 13858
+// (runtimebundle), 8130 (stdhttp) and 138280 (internal/core), each reset to
+// audited + 25.
 const (
-	phase20AuditRuntimebundleLines    = 13762
-	phase20AuditStdhttpLines          = 8013
-	phase20AuditCoreLines             = 138172
+	phase20AuditRuntimebundleLines    = 13858
+	phase20AuditStdhttpLines          = 8130
+	phase20AuditCoreLines             = 138280
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25
