@@ -22,7 +22,7 @@ fi
 
 mapfile -t MODULES < <(
   {
-    printf '%s\n' "testdata/enterprise_module" "testdata/external_connector" "testdata/external_feature_sdk"
+    printf '%s\n' "testdata/enterprise_module" "testdata/external_connector" "testdata/external_feature_sdk" "testdata/external_billing_binding"
     "$DISCOVER_MODULES_BIN" -root "$ROOT"
   } | awk 'NF && !seen[$0]++'
 )
