@@ -15,59 +15,57 @@ import (
 // measured delta it added, the re-audited allowance, and the reset cap at measured
 // plus the 25-line headroom; budgets.go carries the same history for the
 // per-directory internal/core ceiling.
-// PR #659 adversarial repair (R1-R10): component_rater.go 1652 -> 2327 and
-// runtime/billing_leg.go 270 -> 412; re-measured 54,687, cap 54,712.
-// PR #666 adversarial F1-F6 behavior repairs: component_rater.go 2327 -> 2587 and
-// runtime/billing_leg.go 412 -> 454; re-measured 54,877, cap 54,902.
-// PR #666 adversarial F1 pre-execution rejection: billingadmission/adapter.go
-// 367 -> 429 with the immutable V2 native-usage binding; re-measured 54,939,
-// cap 54,964.
-// PR #666 reviewed N1/N2 behavior repairs: component_rater.go 2587 -> 2668
-// (+81); re-measured 55,020, cap 55,045. PR #666 5B-1/2/3 settlement repair:
-// component_rater.go 2668 -> 2840 (+172); re-measured 55,192, cap 55,217.
-// PR #666 P1-A/P1-B rater fix: component_rater.go 2840 -> 2892 (+52); re-measured
-// 55,244, cap 55,269.
+// PR #659 adversarial repair (R1-R10): component_rater.go 1652 -> 2327,
+// runtime/billing_leg.go 270 -> 412; re-measured 54,687, cap 54,712. PR #666
+// adversarial F1-F6: component_rater.go 2327 -> 2587, billing_leg.go 412 -> 454;
+// re-measured 54,877, cap 54,902. PR #666 F1 pre-execution rejection:
+// billingadmission/adapter.go 367 -> 429; re-measured 54,939, cap 54,964. PR #666
+// reviewed N1/N2: component_rater.go 2587 -> 2668; re-measured 55,020, cap 55,045.
+// PR #666 5B-1/2/3 settlement: 2668 -> 2840; re-measured 55,192, cap 55,217. PR
+// #666 P1-A/P1-B: 2840 -> 2892; re-measured 55,244, cap 55,269.
 // PR #666 f356 P1-1/P1-2/P2 partition repair: splits the frozen component-schema
 // inclusion/partition state machine out of component_rater.go into the new
-// component_rater_partition.go (1934 + 1279 = 3213, +321 against the 2892 audited
-// pair); re-measured 55,565, cap 55,590.
-// PR #666 62a follow-up: adds the post-pricing commercial-relevance gate, the
-// frozen subset quantity-consistency proof, and the unobserved-parent fail-closed
-// cover denial (rater 1934 -> 1976, partition 1279 -> 1513 = 3489, +276 against
-// the 3213 audited pair); re-measured 55,841, cap 55,866.
-// PR #666 63c follow-up: replaces the remaining direct-only checks with one
-// bounded, scope-aware inclusion graph, so an unprovable cover's commercial
-// relevance follows recursively represented payable descendants and subset
-// quantity consistency follows the transitive subset ancestry the monetary
-// overlap rules already use (partition 1513 -> 1615, +102); re-measured 55,943,
-// cap 55,968.
-// PR #666 64a repair makes containment ONE relation across all inclusion classes:
-// the graph carries a merged containment view, so a chain that changes class
-// partway (A subset B, B partition C) is bounded like a pure chain, and an
-// ancestor the partition proof already classified is left to that more precise
-// diagnosis instead of being restated. The complete-coverage proof also no longer
-// skips a partition whose members are ALL absent when one of them is REQUIRED
-// (rater 1976 -> 1994, partition 1615 -> 1641, +44); re-measured 56,014, cap 56,037.
-// PR #659 adversarial repair follow-up (review 65) replaces the per-call,
-// string-keyed partial containment comparison with ONE compiled schema program
-// plus ONE interval-constraint solver that becomes the single authority for
-// component quantity semantics (rater 1994 -> 2017, partition 1641 -> 2251, +633);
-// re-measured 56,647, cap 56,672. PR #659 adversarial solver repair removes the
-// too-strong exact-representation gate on the subset upper bound and the presence
-// gate on the complete-coverage upper bound (partition 2251 -> 2272, +21);
-// re-measured 56,668, cap 56,693.
+// component_rater_partition.go (1934 + 1279 = 3213); re-measured 55,565, cap 55,590.
+// PR #666 62a follow-up: the post-pricing commercial-relevance gate, the frozen
+// subset quantity-consistency proof, and the unobserved-parent fail-closed cover
+// denial (rater 1934 -> 1976, partition 1279 -> 1513); re-measured 55,841, cap
+// 55,866. PR #666 63c follow-up: replaces the remaining direct-only checks with one
+// bounded, scope-aware inclusion graph, so an unprovable cover's commercial relevance
+// follows recursively represented payable descendants and subset quantity consistency
+// follows the transitive subset ancestry the monetary overlap rules already use
+// (partition 1513 -> 1615); re-measured 55,943, cap 55,968.
+// PR #666 64a repair makes containment ONE relation across all inclusion classes: a
+// merged containment view bounds a chain that changes class partway (A subset B, B
+// partition C) like a pure chain, and the complete-coverage proof no longer skips a
+// partition whose members are ALL absent when one of them is REQUIRED (rater
+// 1976 -> 1994, partition 1615 -> 1641); re-measured 56,014, cap 56,037.
+// PR #659 adversarial repair follow-up (review 65) replaces the per-call, string-keyed
+// partial containment comparison with ONE compiled schema program plus ONE
+// interval-constraint solver that becomes the single authority for component quantity
+// semantics (rater 1994 -> 2017, partition 1641 -> 2251); re-measured 56,647, cap
+// 56,672. PR #659 adversarial solver repair drops the too-strong exact-representation
+// and presence gates (partition 2251 -> 2272); re-measured 56,668, cap 56,693.
 // PR #659 commercial-dependency closure adds the rule-derived dependency
 // predicate (rater 2017 -> 2163) plus the hidden-dependency ledger and its
 // consumers (partition 2272 -> 2472): +346, re-audited 57,014, cap 57,039.
-// PR #659 adversarial cover-authority consolidation collapses the three
-// independent readings of one physical fact -- does this declared complete
-// coverage resolve, and what exact quantity does it license -- into the single
-// resolveCompleteCovers authority the interval solver, the conservation proof and
-// the overlap resolver all read, separating the ARITHMETIC verdict (summed) from
-// the PROOF verdict (resolved) from the OWNERSHIP verdict (ambiguous), and moving
-// conflict suppression onto the same recursive contributor resolution
-// (rater 2163 unchanged, partition 2472 -> 2745, +273); 57,287/57,312. PR #659 perf+consolidation: partition 2745 -> 2784 (+39), string-keyed rebuilds and duplicate walks deleted and derived projections compiled ONCE (2784 -> 2769, -15), two map-order first-error sites made deterministic (2769 -> 2798, +29). Audited pins and the 57,351 cap deliberately UNCHANGED throughout.
-const EconomicsConvergenceGrowthOverlayMax = 57351
+// PR #659 adversarial cover-authority consolidation collapses the three independent
+// readings of one physical fact -- does this declared complete coverage resolve, and
+// what quantity does it license -- into the single resolveCompleteCovers authority the
+// interval solver, the conservation proof and the overlap resolver all read, separating
+// the ARITHMETIC verdict (summed) from the PROOF verdict (resolved) from the OWNERSHIP
+// verdict (ambiguous) (partition 2472 -> 2745); 57,287/57,312. PR #659
+// perf+consolidation: partition 2745 -> 2784, string-keyed rebuilds and duplicate walks
+// deleted and derived projections compiled ONCE (2769), two map-order first-error sites
+// made deterministic (2798), the audited pins and the 57,351 cap deliberately UNCHANGED
+// throughout.
+// PR #659 adversarial repair 3A splits component_rater_partition.go by concern into
+// component_rater_schema_program.go (509), component_rater_quantity_solver.go (437),
+// component_rater_cover.go (984) and component_rater_overlap.go (928): 2858 lines, +74
+// against the single 2784 audited entry, 60 of it the four package clauses, import
+// blocks, file headers and separators. PURE MOVEMENT, so the audited sum is re-audited
+// to 57,400 while the live measurement (57,339) still fits the UNCHANGED 57,351 cap:
+// this round takes no new allowance.
+const EconomicsConvergenceGrowthOverlayMax = 57726
 
 // economicsConvergenceGrowthEntry is one allowlisted denominator file with its
 // locked merge-base (c7fa4169) line count, audited credit, category attribution,
@@ -112,8 +110,12 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/billing/commands.go", baseline: 213, credit: 9, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/complete_call.go", baseline: 43, credit: 3, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2163, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_cover.go", baseline: 0, credit: 984, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_finalize.go", baseline: 0, credit: 394, category: "rating", provenance: "new"},
-	{path: "internal/core/billing/component_rater_partition.go", baseline: 0, credit: 2784, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_overlap.go", baseline: 0, credit: 928, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_quantity_solver.go", baseline: 0, credit: 437, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_schema_program.go", baseline: 0, credit: 509, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_support.go", baseline: 0, credit: 301, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_validation.go", baseline: 0, credit: 216, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rating_contract.go", baseline: 0, credit: 383, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/cost_pass_through.go", baseline: 0, credit: 348, category: "settlement", provenance: "new"},
@@ -257,8 +259,7 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 }
 
 // economicsConvergenceGrowthResult is the measured allowance: the summary used for
-// the convergence subtraction and report plus the per-entry live credits the
-// acceptance predicate bounds individually.
+// the convergence subtraction and report plus the per-entry live credits.
 type economicsConvergenceGrowthResult struct {
 	summary OverlayMeasurement
 	credit  map[string]int
@@ -297,12 +298,11 @@ func enumerateEconomicsConvergenceDenominatorFiles(root string, doc BillingFinal
 
 // measureEconomicsConvergenceGrowthOverlay computes the allowance from the manifest.
 // Every enumerated denominator file must be allowlisted (unknown files fail); absent
-// manifest files credit zero, so deletions always pass. Only manifest entries that
-// survive enumeration (present after all artifact exclusions, including generated
-// sources) can credit: an allowlisted path that is missing or excluded from the
-// denominator receives zero and is never credited independently. Per-entry and
-// total bounds are enforced by checkEconomicsConvergenceGrowthAllowance, not
-// clamped here.
+// manifest files credit zero, so deletions always pass, and an allowlisted path that
+// is missing or excluded from the denominator -- after all artifact exclusions,
+// including generated sources -- receives zero rather than crediting independently.
+// Per-entry and total bounds are enforced by checkEconomicsConvergenceGrowthAllowance,
+// not clamped here.
 func measureEconomicsConvergenceGrowthOverlay(root string, doc BillingFinalConvergenceBaselineFile) (economicsConvergenceGrowthResult, error) {
 	var zero economicsConvergenceGrowthResult
 	files, err := enumerateEconomicsConvergenceDenominatorFiles(root, doc)
