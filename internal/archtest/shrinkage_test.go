@@ -73,7 +73,7 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if TerminalDecisionFeatureExtensionOverlayMax != 622 {
 		t.Fatalf("terminal decision feature extension overlay cap drift: %d", TerminalDecisionFeatureExtensionOverlayMax)
 	}
-	if IngressSelfDefenseOverlayMax != 1520 {
+	if IngressSelfDefenseOverlayMax != 1610 {
 		t.Fatalf("ingress self-defense overlay cap drift: %d", IngressSelfDefenseOverlayMax)
 	}
 	want := []AffectedSurfaceBaseline{

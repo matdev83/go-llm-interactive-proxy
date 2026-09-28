@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 )
@@ -312,28 +313,25 @@ func rejectHTTPPathDotDot(fieldName, p string) error {
 	return nil
 }
 
-// rejectHTTPPathEscape rejects a percent escape in a configured data-plane path.
+// operatorMountPathMeta mirrors httpcontract.operatorRoutePathMeta, the policy for an
+// operator-supplied route path. The two live in different packages on purpose:
+// internal/core/config must not depend on the stdhttp contract package, and the
+// route contract must not depend on core config.
 //
-// http.ServeMux unescapes both a registered pattern and an incoming request path, so
-// a pattern written with an escape owns requests whose decoded path is the unescaped
-// form. A configured path containing an escape is therefore two different strings at
-// once: the literal one the operator wrote, and the decoded one a client sends. The
-// ingress self-defense owned-route carve reasons about decoded paths, so such a path
-// could publish a route the carve cannot see and shadow it. Forbidding the escape
-// keeps the configured path, the registered pattern and the decoded request path one
-// value. An operator who wants a literal character writes the literal character.
-func rejectHTTPPathEscape(fieldName, p string) error {
-	if strings.Contains(p, "%") {
-		return fmt.Errorf("%s: must not contain percent escapes (use the literal characters)", fieldName)
-	}
-	return nil
-}
+// The duplication is not left to discipline. TestOperatorDataPlanePathsAreLiteralAnd
+// NormalizeUnchanged in internal/archtest runs one case table through BOTH validators
+// and through the ingress self-defense route normalizer, and requires them to agree:
+// every operator path they accept must be a literal path that the self-defense
+// normalizer leaves unchanged. Adding a character to one list without the other fails
+// there.
+const operatorMountPathMeta = "?#*\\{}%"
 
 // validateConfiguredMountPath is the single chokepoint for an operator-configured
 // data-plane mount path: it trims, requires an absolute path, rejects a parent
-// segment and a percent escape, and returns the normalized path without a trailing
-// separator. An empty value means "not mounted" and returns an empty path with no
-// error, because every configurable mount is optional.
+// segment, rejects any ServeMux pattern or query-like syntax, and returns the
+// normalized path without a trailing separator. An empty value means "not mounted"
+// and returns an empty path with no error, because every configurable mount is
+// optional.
 //
 // Every configurable mount path in the config model goes through here, so the rules
 // cannot diverge between the diagnostics block, the metrics path, the secure-session
@@ -341,9 +339,6 @@ func rejectHTTPPathEscape(fieldName, p string) error {
 func validateConfiguredMountPath(field, p string, allowEmpty bool) (string, error) {
 	p = strings.TrimSpace(p)
 	if p == "" {
-		if allowEmpty {
-			return "", nil
-		}
 		return "", nil
 	}
 	if !strings.HasPrefix(p, "/") {
@@ -352,8 +347,23 @@ func validateConfiguredMountPath(field, p string, allowEmpty bool) (string, erro
 	if err := rejectHTTPPathDotDot(field, p); err != nil {
 		return "", err
 	}
-	if err := rejectHTTPPathEscape(field, p); err != nil {
-		return "", err
+	if strings.ContainsAny(p, operatorMountPathMeta) {
+		return "", fmt.Errorf("%s: must be a literal path and must not contain any of %q "+
+			"(ServeMux pattern syntax, a query or fragment separator, a wildcard, a backslash or a percent escape)",
+			field, operatorMountPathMeta)
+	}
+	if strings.Contains(p, "//") {
+		return "", fmt.Errorf("%s: must not contain an empty path segment", field)
+	}
+	for segment := range strings.SplitSeq(p, "/") {
+		if segment == "." || segment == ".." {
+			return "", fmt.Errorf("%s: must not contain a %q path segment", field, segment)
+		}
+	}
+	for _, r := range p {
+		if r < 0x20 || r == 0x7f || unicode.IsSpace(r) {
+			return "", fmt.Errorf("%s: must not contain control or whitespace characters", field)
+		}
 	}
 	return strings.TrimSuffix(p, "/"), nil
 }
