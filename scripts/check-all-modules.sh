@@ -22,7 +22,7 @@ fi
 
 mapfile -t MODULES < <(
   {
-    printf '%s\n' "testdata/enterprise_module" "testdata/external_connector" "testdata/external_feature_sdk"
+    printf '%s\n' "testdata/enterprise_module" "testdata/external_connector" "testdata/external_feature_sdk" "testdata/external_billing_binding"
     "$DISCOVER_MODULES_BIN" -root "$ROOT"
   } | awk 'NF && !seen[$0]++'
 )
@@ -41,9 +41,10 @@ run_module() {
     GOWORK=off go mod tidy -diff
     # Bound each module's suite explicitly. The Go default is ten minutes, so a
     # single module that blocks in teardown used to hold the job for the full
-    # default before reporting. Module suites here run in seconds; three minutes
-    # keeps a stuck module from dominating the job.
-    GOWORK=off go test -timeout=3m ./...
+    # default before reporting. The ACP cross-compilation suite can take several
+    # minutes on a cold runner; five minutes leaves room for that work while
+    # keeping a stuck module bounded.
+    GOWORK=off go test -timeout=5m ./...
     if [[ -d cmd ]]; then
       for command_dir in cmd/*/; do
         [[ -d "$command_dir" ]] || continue
