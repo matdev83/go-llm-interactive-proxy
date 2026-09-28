@@ -16,6 +16,29 @@ import (
 // subtree it also owns uncarved.
 const ownedRouteProbeSegment = "x"
 
+// methodlessProbeMethod is an HTTP method token no route is ever registered for. It
+// exists so the resolver can ask the router a question about methodless registrations
+// that no ordinary method can answer: ServeMux lets a methodless registration coexist
+// with method-specific ones for the same path, and the method-specific one wins for its
+// own method. Probing only GET would therefore find "GET /x" and never learn that "/x"
+// also exists, so a request the router routes to the methodless handler would look
+// unowned. A token that cannot collide with a real registration falls through to the
+// methodless one.
+const methodlessProbeMethod = "LIPMETHODLESSPROBE"
+
+// routeMethodMatches reports whether a registration carrying registered owns a
+// request carrying candidate.
+//
+// It reproduces the router's own rule that a GET registration also answers HEAD,
+// which a plain equality test gets wrong and would then let the gate refuse a request
+// the router routes.
+func routeMethodMatches(registered, candidate string) bool {
+	if registered == "" || registered == candidate {
+		return true
+	}
+	return registered == http.MethodGet && candidate == http.MethodHead
+}
+
 // OwnedRoutesFromMux resolves which of the candidates the router actually owns, and
 // with which match semantics, by asking the router itself.
 //
@@ -61,18 +84,27 @@ func OwnedRoutesFromMux(mux *http.ServeMux, candidates []httpcontract.OwnedRoute
 			continue
 		}
 		// An absent candidate method means the registration is method-less, so it
-		// answers every method. The router still needs a concrete method to resolve
-		// against, and a method-less pattern answers GET, so GET is the faithful
-		// probe; the resolved pattern's own method is what gets recorded.
+		// answers every method. The router still needs concrete methods to resolve
+		// against, and two probes are needed because a method-less registration can
+		// coexist with a method-specific one: the ordinary method reveals the
+		// specific registration, and a token that cannot collide with any real
+		// registration falls through to the method-less one. Recording whatever
+		// dedicated patterns come back is what makes the result the router's full
+		// answer for this path rather than one representative request's.
 		method := normalizeOwnedMethod(candidate.Method)
+		probeMethods := []string{method}
 		if method == "" {
-			method = http.MethodGet
+			probeMethods = []string{http.MethodGet, methodlessProbeMethod}
+		} else {
+			probeMethods = append(probeMethods, methodlessProbeMethod)
 		}
-		// The candidate itself, which reveals an exact registration, and a subtree
-		// registration of the same path, which the router answers with its own
-		// trailing-slash pattern.
-		for _, probe := range []string{path, path + "/" + ownedRouteProbeSegment} {
-			record(dedicatedPatternFor(mux, method, probe))
+		// Each method is asked about the candidate itself, which reveals an exact
+		// registration, and about a synthetic descendant, which the router answers
+		// with its own trailing-slash pattern for a subtree registration.
+		for _, probeMethod := range probeMethods {
+			for _, probe := range []string{path, path + "/" + ownedRouteProbeSegment} {
+				record(dedicatedPatternFor(mux, probeMethod, probe))
+			}
 		}
 	}
 	slices.SortFunc(owned, compareOwnedRoutes)
@@ -134,7 +166,7 @@ func (o OwnedRoutes) Covers(method, path string) bool {
 		return false
 	}
 	for _, route := range o.routes {
-		if route.Method != "" && route.Method != method {
+		if !routeMethodMatches(route.Method, method) {
 			continue
 		}
 		if route.Subtree {

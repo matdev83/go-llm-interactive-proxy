@@ -312,6 +312,52 @@ func rejectHTTPPathDotDot(fieldName, p string) error {
 	return nil
 }
 
+// rejectHTTPPathEscape rejects a percent escape in a configured data-plane path.
+//
+// http.ServeMux unescapes both a registered pattern and an incoming request path, so
+// a pattern written with an escape owns requests whose decoded path is the unescaped
+// form. A configured path containing an escape is therefore two different strings at
+// once: the literal one the operator wrote, and the decoded one a client sends. The
+// ingress self-defense owned-route carve reasons about decoded paths, so such a path
+// could publish a route the carve cannot see and shadow it. Forbidding the escape
+// keeps the configured path, the registered pattern and the decoded request path one
+// value. An operator who wants a literal character writes the literal character.
+func rejectHTTPPathEscape(fieldName, p string) error {
+	if strings.Contains(p, "%") {
+		return fmt.Errorf("%s: must not contain percent escapes (use the literal characters)", fieldName)
+	}
+	return nil
+}
+
+// validateConfiguredMountPath is the single chokepoint for an operator-configured
+// data-plane mount path: it trims, requires an absolute path, rejects a parent
+// segment and a percent escape, and returns the normalized path without a trailing
+// separator. An empty value means "not mounted" and returns an empty path with no
+// error, because every configurable mount is optional.
+//
+// Every configurable mount path in the config model goes through here, so the rules
+// cannot diverge between the diagnostics block, the metrics path, the secure-session
+// and model diagnostic prefixes, and the protected operator mounts.
+func validateConfiguredMountPath(field, p string, allowEmpty bool) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		if allowEmpty {
+			return "", nil
+		}
+		return "", nil
+	}
+	if !strings.HasPrefix(p, "/") {
+		return "", fmt.Errorf("%s: must start with /", field)
+	}
+	if err := rejectHTTPPathDotDot(field, p); err != nil {
+		return "", err
+	}
+	if err := rejectHTTPPathEscape(field, p); err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(p, "/"), nil
+}
+
 func validateDiagnosticsPaths(cfg *Config) error {
 	paths, err := collectDataPlanePaths(cfg)
 	if err != nil {
@@ -354,17 +400,7 @@ func collectDataPlanePaths(cfg *Config) ([]string, error) {
 		return strings.TrimSuffix(strings.TrimSpace(p), "/")
 	}
 	check := func(name, p string) (string, error) {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			return "", nil
-		}
-		if !strings.HasPrefix(p, "/") {
-			return "", fmt.Errorf("diagnostics.%s: must start with /", name)
-		}
-		if err := rejectHTTPPathDotDot("diagnostics."+name, p); err != nil {
-			return "", err
-		}
-		return norm(p), nil
+		return validateConfiguredMountPath("diagnostics."+name, p, true)
 	}
 	paths := make([]string, 0, 16)
 	add := func(s string) {
@@ -399,45 +435,30 @@ func collectDataPlanePaths(cfg *Config) ([]string, error) {
 	}
 	add(pp)
 	if cfg.SecureSessionEffectivelyEnabled() {
-		ssp := strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix)
-		if ssp != "" {
-			if !strings.HasPrefix(ssp, "/") {
-				return nil, fmt.Errorf("secure_session.diagnostics_path_prefix: must start with /")
-			}
-			if err := rejectHTTPPathDotDot("secure_session.diagnostics_path_prefix", ssp); err != nil {
-				return nil, err
-			}
-			add(strings.TrimSuffix(ssp, "/"))
+		ssp, err := validateConfiguredMountPath("secure_session.diagnostics_path_prefix", cfg.SecureSession.DiagnosticsPathPrefix, true)
+		if err != nil {
+			return nil, err
 		}
+		add(ssp)
 	}
 	mp, err := checkObservabilityMetricsPath(cfg)
 	if err != nil {
 		return nil, err
 	}
 	add(mp)
-	mcd := strings.TrimSpace(cfg.ModelCatalog.DiagnosticsPath)
-	if mcd != "" {
-		if !strings.HasPrefix(mcd, "/") {
-			return nil, fmt.Errorf("model_catalog.diagnostics_path: must start with /")
-		}
-		if err := rejectHTTPPathDotDot("model_catalog.diagnostics_path", mcd); err != nil {
-			return nil, err
-		}
-		add(norm(mcd))
+	mcd, err := validateConfiguredMountPath("model_catalog.diagnostics_path", cfg.ModelCatalog.DiagnosticsPath, true)
+	if err != nil {
+		return nil, err
 	}
-	mid := strings.TrimSpace(cfg.ModelInventory.DiagnosticsPath)
-	if mid != "" {
-		if !strings.HasPrefix(mid, "/") {
-			return nil, fmt.Errorf("model_inventory.diagnostics_path: must start with /")
-		}
-		if err := rejectHTTPPathDotDot("model_inventory.diagnostics_path", mid); err != nil {
-			return nil, err
-		}
-		add(norm(mid))
+	add(mcd)
+	mid, err := validateConfiguredMountPath("model_inventory.diagnostics_path", cfg.ModelInventory.DiagnosticsPath, true)
+	if err != nil {
+		return nil, err
 	}
+	add(mid)
 	// accounting.admin.path, authority query, control_plane query, routing
 	// override admin, and billing reports are protected operator mounts and
-	// must satisfy the same dot-segment rules.
+	// must satisfy the same dot-segment and percent-escape rules.
 	for _, mount := range protectedMountPaths {
 		resolved, err := validateProtectedMountPath(cfg, mount, norm)
 		if err != nil {
@@ -472,17 +493,7 @@ func checkObservabilityMetricsPath(cfg *Config) (string, error) {
 	if cfg == nil || !cfg.Observability.Metrics.Enabled {
 		return "", nil
 	}
-	p := strings.TrimSpace(cfg.Observability.Metrics.Path)
-	if p == "" {
-		return "", nil
-	}
-	if !strings.HasPrefix(p, "/") {
-		return "", fmt.Errorf("observability.metrics.path: must start with /")
-	}
-	if err := rejectHTTPPathDotDot("observability.metrics.path", p); err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(p, "/"), nil
+	return validateConfiguredMountPath("observability.metrics.path", cfg.Observability.Metrics.Path, true)
 }
 
 func validateObservability(cfg *Config) error {
