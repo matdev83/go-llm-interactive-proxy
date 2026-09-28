@@ -74,6 +74,20 @@ Request policy is generation-reloadable: `enabled`, `impossible_paths`, `auth_fa
 
 Restart-required is decided on the **compiled** limits, not on how the YAML is spelled, so it agrees with the defaults above. Omitting the whole `access.self_defense` block, spelling the documented default out (`state_ttl: 24h`, `max_entries: 100000`), and spelling an equivalent duration (`1440m` is the same instant as `24h`) all produce identical process limits, and none of them forces a restart. Only a candidate whose compiled limits actually differ is rejected.
 
+## Configured paths are literal routes
+
+An operator-supplied data-plane path — the OpenResponses `base_path`, and the `diagnostics`, `observability.metrics`, secure-session, model-diagnostics and protected operator mount paths — must be a **literal** route, and validation rejects anything that is not one:
+
+- ServeMux pattern syntax is rejected: `{name}`, `{name...}` and `{$}` mean something to the router that a literal path cannot express.
+- `?` and `#` are rejected: a decoder splits them off as query and fragment material, and this layer's normalizer deliberately cuts at a decoded `?`, so a path containing one is never the same value for the operator, the router and the normalizer.
+- `*`, `\`, `%`, an empty path segment, a `.` or `..` segment, and control or whitespace characters are rejected.
+
+The reason is structural, not stylistic: the router and this layer both reason about literal paths, so a value that means something else to either of them would make a legitimate route unreachable. An operator who wants a literal character writes the literal character.
+
+This applies to **operator input only**. The bundled frontends' own route claims may use ServeMux wildcards — the OpenAI-Responses frontend claims `/v1/responses/{id}/cancel` — and the carve reproduces the router's segment grammar for those, matching `{name}` against one non-empty segment, `{name...}` against the remaining segments, and `{$}` against the end of the path.
+
+An invariant in `internal/archtest` requires that every operator path the validators **accept** registers a path that this layer's normalizer cannot move. That is the property that prevents a route from being shadowed, and it holds independently of any individual metacharacter.
+
 ## Configured routes are never shadowed
 
 The fixed matcher is a set of audited commodity-probe prefixes, but the data-plane path surface is operator-configurable: the OpenResponses `base_path` and the `diagnostics`, `observability.metrics`, secure-session, model-diagnostics and protected operator mount paths all accept **any** normalized absolute non-root path. Those two spaces overlap, so some legitimate configurations name a path inside a probe family.

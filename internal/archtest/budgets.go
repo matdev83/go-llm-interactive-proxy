@@ -132,7 +132,7 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// measurements with 25 lines of headroom, matching the convention above.
 	{Tree: "internal/infra/runtimebundle", Max: 13883},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
-	{Tree: "internal/stdhttp", Max: 8444},
+	{Tree: "internal/stdhttp", Max: 8587},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -259,7 +259,7 @@ var LineBudgets = []LineBudget{
 	// inventory with a router-resolved typed one, which lands mostly in stdhttp
 	// (the resolver, the exact-versus-subtree model and the gate wiring):
 	// re-measured 8375 (stdhttp), reset to 8400 with 25 lines of headroom.
-	{Dir: "internal/stdhttp", Max: 8444},
+	{Dir: "internal/stdhttp", Max: 8587},
 	{Dir: "internal/infra/runtimebundle", Max: 13883},
 
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
