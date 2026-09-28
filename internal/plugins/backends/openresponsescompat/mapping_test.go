@@ -247,7 +247,6 @@ func TestBuildCreateRequest_NeverForwardsProxyOrArbitraryFields(t *testing.T) {
 
 func TestBuildCreateRequest_UnrepresentableContentRejected(t *testing.T) {
 	t.Parallel()
-	base := itemAuthorityCreateCall()
 	for name, mutate := range map[string]func(*lipapi.Call){
 		"annotation_content": func(c *lipapi.Call) {
 			c.Items[0].Content = []lipapi.ContentPart{{Kind: lipapi.ContentPartAnnotation, Annotation: &lipapi.AnnotationPart{Type: "url_citation"}}}
@@ -261,7 +260,7 @@ func TestBuildCreateRequest_UnrepresentableContentRejected(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			c := base
+			c := itemAuthorityCreateCall()
 			mutate(&c)
 			_, err := buildCreateRequest("my-or", testSpec(), c, routing.AttemptCandidate{Primary: routing.Primary{Model: "model-x"}})
 			if err == nil {
