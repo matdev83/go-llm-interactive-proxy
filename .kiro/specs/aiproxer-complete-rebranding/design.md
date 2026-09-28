@@ -2,7 +2,7 @@
 
 ## Overview
 
-This design rebrands the existing brownfield repository to **aiproxer** while preserving its current architecture and behavior. The technical problem is not choosing replacement strings; it is controlling a repository-wide dependency graph so compile-time namespaces, runtime contracts, nested modules, tests, automation, release packaging, generated artifacts, documentation, and repository hosting do not all break at once.
+This design rebrands the existing brownfield repository to **AIProxer** on human-readable product surfaces while preserving `aiproxer` as the lowercase machine/repository/module slug and preserving the current architecture and behavior. The technical problem is not choosing replacement strings; it is controlling a repository-wide dependency graph so compile-time namespaces, runtime contracts, nested modules, tests, automation, release packaging, generated artifacts, documentation, and repository hosting do not all break at once.
 
 The design uses a **dependency-ordered sequence of bounded rename waves**. Every wave has explicit entry dependencies, deterministic ownership, a small mutation surface, focused validation, and a green exit checkpoint. Compile-time namespace changes stabilize before runtime wire/config names; runtime names stabilize before broad tooling/release convergence; documentation and historical artifacts converge only after code naming freezes. The GitHub repository transfer/rename remains a late owner-controlled cutover.
 
@@ -10,7 +10,7 @@ No production architecture layer is introduced. No code is split for Open Core/E
 
 ### Goals
 
-- Converge all maintained project identity on `aiproxer`.
+- Converge human-readable product identity on `AIProxer` and machine/repository/module slug identity on `aiproxer`.
 - Use `github.com/aiproxer/aiproxer` as the canonical Go module and repository root.
 - Migrate public packages to `aipapi`, `aipsdk`, and `aipruntime`, and the standard distribution to `aipstd`.
 - Migrate project-owned wire/config/operational identifiers to `AIP`/`aip`/`aiproxer.com` forms as appropriate.
@@ -36,8 +36,8 @@ No production architecture layer is introduced. No code is split for Open Core/E
 
 - Repository/product/release naming.
 - Root and nested Go module namespaces.
-- Public package names and project-specific exported/local identifiers where branding is encoded.
-- Standard distribution command/binary/build identity.
+- Public package names, internal project-branded package/command/path names, and project-specific exported/local identifiers where branding is encoded.
+- Standard distribution and connector/helper command, executable, bridge, binary, and build identities.
 - Project-owned HTTP, environment, config, schema, user-agent/service, metric, tracing/logging, IPC, persistence, and generated-artifact names.
 - Tests, fixtures, scripts, Make targets, workflows, release tooling, agent instructions/skills, Kiro artifacts, docs, comments, help, filenames, and directories.
 - Canonical GitHub repository transfer/rename and post-cutover verification/rebinding.
@@ -87,6 +87,7 @@ Important brownfield constraints:
 - Environment names and project identity are referenced by test infrastructure, scripts, CI workflows, quality/release tooling, and persistence infrastructure.
 - A single `.github/**` workflow can contain environment names, module paths, command paths, artifact names, and repository names owned by different migration concerns; identifier-family ownership must therefore be explicit and sequential.
 - Release configuration hard-codes project/build/binary identity and can produce artifacts not present in the tracked source tree.
+- Current-tree branding also appears in auxiliary root commands, connector executable command trees, internal/test command or package paths, bridge entrypoints, agent-skill paths, and test/fixture filenames. These path-bearing surfaces can affect compilation, runtime launch, packaging, or tooling and therefore require explicit owning waves rather than late incidental cleanup.
 - Active and archived repository documentation contains source-brand names and is explicitly in the feature scope.
 - Repository transfer preserves many repository-scoped assets, but organization/owner-scoped policy and access dependencies can require target-owner recreation or rebinding.
 
@@ -102,7 +103,7 @@ flowchart TD
     C --> API[4. pkg/aipapi]
     API --> SDK[5. pkg/aipsdk]
     SDK --> RT[6. pkg/aipruntime]
-    RT --> STD[7. cmd/aipstd + distribution identity]
+    RT --> STD[7. cmd/aipstd + remaining compile/build-sensitive path identities]
     STD --> RC[8. Runtime contract namespaces]
     RC --> TOOL[9. Tooling + CI + release + non-Kiro agents]
     TOOL --> DOC[10. Docs + Kiro + history + path cleanup]
@@ -125,10 +126,11 @@ The numbering above describes design waves, not task IDs. `tasks.md` decomposes 
 
 | Surface | Target identity | Notes |
 |---|---|---|
-| Product/repository/release project | `aiproxer` | User-facing canonical brand |
+| Human-readable product brand | `AIProxer` | README/docs/help/UI/prose display name |
+| Machine/repository/release project slug | `aiproxer` | Lowercase/path-safe project identity |
 | GitHub repository + Go root module | `github.com/aiproxer/aiproxer` | Canonical module/import root |
 | Project FQDN namespace | `aiproxer.com` | Only where a domain-qualified project identifier is appropriate |
-| Three-letter abbreviation | `aip` | Casing follows the identifier convention |
+| Three-letter abbreviation | `aip` | Casing follows the identifier convention; applies to semantic project prefixes in package/command/executable/file/directory names |
 | Canonical API package | `pkg/aipapi` | Existing canonical contracts; name-only migration |
 | Extension SDK package | `pkg/aipsdk` | Existing plugin/facade contracts; name-only migration |
 | Public runtime package | `pkg/aipruntime` | Existing runtime facade; name-only migration |
@@ -137,7 +139,7 @@ The numbering above describes design waves, not task IDs. `tasks.md` decomposes 
 | Environment namespace | `AIP_*` | Runtime/test/CI/scripts |
 | Metrics | `aip_*` | Meaning/labels unchanged |
 
-The mapping source side is the Legacy Token Set defined by the frozen Issue #429 source revision and discovered baseline semantic variants. Concrete retired spellings stay out of durable new artifacts to avoid making the specification a final-tree violation.
+The mapping source side is the Legacy Token Set defined by the frozen Issue #429 source revision and discovered baseline semantic variants. Concrete retired spellings stay out of durable new artifacts to avoid making the specification a final-tree violation. The implementation inventory must classify every branded path component by its functional owner: module/package/command/executable/build paths are renamed in compile/tooling/release waves; README/docs/Kiro/history paths are renamed in their documentation waves; Task 9.4 is only the non-functional remainder.
 
 ## Migration Control Model
 
