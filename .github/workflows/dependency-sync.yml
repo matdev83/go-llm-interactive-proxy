@@ -14,6 +14,12 @@ on:
       - "connector-support/**/go.sum"
       - "testdata/enterprise_module/go.mod"
       - "testdata/enterprise_module/go.sum"
+      - "testdata/external_connector/go.mod"
+      - "testdata/external_connector/go.sum"
+      - "testdata/external_feature_sdk/go.mod"
+      - "testdata/external_feature_sdk/go.sum"
+      - "testdata/external_billing_binding/go.mod"
+      - "testdata/external_billing_binding/go.sum"
       - "scripts/tidy-all-modules.sh"
       - "scripts/check-all-modules.sh"
       - "tools/backendplugin/discover_modules/**"
@@ -47,6 +53,9 @@ jobs:
             connectors/**/go.sum
             connector-support/**/go.sum
             testdata/enterprise_module/go.sum
+            testdata/external_connector/go.sum
+            testdata/external_feature_sdk/go.sum
+            testdata/external_billing_binding/go.sum
 
       - name: Check every independent module
         env:
