@@ -62,6 +62,18 @@ func NormalizePath(path string) (string, error) {
 	if strings.ContainsAny(p, "?#*\\") {
 		return "", fmt.Errorf("route claim: path contains invalid characters (query/fragment/wildcard/backslash)")
 	}
+	// A percent escape is rejected because http.ServeMux unescapes BOTH the
+	// registered pattern and the request path. A pattern written with an escape
+	// therefore owns requests whose DECODED path is the unescaped form, so the
+	// configured path and the path a client actually sends are two different
+	// strings. Anything that reasons about routes in the decoded space -- the
+	// ingress self-defense owned-route carve above all -- would then be reasoning
+	// about a path the router does not own, and a legitimate route could be
+	// shadowed. Forbidding the escape keeps the configured path, the registered
+	// pattern and the decoded request path the same value.
+	if strings.Contains(p, "%") {
+		return "", fmt.Errorf("route claim: path must not contain percent escapes (use the literal characters)")
+	}
 	if strings.Contains(p, "//") {
 		return "", fmt.Errorf("route claim: path contains double slash")
 	}
