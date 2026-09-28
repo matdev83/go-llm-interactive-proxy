@@ -2,13 +2,13 @@
 
 ## Introduction
 
-This specification completes the repository-wide identity change defined by Issue #429. The existing product becomes **aiproxer** without changing its functional architecture or splitting Open Core and Enterprise code. Because this is a high-blast-radius brownfield refactor, correctness includes not only the final names but also a staged migration that keeps failures local and makes every wave independently verifiable.
+This specification completes the repository-wide identity change defined by Issue #429. The existing product becomes **AIProxer** in human-readable product prose and display surfaces, with `aiproxer` retained as the lowercase machine/repository/module slug, without changing its functional architecture or splitting Open Core and Enterprise code. Because this is a high-blast-radius brownfield refactor, correctness includes not only the final names but also a staged migration that keeps failures local and makes every wave independently verifiable.
 
 The **Legacy Token Set** means the source product/repository names and project-specific abbreviations defined by Issue #429, together with their case, separator, prefix/suffix, path, filename, package, header, environment, schema, metric, and other semantic variants that refer to this project in the baseline tracked tree. Unrelated third-party identifiers and coincidental character sequences are not members of this set.
 
 ## Boundary Context
 
-- **In scope**: product/repository identity; Go module namespaces; public package and command names; source identifiers; project-owned HTTP headers; environment/config/schema/observability identifiers; release artifacts; CI/developer tooling; comments/help; tests/fixtures; README/docs; AGENTS/agent skills; Kiro steering/templates/active/archive artifacts; filenames/directories; canonical links; repository host cutover.
+- **In scope**: product/repository identity; Go module namespaces; public and internal project-branded package/command/executable path names; source identifiers; project-owned HTTP headers; environment/config/schema/observability identifiers; release artifacts; CI/developer tooling; comments/help; tests/fixtures; README/docs; AGENTS/agent skills; Kiro steering/templates/active/archive artifacts; filenames/directories; canonical links; repository host cutover.
 - **Out of scope**: Open Core vs Enterprise separation; feature movement between repositories; licensing/commercial packaging redesign; functional architecture redesign; provider/protocol renaming; unrelated cleanup/refactors.
 - **Adjacent expectations**: the later commercial split may build on the `aiproxer` identity, but this specification neither anticipates nor implements that split.
 - **Boundary ownership**: repository-wide naming migration across public contracts, core/plugin consumers, composition, config/wiring, tooling, release, tests, and documentation.
@@ -16,16 +16,16 @@ The **Legacy Token Set** means the source product/repository names and project-s
 
 ## Requirements
 
-### Requirement 1: Canonical aiproxer identity
+### Requirement 1: Canonical AIProxer / `aiproxer` identity
 
 **Objective:** As a maintainer, I want one canonical target identity, so that every project-owned surface converges on the same brand and namespace.
 
 #### Acceptance Criteria
 
-1. When the rebranding is complete, the product and repository shall identify themselves as `aiproxer` on all user-visible and machine-owned branding surfaces.
+1. When the rebranding is complete, human-readable product prose and display surfaces shall identify the product as `AIProxer`, while lowercase/path-safe machine identities such as the repository/release slug remain `aiproxer`.
 2. When a Go module or import path belongs to this repository, the system shall use `github.com/aiproxer/aiproxer` as the canonical root namespace.
 3. Where a project-owned fully qualified domain identifier is required, the system shall use the `aiproxer.com` namespace without replacing the canonical GitHub Go module path.
-4. Where a three-letter project abbreviation is appropriate, the system shall use `aip` with casing adapted to the identifier convention.
+4. Where a three-letter project abbreviation is appropriate—including project-owned package, command, executable, filename, or directory components—the system shall use `aip` with casing adapted to the identifier convention.
 5. The rebranding shall preserve the existing architectural ownership of features and shall not introduce an Open Core/Enterprise code split.
 
 ### Requirement 2: Zero legacy branding in maintained source and produced artifacts
@@ -34,12 +34,13 @@ The **Legacy Token Set** means the source product/repository names and project-s
 
 #### Acceptance Criteria
 
-1. When final convergence runs, every Git-tracked path name shall contain zero semantic matches from the Legacy Token Set.
+1. When final convergence runs, every Git-tracked path name—including every filename and directory/path component—shall contain zero semantic matches from the Legacy Token Set.
 2. When final convergence runs, every textual Git-tracked file shall contain zero semantic matches from the Legacy Token Set.
-3. Where legacy branding exists in source, tests, comments, help, examples, scripts, workflows, release files, README/docs, AGENTS, agent skills, Kiro steering/templates/specifications, archived project documents, fixtures, or generated-source inputs, the repository shall replace or rename it to the applicable target identity.
+3. Where legacy branding exists in source, package/command/executable paths, tests, comments, help, examples, scripts, workflows, release files, README/docs, AGENTS, agent skills, Kiro steering/templates/specifications, archived project documents, fixtures, or generated-source inputs, the repository shall replace or rename it to the applicable target identity.
 4. If a raw character sequence matches a Legacy Token Set pattern but is demonstrably an unrelated provider, protocol, third-party, or natural-language identifier, the migration shall leave that identifier unchanged.
 5. When the repository can produce release/build/package/container artifacts, final convergence shall generate the applicable artifact set identified by the migration inventory and shall scan artifact names plus textual/metadata payloads for Legacy Token Set matches; this set shall include release archives and metadata and any other distributable artifact family enabled by the repository at implementation time.
 6. The zero-legacy condition shall not require rewriting immutable Git object history, external issue/PR discussion history, or GitHub-managed redirects.
+7. Compile-, build-, runtime-, or tooling-sensitive project-owned path names shall be renamed in the migration wave that owns their consumers and references; they shall not be deferred to the late documentation/remainder cleanup merely because the final scanner would eventually detect them.
 
 ### Requirement 3: Complete Go module-graph migration
 
@@ -65,6 +66,7 @@ The **Legacy Token Set** means the source product/repository names and project-s
 4. When the standard distribution is migrated, its command path and executable/build identity shall be `aipstd`.
 5. While a public-package wave is in progress, temporary local import aliases may exist only to keep bounded consumer batches compiling; when that package wave closes, aliases carrying Legacy Token Set identifiers shall be removed.
 6. The final public package surface shall not include duplicate compatibility packages or exported aliases whose purpose is to preserve the source-brand namespace.
+7. Any other project-owned Go package, command, executable, or compile/build-sensitive source path whose semantic name contains the source project abbreviation shall migrate to the `aip` target form, with all imports, build references, harnesses, and tests updated before the compile-time naming wave closes.
 
 ### Requirement 5: Project-owned runtime contract namespaces
 

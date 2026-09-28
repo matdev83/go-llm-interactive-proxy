@@ -156,6 +156,15 @@ func (c *Config) Validate() error {
 	if err != nil {
 		return fmt.Errorf("invalid base_path: %w", err)
 	}
+	// base_path is operator input, so it must be a LITERAL route. httpcontract
+	// normalizes a route path and therefore still accepts the ServeMux pattern
+	// syntax the bundled frontends' own claims use, which an operator-supplied base
+	// must not: a base carrying a wildcard or a query separator would publish a
+	// pattern whose owned requests the ingress self-defense carve could not match,
+	// shadowing the operator's own route.
+	if err := httpcontract.ValidateOperatorRoutePath("base_path", c.BasePath); err != nil {
+		return fmt.Errorf("invalid base_path: %w", err)
+	}
 	if normPath == "/" || strings.ContainsAny(normPath, "\r\n\t") {
 		return fmt.Errorf("invalid base_path %q", c.BasePath)
 	}

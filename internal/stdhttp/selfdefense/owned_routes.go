@@ -9,12 +9,75 @@ import (
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 )
 
-// ownedRouteProbeSegment is appended to a candidate path to discover whether the
-// router also registered that path as a subtree. Several protected operator mounts
-// register BOTH the bare path and the path with a trailing separator, so probing
-// the path alone would discover only the exact registration and silently leave the
-// subtree it also owns uncarved.
+// ownedRouteProbeSegment is the concrete token substituted for a wildcard segment and
+// appended to a literal candidate path to discover whether the router also registered
+// that path as a subtree. Several protected operator mounts register BOTH the bare
+// path and the path with a trailing separator, so probing the path alone would
+// discover only the exact registration and silently leave the subtree it also owns
+// uncarved.
 const ownedRouteProbeSegment = "x"
+
+// probePathsFor derives the concrete request paths used to ask the router about a
+// candidate path.
+//
+// A literal candidate is probed with itself, which reveals an exact registration, and
+// with a synthetic descendant, which the router answers with its own trailing-slash
+// pattern for a subtree registration.
+//
+// A candidate containing pattern syntax cannot be probed with its own text: "{id}" in
+// a request path is a literal segment, while in a pattern it matches one segment, so
+// probing the pattern text would ask the wrong question. Instead the pattern is
+// turned into a request the pattern actually matches: every single-segment wildcard
+// becomes a concrete segment, and a trailing rest or end wildcard is dropped, because
+// both match the empty remainder. That makes a wildcard claim -- such as the bundled
+// openai-responses /v1/responses/{id}/cancel -- resolvable, which it otherwise is not.
+func probePathsFor(path string) []string {
+	if !strings.ContainsRune(path, '{') {
+		return []string{path, path + "/" + ownedRouteProbeSegment}
+	}
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	concrete := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		switch {
+		case strings.HasSuffix(segment, "...}") && strings.HasPrefix(segment, "{"),
+			segment == "{$}":
+			// A rest or end wildcard matches the empty remainder, so the concrete
+			// request simply stops before it.
+		case strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}"):
+			concrete = append(concrete, ownedRouteProbeSegment)
+		default:
+			concrete = append(concrete, segment)
+		}
+	}
+	probe := "/" + strings.Join(concrete, "/")
+	if probe == "/" {
+		probe = "/"
+	}
+	return []string{probe, probe + "/" + ownedRouteProbeSegment}
+}
+
+// methodlessProbeMethod is an HTTP method token no route is ever registered for. It
+// exists so the resolver can ask the router a question about methodless registrations
+// that no ordinary method can answer: ServeMux lets a methodless registration coexist
+// with method-specific ones for the same path, and the method-specific one wins for its
+// own method. Probing only GET would therefore find "GET /x" and never learn that "/x"
+// also exists, so a request the router routes to the methodless handler would look
+// unowned. A token that cannot collide with a real registration falls through to the
+// methodless one.
+const methodlessProbeMethod = "LIPMETHODLESSPROBE"
+
+// routeMethodMatches reports whether a registration carrying registered owns a
+// request carrying candidate.
+//
+// It reproduces the router's own rule that a GET registration also answers HEAD,
+// which a plain equality test gets wrong and would then let the gate refuse a request
+// the router routes.
+func routeMethodMatches(registered, candidate string) bool {
+	if registered == "" || registered == candidate {
+		return true
+	}
+	return registered == http.MethodGet && candidate == http.MethodHead
+}
 
 // OwnedRoutesFromMux resolves which of the candidates the router actually owns, and
 // with which match semantics, by asking the router itself.
@@ -61,18 +124,28 @@ func OwnedRoutesFromMux(mux *http.ServeMux, candidates []httpcontract.OwnedRoute
 			continue
 		}
 		// An absent candidate method means the registration is method-less, so it
-		// answers every method. The router still needs a concrete method to resolve
-		// against, and a method-less pattern answers GET, so GET is the faithful
-		// probe; the resolved pattern's own method is what gets recorded.
+		// answers every method. The router still needs concrete methods to resolve
+		// against, and two probes are needed because a method-less registration can
+		// coexist with a method-specific one: the ordinary method reveals the
+		// specific registration, and a token that cannot collide with any real
+		// registration falls through to the method-less one. Recording whatever
+		// dedicated patterns come back is what makes the result the router's full
+		// answer for this path rather than one representative request's.
 		method := normalizeOwnedMethod(candidate.Method)
+		probeMethods := []string{method}
 		if method == "" {
-			method = http.MethodGet
+			probeMethods = []string{http.MethodGet, methodlessProbeMethod}
+		} else {
+			probeMethods = append(probeMethods, methodlessProbeMethod)
 		}
-		// The candidate itself, which reveals an exact registration, and a subtree
-		// registration of the same path, which the router answers with its own
-		// trailing-slash pattern.
-		for _, probe := range []string{path, path + "/" + ownedRouteProbeSegment} {
-			record(dedicatedPatternFor(mux, method, probe))
+		// Each method is asked about concrete probe paths, and the router's own
+		// answer is recorded. A wildcard candidate cannot be probed with its own
+		// text, because "{id}" in a request path is a literal segment while in a
+		// pattern it matches one, so the probe paths are derived from the pattern.
+		for _, probeMethod := range probeMethods {
+			for _, probe := range probePathsFor(path) {
+				record(dedicatedPatternFor(mux, probeMethod, probe))
+			}
 		}
 	}
 	slices.SortFunc(owned, compareOwnedRoutes)
@@ -134,7 +207,7 @@ func (o OwnedRoutes) Covers(method, path string) bool {
 		return false
 	}
 	for _, route := range o.routes {
-		if route.Method != "" && route.Method != method {
+		if !routeMethodMatches(route.Method, method) {
 			continue
 		}
 		if route.Subtree {
@@ -146,11 +219,61 @@ func (o OwnedRoutes) Covers(method, path string) bool {
 			}
 			continue
 		}
-		if target == route.Path {
+		if target == route.Path || patternMatches(route.Path, target) {
 			return true
 		}
 	}
 	return false
+}
+
+// patternMatches reports whether a router pattern owns a concrete path.
+//
+// A published route is not always a literal path: the bundled openai-responses
+// frontend claims /v1/responses/{id}/cancel, so a comparison by string equality would
+// record the pattern and never match any request the router routes to it. The router's
+// own segment grammar is therefore reproduced here:
+//
+//   - "{name}" matches exactly one non-empty segment;
+//   - "{name...}" matches the remaining zero or more segments;
+//   - "{$}" matches only the end of the path.
+//
+// A pattern containing none of these is a literal and never reaches this function, so
+// the ordinary request path pays nothing for wildcard support.
+func patternMatches(pattern, target string) bool {
+	if !strings.ContainsRune(pattern, '{') {
+		return false
+	}
+	patternSegments := dropTrailingEmpty(strings.Split(strings.Trim(pattern, "/"), "/"))
+	targetSegments := dropTrailingEmpty(strings.Split(strings.Trim(target, "/"), "/"))
+	for i, segment := range patternSegments {
+		switch {
+		case segment == "{$}":
+			// End-of-path marker: it must be last in the pattern and nothing may remain.
+			return i == len(patternSegments)-1 && i == len(targetSegments)
+		case strings.HasSuffix(segment, "...}") && strings.HasPrefix(segment, "{"):
+			// A rest wildcard absorbs everything left, including nothing at all.
+			return i == len(patternSegments)-1
+		case strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}"):
+			if i >= len(targetSegments) || targetSegments[i] == "" {
+				return false
+			}
+		default:
+			if i >= len(targetSegments) || targetSegments[i] != segment {
+				return false
+			}
+		}
+	}
+	return len(patternSegments) == len(targetSegments)
+}
+
+// dropTrailingEmpty removes one empty trailing segment, because the router treats a
+// trailing separator as equivalent to its absence: /b and /b/ are both owned by
+// "POST /b/{$}".
+func dropTrailingEmpty(segments []string) []string {
+	if n := len(segments); n > 0 && segments[n-1] == "" {
+		return segments[:n-1]
+	}
+	return segments
 }
 
 // Len reports the number of owned routes, for diagnostics and tests.
