@@ -90,8 +90,18 @@ func (m TierMode) IsKnown() bool {
 }
 
 // QualifierCondition is an exact match against one effective qualifier. A
-// missing qualifier never matches the condition; the billing domain turns
-// that miss into an explicit fail-closed diagnostic.
+// missing qualifier never matches the condition, so the rule carrying it is not
+// a candidate; the miss is recorded as a diagnostic and becomes the reported
+// fail-closed ErrQualifierMissing only when NO rule for the component remains a
+// candidate. A less specific rule whose own conditions ARE satisfied is a
+// legitimate candidate, so a miss falls back to it rather than failing closed
+// over a rate that was actually declared for this case.
+//
+// The fallback is specificity resolution, not a silent default: the general rule
+// is published, applicable and its rate is known, so no quantity is invented. A
+// tariff that needs "this conditional rate or nothing" has no way to say so yet;
+// that would need a separate versioned field rather than a reinterpretation of
+// the miss.
 type QualifierCondition struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`

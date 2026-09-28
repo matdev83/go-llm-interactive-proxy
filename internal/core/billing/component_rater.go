@@ -23,8 +23,13 @@ const (
 
 // ReferenceRater is a deterministic post-usage evaluator over one immutable
 // tariff snapshot. It has no provider, SQL or stream lifecycle dependency.
+//
+// program is the frozen component-schema inclusion graph compiled ONCE here
+// into integer node ids. Rate only reads it; it never rediscovers topology or
+// re-derives canonical key strings per call.
 type ReferenceRater struct {
 	snapshot economics.TariffSnapshot
+	program  schemaProgram
 }
 
 // ComponentRater is the descriptive name used by billing composition.
@@ -40,7 +45,7 @@ func NewReferenceRater(snapshot economics.TariffSnapshot) (*ReferenceRater, erro
 	if err := validateRatingRuleSet(canonical.Rules); err != nil {
 		return nil, err
 	}
-	return &ReferenceRater{snapshot: canonical.Clone()}, nil
+	return &ReferenceRater{snapshot: canonical.Clone(), program: compileSchemaProgram(canonical.Schemas)}, nil
 }
 
 // NewComponentRater is an explicit alias for NewReferenceRater.
@@ -365,13 +370,6 @@ func valuationIdentity(valuation economics.Valuation, inputIdentity string) stri
 	return "valuation:" + string(valuation.Basis) + ":" + inputIdentity + ":" + hex.EncodeToString(sum[:])
 }
 
-func snapshotContentIdentity(ref *economics.SnapshotContentRef, encode func(economics.SnapshotContentRef) string) string {
-	if ref == nil {
-		return ""
-	}
-	return encode(*ref)
-}
-
 func cloneSnapshotContent(in *economics.SnapshotContentRef) *economics.SnapshotContentRef {
 	if in == nil {
 		return nil
@@ -554,13 +552,26 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 		}
 		payable[canonical] = struct{}{}
 	}
+	// dependencies is the RULE-DERIVED commercial signal that runs alongside
+	// payableByScope. It resolves each component's own rule under the same
+	// effective qualifiers and keeps the ones that could bill money for SOME
+	// non-negative quantity, so an unobserved component is still visible: it has
+	// no line and therefore no amount, but it may still be a commercial
+	// dependency of a declared cover. It is memoized per canonical key and is
+	// deliberately not a per-scope set: a rule's ability to charge money does not
+	// depend on which reduction scope it happens to be missing from, and the
+	// scope-sensitive half of the question -- whether the member was accounted for
+	// in THIS scope -- is answered by the consumer that owns the scope.
+	dependencies := newCommercialDependencySet(func(key metering.ComponentKey) (economics.RatingRule, error) {
+		return r.resolveRule(key, qualifiers)
+	})
 	// A frozen schema may declare that the parent aggregate already includes a
 	// priced child. Emitting both quantity lines would additively double-charge
 	// the same source/B-leg/work evidence, so only those specific overlapping
 	// quantity lines are suppressed rather than choosing a winner. Unrelated
 	// scopes and unrelated components stay payable; independent fixed fees are
 	// owned by their own trusted scope and remain payable.
-	overlapConflicts, ambiguousCoveredParents, unresolvedCoveredParents, overlapErr := r.overlappingSchemaInclusionConflicts(payableByScope, rateableByScope, consistencyAggregates, completePartitionParents)
+	overlapConflicts, ambiguousCoveredParents, unresolvedCoveredParents, hiddenDependencyCovers, overlapErr := r.overlappingSchemaInclusionConflicts(payableByScope, dependencies, rateableByScope, consistencyAggregates, completePartitionParents)
 	if overlapErr != nil {
 		valuation.Completeness = economics.CompletenessConflict
 	}
@@ -602,33 +613,39 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	// DOES bill a positive amount, its own line already carries the partition's
 	// money and an unreported unpriced child certifies nothing about it, which
 	// keeps the stock aggregate-only OpenAI family rating complete.
-	incompletePartitions = chargeCarryingIncompletePartitions(incompletePartitions, payableByScope)
+	//
+	// The amount-based signal is not the whole truth, so the RULE-DERIVED one is
+	// unioned with it rather than replacing it. A parent's own line only carries
+	// its partition's money when the partition is actually accounted for: if a
+	// REQUIRED member of the cover could itself have billed money and was never
+	// accounted for in this scope, the parent's line demonstrably does not stand
+	// in for that member, and the incompleteness governs the scope again. The
+	// union is one-directional on purpose -- hiddenDependencyCovers can only ADD a
+	// parent back, never excuse one -- and it is about the MISSING member, never
+	// about the parent merely having a rule, so an aggregate-only tariff with an
+	// unreported unpriced child still rates complete.
+	incompletePartitions = chargeCarryingIncompletePartitions(incompletePartitions, payableByScope, hiddenDependencyCovers)
 	// Every non-transform inclusion edge means the child is contained in its
-	// parent, so a contained quantity that strictly exceeds its ancestor's is
-	// inconsistent evidence whatever either side costs. This is a quantity fact,
-	// so it is proved on the same reduced consistency evidence as the partition
-	// conservation check and never on effective charge positivity: a zero-priced,
-	// explicit-free or wholly unpriced ancestor is exactly the side a monetary
-	// overlap graph drops from its own view. A missing or unavailable operand is
-	// deliberately not reported: the arithmetic is not comparable, so the operand
-	// stays missing.
+	// parent, so the compiled schema program's interval-constraint solver is the
+	// single authority for the quantity verdict: it propagates exact/absent/
+	// unavailable evidence across the transitive union of subset and
+	// complete-coverage edges and flags any node whose enforced lower bound
+	// exceeds its enforced upper bound. It consumes the exclusion-free full
+	// reduction, so a covered but unpriced child excluded from pricing still
+	// constrains its ancestors; a missing or unavailable operand stays unknown
+	// and is never invented as a zero.
 	//
 	// A parent the partition proof already classified owns that same
-	// inconsistency more precisely, so the walk skips it rather than adding a
-	// second, differently-worded diagnosis for one root cause. The three
-	// classifications are exactly the set of declared complete partitions the
-	// proof rejected: conservation violated, children ambiguously shared, or a
-	// required member never observed. The commercial-relevance filter above is
-	// already applied, so a parent that bills a positive amount is NOT treated as
-	// diagnosed: its partition rejection is silent, leaving this walk as the only
-	// thing that can catch a violated bound. The unobserved classifications merged
-	// above are absent on purpose, because the walk only starts from an OBSERVED
-	// parent and an unobserved one can never be an ancestor.
+	// inconsistency more precisely, so the solver suppresses it rather than
+	// adding a second, differently-worded diagnosis for one root cause. The
+	// commercial-relevance filter above is already applied, so a parent that
+	// bills a positive amount is NOT treated as diagnosed and its violated bound
+	// still surfaces.
 	diagnosedAncestors := make(map[string]map[string]struct{})
 	mergePartitionSet(&diagnosedAncestors, contradictedPartitions)
 	mergePartitionSet(&diagnosedAncestors, incomparablePartitions)
 	mergePartitionSet(&diagnosedAncestors, incompletePartitions)
-	containmentContradictions := r.containmentQuantityContradictions(consistencyAggregates, diagnosedAncestors)
+	quantityVerdict := r.schemaQuantityContradictions(consistencyAggregates, diagnosedAncestors)
 	for _, entry := range rated {
 		if schemaConflictSuppressed(overlapConflicts, entry.item) {
 			continue
@@ -734,19 +751,42 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 			}
 		}
 	}
-	if overlapErr == nil && len(containmentContradictions) != 0 {
+	if overlapErr == nil && len(quantityVerdict.subset) != 0 {
 		// A contained quantity that exceeds its own ancestor is physically
 		// impossible evidence. It is neither an ambiguity nor a missing operand,
 		// so it gets its own typed classification; independent lines stay payable
 		// and the residual is never invented.
 		valuation.Completeness = economics.CompletenessPartial
-		if containmentErr := schemaPartitionDiagnostic(ErrSchemaSubsetContradiction, containmentContradictions); containmentErr != nil {
+		if containmentErr := schemaPartitionDiagnostic(ErrSchemaSubsetContradiction, quantityVerdict.subset); containmentErr != nil {
 			if unavailable == nil {
 				unavailable = containmentErr
 			} else {
 				unavailable = errors.Join(unavailable, containmentErr)
 			}
 		}
+	}
+	if overlapErr == nil && len(quantityVerdict.negative) != 0 {
+		// A negative effective reduced ordinary-usage quantity is a structural
+		// contradiction, not a zero to be clamped. metering exposes no
+		// component-level correction/credit marker for Measure values, so the
+		// solver names the SDK gap and fails the valuation closed instead.
+		valuation.Completeness = economics.CompletenessPartial
+		if negativeErr := schemaPartitionDiagnostic(ErrSchemaQuantityContradiction, quantityVerdict.negative); negativeErr != nil {
+			if unavailable == nil {
+				unavailable = negativeErr
+			} else {
+				unavailable = errors.Join(unavailable, negativeErr)
+			}
+		}
+	}
+	if len(quantityVerdict.unknown) != 0 && unavailable != nil {
+		// Decision 8: unknown containment intersections are COMPUTED and
+		// reported as a non-blocking auxiliary diagnostic only when the
+		// valuation already carries a typed failure. They never downgrade
+		// completeness and never change any money. A standalone non-monetary
+		// diagnostic channel does not yet exist on economics.Valuation; adding it
+		// is the named follow-up decision.
+		unavailable = errors.Join(unavailable, unknownContainmentDiagnostic(quantityVerdict.unknown))
 	}
 	if unavailable != nil && valuation.Completeness == economics.CompletenessComplete {
 		// Preserve the independent lines, while truthfully carrying the
@@ -1627,6 +1667,129 @@ func evaluateQuantityRule(rule economics.RatingRule, quantity, contextQuantity *
 		return nil, nil, err
 	}
 	return amount, price, nil
+}
+
+// commercialDependencySet is the per-Rate-call, RULE-DERIVED counterpart of the
+// amount-based payable set. It answers a question the rated lines structurally
+// cannot: could this component have billed money at all?
+//
+// payableByScope is built from rated lines, so a component with no measure has no
+// line, therefore no amount, therefore no entry -- whatever its tariff says. An
+// ABSENT member of a declared complete coverage is exactly that case, which is
+// why an unobserved parent's cover with a missing REQUIRED member used to be
+// tolerated no matter how commercially relevant that member was. This set closes
+// that hole from the frozen snapshot rules instead of from the evidence.
+//
+// The predicate is a commercial question, so it is asked of the RULE, never of
+// the parent that declares it: a parent that merely HAS a rule proves nothing,
+// and a child-only or aggregate-only tariff must keep rating complete.
+type commercialDependencySet struct {
+	resolve func(metering.ComponentKey) (economics.RatingRule, error)
+	cache   map[string]bool
+}
+
+func newCommercialDependencySet(resolve func(metering.ComponentKey) (economics.RatingRule, error)) *commercialDependencySet {
+	return &commercialDependencySet{resolve: resolve, cache: make(map[string]bool)}
+}
+
+// has reports whether the component is a commercial dependency. It is memoized per
+// canonical key, so one component declared in many scopes or reached through many
+// paths is resolved once per Rate call. A component whose rule does not resolve
+// under the effective qualifiers is not a dependency: there is no declared tariff
+// that could bill for it, and the frozen inclusion edge alone must not invent one.
+func (s *commercialDependencySet) has(key metering.ComponentKey) bool {
+	if s == nil {
+		return false
+	}
+	canonical := key.CanonicalKey()
+	if canonical == "" {
+		return false
+	}
+	if cached, ok := s.cache[canonical]; ok {
+		return cached
+	}
+	dependency := false
+	if s.resolve != nil {
+		if rule, err := s.resolve(key); err == nil {
+			dependency = ruleCanChargePositive(rule)
+		}
+	}
+	s.cache[canonical] = dependency
+	return dependency
+}
+
+// ruleCanChargePositive reports whether a resolved quantity rule is a commercial
+// dependency: whether there EXISTS some non-negative quantity for which the rule
+// yields a POSITIVE amount.
+//
+// The predicate is DERIVED from the production pricing path rather than
+// re-implementing pricing, so a rule shape this function does not enumerate can
+// never be silently classified as free. The existential question is answered by
+// evaluating the rule itself at a bounded set of probe quantities that straddle
+// every branch and threshold the price path can select:
+//
+//   - a positive unit price, rational rate, minimum floor, or any reachable
+//     positive tier rate yields a positive amount at one of the probes;
+//   - a positive minimum makes even a zero quantity positive, which the zero probe
+//     catches;
+//   - a block shape bills at least one block, so the unit and block-size probes
+//     cover it;
+//   - an all-units or graduated shape selects a tier by threshold, so each
+//     declared threshold and the first step past it is probed, plus one quantity
+//     beyond every declared threshold to reach the final unbounded tier;
+//   - an EXPLICIT FREE rule (zero price with no positive minimum, block, or tier
+//     that can yield money) evaluates to zero at every probe and is NOT a
+//     dependency.
+//
+// periodAllowed is true because the predicate asks whether the rule COULD bill,
+// not whether this particular call may bill it: a period-selected or whole-context
+// rule is therefore a dependency on its own terms, and it is never dismissed
+// merely because the surrounding context is unknown.
+func ruleCanChargePositive(rule economics.RatingRule) bool {
+	for _, probe := range ruleChargeProbes(rule) {
+		amount, _, err := evaluateQuantityRule(rule, probe, probe, true)
+		if err != nil || amount == nil {
+			// A probe the rule refuses (a threshold the tiers do not cover, an
+			// unsupported conversion, an out-of-range magnitude) is not evidence
+			// either way; another probe may still decide it.
+			continue
+		}
+		if amount.Sign() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// ruleChargeProbes returns the bounded non-negative probe quantities that
+// straddle every branch boundary evaluateQuantityRule can select on: zero, one,
+// the declared block size, each declared tier threshold and the first step past
+// it, and one quantity beyond every declared threshold so the final unbounded tier
+// is reachable. Malformed thresholds are skipped rather than trusted.
+func ruleChargeProbes(rule economics.RatingRule) []*big.Rat {
+	probes := []*big.Rat{big.NewRat(0, 1), big.NewRat(1, 1)}
+	if rule.BlockSize != nil {
+		if block, err := rule.BlockSize.ToRat(); err == nil && block.Sign() > 0 {
+			probes = append(probes, new(big.Rat).Set(block))
+		}
+	}
+	beyond := new(big.Rat).SetInt64(2)
+	for _, tier := range rule.Tiers {
+		if tier.UpTo == nil {
+			continue
+		}
+		upTo, err := tier.UpTo.ToRat()
+		if err != nil {
+			continue
+		}
+		probes = append(
+			probes,
+			new(big.Rat).Set(upTo),
+			new(big.Rat).Add(new(big.Rat).Set(upTo), big.NewRat(1, 1)),
+		)
+		beyond.Add(beyond, upTo)
+	}
+	return append(probes, beyond)
 }
 
 func (r *ReferenceRater) resolveRule(key metering.ComponentKey, qualifiers []metering.Dimension) (economics.RatingRule, error) {

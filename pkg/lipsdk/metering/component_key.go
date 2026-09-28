@@ -367,6 +367,14 @@ func (k ComponentKey) Equal(other ComponentKey) bool {
 
 // RelationshipKind declares how a schema relates two component keys. The
 // relationship is explicit; component names alone never imply inclusion.
+//
+// RelationshipAggregate and RelationshipPartition are SYNONYMS: both declare
+// that the declared children form a COMPLETE, additive coverage of the parent
+// (the parent quantity equals the sum of the declared child quantities), and
+// both are therefore treated identically by every consumer. RelationshipSubset
+// declares only PARTIAL containment (child <= parent, no conservation claim).
+// RelationshipTransform is a separately governed unit derivation and is never
+// containment.
 type RelationshipKind string
 
 const (
@@ -485,13 +493,45 @@ func (s ComponentSchema) Clone() ComponentSchema {
 	return out
 }
 
-// ValidateComponentSchemas validates a bounded, frozen set of component
-// schemas. Beyond each schema's own edge bound and self/unit rules it enforces
-// set-level semantics: schema IDs are unique, relationship edges form an
-// acyclic directed graph, and no ordered parent/child pair is declared with
-// more than one meaning. Nil or empty input is valid and preserves legacy
-// publication identity.
-func ValidateComponentSchemas(schemas []ComponentSchema) error {
+// enforcedSchemaTopologyRules is the single place that decides which topology
+// rules publication-time validation rejects. It is a function so package state
+// cannot be mutated, and it is the only place a rule is promoted to hard
+// rejection.
+//
+// SchemaTopologyCompleteSiblingSharedDescendant is enforced. Its blast radius
+// over the generated 7^3 = 343 three-node topology space is 0 (it is
+// unreachable there by construction: two complete siblings of one parent cannot
+// both reach a third node with only three forward nodes), it reports nothing on
+// the shipped OpenAI production schema, and it breaks no test in the
+// repository, so publication can refuse it outright.
+//
+// SchemaTopologyDirectionMismatch is reported but NOT enforced. A cross-direction
+// containment edge is inert rather than unsatisfiable, and the historical
+// publication contract accepts it: a cross-direction subset and a
+// cross-direction partition are both published by pinned regressions that
+// require the edge to validate and then be ignored. Rejecting it would
+// invalidate those publications.
+//
+// SchemaTopologyCompleteSiblingContains is ENFORCED. Two complete children of one
+// parent, where one transitively contains the other, cannot be a disjoint
+// additive sum, so the topology is unsatisfiable regardless of the evidence. It
+// rejects 80 of the 343 generated three-node topologies and passes the shipped
+// OpenAI production schema; the only test it affected was the order-invariance
+// enumeration, which now skips publication-rejected graphs the same way the
+// structure and commercial sweeps already do.
+func enforcedSchemaTopologyRules() []SchemaTopologyRule {
+	return []SchemaTopologyRule{
+		SchemaTopologyCompleteSiblingSharedDescendant,
+		SchemaTopologyCompleteSiblingContains,
+	}
+}
+
+// validateComponentSchemaStructure runs every schema check that does not depend
+// on a topology rule: the per-schema edge bound, self-reference, unit equality
+// and optional-membership rules, then the set-level bounds, unique schema ids,
+// single-meaning ordered parent/child pairs and acyclicity. Nil or empty input
+// is valid and preserves legacy publication identity.
+func validateComponentSchemaStructure(schemas []ComponentSchema) error {
 	if len(schemas) > MaxComponentSchemas {
 		return fmt.Errorf("%w: schema bound exceeds %d", ErrInvalidComponentSchema, MaxComponentSchemas)
 	}
@@ -521,6 +561,23 @@ func ValidateComponentSchemas(schemas []ComponentSchema) error {
 		}
 	}
 	return validateComponentRelationshipAcyclic(edges)
+}
+
+// ValidateComponentSchemas validates a bounded, frozen set of component
+// schemas. Beyond each schema's own edge bound and self/unit rules it enforces
+// set-level semantics: schema IDs are unique, relationship edges form an
+// acyclic directed graph, and no ordered parent/child pair is declared with
+// more than one meaning. It additionally rejects every structurally-knowable
+// containment impossibility listed in EnforcedComponentSchemaTopologyRules, so
+// an unsatisfiable complete coverage is refused at publication instead of being
+// rediscovered per rated call. Nil or empty input is valid and preserves legacy
+// publication identity.
+//
+// To choose a different topology gate, or to report findings without rejecting
+// them, use ValidateComponentSchemasWithTopology and
+// InspectComponentSchemaTopology.
+func ValidateComponentSchemas(schemas []ComponentSchema) error {
+	return ValidateComponentSchemasWithTopology(schemas, EnforcedComponentSchemaTopologyRules())
 }
 
 // validateComponentRelationshipAcyclic rejects any cycle reachable from the

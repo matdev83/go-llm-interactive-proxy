@@ -52,10 +52,33 @@ import (
 // production lines, re-auditing internal/core to 141095; runtimebundle, stdhttp,
 // process_services.go, and the connector overlay are unchanged by that
 // growth-budget refresh.
+// PR #659 adversarial repair follow-up (review 65) replaces the per-call,
+// string-keyed partial containment comparison with one compiled schema program
+// plus one interval-constraint solver, adding verified production lines and
+// re-auditing internal/core to 141730; runtimebundle, stdhttp,
+// process_services.go, and the connector overlay are unchanged by that
+// growth-budget refresh.
+// PR #659 adversarial solver repair removes the too-strong exact-representation
+// gate on the subset upper bound and the presence gate on the complete-coverage
+// upper bound: 21 more verified production lines, re-auditing internal/core to
+// 141751; the other budgets are unchanged.
+// PR #659 adversarial commercial-dependency closure adds the RULE-DERIVED
+// dependency predicate beside the amount-based payable set, the per-scope
+// hidden-dependency ledger, and the two fail-closed unions that consume them:
+// 346 more verified production lines, re-auditing internal/core to 142097; the
+// other budgets are unchanged.
+// PR #659 adversarial cover-authority consolidation collapses the three
+// independent readings of one physical fact into the single
+// resolveCompleteCovers authority, names the arithmetic, proof and ownership
+// verdicts separately, moves the conflict-suppression set onto the same
+// recursive contributor resolution, extracts the one projection of the compiled
+// complete-coverage adjacency both consumers walk, and documents the authority
+// contract at the definitions: 273 more verified production lines, re-auditing
+// internal/core to 142370; the other budgets are unchanged.
 const (
 	phase20AuditRuntimebundleLines    = 13817
 	phase20AuditStdhttpLines          = 7134
-	phase20AuditCoreLines             = 141095
+	phase20AuditCoreLines             = 142370
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

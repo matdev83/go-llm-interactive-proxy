@@ -235,7 +235,55 @@ var LineBudgets = []LineBudget{
 	// classes and lets the partition proof own an already-classified ancestor,
 	// adding 42 more; internal/core re-measured 141095, bump to 141120 with 25
 	// headroom.
-	{Dir: "internal/core", Max: 141120},
+	// PR #659 adversarial repair follow-up (review 65) replaces the per-call,
+	// string-keyed partial containment comparison with ONE compiled schema
+	// program plus ONE interval-constraint solver that becomes the single
+	// authority for component quantity semantics. internal/core re-measured
+	// 141730, bump to 141755 with 25 headroom.
+	// PR #659 adversarial solver repair removes the too-strong exact-
+	// representation gate on the subset upper bound and the "a member is
+	// present" gate on the complete-coverage upper bound, so an all-absent-
+	// optional cover is solved exactly and bounds propagate into unknown
+	// children: 21 more verified production lines; internal/core re-measured
+	// 141751, bump to 141776 with 25 headroom.
+	// PR #659 adversarial commercial-dependency closure adds the rule-derived
+	// dependency predicate (a rule is a commercial dependency when SOME
+	// non-negative quantity yields a positive amount, derived from the existing
+	// pricing evaluation rather than a second pricing implementation), the
+	// per-scope hidden-dependency ledger, and the two fail-closed unions that
+	// consume them -- one for an unobserved parent's unknown cover and one for a
+	// charge-carrying parent's cover that hides an unaccounted member. Those are
+	// 346 more verified production lines; internal/core re-measured 142097, bump
+	// to 142122 with 25 headroom.
+	// PR #659 adversarial cover-authority consolidation replaces three
+	// independent readings of one physical fact -- does this declared complete
+	// coverage resolve, and what exact quantity does it license -- with the
+	// single resolveCompleteCovers authority that the interval solver, the
+	// conservation proof and the overlap resolver all read, separating the
+	// ARITHMETIC verdict (summed) from the PROOF verdict (resolved) from the
+	// OWNERSHIP verdict (ambiguous), and moving conflict suppression onto the
+	// same recursive contributor resolution. Those are 273 more verified
+	// production lines; internal/core re-measured 142370, bump to 142395 with
+	// 25 headroom.
+	// PR #659 adversarial performance/consolidation increment deletes the dead
+	// unexported snapshotContentIdentity and totalsFromRats helpers, hoists
+	// ComponentKey.CanonicalKey out of the schema program's inner loops behind a
+	// precomputed per-node canonical-key table, replaces the quadratic per-parent
+	// dedup with a key-table sibling, and derives the interval solver's sweep cap
+	// from a compile-time propagation depth. PR #659 adversarial duplicated-
+	// authority removal then deletes the per-call string-keyed rebuilds of the
+	// declared edges, the subset children, the complete members and the merged
+	// kids graph, compiles their projections ONCE into the schema program, and
+	// merges the four duplicate reachability walks onto one int-indexed traversal
+	// whose edge class is a parameter; the string-keyed consumers reach identity
+	// through the compiled keyStrings table. Measured deltas: component_rater -6,
+	// component_rater_finalize -27, component_rater_partition +58, so the live
+	// tree MEASURED 142360 against the unchanged 142395 ceiling. The ceiling is
+	// deliberately NOT lowered: the audited baseline constant that pins it lives in
+	// phase20_budget_exactness_test.go, which this increment does not edit, and a
+	// measured reduction is an allowed state under the "audited + 25" rule those
+	// tests enforce.
+	{Dir: "internal/core", Max: 142395},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 7159},
 	// PR #666 adversarial F1 native-audio admission guard; re-measured 13817,

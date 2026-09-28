@@ -496,9 +496,115 @@ func runReviewF356SettlementFence(t *testing.T, open func(t *testing.T) *Durable
 				f356M(f63Key("mixed_c"), "20"),
 			},
 		},
+		{
+			// Review 65 P1, sum-bound form: a quantity bound is a constraint on
+			// the COMPLETE represented quantity, not on each edge in
+			// isolation. A -subset-> B, B -partition-> {C, D} with A = 30
+			// explicit free, B absent, C = 20 paid and D = 20 paid. C and D
+			// are each individually inside A, so a per-edge bound accepts both,
+			// but B's complete coverage is a sum: the represented B is 40, and
+			// 40 > 30 contradicts the containment A >= B. B + D money must
+			// never post.
+			name:       "complete_cover_sum_exceeding_subset_ancestor_cannot_settle",
+			wantRating: billing.ErrSchemaSubsetContradiction,
+			accountID:  "reviewf356-65-cover-sum",
+			bLegID:     "b-f356-65-cover-sum",
+			relationships: []metering.ComponentRelationship{
+				{Kind: metering.RelationshipSubset, Parent: f356Key("vendor:reviewf356_65_a"), Child: f356Key("vendor:reviewf356_65_b")},
+				{Kind: metering.RelationshipPartition, Parent: f356Key("vendor:reviewf356_65_b"), Child: f356Key("vendor:reviewf356_65_c")},
+				{Kind: metering.RelationshipPartition, Parent: f356Key("vendor:reviewf356_65_b"), Child: f356Key("vendor:reviewf356_65_d")},
+			},
+			rules: []economics.RatingRule{
+				f356LinearRule(t, "reviewf356-65-a", f356Key("vendor:reviewf356_65_a"), "0"),
+				f356LinearRule(t, "reviewf356-65-c", f356Key("vendor:reviewf356_65_c"), "1"),
+				f356LinearRule(t, "reviewf356-65-d", f356Key("vendor:reviewf356_65_d"), "1"),
+			},
+			measures: []f356Measure{
+				f356M(f356Key("vendor:reviewf356_65_a"), "30"),
+				f356M(f356Key("vendor:reviewf356_65_c"), "20"),
+				f356M(f356Key("vendor:reviewf356_65_d"), "20"),
+			},
+		},
+		{
+			// ErrSchemaPartitionContradiction: a declared complete partition
+			// whose present, complete and rateable children do not
+			// arithmetically account for the present parent. A = 100 with
+			// B = 60 and C = 60 conserves to 120, so the children-only USD120
+			// must never settle as a complete valuation: the residual is never
+			// invented and the parent is never silently suppressed to make the
+			// children look complete. This is the class the arithmetic
+			// mismatch is supposed to produce, and it is distinct from the
+			// missing-member (incomplete) and shared-member (incomparable)
+			// classes the cases above already cover.
+			name:       "complete_cover_contradiction_cannot_settle",
+			wantRating: billing.ErrSchemaPartitionContradiction,
+			accountID:  "reviewf356-contradiction",
+			bLegID:     "b-f356-contradiction",
+			relationships: []metering.ComponentRelationship{
+				{Kind: metering.RelationshipPartition, Parent: f356Key("vendor:reviewf356_ct_a"), Child: f356Key("vendor:reviewf356_ct_b")},
+				{Kind: metering.RelationshipPartition, Parent: f356Key("vendor:reviewf356_ct_a"), Child: f356Key("vendor:reviewf356_ct_c")},
+			},
+			rules: []economics.RatingRule{
+				f356LinearRule(t, "reviewf356-ct-b", f356Key("vendor:reviewf356_ct_b"), "1"),
+				f356LinearRule(t, "reviewf356-ct-c", f356Key("vendor:reviewf356_ct_c"), "1"),
+			},
+			measures: []f356Measure{
+				f356M(f356Key("vendor:reviewf356_ct_a"), "100"),
+				f356M(f356Key("vendor:reviewf356_ct_b"), "60"),
+				f356M(f356Key("vendor:reviewf356_ct_c"), "60"),
+			},
+		},
+		{
+			// ErrSchemaOverlapConflict: a definite MONETARY overlap. The
+			// declared parent aggregate and its declared subset child are both
+			// priced for a positive amount in the same scope, so billing both
+			// additively double-charges the same underlying work. This is the
+			// one frozen-schema class that reports COMPLETENESS CONFLICT rather
+			// than partial, and it suppresses the payable quantity lines
+			// outright, so a false USD140 must be impossible. It is also the
+			// most severe class by construction: the rater ranks the overlap
+			// conflict above every partition, containment and quantity
+			// diagnosis, so no co-occurring class may mask it.
+			name:       "definite_monetary_overlap_cannot_settle",
+			wantRating: billing.ErrSchemaOverlapConflict,
+			accountID:  "reviewf356-overlap",
+			bLegID:     "b-f356-overlap",
+			relationships: []metering.ComponentRelationship{
+				{Kind: metering.RelationshipSubset, Parent: f356Key("vendor:reviewf356_ov_a"), Child: f356Key("vendor:reviewf356_ov_b")},
+			},
+			rules: []economics.RatingRule{
+				f356LinearRule(t, "reviewf356-ov-a", f356Key("vendor:reviewf356_ov_a"), "1"),
+				f356LinearRule(t, "reviewf356-ov-b", f356Key("vendor:reviewf356_ov_b"), "1"),
+			},
+			measures: []f356Measure{
+				f356M(f356Key("vendor:reviewf356_ov_a"), "100"),
+				f356M(f356Key("vendor:reviewf356_ov_b"), "40"),
+			},
+		},
+		{
+			// The transitive form of the same monetary overlap, so the conflict
+			// class is pinned where the middle node is ABSENT and the overlap
+			// can only be seen through the merged inclusion walk. A -> B ->
+			// C with A = 100 and C = 40 both priced and B unobserved.
+			name:       "transitive_monetary_overlap_cannot_settle",
+			wantRating: billing.ErrSchemaOverlapConflict,
+			accountID:  "reviewf356-overlap-transitive",
+			bLegID:     "b-f356-overlap-transitive",
+			relationships: []metering.ComponentRelationship{
+				{Kind: metering.RelationshipSubset, Parent: f356Key("vendor:reviewf356_ovt_a"), Child: f356Key("vendor:reviewf356_ovt_b")},
+				{Kind: metering.RelationshipSubset, Parent: f356Key("vendor:reviewf356_ovt_b"), Child: f356Key("vendor:reviewf356_ovt_c")},
+			},
+			rules: []economics.RatingRule{
+				f356LinearRule(t, "reviewf356-ovt-a", f356Key("vendor:reviewf356_ovt_a"), "1"),
+				f356LinearRule(t, "reviewf356-ovt-c", f356Key("vendor:reviewf356_ovt_c"), "1"),
+			},
+			measures: []f356Measure{
+				f356M(f356Key("vendor:reviewf356_ovt_a"), "100"),
+				f356M(f356Key("vendor:reviewf356_ovt_c"), "40"),
+			},
+		},
 	}
 	for _, testCase := range rejects {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			store := open(t)
 			call, exposure, rated, rateErr := f356Setup(t, store, testCase.accountID, testCase.bLegID,
@@ -569,7 +675,8 @@ func runReviewF356SettlementFence(t *testing.T, open func(t *testing.T) *Durable
 			f356LinearRule(t, "reviewf356-p3-y", y, "1"),
 			f356LinearRule(t, "reviewf356-p3-c", c, "1"),
 		}
-		call, exposure, rated, rateErr := f356Setup(t, store, "reviewf356-p3-nested", "b-f356-p3-nested",
+		call, exposure, rated, rateErr := f356Setup(
+			t, store, "reviewf356-p3-nested", "b-f356-p3-nested",
 			f356Tariff(t, rules, relationships),
 			f356M(a, "100"), f356M(b, "60"), f356M(x, "30"), f356M(y, "30"), f356M(c, "40"),
 		)
@@ -597,7 +704,8 @@ func runReviewF356SettlementFence(t *testing.T, open func(t *testing.T) *Durable
 		store := open(t)
 		parent := f62aKey("valid_subset_parent")
 		cached := f62aKey("valid_cached_subset")
-		call, exposure, rated, rateErr := f356Setup(t, store, "reviewf356-62a-valid-subset", "b-f356-62a-valid-subset",
+		call, exposure, rated, rateErr := f356Setup(
+			t, store, "reviewf356-62a-valid-subset", "b-f356-62a-valid-subset",
 			f356Tariff(t,
 				[]economics.RatingRule{f356LinearRule(t, "reviewf356-62a-valid-parent", parent, "1")},
 				[]metering.ComponentRelationship{
@@ -619,5 +727,93 @@ func runReviewF356SettlementFence(t *testing.T, open func(t *testing.T) *Durable
 			t.Fatalf("customer charge=%+v, want 100 USD (parent 100 at USD1)", rated.CustomerCharge)
 		}
 		f356RequireSettlesOnce(t, store, call, exposure, rated, f356ValidChargeNano, "consistent subset control")
+	})
+
+	// VALID boundary control for ErrSchemaPartitionContradiction: the SAME
+	// declared complete partition with the SAME present parent, but
+	// arithmetically CONSERVED (A = 100 = B 60 + C 40). This is the control
+	// that proves the contradiction class is decided on the arithmetic and is
+	// not merely "an observed parent with unpriced children": with conservation
+	// the parent is excused, the child-only USD100 settles exactly once, and an
+	// exact replay is a durable no-op. Without it, the contradiction case above
+	// would also pass against a rater that failed closed on every unpriced
+	// parent.
+	t.Run("conserved_cover_with_present_parent_settles_once", func(t *testing.T) {
+		store := open(t)
+		a := f356Key("vendor:reviewf356_vc_a")
+		b := f356Key("vendor:reviewf356_vc_b")
+		c := f356Key("vendor:reviewf356_vc_c")
+		call, exposure, rated, rateErr := f356Setup(
+			t, store, "reviewf356-vc-conserved", "b-f356-vc-conserved",
+			f356Tariff(t,
+				[]economics.RatingRule{
+					f356LinearRule(t, "reviewf356-vc-b", b, "1"),
+					f356LinearRule(t, "reviewf356-vc-c", c, "1"),
+				},
+				[]metering.ComponentRelationship{
+					{Kind: metering.RelationshipPartition, Parent: a, Child: b},
+					{Kind: metering.RelationshipPartition, Parent: a, Child: c},
+				}),
+			f356M(a, "100"), f356M(b, "60"), f356M(c, "40"),
+		)
+		if rateErr != nil {
+			t.Fatalf("RateCall: %v; valuation=%+v", rateErr, rated.CustomerValuation)
+		}
+		if errors.Is(rateErr, billing.ErrSchemaPartitionContradiction) {
+			t.Fatalf("a conserved 100 = 60 + 40 partition must never be a contradiction: %v", rateErr)
+		}
+		if rated.CustomerValuation.Completeness != economics.CompletenessComplete {
+			t.Fatalf("completeness=%q, want complete; valuation=%+v",
+				rated.CustomerValuation.Completeness, rated.CustomerValuation)
+		}
+		if rated.CustomerCharge != (billing.Money{Nano: f356ValidChargeNano, Currency: "USD"}) {
+			t.Fatalf("customer charge=%+v, want 100 USD (B 60 + C 40 at USD1)", rated.CustomerCharge)
+		}
+		f356RequireSettlesOnce(t, store, call, exposure, rated, f356ValidChargeNano, "conserved cover control")
+	})
+
+	// VALID boundary control for ErrSchemaOverlapConflict: the SAME complete
+	// partition parent carrying the SAME declared subset edge, with the subset
+	// ABSENT. The redundant path A -> D -> B reaches the contributor B that A's
+	// own complete partition already bills, and that is not a second charge, so
+	// no conflict may be raised. This control is what separates "the subset
+	// edge exists" (legal) from "a genuine unallocated positive subset
+	// exists" (the overlap cases above): it proves the overlap resolver is not
+	// simply banning the declared subset relationship.
+	t.Run("redundant_subset_path_settles_once", func(t *testing.T) {
+		store := open(t)
+		a := f356Key("vendor:reviewf356_rs_a")
+		b := f356Key("vendor:reviewf356_rs_b")
+		c := f356Key("vendor:reviewf356_rs_c")
+		d := f356Key("vendor:reviewf356_rs_d")
+		call, exposure, rated, rateErr := f356Setup(
+			t, store, "reviewf356-rs-redundant", "b-f356-rs-redundant",
+			f356Tariff(t,
+				[]economics.RatingRule{
+					f356LinearRule(t, "reviewf356-rs-b", b, "1"),
+					f356LinearRule(t, "reviewf356-rs-c", c, "1"),
+				},
+				[]metering.ComponentRelationship{
+					{Kind: metering.RelationshipPartition, Parent: a, Child: b},
+					{Kind: metering.RelationshipPartition, Parent: a, Child: c},
+					{Kind: metering.RelationshipSubset, Parent: a, Child: d},
+					{Kind: metering.RelationshipSubset, Parent: d, Child: b},
+				}),
+			f356M(a, "100"), f356M(b, "60"), f356M(c, "40"),
+		)
+		if rateErr != nil {
+			t.Fatalf("RateCall: %v; valuation=%+v", rateErr, rated.CustomerValuation)
+		}
+		if errors.Is(rateErr, billing.ErrSchemaOverlapConflict) {
+			t.Fatalf("a redundant subset path to an already-paid contributor must not be a self-conflict: %v", rateErr)
+		}
+		if rated.CustomerValuation.Completeness != economics.CompletenessComplete {
+			t.Fatalf("completeness=%q, want complete; valuation=%+v",
+				rated.CustomerValuation.Completeness, rated.CustomerValuation)
+		}
+		if rated.CustomerCharge != (billing.Money{Nano: f356ValidChargeNano, Currency: "USD"}) {
+			t.Fatalf("customer charge=%+v, want 100 USD (B 60 + C 40 at USD1, D absent)", rated.CustomerCharge)
+		}
+		f356RequireSettlesOnce(t, store, call, exposure, rated, f356ValidChargeNano, "redundant subset path control")
 	})
 }
