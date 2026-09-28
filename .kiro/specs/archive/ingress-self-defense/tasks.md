@@ -221,4 +221,30 @@ The implementation is intentionally staged around the smallest useful v1. Every 
 
 - Task 8.2 - RACE EVIDENCE OBTAINED, and the platform caveat is now RESOLVED. make test-race remains a documented Windows skip, but PR #670 carried a Linux race detector check that PASSED, and a manual dispatch of the strict full-suite gate (ace-fuzz-nightly.yml, ref = the feature branch) ran the feature's own packages under -race on Linux: internal/core/ingressdefense ok 1.030s, internal/stdhttp ok 59.971s, internal/stdhttp/selfdefense ok 1.067s. So the new sharded concurrent state, the HTTP gate and the stdhttp stack are all race-detector clean. The dispatched run's overall red status is entirely PRE-EXISTING and unrelated: a WARNING: DATA RACE between parallel subtests of TestBuildCreateRequest_UnrepresentableContentRejected (internal/plugins/backends/openresponsescompat/mapping_test.go:253/256/265, a shallow struct copy so every subtest mutates one shared Items backing array) and the known load-timeout flake in TestRefinement*. Neither file is in this feature's diff. The pre-existing race is filed as #671. The FIRST nightly dispatch failed for a third, also-environmental reason (go: downloading ... [setup failed] on every module, the same signature as the two prior scheduled failures on main); a retry got past module download and produced the real results above.
 - Task 8.2 - dependency-direction note for future readers: internal/plugins/backends/openresponsescompat (and therefore much of the tree) now transitively depends on internal/core/ingressdefense via internal/core/config -> CompileSelfDefense. That is the dependency design.md "Allowed Dependencies" explicitly sanctions ("internal/core/config may depend on internal/core/ingressdefense to compile typed policy/state limits"). It is benign because the package is a near-leaf importing only fmt, net/netip and time, but it does mean config-reading packages now compile it in.
-et/netip and 	ime, but it does mean config-reading packages now compile it in.
+
+## Completion Status
+
+Completed and certified on `main` at `1956345a51b5f56ee33067c74990e89863e53af1`.
+
+- [x] Every task in this plan is checked and its validation ran; no task is marked complete with a skipped or failing check.
+- [x] The feature and its four corrective follow-ups are merged to `main`: #670 `b4297dd9`, #673 `2ec9a155`, #674 `a1825980`, #678 `99f48a46`, #679 `1956345a`. `spec.json` records the same chain under `implementation`.
+- [x] `gofmt`, `go vet ./...`, `go build ./...`, the full `go test ./...`, `make quality-checks`, `make test`, `make qa`, `internal/archtest` and `internal/qa` all exit 0 on the merged baseline; `lipstd check-config --config config/config.yaml` reports the shipped example valid.
+- [x] Every review finding from the three review rounds has a dedicated regression test, and each is failing-first: the admission-ring ABA on both the `Clear` and the TTL-expiry path, the effective-value reload classification, the owned-route carve, its exact-versus-subtree and case-sensitivity fidelity, the disabled-mount carve, `GET` owning `HEAD`, the hidden methodless registration, the percent-escape rule, and the operator literal-path grammar with the differential invariant in `internal/archtest`.
+- [x] Approved requirements, design and task approvals are preserved verbatim. Where the implementation superseded approved text, the divergence is recorded below rather than by editing the approved requirement.
+
+### Known divergences from approved text
+
+Requirement 3.6 states that the built-in impossible-path set "does not overlap standard distribution frontend routes". The shipped implementation deliberately permits that overlap, because a frontend `base_path` and the diagnostics/metrics/operator mount paths are configurable to any literal path, including one inside a frozen family, and silently making such a route unreachable would be a worse defect than a probe reaching the router. The invariant actually enforced is:
+
+> A published route is never refused: the matcher refuses a path exactly when it matches a frozen family AND the router does not own it.
+
+Ownership and match semantics are resolved against the real `http.ServeMux` after mounting, so a disabled feature carves nothing, an exact registration carves no subtree, a trailing-slash registration carves its subtree, comparison is case-sensitive, a `GET` registration also owns `HEAD`, the method is part of ownership, and the router's fallback is never ownership. Operator-supplied paths are constrained to a literal grammar, and the carve reproduces the router's segment grammar for the wildcard claims the bundled frontends publish.
+
+Requirement 3.6's text is left unchanged because it is approved content; superseding it is a requirements decision, not a documentation one. The normative operator-facing statement of the shipped behaviour is `docs/ingress-self-defense.md`, which is kept current.
+
+### Evidence not held
+
+- **Race evidence is partial.** The bounded state and the stdhttp gate were certified race-detector clean on Linux for the #670 baseline. The four corrective follow-ups are routing, config-validation and documentation changes with no concurrency, but no race workflow runs on their pull requests and `go test -race` is a documented Windows skip, so they are UNVERIFIED rather than passing.
+- The nightly full-suite race gate is red for a pre-existing, unrelated reason: `WARNING: DATA RACE` between parallel subtests of `TestBuildCreateRequest_UnrepresentableContentRejected`, a shallow struct copy so all subtests mutate one shared `Items` backing array. Filed as #671 and still open; that file is not in this feature's diff.
+- `make test-cost` has never been run for this feature; it is opt-in and Windows-authoritative. The controlled like-for-like measurement recorded above is not a substitute for the ratchet.
+- Convergence headroom is narrowing: the delta is -891 against a -800 floor. The next change touching `internal/stdhttp`, `internal/infra/runtimebundle` or `internal/core` must re-measure with `go run ./scripts/arch-report.go` before relying on any cap recorded here.
