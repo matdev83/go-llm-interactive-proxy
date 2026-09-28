@@ -37,7 +37,7 @@ import (
 // audited + 25.
 const (
 	phase20AuditRuntimebundleLines    = 13858
-	phase20AuditStdhttpLines          = 8375
+	phase20AuditStdhttpLines          = 8562
 	phase20AuditCoreLines             = 138280
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321

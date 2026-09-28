@@ -13,6 +13,7 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
 - All migration-only aliases/manifests/helper shims/compatibility bridges must be removed from the final workspace. Only the external scanner inputs/evidence may remain outside the repository during final verification.
 - `(P)` means tasks can be delegated in parallel **only after their common dependency is green and an immutable non-overlapping ownership manifest is frozen**. Parallel workers may not choose new modules/paths, edit shared files, or reassign ownership ad hoc. Reconcile them through the named merge gate before continuing.
 - The runtime environment-name pass may edit `.github/**` only for project-owned environment-variable identifiers. The later CI pass owns all other project/repository/module/command/artifact/path identities in `.github/**` and ends with a full cross-wave scan.
+- A compile-, build-, runtime-, or tooling-sensitive branded path must be renamed in the wave that owns its consumers/references. Task 9.4 is not a catch-all escape hatch for package, command, executable, bridge, or other functional path renames.
 
 ## Tasks
 
@@ -46,6 +47,7 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
   - Build an out-of-tree generated-artifact manifest from Task 1.2. For each artifact family, record producer command and required probes: filename, archive entry names, textual metadata/manifests, standard executable help/version/build metadata, package/container tags/labels/config, or another explicit probe. Record the manifest SHA-256.
   - Use the canonical scanner invocation from `design.md`: `python3 "$AIP_REBRAND_SCANNER" scan --repo . --patterns "$AIP_REBRAND_PATTERNS" --artifacts "$AIP_REBRAND_ARTIFACT_MANIFEST" --format json`.
   - Scan both `git ls-files` paths and textual contents at the baseline commit; classify every meaningful occurrence into module/import, public package/Go identifier, runtime wire/config, persistence/observability, tooling/CI/release, docs/agent/Kiro/historical, generated-artifact surface, or false-positive/third-party.
+  - Produce a checksummed path-rename ownership manifest for every tracked filename/directory component with a semantic Legacy Token Set match. Classify functional paths (module/package/command/executable/bridge/build/tooling) to their owning implementation wave and documentation/Kiro/history/non-functional paths to the late content waves; no functional path may be left owned only by Task 9.4.
   - Flag all suspected durable identifiers for explicit review before editing.
   - Hand off the Issue revision, baseline SHA, scanner contract, scanner SHA, pattern SHA, artifact-manifest SHA, canonical invocation, and inventory result/checksum through the implementation log or CI artifact. Do not commit retired spellings.
   - If Issue #429 changes materially after this freeze, stop and require an explicit owner-approved rebaseline; regenerate affected downstream scan evidence instead of mixing provenance versions.
@@ -56,10 +58,11 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
   - _Validation: rerunning the canonical invocation against the same baseline with the same checksummed inputs produces equivalent classified results_
 
 - [ ] 1.4 Freeze target naming and immutable parallel-work ownership
-  - Use the target matrix from `design.md`: `aiproxer`, `github.com/aiproxer/aiproxer`, `aiproxer.com`, `aip`, `pkg/aipapi`, `pkg/aipsdk`, `pkg/aipruntime`, `aipstd`, `X-AIP-*`, `AIP_*`, and `aip_*`.
+  - Use the target matrix from `design.md`: human-readable `AIProxer`; machine/repository slug `aiproxer`; `github.com/aiproxer/aiproxer`; `aiproxer.com`; `aip`; `pkg/aipapi`; `pkg/aipsdk`; `pkg/aipruntime`; `aipstd`; `X-AIP-*`; `AIP_*`; and `aip_*`.
   - Resolve any discovered project-owned identifier to one target convention before its wave begins; do not invent competing spellings later.
   - Freeze an immutable module-to-batch manifest for **every connector module**. Assign each connector exactly once to batch A, batch B, or a numbered later batch, keep each batch at most 4–6 modules unless explicitly reduced for complexity, and record a checksum.
   - Freeze the late documentation/agent path partition: README/docs; active non-Kiro agent automation; active Kiro/repository instructions; historical Kiro/reviews; serial remainder paths. Ensure every parallel path is owned exactly once.
+  - Freeze the functional path-rename partition from Task 1.3: public package moves; remaining Go package/command/executable paths; tooling/bridge paths; release/distribution paths. Every branded path is owned exactly once, and functional paths are excluded from the Task 9.4 remainder.
   - Reserve shared/root/support/tooling files for serial tasks rather than parallel connector workers.
   - Confirm Open Core/Enterprise separation remains out of scope.
   - Observable completion: implementation agents share one target mapping and immutable non-overlapping module/path assignments before any parallel work begins.
@@ -272,11 +275,14 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
   - _Validation: `go test ./cmd/aipstd/... && go build ./cmd/aipstd`_
 
 - [ ] 5.4 Close the compile-time package/command migration
+  - Before running the close gate, execute every functional path rename assigned to this wave by the frozen path-rename manifest: remaining project-branded Go package directories, auxiliary root commands, connector/test command directories and executable basenames, internal/testkit package paths, and other compile/build-sensitive source paths shall use the target `aip` form.
+  - Update imports, package declarations where branded, build invocations, test/conformance/backend-plugin harnesses, manifest command references required for local build/test coherence, and filename-based architecture checks in the same change set. Leave broad release metadata/prose convergence to Tasks 7–9.
+  - Do not leave any package/command/executable/source-path rename for Task 9.4 merely because the final scanner would find it.
   - Run root quality/unit/architecture gates and nested-module checks.
-  - Use the frozen scanner provenance to confirm module/import/public-package/command categories have no remaining Legacy Token Set matches.
+  - Use the frozen scanner provenance to confirm module/import/public-package/command/functional-path categories have no remaining Legacy Token Set matches.
   - Do not begin runtime wire/config renames until this gate is green.
-  - Observable completion: all compile-time project namespaces are target-only.
-  - _Requirements: 2.1, 2.2, 3.5, 4.1, 4.2, 4.3, 4.4, 8.5_
+  - Observable completion: all compile-time project namespaces and compile/build-sensitive project-owned paths are target-only.
+  - _Requirements: 2.1, 2.2, 2.7, 3.5, 4.1, 4.2, 4.3, 4.4, 4.7, 8.5_
   - _Boundary: repository compile-time identity_
   - _Depends: 5.3_
   - _Validation: `make quality-checks && make test-unit && go test ./internal/archtest/...` plus all-module check script and frozen scanner_
@@ -352,7 +358,7 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
 - [ ] 7. Converge developer tooling, remaining CI identity, and active non-Kiro automation
 
 - [ ] 7.1 Update Make targets and shell/PowerShell tooling
-  - Rename project-owned paths, executable names, help strings, temp/artifact names, and checks in `Makefile` and scripts.
+  - Rename project-owned paths, executable names, helper/bridge script filenames or directories, help strings, temp/artifact names, and checks in `Makefile` and scripts according to the frozen functional path-rename manifest.
   - Preserve the already-migrated `AIP_*` environment mapping from Task 6.2; do not invent a second environment-variable pass.
   - Preserve command semantics and platform parity between shell and PowerShell variants.
   - Update all-module/tidy/change-size/quality scripts to operate on target module/package/command paths.
@@ -400,7 +406,7 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
 
 - [ ] 8.1 Update release project/build/binary/archive configuration
   - Set release project identity to `aiproxer` and standard build/binary identity to `aipstd`.
-  - Point release builds to `./cmd/aipstd` and update archive/checksum/package naming that embeds project branding.
+  - Point release builds to `./cmd/aipstd`; update every connector/plugin/helper build command and executable basename to the target `aip` form from the frozen path-rename manifest; and update archive/checksum/package naming that embeds project branding.
   - Preserve supported OS/architecture matrix and build flags.
   - Update the out-of-tree artifact manifest only if an implementation-time producer was missed; any manifest change requires explicit rechecksum and invalidates earlier artifact-scan evidence.
   - Observable completion: release configuration resolves only target paths/IDs and can build the standard binary.
@@ -410,7 +416,7 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
   - _Validation: `goreleaser check` when available and `go build ./cmd/aipstd`_
 
 - [ ] 8.2 Update install/package/container/distribution generation inputs
-  - Rename project-owned package/container/service/artifact names discovered by the inventory.
+  - Rename project-owned package/container/service/artifact names discovered by the inventory, including connector/plugin IDs, executable paths, manifest templates/entries, bridge launch references, and generated metadata that carry project branding.
   - Update generated-release inputs and executable smoke scripts; prose installation docs remain for Task 9.
   - Preserve deployment/runtime behavior except the identity/name change.
   - Ensure every enabled producer in the frozen artifact manifest can emit the artifact needed for its required final probe.
@@ -436,7 +442,8 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
 
 - [ ] 9.1 Rewrite README and user/operator/developer documentation (P)
   - Own only `README*`, `docs/**`, and documentation-specific filenames/directories explicitly assigned by the frozen path manifest.
-  - Update brand, canonical target repository links, module/package/command paths, HTTP/env examples, install/build commands, diagrams, and prose references.
+  - Replace every source product/repository-name mention in owned prose with the target identity: use `AIProxer` for human-readable product prose/display, and use `aiproxer` only where the literal repository/module/release/path slug is intended.
+  - Update canonical target repository links, module/package/command paths, HTTP/env examples, install/build commands, diagrams, and prose references.
   - Validate examples against the now-stable target code; do not document compatibility names that no longer exist.
   - Rename owned documentation filenames/directories if their names are part of the Legacy Token Set.
   - Do not edit any Task 9.2/9.3 path.
@@ -470,7 +477,8 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
 
 - [ ] 9.4 Rewrite remaining comments, help, fixtures, goldens, examples, and tracked filenames
   - Reconcile Tasks 9.1–9.3 first and verify their path ownership had no overlap.
-  - Handle only the serial remainder paths from the frozen ownership manifest: source comments, help strings, fixture content, golden filenames, examples outside docs, config samples, and miscellaneous tracked paths not already owned.
+  - Handle only the **non-functional** serial remainder paths from the frozen ownership manifest: source comments, help strings, fixture content, golden/testdata filenames, examples outside docs, config samples, and miscellaneous tracked paths not already owned.
+  - This task must not be the first owner of a package, command, executable, bridge, build, runtime-launch, or tooling path rename; any such leftover is evidence that Tasks 5.4/7/8 were incomplete and must be repaired in the owning wave before proceeding.
   - Treat false-positive third-party/unrelated matches according to Task 1.3 classification rather than blindly replacing them.
   - Observable completion: the full tracked path/content scan reports no unresolved project-brand matches except external GitHub host state that is not tracked content.
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
@@ -543,7 +551,7 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
 
 - [ ] 11.2 Run the final frozen source and mandatory generated-artifact zero-legacy scan
   - Reuse the exact scanner/provenance bundle frozen in Task 1.3; verify Issue revision, baseline link, scanner SHA, pattern SHA, artifact-manifest SHA, and scanner contract before running.
-  - Scan every path from `git ls-files` and textual contents of all tracked files.
+  - Scan every path from `git ls-files` and textual contents of all tracked files; verify each filename and directory/path component independently so a renamed file cannot hide a branded parent directory.
   - Regenerate **every artifact family marked producible** in the frozen artifact manifest and execute every required per-artifact probe, including release archive names/entries/textual payloads, release/package/container metadata, standard executable filename/help/version/build metadata, and other explicit probes.
   - Review apparent matches semantically; only unrelated provider/protocol/third-party/natural-language false positives may remain, and those must not actually encode project identity.
   - Do not add an allowlist for genuine project-brand leftovers just to make the scan pass.
