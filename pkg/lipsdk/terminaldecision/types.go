@@ -133,8 +133,9 @@ type Evidence struct {
 	Actions     [MaxEvidenceActions]ActionFact
 	ActionCount uint8
 
-	ExplicitCompletion bool
-	Lineage            EvidenceLineage
+	ExplicitCompletion         bool
+	ExplicitCompletionExpected bool
+	Lineage                    EvidenceLineage
 }
 
 // ActionFact is a compact canonical summary of one message/tool action. Item
