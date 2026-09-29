@@ -1053,7 +1053,7 @@ var PlaneSessionClassifier = Plane[sessionclassification.Classifier]{
 	ExclusiveConflictError: ErrSessionClassifierConflict,
 	Diagnostics: DiagnosticDescriptor[sessionclassification.Classifier]{
 		StageID: StageIDSessionClassification,
-		Order:   10,
+		Order:   25,
 		Materialize: func(v sessionclassification.Classifier) []DiagnosticOccupant {
 			id, err := sessionclassification.ClassifierIdentity(v)
 			if err != nil {
