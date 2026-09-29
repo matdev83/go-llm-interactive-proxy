@@ -92,6 +92,7 @@ jobs:
         run: |
           echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
           echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Restore dedicated cursorsdk Go cache
         id: go-cache
@@ -100,10 +101,10 @@ jobs:
           path: |
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-cursorsdk-${{ runner.os }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum', 'testdata/enterprise_module/go.sum', 'tools/**/go.sum') }}
+          key: go-cache-cursorsdk-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum', 'testdata/enterprise_module/go.sum', 'tools/**/go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-cache-cursorsdk-${{ runner.os }}-
-            setup-go-
+            go-cache-cursorsdk-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum', 'testdata/enterprise_module/go.sum', 'tools/**/go.sum') }}-
+            go-cache-cursorsdk-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
 
       - name: Platform smoke (fake bridge)
         run: make test-cursor-sdk-platform
@@ -115,7 +116,7 @@ jobs:
           path: |
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-cursorsdk-${{ runner.os }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum', 'testdata/enterprise_module/go.sum', 'tools/**/go.sum') }}
+          key: go-cache-cursorsdk-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum', 'testdata/enterprise_module/go.sum', 'tools/**/go.sum') }}-${{ github.sha }}
 
   bridge-node-tests:
     name: bridge-node-tests

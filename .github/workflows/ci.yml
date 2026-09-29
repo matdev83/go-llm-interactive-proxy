@@ -194,11 +194,9 @@ jobs:
           # this matrix job restores a dedicated full Go cache below instead.
           cache: false
 
-      # The shared setup-go cache restores a frozen partial snapshot (observed
-      # ~91 MB) that forces re-downloading modules and recompiling export data
-      # on every PR. A dedicated per-OS cache preserves the full build cache for
-      # the portable package matrix; restore-keys fall back to the shared
-      # snapshot for a partial warm start on the first run.
+      # Publish one immutable snapshot per source revision and job. Seed the
+      # next revision from the latest compatible snapshot so source-only work
+      # does not repeatedly rebuild against a frozen dependency-era cache.
       - name: Resolve Go cache paths
         id: go-cache-paths
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
@@ -206,6 +204,7 @@ jobs:
         run: |
           echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
           echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Restore dedicated CI Go cache
         id: go-cache
@@ -215,10 +214,10 @@ jobs:
           path: |
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-ci-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          key: go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-cache-ci-${{ runner.os }}-
-            setup-go-
+            go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
 
       - name: Fast unit tests
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && (matrix.os != 'windows-latest' || (!contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && !contains(github.event.pull_request.labels.*.name, 'run-test-cost') && !contains(github.event.pull_request.labels.*.name, 'test-cost') && needs.changes.outputs.test_cost != 'true'))
@@ -264,7 +263,7 @@ jobs:
           path: |
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-ci-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          key: go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
 
       - name: Upload Windows test-cost artifacts
         if: always() && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
@@ -331,6 +330,7 @@ jobs:
         run: |
           echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
           echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Restore dedicated CI Go cache
         id: go-cache
@@ -340,10 +340,10 @@ jobs:
           path: |
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-ci-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          key: go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-cache-ci-${{ runner.os }}-
-            setup-go-
+            go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
 
       - name: Verify PostgreSQL test environment
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
@@ -377,6 +377,15 @@ jobs:
           LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
           LIP_TEST_PARALLEL: '4'
         run: make test-db-parity
+
+      - name: Save dedicated database parity Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'

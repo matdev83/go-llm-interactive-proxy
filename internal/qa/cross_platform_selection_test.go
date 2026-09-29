@@ -44,6 +44,11 @@ func TestCrossPlatformSelection(t *testing.T) {
 	if err := os.WriteFile(script, contents, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Keep the selector in the base commit. Otherwise the first case stages
+	// it, and the next checkout removes the script along with that case.
+	runGit("add", "cross-platform-selection.sh")
+	runGit("commit", "-qm", "selector fixture")
+	base = gitRevision(t, root)
 
 	cases := []struct {
 		name string
@@ -58,7 +63,8 @@ func TestCrossPlatformSelection(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+			// Cases intentionally mutate one checkout. Parallelism here races
+			// Git's index and mixes the changed-file sets under test.
 			runGit("checkout", "-q", base)
 			writeSelectionFixture(t, root, tc.path)
 			runGit("add", ".")

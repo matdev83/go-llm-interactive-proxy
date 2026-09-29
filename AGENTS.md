@@ -109,6 +109,9 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 
 ## Verification
 
+- Inner loop: `make dev-test PKGS='./path/to/package/...'`; use `make dev-build` or `make dev-lint` with the same explicit scope when needed. For nested modules add `MODULE=connectors/name` and use module-relative `PKGS`. These are feedback, not delivery certification; include affected consumers when contracts change.
+- Diagnose slow iteration with `make dev-doctor` and `DEV_REPEAT=2` on an identical scoped command. Do not clear Go/lint caches, force rebuilds (`-a`), or add `-count=1` to routine loops. Use a fresh run deliberately for final regression evidence. Keep cache directories stable across worktrees and sessions.
+- Run focused checks during edits; run the applicable comprehensive gates after a coherent change. Do not repeatedly alternate test/quality/QA/race/coverage variants after every edit. See `docs/development-iteration.md` for the maintained performance policy.
 - Focused test: `go test -run TestName ./path/to/pkg`.
 - Default unit: `make test-unit`.
 - Windows test-cost ratchet: `make test-cost` is the explicit authoritative budget check; it is opt-in and not part of `make test`.

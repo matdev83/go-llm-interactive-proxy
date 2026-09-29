@@ -1,0 +1,86 @@
+name: Development cost watchdog
+
+on:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: development-cost-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-cost:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out measured main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        env:
+          GIT_CONFIG_COUNT: 2
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+          GIT_CONFIG_KEY_1: core.eol
+          GIT_CONFIG_VALUE_1: lf
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        shell: bash
+        run: |
+          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cost measurement cache
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-cost-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-cache-cost-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-cache-cost-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
+
+      - name: Measure existing Windows cost budgets
+        timeout-minutes: 75
+        shell: pwsh
+        env:
+          GOFLAGS: -p=2
+        run: |
+          & ./scripts/test-cost-ratchet.ps1 `
+            -BaseSHA HEAD `
+            -OutputRoot (Join-Path $env:RUNNER_TEMP 'development-cost') `
+            -Parallel 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Save cost measurement cache
+        if: success() && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-cost-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+
+      - name: Retain measurements and failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: development-cost-${{ github.sha }}
+          path: ${{ runner.temp }}/development-cost
+          if-no-files-found: warn
+          retention-days: 30
