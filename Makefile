@@ -2,6 +2,23 @@
 
 GO ?= go
 
+# Explicit development scope, shared across Bash and PowerShell. No implicit
+# full-suite fallback: agents must choose the package(s) they are iterating on.
+PKGS ?=
+MODULE ?= .
+DEV_JOBS ?= 4
+DEV_REPEAT ?= 1
+
+.PHONY: dev-test dev-build dev-lint dev-doctor
+dev-test:
+	$(GO) run -buildvcs=false ./tools/devcheck -task=test -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
+dev-build:
+	$(GO) run -buildvcs=false ./tools/devcheck -task=build -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
+dev-lint:
+	$(GO) run -buildvcs=false ./tools/devcheck -task=lint -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
+dev-doctor:
+	$(GO) run -buildvcs=false ./tools/devcheck -task=doctor -module="$(MODULE)"
+
 # Test parallelism defaults to the machine's logical core count. The previous
 # fixed -parallel=8 left >=8-core dev boxes half idle for t.Parallel-heavy
 # suites (measured ~2.3x faster on a 16-core box). Override with
@@ -27,6 +44,8 @@ endif
 
 help:
 	@echo "Targets:"
+	@echo "  make dev-test/dev-build/dev-lint PKGS='./path/...' [MODULE=connectors/name] [DEV_JOBS=4] [DEV_REPEAT=2] - scoped, measured iteration"
+	@echo "  make dev-doctor [MODULE=.] - effective toolchain/cache configuration and diagnostics"
 	@echo "  make quality-checks  - generate-feature-planes -check, gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest; mod verify in CI or with LIP_VERIFY_MODULE_CACHE=1"
 	@echo "  make profile-only-check [PROFILE_ONLY_BASE=<git-rev>] - fail-closed provider-profile change-surface ratchet"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"

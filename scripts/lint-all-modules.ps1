@@ -18,6 +18,18 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/taskrunner.ps1"
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
+# Bound the module fan-out and each analyzer independently, matching POSIX.
+$LintJobs = 2
+$LintConcurrency = 2
+foreach ($setting in @("LIP_LINT_JOBS", "LIP_LINT_CONCURRENCY")) {
+    $value = [Environment]::GetEnvironmentVariable($setting, "Process")
+    if ($value) {
+        if ($value -notmatch '^[1-9][0-9]*$') { throw "$setting must be a positive integer" }
+        if ($setting -eq "LIP_LINT_JOBS") { $LintJobs = [int]$value }
+        else { $LintConcurrency = [int]$value }
+    }
+}
+
 function Test-AgentSkillPath {
     param([string]$NormalizedPath)
     return $NormalizedPath -match '^\.(agents|codex|cursor|kiro|opencode|pi)/skills/'
@@ -111,7 +123,7 @@ $linterArgs = @()
 
 if (Get-Command golangci-lint -ErrorAction SilentlyContinue) {
     $linter = "golangci-lint"
-    $linterArgs = @("run", "--allow-parallel-runners")
+    $linterArgs = @("run", "--allow-parallel-runners", "--concurrency=$LintConcurrency")
     if (-not $Advisory) {
         $linterArgs += "--disable=$($AdvisoryStyleLinters -join ',')"
     }
@@ -124,6 +136,7 @@ if (Get-Command golangci-lint -ErrorAction SilentlyContinue) {
 }
 
 Write-Host "Linting $($targetModules.Count) module(s) with $linter in parallel..." -ForegroundColor Cyan
+Write-Host "Lint budget: modules=$LintJobs analyzers/module=$LintConcurrency" -ForegroundColor DarkGray
 if ($linter -eq "golangci-lint") {
     if ($Advisory) {
         Write-Host "Mode: ADVISORY (full set incl. $($AdvisoryStyleLinters -join ', '); non-blocking style report)." -ForegroundColor Yellow
@@ -134,7 +147,7 @@ if ($linter -eq "golangci-lint") {
 
 $runnerBinary = Get-TaskRunnerBinary
 $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
-$pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, [Math]::Min($targetModules.Count, [Environment]::ProcessorCount), $sessionState, $Host)
+$pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, [Math]::Min($targetModules.Count, $LintJobs), $sessionState, $Host)
 $pool.Open()
 
 $tasks = [System.Collections.Generic.List[PSObject]]::new()
@@ -144,7 +157,7 @@ try {
         $ps = [System.Management.Automation.PowerShell]::Create()
         $ps.RunspacePool = $pool
         [void]$ps.AddScript({
-            param($runnerBinary, $repoRoot, $mod, $modDir, $linter, $linterArgs)
+            param($runnerBinary, $repoRoot, $mod, $modDir, $linter, $linterArgs, $lintConcurrency)
             $runnerArgs = @(
                 "--label", "lint:$mod",
                 "--cwd", $modDir,
@@ -152,6 +165,9 @@ try {
                 "--output", "capture"
             )
             $runnerArgs += "--"
+            if ($linter -eq "staticcheck") {
+                $runnerArgs = @("--env", "GOMAXPROCS=$lintConcurrency") + $runnerArgs
+            }
             $runnerArgs += @($linter) + $linterArgs
 
             $output = @(& $runnerBinary @runnerArgs 2>&1)
@@ -161,7 +177,7 @@ try {
                 ExitCode = $exitCode
                 Output = $output
             }
-        }).AddArgument($runnerBinary).AddArgument($RepositoryRoot).AddArgument($mod).AddArgument($modDir).AddArgument($linter).AddArgument($linterArgs)
+        }).AddArgument($runnerBinary).AddArgument($RepositoryRoot).AddArgument($mod).AddArgument($modDir).AddArgument($linter).AddArgument($linterArgs).AddArgument($LintConcurrency)
 
         $asyncResult = $ps.BeginInvoke()
         $tasks.Add([PSCustomObject]@{

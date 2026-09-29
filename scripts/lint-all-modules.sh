@@ -118,7 +118,17 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
   exit 0
 fi
 
-JOBS="${LIP_LINT_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)}"
+# Each analyzer already schedules parallel work. Avoid cores x cores workers
+# and competing whole-module loads; both platforms share this budget.
+JOBS="${LIP_LINT_JOBS:-2}"
+LINT_CONCURRENCY="${LIP_LINT_CONCURRENCY:-2}"
+for budget in "$JOBS" "$LINT_CONCURRENCY"; do
+  if [[ ! "$budget" =~ ^[1-9][0-9]*$ ]]; then
+    echo "LIP_LINT_JOBS and LIP_LINT_CONCURRENCY must be positive integers" >&2
+    exit 2
+  fi
+done
+echo "Lint budget: modules=$JOBS analyzers/module=$LINT_CONCURRENCY"
 
 run_module_lint() {
   local module="$1"
@@ -127,12 +137,12 @@ run_module_lint() {
   echo "== Linting $module =="
   if [[ "$LINTER" == "golangci-lint" ]]; then
     if (( ADVISORY )); then
-      (cd "$dir" && golangci-lint run --allow-parallel-runners)
+      (cd "$dir" && golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY")
     else
-      (cd "$dir" && golangci-lint run --allow-parallel-runners --disable=modernize,paralleltest,thelper)
+      (cd "$dir" && golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" --disable=modernize,paralleltest,thelper)
     fi
   else
-    (cd "$dir" && staticcheck ./...)
+    (cd "$dir" && GOMAXPROCS="$LINT_CONCURRENCY" staticcheck ./...)
   fi
 }
 
@@ -144,7 +154,7 @@ if [[ "$LINTER" == "golangci-lint" ]]; then
   fi
 fi
 
-export ROOT LINTER ADVISORY
+export ROOT LINTER ADVISORY LINT_CONCURRENCY
 export -f run_module_lint
 printf '%s\n' "${MODULES[@]}" | xargs -r -P"$JOBS" -I{} bash -c 'run_module_lint "$1"' _ {}
 echo "OK: All checked Go modules passed linting."

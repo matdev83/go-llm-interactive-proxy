@@ -182,8 +182,8 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 		}
 	}
 	cacheKey := "hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum')"
-	if count := strings.Count(normalizedQA, cacheKey); count != 2 {
-		t.Errorf("QA dedicated cache key occurs %d times, want restore and save keys", count)
+	if count := strings.Count(normalizedQA, cacheKey); count != 3 {
+		t.Errorf("QA dependency hash occurs %d times, want restore key, dependency fallback, and save key", count)
 	}
 	if strings.Contains(qa, "go test -timeout=5m ./cmd/lipstd") {
 		t.Fatal("QA must not duplicate the CI cmd/lipstd test")

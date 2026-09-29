@@ -108,6 +108,7 @@ jobs:
         run: |
           echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
           echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Restore dedicated ACP Go cache
         id: go-cache
@@ -117,10 +118,10 @@ jobs:
           path: |
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-acp-${{ runner.os }}-${{ hashFiles('go.sum', 'connector-support/acp/go.sum', 'connectors/cursorcliacp/go.sum') }}
+          key: go-cache-acp-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connector-support/acp/go.sum', 'connectors/cursorcliacp/go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-cache-acp-${{ runner.os }}-
-            setup-go-
+            go-cache-acp-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connector-support/acp/go.sum', 'connectors/cursorcliacp/go.sum') }}-
+            go-cache-acp-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
 
       - name: Native process-tree (Unix)
         if: needs.changes.outputs.relevant == 'true' && runner.os != 'Windows'
@@ -161,7 +162,7 @@ jobs:
           path: |
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-acp-${{ runner.os }}-${{ hashFiles('go.sum', 'connector-support/acp/go.sum', 'connectors/cursorcliacp/go.sum') }}
+          key: go-cache-acp-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connector-support/acp/go.sum', 'connectors/cursorcliacp/go.sum') }}-${{ github.sha }}
 
       - name: Report unrelated ACP bypass
         if: needs.changes.outputs.relevant != 'true'
