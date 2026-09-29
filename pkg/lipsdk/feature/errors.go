@@ -21,6 +21,9 @@ var (
 	// ErrTerminalDecisionProviderConflict reports a conflict when multiple terminal-decision providers are registered.
 	ErrTerminalDecisionProviderConflict = errors.New("featurebundle: terminal-decision provider conflict")
 
+	// ErrSessionClassifierConflict reports a conflict when multiple session classifiers are registered.
+	ErrSessionClassifierConflict = errors.New("featurebundle: session-classifier conflict")
+
 	// ErrNilContribution reports a nil contribution rejected by plane nil policy.
 	ErrNilContribution = errors.New("feature: nil contribution")
 

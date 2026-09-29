@@ -6,6 +6,7 @@ const (
 	StageIDTransportAuth             = "transport_authentication"
 	StageIDSessionOpen               = "session_open"
 	StageIDSecretGuard               = "secret_guard"
+	StageIDSessionClassification     = "session_classification"
 	StageIDSubmit                    = "submit_request"
 	StageIDToolCatalog               = "tool_catalog_filter"
 	StageIDRequestWide               = "request_wide_shaping"
@@ -45,6 +46,7 @@ var legalStageDescriptors = []StageDescriptor{
 	{ID: StageIDTransportAuth, MutationRole: StageRoleReject, R12LayerNotes: "Transport identity; distinct from canonical call mutation (R12)."},
 	{ID: StageIDSessionOpen, MutationRole: StageRoleMutate, R12LayerNotes: "Session/workspace context before request shaping."},
 	{ID: StageIDSecretGuard, MutationRole: StageRoleMutateReject, R12LayerNotes: "Ingress secret detection after BeginTurn; redact or reject before FE checkpoint/traffic/routing."},
+	{ID: StageIDSessionClassification, MutationRole: StageRoleObserve, R12LayerNotes: "Bounded derived session classification after secret guard and before submit/request consumers."},
 	{ID: StageIDSubmit, MutationRole: StageRoleMutateReject, R12LayerNotes: "Submit-time whole-call mutation and rejection."},
 	{ID: StageIDToolCatalog, MutationRole: StageRoleMutate, R12LayerNotes: "Tool exposure policy before tool-use events."},
 	{ID: StageIDRequestWide, MutationRole: StageRoleMutate, R12LayerNotes: "Request-wide shaping; brownfield request-part hooks map here until a dedicated stage exists."},
