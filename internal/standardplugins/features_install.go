@@ -20,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refverifier"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
@@ -253,6 +254,15 @@ func featureSecretGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
 		return lipfeature.FeatureBundle{}, err
 	}
 	return secretguard.FeatureBundle(cfg), nil
+}
+
+func featureSessionClassification(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	if _, err := sessionclassification.DecodeConfig(n); err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	// The concrete classifier is generation-bound by featurehost because it
+	// requires the process-owned monotonic state coordinator.
+	return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
 }
 
 func featureReasoningOutputPreservation(n yaml.Node) (lipfeature.FeatureBundle, error) {
