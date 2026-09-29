@@ -31,11 +31,6 @@ import (
 // topology. It is built from the rater's private, canonicalized snapshot copy,
 // so a caller mutation cannot change compiled semantics.
 //
-// Aggregate and partition relationships are SYNONYMS here: both declare that the
-// named children form a COMPLETE, additive coverage of the parent, so both feed
-// the complete-coverage constraint. Subset is a partial containment only, and a
-// transform is a separately governed unit derivation that is never traversed.
-//
 // "Containment" is the union of complete-coverage and subset edges: for every
 // containment edge the child is contained in the parent, and the relation is
 // transitive. Every edge here already shares economic direction and unit, so all
@@ -44,11 +39,10 @@ type schemaProgram struct {
 	byKey map[string]int
 	keyOf []metering.ComponentKey
 	// keyStrings is keyOf's canonical JSON identity, indexed by the same node id,
-	// so a per-id identity is a slice index rather than a re-marshalling.
-	// metering.ComponentKey.CanonicalKey is encoding/json.Marshal of the WHOLE
-	// key, so deriving one inside a pair loop or a per-parent dedup scan costs a
-	// full canonicalisation per iteration and makes both quadratic in the
-	// declared graph size.
+	// so a per-id identity is a slice index rather than a re-marshalling. A
+	// canonical key is a json.Marshal of the WHOLE key, so deriving one inside a
+	// pair loop or a per-parent dedup scan costs a full canonicalisation per
+	// iteration and makes both quadratic in the declared graph size.
 	keyStrings          []string
 	topo                []int
 	completeChildren    [][]int
@@ -58,49 +52,43 @@ type schemaProgram struct {
 	reverseContainment  [][]int
 	completeOwner       []int
 	// sharedCompleteOwner names the nodes declared as a complete-coverage child
-	// by TWO DISTINCT complete parents. It is separate from completeOwner
-	// because -1 there means both "no complete parent at all" and "ambiguously
-	// shared", and the cover resolver must tell those apart: the first is simply
-	// a leaf, the second is a positive ambiguity claim.
+	// by TWO DISTINCT complete parents. It is separate from completeOwner because
+	// -1 there means both "no complete parent at all" and "ambiguously shared", and
+	// the cover resolver must tell those apart: a leaf against a positive ambiguity
+	// claim.
 	sharedCompleteOwner []bool
 	// propagationDepth is the longest containment path in EDGES, computed ONCE
-	// here from the frozen graph. See propagateQuantityIntervals for the sweep
-	// bound derived from it and why that bound is sufficient.
+	// here; see propagateQuantityIntervals for the sweep bound derived from it.
 	propagationDepth int
 	// declaredEdges is every inclusion edge the snapshot declares, in canonical
-	// DECLARATION order, with both endpoints already resolved to node ids and
-	// both canonical identities already derived. A per-call consumer that needs
-	// the declared relationships -- the direct overlap check, the excluded-child
+	// DECLARATION order, with both endpoints already resolved to node ids. A
+	// per-call consumer that needs the declared relationships -- the excluded-child
 	// check -- therefore reads declared topology as data instead of rescanning
-	// the snapshot's relationships and re-canonicalising every endpoint on
-	// every call. schemaID and kind are carried because the overlap diagnostic
-	// quotes them; neither is needed to answer a containment question.
+	// the snapshot's relationships and re-canonicalising every endpoint on every
+	// call. It carries no per-edge schema identity or relationship kind, because
+	// the overlap resolver's structural verdict is a relation between two
+	// component lines and quotes no per-edge attribution.
 	declaredEdges []programEdge
 	// coverParents lists, in ascending node id, the compiled nodes that declare
-	// at least one complete-coverage member. Node ids are assigned in sorted
-	// canonical-key order, so ascending id IS the order a per-call sort of the
-	// canonical parent keys produced, and the first conflict diagnostic stays
-	// deterministic without rebuilding or re-sorting that list per scope.
+	// at least one complete-coverage member. Ascending id IS the order a per-call
+	// sort of the canonical parent keys produced, so the first conflict diagnostic
+	// stays deterministic without rebuilding that list per scope.
 	coverParents []int
 	// membersByParent is the ONE projection of the compiled complete-coverage
 	// adjacency into the canonical-key shape the string-keyed consumers walk.
 	// It is built here, once, so the conservation proof and the overlap resolver
 	// cannot disagree about which members a parent declares, in which order, or
 	// which of them are optional -- and neither re-reads the snapshot's
-	// relationships, so topology is discovered exactly once, at rater
-	// construction. A node that declares no complete child is absent from it,
-	// which is exactly the set of parents that can carry a cover.
+	// relationships, so topology is discovered exactly once, at construction.
 	membersByParent map[string][]partitionMember
 }
 
 // programEdge is one declared inclusion edge in compiled form. The zero value is
 // never used: every entry comes from compileSchemaProgram, which resolves both
-// endpoints to ids and derives both canonical identities.
+// endpoints to ids.
 type programEdge struct {
-	schemaID string
-	parent   int
-	child    int
-	kind     metering.RelationshipKind
+	parent int
+	child  int
 }
 
 // compileSchemaProgram indexes a validated, canonicalized schema set into one
@@ -112,7 +100,6 @@ func compileSchemaProgram(schemas []metering.ComponentSchema) schemaProgram {
 		return program
 	}
 	type schemaEdge struct {
-		schemaID  string
 		parent    metering.ComponentKey
 		child     metering.ComponentKey
 		parentKey string
@@ -146,8 +133,7 @@ func compileSchemaProgram(schemas []metering.ComponentSchema) schemaProgram {
 			// them as data; re-deriving them inside the comparator cost four full
 			// canonicalisations per comparison and made compilation quadratic.
 			rawEdges = append(rawEdges, schemaEdge{
-				schemaID: schema.ID,
-				parent:   parent, child: child, parentKey: parentKey, childKey: childKey,
+				parent: parent, child: child, parentKey: parentKey, childKey: childKey,
 				kind: relationship.Kind, optional: relationship.Optional,
 			})
 		}
@@ -180,19 +166,16 @@ func compileSchemaProgram(schemas []metering.ComponentSchema) schemaProgram {
 		program.completeOwner[id] = -1
 	}
 	// The merged containment view and the declared edge list are compiled BEFORE
-	// the sort, in DECLARATION order, because that is the order the payability
-	// walks have always visited: the FIRST payable descendant a walk reaches is
-	// quoted verbatim in the overlap diagnostic, and those diagnostics are
-	// compared byte for byte. Everything else that reads containment (the
-	// topological order, the longest path, the unknown-intersection ancestor and
-	// descendant sets) reads a SET or a maximum, so the order is invisible there.
+	// the sort, in DECLARATION order, which is the order the payability walks
+	// have always visited. Every consumer of containment reads a SET or a
+	// maximum -- the topological order, the longest path, the relation proof's
+	// closures and the unknown-intersection pairs -- so the order is invisible in
+	// the answer, and is retained only so no walk's traversal can drift.
 	program.declaredEdges = make([]programEdge, 0, len(rawEdges))
 	containmentPairs := make(map[[2]int]struct{}, len(rawEdges))
 	for _, edge := range rawEdges {
 		parent, child := program.byKey[edge.parentKey], program.byKey[edge.childKey]
-		program.declaredEdges = append(program.declaredEdges, programEdge{
-			schemaID: edge.schemaID, parent: parent, child: child, kind: edge.kind,
-		})
+		program.declaredEdges = append(program.declaredEdges, programEdge{parent: parent, child: child})
 		pair := [2]int{parent, child}
 		if _, duplicate := containmentPairs[pair]; duplicate {
 			continue
@@ -412,6 +395,9 @@ func (p *schemaProgram) reachable(class edgeClass, start int) map[int]struct{} {
 // payableDescendants reports the CANONICAL IDENTITY of every node reachable from
 // start over one edge class whose effective amount in the given scope is
 // strictly positive, INCLUDING start itself, in the order the walk reached them.
+// It reports the WALK ORDER rather than a set, so a caller that quotes a hit
+// quotes a deterministic one; every consumer folds the result into a set or checks
+// only its emptiness, so the order is not load-bearing today.
 //
 // Reach matters, not adjacency: a member represented two complete-coverage hops
 // below an unobserved parent is still money on that parent's side, and it is
@@ -419,10 +405,6 @@ func (p *schemaProgram) reachable(class edgeClass, start int) map[int]struct{} {
 // than node ids because every consumer wants the identity: the payable and
 // contributor sets are identity-keyed and the diagnostic quotes it, and the
 // identity is the compiled keyStrings entry rather than a re-marshalled key.
-//
-// It reports the WALK ORDER rather than a set, because the first hit is quoted
-// verbatim in the overlap diagnostic. The compiled adjacency is therefore built
-// in declared order for this reason alone; see compileSchemaProgram.
 func (p *schemaProgram) payableDescendants(class edgeClass, start int, payable map[string]struct{}) []string {
 	edges := p.adjacency(class)
 	seen := make(map[int]struct{}, len(edges))

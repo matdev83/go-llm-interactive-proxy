@@ -2,10 +2,10 @@ package billing
 
 // TEST-ONLY BRIDGE AND WHITE-BOX PREDICATE CONTRACT.
 //
-// The shadow predicate in component_rater_support.go is unexported and has no
-// production caller, so nothing in this file changes a verdict, a completeness,
-// an error class, a diagnostic or an amount. This file is compiled into the test
-// binary only, and it exists for two reasons:
+// The relation predicate in component_rater_support.go is unexported, and the
+// census and report rendering the harness drives through it are test-only, so
+// nothing in this file changes a verdict, a completeness, an error class, a
+// diagnostic or an amount. It exists for two reasons:
 //
 //  1. SupportShadowOverlapAudit is the exported-TEST-ONLY door onto the predicate
 //     for the external agreement harness (component_rater_support_agreement_test.go,
@@ -17,16 +17,16 @@ package billing
 //     in a test file rather than in the production file is what keeps the compiled
 //     package's symbol table untouched: there is no production name to call.
 //  2. The tests below pin the predicate's own contract and PROVE, mechanically,
-//     that no production file references it.
+//     that exactly ONE production file names it, that file is the structural
+//     overlap verdict, and that every reference sits inside that verdict's single
+//     payable-scope pass.
 //
 // The bridge rebuilds the per-scope payable population the way component_rater.go's
-// rating loop does, because that population is exactly the set the four production
-// special cases judge and it is not part of any returned value (a suppressed
-// conflict line is never emitted). The rebuild is TEST code, and
+// rating loop does, because that population is exactly the set the retired
+// production special cases judged and it is not part of any returned value (a
+// suppressed conflict line is never emitted). The rebuild is TEST code, and
 // TestSupportAuditPayablePopulationMatchesEmittedLines in the agreement harness
-// checks it against production on every non-conflict case of every population, so a
-// divergence here is a hard failure rather than a silent distortion of the
-// agreement evidence.
+// checks it against production on every non-conflict case of every population.
 
 import (
 	"errors"
@@ -49,9 +49,13 @@ const (
 	SupportRelationUnknownIntersect = "unknown_intersection"
 )
 
-// supportShadowPredicateNames is the closed set of declarations the shadow
-// predicate consists of. A production file naming ANY of them would make the
-// predicate reachable from a production path.
+// supportShadowPredicateNames is the closed set of declarations the relation
+// predicate consists of, including the candidate enumerator production runs on, so
+// a production file naming ANY of them is a production consumer of the structural
+// overlap verdict. supportShadowPredicateMethods is the same guard over the two
+// receiver methods whose bare names are ordinary English -- "relation" and
+// "contains" occur throughout this package's prose and helpers -- so those are
+// scanned in the QUALIFIED form a call site has to use.
 const supportShadowPredicateNames = "shadowContributingRelations|" +
 	"shadowPositiveContributors|" +
 	"shadowOverlapPair|" +
@@ -59,9 +63,12 @@ const supportShadowPredicateNames = "shadowContributingRelations|" +
 	"newShadowScope|" +
 	"shadowScope|" +
 	"componentLineRelation|" +
+	"overlapCandidates|" +
 	"relationDefiniteOverlap|" +
 	"relationProvenDisjoint|" +
 	"relationUnknownIntersection"
+
+const supportShadowPredicateMethods = ".relation(|" + ".contains("
 
 // SupportOverlapPair is one pair of distinct positive contributors in one
 // reduction scope, with the shadow predicate's relation. It carries a relation
@@ -249,12 +256,12 @@ func SupportShadowOverlapAudit(snapshot economics.TariffSnapshot, input economic
 		}
 		scope[canonical] = struct{}{}
 	}
-	// PRODUCTION'S OWN SIDE OF THE COMPARISON. The four special cases are read
-	// straight off the resolver, over the very same populations, so the agreement
-	// unit is exactly "did production withhold or refuse" rather than a proxy read
-	// off the returned error class. Nothing here changes production: the call is
-	// pure over the compiled program and the derived evidence, and its results are
-	// only reported.
+	// PRODUCTION'S OWN SIDE OF THE COMPARISON. The resolver's remaining special
+	// cases are read straight off the resolver, over the very same populations, so
+	// the agreement unit is exactly "did production withhold or refuse" rather than
+	// a proxy read off the returned error class. Nothing here changes production:
+	// the call is pure over the compiled program and the derived evidence, and its
+	// results are only reported.
 	dependencies := newCommercialDependencySet(func(key metering.ComponentKey) (economics.RatingRule, error) {
 		return rater.resolveRule(key, qualifiers)
 	})
@@ -311,84 +318,165 @@ func supportCoverResolutionName(resolution coverResolution) string {
 	}
 }
 
-// TestSupportShadowPredicateHasNoProductionCaller proves mechanically that no
-// production file in this package CALLS the shadow predicate, so it is
-// unreachable from every production path: not from the rating loop, the overlap
-// resolver, the cover authority, the quantity solver, the finalize step, the
-// retail plane, or any constructor.
+// TestSupportPredicateHasExactlyOneProductionCaller proves mechanically that the
+// relation predicate IS reachable from production, and from EXACTLY ONE production
+// file, for EXACTLY ONE purpose.
+//
+// WHY THAT IS THE INVARIANT NOW. The predicate stopped being a shadow: it is the
+// single authority for the structural overlap verdict, the resolver reaching every
+// pair of positive contributors a scope declares a containment relation between and
+// a relationDefiniteOverlap answer IS the conflict. The pre-retirement guard
+// asserted the exact inverse -- no production caller at all -- so it is REPLACED,
+// not deleted: the retirement it policed is done, and a second caller is that
+// retired special case reintroduced from the other side.
 //
 // The scan covers the non-test sources of THIS package, which is the whole blast
-// radius a package-internal predicate can have: any external caller would have to
-// import the package and therefore use an exported name, and the predicate
-// exports none. The ONE file excluded is the file that DECLARES the predicate,
-// and the exclusion is not a hard-coded path: the declaring file is discovered by
-// looking for the predicate's entry point, exactly one file may claim it, and
-// that file is then required to declare every shadow name. So the exclusion
-// cannot quietly grow to hide a second caller.
-func TestSupportShadowPredicateHasNoProductionCaller(t *testing.T) {
+// radius a package-internal predicate can have: an external caller would have to
+// import the package and therefore use an exported name, and the predicate exports
+// none. The declaring file is DISCOVERED, not named -- one file may claim the
+// predicate's entry point, and it must then declare every name in the closed set,
+// so the excluded file cannot quietly grow to hide a caller. The referencing file is
+// discovered the same way, must declare the structural overlap verdict, and must
+// carry EVERY reference inside that resolver's single payable-scope pass.
+func TestSupportPredicateHasExactlyOneProductionCaller(t *testing.T) {
 	t.Parallel()
-	sources := map[string][]byte{}
-	entries, err := os.ReadDir(".")
+	sources, err := supportPackageSources(false)
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		source, readErr := os.ReadFile(filepath.Clean(name))
-		if readErr != nil {
-			t.Fatalf("ReadFile(%s): %v", name, readErr)
-		}
-		sources[name] = source
-	}
-	declaring := ""
-	for name, source := range sources {
-		if strings.Contains(string(source), "func shadowContributingRelations(") {
-			if declaring != "" {
-				t.Fatalf("the shadow predicate is declared in both %s and %s", declaring, name)
-			}
-			declaring = name
-		}
-	}
-	if declaring == "" {
-		t.Fatal("no production file declares the shadow predicate; the reachability proof would be vacuous")
-	}
+	declaring := supportShadowDeclaringFile(t, sources)
 	for _, name := range strings.Split(supportShadowPredicateNames, "|") {
 		if !strings.Contains(string(sources[declaring]), name) {
 			t.Errorf("the declaring file %s does not declare %q; the excluded file is not the predicate's own home", declaring, name)
 		}
 	}
-	scanned := 0
+	caller, referenced := "", 0
 	for name, source := range sources {
 		if name == declaring {
 			continue
 		}
-		scanned++
-		if line, found := supportShadowPredicateReference(source); found {
-			t.Errorf("production file %s:%d references the shadow predicate; it must have no production caller", name, line)
+		lines := supportShadowPredicateReferences(source)
+		if len(lines) == 0 {
+			continue
+		}
+		if caller != "" {
+			t.Errorf("production file %s:%d also names the predicate; it must have EXACTLY ONE production caller and %s already is one", name, lines[0], caller)
+			continue
+		}
+		caller, referenced = name, len(lines)
+	}
+	if caller == "" {
+		t.Fatal("no production file names the predicate; it is the structural overlap verdict's single authority and must be reachable from production")
+	}
+	lines := strings.Split(string(sources[caller]), "\n")
+	if !strings.Contains(strings.Join(lines, "\n"), "func (r *ReferenceRater) overlappingSchemaInclusionConflicts(") {
+		t.Errorf("the sole production caller %s does not declare the structural overlap verdict; the predicate's only production authority must be that verdict", caller)
+	}
+	// THE STRUCTURAL PASS, AND NOTHING ELSE. The pass is located by the gofmt-fixed
+	// header line and bounded by indentation, so this scans the compiled shape
+	// rather than a comment that could be edited into agreement.
+	open, passes := -1, 0
+	for index, line := range lines {
+		if line == "\tfor _, scope := range payableScopes {" {
+			open, passes = index, passes+1
 		}
 	}
-	if scanned == 0 {
-		t.Fatal("no production file was scanned; the reachability proof would be vacuous")
+	if passes != 1 {
+		t.Fatalf("the sole production caller %s declares %d payable-scope passes; the structural verdict has exactly one home", caller, passes)
 	}
-	t.Logf("SUPPORT shadow predicate reachability: declared only in %s; 0 references across the other %d production files in this package",
-		declaring, scanned)
+	for _, line := range supportShadowPredicateReferences(sources[caller]) {
+		if closed := supportBlockEnd(lines, open); line <= open || line > closed {
+			t.Errorf("production file %s:%d names the predicate outside the payable-scope structural pass (lines %d-%d); the verdict has exactly one home", caller, line, open+1, closed)
+		}
+	}
+	tests, err := supportPackageSources(true)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	exercised := 0
+	for _, source := range tests {
+		if strings.Contains(string(source), "shadowContributingRelations(") {
+			exercised++
+		}
+	}
+	if exercised == 0 {
+		t.Error("no test file calls the test-only pair census; the predicate's own contract and the agreement harness would be silently unexercised")
+	}
+	t.Logf("SUPPORT relation predicate: declared in %s; called from %s only (%d references, all inside its payable-scope structural pass); test-only census driven by %d test files",
+		declaring, caller, referenced, exercised)
 }
 
-// supportShadowPredicateReference reports the first 1-based line of a production
-// source that names any shadow declaration.
-func supportShadowPredicateReference(source []byte) (int, bool) {
-	names := strings.Split(supportShadowPredicateNames, "|")
+// supportShadowDeclaringFile is the ONE file allowed to declare the predicate's
+// entry point, discovered by looking for it rather than by a hard-coded path, so
+// the exclusion cannot be widened quietly to hide a second production consumer.
+func supportShadowDeclaringFile(t *testing.T, sources map[string][]byte) string {
+	t.Helper()
+	declaring := ""
+	for name, source := range sources {
+		if !strings.Contains(string(source), "func shadowContributingRelations(") {
+			continue
+		}
+		if declaring != "" {
+			t.Fatalf("the predicate is declared in both %s and %s", declaring, name)
+		}
+		declaring = name
+	}
+	if declaring == "" {
+		t.Fatal("no production file declares the predicate; the single-authority proof would be vacuous")
+	}
+	return declaring
+}
+
+// supportPackageSources reads the sources of THIS package that are, or are not,
+// test files, which is the whole scan surface a package-internal predicate has.
+func supportPackageSources(wantTests bool) (map[string][]byte, error) {
+	sources := map[string][]byte{}
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") != wantTests {
+			continue
+		}
+		source, readErr := os.ReadFile(filepath.Clean(name))
+		if readErr != nil {
+			return nil, readErr
+		}
+		sources[name] = source
+	}
+	return sources, nil
+}
+
+// supportShadowPredicateReferences lists the 1-based lines of one source that name
+// a shadow declaration or call a shadow receiver method.
+func supportShadowPredicateReferences(source []byte) []int {
+	names := strings.Split(supportShadowPredicateNames+"|"+supportShadowPredicateMethods, "|")
+	var found []int
 	for index, line := range strings.Split(string(source), "\n") {
 		for _, name := range names {
 			if strings.Contains(line, name) {
-				return index + 1, true
+				found = append(found, index+1)
+				break
 			}
 		}
 	}
-	return 0, false
+	return found
+}
+
+// supportBlockEnd is the last line of the block opened at open, found by the
+// indentation gofmt fixes: a later non-blank line indented no deeper than the
+// header has left the block.
+func supportBlockEnd(lines []string, open int) int {
+	indent := func(line string) int { return len(line) - len(strings.TrimLeft(line, " \t")) }
+	depth := indent(lines[open])
+	for index := open + 1; index < len(lines); index++ {
+		if strings.TrimSpace(lines[index]) != "" && indent(lines[index]) <= depth {
+			return index
+		}
+	}
+	return len(lines)
 }
 
 // ---------------------------------------------------------------------------
@@ -397,9 +485,6 @@ func supportShadowPredicateReference(source []byte) (int, bool) {
 
 const supportSchemaID = "support-shadow-v1"
 
-// supportCanonical is the canonical identity a supportGraph node takes. It is
-// derived through the same Normalize/CanonicalKey path production uses, so the
-// white-box tests never hand-build a JSON identity.
 // supportKey is the one component-identity factory for the white-box fixtures. A
 // single schema-qualified, input-direction, token-unit namespace keeps the
 // fixtures independent of component-name heuristics, exactly as every declared
@@ -413,6 +498,9 @@ func supportKey(component string) metering.ComponentKey {
 	}
 }
 
+// supportCanonical is the canonical identity a fixture node takes, derived through
+// the same Normalize/CanonicalKey path production uses, so the white-box tests
+// never hand-build a JSON identity.
 func supportCanonical(component string) string {
 	key, err := supportKey(component).Normalize()
 	if err != nil {

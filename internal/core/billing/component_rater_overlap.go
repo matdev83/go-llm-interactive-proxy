@@ -370,26 +370,24 @@ func unknownContainmentDiagnostic(unknown map[string][]string) error {
 	return fmt.Errorf("billing: unknown containment intersection: %s", strings.Join(parts, "; "))
 }
 
-// overlappingSchemaInclusionConflicts reports every frozen inclusion or
-// partition edge whose parent and child are both effectively payable in the
-// exact same reduction scope and economic direction, and every priced subset
-// child that collides with a payable complete partition of its own parent even
-// when that parent aggregate is unpriced. The returned conflict set names the
-// specific (scope, component) pairs that must not be emitted as payable lines;
-// unrelated scopes and unrelated components remain additive. It additionally
-// fails closed for a payable component that transitively includes another
-// payable component (A subset B subset C) even when the intermediate edge is
-// not itself payable. Cross-direction edges, transform edges, and edges whose
-// halves land in different scopes are not conflicts. The error is the typed
-// fail-closed classification for the enclosing valuation and is returned whenever
-// any conflict exists. This is driven only by the explicit frozen relationship,
-// never by component names or coincidental numbers.
-// The two sides use different evidence sets. A complete partition is proven
-// from rateableByScope: every declared partition child must be observed and have a
-// rule that resolves under the effective qualifiers in the same scope, but a child
-// whose effective charge is zero still completes the partition. The subset side
-// uses payableByScope: only a subset with a strictly positive effective amount
-// can conflict, so a zero-valued subset stays nonconflicting, exactly as a
+// overlappingSchemaInclusionConflicts reports every pair of effectively payable
+// component lines in one reduction scope where one contains the other -- directly
+// on a declared inclusion edge or transitively through an unpriced or absent
+// middle (A subset B subset C) -- and every priced subset child that collides
+// with a payable complete partition of its own parent even when that parent
+// aggregate is unpriced. The returned conflict set names the specific
+// (scope, component) pairs that must not be emitted as payable lines; unrelated
+// scopes and unrelated components remain additive. Cross-direction edges,
+// transform edges, and edges whose halves land in different scopes are not
+// conflicts. The error is the typed fail-closed classification for the enclosing
+// valuation and is returned whenever any conflict exists. This is driven only by
+// the explicit frozen relationship, never by component names or coincidental
+// numbers. The two sides use different evidence sets. A complete partition is
+// proven from rateableByScope: every declared partition child must be observed and
+// have a rule that resolves under the effective qualifiers in the same scope, but
+// a child whose effective charge is zero still completes the partition. The subset
+// side uses payableByScope: only a subset with a strictly positive effective
+// amount can conflict, so a zero-valued subset stays nonconflicting, exactly as a
 // zero-valued partition member stays payable-free. An absent or unavailable child
 // is in neither set and therefore cannot complete the partition.
 //
@@ -415,16 +413,13 @@ func unknownContainmentDiagnostic(unknown map[string][]string) error {
 // suppresses the extra hits together with every actual paid contributor so no
 // partial winner survives.
 //
-// EVERYTHING DECLARED IS READ FROM THE COMPILED PROGRAM, and the walk order is
-// part of the output. This function used to rebuild, on every call, its own
-// string-keyed copies of the declared edges, the subset children, the complete
-// members, the merged kids graph and a canonical-key table, and to walk two
-// further ad-hoc adjacency maps of its own. It now reads the frozen
-// schemaProgram: the declared edges in DECLARATION order, the two containment
-// classes, the cover parents and the single member projection, and it answers
-// every reachability question with the one compiled walk. DECLARATION order is
-// preserved deliberately, because the first payable descendant a walk reaches
-// is quoted verbatim in the diagnostics below; see compileSchemaProgram.
+// EVERYTHING DECLARED IS READ FROM THE COMPILED PROGRAM. This function used to
+// rebuild, on every call, its own string-keyed copies of the declared edges, the
+// subset children, the complete members, the merged kids graph and a canonical-key
+// table, and to walk two further ad-hoc adjacency maps of its own. The structural
+// half is now decided by the general relation proof in component_rater_support.go,
+// which owns the containment closure; only the two COMMERCIAL halves below remain
+// local special cases, because they ask questions that proof deliberately cannot.
 func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 	payableByScope map[string]map[string]struct{},
 	dependencies *commercialDependencySet,
@@ -542,57 +537,79 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 	// downstream can observe the difference but the quoted diagnostic.
 	payableScopes := sortedScopeKeys(payableByScope)
 	rateableScopes := sortedScopeKeys(rateableByScope)
-	for _, edge := range program.declaredEdges {
-		parentKey, childKey := program.keyStrings[edge.parent], program.keyStrings[edge.child]
-		for _, scope := range payableScopes {
-			if _, ok := payableByScope[scope][parentKey]; !ok {
-				continue
-			}
-			if _, ok := payableByScope[scope][childKey]; !ok {
-				continue
-			}
-			if firstErr == nil {
-				parent := program.keyOf[edge.parent]
-				firstErr = fmt.Errorf("%w: schema %q %s relationship prices aggregate parent %s and included child %s in one %q direction %q unit scope",
-					ErrSchemaOverlapConflict, edge.schemaID, edge.kind,
-					parentKey, childKey, string(parent.Direction), parent.Unit)
-			}
-			record(scope, parentKey, childKey)
-		}
+	// evidenceByScope groups the full effective reduced evidence per scope, so the
+	// cover resolver is handed exactly the scope it is reasoning about and never
+	// evidence from another one.
+	evidenceByScope := make(map[string][]aggregateMeasure)
+	for _, item := range consistencyAggregates {
+		evidenceByScope[item.scopeKey] = append(evidenceByScope[item.scopeKey], item)
 	}
-	// The direct check above inspects one inclusion edge at a time, so a chain
-	// A subset B subset C hides a payable A / payable C overlap behind an
-	// unpriced (or absent) middle B: the A->B and B->C pairs are not both
-	// payable, yet C is declared inside A. Close it with bounded reachability
-	// over exactly these inclusion edges (equal direction/unit), scoped the same
-	// way; transform, cross-direction and cross-scope edges are not in the graph.
+	// The cover authority is resolved AT MOST ONCE per scope and shared by the two
+	// passes below. A payable line is a rateable line by construction, so every
+	// scope the structural pass asks about is one the commercial pass would have
+	// resolved anyway: the share removes a duplicated resolution rather than adding
+	// one, and it is what stops the two passes from reading the same physical fact
+	// twice.
+	coverByScope := make(map[string]completeCoverVerdict, len(rateableScopes))
+	coverFor := func(scope string) completeCoverVerdict {
+		if verdict, resolved := coverByScope[scope]; resolved {
+			return verdict
+		}
+		verdict := resolveCompleteCovers(program, evidenceByScope[scope])
+		coverByScope[scope] = verdict
+		return verdict
+	}
+	// STRUCTURAL OVERLAP, decided by the one general relation proof. A pair of
+	// positive component lines is a conflict exactly when one contains the other
+	// under the compiled containment closure: both then carry money for the same
+	// underlying work, and the rating vocabulary has no surcharge to absorb it.
+	// This replaces BOTH former special cases, and neither is kept alongside. The
+	// direct per-edge both-payable check is SUBSUMED: a declared edge whose two ends
+	// are both positive is exactly a definite overlap between two contributors. The
+	// transitive payable walk is subsumed too, and is what this pass GENERALIZES: a
+	// relation is a statement about two REGIONS, so a chain that changes edge class
+	// partway (A subset B, B partition C) behind an unpriced or absent middle is
+	// answered by the closure that answers a single declared edge.
 	//
-	// payableDescendants reports the walk's own start too, because the start is
-	// drawn from the payable set; hits[0] is therefore canonical itself and every
-	// later hit is a declared descendant, in the order the walk reached them. That
-	// order is what the quoted descendant is, and the compiled adjacency is built
-	// in declared order for exactly that reason. The START is sorted rather than
-	// declared or map-ordered: node ids are assigned in sorted canonical-key
-	// order, so sortedCanonicalKeys of a payable set IS ascending node id, and
-	// the quoted ancestor is a function of the input alone.
+	// CANDIDATES COME FROM THE CLOSURE, THE VERDICT COMES FROM THE PREDICATE. The
+	// walk reaches every pair the containment closure relates, which is exactly the
+	// set the predicate can answer with a conflict, and decides nothing itself; a
+	// pair the predicate calls a proven disjointness or an unknown intersection
+	// records nothing, both being non-blocking. That is what keeps the enumeration
+	// from reintroducing the quadratic cross product it replaced: reachability, not
+	// the verdict, decides how many pairs are asked about. The order is the result
+	// too -- ascending node id contributors, an ascending candidate list, and only
+	// the higher-index side of a pair, the same i < j discipline the cross product
+	// used, so each unordered pair is emitted once in the order that decides which
+	// conflict is quoted first. candidates is hoisted out of the scope loop so one
+	// buffer serves every scope.
+	var candidates []int
 	for _, scope := range payableScopes {
-		payable := payableByScope[scope]
-		for _, canonical := range sortedCanonicalKeys(payable) {
-			start, ok := program.byKey[canonical]
-			if !ok {
-				continue
-			}
-			hits := program.payableDescendants(allInclusionEdges, start, payable)
-			if len(hits) < 2 {
-				continue
-			}
-			direction, unit := program.keyOf[start].Direction, program.keyOf[start].Unit
-			for _, descendant := range hits[1:] {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("%w: payable component %s transitively includes payable component %s in one %q direction %q unit scope",
-						ErrSchemaOverlapConflict, canonical, descendant, string(direction), unit)
+		positive := shadowPositiveContributors(program, payableByScope[scope])
+		if len(positive) < 2 {
+			continue
+		}
+		relations := newShadowScope(program, coverFor(scope))
+		for index := 0; index+1 < len(positive); index++ {
+			candidates = relations.overlapCandidates(positive, index, candidates[:0])
+			head := positive[index]
+			for _, tail := range candidates {
+				if relations.relation(head, tail) != relationDefiniteOverlap {
+					continue
 				}
-				record(scope, canonical, descendant)
+				// The diagnostic names the CONTAINING line first, so the pair is
+				// oriented through the predicate's own memoized closure.
+				container, contained := head, tail
+				if !relations.contains(container, contained) {
+					container, contained = contained, container
+				}
+				containerKey, containedKey := program.keyStrings[container], program.keyStrings[contained]
+				if firstErr == nil {
+					containerIdentity := program.keyOf[container]
+					firstErr = fmt.Errorf("%w: payable component %s transitively includes payable component %s in one %q direction %q unit scope",
+						ErrSchemaOverlapConflict, containerKey, containedKey, string(containerIdentity.Direction), containerIdentity.Unit)
+				}
+				record(scope, containerKey, containedKey)
 			}
 		}
 	}
@@ -657,29 +674,23 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 		}
 		knownAnywhere[key.CanonicalKey()] = struct{}{}
 	}
-	// evidenceByScope groups the full effective reduced evidence per scope, so
-	// the cover resolver below is handed exactly the scope it is reasoning about
-	// and never evidence from another one.
-	evidenceByScope := make(map[string][]aggregateMeasure)
-	for _, item := range consistencyAggregates {
-		evidenceByScope[item.scopeKey] = append(evidenceByScope[item.scopeKey], item)
-	}
 	for _, scope := range rateableScopes {
 		keys := rateableByScope[scope]
 		payable := payableByScope[scope]
 		presence := presenceByScope[scope]
 		zeroShare := zeroShareByScope[scope]
 		provenPartitions := completePartitionParents[scope]
-		// The one shared cover authority for this scope. It answers the
-		// structural question -- is this declared complete coverage exactly
-		// resolved, and is it denied for a shared member -- so the overlap
+		// The one shared cover authority for this scope, taken from the per-scope
+		// memo the structural pass already filled for every payable scope. It
+		// answers the structural question -- is this declared complete coverage
+		// exactly resolved, and is it denied for a shared member -- so the overlap
 		// resolver cannot reach a different answer from the conservation proof
 		// or the interval solver about the same physical fact. An ambiguous
 		// partition (a child shared with another complete parent) still proves
 		// nothing about the parents that declare it, and the ambiguity stays
 		// LOCAL: only those parents are denied, so an unrelated parent's cover
 		// proof still stands.
-		cover := resolveCompleteCovers(program, evidenceByScope[scope])
+		cover := coverFor(scope)
 		// The compiled cover parents are already in sorted canonical-key order,
 		// which is what keeps the first conflict diagnostic deterministic; no
 		// per-scope rebuild and re-sort is needed to obtain it.
