@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refverifier"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
@@ -153,6 +154,7 @@ func StandardBundle() Bundle {
 			{ID: prerequestpolicy.ID, Factory: featurePreRequestPolicy},
 			{ID: codexclientcompat.ID, Factory: featureCodexClientCompat},
 			{ID: secretguard.ID, Factory: featureSecretGuard},
+			{ID: sessionclassification.ID, Factory: featureSessionClassification},
 			{ID: reasoningpreservation.ID, Factory: featureReasoningOutputPreservation},
 			{ID: compactioncontinuity.ID, Factory: featureCompactionContinuity},
 			{ID: interleavedthinking.ID, Factory: featureInterleavedThinking},
