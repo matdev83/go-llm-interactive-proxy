@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/ingressdefense"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
@@ -20,12 +21,15 @@ type observabilityRuntime struct {
 
 // buildProcessMetricsBundle constructs the process-owned Prometheus metrics bundle
 // when metrics are enabled. Call site for metrics.NewBundle remains here so the
-// live uniqueness gate keeps a single process construction site.
-func buildProcessMetricsBundle(cfg *config.Config, poolStats func() []sql.DBStats) *metrics.Bundle {
+// live uniqueness gate keeps a single process construction site. The bounded
+// ingress self-defense adaptive state is the second process-owned scrape source,
+// exactly like the PostgreSQL pool registry: the entry-count gauge reads it live
+// on every scrape, so no self-defense request path pays for it.
+func buildProcessMetricsBundle(cfg *config.Config, poolStats func() []sql.DBStats, selfDefense *ingressdefense.State) *metrics.Bundle {
 	if cfg == nil || !cfg.Observability.Metrics.Enabled {
 		return nil
 	}
-	return metrics.NewBundle(cfg, poolStats)
+	return metrics.NewBundle(cfg, poolStats, ingressDefenseEntryCount(selfDefense))
 }
 
 // buildGenerationObservability builds the generation-owned upstream HTTP client,

@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/ingressdefense"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
@@ -40,11 +41,17 @@ type ProcessTracing struct {
 // ProcessServices owns process-scoped resources constructed once per process.
 // Generation compilation receives a non-owning reference and must not Close it.
 type ProcessServices struct {
-	Logger             *slog.Logger
-	FactoryCatalog     *pluginreg.Registry
-	Tracing            ProcessTracing
-	Metrics            *metrics.Bundle
-	GeoIP              *geoip.Service
+	Logger         *slog.Logger
+	FactoryCatalog *pluginreg.Registry
+	Tracing        ProcessTracing
+	Metrics        *metrics.Bundle
+	GeoIP          *geoip.Service
+	// IngressDefense is the single process-lifetime bounded adaptive state for
+	// ingress self-defense. It is sized once from the startup-fixed
+	// max_entries/state_ttl, survives policy-only generation reloads, and is
+	// disposed only with this ProcessServices. A generation borrows it and can
+	// never close or resize it.
+	IngressDefense     *ingressdefense.State
 	DatabasePools      *db.PoolRegistry
 	Continuity         b2bua.Store
 	RouteOverrideStore routeoverride.Store

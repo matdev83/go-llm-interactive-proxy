@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/selfdefense"
 )
 
 // prepareStandardHandler mounts metrics, diagnostics, admin, secure-session diagnostics,
@@ -92,6 +93,15 @@ func prepareStandardHandler(
 	}
 
 	traceGen := diag.NewTraceIDGenerator()
+	// Resolve the ingress self-defense owned-route inventory against the router that
+	// was just built. This runs after every mount and before the stack, so ownership
+	// is the router's own answer rather than a reading of the configuration: a
+	// feature that is disabled mounted nothing and therefore owns nothing, an exact
+	// registration owns one method/path pair, and a trailing-slash registration owns
+	// its subtree. Mount order above is what makes this complete.
+	if sd := in.Security.SelfDefense; sd.SelfDefenseEnabled() {
+		in.Security.SelfDefense.OwnedRoutes = selfdefense.OwnedRoutesFromMux(mux, sd.OwnedRouteCandidates)
+	}
 	return stackHTTPHandler(stackHTTPInput{
 		Cfg: cfg, Log: log, Security: in.Security, TraceGen: traceGen, Inner: mux, HTTPProm: httpProm,
 	}), nil

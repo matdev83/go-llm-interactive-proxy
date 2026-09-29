@@ -32,6 +32,7 @@ type Bundle struct {
 	GeoIP               *GeoIPProm
 	ConversationView    *ConversationViewProm
 	LargePayload        *LargePayloadProm
+	SelfDefense         *SelfDefenseProm
 	sink                runtime.MetricsSink
 	tokenAccountingSink *TokenAccountingPromSink
 	conversationSink    ConversationViewObserver
@@ -41,7 +42,9 @@ type Bundle struct {
 // NewBundle builds a registry with Go/process, inbound HTTP, executor, and upstream series.
 // poolStats snapshots database/sql pool statistics for the postgres pool collector; it
 // may be nil when no registry-owned pool exists (the collector then emits zeroed series).
-func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
+// selfDefenseEntries reports the current bounded adaptive-source entry count for the
+// ingress self-defense entry gauge; it may be nil, in which case the gauge reports zero.
+func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats, selfDefenseEntries func() int) *Bundle {
 	r := NewRegistry()
 	exemplars := cfg != nil && cfg.Observability.Metrics.ExemplarsEnabled
 	httpm := RegisterHTTPMetrics(r, exemplars)
@@ -59,6 +62,8 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	geoip := RegisterGeoIPProm(r)
 	cv := RegisterConversationViewProm(r)
 	lp := RegisterLargePayloadProm(r)
+	sd := RegisterSelfDefenseProm(r)
+	sd.SetEntryCountSource(selfDefenseEntries)
 	return &Bundle{
 		Registry:            r,
 		HTTP:                httpm,
@@ -76,6 +81,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 		GeoIP:               geoip,
 		ConversationView:    cv,
 		LargePayload:        lp,
+		SelfDefense:         sd,
 		sink:                NewExecutorPromSink(exec),
 		tokenAccountingSink: NewTokenAccountingPromSink(tok),
 		conversationSink:    NewConversationViewSink(cv),

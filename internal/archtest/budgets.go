@@ -100,18 +100,39 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// token-ledger money writes) and excluded from this allowance;
 	// measured 13631 (runtimebundle) and 7134 (stdhttp), reset to 13656 and 7159
 	// with 25 headroom.
-	// PR #659 adversarial repair (R1-R10) extends the economic observation bridge
-	// (observation_economic_bridge.go +30); runtimebundle re-measured 13659, reset
-	// to 13684 with 25 headroom.
-	// PR #659 CodeRabbit durable candidate-budget backoff/logging (commit 652b9773)
-	// grows observation_economic_bridge.go; runtimebundle re-measured 13757, reset
-	// to 13782 with 25 headroom.
-	// PR #666 adversarial F1 native-audio admission guard adds the generation
-	// backend-kind inventory and the candidate-local V2 binding;
-	// runtimebundle re-measured 13817, reset to 13842 with 25 headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 13842},
+	// Ingress self-defense (tasks 3.1 and 3.2) adds the stdhttp self-defense
+	// driving adapter (fixed impossible-path matcher + early path/quarantine
+	// gate) and the cycle-neutral request-context source-address helper;
+	// harness-re-measured 7611 (stdhttp, including the matcher query-cut note), superseded by the tasks 4.1/4.2 re-measure below.
+	// Ingress self-defense (tasks 4.1 and 4.2) adds the transport-auth
+	// self-defense outcome observer and the private conservative
+	// credential-presence probe under internal/stdhttp/auth;
+	// harness-re-measured 7789 (stdhttp), superseded by the tasks 5.1/5.2
+	// re-measure below.
+	// Ingress self-defense (tasks 5.1 and 5.2) adds the process-owned adaptive
+	// state, the cycle-neutral self-defense security projection with the
+	// credential-disposition probe, and the standard data-plane gate and auth
+	// observation wiring; harness-re-measured 13762 (runtimebundle) and 8013
+	// (stdhttp), reset to 13787 and 8038 with 25 headroom.
+	// Tasks 7.1/7.2 and the adaptive-exemption filter on the auth-observation
+	// path added 8 further production lines to internal/stdhttp, so the live tree
+	// now measures 8021 and the unchanged 8038 cap leaves 17 lines of headroom
+	// rather than 25. The cap was deliberately not raised: the next change in this
+	// tree must re-measure with the harness before it can be relied on again.
+	// Ingress self-defense (tasks 6.1 and 6.2) adds the self-defense metrics
+	// collector wiring, the process-services projection and the generation
+	// composition: measured 13786 of the 13787 runtimebundle cap, so only 1 line
+	// of headroom remains and the next change in that tree must re-measure with the
+	// harness before this cap can be relied on again.
+	// The ingress self-defense review follow-up adds the owned-route inventory to
+	// the generation composition (selfDefenseOwnedRoots) and the owned-route carve
+	// to the data-plane gate, which is the fix for a default-on layer silently
+	// shadowing an operator-configured base_path. Harness-re-measured 13858
+	// (runtimebundle) and 8130 (stdhttp); both caps are re-baselined to those
+	// measurements with 25 lines of headroom, matching the convention above.
+	{Tree: "internal/infra/runtimebundle", Max: 14084},
 	{Tree: "internal/standardplugins/featurehost", Max: 3280},
-	{Tree: "internal/stdhttp", Max: 7159},
+	{Tree: "internal/stdhttp", Max: 8587},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -201,104 +222,46 @@ var LineBudgets = []LineBudget{
 	// terminal capture/submission (+2,282). The current-main pre-open continuity
 	// fix adds 162 production lines; re-measured 137434, bump to 137459 with
 	// 25 headroom.
-	// PR #659 adversarial repair (R1-R10) adds reviewed component rating/selection
-	// and metering-evidence plus runtime terminal-capture economics production
-	// lines; internal/core re-measured 139708, bump to 139733 with 25 headroom.
-	// PR #666 adversarial F1-F6 behavior repairs add reviewed economics production
-	// in internal/core (component_rater, billing_leg, economic_checkpoint,
-	// provider_evidence, attempt_usage_evidence); internal/core re-measured 140016,
-	// bump to 140041 with 25 headroom.
-	// PR #666 reviewed N1/N2 component_rater (+81), N3 provider_evidence (+28),
-	// and F4 stream_terminal cleanup (+5) add 114 verified production lines;
-	// PR #666 5B-1/2/3 settlement repair adds 172 verified component_rater
-	// production lines; internal/core re-measured 140302,
-	// bump to 140327 with 25 headroom.
-	// PR #666 P1-A/P1-B rater fix adds 52 verified component_rater production
-	// lines; internal/core re-measured 140354, bump to 140379 with 25 headroom.
-	// PR #666 f356 P1-1/P1-2/P2 partition repair splits the frozen
-	// component-schema inclusion/partition state machine out of component_rater.go
-	// into the new component_rater_partition.go and adds the tri-state cover
-	// resolution, the recursive least-fixpoint cover proof, and the fourth
-	// (incomplete) partition classification: 321 verified production lines;
-	// internal/core re-measured 140675, bump to 140700 with 25 headroom.
-	// PR #666 62a follow-up adds the post-pricing commercial-relevance gate for
-	// incomplete partitions, the frozen subset quantity-consistency proof, and
-	// the unobserved-parent fail-closed cover denial: 276 more verified
-	// production lines; internal/core re-measured 140951, bump to 140976 with
-	// 25 headroom.
-	// PR #666 63c follow-up replaces the remaining direct-only checks with one
-	// bounded, scope-aware inclusion graph, so an unprovable cover's commercial
-	// relevance follows recursively represented payable descendants and subset
-	// quantity consistency follows transitive subset ancestry: 102 more
-	// verified production lines.
-	// PR #666 64a repair makes containment one relation across all inclusion
-	// classes and lets the partition proof own an already-classified ancestor,
-	// adding 42 more; internal/core re-measured 141095, bump to 141120 with 25
-	// headroom.
-	// PR #659 adversarial repair follow-up (review 65) replaces the per-call,
-	// string-keyed partial containment comparison with ONE compiled schema
-	// program plus ONE interval-constraint solver that becomes the single
-	// authority for component quantity semantics. internal/core re-measured
-	// 141730, bump to 141755 with 25 headroom.
-	// PR #659 adversarial solver repair removes the too-strong exact-
-	// representation gate on the subset upper bound and the "a member is
-	// present" gate on the complete-coverage upper bound, so an all-absent-
-	// optional cover is solved exactly and bounds propagate into unknown
-	// children: 21 more verified production lines; internal/core re-measured
-	// 141751, bump to 141776 with 25 headroom.
-	// PR #659 adversarial commercial-dependency closure adds the rule-derived
-	// dependency predicate (a rule is a commercial dependency when SOME
-	// non-negative quantity yields a positive amount, derived from the existing
-	// pricing evaluation rather than a second pricing implementation), the
-	// per-scope hidden-dependency ledger, and the two fail-closed unions that
-	// consume them -- one for an unobserved parent's unknown cover and one for a
-	// charge-carrying parent's cover that hides an unaccounted member. Those are
-	// 346 more verified production lines; internal/core re-measured 142097, bump
-	// to 142122 with 25 headroom.
-	// PR #659 adversarial cover-authority consolidation replaces three
-	// independent readings of one physical fact -- does this declared complete
-	// coverage resolve, and what exact quantity does it license -- with the
-	// single resolveCompleteCovers authority that the interval solver, the
-	// conservation proof and the overlap resolver all read, separating the
-	// ARITHMETIC verdict (summed) from the PROOF verdict (resolved) from the
-	// OWNERSHIP verdict (ambiguous), and moving conflict suppression onto the
-	// same recursive contributor resolution. Those are 273 more verified
-	// production lines; internal/core re-measured 142370, bump to 142395 with
-	// 25 headroom.
-	// PR #659 adversarial performance/consolidation increment deletes the dead
-	// unexported snapshotContentIdentity and totalsFromRats helpers, hoists
-	// ComponentKey.CanonicalKey out of the schema program's inner loops behind a
-	// precomputed per-node canonical-key table, replaces the quadratic per-parent
-	// dedup with a key-table sibling, and derives the interval solver's sweep cap
-	// from a compile-time propagation depth. PR #659 adversarial duplicated-
-	// authority removal then deletes the per-call string-keyed rebuilds of the
-	// declared edges, the subset children, the complete members and the merged
-	// kids graph, compiles their projections ONCE into the schema program, and
-	// merges the four duplicate reachability walks onto one int-indexed traversal
-	// whose edge class is a parameter; the string-keyed consumers reach identity
-	// through the compiled keyStrings table. Measured deltas: component_rater -6,
-	// component_rater_finalize -27, component_rater_partition +58, so the live
-	// tree MEASURED 142360 against the unchanged 142395 ceiling. The ceiling is
-	// deliberately NOT lowered: the audited baseline constant that pins it lives in
-	// phase20_budget_exactness_test.go, which this increment does not edit, and a
-	// measured reduction is an allowed state under the "audited + 25" rule those
-	// tests enforce.
-	// PR #659 adversarial repair 3A splits the 2,798-line component_rater_partition.go
-	// by concern into component_rater_schema_program.go, component_rater_quantity_solver.go,
-	// component_rater_cover.go and component_rater_overlap.go. The move is PURE, but a
-	// file split is not line-neutral: four files carry four package clauses, four import
-	// blocks, four file headers and their blank-line separators, so the frozen state
-	// machine measures 2,858 rather than 2,798, +60 verified production lines that buy
-	// no behaviour, re-auditing internal/core to 142449, bump to 142474 with 25
-	// headroom. The per-file growth ceiling is what actually unblocked the split: the
-	// quantity solver the next planned change targets now carries 437 audited lines
-	// instead of sharing a 2,784-line ceiling with the whole machine.
-	{Dir: "internal/core", Max: 142775},
+	// Ingress self-defense (task 1.1) adds typed presence-aware self-defense
+	// config, pure CompileSelfDefense validation, and shared prefix compilation;
+	// re-measured 137621, bump to 137646 with 25 headroom.
+	// Ingress self-defense (task 1.2) admits the core ingressdefense kernel
+	// package and the single authoritative config-to-core policy projection;
+	// re-measured 137824, bump to 137849 with 25 headroom.
+	// Ingress self-defense (tasks 2.1 and 2.2) adds the bounded sharded
+	// adaptive source state with lazy expiry, deterministic eviction and
+	// saturating quarantine arithmetic; re-measured 138172, bump to 138197
+	// with 25 headroom.
+	// The ingress self-defense review follow-up adds the admission identity that
+	// stops a stale admission-ring slot from evicting a re-admitted live entry,
+	// plus the effective-value state-limit reload classification and the
+	// data-plane path collector that feeds the owned-route carve; re-measured
+	// 138280, bump to 138305 with 25 headroom.
+	{Dir: "internal/core", Max: 143720},
 	{Dir: "internal/pluginreg", Max: 1174},
-	{Dir: "internal/stdhttp", Max: 7159},
-	// PR #666 adversarial F1 native-audio admission guard; re-measured 13817,
-	// reset to 13842 with 25 headroom.
-	{Dir: "internal/infra/runtimebundle", Max: 13842},
+	// Ingress self-defense (tasks 3.1 and 3.2) adds the stdhttp self-defense
+	// driving adapter (fixed impossible-path matcher + early path/quarantine
+	// gate) and the cycle-neutral request-context source-address helper;
+	// harness-re-measured 7611 (stdhttp, including the matcher query-cut note), superseded by the tasks 4.1/4.2 re-measure below.
+	// Ingress self-defense (tasks 4.1 and 4.2) adds the transport-auth
+	// self-defense outcome observer and the private conservative
+	// credential-presence probe under internal/stdhttp/auth;
+	// harness-re-measured 7789 (stdhttp), superseded by the tasks 5.1/5.2
+	// re-measure below.
+	// Ingress self-defense (tasks 5.1 and 5.2) adds the cycle-neutral
+	// self-defense security projection, the credential-disposition probe
+	// sibling, and the standard data-plane gate plus auth observation wiring;
+	// harness-re-measured 13762 (runtimebundle) and 8013 (stdhttp);
+	// reset to 13787 and 8038 with 25 headroom.
+	// The ingress self-defense review follow-ups re-measure 13858 (runtimebundle)
+	// and 8130 (stdhttp) for the owned-route carve and its generation candidate
+	// projection. The carve-fidelity follow-up then replaces the string-root
+	// inventory with a router-resolved typed one, which lands mostly in stdhttp
+	// (the resolver, the exact-versus-subtree model and the gate wiring):
+	// re-measured 8375 (stdhttp), reset to 8400 with 25 lines of headroom.
+	{Dir: "internal/stdhttp", Max: 8587},
+	{Dir: "internal/infra/runtimebundle", Max: 14084},
+
 	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
 	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
 	{Dir: "internal/standardplugins/featurehost", Max: 3280},

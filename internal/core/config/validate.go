@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 )
@@ -69,6 +70,9 @@ func Validate(cfg *Config) error {
 		return err
 	}
 	if _, err := CompileGeoIP(cfg.Access.GeoIP); err != nil {
+		return err
+	}
+	if _, err := CompileSelfDefense(cfg.Access.SelfDefense); err != nil {
 		return err
 	}
 	if err := validateSecureSession(cfg); err != nil {
@@ -309,148 +313,197 @@ func rejectHTTPPathDotDot(fieldName, p string) error {
 	return nil
 }
 
+// operatorMountPathMeta mirrors httpcontract.operatorRoutePathMeta, the policy for an
+// operator-supplied route path. The two live in different packages on purpose:
+// internal/core/config must not depend on the stdhttp contract package, and the
+// route contract must not depend on core config.
+//
+// The duplication is not left to discipline. TestOperatorDataPlanePathsAreLiteralAnd
+// NormalizeUnchanged in internal/archtest runs one case table through BOTH validators
+// and through the ingress self-defense route normalizer, and requires them to agree:
+// every operator path they accept must be a literal path that the self-defense
+// normalizer leaves unchanged. Adding a character to one list without the other fails
+// there.
+const operatorMountPathMeta = "?#*\\{}%"
+
+// validateConfiguredMountPath is the single chokepoint for an operator-configured
+// data-plane mount path: it trims, requires an absolute path, rejects a parent
+// segment, rejects any ServeMux pattern or query-like syntax, and returns the
+// normalized path without a trailing separator. An empty value means "not mounted"
+// and returns an empty path with no error, because every configurable mount is
+// optional.
+//
+// Every configurable mount path in the config model goes through here, so the rules
+// cannot diverge between the diagnostics block, the metrics path, the secure-session
+// and model diagnostic prefixes, and the protected operator mounts.
+func validateConfiguredMountPath(field, p string, allowEmpty bool) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(p, "/") {
+		return "", fmt.Errorf("%s: must start with /", field)
+	}
+	if err := rejectHTTPPathDotDot(field, p); err != nil {
+		return "", err
+	}
+	if strings.ContainsAny(p, operatorMountPathMeta) {
+		return "", fmt.Errorf("%s: must be a literal path and must not contain any of %q "+
+			"(ServeMux pattern syntax, a query or fragment separator, a wildcard, a backslash or a percent escape)",
+			field, operatorMountPathMeta)
+	}
+	if strings.Contains(p, "//") {
+		return "", fmt.Errorf("%s: must not contain an empty path segment", field)
+	}
+	for segment := range strings.SplitSeq(p, "/") {
+		if segment == "." || segment == ".." {
+			return "", fmt.Errorf("%s: must not contain a %q path segment", field, segment)
+		}
+	}
+	for _, r := range p {
+		if r < 0x20 || r == 0x7f || unicode.IsSpace(r) {
+			return "", fmt.Errorf("%s: must not contain control or whitespace characters", field)
+		}
+	}
+	return strings.TrimSuffix(p, "/"), nil
+}
+
 func validateDiagnosticsPaths(cfg *Config) error {
+	paths, err := collectDataPlanePaths(cfg)
+	if err != nil {
+		return err
+	}
+	return rejectOverlappingDataPlanePaths(paths)
+}
+
+// rejectOverlappingDataPlanePaths rejects two configured data-plane paths that
+// duplicate or nest, because the router could not serve both unambiguously.
+func rejectOverlappingDataPlanePaths(paths []string) error {
+	for i, existing := range paths {
+		for _, s := range paths[i+1:] {
+			if s == existing || strings.HasPrefix(s, existing+"/") || strings.HasPrefix(existing, s+"/") {
+				return fmt.Errorf("diagnostics: paths %q and %q overlap or duplicate (normalize trailing slashes)", existing, s)
+			}
+		}
+	}
+	return nil
+}
+
+// collectDataPlanePaths returns every operator-configured data-plane path in cfg,
+// normalized to an absolute path without a trailing separator, in a stable order.
+//
+// This is the single chokepoint for the configurable data-plane path surface:
+// every diagnostics, metrics, model-diagnostics, secure-session and protected
+// operator mount path is collected here, and the same set is what rejects
+// duplicate and nested paths. Anything that needs to know which paths a
+// configuration publishes must read them from here, so a newly configurable mount
+// path cannot join the surface without also becoming visible to that consumer.
+//
+// Collection reports the same per-field errors validation always has. A
+// configuration that reaches a consumer has already been validated, so the error
+// is unreachable there; [ConfiguredDataPlanePaths] wraps this for those callers.
+func collectDataPlanePaths(cfg *Config) ([]string, error) {
 	if cfg == nil {
-		return nil
+		return nil, nil
 	}
 	norm := func(p string) string {
 		return strings.TrimSuffix(strings.TrimSpace(p), "/")
 	}
 	check := func(name, p string) (string, error) {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			return "", nil
-		}
-		if !strings.HasPrefix(p, "/") {
-			return "", fmt.Errorf("diagnostics.%s: must start with /", name)
-		}
-		if err := rejectHTTPPathDotDot("diagnostics."+name, p); err != nil {
-			return "", err
-		}
-		return norm(p), nil
+		return validateConfiguredMountPath("diagnostics."+name, p, true)
 	}
-	paths := make([]string, 0, 8)
-	add := func(s string) error {
+	paths := make([]string, 0, 16)
+	add := func(s string) {
 		if s == "" {
-			return nil
-		}
-		for _, existing := range paths {
-			if s == existing || strings.HasPrefix(s, existing+"/") || strings.HasPrefix(existing, s+"/") {
-				return fmt.Errorf("diagnostics: paths %q and %q overlap or duplicate (normalize trailing slashes)", existing, s)
-			}
+			return
 		}
 		paths = append(paths, s)
-		return nil
 	}
 	hp, err := check("health_path", cfg.Diagnostics.HealthPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := add(hp); err != nil {
-		return err
-	}
+	add(hp)
 	ap, err := check("attempts_path", cfg.Diagnostics.AttemptsPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := add(ap); err != nil {
-		return err
-	}
+	add(ap)
 	ip, err := check("inventory_path", cfg.Diagnostics.InventoryPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := add(ip); err != nil {
-		return err
-	}
+	add(ip)
 	rt, err := check("route_trace_path", cfg.Diagnostics.RouteTracePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := add(rt); err != nil {
-		return err
-	}
+	add(rt)
 	pp, err := check("pprof_path", cfg.Diagnostics.PprofPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := add(pp); err != nil {
-		return err
-	}
+	add(pp)
 	if cfg.SecureSessionEffectivelyEnabled() {
-		ssp := strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix)
-		if ssp != "" {
-			if !strings.HasPrefix(ssp, "/") {
-				return fmt.Errorf("secure_session.diagnostics_path_prefix: must start with /")
-			}
-			if err := rejectHTTPPathDotDot("secure_session.diagnostics_path_prefix", ssp); err != nil {
-				return err
-			}
-			ssp = strings.TrimSuffix(ssp, "/")
-			if err := add(ssp); err != nil {
-				return err
-			}
+		ssp, err := validateConfiguredMountPath("secure_session.diagnostics_path_prefix", cfg.SecureSession.DiagnosticsPathPrefix, true)
+		if err != nil {
+			return nil, err
 		}
+		add(ssp)
 	}
 	mp, err := checkObservabilityMetricsPath(cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := add(mp); err != nil {
-		return err
+	add(mp)
+	mcd, err := validateConfiguredMountPath("model_catalog.diagnostics_path", cfg.ModelCatalog.DiagnosticsPath, true)
+	if err != nil {
+		return nil, err
 	}
-	mcd := strings.TrimSpace(cfg.ModelCatalog.DiagnosticsPath)
-	if mcd != "" {
-		if !strings.HasPrefix(mcd, "/") {
-			return fmt.Errorf("model_catalog.diagnostics_path: must start with /")
-		}
-		if err := rejectHTTPPathDotDot("model_catalog.diagnostics_path", mcd); err != nil {
-			return err
-		}
-		mcd = norm(mcd)
-		if err := add(mcd); err != nil {
-			return err
-		}
+	add(mcd)
+	mid, err := validateConfiguredMountPath("model_inventory.diagnostics_path", cfg.ModelInventory.DiagnosticsPath, true)
+	if err != nil {
+		return nil, err
 	}
-	mid := strings.TrimSpace(cfg.ModelInventory.DiagnosticsPath)
-	if mid != "" {
-		if !strings.HasPrefix(mid, "/") {
-			return fmt.Errorf("model_inventory.diagnostics_path: must start with /")
-		}
-		if err := rejectHTTPPathDotDot("model_inventory.diagnostics_path", mid); err != nil {
-			return err
-		}
-		mid = norm(mid)
-		if err := add(mid); err != nil {
-			return err
-		}
-	}
+	add(mid)
 	// accounting.admin.path, authority query, control_plane query, routing
 	// override admin, and billing reports are protected operator mounts and
-	// must satisfy the same dot-segment and overlap rules.
+	// must satisfy the same dot-segment and percent-escape rules.
 	for _, mount := range protectedMountPaths {
-		if err := validateProtectedMountPath(cfg, mount, norm, add); err != nil {
-			return err
+		resolved, err := validateProtectedMountPath(cfg, mount, norm)
+		if err != nil {
+			return nil, err
 		}
+		add(resolved)
 	}
-	return nil
+	return paths, nil
+}
+
+// ConfiguredDataPlanePaths returns every operator-configured data-plane path in
+// cfg, normalized, from the same chokepoint that validates them.
+//
+// It exists so a default-on request-graph layer can know which paths the operator
+// actually published without keeping its own copy of the configurable path
+// surface. Those values are any normalized absolute non-root path, which includes
+// paths inside the frozen ingress impossible-path families, so a consumer that
+// refuses requests before the router must treat a published path as authoritative.
+//
+// The error is deliberately dropped: it is produced only by the same per-field
+// checks [Validate] already runs, so a configuration that reached a caller has
+// none. A caller that needs the error uses validation instead.
+func ConfiguredDataPlanePaths(cfg *Config) []string {
+	paths, err := collectDataPlanePaths(cfg)
+	if err != nil {
+		return nil
+	}
+	return paths
 }
 
 func checkObservabilityMetricsPath(cfg *Config) (string, error) {
 	if cfg == nil || !cfg.Observability.Metrics.Enabled {
 		return "", nil
 	}
-	p := strings.TrimSpace(cfg.Observability.Metrics.Path)
-	if p == "" {
-		return "", nil
-	}
-	if !strings.HasPrefix(p, "/") {
-		return "", fmt.Errorf("observability.metrics.path: must start with /")
-	}
-	if err := rejectHTTPPathDotDot("observability.metrics.path", p); err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(p, "/"), nil
+	return validateConfiguredMountPath("observability.metrics.path", cfg.Observability.Metrics.Path, true)
 }
 
 func validateObservability(cfg *Config) error {

@@ -86,6 +86,52 @@ server:
 #     endpoint: "https://auth.example.invalid/v1"
 #     handler: enterprise
 
+# --- Ingress self-defense ---
+# Operator guide: docs/ingress-self-defense.md
+#
+# Default-on. Omitting the block below is identical to the values shown here: a
+# normally exposed proxy rejects common hostile request targets and temporarily
+# backs off repeated unauthenticated access attempts with no extra setup. Opt out
+# explicitly with `access.self_defense.enabled: false` (or
+# `impossible_paths: false` to keep only the adaptive half).
+#
+# Client-address trust is SHARED with `access.geoip.client_ip` above: this feature
+# resolves the source address with the exact same direct-peer and trusted
+# `X-Forwarded-For` / `Forwarded` semantics, and it deliberately has no second
+# forwarding-trust setting and needs no GeoIP country database. Fixed country /
+# IP / CIDR allow-deny policy stays exclusively under `access.geoip` and runs
+# first; there is no second hard-block policy here.
+#
+# `adaptive.exempt_cidrs` is an allowlist of sources exempt from adaptive state and
+# quarantine only. It is never a ban list, never overrides a GeoIP hard denial, and
+# never makes a matched impossible path valid. A successful full authentication
+# chain is a reset, not a trust cache: it clears the address's accumulated offense
+# and later hostile behaviour starts fresh. Credential-bearing and unknown-auth
+# traffic may still reach authentication while an address is quarantined, so a
+# legitimate user behind a shared public IP is never locked out by another actor.
+#
+# Reload vs restart: enabled, impossible_paths, auth_failures, window,
+# initial_quarantine, max_quarantine and exempt_cidrs are generation-reloadable;
+# state_ttl and max_entries size the process-owned adaptive table and are
+# restart-required. A mixed candidate is rejected atomically and the last-good
+# generation keeps running.
+#
+# Deferred non-goals for v1: no external reputation feed, no WAF or request/body
+# inspection, no persistent or distributed ban state, and no automatic subnet
+# escalation. Per-request hostile logging is off; refusals are generic.
+access:
+  self_defense:
+    enabled: true
+    impossible_paths: true
+    adaptive:
+      auth_failures: 5           # unauthenticated 401s inside `window` that start a quarantine (2..100)
+      window: 1m                 # counting window, starts at the first counted failure (1s..1h)
+      initial_quarantine: 1m     # first-offense quarantine, doubled per later offense (1s..1h)
+      max_quarantine: 2h         # exponential ceiling, must be >= initial_quarantine (<= 24h)
+      state_ttl: 24h             # hostile-inactivity lifetime (1m..168h; restart-required)
+      max_entries: 100000        # bounded tracked source entries (1024..1000000; restart-required)
+      exempt_cidrs: []           # adaptive-only exemption allowlist, e.g. [198.51.100.0/24]
+
 # Outbound LLM HTTP client: when trust_environment_proxy is false, HTTP_PROXY/HTTPS_PROXY are ignored.
 # Optional pool/timeouts (defaults match internal/infra/httpclient.DefaultTransportTune):
 # http_client:

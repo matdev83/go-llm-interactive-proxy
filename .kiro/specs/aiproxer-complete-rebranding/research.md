@@ -2,11 +2,12 @@
 
 ## Scope and source of truth
 
-This specification implements Issue #429 as a complete rebranding of the existing product to **aiproxer**. The issue is the authoritative source for the legacy-name set and the target naming scheme. The durable specification intentionally refers to the source names as the **Legacy Token Set** rather than reproducing them: the requested end state is a tracked tree with no remaining source-brand references, so embedding those spellings in the new specification would make the specification itself violate the completion condition.
+This specification implements Issue #429 as a complete rebranding of the existing product to **AIProxer** for human-readable product presentation, with `aiproxer` as the lowercase machine/repository/module slug. The issue is the authoritative source for the legacy-name set and the target naming scheme. The durable specification intentionally refers to the source names as the **Legacy Token Set** rather than reproducing them: the requested end state is a tracked tree with no remaining source-brand references, so embedding those spellings in the new specification would make the specification itself violate the completion condition.
 
 The target identities are:
 
-- Product, repository, release project, and user-facing executable family: `aiproxer`.
+- Human-readable product brand: `AIProxer`.
+- Machine/repository/release project slug and user-facing executable family root: `aiproxer`.
 - Canonical GitHub module/repository namespace: `github.com/aiproxer/aiproxer`.
 - Project-owned FQDN namespace where a domain-qualified identifier is appropriate: `aiproxer.com`.
 - Three-letter project abbreviation: `aip`.
@@ -53,6 +54,8 @@ Connector waves must continue to work with `GOWORK=off` and relative replacement
 
 The public canonical API and extension SDK are imported throughout core, plugins, testkit, tools, connector support, and independent connectors. The public runtime package is also part of the public surface. The standard distribution has a brand-prefixed command directory and binary identity.
 
+A current-main path audit also finds project-branded path components outside those four named public surfaces: auxiliary root commands, connector backend command/executable trees, internal and testkit package/command paths, a non-Go bridge entrypoint, active agent-skill directories, and migration/testdata filenames. These are not documentation-only leftovers. Several are build, launch, packaging, or test inputs and must be renamed in the wave that owns their references.
+
 The target package/command mapping is:
 
 | Responsibility | Target |
@@ -62,7 +65,7 @@ The target package/command mapping is:
 | Public runtime facade | `pkg/aipruntime` |
 | Standard distribution command | `cmd/aipstd` / `aipstd` |
 
-**Consequence:** move one public package family at a time. During a wave, local import aliases may temporarily preserve pre-wave local identifiers while consumers are migrated in bounded zones. These aliases are migration scaffolding only; no duplicate public compatibility package is permitted, and all aliases carrying Legacy Token Set spellings must be gone before final convergence.
+**Consequence:** move one public package family at a time. During a wave, local import aliases may temporarily preserve pre-wave local identifiers while consumers are migrated in bounded zones. These aliases are migration scaffolding only; no duplicate public compatibility package is permitted, and all aliases carrying Legacy Token Set spellings must be gone before final convergence. After the named public moves, close the compile-time wave by renaming every remaining project-branded package/command/executable/source-path component to the `aip` form and updating its imports/build/harness references; do not postpone those functional path moves to the late docs remainder.
 
 ### 4. Project-specific HTTP names are centralized but broadly consumed
 
@@ -80,7 +83,7 @@ CI workflow files may contain both environment names and unrelated command/modul
 
 ### 6. Release and developer tooling hard-code product identity
 
-Release configuration currently embeds the baseline project name, build ID, command path, binary name, and archive identity. Make targets, shell/PowerShell scripts, CI workflows, release checks, agent skills, Kiro steering/templates, and repository rules also contain source-brand references.
+Release configuration currently embeds the baseline project name, build ID, command path, binary name, archive identity, connector/plugin executable paths, and plugin/distribution metadata. Make targets, shell/PowerShell scripts, CI workflows, release checks, agent skills, Kiro steering/templates, and repository rules also contain source-brand references.
 
 **Consequence:** release/tooling changes follow runtime compile-time cutovers. Renaming these first would cause CI and packaging to invoke paths that have not yet moved. Generated release/build/package/container outputs are part of final verification when the repository can produce them; scanning only tracked source is insufficient.
 

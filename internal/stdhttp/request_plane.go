@@ -30,10 +30,22 @@ type (
 	HTTPSecurityInput           = httpcontract.HTTPSecurityInput
 	GeoIPSecurityInput          = httpcontract.GeoIPSecurityInput
 	GeoIPResolverConfig         = httpcontract.GeoIPResolverConfig
+	SelfDefenseSecurityInput    = httpcontract.SelfDefenseSecurityInput
+	SelfDefenseObserver         = httpcontract.SelfDefenseObserver
+	CredentialProbe             = httpcontract.CredentialProbe
+	CredentialDisposition       = httpcontract.CredentialDisposition
 	HTTPOperationsInput         = httpcontract.HTTPOperationsInput
 	TerminalDecisionPolicyInput = httpcontract.TerminalDecisionPolicyInput
 	HTTPModelInput              = httpcontract.HTTPModelInput
 	HTTPFrontendInput           = httpcontract.HTTPFrontendInput
+)
+
+const (
+	// MayAuthenticate and DefinitelyNoCredential are the closed answers of the
+	// conservative credential-presence probe, re-exported so the standard
+	// composition and its tests share one vocabulary with the contract.
+	MayAuthenticate        = httpcontract.MayAuthenticate
+	DefinitelyNoCredential = httpcontract.DefinitelyNoCredential
 )
 
 func ComposeStandardHTTP(ctx context.Context, cfg *config.Config, log *slog.Logger, in StandardHTTPInput) (http.Handler, error) {

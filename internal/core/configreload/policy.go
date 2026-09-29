@@ -122,6 +122,62 @@ func classifyAccess(active, candidate *config.Config, reload, restart noteFn) {
 		restart("access")
 	}
 	classifyGeoIP(active, candidate, restart, reload)
+	classifySelfDefense(active, candidate, reload, restart)
+}
+
+func classifySelfDefense(active, candidate *config.Config, reload, restart noteFn) {
+	a, c := active.Access.SelfDefense, candidate.Access.SelfDefense
+	if !ptrBoolEqual(a.Enabled, c.Enabled) {
+		reload("access.self_defense.enabled")
+	}
+	if !ptrBoolEqual(a.ImpossiblePaths, c.ImpossiblePaths) {
+		reload("access.self_defense.impossible_paths")
+	}
+	if !ptrIntEqual(a.Adaptive.AuthFailures, c.Adaptive.AuthFailures) {
+		reload("access.self_defense.adaptive.auth_failures")
+	}
+	diffStr(reload, "access.self_defense.adaptive.window", a.Adaptive.Window, c.Adaptive.Window)
+	diffStr(reload, "access.self_defense.adaptive.initial_quarantine", a.Adaptive.InitialQuarantine, c.Adaptive.InitialQuarantine)
+	diffStr(reload, "access.self_defense.adaptive.max_quarantine", a.Adaptive.MaxQuarantine, c.Adaptive.MaxQuarantine)
+	diffStrSlice(reload, "access.self_defense.adaptive.exempt_cidrs", a.Adaptive.ExemptCIDRs, c.Adaptive.ExemptCIDRs)
+	classifySelfDefenseStateLimits(a, c, restart)
+}
+
+// classifySelfDefenseStateLimits classifies the two process-state sizing fields,
+// which are restart-required in v1 because they size process-owned state that a
+// reload cannot resize.
+//
+// The decision compares the COMPILED limits, not the configured spelling.
+// CompileSelfDefense already resolves omission to the documented default, so an
+// operator who omits access.self_defense, who spells the documented default out,
+// and who spells an equivalent duration (24h and 1440m are the same instant) all
+// produce the same effective process limits. Classifying the raw fields instead
+// made the reload classifier contradict the operator documentation, which states
+// that omitting the block is identical to specifying the defaults: a candidate
+// that only spelled the default out was rejected as restart-required even though
+// it would have produced an identical process.
+//
+// A compile failure is not this classifier's to report: both sides are validated
+// effective configurations, and an invalid field is rejected by config validation
+// with its own error. The raw comparison stays as the fallback so a field this
+// function cannot compile still classifies as a change rather than silently
+// matching.
+func classifySelfDefenseStateLimits(active, candidate config.SelfDefenseConfig, restart noteFn) {
+	activeLimits, activeErr := config.CompileSelfDefense(active)
+	candidateLimits, candidateErr := config.CompileSelfDefense(candidate)
+	if activeErr != nil || candidateErr != nil {
+		diffStr(restart, "access.self_defense.adaptive.state_ttl", active.Adaptive.StateTTL, candidate.Adaptive.StateTTL)
+		if !ptrIntEqual(active.Adaptive.MaxEntries, candidate.Adaptive.MaxEntries) {
+			restart("access.self_defense.adaptive.max_entries")
+		}
+		return
+	}
+	if activeLimits.StateTTL() != candidateLimits.StateTTL() {
+		restart("access.self_defense.adaptive.state_ttl")
+	}
+	if activeLimits.MaxEntries() != candidateLimits.MaxEntries() {
+		restart("access.self_defense.adaptive.max_entries")
+	}
 }
 
 func classifyGeoIP(active, candidate *config.Config, restart, reload noteFn) {

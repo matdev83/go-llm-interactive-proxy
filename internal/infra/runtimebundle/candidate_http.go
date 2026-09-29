@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/ingressdefense"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
@@ -46,6 +47,10 @@ type candidateSecurityGroup struct {
 	authEvents         *auth.EventDispatcher
 	runtimeSnapshot    *extensions.RequestRuntimeSnapshot
 	geoip              *config.CompiledGeoIP
+	// selfDefense is the immutable, reloadable generation policy projection. The
+	// process-owned adaptive state it borrows is referenced separately, because
+	// capacity and TTL are restart-required and never generation-scoped.
+	selfDefense *config.CompiledSelfDefense
 }
 type candidateModelGroup struct {
 	catalog         *modelcatalog.CatalogRuntime
@@ -84,6 +89,7 @@ type candidateProcessRefs struct {
 	meteringQuerier       metering.Querier
 	standardFeatures      *featurehost.Runtime
 	geoip                 *infraGeoIP.Service
+	ingressDefense        *ingressdefense.State
 	secureSessions        ssessionapp.Store
 	spoolLedger           *largebody.SpoolLedger
 }

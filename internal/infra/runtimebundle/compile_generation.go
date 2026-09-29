@@ -254,9 +254,14 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 		billingReportsPath      string
 		billingProvisioner      billing.AccountProvisioner
 		billingExposureRecovery billing.ExposureRecovery
+		// One defensive provider copy shared by the transport-auth chain and the
+		// ingress self-defense credential probe, so the two can never answer from
+		// different active provider sets.
+		authProviders []httpauth.Provider
 	)
 	if cand != nil {
 		billingReports, billingReportsPath, billingProvisioner, billingExposureRecovery = cand.operations.billingReports, cand.operations.billingReportsPath, cand.operations.billingProvisioner, cand.operations.billingExposureRecovery
+		authProviders = httpcontract.CloneHTTPAuthProviders(cand.security.httpAuth)
 	}
 	var (
 		maxBody     int64
@@ -299,11 +304,16 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 	return httpcontract.StandardHTTPInput{
 		Core: httpcontract.HTTPCoreInput{Executor: cand.execution.executor},
 		Security: httpcontract.HTTPSecurityInput{
-			HTTPAuthProviders:    httpcontract.CloneHTTPAuthProviders(cand.security.httpAuth),
+			HTTPAuthProviders:    authProviders,
 			SecureSessionStore:   cand.security.secureSessionStore,
 			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(cand.process.usageAuthority),
 			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(cand.process.concurrencyAuthority),
 			GeoIP:                geoInput,
+			// Projected independently of the GeoIP gate: self-defense reuses the
+			// compiled client-IP trust configuration whether or not fixed
+			// country/CIDR enforcement is active, and it shares the auth provider
+			// slice with the transport-auth chain.
+			SelfDefense: buildSelfDefenseSecurityInput(cand, frozen, authProviders, time.Now),
 		},
 		Operations: httpcontract.HTTPOperationsInput{
 			BillingReports: billingReports, BillingReportsPath: billingReportsPath,
