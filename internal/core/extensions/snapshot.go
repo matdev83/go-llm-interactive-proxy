@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -390,6 +391,17 @@ func (s *RequestRuntimeSnapshot) TerminalDecisionProvider() terminaldecision.Pro
 // captured by this immutable request snapshot, if present.
 func (s *RequestRuntimeSnapshot) TerminalDecisionProviderIdentity() (string, bool) {
 	return lipfeature.FrozenIdentity(s.featurePlaneSet(), lipfeature.PlaneTerminalDecisionProvider)
+}
+
+
+// ControlToolProvider returns the generation provider captured by this immutable request snapshot.
+func (s *RequestRuntimeSnapshot) ControlToolProvider() controltool.Provider {
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneControlToolProvider)
+}
+
+// ControlToolProviderIdentity returns the frozen identity of the generation provider, if present.
+func (s *RequestRuntimeSnapshot) ControlToolProviderIdentity() (string, bool) {
+	return lipfeature.FrozenIdentity(s.featurePlaneSet(), lipfeature.PlaneControlToolProvider)
 }
 
 // WithRequestRuntimeSnapshot attaches snap to ctx for the remainder of the request lifetime.

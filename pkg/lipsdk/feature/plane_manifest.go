@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -1023,6 +1024,31 @@ var PlaneTerminalDecisionProvider = Plane[terminaldecision.Provider]{
 	ExclusiveConflictError: ErrTerminalDecisionProviderConflict,
 }
 
+
+// PlaneControlToolProvider declares the exclusive proxy control-tool provider plane.
+var PlaneControlToolProvider = Plane[controltool.Provider]{
+	ID:            "control_tool_provider",
+	RequestAccess: RequestBodyCanonicalRequired,
+	Multiplicity:  MultExclusive,
+	Rules: SourceRules{
+		Feature: CombExclusive,
+	},
+	NilPolicy: NilReject,
+	Identity: func(v controltool.Provider) (string, bool) {
+		id, err := controltool.ProviderIdentity(v)
+		if err != nil {
+			return "", false
+		}
+		return id, true
+	},
+	Validate: controltool.ValidateProvider,
+	ValidateIdentity: controltool.ValidateProviderID,
+	Combine: func(source SourceKind, current, incoming controltool.Provider) (controltool.Provider, error) {
+		return incoming, nil
+	},
+	ExclusiveConflictError: ErrControlToolProviderConflict,
+}
+
 // StandardPlanes is the ordered slice of all standard feature planes.
 var StandardPlanes = []PlaneDeclaration{
 	PlaneSubmitHooks,
@@ -1051,6 +1077,7 @@ var StandardPlanes = []PlaneDeclaration{
 	PlaneSecretGuardExecution,
 	PlaneLocalTurnHandlers,
 	PlaneTerminalDecisionProvider,
+	PlaneControlToolProvider,
 }
 
 // StandardCandidatePlanes defines the canonical list of plane IDs allowed in candidate overlay contribution.
@@ -1071,4 +1098,5 @@ var StandardCandidatePlanes = []string{
 	"compaction_preservers",
 	"local_turn_handlers",
 	"terminal_decision_provider",
+	"control_tool_provider",
 }
