@@ -1,0 +1,52 @@
+name: Go cache retention
+
+on:
+  # Trusted default-branch code only: no pull-request code or artifacts run
+  # with the cache deletion token.
+  workflow_run:
+    workflows: [CI, QA, Backend plugin cross-platform, ACP process-tree, Cursor SDK Platform Smoke, Development cost watchdog]
+    branches: [main]
+    types: [completed]
+  schedule:
+    - cron: '43 */12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: go-cache-retention
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Verify retention selector
+        run: python3 -m unittest discover -s scripts -p test_prune_go_caches.py
+      - name: Retain newest Go snapshot per job and branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/$GH_REPO/actions/caches?per_page=100" > "$RUNNER_TEMP/caches.json"
+          gh api --paginate --slurp "repos/$GH_REPO/pulls?state=open&per_page=100" > "$RUNNER_TEMP/open-prs.json"
+          python3 scripts/prune-go-caches.py --caches "$RUNNER_TEMP/caches.json" --open-prs "$RUNNER_TEMP/open-prs.json" > "$RUNNER_TEMP/obsolete.json"
+          jq -r '.[]' "$RUNNER_TEMP/obsolete.json" | while IFS= read -r cache_id; do
+            if ! gh api --method DELETE "repos/$GH_REPO/actions/caches/$cache_id" 2> "$RUNNER_TEMP/cache-delete.err"; then
+              # GitHub may evict an already-selected entry concurrently.
+              if ! grep -q 'HTTP 404' "$RUNNER_TEMP/cache-delete.err"; then
+                cat "$RUNNER_TEMP/cache-delete.err" >&2
+                exit 1
+              fi
+            fi
+          done
+          echo "Retired $(jq length "$RUNNER_TEMP/obsolete.json") obsolete Go snapshots." >> "$GITHUB_STEP_SUMMARY"

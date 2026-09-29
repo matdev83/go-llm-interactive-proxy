@@ -135,6 +135,7 @@ jobs:
         run: |
           echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
           echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Restore dedicated backend-plugin Go cache
         id: go-cache
@@ -144,10 +145,10 @@ jobs:
           path: |
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-backend-plugin-${{ runner.os }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum') }}
+          key: go-cache-backend-plugin-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-cache-backend-plugin-${{ runner.os }}-
-            setup-go-
+            go-cache-backend-plugin-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum') }}-
+            go-cache-backend-plugin-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
 
       - name: Cross-platform QA
         if: needs.changes.outputs.relevant == 'true'
@@ -163,7 +164,7 @@ jobs:
           path: |
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-backend-plugin-${{ runner.os }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum') }}
+          key: go-cache-backend-plugin-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum') }}-${{ github.sha }}
 
       - name: Report unrelated matrix bypass
         if: needs.changes.outputs.relevant != 'true'

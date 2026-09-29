@@ -116,24 +116,30 @@ jobs:
         shell: bash
         run: go test -count=1 -tags=precommit ./internal/qa -run '^TestQAFastPreflight_KiroLifecycle$'
 
-      # The QA job runs the full-repo archtest package load, which needs the
-      # complete module graph and build cache. A dedicated per-job cache avoids
-      # the frozen partial snapshot under the shared setup-go key (observed as a
-      # ~91 MB restore that forces re-downloading every module and recompiling
-      # all export data, ~5 min per PR). restore-keys fall back to the shared
-      # setup-go snapshot so the first run still gets a partial warm start.
+      # Immutable caches need a source-specific snapshot, seeded from the
+      # latest compatible toolchain/job snapshot. A dependency-only key freezes
+      # build progress until go.sum changes, even with a dedicated cache.
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        shell: bash
+        run: |
+          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+
       - name: Restore dedicated QA Go cache
         id: go-cache
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-qa-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-cache-qa-${{ runner.os }}-
-            setup-go-
+            go-cache-qa-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}-
+            go-cache-qa-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
 
       - name: Formatting and module integrity
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
@@ -198,9 +204,9 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-qa-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}-${{ github.sha }}
 
       - name: Report full QA bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
