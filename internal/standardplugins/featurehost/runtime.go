@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
+	classificationstate "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionclassification"
 	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
 	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
@@ -33,6 +34,7 @@ type Runtime struct {
 	extState               lipstate.Store
 	bgAux                  *auxreq.BackgroundScheduler // borrowed, never closed
 	terminalPolicy         *sessionpolicy.Store
+	sessionClassification *classificationstate.Holder
 	compactionDetector     runtime.CompactionDetector
 	branchCoordinator      *state.BranchCoordinator
 	compactionParentPort   *compaction.ParentPort
