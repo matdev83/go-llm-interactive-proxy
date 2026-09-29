@@ -78,6 +78,15 @@ shared-package changes. The report in `docs/test-suite-performance.md` also reco
 ~56 seconds of link/startup work on its Windows machine and overlapping tagged
 passes. Native caches do not eliminate arbitrary subprocess/test setup work.
 
+The root production import graph also has substantial fan-out: `pkg/lipapi` has
+232 transitive production consumers, `pkg/lipsdk` 102, `internal/core/runtime` 30,
+and `internal/core/config` 86. Additional test-only consumers are 24, 35, 48, and
+38 respectively. These counts describe dependency scope, not measured compiler
+invalidation counts. Newly added Go code is automatically covered by native
+caching; central contract changes can legitimately affect many consumers. Longer
+term, reduce unnecessary dependency fan-out and package coupling at demonstrated
+boundaries rather than replacing Go's build system or adding cache whitelists.
+
 Three concrete infrastructure defects were present:
 
 1. Dedicated CI snapshots still used dependency-only immutable keys. An exact
@@ -148,3 +157,11 @@ security policy rejects administrative execution. Verification uses a disposable
 non-root checkout with normal subprocess access instead. No Windows-authoritative
 cost improvement or remote cache hit-rate improvement is claimed from these local
 measurements; the new workflows must provide that evidence after landing.
+
+The complete tooling/QA packages passed in the non-root checkout, and archtest
+passed in 62.962 seconds. The broader root suite had 348 passing package lines
+and five failing tracing-related packages; representative `core/extensions`
+failures reproduced on unchanged main. Full-root mandatory lint found four
+existing govet inline findings in billing/adapter tests, also reproduced against
+unchanged main. Changed-package lint passed. Full-suite/full-lint certification
+is therefore not claimed.
