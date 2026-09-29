@@ -30,6 +30,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -536,6 +537,33 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		}); err != nil {
 			return nil, nil, outCtx, err
 		}
+		// Session classification is metadata-only and intentionally runs after
+		// secret guard but before FE-ingress/submit so all later consumers see
+		// one same-turn SessionView projection. Proxy-owned auxiliary work never
+		// starts an independent classification transaction.
+		if classifier := snap.SessionClassifier(); classifier != nil && execctx.AuxiliaryDepth(outCtx) == 0 {
+			var categories sessionclassification.ToolCategorySet
+			for _, tool := range workingCall.Tools {
+				categories = categories.AddToolName(tool.Name)
+			}
+			classification := extensions.RunSessionClassificationStage(
+				outCtx,
+				e.Log,
+				e.ExtensionMetrics,
+				classifier,
+				sessionclassification.Input{
+					TraceID:   ibt.traceID,
+					Session:   ibt.preSession,
+					Workspace: ibt.workspace,
+					Evidence: sessionclassification.Evidence{
+						Operation:       workingCall.Invocation.Operation,
+						ClientUserAgent: workingCall.Invocation.ClientUserAgent,
+						ToolCategories:  categories,
+					},
+				},
+			)
+			ibt.preSession.Classification = classification
+		}
 	}
 	var meteringHolder *checkpoint.RequestHolder
 	// P2: use unaugmented customer view for FE-ingress checkpoint; the
@@ -754,6 +782,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	}
 	views.Workspace = ibt.workspace
 	views.Session.WorkspaceID = strings.TrimSpace(ibt.workspace.ID)
+	views.Session.Classification = ibt.preSession.Classification
 	if len(ibt.preSession.Labels) > 0 {
 		if views.Session.Labels == nil {
 			views.Session.Labels = make(map[string]string)
