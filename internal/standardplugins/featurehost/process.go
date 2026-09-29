@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
+	classificationstate "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionclassification"
 	"github.com/uptrace/bun"
 )
 
@@ -116,6 +117,11 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 			}
 		}
 	}
+	// Session classification owns only a lightweight process holder here.
+	// Its feature table is ensured lazily by an enabled generation lifecycle.
+	r.sessionClassification = classificationstate.NewHolder(bunDB)
+	r.registerCloser(r.sessionClassification.Close)
+
 	if bunDB != nil {
 		if err := conversationview.EnsureSchema(ctx, bunDB); err != nil {
 			return rollback(fmt.Errorf("featurehost: conversationview ensure schema: %w", err))
