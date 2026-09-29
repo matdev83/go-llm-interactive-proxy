@@ -41,10 +41,9 @@ type schemaQuantityVerdict struct {
 
 // schemaQuantityContradictions is the single quantity authority for the rater.
 // It compiles nothing at call time: the schema program is already frozen on the
-// rater. Only the FULL, exclusion-free reduction (consistencyAggregates) is
-// passed here. The pricing projection never feeds the constraint solver, because
-// a covered, unpriced child that is excluded from pricing is still a physical
-// quantity fact for the containment arithmetic.
+// rater. Only the ONE full reduction is passed here, the same state pricing is
+// derived from, so a covered but unpriced child that is commercially redundant
+// for billing is still a physical quantity fact for the containment arithmetic.
 func (r *ReferenceRater) schemaQuantityContradictions(aggregates []aggregateMeasure, diagnosed map[string]map[string]struct{}) schemaQuantityVerdict {
 	if r == nil || len(r.program.keyOf) == 0 || len(aggregates) == 0 {
 		return schemaQuantityVerdict{}

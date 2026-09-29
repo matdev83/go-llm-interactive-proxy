@@ -404,9 +404,9 @@ func unknownContainmentDiagnostic(unknown map[string][]string) error {
 // B -> {X, Y} priced) still proves the absent parent's cover: a present but
 // unpriced member is accounted for through its own evidence-consistent complete
 // partition (completePartitionParents), and only then may its priced children
-// stand in for the parent's share. consistencyAggregates supplies the full
-// effective reduced evidence so an optional member that is present but unpriced
-// is not mistaken for an absent one. A priced subset descendant that is already
+// stand in for the parent's share. evidence supplies the full effective reduced
+// evidence so an optional member that is present but unpriced is not mistaken
+// for an absent one. A priced subset descendant that is already
 // one of the parent's actual paid cover contributors is the same charge reached
 // by an alternate path, not an extra one; only a positive payable descendant
 // outside that contributor set is an additive double charge, and a conflict
@@ -424,7 +424,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 	payableByScope map[string]map[string]struct{},
 	dependencies *commercialDependencySet,
 	rateableByScope map[string]map[string]struct{},
-	consistencyAggregates []aggregateMeasure,
+	evidence []aggregateMeasure,
 	completePartitionParents map[string]map[string]struct{}) (
 	map[string]map[string]struct{},
 	map[string]map[string]struct{},
@@ -541,7 +541,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 	// cover resolver is handed exactly the scope it is reasoning about and never
 	// evidence from another one.
 	evidenceByScope := make(map[string][]aggregateMeasure)
-	for _, item := range consistencyAggregates {
+	for _, item := range evidence {
 		evidenceByScope[item.scopeKey] = append(evidenceByScope[item.scopeKey], item)
 	}
 	// The cover authority is resolved AT MOST ONCE per scope and shared by the two
@@ -618,7 +618,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 	// while a PRESENT but unpriced member is recognized as a real, unaccounted
 	// share rather than silently treated as absent.
 	presenceByScope := make(map[string]map[string]struct{})
-	for _, item := range consistencyAggregates {
+	for _, item := range evidence {
 		key, keyErr := item.key.Normalize()
 		if keyErr != nil {
 			continue
@@ -639,7 +639,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 	// incomplete/unavailable member, and an unknown-zero member (no comparable
 	// quantity) stay out of this set, so they still fail the cover proof.
 	zeroShareByScope := make(map[string]map[string]struct{})
-	for _, item := range consistencyAggregates {
+	for _, item := range evidence {
 		if !item.complete || item.rat == nil || item.rat.Sign() != 0 {
 			continue
 		}
@@ -664,7 +664,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 	// that reason; the amount-based signal stays per-scope, because an amount is
 	// only ever money in the scope that carries it.
 	knownAnywhere := make(map[string]struct{})
-	for _, item := range consistencyAggregates {
+	for _, item := range evidence {
 		if !item.complete {
 			continue
 		}

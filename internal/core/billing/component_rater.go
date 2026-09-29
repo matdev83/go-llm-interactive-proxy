@@ -392,6 +392,9 @@ type aggregateMeasure struct {
 	refs      []metering.ObservationRef
 	issueRefs []metering.ObservationRef
 	complete  bool
+	// redundant marks a component a priced inclusion parent already charges: a
+	// commercial fact, not an evidence one. Only its line and its priced share go.
+	redundant bool
 }
 
 func (r *ReferenceRater) rateMeasures(input economics.PostUsageRatingInput, valuation economics.Valuation) (economics.Valuation, error) {
@@ -433,31 +436,21 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	if qualifierErr == nil {
 		exclusions = r.includedChildExclusions(input.Observations, selected, mask, qualifiers)
 	}
+	// ONE reduction produces the whole semantic state. A component a priced
+	// inclusion parent already charges is MARKED redundant, never removed: its
+	// quantity, its completeness and its references stay in this one projection,
+	// so the conservation proof, the cover authority, the overlap resolver and
+	// the quantity solver all see the full evidence set. The flag is read
+	// downstream in two places only: the line requirement below, and the priced
+	// whole-context derivation.
 	aggregates, unavailable, err := aggregateMeasures(input.Observations, input.Subject.StoreID, selected, mask, exclusionPredicate(exclusions))
-	// Conservation is a property of the full selected, mask-filtered, reduced
-	// quantity evidence, before a priced parent's inclusion exclusion removes an
-	// unpriced child from the arithmetic. Rating keeps using the excluded
-	// projection (an included child is not separately billable), but the partition
-	// consistency proof must still see the declared child quantities so a
-	// contradicted partition cannot be hidden behind that exclusion. The second
-	// reduction runs only when exclusions actually apply; otherwise the original
-	// projection already is the full one. Its error/completeness diagnostics are
-	// deliberately discarded: pricing and consistency stay separate concerns, so
-	// an unpriced child never leaks a rate or evidence diagnostic into rated
-	// lines.
-	consistencyAggregates := aggregates
-	if len(exclusions) != 0 {
-		if full, _, reduceErr := aggregateMeasures(input.Observations, input.Subject.StoreID, selected, mask, nil); reduceErr == nil && full != nil {
-			consistencyAggregates = full
-		}
-	}
 	// A child-only tariff leaves the aggregate parent unpriced. When the frozen
 	// schema declares that parent's complete child partition and every declared
 	// child is present and complete in the same scope, the parent's missing rule
 	// is not an independent missing charge: the children are the authoritative
 	// billers for that share. The evidence and observation references are never
 	// removed; only the spurious rate-missing diagnostic is excused.
-	completePartitionParents, contradictedPartitions, incomparablePartitions, incompletePartitions := r.completeChildPartitionCoverage(consistencyAggregates, qualifiers)
+	completePartitionParents, contradictedPartitions, incomparablePartitions, incompletePartitions := r.completeChildPartitionCoverage(aggregates, qualifiers)
 	if err != nil {
 		valuation.Completeness = economics.CompletenessPartial
 		// A reduction may contain both independently complete and incomplete
@@ -504,6 +497,10 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	rated := make([]ratedAggregate, 0, len(aggregates))
 	ratedMeasureCount := 0
 	for _, item := range aggregates {
+		if item.redundant {
+			// An included child its priced parent already charges needs no line.
+			continue
+		}
 		if isInformationalMeasure(item.key) || (item.complete && item.rat != nil && item.rat.Sign() == 0) {
 			if _, probeErr := r.resolveRule(item.key, qualifiers); errors.Is(probeErr, ErrRateMissing) {
 				// Totals/reasoning and complete, exactly-zero quantities are
@@ -571,7 +568,7 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	// quantity lines are suppressed rather than choosing a winner. Unrelated
 	// scopes and unrelated components stay payable; independent fixed fees are
 	// owned by their own trusted scope and remain payable.
-	overlapConflicts, ambiguousCoveredParents, unresolvedCoveredParents, hiddenDependencyCovers, overlapErr := r.overlappingSchemaInclusionConflicts(payableByScope, dependencies, rateableByScope, consistencyAggregates, completePartitionParents)
+	overlapConflicts, ambiguousCoveredParents, unresolvedCoveredParents, hiddenDependencyCovers, overlapErr := r.overlappingSchemaInclusionConflicts(payableByScope, dependencies, rateableByScope, aggregates, completePartitionParents)
 	if overlapErr != nil {
 		valuation.Completeness = economics.CompletenessConflict
 	}
@@ -630,9 +627,9 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	// single authority for the quantity verdict: it propagates exact/absent/
 	// unavailable evidence across the transitive union of subset and
 	// complete-coverage edges and flags any node whose enforced lower bound
-	// exceeds its enforced upper bound. It consumes the exclusion-free full
-	// reduction, so a covered but unpriced child excluded from pricing still
-	// constrains its ancestors; a missing or unavailable operand stays unknown
+	// exceeds its enforced upper bound. It consumes the one full reduction, so a
+	// covered but unpriced child marked redundant for pricing still constrains
+	// its ancestors; a missing or unavailable operand stays unknown
 	// and is never invented as a zero.
 	//
 	// A parent the partition proof already classified owns that same
@@ -645,7 +642,7 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	mergePartitionSet(&diagnosedAncestors, contradictedPartitions)
 	mergePartitionSet(&diagnosedAncestors, incomparablePartitions)
 	mergePartitionSet(&diagnosedAncestors, incompletePartitions)
-	quantityVerdict := r.schemaQuantityContradictions(consistencyAggregates, diagnosedAncestors)
+	quantityVerdict := r.schemaQuantityContradictions(aggregates, diagnosedAncestors)
 	for _, entry := range rated {
 		if schemaConflictSuppressed(overlapConflicts, entry.item) {
 			continue
@@ -1107,6 +1104,12 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 	}
 	byKey := make(map[string]*aggregateMeasure)
 	refsByKey := make(map[string][]metering.ObservationRef)
+	// maskKept is the retail selection mask as one question, asked identically by
+	// every projection of the reduced evidence.
+	maskKept := func(identity string) bool {
+		_, kept := keptEntries[identity]
+		return keptEntries == nil || kept
+	}
 	type observationIdentity struct {
 		store, id string
 		revision  uint64
@@ -1144,6 +1147,22 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 			firstErr = err
 		}
 	}
+	// unusable names the two ways a present measure can be unusable, once.
+	unusable := func(key metering.ComponentKey, noValue bool) error {
+		if noValue {
+			return fmt.Errorf("%w: component %s has no effective value", ErrQuantityIncomplete, key.CanonicalKey())
+		}
+		return fmt.Errorf("%w: component %s evidence is unavailable", ErrRatingEvidenceMissing, key.CanonicalKey())
+	}
+	// setGap records an evidence gap UNLESS the component is commercially
+	// redundant: one already charged through a priced inclusion parent needs no
+	// rate, no line and no completeness of its own, and it is never removed.
+	setGap := func(entry *aggregateMeasure, err error) {
+		if entry != nil && entry.redundant {
+			return
+		}
+		setFirstErr(err)
+	}
 	// Build audit refs from replay survivors, not the raw delivery slice. The
 	// effective measure below decides completeness; an unavailable predecessor
 	// remains an audit ref but cannot poison a complete replacement.
@@ -1158,14 +1177,10 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 			if keyErr != nil {
 				return nil, nil, fmt.Errorf("%w: component key: %v", ErrRatingInvalid, keyErr)
 			}
-			if exclude != nil && exclude(scopeKey, key) {
-				continue
-			}
 			identity := scopeKey + "\x00" + key.CanonicalKey()
-			if keptEntries != nil {
-				if _, ok := keptEntries[identity]; !ok {
-					continue
-				}
+			excluded := exclude != nil && exclude(scopeKey, key)
+			if !maskKept(identity) {
+				continue
 			}
 			refsByKey[identity] = appendUniqueObservationRef(refsByKey[identity], ref)
 			if _, replaced := superseded[observationIdentity{store: observation.Subject.StoreID, id: observation.ID, revision: observation.Revision}]; replaced {
@@ -1173,23 +1188,19 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 			}
 			entry := byKey[identity]
 			if entry == nil {
-				entry = &aggregateMeasure{key: key, scopeKey: scopeKey, complete: true}
+				entry = &aggregateMeasure{key: key, scopeKey: scopeKey, complete: true, redundant: excluded}
 				byKey[identity] = entry
 			}
 			entry.refs = appendUniqueObservationRef(entry.refs, ref)
 			if _, pending := pendingReplacementObservations[observationIdentity{store: observation.Subject.StoreID, id: observation.ID, revision: observation.Revision}]; pending {
 				entry.complete = false
 				entry.issueRefs = appendUniqueObservationRef(entry.issueRefs, ref)
-				setFirstErr(fmt.Errorf("%w: component %s has unresolved supersession", ErrRatingEvidenceMissing, key.CanonicalKey()))
+				setGap(entry, fmt.Errorf("%w: component %s has unresolved supersession", ErrRatingEvidenceMissing, key.CanonicalKey()))
 			}
 			if measureIsIncomplete(measure) {
 				entry.complete = false
 				entry.issueRefs = appendUniqueObservationRef(entry.issueRefs, ref)
-				if measure.Value == nil {
-					setFirstErr(fmt.Errorf("%w: component %s has no effective value", ErrQuantityIncomplete, key.CanonicalKey()))
-				} else {
-					setFirstErr(fmt.Errorf("%w: component %s evidence is unavailable", ErrRatingEvidenceMissing, key.CanonicalKey()))
-				}
+				setGap(entry, unusable(key, measure.Value == nil))
 			}
 		}
 	}
@@ -1214,20 +1225,17 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 		}
 	}
 	for _, measure := range reduced.Measures {
-		if exclude != nil {
-			if key, keyErr := measure.Key.Normalize(); keyErr == nil && exclude(measure.Scope.Key(), key) {
-				continue
-			}
+		excluded := false
+		if key, keyErr := measure.Key.Normalize(); keyErr == nil {
+			excluded = exclude != nil && exclude(measure.Scope.Key(), key)
 		}
 		identity := measure.Scope.Key() + "\x00" + measure.Key.CanonicalKey()
-		if keptEntries != nil {
-			if _, ok := keptEntries[identity]; !ok {
-				continue
-			}
+		if !maskKept(identity) {
+			continue
 		}
 		entry := byKey[identity]
 		if entry == nil {
-			entry = &aggregateMeasure{key: measure.Key, scopeKey: measure.Scope.Key(), complete: true}
+			entry = &aggregateMeasure{key: measure.Key, scopeKey: measure.Scope.Key(), complete: true, redundant: excluded}
 			byKey[identity] = entry
 		}
 		entry.refs = append([]metering.ObservationRef(nil), refsByKey[identity]...)
@@ -1247,7 +1255,7 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 				}
 				break
 			}
-			setFirstErr(fmt.Errorf("%w: component %s has an unusable correction predecessor", ErrRatingEvidenceMissing, measure.Key.CanonicalKey()))
+			setGap(entry, fmt.Errorf("%w: component %s has an unusable correction predecessor", ErrRatingEvidenceMissing, measure.Key.CanonicalKey()))
 		}
 	}
 	// A correction is present-field only. If a superseded predecessor carried
@@ -1269,33 +1277,25 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 			if keyErr != nil {
 				return nil, nil, fmt.Errorf("%w: component key: %v", ErrRatingInvalid, keyErr)
 			}
-			if exclude != nil && exclude(scopeKey, key) {
-				continue
-			}
+			excluded := exclude != nil && exclude(scopeKey, key)
 			identity := scopeKey + "\x00" + key.CanonicalKey()
-			if keptEntries != nil {
-				if _, ok := keptEntries[identity]; !ok {
-					continue
-				}
+			if !maskKept(identity) {
+				continue
 			}
 			if _, replaced := byKey[identity]; replaced {
 				continue
 			}
-			entry := &aggregateMeasure{key: key, scopeKey: scopeKey, complete: false}
+			entry := &aggregateMeasure{key: key, scopeKey: scopeKey, complete: false, redundant: excluded}
 			entry.refs = appendUniqueObservationRef(entry.refs, ref)
 			entry.issueRefs = appendUniqueObservationRef(entry.issueRefs, ref)
 			byKey[identity] = entry
-			if measure.Value == nil {
-				setFirstErr(fmt.Errorf("%w: component %s has no effective value", ErrQuantityIncomplete, key.CanonicalKey()))
-			} else {
-				setFirstErr(fmt.Errorf("%w: component %s evidence is unavailable", ErrRatingEvidenceMissing, key.CanonicalKey()))
-			}
+			setGap(entry, unusable(key, measure.Value == nil))
 		}
 	}
 	for _, entry := range byKey {
 		if entry.rat == nil {
 			entry.complete = false
-			setFirstErr(fmt.Errorf("%w: component %s has no effective value", ErrQuantityIncomplete, entry.key.CanonicalKey()))
+			setGap(entry, unusable(entry.key, true))
 		}
 	}
 	if len(reduced.PendingSupersedes) != 0 || len(reduced.PendingCoverage) != 0 {
@@ -1527,13 +1527,17 @@ func componentPtr(key metering.ComponentKey) *metering.ComponentKey {
 	return &copy
 }
 
+// The sibling context of one priced line is the only consistency-free reader of
+// the reduction's redundant flag: a component a priced parent already charges is
+// the same charge reached by another path, never an additional one.
 func contextTotal(key metering.ComponentKey, all []aggregateMeasure) *big.Rat {
 	total := new(big.Rat)
 	for _, item := range all {
-		if isInformationalMeasure(item.key) {
+		if isInformationalMeasure(item.key) || item.redundant {
 			// Inclusive total/reasoning counters are evidence summaries, not
-			// additional billable units. Including them in a whole-context
-			// threshold would select a tier from duplicated quantity.
+			// additional billable units, and a redundant component is already
+			// charged elsewhere. Including either in a whole-context threshold
+			// would select a tier from duplicated quantity.
 			continue
 		}
 		// A whole-context threshold is intentionally broader than the priced
@@ -1550,7 +1554,7 @@ func contextTotal(key metering.ComponentKey, all []aggregateMeasure) *big.Rat {
 
 func contextMeasuresComplete(key metering.ComponentKey, all []aggregateMeasure) bool {
 	for _, item := range all {
-		if isInformationalMeasure(item.key) || item.key.Direction != key.Direction || item.key.Unit != key.Unit || item.key.SchemaID != key.SchemaID {
+		if item.redundant || isInformationalMeasure(item.key) || item.key.Direction != key.Direction || item.key.Unit != key.Unit || item.key.SchemaID != key.SchemaID {
 			continue
 		}
 		if !item.complete || item.rat == nil {
