@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -63,6 +64,9 @@ type generatedContributions struct {
 	terminalDecisionProvider         terminaldecision.Provider
 	terminalDecisionProviderID       string
 	terminalDecisionProviderHasID    bool
+	sessionClassifier                sessionclassification.Classifier
+	sessionClassifierID              string
+	sessionClassifierHasID           bool
 }
 
 // generatedFrozen holds immutable typed snapshot storage for all declared feature planes.
@@ -103,6 +107,9 @@ type generatedFrozen struct {
 	terminalDecisionProvider         terminaldecision.Provider
 	terminalDecisionProviderID       string
 	terminalDecisionProviderHasID    bool
+	sessionClassifier                sessionclassification.Classifier
+	sessionClassifierID              string
+	sessionClassifierHasID           bool
 }
 
 // newGeneratedContributions constructs a new empty generatedContributions.
@@ -151,6 +158,9 @@ func (gc *generatedContributions) clone() *generatedContributions {
 	next.terminalDecisionProvider = gc.terminalDecisionProvider
 	next.terminalDecisionProviderID = gc.terminalDecisionProviderID
 	next.terminalDecisionProviderHasID = gc.terminalDecisionProviderHasID
+	next.sessionClassifier = gc.sessionClassifier
+	next.sessionClassifierID = gc.sessionClassifierID
+	next.sessionClassifierHasID = gc.sessionClassifierHasID
 	return next
 }
 
@@ -195,6 +205,9 @@ func (gc *generatedContributions) freeze() *generatedFrozen {
 		terminalDecisionProvider:         gc.terminalDecisionProvider,
 		terminalDecisionProviderID:       gc.terminalDecisionProviderID,
 		terminalDecisionProviderHasID:    gc.terminalDecisionProviderHasID,
+		sessionClassifier:                gc.sessionClassifier,
+		sessionClassifierID:              gc.sessionClassifierID,
+		sessionClassifierHasID:           gc.sessionClassifierHasID,
 	}
 	return gf
 }
@@ -240,6 +253,9 @@ func (gf *generatedFrozen) toContributions() *generatedContributions {
 	gc.terminalDecisionProvider = gf.terminalDecisionProvider
 	gc.terminalDecisionProviderID = gf.terminalDecisionProviderID
 	gc.terminalDecisionProviderHasID = gf.terminalDecisionProviderHasID
+	gc.sessionClassifier = gf.sessionClassifier
+	gc.sessionClassifierID = gf.sessionClassifierID
+	gc.sessionClassifierHasID = gf.sessionClassifierHasID
 	return gc
 }
 
@@ -284,6 +300,9 @@ func (gf *generatedFrozen) freezeRequest() *generatedFrozen {
 		terminalDecisionProvider:         gf.terminalDecisionProvider,
 		terminalDecisionProviderID:       gf.terminalDecisionProviderID,
 		terminalDecisionProviderHasID:    gf.terminalDecisionProviderHasID,
+		sessionClassifier:                gf.sessionClassifier,
+		sessionClassifierID:              gf.sessionClassifierID,
+		sessionClassifierHasID:           gf.sessionClassifierHasID,
 	}
 	return next
 }
@@ -329,6 +348,9 @@ func (gf *generatedFrozen) clone() *generatedFrozen {
 		terminalDecisionProvider:         gf.terminalDecisionProvider,
 		terminalDecisionProviderID:       gf.terminalDecisionProviderID,
 		terminalDecisionProviderHasID:    gf.terminalDecisionProviderHasID,
+		sessionClassifier:                gf.sessionClassifier,
+		sessionClassifierID:              gf.sessionClassifierID,
+		sessionClassifierHasID:           gf.sessionClassifierHasID,
 	}
 	return next
 }
@@ -578,6 +600,18 @@ func (gf *generatedFrozen) validate() error {
 			return newPlaneValidationError(canonicalPlaneTerminalDecisionProviderPolicy.planeID, err)
 		}
 	}
+	if gf.sessionClassifier == nil {
+		if gf.sessionClassifierHasID || gf.sessionClassifierID != "" {
+			return newPlaneValidationError(canonicalPlaneSessionClassifierPolicy.planeID, errors.New("malformed metadata without value"))
+		}
+	} else {
+		if !gf.sessionClassifierHasID || gf.sessionClassifierID == "" {
+			return newPlaneValidationError(canonicalPlaneSessionClassifierPolicy.planeID, errors.New("missing cached identity"))
+		}
+		if err := canonicalPlaneSessionClassifierPolicy.validateIdentity(gf.sessionClassifierID); err != nil {
+			return newPlaneValidationError(canonicalPlaneSessionClassifierPolicy.planeID, err)
+		}
+	}
 	return nil
 }
 
@@ -820,6 +854,15 @@ func (gf *generatedFrozen) checkSourceAdmission(source SourceKind, contributorID
 			}
 		}
 	}
+	if gf.sessionClassifier != nil {
+		if canonicalPlaneSessionClassifierPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSessionClassifierPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneSessionClassifierPolicy.planeID),
+			}
+		}
+	}
 	return nil
 }
 
@@ -969,6 +1012,15 @@ func (gf *generatedFrozen) checkCandidateSourceAdmission(source SourceKind, cont
 				PluginID: contributorID,
 				PlaneID:  canonicalPlaneTerminalDecisionProviderPolicy.planeID,
 				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneTerminalDecisionProviderPolicy.planeID),
+			}
+		}
+	}
+	if gf.sessionClassifier != nil {
+		if canonicalPlaneSessionClassifierPolicy.rules.RuleFor(source) == CombUnsupported {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSessionClassifierPolicy.planeID,
+				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneSessionClassifierPolicy.planeID),
 			}
 		}
 	}
@@ -1327,6 +1379,21 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 		gc.terminalDecisionProvider = gf.terminalDecisionProvider
 		gc.terminalDecisionProviderID = gf.terminalDecisionProviderID
 		gc.terminalDecisionProviderHasID = true
+	}
+	if gf.sessionClassifier != nil {
+		if !gf.sessionClassifierHasID || gf.sessionClassifierID == "" {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSessionClassifierPolicy.planeID,
+				Err:      fmt.Errorf("%w: frozen exclusive identity is missing", ErrInvalidContribution),
+			}
+		}
+		if gc.sessionClassifierHasID {
+			return makeExclusiveConflictError(contributorID, canonicalPlaneSessionClassifierPolicy.planeID, canonicalPlaneSessionClassifierPolicy.exclusiveConflictError, gc.sessionClassifierID, gf.sessionClassifierID)
+		}
+		gc.sessionClassifier = gf.sessionClassifier
+		gc.sessionClassifierID = gf.sessionClassifierID
+		gc.sessionClassifierHasID = true
 	}
 	return nil
 }
@@ -1752,6 +1819,21 @@ func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source 
 		gc.terminalDecisionProviderID = gf.terminalDecisionProviderID
 		gc.terminalDecisionProviderHasID = true
 	}
+	if gf.sessionClassifier != nil {
+		if !gf.sessionClassifierHasID || gf.sessionClassifierID == "" {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  canonicalPlaneSessionClassifierPolicy.planeID,
+				Err:      fmt.Errorf("%w: frozen exclusive identity is missing", ErrInvalidContribution),
+			}
+		}
+		if gc.sessionClassifierHasID {
+			return makeExclusiveConflictError(contributorID, canonicalPlaneSessionClassifierPolicy.planeID, canonicalPlaneSessionClassifierPolicy.exclusiveConflictError, gc.sessionClassifierID, gf.sessionClassifierID)
+		}
+		gc.sessionClassifier = gf.sessionClassifier
+		gc.sessionClassifierID = gf.sessionClassifierID
+		gc.sessionClassifierHasID = true
+	}
 	return nil
 }
 
@@ -1784,6 +1866,11 @@ func (gf *generatedFrozen) hasIdentityReplayRule(source SourceKind, rule Combina
 	if canonicalPlaneTerminalDecisionProviderPolicy.rules.RuleFor(source) == rule {
 		if !isNilValue(gf.terminalDecisionProvider) {
 			return canonicalPlaneTerminalDecisionProviderPolicy.planeID, true
+		}
+	}
+	if canonicalPlaneSessionClassifierPolicy.rules.RuleFor(source) == rule {
+		if !isNilValue(gf.sessionClassifier) {
+			return canonicalPlaneSessionClassifierPolicy.planeID, true
 		}
 	}
 	return "", false
@@ -1843,6 +1930,8 @@ var (
 	canonicalPlaneLocalTurnHandlersAccess                generatedAccess[[]localturn.Handler]
 	canonicalPlaneTerminalDecisionProviderPolicy         *generatedPolicy[terminaldecision.Provider]
 	canonicalPlaneTerminalDecisionProviderAccess         generatedAccess[terminaldecision.Provider]
+	canonicalPlaneSessionClassifierPolicy                *generatedPolicy[sessionclassification.Classifier]
+	canonicalPlaneSessionClassifierAccess                generatedAccess[sessionclassification.Classifier]
 )
 
 func init() {
@@ -3020,6 +3109,54 @@ func init() {
 	}
 	PlaneTerminalDecisionProvider.generated = canonicalPlaneTerminalDecisionProviderAccess
 
+	canonicalPlaneSessionClassifierPolicy = &generatedPolicy[sessionclassification.Classifier]{
+		planeID:                PlaneSessionClassifier.ID,
+		rules:                  PlaneSessionClassifier.Rules,
+		nilPolicy:              PlaneSessionClassifier.NilPolicy,
+		isNil:                  PlaneSessionClassifier.IsNil,
+		validate:               PlaneSessionClassifier.Validate,
+		validateIdentity:       PlaneSessionClassifier.ValidateIdentity,
+		combine:                PlaneSessionClassifier.Combine,
+		identity:               PlaneSessionClassifier.Identity,
+		exclusiveConflictError: PlaneSessionClassifier.ExclusiveConflictError,
+		requestMaterializer:    PlaneSessionClassifier.RequestMaterializer,
+		requestBorrow:          PlaneSessionClassifier.RequestBorrow,
+		hookTarget:             PlaneSessionClassifier.HookTarget,
+		requestAccess:          PlaneSessionClassifier.RequestAccess,
+		diagStageID:            PlaneSessionClassifier.Diagnostics.StageID,
+		diagCoalesceGroup:      PlaneSessionClassifier.Diagnostics.CoalesceGroup,
+		diagOrder:              PlaneSessionClassifier.Diagnostics.Order,
+		diagMaterialize:        PlaneSessionClassifier.Diagnostics.Materialize,
+		diagPrivileges:         PlaneSessionClassifier.Diagnostics.Privileges,
+	}
+	canonicalPlaneSessionClassifierAccess = generatedAccess[sessionclassification.Classifier]{
+		policy: canonicalPlaneSessionClassifierPolicy,
+		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v sessionclassification.Classifier) error {
+			combined, err := canonicalPlaneSessionClassifierPolicy.combine(source, gc.sessionClassifier, v)
+			if err != nil {
+				return err
+			}
+			gc.sessionClassifier = combined
+			id, hasID := canonicalPlaneSessionClassifierPolicy.identity(gc.sessionClassifier)
+			gc.sessionClassifierID = id
+			gc.sessionClassifierHasID = hasID
+			return nil
+		},
+		get: func(gf *generatedFrozen) sessionclassification.Classifier {
+			if gf == nil {
+				return nil
+			}
+			return gf.sessionClassifier
+		},
+		identity: func(gf *generatedFrozen) (string, bool) {
+			if gf == nil {
+				return "", false
+			}
+			return gf.sessionClassifierID, gf.sessionClassifierHasID
+		},
+	}
+	PlaneSessionClassifier.generated = canonicalPlaneSessionClassifierAccess
+
 }
 
 // HookConfig contains the projected hook slices and error policy for core execution.
@@ -3901,6 +4038,43 @@ func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
 				StageID:       canonicalPlaneLocalTurnHandlersPolicy.diagStageID,
 				CoalesceGroup: canonicalPlaneLocalTurnHandlersPolicy.diagCoalesceGroup,
 				Order:         canonicalPlaneLocalTurnHandlersPolicy.diagOrder,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneSessionClassifier
+	{
+		val := gf.sessionClassifier
+		occ := canonicalPlaneSessionClassifierPolicy.materializeOccupants(val)
+		priv := canonicalPlaneSessionClassifierPolicy.projectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       canonicalPlaneSessionClassifierPolicy.planeID,
+				StageID:       canonicalPlaneSessionClassifierPolicy.diagStageID,
+				CoalesceGroup: canonicalPlaneSessionClassifierPolicy.diagCoalesceGroup,
+				Order:         canonicalPlaneSessionClassifierPolicy.diagOrder,
 				Occupants:     occCopy,
 				Privileges:    PrivilegeProjection{Flags: privCopy},
 			})
