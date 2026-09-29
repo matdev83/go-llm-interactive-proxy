@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -209,6 +210,11 @@ func (s *RequestRuntimeSnapshot) Workspace() workspace.Resolver {
 // Mutating the returned slice does not affect the snapshot.
 func (s *RequestRuntimeSnapshot) SessionOpeners() []session.Opener {
 	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneSessionOpeners)
+}
+
+// SessionClassifier returns the immutable generation classifier, or nil when disabled.
+func (s *RequestRuntimeSnapshot) SessionClassifier() sessionclassification.Classifier {
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneSessionClassifier)
 }
 
 // ToolCatalogFilters returns a defensive copy of frozen catalog filters (may be empty).
