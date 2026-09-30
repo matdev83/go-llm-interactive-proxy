@@ -127,6 +127,12 @@ background work from earlier tests and transient Prometheus Gather collectors.
 State and metric cardinality assertions still run through the same real stack.
 This avoids expensive false-positive reruns.
 
+The billing enqueue/drain fixture also gives concurrent calls distinct economic
+heads. Reusing one head produced legitimate same-revision conflicts whenever
+several calls were admitted before the fence. Both racing and fully admitted
+schedules now assert worker errors, exact admitted counts, pin coverage and
+exactly-once posting. No production billing behavior changes.
+
 A fast filesystem/AST policy prevents the copied unbounded fixture pattern
 from returning. No public API/ABI or cancellation frame shape is changed.
 
