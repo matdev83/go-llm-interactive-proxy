@@ -1,12 +1,52 @@
 package qa
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestQAFastPreflight_TestCostAnchorHasStableCompilerPath(t *testing.T) {
+	t.Parallel()
+	pwsh, err := exec.LookPath("pwsh")
+	if err != nil {
+		t.Skip("PowerShell is required to execute the Windows anchor path helper")
+	}
+	root := t.TempDir()
+	command := `$ErrorActionPreference = 'Stop'
+$ast = [Management.Automation.Language.Parser]::ParseFile($env:LIP_TEST_COST_SCRIPT, [ref]$null, [ref]$null)
+$node = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-AnchorWorktreeRoot' }, $true)
+if ($null -eq $node) { throw 'missing stable anchor path helper' }
+. ([ScriptBlock]::Create($node.Extent.Text))
+$paths = @(
+    (Get-AnchorWorktreeRoot $env:LIP_TEST_HEAD_ROOT 'bb1ef9620ee6e8d9199950161e46fc51914945f2'),
+    (Get-AnchorWorktreeRoot $env:LIP_TEST_HEAD_ROOT 'bb1ef9620ee6e8d9199950161e46fc51914945f2'),
+    (Get-AnchorWorktreeRoot $env:LIP_TEST_HEAD_ROOT '6dbb831885341516117034923f0c3203373aded0')
+)
+ConvertTo-Json -InputObject $paths -Compress`
+	cmd := exec.CommandContext(t.Context(), pwsh, "-NoLogo", "-NoProfile", "-Command", command)
+	cmd.Env = append(os.Environ(), "LIP_TEST_COST_SCRIPT="+repositoryFile(t, "scripts", "test-cost-ratchet.ps1"), "LIP_TEST_HEAD_ROOT="+filepath.Join(root, "head"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("stable anchor path: %v\n%s", err, out)
+	}
+	var paths []string
+	if err := json.Unmarshal(out, &paths); err != nil {
+		t.Fatalf("decode anchor paths: %v\n%s", err, out)
+	}
+	want := []string{filepath.Join(root, "lip-testcost-anchor-bb1ef962"), filepath.Join(root, "lip-testcost-anchor-bb1ef962"), filepath.Join(root, "lip-testcost-anchor-6dbb8318")}
+	if len(paths) != len(want) {
+		t.Fatalf("anchor paths = %q, want %q", paths, want)
+	}
+	for i := range want {
+		if paths[i] != want[i] {
+			t.Fatalf("anchor path %d = %q, want %q", i, paths[i], want[i])
+		}
+	}
+}
 
 func TestQAFastPreflight_TestCostPolicyUpdateAuthorization(t *testing.T) {
 	t.Parallel()

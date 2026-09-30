@@ -232,3 +232,9 @@ in place; all other package and aggregate limits are retained. The
 `allow-test-cost-policy-update` PR label authorizes editing the policy without
 authorizing measurement violations. The broader `allow-test-cost-growth` override
 remains a separate opt-in.
+
+The ratchet uses a stable, short checkout path for each pinned historical anchor.
+Go compiler entries depend on source paths, so a random checkout path prevents
+reuse even when the frozen source is identical. Per-run temporary roots and
+measurement artifacts remain isolated. An existing anchor directory still fails
+closed; concurrent measurements must not share or overwrite that checkout.
