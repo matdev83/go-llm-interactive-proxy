@@ -84,7 +84,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Depends: 3.1, 3.2_
   - _Validation: make dev-test PKGS='./internal/core/billing/... ./internal/infra/billingcompose/...'_
 
-- [ ] 4. Preserve report provenance through complete customer valuation composition
+- [x] 4. Preserve report provenance through complete customer valuation composition
 - [x] 4.1 Merge independent source contexts without inventing cross-group pairs
   - Carry contexts and reports through inference grouping, input narrowing, line-ID renaming, fixed/proxy combination, and final base-tariff overwrite.
   - Test two route tariffs with equal amounts/line IDs but different reporting semantics; their interpretation identities must differ without changing the debit.
@@ -94,7 +94,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Requirements: 3.1, 3.2, 3.3, 4.4, 5.1, 5.3, 6.2, 6.3, 7.1, 7.4_
   - _Depends: 3.3_
   - _Validation: make dev-test PKGS='./internal/core/billing/... ./internal/infra/billingcompose/...'_
-- [ ] 4.2 Enforce deterministic composed report limits and truthful incompleteness
+- [x] 4.2 Enforce deterministic composed report limits and truthful incompleteness
   - Merge at most 128 retained and 128 incoming entries before reducing to the canonical lowest prefix; preserve all incomplete contexts/reasons.
   - Test differently ordered group merges, pair 128/129, duplicated unknown pairs, and contexts whose entries are omitted by the result limit.
   - Show exact-limit complete versus over-limit incomplete outcomes without turning truncation into settlement denial.
@@ -153,3 +153,5 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
 - 2.3: Identity mutation controls compare each source field against a valid enabled baseline; independent overlays flattening source fields and restoring pre-task behavior fail the corresponding tests.
 - 3.2: The shared relation guard now permits exactly one monetary overlap owner and the named bounded advisory consumer; an independent third-consumer mutation is rejected. The assessor remains unwired until 3.3.
 - 4.1: The 1027 bound counts pre-narrowing source groups; fixed scopes share a context and deduplicate. Proxy report-only changes may alter the composite result ID, but unchanged input-set/context identity still triggers the store's integrity conflict; pin this path in durable replay tests.
+
+- Baseline filesystem fixture repair: `aa955dc1` separates recovery-file creation from the original filesystem birth-time tick, retaining inode-reuse and in-place rewrite controls. Host `/tmp` exhausted; local verification uses transient `TMPDIR` and `GOTMPDIR` in a private root-filesystem directory without changing caches or persistent configuration.

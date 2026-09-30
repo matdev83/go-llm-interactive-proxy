@@ -2,7 +2,10 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -136,7 +139,7 @@ func TestRetailSupportAdvisoryMergeOwnsSourceReports(t *testing.T) {
 	}
 	for i, source := range sources {
 		pair := composite.SupportAdvisory.Pairs[i]
-		if pair.ContextKey != source.SupportAdvisoryContexts[0].Key() || pair.ScopeKey != "scope-"+source.ID || pair.Left.CanonicalKey() != key.CanonicalKey() || pair.Right.CanonicalKey() != right.CanonicalKey() {
+		if pair.ContextKey != source.SupportAdvisoryContexts[0].Key() || pair.ScopeKey != "scope-"+source.ID || pair.Left.CanonicalKey() != right.CanonicalKey() || pair.Right.CanonicalKey() != key.CanonicalKey() {
 			t.Fatalf("source pair rewritten: %+v", pair)
 		}
 		if composite.SupportAdvisory.IncompleteContexts[i].ContextKey != pair.ContextKey || composite.SupportAdvisory.IncompleteContexts[i].Reason != economics.SupportAdvisoryEvidenceUnavailable {
@@ -147,7 +150,7 @@ func TestRetailSupportAdvisoryMergeOwnsSourceReports(t *testing.T) {
 		source.SupportAdvisoryContexts[0].Tariff.ID = "mutated"
 	}
 	for _, pair := range composite.SupportAdvisory.Pairs {
-		if pair.Left.Component != key.Component {
+		if pair.Left.Component != right.Component || pair.Right.Component != key.Component {
 			t.Fatal("merged report aliases source")
 		}
 	}
@@ -160,5 +163,264 @@ func TestRetailSupportAdvisoryMergeOwnsSourceReports(t *testing.T) {
 		if sourceContext.Tariff.ID == "mutated" {
 			t.Fatal("merged context aliases source")
 		}
+	}
+}
+
+func retailAdvisoryMergeRatedSource(t *testing.T, id string) (economics.Valuation, economics.SupportAdvisoryContext) {
+	t.Helper()
+	policy := retailSelectionPolicy(RetailSelectionAllAttributable, RetailBasisIndependent)
+	call := retailSelectionCall(t, policy, "advisory-merge-"+id)
+	key := metering.ComponentKey{Direction: metering.DirectionInput, Component: metering.ComponentTextToken, Unit: metering.UnitToken, SchemaID: "retail.v1"}
+	tariff := retailInternalAdvisoryTariff(t, phase10RetailTariffWithRef(t,
+		economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "advisory-merge-" + id, Version: "v1"}, RaterID: "reference"},
+		[]economics.RatingRule{phase10RetailLinearRule("advisory-merge", key, "1")},
+	))
+	observation := phase10RetailObservation(t, call.CallID, "leg-"+id, "observation-"+id, metering.OriginLocal, metering.BoundaryBackendIngress, phase10RetailMeasure{key: key, quantity: "1"})
+	ref, err := observation.Ref("store-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payer := metering.PaymentParty{Kind: metering.PaymentPartyCustomer, ID: call.AccountID}
+	input := retailEconomicsInput(call, policy, tariff, []metering.Observation{observation}, []metering.ObservationRef{ref}, nil, nil, payer, call.FinishedAt, "call:"+call.CallID.String(), metering.SubjectBillingCall)
+	valuation, err := rateRetailValuation(context.Background(), tariff, input, nil, false, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := valuation.Validate(); err != nil {
+		t.Fatalf("source valuation is invalid: %v", err)
+	}
+	if len(valuation.SupportAdvisoryContexts) != 1 {
+		t.Fatalf("source advisory contexts=%d, want 1", len(valuation.SupportAdvisoryContexts))
+	}
+	return valuation, valuation.SupportAdvisoryContexts[0]
+}
+
+func retailAdvisoryMergePair(contextKey, scope string, reverse bool) economics.SupportAdvisoryPair {
+	textKey := metering.ComponentKey{Direction: metering.DirectionInput, Component: metering.ComponentTextToken, Unit: metering.UnitToken, SchemaID: "retail.v1"}
+	audioKey := metering.ComponentKey{Direction: metering.DirectionInput, Component: metering.ComponentAudioToken, Unit: metering.UnitToken, SchemaID: "retail.v1"}
+	left, right := textKey, audioKey
+	if reverse {
+		left, right = right, left
+	}
+	return economics.SupportAdvisoryPair{ContextKey: contextKey, ScopeKey: scope, Left: left, Right: right}
+}
+
+func retailAdvisoryMergeReport(contextKey string, start, end int, incomplete ...economics.SupportAdvisoryReason) *economics.SupportAdvisoryReport {
+	report := &economics.SupportAdvisoryReport{}
+	for scope := start; scope < end; scope++ {
+		report.Pairs = append(report.Pairs, retailAdvisoryMergePair(contextKey, fmt.Sprintf("scope-%03d", scope), scope%2 == 0))
+	}
+	for _, reason := range incomplete {
+		report.IncompleteContexts = append(report.IncompleteContexts, economics.SupportAdvisoryIncomplete{ContextKey: contextKey, Reason: reason})
+	}
+	return report
+}
+
+func retailAdvisoryContentBytes(t *testing.T, valuation economics.Valuation) []byte {
+	t.Helper()
+	canonical, err := valuation.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := struct {
+		Contexts []economics.SupportAdvisoryContext `json:"contexts"`
+		Report   *economics.SupportAdvisoryReport   `json:"report,omitempty"`
+	}{Contexts: canonical.SupportAdvisoryContexts, Report: canonical.SupportAdvisory}
+	encoded, err := json.Marshal(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
+
+func TestRetailSupportAdvisoryCompositionCanonicalPrefixAndPermutation(t *testing.T) {
+	t.Parallel()
+	first, contextA := retailAdvisoryMergeRatedSource(t, "a")
+	second, contextB := retailAdvisoryMergeRatedSource(t, "b")
+	third, contextC := retailAdvisoryMergeRatedSource(t, "c")
+	sources := []economics.Valuation{first, second, third}
+	contexts := []economics.SupportAdvisoryContext{contextA, contextB, contextC}
+	sources[0].SupportAdvisory = retailAdvisoryMergeReport(contextA.Key(), 0, 80, economics.SupportAdvisoryCandidateBudget, economics.SupportAdvisoryGraphBudget)
+	sources[1].SupportAdvisory = retailAdvisoryMergeReport(contextB.Key(), 0, 80, economics.SupportAdvisoryEvidenceUnavailable)
+	sources[2].SupportAdvisory = retailAdvisoryMergeReport(contextC.Key(), 0, 80)
+
+	orders := [][]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
+	var wantContent []byte
+	for orderIndex, order := range orders {
+		var composite economics.Valuation
+		for _, sourceIndex := range order {
+			combineRetailValuation(&composite, sources[sourceIndex])
+		}
+		if err := composite.Validate(); err != nil {
+			t.Fatalf("order %v produced invalid final valuation: %v", order, err)
+		}
+		if composite.Completeness != economics.CompletenessComplete {
+			t.Fatalf("order %v changed completeness to %q", order, composite.Completeness)
+		}
+		if got := len(composite.SupportAdvisoryContexts); got != 3 {
+			t.Fatalf("order %v retained %d contexts, want all 3", order, got)
+		}
+		if composite.SupportAdvisory == nil || len(composite.SupportAdvisory.Pairs) != economics.MaxSupportAdvisoryPairs {
+			t.Fatalf("order %v pairs=%d, want %d", order, len(composite.SupportAdvisory.Pairs), economics.MaxSupportAdvisoryPairs)
+		}
+
+		contextKeys := []string{contexts[0].Key(), contexts[1].Key(), contexts[2].Key()}
+		sort.Strings(contextKeys)
+		for index, context := range composite.SupportAdvisoryContexts {
+			if context.Key() != contextKeys[index] {
+				t.Fatalf("order %v context %d=%q, want %q", order, index, context.Key(), contextKeys[index])
+			}
+		}
+		for index, pair := range composite.SupportAdvisory.Pairs {
+			contextIndex, scopeIndex := index/80, index%80
+			wantContext := contextKeys[contextIndex]
+			if contextIndex == 2 || pair.ContextKey != wantContext || pair.ScopeKey != fmt.Sprintf("scope-%03d", scopeIndex) {
+				t.Fatalf("order %v pair %d=%+v, want context %q and scope-%03d", order, index, pair, wantContext, scopeIndex)
+			}
+			if pair.Left.Component != metering.ComponentAudioToken || pair.Right.Component != metering.ComponentTextToken {
+				t.Fatalf("order %v pair %d was not canonically oriented: %+v", order, index, pair)
+			}
+		}
+
+		wantIncomplete := []economics.SupportAdvisoryIncomplete{
+			{ContextKey: contextA.Key(), Reason: economics.SupportAdvisoryCandidateBudget},
+			{ContextKey: contextA.Key(), Reason: economics.SupportAdvisoryGraphBudget},
+			{ContextKey: contextB.Key(), Reason: economics.SupportAdvisoryEvidenceUnavailable},
+			{ContextKey: contextB.Key(), Reason: economics.SupportAdvisoryPairLimit},
+			{ContextKey: contextC.Key(), Reason: economics.SupportAdvisoryPairLimit},
+		}
+		sort.Slice(wantIncomplete, func(i, j int) bool {
+			if wantIncomplete[i].ContextKey != wantIncomplete[j].ContextKey {
+				return wantIncomplete[i].ContextKey < wantIncomplete[j].ContextKey
+			}
+			return wantIncomplete[i].Reason < wantIncomplete[j].Reason
+		})
+		if !reflect.DeepEqual(composite.SupportAdvisory.IncompleteContexts, wantIncomplete) {
+			t.Fatalf("order %v incomplete entries=%v, want %v", order, composite.SupportAdvisory.IncompleteContexts, wantIncomplete)
+		}
+
+		content := retailAdvisoryContentBytes(t, composite)
+		if orderIndex == 0 {
+			wantContent = content
+		} else if !reflect.DeepEqual(content, wantContent) {
+			t.Fatalf("order %v changed canonical report content\n got: %s\nwant: %s", order, content, wantContent)
+		}
+		if orderIndex != 0 {
+			continue
+		}
+
+		withoutAdvice := composite.Clone()
+		withoutAdvice.SupportAdvisoryContexts = nil
+		withoutAdvice.SupportAdvisory = nil
+		var financialControl economics.Valuation
+		for _, sourceIndex := range order {
+			source := sources[sourceIndex].Clone()
+			source.SupportAdvisoryContexts = nil
+			source.SupportAdvisory = nil
+			combineRetailValuation(&financialControl, source)
+		}
+		if !reflect.DeepEqual(withoutAdvice, financialControl) {
+			t.Fatal("report composition changed non-advisory valuation fields")
+		}
+		advisedMoney, err := retailValuationMoney(composite)
+		if err != nil {
+			t.Fatal(err)
+		}
+		controlMoney, err := retailValuationMoney(financialControl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if advisedMoney != controlMoney {
+			t.Fatalf("report composition changed settlement money: advised=%+v control=%+v", advisedMoney, controlMoney)
+		}
+		if advisedMoney != (Money{Nano: 3_000_000_000, Currency: "USD"}) {
+			t.Fatalf("three one-dollar source groups settled as %+v, want USD 3.00", advisedMoney)
+		}
+	}
+}
+
+func TestRetailSupportAdvisoryComposition129KeepsCanonicalPrefix(t *testing.T) {
+	t.Parallel()
+	base, sourceContext := retailAdvisoryMergeRatedSource(t, "limit")
+	contextKey := sourceContext.Key()
+	first := base.Clone()
+	first.SupportAdvisory = retailAdvisoryMergeReport(contextKey, 0, economics.MaxSupportAdvisoryPairs)
+	second := base.Clone()
+	second.ID += ":second"
+	second.SupportAdvisory = retailAdvisoryMergeReport(contextKey, economics.MaxSupportAdvisoryPairs, economics.MaxSupportAdvisoryPairs+1)
+
+	var composite economics.Valuation
+	combineRetailValuation(&composite, first)
+	combineRetailValuation(&composite, second)
+	if got := len(composite.SupportAdvisory.Pairs); got != economics.MaxSupportAdvisoryPairs {
+		t.Fatalf("129 distinct pairs retained %d entries, want 128", got)
+	}
+	if err := composite.Validate(); err != nil {
+		t.Fatalf("129-pair result is invalid: %v", err)
+	}
+	if composite.Completeness != economics.CompletenessComplete {
+		t.Fatalf("report limit changed valuation completeness to %q", composite.Completeness)
+	}
+	money, err := retailValuationMoney(composite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if money != (Money{Nano: 2_000_000_000, Currency: "USD"}) {
+		t.Fatalf("129-pair report limit changed settlement money to %+v, want USD 2.00", money)
+	}
+	if len(composite.SupportAdvisory.IncompleteContexts) != 1 || composite.SupportAdvisory.IncompleteContexts[0] != (economics.SupportAdvisoryIncomplete{ContextKey: contextKey, Reason: economics.SupportAdvisoryPairLimit}) {
+		t.Fatalf("129 distinct pairs must report pair_limit, got %+v", composite.SupportAdvisory.IncompleteContexts)
+	}
+	for index, pair := range composite.SupportAdvisory.Pairs {
+		if pair.ScopeKey != fmt.Sprintf("scope-%03d", index) {
+			t.Fatalf("129-pair prefix changed at %d: %+v", index, pair)
+		}
+	}
+}
+
+func TestRetailSupportAdvisoryCompositionExact128DeduplicatesPair(t *testing.T) {
+	t.Parallel()
+	base, sourceContext := retailAdvisoryMergeRatedSource(t, "exact")
+	contextKey := sourceContext.Key()
+	first := base.Clone()
+	first.SupportAdvisory = retailAdvisoryMergeReport(contextKey, 0, 64)
+	second := base.Clone()
+	second.ID += ":second"
+	second.SupportAdvisory = &economics.SupportAdvisoryReport{Pairs: []economics.SupportAdvisoryPair{
+		retailAdvisoryMergePair(contextKey, "scope-000", false),
+	}}
+	second.SupportAdvisory.Pairs = append(second.SupportAdvisory.Pairs, retailAdvisoryMergeReport(contextKey, 64, 128).Pairs...)
+
+	var composite economics.Valuation
+	combineRetailValuation(&composite, first)
+	combineRetailValuation(&composite, second)
+	if err := composite.Validate(); err != nil {
+		t.Fatalf("exact-limit result is invalid: %v", err)
+	}
+	if got := len(composite.SupportAdvisory.Pairs); got != economics.MaxSupportAdvisoryPairs {
+		t.Fatalf("128 distinct pairs plus a duplicate retained %d entries, want 128", got)
+	}
+	if len(composite.SupportAdvisory.IncompleteContexts) != 0 {
+		t.Fatalf("exact 128-pair result is incomplete: %+v", composite.SupportAdvisory.IncompleteContexts)
+	}
+	for index, pair := range composite.SupportAdvisory.Pairs {
+		if pair.ScopeKey != fmt.Sprintf("scope-%03d", index) {
+			t.Fatalf("exact-limit pair %d=%+v, want canonical scope-%03d", index, pair, index)
+		}
+	}
+}
+
+func TestRetailSupportAdvisoryCompositionPreservesOversizedSourceForFinalValidation(t *testing.T) {
+	t.Parallel()
+	source, sourceContext := retailAdvisoryMergeRatedSource(t, "oversized")
+	source.SupportAdvisory = retailAdvisoryMergeReport(sourceContext.Key(), 0, economics.MaxSupportAdvisoryPairs+1)
+
+	var composite economics.Valuation
+	combineRetailValuation(&composite, source)
+	if got := len(composite.SupportAdvisory.Pairs); got != economics.MaxSupportAdvisoryPairs+1 {
+		t.Fatalf("oversized source was rewritten to %d pairs, want raw 129 for final validation", got)
+	}
+	if err := composite.Validate(); err == nil {
+		t.Fatal("final SDK validation accepted an oversized source report")
 	}
 }

@@ -1154,6 +1154,7 @@ func combineRetailValuation(dst *economics.Valuation, src economics.Valuation) {
 	}
 	if dst.ID == "" {
 		*dst = src.Clone()
+		dst.SupportAdvisory = mergeRetailSupportAdvisoryReportsBounded(nil, dst.SupportAdvisory)
 		return
 	}
 	mergeRetailSupportAdvisory(dst, src)
@@ -1202,13 +1203,116 @@ func mergeRetailSupportAdvisory(dst *economics.Valuation, src economics.Valuatio
 	if src.SupportAdvisory == nil {
 		return
 	}
-	incoming := src.SupportAdvisory.Clone()
-	if dst.SupportAdvisory == nil {
-		dst.SupportAdvisory = incoming
-		return
+	incoming := src.SupportAdvisory
+	dst.SupportAdvisory = mergeRetailSupportAdvisoryReportsBounded(dst.SupportAdvisory, incoming)
+}
+
+// mergeRetailSupportAdvisoryReportsBounded canonicalizes one local report at a
+// time and then reduces the merged report to the deterministic global prefix.
+func mergeRetailSupportAdvisoryReportsBounded(dst, incoming *economics.SupportAdvisoryReport) *economics.SupportAdvisoryReport {
+	retained, retainedValid := canonicalRetailSupportAdvisoryReport(dst)
+	next, nextValid := canonicalRetailSupportAdvisoryReport(incoming)
+	if retained == nil {
+		return next
 	}
-	dst.SupportAdvisory.Pairs = append(dst.SupportAdvisory.Pairs, incoming.Pairs...)
-	dst.SupportAdvisory.IncompleteContexts = append(dst.SupportAdvisory.IncompleteContexts, incoming.IncompleteContexts...)
+	if next == nil {
+		return retained
+	}
+	if !retainedValid || !nextValid {
+		out := retained
+		out.Pairs = append(out.Pairs, next.Pairs...)
+		out.IncompleteContexts = append(out.IncompleteContexts, next.IncompleteContexts...)
+		return out
+	}
+	out := retained
+	out.Pairs = append(out.Pairs, next.Pairs...)
+	out.IncompleteContexts = append(out.IncompleteContexts, next.IncompleteContexts...)
+	slices.SortFunc(out.Pairs, compareRetailSupportAdvisoryPair)
+	out.Pairs = slices.CompactFunc(out.Pairs, func(a, b economics.SupportAdvisoryPair) bool {
+		return compareRetailSupportAdvisoryPair(a, b) == 0
+	})
+	canonicalRetailSupportAdvisoryIncomplete(out)
+	if len(out.Pairs) > economics.MaxSupportAdvisoryPairs {
+		lostContexts := make(map[string]struct{})
+		for _, pair := range out.Pairs[economics.MaxSupportAdvisoryPairs:] {
+			lostContexts[pair.ContextKey] = struct{}{}
+		}
+		out.Pairs = slices.Clone(out.Pairs[:economics.MaxSupportAdvisoryPairs])
+		for contextKey := range lostContexts {
+			out.IncompleteContexts = append(out.IncompleteContexts, economics.SupportAdvisoryIncomplete{
+				ContextKey: contextKey,
+				Reason:     economics.SupportAdvisoryPairLimit,
+			})
+		}
+		canonicalRetailSupportAdvisoryIncomplete(out)
+	}
+	if len(out.Pairs) == 0 && len(out.IncompleteContexts) == 0 {
+		return nil
+	}
+	return out
+}
+
+// canonicalRetailSupportAdvisoryReport owns and sorts one already-bounded local
+// report. Invalid source DTOs remain intact for the existing final validation.
+func canonicalRetailSupportAdvisoryReport(report *economics.SupportAdvisoryReport) (*economics.SupportAdvisoryReport, bool) {
+	if report == nil {
+		return nil, true
+	}
+	out := report.Clone()
+	if len(out.Pairs) > economics.MaxSupportAdvisoryPairs {
+		return out, false
+	}
+	for i := range out.Pairs {
+		left, err := out.Pairs[i].Left.Normalize()
+		if err != nil {
+			return out, false
+		}
+		right, err := out.Pairs[i].Right.Normalize()
+		if err != nil {
+			return out, false
+		}
+		leftBytes, rightBytes := string(left.CanonicalBytes()), string(right.CanonicalBytes())
+		if strings.Compare(leftBytes, rightBytes) > 0 {
+			left, right = right, left
+		}
+		out.Pairs[i].Left = left.Clone()
+		out.Pairs[i].Right = right.Clone()
+	}
+	slices.SortFunc(out.Pairs, compareRetailSupportAdvisoryPair)
+	out.Pairs = slices.CompactFunc(out.Pairs, func(a, b economics.SupportAdvisoryPair) bool {
+		return compareRetailSupportAdvisoryPair(a, b) == 0
+	})
+	canonicalRetailSupportAdvisoryIncomplete(out)
+	if len(out.Pairs) == 0 && len(out.IncompleteContexts) == 0 {
+		return nil, true
+	}
+	return out, true
+}
+
+func canonicalRetailSupportAdvisoryIncomplete(report *economics.SupportAdvisoryReport) {
+	slices.SortFunc(report.IncompleteContexts, compareRetailSupportAdvisoryIncomplete)
+	report.IncompleteContexts = slices.Compact(report.IncompleteContexts)
+}
+
+func compareRetailSupportAdvisoryPair(a, b economics.SupportAdvisoryPair) int {
+	for _, keys := range [][2]string{
+		{a.ContextKey, b.ContextKey},
+		{a.ScopeKey, b.ScopeKey},
+		{string(a.Left.CanonicalBytes()), string(b.Left.CanonicalBytes())},
+		{string(a.Right.CanonicalBytes()), string(b.Right.CanonicalBytes())},
+	} {
+		if cmp := strings.Compare(keys[0], keys[1]); cmp != 0 {
+			return cmp
+		}
+	}
+	return 0
+}
+
+func compareRetailSupportAdvisoryIncomplete(a, b economics.SupportAdvisoryIncomplete) int {
+	if cmp := strings.Compare(a.ContextKey, b.ContextKey); cmp != 0 {
+		return cmp
+	}
+	return strings.Compare(string(a.Reason), string(b.Reason))
 }
 
 func cloneRetailLines(lines []economics.LineItem) []economics.LineItem {
