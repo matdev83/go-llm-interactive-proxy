@@ -10,7 +10,7 @@
 - Remote TypeSafe/Jev tests are hermetic by default; live external tests are explicit opt-in only.
 - Tasks marked (P) may proceed in parallel after their listed dependencies.
 
-- [ ] 1. Rebaseline current-main invariants and freeze the acceptance matrix
+- [x] 1. Rebaseline current-main invariants and freeze the acceptance matrix
   - [x] 1.1 Characterize session-authority and stage ordering before production changes
     - Add/refresh tests proving the current order through BeginTurn, A-leg fetch, secret guard, frontend ingress, submit, tool catalog, request shaping, pre-request, and route hint.
     - Characterize SessionView construction/cloning and prove ClientSessionHint is not proxy authority.
@@ -30,7 +30,7 @@
     - _Depends: none_
     - _Validation: one data-driven fixture matrix with explicit expected evidence source/reason_
 
-  - [ ] 1.3 (P) Rebaseline feature-plane and large-body wire eligibility
+  - [x] 1.3 (P) Rebaseline feature-plane and large-body wire eligibility
     - Pin the implementation-time standard plane count/order, request-access classes, generated-plane currency, and static disposition for an occupied MetadataOnly plane.
     - Characterize canonical versus wire proof inputs available for ClientUserAgent/tool names without introducing new behavior yet.
     - Prove the pre-change wire path has no classification evidence and no hidden shadow Call.
@@ -368,3 +368,5 @@
 - Classification keying must use AuthoritativeSessionID or proxy-owned ALegID explicitly; generic SessionView.PartitionKey still permits ClientSessionHint fallback.
 
 - The shared evidence matrix validates local source paths; update its active-spec references when Task 12.3 archives this SDD (and preserve explicit-completion source references if that spec relocates).
+
+- Task 1.3 baseline absence assertions must evolve in Tasks 7.1/7.2 when bounded wire evidence lands. OpenResponses canonical User-Agent capture currently uses TrimSpace directly; use the shared acceptance helper for canonical/wire parity in Task 7.2.
