@@ -435,6 +435,7 @@ func TestCIIterationSpeed_QATestsCuratedDeltaAndCanonicalContracts(t *testing.T)
 		"./internal/stdhttp/...",
 		"./internal/testkit/conformance/...",
 		"./tools/backendplugin/...",
+		"./internal/core/billing/...",
 	}
 
 	makefile := readRepositoryFile(t, "Makefile")
