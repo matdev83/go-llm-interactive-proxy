@@ -11,7 +11,7 @@
 - Tasks marked (P) may proceed in parallel after their listed dependencies.
 
 - [ ] 1. Rebaseline current-main invariants and freeze the acceptance matrix
-  - [ ] 1.1 Characterize session-authority and stage ordering before production changes
+  - [x] 1.1 Characterize session-authority and stage ordering before production changes
     - Add/refresh tests proving the current order through BeginTurn, A-leg fetch, secret guard, frontend ingress, submit, tool catalog, request shaping, pre-request, and route hint.
     - Characterize SessionView construction/cloning and prove ClientSessionHint is not proxy authority.
     - Record implementation-time paths/symbols in test comments only where useful; preserve semantic order if files moved.
@@ -362,3 +362,7 @@
     - _Boundary: final merged-main certification/spec lifecycle_
     - _Depends: 12.2_
     - _Validation: make qa plus merged-main focused rerun; no unchecked applicable tasks before archive_
+
+## Implementation Notes
+
+- Classification keying must use AuthoritativeSessionID or proxy-owned ALegID explicitly; generic SessionView.PartitionKey still permits ClientSessionHint fallback.

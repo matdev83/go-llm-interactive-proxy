@@ -24,7 +24,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -102,6 +108,11 @@ type spyConcurrencyProvider struct {
 
 func (s *spyConcurrencyProvider) AdmitLease(ctx context.Context, in authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	s.mu.Lock()
+	if holder := meteringHolderFrom(ctx); holder != nil && holder.FrontendIngress != nil {
+		*s.events = append(*s.events, "FrontendIngressReady")
+	} else {
+		*s.events = append(*s.events, "FrontendIngressMissing")
+	}
 	*s.events = append(*s.events, "RequestAdmission")
 	s.mu.Unlock()
 	return authority.LeaseDecision{
@@ -128,8 +139,9 @@ func (s *spyPromptCacheMaintenance) EndSession(aLegID string) {}
 func (s *spyPromptCacheMaintenance) ArmCommittedTurn(turn PromptCacheCommittedTurn) {}
 
 type spySubmitHook struct {
-	mu     *sync.Mutex
-	events *[]string
+	mu                      *sync.Mutex
+	events                  *[]string
+	frontendIngressAtSubmit *bool
 }
 
 func (s spySubmitHook) ID() string                        { return "spy_submit" }
@@ -137,9 +149,90 @@ func (s spySubmitHook) Order() int                        { return 0 }
 func (s spySubmitHook) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
 func (s spySubmitHook) Handle(ctx context.Context, call *lipapi.Call, meta *sdkhooks.SubmitMeta) (sdkhooks.SubmitDecision, error) {
 	s.mu.Lock()
+	if holder := meteringHolderFrom(ctx); holder != nil && holder.FrontendIngress != nil && s.frontendIngressAtSubmit != nil {
+		*s.frontendIngressAtSubmit = true
+	}
 	*s.events = append(*s.events, "SubmitHooks")
 	s.mu.Unlock()
 	return sdkhooks.SubmitDecision{}, nil
+}
+
+type orderWorkspaceResolver struct{}
+
+func (orderWorkspaceResolver) Resolve(context.Context) (lipworkspace.WorkspaceView, error) {
+	return lipworkspace.WorkspaceView{ID: "workspace-order"}, nil
+}
+
+type preparationOrderStages struct {
+	mu     *sync.Mutex
+	events *[]string
+	view   *session.SessionView
+}
+
+func (s *preparationOrderStages) record(event string, view session.SessionView, workspaceID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if view.AuthoritativeSessionID == "" || view.AuthoritativeSessionID == view.ClientSessionHint || view.ALegID == "" || view.TurnID == "" || view.WorkspaceID != "workspace-order" || view.ClientSessionHint != "c-order" || workspaceID != "workspace-order" {
+		*s.events = append(*s.events, event+"MissingBoundSession")
+	} else {
+		if s.view == nil {
+			copy := view
+			s.view = &copy
+		} else if s.view.AuthoritativeSessionID != view.AuthoritativeSessionID || s.view.ALegID != view.ALegID || s.view.TurnID != view.TurnID || s.view.WorkspaceID != view.WorkspaceID || s.view.ClientSessionHint != view.ClientSessionHint {
+			*s.events = append(*s.events, event+"SessionDrift")
+		}
+		*s.events = append(*s.events, event)
+	}
+}
+
+type orderSecretGuard struct{ stages *preparationOrderStages }
+
+func (g orderSecretGuard) ID() string                           { return "order-secret-guard" }
+func (g orderSecretGuard) Order() int                           { return 0 }
+func (g orderSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailOpen }
+func (g orderSecretGuard) Evaluate(_ context.Context, _ *lipapi.Call, meta secretguard.Meta, _ secretguard.Services) (secretguard.Decision, error) {
+	g.stages.record("SecretGuard", meta.Session, meta.Workspace.ID)
+	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
+}
+
+type orderToolCatalogFilter struct{ stages *preparationOrderStages }
+
+func (f orderToolCatalogFilter) ID() string                        { return "order-tool-catalog" }
+func (f orderToolCatalogFilter) Order() int                        { return 0 }
+func (f orderToolCatalogFilter) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (f orderToolCatalogFilter) Handle(_ context.Context, _ *lipapi.Call, meta toolcatalog.CatalogMeta, _ toolcatalog.Services) error {
+	f.stages.record("ToolCatalog", meta.Session, meta.Workspace.ID)
+	return nil
+}
+
+type orderRequestTransform struct{ stages *preparationOrderStages }
+
+func (r orderRequestTransform) ID() string                        { return "order-request-transform" }
+func (r orderRequestTransform) Order() int                        { return 0 }
+func (r orderRequestTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (r orderRequestTransform) Handle(_ context.Context, _ *lipapi.Call, meta request.RequestMeta, _ request.Services) error {
+	r.stages.record("RequestTransform", meta.Session, meta.Workspace.ID)
+	return nil
+}
+
+type orderPreRequestHandler struct{ stages *preparationOrderStages }
+
+func (r orderPreRequestHandler) ID() string                        { return "order-pre-request" }
+func (r orderPreRequestHandler) Order() int                        { return 0 }
+func (r orderPreRequestHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (r orderPreRequestHandler) Handle(_ context.Context, _ *lipapi.Call, meta prerequest.Meta, _ prerequest.Services) (prerequest.Decision, error) {
+	r.stages.record("PreRequest", meta.Session, meta.Workspace.ID)
+	return prerequest.Allow(), nil
+}
+
+type orderRouteHintProvider struct{ stages *preparationOrderStages }
+
+func (r orderRouteHintProvider) ID() string                        { return "order-route-hint" }
+func (r orderRouteHintProvider) Order() int                        { return 0 }
+func (r orderRouteHintProvider) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (r orderRouteHintProvider) Hint(_ context.Context, in routehint.Input) (routehint.Result, error) {
+	r.stages.record("RouteHint", in.Session, in.Workspace.ID)
+	return routehint.Result{}, nil
 }
 
 func isCaller(name string) bool {
@@ -162,6 +255,8 @@ func TestExecutor_PreparationOrderCharacterization(t *testing.T) {
 	ctx := context.Background()
 	var events []string
 	var mu sync.Mutex
+	var frontendIngressAtSubmit bool
+	stages := &preparationOrderStages{mu: &mu, events: &events}
 
 	// 1. Setup B2BUA Store
 	b2, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -198,12 +293,19 @@ func TestExecutor_PreparationOrderCharacterization(t *testing.T) {
 
 	// Hook submit hook
 	ex.Bus = hooks.New(hooks.Config{
-		SubmitHooks: []sdkhooks.SubmitHook{spySubmitHook{mu: &mu, events: &events}},
+		SubmitHooks: []sdkhooks.SubmitHook{spySubmitHook{mu: &mu, events: &events, frontendIngressAtSubmit: &frontendIngressAtSubmit}},
 	})
 
 	// Setup Runtime Snapshot with a resolver
 	snap := extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{orderWorkspaceResolver{}}),
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			SecretGuards:       []secretguard.Guard{orderSecretGuard{stages: stages}},
+			ToolCatalogFilters: []toolcatalog.Filter{orderToolCatalogFilter{stages: stages}},
+			RequestTransforms:  []request.Transform{orderRequestTransform{stages: stages}},
+			PreRequestHandlers: []prerequest.Handler{orderPreRequestHandler{stages: stages}},
+			RouteHintProviders: []routehint.Provider{orderRouteHintProvider{stages: stages}},
+		}),
 	})
 	ex.RuntimeSnapshot = snap
 
@@ -287,9 +389,15 @@ func TestExecutor_PreparationOrderCharacterization(t *testing.T) {
 		"SecureSession.BeginTurn",
 		"FetchALeg",
 		"RouteAuthoritySnapshotBarrier",
+		"SecretGuard",
 		"MeteringCapture",
+		"FrontendIngressReady",
 		"RequestAdmission",
 		"SubmitHooks",
+		"ToolCatalog",
+		"RequestTransform",
+		"PreRequest",
+		"RouteHint",
 		"Keepwarm.BeginRealTurn",
 		"Billing.NewBillingCallID",
 	}
@@ -306,6 +414,12 @@ func TestExecutor_PreparationOrderCharacterization(t *testing.T) {
 		if actualEvents[i] != expected {
 			t.Errorf("event %d: expected %s, got %s. Full trace: %v", i, expected, actualEvents[i], actualEvents)
 		}
+	}
+	if !frontendIngressAtSubmit {
+		t.Error("submit hook did not observe the frontend-ingress checkpoint")
+	}
+	if stages.view == nil {
+		t.Fatal("no downstream stage observed a bound session view")
 	}
 
 	// Verify that A-leg scope is non-nil and was started after billing (which completed billing setup)

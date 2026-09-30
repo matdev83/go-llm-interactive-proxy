@@ -13,6 +13,9 @@ func TestSessionViewContextDefensivelyCopiesLabels(t *testing.T) {
 	labels := map[string]string{"feature": "enabled"}
 	ctx := session.WithSessionView(context.Background(), session.SessionView{
 		AuthoritativeSessionID: "session-authoritative",
+		ClientSessionHint:      "client-hint",
+		ALegID:                 "a-leg",
+		TurnID:                 "turn",
 		Labels:                 labels,
 	})
 	labels["feature"] = "mutated"
@@ -21,7 +24,7 @@ func TestSessionViewContextDefensivelyCopiesLabels(t *testing.T) {
 	if !ok {
 		t.Fatal("session view missing")
 	}
-	if got.AuthoritativeSessionID != "session-authoritative" || got.Labels["feature"] != "enabled" {
+	if got.AuthoritativeSessionID != "session-authoritative" || got.ClientSessionHint != "client-hint" || got.ALegID != "a-leg" || got.TurnID != "turn" || got.Labels["feature"] != "enabled" {
 		t.Fatalf("session view = %+v", got)
 	}
 	got.Labels["feature"] = "mutated-again"
