@@ -51,6 +51,83 @@ func (p *snapshotControlToolProvider) Handle(context.Context, controltool.Comple
 	return controltool.Outcome{Kind: controltool.OutcomeComplete, ResultText: "done", ReasonCode: "complete"}, nil
 }
 
+// snapshotCountingControlProvider records live identity reads so a test can
+// prove the frozen-identity accessor never makes one, and can be armed to panic
+// on any read that would break the generation pin.
+type snapshotCountingControlProvider struct {
+	snapshotControlToolProvider
+	liveIDPanic  bool
+	liveIDCalls  int
+	specPanic    bool
+	specCallSeen int
+}
+
+func (p *snapshotCountingControlProvider) ID() string {
+	p.liveIDCalls++
+	if p.liveIDPanic {
+		panic("live control provider identity read on the request path")
+	}
+	return p.id
+}
+
+func (p *snapshotCountingControlProvider) Spec() controltool.Spec {
+	p.specCallSeen++
+	if p.specPanic {
+		panic("control spec unavailable")
+	}
+	return p.snapshotControlToolProvider.Spec()
+}
+
+// TestRequestRuntimeSnapshot_ControlToolProviderIdentity pins the frozen identity
+// accessor the request path uses to pin its generation and honor plugin
+// suppression: it reports the cached validated identity for an occupied plane,
+// reports absence for an unoccupied one, and never reads the provider's live
+// identity, so it is safe to call before any spec resolution.
+func TestRequestRuntimeSnapshot_ControlToolProviderIdentity(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil_receiver_reports_absent_identity", func(t *testing.T) {
+		t.Parallel()
+
+		var snap *extensions.RequestRuntimeSnapshot
+		id, ok := snap.ControlToolProviderIdentity()
+		assert.False(t, ok)
+		assert.Empty(t, id)
+	})
+
+	t.Run("absent_plane_reports_absent_identity_without_provider_calls", func(t *testing.T) {
+		t.Parallel()
+
+		id, ok := snapshotWithControlTool(t, nil).ControlToolProviderIdentity()
+		assert.False(t, ok, "an unoccupied control_tool_provider plane has no frozen identity")
+		assert.Empty(t, id)
+	})
+
+	t.Run("occupied_plane_reads_cached_identity_without_live_identity_call", func(t *testing.T) {
+		t.Parallel()
+
+		provider := &snapshotCountingControlProvider{
+			snapshotControlToolProvider: snapshotControlToolProvider{id: "proxy.control.example"},
+		}
+		snap := snapshotWithControlTool(t, controltool.Provider(provider))
+		composed := provider.liveIDCalls
+		require.Positive(t, composed, "composition must validate the provider identity once")
+		liveCalls := provider.liveIDCalls
+		specCalls := provider.specCallSeen
+
+		// Arm the tripwire: any live identity read from here on panics.
+		provider.liveIDPanic = true
+		require.NotPanics(t, func() {
+			id, ok := snap.ControlToolProviderIdentity()
+			assert.True(t, ok, "an occupied plane must expose its frozen identity")
+			assert.Equal(t, "proxy.control.example", id)
+		})
+		assert.Equal(t, liveCalls, provider.liveIDCalls, "frozen identity must not read the live provider identity")
+		assert.Equal(t, specCalls, provider.specCallSeen, "frozen identity must not resolve the provider spec")
+		assert.Zero(t, provider.handles, "frozen identity must not invoke the provider")
+	})
+}
+
 func snapshotWithControlTool(t *testing.T, provider controltool.Provider) *extensions.RequestRuntimeSnapshot {
 	t.Helper()
 

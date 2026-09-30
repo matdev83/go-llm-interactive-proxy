@@ -1,15 +1,11 @@
-//go:build controltool_red
-
-// RED slice for task 3.1 of agent-loop-explicit-completion-protocol
+// Runtime slice for tasks 3.1/3.2 of agent-loop-explicit-completion-protocol
 // (spec: .kiro/specs/agent-loop-explicit-completion-protocol, requirements 3.1,
-// 4.1-4.7, 7.6, 11.3, 12.4, 12.6).
+// 3.2, 3.3, 4.1-4.7, 7.6, 10.3-10.6, 11.3, 12.1, 12.2, 12.4, 12.6).
 //
-// The //go:build controltool_red tag is TEMPORARY. It isolates this approved
-// RED checkpoint from the normal build and commit hooks: the candidate-open
-// path does not consume the control_tool_provider plane yet, so every
-// acceptance assertion below must fail on behavior, never on compilation.
-// Task 3.2 removes this tag when it implements the generic bounded
-// control-projection stage and the attempt-local activation owner.
+// Task 3.1 froze these as a behavioral RED checkpoint behind the temporary
+// controltool_red build tag. Task 3.2 implements the generic bounded
+// control-projection stage plus the attempt-local activation owner and removed
+// the tag, so every acceptance assertion below now runs in the normal build.
 //
 // Generic runtime only. This file names no concrete feature: the fake
 // provider is an anonymous `proxy_control` model control tool contributed

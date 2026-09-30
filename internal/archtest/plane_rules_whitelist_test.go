@@ -214,6 +214,15 @@ func TestAllowedStageConsumers_AllWhitelistedEntriesExercised(t *testing.T) {
 			funcName:  "ControlToolProvider",
 		},
 		{
+			qualSym:   "internal/core/extensions.(*RequestRuntimeSnapshot).ControlToolProviderIdentity",
+			relPath:   "internal/core/extensions/snapshot.go",
+			planeID:   "control_tool_provider",
+			planeExpr: "lipfeature.PlaneControlToolProvider",
+			wave:      Wave4_Tools,
+			isMethod:  true,
+			funcName:  "ControlToolProviderIdentity",
+		},
+		{
 			qualSym:   "internal/core/extensions.(*RequestRuntimeSnapshot).TrafficObserver",
 			relPath:   "internal/core/extensions/snapshot.go",
 			planeID:   "traffic_observers",

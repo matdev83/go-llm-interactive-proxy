@@ -201,6 +201,7 @@ var (
 		"internal/core/extensions.(*RequestRuntimeSnapshot).TerminalDecisionProvider":         true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).TerminalDecisionProviderIdentity": true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).ControlToolProvider":              true,
+		"internal/core/extensions.(*RequestRuntimeSnapshot).ControlToolProviderIdentity":      true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).TrafficObserver":                  true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).UsageObserver":                    true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).RawCapture":                       true,

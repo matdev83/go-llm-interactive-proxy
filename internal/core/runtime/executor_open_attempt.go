@@ -30,6 +30,7 @@ import (
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -124,6 +125,7 @@ type attemptTx struct {
 	// attempt-local resources
 	boundary              *coremetering.BoundaryAccumulator
 	accounting            attemptAccountingTracker
+	controlTool           *controlToolActivation
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
@@ -156,7 +158,6 @@ func (e *Executor) newAttemptSession(in attemptSessionInput) *attemptSession {
 		in.appendBillingLegFn = func(cctx context.Context, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
 			e.appendIndependentTerminalLeg(cctx, in.billingCallState, bleg.ALegID, bleg, primary, started, finished, outcome)
 		}
-		in.now = e.now
 		in.finalizeBilling = e.callFinalizeBilling
 		in.finalizeBillingV2 = e.callFinalizeBillingResult
 		in.billingEnabled = e.billingEnabled
@@ -168,6 +169,7 @@ func (e *Executor) newAttemptSession(in attemptSessionInput) *attemptSession {
 	}
 	sess := newAttemptSession(in)
 	if e != nil {
+		sess.now = e.now
 		sess.recordCancellationFn = e.recordCancellation
 		sess.appendBillingLegStrict = e.appendIndependentCallLegStrict
 	}
@@ -196,6 +198,7 @@ func (tx *attemptTx) createSession() *attemptSession {
 		boundary:              tx.boundary,
 		requestID:             attemptRequestID(tx.reqFacts),
 		boundaryScope:         tx.reqFacts.recvViews.Scope,
+		controlTool:           tx.controlTool,
 		toolFinal:             tx.toolFinal,
 		promptCacheSource:     tx.promptCacheSource,
 		promptCacheController: tx.promptCacheController,
@@ -652,6 +655,12 @@ func (e *Executor) openAttemptTx(
 	}); err != nil {
 		return fmt.Errorf("executor: request hooks: %w", err)
 	}
+	// Two-Point Projection point 1: ordinary request mutation is complete, so the
+	// projection inserts the approved control contract before the authoritative
+	// post-hook capability, context, and accounting rederive below.
+	if err := e.projectCandidateControlTool(hookCtx, tx, be, &attempt, c); err != nil {
+		return err
+	}
 	postHook, postErr := e.rederiveAfterRequestHooks(ctx, tx.reqFacts, tx.routeFacts, &attempt, c, be, plan.stickyBackendID, plan.stickyBinding, tx.failures, plan.parallel)
 	if postErr != nil {
 		return postErr
@@ -704,6 +713,19 @@ func (e *Executor) openAttemptTx(
 		}
 	} else {
 		reassertProvenance = tx.reqFacts.conversationProvenance
+	}
+	// Two-Point Projection point 2: replay the already-approved projection after
+	// the final conversation-view reconstruction and before any clamp, ingress,
+	// capture, adaptation, or Backend.Open. Eligibility is never reconsidered here
+	// and the spec is never re-read: only the approved bytes are replayed, and a
+	// candidate that cannot reproduce them fails closed before upstream open.
+	if tx.controlTool.active() {
+		reassertedControl, cerr := controltool.Reassert(openCall, tx.controlTool.projection)
+		if cerr != nil {
+			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
+			return fmt.Errorf("executor: control tool reassertion: %w", cerr)
+		}
+		openCall = reassertedControl
 	}
 	previewedClamps, previewRan, perr := e.previewAndApplyAttemptClamps(ctx, &openCall, c, tx.reqFacts.aLegID, tx.bleg.BLegID)
 	if perr != nil {

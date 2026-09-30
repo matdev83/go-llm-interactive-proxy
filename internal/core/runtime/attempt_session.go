@@ -134,6 +134,7 @@ type attemptSession struct {
 
 	accounting            attemptAccountingTracker
 	boundary              *coremetering.BoundaryAccumulator
+	controlTool           *controlToolActivation
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
@@ -275,6 +276,7 @@ type attemptSessionInput struct {
 	billingCallState      *billingCallState
 	accounting            attemptAccountingTracker
 	boundary              *coremetering.BoundaryAccumulator
+	controlTool           *controlToolActivation
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
@@ -307,7 +309,7 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		terminal:   newStreamTerminal(sdkterminal.ScopeAttempt), aScope: in.aScope,
 		releaseKind: authorityapp.ReleaseKindSwallowed, defaultCommand: sdkterminal.CommandBackendOpenFailure, defaultLegOutcome: billing.LegOutcomeFailed,
 		traceID: in.traceID, requestID: in.requestID, boundaryScope: in.boundaryScope, billingCallID: in.billingCallID, submissionID: in.submissionID, billingStoreID: in.billingStoreID, billingCallState: in.billingCallState,
-		accounting: in.accounting, boundary: in.boundary, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
+		accounting: in.accounting, boundary: in.boundary, controlTool: in.controlTool, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
 		promptCacheController: in.promptCacheController, finalStreamObs: in.finalStreamObs,
 		recordAttemptLoggedFn: in.recordAttemptLoggedFn, emitBackendEgressFn: in.emitBackendEgressFn,
 		appendBillingLegFn: in.appendBillingLegFn, now: in.now, billingEnabled: in.billingEnabled,

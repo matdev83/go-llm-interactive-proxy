@@ -59,7 +59,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 2.1_
     - _Validation: controltool projection matrix, canonical `Call.Validate`, item/message parity tests_
 
-- [ ] 3. Integrate capability-aware control projection into candidate execution
+- [x] 3. Integrate capability-aware control projection into candidate execution
   - [x] 3.1 Add RED runtime tests for post-hook projection and final reassertion
     - Prove control content is present before authoritative post-hook capability/context/accounting preflight and remains byte/semantics-identical after final conversation-view reassertion.
     - Prove CTP/A-leg baseline remains unchanged while PTB/backend-effective call contains the active tool/instruction.
@@ -69,7 +69,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 1.1,2.2,2.3_
     - _Validation: focused candidate-open/rederive/conversation-view/runtime tests RED before implementation, GREEN after 3.2_
 
-  - [ ] 3.2 Implement one generic bounded control-projection stage and attempt activation owner
+  - [x] 3.2 Implement one generic bounded control-projection stage and attempt activation owner
     - Invoke the generic provider after ordinary request mutation and before authoritative post-hook rederivation using resolved candidate capabilities.
     - Store trusted activation/provenance in attempt-local runtime state, not in client-writable canonical extensions or serialized backend metadata.
     - Reassert only the already-approved byte-identical projection after final conversation-view reassertion and fail/exclude before `Backend.Open` if safe equivalence cannot be maintained.
@@ -296,3 +296,6 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Main rebase: Rebased onto 1fc49fe2, preserving the metadata-only session classifier and canonical-required control-tool provider with 28 planes; independent merge review and scoped checks pass.
 - Dedicated billing/metering unblock: Insert-first journal identity resolution removes two reads for fresh observations while preserving atomicity, stored-envelope validation and source-identity collision priority; replay now attempts a conflict-suppressed insert. The private F4 durable-sink-failure fixture runs serial with package peers. Production budgets remain unchanged. Both repairs passed independent review, five repeated race runs for each durable F4 case, full tagged runtime and journalstore race checks, scoped direct PostgreSQL parity/replay, and complete pre-commit hooks.
 - Task 3.1 accepted: Fresh tagged projection suite fails exactly the three intended behavior tests; ineligibility, absence and client-owned collision cases remain green. Independent review approved the RED checkpoint. Task 3.2 must remove controltool_red and make all assertions pass.
+- Task 3.2: Added one post-hook, capability-aware generic projection stage and private attempt activation, with generation-frozen identity/suppression and final byte-stable reassertion. Removed controltool_red; all prior assertions pass unchanged. The canonical-required plane blocks wire execution when occupied. The clock is assigned before session publication rather than transported through the input, preserving constructor semantics and the existing ownership ratchet. Independent review, fresh focused projection/seam tests, scoped tests/lint/architecture guards and focused race verification pass.
+
+- Dedicated staged-race unblock: Staged architecture scopes now run separately from ordinary scopes, preserving selected packages, race flags and production budgets. Independent review approved the repair; the real mixed staged gate and all repair commit hooks pass.
