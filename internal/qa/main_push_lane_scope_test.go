@@ -41,7 +41,11 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 			if step.Env["BASE_SHA"] != "${{ github.event.pull_request.base.sha || github.event.before }}" || step.Run == "" {
 				t.Fatal("lane must wire both PR and push predecessors to its actual classifier")
 			}
-			for _, scenario := range []string{"relevant", "documentation", "initial", "invalid", "manual"} {
+			scenarios := []string{"relevant", "documentation", "initial", "invalid", "manual"}
+			if lane.key == "select" {
+				scenarios = append(scenarios, "shared cache", "shared SDK", "selector policy")
+			}
+			for _, scenario := range scenarios {
 				t.Run(scenario, func(t *testing.T) {
 					t.Parallel()
 					root := t.TempDir()
@@ -79,7 +83,21 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 					if scenario == "relevant" {
 						path, want = lane.relevantPath, lane.relevantValue
 					}
-					write(path, "fixture\n")
+					shared := map[string]string{
+						"shared cache":    ".github/actions/go-cache/action.yml",
+						"shared SDK":      "pkg/lipsdk/backendplugin/example.go",
+						"selector policy": "scripts/cross-platform-selection.sh",
+					}
+					if sharedPath := shared[scenario]; sharedPath != "" {
+						// A connector-specific edit must not hide a shared input.
+						write(lane.relevantPath, "fixture\n")
+						path, want = sharedPath, ""
+					}
+					content := "fixture\n"
+					if scenario == "selector policy" {
+						content = readRepositoryFile(t, "scripts", "cross-platform-selection.sh") + "\n# fixture change\n"
+					}
+					write(path, content)
 					git("add", ".")
 					git("commit", "-qm", "head")
 					event := "push"

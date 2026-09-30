@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/actions/go-cache/**"
       - "scripts/ci-go-cache.py"
+      - "scripts/cross-platform-selection.sh"
       - "go.mod"
       - "go.sum"
       - "connectors/**"
@@ -22,6 +23,7 @@ on:
     paths:
       - ".github/actions/go-cache/**"
       - "scripts/ci-go-cache.py"
+      - "scripts/cross-platform-selection.sh"
       - "go.mod"
       - "go.sum"
       - "connectors/**"
@@ -86,7 +88,7 @@ jobs:
           relevant=false
           while IFS= read -r file; do
             case "$file" in
-              .github/actions/go-cache/**|scripts/ci-go-cache.py)
+              .github/actions/go-cache/**|scripts/ci-go-cache.py|scripts/cross-platform-selection.sh)
                 relevant=true
                 break
                 ;;
