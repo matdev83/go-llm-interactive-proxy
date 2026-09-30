@@ -54,7 +54,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Validation: make dev-test PKGS='./pkg/lipsdk/economics/...'_
 
 - [ ] 3. Implement independently owned assessor and catalog integration
-- [ ] 3.1 (P) Preserve reporting semantics through existing catalog publication
+- [x] 3.1 (P) Preserve reporting semantics through existing catalog publication
   - Add the catalog-owned atomic card-plus-advisory-tariff publication method for customer default/route binding; tariff-only hosts can use PutTariff or RatingCatalogView. Leave PricingSnapshot and PricingSnapshotToTariff untouched. Copy reporting version through default/route sources and snapshot reconstruction, with independently pinned same-ref/different-content rejection.
   - Test mixed historical and enabled snapshots without automatically upgrading old material or creating a strict policy selector.
   - Prove source views retain schemas, reporting version, and content identity through publication and retrieval.
