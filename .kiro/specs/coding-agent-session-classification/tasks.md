@@ -69,7 +69,7 @@
     - _Depends: 2.1,2.2_
     - _Validation: stage unit tests; core package has zero concrete sessionclassification feature imports_
 
-- [ ] 3. Implement shared client identity facts and the deterministic local heuristic
+- [x] 3. Implement shared client identity facts and the deterministic local heuristic
   - [x] 3.1 (P) Extract a bounded root client-family matcher and migrate compatible brownfield use
     - Create internal/agentfacts as a pure trim/case-fold/exact-prefix/token matcher over stable client identity strings.
     - RED-test high-confidence families and ambiguous generic SDK values; no regex/fuzzy/prompt matching.
@@ -91,7 +91,7 @@
     - _Depends: 2.1,3.1_
     - _Validation: config table tests + local policy acceptance matrix_
 
-  - [ ] 3.3 Harden evidence bounds and prove zero transcript/path retention
+  - [x] 3.3 Harden evidence bounds and prove zero transcript/path retention
     - Add property/fuzz tests for oversized UA/exclusion/marker values, odd casing, unicode/control input already rejected by identity capture, tool-name explosions, and unknown tool aliases.
     - Assert feature state/evaluation structs contain no messages, prompt strings, tool arguments, raw paths, or raw header maps.
     - Prove weak evidence never accumulates into an unbounded per-session history.
