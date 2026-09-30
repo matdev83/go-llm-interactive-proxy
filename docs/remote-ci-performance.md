@@ -206,8 +206,8 @@ must find all twelve tests. The existing required Repo hygiene check propagates
 scope or certification failures, while unrelated changes report an explicit
 bypass. The job owns a bounded 768 MiB compiler-cache lane with trusted main
 publication and read-only PR restoration. Pure schema arithmetic needs no native
-platform matrix; Windows keeps the unchanged default-unit cost ratchet and its
-existing budgets. The certification process has a separate 30-minute execution
+platform matrix; Windows keeps the default-unit cost ratchet. The certification
+process has a separate 30-minute execution
 guard; it does not change any test assertion or ratchet threshold.
 
 The triggering Windows artifact contained the billing package's ten-minute test
@@ -223,4 +223,12 @@ scheduler yields for varied pacing instead of an OS timer for each small read.
 Push-classifier scenarios reuse one repository per workflow lane, running serially
 against successive real commits; lanes remain parallel and every output assertion
 is retained. These fixture changes leave production database settings and all
-Windows cost budgets unchanged.
+other Windows cost budgets unchanged.
+
+The runtime package has an explicitly approved 45-second growth allowance above
+the frozen anchor, which predates its added checkpoint and durable-restart proofs.
+The measured increase was 37.3 seconds. Its existing relative multiplier remains
+in place; all other package and aggregate limits are retained. The
+`allow-test-cost-policy-update` PR label authorizes editing the policy without
+authorizing measurement violations. The broader `allow-test-cost-growth` override
+remains a separate opt-in.

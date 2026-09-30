@@ -249,6 +249,8 @@ jobs:
         timeout-minutes: 75
         shell: pwsh
         env:
+          # Approval to edit the committed policy does not override violations.
+          LIP_ALLOW_TEST_COST_POLICY_UPDATE: ${{ contains(github.event.pull_request.labels.*.name, 'allow-test-cost-policy-update') && '1' || '' }}
           # A labeled PR may authorize a ratchet update, but the orchestrator
           # still measures and reports both targets under the override.
           LIP_ALLOW_TEST_COST_GROWTH: ${{ contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && '1' || '' }}

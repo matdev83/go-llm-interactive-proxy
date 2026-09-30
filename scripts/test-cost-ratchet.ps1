@@ -123,7 +123,8 @@ function Test-PolicyProtection {
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
         [Parameter(Mandatory = $true)][string]$HeadCommit,
         [AllowEmptyString()][string]$BaseRevision,
-        [Parameter(Mandatory = $true)][bool]$AllowGrowth
+        [Parameter(Mandatory = $true)][bool]$AllowGrowth,
+        [bool]$AllowPolicyUpdate = $false
     )
 
     if ([string]::IsNullOrWhiteSpace($BaseRevision)) {
@@ -148,10 +149,10 @@ function Test-PolicyProtection {
         throw "unable to compare $PolicyRelativePath with base $baseCommit (git diff exit $diffExitCode)"
     }
 
-    if (-not $AllowGrowth) {
-        throw "budget policy changed relative to -BaseSHA $baseCommit; set LIP_ALLOW_TEST_COST_GROWTH=1 only for an authorized ratchet update"
+    if (-not $AllowGrowth -and -not $AllowPolicyUpdate) {
+        throw "budget policy changed relative to -BaseSHA $baseCommit; set LIP_ALLOW_TEST_COST_POLICY_UPDATE=1 for an authorized policy update, or LIP_ALLOW_TEST_COST_GROWTH=1 to also authorize measurement overrides"
     }
-    Write-Host "Policy protection: budget change allowed by LIP_ALLOW_TEST_COST_GROWTH=1" -ForegroundColor Yellow
+    Write-Host "Policy protection: authorized budget update (measurement overrides=$AllowGrowth)" -ForegroundColor Yellow
 }
 
 function Get-TestParallel {
@@ -610,7 +611,8 @@ if ([string]::IsNullOrWhiteSpace($AnchorRevision)) {
 }
 $AnchorCommit = Resolve-Commit $RepositoryRoot $AnchorRevision "anchor revision"
 $allowOverride = Test-Truthy $env:LIP_ALLOW_TEST_COST_GROWTH
-Test-PolicyProtection $RepositoryRoot $HeadCommit $BaseSHA $allowOverride
+$allowPolicyUpdate = Test-Truthy $env:LIP_ALLOW_TEST_COST_POLICY_UPDATE
+Test-PolicyProtection $RepositoryRoot $HeadCommit $BaseSHA $allowOverride $allowPolicyUpdate
 $TestParallel = Get-TestParallel $Parallel
 $EffectiveOutputRoot = Get-EffectiveOutputRoot $OutputRoot $RepositoryRoot
 Assert-OutputRoot $EffectiveOutputRoot $RepositoryRoot

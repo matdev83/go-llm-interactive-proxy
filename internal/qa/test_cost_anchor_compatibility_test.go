@@ -8,6 +8,36 @@ import (
 	"testing"
 )
 
+func TestQAFastPreflight_TestCostPolicyUpdateAuthorization(t *testing.T) {
+	t.Parallel()
+	pwsh, err := exec.LookPath("pwsh")
+	if err != nil {
+		t.Skip("PowerShell is required to execute the Windows policy guard")
+	}
+	command := `$ErrorActionPreference = 'Stop'
+$ast = [Management.Automation.Language.Parser]::ParseFile($env:LIP_TEST_COST_SCRIPT, [ref]$null, [ref]$null)
+$node = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-PolicyProtection' }, $true)
+if ($null -eq $node) { throw 'missing policy protection function' }
+. ([ScriptBlock]::Create($node.Extent.Text))
+$PolicyRelativePath = 'scripts/test-cost-budget.json'
+function Resolve-Commit { return 'base' }
+function Test-PathAtCommit { return $true }
+function git { $global:LASTEXITCODE = 1 }
+try {
+    Test-PolicyProtection -RepositoryRoot 'fixture' -HeadCommit 'head' -BaseRevision 'base' -AllowGrowth $false -AllowPolicyUpdate $false
+    throw 'unauthorized policy change was accepted'
+} catch {
+    if ($_ -notmatch 'budget policy changed') { throw }
+}
+Test-PolicyProtection -RepositoryRoot 'fixture' -HeadCommit 'head' -BaseRevision 'base' -AllowGrowth $false -AllowPolicyUpdate $true
+Test-PolicyProtection -RepositoryRoot 'fixture' -HeadCommit 'head' -BaseRevision 'base' -AllowGrowth $true -AllowPolicyUpdate $false`
+	cmd := exec.CommandContext(t.Context(), pwsh, "-NoLogo", "-NoProfile", "-Command", command)
+	cmd.Env = append(os.Environ(), "LIP_TEST_COST_SCRIPT="+repositoryFile(t, "scripts", "test-cost-ratchet.ps1"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("policy-only authorization must preserve the explicit guard: %v\n%s", err, out)
+	}
+}
+
 func TestQAFastPreflight_TestCostFrozenObservabilityCompatibility(t *testing.T) {
 	t.Parallel()
 	pwsh, err := exec.LookPath("pwsh")
