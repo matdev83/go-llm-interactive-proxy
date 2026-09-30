@@ -39,8 +39,8 @@ Migration is staged. A completely new official connector is built and empiricall
 1. First registration shall use `client_id=dynamic_agent_client`, a stable per-host `ext_agent_host_id`, the product's actual stable agent name, fresh `state`, fresh OIDC `nonce`, and PKCE S256.
 2. Successful first registration shall persist the issued `client_id`; `dynamic_agent_client` shall never be persisted or used as the issued client id for token exchange.
 3. Authorization shall request the documented identity/offline/resource/direct-plan permissions including `chatgpt.tokens.use.direct` for resource `https://api.openai.com/v1`.
-4. The loopback callback shall validate `state` before code exchange.
-5. Code exchange and refresh shall use the documented `auth.openai.com/api/accounts/...` endpoints, issued client id, PKCE where applicable, and no client secret.
+4. The loopback callback shall validate `state` before code exchange and the pending authorization attempt shall retain the exact selected `redirect_uri`, including scheme, loopback host, port, and path.
+5. Authorization-code exchange shall send that exact same `redirect_uri` value byte-for-byte with the issued client id, authorization code, `code_verifier`, and resource; the implementation shall not reconstruct or substitute the callback URI for exchange. Code exchange and refresh shall use the documented `auth.openai.com/api/accounts/...` endpoints and no client secret.
 6. ID tokens shall be validated against OpenAI JWKS for signature, issuer, audience, expiry, nonce and stable subject.
 7. The granted scopes shall be validated for direct plan usage before models or inference are called.
 8. Returning authorization shall reuse the saved issued client id and confirm the authenticated subject matches the selected profile before replacing credentials.
@@ -49,7 +49,7 @@ Migration is staged. A completely new official connector is built and empiricall
 11. Stored profile state shall distinguish local profile id/label, validated subject, issued client id, host id, granted scopes, access token, refresh token, expiry, optional retained ID token/login hints, and reauthorization state; email shall not be the authoritative key.
 12. Tokens, retained ID-token hints, and OpenAI encrypted auth metadata shall be absent from normal logs, analytics, diagnostics, captures and support-facing errors.
 13. Multiple saved registrations may be listed/selected explicitly, but the connector shall not pool plan allowances or rotate automatically to another subscriber because one profile exhausted quota.
-14. Logout/reauthorization shall be explicit and shall distinguish local credential deletion from confirmed remote disconnection/revocation.
+14. Logout shall first attempt to end the renewable session through the `revocation_endpoint` discovered from OpenAI's OIDC configuration, using a form-encoded POST containing the saved refresh token, `token_type_hint=refresh_token`, and that registration's issued client id. Network/5xx revocation failures shall be retried with bounded backoff while the refresh token remains available. If sign-out completes locally without confirmed remote revocation, the connector shall clear local tokens, report that remote revocation was not confirmed, and direct the user to disconnect the app in ChatGPT Settings; confirmed remote revocation and local-only completion shall remain distinguishable outcomes.
 
 ### Requirement 3: Stable Agent Host Identity
 **Objective:** As a user, I want one stable OpenAI agent-host identity per installation/host, so that SIWC attribution is correct across restarts.
