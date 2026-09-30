@@ -27,7 +27,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Validation: make dev-test PKGS='./pkg/lipsdk/economics/... ./internal/core/billing/...'_
 
 - [ ] 2. Establish the frozen public reporting contract
-- [ ] 2.1 Add immutable reporting-version material and lossless catalog-view conversion
+- [x] 2.1 Add immutable reporting-version material and lossless catalog-view conversion
   - Add the optional empty/v1 version to snapshot and view contracts, with clone, canonical body, validation, and content hashing.
   - Reject unsupported versions; retain exact old bytes for omitted version and require new publication identity for changed material.
   - Start with failing round-trip/hash/unknown-version cases and verify the new field cannot silently disappear in view-to-tariff conversion.
