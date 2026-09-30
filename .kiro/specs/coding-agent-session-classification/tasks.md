@@ -20,7 +20,7 @@
     - _Depends: none_
     - _Validation: focused runtime preparation/order tests remain GREEN before feature edits_
 
-  - [ ] 1.2 (P) Freeze positive and adversarial client/tool evidence fixtures
+  - [x] 1.2 (P) Freeze positive and adversarial client/tool evidence fixtures
     - Reuse current codexclientcompat, tool-call-classification, compaction-event-detection, and explicit-completion research fixtures.
     - Add a table describing which harness identities are high-confidence, ambiguous, or unsupported by UA alone at implementation time.
     - Include Codex/Roo stable identity positives, Cline generic-SDK-UA negative, OpenCode/Pi/Droid/Hermes existing root matcher cases, distinctive coding-tool clusters, weaker tool+project-marker cases, and technical-chat negatives.
@@ -366,3 +366,5 @@
 ## Implementation Notes
 
 - Classification keying must use AuthoritativeSessionID or proxy-owned ALegID explicitly; generic SessionView.PartitionKey still permits ClientSessionHint fallback.
+
+- The shared evidence matrix validates local source paths; update its active-spec references when Task 12.3 archives this SDD (and preserve explicit-completion source references if that spec relocates).
