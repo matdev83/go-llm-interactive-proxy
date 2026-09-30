@@ -316,9 +316,9 @@ func TestDatabaseParity_MaintainerDocsFailClosedPolicy(t *testing.T) {
 			name: "incorrect component count in persistence doc",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
-				return mustMutate(t, s, "It captures 8 production component families:", "It captures 7 production component families:")
+				return mustMutate(t, s, "It captures 9 production component families:", "It captures 8 production component families:")
 			},
-			wantSubstr: "documented component family count is 7, expected 8",
+			wantSubstr: "documented component family count is 8, expected 9",
 		},
 		{
 			name: "missing package path in persistence doc",

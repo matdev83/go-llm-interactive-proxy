@@ -104,7 +104,7 @@ All production persistence components in this repository supporting SQLite and P
 
 ### Parity catalog & discovery
 
-- The authoritative list of dual-dialect persistence components is defined in package [`internal/testkit/dbparity`](../internal/testkit/dbparity/catalog.go) via [`dbparity.DefaultCatalog()`](../internal/testkit/dbparity/catalog.go). It captures 8 production component families: `continuity`, `secure-sessions`, `control-plane-ledger`, `usage-authority`, `concurrency-authority`, `metering-journal`, `terminal-work`, and `billing`.
+- The authoritative list of dual-dialect persistence components is defined in package [`internal/testkit/dbparity`](../internal/testkit/dbparity/catalog.go) via [`dbparity.DefaultCatalog()`](../internal/testkit/dbparity/catalog.go). It captures 9 production component families: `continuity`, `secure-sessions`, `session-classification`, `control-plane-ledger`, `usage-authority`, `concurrency-authority`, `metering-journal`, `terminal-work`, and `billing`.
 - Architecture guardrails (`internal/archtest/database_parity_test.go`) discover versioned migration roots and deterministic dialect-sensitive indicators across packages, asserting explicit ownership against `internal/testkit/dbparity` and failing closed if any unregistered versioned migration root or package containing discovered deterministic dialect-sensitive indicators is introduced.
 
 ### Verification commands

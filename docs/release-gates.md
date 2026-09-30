@@ -7,7 +7,7 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 | Gate | Criterion | Command |
 |------|-----------|---------|
 | Conformance | 100% of matrix tests in `internal/testkit/conformance` pass | `make parity-checks` (runs contract TCKs, conformance matrix, connector parity, and bounded sentinel; configurable via `GO_TEST_FLAGS`) |
-| Database dialect parity (Req. 8.5, 9.1–9.5) | 100% of registered dual-dialect persistence components (8 families in package `internal/testkit/dbparity` via `dbparity.DefaultCatalog()`) pass stable SQLite and PostgreSQL-direct parity contracts | `make test-db-parity` (or `make test-db-parity-sqlite` / `make test-db-parity-postgres-direct`); PR CI runs `db-parity` job with ephemeral direct PostgreSQL (`postgres:17-alpine`) |
+| Database dialect parity (Req. 8.5, 9.1–9.5) | 100% of registered dual-dialect persistence components (9 families in package `internal/testkit/dbparity` via `dbparity.DefaultCatalog()`) pass stable SQLite and PostgreSQL-direct parity contracts | `make test-db-parity` (or `make test-db-parity-sqlite` / `make test-db-parity-postgres-direct`); PR CI runs `db-parity` job with ephemeral direct PostgreSQL (`postgres:17-alpine`) |
 | Race (Req. 14.6) | Full suite under race on Linux | `bash scripts/race-check.sh --strict` (local Linux / nightly CI); on Windows `make test-race` is a no-op (race disabled locally). Not part of PR `qa.yml`. |
 | Critical fuzz (Req. 15.4 + design) | Bounded smoke for each listed `Fuzz*` below | `make test-fuzz` or `make release-gates` locally; nightly CI via `.github/workflows/race-fuzz-nightly.yml`. Not part of PR `qa.yml`. |
 | Migration fixtures (Req. 15.13) | Exactly **3** golden JSON files under `testdata/migration/` with fixed names | Enforced by `TestMigrationGoldenFixtureInventory` in conformance; see [testdata/migration/README.md](../testdata/migration/README.md) |
@@ -125,7 +125,7 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 
 ## Database dialect parity (persistence gates)
 
-Normative completion gates for dual-dialect SQLite and PostgreSQL persistence (requirements **8.5**, **9.1–9.5**). The authoritative persistence scope is defined in package [`internal/testkit/dbparity`](../internal/testkit/dbparity/catalog.go) via [`dbparity.DefaultCatalog()`](../internal/testkit/dbparity/catalog.go) covering all 8 production component families (`continuity`, `secure-sessions`, `control-plane-ledger`, `usage-authority`, `concurrency-authority`, `metering-journal`, `terminal-work`, and `billing`).
+Normative completion gates for dual-dialect SQLite and PostgreSQL persistence (requirements **8.5**, **9.1–9.5**). The authoritative persistence scope is defined in package [`internal/testkit/dbparity`](../internal/testkit/dbparity/catalog.go) via [`dbparity.DefaultCatalog()`](../internal/testkit/dbparity/catalog.go) covering all 9 production component families (`continuity`, `secure-sessions`, `session-classification`, `control-plane-ledger`, `usage-authority`, `concurrency-authority`, `metering-journal`, `terminal-work`, and `billing`).
 
 | Gate | Criterion | Command / evidence |
 |------|-----------|-------------------|

@@ -111,7 +111,7 @@
     - _Depends: 2.1_
     - _Validation: deterministic fake-clock concurrency/store contract tests_
 
-  - [ ] 4.2 Implement Bun Load/Promote persistence and restart restoration
+  - [x] 4.2 Implement Bun Load/Promote persistence and restart restoration
     - RED-test SQLite reopen before production SQL.
     - Add the feature-owned logical table with proxy-authority key, scalar classification, remote-control metadata and timestamps only.
     - Implement indexed Load and atomic compare-and-promote; no raw UA/path/prompt/vendor payload columns.
@@ -364,6 +364,8 @@
     - _Validation: make qa plus merged-main focused rerun; no unchecked applicable tasks before archive_
 
 ## Implementation Notes
+- Task 4.2 requires immediate DB-parity catalog registration, a real feature-owned baseline migration, and SQLite/direct-PostgreSQL Load/Promote schema contracts: the mandatory architecture gate discovers the new dialect-sensitive package before Task 4.3. Task 4.3 retains Bun remote claim/completion and full remote-contract parity; no contract or gate is relaxed.
+
 - General architecture LOC ceilings use maintainer-authorized fixed measurements with substantial headroom; file and tree audit tests retain exact ceiling and excess checks.
 
 - Classification keying must use AuthoritativeSessionID or proxy-owned ALegID explicitly; generic SessionView.PartitionKey still permits ClientSessionHint fallback.
