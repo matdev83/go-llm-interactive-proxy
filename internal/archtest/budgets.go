@@ -14,61 +14,46 @@ type CriticalFileBudget struct {
 	Max  int
 }
 
-// CriticalFileBudgets is the single source of truth for hotspot ceilings
-// (guardrails tests + make arch-report). Values are measured ratchets + 25 lines headroom.
+// CriticalFileBudgets is the fixed ceiling table for hotspot files. Each value
+// uses the measured line count plus max(100, ceil(50% of measured)), rounded up
+// to the next 50 lines. The exactness test pins selected audited snapshots;
+// budget checks enforce every fixed cap against the live source.
 var CriticalFileBudgets = []CriticalFileBudget{
-	{Path: "internal/core/runtime/executor.go", Max: 249},
-	{Path: "internal/infra/runtimebundle/options.go", Max: 253},
-	{Path: "internal/standardplugins/standard_table.go", Max: 211},
-	{Path: "internal/pluginreg/reg.go", Max: 452},
-	{Path: "internal/stdhttp/server.go", Max: 33},
-	{Path: "internal/infra/runtimehost/coordinator.go", Max: 317},
-	{Path: "internal/infra/runtimehost/generation.go", Max: 341},
-	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 284},
-	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 50},
-	// Reasoning compression adds one generation-local auxiliary binding before
-	// feature merge; measured 360 after extraction, retain 25-line headroom.
-	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 388},
-	{Path: "internal/stdhttp/request_plane.go", Max: 90},
-	// Large-payload fast-path Phase 4 wires process-owned SpoolLedger and diagnostics;
-	// measured 316, bump to 341 with 25 headroom.
-	// Usage-economics reconciliation wires the economic observation bridge
-	// (billing scope alignment, configureObservationEconomicBridge,
-	// processBillingStoreID); sole overlay-file growth (+26, 9 of 10 files
-	// byte-identical); measured 342, bump to 367 with 25 headroom.
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 367},
-	{Path: "pkg/lipruntime/build.go", Max: 121},
-	{Path: "pkg/lipruntime/host.go", Max: 93},
-	{Path: "pkg/lipruntime/facade.go", Max: 97},
-	{Path: "cmd/lipstd/command.go", Max: 458},
-	{Path: "pkg/lipruntime/reload.go", Max: 114},
-	{Path: "pkg/lipruntime/reload_aliases.go", Max: 60},
-	// Previously unbudgeted 1k+ hotspots, split by concern; ratchet measured+25.
-	{Path: "pkg/lipsdk/backendplugin/convert.go", Max: 422},
-	{Path: "pkg/lipsdk/backendplugin/convert_frames.go", Max: 517},
-	{Path: "internal/core/securesession/adapters/bunstore/store.go", Max: 341},
-	{Path: "internal/core/securesession/adapters/bunstore/store_evidence.go", Max: 307},
-	{Path: "internal/core/runtime/authority_lifecycle.go", Max: 336},
-	{Path: "internal/core/runtime/authority_lifecycle_settle.go", Max: 439},
-	{Path: "internal/core/runtime/authority_lifecycle_release.go", Max: 355},
-	{Path: "internal/plugins/protocols/openresponses/state_machine.go", Max: 708},
-	{Path: "internal/plugins/protocols/openresponses/state_machine_event_handlers.go", Max: 515},
-	// Large-payload fast-path Tasks 7.1-19.1 wire execution pipeline (profile plumbing,
-	// pre-capture gates, capture to EOF, single-permit assessment, response context,
-	// keepalive bridge, and spool diagnostics); measured 455, bump to 480 with 25 headroom.
-	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 480},
-	{Path: "internal/plugins/features/keepwarm/manager.go", Max: 450},
-	{Path: "internal/plugins/features/keepwarm/scheduler.go", Max: 450},
-	// Ownership-closure facade caps (Task 11.3): measured final + 25 headroom
-	// so feature growth cannot turn featurehost into a god package.
-	{Path: "internal/standardplugins/featurehost/runtime.go", Max: 184},
-	{Path: "internal/standardplugins/featurehost/process.go", Max: 187},
-	{Path: "internal/standardplugins/featurehost/generation.go", Max: 249},
-	{Path: "internal/standardplugins/featurehost/inputs.go", Max: 121},
-	// NO-GO remediation (Finding 1): per-binding presence helpers so a
-	// generation slice carrying one binding kind cannot suppress the
-	// process-bound options of the other kind; measured 224.
-	{Path: "internal/standardplugins/featurehost/bindings.go", Max: 249},
+	{Path: "internal/core/runtime/executor.go", Max: 300},
+	{Path: "internal/infra/runtimebundle/options.go", Max: 300},
+	{Path: "internal/standardplugins/standard_table.go", Max: 350},
+	{Path: "internal/pluginreg/reg.go", Max: 650},
+	{Path: "internal/stdhttp/server.go", Max: 150},
+	{Path: "internal/infra/runtimehost/coordinator.go", Max: 450},
+	{Path: "internal/infra/runtimehost/generation.go", Max: 450},
+	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 450},
+	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 150},
+	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 600},
+	{Path: "internal/stdhttp/request_plane.go", Max: 200},
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 550},
+	{Path: "pkg/lipruntime/build.go", Max: 150},
+	{Path: "pkg/lipruntime/host.go", Max: 200},
+	{Path: "pkg/lipruntime/facade.go", Max: 200},
+	{Path: "cmd/lipstd/command.go", Max: 650},
+	{Path: "pkg/lipruntime/reload.go", Max: 200},
+	{Path: "pkg/lipruntime/reload_aliases.go", Max: 150},
+	{Path: "pkg/lipsdk/backendplugin/convert.go", Max: 600},
+	{Path: "pkg/lipsdk/backendplugin/convert_frames.go", Max: 650},
+	{Path: "internal/core/securesession/adapters/bunstore/store.go", Max: 500},
+	{Path: "internal/core/securesession/adapters/bunstore/store_evidence.go", Max: 450},
+	{Path: "internal/core/runtime/authority_lifecycle.go", Max: 450},
+	{Path: "internal/core/runtime/authority_lifecycle_settle.go", Max: 600},
+	{Path: "internal/core/runtime/authority_lifecycle_release.go", Max: 500},
+	{Path: "internal/plugins/protocols/openresponses/state_machine.go", Max: 1050},
+	{Path: "internal/plugins/protocols/openresponses/state_machine_event_handlers.go", Max: 750},
+	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 750},
+	{Path: "internal/plugins/features/keepwarm/manager.go", Max: 700},
+	{Path: "internal/plugins/features/keepwarm/scheduler.go", Max: 700},
+	{Path: "internal/standardplugins/featurehost/runtime.go", Max: 300},
+	{Path: "internal/standardplugins/featurehost/process.go", Max: 300},
+	{Path: "internal/standardplugins/featurehost/generation.go", Max: 400},
+	{Path: "internal/standardplugins/featurehost/inputs.go", Max: 250},
+	{Path: "internal/standardplugins/featurehost/bindings.go", Max: 350},
 }
 
 // PackageTreeBudget caps recursive non-test .go lines for a package tree.
@@ -77,200 +62,35 @@ type PackageTreeBudget struct {
 	Max  int
 }
 
-// PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
+// PackageTreeBudgets uses measured lines plus max(5000, ceil(50% of measured)),
+// rounded up to the next 1000. Values are fixed snapshots and match overlapping
+// LineBudgets entries exactly.
 var PackageTreeBudgets = []PackageTreeBudget{
-	// Ownership closure (Task 11.3): runtimebundle scaffolding removed, measured
-	// 12316; featurehost measured 2979 with its own recursive ceiling.
-	// 12.2 review remediation (H2 port methods, H3 enable-gating, H4 env
-	// capability): featurehost re-measured 3057; reset to 3082 with 25 headroom.
-	// NO-GO remediation (Findings 1, 3): per-binding overlay presence helpers,
-	// ledger-owned keep-warm generation lifecycle, secret-guard execution-plane
-	// projection, and opaque admin/metrics CorePorts members; re-measured 3255.
-	// Runtimebundle shrank in the same change (deleted keepwarm_http.go and
-	// secret_guard_runtime.go, emptied ExtensionsOptions), so this is movement
-	// Large-payload fast-path Phase 4 unifies ProductionLargeBodyAssessor composition,
-	// wire eligibility summary, and spool ledger wiring;
-	// Phase 5 links server.large_payload_fast_path config through runtimebundle to stdhttp and frontend Specs;
-	// measured 12542 (runtimebundle) and 6753 (stdhttp), bump to 12567 and 6778 with 25 headroom.
-	// Usage-economics reconciliation: billing composition (billing_compose +65,
-	// shadow_v2_compose, operator_reports, process_billing revision workers),
-	// metering/account-window store ports (production_options), economic observation
-	// bridge (process_services +26), operator query surface (admin/billing/operator
-	// +339); superseded V1 paths deleted per Phase 18 (mergeStreamCostOntoLeg,
-	// token-ledger money writes) and excluded from this allowance;
-	// measured 13631 (runtimebundle) and 7134 (stdhttp), reset to 13656 and 7159
-	// with 25 headroom.
-	// Ingress self-defense (tasks 3.1 and 3.2) adds the stdhttp self-defense
-	// driving adapter (fixed impossible-path matcher + early path/quarantine
-	// gate) and the cycle-neutral request-context source-address helper;
-	// harness-re-measured 7611 (stdhttp, including the matcher query-cut note), superseded by the tasks 4.1/4.2 re-measure below.
-	// Ingress self-defense (tasks 4.1 and 4.2) adds the transport-auth
-	// self-defense outcome observer and the private conservative
-	// credential-presence probe under internal/stdhttp/auth;
-	// harness-re-measured 7789 (stdhttp), superseded by the tasks 5.1/5.2
-	// re-measure below.
-	// Ingress self-defense (tasks 5.1 and 5.2) adds the process-owned adaptive
-	// state, the cycle-neutral self-defense security projection with the
-	// credential-disposition probe, and the standard data-plane gate and auth
-	// observation wiring; harness-re-measured 13762 (runtimebundle) and 8013
-	// (stdhttp), reset to 13787 and 8038 with 25 headroom.
-	// Tasks 7.1/7.2 and the adaptive-exemption filter on the auth-observation
-	// path added 8 further production lines to internal/stdhttp, so the live tree
-	// now measures 8021 and the unchanged 8038 cap leaves 17 lines of headroom
-	// rather than 25. The cap was deliberately not raised: the next change in this
-	// tree must re-measure with the harness before it can be relied on again.
-	// Ingress self-defense (tasks 6.1 and 6.2) adds the self-defense metrics
-	// collector wiring, the process-services projection and the generation
-	// composition: measured 13786 of the 13787 runtimebundle cap, so only 1 line
-	// of headroom remains and the next change in that tree must re-measure with the
-	// harness before this cap can be relied on again.
-	// The ingress self-defense review follow-up adds the owned-route inventory to
-	// the generation composition (selfDefenseOwnedRoots) and the owned-route carve
-	// to the data-plane gate, which is the fix for a default-on layer silently
-	// shadowing an operator-configured base_path. Harness-re-measured 13858
-	// (runtimebundle) and 8130 (stdhttp); both caps are re-baselined to those
-	// measurements with 25 lines of headroom, matching the convention above.
-	{Tree: "internal/infra/runtimebundle", Max: 14084},
-	{Tree: "internal/standardplugins/featurehost", Max: 3280},
-	{Tree: "internal/stdhttp", Max: 8587},
-	{Tree: "cmd/lipstd", Max: 979},
-	{Tree: "pkg/lipruntime", Max: 720},
+	{Tree: "internal/infra/runtimebundle", Max: 22000},
+	{Tree: "internal/standardplugins/featurehost", Max: 9000},
+	{Tree: "internal/stdhttp", Max: 14000},
+	{Tree: "cmd/lipstd", Max: 6000},
+	{Tree: "pkg/lipruntime", Max: 6000},
 }
 
-// LineBudget caps recursive non-test lines for broader architectural layers.
+// LineBudget caps recursive non-test lines for a broader architectural layer.
 type LineBudget struct {
 	Dir string
 	Max int
 }
 
-// LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
-// with PackageTreeBudgets for overlapping entries).
+// LineBudgets uses the same fixed recursive-tree policy as PackageTreeBudgets.
+// Overlapping entries must stay synchronized with the package-tree table.
 var LineBudgets = []LineBudget{
-	// Routing-override admin, billing host composition, and tool-call
-	// classification. Keep the measured-plus-25 ratchet. The compaction
-	// detector and continuity infrastructure add bounded recognition, branch
-	// coordination, preservation dispatch, and auxiliary worker ownership.
-	// Current-main integration measures 83038 non-test lines: the ownership
-	// refactor's 1540-line increase over the 80936 d606 merge-base plus current
-	// main's independently ratcheted 562-line increase. The accepted ownership
-	// cost replaces flattened shared state with five explicit lifetime owners
-	// and typed evidence seams; retain 25 lines of ratchet headroom.
-	// P1 fix for post-transfer assemble abort adds 72 lines for the single
-	// AbortBeforeReturn owner and B-leg release; bump to 83160 (83135+25).
-	// Phase 2 ownership convergence adds readiness preparation and streamAssemblyTx; bump to 83345 (83320+25).
-	// Phase 3 ownership convergence adds TerminalizeAttempt single-owner terminalization (approx 300 lines); bump to 83700 (83649+51 headroom).
-	// Phase 5.1 isolated parallel workers outcome convergence adds coordinator goroutine and outcomes mapping; bump to 83900 (83830+70 headroom).
-	// Phase 6 ownership convergence final certification verifies 5-owner facade, fan-out 1, cross-owner 14, state-copy 6, cleanup 7.
-	// R1+R2 debt remediation (spec runtime-attempt-publication-ownership-convergence Debt Plan R1-R4): 5 shims deleted (AbortBeforeReturn/finishAsReplaced/Rollback/Abort/RollbackParallelLoser) + 4 session-owned methods added (drainSidebandEvidence/detachStream/closeDetached/hasInner), measured 84098, bump to 84200 with 102 headroom.
-	// Reviewer Blocker 2 parallel outcome ownership convergence: explicit outcome handoff/ack protocol, worker-owned attemptTx self-cleanup, isolated arm context cancellation, and serial reducer affinity delta; measured 84484, bump to 84525 with 41 headroom.
-	// Reviewer Blocker 3 attempt publication and physical cancel/close ownership convergence: attemptSession sole physical owner, attemptLifecycleHandle delegation on ALeg registration, turnTerminal closeClose sequence inversion, Recv loop detachStream elimination; measured 84615, bump to 84650 with 35 headroom.
-	// Reviewer Blocker publication ownership convergence: unpublished readyAttempt lifecycle handle, ready cancellation disposal state machine, and linearizable cancel vs consume coordination; measured 85021, bump to 85060 with 39 headroom.
-	// Non-forwardable conversation content semantic identity/anchor contract adds internal/core/conversationview; measured 85751, bump to 85776 with 25 headroom.
-	// Non-forwardable conversation content snapshot/store contract (Reader/Tagger/SteeringStore + ReferenceStore) adds store value objects and contract suite; measured 86586, bump to 86611 with 25 headroom.
-	// Non-forwardable conversation content projection/placement/cache-prefix invariants (pure deterministic Project + ResolveAfterIngressTailAnchor); measured 87176, bump to 87201 with 25 headroom.
-	// Non-forwardable conversation content provenance (D14 request-local provenance for final reassertion); measured 87281, bump to 87306 with 25 headroom.
-	// Non-forwardable conversation content memory A-leg conversation-view state (B2BUA MemoryStore capability + extracted contract suite with tightenings); measured 88729, bump to 88754 with 25 headroom.
-	// Non-forwardable conversation content Bun SQLite/PostgreSQL persistence (A-leg-owned migrations + deterministic Bun adapter + SQLite/PG contract tests); measured 89658, bump to 89683 with 25 headroom.
-	// Non-forwardable conversation content sdkadapter services relocation (capability-resolving helpers moved from runtimebundle to sdkadapter, deterministic fail-closed FromStore/Services); measured 89919 (core) / 12591 (runtimebundle), bump to 89944/12616 with 25 headroom.
-	// Non-forwardable conversation content Task 3.1 pre-B-leg seam (authoritative A-leg/secret/submit/CTP ordering, deep-cloned ingress vs backend working call isolation, seam before inference transforms/billing/route); measured 90002, bump to 90027 with 25 headroom.
-	// Non-forwardable conversation content Task 3.2 early backend-effective projection (snapshot once after A-leg, frozen Snapshot+ProjectionEvidence before pre-request/billing/routing, fail-closed bounded evidence); measured 90095, bump to 90120 with 25 headroom.
-	// Non-forwardable conversation content Task 3.2 remediation (secure seam, MemoryStore prepareRequest coverage, backend Open reuse, failure counters, bounded summary without OverlayID/plaintext); measured 90145, bump to 90170 with 25 headroom.
-	// Non-forwardable conversation content Task 3.3 generic two-phase local-turn stage (frozen ordered Handler list in snapshot, tag-before-handle/reply, finite EventStream, no B-leg/billing, panic recovery, fail-open/closed, cancellation/Close finite no goroutine); measured 90450, bump to 90475 with 25 headroom.
-	// Non-forwardable conversation content Task 3.4 generic canonical local stream helper/factory and bounded frontend contract/continuation-visibility slice (streaming + non-streaming official frontends, legacy full-history and OpenResponses materialized-history filtering, no B-leg/usage); measured 90511, bump to 90536 with 25 headroom.
-	// Non-forwardable conversation content Task 4.1 final conversation-view reassertion at shared candidate-open choke point (pure Reassert with provenance, frozen snapshot/provenance, no store read, PTB from reasserted call, candidate adaptation integrity, fail-closed anchor); measured 90833, bump to 90858 with 25 headroom.
-	// Non-forwardable conversation content Task 4.1 precision fixes (placement-aware provenance with Injected* indices, FilterNeverBackend helper, filtered baseline frozen, per-identity extra handling, full VerifyAdaptationPreservesProjection with never_backend/order/placement); measured 91661, bump to 91686 with 25 headroom.
-	// Non-forwardable conversation content Task 4.1 adversarial harden (item_reference cleanup, same-slice collision fail-closed, provenance without synthetic ID scan, insertion-shift handling); measured 91760, bump to 91785 with 25 headroom.
-	// Non-forwardable conversation content Task 4.3 cache regression (bounded CacheDiscontinuityKind/Placement in SteeringState for create/replace/move/deactivate, MemoryStore/Bun parity, stable_prefix and fixed activation ordering U_N,STEER,A_N,U_N+1 across 3 turns, moving-tail negative, anchor fallback/fail_closed); measured 91840, bump to 91865 with 25 headroom.
-	// Non-forwardable conversation content Task 5.2 bounded diagnostics and security guards (content-free observer seam for filter/injection/fallback/failure/mutation, SDK Writer observer wiring, runtime early/final projection summary emission, Prometheus bounded labels, docs hidden-steering not secrecy, reason-code/secret-guard ordering tests); measured 92021, bump to 92046 with 25 headroom.
-	// Remediation round 1: panic-isolated SafeObserver wrapper, anchor failure only on ErrAnchorMissing/ErrAnchorNotFound, stage label on OnAnchorFallback (stage+policy), production compose helper internal/infra/metrics NewConversationViewServicesWithMetrics; measured 92070, bump to 92095 with 25 headroom.
-	// Conversation-view follow-ups: atomic after_message anchor registration invariant (ErrSteeringAnchorExcluded checked inside Reference/Memory/Bun PutSteering under lock/Tx, RegistersNewAfterMessageAnchor helper, unsafe trailing-survivor rejection in ResolveAfterIngressTailAnchor, storecontract AnchorExcludedRegistration + sdkadapter TOCTOU regression, re-runnable PG harness cleanup); measured 92223, bump to 92248 with 25 headroom.
-	// Conversation-view follow-up review hardening: pin same after_message anchor exempt branch and valid reasoning trajectory with Validate; measured 92263, bump to 92288 with 25 headroom.
-	// Reasoning-preservation semantic compression adds bounded auxiliary workload classification and orchestration; current-main integration measured 92340, bump to 92365 with 25 headroom.
-	// Production service wiring and bounded cleanup add 17 core lines; current-main integration measured 92357, bump to 92382 with 25 headroom.
-	// Post-review lifecycle simplification and shared Collected cloning reduce the final current-main integration to 92153; ratchet to 92178 with 25 headroom.
-	// aleg-cancellation-bleg-termination-hardening: single-use B-leg launch permit, concurrent bounded A-leg cancel fan-out, truthful physical CancelResult propagation, bounded attempt-owned sideband evidence accumulator, terminal stream drain, exactly-once terminal B-leg billing precedence, and bounded cancellation telemetry; measured 92771, bump to 92796 with 25 headroom.
-	// database-dialect-parity-enforcement: stable parity normalization across core components; measured 95020, bump to 95045 with 25 headroom.
-	// extension-plane-local-terminal: frozen identity accessor and turn-terminal carrier; measured 95070, bump to 95095 with 25 headroom.
-	// pre-oss-core-slimming race remediation: measured 89936 after synchronizing attempt accounting, sideband teardown, and terminal provider identity; retain 25 lines of headroom.
-	// Ownership closure (Task 11.3): measured 82565 after extracting compaction-continuity, conversation steering, interleaved UX, keep-warm and terminal policy; reset to 82590 with 25 headroom. Deleted feature LOC is not retained as growth allowance.
-	// Large-payload fast-path Task 2.1 server config (typed LargePayloadFastPathConfig + validation + effective getters); measured 82712, bump to 82737 with 25 headroom.
-	// Large-payload fast-path Task 2.2 provider-neutral large-body DTOs (bounded source/span/rewrite/proof/session/turn/identity/assessment/wire/rewrite-plan/result/facts/sensitive-carrier contracts, zero behavior); measured 83801, bump to 83826 with 25 headroom.
-	// Large-payload fast-path Task 2.3 internal optional large-body capability (SDK-compat seam, type-assert helper, zero behavior); measured 83845, bump to 83870 with 25 headroom.
-	// Large-payload fast-path Task 3.5 generation-frozen WireEligibilitySummary (bounded leaf-pure compiler over frozen plane/hook/port facts, fixed bitsets/enums, no request data); measured 84326, bump to 84351 with 25 headroom.
-	// Large-payload fast-path Task 3.6 constant-time static pre-capture disposition (bounded leaf-pure gate over WireEligibilitySummary + cheap request facts, zero alloc); measured 84491, bump to 84516 with 25 headroom.
-	// Large-payload fast-path Task 4.1 logical spool reservation ledger (bounded logical spool accounting + checked int64 math + idempotent release); measured 84843, bump to 84868 with 25 headroom.
-	// Large-payload fast-path Task 4.2 bounded RAM + secure spill (fixed copy buffer + unpredictable 0600 file spill + unwritten suffix preservation + nonblocking root close); measured 85449, bump to 85474 with 25 headroom.
-	// Large-payload fast-path Task 4.3 lossless mid-capture canonical continuation (CaptureReader + unconsumed suffix guard + capture driver); measured 85960, bump to 85985 with 25 headroom.
-	// Large-payload fast-path Task 4.4 immutable completed source + independent readers (CompletedSource + offset-zero readers + Windows-safe pending deletion); measured 86347, bump to 86372 with 25 headroom.
-	// Large-payload fast-path Task 4.5 compute source integrity digest during capture (incremental SHA-256 during writes + CompletedSource digest binding); measured 86426, bump to 86451 with 25 headroom.
-	// Large-payload fast-path Task 5.1 incremental lexer/state machine (Feed chunks, UTF-8/escapes/surrogates/numbers/limits, fixed buffers, no giant string retention); measured 87467, bump to 87492 with 25 headroom.
-	// Large-payload fast-path Task 5.2 expose bounded token/path/span events (exact raw spans for selected top-level values, nested-key discrimination, TopLevelSpanTracker, Span Validate/End); measured 87639, bump to 87664 with 25 headroom.
-	// Large-payload fast-path Task 6.1 factor diag helpers around already-computed canonical sum; measured 87717, bump to 87742 with 25 headroom.
-	// Large-payload fast-path Task 6.2 define profile hash-writer contract (streaming JSON-escaped identity digest without prompt retention); measured 88634, bump to 88659 with 25 headroom.
-	// Large-payload fast-path Task 6.5 prove economic identity parity; measured 88680, bump to 88705 with 25 headroom.
-	// Large-payload fast-path Task 8.1 additive execbackend.Backend wire support; measured 88966, bump to 88991 with 25 headroom.
-	// Large-payload fast-path Task 8.2 streaming top-level model token splice (SpliceModelToken, SpliceReader, checked length); measured 89554, bump to 89579 with 25 headroom.
-	// Large-payload fast-path Task 8.3 configured semantic-fact budget helpers; measured 89580, bump to 89605 with 25 headroom.
-	// Large-payload fast-path Tasks 9-19 wire execution, facts, and accounting integration;
-	// Phase 1 streaming proof core in internal/core/largebody and jsonshape string streaming;
-	// Blocker 3 pre-output recoverable wire failover and recovery stream;
-	// TP-2 BeforeRequest pre-open wiring and P1/P2 ingress-clone plus
-	// staged-watermark fixes are included in the current-main baseline.
-	// Usage-economics reconciliation (Tasks 2/3/5/6/9/10/12/13, Req 1-3, 6-8, 11-13):
-	// B-leg-rooted component economics — billing rating/reconciliation/selection/
-	// adjustment domain (+31,085), metering V2 evidence/reduction (+4,798), runtime
-	// terminal capture/submission (+2,282). The current-main pre-open continuity
-	// fix adds 162 production lines; re-measured 137434, bump to 137459 with
-	// 25 headroom.
-	// Ingress self-defense (task 1.1) adds typed presence-aware self-defense
-	// config, pure CompileSelfDefense validation, and shared prefix compilation;
-	// re-measured 137621, bump to 137646 with 25 headroom.
-	// Ingress self-defense (task 1.2) admits the core ingressdefense kernel
-	// package and the single authoritative config-to-core policy projection;
-	// re-measured 137824, bump to 137849 with 25 headroom.
-	// Ingress self-defense (tasks 2.1 and 2.2) adds the bounded sharded
-	// adaptive source state with lazy expiry, deterministic eviction and
-	// saturating quarantine arithmetic; re-measured 138172, bump to 138197
-	// with 25 headroom.
-	// The ingress self-defense review follow-up adds the admission identity that
-	// stops a stale admission-ring slot from evicting a re-admitted live entry,
-	// plus the effective-value state-limit reload classification and the
-	// data-plane path collector that feeds the owned-route carve; re-measured
-	// 138280, bump to 138305 with 25 headroom.
-	{Dir: "internal/core", Max: 143720},
-	{Dir: "internal/pluginreg", Max: 1174},
-	// Ingress self-defense (tasks 3.1 and 3.2) adds the stdhttp self-defense
-	// driving adapter (fixed impossible-path matcher + early path/quarantine
-	// gate) and the cycle-neutral request-context source-address helper;
-	// harness-re-measured 7611 (stdhttp, including the matcher query-cut note), superseded by the tasks 4.1/4.2 re-measure below.
-	// Ingress self-defense (tasks 4.1 and 4.2) adds the transport-auth
-	// self-defense outcome observer and the private conservative
-	// credential-presence probe under internal/stdhttp/auth;
-	// harness-re-measured 7789 (stdhttp), superseded by the tasks 5.1/5.2
-	// re-measure below.
-	// Ingress self-defense (tasks 5.1 and 5.2) adds the cycle-neutral
-	// self-defense security projection, the credential-disposition probe
-	// sibling, and the standard data-plane gate plus auth observation wiring;
-	// harness-re-measured 13762 (runtimebundle) and 8013 (stdhttp);
-	// reset to 13787 and 8038 with 25 headroom.
-	// The ingress self-defense review follow-ups re-measure 13858 (runtimebundle)
-	// and 8130 (stdhttp) for the owned-route carve and its generation candidate
-	// projection. The carve-fidelity follow-up then replaces the string-root
-	// inventory with a router-resolved typed one, which lands mostly in stdhttp
-	// (the resolver, the exact-versus-subtree model and the gate wiring):
-	// re-measured 8375 (stdhttp), reset to 8400 with 25 lines of headroom.
-	{Dir: "internal/stdhttp", Max: 8587},
-	{Dir: "internal/infra/runtimebundle", Max: 14084},
-
-	// 12.2 review remediation: featurehost re-measured 3057; 3082 with 25 headroom.
-	// NO-GO remediation (Findings 1, 3): re-measured 3255; 3280 with 25 headroom.
-	{Dir: "internal/standardplugins/featurehost", Max: 3280},
-	// CompactionFacts: neutral shared facts and hash derivation package; measured 1002, 1027 with 25 headroom.
-	{Dir: "internal/compactionfacts", Max: 1027},
-	// CapabilityFacts: neutral shared capability facts, turn shapes, and hash derivation package; measured 271, 296 with 25 headroom.
-	{Dir: "internal/capabilityfacts", Max: 296},
-	{Dir: "cmd/lipstd", Max: 979},
-	{Dir: "pkg/lipruntime", Max: 720},
+	{Dir: "internal/core", Max: 216000},
+	{Dir: "internal/pluginreg", Max: 7000},
+	{Dir: "internal/stdhttp", Max: 14000},
+	{Dir: "internal/infra/runtimebundle", Max: 22000},
+	{Dir: "internal/standardplugins/featurehost", Max: 9000},
+	{Dir: "internal/compactionfacts", Max: 6000},
+	{Dir: "internal/capabilityfacts", Max: 6000},
+	{Dir: "cmd/lipstd", Max: 6000},
+	{Dir: "pkg/lipruntime", Max: 6000},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files.

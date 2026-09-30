@@ -10,8 +10,8 @@
 - Remote TypeSafe/Jev tests are hermetic by default; live external tests are explicit opt-in only.
 - Tasks marked (P) may proceed in parallel after their listed dependencies.
 
-- [ ] 1. Rebaseline current-main invariants and freeze the acceptance matrix
-  - [ ] 1.1 Characterize session-authority and stage ordering before production changes
+- [x] 1. Rebaseline current-main invariants and freeze the acceptance matrix
+  - [x] 1.1 Characterize session-authority and stage ordering before production changes
     - Add/refresh tests proving the current order through BeginTurn, A-leg fetch, secret guard, frontend ingress, submit, tool catalog, request shaping, pre-request, and route hint.
     - Characterize SessionView construction/cloning and prove ClientSessionHint is not proxy authority.
     - Record implementation-time paths/symbols in test comments only where useful; preserve semantic order if files moved.
@@ -20,7 +20,7 @@
     - _Depends: none_
     - _Validation: focused runtime preparation/order tests remain GREEN before feature edits_
 
-  - [ ] 1.2 (P) Freeze positive and adversarial client/tool evidence fixtures
+  - [x] 1.2 (P) Freeze positive and adversarial client/tool evidence fixtures
     - Reuse current codexclientcompat, tool-call-classification, compaction-event-detection, and explicit-completion research fixtures.
     - Add a table describing which harness identities are high-confidence, ambiguous, or unsupported by UA alone at implementation time.
     - Include Codex/Roo stable identity positives, Cline generic-SDK-UA negative, OpenCode/Pi/Droid/Hermes existing root matcher cases, distinctive coding-tool clusters, weaker tool+project-marker cases, and technical-chat negatives.
@@ -30,7 +30,7 @@
     - _Depends: none_
     - _Validation: one data-driven fixture matrix with explicit expected evidence source/reason_
 
-  - [ ] 1.3 (P) Rebaseline feature-plane and large-body wire eligibility
+  - [x] 1.3 (P) Rebaseline feature-plane and large-body wire eligibility
     - Pin the implementation-time standard plane count/order, request-access classes, generated-plane currency, and static disposition for an occupied MetadataOnly plane.
     - Characterize canonical versus wire proof inputs available for ClientUserAgent/tool names without introducing new behavior yet.
     - Prove the pre-change wire path has no classification evidence and no hidden shadow Call.
@@ -39,8 +39,8 @@
     - _Depends: none_
     - _Validation: plane census + large-body static/differential characterization tests_
 
-- [ ] 2. Add the bounded SDK classification contract and legal extension plane
-  - [ ] 2.1 Define scalar SessionView classification and bounded evidence types
+- [x] 2. Add the bounded SDK classification contract and legal extension plane
+  - [x] 2.1 Define scalar SessionView classification and bounded evidence types
     - RED-test zero-value unknown semantics, positive validation, IsCodingAgent, source/confidence/evidence/revision bounds, and absence of variable content collections.
     - Add session Classification to SessionView and verify all SDK/core view clone/projection helpers preserve it without new aliasing.
     - Add sessionclassification Evidence and fixed ToolCategorySet plus pure tool-name accumulation using lipapi.ClassifyToolName.
@@ -50,7 +50,7 @@
     - _Depends: 1.1,1.2_
     - _Validation: public SDK unit tests + external compile/architecture guards_
 
-  - [ ] 2.2 Add StageIDSessionClassification and exclusive PlaneSessionClassifier
+  - [x] 2.2 Add StageIDSessionClassification and exclusive PlaneSessionClassifier
     - RED-test legal stage order after secret_guard and before submit_request.
     - Declare one exclusive sessionclassification.Classifier plane with RequestBodyMetadataOnly access and bounded diagnostics.
     - Update/generate the closed plane surface, snapshot accessors, descriptors, inventory and generator fixtures; do not hand-edit generated outputs outside the repository generator workflow.
@@ -60,7 +60,7 @@
     - _Depends: 1.3,2.1_
     - _Validation: generator currency + plane diagnostics + stage-order + duplicate-exclusive tests_
 
-  - [ ] 2.3 Add the generic fail-open classification stage runner
+  - [x] 2.3 Add the generic fail-open classification stage runner
     - RED-test no-plane no-op, valid positive projection, invalid classifier output, classifier error, context cancellation, and preservation of an already-positive SessionView value.
     - Implement feature-neutral execution that calls only the SDK Classifier and never interprets client families, modes, persistence, or Jev.
     - Ensure runtime classifier failure cannot reject an otherwise valid inference request.
@@ -362,3 +362,12 @@
     - _Boundary: final merged-main certification/spec lifecycle_
     - _Depends: 12.2_
     - _Validation: make qa plus merged-main focused rerun; no unchecked applicable tasks before archive_
+
+## Implementation Notes
+- General architecture LOC ceilings use maintainer-authorized fixed measurements with substantial headroom; file and tree audit tests retain exact ceiling and excess checks.
+
+- Classification keying must use AuthoritativeSessionID or proxy-owned ALegID explicitly; generic SessionView.PartitionKey still permits ClientSessionHint fallback.
+
+- The shared evidence matrix validates local source paths; update its active-spec references when Task 12.3 archives this SDD (and preserve explicit-completion source references if that spec relocates).
+
+- Task 1.3 baseline absence assertions must evolve in Tasks 7.1/7.2 when bounded wire evidence lands. OpenResponses canonical User-Agent capture currently uses TrimSpace directly; use the shared acceptance helper for canonical/wire parity in Task 7.2.

@@ -55,6 +55,7 @@
       "transport_authentication",
       "session_open",
       "secret_guard",
+      "session_classification",
       "submit_request",
       "tool_catalog_filter",
       "request_wide_shaping",
@@ -81,6 +82,10 @@
       {
         "id": "secret_guard",
         "default_failure": "fail_closed"
+      },
+      {
+        "id": "session_classification",
+        "default_failure": "fail_open"
       },
       {
         "id": "submit_request",

@@ -18,12 +18,13 @@ const ExtensionPlanesBaselineRelPath = "testdata/architecture/extension_planes_b
 
 // ExtensionPlaneManifestStatus captures declaration count, plane IDs, and generated-output currency.
 type ExtensionPlaneManifestStatus struct {
-	PlaneCount              int      `json:"plane_count"`
-	PlaneIDs                []string `json:"plane_ids"`
-	GeneratedOutputCurrency string   `json:"generated_output_currency"`
-	IsGeneratedUpToDate     bool     `json:"is_generated_up_to_date"`
-	ManifestPath            string   `json:"manifest_path"`
-	GeneratedPath           string   `json:"generated_path"`
+	PlaneCount              int               `json:"plane_count"`
+	PlaneIDs                []string          `json:"plane_ids"`
+	PlaneMultiplicities     map[string]string `json:"-"`
+	GeneratedOutputCurrency string            `json:"generated_output_currency"`
+	IsGeneratedUpToDate     bool              `json:"is_generated_up_to_date"`
+	ManifestPath            string            `json:"manifest_path"`
+	GeneratedPath           string            `json:"generated_path"`
 }
 
 // WaveMirrorFamily contains measured mirror metrics for one migration wave family.
@@ -120,7 +121,40 @@ func MeasureManifestStatus(root string) (ExtensionPlaneManifestStatus, error) {
 	}
 
 	planeIDsSet := make(map[string]bool)
+	planeMultiplicities := make(map[string]string)
 	ast.Inspect(f, func(n ast.Node) bool {
+		if literal, ok := n.(*ast.CompositeLit); ok {
+			var planeID, multiplicity string
+			for _, element := range literal.Elts {
+				kv, ok := element.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				key, ok := kv.Key.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				switch key.Name {
+				case "ID":
+					if value, ok := kv.Value.(*ast.BasicLit); ok && value.Kind == token.STRING {
+						planeID = strings.Trim(value.Value, `"`)
+					}
+				case "Multiplicity":
+					switch value := kv.Value.(type) {
+					case *ast.Ident:
+						multiplicity = strings.ToLower(strings.TrimPrefix(value.Name, "Mult"))
+					case *ast.SelectorExpr:
+						multiplicity = strings.ToLower(strings.TrimPrefix(value.Sel.Name, "Mult"))
+					}
+				}
+			}
+			if planeID != "" {
+				planeIDsSet[planeID] = true
+				if multiplicity != "" {
+					planeMultiplicities[planeID] = multiplicity
+				}
+			}
+		}
 		if kv, ok := n.(*ast.KeyValueExpr); ok {
 			if k, ok := kv.Key.(*ast.Ident); ok && k.Name == "ID" {
 				if lit, ok := kv.Value.(*ast.BasicLit); ok && lit.Kind == token.STRING {
@@ -158,7 +192,7 @@ func MeasureManifestStatus(root string) (ExtensionPlaneManifestStatus, error) {
 	}
 
 	return ExtensionPlaneManifestStatus{
-		PlaneCount: len(planeIDs), PlaneIDs: planeIDs,
+		PlaneCount: len(planeIDs), PlaneIDs: planeIDs, PlaneMultiplicities: planeMultiplicities,
 		GeneratedOutputCurrency: currencyStr, IsGeneratedUpToDate: isUpToDate,
 		ManifestPath: filepath.ToSlash(manifestRel), GeneratedPath: filepath.ToSlash(generatedRel),
 	}, nil
@@ -210,9 +244,9 @@ func FormatExtensionPlanesManifestSection(root string) (string, error) {
 	fmt.Fprintln(&b, "| --- | --- | --- |")
 
 	for _, id := range status.PlaneIDs {
-		waveFamily, multiplicity := "(unassigned)", "ordered"
-		if id == "terminal_decision_provider" {
-			multiplicity = "exclusive"
+		waveFamily, multiplicity := "(unassigned)", status.PlaneMultiplicities[id]
+		if multiplicity == "" {
+			multiplicity = "unknown"
 		}
 		for _, w := range StandardWaveDefinitions() {
 			if slices.Contains(w.Planes, id) {
@@ -300,10 +334,9 @@ func BuildExtensionPlanesBaselineDocument(root string) (*ExtensionPlanesBaseline
 	if err != nil {
 		return nil, fmt.Errorf("measure mirrors: %w", err)
 	}
-	totalPlanes := 0
-	for _, w := range waves {
-		totalPlanes += w.PlaneCount
-	}
+	// Include declarations that are not part of the historical mirror-migration
+	// waves (for example, a new generated plane with no hand-authored mirror).
+	totalPlanes := manifest.PlaneCount
 	return &ExtensionPlanesBaselineDocument{
 		SchemaVersion: 1, Description: "Extension plane declaration, generation currency, and progressive mirror migration baseline.",
 		ActiveWave: ActiveMigrationWave.String(), ActiveWaveOrdinal: int(ActiveMigrationWave),

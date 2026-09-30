@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -1023,6 +1024,44 @@ var PlaneTerminalDecisionProvider = Plane[terminaldecision.Provider]{
 	ExclusiveConflictError: ErrTerminalDecisionProviderConflict,
 }
 
+// PlaneSessionClassifier declares the exclusive metadata-only session-classification plane.
+var PlaneSessionClassifier = Plane[sessionclassification.Classifier]{
+	ID:            "session_classifier",
+	RequestAccess: RequestBodyMetadataOnly,
+	Multiplicity:  MultExclusive,
+	Rules: SourceRules{
+		Feature: CombExclusive,
+	},
+	NilPolicy: NilReject,
+	Identity: func(v sessionclassification.Classifier) (string, bool) {
+		id, err := sessionclassification.ClassifierIdentity(v)
+		if err != nil {
+			return "", false
+		}
+		return id, true
+	},
+	Validate: func(v sessionclassification.Classifier) error {
+		_, err := sessionclassification.ClassifierIdentity(v)
+		return err
+	},
+	ValidateIdentity: sessionclassification.ValidateClassifierID,
+	Combine: func(_ SourceKind, _ sessionclassification.Classifier, incoming sessionclassification.Classifier) (sessionclassification.Classifier, error) {
+		return incoming, nil
+	},
+	Diagnostics: DiagnosticDescriptor[sessionclassification.Classifier]{
+		StageID: StageIDSessionClassification,
+		Order:   101,
+		Materialize: func(v sessionclassification.Classifier) []DiagnosticOccupant {
+			// Composition has already validated and cached the classifier identity.
+			// Diagnostics expose only the fixed occupant label and never re-read ID.
+			if v == nil {
+				return nil
+			}
+			return []DiagnosticOccupant{{Label: "classifier"}}
+		},
+	},
+}
+
 // StandardPlanes is the ordered slice of all standard feature planes.
 var StandardPlanes = []PlaneDeclaration{
 	PlaneSubmitHooks,
@@ -1051,6 +1090,7 @@ var StandardPlanes = []PlaneDeclaration{
 	PlaneSecretGuardExecution,
 	PlaneLocalTurnHandlers,
 	PlaneTerminalDecisionProvider,
+	PlaneSessionClassifier,
 }
 
 // StandardCandidatePlanes defines the canonical list of plane IDs allowed in candidate overlay contribution.

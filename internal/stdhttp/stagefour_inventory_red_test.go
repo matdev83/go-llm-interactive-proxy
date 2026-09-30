@@ -45,12 +45,39 @@ func TestMountedInventoryJSON_includesExtensionTruthBlock_RED(t *testing.T) {
 	if err := json.Unmarshal(envelope.Extensions, &ext); err != nil {
 		t.Fatal(err)
 	}
-	if len(ext.LegalPipeline) != 16 || len(ext.Stages) != 16 {
-		t.Fatalf("extensions contract: want 16 pipeline stages each, got pipeline=%d stages=%d", len(ext.LegalPipeline), len(ext.Stages))
+	if len(ext.LegalPipeline) != 17 || len(ext.Stages) != 17 {
+		t.Fatalf("extensions contract: want 17 pipeline stages each, got pipeline=%d stages=%d", len(ext.LegalPipeline), len(ext.Stages))
 	}
 	for _, st := range ext.Stages {
 		if strings.TrimSpace(st.ID) == "" || strings.TrimSpace(st.DefaultFailure) == "" {
 			t.Fatalf("stage missing id or default_failure: %+v", st)
 		}
+	}
+	secretGuard, sessionClassification, submitRequest := -1, -1, -1
+	for i, id := range ext.LegalPipeline {
+		switch id {
+		case "secret_guard":
+			secretGuard = i
+		case "session_classification":
+			sessionClassification = i
+		case "submit_request":
+			submitRequest = i
+		}
+	}
+	if secretGuard < 0 || sessionClassification <= secretGuard || submitRequest <= sessionClassification {
+		t.Fatalf("classification stage must follow secret_guard and precede submit_request, got %v", ext.LegalPipeline)
+	}
+	classificationStageCount := 0
+	for _, st := range ext.Stages {
+		if st.ID != "session_classification" {
+			continue
+		}
+		classificationStageCount++
+		if st.DefaultFailure != "fail_open" {
+			t.Fatalf("session_classification default_failure: want fail_open, got %q", st.DefaultFailure)
+		}
+	}
+	if classificationStageCount != 1 {
+		t.Fatalf("session_classification stage rows: want 1, got %d", classificationStageCount)
 	}
 }

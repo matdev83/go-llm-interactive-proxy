@@ -180,6 +180,7 @@ func TestPlaneRequestAccess_NonNegotiable_MetadataOnlyRequiresBoundedParity(t *t
 		"session_openers":                       {},
 		"workspace_resolvers":                   {},
 		"tool_call_finalization_max_args_bytes": {},
+		"session_classifier":                    {},
 	}
 	for _, decl := range feature.StandardPlanes {
 		access := feature.DeclaredRequestAccessForTest(decl)

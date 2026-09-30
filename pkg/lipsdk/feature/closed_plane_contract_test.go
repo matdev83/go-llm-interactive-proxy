@@ -100,10 +100,9 @@ func TestClosedPlane_ExternalPackage_ErrUngeneratedPlane(t *testing.T) {
 
 // TestClosedPlane_ExternalPackage_FeatureBundleSchemaAndStandardIDsUnchanged verifies that
 // FeatureBundle schema version is exactly SchemaVersionV1 (1), validation contracts hold,
-// and the manifest declares exactly the canonical standard plane set (25 v1 closure
-// planes plus the deliberately added generation-binder secret_guard_execution plane,
-// which carries composed engine posture via the ordinary frozen surface instead of
-// dedicated facade fields).
+// and the manifest declares exactly the canonical standard plane set (25 original
+// closure planes, the generation-binder secret_guard_execution plane, and the
+// metadata-only session classifier plane).
 func TestClosedPlane_ExternalPackage_FeatureBundleSchemaAndStandardIDsUnchanged(t *testing.T) {
 	t.Parallel()
 
@@ -137,10 +136,10 @@ func TestClosedPlane_ExternalPackage_FeatureBundleSchemaAndStandardIDsUnchanged(
 	}
 	require.Error(t, badVersionBundle.Validate())
 
-	// 5. Standard planes manifest contains exactly 26 planes
-	require.Len(t, feature.StandardPlanes, 26, "manifest must declare exactly 26 standard planes")
+	// 5. Standard planes manifest contains exactly 27 planes
+	require.Len(t, feature.StandardPlanes, 27, "manifest must declare exactly 27 standard planes")
 
-	// 6. Expected 26 standard plane IDs in exact canonical manifest order
+	// 6. Expected 27 standard plane IDs in exact canonical manifest order
 	expectedStandardIDs := []string{
 		"submit_hooks",
 		"request_part_hooks",
@@ -168,6 +167,7 @@ func TestClosedPlane_ExternalPackage_FeatureBundleSchemaAndStandardIDsUnchanged(
 		"secret_guard_execution",
 		"local_turn_handlers",
 		"terminal_decision_provider",
+		"session_classifier",
 	}
 
 	seen := make(map[string]bool, len(feature.StandardPlanes))

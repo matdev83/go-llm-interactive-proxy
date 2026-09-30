@@ -14,12 +14,12 @@ import (
 )
 
 // TestStandardPlanes_ManifestCompletenessAndValidation tests that the hand-authored
-// plane manifest contains all 25 standard feature planes in stable ordinal order,
+// plane manifest contains all 27 standard planes in stable ordinal order,
 // and that all declarations pass ValidateDeclaration and ValidateManifest without error.
 func TestStandardPlanes_ManifestCompletenessAndValidation(t *testing.T) {
 	t.Parallel()
 
-	require.Len(t, feature.StandardPlanes, 26, "manifest must declare exactly 26 standard planes")
+	require.Len(t, feature.StandardPlanes, 27, "manifest must declare exactly 27 standard planes")
 
 	// Validate the entire manifest
 	err := feature.ValidateManifest(feature.StandardPlanes...)
@@ -63,6 +63,7 @@ func TestStandardPlanes_ManifestCompletenessAndValidation(t *testing.T) {
 		{id: "secret_guard_execution", multiplicity: feature.MultExclusive, featComb: feature.CombExclusive, hasDiagStage: false},
 		{id: "local_turn_handlers", multiplicity: feature.MultOrdered, featComb: feature.CombConcatenate, hasDiagStage: false},
 		{id: "terminal_decision_provider", multiplicity: feature.MultExclusive, featComb: feature.CombExclusive, hasDiagStage: false},
+		{id: "session_classifier", multiplicity: feature.MultExclusive, featComb: feature.CombExclusive, hasDiagStage: true},
 	}
 
 	for i, exp := range expectedPlanes {

@@ -74,6 +74,26 @@ func TestViewsFromSubmit_sessionHintsAndAuthoritative(t *testing.T) {
 	})
 }
 
+func TestViewsFromSubmit_sameClientHintKeepsDistinctALegAuthority(t *testing.T) {
+	t.Parallel()
+
+	call := lipapi.Call{Session: lipapi.SessionRef{ClientSessionID: "shared-client-hint"}}
+	first := execctx.ViewsFromSubmit("trace-1", b2bua.ALegRecord{ALegID: "proxy-a-leg-1"}, call, nil)
+	second := execctx.ViewsFromSubmit("trace-2", b2bua.ALegRecord{ALegID: "proxy-a-leg-2"}, call, nil)
+
+	for _, view := range []execctx.Views{first, second} {
+		if view.Session.AuthoritativeSessionID != "" {
+			t.Fatalf("client hint became proxy session authority: %+v", view.Session)
+		}
+		if view.Session.ClientSessionHint != "shared-client-hint" {
+			t.Fatalf("client hint was not preserved as a separate field: %+v", view.Session)
+		}
+	}
+	if first.Session.ALegID == second.Session.ALegID {
+		t.Fatalf("distinct proxy A-legs collapsed under a shared client hint: first=%+v second=%+v", first.Session, second.Session)
+	}
+}
+
 func TestViewsFromSecureSubmit_authoritativeTurnAndPolicyLabels(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)

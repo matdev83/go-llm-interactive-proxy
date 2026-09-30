@@ -10,7 +10,7 @@ import (
 )
 
 // expectedPlaneRequestAccess pins the Task 3.1 initial truthful request-body
-// access classification for all 26 production planes. Values derive from the
+// access classification for all 27 production planes. Values derive from the
 // Task 1.8 Call/authority census and the Task 1.9 plane census evidence:
 // content-receiving or request-mutating planes are CanonicalRequired (erring
 // canonical-required when uncertain); response-event-only planes are
@@ -44,6 +44,7 @@ var expectedPlaneRequestAccess = map[string]feature.RequestBodyAccess{
 	"secret_guard_execution":                feature.RequestBodyCanonicalRequired,
 	"local_turn_handlers":                   feature.RequestBodyCanonicalRequired,
 	"terminal_decision_provider":            feature.RequestBodyCanonicalRequired,
+	"session_classifier":                    feature.RequestBodyMetadataOnly,
 }
 
 // TestPlaneRequestAccess_ZeroValueIsUnclassified pins that the zero value is
@@ -74,7 +75,7 @@ func TestPlaneRequestAccess_StringMethods(t *testing.T) {
 func TestPlaneRequestAccess_AllStandardPlanesAnnotated(t *testing.T) {
 	t.Parallel()
 
-	require.Len(t, feature.StandardPlanes, 26, "manifest must declare exactly 26 standard planes")
+	require.Len(t, feature.StandardPlanes, 27, "manifest must declare exactly 27 standard planes")
 
 	for _, decl := range feature.StandardPlanes {
 		access := feature.DeclaredRequestAccessForTest(decl)

@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
@@ -50,6 +51,27 @@ func (invTR) Order() int { return 0 }
 
 func (invTR) HandleToolEvent(context.Context, lipapi.ToolEvent, sdkhooks.ToolMeta) (sdkhooks.ToolDecision, lipapi.ToolEvent, error) {
 	return sdkhooks.ToolPass, lipapi.ToolEvent{}, nil
+}
+
+type invSessionClassifier struct{ id string }
+
+func (c invSessionClassifier) ID() string { return c.id }
+
+func (invSessionClassifier) Classify(context.Context, sessionclassification.Input) (session.Classification, error) {
+	return session.Classification{}, nil
+}
+
+func TestStageOccupancyFromBundle_sessionClassifierUsesClassificationStage(t *testing.T) {
+	t.Parallel()
+
+	cs := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneSessionClassifier, "session-classification", sessionclassification.Classifier(invSessionClassifier{id: "local-classifier"})))
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+	occ := stageOccupancyFromBundle(b)
+	require.Len(t, occ, 1)
+	require.Equal(t, lipfeature.StageIDSessionClassification, occ[0].StageID)
+	require.Equal(t, []string{"classifier"}, occ[0].HandlerIDs)
+	require.Equal(t, 1, occ[0].Count)
 }
 
 func TestStageOccupancyFromBundle_toolPoliciesSortedBeforeReactorsStablePrefixes(t *testing.T) {

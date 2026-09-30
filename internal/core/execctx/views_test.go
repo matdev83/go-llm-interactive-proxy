@@ -50,8 +50,19 @@ func TestWithViews_roundTrip(t *testing.T) {
 			Claims: map[string]string{"tenant": "a"},
 		},
 		Session: session.SessionView{
-			ClientSessionHint: "s1", ALegID: "a1", IsNew: true,
-			Labels: map[string]string{"k": "v"},
+			AuthoritativeSessionID: "auth-s1",
+			ClientSessionHint:      "s1",
+			ALegID:                 "a1",
+			IsNew:                  true,
+			TurnID:                 "turn-1",
+			Labels:                 map[string]string{"k": "v"},
+			Classification: session.Classification{
+				Kind:       session.KindCodingAgent,
+				Source:     session.SourceLocalIdentity,
+				Confidence: session.ConfidenceHigh,
+				Evidence:   session.EvidenceCode("client.codex"),
+				Revision:   2,
+			},
 		},
 		Attempt: execview.AttemptView{
 			TraceID: "tr", BLegID: "b1", AttemptSeq: 2,
@@ -69,7 +80,7 @@ func TestWithViews_roundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("want views present")
 	}
-	if got.Principal.ID != want.Principal.ID || got.Session.ClientSessionHint != want.Session.ClientSessionHint {
+	if got.Principal.ID != want.Principal.ID || got.Session.AuthoritativeSessionID != want.Session.AuthoritativeSessionID || got.Session.ClientSessionHint != want.Session.ClientSessionHint || got.Session.ALegID != want.Session.ALegID || got.Session.IsNew != want.Session.IsNew || got.Session.TurnID != want.Session.TurnID || got.Session.Labels["k"] != want.Session.Labels["k"] || got.Session.Classification != want.Session.Classification {
 		t.Fatalf("principal/session mismatch: %+v vs %+v", got, want)
 	}
 	if got.Attempt.BLegID != want.Attempt.BLegID || got.Workspace.ProjectRoot != want.Workspace.ProjectRoot {
@@ -80,14 +91,59 @@ func TestWithViews_roundTrip(t *testing.T) {
 	}
 }
 
+func TestWithViewsSessionClassificationSnapshotsAreIndependent(t *testing.T) {
+	t.Parallel()
+
+	want := session.Classification{
+		Kind:       session.KindCodingAgent,
+		Source:     session.SourceRemote,
+		Confidence: session.ConfidenceHigh,
+		Evidence:   session.EvidenceCode("remote.rule_1"),
+		Revision:   7,
+	}
+	input := execctx.Views{Session: session.SessionView{Classification: want}}
+	ctx := execctx.WithViews(context.Background(), input)
+	input.Session.Classification.Kind = session.KindUnknown
+
+	got, ok := execctx.FromContext(ctx)
+	if !ok || got.Session.Classification != want {
+		t.Fatalf("stored classification = %+v ok=%v, want %+v", got.Session.Classification, ok, want)
+	}
+	got.Session.Classification.Evidence = "mutated.internal.snapshot"
+
+	public, ok := session.SessionViewFromContext(ctx)
+	if !ok || public.Classification != want {
+		t.Fatalf("public classification = %+v ok=%v, want %+v", public.Classification, ok, want)
+	}
+	public.Classification.Revision++
+
+	gotAgain, ok := execctx.FromContext(ctx)
+	if !ok || gotAgain.Session.Classification != want {
+		t.Fatalf("classification changed through returned snapshots: %+v ok=%v", gotAgain.Session.Classification, ok)
+	}
+}
+
 func TestWithViews_mapIsolation(t *testing.T) {
 	t.Parallel()
 	ann := map[string]string{"a": "1"}
-	ctx := execctx.WithViews(context.Background(), execctx.Views{Annotations: ann})
+	sessionLabels := map[string]string{"policy": "trusted"}
+	ctx := execctx.WithViews(context.Background(), execctx.Views{
+		Session:     session.SessionView{Labels: sessionLabels},
+		Annotations: ann,
+	})
 	ann["a"] = "mutated"
+	sessionLabels["policy"] = "mutated"
 	got, _ := execctx.FromContext(ctx)
 	if got.Annotations["a"] != "1" {
 		t.Fatalf("context annotations should be a copy, got %q", got.Annotations["a"])
+	}
+	if got.Session.Labels["policy"] != "trusted" {
+		t.Fatalf("session labels should be copied on attach, got %q", got.Session.Labels["policy"])
+	}
+	got.Session.Labels["policy"] = "mutated-again"
+	gotAgain, _ := execctx.FromContext(ctx)
+	if gotAgain.Session.Labels["policy"] != "trusted" {
+		t.Fatalf("session labels should be copied on read, got %q", gotAgain.Session.Labels["policy"])
 	}
 }
 
