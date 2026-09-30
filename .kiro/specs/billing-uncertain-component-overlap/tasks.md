@@ -85,7 +85,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Validation: make dev-test PKGS='./internal/core/billing/... ./internal/infra/billingcompose/...'_
 
 - [ ] 4. Preserve report provenance through complete customer valuation composition
-- [ ] 4.1 Merge independent source contexts without inventing cross-group pairs
+- [x] 4.1 Merge independent source contexts without inventing cross-group pairs
   - Carry contexts and reports through inference grouping, input narrowing, line-ID renaming, fixed/proxy combination, and final base-tariff overwrite.
   - Test two route tariffs with equal amounts/line IDs but different reporting semantics; their interpretation identities must differ without changing the debit.
   - Prove the 1027-context bound from pre-narrowing nonempty observation groups plus the three ancillary groups; retain existing final validation/error precedence and preserve mixed legacy/v1 results.
@@ -152,3 +152,4 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
 - 2.2: Advisory ScopeKey uses a conservative 64 KiB opaque envelope because validated reduction keys embed escaped lineage JSON; canonical context tuples omit publication timestamps while clone preserves them.
 - 2.3: Identity mutation controls compare each source field against a valid enabled baseline; independent overlays flattening source fields and restoring pre-task behavior fail the corresponding tests.
 - 3.2: The shared relation guard now permits exactly one monetary overlap owner and the named bounded advisory consumer; an independent third-consumer mutation is rejected. The assessor remains unwired until 3.3.
+- 4.1: The 1027 bound counts pre-narrowing source groups; fixed scopes share a context and deduplicate. Proxy report-only changes may alter the composite result ID, but unchanged input-set/context identity still triggers the store's integrity conflict; pin this path in durable replay tests.

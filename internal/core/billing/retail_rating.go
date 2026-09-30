@@ -1156,6 +1156,7 @@ func combineRetailValuation(dst *economics.Valuation, src economics.Valuation) {
 		*dst = src.Clone()
 		return
 	}
+	mergeRetailSupportAdvisory(dst, src)
 	dst.Lines = appendRetailLines(dst.Lines, src)
 	dst.InputObservations = appendUniqueRetailRefs(dst.InputObservations, src.InputObservations...)
 	dst.MissingObservations = appendUniqueRetailRefs(dst.MissingObservations, src.MissingObservations...)
@@ -1175,6 +1176,39 @@ func combineRetailValuation(dst *economics.Valuation, src economics.Valuation) {
 	if currency := retailValuationCurrency(*dst); currency != "" {
 		dst.Totals, _ = totalsFromLines(dst.Lines, currency)
 	}
+}
+
+// mergeRetailSupportAdvisory preserves independent source assessments. Pairs
+// use source context/scope/component identities, so line renaming and the final
+// base-tariff overwrite do not require rewriting or reassessing them.
+func mergeRetailSupportAdvisory(dst *economics.Valuation, src economics.Valuation) {
+	if len(src.SupportAdvisoryContexts) == 0 && src.SupportAdvisory == nil {
+		return
+	}
+	contexts := make(map[string]struct{}, len(dst.SupportAdvisoryContexts)+len(src.SupportAdvisoryContexts))
+	for _, context := range dst.SupportAdvisoryContexts {
+		contexts[context.Key()] = struct{}{}
+	}
+	for _, context := range src.SupportAdvisoryContexts {
+		if _, exists := contexts[context.Key()]; exists {
+			continue
+		}
+		dst.SupportAdvisoryContexts = append(dst.SupportAdvisoryContexts, context)
+		contexts[context.Key()] = struct{}{}
+	}
+	slices.SortFunc(dst.SupportAdvisoryContexts, func(a, b economics.SupportAdvisoryContext) int {
+		return strings.Compare(a.Key(), b.Key())
+	})
+	if src.SupportAdvisory == nil {
+		return
+	}
+	incoming := src.SupportAdvisory.Clone()
+	if dst.SupportAdvisory == nil {
+		dst.SupportAdvisory = incoming
+		return
+	}
+	dst.SupportAdvisory.Pairs = append(dst.SupportAdvisory.Pairs, incoming.Pairs...)
+	dst.SupportAdvisory.IncompleteContexts = append(dst.SupportAdvisory.IncompleteContexts, incoming.IncompleteContexts...)
 }
 
 func cloneRetailLines(lines []economics.LineItem) []economics.LineItem {
