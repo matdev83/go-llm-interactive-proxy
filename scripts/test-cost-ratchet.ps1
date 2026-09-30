@@ -449,6 +449,8 @@ function Apply-CurrentAnchorTestCompatibilityPatch {
     # LIP_ALLOW_LARGE_CHANGE override. The frontendpipe saturation tests hold
     # their admission permit until a competing request is provably rejected, so
     # the anchor does not depend on overlapping goroutine scheduling under load.
+    # The wire-counter timeout fake waits for cancellation instead of racing
+    # two timers that can both be ready when a loaded Windows runner resumes.
     # Production sources still come from the anchor.
     $testCompatibilityPathsByAnchor = @{
         "6dbb831885341516117034923f0c3203373aded0" = @(
@@ -457,7 +459,8 @@ function Apply-CurrentAnchorTestCompatibilityPatch {
         "bb1ef9620ee6e8d9199950161e46fc51914945f2" = @(
             "tools/changesize/main_test.go",
             "internal/plugins/frontends/frontendpipe/candidate_proof_saturation_race_test.go",
-            "internal/plugins/frontends/frontendpipe/candidate_assessment_saturation_race_test.go"
+            "internal/plugins/frontends/frontendpipe/candidate_assessment_saturation_race_test.go",
+            "internal/core/runtime/wire_metering_composition_test.go"
         )
     }
     if (-not $testCompatibilityPathsByAnchor.ContainsKey($AnchorCommit)) {

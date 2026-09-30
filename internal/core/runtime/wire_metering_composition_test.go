@@ -596,11 +596,11 @@ func (s *stubCountCallOnly) CountCall(ctx context.Context, in accountingapp.Coun
 }
 
 type stubDualCounter struct {
-	countRes  largebody.WireCountResult
-	countErr  error
-	delay     time.Duration
-	wireCalls int
-	callCalls int
+	countRes            largebody.WireCountResult
+	countErr            error
+	waitForCancellation bool
+	wireCalls           int
+	callCalls           int
 }
 
 func (s *stubDualCounter) CountCall(ctx context.Context, in accountingapp.CountCallInput) (accountingapp.CountResult, error) {
@@ -610,12 +610,9 @@ func (s *stubDualCounter) CountCall(ctx context.Context, in accountingapp.CountC
 
 func (s *stubDualCounter) CountWire(ctx context.Context, in largebody.WireCountInput) (largebody.WireCountResult, error) {
 	s.wireCalls++
-	if s.delay > 0 {
-		select {
-		case <-time.After(s.delay):
-		case <-ctx.Done():
-			return largebody.WireCountResult{}, ctx.Err()
-		}
+	if s.waitForCancellation {
+		<-ctx.Done()
+		return largebody.WireCountResult{}, ctx.Err()
 	}
 	if s.countErr != nil {
 		return largebody.WireCountResult{}, s.countErr
@@ -770,8 +767,10 @@ func TestWireComposition_PreflightUnboundedReplayOrCPUTimeout_DynamicAssessmentD
 	})
 
 	t.Run("permit hold CPU timeout declines", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
 		dualCounter := &stubDualCounter{
-			delay: 50 * time.Millisecond,
+			waitForCancellation: true,
 		}
 
 		checker := accountingpreflight.NewChecker(dualCounter, accountingpreflight.Config{
@@ -784,7 +783,7 @@ func TestWireComposition_PreflightUnboundedReplayOrCPUTimeout_DynamicAssessmentD
 
 		src := &stubWireSource{data: []byte(`{"model":"gpt-4o"}`)}
 
-		decision, declineReason, preflightDec := ex.AssessWirePreflight(context.Background(), WirePreflightAssessmentArgs{
+		decision, declineReason, preflightDec := ex.AssessWirePreflight(ctx, WirePreflightAssessmentArgs{
 			Backend:          "openai",
 			Model:            "gpt-4o",
 			CallID:           "call-timeout-001",
@@ -794,6 +793,9 @@ func TestWireComposition_PreflightUnboundedReplayOrCPUTimeout_DynamicAssessmentD
 			MaxScanBytes:     1024 * 1024,
 			MaxPermitHoldCPU: 2 * time.Millisecond, // very small CPU allowance
 		})
+		if ctx.Err() != nil {
+			t.Fatal("counting must stop at the permit deadline before the parent safety deadline")
+		}
 
 		if decision != largebody.AssessmentDecisionDecline {
 			t.Fatalf("expected AssessmentDecisionDecline, got %v", decision)
