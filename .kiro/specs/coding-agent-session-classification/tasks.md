@@ -100,7 +100,7 @@
     - _Depends: 3.2_
     - _Validation: fuzz/property tests + no-content architecture assertions_
 
-- [ ] 4. Build monotonic feature state, durable persistence, and remote leases
+- [x] 4. Build monotonic feature state, durable persistence, and remote leases
   - [x] 4.1 (P) Define the authoritative key/state contract and bounded memory store
     - RED-test secure SessionID preference, A-leg fallback, rejection of empty authority, and refusal to use ClientSessionHint as a key.
     - Implement Record, Promote, ClaimRemote, CompleteRemote semantics with unknown -> coding_agent as the only V1 classification transition.
@@ -130,7 +130,7 @@
     - _Depends: 4.2_
     - _Validation: memory/SQLite/PostgreSQL shared store contract; race-safe claim tests_
 
-  - [ ] 4.4 Add the process cache/coordinator
+  - [x] 4.4 Add the process cache/coordinator
     - Cache stable positive classifications so later turns require no DB/network work.
     - Coalesce concurrent first loads/promotions for one key while allowing unrelated keys to proceed independently.
     - For durable unknown sessions, preserve authoritative visibility across replicas rather than hiding a remote promotion behind an unbounded negative cache.
@@ -375,3 +375,5 @@
 - Task 1.3 baseline absence assertions must evolve in Tasks 7.1/7.2 when bounded wire evidence lands. OpenResponses canonical User-Agent capture currently uses TrimSpace directly; use the shared acceptance helper for canonical/wire parity in Task 7.2.
 
 - Task 4.3 uses one conservative precision rule across memory, SQLite, and PostgreSQL: lease and completion-based backoff deadlines round upward to the next microsecond, preserving aligned deadlines. Strict before/exact-deadline checks use the returned deadline; no adapter-specific tolerance or early expiry is permitted.
+
+- Task 4.4 coalesced waiters preserve their own cancellation, then consult an available valid positive before propagating an owner storage error. Owner cancellation is tracked separately because Bun adapters return bounded store errors for mid-I/O cancellation.
