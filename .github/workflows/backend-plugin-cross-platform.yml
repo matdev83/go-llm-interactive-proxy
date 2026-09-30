@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/actions/go-cache/**"
       - "scripts/ci-go-cache.py"
+      - "scripts/cross-platform-selection.sh"
       - "go.mod"
       - "go.sum"
       - "connectors/**"
@@ -22,6 +23,7 @@ on:
     paths:
       - ".github/actions/go-cache/**"
       - "scripts/ci-go-cache.py"
+      - "scripts/cross-platform-selection.sh"
       - "go.mod"
       - "go.sum"
       - "connectors/**"
@@ -58,31 +60,35 @@ jobs:
         id: select
         shell: bash
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]] || [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0{40}$ ]]; then
             echo "select=" >> "$GITHUB_OUTPUT"
           else
-            echo "select=$(bash scripts/cross-platform-selection.sh "$BASE_SHA" HEAD)" >> "$GITHUB_OUTPUT"
+            git rev-parse --verify "${BASE_SHA}^{commit}" >/dev/null
+            selection=$(bash scripts/cross-platform-selection.sh "$BASE_SHA" HEAD)
+            echo "select=$selection" >> "$GITHUB_OUTPUT"
           fi
       - name: Classify matrix relevance
         id: classify
         shell: bash
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          # Non-PR events and manual dispatches have no base SHA: always run.
-          if [[ "$EVENT_NAME" != "pull_request" || -z "$BASE_SHA" ]]; then
+          # Manual and initial pushes have no predecessor: retain full validation.
+          if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]] || [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0{40}$ ]]; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          git rev-parse --verify "${BASE_SHA}^{commit}" >/dev/null
           relevant=false
           while IFS= read -r file; do
             case "$file" in
-              .github/actions/go-cache/**|scripts/ci-go-cache.py)
+              .github/actions/go-cache/**|scripts/ci-go-cache.py|scripts/cross-platform-selection.sh)
                 relevant=true
                 break
                 ;;
@@ -107,7 +113,7 @@ jobs:
   claimed-compilation:
     name: Compile every claimed platform once
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -151,7 +157,7 @@ jobs:
 
   native-evidence:
     needs: changes
-    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.relevant == 'true')
+    if: always() && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.relevant == 'true')
     # Expensive native runners are allocated only for relevant changes.
     # The original required check names are emitted by the join below.
     strategy:
@@ -213,7 +219,7 @@ jobs:
   # evidence run concurrently; these cheap Linux statuses join both owners.
   cross-platform-qa:
     needs: [changes, claimed-compilation, native-evidence]
-    if: always()
+    if: always() && !cancelled()
     strategy:
       fail-fast: false
       matrix:

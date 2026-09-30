@@ -3,6 +3,8 @@ package qa
 import (
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // These are lifecycle guarantees, not action SHA pins: an immutable cache
@@ -32,6 +34,17 @@ func TestQAFastPreflight_GoCacheSnapshotsAdvance(t *testing.T) {
 func TestQAFastPreflight_DevelopmentCostWatchdog(t *testing.T) {
 	t.Parallel()
 	workflow := readRepositoryFile(t, ".github", "workflows", "development-cost-weekly.yml")
+	var parsed struct {
+		Jobs map[string]struct {
+			If string `yaml:"if"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(workflow), &parsed); err != nil {
+		t.Fatalf("parse paused watchdog: %v", err)
+	}
+	if parsed.Jobs["windows-cost"].If != "${{ false }}" {
+		t.Fatal("remote historical Windows comparison must remain paused")
+	}
 	for _, needle := range []string{"schedule:", "workflow_dispatch:", "windows-latest", "scripts/test-cost-ratchet.ps1", "GOFLAGS: -p=2", "-Parallel 2", "if: always()", "actions/upload-artifact@"} {
 		if !strings.Contains(workflow, needle) {
 			t.Errorf("cost watchdog missing %q", needle)

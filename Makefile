@@ -55,6 +55,7 @@ help:
 	@echo "  make test-quick      - single one-pass go test ./... for inner-loop feedback (no parity re-tags)"
 	@echo "  make precommit-full  - run the optional full local lint + vulnerability scan before commit"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
+	@echo "  make test-billing-schema - complete exhaustive schema and maximum-depth replay certification"
 	@echo "  make billing-convergence-certify - fail-fast final billing architecture, integration, quality, docs, and race certification"
 	@echo "  make test-db-parity-sqlite - canonical SQLite database parity tests across all registered components"
 	@echo "  make test-db-parity-postgres-direct - repository-wide fail-closed direct PostgreSQL parity (DSN; Make sets LIP_REQUIRE_POSTGRES=1)"
@@ -167,6 +168,13 @@ ifeq ($(OS),Windows_NT)
 else
 	@bash scripts/billing-convergence-certify.sh
 endif
+
+# Exhaustive billing schema certification preserves every generated case and seam.
+# It is separate from the default unit budget and remains part of integration QA.
+BILLING_SCHEMA_TIMEOUT ?= 30m
+.PHONY: test-billing-schema
+test-billing-schema:
+	$(GO) test -count=1 -timeout=$(BILLING_SCHEMA_TIMEOUT) -tags=integration -run '^(TestGeneratedSchema|TestSchemaModel(Structure|Commercial)Sweep|TestSchemaModelOrderInvariance|TestMetamorphic(PricingMetamorphism|StructuralVerdictAgreesWithModel)|TestSupportAgreementShadowPredicate|TestReplayDeepestPublishableChainTraversalIsBounded)' ./internal/core/billing
 
 test-unit:
 ifeq ($(OS),Windows_NT)
@@ -486,7 +494,7 @@ ifeq ($(OS),Windows_NT)
 else
 	@if [ "$$LIP_SKIP_QA_TESTS" = "1" ]; then \
 		echo "Skipping duplicate root tests pass (LIP_SKIP_QA_TESTS=1); running tagged delta packages..."; \
-		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/qa/... ./internal/core/runtime/... ./internal/stdhttp/... ./internal/testkit/conformance/... ./tools/backendplugin/...; \
+		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/qa/... ./internal/core/runtime/... ./internal/stdhttp/... ./internal/testkit/conformance/... ./tools/backendplugin/... ./internal/core/billing/...; \
 	else \
 		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./...; \
 	fi

@@ -78,7 +78,7 @@ def main():
     if args.path is None or args.mib is None:
         parser.error("snapshot bounds require path and mib")
     before, after = bound_snapshot(args.path, args.mib * 1024 * 1024)
-    summary = f"Go snapshot {args.path}: {before // 1024 // 1024} → {after // 1024 // 1024} MiB (budget {args.mib} MiB)"
+    summary = f"Go snapshot {args.path}: {before // 1024 // 1024} -> {after // 1024 // 1024} MiB (budget {args.mib} MiB)"
     print(summary)
     if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(summary_path, "a", encoding="utf-8") as stream:

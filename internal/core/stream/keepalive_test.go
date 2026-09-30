@@ -167,23 +167,45 @@ func TestKeepalive_customKeepaliveEvent(t *testing.T) {
 
 func TestKeepalive_propagatesEOF(t *testing.T) {
 	t.Parallel()
-
-	inner := &delayedStream{
-		events: []lipapi.Event{},
-		delay:  5 * time.Millisecond,
-	}
-
-	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{
-		Interval: 50 * time.Millisecond,
-	})
-	defer func() { _ = ka.Close() }()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	_, err := ka.Recv(ctx)
-	if !errors.Is(err, io.EOF) {
-		t.Fatalf("expected EOF, got %v", err)
+	for _, idle := range []bool{false, true} {
+		name := "immediate EOF"
+		if idle {
+			name = "EOF after keepalive"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			unblock := make(chan struct{})
+			if !idle {
+				close(unblock)
+			}
+			ka := mustNewKeepalive(t, &blockingRecvStream{unblock: unblock}, stream.KeepaliveConfig{
+				Interval: time.Millisecond,
+			})
+			defer func() { _ = ka.Close() }()
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			if idle {
+				ev, err := ka.Recv(ctx)
+				if err != nil || ev.Kind != lipapi.EventWarning || ev.WarningCode != stream.KeepaliveEventCode {
+					t.Fatalf("blocked source must emit a keepalive before EOF: event=%+v err=%v", ev, err)
+				}
+				close(unblock)
+			}
+			for {
+				ev, err := ka.Recv(ctx)
+				if err != nil {
+					if !errors.Is(err, io.EOF) {
+						t.Fatalf("expected EOF, got %v", err)
+					}
+					break
+				}
+				// The reader can be scheduled after the keepalive timer even
+				// when EOF is ready. Only synthetic keepalives may precede EOF.
+				if ev.Kind != lipapi.EventWarning || ev.WarningCode != stream.KeepaliveEventCode {
+					t.Fatalf("empty source emitted a real event before EOF: %+v", ev)
+				}
+			}
+		})
 	}
 }
 

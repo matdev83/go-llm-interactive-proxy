@@ -80,7 +80,7 @@ jobs:
   qa:
     name: qa
     needs: changes
-    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true' || needs.changes.outputs.kiro == 'true' || needs.changes.outputs.profile == 'true')
+    if: always() && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true' || needs.changes.outputs.kiro == 'true' || needs.changes.outputs.profile == 'true')
     # QA is not currently a required check. Do not allocate a second runner for
     # unrelated Markdown-only PRs; Kiro spec-only PRs retain their targeted
     # lifecycle policy check without running runtime/build/database QA.

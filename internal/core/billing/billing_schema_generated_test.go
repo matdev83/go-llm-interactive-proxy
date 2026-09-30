@@ -1,3 +1,5 @@
+//go:build integration
+
 package billing_test
 
 // GENERATED model-based extension of the three-node exhaustive schema sweep to

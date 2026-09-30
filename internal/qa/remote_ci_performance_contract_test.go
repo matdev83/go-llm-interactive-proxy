@@ -11,6 +11,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestQAFastPreflight_SupersededCIJobsRemainCancelable(t *testing.T) {
+	t.Parallel()
+	paths, err := filepath.Glob(filepath.Join(repoRoot(t), ".github", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var workflow ciWorkflow
+		if err := yaml.Unmarshal(data, &workflow); err != nil {
+			t.Fatal(err)
+		}
+		for name, job := range workflow.Jobs {
+			// Failure aggregation needs always(), but it must not protect a
+			// superseded heavy job from workflow-level cancellation. Step-level
+			// log/artifact cleanup keeps its separate cancellation semantics.
+			if strings.Contains(job.If, "always()") && !strings.HasPrefix(job.If, "always() && !cancelled()") {
+				t.Errorf("%s/%s shields superseded execution; use always() && !cancelled()", filepath.Base(path), name)
+			}
+		}
+	}
+}
+
 func TestQAFastPreflight_AllGoWorkflowsUseSharedCachePolicy(t *testing.T) {
 	t.Parallel()
 	var policy map[string]struct {
@@ -121,7 +147,7 @@ func TestQAFastPreflight_RemoteCIWorkloadOwnership(t *testing.T) {
 		t.Error("compile and native owners must retain distinct, fail-closed evidence")
 	}
 	bridge := read("cursor-sdk-platform.yml").Jobs["bridge-node-tests"]
-	if bridge.Name != "bridge-node-tests" || bridge.If != "always()" || !slices.Contains(parseCINeeds(bridge.Needs), "changes") {
+	if bridge.Name != "bridge-node-tests" || bridge.If != "always() && !cancelled()" || !slices.Contains(parseCINeeds(bridge.Needs), "changes") {
 		t.Error("required bridge check must keep its independent status and scope dependency")
 	}
 }

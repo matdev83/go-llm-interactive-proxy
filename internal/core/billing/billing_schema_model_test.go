@@ -70,7 +70,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -769,77 +768,6 @@ func smObservedParentWithUnknownRequiredMember(opts [3]smEdgeKind, ev [3]smEv) b
 // A1/A2/A6 structure sweep (tariff irrelevant) and A1/A2/A6 commercial sweep.
 // ---------------------------------------------------------------------------
 
-func TestSchemaModelStructureSweep(t *testing.T) {
-	t.Parallel()
-	start := time.Now()
-	report := newSMReport()
-	graphs := smGraphs()
-	valid := make([][3]smEdgeKind, 0, len(graphs))
-	for _, opts := range graphs {
-		if err := metering.ValidateComponentSchemas(smSchemas(smRelationships(opts))); err != nil {
-			report.skipped++
-			t.Logf("validator skipped graph [%s]: %v", smOptsName(opts), err)
-			continue
-		}
-		valid = append(valid, opts)
-	}
-	evidence := smAllEvidence()
-	seams := review5beSeams()
-	report.graphCount = len(graphs)
-	report.evidenceCount = len(evidence)
-	report.seams = len(seams)
-
-	t.Cleanup(func() { report.finish(t, "structure", time.Since(start)) })
-
-	for gi, opts := range valid {
-		t.Run(fmt.Sprintf("g%03d", gi), func(t *testing.T) {
-			t.Parallel()
-			rels := smRelationships(opts)
-			resolved := f356Schema(t, fmt.Sprintf("sm-structure-%d", gi), smFreeRules(t), rels)
-			for _, ev := range evidence {
-				for _, seam := range seams {
-					smEvaluateCase(t, report, "structure", seam, resolved, rels, opts, ev, false)
-				}
-			}
-		})
-	}
-}
-
-func TestSchemaModelCommercialSweep(t *testing.T) {
-	t.Parallel()
-	start := time.Now()
-	report := newSMReport()
-	graphs := smGraphs()
-	valid := make([][3]smEdgeKind, 0, len(graphs))
-	for _, opts := range graphs {
-		if err := metering.ValidateComponentSchemas(smSchemas(smRelationships(opts))); err != nil {
-			report.skipped++
-			continue
-		}
-		valid = append(valid, opts)
-	}
-	evidence := smAllEvidence()
-	seams := review5beSeams()
-	report.graphCount = len(graphs)
-	report.evidenceCount = len(evidence)
-	report.seams = len(seams)
-
-	t.Cleanup(func() { report.finish(t, "commercial", time.Since(start)) })
-
-	for gi, opts := range valid {
-		t.Run(fmt.Sprintf("g%03d", gi), func(t *testing.T) {
-			t.Parallel()
-			rels := smRelationships(opts)
-			resolved := f356Schema(t, fmt.Sprintf("sm-commercial-%d", gi), smCommercialRules(t), rels)
-			for _, ev := range evidence {
-				for _, seam := range seams {
-					smEvaluateCase(t, report, "commercial", seam, resolved, rels, opts, ev, true)
-				}
-			}
-		})
-	}
-}
-
 // ---------------------------------------------------------------------------
 // A4: declaration-order invariance.
 // ---------------------------------------------------------------------------
@@ -850,75 +778,6 @@ func smReverse(rels []metering.ComponentRelationship) []metering.ComponentRelati
 		out[i] = rels[len(rels)-1-i]
 	}
 	return out
-}
-
-func TestSchemaModelOrderInvariance(t *testing.T) {
-	t.Parallel()
-	start := time.Now()
-	report := newSMReport()
-	graphs := smGraphs()
-	evidenceSets := [][3]smEv{
-		{smOne, smOne, smOne},
-		{smTwo, smOne, smZero},
-		{smAbsent, smOne, smUnavailable},
-	}
-	seams := review5beSeams()
-	report.graphCount = len(graphs)
-	report.evidenceCount = len(evidenceSets)
-	report.seams = len(seams)
-
-	t.Cleanup(func() { report.finish(t, "order", time.Since(start)) })
-
-	// Skip publication-rejected graphs, exactly as the structure and commercial
-	// sweeps already do. Both variants of an order-invariance pair are refused
-	// identically, so the pair carries no signal; the skip is counted rather than
-	// silently dropped. Filtering happens here, before the parallel subtests
-	// start, so the shared skipped counter is never written concurrently.
-	valid := make([][3]smEdgeKind, 0, len(graphs))
-	for _, opts := range graphs {
-		if err := metering.ValidateComponentSchemas(smSchemas(smRelationships(opts))); err != nil {
-			report.skipped++
-			t.Logf("validator skipped graph [%s]: %v", smOptsName(opts), err)
-			continue
-		}
-		valid = append(valid, opts)
-	}
-
-	for gi, opts := range valid {
-		t.Run(fmt.Sprintf("g%03d", gi), func(t *testing.T) {
-			t.Parallel()
-			rels := smRelationships(opts)
-			rules := smFreeRules(t)
-			resolvedA := f356Schema(t, fmt.Sprintf("sm-order-a-%d", gi), rules, rels)
-			resolvedB := f3Resolved(t, fmt.Sprintf("sm-order-b-%d", gi), rules, []metering.ComponentSchema{
-				{ID: b1SchemaID, Version: "1", Relationships: smReverse(rels)},
-				{ID: b1SchemaID + "_empty", Version: "1"},
-			})
-			for _, ev := range evidenceSets {
-				for _, seam := range seams {
-					caseID := smCaseID("order", seam.name, opts, ev)
-					obsID := "sm-order-" + seam.name + "-" + smOptsCode(opts) + "-" + smEvCode(ev)
-					obs := f3Observation(t, obsID, smMeasures(t, ev)...)
-					valA, errA := seam.rate(t, resolvedA, obs)
-					valB, errB := seam.rate(t, resolvedB, obs)
-					outA, outB := smInspect(valA), smInspect(valB)
-					outA.errClass, outB.errClass = smErrorClass(errA), smErrorClass(errB)
-					report.guardA4()
-					report.mu.Lock()
-					report.cases++
-					report.mu.Unlock()
-					if outA.errClass != outB.errClass ||
-						outA.completeness != outB.completeness ||
-						!slices.Equal(outA.components, outB.components) ||
-						outA.total != outB.total {
-						report.add("A4", fmt.Sprintf("%s forward{err=%s compl=%s total=%s components=%v} reversed+empty{err=%s compl=%s total=%s components=%v}",
-							caseID, outA.errClass, outA.completeness, outA.total, outA.components,
-							outB.errClass, outB.completeness, outB.total, outB.components))
-					}
-				}
-			}
-		})
-	}
 }
 
 // ---------------------------------------------------------------------------

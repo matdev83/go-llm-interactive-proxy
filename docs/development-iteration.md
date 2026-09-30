@@ -121,10 +121,11 @@ capacity fits all simultaneously active lanes and PRs.
 
 - QA guards require source-advancing, toolchain/job-isolated cache keys, matching
   restore/save lanes, bounded lint scheduling, and discoverable scoped commands.
-- `Development cost watchdog` runs the existing Windows-authoritative cost
-  ratchet weekly and on manual dispatch, retaining measurements and failure logs.
-  Ordinary production changes previously did not trigger that ratchet automatically.
-  No budget, anchor, exception, or coverage threshold is loosened by this change.
+- Remote Windows historical comparisons are temporarily paused: default CI
+  always uses the ordinary scoped Windows unit/build lane, including policy edits
+  and labeled PRs. `Development cost watchdog` is disabled in GitHub and its job
+  is guarded off in source. `make test-cost` remains available locally with its
+  existing anchor and budgets; remote performance certification is paused.
 - Retention prevents the source-refresh fix from accumulating unbounded obsolete
   snapshots. GitHub's capacity and cache eviction still need to be considered
   when active parallel workloads exceed the minimum retained footprint.

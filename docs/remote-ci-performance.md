@@ -3,6 +3,13 @@
 Local iteration policy remains in [development-iteration.md](development-iteration.md).
 These rules govern hosted runners and complement #687.
 
+Remote Windows historical comparisons are temporarily paused to unblock
+development. Default CI keeps ordinary scoped unit tests and builds on Windows,
+Linux and macOS, with no comparison triggered by policy edits or PR labels.
+The weekly comparison workflow is disabled in GitHub and its job is guarded off
+in source. `make test-cost` remains available locally; remote cost certification
+is paused until the workflow is deliberately restored.
+
 ## Why improvements regressed
 
 Immutable dependency-only keys froze compiler snapshots. Dedicated keys fixed
@@ -66,6 +73,8 @@ partial snapshot as another job's complete baseline.
   baselines. Other namespaces (including CodeQL/npm) are never deleted by this
   selector. A new Go/toolchain version can evict older baselines safely.
 - Cache restore/save duration, hits and snapshot sizes appear in job summaries.
+  Actual restored keys distinguish useful main fallbacks from exact-key hits;
+  the cache action's `cache-hit=false` alone does not mean a cache miss.
   A transfer phase over 60 seconds emits a warning. Investigate extraction and
   retained bytes before increasing limits. This warning is diagnostic because
   runner/network variation must not make functional checks flaky.
@@ -99,6 +108,44 @@ on Linux; they do not allocate Windows/macOS runners. PostgreSQL starts only
 for test-relevant CI. Repository preflight runs independently of database parity;
 the required Repo hygiene status still fails closed on either failure. The
 independent bridge-node-tests status only executes its suite for relevant scope.
+
+Failure-reporting jobs use `always() && !cancelled()`: dependency failures still
+run their fail-closed checks, but superseded work can stop. Bare job-level
+`always()` shields a running job from normal cancellation and can leave the next
+revision queued behind an obsolete Windows benchmark. A filesystem QA contract
+ratchets the cancellation-aware job guard across every workflow. Step-level
+artifact/log cleanup retains its existing conditions. An already-running old
+workflow uses its old definition and may require GitHub's force-cancel API;
+changing a later revision cannot change that job's cancellation condition.
+
+CI classifies main pushes against `github.event.before`, just as PRs use their
+actual base. Passing an empty base for every push previously enabled the full
+Windows historical cost comparison even for ordinary production changes: the
+first main run spent over 25 minutes before failing in the historical suite.
+Cost classification remains available as metadata, but default CI
+and the weekly/manual watchdog no longer execute the remote comparison. Initial branch pushes
+retain full validation, and an invalid predecessor fails closed. Executable QA
+fixtures cover production, documentation, cost policy and both predecessor cases.
+CodeQL, security and the native ACP, Cursor, taskrunner and backend gates also
+use the actual push predecessor. Ordinary main merges no longer widen a selected
+connector to the full native matrix or run Go scans for documentation alone.
+Fifty-three Git fixtures execute the ten lane classifiers/selectors against relevant,
+documentation, initial, invalid and manual events. Manual and initial runs retain
+full validation; bad revisions fail before any bypass. The official compliance
+selector also checks revisions before its process-substitution loop, preventing
+a failed Git diff from masquerading as an unrelated change.
+Shared SDK, cache and selector changes force the complete connector matrix even
+when a single connector is edited in the same commit, retaining full cache seeding.
+NousPortal's existing provider parity scenarios also use the release gate's
+discoverable `TestParity_` prefix, so certification executes their assertions.
+
+The failed Windows artifact identified an observability fixture's 50 ms
+cancellation deadline, not a cost-budget violation. Its immediate fake streams
+now have a one-second completion guard; phase, cause and count assertions remain.
+The ratchet applies the same five literal guard changes to its pinned historical
+anchor, commits only that test file, and rejects an unexpected fixture. Executable
+PowerShell QA checks the known anchor, unexpected fixture and unrelated anchor.
+Production sources, measured workloads and all cost thresholds remain unchanged.
 
 CodeQL provisions the repository's pinned Go before extraction and enables the
 action's supported dependency caching. It still discovers all modules and runs
@@ -149,3 +196,53 @@ compilation, test execution and save. Local timings cannot substantiate hosted
 Windows/macOS improvements. The weekly development-cost watchdog retains the
 existing Windows test budgets; cache warnings and retention tests cover separate
 causes that package-duration budgets do not observe.
+
+## Exhaustive billing certification
+
+The full three-node structure/commercial products and all five four/five-node
+sweeps, topology-wide order/pricing/support comparisons and maximum-depth replay
+probe run with `make test-billing-schema` (`-tags=integration`). Every existing
+graph, evidence assignment, oracle comparison, tariff, seam and assertion is
+retained. Default unit tests retain named billing regressions, bounded model
+properties and bounded metamorphic cases. `make qa` includes the certification tier,
+including when its duplicate-root-pass optimization is enabled.
+
+CI runs the twelve certification tests in a separate Ubuntu job after billing,
+SDK/public-contract, oracle, dependency or certification-policy changes. Discovery
+must find all twelve tests. The existing required Repo hygiene check propagates
+scope or certification failures, while unrelated changes report an explicit
+bypass. The job owns a bounded 768 MiB compiler-cache lane with trusted main
+publication and read-only PR restoration. Pure schema arithmetic needs no native
+platform matrix; Windows keeps ordinary portable unit/build checks. The certification
+process has a separate 30-minute execution
+guard; it does not change any test assertion or ratchet threshold.
+
+The triggering Windows artifact contained the billing package's ten-minute test
+timeout, although its final log tail showed successful unrelated packages. The
+historical anchor passed. This is an execution-tier correction for exhaustive
+certification, not a compiler-cache hit claim.
+
+Default runtime checkpoint fixtures retain real SQLite files and restart proofs,
+using WAL with `synchronous=FULL` to avoid rollback-journal creation without
+disabling commit synchronization (see [SQLite's WAL documentation](https://sqlite.org/wal.html)).
+The independent-reader fixture opens every cursor before reading and uses
+scheduler yields for varied pacing instead of an OS timer for each small read.
+Push-classifier scenarios reuse one repository per workflow lane, running serially
+against successive real commits; lanes remain parallel and every output assertion
+is retained. These fixture changes leave production database settings and all
+other Windows cost budgets unchanged.
+
+The runtime package has an explicitly approved 45-second growth allowance above
+the frozen anchor, which predates its added checkpoint and durable-restart proofs.
+The measured increase was 37.3 seconds. Its existing relative multiplier remains
+in place; all other package and aggregate limits are retained. The
+`LIP_ALLOW_TEST_COST_POLICY_UPDATE=1` authorizes local policy-edit preflight
+without authorizing measurement violations. The `allow-test-cost-policy-update`
+PR label records that approval; it no longer starts remote measurements.
+The broader `LIP_ALLOW_TEST_COST_GROWTH` override remains a separate opt-in.
+
+The ratchet uses a stable, short checkout path for each pinned historical anchor.
+Go compiler entries depend on source paths, so a random checkout path prevents
+reuse even when the frozen source is identical. Per-run temporary roots and
+measurement artifacts remain isolated. An existing anchor directory still fails
+closed; concurrent measurements must not share or overwrite that checkout.

@@ -41,14 +41,15 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+          if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]] || [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0{40}$ ]]; then
             echo "cursorsdk=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          git rev-parse --verify "${BASE_SHA}^{commit}" >/dev/null
           cursorsdk=false
           while IFS= read -r file; do
             case "$file" in
@@ -116,7 +117,7 @@ jobs:
   bridge-node-tests:
     name: bridge-node-tests
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -239,6 +240,8 @@ func TestTask13_3_ParallelReaders_Independent(t *testing.T) {
 
 		const numReaders = 8
 		var wg sync.WaitGroup
+		var opened sync.WaitGroup
+		opened.Add(numReaders)
 		errCh := make(chan error, numReaders)
 
 		for i := range numReaders {
@@ -246,11 +249,14 @@ func TestTask13_3_ParallelReaders_Independent(t *testing.T) {
 			go func(readerIdx int) {
 				defer wg.Done()
 				r, openErr := src.Open()
+				opened.Done()
 				if openErr != nil {
 					errCh <- fmt.Errorf("reader %d open failed: %w", readerIdx, openErr)
 					return
 				}
 				defer func() { _ = r.Close() }()
+				// All cursors are live before any reader consumes the source.
+				opened.Wait()
 
 				// Read in varying chunk sizes
 				chunkSize := (readerIdx%5 + 1) * 7
@@ -269,9 +275,9 @@ func TestTask13_3_ParallelReaders_Independent(t *testing.T) {
 						errCh <- fmt.Errorf("reader %d read error: %w", readerIdx, rerr)
 						return
 					}
-					// Micro-sleep to vary inter-reader pacing
+					// Yield to vary inter-reader pacing without one OS timer per read.
 					if readerIdx%2 == 0 {
-						time.Sleep(10 * time.Microsecond)
+						goruntime.Gosched()
 					}
 				}
 

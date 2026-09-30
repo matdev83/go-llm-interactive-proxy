@@ -103,7 +103,7 @@ var (
 
 func r4OpenStore(t *testing.T, path string) *journalstore.DurableStore {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", durableCheckpointSQLiteDSN(path))
 	if err != nil {
 		t.Fatal(err)
 	}

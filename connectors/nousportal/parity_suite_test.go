@@ -97,7 +97,9 @@ func writeTokenFile(t *testing.T, rec oauthcred.TokenRecord) string {
 	return path
 }
 
-func TestJWTMintInferenceInvokeAndChat(t *testing.T) {
+// Parity_ keeps these real provider-emulator scenarios discoverable by the
+// advertised-capability release gate.
+func TestParity_JWTMintInferenceInvokeAndChat(t *testing.T) {
 	var portalHits, inferenceHits int32
 	var capturedAuth, capturedUA string
 
@@ -205,7 +207,7 @@ model: anthropic/claude-sonnet-4.6
 	}
 }
 
-func TestLegacyOpaqueSessionKeyAndChat(t *testing.T) {
+func TestParity_LegacyOpaqueSessionKeyAndChat(t *testing.T) {
 	var inferenceHits atomic.Int32
 	var capturedAuth string
 
@@ -258,7 +260,7 @@ oauth_token_file: %s
 	}
 }
 
-func TestOAuthQuarantineOnTerminalError(t *testing.T) {
+func TestParity_OAuthQuarantineOnTerminalError(t *testing.T) {
 	var portalHits int32
 	portalSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&portalHits, 1)
@@ -306,7 +308,7 @@ func TestOAuthQuarantineOnTerminalError(t *testing.T) {
 	}
 }
 
-func TestDynamicCatalogInventory(t *testing.T) {
+func TestParity_DynamicCatalogInventory(t *testing.T) {
 	inferenceSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/models" {
 			http.NotFound(w, r)
@@ -371,7 +373,7 @@ oauth_token_file: %s
 	}
 }
 
-func TestEntitlement403Vs401MintRetry(t *testing.T) {
+func TestParity_Entitlement403Vs401MintRetry(t *testing.T) {
 	t.Run("403EntitlementFailsClosedWithoutRefresh", func(t *testing.T) {
 		var refreshCalls int32
 		tp := &mockTokenProvider{
@@ -449,7 +451,7 @@ func TestEntitlement403Vs401MintRetry(t *testing.T) {
 	})
 }
 
-func TestHardNegativeNoHermesTagsOrHeaders(t *testing.T) {
+func TestParity_HardNegativeNoHermesTagsOrHeaders(t *testing.T) {
 	var checkedRequests int
 	inspectHandler := func(w http.ResponseWriter, r *http.Request) {
 		checkedRequests++
@@ -523,7 +525,7 @@ oauth_token_file: %s
 	}
 }
 
-func TestHardNegativeNoHardcodedHermesClientIDInProduction(t *testing.T) {
+func TestParity_HardNegativeNoHardcodedHermesClientIDInProduction(t *testing.T) {
 	tokenPath := writeTokenFile(t, oauthcred.TokenRecord{
 		RefreshToken: "some-refresh-token",
 	})
