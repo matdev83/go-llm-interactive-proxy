@@ -26,7 +26,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Requirements: 3.1, 3.2, 4.1, 4.2, 4.3, 7.2, 7.5_
   - _Validation: make dev-test PKGS='./pkg/lipsdk/economics/... ./internal/core/billing/...'_
 
-- [ ] 2. Establish the frozen public reporting contract
+- [x] 2. Establish the frozen public reporting contract
 - [x] 2.1 Add immutable reporting-version material and lossless catalog-view conversion
   - Add the optional empty/v1 version to snapshot and view contracts, with clone, canonical body, validation, and content hashing.
   - Reject unsupported versions; retain exact old bytes for omitted version and require new publication identity for changed material.
@@ -44,7 +44,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Boundary: SDK Contracts_
   - _Requirements: 2.3, 5.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.4, 6.5, 7.2, 7.3, 7.5_
   - _Validation: make dev-test PKGS='./pkg/lipsdk/economics/...'_
-- [ ] 2.3 Bind source reporting contexts into the existing valuation interpretation identity
+- [x] 2.3 Bind source reporting contexts into the existing valuation interpretation identity
   - Append optional context metadata to the existing context preimage and extend the established field-mutation test.
   - Prove different route-source reporting versions/content produce different context hashes even with identical monetary fields.
   - Keep advisory pairs out of context identity but inside the canonical result fingerprint, so report divergence conflicts under one frozen interpretation.
@@ -150,3 +150,4 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
 - Baseline child-limit repair: `339b1e97` isolates the existing test's package-wide cap override by removing its contradictory parallel marker; repeated focused and retained full-package race checks pass.
 
 - 2.2: Advisory ScopeKey uses a conservative 64 KiB opaque envelope because validated reduction keys embed escaped lineage JSON; canonical context tuples omit publication timestamps while clone preserves them.
+- 2.3: Identity mutation controls compare each source field against a valid enabled baseline; independent overlays flattening source fields and restoring pre-task behavior fail the corresponding tests.
