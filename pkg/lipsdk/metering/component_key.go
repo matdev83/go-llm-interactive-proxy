@@ -310,11 +310,7 @@ func (k ComponentKey) Clone() ComponentKey {
 // to use as a content-addressing preimage because dimensions are sorted and
 // all field names are explicit.
 func (k ComponentKey) CanonicalBytes() []byte {
-	n, err := k.Normalize()
-	if err != nil {
-		return nil
-	}
-	b, err := json.Marshal(n)
+	b, err := k.CanonicalJSON()
 	if err != nil {
 		return nil
 	}
