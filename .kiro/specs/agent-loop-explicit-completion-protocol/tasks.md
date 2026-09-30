@@ -13,7 +13,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
 
 ---
 
-- [ ] 1. Rebaseline brownfield seams and freeze characterization
+- [x] 1. Rebaseline brownfield seams and freeze characterization
   - [x] 1.1 Revalidate current candidate-open and tool-response ordering against `main`
     - Inspect current `executor` candidate shaping, request hooks, post-hook rederivation, conversation-view final reassertion, PTB/adaptation/open order, tool assembler/finalizers, tool policy/reactors, and terminal-decision chokepoint.
     - Reconcile any landed `b-leg-path-virtualization`, large-payload, or concurrency changes with this design before production edits.
@@ -41,7 +41,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 1.1_
     - _Validation: `go test -count=1 ./pkg/lipsdk/controltool/...`_
 
-  - [ ] 2.2 Add the exclusive `PlaneControlToolProvider` contribution
+  - [x] 2.2 Add the exclusive `PlaneControlToolProvider` contribution
     - Add the generated/declared feature plane with exclusive merge semantics, defensive typed-nil validation, snapshot accessor, and provider-removal behavior.
     - Update plane manifests/generators/architecture tables through normal repository tooling; do not hand-edit generated outputs inconsistently.
     - Prove a second provider is rejected deterministically and an absent provider is a zero-work no-op.
@@ -290,3 +290,4 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 1.1: `conversationprojection.Reassert` is a no-op unless NeverBackend/steering/provenance is non-empty; pin the live branch. Post-clamp preflight still sees message-authority `openCall` before `AdaptCallForCandidate`. Steering overlays can fail `VerifyAdaptation` if they land in Messages rather than Instructions.
 - Task 1.2: `strategy` is still an unknown YAML field; `legacyEnabledConfigSources` currently has only omitted-strategy so task 9.2 can add explicit `semantic_verifier` without rewriting cases. Invert `TestLegacyEnabledYAMLRejectsStrategySelectorUntilConfigured` when the selector lands. Generation pin is two pluginreg `BuildFeatureBundle` snapshots with distinct frozen caps, not a full host reload.
 - Task 2.1: `DefaultMaxArgsBytes` is 64 KiB to match the existing tool-call envelope. Schema validation is stdlib object-schema + no-`$ref`, not a draft compiler. Do not add `projection.go` until 2.3.
+- Task 2.2: The 27th plane belongs to Wave4_Tools and must remain non-negotiable canonical-required in both largebody eligibility compilation and authority assessment; provider removal publishes a new empty slot without mutating old snapshots.

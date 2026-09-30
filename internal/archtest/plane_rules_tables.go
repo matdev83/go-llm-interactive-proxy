@@ -29,6 +29,9 @@ var KnownPlaneFields = map[string]PlaneFieldMetadata{
 	"ToolCallPolicies":                 {PlaneID: "tool_call_policies", Wave: Wave4_Tools},
 	"ToolCallFinalizers":               {PlaneID: "tool_call_finalizers", Wave: Wave4_Tools},
 	"ToolCallFinalizationMaxArgsBytes": {PlaneID: "tool_call_finalization_max_args_bytes", Wave: Wave4_Tools},
+	"ControlToolProvider":              {PlaneID: "control_tool_provider", Wave: Wave4_Tools},
+	"controlToolProviderID":            {PlaneID: "control_tool_provider", Wave: Wave4_Tools},
+	"controlToolProvider":              {PlaneID: "control_tool_provider", Wave: Wave4_Tools},
 
 	// Wave 5a: Secret guard & Compaction
 	"SecretGuards":         {PlaneID: "secret_guards", Wave: Wave5a_GuardsCompaction},
@@ -75,6 +78,7 @@ var KnownPlaneIDs = map[string]PlaneFieldMetadata{
 	"local_turn_handlers":                   {PlaneID: "local_turn_handlers", Wave: Wave5b_LocalTurnTerminal},
 	"terminal_decision_provider":            {PlaneID: "terminal_decision_provider", Wave: Wave5b_LocalTurnTerminal},
 	"session_classifier":                    {PlaneID: "session_classifier", Wave: Wave5c_Residual},
+	"control_tool_provider":                 {PlaneID: "control_tool_provider", Wave: Wave4_Tools},
 }
 
 // Whitelisted non-plane fields for individual structs.
@@ -196,6 +200,7 @@ var (
 		"internal/core/extensions.(*RequestRuntimeSnapshot).LocalTurnHandlersExecution":       true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).TerminalDecisionProvider":         true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).TerminalDecisionProviderIdentity": true,
+		"internal/core/extensions.(*RequestRuntimeSnapshot).ControlToolProvider":              true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).TrafficObserver":                  true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).UsageObserver":                    true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).RawCapture":                       true,

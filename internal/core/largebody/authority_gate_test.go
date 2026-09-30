@@ -129,6 +129,64 @@ func TestTask11_3_UnclassifiedPlane_Declines(t *testing.T) {
 // Test 2: Wire-safe set accepts
 // -----------------------------------------------------------------------------
 
+// TestTask11_3_OccupiedNonNegotiablePlaneAccessDowngrade_Declines pins that the
+// gate's defensive census rejects an occupied non-negotiable canonical plane
+// whose access was weakened to metadata-only or to an explicit wire contract.
+// The gate starts from a valid unoccupied summary, so the decline can only come
+// from the census occupancy check; an absent provider stays eligible.
+func TestTask11_3_OccupiedNonNegotiablePlaneAccessDowngrade_Declines(t *testing.T) {
+	t.Parallel()
+
+	for _, id := range []string{
+		"local_turn_handlers",
+		"secret_guards",
+		"secret_guard_execution",
+		"terminal_decision_provider",
+		"control_tool_provider",
+	} {
+		for _, access := range []largebody.PlaneAccess{
+			largebody.PlaneAccessMetadataOnly,
+			largebody.PlaneAccessWireContract,
+		} {
+			t.Run(id+"/"+access.String(), func(t *testing.T) {
+				t.Parallel()
+
+				genID := "gen-task-11-3"
+
+				// Baseline: valid unoccupied summary plus unoccupied census accepts.
+				summary := validWireSafeSummary(t, genID)
+				absent := largebody.NewStandardDependencyCensus(genID)
+				decision, reason := largebody.AssessAuthorityGate(summary, absent, genID)
+				if decision != largebody.AssessmentDecisionAccept {
+					t.Fatalf("absent %s at %s must stay eligible, got %v (%v)", id, access, decision, reason)
+				}
+
+				// Downgrade the access class, then occupy the plane at the gate.
+				census := largebody.NewStandardDependencyCensus(genID)
+				downgraded := false
+				for i := range census.Planes {
+					if census.Planes[i].ID == id {
+						census.Planes[i].Access = access
+						census.Planes[i].Occupied = true
+						downgraded = true
+					}
+				}
+				if !downgraded {
+					t.Fatalf("census is missing plane %q", id)
+				}
+
+				decision, reason = largebody.AssessAuthorityGate(summary, census, genID)
+				if decision != largebody.AssessmentDecisionDecline {
+					t.Fatalf("occupied %s downgraded to %s must decline, got %v (%v)", id, access, decision, reason)
+				}
+				if reason != largebody.DeclineReasonAuthorityBlocker {
+					t.Fatalf("expected DeclineReasonAuthorityBlocker for occupied downgraded %s, got %v", id, reason)
+				}
+			})
+		}
+	}
+}
+
 func TestTask11_3_WireSafeSet_Accepts(t *testing.T) {
 	t.Parallel()
 	genID := "gen-task-11-3"

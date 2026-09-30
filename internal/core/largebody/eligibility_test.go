@@ -68,6 +68,7 @@ var census35Access = map[string]largebody.PlaneAccess{
 	"local_turn_handlers":                   largebody.PlaneAccessCanonicalRequired,
 	"terminal_decision_provider":            largebody.PlaneAccessCanonicalRequired,
 	"session_classifier":                    largebody.PlaneAccessMetadataOnly,
+	"control_tool_provider":                 largebody.PlaneAccessCanonicalRequired,
 }
 
 // eligible35Input builds the "normal potentially eligible generation" shape
@@ -454,6 +455,67 @@ func TestWireEligibility_NonNegotiablePlaneBlockers(t *testing.T) {
 	}
 }
 
+func downgrade35Plane(in largebody.WireEligibilityInput, id string, access largebody.PlaneAccess) largebody.WireEligibilityInput {
+	out := in
+	out.Planes = append([]largebody.PlaneEligibilityInput(nil), in.Planes...)
+	found := false
+	for i := range out.Planes {
+		if out.Planes[i].ID == id {
+			out.Planes[i].Access = access
+			found = true
+		}
+	}
+	if !found {
+		panic("downgrade35Plane: unknown plane " + id)
+	}
+	return out
+}
+
+// TestWireEligibility_NonNegotiablePlaneAccessDowngrade pins that an occupied
+// non-negotiable canonical plane cannot be weakened to metadata-only or to an
+// explicit wire contract: the static blocker bit survives the downgrade, while
+// an absent plane at the same weakened access stays eligible.
+func TestWireEligibility_NonNegotiablePlaneAccessDowngrade(t *testing.T) {
+	t.Parallel()
+
+	for _, id := range []string{
+		"local_turn_handlers",
+		"secret_guards",
+		"secret_guard_execution",
+		"terminal_decision_provider",
+		"control_tool_provider",
+	} {
+		for _, access := range []largebody.PlaneAccess{
+			largebody.PlaneAccessMetadataOnly,
+			largebody.PlaneAccessWireContract,
+		} {
+			t.Run(id+"/"+access.String(), func(t *testing.T) {
+				t.Parallel()
+
+				occupied := compile35(t, downgrade35Plane(occupy35Plane(eligible35Input("gen-7"), id), id, access))
+				if !occupied.HasStaticBlocker() {
+					t.Fatalf("occupied %s downgraded to %s must remain a static blocker, got %v",
+						id, access, occupied)
+				}
+				idx, ok := largebody.WireEligibilityPlaneIndex(id)
+				if !ok {
+					t.Fatalf("plane index missing for %q", id)
+				}
+				if occupied.PlaneBlockers()&(1<<uint(idx)) == 0 {
+					t.Fatalf("plane blocker mask must name downgraded occupied %s (idx %d), got %#x",
+						id, idx, occupied.PlaneBlockers())
+				}
+
+				// An absent provider at the same weakened access stays eligible.
+				absent := compile35(t, downgrade35Plane(eligible35Input("gen-7"), id, access))
+				if absent.HasStaticBlocker() {
+					t.Fatalf("absent %s at %s must stay eligible, got %v", id, access, absent)
+				}
+			})
+		}
+	}
+}
+
 // TestWireEligibility_HookBusBlockers pins the verdicts inside the summary:
 // occupied submit/request-part/tool chains and (under Blocker 2 conservative fail-safe)
 // response-part chains statically block wire eligibility.
@@ -600,7 +662,7 @@ func TestWireEligibility_InputModelStaysFixed(t *testing.T) {
 	if got := reflect.TypeFor[largebody.NarrowPortEligibilityInput]().NumField(); got != 23 {
 		t.Fatalf("narrow-port input model changed (%d fields): extend the compiler policy first", got)
 	}
-	if largebody.WireEligibilityPlaneCount != 27 {
+	if largebody.WireEligibilityPlaneCount != 28 {
 		t.Fatalf("plane table changed (%d planes): extend the compiler policy first", largebody.WireEligibilityPlaneCount)
 	}
 }

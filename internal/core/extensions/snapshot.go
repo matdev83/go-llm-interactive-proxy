@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -390,6 +391,14 @@ func (s *RequestRuntimeSnapshot) TerminalDecisionProvider() terminaldecision.Pro
 // captured by this immutable request snapshot, if present.
 func (s *RequestRuntimeSnapshot) TerminalDecisionProviderIdentity() (string, bool) {
 	return lipfeature.FrozenIdentity(s.featurePlaneSet(), lipfeature.PlaneTerminalDecisionProvider)
+}
+
+// ControlToolProvider returns the generation proxy-owned model control tool
+// provider captured by this immutable request snapshot, or nil when the
+// generation admits no control tool. An absent provider requires zero provider
+// method calls: callers must branch on the nil result rather than invoking it.
+func (s *RequestRuntimeSnapshot) ControlToolProvider() controltool.Provider {
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneControlToolProvider)
 }
 
 // WithRequestRuntimeSnapshot attaches snap to ctx for the remainder of the request lifetime.
