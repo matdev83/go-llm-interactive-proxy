@@ -80,7 +80,7 @@
     - _Depends: 1.2_
     - _Validation: shared matcher matrix + unchanged codexclientcompat behavior fixtures_
 
-  - [ ] 3.2 Implement feature-owned config and local heuristic rules
+  - [x] 3.2 Implement feature-owned config and local heuristic rules
     - Decode canonical plugins.features payload for session-classification; outer Registration.Enabled remains authoritative.
     - Support modes heuristic, jev, hybrid with heuristic as omitted-mode default; define bounded ignored_user_agent_prefixes and remote config shape.
     - RED-test Rule A known client identity; Rule B read/search + edit/remove + OS-command cluster; Rule C weaker read/search + mutation plus recognized project marker.
