@@ -477,6 +477,10 @@ coordinatorLoop:
 		<-closerDone
 	}
 	wg.Wait()
+	// A reader can record CANCEL while we join it, after the initial start
+	// check. Readers are now quiescent: start that final receipt before waiting
+	// for its worker, or teardown can wait forever on an unstarted lifecycle.
+	startCancellation()
 	if cancellation.requested() {
 		_ = cancellation.wait()
 	}

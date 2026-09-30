@@ -1,4 +1,4 @@
-package archtest
+package qa
 
 import (
 	"crypto/sha256"

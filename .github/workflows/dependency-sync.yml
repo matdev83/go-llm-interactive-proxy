@@ -4,8 +4,34 @@ on:
   schedule:
     - cron: "17 5 * * 1"
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/actions/go-cache/**"
+      - "scripts/ci-go-cache.py"
+      - "go.mod"
+      - "go.sum"
+      - "connectors/**/go.mod"
+      - "connectors/**/go.sum"
+      - "connector-support/**/go.mod"
+      - "connector-support/**/go.sum"
+      - "testdata/enterprise_module/go.mod"
+      - "testdata/enterprise_module/go.sum"
+      - "testdata/external_connector/go.mod"
+      - "testdata/external_connector/go.sum"
+      - "testdata/external_feature_sdk/go.mod"
+      - "testdata/external_feature_sdk/go.sum"
+      - "testdata/external_billing_binding/go.mod"
+      - "testdata/external_billing_binding/go.sum"
+      - "scripts/tidy-all-modules.sh"
+      - "scripts/check-all-modules.sh"
+      - "tools/backendplugin/discover_modules/**"
+      - ".github/workflows/dependency-sync.yml"
+
   pull_request:
     paths:
+      - ".github/actions/go-cache/**"
+      - "scripts/ci-go-cache.py"
       - "go.mod"
       - "go.sum"
       - "connectors/**/go.mod"
@@ -47,20 +73,28 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            connectors/**/go.sum
-            connector-support/**/go.sum
-            testdata/enterprise_module/go.sum
-            testdata/external_connector/go.sum
-            testdata/external_feature_sdk/go.sum
-            testdata/external_billing_binding/go.sum
+          cache: false
+
+      - name: Restore bounded modules Go cache
+        uses: ./.github/actions/go-cache
+        with:
+          lane: modules
+
+      - name: Download complete root module graph
+        run: go mod download
 
       - name: Check every independent module
         env:
-          LIP_MODULE_CHECK_JOBS: "4"
+          LIP_MODULE_CHECK_JOBS: "2"
+          GOFLAGS: -p=2
         run: bash scripts/check-all-modules.sh
 
       - name: Verify root synchronization helper
         run: bash scripts/tidy-all-modules.sh --check
+
+      - name: Save bounded modules Go cache
+        if: success()
+        uses: ./.github/actions/go-cache
+        with:
+          lane: modules
+          phase: save

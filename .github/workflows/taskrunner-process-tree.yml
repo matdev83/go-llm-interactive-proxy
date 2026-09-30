@@ -4,6 +4,16 @@
 name: Taskrunner process-tree
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/taskrunner/**"
+      - "internal/archtest/taskrunner_process_tree_ci_test.go"
+      - ".github/workflows/taskrunner-process-tree.yml"
+      - ".github/actions/go-cache/**"
+      - "scripts/ci-go-cache.py"
+      - "go.mod"
+      - "go.sum"
   # Keep the workflow present for every pull request so a required matrix check
   # reports a successful bypass instead of becoming skipped on unrelated PRs.
   pull_request:
@@ -36,7 +46,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
             echo "run_suite=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -44,6 +54,10 @@ jobs:
           relevant=false
           while IFS= read -r file; do
             case "$file" in
+              .github/actions/go-cache/**|scripts/ci-go-cache.py)
+                relevant=true
+                break
+                ;;
               tools/taskrunner/**|internal/archtest/taskrunner_process_tree_ci_test.go|.github/workflows/taskrunner-process-tree.yml|go.mod|go.sum)
                 relevant=true
                 break
@@ -61,7 +75,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.scope.outputs.run_suite == 'true' && matrix.os || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - name: Fail closed if scope detection failed
@@ -82,12 +96,13 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            connectors/**/go.sum
-            connector-support/**/go.sum
-            testdata/enterprise_module/go.sum
+          cache: false
+
+      - name: Restore bounded taskrunner Go cache
+        if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: taskrunner
 
       - name: Process-tree tests (Unix)
         if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true' && runner.os != 'Windows'
@@ -107,3 +122,10 @@ jobs:
         shell: bash
         run: |
           echo "Taskrunner process-tree suite bypassed: no relevant files changed."
+
+      - name: Save bounded taskrunner Go cache
+        if: success() && (needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true')
+        uses: ./.github/actions/go-cache
+        with:
+          lane: taskrunner
+          phase: save

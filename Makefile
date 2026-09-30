@@ -606,7 +606,7 @@ backend-plugin-cross-platform-qa:
 ifeq ($(OS),Windows_NT)
 	@$(WINDOWS_TASK) backend-plugin-cross-platform-qa
 else
-	$(GO) run ./tools/backendplugin/crossplatform_qa -root . -out .golip-crossplatform-matrix.json -skip-native $(if $(strip $(CROSS_PLATFORM_SELECT)),-select "$(CROSS_PLATFORM_SELECT)",)
+	$(GO) run ./tools/backendplugin/crossplatform_qa -root . -out .golip-crossplatform-matrix.json -skip-native $(if $(filter 1,$(CROSS_PLATFORM_SKIP_COMPILE)),-skip-compile,) $(if $(strip $(CROSS_PLATFORM_SELECT)),-select "$(CROSS_PLATFORM_SELECT)",)
 	$(GO) test $(GO_TEST_FLAGS) ./internal/infra/backendplugins/... -run 'TestAdversarial_|TestActivate_|TestStream_|TestDigest|TestManifest|TestDiscover|TestShutdown|TestReap|TestPeer|TestChannel|TestExact|TestUpgrade|TestRollback|TestUninstall|TestConfig|TestSecrecy|TestUnauthorized|TestProtected|TestLaunch|TestKill|TestCancel'
 	$(GO) test $(GO_TEST_FLAGS) ./pkg/lipsdk/backendplugin/... -run 'Test'
 	cd connector-support/acp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'KillProcessTree_|ProcessTree_CrossCompile|Cancel' ./...

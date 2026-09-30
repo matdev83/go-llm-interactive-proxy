@@ -1,6 +1,15 @@
 name: Cursor SDK Platform Smoke
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "connectors/cursorsdk/**"
+      - "scripts/test-cursor-sdk-platform.*"
+      - ".github/workflows/cursor-sdk-platform.yml"
+      - ".github/actions/go-cache/**"
+      - "scripts/ci-go-cache.py"
+      - "Makefile"
   workflow_dispatch:
   pull_request:
 
@@ -43,6 +52,10 @@ jobs:
           cursorsdk=false
           while IFS= read -r file; do
             case "$file" in
+              .github/actions/go-cache/**|scripts/ci-go-cache.py)
+                cursorsdk=true
+                break
+                ;;
               connectors/cursorsdk/*|scripts/test-cursor-sdk-platform.*|.github/workflows/cursor-sdk-platform.yml)
                 cursorsdk=true
                 break
@@ -66,7 +79,7 @@ jobs:
     name: platform-smoke (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.cursorsdk == 'true'
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.changes.outputs.cursorsdk == 'true' && matrix.os || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -82,48 +95,39 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          # Shared setup-go cache is a frozen first-write-wins partial snapshot;
-          # this matrix restores a dedicated full cache below instead.
+          # The shared composite owns cache identity, size and main publication.
           cache: false
 
-      - name: Resolve Go cache paths
-        id: go-cache-paths
-        shell: bash
-        run: |
-          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore dedicated cursorsdk Go cache
-        id: go-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore bounded cursorsdk Go cache
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-cursorsdk-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum', 'testdata/enterprise_module/go.sum', 'tools/**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-cache-cursorsdk-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum', 'testdata/enterprise_module/go.sum', 'tools/**/go.sum') }}-
-            go-cache-cursorsdk-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
+          lane: cursorsdk
 
       - name: Platform smoke (fake bridge)
         run: make test-cursor-sdk-platform
 
-      - name: Save dedicated cursorsdk Go cache
-        if: always() && steps.go-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Save bounded cursorsdk Go cache
+        if: success()
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-cursorsdk-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum', 'testdata/enterprise_module/go.sum', 'tools/**/go.sum') }}-${{ github.sha }}
+          lane: cursorsdk
+          phase: save
 
   bridge-node-tests:
     name: bridge-node-tests
+    needs: changes
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        run: exit 1
+      - name: Report unrelated bridge bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.cursorsdk != 'true'
+        run: echo "Bridge tests bypassed; no Cursor SDK changes."
       - name: Checkout
+        if: needs.changes.result == 'success' && needs.changes.outputs.cursorsdk == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -131,6 +135,7 @@ jobs:
       # bridge-node engines require node >=22.13; pin the exact Node version
       # used to verify the CI command sequence locally (22.22.3) so CI is reproducible.
       - name: Setup Node
+        if: needs.changes.result == 'success' && needs.changes.outputs.cursorsdk == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.22.3
@@ -138,14 +143,17 @@ jobs:
           cache-dependency-path: connectors/cursorsdk/bridge-node/package-lock.json
 
       - name: Install bridge dependencies
+        if: needs.changes.result == 'success' && needs.changes.outputs.cursorsdk == 'true'
         working-directory: connectors/cursorsdk/bridge-node
         run: npm ci
 
       # Hermetic unit suite (mocked SDK; live scenarios gated behind CURSOR_SDK_LIVE).
       - name: Bridge unit tests
+        if: needs.changes.result == 'success' && needs.changes.outputs.cursorsdk == 'true'
         working-directory: connectors/cursorsdk/bridge-node
         run: npm test
 
       - name: Bridge typecheck
+        if: needs.changes.result == 'success' && needs.changes.outputs.cursorsdk == 'true'
         working-directory: connectors/cursorsdk/bridge-node
         run: npm run typecheck

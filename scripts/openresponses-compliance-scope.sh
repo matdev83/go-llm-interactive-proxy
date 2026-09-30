@@ -9,6 +9,8 @@ file_requires_suite() {
     go.mod|go.sum|*/go.mod|*/go.sum|\
     internal/integration/openresponses/**|\
     internal/archtest/**|\
+    internal/qa/openresponses_official_manifest_test.go|\
+    .github/actions/go-cache/**|scripts/ci-go-cache.py|\
     internal/plugins/frontends/openresponses/**|\
     internal/plugins/frontends/openairesponses/**|\
     internal/plugins/backends/openresponsescompat/**|\
@@ -45,6 +47,9 @@ self_test() {
   for path in \
     internal/integration/openresponses/handler.go \
     internal/archtest/openresponses_js_tool_boundary_test.go \
+    internal/qa/openresponses_official_manifest_test.go \
+    .github/actions/go-cache/action.yml \
+    scripts/ci-go-cache.py \
     internal/plugins/frontends/openresponses/handler.go \
     internal/plugins/frontends/openairesponses/handler.go \
     internal/plugins/backends/openresponsescompat/handler.go \

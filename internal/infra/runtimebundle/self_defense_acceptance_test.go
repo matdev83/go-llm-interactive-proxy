@@ -20,10 +20,13 @@
 package runtimebundle_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
@@ -425,13 +428,21 @@ func TestAcceptanceBodyContentNeverRefusesALegitimateLLMRoute(t *testing.T) {
 //   - the process goroutine count is identical before and after the churn, so no
 //     per-address goroutine or timer is ever created.
 //
-// The goroutine assertion is an explicit measurement rather than a race-detector
-// observation, because this host cannot run -race (broken cgo). The measurement
-// is taken around the churn only, after a warm-up round has already driven the
-// stack, so no lazily initialized worker can be mistaken for per-address work.
+// The goroutine assertion runs in an isolated process so unrelated background
+// work from preceding tests cannot change its process-wide baseline. It is
+// taken around churn only, after a warm-up round has driven the stack.
 func TestAcceptanceBoundedUniqueAddressChurnThroughTheRealStack(t *testing.T) {
-	// Deliberately not parallel: the goroutine-count measurement is only
-	// meaningful while no sibling parallel test is running.
+	const childMarker = "LIP_TEST_SELF_DEFENSE_CHURN_CHILD"
+	isolated := os.Getenv(childMarker) == "1"
+	if !isolated {
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestAcceptanceBoundedUniqueAddressChurnThroughTheRealStack$", "-test.count=1")
+		cmd.Env = append(os.Environ(), childMarker+"=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("isolated churn certification failed: %v\n%s", err, output)
+		}
+	}
 	cfg := acceptanceConfig(t, func(c *config.Config) {
 		c.Access.SelfDefense.Adaptive.MaxEntries = intPtr(acceptanceChurnCapacity)
 	})
@@ -450,8 +461,22 @@ func TestAcceptanceBoundedUniqueAddressChurnThroughTheRealStack(t *testing.T) {
 			t.Fatalf("warm-up impossible path = %d, want the generic 404", rec.Code)
 		}
 	}
+	// Prometheus Gather itself launches transient collector goroutines. The
+	// isolated resource proof measures churn before invoking any Gather; the
+	// parent retains the complete state/cardinality proof below.
+	if isolated {
+		before := runtime.NumGoroutine()
+		for _, addr := range sdReloadChurn(churn) {
+			if rec := sdReloadServe(t, stack.handler, "/.env", addr.String()); rec.Code != http.StatusNotFound {
+				t.Fatalf("churn impossible path = %d, want the generic 404", rec.Code)
+			}
+		}
+		if got := runtime.NumGoroutine(); got != before {
+			t.Fatalf("goroutines = %d after the churn, want the measured baseline %d: adaptive state must create no per-address goroutine or timer", got, before)
+		}
+		return
+	}
 	warmSeries := acceptanceSelfDefenseSeries(t, stack.ps)
-	warmGoroutines := runtime.NumGoroutine()
 
 	// The churn itself: twice the configured capacity of distinct hostile
 	// addresses, each refused deterministically by the fixed matcher before any
@@ -485,12 +510,7 @@ func TestAcceptanceBoundedUniqueAddressChurnThroughTheRealStack(t *testing.T) {
 	}
 	acceptanceAssertClosedReasonLabels(t, series)
 
-	// 3. Bounded goroutines: no per-address goroutine or timer exists, so the
-	// count is identical before and after the churn.
-	if got := runtime.NumGoroutine(); got != warmGoroutines {
-		t.Fatalf("goroutines = %d after the churn, want the measured baseline %d: adaptive state must create no per-address goroutine or timer",
-			got, warmGoroutines)
-	}
+	// 3. The isolated child certified the identical churn's exact goroutine bound.
 }
 
 // TestAcceptanceChurnIsObservedByTheRealRegistry pins the observability half of

@@ -585,10 +585,12 @@ func TestCrossPlatformQA_RejectsUnsupportedHostChannelClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	outPath := filepath.Join(t.TempDir(), "matrix.json")
-	out := runToolExpectError(t, root, "./tools/backendplugin/crossplatform_qa",
-		"-root", root, "-out", outPath, "-select", synName, "-skip-native")
-	if !strings.Contains(out, "darwin") || !strings.Contains(out, "unsupported") {
-		t.Fatalf("expected darwin unsupported claim error, got:\n%s", out)
+	for _, mode := range []string{"-compile-only", "-skip-compile"} {
+		out := runToolExpectError(t, root, "./tools/backendplugin/crossplatform_qa",
+			"-root", root, "-out", outPath, "-select", synName, "-skip-native", mode)
+		if !strings.Contains(out, "darwin") || !strings.Contains(out, "unsupported") {
+			t.Fatalf("mode %s must reject unsupported claim, got:\n%s", mode, out)
+		}
 	}
 }
 

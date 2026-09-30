@@ -35,25 +35,10 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Resolve Go cache paths
-        id: go-cache-paths
-        shell: bash
-        run: |
-          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore cost measurement cache
-        id: go-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore bounded cost Go cache
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-cost-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-cache-cost-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
-            go-cache-cost-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
+          lane: cost
 
       - name: Measure existing Windows cost budgets
         timeout-minutes: 75
@@ -67,14 +52,12 @@ jobs:
             -Parallel 2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Save cost measurement cache
-        if: success() && steps.go-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Save bounded cost Go cache
+        if: success()
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-cost-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          lane: cost
+          phase: save
 
       - name: Retain measurements and failures
         if: always()

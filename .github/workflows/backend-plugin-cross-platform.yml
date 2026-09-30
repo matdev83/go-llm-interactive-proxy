@@ -5,10 +5,13 @@ name: Backend plugin cross-platform
 on:
   pull_request:
     paths:
+      - ".github/actions/go-cache/**"
+      - "scripts/ci-go-cache.py"
       - "go.mod"
       - "go.sum"
       - "connectors/**"
       - "connector-support/**"
+      - "pkg/lipsdk/backendplugin/**"
       - "tools/backendplugin/**"
       - "internal/infra/backendplugins/**"
       - "internal/archtest/backend_plugin_cross_platform_ci_test.go"
@@ -17,10 +20,13 @@ on:
   push:
     branches: [main]
     paths:
+      - ".github/actions/go-cache/**"
+      - "scripts/ci-go-cache.py"
       - "go.mod"
       - "go.sum"
       - "connectors/**"
       - "connector-support/**"
+      - "pkg/lipsdk/backendplugin/**"
       - "tools/backendplugin/**"
       - "internal/infra/backendplugins/**"
       - "internal/archtest/backend_plugin_cross_platform_ci_test.go"
@@ -76,7 +82,11 @@ jobs:
           relevant=false
           while IFS= read -r file; do
             case "$file" in
-              go.mod|go.sum|*/go.mod|*/go.sum|connectors/**|connector-support/**|tools/backendplugin/**|internal/infra/backendplugins/**|internal/archtest/backend_plugin_cross_platform_ci_test.go|.github/workflows/backend-plugin-cross-platform.yml)
+              .github/actions/go-cache/**|scripts/ci-go-cache.py)
+                relevant=true
+                break
+                ;;
+              go.mod|go.sum|*/go.mod|*/go.sum|connectors/**|connector-support/**|pkg/lipsdk/backendplugin/**|tools/backendplugin/**|internal/infra/backendplugins/**|internal/archtest/backend_plugin_cross_platform_ci_test.go|.github/workflows/backend-plugin-cross-platform.yml)
                 relevant=true
                 break
                 ;;
@@ -94,16 +104,61 @@ jobs:
             esac
           done < <(git diff --name-only "$BASE_SHA" HEAD)
           echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
-  cross-platform-qa:
+  claimed-compilation:
+    name: Compile every claimed platform once
     needs: changes
     if: always()
-    # Required check convention: always run the job and skip the steps so an
-    # unrelated PR reports success (not skip), never blocking the merge.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        run: exit 1
+      - name: Checkout
+        if: needs.changes.outputs.relevant == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        if: needs.changes.outputs.relevant == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore claimed-platform compiler cache
+        if: needs.changes.outputs.relevant == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: backend-compile
+      - name: Compile complete selected claim matrix
+        if: needs.changes.outputs.relevant == 'true'
+        shell: bash
+        env:
+          CROSS_PLATFORM_SELECT: ${{ needs.changes.outputs.select }}
+          GOFLAGS: -buildvcs=false -p=2
+          GOMAXPROCS: "2"
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ -n "$CROSS_PLATFORM_SELECT" ]]; then args=(-select "$CROSS_PLATFORM_SELECT"); fi
+          go run ./tools/backendplugin/crossplatform_qa -root . -out .golip-crossplatform-matrix.json -compile-only "${args[@]}"
+      - name: Save claimed-platform compiler cache
+        if: success() && needs.changes.outputs.relevant == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: backend-compile
+          phase: save
+
+  native-evidence:
+    needs: changes
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.relevant == 'true')
+    # Expensive native runners are allocated only for relevant changes.
+    # The original required check names are emitted by the join below.
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.changes.outputs.relevant == 'true' && matrix.os || 'ubuntu-latest' }}
     timeout-minutes: 45
     steps:
       - name: Fail closed if scope detection failed
@@ -124,50 +179,62 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # Shared setup-go cache is a frozen first-write-wins partial snapshot;
-          # this matrix restores a dedicated full cache below instead.
+          # The shared composite owns cache identity, size and main publication.
           cache: false
 
-      - name: Resolve Go cache paths
-        id: go-cache-paths
+      - name: Restore bounded backend-plugin Go cache
         if: needs.changes.outputs.relevant == 'true'
-        shell: bash
-        run: |
-          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore dedicated backend-plugin Go cache
-        id: go-cache
-        if: needs.changes.outputs.relevant == 'true'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-backend-plugin-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-cache-backend-plugin-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum') }}-
-            go-cache-backend-plugin-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
+          lane: backend-plugin
 
       - name: Cross-platform QA
         if: needs.changes.outputs.relevant == 'true'
         env:
           CROSS_PLATFORM_SELECT: ${{ needs.changes.outputs.select }}
+          CROSS_PLATFORM_SKIP_COMPILE: "1"
           GOFLAGS: -buildvcs=false
         run: make backend-plugin-cross-platform-qa
 
-      - name: Save dedicated backend-plugin Go cache
-        if: always() && needs.changes.result == 'success' && needs.changes.outputs.relevant == 'true' && steps.go-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Save bounded backend-plugin Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.relevant == 'true'
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-backend-plugin-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum') }}-${{ github.sha }}
+          lane: backend-plugin
+          phase: save
 
       - name: Report unrelated matrix bypass
         if: needs.changes.outputs.relevant != 'true'
         shell: bash
         run: |
           echo "Cross-platform QA bypassed: no connector/backend-plugin-relevant changes detected."
+
+  # Preserve the original required matrix check names. Compilation and native
+  # evidence run concurrently; these cheap Linux statuses join both owners.
+  cross-platform-qa:
+    needs: [changes, claimed-compilation, native-evidence]
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require compiler and native matrix evidence
+        shell: bash
+        env:
+          SCOPE_RESULT: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          COMPILE_RESULT: ${{ needs.claimed-compilation.result }}
+          NATIVE_RESULT: ${{ needs.native-evidence.result }}
+        run: |
+          set -euo pipefail
+          test "$SCOPE_RESULT" = success
+          test "$COMPILE_RESULT" = success
+          if [[ "$RELEVANT" == true ]]; then
+            test "$NATIVE_RESULT" = success
+          else
+            test "$RELEVANT" = false
+            test "$NATIVE_RESULT" = skipped
+          fi
