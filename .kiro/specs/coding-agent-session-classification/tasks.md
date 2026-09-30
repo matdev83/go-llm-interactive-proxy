@@ -101,7 +101,7 @@
     - _Validation: fuzz/property tests + no-content architecture assertions_
 
 - [ ] 4. Build monotonic feature state, durable persistence, and remote leases
-  - [ ] 4.1 (P) Define the authoritative key/state contract and bounded memory store
+  - [x] 4.1 (P) Define the authoritative key/state contract and bounded memory store
     - RED-test secure SessionID preference, A-leg fallback, rejection of empty authority, and refusal to use ClientSessionHint as a key.
     - Implement Record, Promote, ClaimRemote, CompleteRemote semantics with unknown -> coding_agent as the only V1 classification transition.
     - First accepted positive wins; repeats are idempotent; later weak/negative proposals cannot rewrite it.
