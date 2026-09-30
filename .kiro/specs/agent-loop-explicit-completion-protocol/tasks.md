@@ -14,7 +14,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
 ---
 
 - [ ] 1. Rebaseline brownfield seams and freeze characterization
-  - [ ] 1.1 Revalidate current candidate-open and tool-response ordering against `main`
+  - [x] 1.1 Revalidate current candidate-open and tool-response ordering against `main`
     - Inspect current `executor` candidate shaping, request hooks, post-hook rederivation, conversation-view final reassertion, PTB/adaptation/open order, tool assembler/finalizers, tool policy/reactors, and terminal-decision chokepoint.
     - Reconcile any landed `b-leg-path-virtualization`, large-payload, or concurrency changes with this design before production edits.
     - Record focused characterization tests for every ordering invariant the implementation will depend on; do not create a permanent extra report unless repository conventions require one.
@@ -284,3 +284,7 @@ After Task 1 establishes the current baseline:
 - Acceptance/architecture/docs converge only after both strategies and generic runtime integration are stable.
 
 This ordering minimizes shared-runtime churn while retaining real parallel work in feature-local config, tool contract, and protocol-state slices.
+
+## Implementation Notes
+
+- Task 1.1: `conversationprojection.Reassert` is a no-op unless NeverBackend/steering/provenance is non-empty; pin the live branch. Post-clamp preflight still sees message-authority `openCall` before `AdaptCallForCandidate`. Steering overlays can fail `VerifyAdaptation` if they land in Messages rather than Instructions.
