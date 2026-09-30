@@ -36,7 +36,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Requirements: 7.1, 7.2, 7.5_
   - _Depends: 1.1, 1.2_
   - _Validation: make dev-test PKGS='./pkg/lipsdk/economics/...'_
-- [ ] 2.2 Add canonical advisory context and bounded non-monetary result contracts
+- [x] 2.2 Add canonical advisory context and bounded non-monetary result contracts
   - Define context, pair, incomplete reason, and report value objects; support all four incomplete reasons and published limits.
   - Implement deep clone, validation, orientation, sorting, exact deduplication, nil-report encoding, and omission-compatible valuation JSON.
   - Reject self-pairs, invalid keys, dangling context references, unsupported versions/reasons, and forged oversized external results without introducing any amount field.
@@ -148,3 +148,5 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
 - Model-cost guidance: exact task-local exclusion is `^Test(GeneratedSchema(StructureSweep|CommercialSweep|OrderInvariance|TransformIsNotContainment|DirectionUnitIsolation)|SchemaModel(StructureSweep|CommercialSweep|OrderInvariance)|Metamorphic(PricingMetamorphism|StructuralVerdictAgreesWithModel)|SupportAgreementShadowPredicate)$`; retain `TestSupportAgreementShadowPredicate/(acceptance_vectors|regression_schemas)` with a separate unfiltered selector.
 - Baseline race repair: `0bdd97a2` synchronizes the existing seam-equivalence test's shared tallies; focused repeated race checks and the retained full-package race gate pass with all 28 cases and parallel execution preserved.
 - Baseline child-limit repair: `339b1e97` isolates the existing test's package-wide cap override by removing its contradictory parallel marker; repeated focused and retained full-package race checks pass.
+
+- 2.2: Advisory ScopeKey uses a conservative 64 KiB opaque envelope because validated reduction keys embed escaped lineage JSON; canonical context tuples omit publication timestamps while clone preserves them.
