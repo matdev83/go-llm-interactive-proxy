@@ -127,6 +127,29 @@ var safeEvidencePathAllowlist = map[string]safeEvidenceValueKind{
 	"$.provider_schema.service_tier":         safeEvidenceValueIdentifier,
 }
 
+// Provider-family nested paths and compatible aliases are separately bounded
+// so evidence can retain the exact wire location without widening the generic
+// top-level economic path contract.
+var safeEvidenceProviderNestedPathAllowlist = map[string]safeEvidenceValueKind{
+	"$.usage.audio_input_tokens":                       safeEvidenceValueCount,
+	"$.usage.prompt_audio_tokens":                      safeEvidenceValueCount,
+	"$.usage.audio_output_tokens":                      safeEvidenceValueCount,
+	"$.usage.completion_audio_tokens":                  safeEvidenceValueCount,
+	"$.usage.prompt_tokens_details.text_tokens":        safeEvidenceValueCount,
+	"$.usage.prompt_tokens_details.audio_tokens":       safeEvidenceValueCount,
+	"$.usage.prompt_tokens_details.image_tokens":       safeEvidenceValueCount,
+	"$.usage.prompt_tokens_details.cache_write_tokens": safeEvidenceValueCount,
+	"$.usage.completion_tokens_details.text_tokens":    safeEvidenceValueCount,
+	"$.usage.completion_tokens_details.audio_tokens":   safeEvidenceValueCount,
+	"$.usage.input_tokens_details.text_tokens":         safeEvidenceValueCount,
+	"$.usage.input_tokens_details.audio_tokens":        safeEvidenceValueCount,
+	"$.usage.input_tokens_details.cache_write_tokens":  safeEvidenceValueCount,
+	"$.usage.output_tokens_details.text_tokens":        safeEvidenceValueCount,
+	"$.usage.output_tokens_details.audio_tokens":       safeEvidenceValueCount,
+	"$.usage.input_tokens_details.images":              safeEvidenceValueCount,
+	"$.usage.output_tokens_details.images":             safeEvidenceValueCount,
+}
+
 var safeEvidenceHeaderAllowlist = map[string]safeEvidenceValueKind{
 	"content-length":                   safeEvidenceValueCount,
 	"x-request-id":                     safeEvidenceValueIdentifier,
@@ -195,7 +218,7 @@ func validateSafeEvidenceLocation(location string) error {
 		return fmt.Errorf("safe evidence location exceeds %d bytes", MaxSafeEvidenceFieldBytes)
 	}
 	if len(location) > 0 && location[0] == '$' {
-		if _, ok := safeEvidencePathAllowlist[location]; !ok {
+		if _, ok := safeEvidenceLocationKind(location); !ok {
 			return fmt.Errorf("safe evidence path is not an allowlisted economic location")
 		}
 		return nil
@@ -294,6 +317,9 @@ func validateSafeEvidenceLexemeForLocation(location, field, value string) error 
 func safeEvidenceLocationKind(location string) (safeEvidenceValueKind, bool) {
 	if len(location) > 0 && location[0] == '$' {
 		kind, ok := safeEvidencePathAllowlist[location]
+		if !ok {
+			kind, ok = safeEvidenceProviderNestedPathAllowlist[location]
+		}
 		return kind, ok
 	}
 	kind, ok := safeEvidenceHeaderAllowlist[strings.ToLower(location)]

@@ -43,19 +43,21 @@ func TestSafeEvidenceAllowlistDeclaresExactlyOneValidTypePerLocation(t *testing.
 func TestSafeEvidenceCriticalLocationsHaveNumericTypes(t *testing.T) {
 	t.Parallel()
 	want := map[string]safeEvidenceValueKind{
-		"$.usage.input_tokens":          safeEvidenceValueCount,
-		"$.usage.audio_seconds":         safeEvidenceValueDuration,
-		"$.usage.web_search_requests":   safeEvidenceValueCount,
-		"$.usage.web_fetch_requests":    safeEvidenceValueCount,
-		"$.usage.input_bytes":           safeEvidenceValueCount,
-		"$.usage.duration_seconds":      safeEvidenceValueDuration,
-		"$.provider_schema.custom_cost": safeEvidenceValueQuantity,
-		"content-length":                safeEvidenceValueCount,
-		"x-usage-credits":               safeEvidenceValueQuantity,
-		"$.billing.amount":              safeEvidenceValueAmount,
-		"$.billing.currency":            safeEvidenceValueCurrency,
-		"$.charge.kind":                 safeEvidenceValueChargeKind,
-		"$.charge.id":                   safeEvidenceValueIdentifier,
+		"$.usage.input_tokens":                             safeEvidenceValueCount,
+		"$.usage.prompt_tokens_details.cache_write_tokens": safeEvidenceValueCount,
+		"$.usage.input_tokens_details.cache_write_tokens":  safeEvidenceValueCount,
+		"$.usage.audio_seconds":                            safeEvidenceValueDuration,
+		"$.usage.web_search_requests":                      safeEvidenceValueCount,
+		"$.usage.web_fetch_requests":                       safeEvidenceValueCount,
+		"$.usage.input_bytes":                              safeEvidenceValueCount,
+		"$.usage.duration_seconds":                         safeEvidenceValueDuration,
+		"$.provider_schema.custom_cost":                    safeEvidenceValueQuantity,
+		"content-length":                                   safeEvidenceValueCount,
+		"x-usage-credits":                                  safeEvidenceValueQuantity,
+		"$.billing.amount":                                 safeEvidenceValueAmount,
+		"$.billing.currency":                               safeEvidenceValueCurrency,
+		"$.charge.kind":                                    safeEvidenceValueChargeKind,
+		"$.charge.id":                                      safeEvidenceValueIdentifier,
 	}
 	for location, kind := range want {
 		if got, ok := safeEvidenceLocationKind(location); !ok || got != kind {

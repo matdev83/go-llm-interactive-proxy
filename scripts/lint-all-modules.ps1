@@ -39,6 +39,7 @@ function Get-DiscoveredModules {
     $modules = [System.Collections.Generic.List[string]]::new()
     $modules.Add(".")
     $modules.Add("testdata/enterprise_module")
+    $modules.Add("testdata/external_billing_binding")
     $modules.Add("testdata/external_connector")
     $modules.Add("testdata/external_feature_sdk")
 

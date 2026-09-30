@@ -9,32 +9,31 @@ import (
 )
 
 // Remediation 3C per-file growth certification (Req 17.1-17.6, 18.1, 18.6).
-//
-// The billing-convergence denominator counts whole roots wholesale, so any
-// unknown file inside an owned root would previously credit itself. These
-// tests pin the complete per-file manifest (exact fork baselines at
-// c7fa416950ef342d417b34db52107cc2fff15396, audited credits, requirement
-// attribution) and prove on real filesystem trees that unknown descendants
-// fail before credit, moved code cannot take baseline 0, deletions cannot
-// free reusable allowance, and only max(0, current-baseline) per allowlisted
-// entry counts toward the capped total.
+// The denominator counts whole roots wholesale, so any unknown file inside an
+// owned root would previously credit itself. These tests pin the per-file
+// manifest (exact fork baselines at c7fa4169, audited credits, requirement
+// attribution) and prove on real filesystem trees that unknown descendants fail
+// before credit, moved code cannot take baseline 0, deletions cannot free
+// reusable allowance, and only max(0, current-baseline) per allowlisted entry
+// counts toward the capped total.
 
-// TestBillingEconomicsGrowthManifestLocked pins the remediation-3C allowance
-// table: 160 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at
-// c7fa4169), audited-credit sum 53,785, cap 53,846 (live-measured 53,821 + 25). Schema,
-// order, uniqueness, and attribution rules run through the shared table
-// validator so production and injected-negative tests enforce identical rules;
-// per-entry fork values are verified mechanically against the pinned fork tree
-// by TestBillingEconomicsGrowthForkBaselinesExact, so offsetting baseline edits
-// cannot hide in the sums. Any broadening, rebasing, or attribution change
-// requires an explicit table edit that review must approve.
+// TestBillingEconomicsGrowthManifestLocked pins the remediation-3C allowance table:
+// 165 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at c7fa4169),
+// audited-credit sum 57,701, cap 57,726. The per-entry re-audit history lives in
+// billing_convergence_growth_history.go; this test only locks the arithmetic. Schema,
+// order, uniqueness and attribution run through the shared table validator so
+// production and injected-negative tests enforce identical rules, and per-entry fork
+// values are verified mechanically by TestBillingEconomicsGrowthForkBaselinesExact, so
+// offsetting baseline edits cannot hide in the sums; any broadening, rebasing or
+// attribution change needs an explicit table edit that review approves.
+
 func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	t.Parallel()
-	if len(economicsConvergenceGrowthManifest) != 160 {
-		t.Fatalf("growth manifest entries = %d, want 160", len(economicsConvergenceGrowthManifest))
+	if len(economicsConvergenceGrowthManifest) != 165 {
+		t.Fatalf("growth manifest entries = %d, want 165", len(economicsConvergenceGrowthManifest))
 	}
-	if EconomicsConvergenceGrowthOverlayMax != 53846 {
-		t.Fatalf("growth cap drift: %d, want 53846", EconomicsConvergenceGrowthOverlayMax)
+	if EconomicsConvergenceGrowthOverlayMax != 57726 {
+		t.Fatalf("growth cap drift: %d, want 57726", EconomicsConvergenceGrowthOverlayMax)
 	}
 	if msg := validateEconomicsConvergenceGrowthManifest(economicsConvergenceGrowthManifest); msg != "" {
 		t.Fatalf("growth manifest schema rejected: %s", msg)
@@ -47,17 +46,18 @@ func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	if sumBaseline != 9593 {
 		t.Fatalf("manifest baseline sum = %d, want 9593 (fork roots 8209 + files 1384)", sumBaseline)
 	}
-	if sumCredit != 53785 {
-		t.Fatalf("manifest audited credit sum = %d, want 53785", sumCredit)
+	if sumCredit != 57701 {
+		t.Fatalf("manifest audited credit sum = %d, want 57701", sumCredit)
 	}
 	// Spot-check representative entries across roots and provenances so a
 	// silent baseline/credit/category edit fails loudly.
 	spot := []economicsConvergenceGrowthEntry{
 		{path: "internal/core/billing/account.go", baseline: 102, credit: 0, category: "settlement", provenance: "modified"},
 		{path: "internal/core/billing/append.go", baseline: 50, credit: 10, category: "lifecycle", provenance: "modified"},
-		{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1652, category: "rating", provenance: "new"},
-		{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 270, category: "terminal", provenance: "modified"},
-		{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 181, category: "admission", provenance: "modified"},
+		{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2163, category: "rating", provenance: "new"},
+		{path: "internal/core/billing/component_rater_quantity_solver.go", baseline: 0, credit: 437, category: "rating", provenance: "new"},
+		{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 454, category: "terminal", provenance: "modified"},
+		{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 243, category: "admission", provenance: "modified"},
 		{path: "internal/infra/billingcompose/catalog.go", baseline: 467, credit: 247, category: "composition", provenance: "modified"},
 		{path: "internal/infra/billingstore/call_usage_store.go", baseline: 454, credit: 519, category: "persistence", provenance: "modified"},
 		{path: "internal/infra/billingstore/reports_aleg.go", baseline: 0, credit: 2004, category: "query", provenance: "new"},
@@ -79,10 +79,9 @@ func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	}
 }
 
-// TestBillingEconomicsGrowthAllowanceLive verifies the live allowance through
-// the deletion-friendly predicate: cap pinned, every credited entry
-// allowlisted, allowance within cap. The exact live total is deliberately not
-// pinned so beneficial deletions keep passing.
+// TestBillingEconomicsGrowthAllowanceLive verifies the live allowance through the
+// deletion-friendly predicate: cap pinned, every credited entry allowlisted, allowance
+// within cap; the exact live total is not pinned, so deletions keep passing.
 func TestBillingEconomicsGrowthAllowanceLive(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -133,10 +132,9 @@ func growthRootDoc(rootPath string) BillingFinalConvergenceBaselineFile {
 	}
 }
 
-// TestBillingEconomicsGrowthUnknownRejectedPerRoot proves on real filesystem
-// trees that an unknown descendant inside EACH of the four owned roots fails
-// enumeration before any credit is computed: unlisted code can never credit
-// itself.
+// TestBillingEconomicsGrowthUnknownRejectedPerRoot proves on real filesystem trees
+// that an unknown descendant inside EACH of the four owned roots fails enumeration
+// before any credit is computed: unlisted code can never credit itself.
 func TestBillingEconomicsGrowthUnknownRejectedPerRoot(t *testing.T) {
 	t.Parallel()
 	roots := []string{
@@ -161,10 +159,10 @@ func TestBillingEconomicsGrowthUnknownRejectedPerRoot(t *testing.T) {
 	}
 }
 
-// TestBillingEconomicsGrowthMovedCodeRejected proves a moved/renamed baseline
-// file cannot take baseline 0 at its new path: the unlisted destination fails
-// enumeration even when it carries exactly the preexisting line count, and
-// even when the original manifest path is simultaneously deleted.
+// TestBillingEconomicsGrowthMovedCodeRejected proves a moved/renamed baseline file
+// cannot take baseline 0 at its new path: the unlisted destination fails enumeration
+// even when it carries exactly the preexisting line count, and even when the
+// original manifest path is simultaneously deleted.
 func TestBillingEconomicsGrowthMovedCodeRejected(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -181,10 +179,10 @@ func TestBillingEconomicsGrowthMovedCodeRejected(t *testing.T) {
 	}
 }
 
-// TestBillingEconomicsGrowthDeletionNoReuse proves deleting historical code
-// cannot create reusable allowance: an unknown file still fails when a
-// manifest file is simultaneously deleted, and the predicate still bounds
-// every surviving entry independently.
+// TestBillingEconomicsGrowthDeletionNoReuse proves deleting historical code cannot
+// create reusable allowance: an unknown file still fails when a manifest file is
+// simultaneously deleted, and the predicate still bounds every surviving entry
+// independently.
 func TestBillingEconomicsGrowthDeletionNoReuse(t *testing.T) {
 	t.Parallel()
 	t.Run("deleted file does not admit unknown growth", func(t *testing.T) {
@@ -251,11 +249,11 @@ func TestBillingEconomicsGrowthDeletedManifestFilePasses(t *testing.T) {
 	}
 }
 
-// TestBillingEconomicsGrowthBeneficialDeletionPasses proves shrinking a file
-// below its fork baseline credits zero and passes, while growth above the
-// baseline credits exactly max(0, current-baseline). Credit cases run against
-// a rooted denominator doc because only enumerated denominator members can
-// credit; the empty-denominator case proves absence credits zero.
+// TestBillingEconomicsGrowthBeneficialDeletionPasses proves shrinking a file below
+// its fork baseline credits zero and passes, while growth above the baseline credits
+// exactly max(0, current-baseline). Credit cases run against a rooted denominator doc
+// because only enumerated denominator members can credit; the empty-denominator case
+// proves absence credits zero.
 func TestBillingEconomicsGrowthBeneficialDeletionPasses(t *testing.T) {
 	t.Parallel()
 	emptyDoc := BillingFinalConvergenceBaselineFile{}
@@ -338,9 +336,9 @@ func TestBillingEconomicsGrowthBeneficialDeletionPasses(t *testing.T) {
 	})
 }
 
-// writeGrowthGeneratedLines writes a synthetic generated .go file with exactly
-// n physical lines. The scanner classifier treats it as generated (excluded
-// from the denominator) via the leading marker line.
+// writeGrowthGeneratedLines writes a synthetic generated .go file with exactly n
+// physical lines. The scanner classifier treats it as generated (excluded from the
+// denominator) via the leading marker line.
 func writeGrowthGeneratedLines(t *testing.T, root, rel string, n int) {
 	t.Helper()
 	abs := filepath.Join(root, filepath.FromSlash(rel))
@@ -358,10 +356,10 @@ func writeGrowthGeneratedLines(t *testing.T, root, rel string, n int) {
 	}
 }
 
-// TestBillingEconomicsGrowthGeneratedExcludedCreditsZero proves a manifest
-// path classified as generated disappears from the denominator and receives
-// zero credit even though it is allowlisted and longer than its baseline. The
-// control subtest shows the same file without the marker would credit.
+// TestBillingEconomicsGrowthGeneratedExcludedCreditsZero proves a manifest path
+// classified as generated disappears from the denominator and receives zero credit
+// even though it is allowlisted and longer than its baseline. The control subtest
+// shows the same file without the marker would credit.
 func TestBillingEconomicsGrowthGeneratedExcludedCreditsZero(t *testing.T) {
 	t.Parallel()
 	doc := growthRootDoc("internal/core/billing")
@@ -412,9 +410,9 @@ func growthPredicateResult(lines int, files []string, credit map[string]int) eco
 	}
 }
 
-// TestBillingEconomicsGrowthPredicateBounds runs the complete guard over
-// reduced, deleted-file, over-cap, broadened, overlapping, duplicate,
-// malformed, and per-entry over-cap measurements.
+// TestBillingEconomicsGrowthPredicateBounds runs the complete guard over reduced,
+// deleted-file, over-cap, broadened, overlapping, duplicate, malformed, and
+// per-entry over-cap measurements.
 func TestBillingEconomicsGrowthPredicateBounds(t *testing.T) {
 	t.Parallel()
 	over := economicsConvergenceGrowthManifest[1] // accounting_cutover.go, credit 331

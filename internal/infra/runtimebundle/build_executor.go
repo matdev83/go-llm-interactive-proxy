@@ -30,6 +30,7 @@ import (
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	infraaux "github.com/matdev83/go-llm-interactive-proxy/internal/infra/auxiliary"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingadmission"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview/sdkadapter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
@@ -285,6 +286,12 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Candidate-local fail-closed binding: the stock ComposeBilling adapter is
+	// cloned so every V2 offer that plans an OpenAI-native-usage backend is
+	// rejected before any exposure write or provider open, regardless of scalar
+	// vs rich pricing. External binders are left untouched and the shared
+	// process ProductionOptions is never mutated.
+	prod.BillingExposureAdmission = bindUnsupportedV2NativeUsage(prod.BillingExposureAdmission, in.Model.BackendKinds)
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
 			Store:                              in.Persistence.Store,
@@ -359,6 +366,31 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		ReadinessReport:      readiness,
 		Production:           prod,
 	}, nil
+}
+
+// bindUnsupportedV2NativeUsage replaces the candidate-local admission port
+// when production uses the stock *billingadmission.Adapter composed by
+// ComposeBilling. The stock adapter is cloned and bound to the configured
+// backend instance IDs whose trusted factory kind emits OpenAI native usage;
+// that clone fails closed for every V2 offer touching those backends before any
+// exposure write or provider open. External binder implementations (any
+// non-stock admission port) are returned unchanged. The shared process
+// ProductionOptions is never mutated because prod is a candidate-local copy.
+func bindUnsupportedV2NativeUsage(admission runtime.BillingExposureAdmission, backendKinds map[string]string) runtime.BillingExposureAdmission {
+	stock, ok := admission.(*billingadmission.Adapter)
+	if !ok || stock == nil || len(backendKinds) == 0 {
+		return admission
+	}
+	affected := make([]string, 0, len(backendKinds))
+	for backendID, kind := range backendKinds {
+		if standardplugins.UsesOpenAINativeUsageMapper(kind) {
+			affected = append(affected, backendID)
+		}
+	}
+	if len(affected) == 0 {
+		return admission
+	}
+	return stock.BindUnsupportedV2NativeUsageBackends(affected)
 }
 
 func billingCompositionConfigured(prod ProductionOptions) bool {

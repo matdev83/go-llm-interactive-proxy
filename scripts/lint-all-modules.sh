@@ -99,6 +99,7 @@ else
   # Discover all modules
   MODULE_SET["."]=1
   MODULE_SET["testdata/enterprise_module"]=1
+  MODULE_SET["testdata/external_billing_binding"]=1
   MODULE_SET["testdata/external_connector"]=1
   MODULE_SET["testdata/external_feature_sdk"]=1
   for base in connectors connector-support; do
