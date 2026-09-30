@@ -260,7 +260,7 @@ func (s *MemoryStore) ClaimRemote(ctx context.Context, key featurestate.Key, now
 	}
 	current.RemoteAttempts++
 	current.RemoteLeaseID = leaseID
-	current.RemoteLeaseUntil = now.Add(leaseTTL)
+	current.RemoteLeaseUntil = featurestate.RoundRemoteDeadlineUpToMicrosecond(now.Add(leaseTTL))
 	current.UpdatedAt = now
 	if exists {
 		s.slots[s.entries[key]].record = current
@@ -311,7 +311,7 @@ func (s *MemoryStore) CompleteRemote(ctx context.Context, claim featurestate.Rem
 	} else if claim.RetryBackoff == 0 {
 		current.RemoteNextEligibleAt = time.Time{}
 	} else {
-		current.RemoteNextEligibleAt = now.Add(claim.RetryBackoff)
+		current.RemoteNextEligibleAt = featurestate.RoundRemoteDeadlineUpToMicrosecond(now.Add(claim.RetryBackoff))
 	}
 	current.UpdatedAt = now
 	s.slots[s.entries[claim.Key]].record = current

@@ -162,3 +162,15 @@ func ValidateStoreTime(now time.Time) error {
 	}
 	return nil
 }
+
+// RoundRemoteDeadlineUpToMicrosecond rounds a remote lease or retry deadline
+// upward to the shared durable timestamp precision. Keeping expiry deadlines
+// aligned lets SQLite, PostgreSQL, and memory stores enforce identical
+// eligibility boundaries without allowing a deadline to expire early.
+func RoundRemoteDeadlineUpToMicrosecond(deadline time.Time) time.Time {
+	truncated := deadline.Truncate(time.Microsecond)
+	if !truncated.Equal(deadline) {
+		return truncated.Add(time.Microsecond)
+	}
+	return truncated
+}

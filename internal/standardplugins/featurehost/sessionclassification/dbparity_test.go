@@ -52,6 +52,11 @@ func runSessionClassificationParityContract(
 	t.Helper()
 	ctx := context.Background()
 	require.NoError(t, classificationStore.EnsureSchema(ctx))
+	runSessionClassificationRemoteLeaseContract(t, func() featurestate.Store {
+		candidate, err := store.NewBunStore(database)
+		require.NoError(t, err)
+		return candidate
+	})
 	require.NoError(t, dbparity.VerifySchema(ctx, database, sessionClassificationLogicalSchemaSpec()))
 	assertSessionClassificationMigrationHistory(t, database)
 
@@ -130,6 +135,33 @@ func runSessionClassificationParityContract(
 	require.True(t, found, "a positive classification must be restored after reopening the database")
 	assert.Equal(t, first.Classification, restored.Classification)
 	assert.Equal(t, first.UpdatedAt, restored.UpdatedAt)
+
+	remoteKey := parityKey("remote-restart")
+	remoteStart := parityTime().Add(24 * time.Hour).Add(123 * time.Nanosecond)
+	remoteClaim, claimed, ok, err := reopenedStore.ClaimRemote(ctx, remoteKey, remoteStart, 2, time.Minute, 0)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint32(1), claimed.RemoteAttempts)
+
+	remoteReopenedDB := reopen()
+	remoteReopenedStore, err := store.NewBunStore(remoteReopenedDB)
+	require.NoError(t, err)
+	require.NoError(t, remoteReopenedStore.EnsureSchema(ctx))
+	active, found, err := remoteReopenedStore.Load(ctx, remoteKey)
+	require.NoError(t, err)
+	require.True(t, found, "an unknown claimed row must survive a durable reopen")
+	require.Equal(t, uint32(1), active.RemoteAttempts)
+	require.Equal(t, remoteClaim.LeaseID, active.RemoteLeaseID)
+
+	completedAt := active.RemoteLeaseUntil.Add(-time.Nanosecond)
+	completed, err := remoteReopenedStore.CompleteRemote(ctx, remoteClaim, featurestate.RemoteCompletion{}, completedAt)
+	require.NoError(t, err, "the active lease token must remain valid after reopen")
+	require.Equal(t, uint32(1), completed.RemoteAttempts)
+	require.Empty(t, completed.RemoteLeaseID)
+
+	stale, err := remoteReopenedStore.CompleteRemote(ctx, remoteClaim, featurestate.RemoteCompletion{}, active.RemoteLeaseUntil)
+	require.ErrorIs(t, err, featurestate.ErrStaleRemoteClaim, "the lease must be single-use across reopen")
+	require.Equal(t, completed, stale, "stale completion after reopen must return current state")
 }
 
 func runConcurrentPromotions(t *testing.T, classificationStore *store.BunStore, key featurestate.Key) featurestate.Record {

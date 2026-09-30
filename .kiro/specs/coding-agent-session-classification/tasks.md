@@ -121,7 +121,7 @@
     - _Depends: 4.1_
     - _Validation: SQLite store contract + reopen/restart tests_
 
-  - [ ] 4.3 Implement atomic remote claim/lease parity on SQLite and PostgreSQL
+  - [x] 4.3 Implement atomic remote claim/lease parity on SQLite and PostgreSQL
     - RED-test two concurrent claimers, abandoned lease expiry, finite attempts, backoff, positive classification racing remote completion, and stale lease token rejection.
     - Keep HTTP/network work outside transactions.
     - Register the store in dbparity if required by the current repository persistence catalog and prove equivalent logical schema/behavior on direct PostgreSQL.
@@ -373,3 +373,5 @@
 - The shared evidence matrix validates local source paths; update its active-spec references when Task 12.3 archives this SDD (and preserve explicit-completion source references if that spec relocates).
 
 - Task 1.3 baseline absence assertions must evolve in Tasks 7.1/7.2 when bounded wire evidence lands. OpenResponses canonical User-Agent capture currently uses TrimSpace directly; use the shared acceptance helper for canonical/wire parity in Task 7.2.
+
+- Task 4.3 uses one conservative precision rule across memory, SQLite, and PostgreSQL: lease and completion-based backoff deadlines round upward to the next microsecond, preserving aligned deadlines. Strict before/exact-deadline checks use the returned deadline; no adapter-specific tolerance or early expiry is permitted.

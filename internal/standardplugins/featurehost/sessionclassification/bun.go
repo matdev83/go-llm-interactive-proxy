@@ -18,6 +18,8 @@ var (
 	ErrBunSchema             = errors.New("session classification: schema operation failed")
 	ErrBunLoad               = errors.New("session classification: durable load failed")
 	ErrBunPromote            = errors.New("session classification: durable promotion failed")
+	ErrBunRemoteClaim        = errors.New("session classification: durable remote claim failed")
+	ErrBunRemoteComplete     = errors.New("session classification: durable remote completion failed")
 	ErrInvalidBunRecord      = errors.New("session classification: invalid durable record")
 	ErrBunRecordMissing      = errors.New("session classification: durable winner disappeared")
 )
@@ -40,6 +42,51 @@ const (
 		updated_at = excluded.updated_at
 	WHERE session_classification.kind = ''
 	RETURNING *`
+	claimRemoteSQL = `INSERT INTO session_classification (
+		scope_kind, scope_id, kind, source, confidence, evidence_code,
+		classification_revision, remote_attempts, remote_lease_id,
+		remote_lease_until, remote_next_eligible_at, updated_at
+	) VALUES (?, ?, '', '', '', '', 0, 1, ?, ?, NULL, ?)
+	ON CONFLICT (scope_kind, scope_id) DO UPDATE SET
+		remote_attempts = session_classification.remote_attempts + 1,
+		remote_lease_id = excluded.remote_lease_id,
+		remote_lease_until = excluded.remote_lease_until,
+		updated_at = excluded.updated_at
+	WHERE session_classification.kind = ''
+		AND session_classification.remote_attempts >= 0
+		AND session_classification.remote_attempts < ?
+		AND (
+			(session_classification.remote_lease_id = '' AND session_classification.remote_lease_until IS NULL)
+			OR (session_classification.remote_lease_id <> '' AND session_classification.remote_lease_until <= ?)
+		)
+		AND (
+			session_classification.remote_next_eligible_at IS NULL
+			OR session_classification.remote_next_eligible_at <= ?
+		)
+	RETURNING *`
+	completeRemoteNeutralSQL = `UPDATE session_classification SET
+		remote_lease_id = '',
+		remote_lease_until = NULL,
+		remote_next_eligible_at = ?,
+		updated_at = ?
+	WHERE scope_kind = ? AND scope_id = ?
+		AND remote_lease_id = ? AND remote_attempts = ?
+		AND kind = '' AND remote_lease_until > ?
+	RETURNING *`
+	completeRemotePositiveSQL = `UPDATE session_classification SET
+		kind = ?,
+		source = ?,
+		confidence = ?,
+		evidence_code = ?,
+		classification_revision = 1,
+		remote_lease_id = '',
+		remote_lease_until = NULL,
+		remote_next_eligible_at = NULL,
+		updated_at = ?
+	WHERE scope_kind = ? AND scope_id = ?
+		AND remote_lease_id = ? AND remote_attempts = ?
+		AND kind = '' AND remote_lease_until > ?
+	RETURNING *`
 )
 
 // BunStore persists bounded session-classification state in the feature-owned
@@ -48,6 +95,8 @@ const (
 type BunStore struct {
 	db *bun.DB
 }
+
+var _ featurestate.Store = (*BunStore)(nil)
 
 type bunClassificationRow struct {
 	bun.BaseModel `bun:"table:session_classification"`
@@ -176,6 +225,134 @@ func (s *BunStore) Promote(ctx context.Context, key featurestate.Key, proposal s
 		return featurestate.Record{}, false, err
 	}
 	return record, true, nil
+}
+
+// ClaimRemote atomically consumes one finite attempt and records its lease
+// before the caller performs remote I/O. A single conditional upsert arbitrates
+// claimers across store instances without a process-wide lock or open transaction.
+func (s *BunStore) ClaimRemote(ctx context.Context, key featurestate.Key, now time.Time, maxAttempts uint32, leaseTTL time.Duration, retryBackoff time.Duration) (featurestate.RemoteClaim, featurestate.Record, bool, error) {
+	if err := featurestate.ValidateKey(key); err != nil {
+		return featurestate.RemoteClaim{}, featurestate.Record{}, false, err
+	}
+	if err := featurestate.ValidateStoreContext(ctx); err != nil {
+		return featurestate.RemoteClaim{}, featurestate.Record{}, false, err
+	}
+	if err := featurestate.ValidateStoreTime(now); err != nil {
+		return featurestate.RemoteClaim{}, featurestate.Record{}, false, err
+	}
+	if maxAttempts == 0 || maxAttempts > featurestate.MaxRemoteAttemptsPerSession || leaseTTL <= 0 || leaseTTL > featurestate.MaxRemoteLeaseTTL || retryBackoff < 0 || retryBackoff > featurestate.MaxRemoteRetryBackoff {
+		return featurestate.RemoteClaim{}, featurestate.Record{}, false, featurestate.ErrInvalidRemoteOptions
+	}
+	if s == nil || s.db == nil {
+		return featurestate.RemoteClaim{}, featurestate.Record{}, false, ErrInvalidBunDB
+	}
+
+	// The cryptographic nonce is independent of this BunStore instance, so
+	// separate replicas do not rely on a process-local sequence for ownership.
+	leaseID, err := randomLeaseNonce()
+	if err != nil || !validLeaseID(leaseID) {
+		return featurestate.RemoteClaim{}, featurestate.Record{}, false, featurestate.ErrLeaseNonce
+	}
+	if err := featurestate.ValidateStoreContext(ctx); err != nil {
+		return featurestate.RemoteClaim{}, featurestate.Record{}, false, err
+	}
+
+	leaseUntil := featurestate.RoundRemoteDeadlineUpToMicrosecond(now.Add(leaseTTL))
+	// Lease/backoff deadlines are microsecond-aligned. Flooring now preserves
+	// exact before/at/after comparisons on both nanosecond and microsecond DBs.
+	eligibilityTime := now.Truncate(time.Microsecond)
+	var row bunClassificationRow
+	err = s.db.NewRaw(claimRemoteSQL,
+		key.Kind, key.ID, leaseID, leaseUntil.UTC(), now.UTC(),
+		int64(maxAttempts), eligibilityTime.UTC(), eligibilityTime.UTC(),
+	).Scan(ctx, &row)
+	if errors.Is(err, sql.ErrNoRows) {
+		record, found, loadErr := s.Load(ctx, key)
+		if loadErr != nil {
+			return featurestate.RemoteClaim{}, featurestate.Record{}, false, loadErr
+		}
+		if !found {
+			return featurestate.RemoteClaim{}, featurestate.Record{}, false, nil
+		}
+		return featurestate.RemoteClaim{}, record, false, nil
+	}
+	if err != nil {
+		return featurestate.RemoteClaim{}, featurestate.Record{}, false, ErrBunRemoteClaim
+	}
+	record, err := row.record()
+	if err != nil {
+		return featurestate.RemoteClaim{}, featurestate.Record{}, false, err
+	}
+	claim := featurestate.RemoteClaim{Key: key, LeaseID: leaseID, Attempt: record.RemoteAttempts, RetryBackoff: retryBackoff}
+	return claim, record, true, nil
+}
+
+// CompleteRemote accepts only the currently held, unexpired lease. The guarded
+// update lets a concurrent local promotion win without rewriting its positive.
+func (s *BunStore) CompleteRemote(ctx context.Context, claim featurestate.RemoteClaim, result featurestate.RemoteCompletion, now time.Time) (featurestate.Record, error) {
+	if err := validateBunRemoteClaim(claim); err != nil {
+		return featurestate.Record{}, err
+	}
+	if err := featurestate.ValidateStoreContext(ctx); err != nil {
+		return featurestate.Record{}, err
+	}
+	if err := featurestate.ValidateStoreTime(now); err != nil {
+		return featurestate.Record{}, err
+	}
+	proposal := result.Proposal
+	if proposal != (session.Classification{}) {
+		if err := featurestate.ValidatePositiveProposal(proposal); err != nil || proposal.Source != session.SourceRemote {
+			return featurestate.Record{}, featurestate.ErrInvalidProposal
+		}
+		proposal.Revision = 1
+	}
+	if s == nil || s.db == nil {
+		return featurestate.Record{}, ErrInvalidBunDB
+	}
+	if err := featurestate.ValidateStoreContext(ctx); err != nil {
+		return featurestate.Record{}, err
+	}
+
+	eligibilityTime := now.Truncate(time.Microsecond).UTC()
+	var row bunClassificationRow
+	var err error
+	if proposal != (session.Classification{}) {
+		err = s.db.NewRaw(completeRemotePositiveSQL,
+			proposal.Kind, proposal.Source, proposal.Confidence, proposal.Evidence, now.UTC(),
+			claim.Key.Kind, claim.Key.ID, claim.LeaseID, int64(claim.Attempt), eligibilityTime,
+		).Scan(ctx, &row)
+	} else {
+		var nextEligibleAt *time.Time
+		if claim.RetryBackoff > 0 {
+			deadline := featurestate.RoundRemoteDeadlineUpToMicrosecond(now.Add(claim.RetryBackoff)).UTC()
+			nextEligibleAt = &deadline
+		}
+		err = s.db.NewRaw(completeRemoteNeutralSQL,
+			nextEligibleAt, now.UTC(), claim.Key.Kind, claim.Key.ID,
+			claim.LeaseID, int64(claim.Attempt), eligibilityTime,
+		).Scan(ctx, &row)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		current, found, loadErr := s.Load(ctx, claim.Key)
+		if loadErr != nil {
+			return featurestate.Record{}, loadErr
+		}
+		if !found {
+			return featurestate.Record{}, featurestate.ErrStaleRemoteClaim
+		}
+		return current, featurestate.ErrStaleRemoteClaim
+	}
+	if err != nil {
+		return featurestate.Record{}, ErrBunRemoteComplete
+	}
+	return row.record()
+}
+
+func validateBunRemoteClaim(claim featurestate.RemoteClaim) error {
+	if err := featurestate.ValidateKey(claim.Key); err != nil || !validLeaseID(claim.LeaseID) || claim.Attempt == 0 || claim.Attempt > featurestate.MaxRemoteAttemptsPerSession || claim.RetryBackoff < 0 || claim.RetryBackoff > featurestate.MaxRemoteRetryBackoff {
+		return featurestate.ErrInvalidRemoteClaim
+	}
+	return nil
 }
 
 func (row bunClassificationRow) record() (featurestate.Record, error) {
