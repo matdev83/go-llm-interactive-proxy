@@ -45,6 +45,12 @@ type schemaQuantityVerdict struct {
 // derived from, so a covered but unpriced child that is commercially redundant
 // for billing is still a physical quantity fact for the containment arithmetic.
 func (r *ReferenceRater) schemaQuantityContradictions(aggregates []aggregateMeasure, diagnosed map[string]map[string]struct{}) schemaQuantityVerdict {
+	return r.schemaQuantityContradictionsWithUnknown(aggregates, diagnosed, true)
+}
+
+// schemaQuantityContradictionsWithUnknown preserves the quantity verdict while
+// letting advisory-enabled callers bypass only the legacy free-text reporter.
+func (r *ReferenceRater) schemaQuantityContradictionsWithUnknown(aggregates []aggregateMeasure, diagnosed map[string]map[string]struct{}, reportUnknown bool) schemaQuantityVerdict {
 	if r == nil || len(r.program.keyOf) == 0 || len(aggregates) == 0 {
 		return schemaQuantityVerdict{}
 	}
@@ -59,7 +65,7 @@ func (r *ReferenceRater) schemaQuantityContradictions(aggregates []aggregateMeas
 	sort.Strings(scopes)
 	var verdict schemaQuantityVerdict
 	for _, scope := range scopes {
-		subset, negative, unknown := solveScopeQuantityConstraints(&r.program, byScope[scope], diagnosed[scope])
+		subset, negative, unknown := solveScopeQuantityConstraintsWithUnknown(&r.program, byScope[scope], diagnosed[scope], reportUnknown)
 		mergeSchemaQuantitySet(&verdict.subset, scope, subset)
 		mergeSchemaQuantitySet(&verdict.negative, scope, negative)
 		if len(unknown) != 0 {
@@ -133,6 +139,10 @@ const (
 // order is the sorted-id compile order, so no map iteration order can affect the
 // result.
 func solveScopeQuantityConstraints(program *schemaProgram, items []aggregateMeasure, diagnosed map[string]struct{}) (map[string]struct{}, map[string]struct{}, []string) {
+	return solveScopeQuantityConstraintsWithUnknown(program, items, diagnosed, true)
+}
+
+func solveScopeQuantityConstraintsWithUnknown(program *schemaProgram, items []aggregateMeasure, diagnosed map[string]struct{}, reportUnknown bool) (map[string]struct{}, map[string]struct{}, []string) {
 	count := len(program.keyOf)
 	// The scope's evidence reading AND its recursive complete-cover
 	// representation come from the one shared authority, so the reverse
@@ -177,7 +187,11 @@ func solveScopeQuantityConstraints(program *schemaProgram, items []aggregateMeas
 			subset[key] = struct{}{}
 		}
 	}
-	return subset, negativeKeys, containmentUnknownIntersections(program, lower, cover.represented)
+	var unknown []string
+	if reportUnknown {
+		unknown = containmentUnknownIntersections(program, lower, cover.represented)
+	}
+	return subset, negativeKeys, unknown
 }
 
 // propagateQuantityIntervals runs the monotone interval fixed point described on

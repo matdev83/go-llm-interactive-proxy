@@ -53,7 +53,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Requirements: 6.2, 7.1, 7.2, 7.4, 7.5_
   - _Validation: make dev-test PKGS='./pkg/lipsdk/economics/...'_
 
-- [ ] 3. Implement independently owned assessor and catalog integration
+- [x] 3. Implement independently owned assessor and catalog integration
 - [x] 3.1 (P) Preserve reporting semantics through existing catalog publication
   - Add the catalog-owned atomic card-plus-advisory-tariff publication method for customer default/route binding; tariff-only hosts can use PutTariff or RatingCatalogView. Leave PricingSnapshot and PricingSnapshotToTariff untouched. Copy reporting version through default/route sources and snapshot reconstruction, with independently pinned same-ref/different-content rejection.
   - Test mixed historical and enabled snapshots without automatically upgrading old material or creating a strict policy selector.
@@ -73,7 +73,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.3, 3.4, 5.2, 6.1, 6.2, 6.3, 6.4, 6.5_
   - _Depends: 2.1, 2.2, 2.3_
   - _Validation: make dev-test PKGS='./internal/core/billing/...'_
-- [ ] 3.3 Integrate assessments after existing monetary decisions without recomputing coverage
+- [x] 3.3 Integrate assessments after existing monetary decisions without recomputing coverage
   - Hand the existing conflict resolver's per-scope coverage map through its private result; do not perform a third resolution.
   - Select retained positive exact-charge contributors after suppression; test rounding-to-zero positives, minimum charges at zero quantity, free/zero/unpriced lines, intentional additions, and cross-scope isolation.
   - Initialize one context before assessment even for no schema, no contributors, or fixed-only evaluations; P receives no locally inferred advice.

@@ -268,9 +268,10 @@ func SupportShadowOverlapAudit(snapshot economics.TariffSnapshot, input economic
 	dependencies := newCommercialDependencySet(func(key metering.ComponentKey) (economics.RatingRule, error) {
 		return rater.resolveRule(key, qualifiers)
 	})
-	conflicts, _, _, _, overlapErr := rater.overlappingSchemaInclusionConflicts(
+	overlapAnalysis := rater.overlappingSchemaInclusionConflicts(
 		payable, dependencies, rateable, consistency, covered,
 	)
+	conflicts, overlapErr := overlapAnalysis.conflicts, overlapAnalysis.err
 	audit.ProductionBlocked = overlapErr != nil
 	for scope, keys := range conflicts {
 		audit.ProductionConflicts[scope] = sortedCanonicalKeys(keys)

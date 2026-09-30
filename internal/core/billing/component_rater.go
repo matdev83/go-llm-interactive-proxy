@@ -347,6 +347,14 @@ func newValuation(input economics.PostUsageRatingInput, snapshot economics.Tarif
 		valuation.Tariff = economics.RatingSnapshotRef{}
 		valuation.TariffContent = nil
 	}
+	if input.Basis != economics.BasisProviderReported &&
+		snapshot.SupportAdvisoryVersion == economics.SupportAdvisoryVersionV1 {
+		valuation.SupportAdvisoryContexts = []economics.SupportAdvisoryContext{{
+			Version:       snapshot.SupportAdvisoryVersion,
+			Tariff:        snapshot.Ref,
+			TariffContent: snapshot.Content,
+		}}
+	}
 	valuation.ID = valuationIdentity(valuation, inputIdentity)
 	return valuation
 }
@@ -415,6 +423,8 @@ func (r *ReferenceRater) rateMeasuresForFixedScope(input economics.PostUsageRati
 }
 
 func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.PostUsageRatingInput, valuation economics.Valuation, includeFixed bool, predicate func(metering.Observation) bool, fixedScope string, mask retailComponentMask) (economics.Valuation, error) {
+	supportAdvisoryEnabled := input.Basis != economics.BasisProviderReported &&
+		r.snapshot.SupportAdvisoryVersion == economics.SupportAdvisoryVersionV1
 	selected := func(observation metering.Observation) bool {
 		if predicate != nil {
 			return predicate(observation)
@@ -568,7 +578,12 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	// quantity lines are suppressed rather than choosing a winner. Unrelated
 	// scopes and unrelated components stay payable; independent fixed fees are
 	// owned by their own trusted scope and remain payable.
-	overlapConflicts, ambiguousCoveredParents, unresolvedCoveredParents, hiddenDependencyCovers, overlapErr := r.overlappingSchemaInclusionConflicts(payableByScope, dependencies, rateableByScope, aggregates, completePartitionParents)
+	overlapAnalysis := r.overlappingSchemaInclusionConflicts(payableByScope, dependencies, rateableByScope, aggregates, completePartitionParents)
+	overlapConflicts := overlapAnalysis.conflicts
+	ambiguousCoveredParents := overlapAnalysis.ambiguousCovered
+	unresolvedCoveredParents := overlapAnalysis.unresolvedCovered
+	hiddenDependencyCovers := overlapAnalysis.hiddenDependencyCovers
+	overlapErr := overlapAnalysis.err
 	if overlapErr != nil {
 		valuation.Completeness = economics.CompletenessConflict
 	}
@@ -642,7 +657,11 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	mergePartitionSet(&diagnosedAncestors, contradictedPartitions)
 	mergePartitionSet(&diagnosedAncestors, incomparablePartitions)
 	mergePartitionSet(&diagnosedAncestors, incompletePartitions)
-	quantityVerdict := r.schemaQuantityContradictions(aggregates, diagnosedAncestors)
+	quantityVerdict := r.schemaQuantityContradictionsWithUnknown(aggregates, diagnosedAncestors, !supportAdvisoryEnabled)
+	var supportContributors map[string]map[string]struct{}
+	if supportAdvisoryEnabled {
+		supportContributors = make(map[string]map[string]struct{})
+	}
 	for _, entry := range rated {
 		if schemaConflictSuppressed(overlapConflicts, entry.item) {
 			continue
@@ -656,6 +675,19 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 			continue
 		}
 		valuation.Lines = append(valuation.Lines, entry.line)
+		if supportAdvisoryEnabled && entry.lineErr == nil {
+			amount, amountOK := lineAmountRat(entry.line)
+			if amountOK && amount.Sign() > 0 {
+				if key, keyErr := entry.item.key.Normalize(); keyErr == nil {
+					contributors := supportContributors[entry.item.scopeKey]
+					if contributors == nil {
+						contributors = make(map[string]struct{})
+						supportContributors[entry.item.scopeKey] = contributors
+					}
+					contributors[key.CanonicalKey()] = struct{}{}
+				}
+			}
+		}
 		for _, ref := range entry.item.issueRefs {
 			valuation.MissingObservations = appendUniqueObservationRef(valuation.MissingObservations, ref)
 		}
@@ -799,6 +831,9 @@ func (r *ReferenceRater) rateMeasuresWithPredicateAndFixedScope(input economics.
 	if totalsErr != nil && unavailable == nil {
 		unavailable = totalsErr
 		valuation.Completeness = economics.CompletenessPartial
+	}
+	if supportAdvisoryEnabled {
+		valuation.SupportAdvisory = r.assessSupportUncertainty(valuation, supportContributors, overlapAnalysis.coverage)
 	}
 	if unavailable != nil {
 		return finalizeValuation(valuation, unavailable)
