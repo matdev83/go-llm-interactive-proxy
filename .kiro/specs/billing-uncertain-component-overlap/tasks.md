@@ -1,0 +1,142 @@
+# Implementation Plan
+
+## Execution Constraints
+
+Baseline is merged #666 at `6e97e0d9`. All tasks use TDD: first independently constructed failing evidence, then the smallest implementation, then focused regression checks. The money policy is not selectable: unknown intersection and reporting exhaustion cannot waive customer charges.
+
+Task 1.1 is an explicit architecture-footprint gate. Approved spec metadata is not approval to weaken production or test-cost budgets. Core implementation waits for measured capacity or explicit maintainer-approved allowance. No deployment, new service, new dependency, or historical backfill is required.
+
+Parallel markers describe only the named disjoint boundaries. Tasks without `(P)` follow prior work sequentially; the two marked tasks in group 3 may run together after group 2. PostgreSQL certification uses the registered parity topology, not per-test ad hoc database setup.
+
+- [ ] 1. Establish footprint and independently pinned compatibility evidence
+- [ ] 1.1 Establish a permitted production footprint before adding core behavior
+  - Measure the core, SDK, and existing billing-growth overlay with the repository harness, retaining the pinned audited-plus-headroom and excess-negative checks.
+  - Baseline live core is 143700/143720 and growth overlay 57665/57726; new production files also require pinned manifest rows. Produce a scoped allowance proposal if needed; obtain explicit maintainer authorization, or demonstrate a genuine same-scope simplification that fits all existing total, per-file, and allowlist limits.
+  - Only the design's Validation footprint files own approved manifest rows/count/credits/cap, audit history, and exact line-budget updates. Do not lower a threshold, delete unrelated prose, or relocate code merely to evade a cap. Tasks 3.1/3.2/3.3/4.x wait for this gate.
+  - Done: the affected production boundaries have a measured admissible footprint and the existing budget checks still reject excess.
+  - _Boundary: Validation footprint gate_
+  - _Requirements: 6.4_
+  - _Validation: go test -run 'TestPhase20RefreshedBudgetHeadroomExact|TestBillingEconomicsGrowthAllowanceLive' ./internal/archtest_
+- [ ] 1.2 Pin baseline replay and the nonblocking money controls
+  - Capture independent pre-feature snapshot/view canonical bytes, content hash, valuation context preimage, and valuation fingerprint fixtures; preserve the six existing #666 pins.
+  - Pin the 100/20/30 subset-sibling vector at complete 50 with no error under legacy material and assert baseline known-conflict controls retain their typed errors.
+  - Construct and pin the historical branch-root advisory-text case before any v1 bypass is introduced.
+  - Done: baseline fixtures pass without using the implementation being tested to generate their expected values, and mutations to identity/typed errors fail the controls.
+  - _Boundary: SDK Contracts and Support Assessor characterization integration_
+  - _Requirements: 3.1, 3.2, 4.1, 4.2, 4.3, 7.2, 7.5_
+  - _Validation: make dev-test PKGS='./pkg/lipsdk/economics/... ./internal/core/billing/...'_
+
+- [ ] 2. Establish the frozen public reporting contract
+- [ ] 2.1 Add immutable reporting-version material and lossless catalog-view conversion
+  - Add the optional empty/v1 version to snapshot and view contracts, with clone, canonical body, validation, and content hashing.
+  - Reject unsupported versions; retain exact old bytes for omitted version and require new publication identity for changed material.
+  - Start with failing round-trip/hash/unknown-version cases and verify the new field cannot silently disappear in view-to-tariff conversion.
+  - Done: empty material matches baseline goldens, v1 material hashes differently, and unknown reporting versions are unusable.
+  - _Boundary: SDK Contracts_
+  - _Requirements: 7.1, 7.2, 7.5_
+  - _Depends: 1.1, 1.2_
+  - _Validation: make dev-test PKGS='./pkg/lipsdk/economics/...'_
+- [ ] 2.2 Add canonical advisory context and bounded non-monetary result contracts
+  - Define context, pair, incomplete reason, and report value objects; support all four incomplete reasons and published limits.
+  - Implement deep clone, validation, orientation, sorting, exact deduplication, nil-report encoding, and omission-compatible valuation JSON.
+  - Reject self-pairs, invalid keys, dangling context references, unsupported versions/reasons, and forged oversized external results without introducing any amount field.
+  - Done: canonical report bytes are order-independent, invalid input is rejected, and an empty legacy valuation serializes exactly as before.
+  - _Boundary: SDK Contracts_
+  - _Requirements: 2.3, 5.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.4, 6.5, 7.2, 7.3, 7.5_
+  - _Validation: make dev-test PKGS='./pkg/lipsdk/economics/...'_
+- [ ] 2.3 Bind source reporting contexts into the existing valuation interpretation identity
+  - Append optional context metadata to the existing context preimage and extend the established field-mutation test.
+  - Prove different route-source reporting versions/content produce different context hashes even with identical monetary fields.
+  - Keep advisory pairs out of context identity but inside the canonical result fingerprint, so report divergence conflicts under one frozen interpretation.
+  - Done: legacy IDs/hashes are unchanged; changed source context changes identity; changed report changes only result payload/fingerprint under that identity.
+  - _Boundary: SDK Contracts_
+  - _Requirements: 6.2, 7.1, 7.2, 7.4, 7.5_
+  - _Validation: make dev-test PKGS='./pkg/lipsdk/economics/...'_
+
+- [ ] 3. Implement independently owned assessor and catalog integration
+- [ ] 3.1 (P) Preserve reporting semantics through existing catalog publication
+  - Add the catalog-owned atomic card-plus-advisory-tariff publication method for customer default/route binding; tariff-only hosts can use PutTariff or RatingCatalogView. Leave PricingSnapshot and PricingSnapshotToTariff untouched. Copy reporting version through default/route sources and snapshot reconstruction, with independently pinned same-ref/different-content rejection.
+  - Test mixed historical and enabled snapshots without automatically upgrading old material or creating a strict policy selector.
+  - Prove source views retain schemas, reporting version, and content identity through publication and retrieval.
+  - Done: the existing catalog exposes v1 losslessly, old snapshots retain exact content, and conflicting same-version publication fails.
+  - _Boundary: Catalog Integration_
+  - _Requirements: 7.1, 7.2, 7.5_
+  - _Depends: 2.1, 2.2, 2.3_
+  - _Validation: make dev-test PKGS='./internal/infra/billingcompose/... ./pkg/lipsdk/economics/...'_
+- [ ] 3.2 (P) Discover uncertain contributor candidates with deterministic finite work
+  - Build the private assessor over the existing compiled support relation and supplied per-scope coverage; do not add another topology or cover authority.
+  - Enumerate common-ancestor candidates without materializing a full Cartesian report, with deterministic deduplication and per-group candidate/graph counters.
+  - Add budget-aware reachability/relation queries that produce no verdict on exhaustion; never certify separation from partial closures.
+  - Cover branch roots, separate trees, resolved and unresolved covers with an independent bounded structural oracle.
+  - Done: reference siblings report unknown, proven-separated pairs do not, all limits yield valid incomplete reports, and disconnected populations avoid a global pair sweep.
+  - _Boundary: Support Assessor_
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.3, 3.4, 5.2, 6.1, 6.2, 6.3, 6.4, 6.5_
+  - _Depends: 2.1, 2.2, 2.3_
+  - _Validation: make dev-test PKGS='./internal/core/billing/...'_
+- [ ] 3.3 Integrate assessments after existing monetary decisions without recomputing coverage
+  - Hand the existing conflict resolver's per-scope coverage map through its private result; do not perform a third resolution.
+  - Select retained positive exact-charge contributors after suppression; test rounding-to-zero positives, minimum charges at zero quantity, free/zero/unpriced lines, intentional additions, and cross-scope isolation.
+  - Initialize one context before assessment even for no schema, no contributors, or fixed-only evaluations; P receives no locally inferred advice.
+  - For v1 do not execute or join the legacy quantity-positive unknown reporter; preserve quantity contradictions and typed errors, with exact legacy bypass behavior when version is empty.
+  - Done: E/Q/R money matches controls; successful complete results expose advice; legacy fingerprints/errors remain exact; missing coverage produces evidence-unavailable advice without withholding charges.
+  - _Boundary: Support Assessor integration with existing rating owner_
+  - _Requirements: 1.5, 2.1, 2.2, 2.4, 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 4.3, 4.4, 5.1, 5.3, 5.4, 6.3, 7.1, 7.2_
+  - _Depends: 3.1, 3.2_
+  - _Validation: make dev-test PKGS='./internal/core/billing/... ./internal/infra/billingcompose/...'_
+
+- [ ] 4. Preserve report provenance through complete customer valuation composition
+- [ ] 4.1 Merge independent source contexts without inventing cross-group pairs
+  - Carry contexts and reports through inference grouping, input narrowing, line-ID renaming, fixed/proxy combination, and final base-tariff overwrite.
+  - Test two route tariffs with equal amounts/line IDs but different reporting semantics; their interpretation identities must differ without changing the debit.
+  - Prove the 1027-context bound from pre-narrowing nonempty observation groups plus the three ancillary groups; retain existing final validation/error precedence and preserve mixed legacy/v1 results.
+  - Done: final complete R valuations retain correct source tariff/scope pairs, context mutation changes identity, and no cross-tariff pair is fabricated.
+  - _Boundary: Retail Integration_
+  - _Requirements: 3.1, 3.2, 3.3, 4.4, 5.1, 5.3, 6.2, 6.3, 7.1, 7.4_
+  - _Depends: 3.3_
+  - _Validation: make dev-test PKGS='./internal/core/billing/... ./internal/infra/billingcompose/...'_
+- [ ] 4.2 Enforce deterministic composed report limits and truthful incompleteness
+  - Merge at most 128 retained and 128 incoming entries before reducing to the canonical lowest prefix; preserve all incomplete contexts/reasons.
+  - Test differently ordered group merges, pair 128/129, duplicated unknown pairs, and contexts whose entries are omitted by the result limit.
+  - Show exact-limit complete versus over-limit incomplete outcomes without turning truncation into settlement denial.
+  - Done: equivalent permutations produce identical output and every lost reporting context is explicitly marked incomplete.
+  - _Boundary: Retail Integration_
+  - _Requirements: 2.3, 3.4, 5.2, 6.1, 6.2, 6.4, 6.5_
+  - _Validation: make dev-test PKGS='./internal/core/billing/...'_
+
+- [ ] 5. Certify durable storage and existing operator retrieval
+- [ ] 5.1 Preserve canonical reports through existing append, query, and replay paths
+  - Use the existing canonical payload transaction; test append/get/list/detail with complete, failing, clean-enabled, and incomplete-assessment results.
+  - Verify clone/query consumers preserve optional fields and retrieve stored data without rerating; do not add a new table, sidecar worker, endpoint, or backfill.
+  - Test old-row byte-exact re-append, identical enabled replay, and changed advice under the same identity yielding an integrity conflict.
+  - Done: operators can inspect stored advice independently of errors, historical rows remain unchanged, and no report overwrite is accepted.
+  - _Boundary: Durable Integration_
+  - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 7.2, 7.3, 7.4, 7.5_
+  - _Depends: 4.1, 4.2_
+  - _Validation: make dev-test PKGS='./internal/infra/billingstore/...'_
+- [ ] 5.2 Prove advice cannot change settlement and run the shared dual-dialect contract
+  - Extend the existing registered billingstore parity cases with report round-trip, idempotency, changed-report conflict, rollback, and existing query exposure.
+  - Verify unknown and limited assessments settle complete customer money at the same debit as the equivalent historical tariff; known-conflict controls still refuse complete settlement.
+  - Exercise the same contract through SQLite and direct PostgreSQL, using existing hermetic/tagged fixture conventions and avoiding a second expensive matrix.
+  - Done: both dialects preserve identical report and financial semantics, including retry and transaction boundaries.
+  - _Boundary: Durable Integration with existing settlement owner_
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 4.4, 5.5, 7.3, 7.4, 7.6_
+  - _Validation: make test-db-parity-sqlite; make test-db-parity-postgres-direct_
+
+- [ ] 6. Validate architecture, determinism, and practical cost as one coherent change
+- [ ] 6.1 Lock non-monetary ownership and bounded reporting regressions
+  - Assert no advisory dependency enters stream/admission money seams and no SQL/provider import enters the core assessor.
+  - Run the existing agreement, exhaustive/model, and six-fingerprint suites without rewriting historical expected output.
+  - Exercise independent oracle prefix tests and deterministic budget counters; remove each key binding/budget guard in scratch mutations and require the corresponding test to fail.
+  - Done: architecture gates pass within the approved footprint and reports cannot alter monetary classifications or silently claim completeness from partial graph work.
+  - _Boundary: Validation_
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 3.1, 3.4, 4.1, 4.2, 4.3, 4.4, 6.1, 6.2, 6.3, 6.4, 6.5, 7.2, 7.4_
+  - _Depends: 5.1, 5.2_
+  - _Validation: go test ./internal/archtest ./internal/qa; make dev-test PKGS='./internal/core/billing/...'_
+- [ ] 6.2 Run final affected-consumer certification without relaxing budgets
+  - Run quality, unit, catalog/external-host compatibility, both registered database parity gates, and targeted fuzzing for the new bounded JSON contract.
+  - Run Windows make test-cost once on the coherent implementation; report any cost regression without increasing the budget to hide it.
+  - Verify reader-first compatibility through current SDK/source consumers and explicitly check old material needs no publication/migration.
+  - Done: all required gates pass with direct output evidence and no unresolved report, monetary, replay, or footprint issue remains.
+  - _Boundary: Validation integration_
+  - _Requirements: 3.1, 3.2, 3.3, 4.1, 4.2, 5.5, 6.4, 6.5, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
+  - _Validation: make quality-checks; make test-unit; make test-db-parity-sqlite; make test-db-parity-postgres-direct; make test-cost_

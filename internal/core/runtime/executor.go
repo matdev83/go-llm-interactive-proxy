@@ -2,10 +2,8 @@ package runtime
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -147,12 +145,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	prep.compactionOpenMeta = e.observeCompactionOpened(prepCtx, prep, out)
 	stream, err := streamAssembler{e}.assemble(prepCtx, prep, plan, out)
 	if err != nil {
-		if out.ready != nil {
-			bleg := out.ready.BLeg()
-			if strings.TrimSpace(bleg.BLegID) != "" {
-				e.appendPostOpenTerminalLeg(prepCtx, prep.billingCallState, prep.identity.aLeg.ALegID, bleg, out.ready.Candidate().Primary, time.Time{}, time.Time{})
-			}
-		}
+		e.appendPostOpenFallback(prepCtx, prep.billingCallState, prep.identity.aLeg.ALegID, out)
 		e.appendExposureAbortAfterAdmission(prepCtx, prep, plan)
 		return nil, err
 	}

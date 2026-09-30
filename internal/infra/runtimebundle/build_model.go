@@ -24,6 +24,12 @@ type modelRuntime struct {
 	RoutePrefixes   []string
 	RegistryRuntime *modelregistry.Runtime
 	Registry        *modelregistry.Registry
+	// BackendKinds is the immutable instance-ID -> configured factory-kind map
+	// for this generation, copied from the trusted build inventories before any
+	// publication. It is a per-generation value, never a live view over a global
+	// or current registry, so a published generation cannot observe a later
+	// generation's backend set.
+	BackendKinds map[string]string
 }
 
 // buildModelRuntime runs catalog -> backends -> registry -> strict-accounting.
@@ -65,7 +71,29 @@ func buildModelRuntime(bctx buildContext, upstream *http.Client) (*modelRuntime,
 		RoutePrefixes:   routePrefixes,
 		RegistryRuntime: modelRegistryRuntime,
 		Registry:        modelRegistry,
+		BackendKinds:    backendKindInventory(inventories),
 	}, nil
+}
+
+// backendKindInventory copies the trusted per-instance factory kinds out of the
+// build inventories into an immutable generation-owned map. Rebuilding the map
+// per generation keeps published generations isolated from later reloads.
+func backendKindInventory(inventories []modelregistry.BackendInventory) map[string]string {
+	if len(inventories) == 0 {
+		return nil
+	}
+	kinds := make(map[string]string, len(inventories))
+	for _, inv := range inventories {
+		id := strings.TrimSpace(inv.BackendID)
+		if id == "" {
+			continue
+		}
+		kinds[id] = inv.Kind
+	}
+	if len(kinds) == 0 {
+		return nil
+	}
+	return kinds
 }
 
 // registerStartedCatalogClosers registers close before refresh quiesce so every

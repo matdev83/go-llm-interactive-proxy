@@ -700,12 +700,7 @@ func (e *Executor) ExecuteLargeBody(
 
 	stream, err := streamAssembler{e}.assemble(outCtx, preparedReq, plan, out)
 	if err != nil {
-		if out.ready != nil {
-			bleg := out.ready.BLeg()
-			if strings.TrimSpace(bleg.BLegID) != "" {
-				e.appendPostOpenTerminalLeg(outCtx, billingState, aLeg.ALegID, bleg, out.ready.Candidate().Primary, time.Time{}, time.Time{})
-			}
-		}
+		e.appendPostOpenFallback(outCtx, billingState, aLeg.ALegID, out)
 		if aScope != nil {
 			aScope.End()
 		}

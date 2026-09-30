@@ -34,16 +34,24 @@ type ObservationTxWriter interface {
 }
 
 // ObservationQuery is a store-scoped, bounded V2 observation query. At least
-// one selective bound (subject identity, stream, tenant, or component) is
-// required. StoreID is optional and, when set, must equal the opened store.
+// one selective bound (subject identity, correlation B-leg, stream, tenant, or
+// component) is required. StoreID is optional and, when set, must equal the
+// opened store.
 type ObservationQuery struct {
-	StoreID               string
-	SubjectKind           metering.SubjectKind
-	SubjectID             string
-	Subject               *metering.SubjectRef
-	TenantID              string
-	ProviderAccountKey    string
-	StreamID              string
+	StoreID            string
+	SubjectKind        metering.SubjectKind
+	SubjectID          string
+	Subject            *metering.SubjectRef
+	TenantID           string
+	ProviderAccountKey string
+	StreamID           string
+	CorrelationBLegID  string
+	// StatementEvidenceOnly restricts a page to verified statement-line
+	// observations (origin=statement, acquisition=statement_importer,
+	// authority=verified_statement, subject kind=statement_line). It is only
+	// valid together with CorrelationBLegID and exists to keep the economic
+	// relay's linked-statement candidate work selective and bounded.
+	StatementEvidenceOnly bool
 	ComponentKey          string
 	ComponentCanonicalKey string
 	ComponentKeyHash      string
@@ -856,16 +864,26 @@ func (s *DurableStore) ListObservations(ctx context.Context, query ObservationQu
 	if query.ItemKind != "" && query.ItemKind != componentItemMeasure && query.ItemKind != componentItemReportedCharge {
 		return ObservationPage{}, fmt.Errorf("%w: unknown component item kind", ErrQueryOutOfScope)
 	}
-	if kind == "" && tenantID == "" && query.ProviderAccountKey == "" && query.StreamID == "" && componentKey == "" && query.ComponentKeyHash == "" {
+	correlationBLegID := strings.TrimSpace(query.CorrelationBLegID)
+	if query.StatementEvidenceOnly && correlationBLegID == "" {
+		return ObservationPage{}, fmt.Errorf("%w: statement evidence requires a correlation B-leg", ErrQueryOutOfScope)
+	}
+	if kind == "" && tenantID == "" && query.ProviderAccountKey == "" && query.StreamID == "" && correlationBLegID == "" && componentKey == "" && query.ComponentKeyHash == "" {
 		return ObservationPage{}, ErrQueryTooBroad
 	}
 	limit, err := normalizeV2Limit(query.Limit, s.defaultPageSize)
 	if err != nil {
 		return ObservationPage{}, err
 	}
+	// CorrelationBLegID is omitted when empty so cursors minted before the
+	// optional B-leg filter existed keep their exact filter hash (and therefore
+	// decode unchanged). A non-empty B-leg stays a distinct, bound contract.
 	filter := struct {
-		StoreID, SubjectKind, SubjectID, TenantID, ProviderAccountKey, StreamID, ComponentKey, ComponentKeyHash, ItemKind string
-	}{storeID, string(kind), subject, tenantID, query.ProviderAccountKey, query.StreamID, componentKey, query.ComponentKeyHash, query.ItemKind}
+		StoreID, SubjectKind, SubjectID, TenantID, ProviderAccountKey, StreamID string
+		CorrelationBLegID                                                       string `json:",omitempty"`
+		StatementEvidenceOnly                                                   bool   `json:",omitempty"`
+		ComponentKey, ComponentKeyHash, ItemKind                                string
+	}{storeID, string(kind), subject, tenantID, query.ProviderAccountKey, query.StreamID, correlationBLegID, query.StatementEvidenceOnly, componentKey, query.ComponentKeyHash, query.ItemKind}
 	hash := filterHash(filter)
 	position, err := decodeObservationCursor(query.Cursor, "observations", storeID, hash)
 	if err != nil {
@@ -888,6 +906,17 @@ func (s *DurableStore) ListObservations(ctx context.Context, query ObservationQu
 	if query.StreamID != "" {
 		where = append(where, "f.stream_id = ?")
 		args = append(args, query.StreamID)
+	}
+	if correlationBLegID != "" {
+		where = append(where, "f.b_leg_id = ?")
+		args = append(args, correlationBLegID)
+	}
+	if query.StatementEvidenceOnly {
+		where = append(where,
+			"f.observation_subject_kind = ?", "f.observation_origin = ?",
+			"f.observation_acquisition = ?", "f.authority = ?")
+		args = append(args, string(metering.SubjectStatementLine), metering.OriginStatement,
+			metering.AcquisitionStatementImporter, metering.AuthorityVerifiedStatement)
 	}
 	if componentKey != "" || query.ComponentKeyHash != "" || query.ItemKind != "" {
 		exists := []string{"mc.observation_row_id = f.id", "mc.store_id = f.store_id"}

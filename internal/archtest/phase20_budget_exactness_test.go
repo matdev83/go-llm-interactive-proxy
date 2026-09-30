@@ -36,9 +36,9 @@ import (
 // (runtimebundle), 8130 (stdhttp) and 138280 (internal/core), each reset to
 // audited + 25.
 const (
-	phase20AuditRuntimebundleLines    = 13858
+	phase20AuditRuntimebundleLines    = 14059
 	phase20AuditStdhttpLines          = 8562
-	phase20AuditCoreLines             = 138280
+	phase20AuditCoreLines             = 143695
 	phase20AuditProcessServicesLines  = 342
 	phase20AuditConnectorOverlayLines = 2321
 	phase20BudgetHeadroom             = 25

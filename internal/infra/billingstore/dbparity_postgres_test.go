@@ -27,6 +27,20 @@ func TestDBParity_PostgresDirect(t *testing.T) {
 		runBillingStoreContract(t, store, "contract-parity-pg")
 	})
 
+	t.Run("ComponentSettlementFence", func(t *testing.T) {
+		// Same dialect-shared body the SQLite parity entry point runs, so the
+		// rejected/settled money proof is not a single-dialect claim.
+		runReviewF356SettlementFence(t, func(t *testing.T) *DurableStore {
+			bunDB, _ := openIsolatedPostgresBun(t, dsn, 4)
+			store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "parity-billing-settlement-fence"})
+			if err != nil {
+				t.Fatalf("NewDurableStore postgres: %v", err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			return store
+		})
+	})
+
 	t.Run("CreateAndVerifySchema", func(t *testing.T) {
 		bunDB, _ := openIsolatedPostgresBun(t, dsn, 4)
 		store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "parity-billing-schema"})

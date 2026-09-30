@@ -2,7 +2,6 @@ package billing
 
 import (
 	"fmt"
-	"math/big"
 	"sort"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/aggregate"
@@ -332,33 +331,6 @@ func appendUniqueCoverageRef(refs []metering.ChargeCoverageRef, ref metering.Cha
 		}
 	}
 	return append(refs, ref)
-}
-
-func totalsFromRats(values map[string]*big.Rat) ([]economics.CurrencyTotal, error) {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	out := make([]economics.CurrencyTotal, 0, len(keys))
-	for _, currency := range keys {
-		value := values[currency]
-		total := economics.CurrencyTotal{Currency: currency}
-		decimal, rational, terminating := decimalFromRat(value)
-		if terminating {
-			total.Amount = &decimal
-		} else {
-			total.AmountNumerator = rational.Num().String()
-			total.AmountDenominator = rational.Denom().String()
-		}
-		if rounded, err := roundMoney(value, currency, defaultRounding); err == nil {
-			total.RoundedAmount = rounded
-		} else {
-			return nil, fmt.Errorf("%w: total %s: %v", ErrRatePrecision, currency, err)
-		}
-		out = append(out, total)
-	}
-	return out, nil
 }
 
 // totalsFromReportedLines uses the same aggregation boundary as derived

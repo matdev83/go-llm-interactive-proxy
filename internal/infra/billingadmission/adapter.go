@@ -46,6 +46,63 @@ type (
 
 type Adapter struct {
 	cfg Config
+	// unsupportedV2NativeUsageBackends is an immutable set of backend instance
+	// IDs whose provider usage is produced by the OpenAI native usage mapper. No
+	// stock V2 offer (scalar or rich) carries a frozen native compatibility
+	// proof, so admission of any planned route that touches one of these
+	// backends fails closed before any quote or exposure write. Nil/empty
+	// preserves the receiver's behavior. It is bound once per generation and
+	// never mutated afterwards.
+	unsupportedV2NativeUsageBackends map[string]struct{}
+}
+
+// BindUnsupportedV2NativeUsageBackends returns a NEW adapter bound to a copy of
+// the supplied backend instance IDs. Those backends fail closed for every V2
+// admission (scalar or rich) before any exposure write or provider open until a
+// real frozen native-compatibility certificate exists. The receiver is never
+// mutated; the returned clone shares the receiver's immutable config. An
+// external implementation that is not this concrete *Adapter is unaffected
+// because callers only rebind the stock adapter.
+func (a *Adapter) BindUnsupportedV2NativeUsageBackends(backendIDs []string) *Adapter {
+	if a == nil {
+		return nil
+	}
+	clone := *a
+	clone.unsupportedV2NativeUsageBackends = backendIDSet(backendIDs)
+	return &clone
+}
+
+func backendIDSet(backendIDs []string) map[string]struct{} {
+	if len(backendIDs) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(backendIDs))
+	for _, id := range backendIDs {
+		if trimmed := strings.TrimSpace(id); trimmed != "" {
+			set[trimmed] = struct{}{}
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
+}
+
+// guardUnsupportedV2NativeUsage rejects V2 admission when any planned route
+// leaf targets a bound backend whose native usage no stock offer can prove
+// compatible. It runs before Quote and before any exposure write and has no
+// side effects. The check is independent of scalar vs rich pricing: neither
+// pricing shape carries a frozen native compatibility certificate today.
+func (a *Adapter) guardUnsupportedV2NativeUsage(in coreruntime.BillingAdmissionInput) error {
+	if a == nil || len(a.unsupportedV2NativeUsageBackends) == 0 {
+		return nil
+	}
+	for _, leaf := range collectPlannedLeaves(in.Route) {
+		if _, bound := a.unsupportedV2NativeUsageBackends[leaf.Backend]; bound {
+			return fmt.Errorf("%w: backend %q uses the OpenAI native usage mapper; V2 admission requires a frozen native compatibility proof", billing.ErrEstimateInvalid, leaf.Backend)
+		}
+	}
+	return nil
 }
 
 func NewAdapter(cfg Config) (*Adapter, error) {
@@ -226,6 +283,11 @@ func (a *Adapter) versionedAdmissionOwner(ctx context.Context) (string, bool) {
 func (a *Adapter) admitWithOwner(ctx context.Context, in coreruntime.BillingExposureAdmissionInput, owner string) (billing.CallExposure, error) {
 	if a == nil || a.cfg.ExposureStore == nil {
 		return billing.CallExposure{}, fmt.Errorf("%w: exposure store is required", billing.ErrExposureInvalid)
+	}
+	if owner == billing.PostingOwnerV2 {
+		if err := a.guardUnsupportedV2NativeUsage(in.BillingAdmissionInput); err != nil {
+			return billing.CallExposure{}, err
+		}
 	}
 	callID := strings.TrimSpace(in.CallID)
 	if callID == "" {

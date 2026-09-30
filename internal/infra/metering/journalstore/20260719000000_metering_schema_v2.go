@@ -28,6 +28,8 @@ var V2BoundedIndexNames = []string{
 	"idx_metering_components_store_provider_account",
 	"idx_metering_components_observation",
 	accountWindowFactsIndex,
+	meteringFactsStoreBLegIndex,
+	meteringFactsStoreBLegStatementIndex,
 }
 
 func registerSchemaV2Migration() {

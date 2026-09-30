@@ -50,6 +50,14 @@ func submissionFeeClaimMatches(row submissionFeeClaimRow, claim billing.Submissi
 		row.ContextFingerprint == claim.ContextFingerprint && row.AmountNano == claim.Amount.Nano && row.Currency == claim.Amount.Currency
 }
 
+// submissionFeeClaimBelongsToCall reports whether the call that created the
+// immutable claim is the call being settled. The owner call keeps its
+// submission fee in the original settlement; sibling calls deduct the already
+// claimed fee from their own customer charge.
+func submissionFeeClaimBelongsToCall(row submissionFeeClaimRow, callID string) bool {
+	return row.SourceCallID == callID
+}
+
 func insertSubmissionFeeClaim(ctx context.Context, tx bun.Tx, storeID, accountID, sourceCallID string, claim billing.SubmissionFeeClaim) error {
 	if err := claim.Validate(); err != nil {
 		return err

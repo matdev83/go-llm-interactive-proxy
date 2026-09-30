@@ -903,11 +903,20 @@ func TestTask13_2_Finding4_TerminalCleanup_ParallelRaceLoserFailedVsCanceled(t *
 
 	var b2Failed sync.WaitGroup
 	b2Failed.Add(1)
+	b3Entered := make(chan struct{})
 
 	ex.Backends = map[string]execbackend.Backend{
 		"b1": {
 			OpenWire: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
 				b2Failed.Wait()
+				// Hold the winner until b3 has entered its backend Open. Otherwise
+				// winner publication can cancel the race before b3 allocates its
+				// B-leg, so the terminal canceled leg record is never produced.
+				select {
+				case <-b3Entered:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
 				return makeStreamWithEvents(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "winner"}), nil
 			},
 		},
@@ -919,6 +928,7 @@ func TestTask13_2_Finding4_TerminalCleanup_ParallelRaceLoserFailedVsCanceled(t *
 		},
 		"b3": {
 			OpenWire: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {
+				close(b3Entered)
 				<-ctx.Done()
 				return nil, ctx.Err()
 			},
@@ -932,7 +942,9 @@ func TestTask13_2_Finding4_TerminalCleanup_ParallelRaceLoserFailedVsCanceled(t *
 	if err != nil {
 		t.Fatalf("ExecuteLargeBody failed: %v", err)
 	}
-	_ = res.Stream.Close()
+	if cerr := res.Stream.Close(); cerr != nil {
+		t.Errorf("res.Stream.Close() = %v, want nil", cerr)
+	}
 
 	sink.mu.Lock()
 	legs := append([]billing.CallLegUsageRecord(nil), sink.legs...)

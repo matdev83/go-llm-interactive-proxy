@@ -11,8 +11,10 @@ import (
 // EconomicsConvergenceGrowthOverlayMax caps the approved usage-economics growth
 // allowance inside the billing-convergence denominator: only per-entry growth above
 // the locked merge-base lines enters the allowance, so historical baseline code can
-// never enter. Measured 53,821-line allowance; keep 25 lines of ratchet headroom.
-const EconomicsConvergenceGrowthOverlayMax = 53846
+// never enter. The round-by-round re-audit history of this cap lives in
+// billing_convergence_growth_history.go; budgets.go carries the same history for the
+// per-directory internal/core ceiling.
+const EconomicsConvergenceGrowthOverlayMax = 57726
 
 // economicsConvergenceGrowthEntry is one allowlisted denominator file with its
 // locked merge-base (c7fa4169) line count, audited credit, category attribution,
@@ -56,8 +58,13 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/billing/call_usage.go", baseline: 332, credit: 182, category: "terminal", provenance: "modified"},
 	{path: "internal/core/billing/commands.go", baseline: 213, credit: 9, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/complete_call.go", baseline: 43, credit: 3, category: "lifecycle", provenance: "modified"},
-	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 1652, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2163, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_cover.go", baseline: 0, credit: 984, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_finalize.go", baseline: 0, credit: 394, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_overlap.go", baseline: 0, credit: 928, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_quantity_solver.go", baseline: 0, credit: 437, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_schema_program.go", baseline: 0, credit: 509, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_support.go", baseline: 0, credit: 301, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_validation.go", baseline: 0, credit: 216, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rating_contract.go", baseline: 0, credit: 383, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/cost_pass_through.go", baseline: 0, credit: 348, category: "settlement", provenance: "new"},
@@ -128,8 +135,8 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/runtime/billing_call_closure.go", baseline: 94, credit: 8, category: "terminal", provenance: "modified"},
 	{path: "internal/core/runtime/billing_call_id.go", baseline: 22, credit: 61, category: "identity", provenance: "modified"},
 	{path: "internal/core/runtime/billing_collector.go", baseline: 214, credit: 89, category: "terminal", provenance: "modified"},
-	{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 270, category: "terminal", provenance: "modified"},
-	{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 181, category: "admission", provenance: "modified"},
+	{path: "internal/core/runtime/billing_leg.go", baseline: 417, credit: 454, category: "terminal", provenance: "modified"},
+	{path: "internal/infra/billingadmission/adapter.go", baseline: 186, credit: 243, category: "admission", provenance: "modified"},
 	{path: "internal/infra/billingadmission/doc.go", baseline: 1, credit: 0, category: "package", provenance: "modified"},
 	{path: "internal/infra/billingcompose/catalog.go", baseline: 467, credit: 247, category: "composition", provenance: "modified"},
 	{path: "internal/infra/billingcompose/doc.go", baseline: 1, credit: 0, category: "package", provenance: "modified"},
@@ -201,8 +208,7 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 }
 
 // economicsConvergenceGrowthResult is the measured allowance: the summary used for
-// the convergence subtraction and report plus the per-entry live credits the
-// acceptance predicate bounds individually.
+// the convergence subtraction and report plus the per-entry live credits.
 type economicsConvergenceGrowthResult struct {
 	summary OverlayMeasurement
 	credit  map[string]int
@@ -241,12 +247,11 @@ func enumerateEconomicsConvergenceDenominatorFiles(root string, doc BillingFinal
 
 // measureEconomicsConvergenceGrowthOverlay computes the allowance from the manifest.
 // Every enumerated denominator file must be allowlisted (unknown files fail); absent
-// manifest files credit zero, so deletions always pass. Only manifest entries that
-// survive enumeration (present after all artifact exclusions, including generated
-// sources) can credit: an allowlisted path that is missing or excluded from the
-// denominator receives zero and is never credited independently. Per-entry and
-// total bounds are enforced by checkEconomicsConvergenceGrowthAllowance, not
-// clamped here.
+// manifest files credit zero, so deletions always pass, and an allowlisted path that
+// is missing or excluded from the denominator -- after all artifact exclusions,
+// including generated sources -- receives zero rather than crediting independently.
+// Per-entry and total bounds are enforced by checkEconomicsConvergenceGrowthAllowance,
+// not clamped here.
 func measureEconomicsConvergenceGrowthOverlay(root string, doc BillingFinalConvergenceBaselineFile) (economicsConvergenceGrowthResult, error) {
 	var zero economicsConvergenceGrowthResult
 	files, err := enumerateEconomicsConvergenceDenominatorFiles(root, doc)
