@@ -776,8 +776,11 @@ func benchSaturatingSub(after, before uint64) uint64 {
 // The measurement it is derived from, taken with exactly the benchmark's own
 // protocol (warm-up Rate, runtime.GC(), StackInuse read either side of ONE
 // Rate): the delta is exactly 65536 bytes -- one 64 KiB runtime stack quantum --
-// at every depth of the ladder 200, 400, 800, 3200 and 8192, and it reproduced
-// 65536 on four consecutive runs at the maximum. Flat across a 40x depth range
+// at the maximum publishable depth, and it reproduced 65536 on four consecutive
+// runs. The same reading taken across the depth ladder in
+// TestReplayDeepestPublishableChainTraversalIsBounded -- the serial default-run
+// test, which is the stronger witness because it is not process-isolated -- is
+// flat at 65536 across 200, 800, 3200 and 8192. Flat across a 40x depth range
 // is the signature of a traversal that holds a bounded working set rather than
 // one live frame per containment level. The ceiling is that measured quantum
 // plus one further quantum of margin, so a single extra span of process-wide

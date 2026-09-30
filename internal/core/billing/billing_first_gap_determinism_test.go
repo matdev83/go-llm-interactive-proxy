@@ -19,14 +19,23 @@ package billing_test
 // first" and "the canonically first component" are different answers and the
 // assertion has teeth.
 //
-// SCOPE, stated plainly: this pins the first gap as it is OBSERVABLE, through
-// Rate. The valueless-entry scan the sorted slice also orders is, on today's
-// evidence, never the first setter of that error, because an observation carrying
-// a valueless measure is always attributed by the per-measure pass before the
-// scan runs. Reverting the scan to a map range would therefore still pass here.
+// SCOPE, stated plainly, because a test that overstates its reach is worse than
+// no test: this pins the first gap as it is OBSERVABLE, through Rate. It does NOT
+// guard the sorted slice in the valueless-entry scan, and reverting that slice to
+// a map range still passes here.
+//
+// The reason is narrow and was measured, not assumed. The scan IS the first
+// setter of this error in the current corpus - it fires on real inputs - but on
+// every one of them exactly one entry is valueless, and a scan over a map
+// returns the same single candidate whatever the iteration order. So map order
+// cannot change the winner, which is why the test cannot detect its removal.
+//
 // The scan is kept in canonical order because it is the next attribution to run
-// when the earlier one stops covering the case, and a map range there would make
-// the first gap traversal-dependent from that moment on.
+// when the per-measure pass stops covering a case, and a map range there would
+// make the first gap traversal-dependent from that moment on: the per-measure
+// pass and the scan both build identity from a normalized key, so two measures
+// whose raw keys differ from their normalized keys can both reach the scan
+// valueless, and only a total order then decides which one is reported.
 
 import (
 	"errors"

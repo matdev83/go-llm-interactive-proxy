@@ -1046,17 +1046,20 @@ var drPinnedOverlapFirstError = map[string]string{
 //     boundedness observation, with no counter involved;
 //   - the canonical fingerprint at every depth is the PINNED one.
 //
-// The per-Rate allocation, byte and goroutine-stack counts are NOT asserted
-// here. runtime.MemStats counters are PROCESS-wide and this test runs
-// t.Parallel() beside the rest of the package, so a delta taken across one Rate
-// also contains every unrelated allocation the process made between the two
-// reads, and nothing bounds that share. At the deepest depth on this machine the
-// contaminated reading happened to land within 0.02% of the isolated one, purely
-// because a 7 s Rate dwarfs the rest of the package; a 6 ms Rate does not, and
-// there the same block reports mostly somebody else's allocations. That
-// measurement moved to BenchmarkComponentRaterDeepestPublishableChain, whose
-// body is the only place this process-wide reading is meaningful, because
-// -run '^$' leaves a benchmark alone in the process.
+// The per-Rate ALLOCATION and byte counts are NOT asserted here, and for the
+// opposite reason to the one a reader would assume. runtime.MemStats counters
+// are PROCESS-wide, so a delta taken across one Rate also contains every
+// unrelated allocation the process made between the two reads. Running this
+// test t.Parallel() beside the rest of the package put that unbounded share at
+// its worst, and at a shallow depth the same block reported mostly somebody
+// else's allocations; a 7 s Rate hides it by sheer duration, a 6 ms Rate does
+// not. Going serial, below, is what makes the goroutine-STACK delta
+// assertable here - a top-level test that does not call t.Parallel() runs to
+// completion while queued parallel tests are still paused - and the stack
+// reading is asserted. The allocation measurement stays in
+// BenchmarkComponentRaterDeepestPublishableChain, whose body is the only place
+// the process-wide reading is meaningful, because -run '^$' leaves a benchmark
+// alone in the process.
 //
 // The wall time is still reported per depth, never asserted, because the very
 // claim being checked is that the work is bounded but the CURRENT implementation
@@ -1082,12 +1085,14 @@ func TestReplayDeepestPublishableChainTraversalIsBounded(t *testing.T) {
 
 	depths := []int{200, 800, 3200, maxDepth}
 	type sample struct {
-		depth        int
-		nodes        int
-		duration     time.Duration
-		stackGrowth  int64
-		fingerprint  string
-		completeness economics.Completeness
+		depth         int
+		nodes         int
+		duration      time.Duration
+		stackGrowth   int64
+		allocsPerNode float64
+		bytesPerNode  float64
+		fingerprint   string
+		completeness  economics.Completeness
 	}
 	samples := make([]sample, 0, len(depths))
 	for _, depth := range depths {
@@ -1139,26 +1144,66 @@ func TestReplayDeepestPublishableChainTraversalIsBounded(t *testing.T) {
 		}
 		samples = append(samples, sample{
 			depth: depth, nodes: depth + 1, duration: elapsed, stackGrowth: stackGrowth,
-			fingerprint: val.Fingerprint(), completeness: val.Completeness,
+			allocsPerNode: float64(after.Mallocs-before.Mallocs) / float64(depth+1),
+			bytesPerNode:  float64(after.TotalAlloc-before.TotalAlloc) / float64(depth+1),
+			fingerprint:   val.Fingerprint(), completeness: val.Completeness,
 		})
 	}
 
 	for _, s := range samples {
-		t.Logf("REPLAY-BOUNDEDNESS depth=%d nodes=%d wall=%s stack_growth=%dB completeness=%s fingerprint=%s",
-			s.depth, s.nodes, s.duration.Round(time.Millisecond), s.stackGrowth, s.completeness, s.fingerprint)
+		t.Logf("REPLAY-BOUNDEDNESS depth=%d nodes=%d wall=%s stack_growth=%dB allocs/node=%.1f bytes/node=%.0f completeness=%s fingerprint=%s",
+			s.depth, s.nodes, s.duration.Round(time.Millisecond), s.stackGrowth,
+			s.allocsPerNode, s.bytesPerNode, s.completeness, s.fingerprint)
 	}
-	// Depth is the variable under test, so compare the deepest chain against the
-	// shallowest one. A traversal that recursed would hold one frame per level,
-	// so between depth 200 and depth 8192 - a 40x range - the deepest reading
-	// would exceed the shallowest by thousands of live frames. Allow a single
-	// stack quantum of slack for allocator noise between two separate readings.
+	// Cost per node must not grow with depth. TotalAlloc and Mallocs are
+	// process-wide, so this reading is only trustworthy because the test is
+	// serial; the invariant it can carry is SUBLINEARITY, not an absolute
+	// budget. A traversal that swept the whole graph once per containment level
+	// would leave stack growth flat - it holds no frames - while multiplying
+	// allocations and bytes by the depth ratio, so a stack-only bound cannot
+	// see it. The depth ratio between the extreme rungs is 8193/201, about 40x;
+	// a linear-in-depth walk would drive per-node cost up by that same factor.
+	shallowest, deepest := samples[0], samples[len(samples)-1]
+	allocLinear := shallowest.allocsPerNode * (float64(deepest.depth) / float64(shallowest.depth))
+	bytesLinear := shallowest.bytesPerNode * (float64(deepest.depth) / float64(shallowest.depth))
+	if deepest.allocsPerNode > allocLinear {
+		t.Errorf("allocations per node grew with containment depth: %.1f at depth %d versus %.1f at depth %d.\n"+
+			"  The shallow chain's per-node cost extrapolated linearly over the %dx depth range is %.1f,\n"+
+			"  so cost per node is not sublinear and a whole-graph sweep per containment level has reappeared.\n"+
+			"  Every containment traversal is iterative, so depth must not multiply work",
+			deepest.allocsPerNode, deepest.depth, shallowest.allocsPerNode, shallowest.depth,
+			deepest.depth/shallowest.depth, allocLinear)
+	}
+	if deepest.bytesPerNode > bytesLinear {
+		t.Errorf("bytes per node grew with containment depth: %.0f at depth %d versus %.0f at depth %d.\n"+
+			"  The shallow chain's per-node cost extrapolated linearly over the %dx depth range is %.0f,\n"+
+			"  so cost per node is not sublinear and a whole-graph sweep per containment level has reappeared",
+			deepest.bytesPerNode, deepest.depth, shallowest.bytesPerNode, shallowest.depth,
+			deepest.depth/shallowest.depth, bytesLinear)
+	}
+	// Depth is the variable under test, so compare every depth against every
+	// other. A traversal that recursed would hold one frame per level, so the
+	// spread across the 200 to 8192 ladder would be thousands of live frames.
+	// Comparing the whole ladder rather than its two endpoints also closes the
+	// interior-depth hole: a regression confined to a middle rung is still a
+	// spread, while a two-endpoint comparison would only see it if the outermost
+	// depth happened to regress too. One stack quantum of slack absorbs
+	// allocator noise between two separate readings.
 	const stackQuantum = 64 << 10
-	shallow, deep := samples[0].stackGrowth, samples[len(samples)-1].stackGrowth
-	if deep-shallow > stackQuantum {
-		t.Errorf("goroutine stack grew with containment depth: %d B at depth %d versus %d B at depth %d,\n"+
-			"  a spread over the %d B slack. Every containment traversal in the solver and the\n"+
-			"  compiled program is iterative, so depth must not add stack frames",
-			deep-shallow, samples[len(samples)-1].depth, shallow, samples[0].depth, stackQuantum)
+	minSample, maxSample := samples[0], samples[0]
+	for _, s := range samples[1:] {
+		if s.stackGrowth < minSample.stackGrowth {
+			minSample = s
+		}
+		if s.stackGrowth > maxSample.stackGrowth {
+			maxSample = s
+		}
+	}
+	if spread := maxSample.stackGrowth - minSample.stackGrowth; spread > stackQuantum {
+		t.Errorf("goroutine stack grew with containment depth: %d B spread, %d B at depth %d versus %d B at depth %d,\n"+
+			"  over the %d B slack. Every containment traversal in the solver and the compiled\n"+
+			"  program is iterative, so depth must not add stack frames",
+			spread, maxSample.stackGrowth, maxSample.depth, minSample.stackGrowth, minSample.depth, stackQuantum)
 	}
 }
 
@@ -1166,11 +1211,17 @@ func TestReplayDeepestPublishableChainTraversalIsBounded(t *testing.T) {
 // delta to zero. StackInuse is process-wide and the allocator may hand back a
 // span between the two reads, so a small negative reading is noise rather than
 // a claim, and treating it as growth would make the bound fail on nothing.
-func drStackGrowth(delta, current uint64) int64 {
-	if current < delta {
+//
+// The subtraction happens in uint64 at the call site, so an underflow has
+// already wrapped to a value far larger than the post-call reading; comparing
+// against that post-call reading is what distinguishes a wrapped delta from a
+// genuinely large growth. delta itself is therefore the answer, and the
+// post-call reading is only the witness.
+func drStackGrowth(delta, postCall uint64) int64 {
+	if postCall < delta {
 		return 0
 	}
-	return int64(current - delta)
+	return int64(delta)
 }
 
 // drChainFixture builds a linear containment chain of the requested DEPTH. The
