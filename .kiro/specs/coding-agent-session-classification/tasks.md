@@ -69,8 +69,8 @@
     - _Depends: 2.1,2.2_
     - _Validation: stage unit tests; core package has zero concrete sessionclassification feature imports_
 
-- [ ] 3. Implement shared client identity facts and the deterministic local heuristic
-  - [ ] 3.1 (P) Extract a bounded root client-family matcher and migrate compatible brownfield use
+- [x] 3. Implement shared client identity facts and the deterministic local heuristic
+  - [x] 3.1 (P) Extract a bounded root client-family matcher and migrate compatible brownfield use
     - Create internal/agentfacts as a pure trim/case-fold/exact-prefix/token matcher over stable client identity strings.
     - RED-test high-confidence families and ambiguous generic SDK values; no regex/fuzzy/prompt matching.
     - Reuse it from codexclientcompat agent-string matching where semantics are identical while leaving feature-specific prompt signatures in codexclientcompat.
@@ -80,7 +80,7 @@
     - _Depends: 1.2_
     - _Validation: shared matcher matrix + unchanged codexclientcompat behavior fixtures_
 
-  - [ ] 3.2 Implement feature-owned config and local heuristic rules
+  - [x] 3.2 Implement feature-owned config and local heuristic rules
     - Decode canonical plugins.features payload for session-classification; outer Registration.Enabled remains authoritative.
     - Support modes heuristic, jev, hybrid with heuristic as omitted-mode default; define bounded ignored_user_agent_prefixes and remote config shape.
     - RED-test Rule A known client identity; Rule B read/search + edit/remove + OS-command cluster; Rule C weaker read/search + mutation plus recognized project marker.
@@ -91,7 +91,7 @@
     - _Depends: 2.1,3.1_
     - _Validation: config table tests + local policy acceptance matrix_
 
-  - [ ] 3.3 Harden evidence bounds and prove zero transcript/path retention
+  - [x] 3.3 Harden evidence bounds and prove zero transcript/path retention
     - Add property/fuzz tests for oversized UA/exclusion/marker values, odd casing, unicode/control input already rejected by identity capture, tool-name explosions, and unknown tool aliases.
     - Assert feature state/evaluation structs contain no messages, prompt strings, tool arguments, raw paths, or raw header maps.
     - Prove weak evidence never accumulates into an unbounded per-session history.
@@ -100,8 +100,8 @@
     - _Depends: 3.2_
     - _Validation: fuzz/property tests + no-content architecture assertions_
 
-- [ ] 4. Build monotonic feature state, durable persistence, and remote leases
-  - [ ] 4.1 (P) Define the authoritative key/state contract and bounded memory store
+- [x] 4. Build monotonic feature state, durable persistence, and remote leases
+  - [x] 4.1 (P) Define the authoritative key/state contract and bounded memory store
     - RED-test secure SessionID preference, A-leg fallback, rejection of empty authority, and refusal to use ClientSessionHint as a key.
     - Implement Record, Promote, ClaimRemote, CompleteRemote semantics with unknown -> coding_agent as the only V1 classification transition.
     - First accepted positive wins; repeats are idempotent; later weak/negative proposals cannot rewrite it.
@@ -111,7 +111,7 @@
     - _Depends: 2.1_
     - _Validation: deterministic fake-clock concurrency/store contract tests_
 
-  - [ ] 4.2 Implement Bun Load/Promote persistence and restart restoration
+  - [x] 4.2 Implement Bun Load/Promote persistence and restart restoration
     - RED-test SQLite reopen before production SQL.
     - Add the feature-owned logical table with proxy-authority key, scalar classification, remote-control metadata and timestamps only.
     - Implement indexed Load and atomic compare-and-promote; no raw UA/path/prompt/vendor payload columns.
@@ -121,7 +121,7 @@
     - _Depends: 4.1_
     - _Validation: SQLite store contract + reopen/restart tests_
 
-  - [ ] 4.3 Implement atomic remote claim/lease parity on SQLite and PostgreSQL
+  - [x] 4.3 Implement atomic remote claim/lease parity on SQLite and PostgreSQL
     - RED-test two concurrent claimers, abandoned lease expiry, finite attempts, backoff, positive classification racing remote completion, and stale lease token rejection.
     - Keep HTTP/network work outside transactions.
     - Register the store in dbparity if required by the current repository persistence catalog and prove equivalent logical schema/behavior on direct PostgreSQL.
@@ -130,7 +130,7 @@
     - _Depends: 4.2_
     - _Validation: memory/SQLite/PostgreSQL shared store contract; race-safe claim tests_
 
-  - [ ] 4.4 Add the process cache/coordinator
+  - [x] 4.4 Add the process cache/coordinator
     - Cache stable positive classifications so later turns require no DB/network work.
     - Coalesce concurrent first loads/promotions for one key while allowing unrelated keys to proceed independently.
     - For durable unknown sessions, preserve authoritative visibility across replicas rather than hiding a remote promotion behind an unbounded negative cache.
@@ -364,6 +364,8 @@
     - _Validation: make qa plus merged-main focused rerun; no unchecked applicable tasks before archive_
 
 ## Implementation Notes
+- Task 4.2 requires immediate DB-parity catalog registration, a real feature-owned baseline migration, and SQLite/direct-PostgreSQL Load/Promote schema contracts: the mandatory architecture gate discovers the new dialect-sensitive package before Task 4.3. Task 4.3 retains Bun remote claim/completion and full remote-contract parity; no contract or gate is relaxed.
+
 - General architecture LOC ceilings use maintainer-authorized fixed measurements with substantial headroom; file and tree audit tests retain exact ceiling and excess checks.
 
 - Classification keying must use AuthoritativeSessionID or proxy-owned ALegID explicitly; generic SessionView.PartitionKey still permits ClientSessionHint fallback.
@@ -371,3 +373,7 @@
 - The shared evidence matrix validates local source paths; update its active-spec references when Task 12.3 archives this SDD (and preserve explicit-completion source references if that spec relocates).
 
 - Task 1.3 baseline absence assertions must evolve in Tasks 7.1/7.2 when bounded wire evidence lands. OpenResponses canonical User-Agent capture currently uses TrimSpace directly; use the shared acceptance helper for canonical/wire parity in Task 7.2.
+
+- Task 4.3 uses one conservative precision rule across memory, SQLite, and PostgreSQL: lease and completion-based backoff deadlines round upward to the next microsecond, preserving aligned deadlines. Strict before/exact-deadline checks use the returned deadline; no adapter-specific tolerance or early expiry is permitted.
+
+- Task 4.4 coalesced waiters preserve their own cancellation, then consult an available valid positive before propagating an owner storage error. Owner cancellation is tracked separately because Bun adapters return bounded store errors for mid-I/O cancellation.

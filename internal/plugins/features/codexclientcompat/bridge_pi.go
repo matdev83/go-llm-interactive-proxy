@@ -1,6 +1,10 @@
 package codexclientcompat
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/agentfacts"
+)
 
 var (
 	piPromptMarkers = []string{
@@ -19,11 +23,23 @@ var (
 
 func piAgentMatch(in compatInput) bool {
 	for _, candidate := range in.agents {
-		lower := strings.ToLower(candidate)
-		for _, marker := range piUserAgentMarkers {
-			if strings.Contains(lower, marker) {
-				return true
-			}
+		if matchesSingleAgentFamily(candidate, agentfacts.FamilyPi) && hasPiUserAgentMarker(candidate) {
+			return true
+		}
+		// Preserve the bridge's established substring markers independently of
+		// the stricter shared identity rules used for classification.
+		if hasPiUserAgentMarker(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPiUserAgentMarker(candidate string) bool {
+	lower := strings.ToLower(candidate)
+	for _, marker := range piUserAgentMarkers {
+		if strings.Contains(lower, marker) {
+			return true
 		}
 	}
 	return false

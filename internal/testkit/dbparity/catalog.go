@@ -63,7 +63,7 @@ type Catalog struct {
 // Inventory is a type alias for Catalog to preserve backward compatibility.
 type Inventory = Catalog
 
-// DefaultCatalog returns the frozen canonical catalog of all 8 production persistence families
+// DefaultCatalog returns the frozen canonical catalog of all 9 production persistence families
 // and shared database infrastructure, audited against current repository state.
 func DefaultCatalog() Catalog {
 	return Catalog{
@@ -458,6 +458,28 @@ func DefaultCatalog() Catalog {
 						Class:     SQLiteSpecific,
 						Evidence:  "internal/core/securesession/adapters/bunstore/legacy_sqlite_compat_test.go",
 						Rationale: "SQLite uses pragma_table_info column probes for safe incremental schema migration.",
+					},
+				},
+			},
+			{
+				ID: "session-classification",
+				SourceRoots: []string{
+					"internal/standardplugins/featurehost/sessionclassification",
+				},
+				TestPackages: []string{
+					"internal/standardplugins/featurehost/sessionclassification",
+				},
+				StoreContracts: []string{
+					"internal/plugins/features/sessionclassification.Store",
+				},
+				MigrationRoots: []string{
+					"internal/standardplugins/featurehost/sessionclassification",
+				},
+				Capabilities: []Capability{
+					{
+						ID:       "bounded-load-promote-schema-restart-parity",
+						Class:    Common,
+						Evidence: "internal/standardplugins/featurehost/sessionclassification/dbparity_test.go:runSessionClassificationParityContract",
 					},
 				},
 			},

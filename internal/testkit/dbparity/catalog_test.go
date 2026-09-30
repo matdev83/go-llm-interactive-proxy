@@ -13,8 +13,8 @@ func TestCatalog_Completeness(t *testing.T) {
 	t.Parallel()
 
 	cat := dbparity.DefaultCatalog()
-	if len(cat.Components) != 8 {
-		t.Fatalf("expected exactly 8 candidate components, got %d", len(cat.Components))
+	if len(cat.Components) != 9 {
+		t.Fatalf("expected exactly 9 candidate components, got %d", len(cat.Components))
 	}
 
 	expectedIDs := []string{
@@ -24,6 +24,7 @@ func TestCatalog_Completeness(t *testing.T) {
 		"control-plane-ledger",
 		"metering-journal",
 		"secure-sessions",
+		"session-classification",
 		"terminal-work",
 		"usage-authority",
 	}

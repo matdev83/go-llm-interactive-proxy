@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/agentfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -139,6 +140,20 @@ func detectCompatInput(call *lipapi.Call) compatInput {
 		prompt: collectPromptText(call),
 		tools:  collectCallToolNames(call),
 	}
+}
+
+func matchesAgentFamily(candidates []string, family agentfacts.Family) bool {
+	for _, candidate := range candidates {
+		if matchesSingleAgentFamily(candidate, family) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesSingleAgentFamily(candidate string, family agentfacts.Family) bool {
+	match, ok := agentfacts.MatchIdentity(candidate)
+	return ok && match.Family == family
 }
 
 func collectAgentCandidates(call *lipapi.Call) []string {

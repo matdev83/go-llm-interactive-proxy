@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/agentfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -17,6 +18,11 @@ var hermesUserAgentMarkers = []string{
 }
 
 func hermesAgentMatch(in compatInput) bool {
+	if matchesAgentFamily(in.agents, agentfacts.FamilyHermes) {
+		return true
+	}
+	// Keep the original compatibility substring rules without promoting those
+	// looser matches into the shared high-confidence identity catalog.
 	for _, candidate := range in.agents {
 		lower := strings.ToLower(candidate)
 		for _, marker := range hermesUserAgentMarkers {

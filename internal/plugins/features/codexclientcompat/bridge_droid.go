@@ -4,6 +4,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/agentfacts"
 )
 
 var (
@@ -20,6 +22,11 @@ var (
 )
 
 func droidAgentMatch(in compatInput) bool {
+	if matchesAgentFamily(in.agents, agentfacts.FamilyDroid) {
+		return true
+	}
+	// Preserve legacy bridge substring behavior for existing compatibility
+	// callers; session identity matching uses the strict shared token catalog.
 	return slices.ContainsFunc(in.agents, droidUserAgentMatch)
 }
 
