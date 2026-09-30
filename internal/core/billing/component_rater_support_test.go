@@ -17,9 +17,10 @@ package billing
 //     in a test file rather than in the production file is what keeps the compiled
 //     package's symbol table untouched: there is no production name to call.
 //  2. The tests below pin the predicate's own contract and PROVE, mechanically,
-//     that exactly ONE production file names it, that file is the structural
-//     overlap verdict, and that every reference sits inside that verdict's single
-//     payable-scope pass.
+//     that the structural overlap verdict remains its only monetary consumer and
+//     the bounded advisory assessor is its only non-monetary consumer. Every
+//     reference stays inside the corresponding named operation; no other
+//     production code can become a consumer quietly.
 //
 // The bridge rebuilds the per-scope payable population the way component_rater.go's
 // rating loop does, because that population is exactly the set the retired
@@ -50,12 +51,12 @@ const (
 )
 
 // supportShadowPredicateNames is the closed set of declarations the relation
-// predicate consists of, including the candidate enumerator production runs on, so
-// a production file naming ANY of them is a production consumer of the structural
-// overlap verdict. supportShadowPredicateMethods is the same guard over the two
-// receiver methods whose bare names are ordinary English -- "relation" and
-// "contains" occur throughout this package's prose and helpers -- so those are
-// scanned in the QUALIFIED form a call site has to use.
+// predicate consists of, including the candidate enumerator and shared decision
+// tree, so a production file naming ANY of them is a production consumer.
+// supportShadowPredicateMethods is the same guard over the two receiver methods
+// whose bare names are ordinary English -- "relation" and "contains" occur
+// throughout this package's prose and helpers -- so those are scanned in the
+// QUALIFIED form a call site has to use.
 const supportShadowPredicateNames = "shadowContributingRelations|" +
 	"shadowPositiveContributors|" +
 	"shadowOverlapPair|" +
@@ -64,6 +65,8 @@ const supportShadowPredicateNames = "shadowContributingRelations|" +
 	"shadowScope|" +
 	"componentLineRelation|" +
 	"overlapCandidates|" +
+	"classifySupportRelation|" +
+	"supportRelationQueries|" +
 	"relationDefiniteOverlap|" +
 	"relationProvenDisjoint|" +
 	"relationUnknownIntersection"
@@ -318,27 +321,23 @@ func supportCoverResolutionName(resolution coverResolution) string {
 	}
 }
 
-// TestSupportPredicateHasExactlyOneProductionCaller proves mechanically that the
-// relation predicate IS reachable from production, and from EXACTLY ONE production
-// file, for EXACTLY ONE purpose.
-//
-// WHY THAT IS THE INVARIANT NOW. The predicate stopped being a shadow: it is the
-// single authority for the structural overlap verdict, the resolver reaching every
-// pair of positive contributors a scope declares a containment relation between and
-// a relationDefiniteOverlap answer IS the conflict. The pre-retirement guard
-// asserted the exact inverse -- no production caller at all -- so it is REPLACED,
-// not deleted: the retirement it policed is done, and a second caller is that
-// retired special case reintroduced from the other side.
+// TestSupportPredicateHasOnlyApprovedProductionConsumers proves mechanically
+// that the relation predicate remains reachable through exactly two approved
+// production consumers: the monetary structural overlap verdict and the non-money
+// support uncertainty assessor. The assessor shares the same relation decision
+// tree and does not alter the overlap verdict's ownership of monetary conflicts.
 //
 // The scan covers the non-test sources of THIS package, which is the whole blast
 // radius a package-internal predicate can have: an external caller would have to
 // import the package and therefore use an exported name, and the predicate exports
 // none. The declaring file is DISCOVERED, not named -- one file may claim the
 // predicate's entry point, and it must then declare every name in the closed set,
-// so the excluded file cannot quietly grow to hide a caller. The referencing file is
-// discovered the same way, must declare the structural overlap verdict, and must
-// carry EVERY reference inside that resolver's single payable-scope pass.
-func TestSupportPredicateHasExactlyOneProductionCaller(t *testing.T) {
+// so the excluded file cannot quietly grow to hide a caller. The only allowed
+// consumers are discovered by source scan: the monetary one must declare the
+// structural overlap verdict and keep EVERY reference in that resolver's single
+// payable-scope pass; the non-money one must declare the advisory entrypoint and
+// keep predicate references within its bounded assessor.
+func TestSupportPredicateHasOnlyApprovedProductionConsumers(t *testing.T) {
 	t.Parallel()
 	sources, err := supportPackageSources(false)
 	if err != nil {
@@ -350,7 +349,11 @@ func TestSupportPredicateHasExactlyOneProductionCaller(t *testing.T) {
 			t.Errorf("the declaring file %s does not declare %q; the excluded file is not the predicate's own home", declaring, name)
 		}
 	}
-	caller, referenced := "", 0
+	consumers := make(map[string][]int, 2)
+	allowedConsumers := map[string]struct{}{
+		"component_rater_overlap.go":  {},
+		"component_rater_advisory.go": {},
+	}
 	for name, source := range sources {
 		if name == declaring {
 			continue
@@ -359,34 +362,62 @@ func TestSupportPredicateHasExactlyOneProductionCaller(t *testing.T) {
 		if len(lines) == 0 {
 			continue
 		}
-		if caller != "" {
-			t.Errorf("production file %s:%d also names the predicate; it must have EXACTLY ONE production caller and %s already is one", name, lines[0], caller)
-			continue
+		if _, allowed := allowedConsumers[name]; !allowed {
+			t.Errorf("unexpected production consumer %s:%d names the support predicate", name, lines[0])
 		}
-		caller, referenced = name, len(lines)
+		consumers[name] = lines
 	}
-	if caller == "" {
-		t.Fatal("no production file names the predicate; it is the structural overlap verdict's single authority and must be reachable from production")
+	if len(consumers) != len(allowedConsumers) {
+		t.Fatalf("predicate consumers=%v, want exactly the structural overlap verdict and bounded advisory assessor", sortedStringKeys(consumers))
 	}
-	lines := strings.Split(string(sources[caller]), "\n")
-	if !strings.Contains(strings.Join(lines, "\n"), "func (r *ReferenceRater) overlappingSchemaInclusionConflicts(") {
-		t.Errorf("the sole production caller %s does not declare the structural overlap verdict; the predicate's only production authority must be that verdict", caller)
+
+	overlapSource := sources["component_rater_overlap.go"]
+	overlapLines := strings.Split(string(overlapSource), "\n")
+	if !strings.Contains(string(overlapSource), "func (r *ReferenceRater) overlappingSchemaInclusionConflicts(") {
+		t.Error("the monetary predicate consumer must be the structural overlap verdict")
 	}
-	// THE STRUCTURAL PASS, AND NOTHING ELSE. The pass is located by the gofmt-fixed
-	// header line and bounded by indentation, so this scans the compiled shape
-	// rather than a comment that could be edited into agreement.
+	// THE STRUCTURAL PASS, AND NOTHING ELSE. The pass is located by its gofmt-fixed
+	// header and bounded by indentation, so every monetary reference stays in the
+	// resolver's one payable-scope structural pass.
 	open, passes := -1, 0
-	for index, line := range lines {
+	for index, line := range overlapLines {
 		if line == "\tfor _, scope := range payableScopes {" {
 			open, passes = index, passes+1
 		}
 	}
 	if passes != 1 {
-		t.Fatalf("the sole production caller %s declares %d payable-scope passes; the structural verdict has exactly one home", caller, passes)
+		t.Fatalf("the monetary consumer declares %d payable-scope passes; the structural verdict has exactly one home", passes)
 	}
-	for _, line := range supportShadowPredicateReferences(sources[caller]) {
-		if closed := supportBlockEnd(lines, open); line <= open || line > closed {
-			t.Errorf("production file %s:%d names the predicate outside the payable-scope structural pass (lines %d-%d); the verdict has exactly one home", caller, line, open+1, closed)
+	for _, line := range consumers["component_rater_overlap.go"] {
+		if closed := supportBlockEnd(overlapLines, open); line <= open || line > closed {
+			t.Errorf("monetary consumer component_rater_overlap.go:%d names the predicate outside its payable-scope structural pass (lines %d-%d)", line, open+1, closed)
+		}
+	}
+
+	advisorySource := sources["component_rater_advisory.go"]
+	if strings.Count(string(advisorySource), "func (r *ReferenceRater) assessSupportUncertainty(") != 1 {
+		t.Error("the non-monetary consumer must declare exactly one assessSupportUncertainty entrypoint")
+	}
+	if strings.Count(string(advisorySource), "classifySupportRelation(") != 1 {
+		t.Error("the advisory assessor must use the shared relation decision tree exactly once")
+	}
+	advisoryLines := strings.Split(string(advisorySource), "\n")
+	advisoryStart, advisoryOpen, assessors := -1, -1, 0
+	for index, line := range advisoryLines {
+		if line == "func (r *ReferenceRater) assessSupportUncertaintyWithLimits(" {
+			advisoryStart, assessors = index, assessors+1
+		}
+		if advisoryStart >= 0 && index > advisoryStart && strings.HasSuffix(strings.TrimSpace(line), ") {") {
+			advisoryOpen = index
+			break
+		}
+	}
+	if assessors != 1 || advisoryOpen < 0 {
+		t.Fatalf("the advisory consumer declares %d bounded assessor helpers, want exactly one", assessors)
+	}
+	for _, line := range consumers["component_rater_advisory.go"] {
+		if closed := supportBlockEnd(advisoryLines, advisoryOpen); line < advisoryOpen || line > closed {
+			t.Errorf("advisory consumer component_rater_advisory.go:%d names the predicate outside its bounded assessor (lines %d-%d)", line, advisoryOpen+1, closed)
 		}
 	}
 	tests, err := supportPackageSources(true)
@@ -402,8 +433,17 @@ func TestSupportPredicateHasExactlyOneProductionCaller(t *testing.T) {
 	if exercised == 0 {
 		t.Error("no test file calls the test-only pair census; the predicate's own contract and the agreement harness would be silently unexercised")
 	}
-	t.Logf("SUPPORT relation predicate: declared in %s; called from %s only (%d references, all inside its payable-scope structural pass); test-only census driven by %d test files",
-		declaring, caller, referenced, exercised)
+	t.Logf("SUPPORT relation predicate: declared in %s; monetary consumer component_rater_overlap.go has %d in-pass references; non-monetary consumer component_rater_advisory.go has %d assessor references; test-only census driven by %d test files",
+		declaring, len(consumers["component_rater_overlap.go"]), len(consumers["component_rater_advisory.go"]), exercised)
+}
+
+func sortedStringKeys[V any](values map[string]V) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // supportShadowDeclaringFile is the ONE file allowed to declare the predicate's

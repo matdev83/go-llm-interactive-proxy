@@ -63,7 +63,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Requirements: 7.1, 7.2, 7.5_
   - _Depends: 2.1, 2.2, 2.3_
   - _Validation: make dev-test PKGS='./internal/infra/billingcompose/... ./pkg/lipsdk/economics/...'_
-- [ ] 3.2 (P) Discover uncertain contributor candidates with deterministic finite work
+- [x] 3.2 (P) Discover uncertain contributor candidates with deterministic finite work
   - Build the private assessor over the existing compiled support relation and supplied per-scope coverage; do not add another topology or cover authority.
   - Enumerate common-ancestor candidates without materializing a full Cartesian report, with deterministic deduplication and per-group candidate/graph counters.
   - Add budget-aware reachability/relation queries that produce no verdict on exhaustion; never certify separation from partial closures.
@@ -151,3 +151,4 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
 
 - 2.2: Advisory ScopeKey uses a conservative 64 KiB opaque envelope because validated reduction keys embed escaped lineage JSON; canonical context tuples omit publication timestamps while clone preserves them.
 - 2.3: Identity mutation controls compare each source field against a valid enabled baseline; independent overlays flattening source fields and restoring pre-task behavior fail the corresponding tests.
+- 3.2: The shared relation guard now permits exactly one monetary overlap owner and the named bounded advisory consumer; an independent third-consumer mutation is rejected. The assessor remains unwired until 3.3.
