@@ -3,6 +3,13 @@
 Local iteration policy remains in [development-iteration.md](development-iteration.md).
 These rules govern hosted runners and complement #687.
 
+Remote Windows historical comparisons are temporarily paused to unblock
+development. Default CI keeps ordinary scoped unit tests and builds on Windows,
+Linux and macOS, with no comparison triggered by policy edits or PR labels.
+The weekly comparison workflow is disabled in GitHub and its job is guarded off
+in source. `make test-cost` remains available locally; remote cost certification
+is paused until the workflow is deliberately restored.
+
 ## Why improvements regressed
 
 Immutable dependency-only keys froze compiler snapshots. Dedicated keys fixed
@@ -115,8 +122,8 @@ CI classifies main pushes against `github.event.before`, just as PRs use their
 actual base. Passing an empty base for every push previously enabled the full
 Windows historical cost comparison even for ordinary production changes: the
 first main run spent over 25 minutes before failing in the historical suite.
-Cost policy changes and explicitly requested measurements still run the ratchet;
-the weekly/manual watchdog retains its existing budgets. Initial branch pushes
+Cost classification remains available as metadata, but default CI
+and the weekly/manual watchdog no longer execute the remote comparison. Initial branch pushes
 retain full validation, and an invalid predecessor fails closed. Executable QA
 fixtures cover production, documentation, cost policy and both predecessor cases.
 CodeQL, security and the native ACP, Cursor, taskrunner and backend gates also
@@ -206,7 +213,7 @@ must find all twelve tests. The existing required Repo hygiene check propagates
 scope or certification failures, while unrelated changes report an explicit
 bypass. The job owns a bounded 768 MiB compiler-cache lane with trusted main
 publication and read-only PR restoration. Pure schema arithmetic needs no native
-platform matrix; Windows keeps the default-unit cost ratchet. The certification
+platform matrix; Windows keeps ordinary portable unit/build checks. The certification
 process has a separate 30-minute execution
 guard; it does not change any test assertion or ratchet threshold.
 
@@ -229,9 +236,10 @@ The runtime package has an explicitly approved 45-second growth allowance above
 the frozen anchor, which predates its added checkpoint and durable-restart proofs.
 The measured increase was 37.3 seconds. Its existing relative multiplier remains
 in place; all other package and aggregate limits are retained. The
-`allow-test-cost-policy-update` PR label authorizes editing the policy without
-authorizing measurement violations. The broader `allow-test-cost-growth` override
-remains a separate opt-in.
+`LIP_ALLOW_TEST_COST_POLICY_UPDATE=1` authorizes local policy-edit preflight
+without authorizing measurement violations. The `allow-test-cost-policy-update`
+PR label records that approval; it no longer starts remote measurements.
+The broader `LIP_ALLOW_TEST_COST_GROWTH` override remains a separate opt-in.
 
 The ratchet uses a stable, short checkout path for each pinned historical anchor.
 Go compiler entries depend on source paths, so a random checkout path prevents

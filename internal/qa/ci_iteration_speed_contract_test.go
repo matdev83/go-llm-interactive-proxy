@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/tools/testcost"
+	"gopkg.in/yaml.v3"
 )
 
 func TestCIIterationSpeed_ModuleTidyUsesBoundedParallelism(t *testing.T) {
@@ -362,67 +363,53 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	}
 
 	ci := workflowJob(t, "ci.yml", "test")
-	for _, checkoutConfig := range []string{
-		"GIT_CONFIG_KEY_0: core.autocrlf",
-		`GIT_CONFIG_VALUE_0: "false"`,
-		"GIT_CONFIG_KEY_1: core.eol",
-		"GIT_CONFIG_VALUE_1: lf",
-	} {
-		if !strings.Contains(ci, checkoutConfig) {
-			t.Fatalf("Windows measured head checkout must remain LF-normalized: %q", checkoutConfig)
-		}
-	}
 	for _, needle := range []string{
 		"concurrency:",
 		"group: ci-${{ github.head_ref || github.ref_name }}",
 		"cancel-in-progress: true",
-		"types: [opened, synchronize, reopened, labeled, unlabeled]",
-		"github.event.pull_request.base.sha",
-		"github.head_ref || github.ref_name",
 		"- os: ubuntu-latest",
 		"- os: windows-latest",
 		"- os: macos-latest",
 		"go test -timeout=8m ${{ matrix.packages }}",
-		"- name: Windows test-cost ratchet",
-		"matrix.os == 'windows-latest'",
-		"allow-test-cost-growth",
-		"-BaseSHA \"${{ github.event.pull_request.base.sha }}\"",
+		"- name: Build release binary",
 	} {
 		if !strings.Contains(ci, needle) {
-			t.Fatalf("CI workflow missing test-cost/iteration-speed contract %q", needle)
+			t.Fatalf("CI workflow missing portable test/build contract %q", needle)
+		}
+	}
+	for _, forbidden := range []string{"scripts/test-cost-ratchet.ps1", "Windows test-cost history", "windows-test-cost"} {
+		if strings.Contains(ci, forbidden) {
+			t.Fatalf("default CI must not run the paused historical Windows comparison: %q", forbidden)
+		}
+	}
+	var parsed struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				With struct {
+					FetchDepth *int `yaml:"fetch-depth"`
+				} `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(ci), &parsed); err != nil {
+		t.Fatalf("parse CI workflow: %v", err)
+	}
+	for _, step := range parsed.Jobs["test"].Steps {
+		if depth := step.With.FetchDepth; depth != nil && *depth == 0 {
+			t.Fatal("portable test/build jobs must not fetch the frozen comparison history")
 		}
 	}
 	fastUnit := strings.Index(ci, "- name: Fast unit tests")
-	ratchet := strings.Index(ci, "- name: Windows test-cost ratchet")
-	if fastUnit < 0 || ratchet < 0 || fastUnit >= ratchet {
-		t.Fatal("CI must place the portable fast-unit step before the Windows authoritative ratchet")
-	}
-	fastUnitBlock := ci[fastUnit:ratchet]
-	if strings.Contains(fastUnitBlock, "continue-on-error") {
-		t.Fatal("CI must not soften the portable fast-unit contract")
-	}
-	if !strings.Contains(fastUnitBlock, "matrix.os != 'windows-latest'") || !strings.Contains(fastUnitBlock, "needs.changes.outputs.test_cost != 'true'") {
-		t.Fatal("CI must preserve fast units on Linux/macOS and avoid duplicating a measured Windows head run")
-	}
 	buildBinary := strings.Index(ci, "- name: Build release binary")
-	if buildBinary < 0 || ratchet >= buildBinary {
-		t.Fatal("CI must place the Windows test-cost ratchet before building the release binary")
+	if fastUnit < 0 || buildBinary <= fastUnit {
+		t.Fatal("CI must run portable unit tests before the release build")
 	}
-	ratchetBlock := ci[ratchet:buildBinary]
-	if !strings.Contains(ratchetBlock, "timeout-minutes: 75") {
-		t.Fatal("Windows test-cost ratchet step must declare timeout-minutes: 75")
+	fastUnitBlock := ci[fastUnit:buildBinary]
+	if strings.Contains(fastUnitBlock, "continue-on-error") || strings.Contains(fastUnitBlock, "test_cost") || strings.Contains(fastUnitBlock, "labels") {
+		t.Fatal("ordinary Windows unit tests must not be skipped or softened by cost policy changes or labels")
 	}
-	if !strings.Contains(ratchetBlock, "& ./scripts/test-cost-ratchet.ps1") {
-		t.Fatal("Windows test-cost ratchet step must invoke & ./scripts/test-cost-ratchet.ps1 directly")
-	}
-	if strings.Contains(ratchetBlock, "-File scripts/test-cost-ratchet.ps1") || strings.Contains(ratchetBlock, "& pwsh") {
-		t.Fatal("Windows test-cost ratchet step must not invoke a nested pwsh subprocess")
-	}
-	if !strings.Contains(ratchetBlock, "GOFLAGS: -p=2") {
-		t.Fatal("Windows test-cost ratchet step must cap Go package concurrency with GOFLAGS: -p=2")
-	}
-	if !strings.Contains(ratchetBlock, "-Parallel 2") {
-		t.Fatal("Windows test-cost ratchet step must cap test concurrency with -Parallel 2")
+	if !strings.Contains(fastUnitBlock, "if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'") {
+		t.Fatal("portable units must follow the normal test scope on every matrix platform")
 	}
 }
 
