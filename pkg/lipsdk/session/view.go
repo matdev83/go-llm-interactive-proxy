@@ -18,6 +18,8 @@ type SessionView struct {
 	ResumeEligible bool
 	// Labels carries active treatment / policy labels (including session_open upserts).
 	Labels map[string]string
+	// Classification is the bounded, read-only session classification snapshot.
+	Classification Classification
 	// TurnID is the proxy-owned secure-session turn identifier when secure sessions are active.
 	TurnID string
 }

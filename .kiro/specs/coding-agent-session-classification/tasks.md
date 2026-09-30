@@ -40,7 +40,7 @@
     - _Validation: plane census + large-body static/differential characterization tests_
 
 - [ ] 2. Add the bounded SDK classification contract and legal extension plane
-  - [ ] 2.1 Define scalar SessionView classification and bounded evidence types
+  - [x] 2.1 Define scalar SessionView classification and bounded evidence types
     - RED-test zero-value unknown semantics, positive validation, IsCodingAgent, source/confidence/evidence/revision bounds, and absence of variable content collections.
     - Add session Classification to SessionView and verify all SDK/core view clone/projection helpers preserve it without new aliasing.
     - Add sessionclassification Evidence and fixed ToolCategorySet plus pure tool-name accumulation using lipapi.ClassifyToolName.

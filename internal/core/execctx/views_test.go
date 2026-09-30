@@ -56,6 +56,13 @@ func TestWithViews_roundTrip(t *testing.T) {
 			IsNew:                  true,
 			TurnID:                 "turn-1",
 			Labels:                 map[string]string{"k": "v"},
+			Classification: session.Classification{
+				Kind:       session.KindCodingAgent,
+				Source:     session.SourceLocalIdentity,
+				Confidence: session.ConfidenceHigh,
+				Evidence:   session.EvidenceCode("client.codex"),
+				Revision:   2,
+			},
 		},
 		Attempt: execview.AttemptView{
 			TraceID: "tr", BLegID: "b1", AttemptSeq: 2,
@@ -73,7 +80,7 @@ func TestWithViews_roundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("want views present")
 	}
-	if got.Principal.ID != want.Principal.ID || got.Session.AuthoritativeSessionID != want.Session.AuthoritativeSessionID || got.Session.ClientSessionHint != want.Session.ClientSessionHint || got.Session.ALegID != want.Session.ALegID || got.Session.IsNew != want.Session.IsNew || got.Session.TurnID != want.Session.TurnID || got.Session.Labels["k"] != want.Session.Labels["k"] {
+	if got.Principal.ID != want.Principal.ID || got.Session.AuthoritativeSessionID != want.Session.AuthoritativeSessionID || got.Session.ClientSessionHint != want.Session.ClientSessionHint || got.Session.ALegID != want.Session.ALegID || got.Session.IsNew != want.Session.IsNew || got.Session.TurnID != want.Session.TurnID || got.Session.Labels["k"] != want.Session.Labels["k"] || got.Session.Classification != want.Session.Classification {
 		t.Fatalf("principal/session mismatch: %+v vs %+v", got, want)
 	}
 	if got.Attempt.BLegID != want.Attempt.BLegID || got.Workspace.ProjectRoot != want.Workspace.ProjectRoot {
@@ -81,6 +88,38 @@ func TestWithViews_roundTrip(t *testing.T) {
 	}
 	if got.Annotations["note"] != "x" {
 		t.Fatalf("annotations: %v", got.Annotations)
+	}
+}
+
+func TestWithViewsSessionClassificationSnapshotsAreIndependent(t *testing.T) {
+	t.Parallel()
+
+	want := session.Classification{
+		Kind:       session.KindCodingAgent,
+		Source:     session.SourceRemote,
+		Confidence: session.ConfidenceHigh,
+		Evidence:   session.EvidenceCode("remote.rule_1"),
+		Revision:   7,
+	}
+	input := execctx.Views{Session: session.SessionView{Classification: want}}
+	ctx := execctx.WithViews(context.Background(), input)
+	input.Session.Classification.Kind = session.KindUnknown
+
+	got, ok := execctx.FromContext(ctx)
+	if !ok || got.Session.Classification != want {
+		t.Fatalf("stored classification = %+v ok=%v, want %+v", got.Session.Classification, ok, want)
+	}
+	got.Session.Classification.Evidence = "mutated.internal.snapshot"
+
+	public, ok := session.SessionViewFromContext(ctx)
+	if !ok || public.Classification != want {
+		t.Fatalf("public classification = %+v ok=%v, want %+v", public.Classification, ok, want)
+	}
+	public.Classification.Revision++
+
+	gotAgain, ok := execctx.FromContext(ctx)
+	if !ok || gotAgain.Session.Classification != want {
+		t.Fatalf("classification changed through returned snapshots: %+v ok=%v", gotAgain.Session.Classification, ok)
 	}
 }
 

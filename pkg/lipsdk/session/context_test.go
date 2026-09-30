@@ -34,6 +34,30 @@ func TestSessionViewContextDefensivelyCopiesLabels(t *testing.T) {
 	}
 }
 
+func TestSessionViewContextPreservesIndependentClassificationSnapshots(t *testing.T) {
+	t.Parallel()
+
+	want := session.Classification{
+		Kind:       session.KindCodingAgent,
+		Source:     session.SourceLocalIdentity,
+		Confidence: session.ConfidenceHigh,
+		Evidence:   session.EvidenceCode("client.codex"),
+		Revision:   3,
+	}
+	ctx := session.WithSessionView(context.Background(), session.SessionView{Classification: want})
+
+	got, ok := session.SessionViewFromContext(ctx)
+	if !ok || got.Classification != want {
+		t.Fatalf("session classification = %+v ok=%v, want %+v", got.Classification, ok, want)
+	}
+	got.Classification.Evidence = "client.mutated"
+
+	gotAgain, ok := session.SessionViewFromContext(ctx)
+	if !ok || gotAgain.Classification != want {
+		t.Fatalf("stored session classification changed through returned snapshot: %+v ok=%v", gotAgain.Classification, ok)
+	}
+}
+
 func TestSecureTurnPolicyContextCarriesOnlyContentFreePolicy(t *testing.T) {
 	t.Parallel()
 
