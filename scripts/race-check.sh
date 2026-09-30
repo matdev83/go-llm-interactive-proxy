@@ -80,7 +80,8 @@ if [[ $PRECHECK_STATUS -ne 0 ]]; then
 	exit $PRECHECK_STATUS
 fi
 
-declare -a PACKAGES
+declare -a PACKAGES=()
+declare -a ARCH_PACKAGES=()
 if [[ "$STAGED" == true ]]; then
 	mapfile -t STAGED_GO_FILES < <(git diff --cached --name-only --diff-filter=ACMRD | sed 's#\\#/#g' | grep -E '\.go$' || true)
 	if [[ ${#STAGED_GO_FILES[@]} -eq 0 ]]; then
@@ -96,7 +97,23 @@ if [[ "$STAGED" == true ]]; then
 			PACKAGE_SET["./${dir}/..."]=1
 		fi
 	done
-	mapfile -t PACKAGES < <(printf '%s\n' "${!PACKAGE_SET[@]}" | sort)
+	mapfile -t STAGED_SCOPES < <(printf '%s\n' "${!PACKAGE_SET[@]}" | sort)
+	# Staged scopes reach the same archtest subtree as the full scan, so apply the
+	# same separation described below (issue #262): a single `go test` that mixes
+	# the slow repo-wide archtest AST scans with the other staged scopes re-creates
+	# exactly the CPU contention that costs those packages their timeout budget.
+	# This is a scheduling partition only; both groups use the identical GO_ARGS
+	# and the caller's environment, so no budget, tag, or coverage changes.
+	for scope in "${STAGED_SCOPES[@]}"; do
+		case "$scope" in
+		./internal/archtest | ./internal/archtest/*) ARCH_PACKAGES+=("$scope") ;;
+		*) PACKAGES+=("$scope") ;;
+		esac
+	done
+	if [[ ${#PACKAGES[@]} -eq 0 && ${#ARCH_PACKAGES[@]} -eq 0 ]]; then
+		echo "ERROR: race scan package set is empty; refusing to run go test with no package args" >&2
+		exit 1
+	fi
 elif [[ "$LANE" == all || "$LANE" == broad ]]; then
 	# internal/archtest is by far the slowest package under -race: its parallel
 	# repo-wide AST scans take ~90s without the detector and blow past the 10m
@@ -134,10 +151,17 @@ run_race_scan() {
 	[[ $scan_status -ne 0 ]] && STATUS=$scan_status
 }
 
+echo "Race detector scan: ${#PACKAGES[@]} ordinary scope(s), ${#ARCH_PACKAGES[@]} staged archtest scope(s)"
 set +e
 if [[ "$STAGED" == true || "$LANE" == all || "$LANE" == broad ]]; then
-	echo "Running race detector scan: go ${GO_ARGS[*]} ${PACKAGES[*]}"
-	run_race_scan "${PACKAGES[@]}"
+	if [[ ${#PACKAGES[@]} -gt 0 ]]; then
+		echo "Running race detector scan: go ${GO_ARGS[*]} ${PACKAGES[*]}"
+		run_race_scan "${PACKAGES[@]}"
+	fi
+fi
+if [[ "$STAGED" == true && ${#ARCH_PACKAGES[@]} -gt 0 ]]; then
+	echo "Running staged archtest race scan separately: go ${GO_ARGS[*]} ${ARCH_PACKAGES[*]}"
+	run_race_scan "${ARCH_PACKAGES[@]}"
 fi
 if [[ "$STAGED" != true ]]; then
 	if [[ "$LANE" == all || "$LANE" == billing ]]; then
