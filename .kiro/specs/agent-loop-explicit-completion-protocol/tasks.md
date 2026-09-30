@@ -23,7 +23,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: none_
     - _Validation: focused runtime ordering tests; `git diff` must contain no production behavior change_
 
-  - [ ] 1.2 Characterize existing ALG configuration and verifier decisions
+  - [x] 1.2 Characterize existing ALG configuration and verifier decisions
     - Add/refresh fixtures proving current `enabled: true` configuration, explicit-completion trust/verify behavior, verifier error/timeout/malformed behavior, progress caps, and provider-removal behavior.
     - Capture a reusable legacy acceptance matrix to compare after strategy dispatch is introduced.
     - _Requirements: 1.5,9.1-9.6,10.3-10.5_
@@ -288,3 +288,4 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 ## Implementation Notes
 
 - Task 1.1: `conversationprojection.Reassert` is a no-op unless NeverBackend/steering/provenance is non-empty; pin the live branch. Post-clamp preflight still sees message-authority `openCall` before `AdaptCallForCandidate`. Steering overlays can fail `VerifyAdaptation` if they land in Messages rather than Instructions.
+- Task 1.2: `strategy` is still an unknown YAML field; `legacyEnabledConfigSources` currently has only omitted-strategy so task 9.2 can add explicit `semantic_verifier` without rewriting cases. Invert `TestLegacyEnabledYAMLRejectsStrategySelectorUntilConfigured` when the selector lands. Generation pin is two pluginreg `BuildFeatureBundle` snapshots with distinct frozen caps, not a full host reload.
