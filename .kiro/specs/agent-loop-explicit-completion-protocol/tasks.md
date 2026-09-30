@@ -32,7 +32,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Validation: focused ALG config/provider/standard-plugin tests pass before refactor_
 
 - [ ] 2. Add the generic proxy control-tool SDK and feature plane
-  - [ ] 2.1 Define bounded `pkg/lipsdk/controltool` contracts with RED validation tests
+  - [x] 2.1 Define bounded `pkg/lipsdk/controltool` contracts with RED validation tests
     - Add provider/spec/instruction/completed-call/meta/outcome types equivalent to the approved design.
     - Validate provider/tool/instruction IDs, JSON Schema, args bounds, role bounds, result/reason bounds, typed nils, and outcome invariants.
     - Keep the package free of ALG, `attempt_completion`, terminal, backend SDK, and frontend knowledge.
@@ -289,3 +289,4 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 
 - Task 1.1: `conversationprojection.Reassert` is a no-op unless NeverBackend/steering/provenance is non-empty; pin the live branch. Post-clamp preflight still sees message-authority `openCall` before `AdaptCallForCandidate`. Steering overlays can fail `VerifyAdaptation` if they land in Messages rather than Instructions.
 - Task 1.2: `strategy` is still an unknown YAML field; `legacyEnabledConfigSources` currently has only omitted-strategy so task 9.2 can add explicit `semantic_verifier` without rewriting cases. Invert `TestLegacyEnabledYAMLRejectsStrategySelectorUntilConfigured` when the selector lands. Generation pin is two pluginreg `BuildFeatureBundle` snapshots with distinct frozen caps, not a full host reload.
+- Task 2.1: `DefaultMaxArgsBytes` is 64 KiB to match the existing tool-call envelope. Schema validation is stdlib object-schema + no-`$ref`, not a draft compiler. Do not add `projection.go` until 2.3.
