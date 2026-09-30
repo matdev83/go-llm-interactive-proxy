@@ -146,6 +146,23 @@ func f1ObservationRetained(val economics.Valuation, obs sdkmetering.Observation)
 	return false
 }
 
+// f1AssertLineNano proves the exact settled nano amount of one priced component
+// line, so a differing rate can only be explained by the material actually used.
+func f1AssertLineNano(t *testing.T, val economics.Valuation, component string, wantNano int64) {
+	t.Helper()
+	line := f1ComponentLine(val, component)
+	if line == nil || line.Amount == nil {
+		t.Fatalf("%s line missing amount: %+v", component, val.Lines)
+	}
+	got, err := line.Amount.ToNanoUnits()
+	if err != nil {
+		t.Fatalf("%s amount %s: %v", component, line.Amount, err)
+	}
+	if got != wantNano {
+		t.Fatalf("%s amount=%d nano, want %d nano; lines=%+v", component, got, wantNano, val.Lines)
+	}
+}
+
 // TestF1OrdinaryZeroAudioCardSettlesV2 is the F1 RED vector. A schema-free
 // ordinary input/output card (PutPricing) plus a present zero native
 // audio_token detail must settle complete through the production V2 customer
@@ -301,7 +318,8 @@ func TestF1ExplicitNativeSchemaAudioSettlesV2(t *testing.T) {
 
 // TestF1RouteSpecificZeroAudioCardSettlesV2 covers a schema-free route override
 // card resolved through the real route binding: the zero native audio detail
-// must settle exactly like the default card.
+// must settle exactly like the default card, and the settled money must prove
+// the route binding was resolved instead of the default card.
 func TestF1RouteSpecificZeroAudioCardSettlesV2(t *testing.T) {
 	t.Parallel()
 	c := billingcompose.NewSnapshotCatalog()
@@ -316,8 +334,16 @@ func TestF1RouteSpecificZeroAudioCardSettlesV2(t *testing.T) {
 	if err := c.SetDefaults(def.Ref, policy.Ref); err != nil {
 		t.Fatalf("SetDefaults: %v", err)
 	}
+	// The route card prices tokens at a materially different rate from the
+	// default card, so its money is only reachable through the route binding.
+	// Per-million nano rates are chosen so the legacy line-boundary rounding
+	// cannot erase the difference: 100 input tokens at 30_000 nano/M are
+	// 3 nano and 20 output tokens at 250_000 nano/M are 5 nano, while the
+	// default card's 100/200 nano/M round both lines toward zero to nothing.
 	override := catalogPricing()
 	override.Ref = billing.VersionRef{ID: "pricing-route", Version: "v1"}
+	override.InputPerMillionNano = 30_000
+	override.OutputPerMillionNano = 250_000
 	if err := c.PutPricing(override); err != nil {
 		t.Fatalf("PutPricing route: %v", err)
 	}
@@ -340,6 +366,45 @@ func TestF1RouteSpecificZeroAudioCardSettlesV2(t *testing.T) {
 	}
 	if !f1ObservationRetained(result.CustomerValuation, obs) {
 		t.Fatalf("route-specific zero-audio observation reference must stay retained")
+	}
+	// The per-call request fee is a base-tariff fixed scope evaluated once
+	// outside the per-route quantity groups, so it is charged exactly once and
+	// is the only money the default card contributes to this call.
+	const (
+		f1RouteInputNano  = 3
+		f1RouteOutputNano = 5
+		f1BaseFixedNano   = 3
+	)
+	wantRouteCharge := billing.Money{
+		Nano:     f1RouteInputNano + f1RouteOutputNano + f1BaseFixedNano,
+		Currency: def.Currency,
+	}
+	if result.CustomerCharge != wantRouteCharge {
+		t.Fatalf("route-specific charge=%+v, want %+v; the SetRoutePricing binding was not resolved", result.CustomerCharge, wantRouteCharge)
+	}
+	f1AssertLineNano(t, result.CustomerValuation, sdkmetering.ComponentInputToken, f1RouteInputNano)
+	f1AssertLineNano(t, result.CustomerValuation, sdkmetering.ComponentOutputToken, f1RouteOutputNano)
+
+	// Control: the same call and the same observation, rated through a catalog
+	// with no route binding at all, settle the default card instead. Without
+	// this contrast the charge assertion above could be satisfied by a card
+	// pair that happens to price identically.
+	unbound := billingcompose.NewSnapshotCatalog()
+	if err := unbound.PutPricing(def); err != nil {
+		t.Fatalf("PutPricing unbound default: %v", err)
+	}
+	if err := unbound.PutPolicy(policy); err != nil {
+		t.Fatalf("PutPolicy unbound: %v", err)
+	}
+	if err := unbound.SetDefaults(def.Ref, policy.Ref); err != nil {
+		t.Fatalf("SetDefaults unbound: %v", err)
+	}
+	unboundResult, err := f1RateThroughResolver(t, unbound, callID, def.Ref, policy.Ref, obs)
+	if err != nil {
+		t.Fatalf("unbound default-card control must settle, got %v", err)
+	}
+	if want := (billing.Money{Nano: f1BaseFixedNano, Currency: def.Currency}); unboundResult.CustomerCharge != want {
+		t.Fatalf("unbound control charge=%+v, want %+v; the control no longer isolates the route binding", unboundResult.CustomerCharge, want)
 	}
 }
 

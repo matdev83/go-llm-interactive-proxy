@@ -120,25 +120,7 @@ func TestListObservationsCorrelationBLegUsesPartialIndex(t *testing.T) {
 
 	var plan strings.Builder
 	for _, query := range recorder.queries {
-		rows, err := store.DB().QueryContext(ctx, "EXPLAIN QUERY PLAN "+query)
-		require.NoError(t, err)
-		columns, err := rows.Columns()
-		require.NoError(t, err)
-		for rows.Next() {
-			values := make([]any, len(columns))
-			pointers := make([]any, len(columns))
-			for i := range values {
-				pointers[i] = &values[i]
-			}
-			require.NoError(t, rows.Scan(pointers...))
-			for _, value := range values {
-				fmt.Fprintf(&plan, "%v", value)
-				plan.WriteString(" | ")
-			}
-			plan.WriteString("\n")
-		}
-		require.NoError(t, rows.Err())
-		require.NoError(t, rows.Close())
+		plan.WriteString(explainSQLiteQueryPlan(ctx, t, store.DB(), query))
 	}
 	t.Logf("EXPLAIN QUERY PLAN:\n%s", plan.String())
 	require.Contains(t, plan.String(), "idx_metering_facts_store_bleg", "correlation B-leg query must use the partial index; plan:\n%s", plan.String())

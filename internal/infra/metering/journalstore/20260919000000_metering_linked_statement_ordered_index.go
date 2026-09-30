@@ -15,6 +15,27 @@ import (
 // interim store_id/b_leg_id-only index recorded by
 // LinkedStatementIndexMigrationName. The canonical observation envelope
 // remains the sole immutable source; this index is only a query accelerator.
+//
+// Lock window, for the operator running the cutover. On PostgreSQL this builds
+// with a plain CREATE INDEX, which takes a ShareLock on metering_facts and
+// blocks INSERT for the duration of the build. That is accepted deliberately:
+// the build is fast relative to the append rate this journal sees, the DROP
+// below cannot be made concurrent either (see below), and the alternative -
+// CREATE INDEX CONCURRENTLY - is unavailable inside this migrator because bun
+// runs a registered Go migration on a pooled connection with no surrounding
+// transaction to escape from, and CONCURRENTLY is illegal in a transaction
+// block. Choosing it would mean either a bespoke non-transactional migration
+// path for this one index or accepting a failed CONCURRENTLY build leaving an
+// INVALID index behind for VerifySchema to reject.
+//
+// The DROP/CREATE pair is the reason the interim index is rebuilt twice on a
+// database that has not yet run 20260919000000: 20260918000000 builds the
+// store_id/b_leg_id shape, this migration drops and rebuilds it with the
+// keyset columns, and 20260920000000 adds the separate statement candidate
+// index. Only the first two touch the same index name, so a database already
+// past 20260919000000 performs one build here, not three. Between the DROP and
+// the CREATE the B-leg lookup has no index and falls back to a scan; the
+// window is one index build.
 const LinkedStatementOrderedIndexMigrationName = "20260919000000"
 
 func registerLinkedStatementOrderedIndexMigration() {

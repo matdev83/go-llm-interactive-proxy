@@ -468,7 +468,8 @@ func verifyPostgresIndexDefinition(ctx context.Context, db *bun.DB, description,
 
 // checkPostgresIndexDefinition is the pure core of
 // verifyPostgresIndexDefinition: it compares a rendered index definition against
-// the expected ordered key list and complete conjunctive predicate.
+// the expected ordered key list, the complete conjunctive predicate, and the
+// required btree access method.
 func checkPostgresIndexDefinition(raw, wantColumns string, wantPredicates []string) error {
 	columns, predicates, err := parsePostgresIndexDefinition(raw)
 	if err != nil {
@@ -497,15 +498,47 @@ func checkPostgresIndexDefinition(raw, wantColumns string, wantPredicates []stri
 	return nil
 }
 
+// postgresIndexBtreeMethod is the only access method that can serve the ordered
+// partial B-leg lookups VerifySchema pins. brin/gist/hash/gin indexes answer
+// containment or equality probes but cannot return rows in key order, so the
+// planned bounded "ORDER BY sequence, ..., id" scan is not available to them and
+// the lookup silently degrades to a store scan.
+const postgresIndexBtreeMethod = "btree"
+
+// postgresIndexAccessMethod reports the access method named by the "USING
+// <method>" clause of an already lower-cased indexdef prefix (the text preceding
+// the key list). The clause is optional: PostgreSQL defaults to btree when it is
+// omitted, and "using" is a reserved word so an unquoted occurrence can only be
+// the clause keyword. An omitted clause is therefore reported as btree instead of
+// failing verification, so definitions that render without it still verify.
+func postgresIndexAccessMethod(lowerPrefix string) string {
+	fields := strings.Fields(lowerPrefix)
+	for i, field := range fields {
+		if field == "using" && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	return postgresIndexBtreeMethod
+}
+
 // parsePostgresIndexDefinition extracts the ordered key columns and the
 // conjunctive partial predicate from a pg_indexes indexdef. Both are returned
 // canonicalized; the predicate is split only on top-level "and" conjunctions, so
-// a disjunction stays inside one element and fails set comparison.
+// a disjunction stays inside one element and fails set comparison. The access
+// method declared before the key list is validated too: a non-btree index with
+// an otherwise identical ordered key list and predicate cannot serve the
+// ordered lookup, so it must fail rather than pass.
 func parsePostgresIndexDefinition(raw string) (string, []string, error) {
 	lower := strings.ToLower(raw)
 	open := strings.IndexByte(lower, '(')
 	if open < 0 {
 		return "", nil, fmt.Errorf("unsupported index definition %q", raw)
+	}
+	if method := postgresIndexAccessMethod(lower[:open]); method != postgresIndexBtreeMethod {
+		return "", nil, fmt.Errorf(
+			"index access method %q is not supported, want %q: %q",
+			method, postgresIndexBtreeMethod, raw,
+		)
 	}
 	closeIdx := matchingParenIndex(lower, open)
 	if closeIdx < 0 {
