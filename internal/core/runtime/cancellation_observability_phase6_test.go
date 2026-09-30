@@ -21,6 +21,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+// Cancellation deadlines here bound fixture completion, rather than certify
+// latency. Immediate fake Cancel/Close calls still need scheduler headroom when
+// the full Windows suite is under load; phase, cause and count assertions remain.
 type recordingMetricsSink struct {
 	mu            sync.Mutex
 	cancellations []runtime.CancellationObservation
@@ -128,7 +131,7 @@ func TestPhase6_Runtime_EmitsBoundedCancellationMetrics(t *testing.T) {
 	}
 
 	sink := &recordingMetricsSink{}
-	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
+	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second})
 
 	openStarted := make(chan struct{}, 1)
 	blockRecv := make(chan struct{})
@@ -254,7 +257,7 @@ func TestPhase6_Observability_DiagnosticLogs(t *testing.T) {
 	logBuf := &safeLogBuffer{}
 	logger := slog.New(slog.NewJSONHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
+	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second})
 
 	openStarted := make(chan struct{}, 1)
 	blockRecv := make(chan struct{})
@@ -452,7 +455,7 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 			}
 
 			sink := &recordingMetricsSink{}
-			coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
+			coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second})
 
 			openStarted := make(chan struct{}, 1)
 			blockRecv := make(chan struct{})
@@ -584,7 +587,7 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 	}
 
 	sink := &recordingMetricsSink{}
-	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
+	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second})
 
 	openStarted := make(chan struct{}, 1)
 	blockRecv := make(chan struct{})
@@ -687,7 +690,7 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 func TestPhase6_Observability_UnopenedAttemptCancellation_EmitsNoneMode(t *testing.T) {
 	t.Parallel()
 
-	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
+	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second})
 	const authID = "aleg-unopened-cancel-auth"
 
 	if err := coord.CancelALeg(context.Background(), authID, leglifecycle.CancelCause{

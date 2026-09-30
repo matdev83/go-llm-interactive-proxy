@@ -45,12 +45,19 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            bash scripts/ci-scope.sh --outputs "" HEAD >> "$GITHUB_OUTPUT"
-          else
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
             bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            # A push has a real diff too. Do not force the historical Windows
+            # benchmark (or all native runners for docs) on every main commit.
+            # The initial branch push has no predecessor: retain full checks.
+            if [[ "${PUSH_BASE_SHA:-}" =~ ^0{40}$ ]]; then PUSH_BASE_SHA=""; fi
+            bash scripts/ci-scope.sh --outputs "${PUSH_BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
+          else
+            bash scripts/ci-scope.sh --outputs "" HEAD >> "$GITHUB_OUTPUT"
           fi
 
   repo-hygiene:

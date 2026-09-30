@@ -105,9 +105,18 @@ runs:
         PHASE: ${{ inputs.phase }}
         BUILD_HIT: ${{ steps.build.outputs.cache-hit }}
         MODULE_HIT: ${{ steps.modules.outputs.cache-hit }}
+        BUILD_KEY: ${{ steps.build.outputs.cache-matched-key }}
+        MODULE_KEY: ${{ steps.modules.outputs.cache-matched-key }}
       run: |
         elapsed=$(( $(date +%s) - STARTED ))
-        echo "Go cache: lane=$LANE phase=$PHASE elapsed=${elapsed}s build_hit=$BUILD_HIT modules_hit=$MODULE_HIT" >> "$GITHUB_STEP_SUMMARY"
+        # cache-hit is false for a useful restore-key fallback. PRs normally
+        # restore a different main SHA, so expose actual restores separately.
+        build_restored=false
+        modules_restored=false
+        if [[ -n "$BUILD_KEY" ]]; then build_restored=true; fi
+        if [[ -n "$MODULE_KEY" ]]; then modules_restored=true; fi
+        echo "Go cache: lane=$LANE phase=$PHASE elapsed=${elapsed}s build_restored=$build_restored modules_restored=$modules_restored build_exact_hit=$BUILD_HIT modules_exact_hit=$MODULE_HIT" >> "$GITHUB_STEP_SUMMARY"
+        echo "Compiler snapshot: $BUILD_KEY; module snapshot: $MODULE_KEY" >> "$GITHUB_STEP_SUMMARY"
         if [[ "$elapsed" -gt 60 ]]; then
           echo "::warning::Go cache $LANE $PHASE took ${elapsed}s; inspect transfer/extraction before increasing snapshot budgets."
         fi

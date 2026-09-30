@@ -2,6 +2,8 @@
 import importlib.util
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -11,6 +13,28 @@ spec.loader.exec_module(cache)
 
 
 class SnapshotTests(unittest.TestCase):
+    def test_snapshot_cli_with_windows_console_encoding(self):
+        # Save runs only on main. Exercise its real CLI under the Windows
+        # runner's cp1252 stdout even when this preflight runs on Linux.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            snapshot = root / "snapshot"
+            snapshot.mkdir()
+            (snapshot / "oversized").write_bytes(b"x" * (2 * 1024 * 1024))
+            (snapshot / "keep").write_bytes(b"keep")
+            summary = root / "summary.md"
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).with_name("ci-go-cache.py")),
+                 "--path", str(snapshot), "--mib", "1"],
+                env={**os.environ, "GITHUB_ACTIONS": "true",
+                     "PYTHONIOENCODING": "cp1252", "GITHUB_STEP_SUMMARY": str(summary)},
+                capture_output=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr.decode("cp1252", errors="replace"))
+            self.assertIn("2 -> 0 MiB (budget 1 MiB)", result.stdout.decode("cp1252"))
+            self.assertEqual(sorted(p.name for p in snapshot.iterdir()), ["keep"])
+            self.assertIn("2 -> 0 MiB (budget 1 MiB)", summary.read_text(encoding="utf-8"))
+
     def test_only_designated_producer_can_publish_borrowed_lane(self):
         policy = {"race": {"workflow": "Connector pool race", "job": "connector-pool-race", "build_mib": 1536}}
         self.assertEqual(cache.resolve_lane(policy, "race", "restore", "Release", "verify"), 1536)

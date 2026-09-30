@@ -122,8 +122,8 @@ classify_diff() {
   local test_cost=false
   local file diff_file
 
-  # Non-PR events and manual dispatches have no base SHA. Run every scope
-  # rather than risking a false bypass.
+  # Events without a base SHA (initial pushes or manual dispatches) run
+  # every scope rather than risking a false bypass.
   if [[ -z "$base" ]]; then
     printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\n'
     return 0

@@ -333,6 +333,30 @@ function Apply-AnchorCompatibilityPatch {
         [Parameter(Mandatory = $true)][string]$TempRoot
     )
 
+    # The current frozen anchor has the same observability fixture's 50 ms
+    # stall guard. Under Windows load it expired before an immediate fake
+    # cancellation ran. Match the head's scheduler-safe test guard without
+    # changing assertions, production sources, workloads or cost budgets.
+    if ($AnchorCommit -eq "bb1ef9620ee6e8d9199950161e46fc51914945f2") {
+        $relativePath = "internal/core/runtime/cancellation_observability_phase6_test.go"
+        $path = Join-Path $AnchorRoot $relativePath
+        $content = [IO.File]::ReadAllText($path)
+        $old = "CancelTimeout: 50 * time.Millisecond"
+        if ([regex]::Matches($content, [regex]::Escape($old)).Count -ne 5) {
+            throw "frozen observability fixture changed: expected five known cancellation guards"
+        }
+        $content = $content.Replace($old, "CancelTimeout: time.Second")
+        [IO.File]::WriteAllText($path, $content, [Text.UTF8Encoding]::new($false))
+        Invoke-GitChecked @("-C", $AnchorRoot, "add", "--", $relativePath)
+        Invoke-GitChecked @(
+            "-C", $AnchorRoot, "-c", "user.name=Go-LIP test-cost ratchet",
+            "-c", "user.email=test-cost-ratchet@invalid.local", "-c", "commit.gpgsign=false",
+            "commit", "-m", "test: stabilize frozen observability cancellation guards"
+        )
+        Test-CleanCheckout $AnchorRoot
+        return
+    }
+
     $bootstrapAnchor = "a7a00cedddc4e49d7f96502ee28a6ea1d9603315"
     if ($AnchorCommit -ne $bootstrapAnchor) {
         return

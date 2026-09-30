@@ -66,6 +66,8 @@ partial snapshot as another job's complete baseline.
   baselines. Other namespaces (including CodeQL/npm) are never deleted by this
   selector. A new Go/toolchain version can evict older baselines safely.
 - Cache restore/save duration, hits and snapshot sizes appear in job summaries.
+  Actual restored keys distinguish useful main fallbacks from exact-key hits;
+  the cache action's `cache-hit=false` alone does not mean a cache miss.
   A transfer phase over 60 seconds emits a warning. Investigate extraction and
   retained bytes before increasing limits. This warning is diagnostic because
   runner/network variation must not make functional checks flaky.
@@ -99,6 +101,25 @@ on Linux; they do not allocate Windows/macOS runners. PostgreSQL starts only
 for test-relevant CI. Repository preflight runs independently of database parity;
 the required Repo hygiene status still fails closed on either failure. The
 independent bridge-node-tests status only executes its suite for relevant scope.
+
+CI classifies main pushes against `github.event.before`, just as PRs use their
+actual base. Passing an empty base for every push previously enabled the full
+Windows historical cost comparison even for ordinary production changes: the
+first main run spent over 25 minutes before failing in the historical suite.
+Cost policy changes and explicitly requested measurements still run the ratchet;
+the weekly/manual watchdog retains its existing budgets. Initial branch pushes
+retain full validation, and an invalid predecessor fails closed. Executable QA
+fixtures cover production, documentation, cost policy and both predecessor cases.
+NousPortal's existing provider parity scenarios also use the release gate's
+discoverable `TestParity_` prefix, so certification executes their assertions.
+
+The failed Windows artifact identified an observability fixture's 50 ms
+cancellation deadline, not a cost-budget violation. Its immediate fake streams
+now have a one-second completion guard; phase, cause and count assertions remain.
+The ratchet applies the same five literal guard changes to its pinned historical
+anchor, commits only that test file, and rejects an unexpected fixture. Executable
+PowerShell QA checks the known anchor, unexpected fixture and unrelated anchor.
+Production sources, measured workloads and all cost thresholds remain unchanged.
 
 CodeQL provisions the repository's pinned Go before extraction and enables the
 action's supported dependency caching. It still discovers all modules and runs

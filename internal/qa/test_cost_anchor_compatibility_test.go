@@ -1,0 +1,91 @@
+package qa
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestQAFastPreflight_TestCostFrozenObservabilityCompatibility(t *testing.T) {
+	t.Parallel()
+	pwsh, err := exec.LookPath("pwsh")
+	if err != nil {
+		t.Skip("PowerShell is required to execute the Windows anchor compatibility helper")
+	}
+	const path = "internal/core/runtime/cancellation_observability_phase6_test.go"
+	const old = "CancelTimeout: 50 * time.Millisecond"
+	for _, tc := range []struct {
+		name, anchor string
+		guards       int
+		changed, bad bool
+	}{
+		{name: "known fixture", anchor: "bb1ef9620ee6e8d9199950161e46fc51914945f2", guards: 5, changed: true},
+		{name: "drift fails closed", anchor: "bb1ef9620ee6e8d9199950161e46fc51914945f2", guards: 4, bad: true},
+		{name: "unrelated anchor", anchor: strings.Repeat("a", 40), guards: 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			git := func(args ...string) string {
+				t.Helper()
+				cmd := exec.Command("git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+				out, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("git %v: %v\n%s", args, err, out)
+				}
+				return strings.TrimSpace(string(out))
+			}
+			git("init", "-q")
+			file := filepath.Join(root, filepath.FromSlash(path))
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			original := strings.Repeat(old+"\n", tc.guards)
+			if err := os.WriteFile(file, []byte(original), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			git("add", ".")
+			git("commit", "-qm", "base")
+			before := git("rev-parse", "HEAD")
+			// Load the actual helper and its Git operations through the parser,
+			// without executing the ratchet's top-level measurement workflow.
+			command := `$ErrorActionPreference = 'Stop'
+$ast = [Management.Automation.Language.Parser]::ParseFile($env:LIP_TEST_COST_SCRIPT, [ref]$null, [ref]$null)
+$names = @('Get-GitText', 'Invoke-GitChecked', 'Test-CleanCheckout', 'Apply-AnchorCompatibilityPatch')
+foreach ($name in $names) {
+    $node = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
+    if ($null -eq $node) { throw "missing function: $name" }
+    . ([ScriptBlock]::Create($node.Extent.Text))
+}
+Apply-AnchorCompatibilityPatch -RepositoryRoot $env:LIP_TEST_ANCHOR_ROOT -AnchorRoot $env:LIP_TEST_ANCHOR_ROOT -AnchorCommit $env:LIP_TEST_ANCHOR_SHA -TempRoot $env:LIP_TEST_ANCHOR_ROOT`
+			cmd := exec.CommandContext(t.Context(), pwsh, "-NoLogo", "-NoProfile", "-Command", command)
+			cmd.Env = append(os.Environ(), "LIP_TEST_COST_SCRIPT="+repositoryFile(t, "scripts", "test-cost-ratchet.ps1"), "LIP_TEST_ANCHOR_ROOT="+root, "LIP_TEST_ANCHOR_SHA="+tc.anchor)
+			out, err := cmd.CombinedOutput()
+			if tc.bad {
+				if err == nil || !strings.Contains(string(out), "expected five known cancellation guards") {
+					t.Fatalf("drift must fail closed: %v\n%s", err, out)
+				}
+			} else if err != nil {
+				t.Fatalf("anchor compatibility: %v\n%s", err, out)
+			}
+			got, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := original
+			if tc.changed {
+				want = strings.ReplaceAll(original, old, "CancelTimeout: time.Second")
+				if changed := git("diff", "--name-only", before, "HEAD"); changed != path {
+					t.Fatalf("compatibility changed %q, want only the frozen test fixture", changed)
+				}
+			} else if git("rev-parse", "HEAD") != before {
+				t.Fatal("unrecognized or drifted anchor must not create a commit")
+			}
+			if string(got) != want || git("status", "--porcelain") != "" {
+				t.Fatal("compatibility must preserve all other content and leave a clean checkout")
+			}
+		})
+	}
+}

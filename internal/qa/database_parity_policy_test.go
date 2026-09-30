@@ -29,6 +29,7 @@ type ciServiceSpec struct {
 }
 
 type ciStepSpec struct {
+	ID              string            `yaml:"id"`
 	Name            string            `yaml:"name"`
 	If              string            `yaml:"if"`
 	Run             string            `yaml:"run"`
