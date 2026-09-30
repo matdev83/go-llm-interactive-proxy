@@ -42,6 +42,7 @@ import (
 	"math/big"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -823,6 +824,7 @@ func TestEquivalenceOperatorAndCustomerPolicySeamsAgreeStructurally(t *testing.T
 	}
 	agreed := make(map[string]int, len(eqClasses))
 	disagreements := make(map[string][]string, len(eqClasses))
+	var tallyMu sync.Mutex
 
 	for _, tc := range cases {
 		if _, known := perClass[tc.class]; !known {
@@ -840,15 +842,19 @@ func TestEquivalenceOperatorAndCustomerPolicySeamsAgreeStructurally(t *testing.T
 				t.Fatalf("case %q: seam table is missing a seam: %+v", tc.name, outcomes)
 			}
 			if diff := operator.diff(customer); diff != "" {
+				tallyMu.Lock()
 				disagreements[tc.class] = append(disagreements[tc.class],
 					fmt.Sprintf("case=%q class=%q %s", tc.name, tc.class, diff))
+				tallyMu.Unlock()
 				t.Errorf("E/R structural disagreement in %s\n  case: %s\n  class: %s\n  %s\n  E: err=%s completeness=%s\n  R: err=%s completeness=%s",
 					tc.name, tc.name, tc.class, diff,
 					operator.errClass, operator.completeness,
 					customer.errClass, customer.completeness)
 				return
 			}
+			tallyMu.Lock()
 			agreed[tc.class]++
+			tallyMu.Unlock()
 			t.Logf("E/R-EQUIVALENCE case=%q class=%q err_class=%s completeness=%s support=%v pre_round=%v",
 				tc.name, tc.class, operator.errClass, operator.completeness,
 				operator.support, operator.preRound)
