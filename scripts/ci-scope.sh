@@ -124,7 +124,7 @@ classify_diff() {
 
   # Events without a base SHA (initial pushes or manual dispatches) run
   # every scope rather than risking a false bypass.
-  if [[ -z "$base" ]]; then
+  if [[ -z "$base" || "$base" =~ ^0{40}$ ]]; then
     printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\n'
     return 0
   fi

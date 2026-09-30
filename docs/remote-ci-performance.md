@@ -110,6 +110,14 @@ Cost policy changes and explicitly requested measurements still run the ratchet;
 the weekly/manual watchdog retains its existing budgets. Initial branch pushes
 retain full validation, and an invalid predecessor fails closed. Executable QA
 fixtures cover production, documentation, cost policy and both predecessor cases.
+CodeQL, security and the native ACP, Cursor, taskrunner and backend gates also
+use the actual push predecessor. Ordinary main merges no longer widen a selected
+connector to the full native matrix or run Go scans for documentation alone.
+Fifty Git fixtures execute the ten lane classifiers/selectors against relevant,
+documentation, initial, invalid and manual events. Manual and initial runs retain
+full validation; bad revisions fail before any bypass. The official compliance
+selector also checks revisions before its process-substitution loop, preventing
+a failed Git diff from masquerading as an unrelated change.
 NousPortal's existing provider parity scenarios also use the release gate's
 discoverable `TestParity_` prefix, so certification executes their assertions.
 

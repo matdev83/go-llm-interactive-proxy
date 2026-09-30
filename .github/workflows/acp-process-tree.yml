@@ -48,15 +48,16 @@ jobs:
         id: classify
         shell: bash
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          # Non-PR events and manual dispatches have no base SHA: always run.
-          if [[ "$EVENT_NAME" != "pull_request" || -z "$BASE_SHA" ]]; then
+          # Manual and initial pushes have no predecessor: retain full validation.
+          if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]] || [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0{40}$ ]]; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          git rev-parse --verify "${BASE_SHA}^{commit}" >/dev/null
           relevant=false
           while IFS= read -r file; do
             case "$file" in

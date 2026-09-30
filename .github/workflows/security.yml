@@ -38,14 +38,10 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            bash scripts/ci-scope.sh --outputs "" HEAD >> "$GITHUB_OUTPUT"
-          else
-            bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
-          fi
+          bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
 
   govulncheck:
     name: Go vulnerability check

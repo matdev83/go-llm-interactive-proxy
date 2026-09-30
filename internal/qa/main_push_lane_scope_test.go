@@ -1,0 +1,119 @@
+package qa
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+)
+
+func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
+	t.Parallel()
+	for _, lane := range []struct {
+		workflow, job, step, key, relevantPath, relevantValue, fullValue string
+	}{
+		{"codeql.yml", "changes", "filter", "go", "internal/example.go", "true", "true"},
+		{"security.yml", "changes", "filter", "go", "internal/example.go", "true", "true"},
+		{"qa.yml", "changes", "filter", "go", "internal/example.go", "true", "true"},
+		{"openresponses-coverage.yml", "changes", "filter", "run_suite", "internal/core/example.go", "true", "true"},
+		{"openresponses-official-compliance.yml", "official-suite", "scope", "run_suite", "internal/core/example.go", "true", "true"},
+		{"acp-process-tree.yml", "changes", "classify", "relevant", "connector-support/acp/example.go", "true", "true"},
+		{"cursor-sdk-platform.yml", "changes", "filter", "cursorsdk", "connectors/cursorsdk/example.go", "true", "true"},
+		{"taskrunner-process-tree.yml", "scope", "scope", "run_suite", "tools/taskrunner/example.go", "true", "true"},
+		{"backend-plugin-cross-platform.yml", "changes", "classify", "relevant", "connectors/nousportal/example.go", "true", "true"},
+		{"backend-plugin-cross-platform.yml", "changes", "select", "select", "connectors/nousportal/example.go", "nousportal", ""},
+	} {
+		t.Run(lane.workflow+"/"+lane.step, func(t *testing.T) {
+			t.Parallel()
+			var workflow ciWorkflow
+			if err := yaml.Unmarshal([]byte(readRepositoryFile(t, ".github", "workflows", lane.workflow)), &workflow); err != nil {
+				t.Fatal(err)
+			}
+			var step ciStepSpec
+			for _, candidate := range workflow.Jobs[lane.job].Steps {
+				if candidate.ID == lane.step {
+					step = candidate
+				}
+			}
+			if step.Env["BASE_SHA"] != "${{ github.event.pull_request.base.sha || github.event.before }}" || step.Run == "" {
+				t.Fatal("lane must wire both PR and push predecessors to its actual classifier")
+			}
+			for _, scenario := range []string{"relevant", "documentation", "initial", "invalid", "manual"} {
+				t.Run(scenario, func(t *testing.T) {
+					t.Parallel()
+					root := t.TempDir()
+					git := func(args ...string) string {
+						t.Helper()
+						cmd := exec.Command("git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+						out, err := cmd.CombinedOutput()
+						if err != nil {
+							t.Fatalf("git %v: %v\n%s", args, err, out)
+						}
+						return strings.TrimSpace(string(out))
+					}
+					write := func(name, text string) {
+						t.Helper()
+						path := filepath.Join(root, filepath.FromSlash(name))
+						if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					git("init", "-q")
+					for _, script := range []string{"ci-scope.sh", "makefile-scope.sh", "cross-platform-selection.sh", "openresponses-compliance-scope.sh"} {
+						write("scripts/"+script, readRepositoryFile(t, "scripts", script))
+					}
+					write("connectors/nousportal/release.yaml", "fixture\n")
+					git("add", ".")
+					git("commit", "-qm", "base")
+					before := git("rev-parse", "HEAD")
+					path, want := "docs/example.md", "false"
+					if lane.key == "select" {
+						want = ""
+					}
+					if scenario == "relevant" {
+						path, want = lane.relevantPath, lane.relevantValue
+					}
+					write(path, "fixture\n")
+					git("add", ".")
+					git("commit", "-qm", "head")
+					event := "push"
+					switch scenario {
+					case "initial":
+						before, want = strings.Repeat("0", 40), lane.fullValue
+					case "invalid":
+						before = "missing-revision"
+					case "manual":
+						event, before, want = "workflow_dispatch", "", lane.fullValue
+					}
+					output := filepath.Join(t.TempDir(), "outputs")
+					cmd := exec.CommandContext(t.Context(), "bash", "-c", step.Run)
+					cmd.Dir = root
+					cmd.Env = append(os.Environ(), "EVENT_NAME="+event, "BASE_SHA="+before, "HEAD_SHA=HEAD", "GITHUB_OUTPUT="+output)
+					out, err := cmd.CombinedOutput()
+					if scenario == "invalid" {
+						if err == nil {
+							t.Fatal("invalid predecessor must fail closed")
+						}
+						return
+					}
+					if err != nil {
+						t.Fatalf("classifier: %v\n%s", err, out)
+					}
+					data, err := os.ReadFile(output)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !strings.Contains("\n"+string(data), "\n"+lane.key+"="+want+"\n") {
+						t.Fatalf("want %s=%s, got %s", lane.key, want, data)
+					}
+				})
+			}
+		})
+	}
+}
