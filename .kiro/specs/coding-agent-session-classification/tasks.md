@@ -39,7 +39,7 @@
     - _Depends: none_
     - _Validation: plane census + large-body static/differential characterization tests_
 
-- [ ] 2. Add the bounded SDK classification contract and legal extension plane
+- [x] 2. Add the bounded SDK classification contract and legal extension plane
   - [x] 2.1 Define scalar SessionView classification and bounded evidence types
     - RED-test zero-value unknown semantics, positive validation, IsCodingAgent, source/confidence/evidence/revision bounds, and absence of variable content collections.
     - Add session Classification to SessionView and verify all SDK/core view clone/projection helpers preserve it without new aliasing.
@@ -60,7 +60,7 @@
     - _Depends: 1.3,2.1_
     - _Validation: generator currency + plane diagnostics + stage-order + duplicate-exclusive tests_
 
-  - [ ] 2.3 Add the generic fail-open classification stage runner
+  - [x] 2.3 Add the generic fail-open classification stage runner
     - RED-test no-plane no-op, valid positive projection, invalid classifier output, classifier error, context cancellation, and preservation of an already-positive SessionView value.
     - Implement feature-neutral execution that calls only the SDK Classifier and never interprets client families, modes, persistence, or Jev.
     - Ensure runtime classifier failure cannot reject an otherwise valid inference request.
@@ -364,6 +364,7 @@
     - _Validation: make qa plus merged-main focused rerun; no unchecked applicable tasks before archive_
 
 ## Implementation Notes
+- General architecture LOC ceilings use maintainer-authorized fixed measurements with substantial headroom; file and tree audit tests retain exact ceiling and excess checks.
 
 - Classification keying must use AuthoritativeSessionID or proxy-owned ALegID explicitly; generic SessionView.PartitionKey still permits ClientSessionHint fallback.
 

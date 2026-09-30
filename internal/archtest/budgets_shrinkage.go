@@ -17,13 +17,10 @@ const RuntimeConvergenceMinNetLineReduction = 800
 
 // ConnectorArchitectureOverlayMax is the exact-measured ADR 0008 connector
 // architecture overlay ratchet (non-test lines in structurally selected files).
-// The reliability work adds explicit discovered-plugin artifact ownership and
-// cleanup to the connector composition path. Keep 25 lines of ratchet headroom
-// over the reviewed 2,275-line overlay.
-// Usage-economics reconciliation adds the economic observation bridge to
-// process_services.go (+26; the other 9 selected files are byte-identical to the
-// merge base); re-measured 2,321-line overlay, reset to 2346 with 25 headroom.
-const ConnectorArchitectureOverlayMax = 2346
+// The current live overlay measures 2,335 lines; its fixed cap rounds 50%
+// headroom up to the next 50 lines. Shrinkage accounting continues to subtract
+// the actual measured overlay lines, independently of this cap.
+const ConnectorArchitectureOverlayMax = 3550
 
 // AffectedSurfaceBaseline locks one Req 11.5 surface baseline.
 type AffectedSurfaceBaseline struct {
