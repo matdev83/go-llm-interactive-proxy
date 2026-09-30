@@ -31,7 +31,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: none_
     - _Validation: focused ALG config/provider/standard-plugin tests pass before refactor_
 
-- [ ] 2. Add the generic proxy control-tool SDK and feature plane
+- [x] 2. Add the generic proxy control-tool SDK and feature plane
   - [x] 2.1 Define bounded `pkg/lipsdk/controltool` contracts with RED validation tests
     - Add provider/spec/instruction/completed-call/meta/outcome types equivalent to the approved design.
     - Validate provider/tool/instruction IDs, JSON Schema, args bounds, role bounds, result/reason bounds, typed nils, and outcome invariants.
@@ -50,7 +50,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 2.1_
     - _Validation: focused feature/featurebundle/snapshot generated-plane tests; plane generator/check target_
 
-  - [ ] 2.3 Implement pure authority-neutral control projection and ToolChoice eligibility
+  - [x] 2.3 Implement pure authority-neutral control projection and ToolChoice eligibility
     - RED-test message-authority and item-authority calls, stable instruction placement, tool append, idempotence/reassertion, collision, backend-tool capability, default/auto eligibility, and `none`/`any`/required/allowed-tools rejection.
     - Projection must clone/mutate only the B-leg candidate call and preserve original ToolChoice unchanged.
     - Return bounded inactive reason codes instead of converting an optional control feature into candidate rejection for ordinary ineligibility.
@@ -291,3 +291,4 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 1.2: `strategy` is still an unknown YAML field; `legacyEnabledConfigSources` currently has only omitted-strategy so task 9.2 can add explicit `semantic_verifier` without rewriting cases. Invert `TestLegacyEnabledYAMLRejectsStrategySelectorUntilConfigured` when the selector lands. Generation pin is two pluginreg `BuildFeatureBundle` snapshots with distinct frozen caps, not a full host reload.
 - Task 2.1: `DefaultMaxArgsBytes` is 64 KiB to match the existing tool-call envelope. Schema validation is stdlib object-schema + no-`$ref`, not a draft compiler. Do not add `projection.go` until 2.3.
 - Task 2.2: The 27th plane belongs to Wave4_Tools and must remain non-negotiable canonical-required in both largebody eligibility compilation and authority assessment; provider removal publishes a new empty slot without mutating old snapshots.
+- Task 2.3: Message authority includes both Instructions and Messages; exact client control copies in either container deactivate projection, and final reassertion rejects relocation/duplication while allowing ordinary history reconstruction. Pure projection owns byte slices and preserves nil/empty shapes.
