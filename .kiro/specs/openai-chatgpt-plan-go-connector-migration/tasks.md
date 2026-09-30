@@ -40,9 +40,10 @@
   - _Validation: go test ./internal/siwc/..._
 
 - [ ] 2.3 Implement dynamic first registration and returning-account authorization
-  - Generate state/nonce/PKCE, run loopback callback, use `dynamic_agent_client` only for first registration, send stable host id and product agent name, and retain the returned issued client id.
+  - Generate state/nonce/PKCE, select one loopback `redirect_uri`, run the callback listener, use `dynamic_agent_client` only for first registration, send stable host id and product agent name, and retain the returned issued client id.
+  - Carry the exact selected `redirect_uri` through the pending authorization state and reuse it byte-for-byte during code exchange; never reconstruct or substitute scheme, host, port, or path.
   - Returning authorization uses the saved issued client id and validates subject before credential replacement.
-  - Observable completion: fake auth integration proves exact parameters; state mismatch/cancellation/timeout/missing issued-client paths fail safely; `dynamic_agent_client` is never stored as the issued id.
+  - Observable completion: fake auth integration proves exact parameters and exact callback-URI reuse; state mismatch/cancellation/timeout/missing issued-client paths fail safely; a mutated/reconstructed exchange URI is rejected by the test server; `dynamic_agent_client` is never stored as the issued id.
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.8, 2.14_
   - _Boundary: backend plugin / driving adapter + app orchestration_
   - _Depends: 2.2_
@@ -60,7 +61,8 @@
 - [ ] 2.5 Implement serialized rotating refresh, explicit profile selection and logout
   - Refresh with issued client id/resource; persist replacement refresh token atomically; classify terminal vs transient failures.
   - Provide list/select/add/reauthorize/logout operations; do not quota-rotate across registrations.
-  - Observable completion: concurrent refresh calls provider once per profile; terminal rotating-token failure requires reauth; profile switching is explicit.
+  - Logout resolves the OIDC discovery `revocation_endpoint`, attempts form-encoded refresh-token revocation with the issued client id, retries network/5xx failures with bounded backoff while the refresh token is retained, then distinguishes confirmed remote revocation from local-only sign-out when confirmation cannot be obtained.
+  - Observable completion: concurrent refresh calls provider once per profile; terminal rotating-token failure requires reauth; profile switching is explicit; logout tests cover HTTP 200 confirmation, already-invalid token success semantics, retryable failure, and local completion with an explicit unconfirmed-revocation result.
   - _Requirements: 2.9, 2.10, 2.13, 2.14, 8.3, 8.5_
   - _Boundary: backend plugin / app orchestration + state adapter_
   - _Depends: 2.4_
@@ -294,8 +296,8 @@
 
 - [ ] 11.4 Validate quota/error behavior and the SIWC app-server
   - Exercise a controlled usage-limit/error condition or closest deterministic supported equivalent; confirm no silent profile rotation.
-  - Run SIWC app-server and token renewal/restart/thread resume where practical.
-  - Observable completion: human records PASS, or migration remains blocked if required app-server/error semantics fail.
+  - Because this specification retains `openai-chatgpt-plan-app-server` in the supported end state, run a live SIWC app-server session that covers token renewal, child restart with the replacement token, re-initialization, and `thread/resume` of the saved thread id.
+  - Observable completion: human records PASS for both the controlled quota/error semantics and the full app-server token-renewal/restart/thread-resume path; any app-server failure blocks Task 11.5 while that factory remains in the supported end state.
   - _Requirements: 12.9, 12.10_
   - _Boundary: human / live acceptance_
   - _Depends: 11.3_
@@ -303,6 +305,7 @@
 
 - [ ] 11.5 Record explicit migration approval
   - Aggregate Tasks 11.1–11.4 into a concise non-secret acceptance record tied to tested commit.
+  - Do not mark this task complete unless Task 11.4 includes a passing live token-renewal/restart/thread-resume result for `openai-chatgpt-plan-app-server`; if the project instead decides not to support that factory, requirements/design/tasks must first be revised coherently to remove it from the migration end state.
   - This checkbox is the hard dependency for every destructive task below.
   - Observable completion: project owner/human operator marks the migration gate PASS.
   - _Requirements: 12.1, 12.11_
