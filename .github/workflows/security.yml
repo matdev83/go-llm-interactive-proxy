@@ -46,7 +46,7 @@ jobs:
   govulncheck:
     name: Go vulnerability check
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     # Required status check: keep the job present on non-Go PRs, but only run
     # vulnerability tooling when the canonical scope classifier finds Go-relevant
     # inputs. This avoids spec metadata (for example .kiro/specs/**/spec.json)

@@ -112,8 +112,8 @@ func validateCIDatabaseParityWorkflow(content string) []string {
 	if !ok {
 		violations = append(violations, "missing required job 'repo-hygiene'")
 	} else {
-		if strings.TrimSpace(repoHygiene.If) != "always()" {
-			violations = append(violations, "repo-hygiene must keep 'if: always()' at job level so docs-only bypass reports success")
+		if strings.TrimSpace(repoHygiene.If) != "always() && !cancelled()" {
+			violations = append(violations, "repo-hygiene must keep 'if: always() && !cancelled()' at job level so docs-only bypass reports success")
 		}
 		if isTruthy(repoHygiene.ContinueOnError) {
 			violations = append(violations, "repo-hygiene must not set continue-on-error: true")
@@ -173,8 +173,8 @@ func validateCIDatabaseParityWorkflow(content string) []string {
 	if !ok {
 		violations = append(violations, "missing job 'db-parity'")
 	} else {
-		if strings.TrimSpace(dbParity.If) != "always()" {
-			violations = append(violations, "db-parity must keep 'if: always()' so docs-only PRs do not leave it skipped")
+		if strings.TrimSpace(dbParity.If) != "always() && !cancelled()" {
+			violations = append(violations, "db-parity must keep 'if: always() && !cancelled()' so docs-only PRs do not leave it skipped")
 		}
 		if isTruthy(dbParity.ContinueOnError) {
 			violations = append(violations, "db-parity must not set continue-on-error: true")
@@ -306,7 +306,7 @@ jobs:
   repo-hygiene:
     name: Repo hygiene
     needs: [changes, db-parity]
-    if: always()
+    if: always() && !cancelled()
     steps:
       - name: Fail closed if scope detection failed
         if: "needs.changes.result != 'success'"
@@ -323,7 +323,7 @@ jobs:
   db-parity:
     name: Database parity
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     services:
       postgres:
         image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
@@ -437,23 +437,23 @@ jobs:
 			name: "repo-hygiene missing if: always()",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
-				return mustMutate(t, s, "if: always()\n    steps:", "if: success()\n    steps:")
+				return mustMutate(t, s, "if: always() && !cancelled()\n    steps:", "if: success()\n    steps:")
 			},
-			wantSubstr: "repo-hygiene must keep 'if: always()'",
+			wantSubstr: "repo-hygiene must keep 'if: always() && !cancelled()'",
 		},
 		{
 			name: "db-parity missing if: always()",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
-				return mustMutate(t, s, "name: Database parity\n    needs: changes\n    if: always()", "name: Database parity\n    needs: changes\n    if: success()")
+				return mustMutate(t, s, "name: Database parity\n    needs: changes\n    if: always() && !cancelled()", "name: Database parity\n    needs: changes\n    if: success()")
 			},
-			wantSubstr: "db-parity must keep 'if: always()'",
+			wantSubstr: "db-parity must keep 'if: always() && !cancelled()'",
 		},
 		{
 			name: "repo-hygiene has continue-on-error",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
-				return mustMutate(t, s, "name: Repo hygiene\n    needs: [changes, db-parity]\n    if: always()", "name: Repo hygiene\n    needs: [changes, db-parity]\n    if: always()\n    continue-on-error: true")
+				return mustMutate(t, s, "name: Repo hygiene\n    needs: [changes, db-parity]\n    if: always() && !cancelled()", "name: Repo hygiene\n    needs: [changes, db-parity]\n    if: always() && !cancelled()\n    continue-on-error: true")
 			},
 			wantSubstr: "repo-hygiene must not set continue-on-error: true",
 		},
@@ -461,7 +461,7 @@ jobs:
 			name: "db-parity has continue-on-error",
 			mutate: func(t *testing.T, s string) string {
 				t.Helper()
-				return mustMutate(t, s, "name: Database parity\n    needs: changes\n    if: always()", "name: Database parity\n    needs: changes\n    if: always()\n    continue-on-error: true")
+				return mustMutate(t, s, "name: Database parity\n    needs: changes\n    if: always() && !cancelled()", "name: Database parity\n    needs: changes\n    if: always() && !cancelled()\n    continue-on-error: true")
 			},
 			wantSubstr: "db-parity must not set continue-on-error: true",
 		},

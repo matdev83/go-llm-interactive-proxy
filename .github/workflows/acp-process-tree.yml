@@ -86,7 +86,7 @@ jobs:
 
   process-tree:
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     # Required check convention: always run the job and skip the steps so an
     # unrelated PR reports success (not skip), never blocking the merge.
     strategy:

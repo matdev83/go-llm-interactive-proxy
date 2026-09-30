@@ -117,7 +117,7 @@ jobs:
   bridge-node-tests:
     name: bridge-node-tests
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

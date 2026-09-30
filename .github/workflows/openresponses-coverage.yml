@@ -51,7 +51,7 @@ jobs:
   coverage:
     name: Measured OpenResponses coverage
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

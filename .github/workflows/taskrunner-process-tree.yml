@@ -72,7 +72,7 @@ jobs:
   process-tree:
     name: Process-tree (${{ matrix.os }})
     needs: scope
-    if: always()
+    if: always() && !cancelled()
     strategy:
       fail-fast: false
       matrix:

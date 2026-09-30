@@ -46,7 +46,7 @@ jobs:
   analyze:
     name: Analyze (Go)
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     # Required status check: see ci.yml repo-hygiene. Always run the job so
     # the check reports success (not skip) on docs-only PRs; guard steps.
     runs-on: ubuntu-latest

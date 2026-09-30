@@ -102,6 +102,15 @@ for test-relevant CI. Repository preflight runs independently of database parity
 the required Repo hygiene status still fails closed on either failure. The
 independent bridge-node-tests status only executes its suite for relevant scope.
 
+Failure-reporting jobs use `always() && !cancelled()`: dependency failures still
+run their fail-closed checks, but superseded work can stop. Bare job-level
+`always()` shields a running job from normal cancellation and can leave the next
+revision queued behind an obsolete Windows benchmark. A filesystem QA contract
+ratchets the cancellation-aware job guard across every workflow. Step-level
+artifact/log cleanup retains its existing conditions. An already-running old
+workflow uses its old definition and may require GitHub's force-cancel API;
+changing a later revision cannot change that job's cancellation condition.
+
 CI classifies main pushes against `github.event.before`, just as PRs use their
 actual base. Passing an empty base for every push previously enabled the full
 Windows historical cost comparison even for ordinary production changes: the

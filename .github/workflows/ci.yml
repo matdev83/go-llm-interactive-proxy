@@ -63,7 +63,7 @@ jobs:
   repo-hygiene:
     name: Repo hygiene
     needs: [changes, preflight, db-parity]
-    if: always()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -94,7 +94,7 @@ jobs:
   preflight:
     name: Repository preflight
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     # This is a required status check. A job-level `if` would skip the whole
     # job on docs-only PRs, and GitHub does not count a skipped required
     # check as satisfied, permanently blocking the merge. Always run the job
@@ -171,7 +171,7 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     # Required status check: see repo-hygiene above. Always run the job so the
     # matrix variants report success (not skip) on docs-only PRs; guard steps.
     strategy:
@@ -296,7 +296,7 @@ jobs:
   db-parity:
     name: Database parity
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     # Required status check: see repo-hygiene above. Always run the job so it
     # reports success (not skip) on docs-only PRs; guard steps.
     runs-on: ubuntu-latest
