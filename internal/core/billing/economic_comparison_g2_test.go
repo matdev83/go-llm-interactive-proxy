@@ -182,9 +182,6 @@ func g2RunReconciliation(t *testing.T, store *economicJobRunnerTestStore, reconW
 	return envelope, string(record.ResultJSON)
 }
 
-//go:fix inline
-func g2Nano(v int64) *int64 { return new(v) }
-
 // g2SingleValuationJSON runs one local valuation carrying three distinct lines
 // (ids lineA/lineB/lineC) with the given rounded-amount order, plus one clean
 // provider line. Line order inside the valuation is preserved by the merge, so
@@ -240,9 +237,9 @@ func g2ThreeDepJSON(t *testing.T, tag string, amounts []*int64, depOrderReversed
 func TestPhase172G2EqualQuantityAmountConflictIsOrderIndependentThroughRunner(t *testing.T) {
 	t.Parallel()
 	permutations := map[string][]*int64{
-		"1-1-2": {g2Nano(1), g2Nano(1), g2Nano(2)},
-		"1-2-1": {g2Nano(1), g2Nano(2), g2Nano(1)},
-		"2-1-1": {g2Nano(2), g2Nano(1), g2Nano(1)},
+		"1-1-2": {new(int64(1)), new(int64(1)), new(int64(2))},
+		"1-2-1": {new(int64(1)), new(int64(2)), new(int64(1))},
+		"2-1-1": {new(int64(2)), new(int64(1)), new(int64(1))},
 	}
 	t.Run("single-valuation-line-order", func(t *testing.T) {
 		t.Parallel()
@@ -299,7 +296,7 @@ func TestPhase172G2EqualQuantityAmountConflictIsOrderIndependentThroughRunner(t 
 
 func TestPhase172G2AllEqualAmountsMatchThroughRunner(t *testing.T) {
 	t.Parallel()
-	for _, amount := range []*int64{g2Nano(1), g2Nano(7), nil} {
+	for _, amount := range []*int64{new(int64(1)), new(int64(7)), nil} {
 		label := "nil"
 		if amount != nil {
 			label = "nano"
@@ -335,9 +332,9 @@ func TestPhase172G2QuantityConflictStaysCanonicalThroughRunner(t *testing.T) {
 		provider := g2RatingWork(t, 614, "g2-head-q-p-"+tag, "g2-obs-q-p-"+tag, economics.BasisProviderQuantityLocal)
 		store := newEconomicJobRunnerTestStore()
 		lines := []economics.LineItem{
-			g2Line(t, "q-a-"+tag, key, quantities[0], g2Nano(1)),
-			g2Line(t, "q-b-"+tag, key, quantities[1], g2Nano(1)),
-			g2Line(t, "q-c-"+tag, key, quantities[2], g2Nano(1)),
+			g2Line(t, "q-a-"+tag, key, quantities[0], new(int64(1))),
+			g2Line(t, "q-b-"+tag, key, quantities[1], new(int64(1))),
+			g2Line(t, "q-c-"+tag, key, quantities[2], new(int64(1))),
 		}
 		g2SeedValuation(t, store, local, lines)
 		g2SeedValuation(t, store, provider, []economics.LineItem{g2Line(t, "q-provider-"+tag, key, "100", nil)})
@@ -362,8 +359,8 @@ func TestPhase172G2QuantityConflictStaysCanonicalThroughRunner(t *testing.T) {
 
 func TestPhase172G2AmountNilVsPresentFollowsMergeSemanticsThroughRunner(t *testing.T) {
 	t.Parallel()
-	matched, matchedRaw := g2SingleValuationJSON(t, "nil-present-match", []*int64{nil, g2Nano(1), g2Nano(1)}, false)
-	matchedRev, matchedRevRaw := g2SingleValuationJSON(t, "nil-present-match", []*int64{nil, g2Nano(1), g2Nano(1)}, true)
+	matched, matchedRaw := g2SingleValuationJSON(t, "nil-present-match", []*int64{nil, new(int64(1)), new(int64(1))}, false)
+	matchedRev, matchedRevRaw := g2SingleValuationJSON(t, "nil-present-match", []*int64{nil, new(int64(1)), new(int64(1))}, true)
 	require.Equal(t, "matched", matched.Status, "nil amount with equal present amounts must not conflict")
 	require.True(t, matched.Complete)
 	require.Len(t, matched.Items, 1)
@@ -373,8 +370,8 @@ func TestPhase172G2AmountNilVsPresentFollowsMergeSemanticsThroughRunner(t *testi
 	require.Equal(t, matchedRaw, matchedRevRaw, "nil-vs-present match must be order-independent")
 	require.Equal(t, matched.Status, matchedRev.Status)
 
-	conflicted, conflictedRaw := g2SingleValuationJSON(t, "nil-present-conflict", []*int64{nil, g2Nano(1), g2Nano(2)}, false)
-	conflictedRev, conflictedRevRaw := g2SingleValuationJSON(t, "nil-present-conflict", []*int64{nil, g2Nano(1), g2Nano(2)}, true)
+	conflicted, conflictedRaw := g2SingleValuationJSON(t, "nil-present-conflict", []*int64{nil, new(int64(1)), new(int64(2))}, false)
+	conflictedRev, conflictedRevRaw := g2SingleValuationJSON(t, "nil-present-conflict", []*int64{nil, new(int64(1)), new(int64(2))}, true)
 	require.Equal(t, "conflict", conflicted.Status, "nil must not mask a conflict between two present differing amounts")
 	require.False(t, conflicted.Complete)
 	require.Nil(t, conflicted.Items[0].LocalQuantity, "nil-mixed amount conflict must canonicalize like every other amount conflict")

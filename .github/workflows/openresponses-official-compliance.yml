@@ -1,6 +1,8 @@
 name: OpenResponses Official Compliance
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -32,11 +34,11 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+          if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]]; then
             echo "run_suite=true" >> "$GITHUB_OUTPUT"
             echo "Official compliance suite runs for non-PR dispatches."
             exit 0
@@ -55,13 +57,13 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            connectors/**/go.sum
-            connector-support/**/go.sum
-            testdata/enterprise_module/go.sum
-            tools/**/go.sum
+          cache: false
+
+      - name: Restore bounded official Go cache
+        if: steps.scope.outputs.run_suite == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: official
 
       - name: Set up Node.js
         if: steps.scope.outputs.run_suite == 'true'
@@ -75,7 +77,7 @@ jobs:
         id: manifest
         if: steps.scope.outputs.run_suite == 'true'
         continue-on-error: true
-        run: go test -v -run '^TestOpenResponsesOfficialVendoredManifest$' ./internal/archtest 2>&1 | tee openresponses-manifest-output.txt
+        run: go test -v -run '^TestOpenResponsesOfficialVendoredManifest$' ./internal/qa 2>&1 | tee openresponses-manifest-output.txt
 
       - name: Run OpenResponses static architecture checks
         id: static_archtest
@@ -207,3 +209,10 @@ jobs:
         run: |
           echo "OpenResponses official compliance suite bypassed: no relevant files changed."
           echo "The official-suite job remains successful for branch-protection semantics."
+
+      - name: Save bounded official Go cache
+        if: success() && (steps.scope.outputs.run_suite == 'true')
+        uses: ./.github/actions/go-cache
+        with:
+          lane: official
+          phase: save

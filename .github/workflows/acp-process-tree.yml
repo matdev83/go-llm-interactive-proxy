@@ -3,8 +3,20 @@
 name: ACP process-tree
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/actions/go-cache/**"
+      - "scripts/ci-go-cache.py"
+      - "connector-support/acp/**"
+      - "connectors/cursorcliacp/**"
+      - "Makefile"
+      - ".github/workflows/acp-process-tree.yml"
+      - "internal/archtest/acp_process_tree_ci_test.go"
   pull_request:
     paths:
+      - ".github/actions/go-cache/**"
+      - "scripts/ci-go-cache.py"
       - "connector-support/acp/**"
       - "connectors/cursorcliacp/**"
       - "Makefile"
@@ -48,6 +60,10 @@ jobs:
           relevant=false
           while IFS= read -r file; do
             case "$file" in
+              .github/actions/go-cache/**|scripts/ci-go-cache.py)
+                relevant=true
+                break
+                ;;
               connector-support/acp/**|connectors/cursorcliacp/**|internal/archtest/acp_process_tree_ci_test.go|.github/workflows/acp-process-tree.yml)
                 relevant=true
                 break
@@ -76,7 +92,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.changes.outputs.relevant == 'true' && matrix.os || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - name: Fail closed if scope detection failed
@@ -97,31 +113,14 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # Shared setup-go cache is a frozen first-write-wins partial snapshot;
-          # this matrix restores a dedicated full cache below instead.
+          # The shared composite owns cache identity, size and main publication.
           cache: false
 
-      - name: Resolve Go cache paths
-        id: go-cache-paths
+      - name: Restore bounded acp Go cache
         if: needs.changes.outputs.relevant == 'true'
-        shell: bash
-        run: |
-          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore dedicated ACP Go cache
-        id: go-cache
-        if: needs.changes.outputs.relevant == 'true'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-acp-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connector-support/acp/go.sum', 'connectors/cursorcliacp/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-cache-acp-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connector-support/acp/go.sum', 'connectors/cursorcliacp/go.sum') }}-
-            go-cache-acp-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
+          lane: acp
 
       - name: Native process-tree (Unix)
         if: needs.changes.outputs.relevant == 'true' && runner.os != 'Windows'
@@ -155,14 +154,12 @@ jobs:
         shell: pwsh
         run: go test -count=1 -timeout=10m -run "TestParity_|TestDescribe_" ./...
 
-      - name: Save dedicated ACP Go cache
-        if: always() && needs.changes.result == 'success' && needs.changes.outputs.relevant == 'true' && steps.go-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Save bounded acp Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.relevant == 'true'
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-acp-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'connector-support/acp/go.sum', 'connectors/cursorcliacp/go.sum') }}-${{ github.sha }}
+          lane: acp
+          phase: save
 
       - name: Report unrelated ACP bypass
         if: needs.changes.outputs.relevant != 'true'

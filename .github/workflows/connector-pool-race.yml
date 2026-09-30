@@ -2,12 +2,26 @@
 name: Connector pool race
 
 on:
-  pull_request:
+  push:
+    branches: [main]
     paths:
+      - ".github/actions/go-cache/**"
+      - "scripts/ci-go-cache.py"
       - "internal/infra/runtimebundle/**"
       - "internal/infra/backendplugins/adapter/**"
       - "internal/core/execbackend/**"
-      - "pkg/lipsdk/backendplugin/host/**"
+      - "pkg/lipsdk/backendplugin/**"
+      - "internal/infra/backendplugins/processhost/**"
+      - ".github/workflows/connector-pool-race.yml"
+
+  pull_request:
+    paths:
+      - ".github/actions/go-cache/**"
+      - "scripts/ci-go-cache.py"
+      - "internal/infra/runtimebundle/**"
+      - "internal/infra/backendplugins/adapter/**"
+      - "internal/core/execbackend/**"
+      - "pkg/lipsdk/backendplugin/**"
       - "internal/infra/backendplugins/processhost/**"
       - ".github/workflows/connector-pool-race.yml"
 
@@ -33,19 +47,26 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            connectors/**/go.sum
-            connector-support/**/go.sum
-            testdata/enterprise_module/go.sum
-            tools/**/go.sum
+          cache: false
+
+      - name: Restore bounded race Go cache
+        uses: ./.github/actions/go-cache
+        with:
+          lane: race
 
       - name: Run targeted Linux races
         shell: bash
         run: |
           set -euo pipefail
-          go test -race -count=1 -p 2 -parallel 2 \
+          go test -race -count=1 -p 2 -parallel 4 \
             ./internal/infra/runtimebundle \
+            ./pkg/lipsdk/backendplugin \
             ./pkg/lipsdk/backendplugin/host \
             ./internal/infra/backendplugins/processhost
+
+      - name: Save bounded race Go cache
+        if: success()
+        uses: ./.github/actions/go-cache
+        with:
+          lane: race
+          phase: save

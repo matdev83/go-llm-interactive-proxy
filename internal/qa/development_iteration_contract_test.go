@@ -9,33 +9,22 @@ import (
 // must advance with source changes and be isolated by toolchain and job.
 func TestQAFastPreflight_GoCacheSnapshotsAdvance(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"ci.yml", "qa.yml", "backend-plugin-cross-platform.yml", "acp-process-tree.yml", "cursor-sdk-platform.yml", "development-cost-weekly.yml"} {
+	action := readRepositoryFile(t, ".github", "actions", "go-cache", "action.yml")
+	for _, needle := range []string{"go env GOVERSION", "RUNNER_OS", "RUNNER_ARCH", "inputs.lane", "hashFiles('**/go.sum')", "github.sha", "restore-keys:", "refs/heads/main", "github.event_name != 'pull_request'", "/cache/download", "scripts/ci-go-cache.py", "--mib 512", "go-mod-v3-shared-", "enableCrossOsArchive: true", "inputs.lane == 'modules'"} {
+		if !strings.Contains(action, needle) {
+			t.Errorf("shared cache policy missing %q", needle)
+		}
+	}
+	for _, name := range []string{"ci.yml", "qa.yml", "backend-plugin-cross-platform.yml", "acp-process-tree.yml", "cursor-sdk-platform.yml", "development-cost-weekly.yml", "dependency-sync.yml", "connector-pool-race.yml", "openresponses-official-compliance.yml", "openresponses-coverage.yml", "taskrunner-process-tree.yml"} {
 		text := readRepositoryFile(t, ".github", "workflows", name)
-		var restores, saves int
-		for _, line := range strings.Split(text, "\n") {
-			if strings.Contains(line, "actions/cache/restore@") {
-				restores++
-			}
-			if strings.Contains(line, "actions/cache/save@") {
-				saves++
-			}
-			if !strings.Contains(line, "key: go-cache-") {
-				continue
-			}
-			for _, needle := range []string{"runner.arch", "outputs.go-version", "github.job", "hashFiles(", "github.sha"} {
-				if !strings.Contains(line, needle) {
-					t.Errorf("%s cache key must include %s: %s", name, needle, line)
-				}
-			}
+		if strings.Contains(text, "cache: true") {
+			t.Errorf("%s bypasses bounded cache policy", name)
 		}
-		if restores == 0 || saves != restores {
-			t.Errorf("%s has %d restores and %d saves; each job must publish its own progress", name, restores, saves)
+		if !strings.Contains(text, "uses: ./.github/actions/go-cache") || !strings.Contains(text, "phase: save") {
+			t.Errorf("%s needs a bounded cache consumer and producer", name)
 		}
-		if !strings.Contains(text, `go-version=$(go env GOVERSION)`) {
-			t.Errorf("%s must resolve the actual Go version", name)
-		}
-		if !strings.Contains(text, "restore-keys: |") || !strings.Contains(text, "${{ github.job }}-") {
-			t.Errorf("%s must seed new snapshots from the same toolchain/job", name)
+		if !strings.Contains(text, "push:") && !strings.Contains(text, "schedule:") {
+			t.Errorf("%s has no main cache producer", name)
 		}
 	}
 }
@@ -66,7 +55,7 @@ func TestQAFastPreflight_GoCacheRetentionUsesTrustedCode(t *testing.T) {
 	}
 	for _, name := range []string{"ci.yml", "qa.yml", "backend-plugin-cross-platform.yml", "acp-process-tree.yml", "cursor-sdk-platform.yml", "development-cost-weekly.yml"} {
 		text := readRepositoryFile(t, ".github", "workflows", name)
-		for _, line := range strings.Split(text, "\n") {
+		for line := range strings.SplitSeq(text, "\n") {
 			if strings.HasPrefix(line, "name: ") && !strings.Contains(workflow, strings.TrimPrefix(line, "name: ")) {
 				t.Errorf("retention trigger omits workflow %s", name)
 			}

@@ -1,6 +1,8 @@
 name: OpenResponses coverage evidence
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -33,10 +35,10 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+          if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]]; then
             echo "run_suite=true" >> "$GITHUB_OUTPUT"
           else
             run_suite="$(bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD | awk -F= '$1 == "openresponses_coverage" {print $2}')"
@@ -72,13 +74,13 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            connectors/**/go.sum
-            connector-support/**/go.sum
-            testdata/enterprise_module/go.sum
-            tools/**/go.sum
+          cache: false
+
+      - name: Restore bounded coverage Go cache
+        if: needs.changes.result == 'success' && needs.changes.outputs.run_suite == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: coverage
 
       - name: Generate profiles and summaries
         if: needs.changes.result == 'success' && needs.changes.outputs.run_suite == 'true'
@@ -138,3 +140,10 @@ jobs:
         shell: bash
         run: |
           echo "OpenResponses coverage bypassed: no measured-surface changes detected."
+
+      - name: Save bounded coverage Go cache
+        if: success() && (needs.changes.result == 'success' && needs.changes.outputs.run_suite == 'true')
+        uses: ./.github/actions/go-cache
+        with:
+          lane: coverage
+          phase: save

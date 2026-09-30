@@ -24,7 +24,7 @@ func (*phase7EconomicFinalizerSession) FinalizeBilling(context.Context, backendp
 	value := metering.Decimal{Coefficient: "4", Scale: 0}
 	now := time.Unix(1700000000, 0).UTC()
 	return backendplugin.FinalizeBillingResponse{
-		Usage: backendplugin.UsageEvidence{Presence: backendplugin.UsagePresence{InputTokens: true}, InputTokens: int64Ptr(1)},
+		Usage: backendplugin.UsageEvidence{Presence: backendplugin.UsagePresence{InputTokens: true}, InputTokens: new(int64(1))},
 		AccountingV2: []backendplugin.AccountingEvidenceV2{{
 			Coverage: backendplugin.EvidenceCoverageComplete,
 			Observation: metering.Observation{
@@ -40,9 +40,6 @@ func (*phase7EconomicFinalizerSession) FinalizeBilling(context.Context, backendp
 		}},
 	}, nil
 }
-
-//go:fix inline
-func int64Ptr(value int64) *int64 { return new(value) }
 
 func TestFinalizeBillingV2PreservesHostOnlyEvidence(t *testing.T) {
 	t.Parallel()

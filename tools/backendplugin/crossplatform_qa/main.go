@@ -85,17 +85,19 @@ type claimJob struct {
 }
 
 type matrixReport struct {
-	Schema              string            `json:"schema"`
-	HostProfiles        []hostProfileJSON `json:"host_profiles"`
-	Modules             []string          `json:"modules"`
-	Connectors          []string          `json:"connectors"`
-	Unsupported         []unsupportedPair `json:"unsupported"`
-	ClaimedCompile      []compileResult   `json:"claimed_compile"`
-	RootIndependent     bool              `json:"root_independent"`
-	PackageMatrixMatch  bool              `json:"package_matrix_match"`
-	NativeHost          string            `json:"native_host"`
-	NativeTestsRan      bool              `json:"native_tests_ran"`
-	FalseClaimsRejected []string          `json:"false_claims_rejected,omitempty"`
+	Schema               string            `json:"schema"`
+	HostProfiles         []hostProfileJSON `json:"host_profiles"`
+	Modules              []string          `json:"modules"`
+	Connectors           []string          `json:"connectors"`
+	Unsupported          []unsupportedPair `json:"unsupported"`
+	ClaimedCompile       []compileResult   `json:"claimed_compile"`
+	CompileSkipped       bool              `json:"compile_skipped"`
+	PackageMatrixSkipped bool              `json:"package_matrix_skipped"`
+	RootIndependent      bool              `json:"root_independent"`
+	PackageMatrixMatch   bool              `json:"package_matrix_match"`
+	NativeHost           string            `json:"native_host"`
+	NativeTestsRan       bool              `json:"native_tests_ran"`
+	FalseClaimsRejected  []string          `json:"false_claims_rejected,omitempty"`
 }
 
 func main() {
@@ -103,7 +105,13 @@ func main() {
 	outPath := flag.String("out", "", "write matrix JSON (required)")
 	selectCSV := flag.String("select", "", "optional comma-separated connector dirs")
 	skipNative := flag.Bool("skip-native", false, "skip native lifecycle test subprocesses")
+	compileOnly := flag.Bool("compile-only", false, "compile all claims; native jobs own package/lifecycle evidence")
+	skipCompile := flag.Bool("skip-compile", false, "native-only evidence; CI must require the separate claimed-compilation job")
 	flag.Parse()
+	if err := validateQAMode(*compileOnly, *skipCompile); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	if strings.TrimSpace(*outPath) == "" {
 		fmt.Fprintln(os.Stderr, "crossplatform_qa: -out is required")
 		os.Exit(2)
@@ -118,7 +126,7 @@ func main() {
 			}
 		}
 	}
-	report, err := runQA(*root, selectSet, !*skipNative)
+	report, err := runQA(*root, selectSet, !*skipNative && !*compileOnly, *compileOnly, *skipCompile)
 	if err != nil {
 		if report != nil {
 			_ = writeReport(*outPath, report)
@@ -151,7 +159,14 @@ func writeReport(path string, report *matrixReport) error {
 	return os.WriteFile(abs, b, 0o644)
 }
 
-func runQA(root string, selectSet map[string]struct{}, runNative bool) (*matrixReport, error) {
+func validateQAMode(compileOnly, skipCompile bool) error {
+	if compileOnly && skipCompile {
+		return fmt.Errorf("compile-only and skip-compile are mutually exclusive")
+	}
+	return nil
+}
+
+func runQA(root string, selectSet map[string]struct{}, runNative, compileOnly, skipCompile bool) (*matrixReport, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -179,10 +194,12 @@ func runQA(root string, selectSet map[string]struct{}, runNative bool) (*matrixR
 
 	hostProfiles := hostSecureInventory()
 	report := &matrixReport{
-		Schema:       matrixSchema,
-		HostProfiles: hostProfiles,
-		Modules:      mods,
-		NativeHost:   runtime.GOOS + "/" + runtime.GOARCH,
+		Schema:               matrixSchema,
+		HostProfiles:         hostProfiles,
+		Modules:              mods,
+		NativeHost:           runtime.GOOS + "/" + runtime.GOARCH,
+		CompileSkipped:       skipCompile,
+		PackageMatrixSkipped: compileOnly,
 	}
 	connNames := make([]string, 0, len(selected))
 	for _, r := range selected {
@@ -223,7 +240,12 @@ func runQA(root string, selectSet map[string]struct{}, runNative bool) (*matrixR
 		}
 	}
 
-	if len(jobs) > 0 {
+	report.Unsupported = unsupported
+	report.FalseClaimsRejected = falseClaims
+	if len(falseClaims) > 0 {
+		return report, fmt.Errorf("false manifest platform claims: %s", strings.Join(falseClaims, "; "))
+	}
+	if len(jobs) > 0 && !skipCompile {
 		compileResults = runCompilePhase(jobs, func(ctx context.Context, j claimJob) compileResult {
 			return crossCompile(ctx, j.r, j.c.OS, j.c.Arch)
 		}, defaultCompilePhaseConfig(len(jobs)))
@@ -242,9 +264,6 @@ func runQA(root string, selectSet map[string]struct{}, runNative bool) (*matrixR
 			return report, fmt.Errorf("%s", strings.Join(failed, "\n"))
 		}
 	}
-	if len(falseClaims) > 0 {
-		return report, fmt.Errorf("false manifest platform claims: %s", strings.Join(falseClaims, "; "))
-	}
 
 	rootOK, err := rootIndependent(absRoot)
 	if err != nil {
@@ -253,6 +272,9 @@ func runQA(root string, selectSet map[string]struct{}, runNative bool) (*matrixR
 	report.RootIndependent = rootOK
 	if !rootOK {
 		return report, fmt.Errorf("root go.mod must not require connectors/ or connector-support/")
+	}
+	if compileOnly {
+		return report, nil
 	}
 
 	pkgOK, err := packageMatrixMatches(absRoot, selected, selectSet)

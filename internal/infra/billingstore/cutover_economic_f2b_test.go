@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -547,6 +548,12 @@ func TestF2BMultiBatchBoundedClassification(t *testing.T) {
 // F2B: F1 marker lock serializes concurrent economic enqueue with drain.
 func TestF2BConcurrentEnqueueSerialized(t *testing.T) {
 	t.Parallel()
+	t.Run("racing drain fence", func(t *testing.T) { f2bConcurrentEnqueueSerialized(t, false) })
+	t.Run("all enqueues before drain fence", func(t *testing.T) { f2bConcurrentEnqueueSerialized(t, true) })
+}
+
+func f2bConcurrentEnqueueSerialized(t *testing.T, drainAfterEnqueue bool) {
+	t.Helper()
 	store := f2bNewStore(t, "f2b-race")
 	ctx := f2bSetupShadowAccount(t, store, "acct-f2b-race")
 	// Pre-boundary monetary work.
@@ -565,17 +572,27 @@ func TestF2BConcurrentEnqueueSerialized(t *testing.T) {
 				results[idx] = err
 				return
 			}
-			fresh := f2bProviderWork(t, store, "acct-f2b-race", freshID, "b-race", "f2b-head-race", 1, true)
+			// Independent calls must have independent economic heads. Reusing
+			// one head made admitted racers conflict when persisting valuation.
+			fresh := f2bProviderWork(t, store, "acct-f2b-race", freshID,
+				fmt.Sprintf("b-race-%d", idx), fmt.Sprintf("f2b-head-race-%d", idx), 1, true)
 			results[idx] = store.AppendEconomicRevisionWork(context.Background(), fresh)
 		}(i)
+	}
+	if drainAfterEnqueue {
+		wg.Wait()
 	}
 	if _, _, err := store.BeginCutoverDraining(ctx, "f2b-race-drain"); err != nil {
 		t.Fatal(err)
 	}
 	wg.Wait()
+	admitted := 1 // the seed was admitted before the fence
 	for i, err := range results {
 		if err != nil && !f2bIsFenceErr(err) {
 			t.Fatalf("racer %d err = %v, want nil or fence", i, err)
+		}
+		if err == nil {
+			admitted++
 		}
 	}
 	// No unpinned slip-through: every counted monetary pending has a V1 pin.
@@ -583,19 +600,17 @@ func TestF2BConcurrentEnqueueSerialized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Counts.EconomicProviderPending != status.Counts.V1Pinned && status.Counts.EconomicProviderPending > status.Counts.V1Pinned {
-		// Pinned counts all V1 pins (including customer/provider legacy); economic
-		// pending must be subset. Verify via direct query below instead.
-		_ = status
+	if status.Counts.EconomicProviderPending != admitted {
+		t.Fatalf("economic pending = %d, want %d admitted requests", status.Counts.EconomicProviderPending, admitted)
 	}
-	var economicPending, pinnedForEconomic int
-	_ = economicPending
-	_ = pinnedForEconomic
+	if status.Counts.EconomicProviderPending > status.Counts.V1Pinned {
+		t.Fatalf("economic pending = %d exceeds V1 pins = %d", status.Counts.EconomicProviderPending, status.Counts.V1Pinned)
+	}
 	// Complete all pinned monetary via worker, then drain must empty (racers that
 	// landed pre-gate complete; fenced racers never entered).
 	worker := f2bProviderWorker(t, store)
 	for range racers + 2 {
-		_ = worker.ProcessOnce(ctx)
+		requireNoErr(t, worker.ProcessOnce(ctx))
 	}
 	final, err := store.CutoverDrainStatus(ctx)
 	if err != nil {
@@ -603,6 +618,9 @@ func TestF2BConcurrentEnqueueSerialized(t *testing.T) {
 	}
 	if final.Counts.EconomicProviderPending != 0 {
 		t.Fatalf("final economic pending = %d, want 0 (all pre-gate completed)", final.Counts.EconomicProviderPending)
+	}
+	if posted := f2bProviderJournals(t, store, "acct-f2b-race"); posted != admitted {
+		t.Fatalf("provider journals = %d, want %d admitted requests posted exactly once", posted, admitted)
 	}
 	requireNoErr(t, func() error { _, err := store.ActivateCutoverV2(ctx, "f2b-race-activate"); return err }())
 }

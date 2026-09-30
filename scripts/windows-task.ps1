@@ -296,7 +296,8 @@ switch -Regex ($Target) {
     }
     "^backend-plugin-cross-platform-qa$" {
         $selectArgs = @()
-        if ($env:CROSS_PLATFORM_SELECT) { $selectArgs = @("-select", $env:CROSS_PLATFORM_SELECT) }
+        if ($env:CROSS_PLATFORM_SKIP_COMPILE -eq "1") { $selectArgs += "-skip-compile" }
+        if ($env:CROSS_PLATFORM_SELECT) { $selectArgs += @("-select", $env:CROSS_PLATFORM_SELECT) }
         Invoke-TaskRunner -Label $Target -Cwd $root -Timeout "20m" -Env $localGoEnv -Command (@("go", "run", "./tools/backendplugin/crossplatform_qa", "-root", ".", "-out", ".golip-crossplatform-matrix.json", "-skip-native") + $selectArgs) | Out-Host
         Run-RootGoTest "backend-plugin-cross-platform-qa:backendplugins" (@($goTestFlags) + @("./internal/infra/backendplugins/...", "-run", "TestAdversarial_|TestActivate_|TestStream_|TestDigest|TestManifest|TestDiscover|TestShutdown|TestReap|TestPeer|TestChannel|TestExact|TestUpgrade|TestRollback|TestUninstall|TestConfig|TestSecrecy|TestUnauthorized|TestProtected|TestLaunch|TestKill|TestCancel"))
         Run-RootGoTest "backend-plugin-cross-platform-qa:backendplugin-sdk" (@($goTestFlags) + @("./pkg/lipsdk/backendplugin/...", "-run", "Test"))

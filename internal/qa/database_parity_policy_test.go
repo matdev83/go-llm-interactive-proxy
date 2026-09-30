@@ -36,6 +36,7 @@ type ciStepSpec struct {
 	Shell           string            `yaml:"shell"`
 	ContinueOnError any               `yaml:"continue-on-error"`
 	Env             map[string]string `yaml:"env"`
+	With            map[string]any    `yaml:"with"`
 }
 
 func parseCINeeds(raw any) []string {
@@ -187,7 +188,9 @@ func validateCIDatabaseParityWorkflow(content string) []string {
 		if !pgOk {
 			violations = append(violations, "db-parity must provision a postgres service container")
 		} else {
-			if !strings.HasPrefix(pgService.Image, "postgres:17") || !strings.Contains(pgService.Image, "@sha256:") {
+			image := strings.TrimPrefix(pgService.Image, "${{ needs.changes.outputs.test == 'true' && '")
+			image = strings.TrimSuffix(image, "' || '' }}")
+			if !strings.HasPrefix(image, "postgres:17") || !strings.Contains(image, "@sha256:") {
 				violations = append(violations, "db-parity postgres service image must be pinned to postgres:17 by digest (@sha256:...) (got "+pgService.Image+")")
 			}
 		}

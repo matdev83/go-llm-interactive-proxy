@@ -89,7 +89,7 @@ file_matches() {
     openresponses_coverage)
       case "$file" in
         internal/**|pkg/**|tools/coverage-gate/**|testdata/**|\
-        .github/workflows/openresponses-coverage.yml|scripts/ci-scope.sh|Makefile|\
+        .github/workflows/openresponses-coverage.yml|.github/actions/go-cache/**|scripts/ci-go-cache.py|scripts/ci-scope.sh|Makefile|\
         go.mod|go.sum|*/go.mod|*/go.sum)
         return 0
         ;;
