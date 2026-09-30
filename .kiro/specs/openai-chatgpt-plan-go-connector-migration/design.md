@@ -234,10 +234,10 @@ sequenceDiagram
 
     C->>S: load/create stable host id
     C->>C: state + nonce + PKCE
-    C->>A: authorize dynamic_agent_client + host id + scopes
+    C->>A: authorize dynamic_agent_client + host id + scopes + selected redirect_uri
     A-->>C: callback code + issued client_id + state
-    C->>C: validate state
-    C->>A: token exchange with issued client_id + PKCE
+    C->>C: validate state; retain pending redirect_uri
+    C->>A: token exchange with issued client_id + PKCE + exact same redirect_uri
     A-->>C: access/refresh/id token + scopes
     C->>C: validate JWKS/claims/scope
     C->>S: atomically persist profile
@@ -330,7 +330,7 @@ type ProfileManager interface {
     List(ctx context.Context) ([]ProfileSummary, error)
     Token(ctx context.Context, profileID string) (string, error)
     SaveAuthorized(ctx context.Context, result AuthorizedProfile) error
-    Logout(ctx context.Context, profileID string) error
+    Logout(ctx context.Context, profileID string) (LogoutResult, error)
 }
 ```
 
@@ -339,11 +339,17 @@ type ProfileManager interface {
 - subject/issued-client-id pairing remains stable;
 - rotating refresh token replacement is atomic;
 - no automatic quota failover across profiles;
+- logout attempts remote renewable-session revocation before local token clearing;
+- `LogoutResult` distinguishes confirmed remote revocation from local-only sign-out with unconfirmed revocation;
 - secrets never appear in summaries/logs.
+
+Conceptually, `LogoutResult` carries at least `RemoteRevocationConfirmed` and `LocalTokensCleared`. Logout resolves OpenAI's `revocation_endpoint` from the OIDC discovery document and sends a form-encoded POST with the saved refresh token, `token_type_hint=refresh_token`, and the profile's issued client id. Network/5xx failures are retried with bounded backoff while the refresh token is still retained. If the operator completes sign-out without confirmation, local tokens are cleared and the result explicitly reports unconfirmed remote revocation plus guidance to disconnect the app in ChatGPT Settings.
 
 ### Authorization Service
 
 Conceptual operations: `BeginRegistration`, `BeginReauthorization`, `HandleCallback`, `Exchange`, `ValidateIDToken`.
+
+Each pending authorization attempt owns one immutable selected callback URI. The same exact `redirect_uri` string used in the browser authorization request—including scheme, loopback host, chosen port, and path—is carried through callback handling and supplied unchanged to the authorization-code exchange. The exchange path must never reconstruct the URI from listener state or defaults.
 
 Browser/callback is a connector CLI/operator surface, not a core HTTP API.
 
