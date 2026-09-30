@@ -28,12 +28,17 @@ func TestQAFastPreflight_MainPushUsesActualDiff(t *testing.T) {
 	for _, tc := range []struct {
 		name, path, before  string
 		code, goScope, cost bool
+		billing             bool
 		invalid             bool
 	}{
 		{name: "production", path: "internal/example.go", code: true, goScope: true},
 		{name: "documentation", path: "docs/example.md"},
 		{name: "cost policy", path: "scripts/test-cost-budget.json", code: true, goScope: true, cost: true},
-		{name: "initial push", path: "docs/example.md", before: strings.Repeat("0", 40), code: true, goScope: true, cost: true},
+		{name: "billing", path: "internal/core/billing/component_rater.go", code: true, goScope: true, billing: true},
+		{name: "shared SDK", path: "pkg/lipsdk/metering/component_key.go", code: true, goScope: true, billing: true},
+		{name: "independent oracle", path: "internal/testkit/billsem/solver.go", code: true, goScope: true, billing: true},
+		{name: "CI policy", path: ".github/workflows/ci.yml", code: true, goScope: true, billing: true},
+		{name: "initial push", path: "docs/example.md", before: strings.Repeat("0", 40), code: true, goScope: true, cost: true, billing: true},
 		{name: "invalid predecessor", path: "docs/example.md", before: "missing-revision", invalid: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -89,7 +94,7 @@ func TestQAFastPreflight_MainPushUsesActualDiff(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for key, want := range map[string]bool{"code": tc.code, "test": tc.code, "go": tc.goScope, "test_cost": tc.cost} {
+			for key, want := range map[string]bool{"code": tc.code, "test": tc.code, "go": tc.goScope, "test_cost": tc.cost, "billing_schema": tc.billing} {
 				value := "false"
 				if want {
 					value = "true"

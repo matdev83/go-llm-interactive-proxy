@@ -14,6 +14,11 @@
     "job": "native-evidence",
     "workflow": "Backend plugin cross-platform"
   },
+  "billing-schema": {
+    "build_mib": 768,
+    "job": "billing-schema",
+    "workflow": "CI"
+  },
   "ci-db": {
     "build_mib": 768,
     "job": "db-parity",

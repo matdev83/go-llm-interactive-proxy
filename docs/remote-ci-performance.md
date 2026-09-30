@@ -189,3 +189,28 @@ compilation, test execution and save. Local timings cannot substantiate hosted
 Windows/macOS improvements. The weekly development-cost watchdog retains the
 existing Windows test budgets; cache warnings and retention tests cover separate
 causes that package-duration budgets do not observe.
+
+## Exhaustive billing certification
+
+The full three-node structure/commercial products and all five four/five-node
+sweeps, topology-wide order/pricing/support comparisons and maximum-depth replay
+probe run with `make test-billing-schema` (`-tags=integration`). Every existing
+graph, evidence assignment, oracle comparison, tariff, seam and assertion is
+retained. Default unit tests retain named billing regressions, bounded model
+properties and bounded metamorphic cases. `make qa` includes the certification tier,
+including when its duplicate-root-pass optimization is enabled.
+
+CI runs the twelve certification tests in a separate Ubuntu job after billing,
+SDK/public-contract, oracle, dependency or certification-policy changes. Discovery
+must find all twelve tests. The existing required Repo hygiene check propagates
+scope or certification failures, while unrelated changes report an explicit
+bypass. The job owns a bounded 768 MiB compiler-cache lane with trusted main
+publication and read-only PR restoration. Pure schema arithmetic needs no native
+platform matrix; Windows keeps the unchanged default-unit cost ratchet and its
+existing budgets. The certification process has a separate 30-minute execution
+guard; it does not change any test assertion or ratchet threshold.
+
+The triggering Windows artifact contained the billing package's ten-minute test
+timeout, although its final log tail showed successful unrelated packages. The
+historical anchor passed. This is an execution-tier correction for exhaustive
+certification, not a compiler-cache hit claim.

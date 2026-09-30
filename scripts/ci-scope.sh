@@ -96,6 +96,14 @@ file_matches() {
         *) return 1 ;;
       esac
       ;;
+    billing_schema)
+      case "$file" in
+        internal/core/billing/*|internal/infra/billing*/*|internal/testkit/billsem/*|pkg/*|go.mod|go.sum|go.work|go.work.sum|Makefile|\
+        .github/workflows/ci.yml|.github/actions/go-cache/*|scripts/ci-go-cache.py|scripts/ci-scope.sh|scripts/test-billing-*)
+          return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
     test_cost)
       case "$file" in
         scripts/test-cost-*|tools/testcost/**|internal/qa/test_cost_policy_test.go)
@@ -120,12 +128,13 @@ classify_diff() {
   local kiro=false
   local coverage=false
   local test_cost=false
+  local billing_schema=false
   local file diff_file
 
   # Events without a base SHA (initial pushes or manual dispatches) run
   # every scope rather than risking a false bypass.
   if [[ -z "$base" || "$base" =~ ^0{40}$ ]]; then
-    printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\n'
+    printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\nbilling_schema=true\n'
     return 0
   fi
 
@@ -142,16 +151,17 @@ classify_diff() {
     file_matches kiro "$file" && kiro=true
     file_matches openresponses_coverage "$file" && coverage=true
     file_matches test_cost "$file" && test_cost=true
+    file_matches billing_schema "$file" && billing_schema=true
   done < "$diff_file"
   rm -f "$diff_file"
 
-  for value in "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost"; do
+  for value in "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema"; do
     case "$value" in
       true|false) ;;
       *) echo "invalid CI scope value: $value" >&2; return 1 ;;
     esac
   done
-  printf 'code=%s\ngo=%s\ntest=%s\nkiro=%s\nopenresponses_coverage=%s\ntest_cost=%s\n' "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost"
+  printf 'code=%s\ngo=%s\ntest=%s\nkiro=%s\nopenresponses_coverage=%s\ntest_cost=%s\nbilling_schema=%s\n' "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema"
 }
 
 self_test() {

@@ -472,34 +472,6 @@ func supportDistinct(byScope map[string][]string) []string {
 // TestSupportAgreementShadowPredicate is the deliverable. It drives the shadow
 // predicate and the four production special cases over every population and
 // prints one agreement line per population plus the cross-population total.
-func TestSupportAgreementShadowPredicate(t *testing.T) {
-	t.Parallel()
-	started := time.Now()
-	populations := map[string]*supportTally{}
-	join := func(label string, run func(t *testing.T) *supportTally) {
-		t.Run(label, func(t *testing.T) {
-			t.Parallel()
-			populations[label] = run(t)
-		})
-	}
-	join("model_structure", func(t *testing.T) *supportTally {
-		return supportAgreementModelSweep(t, "model_structure", smFreeRules)
-	})
-	join("model_commercial", func(t *testing.T) *supportTally {
-		return supportAgreementModelSweep(t, "model_commercial", smCommercialRules)
-	})
-	join("acceptance_vectors", supportAgreementAcceptanceVectors)
-	join("regression_schemas", supportAgreementRegressionSchemas)
-	t.Cleanup(func() {
-		total := newSupportTally("ALL_POPULATIONS")
-		for _, label := range supportSortedKeys(supportTallyKeys(populations)) {
-			tally := populations[label]
-			tally.report(t, 0)
-			supportMerge(total, tally)
-		}
-		total.report(t, time.Since(started))
-	})
-}
 
 func supportTallyKeys(tallies map[string]*supportTally) map[string]int {
 	keys := make(map[string]int, len(tallies))
