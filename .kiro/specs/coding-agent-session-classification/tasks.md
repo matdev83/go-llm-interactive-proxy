@@ -70,7 +70,7 @@
     - _Validation: stage unit tests; core package has zero concrete sessionclassification feature imports_
 
 - [ ] 3. Implement shared client identity facts and the deterministic local heuristic
-  - [ ] 3.1 (P) Extract a bounded root client-family matcher and migrate compatible brownfield use
+  - [x] 3.1 (P) Extract a bounded root client-family matcher and migrate compatible brownfield use
     - Create internal/agentfacts as a pure trim/case-fold/exact-prefix/token matcher over stable client identity strings.
     - RED-test high-confidence families and ambiguous generic SDK values; no regex/fuzzy/prompt matching.
     - Reuse it from codexclientcompat agent-string matching where semantics are identical while leaving feature-specific prompt signatures in codexclientcompat.
