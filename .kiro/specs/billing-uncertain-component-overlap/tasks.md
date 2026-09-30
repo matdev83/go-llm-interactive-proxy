@@ -104,7 +104,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Validation: make dev-test PKGS='./internal/core/billing/...'_
 
 - [ ] 5. Certify durable storage and existing operator retrieval
-- [ ] 5.1 Preserve canonical reports through existing append, query, and replay paths
+- [x] 5.1 Preserve canonical reports through existing append, query, and replay paths
   - Use the existing canonical payload transaction; test append/get/list/detail with complete, failing, clean-enabled, and incomplete-assessment results.
   - Verify clone/query consumers preserve optional fields and retrieve stored data without rerating; do not add a new table, sidecar worker, endpoint, or backfill.
   - Test old-row byte-exact re-append, identical enabled replay, and changed advice under the same identity yielding an integrity conflict.
@@ -155,3 +155,5 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
 - 4.1: The 1027 bound counts pre-narrowing source groups; fixed scopes share a context and deduplicate. Proxy report-only changes may alter the composite result ID, but unchanged input-set/context identity still triggers the store's integrity conflict; pin this path in durable replay tests.
 
 - Baseline filesystem fixture repair: `aa955dc1` separates recovery-file creation from the original filesystem birth-time tick, retaining inode-reuse and in-place rewrite controls. Host `/tmp` exhausted; local verification uses transient `TMPDIR` and `GOTMPDIR` in a private root-filesystem directory without changing caches or persistent configuration.
+
+- 5.1: Existing canonical payload and query decoders preserve all advisory fields without production or SQL changes. Literal historical replay remains byte-exact; report divergence conflicts under both matching and distinct primary IDs sharing one input/context interpretation.
