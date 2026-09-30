@@ -181,18 +181,29 @@ func benchRateLoop(b *testing.B, rater *billing.ReferenceRater, input economics.
 	}
 }
 
-// benchRateLoopNodes is benchRateLoop plus the two per-node metrics section 18
-// needs to judge complexity class: allocs/node and B/node. They are read from
-// MemStats deltas around the timed loop rather than derived from the reported
-// per-op totals, so the numbers are the ones the loop actually produced at this
-// node count.
+// benchRateLoopNodes is benchRateLoop plus the fixture-size metrics section 18
+// needs to judge complexity class: nodes, observed, allocs/node and B/node. The
+// allocation figures are read from MemStats deltas around the timed loop rather
+// than derived from the reported per-op totals, so the numbers are the ones the
+// loop actually produced at this node count.
+//
+// It also OWNS the fixture-size metrics instead of letting each caller report
+// them. b.ResetTimer() below runs clear(b.extra), so a b.ReportMetric made
+// before this helper is called is discarded without a word: reporting "nodes"
+// and "observed" at the call site silently dropped both. Owning them here makes
+// the ordering a property of the helper instead of a convention, and removes
+// four duplicated report pairs.
 //
 // The goroutine STACK delta is reported too. Section 18 requires bounded,
 // non-recursive traversal, and StackInuse/StackSys around the loop is the direct
 // measurement: an iterative traversal leaves the stack flat as the node count
 // grows, while a recursive one scales it linearly with depth. Reporting it keeps
 // the claim falsifiable instead of asserted.
-func benchRateLoopNodes(b *testing.B, rater *billing.ReferenceRater, input economics.PostUsageRatingInput, nodes int) {
+//
+// That stack-B/op is a DELTA DIVIDED BY THE ITERATION COUNT, and it is not
+// comparable with the identically named metric in
+// BenchmarkComponentRaterDeepestPublishableChain, which is one uncapped Rate.
+func benchRateLoopNodes(b *testing.B, rater *billing.ReferenceRater, input economics.PostUsageRatingInput, nodes, observed int) {
 	b.Helper()
 	b.ReportAllocs()
 	var before, after runtime.MemStats
@@ -208,6 +219,8 @@ func benchRateLoopNodes(b *testing.B, rater *billing.ReferenceRater, input econo
 	if iterations <= 0 {
 		iterations = 1
 	}
+	b.ReportMetric(float64(nodes), "nodes")
+	b.ReportMetric(float64(observed), "observed")
 	if nodes > 0 {
 		b.ReportMetric(float64(after.Mallocs-before.Mallocs)/iterations/float64(nodes), "allocs/node")
 		b.ReportMetric(float64(after.TotalAlloc-before.TotalAlloc)/iterations/float64(nodes), "B/node")
@@ -665,10 +678,10 @@ func BenchmarkComponentRaterWideFanOutPerNodeScaling(b *testing.B) {
 			tariff, obs := benchFanOutFixture(b, width, true)
 			rater := benchRater(b, tariff)
 			input := benchInput(b, tariff, obs)
-			b.ReportMetric(float64(width+1), "nodes")
-			b.ReportMetric(float64(width+1), "observed")
 			benchRateSanity(b, rater, input, nil)
-			benchRateLoopNodes(b, rater, input, width+1)
+			// 11 declared nodes; the helper reports nodes/observed, because it
+			// owns every metric that must survive its own ResetTimer.
+			benchRateLoopNodes(b, rater, input, width+1, width+1)
 		})
 	}
 }
@@ -683,10 +696,8 @@ func BenchmarkComponentRaterWideFanOutUnobservedPerNode(b *testing.B) {
 	tariff, obs := benchFanOutFixture(b, width, false)
 	rater := benchRater(b, tariff)
 	input := benchInput(b, tariff, obs)
-	b.ReportMetric(float64(width+1), "nodes")
-	b.ReportMetric(1, "observed")
 	benchRateSanity(b, rater, input, billing.ErrSchemaPartitionIncomplete)
-	benchRateLoopNodes(b, rater, input, width+1)
+	benchRateLoopNodes(b, rater, input, width+1, 1)
 }
 
 // BenchmarkComponentRaterDeepChainPerNodeScaling re-runs the baseline deep-chain
@@ -697,10 +708,8 @@ func BenchmarkComponentRaterDeepChainPerNodeScaling(b *testing.B) {
 			tariff, obs := benchDeepChainFixture(b, depth)
 			rater := benchRater(b, tariff)
 			input := benchInput(b, tariff, []metering.Observation{obs})
-			b.ReportMetric(float64(depth+1), "nodes")
-			b.ReportMetric(2, "observed")
 			benchRateSanity(b, rater, input, billing.ErrSchemaOverlapConflict)
-			benchRateLoopNodes(b, rater, input, depth+1)
+			benchRateLoopNodes(b, rater, input, depth+1, 2)
 		})
 	}
 }
@@ -717,9 +726,12 @@ func benchMaxPublishableChainDepth() int {
 // benchRecursionGuardDepths spans the baseline's deepest chain and a modest step
 // past it, so the stack metric has room to show growth if any traversal is
 // recursive. The order-of-magnitude-deep cases (3200 and the 8192 maximum) are
-// NOT here: at 200x benchtime they would dominate the whole suite. They live in
-// TestReplayDeepestPublishableChainTraversalIsBounded, which runs each depth once
-// and makes the same stack measurement.
+// NOT here: at 200x benchtime they would dominate the whole suite. The maximum
+// is measured once per Rate by BenchmarkComponentRaterDeepestPublishableChain,
+// which is where the ENFORCED stack ceiling lives, and walked once per depth by
+// TestReplayDeepestPublishableChainTraversalIsBounded, which pins the durable
+// identity. That benchmark's stack-B/op is a single Rate's delta and must not be
+// differenced against the per-iteration stack-B/op printed here.
 var benchRecursionGuardDepths = []int{200, 400}
 
 // BenchmarkComponentRaterRecursionGuard measures the goroutine STACK the rater
@@ -731,18 +743,137 @@ var benchRecursionGuardDepths = []int{200, 400}
 // Kahn topological order, or a bounded fixed-point sweep) holds a flat stack and
 // reports the same stack-B/op at every depth. This is the direct, falsifiable
 // measurement behind the section-18 claim that the graph work is bounded and
-// non-recursive; it is not a proxy for it.
+// non-recursive; it is not a proxy for it. It reports but does not ENFORCE: the
+// enforced ceiling on stack growth is benchMaxStackGrowthBytes, checked in
+// BenchmarkComponentRaterDeepestPublishableChain at the maximum depth.
 func BenchmarkComponentRaterRecursionGuard(b *testing.B) {
 	for _, depth := range benchRecursionGuardDepths {
 		b.Run(fmt.Sprintf("depth=%d", depth), func(b *testing.B) {
 			tariff, obs := benchDeepChainFixture(b, depth)
 			rater := benchRater(b, tariff)
 			input := benchInput(b, tariff, []metering.Observation{obs})
-			b.ReportMetric(float64(depth+1), "nodes")
 			benchRateSanity(b, rater, input, billing.ErrSchemaOverlapConflict)
-			benchRateLoopNodes(b, rater, input, depth+1)
+			benchRateLoopNodes(b, rater, input, depth+1, 2)
 		})
 	}
+}
+
+// benchSaturatingSub subtracts two MemStats counters, returning 0 rather than
+// wrapping when the second sample is lower (which a GC cycle can legitimately
+// produce).
+func benchSaturatingSub(after, before uint64) uint64 {
+	if after < before {
+		return 0
+	}
+	return after - before
+}
+
+// benchMaxStackGrowthBytes is the ENFORCED ceiling on how much goroutine stack
+// one Rate may add at the maximum publishable containment depth. Exceeding it
+// fails BenchmarkComponentRaterDeepestPublishableChain, so the section-18
+// non-recursion claim is a gate rather than a number nobody compares.
+//
+// The measurement it is derived from, taken with exactly the benchmark's own
+// protocol (warm-up Rate, runtime.GC(), StackInuse read either side of ONE
+// Rate): the delta is exactly 65536 bytes -- one 64 KiB runtime stack quantum --
+// at every depth of the ladder 200, 400, 800, 3200 and 8192, and it reproduced
+// 65536 on four consecutive runs at the maximum. Flat across a 40x depth range
+// is the signature of a traversal that holds a bounded working set rather than
+// one live frame per containment level. The ceiling is that measured quantum
+// plus one further quantum of margin, so a single extra span of process-wide
+// stack bookkeeping is tolerated.
+//
+// The margin is honest rather than generous on purpose. A recursive walk at
+// depth 8192 needs thousands of live frames, i.e. hundreds of KiB to several
+// MiB, two to three orders of magnitude past this ceiling, so the bound cannot
+// be passed by accident while a real regression is still caught. It is also not
+// a tight machine-specific pin: the reading is a MemStats counter, and the
+// margin is what keeps it honest on a host whose stack allocator hands out
+// spans differently.
+const benchMaxStackGrowthBytes = 2 * 64 << 10
+
+// BenchmarkComponentRaterDeepestPublishableChain measures ONE Rate over the
+// deepest chain the PUBLIC publication bounds permit
+// (MaxComponentSchemas x MaxComponentSchemaRelationships edges) and reports that
+// single call's allocations, bytes and goroutine-stack delta per Rate, FAILING
+// when the stack delta passes benchMaxStackGrowthBytes.
+//
+// A RECURSIVE traversal needs one live goroutine frame per containment level, so
+// its stack grows with depth; an ITERATIVE one (work queue, Kahn topological
+// order, bounded sweep) holds a flat stack. The measured stack delta at the
+// maximum depth is the direct, falsifiable measurement behind the section-18
+// non-recursion claim, and benchMaxStackGrowthBytes is what makes it enforce
+// that claim.
+//
+// Its stack-B/op is ONE uncapped Rate's delta, NOT a per-iteration average like
+// the identically named metric benchRateLoopNodes prints, so the two must not be
+// read as one series.
+//
+// This measurement used to live in
+// TestReplayDeepestPublishableChainTraversalIsBounded, which derives it from
+// runtime.MemStats. Those counters are PROCESS-wide, and that test runs
+// t.Parallel() beside the rest of the package, so a delta taken across one Rate
+// also contained every unrelated allocation the process made between the two
+// reads, with nothing bounding that share. A benchmark body is the only place
+// this process-wide reading means anything, because -run '^$' leaves it alone in
+// the process.
+//
+// ONE Rate, not b.N of them. At the publication bound a single Rate costs
+// seconds and gigabytes, so no repeated benchtime is affordable, and the
+// framework's own -benchmem divisors would divide that one Rate by b.N and
+// understate it by exactly that factor. Every per-op metric is therefore
+// measured from one call and reported explicitly, which is what ReportMetric's
+// documented override of "ns/op", "B/op" and "allocs/op" is for; rates-measured
+// states how many calls the numbers came from, so the framework's iteration
+// count is never mistaken for it. ReportAllocs is still required, because the
+// framework only PRINTS the B/op and allocs/op suffix when alloc reporting is
+// enabled, and the values reported here override what it would have printed.
+func BenchmarkComponentRaterDeepestPublishableChain(b *testing.B) {
+	depth := benchMaxPublishableChainDepth()
+	b.ReportAllocs()
+	tariff, obs := benchDeepChainFixture(b, depth)
+	rater := benchRater(b, tariff)
+	input := benchInput(b, tariff, []metering.Observation{obs})
+
+	// The sanity rate doubles as the warm-up: the deepest chain must still
+	// refuse a payable overlap, and the fixture's first-touch costs stay outside
+	// the measured window.
+	benchRateSanity(b, rater, input, billing.ErrSchemaOverlapConflict)
+
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	start := time.Now()
+	val, err := rater.Rate(context.Background(), input)
+	elapsed := time.Since(start)
+	runtime.ReadMemStats(&after)
+	if !errors.Is(err, billing.ErrSchemaOverlapConflict) {
+		b.Fatalf("measured rate: err=%v, want %v; completeness=%q lines=%d",
+			err, billing.ErrSchemaOverlapConflict, val.Completeness, len(val.Lines))
+	}
+	allocs := benchSaturatingSub(after.Mallocs, before.Mallocs)
+	bytes := benchSaturatingSub(after.TotalAlloc, before.TotalAlloc)
+	stack := benchSaturatingSub(after.StackInuse, before.StackInuse)
+	if stack > benchMaxStackGrowthBytes {
+		b.Fatalf("one Rate over the %d-edge deepest publishable chain grew the process goroutine stack by %d B, "+
+			"over the %d B ceiling. A RECURSIVE containment traversal needs one live goroutine frame per level, "+
+			"which at this depth is thousands of frames and hundreds of KiB to MiB; an iterative one is flat at one "+
+			"%d B quantum. If this is a machine-specific stack-allocation artefact rather than a regression, "+
+			"say so in the review rather than widening the constant silently",
+			depth, stack, benchMaxStackGrowthBytes, 64<<10)
+	}
+	nodes := float64(depth + 1)
+	b.ReportMetric(float64(depth+1), "nodes")
+	b.ReportMetric(1, "rates-measured")
+	b.ReportMetric(float64(elapsed.Nanoseconds()), "ns/op")
+	b.ReportMetric(float64(allocs), "allocs/op")
+	b.ReportMetric(float64(bytes), "B/op")
+	b.ReportMetric(float64(stack), "stack-B/op")
+	b.ReportMetric(float64(allocs)/nodes, "allocs/node")
+	b.ReportMetric(float64(bytes)/nodes, "B/node")
+	b.Logf("deepest publishable chain: depth=%d nodes=%d rates=1 wall=%s allocs=%d bytes=%d stack_delta_B=%d stack_ceiling_B=%d completeness=%s fingerprint=%s",
+		depth, depth+1, elapsed.Round(time.Millisecond), allocs, bytes, stack, benchMaxStackGrowthBytes,
+		val.Completeness, val.Fingerprint())
 }
 
 // BenchmarkComponentRaterPublishedBounds is a one-shot assertion that the four

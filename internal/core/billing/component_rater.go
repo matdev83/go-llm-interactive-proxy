@@ -1292,8 +1292,18 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 			setGap(entry, unusable(key, measure.Value == nil))
 		}
 	}
-	for _, entry := range byKey {
-		if entry.rat == nil {
+	// setGap only records the FIRST gap, so this scan must not decide that
+	// winner by map order: with two valueless entries and no earlier gap, the
+	// reported component would be whichever key the runtime happened to visit
+	// first. The sorted key slice orders this scan and the projection below
+	// together, so the first gap is a structural property of the evidence.
+	keys := make([]string, 0, len(byKey))
+	for key := range byKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if entry := byKey[key]; entry.rat == nil {
 			entry.complete = false
 			setGap(entry, unusable(entry.key, true))
 		}
@@ -1304,17 +1314,12 @@ func aggregateMeasures(observations []metering.Observation, store string, select
 	if len(reduced.UnusablePredecessors) != 0 {
 		setFirstErr(fmt.Errorf("%w: correction predecessor has no usable quantity baseline", ErrRatingEvidenceMissing))
 	}
+	// keptEntries == nil means NO retail selection mask is in force: under a
+	// mask every kept-side gap already set firstErr above, so unselected evidence
+	// must not fail the selected basis with this generic reduction diagnostic.
 	if !reduced.Complete && firstErr == nil && keptEntries == nil && reductionIncompleteBeyondExclusions(reduced, exclude) {
 		firstErr = fmt.Errorf("%w: reduced quantity evidence is incomplete", ErrQuantityIncomplete)
 	}
-	// Under a retail selection mask every kept-side gap already sets firstErr
-	// above, so unselected evidence must not fail the selected basis with the
-	// generic reduction diagnostic.
-	keys := make([]string, 0, len(byKey))
-	for key := range byKey {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
 	out := make([]aggregateMeasure, 0, len(keys))
 	for _, key := range keys {
 		entry := *byKey[key]
