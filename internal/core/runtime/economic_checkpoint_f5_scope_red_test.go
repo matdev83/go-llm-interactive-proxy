@@ -182,7 +182,7 @@ func f5ScopeReduction(t *testing.T, observations []metering.Observation) []strin
 
 func f5OpenStore(t *testing.T, path string) *journalstore.DurableStore {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", durableCheckpointSQLiteDSN(path))
 	if err != nil {
 		t.Fatal(err)
 	}

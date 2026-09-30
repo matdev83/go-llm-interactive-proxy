@@ -214,3 +214,13 @@ The triggering Windows artifact contained the billing package's ten-minute test
 timeout, although its final log tail showed successful unrelated packages. The
 historical anchor passed. This is an execution-tier correction for exhaustive
 certification, not a compiler-cache hit claim.
+
+Default runtime checkpoint fixtures retain real SQLite files and restart proofs,
+using WAL with `synchronous=FULL` to avoid rollback-journal creation without
+disabling commit synchronization (see [SQLite's WAL documentation](https://sqlite.org/wal.html)).
+The independent-reader fixture opens every cursor before reading and uses
+scheduler yields for varied pacing instead of an OS timer for each small read.
+Push-classifier scenarios reuse one repository per workflow lane, running serially
+against successive real commits; lanes remain parallel and every output assertion
+is retained. These fixture changes leave production database settings and all
+Windows cost budgets unchanged.

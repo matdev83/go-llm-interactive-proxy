@@ -120,7 +120,7 @@ func r5bAttempt(sink metering.ObservationSink) *attemptSession {
 
 func r5bOpenStore(t *testing.T, path string) *journalstore.DurableStore {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", durableCheckpointSQLiteDSN(path))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
