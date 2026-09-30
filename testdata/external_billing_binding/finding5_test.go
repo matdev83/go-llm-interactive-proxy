@@ -180,7 +180,7 @@ func TestCrossGenerationFrozenSnapshots(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
 
-	old := doLiveWork(t, ctx, rt, fix)
+	old := doLiveWork(ctx, t, rt, fix)
 	if old.usageVersion != "usage-v1" {
 		t.Fatalf("old work usage version = %q, want usage-v1", old.usageVersion)
 	}
@@ -196,7 +196,7 @@ func TestCrossGenerationFrozenSnapshots(t *testing.T) {
 		t.Fatalf("refresh: %v", err)
 	}
 
-	recent := doLiveWork(t, ctx, rt, fix)
+	recent := doLiveWork(ctx, t, rt, fix)
 	if recent.usageVersion != "usage-v2" {
 		t.Fatalf("new work usage version = %q, want usage-v2", recent.usageVersion)
 	}
@@ -232,7 +232,7 @@ func TestCrossGenerationFrozenSnapshots(t *testing.T) {
 // doLiveWork executes one admitted-then-open-fails request through the real
 // host and captures the full cross-port identity chain plus the generation
 // snapshot context it ran under.
-func doLiveWork(t *testing.T, ctx context.Context, rt *lipruntime.Runtime, fix *OfferFixture) workEvidence {
+func doLiveWork(ctx context.Context, t *testing.T, rt *lipruntime.Runtime, fix *OfferFixture) workEvidence {
 	t.Helper()
 	sctx := scope.WithScope(ctx, validScope())
 	screenBefore, quoterBefore := fix.Screen.callsValue(), fix.Quoter.callsValue()
