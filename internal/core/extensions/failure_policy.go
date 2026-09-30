@@ -28,7 +28,7 @@ const (
 // DefaultFailurePolicyForStage returns the documented default for the stage (design section 17).
 func DefaultFailurePolicyForStage(stage string) FailurePolicy {
 	switch stage {
-	case feature.StageIDSessionOpen:
+	case feature.StageIDSessionOpen, feature.StageIDSessionClassification:
 		return FailurePolicyFailOpen
 	case feature.StageIDTransportAuth, feature.StageIDSecretGuard:
 		return FailurePolicyFailClosed

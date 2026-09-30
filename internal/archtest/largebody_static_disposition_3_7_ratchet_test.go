@@ -14,7 +14,7 @@ import (
 // 5, 21, 22; design sections 4 and 15).
 //
 // These ratchets prevent architectural drift:
-// 1. All 26 production planes must be explicitly classified (no unclassified planes allowed).
+// 1. All 27 production planes must be explicitly classified (no unclassified planes allowed).
 // 2. Occupied Local Turn, occupied Secret Guard, canonical-only traffic, and missing two-phase executor
 //    unconditionally yield DefinitelyCanonical with StaticWireReasonStaticBlocker.
 // 3. Static disposition never says wire-eligible.
@@ -36,14 +36,14 @@ func makeCleanArchPlanes() []largebody.PlaneEligibilityInput {
 	return planes
 }
 
-// TestArch_StaticDisposition_26PlanesExplicitlyClassified verifies that all 26
+// TestArch_StaticDisposition_27PlanesExplicitlyClassified verifies that all 27
 // standard production planes have an explicit, non-unclassified request access class
 // and that unclassified planes fail closed (Requirements 5.1, 5.2, 5.3, 5.12, 22.4).
-func TestArch_StaticDisposition_26PlanesExplicitlyClassified(t *testing.T) {
+func TestArch_StaticDisposition_27PlanesExplicitlyClassified(t *testing.T) {
 	t.Parallel()
 
 	require.Len(t, feature.StandardPlanes, largebody.WireEligibilityPlaneCount,
-		"feature.StandardPlanes count must match largebody.WireEligibilityPlaneCount (26 planes)")
+		"feature.StandardPlanes count must match largebody.WireEligibilityPlaneCount (27 planes)")
 
 	seen := make(map[string]bool)
 	for _, decl := range feature.StandardPlanes {

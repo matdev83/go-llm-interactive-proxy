@@ -74,6 +74,29 @@ func stageOccupancyFromFrozen(frozen lipfeature.FrozenPlaneSet) []InventoryStage
 	}
 }
 
+func TestForbiddenMirrorPredicate_SessionClassifierDiagnosticIDBranch(t *testing.T) {
+	t.Parallel()
+
+	src := `package diag
+
+func stageOccupancyFromClassifierID(planeID string) bool {
+	switch planeID {
+	case "session_classifier":
+		return true
+	default:
+		return false
+	}
+}
+`
+	findings := scanSyntheticSource(t, "internal/core/diag/inventory_extensions.go", src, Wave5c_Residual)
+	if len(findings) == 0 {
+		t.Fatal("expected classifier plane-ID diagnostic branch to be rejected")
+	}
+	if findings[0].ShapeKind != MirrorDiagArm || findings[0].PlaneID != "session_classifier" {
+		t.Fatalf("unexpected classifier diagnostic branch finding: %+v", findings[0])
+	}
+}
+
 // TestForbiddenMirrorPredicate_StageConsumers verifies that stage consumer accessors
 // outside AllowedStageConsumers or failing thin-delegation are rejected past their wave,
 // while whitelisted thin-delegating stage consumers pass.

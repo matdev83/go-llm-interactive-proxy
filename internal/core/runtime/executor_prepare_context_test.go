@@ -149,6 +149,15 @@ func TestExecutor_prepareSubmitAndALeg_sessionOpenHintsNotTrustedAsAuthority(t *
 	if views.Session.ALegID != aLeg.ALegID {
 		t.Fatalf("views aleg id: want %q got %q", aLeg.ALegID, views.Session.ALegID)
 	}
+	if views.Session.ClientSessionHint != "client-2" {
+		t.Fatalf("views client hint: want client-2 got %q", views.Session.ClientSessionHint)
+	}
+	if views.Session.AuthoritativeSessionID == "" || views.Session.AuthoritativeSessionID == views.Session.ClientSessionHint {
+		t.Fatalf("client hint must remain separate from proxy session authority: %+v", views.Session)
+	}
+	if got := views.Session.PartitionKey(); got != views.Session.AuthoritativeSessionID {
+		t.Fatalf("secure session partition key: got %q want proxy authority %q", got, views.Session.AuthoritativeSessionID)
+	}
 	if views.Session.Labels["opened"] != "yes" {
 		t.Fatalf("views session labels: %v", views.Session.Labels)
 	}

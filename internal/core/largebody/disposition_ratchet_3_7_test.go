@@ -381,7 +381,7 @@ func TestStaticDisposition_NormalPotentiallyEligibleRatchet(t *testing.T) {
 	const genID = "gen-normal-eligible"
 
 	// Standard production composition:
-	// - All 26 planes declared (unoccupied CanonicalRequired or ResponseOnly/MetadataOnly)
+	// - All 27 planes declared (unoccupied CanonicalRequired or ResponseOnly/MetadataOnly)
 	// - Response-only hooks inactive (Blocker 2: ResponsePartOccupied: true statically blocks)
 	// - TwoPhaseExecutorAvailable: true
 	// - Backends present (BackendsEmpty: false)

@@ -38,7 +38,7 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
           bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
@@ -46,7 +46,7 @@ jobs:
   analyze:
     name: Analyze (Go)
     needs: changes
-    if: always()
+    if: always() && !cancelled()
     # Required status check: see ci.yml repo-hygiene. Always run the job so
     # the check reports success (not skip) on docs-only PRs; guard steps.
     runs-on: ubuntu-latest

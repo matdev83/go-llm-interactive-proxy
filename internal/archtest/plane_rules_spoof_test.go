@@ -102,6 +102,62 @@ type PlaneSnapshot struct {
 	}
 }
 
+func TestForbiddenMirrorPredicate_SessionClassifierTransportFields(t *testing.T) {
+	t.Parallel()
+
+	src := `package runtimebundle
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
+
+type HandwrittenPlaneTransport struct {
+	SessionClassifier   sessionclassification.Classifier
+	sessionClassifier   sessionclassification.Classifier
+	sessionClassifierID string
+}
+`
+	findings := scanSyntheticSource(t, "internal/infra/runtimebundle/session_transport.go", src, Wave5c_Residual)
+	if len(findings) != 3 {
+		t.Fatalf("expected findings for all classifier mirror fields, got %+v", findings)
+	}
+	found := map[string]bool{
+		"SessionClassifier":   false,
+		"sessionClassifier":   false,
+		"sessionClassifierID": false,
+	}
+	for _, finding := range findings {
+		if finding.ShapeKind != MirrorNamedTransportField || finding.PlaneID != "session_classifier" {
+			t.Fatalf("unexpected classifier transport finding: %+v", finding)
+		}
+		if _, ok := found[finding.Identifier]; !ok {
+			t.Fatalf("unexpected classifier field identifier: %+v", finding)
+		}
+		found[finding.Identifier] = true
+	}
+	for identifier, seen := range found {
+		if !seen {
+			t.Errorf("scanner did not detect classifier mirror field %q", identifier)
+		}
+	}
+}
+
+func TestForbiddenMirrorPredicate_UnauthorizedSessionClassifierRead(t *testing.T) {
+	t.Parallel()
+
+	src := `package custom
+import lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+
+func UnauthorizedClassifierRead(f lipfeature.FrozenPlaneSet) any {
+	return lipfeature.Get(f, lipfeature.PlaneSessionClassifier)
+}
+`
+	findings := scanSyntheticSource(t, "internal/custom/classifier_read.go", src, Wave5c_Residual)
+	if len(findings) == 0 {
+		t.Fatal("expected unauthorized session classifier read to be rejected")
+	}
+	if findings[0].ShapeKind != MirrorStageConsumer || findings[0].PlaneID != "session_classifier" {
+		t.Fatalf("unexpected unauthorized classifier read finding: %+v", findings[0])
+	}
+}
+
 // TestForbiddenMirrorPredicate_SpoofedLegitimateStructInWrongPath verifies that spoofing a legitimate
 // allowlisted struct name (e.g. HostContributions, ProductionOptions, Options) in an unauthorized package/path
 // is rejected (Requirement B).

@@ -123,7 +123,8 @@ function Test-PolicyProtection {
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
         [Parameter(Mandatory = $true)][string]$HeadCommit,
         [AllowEmptyString()][string]$BaseRevision,
-        [Parameter(Mandatory = $true)][bool]$AllowGrowth
+        [Parameter(Mandatory = $true)][bool]$AllowGrowth,
+        [bool]$AllowPolicyUpdate = $false
     )
 
     if ([string]::IsNullOrWhiteSpace($BaseRevision)) {
@@ -148,10 +149,10 @@ function Test-PolicyProtection {
         throw "unable to compare $PolicyRelativePath with base $baseCommit (git diff exit $diffExitCode)"
     }
 
-    if (-not $AllowGrowth) {
-        throw "budget policy changed relative to -BaseSHA $baseCommit; set LIP_ALLOW_TEST_COST_GROWTH=1 only for an authorized ratchet update"
+    if (-not $AllowGrowth -and -not $AllowPolicyUpdate) {
+        throw "budget policy changed relative to -BaseSHA $baseCommit; set LIP_ALLOW_TEST_COST_POLICY_UPDATE=1 for an authorized policy update, or LIP_ALLOW_TEST_COST_GROWTH=1 to also authorize measurement overrides"
     }
-    Write-Host "Policy protection: budget change allowed by LIP_ALLOW_TEST_COST_GROWTH=1" -ForegroundColor Yellow
+    Write-Host "Policy protection: authorized budget update (measurement overrides=$AllowGrowth)" -ForegroundColor Yellow
 }
 
 function Get-TestParallel {
@@ -182,6 +183,17 @@ function Get-EffectiveOutputRoot {
         return [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) $name))
     }
     return Convert-ToAbsolutePath $Requested $RepositoryRoot
+}
+
+function Get-AnchorWorktreeRoot {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$AnchorCommit
+    )
+
+    # Go compiler entries include source paths. Reuse the pinned anchor's short
+    # path across hosted runs; per-run TEMP/TMP and artifacts remain isolated.
+    return Join-Path (Split-Path -Parent $RepositoryRoot) ("lip-testcost-anchor-" + $AnchorCommit.Substring(0, 8))
 }
 
 function Assert-OutputRoot {
@@ -333,6 +345,30 @@ function Apply-AnchorCompatibilityPatch {
         [Parameter(Mandatory = $true)][string]$TempRoot
     )
 
+    # The current frozen anchor has the same observability fixture's 50 ms
+    # stall guard. Under Windows load it expired before an immediate fake
+    # cancellation ran. Match the head's scheduler-safe test guard without
+    # changing assertions, production sources, workloads or cost budgets.
+    if ($AnchorCommit -eq "bb1ef9620ee6e8d9199950161e46fc51914945f2") {
+        $relativePath = "internal/core/runtime/cancellation_observability_phase6_test.go"
+        $path = Join-Path $AnchorRoot $relativePath
+        $content = [IO.File]::ReadAllText($path)
+        $old = "CancelTimeout: 50 * time.Millisecond"
+        if ([regex]::Matches($content, [regex]::Escape($old)).Count -ne 5) {
+            throw "frozen observability fixture changed: expected five known cancellation guards"
+        }
+        $content = $content.Replace($old, "CancelTimeout: time.Second")
+        [IO.File]::WriteAllText($path, $content, [Text.UTF8Encoding]::new($false))
+        Invoke-GitChecked @("-C", $AnchorRoot, "add", "--", $relativePath)
+        Invoke-GitChecked @(
+            "-C", $AnchorRoot, "-c", "user.name=Go-LIP test-cost ratchet",
+            "-c", "user.email=test-cost-ratchet@invalid.local", "-c", "commit.gpgsign=false",
+            "commit", "-m", "test: stabilize frozen observability cancellation guards"
+        )
+        Test-CleanCheckout $AnchorRoot
+        return
+    }
+
     $bootstrapAnchor = "a7a00cedddc4e49d7f96502ee28a6ea1d9603315"
     if ($AnchorCommit -ne $bootstrapAnchor) {
         return
@@ -424,6 +460,10 @@ function Apply-CurrentAnchorTestCompatibilityPatch {
     # LIP_ALLOW_LARGE_CHANGE override. The frontendpipe saturation tests hold
     # their admission permit until a competing request is provably rejected, so
     # the anchor does not depend on overlapping goroutine scheduling under load.
+    # The wire-counter timeout fake waits for cancellation instead of racing
+    # two timers that can both be ready when a loaded Windows runner resumes.
+    # The EOF fixture explicitly releases its source and permits keepalives
+    # before EOF instead of assuming its reader always beats the idle timer.
     # Production sources still come from the anchor.
     $testCompatibilityPathsByAnchor = @{
         "6dbb831885341516117034923f0c3203373aded0" = @(
@@ -432,7 +472,9 @@ function Apply-CurrentAnchorTestCompatibilityPatch {
         "bb1ef9620ee6e8d9199950161e46fc51914945f2" = @(
             "tools/changesize/main_test.go",
             "internal/plugins/frontends/frontendpipe/candidate_proof_saturation_race_test.go",
-            "internal/plugins/frontends/frontendpipe/candidate_assessment_saturation_race_test.go"
+            "internal/plugins/frontends/frontendpipe/candidate_assessment_saturation_race_test.go",
+            "internal/core/runtime/wire_metering_composition_test.go",
+            "internal/core/stream/keepalive_test.go"
         )
     }
     if (-not $testCompatibilityPathsByAnchor.ContainsKey($AnchorCommit)) {
@@ -586,7 +628,8 @@ if ([string]::IsNullOrWhiteSpace($AnchorRevision)) {
 }
 $AnchorCommit = Resolve-Commit $RepositoryRoot $AnchorRevision "anchor revision"
 $allowOverride = Test-Truthy $env:LIP_ALLOW_TEST_COST_GROWTH
-Test-PolicyProtection $RepositoryRoot $HeadCommit $BaseSHA $allowOverride
+$allowPolicyUpdate = Test-Truthy $env:LIP_ALLOW_TEST_COST_POLICY_UPDATE
+Test-PolicyProtection $RepositoryRoot $HeadCommit $BaseSHA $allowOverride $allowPolicyUpdate
 $TestParallel = Get-TestParallel $Parallel
 $EffectiveOutputRoot = Get-EffectiveOutputRoot $OutputRoot $RepositoryRoot
 Assert-OutputRoot $EffectiveOutputRoot $RepositoryRoot
@@ -610,7 +653,7 @@ New-Item -ItemType Directory -Path $measurementRoot, $reportRoot, $binaryRoot -F
 $runID = [Guid]::NewGuid().ToString("N")
 # Keep the checkout path short: the pinned anchor contains tracked paths that
 # exceed legacy Win32 MAX_PATH when nested under a long runner TEMP directory.
-$anchorRoot = Join-Path (Split-Path -Parent $RepositoryRoot) ("lip-testcost-anchor-" + $runID.Substring(0, 8))
+$anchorRoot = Get-AnchorWorktreeRoot $RepositoryRoot $AnchorCommit
 $anchorTempRoot = Join-Path $EffectiveOutputRoot ("a-" + $runID.Substring(0, 8))
 $headTempRoot = Join-Path $EffectiveOutputRoot ("h-" + $runID.Substring(0, 8))
 if (Test-Path -LiteralPath $anchorRoot) {

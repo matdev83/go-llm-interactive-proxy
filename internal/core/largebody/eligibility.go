@@ -26,7 +26,7 @@ import (
 
 const (
 	// WireEligibilityPlaneCount is the closed V1 plane census (Task 1.9).
-	WireEligibilityPlaneCount = 26
+	WireEligibilityPlaneCount = 27
 	// maxEligibilityIDChars bounds unfamiliar IDs echoed in diagnostics so
 	// error text stays bounded (Requirement 22.3).
 	maxEligibilityIDChars = 64
@@ -106,6 +106,7 @@ var wireEligibilityPlaneOrder = [WireEligibilityPlaneCount]string{
 	"secret_guard_execution",
 	"local_turn_handlers",
 	"terminal_decision_provider",
+	"session_classifier",
 }
 
 // WireEligibilityPlaneID resolves a fixed plane index to its stable ID.
@@ -209,7 +210,7 @@ const (
 )
 
 // PlaneEligibilityInput is one frozen plane fact: stable ID, V1 access
-// class, and generation occupancy. The slice must cover exactly the 26 known
+// class, and generation occupancy. The slice must cover exactly the 27 known
 // planes in any order; unknown, duplicate, missing, or unclassified entries
 // fail compilation.
 type PlaneEligibilityInput struct {

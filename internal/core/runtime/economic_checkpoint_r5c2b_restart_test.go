@@ -47,7 +47,7 @@ type r5c2bFileStore struct {
 
 func r5c2bOpenFileStore(t *testing.T, path, storeID string) *r5c2bFileStore {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", durableCheckpointSQLiteDSN(path))
 	if err != nil {
 		t.Fatalf("r5c2b open sqlite: %v", err)
 	}

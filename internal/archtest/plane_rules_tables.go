@@ -40,6 +40,11 @@ var KnownPlaneFields = map[string]PlaneFieldMetadata{
 	"TerminalDecisionProvider":   {PlaneID: "terminal_decision_provider", Wave: Wave5b_LocalTurnTerminal},
 	"terminalDecisionProviderID": {PlaneID: "terminal_decision_provider", Wave: Wave5b_LocalTurnTerminal},
 	"terminalDecisionProvider":   {PlaneID: "terminal_decision_provider", Wave: Wave5b_LocalTurnTerminal},
+
+	// Wave 5c: Session classification
+	"SessionClassifier":   {PlaneID: "session_classifier", Wave: Wave5c_Residual},
+	"sessionClassifier":   {PlaneID: "session_classifier", Wave: Wave5c_Residual},
+	"sessionClassifierID": {PlaneID: "session_classifier", Wave: Wave5c_Residual},
 }
 
 // KnownPlaneIDs maps canonical plane IDs to plane metadata.
@@ -69,6 +74,7 @@ var KnownPlaneIDs = map[string]PlaneFieldMetadata{
 	"compaction_preservers":                 {PlaneID: "compaction_preservers", Wave: Wave5a_GuardsCompaction},
 	"local_turn_handlers":                   {PlaneID: "local_turn_handlers", Wave: Wave5b_LocalTurnTerminal},
 	"terminal_decision_provider":            {PlaneID: "terminal_decision_provider", Wave: Wave5b_LocalTurnTerminal},
+	"session_classifier":                    {PlaneID: "session_classifier", Wave: Wave5c_Residual},
 }
 
 // Whitelisted non-plane fields for individual structs.

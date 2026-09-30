@@ -5,17 +5,24 @@ set -euo pipefail
 
 BASE=${1:-}
 HEAD=${2:-HEAD}
-if [[ -z "$BASE" ]]; then
+if [[ -z "$BASE" || "$BASE" =~ ^0{40}$ ]]; then
   exit 0
 fi
 
-mapfile -t FILES < <(git diff --name-only "$BASE" "$HEAD")
+git rev-parse --verify "${BASE}^{commit}" >/dev/null
+git rev-parse --verify "${HEAD}^{commit}" >/dev/null
+mapfile -d '' -t FILES < <(git diff --name-only -z "$BASE" "$HEAD")
 declare -A SELECTED=()
 full=0
 
 for file in "${FILES[@]}"; do
   case "$file" in
     go.mod|go.sum|*/go.mod|*/go.sum)
+      full=1
+      ;;
+    pkg/lipsdk/backendplugin/**|.github/actions/go-cache/**|scripts/ci-go-cache.py|scripts/cross-platform-selection.sh)
+      # Shared contracts and cache/selector policy require a complete baseline,
+      # even when the same commit also changes one particular connector.
       full=1
       ;;
     connectors/*/*)

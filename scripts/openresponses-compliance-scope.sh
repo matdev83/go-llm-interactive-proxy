@@ -122,11 +122,15 @@ fi
 
 BASE=${1:-}
 HEAD=${2:-HEAD}
-if [[ -z "$BASE" ]]; then
+if [[ -z "$BASE" || "$BASE" =~ ^0{40}$ ]]; then
   printf 'true\n'
   exit 0
 fi
 
+# Process substitution does not propagate git's status to the loop. Validate
+# both revisions before allowing an unrelated-diff bypass.
+git rev-parse --verify "${BASE}^{commit}" >/dev/null
+git rev-parse --verify "${HEAD}^{commit}" >/dev/null
 while IFS= read -r -d '' file; do
   if file_requires_suite "$file"; then
     printf 'true\n'
