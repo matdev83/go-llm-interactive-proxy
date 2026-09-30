@@ -18,21 +18,14 @@ import (
 // counts toward the capped total.
 
 // TestBillingEconomicsGrowthManifestLocked pins the remediation-3C allowance table:
-// 164 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at c7fa4169),
-// audited-credit sum 57,400, cap 57,351. The per-entry re-audit history lives on
-// EconomicsConvergenceGrowthOverlayMax and the manifest in
-// billing_convergence_growth.go; this test only locks the arithmetic. Schema, order,
-// uniqueness and attribution run through the shared table validator so production and
-// injected-negative tests enforce identical rules, and per-entry fork values are
-// verified mechanically by TestBillingEconomicsGrowthForkBaselinesExact, so
+// 165 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at c7fa4169),
+// audited-credit sum 57,701, cap 57,726. The per-entry re-audit history lives in
+// billing_convergence_growth_history.go; this test only locks the arithmetic. Schema,
+// order, uniqueness and attribution run through the shared table validator so
+// production and injected-negative tests enforce identical rules, and per-entry fork
+// values are verified mechanically by TestBillingEconomicsGrowthForkBaselinesExact, so
 // offsetting baseline edits cannot hide in the sums; any broadening, rebasing or
-// attribution change needs an explicit table edit that review approves. The last two
-// rounds are the cover-authority credit (partition 2472 -> 2745) and the concern split
-// of component_rater_partition.go into four rating entries (cover 984, overlap 928,
-// schema program 509, quantity solver 437), which raised the count by three and the
-// credit sum by 74 against the 2,784 it replaces, all of it the split's own package
-// clauses, import blocks, file headers and separators. All four are absent at the fork
-// (baseline 0, provenance new), and the CAP is unchanged: 57,339 still fits 57,351.
+// attribution change needs an explicit table edit that review approves.
 
 func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	t.Parallel()
