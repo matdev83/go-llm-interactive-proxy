@@ -95,28 +95,13 @@ func TestCIIterationSpeed_MatrixScopeProbeAndDedicatedCaches(t *testing.T) {
 		}
 	}
 
-	// The shared setup-go cache is a frozen first-write-wins partial snapshot;
-	// every workflow that runs heavy Go work must own a dedicated complete cache
-	// and must keep the shared setup-go cache disabled (cache: false) so it can
-	// never be re-enabled and silently re-freeze the partial snapshot.
-	for _, pair := range []struct {
-		workflow, key string
-	}{
-		{"qa.yml", "go-cache-qa-"},
-		{"ci.yml", "go-cache-ci-"},
-		{"backend-plugin-cross-platform.yml", "go-cache-backend-plugin-"},
-		{"acp-process-tree.yml", "go-cache-acp-"},
-		{"cursor-sdk-platform.yml", "go-cache-cursorsdk-"},
-	} {
-		text := readRepositoryFile(t, ".github", "workflows", pair.workflow)
-		for _, needle := range []string{
-			"actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
-			"actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
-			pair.key + "${{ runner.os }}",
-			"cache: false",
-		} {
+	// Every heavy lane uses the shared bounded policy; cache identity and
+	// publication rules are owned once by the composite action.
+	for _, name := range []string{"qa.yml", "ci.yml", "backend-plugin-cross-platform.yml", "acp-process-tree.yml", "cursor-sdk-platform.yml"} {
+		text := readRepositoryFile(t, ".github", "workflows", name)
+		for _, needle := range []string{"uses: ./.github/actions/go-cache", "phase: save", "cache: false"} {
 			if !strings.Contains(text, needle) {
-				t.Errorf("%s missing dedicated cache contract %q", pair.workflow, needle)
+				t.Errorf("%s missing cache contract %q", name, needle)
 			}
 		}
 	}
@@ -175,16 +160,12 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 		"testdata/enterprise_module testdata/external_connector testdata/external_feature_sdk",
 		"GOWORK=off go mod tidy -diff",
 		"id: archtest",
-		"contains(fromJSON('[\"success\",\"failure\"]'), steps.archtest.outcome)",
 	} {
 		if !strings.Contains(normalizedQA, needle) {
 			t.Errorf("QA fast-preflight contract missing %q", needle)
 		}
 	}
-	cacheKey := "hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum')"
-	if count := strings.Count(normalizedQA, cacheKey); count != 3 {
-		t.Errorf("QA dependency hash occurs %d times, want restore key, dependency fallback, and save key", count)
-	}
+
 	if strings.Contains(qa, "go test -timeout=5m ./cmd/lipstd") {
 		t.Fatal("QA must not duplicate the CI cmd/lipstd test")
 	}
@@ -205,15 +186,8 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 		"reasoning-e2e-soak-nightly.yml",
 	} {
 		text := readRepositoryFile(t, ".github", "workflows", name)
-		for _, needle := range []string{
-			"connectors/**/go.sum",
-			"connector-support/**/go.sum",
-			"testdata/enterprise_module/go.sum",
-			"tools/**/go.sum",
-		} {
-			if !strings.Contains(text, needle) {
-				t.Errorf("%s cache-dependency-path missing %q", name, needle)
-			}
+		if !strings.Contains(text, "uses: ./.github/actions/go-cache") {
+			t.Errorf("%s must use the shared all-module dependency fingerprint", name)
 		}
 	}
 }

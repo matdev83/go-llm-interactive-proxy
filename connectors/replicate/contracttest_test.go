@@ -141,7 +141,13 @@ func bufconnHostWithOffer(factory string, config []byte, secrets backendplugin.S
 			_ = lis.Close()
 			return nil, nil, err
 		}
-		return sess, func() { _ = sess.Close(context.Background()); server.Stop(); _ = lis.Close() }, nil
+		return sess, func() {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_ = sess.Close(closeCtx)
+			server.Stop()
+			_ = lis.Close()
+		}, nil
 	}
 }
 

@@ -55,14 +55,10 @@ jobs:
 
   repo-hygiene:
     name: Repo hygiene
-    needs: [changes, db-parity]
+    needs: [changes, preflight, db-parity]
     if: always()
-    # This is a required status check. A job-level `if` would skip the whole
-    # job on docs-only PRs, and GitHub does not count a skipped required
-    # check as satisfied, permanently blocking the merge. Always run the job
-    # and skip the work steps instead so the check reports success.
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 2
     steps:
       - name: Fail closed if scope detection failed
         if: needs.changes.result != 'success'
@@ -76,6 +72,34 @@ jobs:
         shell: bash
         run: |
           echo "Database parity check failed or was cancelled; refusing to satisfy required repo hygiene status." >&2
+          exit 1
+
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.code != 'true'
+        run: echo "Repo hygiene manifest check bypassed"
+      - name: Require scope, preflight and database parity success
+        env:
+          SCOPE_RESULT: ${{ needs.changes.result }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          PARITY_RESULT: ${{ needs.db-parity.result }}
+        run: test "$SCOPE_RESULT" = success && test "$PREFLIGHT_RESULT" = success && test "$PARITY_RESULT" = success
+
+  preflight:
+    name: Repository preflight
+    needs: changes
+    if: always()
+    # This is a required status check. A job-level `if` would skip the whole
+    # job on docs-only PRs, and GitHub does not count a skipped required
+    # check as satisfied, permanently blocking the merge. Always run the job
+    # and skip the work steps instead so the check reports success.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "CI scope detection failed; refusing to bypass required evidence." >&2
           exit 1
 
       - name: Check out repository
@@ -153,7 +177,7 @@ jobs:
             packages: ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
           - os: macos-latest
             packages: ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.changes.outputs.test == 'true' && matrix.os || 'ubuntu-latest' }}
     timeout-minutes: 90
     steps:
       - name: Fail closed if scope detection failed
@@ -197,27 +221,11 @@ jobs:
       # Publish one immutable snapshot per source revision and job. Seed the
       # next revision from the latest compatible snapshot so source-only work
       # does not repeatedly rebuild against a frozen dependency-era cache.
-      - name: Resolve Go cache paths
-        id: go-cache-paths
+      - name: Restore bounded ci-unit Go cache
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
-        shell: bash
-        run: |
-          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore dedicated CI Go cache
-        id: go-cache
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
-            go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
+          lane: ci-unit
 
       - name: Fast unit tests
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && (matrix.os != 'windows-latest' || (!contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && !contains(github.event.pull_request.labels.*.name, 'run-test-cost') && !contains(github.event.pull_request.labels.*.name, 'test-cost') && needs.changes.outputs.test_cost != 'true'))
@@ -256,14 +264,12 @@ jobs:
       # Preserve the full per-OS cache after a successful job. Failed Windows
       # ratchets already restored a warm cache; recompressing gigabytes before
       # exposing their logs only delays diagnosis.
-      - name: Save dedicated CI Go cache
-        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Save bounded ci-unit Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          lane: ci-unit
+          phase: save
 
       - name: Upload Windows test-cost artifacts
         if: always() && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
@@ -290,7 +296,7 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+        image: ${{ needs.changes.outputs.test == 'true' && 'postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73' || '' }}
         env:
           POSTGRES_USER: lip
           POSTGRES_PASSWORD: lip
@@ -323,27 +329,11 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Resolve Go cache paths
-        id: go-cache-paths
+      - name: Restore bounded ci-db Go cache
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
-        shell: bash
-        run: |
-          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore dedicated CI Go cache
-        id: go-cache
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
-            go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
+          lane: ci-db
 
       - name: Verify PostgreSQL test environment
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
@@ -378,14 +368,12 @@ jobs:
           LIP_TEST_PARALLEL: '4'
         run: make test-db-parity
 
-      - name: Save dedicated database parity Go cache
-        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Save bounded ci-db Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-ci-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          lane: ci-db
+          phase: save
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'

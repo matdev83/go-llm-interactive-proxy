@@ -1,6 +1,8 @@
 name: QA
 
 on:
+  push:
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
@@ -39,7 +41,7 @@ jobs:
       - name: Classify changed files
         id: filter
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
           bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
@@ -47,7 +49,7 @@ jobs:
       # The architecture change-surface reporter is Go-based. Do not provision
       # Go merely to classify Markdown/spec-only pull requests.
       - name: Setup Go for architecture change-surface classification
-        if: steps.filter.outputs.code == 'true'
+        if: github.event_name == 'pull_request' && steps.filter.outputs.code == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -65,9 +67,9 @@ jobs:
 
       - name: Classify architecture change surface
         id: surface
-        if: steps.filter.outputs.code == 'true'
+        if: github.event_name == 'pull_request' && steps.filter.outputs.code == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
           go run ./internal/archtest/tools/changesurface/cmd \
@@ -104,8 +106,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          # The shared setup-go cache is a first-write-wins partial snapshot saved
-          # by whichever job finishes first; full QA restores a dedicated cache.
+          # The shared composite owns the advancing main QA baseline.
           cache: false
 
       # Kiro specification changes still need the repository's lifecycle policy,
@@ -116,30 +117,12 @@ jobs:
         shell: bash
         run: go test -count=1 -tags=precommit ./internal/qa -run '^TestQAFastPreflight_KiroLifecycle$'
 
-      # Immutable caches need a source-specific snapshot, seeded from the
-      # latest compatible toolchain/job snapshot. A dependency-only key freezes
-      # build progress until go.sum changes, even with a dedicated cache.
-      - name: Resolve Go cache paths
-        id: go-cache-paths
+      # Main publishes complete QA baselines; all PRs can restore them.
+      - name: Restore bounded qa Go cache
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
-        shell: bash
-        run: |
-          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
-          echo "go-version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore dedicated QA Go cache
-        id: go-cache
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-qa-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-cache-qa-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}-
-            go-cache-qa-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-
+          lane: qa
 
       - name: Formatting and module integrity
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
@@ -160,7 +143,7 @@ jobs:
           set -euo pipefail
           log="$RUNNER_TEMP/qa-fast-preflight.log"
           go test -count=1 -v -tags=precommit ./internal/qa \
-            -run '^(TestRootHygiene_|TestQAFastPreflight_)' | tee "$log"
+            -run '^(TestRootHygiene_|TestQAFastPreflight_|TestOpenResponsesOfficialVendoredManifest$)' | tee "$log"
           grep -qE '^=== RUN[[:space:]]+TestRootHygiene_' "$log"
           grep -qE '^=== RUN[[:space:]]+TestQAFastPreflight_' "$log"
 
@@ -180,7 +163,7 @@ jobs:
       - name: Provider-profile change-surface ratchet
         if: needs.changes.outputs.profile == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: go run ./internal/archtest/tools/changesurface/cmd -base "$BASE_SHA" -profile-only -json
 
       - name: Vet release command
@@ -196,17 +179,13 @@ jobs:
       # distinct architecture and vet evidence instead of recompiling this
       # package a second time on Ubuntu.
 
-      # Save only after the heavy archtest actually ran, so a fast-preflight
-      # failure cannot publish a partial cache under the dedicated full-cache
-      # key. Archtest failures still preserve useful compilation progress.
-      - name: Save dedicated QA Go cache
-        if: always() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true' && contains(fromJSON('["success","failure"]'), steps.archtest.outcome)
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Only successful main QA publishes a bounded complete baseline.
+      - name: Save bounded qa Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: ./.github/actions/go-cache
         with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.go-cache }}
-            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
-          key: go-cache-qa-${{ runner.os }}-v2-${{ runner.arch }}-${{ steps.go-cache-paths.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}-${{ github.sha }}
+          lane: qa
+          phase: save
 
       - name: Report full QA bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
