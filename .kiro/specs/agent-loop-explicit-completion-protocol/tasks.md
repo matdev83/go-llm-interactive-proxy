@@ -80,7 +80,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Validation: 3.1 tests GREEN; candidate race/failover capability tests; `go test` on touched runtime/extension packages_
 
 - [ ] 4. Add streaming-preserving private control-call interception
-  - [ ] 4.1 Build a bounded attempt-local control-call capture state machine
+  - [x] 4.1 Build a bounded attempt-local control-call capture state machine
     - RED-test start/args/finish correlation, name-less fragments by call ID, strict maximum args, duplicate/multiple call handling, incomplete close, cancellation, and reset/discard on attempt loss.
     - Capture only the tool prepared by trusted activation; ordinary tool events must be a pass-through.
     - _Requirements: 3.2,3.5,5.1-5.6,8.5,10.3_
@@ -299,3 +299,6 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 3.2: Added one post-hook, capability-aware generic projection stage and private attempt activation, with generation-frozen identity/suppression and final byte-stable reassertion. Removed controltool_red; all prior assertions pass unchanged. The canonical-required plane blocks wire execution when occupied. The clock is assigned before session publication rather than transported through the input, preserving constructor semantics and the existing ownership ratchet. Independent review, fresh focused projection/seam tests, scoped tests/lint/architecture guards and focused race verification pass.
 
 - Dedicated staged-race unblock: Staged architecture scopes now run separately from ordinary scopes, preserving selected packages, race flags and production budgets. Independent review approved the repair; the real mixed staged gate and all repair commit hooks pass.
+
+- Dedicated loader-fixture unblock: Replaced live HEAD/working-tree equality with an isolated committed Git fixture and dirty-tree independence checks; normal hooks passed in c1fab5cd.
+- Task 4.1: Added unwired, attempt-local control capture with bounded owned arguments and 16 fixed-size correlation keys. Claimed malformed and mixed item payloads stay private, sticky invalidation revokes prior validity, and exhaustion is fatal. Item handoff uses exact-size copying. Behavioral RED regressions, focused tests/race/lint and final independent review pass. Integration must keep BTP/usage before capture, abort immediately on fatal, clear pending outcome on invalidation and respect single-owner Recv/Close synchronization.
