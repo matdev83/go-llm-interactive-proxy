@@ -67,6 +67,7 @@ var census35Access = map[string]largebody.PlaneAccess{
 	"secret_guard_execution":                largebody.PlaneAccessCanonicalRequired,
 	"local_turn_handlers":                   largebody.PlaneAccessCanonicalRequired,
 	"terminal_decision_provider":            largebody.PlaneAccessCanonicalRequired,
+	"session_classifier":                    largebody.PlaneAccessMetadataOnly,
 }
 
 // eligible35Input builds the "normal potentially eligible generation" shape
@@ -444,6 +445,7 @@ func TestWireEligibility_NonNegotiablePlaneBlockers(t *testing.T) {
 		"session_openers",
 		"workspace_resolvers",
 		"tool_call_finalization_max_args_bytes",
+		"session_classifier",
 	} {
 		sum := compile35(t, occupy35Plane(eligible35Input("gen-7"), id))
 		if sum.HasStaticBlocker() {
@@ -598,7 +600,7 @@ func TestWireEligibility_InputModelStaysFixed(t *testing.T) {
 	if got := reflect.TypeFor[largebody.NarrowPortEligibilityInput]().NumField(); got != 23 {
 		t.Fatalf("narrow-port input model changed (%d fields): extend the compiler policy first", got)
 	}
-	if largebody.WireEligibilityPlaneCount != 26 {
+	if largebody.WireEligibilityPlaneCount != 27 {
 		t.Fatalf("plane table changed (%d planes): extend the compiler policy first", largebody.WireEligibilityPlaneCount)
 	}
 }

@@ -14,6 +14,7 @@ var wantLegalPipelineOrder = []string{
 	feature.StageIDTransportAuth,
 	feature.StageIDSessionOpen,
 	feature.StageIDSecretGuard,
+	feature.StageIDSessionClassification,
 	feature.StageIDSubmit,
 	feature.StageIDToolCatalog,
 	feature.StageIDRequestWide,

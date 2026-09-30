@@ -15,6 +15,7 @@ func TestDefaultFailurePolicyForStage_matchesDesignMatrix(t *testing.T) {
 	}{
 		{feature.StageIDTransportAuth, extensions.FailurePolicyFailClosed},
 		{feature.StageIDSessionOpen, extensions.FailurePolicyFailOpen},
+		{feature.StageIDSessionClassification, extensions.FailurePolicyFailOpen},
 		{feature.StageIDSubmit, extensions.FailurePolicyFailOpen},
 		{feature.StageIDToolCatalog, extensions.FailurePolicyFailOpen},
 		{feature.StageIDRequestWide, extensions.FailurePolicyFailOpen},

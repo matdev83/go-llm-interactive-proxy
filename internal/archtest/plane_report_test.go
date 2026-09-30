@@ -19,13 +19,11 @@ func TestExtensionPlanesManifestStatus(t *testing.T) {
 		t.Fatalf("MeasureManifestStatus failed: %v", err)
 	}
 
-	// 26 planes: the v1 closure set of 25 plus the generation-binder
-	// secret_guard_execution plane, added deliberately so composed
-	// secret-guard engine posture travels via the ordinary frozen plane
-	// surface instead of dedicated GenerationOutput fields. Any further
-	// count change requires the same deliberate review.
-	if status.PlaneCount != 26 {
-		t.Fatalf("expected 26 declared planes, got %d", status.PlaneCount)
+	// 27 planes: the original v1 closure set of 25, the generation-binder
+	// secret_guard_execution plane, and the metadata-only session classifier.
+	// Any further count change requires the same deliberate review.
+	if status.PlaneCount != 27 {
+		t.Fatalf("expected 27 declared planes, got %d", status.PlaneCount)
 	}
 
 	if !status.IsGeneratedUpToDate {
@@ -48,6 +46,23 @@ func TestExtensionPlanesManifestStatus(t *testing.T) {
 	for _, expected := range expectedPlanes {
 		if !slices.Contains(status.PlaneIDs, expected) {
 			t.Errorf("expected plane %q in manifest status plane IDs, got %v", expected, status.PlaneIDs)
+		}
+	}
+}
+
+func TestExtensionPlanesManifestReportsDeclaredMultiplicity(t *testing.T) {
+	t.Parallel()
+
+	section, err := FormatExtensionPlanesManifestSection(repoRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"| `session_classifier` | (unassigned) | exclusive |",
+		"| `submit_hooks` | W1_HookBus (HookBus) | ordered |",
+	} {
+		if !strings.Contains(section, want) {
+			t.Errorf("manifest report missing declared multiplicity row %q", want)
 		}
 	}
 }
@@ -183,8 +198,8 @@ func TestExtensionPlanesBaselineGeneration_Determinism(t *testing.T) {
 	if doc.SchemaVersion != 1 {
 		t.Errorf("expected schema_version 1, got %d", doc.SchemaVersion)
 	}
-	if doc.TotalPlanes != 26 {
-		t.Errorf("expected total_planes 26, got %d", doc.TotalPlanes)
+	if doc.TotalPlanes != 27 {
+		t.Errorf("expected total_planes 27, got %d", doc.TotalPlanes)
 	}
 	if doc.ActiveForbiddenMirrors != 0 {
 		t.Errorf("expected 0 active forbidden mirrors, got %d", doc.ActiveForbiddenMirrors)
@@ -219,11 +234,11 @@ func TestExtensionPlanesBaselineArtifact_MatchesDisk(t *testing.T) {
 	if doc.SchemaVersion != 1 {
 		t.Errorf("expected schema_version 1, got %d", doc.SchemaVersion)
 	}
-	if doc.TotalPlanes != 26 {
-		t.Errorf("expected total_planes 26, got %d", doc.TotalPlanes)
+	if doc.TotalPlanes != 27 {
+		t.Errorf("expected total_planes 27, got %d", doc.TotalPlanes)
 	}
-	if doc.Manifest.PlaneCount != 26 {
-		t.Errorf("expected manifest plane_count 26, got %d", doc.Manifest.PlaneCount)
+	if doc.Manifest.PlaneCount != 27 {
+		t.Errorf("expected manifest plane_count 27, got %d", doc.Manifest.PlaneCount)
 	}
 	if !doc.Manifest.IsGeneratedUpToDate {
 		t.Errorf("expected is_generated_up_to_date to be true, got %v (%s)", doc.Manifest.IsGeneratedUpToDate, doc.Manifest.GeneratedOutputCurrency)

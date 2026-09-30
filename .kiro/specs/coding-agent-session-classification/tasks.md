@@ -50,7 +50,7 @@
     - _Depends: 1.1,1.2_
     - _Validation: public SDK unit tests + external compile/architecture guards_
 
-  - [ ] 2.2 Add StageIDSessionClassification and exclusive PlaneSessionClassifier
+  - [x] 2.2 Add StageIDSessionClassification and exclusive PlaneSessionClassifier
     - RED-test legal stage order after secret_guard and before submit_request.
     - Declare one exclusive sessionclassification.Classifier plane with RequestBodyMetadataOnly access and bounded diagnostics.
     - Update/generate the closed plane surface, snapshot accessors, descriptors, inventory and generator fixtures; do not hand-edit generated outputs outside the repository generator workflow.

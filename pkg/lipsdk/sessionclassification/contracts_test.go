@@ -3,6 +3,7 @@ package sessionclassification_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"reflect"
 	"strings"
@@ -23,6 +24,22 @@ func (classifierProbe) Classify(context.Context, sessionclassification.Input) (s
 }
 
 var _ sessionclassification.Classifier = classifierProbe{}
+
+type typedNilClassifier struct{}
+
+func (*typedNilClassifier) ID() string { return "typed-nil" }
+
+func (*typedNilClassifier) Classify(context.Context, sessionclassification.Input) (session.Classification, error) {
+	return session.Classification{}, nil
+}
+
+type panickingClassifier struct{}
+
+func (panickingClassifier) ID() string { panic("untrusted classifier identity") }
+
+func (panickingClassifier) Classify(context.Context, sessionclassification.Input) (session.Classification, error) {
+	return session.Classification{}, nil
+}
 
 func TestToolCategorySetUsesCanonicalToolNameCategories(t *testing.T) {
 	t.Parallel()
@@ -82,6 +99,54 @@ func TestSessionClassificationInputExposesOnlyBoundedMetadataFields(t *testing.T
 	})
 	if got := reflect.TypeOf(sessionclassification.ToolCategorySet(0)).Kind(); got != reflect.Uint16 {
 		t.Fatalf("ToolCategorySet underlying kind = %s, want uint16", got)
+	}
+}
+
+func TestClassifierIdentityRejectsNilPanicsAndMalformedIDs(t *testing.T) {
+	t.Parallel()
+
+	var typedNil *typedNilClassifier
+	for name, classifier := range map[string]sessionclassification.Classifier{
+		"untyped nil":                   nil,
+		"typed nil with safe ID method": typedNil,
+		"panicking ID":                  panickingClassifier{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			id, err := sessionclassification.ClassifierIdentity(classifier)
+			if !errors.Is(err, sessionclassification.ErrInvalidClassifier) {
+				t.Fatalf("ClassifierIdentity() error = %v, want ErrInvalidClassifier", err)
+			}
+			if id != "" {
+				t.Fatalf("ClassifierIdentity() ID = %q, want empty", id)
+			}
+			if err != nil && len(err.Error()) > 256 {
+				t.Fatalf("ClassifierIdentity() error length = %d, want at most 256", len(err.Error()))
+			}
+			if err != nil && strings.Contains(err.Error(), "untrusted classifier identity") {
+				t.Fatal("ClassifierIdentity() exposed panic text")
+			}
+		})
+	}
+
+	for _, id := range []string{
+		"",
+		"   ",
+		" leading",
+		"trailing ",
+		"has\ncontrol",
+		string([]byte{0xff}),
+		strings.Repeat("x", sessionclassification.MaxClassifierIDBytes+1),
+	} {
+		if err := sessionclassification.ValidateClassifierID(id); !errors.Is(err, sessionclassification.ErrInvalidClassifier) {
+			t.Errorf("ValidateClassifierID(%q) error = %v, want ErrInvalidClassifier", id, err)
+		}
+	}
+	if err := sessionclassification.ValidateClassifierID(strings.Repeat("x", sessionclassification.MaxClassifierIDBytes)); err != nil {
+		t.Fatalf("maximum-size classifier identity rejected: %v", err)
+	}
+	if err := sessionclassification.ValidateClassifierID("classifier.example"); err != nil {
+		t.Fatalf("valid classifier identity rejected: %v", err)
 	}
 }
 

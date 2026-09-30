@@ -17,11 +17,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
-// largePayload19ExpectedPlaneCount pins the Task 1.9 census baseline: the
-// generated extension surface holds exactly 26 standard planes at HEAD
-// 6595d708. Any added/removed/renamed plane fails this ratchet until the
-// census table below and evidence/1.9-plane-census.md are updated together.
-const largePayload19ExpectedPlaneCount = 26
+// largePayload19ExpectedPlaneCount pins the Task 1.9 census with the
+// metadata-only session classifier plane added. Any added, removed, or renamed
+// plane fails this ratchet until the census table is updated alongside it.
+const largePayload19ExpectedPlaneCount = 27
 
 // largePayload19Posture pins the Task 1.9 initial V1 wire posture per plane.
 // Labels mirror requirement 5.2 access classes (CanonicalRequired,
@@ -56,13 +55,14 @@ var largePayload19Posture = map[string]string{
 	"secret_guard_execution":                "canonical-required-when-occupied",
 	"local_turn_handlers":                   "canonical-required-when-occupied",
 	"terminal_decision_provider":            "canonical-required-when-occupied",
+	"session_classifier":                    "metadata-only",
 }
 
-// TestLargePayload19_PlaneCensusFrozen26 enumerates the census
+// TestLargePayload19_PlaneCensusFrozen27 enumerates the census
 // programmatically from feature.StandardPlanes (never a hand-copied list as
 // source of truth) and fails closed on any new, removed, renamed, or
 // unclassified plane.
-func TestLargePayload19_PlaneCensusFrozen26(t *testing.T) {
+func TestLargePayload19_PlaneCensusFrozen27(t *testing.T) {
 	t.Parallel()
 
 	planes := feature.StandardPlanes

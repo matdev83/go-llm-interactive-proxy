@@ -10,8 +10,8 @@ import (
 func TestLegalPipelineStageIDs_countAndOrder(t *testing.T) {
 	t.Parallel()
 	ids := feature.LegalPipelineStageIDs()
-	if len(ids) != 16 {
-		t.Fatalf("want 16 stages, got %d", len(ids))
+	if len(ids) != 17 {
+		t.Fatalf("want 17 stages, got %d", len(ids))
 	}
 	seen := map[string]struct{}{}
 	for _, id := range ids {
@@ -24,8 +24,8 @@ func TestLegalPipelineStageIDs_countAndOrder(t *testing.T) {
 		}
 	}
 	desc := feature.LegalStageDescriptors()
-	if len(desc) != 16 {
-		t.Fatalf("descriptors: want 16 got %d", len(desc))
+	if len(desc) != 17 {
+		t.Fatalf("descriptors: want 17 got %d", len(desc))
 	}
 	gotDescIDs := make([]string, len(desc))
 	for i := range desc {
@@ -33,6 +33,24 @@ func TestLegalPipelineStageIDs_countAndOrder(t *testing.T) {
 	}
 	if !slices.Equal(ids, gotDescIDs) {
 		t.Fatalf("descriptor order != pipeline ids\ngot  %#v\nwant %#v", gotDescIDs, ids)
+	}
+}
+
+func TestLegalPipeline_sessionClassificationAfterSecretGuardBeforeSubmit(t *testing.T) {
+	t.Parallel()
+
+	guardIdx := feature.LegalStageDescriptorIndex(feature.StageIDSecretGuard)
+	classificationIdx := feature.LegalStageDescriptorIndex(feature.StageIDSessionClassification)
+	submitIdx := feature.LegalStageDescriptorIndex(feature.StageIDSubmit)
+	if guardIdx < 0 || classificationIdx < 0 || submitIdx < 0 {
+		t.Fatalf("missing stages guard=%d classification=%d submit=%d", guardIdx, classificationIdx, submitIdx)
+	}
+	if guardIdx >= classificationIdx || classificationIdx >= submitIdx {
+		t.Fatalf("want secret_guard(%d) < session_classification(%d) < submit_request(%d)", guardIdx, classificationIdx, submitIdx)
+	}
+	desc, ok := feature.StageDescriptorByID(feature.StageIDSessionClassification)
+	if !ok || desc.MutationRole != feature.StageRoleObserve {
+		t.Fatalf("session_classification descriptor: ok=%v role=%v", ok, desc.MutationRole)
 	}
 }
 
