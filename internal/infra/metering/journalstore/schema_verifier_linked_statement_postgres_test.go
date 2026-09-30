@@ -241,9 +241,17 @@ func TestVerifySchemaPostgresRejectsMalformedLinkedStatementIndexes(t *testing.T
 
 // A migration-history row alone is not proof of a live index; conversely, a
 // missing linked-statement migration record must fail verification.
+//
+// PresenceBooleanRepairMigrationName is in this list because its history check
+// used to exist on SQLite only. The PostgreSQL side hand-listed every other
+// migration and silently omitted this one, so a PostgreSQL database whose row
+// for the presence-boolean repair was missing still passed verification. The
+// checks are now derived from RequiredMigrationNames, which is what makes the
+// omission impossible to reintroduce; this case is the proof that it is closed.
 func TestVerifySchemaPostgresRequiresLinkedStatementMigrationHistory(t *testing.T) {
 	ctx := context.Background()
 	for _, name := range []string{
+		journalstore.PresenceBooleanRepairMigrationName,
 		journalstore.LinkedStatementIndexMigrationName,
 		journalstore.LinkedStatementOrderedIndexMigrationName,
 		journalstore.LinkedStatementCandidateIndexMigrationName,

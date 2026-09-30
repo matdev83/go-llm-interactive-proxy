@@ -152,24 +152,6 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 		fragments   []string
 	}{
 		{
-			description: "migration history",
-			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
-			args:        []any{BaselineMigrationName},
-			fragments:   []string{BaselineMigrationName},
-		},
-		{
-			description: StoreScopedSourceKeyMigrationName + " migration history",
-			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
-			args:        []any{StoreScopedSourceKeyMigrationName},
-			fragments:   []string{StoreScopedSourceKeyMigrationName},
-		},
-		{
-			description: StoreScopedFiltersMigrationName + " migration history",
-			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
-			args:        []any{StoreScopedFiltersMigrationName},
-			fragments:   []string{StoreScopedFiltersMigrationName},
-		},
-		{
 			description: "metering_facts store-scoped source_event_key unique constraint",
 			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
 JOIN pg_class t ON t.oid = c.conrelid
@@ -292,48 +274,6 @@ LIMIT 1`,
 			fragments: []string{"unique (store_id, stream_id, from_fact_id, to_fact_id)"},
 		},
 		{
-			description: SchemaV2MigrationName + " migration history",
-			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
-			args:        []any{SchemaV2MigrationName},
-			fragments:   []string{SchemaV2MigrationName},
-		},
-		{
-			description: ObservationProjectionMigrationName + " migration history",
-			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
-			args:        []any{ObservationProjectionMigrationName},
-			fragments:   []string{ObservationProjectionMigrationName},
-		},
-		{
-			description: AccountWindowProjectionMigrationName + " migration history",
-			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
-			args:        []any{AccountWindowProjectionMigrationName},
-			fragments:   []string{AccountWindowProjectionMigrationName},
-		},
-		{
-			description: ObservationEconomicOutboxMigrationName + " migration history",
-			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
-			args:        []any{ObservationEconomicOutboxMigrationName},
-			fragments:   []string{ObservationEconomicOutboxMigrationName},
-		},
-		{
-			description: LinkedStatementIndexMigrationName + " migration history",
-			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
-			args:        []any{LinkedStatementIndexMigrationName},
-			fragments:   []string{LinkedStatementIndexMigrationName},
-		},
-		{
-			description: LinkedStatementOrderedIndexMigrationName + " migration history",
-			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
-			args:        []any{LinkedStatementOrderedIndexMigrationName},
-			fragments:   []string{LinkedStatementOrderedIndexMigrationName},
-		},
-		{
-			description: LinkedStatementCandidateIndexMigrationName + " migration history",
-			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
-			args:        []any{LinkedStatementCandidateIndexMigrationName},
-			fragments:   []string{LinkedStatementCandidateIndexMigrationName},
-		},
-		{
 			description: "metering observation economic outbox table",
 			query:       `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'metering_observation_economic_outbox' LIMIT 1`,
 			fragments:   []string{"metering_observation_economic_outbox"},
@@ -391,6 +331,32 @@ WHERE table_schema = current_schema()
 			query:       `SELECT lower(indexdef) FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'metering_facts' AND indexname = 'idx_metering_facts_store_account_window' LIMIT 1`,
 			fragments:   []string{"store_id", "observation_provider_account_key", "observation_pool_id", "observation_window_id", "observation_reset_at_unix", "observation_observed_at_unix", "observation_received_at_unix"},
 		},
+	}
+	// One migration-history check per RequiredMigrationNames entry, generated
+	// rather than written out. This list and RequiredMigrationNames are the same
+	// requirement stated twice, once per dialect, and maintaining both by hand let
+	// them drift: PresenceBooleanRepairMigrationName was required on SQLite and
+	// absent here, so a PostgreSQL database whose history row for that repair was
+	// missing still passed verification. Deriving this side from
+	// RequiredMigrationNames makes that impossible to reintroduce, because a new
+	// migration becomes verified on both dialects by being added in one place.
+	//
+	// A history row is not proof that the migration's effects exist - the index
+	// and column checks above and below are - but the converse matters: a
+	// database missing the row never ran that repair, and saying so is what stops
+	// a partially migrated database from being certified.
+	for _, name := range RequiredMigrationNames {
+		checks = append(checks, struct {
+			description string
+			query       string
+			args        []any
+			fragments   []string
+		}{
+			description: name + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{name},
+			fragments:   []string{name},
+		})
 	}
 	for _, check := range checks {
 		if err := dbinfra.VerifyPostgresQueryRowContains(ctx, db, check.description, check.query, check.args, check.fragments...); err != nil {
