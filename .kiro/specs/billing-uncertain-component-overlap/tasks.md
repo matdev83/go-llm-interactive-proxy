@@ -2,14 +2,14 @@
 
 ## Execution Constraints
 
-Baseline is merged #666 at `6e97e0d9`. All tasks use TDD: first independently constructed failing evidence, then the smallest implementation, then focused regression checks. The money policy is not selectable: unknown intersection and reporting exhaustion cannot waive customer charges.
+Baseline is current `main` tip `290831e2` (merged #692), code-identical to merged #666 at `6e97e0d9`. All tasks use TDD: first independently constructed failing evidence, then the smallest implementation, then focused regression checks. The money policy is not selectable: unknown intersection and reporting exhaustion cannot waive customer charges.
 
 Task 1.1 is an explicit architecture-footprint gate. Approved spec metadata is not approval to weaken production or test-cost budgets. Core implementation waits for measured capacity or explicit maintainer-approved allowance. No deployment, new service, new dependency, or historical backfill is required.
 
 Parallel markers describe only the named disjoint boundaries. Tasks without `(P)` follow prior work sequentially; the two marked tasks in group 3 may run together after group 2. PostgreSQL certification uses the registered parity topology, not per-test ad hoc database setup.
 
 - [ ] 1. Establish footprint and independently pinned compatibility evidence
-- [ ] 1.1 Establish a permitted production footprint before adding core behavior
+- [x] 1.1 Establish a permitted production footprint before adding core behavior
   - Measure the core, SDK, and existing billing-growth overlay with the repository harness, retaining the pinned audited-plus-headroom and excess-negative checks.
   - Baseline live core is 143700/143720 and growth overlay 57665/57726; new production files also require pinned manifest rows. Produce a scoped allowance proposal if needed; obtain explicit maintainer authorization, or demonstrate a genuine same-scope simplification that fits all existing total, per-file, and allowlist limits.
   - Only the design's Validation footprint files own approved manifest rows/count/credits/cap, audit history, and exact line-budget updates. Do not lower a threshold, delete unrelated prose, or relocate code merely to evade a cap. Tasks 3.1/3.2/3.3/4.x wait for this gate.
@@ -140,3 +140,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Boundary: Validation integration_
   - _Requirements: 3.1, 3.2, 3.3, 4.1, 4.2, 5.5, 6.4, 6.5, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
   - _Validation: make quality-checks; make test-unit; make test-db-parity-sqlite; make test-db-parity-postgres-direct; make test-cost_
+
+## Implementation Notes
+
+- 1.1: Maintainer authorized prospective LOC reserves: 1500 core and 250 catalog lines; assessor paths `component_rater_advisory.go` and `component_rater_advisory_graph.go` allow 450 lines each plus existing headroom. Historical audit pins remain unchanged; SDK economics has no aggregate cap.

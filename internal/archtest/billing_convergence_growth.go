@@ -11,17 +11,19 @@ import (
 // EconomicsConvergenceGrowthOverlayMax caps the approved usage-economics growth
 // allowance inside the billing-convergence denominator: only per-entry growth above
 // the locked merge-base lines enters the allowance, so historical baseline code can
-// never enter. The round-by-round re-audit history of this cap lives in
+// never enter. Explicit prospective capacity remains separate from audit credit.
+// The round-by-round re-audit history of this cap lives in
 // billing_convergence_growth_history.go; budgets.go carries the same history for the
 // per-directory internal/core ceiling.
-const EconomicsConvergenceGrowthOverlayMax = 57726
+const EconomicsConvergenceGrowthOverlayMax = 57726 + billingUncertainOverlapOverlayReserve
 
 // economicsConvergenceGrowthEntry is one allowlisted denominator file with its
 // locked merge-base (c7fa4169) line count, audited credit, category attribution,
 // and provenance. Baseline 0 with provenance "new" is allowed only for files
 // genuinely absent at the fork (move-checked: no renames or production deletions in
 // range); a renamed file keeps its old baseline under review instead of becoming
-// baseline 0. Per-entry headroom is audited credit + 25 (derived, never stored).
+// baseline 0. Per-entry headroom is audited credit + 25 plus an explicitly approved
+// prospective path reserve (derived, never stored as historical credit).
 type economicsConvergenceGrowthEntry struct {
 	path       string
 	baseline   int
@@ -59,6 +61,8 @@ var economicsConvergenceGrowthManifest = []economicsConvergenceGrowthEntry{
 	{path: "internal/core/billing/commands.go", baseline: 213, credit: 9, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/complete_call.go", baseline: 43, credit: 3, category: "lifecycle", provenance: "modified"},
 	{path: "internal/core/billing/component_rater.go", baseline: 0, credit: 2163, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_advisory.go", baseline: 0, credit: 0, category: "rating", provenance: "new"},
+	{path: "internal/core/billing/component_rater_advisory_graph.go", baseline: 0, credit: 0, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_cover.go", baseline: 0, credit: 984, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_finalize.go", baseline: 0, credit: 394, category: "rating", provenance: "new"},
 	{path: "internal/core/billing/component_rater_overlap.go", baseline: 0, credit: 928, category: "rating", provenance: "new"},
@@ -308,7 +312,7 @@ func budgetBoundaryError(label string, measured, ceiling int) string {
 
 // checkEconomicsConvergenceGrowthAllowance is the complete acceptance predicate:
 // the cap stays pinned, every credited entry belongs to the pinned allowlist, each
-// entry stays within audited credit + 25, and the total stays within the cap.
+// entry stays within audited credit + 25 + its approved prospective reserve, and the total stays within the cap.
 // Deletions only shrink credits, so a missing or shrunken entry always passes;
 // only excess, unknown entries, or table/cap drift fail.
 func checkEconomicsConvergenceGrowthAllowance(result economicsConvergenceGrowthResult) string {
@@ -333,8 +337,9 @@ func checkEconomicsConvergenceGrowthAllowance(result economicsConvergenceGrowthR
 		if !ok {
 			return "growth credit for unlisted path: " + path
 		}
-		if live > entry.credit+25 {
-			return fmt.Sprintf("growth entry %s credit %d exceeds audited %d + 25", path, live, entry.credit)
+		reserve := billingUncertainOverlapFileReserve[path]
+		if live > entry.credit+25+reserve {
+			return fmt.Sprintf("growth entry %s credit %d exceeds audited %d + 25 + approved reserve %d", path, live, entry.credit, reserve)
 		}
 	}
 	if msg := budgetBoundaryError("economics convergence growth", growth.Lines, growth.Max); msg != "" {
