@@ -45,9 +45,14 @@ type r5c2bFileStore struct {
 	sqlDB *sql.DB
 }
 
+// r5c2bOpenFileStore opens the file-backed observation journal with the steering
+// reopen/crash DSN: WAL journaling plus synchronous=NORMAL keeps close/reopen
+// recovery for committed transactions durable without a full fsync per commit,
+// and busy_timeout keeps a concurrent reader from failing an immediate write.
 func r5c2bOpenFileStore(t *testing.T, path, storeID string) *r5c2bFileStore {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", durableCheckpointSQLiteDSN(path))
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("r5c2b open sqlite: %v", err)
 	}
