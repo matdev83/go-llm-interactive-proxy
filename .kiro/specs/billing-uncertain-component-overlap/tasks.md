@@ -8,7 +8,7 @@ Task 1.1 is an explicit architecture-footprint gate. Approved spec metadata is n
 
 Parallel markers describe only the named disjoint boundaries. Tasks without `(P)` follow prior work sequentially; the two marked tasks in group 3 may run together after group 2. PostgreSQL certification uses the registered parity topology, not per-test ad hoc database setup.
 
-- [ ] 1. Establish footprint and independently pinned compatibility evidence
+- [x] 1. Establish footprint and independently pinned compatibility evidence
 - [x] 1.1 Establish a permitted production footprint before adding core behavior
   - Measure the core, SDK, and existing billing-growth overlay with the repository harness, retaining the pinned audited-plus-headroom and excess-negative checks.
   - Baseline live core is 143700/143720 and growth overlay 57665/57726; new production files also require pinned manifest rows. Produce a scoped allowance proposal if needed; obtain explicit maintainer authorization, or demonstrate a genuine same-scope simplification that fits all existing total, per-file, and allowlist limits.
@@ -17,7 +17,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Boundary: Validation footprint gate_
   - _Requirements: 6.4_
   - _Validation: go test -run 'TestPhase20RefreshedBudgetHeadroomExact|TestBillingEconomicsGrowthAllowanceLive' ./internal/archtest_
-- [ ] 1.2 Pin baseline replay and the nonblocking money controls
+- [x] 1.2 Pin baseline replay and the nonblocking money controls
   - Capture independent pre-feature snapshot/view canonical bytes, content hash, valuation context preimage, and valuation fingerprint fixtures; preserve the six existing #666 pins.
   - Pin the 100/20/30 subset-sibling vector at complete 50 with no error under legacy material and assert baseline known-conflict controls retain their typed errors.
   - Construct and pin the historical branch-root advisory-text case before any v1 bypass is introduced.
@@ -144,3 +144,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
 ## Implementation Notes
 
 - 1.1: Maintainer authorized prospective LOC reserves: 1500 core and 250 catalog lines; assessor paths `component_rater_advisory.go` and `component_rater_advisory_graph.go` allow 450 lines each plus existing headroom. Historical audit pins remain unchanged; SDK economics has no aggregate cap.
+- 1.2: Independent literal preimages/hash fixtures and historical diagnostic controls pass; scratch identity/error-tree mutations fail. Baseline billing exceeded the 10-minute runner deadline but passed unfiltered with a 30-minute invocation deadline. Repeated task-local hooks omit existing generated, schema-model sweep/order, metamorphic matrices, and the exhaustive support-agreement parent; its small acceptance/regression populations run separately. Final coherent certification must run all suites unfiltered without changing cost budgets.
+- Model-cost guidance: exact task-local exclusion is `^Test(GeneratedSchema(StructureSweep|CommercialSweep|OrderInvariance|TransformIsNotContainment|DirectionUnitIsolation)|SchemaModel(StructureSweep|CommercialSweep|OrderInvariance)|Metamorphic(PricingMetamorphism|StructuralVerdictAgreesWithModel)|SupportAgreementShadowPredicate)$`; retain `TestSupportAgreementShadowPredicate/(acceptance_vectors|regression_schemas)` with a separate unfiltered selector.
+- Baseline race repair: `0bdd97a2` synchronizes the existing seam-equivalence test's shared tallies; focused repeated race checks and the retained full-package race gate pass with all 28 cases and parallel execution preserved.
+- Baseline child-limit repair: `339b1e97` isolates the existing test's package-wide cap override by removing its contradictory parallel marker; repeated focused and retained full-package race checks pass.
