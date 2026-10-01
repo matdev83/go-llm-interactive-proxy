@@ -24,7 +24,8 @@ jobs:
   race-fuzz:
     name: race-fuzz (${{ matrix.lane }})
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # The complete generated billing sweeps exceeded 25m under race instrumentation.
+    timeout-minutes: ${{ matrix.lane == 'billing' && 75 || 40 }}
     strategy:
       fail-fast: false
       matrix:

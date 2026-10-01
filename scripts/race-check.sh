@@ -141,8 +141,8 @@ if [[ "$STAGED" == true || "$LANE" == all || "$LANE" == broad ]]; then
 fi
 if [[ "$STAGED" != true ]]; then
 	if [[ "$LANE" == all || "$LANE" == billing ]]; then
-		echo "Running billing race scan separately (25m package timeout)"
-		run_race_scan -timeout=25m -skip '^TestSupportAgreementShadowPredicate$' ./internal/core/billing
+		echo "Running billing race scan separately (60m package timeout)"
+		run_race_scan -timeout=60m -skip '^TestSupportAgreementShadowPredicate$' ./internal/core/billing
 	fi
 	if [[ "$LANE" == all || "$LANE" == support ]]; then
 		echo "Running exhaustive support-agreement race scan separately (25m package timeout)"

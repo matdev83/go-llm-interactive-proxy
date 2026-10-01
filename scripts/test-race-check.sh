@@ -34,6 +34,7 @@ verify_coverage() {
   [[ "$(grep -F -- ' ./internal/core/billing' "$SCAN_CALLS" | wc -l)" -eq 2 ]]
   [[ "$(grep -F -- ' -skip ^TestSupportAgreementShadowPredicate$' "$SCAN_CALLS" | wc -l)" -eq 1 ]]
   [[ "$(grep -F -- ' -run ^TestSupportAgreementShadowPredicate$' "$SCAN_CALLS" | wc -l)" -eq 1 ]]
+  [[ "$(grep -F -- ' -timeout=60m -skip ^TestSupportAgreementShadowPredicate$' "$SCAN_CALLS" | wc -l)" -eq 1 ]]
   while IFS= read -r call; do
     [[ " $call " == *' -race '* && " $call " == *' -tags=precommit,integration '* && " $call " == *' -count=1 '* ]]
     [[ " $call " == *' -p=4 '* && " $call " == *' -parallel=4 '* ]]
