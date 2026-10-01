@@ -1186,20 +1186,33 @@ func mergeRetailSupportAdvisory(dst *economics.Valuation, src economics.Valuatio
 	if len(src.SupportAdvisoryContexts) == 0 && src.SupportAdvisory == nil {
 		return
 	}
-	contexts := make(map[string]struct{}, len(dst.SupportAdvisoryContexts)+len(src.SupportAdvisoryContexts))
+	// Encode each source identity once per merge, outside the sort comparator.
+	type keyedContext struct {
+		key   string
+		value economics.SupportAdvisoryContext
+	}
+	keyed := make([]keyedContext, 0, len(dst.SupportAdvisoryContexts)+len(src.SupportAdvisoryContexts))
+	contexts := make(map[string]struct{}, cap(keyed))
 	for _, context := range dst.SupportAdvisoryContexts {
-		contexts[context.Key()] = struct{}{}
+		key := context.Key()
+		contexts[key] = struct{}{}
+		keyed = append(keyed, keyedContext{key, context})
 	}
 	for _, context := range src.SupportAdvisoryContexts {
-		if _, exists := contexts[context.Key()]; exists {
+		key := context.Key()
+		if _, exists := contexts[key]; exists {
 			continue
 		}
-		dst.SupportAdvisoryContexts = append(dst.SupportAdvisoryContexts, context)
-		contexts[context.Key()] = struct{}{}
+		keyed = append(keyed, keyedContext{key, context})
+		contexts[key] = struct{}{}
 	}
-	slices.SortFunc(dst.SupportAdvisoryContexts, func(a, b economics.SupportAdvisoryContext) int {
-		return strings.Compare(a.Key(), b.Key())
+	slices.SortFunc(keyed, func(a, b keyedContext) int {
+		return strings.Compare(a.key, b.key)
 	})
+	dst.SupportAdvisoryContexts = slices.Grow(dst.SupportAdvisoryContexts, len(keyed)-len(dst.SupportAdvisoryContexts))[:len(keyed)]
+	for i, context := range keyed {
+		dst.SupportAdvisoryContexts[i] = context.value
+	}
 	if src.SupportAdvisory == nil {
 		return
 	}

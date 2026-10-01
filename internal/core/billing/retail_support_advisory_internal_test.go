@@ -424,3 +424,28 @@ func TestRetailSupportAdvisoryCompositionPreservesOversizedSourceForFinalValidat
 		t.Fatal("final SDK validation accepted an oversized source report")
 	}
 }
+
+//nolint:paralleltest // AllocsPerRun temporarily changes process-wide GOMAXPROCS.
+func TestRetailSupportAdvisoryContextMergeAllocationBound(t *testing.T) {
+	base, _ := retailAdvisoryMergeRatedSource(t, "allocation-bound")
+	contexts := make([]economics.SupportAdvisoryContext, economics.MaxValuationRefs)
+	for i := range contexts {
+		contexts[i] = base.SupportAdvisoryContexts[0]
+		contexts[i].Tariff.ID = fmt.Sprintf("tariff-%04d", i)
+	}
+	sort.Slice(contexts, func(i, j int) bool { return contexts[i].Key() < contexts[j].Key() })
+	allocations := testing.AllocsPerRun(3, func() {
+		dst := economics.Valuation{SupportAdvisoryContexts: append([]economics.SupportAdvisoryContext(nil), contexts...)}
+		mergeRetailSupportAdvisory(&dst, base)
+		if len(dst.SupportAdvisoryContexts) != len(contexts)+1 {
+			t.Fatal("merge lost a distinct source context")
+		}
+	})
+	// Each context may encode its identity once, plus generous slice/map overhead.
+	// Sorting must not repeatedly allocate identity encodings per comparison.
+	limit := float64(8 * (len(contexts) + 1))
+	t.Logf("context merge allocations %.0f, limit %.0f", allocations, limit)
+	if allocations > limit {
+		t.Fatalf("context merge allocations %.0f exceed %.0f for %d contexts", allocations, limit, len(contexts)+1)
+	}
+}
