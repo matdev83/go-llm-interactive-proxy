@@ -30,11 +30,6 @@ foreach ($setting in @("LIP_LINT_JOBS", "LIP_LINT_CONCURRENCY")) {
     }
 }
 
-function Test-AgentSkillPath {
-    param([string]$NormalizedPath)
-    return $NormalizedPath -match '^\.(agents|codex|cursor|kiro|opencode|pi)/skills/'
-}
-
 function Get-DiscoveredModules {
     $modules = [System.Collections.Generic.List[string]]::new()
     $modules.Add(".")
@@ -58,62 +53,28 @@ function Get-DiscoveredModules {
     return @($modules | Sort-Object -Unique)
 }
 
-function Get-ModuleDirForFile {
-    param([string]$FilePath)
-    $normalized = $FilePath -replace '\\', '/'
-    $dir = Split-Path -Parent $normalized
-    while (-not [string]::IsNullOrWhiteSpace($dir) -and $dir -ne '.') {
-        if (Test-Path -LiteralPath (Join-Path $RepositoryRoot "$dir/go.mod")) {
-            return ($dir -replace '\\', '/')
-        }
-        $parent = Split-Path -Parent $dir
-        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $dir) {
-            break
-        }
-        $dir = $parent
-    }
-    return "."
-}
-
 function Get-TargetModules {
-    if ($Modules -and $Modules.Count -gt 0) {
-        return $Modules
-    }
-    if ($Staged) {
-        $files = @(git diff --cached --name-only --diff-filter=ACMRD 2>$null | Where-Object { $_ -match '\.go$' -or $_ -match '(^|/)go\.(mod|sum)$' })
-        if (-not $files -or $files.Count -eq 0) {
-            return @()
-        }
-        $set = [System.Collections.Generic.HashSet[string]]::new()
-        foreach ($f in $files) {
-            if (-not (Test-AgentSkillPath ($f -replace '\\', '/'))) {
-                [void]$set.Add((Get-ModuleDirForFile $f))
-            }
-        }
-        return @($set | Sort-Object)
-    }
-    if ($Changed) {
-        $files = @(git diff --cached --name-only --diff-filter=ACMRD 2>$null | Where-Object { $_ -match '\.go$' -or $_ -match '(^|/)go\.(mod|sum)$' })
-        $files += @(git diff --name-only --diff-filter=ACMRD 2>$null | Where-Object { $_ -match '\.go$' -or $_ -match '(^|/)go\.(mod|sum)$' })
-        $files += @(git ls-files --others --exclude-standard 2>$null | Where-Object { $_ -match '\.go$' -or $_ -match '(^|/)go\.(mod|sum)$' })
-        if (-not $files -or $files.Count -eq 0) {
-            return @(".")
-        }
-        $set = [System.Collections.Generic.HashSet[string]]::new()
-        foreach ($f in $files) {
-            if (-not (Test-AgentSkillPath ($f -replace '\\', '/'))) {
-                [void]$set.Add((Get-ModuleDirForFile $f))
-            }
-        }
-        if ($set.Count -eq 0) {
-            return @(".")
-        }
-        return @($set | Sort-Object)
-    }
+    if ($Modules -and $Modules.Count -gt 0) { return $Modules }
     return @(Get-DiscoveredModules)
 }
 
-$targetModules = @(Get-TargetModules)
+$modulePackages = @{}
+if (($Changed -or $Staged) -and -not $Modules) {
+    $scopeMode = if ($Staged) { "staged" } else { "changed" }
+    $scopeJSON = & go -C $RepositoryRoot run -buildvcs=false ./tools/lintscope -mode $scopeMode
+    if ($LASTEXITCODE -ne 0) { throw "Local lint scope discovery failed; refusing to omit evidence." }
+    $scopePlan = ($scopeJSON -join "`n") | ConvertFrom-Json
+    if ($scopePlan.full) {
+        $targetModules = @(Get-DiscoveredModules)
+    } else {
+        $targetModules = @($scopePlan.modules | ForEach-Object { $_.directory })
+        foreach ($module in $scopePlan.modules) {
+            $modulePackages[$module.directory] = @($module.packages)
+        }
+    }
+} else {
+    $targetModules = @(Get-TargetModules)
+}
 if ($targetModules.Count -eq 0) {
     Write-Host "No modules to lint." -ForegroundColor DarkGray
     exit 0
@@ -130,7 +91,7 @@ if (Get-Command golangci-lint -ErrorAction SilentlyContinue) {
     }
 } elseif (Get-Command staticcheck -ErrorAction SilentlyContinue) {
     $linter = "staticcheck"
-    $linterArgs = @("./...")
+    $linterArgs = @()
 } else {
     Write-Host "Warning: golangci-lint/staticcheck not found, skipping (install golangci-lint: https://golangci-lint.run/)" -ForegroundColor Yellow
     exit 0
@@ -155,6 +116,9 @@ $tasks = [System.Collections.Generic.List[PSObject]]::new()
 try {
     foreach ($mod in $targetModules) {
         $modDir = Join-Path $RepositoryRoot $mod
+        $packages = if ($modulePackages.ContainsKey($mod)) { $modulePackages[$mod] } else { @("./...") }
+        $moduleLintArgs = @($linterArgs) + @($packages)
+        Write-Host "Scope ${mod}: $($packages -join ' ')"
         $ps = [System.Management.Automation.PowerShell]::Create()
         $ps.RunspacePool = $pool
         [void]$ps.AddScript({
@@ -178,7 +142,7 @@ try {
                 ExitCode = $exitCode
                 Output = $output
             }
-        }).AddArgument($runnerBinary).AddArgument($RepositoryRoot).AddArgument($mod).AddArgument($modDir).AddArgument($linter).AddArgument($linterArgs).AddArgument($LintConcurrency)
+        }).AddArgument($runnerBinary).AddArgument($RepositoryRoot).AddArgument($mod).AddArgument($modDir).AddArgument($linter).AddArgument($moduleLintArgs).AddArgument($LintConcurrency)
 
         $asyncResult = $ps.BeginInvoke()
         $tasks.Add([PSCustomObject]@{

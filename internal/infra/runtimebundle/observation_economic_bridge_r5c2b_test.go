@@ -38,7 +38,8 @@ import (
 
 func r5c2bOpenJournal(t *testing.T, path, storeID string) (*journalstore.DurableStore, *sql.DB) {
 	t.Helper()
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate"
+	PrepareMeteringSchemaForTest(t, path)
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
@@ -50,7 +51,8 @@ func r5c2bOpenJournal(t *testing.T, path, storeID string) (*journalstore.Durable
 
 func r5c2bOpenBilling(t *testing.T, path, storeID string) (*billingstore.DurableStore, *sql.DB) {
 	t.Helper()
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate"
+	PrepareBillingSchemaForTest(t, path)
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
