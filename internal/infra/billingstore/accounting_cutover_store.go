@@ -94,7 +94,15 @@ func (s *DurableStore) GetAccountingCutover(ctx context.Context) (billing.Accoun
 	if err := ctx.Err(); err != nil {
 		return billing.AccountingCutoverMarker{}, err
 	}
-	row, found, err := s.loadAccountingCutover(ctx, s.db)
+	return s.getAccountingCutover(ctx, s.db)
+}
+
+// getAccountingCutover keeps marker reads on the caller's transaction connection.
+func (s *DurableStore) getAccountingCutover(ctx context.Context, q bun.IDB) (billing.AccountingCutoverMarker, error) {
+	if q == nil {
+		q = s.db
+	}
+	row, found, err := s.loadAccountingCutover(ctx, q)
 	if err != nil {
 		return billing.AccountingCutoverMarker{}, err
 	}

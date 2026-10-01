@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -104,10 +105,15 @@ func refinement82RuntimeSawUsage(events []lipapi.Event) bool {
 //     relay/worker path; lifecycle stays closed once with no replacement
 //     B-leg, and the economic head receives the late evidence identity;
 //   - host shutdown (Host.Close, the process lifecycle shutdown API; NOT
-//     TTL/eviction retirement, which the stock host cannot exercise without
-//     clock control) creates no usage/economic/journal/balance writes.
+//     TTL/eviction retirement) creates no usage/economic/journal/balance writes.
 func TestRefinement82RuntimeResumeKeepsTerminalOwnership(t *testing.T) {
 	t.Parallel()
+	// The bubble advances timers without changing production worker cadence;
+	// host/store cleanup must join its goroutines before the scenario returns.
+	synctest.Test(t, testRefinement82RuntimeResumeKeepsTerminalOwnership)
+}
+
+func testRefinement82RuntimeResumeKeepsTerminalOwnership(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	storeID := "refinement82-resume"
