@@ -49,7 +49,7 @@
   - _Depends: none_
   - _Validation: `go test -count=1 ./internal/plugins/features/pathvirtualization/...`_
 
-- [ ] 2.2 Implement deterministic workspace-bound alias derivation and inverse prefix mapping
+- [x] 2.2 Implement deterministic workspace-bound alias derivation and inverse prefix mapping
   - Define the exact canonical root identity: flavor retained; POSIX case-sensitive with non-root trailing separator removal; Windows separator-normalized, ASCII-case-folded, non-volume trailing separator removal; no filesystem/dot-segment normalization.
   - Derive `workspaceTag = lower(base32-no-padding(SHA-256("lip:path-virtualization:v1\x00" + flavorID + "\x00" + canonicalRootIdentity)[0:12]))`, yielding exactly 20 characters / 96 bits.
   - Fixed aliases: POSIX `/.__lip_v1__/w_<tag>/`; drive `<UPPERCASE-DRIVE>:\.__lip_v1__\w_<tag>\`; UNC `\\.__lip_v1__\w_<tag>\`; extended drive `\\?\<UPPERCASE-DRIVE>:\.__lip_v1__\w_<tag>\`; extended UNC `\\?\UNC\.__lip_v1__\w_<tag>\`.
@@ -351,3 +351,10 @@
 - Task 2.1: `TestClassifyPathRejectionReasonsAreBounded` asserts `len(seen) == len(known)`; Task 2.3 must widen that `known` map when it adds `workspace_mismatch`/`malformed_reserved_alias`.
 - Task 2.1: forward-slash-spelled Windows volumes (`//?/C:/x`, `//server/share`) classify as `FlavorPOSIX` because the design defines POSIX as "leading `/`". Design-literal, but 2.2/2.3 should know forward-slash Windows volumes take the POSIX branch.
 - Task 2.1: `TestFlavorParsingHasNoHostAuthority` AST-scans the package's non-test sources and rejects `os`, `path`, `path/filepath`, `runtime`, `syscall`, and any repo-package import; keep it intact. Note `internal/plugins/features/...` is not exercised on the CI windows/macos runners today, so multi-OS evidence is host-independent constants plus `GOOS=windows`/`GOOS=darwin` compile+vet, not execution.
+- Task 2.2: `flavorID` is serialized into the tag digest as DECIMAL DIGITS. This is an observable frozen V1 interop contract; changing it would change every derived tag.
+- Task 2.2: activation requires `len(alias) < len(RealRoot)` AND `len(alias) < len(matchableRoot)`, both strict. The second strict comparison is what keeps requirement 9.1 ("replacement strictly shorter than the matched prefix") true for roots spelled with trailing-separator runs; a `<=` would leave a zero- or one-byte rewrite active.
+- Task 2.2: `canonicalRootIdentity` treats a separator as volume-owned ONLY when the spelled volume alone is not a valid absolute root per Task 2.1, i.e. for `C:` and `\\?\C:` but NOT for `\\server\share` or `\\?\UNC\server\share`. So `\\srv\share` and `\\srv\share\` derive the same tag. The tag contract is frozen; changing this later would strand aliases a provider has already seen.
+- Task 2.2: expansion is byte-exact except two documented separator-count-only shapes, both design-mandated: a path equal to the bare real root gains the alias's own trailing separator (the alias spelling is frozen and always ends with one), and a real root itself spelled with a trailing separator keeps its own spelling. No client byte is ever dropped.
+- Task 2.2: an empty `VirtualRoot` with `SkipReasonNone` means "usable root whose alias is not beneficial". Tasks 4.3/9.3 must translate that state into a bounded reason for requirement 7.6 skip accounting; requirement 1.8's enumeration does not cover it.
+- Task 2.2: `ExpandPath` returns `ExpandResultNotApplicable` for an alias it did not derive. Task 2.3 must REPLACE that fallthrough with reserved-alias pre-parsing, not merely add result codes — otherwise a stale alias would be passed through to the client.
+- Task 2.2: reserved-namespace collision is still open and pinned by `TestReservedNamespaceCollisionStaysOwnedByTaskTwoThree`; Task 2.3 owns the detection.
