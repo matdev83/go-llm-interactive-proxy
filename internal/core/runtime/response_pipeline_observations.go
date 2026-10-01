@@ -75,6 +75,14 @@ func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnF
 	prepared.partMeta, _ = facts.hookMeta(attempt.bleg, attempt.cand)
 	p.emitTraffic(ctx, attempt, sdktraffic.LegBTP, ev, prepared.partMeta)
 	p.emitUsage(ctx, facts, attempt, ev)
+	// Design Response Interception / Placement binds this order: BTP and provider
+	// usage observation see the upstream control traffic first, then the private
+	// capture consumes whatever it claims, and only what it does not claim may
+	// reach the ordinary assembler and the client path below.
+	if swallowed, err := p.divertControlCall(ctx, attempt, ev); swallowed || err != nil {
+		prepared.swallowed, prepared.err = swallowed, err
+		return prepared
+	}
 	if toolFinal := attempt.toolCallAssembler(); toolFinal != nil && toolFinal.enabled() {
 		meta := toolcall.Meta{TraceID: facts.traceID, ALegID: facts.aLegID, BLegID: attempt.bleg.BLegID, AttemptSeq: attempt.bleg.Seq}
 		held, err := toolFinal.ingest(ctx, ev, meta)

@@ -24,6 +24,7 @@ import (
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -132,9 +133,24 @@ type attemptSession struct {
 	billingStoreID    string
 	billingCallState  *billingCallState
 
-	accounting            attemptAccountingTracker
-	boundary              *coremetering.BoundaryAccumulator
-	controlTool           *controlToolActivation
+	accounting  attemptAccountingTracker
+	boundary    *coremetering.BoundaryAccumulator
+	controlTool *controlToolActivation
+	// controlCapture is the private, mutable response-side state machine for the
+	// one proxy-owned control call. It is derived from the immutable
+	// controlToolActivation above at session construction and never outlives this
+	// attempt. Like toolFinal it is single-owner on the backend Recv loop.
+	controlCapture *controlCallCapture
+	// controlOutcome is the normalized, validated provider outcome awaiting the
+	// later terminal owner. It is private to this attempt: task 4.2 never
+	// publishes result text, synthesizes a client ToolCall/ToolResult, or asserts
+	// native completion.
+	controlOutcome *controltool.Outcome
+	// controlHandled records that the one permitted completion handoff already
+	// happened, so a malformed or duplicate sequence can revoke an outcome without
+	// ever invoking the pinned provider twice.
+	controlHandled bool
+
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
@@ -310,6 +326,10 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		releaseKind: authorityapp.ReleaseKindSwallowed, defaultCommand: sdkterminal.CommandBackendOpenFailure, defaultLegOutcome: billing.LegOutcomeFailed,
 		traceID: in.traceID, requestID: in.requestID, boundaryScope: in.boundaryScope, billingCallID: in.billingCallID, submissionID: in.submissionID, billingStoreID: in.billingStoreID, billingCallState: in.billingCallState,
 		accounting: in.accounting, boundary: in.boundary, controlTool: in.controlTool, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
+		// The capture is derived state, not relayed input: newControlCallCapture
+		// returns nil for an absent or inactive activation, so the ordinary
+		// no-provider path performs zero response work with no extra input field.
+		controlCapture:        newControlCallCapture(in.controlTool),
 		promptCacheController: in.promptCacheController, finalStreamObs: in.finalStreamObs,
 		recordAttemptLoggedFn: in.recordAttemptLoggedFn, emitBackendEgressFn: in.emitBackendEgressFn,
 		appendBillingLegFn: in.appendBillingLegFn, now: in.now, billingEnabled: in.billingEnabled,

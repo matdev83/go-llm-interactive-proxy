@@ -88,7 +88,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 2.1,3.2_
     - _Validation: focused capture/state-machine tests including malformed sequences and race cleanup_
 
-  - [ ] 4.2 Intercept claimed control calls before ordinary finalizers/policy/reactors
+  - [x] 4.2 Intercept claimed control calls before ordinary finalizers/policy/reactors
     - Wire capture at the backend-event boundary before existing ordinary tool-call assembler/finalizers and before tool policy/reactors.
     - Preserve BTP/provider usage observation and ordinary non-control streaming while preventing claimed lifecycle events from PTC/client release.
     - Call the pinned generic control provider only when a full bounded control call is complete; normalize provider panic/error through existing extension-safety conventions without falling through to client execution.
@@ -302,3 +302,7 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 
 - Dedicated loader-fixture unblock: Replaced live HEAD/working-tree equality with an isolated committed Git fixture and dirty-tree independence checks; normal hooks passed in c1fab5cd.
 - Task 4.1: Added unwired, attempt-local control capture with bounded owned arguments and 16 fixed-size correlation keys. Claimed malformed and mixed item payloads stay private, sticky invalidation revokes prior validity, and exhaustion is fatal. Item handoff uses exact-size copying. Behavioral RED regressions, focused tests/race/lint and final independent review pass. Integration must keep BTP/usage before capture, abort immediately on fatal, clear pending outcome on invalidation and respect single-owner Recv/Close synchronization.
+
+- Task 4.2: Interception runs after BTP/usage and before ordinary tool processing. The pinned generic handler validates frozen inputs/outcomes and normalizes provider failures without exposing provider text. Provider metadata is deep-owned; outcomes stay private and later invalidation revokes them. Behavioral RED, scoped tests/lint/race, independent review and a fresh real-Recv/PTC/fatal regression pass. Task 4.3 must synchronize cancellation/loss cleanup without holding state locks across provider or backend I/O.
+
+- Dedicated configsource unblock (`c1e25970`): live recycled-inode fixture now compares full identities, asserting fail-closed rejection when birth timestamps coincide; distinct-identity eligibility and in-place rewrite rejection remain. Original reproduction 19/20 failures; fresh 30-run regression, independent review, complete root pre-commit tests, quality/lint and scoped race passed. No production identity-policy change.
