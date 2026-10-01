@@ -67,14 +67,32 @@ func f356LinearRule(t *testing.T, id string, key metering.ComponentKey, price st
 // f356Tariff freezes the exact component graph against the same pricing
 // reference ref83intWinnerPolicy/ref83intCall bind, with no fees.
 func f356Tariff(t *testing.T, rules []economics.RatingRule, relationships []metering.ComponentRelationship) economics.TariffSnapshot {
+	return f356TariffWithReportingVersion(t, "v3", "", rules, relationships)
+}
+
+// f356TariffWithReportingVersion constructs a distinct frozen publication for
+// each reporting mode. Changing the advisory version changes content identity,
+// so callers must use a new tariff version and recompute its content hash.
+func f356TariffWithReportingVersion(
+	t *testing.T,
+	tariffVersion string,
+	reportingVersion string,
+	rules []economics.RatingRule,
+	relationships []metering.ComponentRelationship,
+) economics.TariffSnapshot {
 	t.Helper()
 	tariff, err := economics.BuildTariffSnapshotWithSchemas(
-		economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "retail-pricing-83", Version: "v3"}, RaterID: "reference"},
+		economics.RatingSnapshotRef{VersionRef: economics.VersionRef{ID: "retail-pricing-83", Version: tariffVersion}, RaterID: "reference"},
 		"USD", rules,
 		[]metering.ComponentSchema{{ID: f356SchemaID, Version: "1", Relationships: relationships}},
 	)
 	if err != nil {
 		t.Fatalf("BuildTariffSnapshotWithSchemas: %v", err)
+	}
+	tariff.SupportAdvisoryVersion = reportingVersion
+	tariff.Content.ContentHash = tariff.ContentHash()
+	if err := tariff.Validate(); err != nil {
+		t.Fatalf("TariffSnapshot.Validate: %v", err)
 	}
 	return tariff
 }
@@ -122,9 +140,21 @@ func f356RequireCompletenessFence(t *testing.T, err error, wantCompleteness stri
 // complete result.
 func f356Setup(t *testing.T, store *DurableStore, accountID, bLegID string, tariff economics.TariffSnapshot, measures ...f356Measure) (billing.CallUsageRecord, billing.CallExposure, billing.CallRatingResult, error) {
 	t.Helper()
-	ctx := context.Background()
 	// Legal empty activation before any account/exposure/usage exists.
 	f3ActivateEmpty(t, store)
+	return f356SetupOnActivatedStore(t, store, accountID, bLegID, ref83intWinnerPolicy(), tariff, measures...)
+}
+
+func f356SetupOnActivatedStore(
+	t *testing.T,
+	store *DurableStore,
+	accountID, bLegID string,
+	policy billing.ChargePolicy,
+	tariff economics.TariffSnapshot,
+	measures ...f356Measure,
+) (billing.CallUsageRecord, billing.CallExposure, billing.CallRatingResult, error) {
+	t.Helper()
+	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{
 		ID: accountID, Currency: "USD", Mode: billing.AccountPrepaid,
 		BalanceNano: f356BalanceNano, State: billing.AccountReady, Version: 1,
@@ -135,7 +165,9 @@ func f356Setup(t *testing.T, store *DurableStore, accountID, bLegID string, tari
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := ref83intWinnerPolicy()
+	if tariff.Ref.Version != policy.PricingRef.Version || tariff.Ref.ID != policy.PricingRef.ID {
+		t.Fatalf("tariff pricing ref=%+v does not match policy pricing ref=%+v", tariff.Ref.VersionRef, policy.PricingRef)
+	}
 	call := ref83intCall(t, callID, accountID, policy, bLegID)
 	obs := ref83intObservation(t, callID, bLegID, bLegID+"-obs", "0", measures...)
 	leg := ref83intLeg(t, callID, bLegID, 1, billing.LegOutcomeWinner, billing.SurfacedYes, &obs)

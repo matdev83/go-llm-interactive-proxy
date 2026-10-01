@@ -31,18 +31,19 @@ type valuationContextSnapshot struct {
 }
 
 type valuationContextPreimage struct {
-	Version              uint32                       `json:"version"`
-	Perspective          metering.EconomicPerspective `json:"perspective"`
-	Basis                ValuationBasis               `json:"basis"`
-	Subject              metering.SubjectRef          `json:"subject"`
-	Scope                string                       `json:"scope"`
-	Payer                metering.PaymentParty        `json:"payer"`
-	Rater                valuationContextSnapshot     `json:"rater"`
-	Tariff               valuationContextSnapshot     `json:"tariff"`
-	Policy               valuationContextSnapshot     `json:"policy"`
-	QualifierSnapshot    string                       `json:"qualifier_snapshot"`
-	QualifierSnapshotRef valuationContextContent      `json:"qualifier_snapshot_ref"`
-	EffectiveQualifiers  []metering.Dimension         `json:"effective_qualifiers,omitempty"`
+	Version                 uint32                       `json:"version"`
+	Perspective             metering.EconomicPerspective `json:"perspective"`
+	Basis                   ValuationBasis               `json:"basis"`
+	Subject                 metering.SubjectRef          `json:"subject"`
+	Scope                   string                       `json:"scope"`
+	Payer                   metering.PaymentParty        `json:"payer"`
+	Rater                   valuationContextSnapshot     `json:"rater"`
+	Tariff                  valuationContextSnapshot     `json:"tariff"`
+	Policy                  valuationContextSnapshot     `json:"policy"`
+	QualifierSnapshot       string                       `json:"qualifier_snapshot"`
+	QualifierSnapshotRef    valuationContextContent      `json:"qualifier_snapshot_ref"`
+	EffectiveQualifiers     []metering.Dimension         `json:"effective_qualifiers,omitempty"`
+	SupportAdvisoryContexts []SupportAdvisoryContext     `json:"support_advisory_contexts,omitempty"`
 }
 
 func valuationContextContentFor(ref *SnapshotContentRef) valuationContextContent {
@@ -66,14 +67,31 @@ func valuationContextPolicyFor(ref PolicySnapshotRef, content *SnapshotContentRe
 	}
 }
 
+func canonicalValuationSupportAdvisoryContexts(contexts []SupportAdvisoryContext) ([]SupportAdvisoryContext, error) {
+	contextOnly := Valuation{SupportAdvisoryContexts: contexts}
+	if err := contextOnly.validateSupportAdvisory(); err != nil {
+		return nil, err
+	}
+	// Validation bounds the caller's raw slice before this copy is allocated.
+	contextOnly.SupportAdvisoryContexts = slices.Clone(contextOnly.SupportAdvisoryContexts)
+	contextOnly.canonicalizeSupportAdvisory()
+	return contextOnly.SupportAdvisoryContexts, nil
+}
+
 // CanonicalContextJSON returns the deterministic economic-context preimage for
 // a valuation. It includes trusted subject/scope/perspective/payer identity,
 // all snapshot VersionRef IDs and versions, provider/policy IDs, and every
-// content resolver reference/hash. Absent content uses an explicit empty
-// object so legacy and current callers share one unambiguous representation.
+// content resolver reference/hash, plus optional support-advisory source
+// contexts. The report itself is excluded because it is result content rather
+// than interpretation identity. Absent content uses an explicit empty object
+// so legacy and current callers share one unambiguous representation.
 // Publication timestamps are excluded because they describe retrieval
 // metadata rather than the economic interpretation.
 func (v Valuation) CanonicalContextJSON() ([]byte, error) {
+	supportContexts, err := canonicalValuationSupportAdvisoryContexts(v.SupportAdvisoryContexts)
+	if err != nil {
+		return nil, fmt.Errorf("economics: support advisory contexts: %w", err)
+	}
 	qualifiers := append([]metering.Dimension(nil), v.EffectiveQualifiers...)
 	if err := validateDimensions(qualifiers, ErrInvalidValuation); err != nil {
 		return nil, fmt.Errorf("economics: effective qualifiers: %w", err)
@@ -85,25 +103,26 @@ func (v Valuation) CanonicalContextJSON() ([]byte, error) {
 		return strings.Compare(a.Value, b.Value)
 	})
 	preimage := valuationContextPreimage{
-		Version:              v.Version,
-		Perspective:          v.Perspective,
-		Basis:                v.Basis,
-		Subject:              v.Subject.Clone(),
-		Scope:                v.Scope,
-		Payer:                v.Payer,
-		Rater:                valuationContextSnapshotFor(v.Rater, v.RaterContent),
-		Tariff:               valuationContextSnapshotFor(v.Tariff, v.TariffContent),
-		Policy:               valuationContextPolicyFor(v.Policy, v.PolicyContent),
-		QualifierSnapshot:    v.QualifierSnapshot,
-		QualifierSnapshotRef: valuationContextContentFor(v.QualifierSnapshotRef),
-		EffectiveQualifiers:  qualifiers,
+		Version:                 v.Version,
+		Perspective:             v.Perspective,
+		Basis:                   v.Basis,
+		Subject:                 v.Subject.Clone(),
+		Scope:                   v.Scope,
+		Payer:                   v.Payer,
+		Rater:                   valuationContextSnapshotFor(v.Rater, v.RaterContent),
+		Tariff:                  valuationContextSnapshotFor(v.Tariff, v.TariffContent),
+		Policy:                  valuationContextPolicyFor(v.Policy, v.PolicyContent),
+		QualifierSnapshot:       v.QualifierSnapshot,
+		QualifierSnapshotRef:    valuationContextContentFor(v.QualifierSnapshotRef),
+		EffectiveQualifiers:     qualifiers,
+		SupportAdvisoryContexts: supportContexts,
 	}
 	return json.Marshal(preimage)
 }
 
 // ContextHash returns the lowercase SHA-256 digest of CanonicalContextJSON.
-// Invalid JSON serialization is not expected for this bounded DTO; an empty
-// result keeps callers from treating an unavailable digest as a valid hash.
+// An invalid or out-of-bounds context leaves the digest unavailable rather than
+// letting callers treat it as a valid hash.
 func (v Valuation) ContextHash() string {
 	payload, err := v.CanonicalContextJSON()
 	if err != nil {

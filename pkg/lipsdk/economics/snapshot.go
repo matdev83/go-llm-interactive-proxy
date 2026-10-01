@@ -92,11 +92,12 @@ type PolicyRulesView struct {
 
 // RatingCatalogView is the public rating/catalog snapshot payload.
 type RatingCatalogView struct {
-	Currency            string               `json:"currency,omitempty"`
-	CatalogVersion      string               `json:"catalog_version,omitempty"`
-	Rules               []RatingRule         `json:"rules,omitempty"`
-	EffectiveQualifiers []metering.Dimension `json:"effective_qualifiers,omitempty"`
-	LegacySemantics     string               `json:"legacy_semantics,omitempty"`
+	Currency               string               `json:"currency,omitempty"`
+	CatalogVersion         string               `json:"catalog_version,omitempty"`
+	Rules                  []RatingRule         `json:"rules,omitempty"`
+	EffectiveQualifiers    []metering.Dimension `json:"effective_qualifiers,omitempty"`
+	LegacySemantics        string               `json:"legacy_semantics,omitempty"`
+	SupportAdvisoryVersion string               `json:"support_advisory_version,omitempty"`
 	// Schemas carries optional frozen component-relationship material published
 	// by a rating source. It is the view-plane counterpart of
 	// TariffSnapshot.Schemas: a view that omits or drops schemas reconstructs a

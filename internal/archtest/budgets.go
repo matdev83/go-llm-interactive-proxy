@@ -8,6 +8,27 @@ import (
 	"strings"
 )
 
+// Explicit maintainer-approved prospective capacity for
+// billing-uncertain-component-overlap task 1.1. These are planned growth limits,
+// not audited production lines; historical audit pins remain unchanged.
+const (
+	billingUncertainOverlapCoreReserve    = 1500
+	billingUncertainOverlapOverlayReserve = billingUncertainOverlapCoreReserve + 250
+)
+
+// Only these paths may consume the reserve. New assessor files retain baseline
+// zero/new provenance in the fork-anchored manifest; their absence credits zero.
+var billingUncertainOverlapFileReserve = map[string]int{
+	"internal/core/billing/component_rater_advisory.go":        450,
+	"internal/core/billing/component_rater_advisory_graph.go":  450,
+	"internal/core/billing/component_rater.go":                 100,
+	"internal/core/billing/component_rater_support.go":         100,
+	"internal/core/billing/component_rater_overlap.go":         100,
+	"internal/core/billing/component_rater_quantity_solver.go": 100,
+	"internal/core/billing/retail_rating.go":                   200,
+	"internal/infra/billingcompose/catalog.go":                 250,
+}
+
 // CriticalFileBudget caps the non-test line count for hotspot files.
 type CriticalFileBudget struct {
 	Path string

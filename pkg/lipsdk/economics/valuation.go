@@ -809,8 +809,10 @@ type Valuation struct {
 	// here by exact allocation identity (store, allocation, version and payload
 	// hash). It carries identity only, never money, and never turns an
 	// allocation into provider-charge evidence or a request debit.
-	AllocationCoverageRefs []AllocationRef `json:"allocation_coverage_refs,omitempty"`
-	CreatedAt              time.Time       `json:"created_at"`
+	AllocationCoverageRefs  []AllocationRef          `json:"allocation_coverage_refs,omitempty"`
+	SupportAdvisoryContexts []SupportAdvisoryContext `json:"support_advisory_contexts,omitempty"`
+	SupportAdvisory         *SupportAdvisoryReport   `json:"support_advisory,omitempty"`
+	CreatedAt               time.Time                `json:"created_at"`
 }
 
 func (v Valuation) Validate() error {
@@ -965,7 +967,7 @@ func (v Valuation) Validate() error {
 	if v.Completeness == CompletenessComplete && len(v.Totals) == 0 {
 		return fmt.Errorf("%w: complete valuation requires totals", ErrInvalidValuation)
 	}
-	return nil
+	return v.validateSupportAdvisory()
 }
 
 func validateRatingRef(name string, ref RatingSnapshotRef) error {
@@ -1021,6 +1023,8 @@ func validateVersionRef(name string, ref VersionRef) error {
 // Clone makes all nested valuation data independent of the source.
 func (v Valuation) Clone() Valuation {
 	out := v
+	out.SupportAdvisoryContexts = slices.Clone(v.SupportAdvisoryContexts)
+	out.SupportAdvisory = v.SupportAdvisory.Clone()
 	out.Subject = v.Subject.Clone()
 	out.RaterContent = cloneSnapshotContentRef(v.RaterContent)
 	out.TariffContent = cloneSnapshotContentRef(v.TariffContent)
@@ -1053,6 +1057,7 @@ func (v Valuation) Canonical() (Valuation, error) {
 		return Valuation{}, err
 	}
 	out := v.Clone()
+	out.canonicalizeSupportAdvisory()
 	for i := range out.Lines {
 		if out.Lines[i].Component != nil {
 			component, err := out.Lines[i].Component.Normalize()

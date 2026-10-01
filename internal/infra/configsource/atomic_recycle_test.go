@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 )
@@ -57,6 +58,9 @@ func TestFixedSource_AtomicReplaceWithRecycledInodeIsEligible(t *testing.T) {
 	}
 
 	// The recovery rename may be allocated the freed inode number.
+	// Let coarse filesystem birth-time clocks advance so the reused inode has a
+	// distinct creation time from the first file.
+	time.Sleep(20 * time.Millisecond)
 	atomicWrite("body-b")
 	info2, err := os.Stat(path)
 	if err != nil {

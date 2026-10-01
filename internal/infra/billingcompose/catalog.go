@@ -61,7 +61,7 @@ func NewSnapshotCatalog() *SnapshotCatalog {
 }
 
 func (c *SnapshotCatalog) PutPricing(snapshot billing.PricingSnapshot) error {
-	return c.putPricingTariff(snapshot, nil)
+	return c.putPricingTariff(snapshot, nil, "")
 }
 
 // PutPricingWithSchemas atomically publishes a scalar pricing card and the
@@ -69,10 +69,17 @@ func (c *SnapshotCatalog) PutPricing(snapshot billing.PricingSnapshot) error {
 // is reachable through the public catalog. Schemas are caller-supplied and
 // never inferred; empty schemas is exactly PutPricing.
 func (c *SnapshotCatalog) PutPricingWithSchemas(snapshot billing.PricingSnapshot, schemas []metering.ComponentSchema) error {
-	return c.putPricingTariff(snapshot, schemas)
+	return c.putPricingTariff(snapshot, schemas, "")
 }
 
-func (c *SnapshotCatalog) putPricingTariff(snapshot billing.PricingSnapshot, schemas []metering.ComponentSchema) error {
+// PutPricingWithSupportAdvisory atomically publishes a scalar pricing card and
+// its matching frozen advisory tariff. The version is validated by the SDK
+// tariff contract before either catalog entry becomes visible.
+func (c *SnapshotCatalog) PutPricingWithSupportAdvisory(snapshot billing.PricingSnapshot, schemas []metering.ComponentSchema, version string) error {
+	return c.putPricingTariff(snapshot, schemas, version)
+}
+
+func (c *SnapshotCatalog) putPricingTariff(snapshot billing.PricingSnapshot, schemas []metering.ComponentSchema, version string) error {
 	if c == nil {
 		return errNilSnapshotCatalog
 	}
@@ -83,10 +90,16 @@ func (c *SnapshotCatalog) putPricingTariff(snapshot billing.PricingSnapshot, sch
 	if err != nil {
 		return fmt.Errorf("billingcompose: legacy tariff snapshot: %w", err)
 	}
-	if len(schemas) > 0 {
-		tariff.Schemas = schemas
+	if len(schemas) > 0 || version != "" {
+		if len(schemas) > 0 {
+			tariff.Schemas = schemas
+		}
+		tariff.SupportAdvisoryVersion = version
 		tariff.Content = economics.SnapshotContentRef{}
 		if tariff, err = tariff.Canonical(); err != nil {
+			if version != "" {
+				return fmt.Errorf("billingcompose: advisory tariff snapshot: %w", err)
+			}
 			return fmt.Errorf("billingcompose: schema tariff snapshot: %w", err)
 		}
 		if _, err = billing.NewReferenceRater(tariff); err != nil {
@@ -433,10 +446,11 @@ func (c *SnapshotCatalog) Snapshot(ctx context.Context) (economics.Snapshot[econ
 		State: economics.SnapshotReady,
 		Value: economics.RatingCatalogView{
 			Currency: pricing.Currency, CatalogVersion: tariff.CatalogVersion,
-			Rules:               rules,
-			EffectiveQualifiers: append([]metering.Dimension(nil), tariff.EffectiveQualifiers...),
-			LegacySemantics:     tariff.LegacySemantics,
-			Schemas:             tariff.Schemas,
+			SupportAdvisoryVersion: tariff.SupportAdvisoryVersion,
+			Rules:                  rules,
+			EffectiveQualifiers:    append([]metering.Dimension(nil), tariff.EffectiveQualifiers...),
+			LegacySemantics:        tariff.LegacySemantics,
+			Schemas:                tariff.Schemas,
 		},
 	}, nil
 }
