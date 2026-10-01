@@ -199,9 +199,7 @@ INSERT INTO journal_transactions(
 			{LedgerAccount: "revenue", Side: billing.JournalCredit, Amount: billing.Money{Nano: 3, Currency: "USD"}},
 		},
 	}
-	if _, err := store.postJournalTransaction(ctx, input); err == nil {
-		t.Fatal("expected primary-key failure")
-	}
+	assertJournalRollbackFailure(ctx, t, store, input)
 	var entryCount int
 	if err := store.db.NewRaw(`SELECT COUNT(1) FROM journal_entries WHERE transaction_id = ?`, occupiedID).Scan(ctx, &entryCount); err != nil {
 		t.Fatal(err)

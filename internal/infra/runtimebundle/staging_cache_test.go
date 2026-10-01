@@ -3,7 +3,9 @@ package runtimebundle
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -234,11 +236,17 @@ func copyDirRecursive(tb testing.TB, src, dst string) error {
 }
 
 func copyFileMode(dst, src string, perm os.FileMode) error {
-	data, err := os.ReadFile(src)
+	input, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, perm)
+	defer func() { _ = input.Close() }()
+	output, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(output, input)
+	return errors.Join(copyErr, output.Close())
 }
 
 var (
