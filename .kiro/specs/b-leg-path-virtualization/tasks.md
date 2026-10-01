@@ -29,7 +29,7 @@
   - _Depends: none_
   - _Validation: focused `internal/core/runtime` tests_
 
-- [ ] 1.3 Add RED backend-bound ordering characterization
+- [x] 1.3 Add RED backend-bound ordering characterization
   - Prove attempt transforms precede request-part hooks and that PTB/`Backend.Open` occurs after request-part hooks and conversation-view reassertion.
   - Build a fixture where an early path rewrite would be detectable if lost later.
   - Observable completion: stable test defines the two-pass invariant without coupling to private call-graph trivia beyond the semantic checkpoints.
@@ -342,3 +342,6 @@
 - Task 1.2: `orderingFinalizerProjectRoot` reaches the authoritative root via a reflection probe on `toolcall.Meta` field names `Workspace`/`ProjectRoot`; Tasks 6.1/8.2 must replace it with direct `meta.Workspace.ProjectRoot` access rather than relaxing the assertions.
 - Task 1.2: the tool policy observer plane already receives the authoritative workspace view via `applyToolPolicies` (`response_pipeline_observations.go`); only the finalization metadata plane is blind, so no policy-plane change is needed for 5.1.
 - Task 1.2: the test-local stand-in finalizer pairs `ActionRewrite` with `ReasonValidPassThrough`; Task 8.1's real finalizer should use a semantically correct reason code.
+- Task 1.3: the backend-bound two-pass ordering (attempt transform -> candidate eligibility -> request-part hook -> conversation-view reassertion -> PTB -> `Backend.Open`) already holds in the current runtime, so the delivered `path_virtualization_two_pass_ordering_characterization_test.go` is an intentionally GREEN permanent regression guard, not a pending RED condition. A first review round rejected an earlier RED attempt whose failures came only from anchoring a conversation-view overlay on the very message the rewriter mutates.
+- Task 1.3: conversation-view anchor identity is content-derived (`conversationprojection.MessageIdentityOf` hashes message content), so once this feature virtualizes a path-bearing tool-call message, a client steering overlay anchored on that message's pre-virtualization identity can no longer resolve and the executor denies the turn pre-backend (`ErrAnchorMissing` -> `AnchorFailClosed` -> `CommandPreBackendDenial`). This is a real functional gap, but it belongs to conversation-view anchor semantics which `design.md` "Out of Boundary" excludes and no task in 1.1-12.2 owns. Raise it as a separate spec item (suggested as a Requirement 6 continuity sidecar of Task 5.2); do not work around it inside this spec.
+- Task 1.3: `EligibilityResolver.Check` is invoked twice per attempt (preliminary candidate evaluation, then `post_request_hooks` rederivation); only the preliminary invocation measures requirement 5.3 candidate sizing.
