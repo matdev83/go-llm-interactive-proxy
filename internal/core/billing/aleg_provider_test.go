@@ -1389,7 +1389,6 @@ func TestEvaluateALegProviderMixedZeroChildrenKnown(t *testing.T) {
 // TestEvaluateALegProviderChildrenCapUnknown proves child fanout
 // beyond the bound resolves unknown rather than a partial sum.
 func TestEvaluateALegProviderChildrenCapUnknown(t *testing.T) {
-	t.Parallel()
 	// No t.Parallel: this test mutates the package child cap; sequential
 	// execution keeps the override and its Cleanup restore deterministic.
 	scope, _ := alegPVScope(t)

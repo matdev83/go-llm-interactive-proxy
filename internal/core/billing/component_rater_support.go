@@ -137,40 +137,91 @@ func (s *shadowScope) ancestorsOf(node int) map[int]struct{} {
 // closure first, because it is the only branch that can be a conflict, then the
 // schema's own allocation of the two regions.
 func (s *shadowScope) relation(a, b int) componentLineRelation {
+	relation, _ := classifySupportRelation(a, b, shadowScopeRelationQueries{scope: s})
+	return relation
+}
+
+// supportRelationQueries supplies the graph facts shared by the legacy conflict
+// predicate and the separately budgeted advisory predicate. A query that cannot
+// finish returns assessed=false; callers must not turn that into a verdict.
+type supportRelationQueries interface {
+	containsRegion(container, contained int) (bool, bool)
+	sharesAncestor(a, b int) (bool, bool)
+	partitionSeparates(a, b int) (bool, bool)
+}
+
+type shadowScopeRelationQueries struct {
+	scope *shadowScope
+}
+
+func (q shadowScopeRelationQueries) containsRegion(container, contained int) (bool, bool) {
+	return q.scope.contains(container, contained), true
+}
+
+func (q shadowScopeRelationQueries) sharesAncestor(a, b int) (bool, bool) {
+	s := q.scope
+	ancestorsA, ancestorsB := s.ancestorsOf(a), s.ancestorsOf(b)
+	for node := range len(s.program.keyOf) {
+		_, inA := ancestorsA[node]
+		_, inB := ancestorsB[node]
+		if inA && inB {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+func (q shadowScopeRelationQueries) partitionSeparates(a, b int) (bool, bool) {
+	return q.scope.partitionSeparates(a, b), true
+}
+
+// classifySupportRelation is the one decision tree for structural support
+// relationships. Budgeted queries use separate caches and work accounting while
+// preserving the conflict path's containment, forest, partition, unknown order.
+func classifySupportRelation(a, b int, queries supportRelationQueries) (componentLineRelation, bool) {
 	if a == b {
 		// The same contributor, and the branch that keeps a diamond from being read
 		// as a self-conflict. Pair enumeration never reaches it; stated for totality.
-		return relationProvenDisjoint
+		return relationProvenDisjoint, true
 	}
 	// Strict containment, either direction, over the transitive union of the two
 	// containment classes. A chain that changes class partway (A subset B, B
 	// partition C) is the same relation as a pure chain of one class, because it
 	// is the same compiled containment graph.
-	if s.contains(a, b) || s.contains(b, a) {
-		return relationDefiniteOverlap
+	contained, assessed := queries.containsRegion(a, b)
+	if !assessed {
+		return relationUnknownIntersection, false
+	}
+	if contained {
+		return relationDefiniteOverlap, true
+	}
+	contained, assessed = queries.containsRegion(b, a)
+	if !assessed {
+		return relationUnknownIntersection, false
+	}
+	if contained {
+		return relationDefiniteOverlap, true
 	}
 	// Neither contains the other. The two are either under separate trees of the
 	// frozen containment forest, which the schema allocates separately, or under a
 	// shared ancestor, in which case only a validated complete partition can prove
 	// them apart. The shared-ancestor test scans ASCENDING NODE ID rather than
 	// ranging a set, so no map iteration order can reach the answer even as work.
-	ancestorsA, ancestorsB := s.ancestorsOf(a), s.ancestorsOf(b)
-	shared := false
-	for node := range len(s.program.keyOf) {
-		_, inA := ancestorsA[node]
-		_, inB := ancestorsB[node]
-		if inA && inB {
-			shared = true
-			break
-		}
+	shared, assessed := queries.sharesAncestor(a, b)
+	if !assessed {
+		return relationUnknownIntersection, false
 	}
 	if !shared {
-		return relationProvenDisjoint
+		return relationProvenDisjoint, true
 	}
-	if s.partitionSeparates(a, b) {
-		return relationProvenDisjoint
+	separated, assessed := queries.partitionSeparates(a, b)
+	if !assessed {
+		return relationUnknownIntersection, false
 	}
-	return relationUnknownIntersection
+	if separated {
+		return relationProvenDisjoint, true
+	}
+	return relationUnknownIntersection, true
 }
 
 // contains reports whether one region is held inside the other under the

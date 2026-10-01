@@ -773,10 +773,15 @@ func TestBackendResourcePoolCloseLateSuccessfulBuildCleansExactlyOnceAndNeverPub
 	cleanupEntered := make(chan struct{})
 	allowCleanup := make(chan struct{})
 	acquireDone := make(chan struct{})
-	var handoffReturned atomic.Bool
+	closeDone := make(chan struct{})
+	closeStarted := false
+	var entry *backendResourceEntry
 	var cleanupBeforeHandoff atomic.Bool
 	var startedOnce sync.Once
 	var cleanupOnce sync.Once
+	var successReleaseOnce, cleanupReleaseOnce sync.Once
+	releaseSuccess := func() { successReleaseOnce.Do(func() { close(allowSuccess) }) }
+	releaseCleanup := func() { cleanupReleaseOnce.Do(func() { close(allowCleanup) }) }
 
 	build := func(_ context.Context, incarnation uint64) (execbackend.Backend, func() error, error) {
 		probe.builds.Add(1)
@@ -784,9 +789,13 @@ func TestBackendResourcePoolCloseLateSuccessfulBuildCleansExactlyOnceAndNeverPub
 		startedOnce.Do(func() { close(buildStarted) })
 		<-allowSuccess
 		return execbackend.Backend{}, func() error {
-			if !handoffReturned.Load() {
+			// The pool joins its internal Acquire handoff, not the caller's
+			// later observation of that return. All claims must be released.
+			pool.mu.Lock()
+			if entry == nil || entry.claims != 0 {
 				cleanupBeforeHandoff.Store(true)
 			}
+			pool.mu.Unlock()
 			probe.cleanups.Add(1)
 			cleanupOnce.Do(func() { close(cleanupEntered) })
 			<-allowCleanup
@@ -798,22 +807,38 @@ func TestBackendResourcePoolCloseLateSuccessfulBuildCleansExactlyOnceAndNeverPub
 	var acquireErr error
 	go func() {
 		acquired, acquireErr = pool.Acquire(context.Background(), id, build)
-		handoffReturned.Store(true)
 		close(acquireDone)
 	}()
+	// Release blocked callbacks and join the pool even if an assertion fails.
+	// Otherwise this test's failure contaminates later generation leak checks.
+	t.Cleanup(func() {
+		releaseSuccess()
+		releaseCleanup()
+		if err := pool.Close(); err != nil {
+			t.Errorf("fixture Pool.Close: %v", err)
+		}
+		backendResourcePoolWaitSignal(t, acquireDone, "fixture Acquire cleanup")
+		if closeStarted {
+			backendResourcePoolWaitSignal(t, closeDone, "fixture Close cleanup")
+		}
+	})
 	backendResourcePoolWaitSignal(t, buildStarted, "late-success builder start")
+	entry, _, _ = backendResourcePoolSnapshot(t, pool, id)
+	if entry == nil {
+		t.Fatal("late-success building entry missing")
+	}
 
-	closeDone := make(chan struct{})
 	var closeErr error
 	go func() {
 		closeErr = pool.Close()
 		close(closeDone)
 	}()
+	closeStarted = true
 	backendResourcePoolWaitForClosing(t, pool, id)
 
 	// The physical builder is deliberately allowed to succeed after Close has
 	// linearized.  The result must be cleaned, never published or handed off.
-	close(allowSuccess)
+	releaseSuccess()
 	backendResourcePoolWaitSignal(t, acquireDone, "late-success Acquire completion")
 	if acquireErr == nil {
 		t.Fatal("late-success Acquire unexpectedly succeeded after Close")
@@ -821,10 +846,10 @@ func TestBackendResourcePoolCloseLateSuccessfulBuildCleansExactlyOnceAndNeverPub
 	if acquired.Cleanup != nil {
 		t.Fatal("late-success Acquire received a post-close lease cleanup")
 	}
+	backendResourcePoolWaitSignal(t, cleanupEntered, "late physical cleanup")
 	if cleanupBeforeHandoff.Load() {
 		t.Fatal("residual physical cleanup began before the pending Acquire handoff terminated")
 	}
-	backendResourcePoolWaitSignal(t, cleanupEntered, "late physical cleanup")
 	select {
 	case <-closeDone:
 		t.Fatal("Pool.Close returned before late-result cleanup completed")
@@ -844,7 +869,7 @@ func TestBackendResourcePoolCloseLateSuccessfulBuildCleansExactlyOnceAndNeverPub
 	if postClose.Cleanup != nil {
 		t.Fatal("post-close Acquire returned a lease cleanup")
 	}
-	close(allowCleanup)
+	releaseCleanup()
 	backendResourcePoolWaitSignal(t, closeDone, "late-result Pool.Close completion")
 	if closeErr != nil {
 		t.Fatalf("Pool.Close: %v", closeErr)

@@ -370,6 +370,17 @@ func unknownContainmentDiagnostic(unknown map[string][]string) error {
 	return fmt.Errorf("billing: unknown containment intersection: %s", strings.Join(parts, "; "))
 }
 
+// overlapAnalysisResult carries one overlap pass's decisions and its resolver-owned
+// complete-cover map to callers that need the same frozen evidence verdict.
+type overlapAnalysisResult struct {
+	conflicts              map[string]map[string]struct{}
+	ambiguousCovered       map[string]map[string]struct{}
+	unresolvedCovered      map[string]map[string]struct{}
+	hiddenDependencyCovers map[string]map[string]struct{}
+	coverage               map[string]completeCoverVerdict
+	err                    error
+}
+
 // overlappingSchemaInclusionConflicts reports every pair of effectively payable
 // component lines in one reduction scope where one contains the other -- directly
 // on a declared inclusion edge or transitively through an unpriced or absent
@@ -393,11 +404,12 @@ func unknownContainmentDiagnostic(unknown map[string][]string) error {
 //
 // dependencies is the RULE-DERIVED commercial signal this analysis unions with the
 // amount-based one wherever a cover's money has to be located, and is consulted
-// only where the amount signal is structurally blind. The function returns five
-// sets; hiddenDependencyCovers names the (scope, parent) pairs whose own positive
-// line does not demonstrably stand in for the cover because a REQUIRED member of
-// that cover could itself have billed money and was never accounted for in this
-// scope. The caller uses it to keep such a parent inside the incomplete-partition
+// only where the amount signal is structurally blind. The result carries four
+// classification sets, the coverage resolved in this pass, and the typed error;
+// hiddenDependencyCovers names the (scope, parent) pairs whose own positive line
+// does not demonstrably stand in for the cover because a REQUIRED member of that
+// cover could itself have billed money and was never accounted for in this scope.
+// The caller uses it to keep such a parent inside the incomplete-partition
 // classification instead of excusing it.
 //
 // Coverage is resolved recursively so a nested, unpriced partition (A -> B with
@@ -425,13 +437,8 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 	dependencies *commercialDependencySet,
 	rateableByScope map[string]map[string]struct{},
 	evidence []aggregateMeasure,
-	completePartitionParents map[string]map[string]struct{}) (
-	map[string]map[string]struct{},
-	map[string]map[string]struct{},
-	map[string]map[string]struct{},
-	map[string]map[string]struct{},
-	error,
-) {
+	completePartitionParents map[string]map[string]struct{},
+) overlapAnalysisResult {
 	// The fast path requires there to be no reduced evidence at all, not merely no
 	// positive amount: every commercial question this analysis answers used to be an
 	// AMOUNT question, but the rule-derived dependency signal is not, so a scope can
@@ -439,7 +446,7 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 	// member of a declared complete cover that the provider never reported and whose
 	// own rule would have billed. A call with nothing rated has no cover to resolve.
 	if r == nil || len(r.snapshot.Schemas) == 0 || (len(payableByScope) == 0 && len(rateableByScope) == 0) {
-		return nil, nil, nil, nil, nil
+		return overlapAnalysisResult{}
 	}
 	// Everything this analysis knows about DECLARED topology comes from the frozen
 	// program: the declared edges in declaration order, the complete-coverage
@@ -852,7 +859,14 @@ func (r *ReferenceRater) overlappingSchemaInclusionConflicts(
 	if len(hiddenDependencyCovers) == 0 {
 		hiddenDependencyCovers = nil
 	}
-	return conflicts, ambiguousCovered, unresolvedCovered, hiddenDependencyCovers, firstErr
+	return overlapAnalysisResult{
+		conflicts:              conflicts,
+		ambiguousCovered:       ambiguousCovered,
+		unresolvedCovered:      unresolvedCovered,
+		hiddenDependencyCovers: hiddenDependencyCovers,
+		coverage:               coverByScope,
+		err:                    firstErr,
+	}
 }
 
 // recordUnplaceableSubsetOverlap fails closed for a complete-partition parent

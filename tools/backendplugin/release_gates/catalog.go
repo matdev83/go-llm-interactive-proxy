@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/runner"
@@ -295,31 +298,64 @@ func selectorChecks() []selectorCheck {
 
 func validateSelectors(root string) error {
 	checks := selectorChecks()
-	errs := make([]string, len(checks))
-	var wg sync.WaitGroup
-	for i, c := range checks {
-		wg.Add(1)
-		go func(idx int, ch selectorCheck) {
-			defer wg.Done()
-			n, err := goTestListHasMatches(root, ch.pkg, ch.pattern)
-			if err != nil {
-				errs[idx] = err.Error()
-				return
-			}
-			if n == 0 {
-				errs[idx] = fmt.Sprintf("%s -list %q matched 0 tests", ch.pkg, ch.pattern)
-			}
-		}(i, c)
+	names := make([]string, len(checks))
+	for i, check := range checks {
+		names[i] = "(" + check.pattern + ")"
 	}
-	wg.Wait()
-	var filtered []string
-	for _, e := range errs {
-		if e != "" {
-			filtered = append(filtered, e)
+	args := []string{"go", "test", "-json", "-list", strings.Join(names, "|")}
+	patterns := make([]*regexp.Regexp, len(checks))
+	for i, check := range checks {
+		args = append(args, check.pkg)
+		pattern, err := regexp.Compile(check.pattern)
+		if err != nil {
+			return fmt.Errorf("selector %s: %w", check.pkg, err)
+		}
+		patterns[i] = pattern
+	}
+	// One Go invocation loads and compiles the shared dependency graph once.
+	// Package identity stays attached to every discovered test name.
+	result := runCommand(context.Background(), runner.Request{
+		Argv: args, Dir: root, Timeout: 8 * time.Minute,
+		Output: taskrunner.Capture, Label: "release_gates:selectors",
+	})
+	if result.Kind != taskrunner.Success {
+		return fmt.Errorf("gate selector discovery: %w", runner.Error(result))
+	}
+	if result.StdoutTruncated {
+		return fmt.Errorf("gate selector discovery output truncated")
+	}
+	matched := make([]bool, len(checks))
+	scanner := bufio.NewScanner(bytes.NewReader(result.Stdout))
+	for scanner.Scan() {
+		var event listEvent
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			return fmt.Errorf("gate selector discovery JSON: %w", err)
+		}
+		if event.Action != "output" {
+			continue
+		}
+		name := strings.TrimSpace(event.Output)
+		if !strings.HasPrefix(name, "Test") || strings.ContainsAny(name, " \t\n") {
+			continue
+		}
+		for i, check := range checks {
+			suffix := "/" + strings.Trim(check.pkg, "./")
+			if strings.HasSuffix(event.Package, suffix) && patterns[i].MatchString(name) {
+				matched[i] = true
+			}
 		}
 	}
-	if len(filtered) > 0 {
-		return fmt.Errorf("gate selector validation failed:\n%s", strings.Join(filtered, "\n"))
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("gate selector discovery scan: %w", err)
+	}
+	var failures []string
+	for i, check := range checks {
+		if !matched[i] {
+			failures = append(failures, fmt.Sprintf("%s -list %q matched 0 tests", check.pkg, check.pattern))
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("gate selector validation failed:\n%s", strings.Join(failures, "\n"))
 	}
 	return nil
 }

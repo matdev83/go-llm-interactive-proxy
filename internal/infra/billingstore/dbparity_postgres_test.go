@@ -51,6 +51,21 @@ func TestDBParity_PostgresDirect(t *testing.T) {
 		})
 	})
 
+	t.Run("SupportAdvisory", func(t *testing.T) {
+		runSupportAdvisoryDurableParity(t, func(t *testing.T) *DurableStore {
+			bunDB, _ := openIsolatedPostgresBun(t, dsn, 4)
+			// The frozen historical-row payload in this shared contract is pinned
+			// to StoreID "test"; each isolated PostgreSQL topology still owns its
+			// independent schema and cleanup lifecycle.
+			store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "test"})
+			if err != nil {
+				t.Fatalf("NewDurableStore postgres: %v", err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			return store
+		})
+	})
+
 	t.Run("CreateAndVerifySchema", func(t *testing.T) {
 		bunDB, _ := openIsolatedPostgresBun(t, dsn, 4)
 		store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "parity-billing-schema"})

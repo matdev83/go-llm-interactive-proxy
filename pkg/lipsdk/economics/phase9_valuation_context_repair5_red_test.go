@@ -1,6 +1,7 @@
 package economics
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -31,6 +32,7 @@ func TestPhase9Repair5_ValuationContextHashIncludesTrustedSnapshotIdentity(t *te
 		},
 		Payer: metering.PaymentParty{Kind: metering.PaymentPartyCustomer, ID: "customer"},
 	}
+	useSupportAdvisoryIdentityMoney(&base)
 	if base.ContextHash() == "" {
 		t.Fatal("base context hash is empty")
 	}
@@ -54,14 +56,20 @@ func TestPhase9Repair5_ValuationContextHashIncludesTrustedSnapshotIdentity(t *te
 			v.QualifierSnapshotRef.ContentHash = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 		}},
 		{name: "payer", mutate: func(v *Valuation) { v.Payer.ID = "other-customer" }},
+		{name: "support advisory enabled", mutate: func(v *Valuation) {
+			v.SupportAdvisoryContexts = []SupportAdvisoryContext{supportAdvisoryIdentityContext()}
+		}},
 	}
 	for _, tc := range variants {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			variant := base.Clone()
 			tc.mutate(&variant)
-			if got := variant.ContextHash(); got == base.ContextHash() {
+			if got := variant.ContextHash(); got == "" || got == base.ContextHash() {
 				t.Fatalf("context hash=%q, want variant distinct from %q", got, base.ContextHash())
+			}
+			if !reflect.DeepEqual(base.Lines, variant.Lines) || !reflect.DeepEqual(base.Totals, variant.Totals) || base.Completeness != variant.Completeness {
+				t.Fatal("changing interpretation context changed valuation money")
 			}
 		})
 	}
