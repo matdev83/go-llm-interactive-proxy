@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/matdev83/go-llm-interactive-proxy v0.0.0
+	github.com/matdev83/go-llm-interactive-proxy v0.1.0-rc.1
 	github.com/matdev83/go-llm-interactive-proxy/connector-support/acp v0.0.0
 	google.golang.org/grpc v1.83.2
 	gopkg.in/yaml.v3 v3.0.1
