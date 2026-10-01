@@ -123,7 +123,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Validation: make test-db-parity-sqlite; make test-db-parity-postgres-direct_
 
 - [ ] 6. Validate architecture, determinism, and practical cost as one coherent change
-- [ ] 6.1 Lock non-monetary ownership and bounded reporting regressions
+- [x] 6.1 Lock non-monetary ownership and bounded reporting regressions
   - Assert no advisory dependency enters stream/admission money seams and no SQL/provider import enters the core assessor.
   - Run the existing agreement, exhaustive/model, and six-fingerprint suites without rewriting historical expected output.
   - Exercise independent oracle prefix tests and deterministic budget counters; remove each key binding/budget guard in scratch mutations and require the corresponding test to fail.
@@ -163,3 +163,5 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
 - 5.2: One shared registered SQLite/direct PostgreSQL runner certifies stored reports, replay conflicts, rollback/retry, and real-rate settlement at identical 50 USD and 18 USD debits across legacy/v1 publications; known paid containment remains fenced with unchanged financial state. Both catalog gates and scoped lint passed. Fresh reviewer dispatch hit the service thread limit twice; the documented manual review fallback independently reproduced RED and both dialect gates before acceptance.
 
 - Baseline durable fixture repair: `e62588d4` gives the sink-failure restart test the same bounded 20-second test cleanup window as its adjacent real-store fixture; production deadlines remain unchanged. A scratch delayed append reproduced the original missing leg, passed after alignment, and repeated focused plus full runtime race and root hooks passed.
+
+- 6.1: AST boundary checks and independent negative fixtures keep advisory interpretation out of runtime/stream/admission owners and SQL/provider/infra imports out of the assessor. Nine scratch binding/budget mutations trigger runtime failures. Fresh SDK/core controls, architecture/QA, scoped lint, and the complete 12-test schema certification passed (535.443 seconds, no exclusions); historical expected outputs remain unchanged. The service thread limit required the documented manual implementation/review fallback.
