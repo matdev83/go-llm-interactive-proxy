@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -152,11 +153,15 @@ func pollObservationOutboxDrained(parent context.Context, stallWindow, tick time
 // full-suite load the relay legitimately needs longer than any fixed budget
 // while holding valid leases, and the drain must not fail it.
 
-// TestOutboxDrainPollCompletesThroughSlowProgress drives ~5s of steady
+// TestOutboxDrainPollCompletesThroughSlowProgress drives 5s of simulated steady
 // progress with a 200ms stall window: a fixed-total deadline shorter than the
 // work fails this pattern, progress-sensitive waiting passes it.
 func TestOutboxDrainPollCompletesThroughSlowProgress(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, testOutboxDrainPollCompletesThroughSlowProgress)
+}
+
+func testOutboxDrainPollCompletesThroughSlowProgress(t *testing.T) {
 	const polls = 1000
 	i := 0
 	list := func(context.Context) (string, error) {
@@ -169,11 +174,15 @@ func TestOutboxDrainPollCompletesThroughSlowProgress(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	start := time.Now()
 	if err := pollObservationOutboxDrained(ctx, 200*time.Millisecond, 5*time.Millisecond, list); err != nil {
 		t.Fatalf("steady progress must drain: %v", err)
 	}
 	if i < polls {
 		t.Fatalf("drain returned after %d polls, want %d", i, polls)
+	}
+	if elapsed := time.Since(start); elapsed != polls*5*time.Millisecond {
+		t.Fatalf("progress consumed %v, want exactly %v of test-clock time", elapsed, polls*5*time.Millisecond)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -158,6 +159,10 @@ func refinement82SetupPostingHost(t *testing.T, ctx context.Context, storeID, bi
 //     exposure, valuation, work, or provider-head duplicate.
 func TestRefinement82ProviderRevisionPostingsAdvancePerStage(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, testRefinement82ProviderRevisionPostingsAdvancePerStage)
+}
+
+func testRefinement82ProviderRevisionPostingsAdvancePerStage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	storeID := "refinement82-postings"
@@ -487,6 +492,10 @@ func TestRefinement82ProviderRevisionPostingsAdvancePerStage(t *testing.T) {
 // claimed here.
 func TestRefinement82RetryLoserExcludedFromRetailWinnerPostsCOGS(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, testRefinement82RetryLoserExcludedFromRetailWinnerPostsCOGS)
+}
+
+func testRefinement82RetryLoserExcludedFromRetailWinnerPostsCOGS(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	storeID := "refinement82-retry"

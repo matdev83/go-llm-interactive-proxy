@@ -10,6 +10,14 @@ test_parallel="${LIP_TEST_PARALLEL:-}"
 if [ -z "$test_parallel" ]; then
 	test_parallel=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 fi
+test_package_flags=()
+if [ -n "${LIP_TEST_PACKAGES:-}" ]; then
+	if [[ ! "$LIP_TEST_PACKAGES" =~ ^[1-9][0-9]*$ ]]; then
+		echo "LIP_TEST_PACKAGES must be a positive integer" >&2
+		exit 2
+	fi
+	test_package_flags=("-p=$LIP_TEST_PACKAGES")
+fi
 
 under_nested_go_module() {
 	local file="$1"
@@ -201,7 +209,7 @@ if [ "${LIP_SKIP_ARCHTEST:-}" != "1" ]; then
 	# Match the test-unit flags (make GO_TEST_FLAGS) so the standalone
 	# quality-checks archtest run shares Go's build/test cache with
 	# subsequent `make test`/`make qa` executions (see #291).
-	run_guard archtest go test "-parallel=$test_parallel" -timeout=10m ./internal/archtest/...
+	run_guard archtest go test "-parallel=$test_parallel" -timeout=10m "${test_package_flags[@]}" ./internal/archtest/...
 fi
 
 status=0
