@@ -25,7 +25,26 @@ func TestQAFastPreflight_MainPushUsesActualDiff(t *testing.T) {
 	if classifier.Env["PUSH_BASE_SHA"] != "${{ github.event.before }}" || classifier.Run == "" {
 		t.Fatal("main pushes must classify their actual before revision")
 	}
-	for _, tc := range []struct {
+	root := t.TempDir()
+	git := func(fixtureT *testing.T, args ...string) string {
+		fixtureT.Helper()
+		cmd := exec.CommandContext(fixtureT.Context(), "git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			fixtureT.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git(t, "init", "-q")
+	script := filepath.Join(root, "scripts", "ci-scope.sh")
+	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte(readRepositoryFile(t, "scripts", "ci-scope.sh")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Reuse the repository serially; each scenario still has a real diff.
+	scenarios := []struct {
 		name, path, before  string
 		code, goScope, cost bool
 		billing             bool
@@ -40,39 +59,29 @@ func TestQAFastPreflight_MainPushUsesActualDiff(t *testing.T) {
 		{name: "CI policy", path: ".github/workflows/ci.yml", code: true, goScope: true, billing: true},
 		{name: "initial push", path: "docs/example.md", before: strings.Repeat("0", 40), code: true, goScope: true, cost: true, billing: true},
 		{name: "invalid predecessor", path: "docs/example.md", before: "missing-revision", invalid: true},
-	} {
+	}
+	for _, tc := range scenarios {
+		path := filepath.Join(root, filepath.FromSlash(tc.path))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("base fixture\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, "add", ".")
+	git(t, "commit", "-qm", "base")
+	for _, tc := range scenarios {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			root := t.TempDir()
-			git := func(args ...string) string {
-				t.Helper()
-				cmd := exec.Command("git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
-				out, err := cmd.CombinedOutput()
-				if err != nil {
-					t.Fatalf("git %v: %v\n%s", args, err, out)
-				}
-				return strings.TrimSpace(string(out))
-			}
-			git("init", "-q")
-			script := filepath.Join(root, "scripts", "ci-scope.sh")
-			if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(script, []byte(readRepositoryFile(t, "scripts", "ci-scope.sh")), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			git("add", ".")
-			git("commit", "-qm", "base")
-			before := git("rev-parse", "HEAD")
+			before := "HEAD^"
 			path := filepath.Join(root, filepath.FromSlash(tc.path))
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(path, []byte("fixture\n"), 0o600); err != nil {
+			if err := os.WriteFile(path, []byte("fixture "+tc.name+"\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			git("add", ".")
-			git("commit", "-qm", "head")
+			git(t, "commit", "-qam", "head")
 			if tc.before != "" {
 				before = tc.before
 			}

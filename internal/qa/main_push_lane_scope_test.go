@@ -69,6 +69,11 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 				write(t, "scripts/"+script, readRepositoryFile(t, "scripts", script))
 			}
 			write(t, "connectors/nousportal/release.yaml", "fixture\n")
+			// Track future fixture paths once so subsequent edits need one
+			// commit process, rather than separate staging and commit processes.
+			for _, path := range []string{lane.relevantPath, "docs/example.md", ".github/actions/go-cache/action.yml", "pkg/lipsdk/backendplugin/example.go"} {
+				write(t, path, "base fixture\n")
+			}
 			git(t, "add", ".")
 			git(t, "commit", "-qm", "base")
 			scenarios := []string{"relevant", "documentation", "initial", "invalid", "manual"}
@@ -77,7 +82,7 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 			}
 			for _, scenario := range scenarios {
 				t.Run(scenario, func(t *testing.T) {
-					before := git(t, "rev-parse", "HEAD")
+					before := "HEAD^"
 					path, want := "docs/example.md", "false"
 					if lane.key == "select" {
 						want = ""
@@ -99,9 +104,12 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 					if scenario == "selector policy" {
 						content = readRepositoryFile(t, "scripts", "cross-platform-selection.sh") + "\n# fixture change\n"
 					}
-					write(t, path, content)
-					git(t, "add", ".")
-					git(t, "commit", "-qm", "head")
+					// Predecessor-policy scenarios reuse the documentation head.
+					// Only scenarios asserting changed paths need a new commit.
+					if scenario != "initial" && scenario != "invalid" && scenario != "manual" {
+						write(t, path, content)
+						git(t, "commit", "-qam", "head")
+					}
 					event := "push"
 					switch scenario {
 					case "initial":
