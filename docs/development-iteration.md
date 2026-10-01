@@ -12,7 +12,80 @@ make dev-build PKGS='./cmd/lipstd'
 make dev-lint PKGS='./internal/core/routing/...'
 make dev-test MODULE=connectors/openrouter PKGS='./...' DEV_REPEAT=2
 make dev-doctor
+make dev-test-changed
+make dev-test-changed DEV_PLAN=1
 ```
+
+### Automatic local test selection
+
+`make dev-test-changed` compares the branch against its merge base with local
+`origin/main`, including staged, unstaged and untracked changes. Committing a
+change does not remove it from selection. The command does not fetch; update
+remote-tracking refs separately when needed. `DEV_BASE=<ref>` overrides the
+comparison reference. Use `DEV_PLAN=1` to inspect the plan without executing
+tests, `DEV_FULL=1` to run complete default tests in every maintained module,
+and `DEV_FRESH=1` for deliberate fresh execution. `DEV_JOBS` and `DEV_REPEAT`
+retain their existing meanings; the plan is built once per invocation.
+
+Production changes select their owning package, transitive production consumers,
+and consumers that import affected production code only in tests. Test-only
+changes select their owning package. Test edges do not propagate production
+impact. Every default test in each selected package runs; individual test names
+are not filtered. Package-owned embedded inputs and `testdata` are included.
+An ordinary connector change stays within its independent module, with
+`GOWORK=off` for discovery and execution.
+
+Shared SDK, connector-support, testkit, configuration and build/dependency policy
+changes trigger complete default tests across the maintained module inventory:
+the root, connectors, connector-support and the four external fixture modules
+used by the module-check scripts. Unmapped inputs, unresolved deleted packages,
+missing default-base information and failed package discovery also fall back
+to that full run. An invalid explicitly supplied base is an error. Known
+prose-only documentation changes and a clean branch select no tests.
+
+The report shows the comparison revision, changed-file count, selected modules
+and packages, selection reasons and fallback reason. Planning and execution
+times are reported separately, followed by package pass/cache/failure counts.
+Modules execute sequentially with bounded package concurrency. Test failures
+and invalid telemetry fail the command.
+
+Automatic selection cannot be combined with `PKGS` or a non-default `MODULE`;
+use `make dev-test` for manual scope. Selection follows the current host's Go
+build configuration. It does not certify other operating systems, tagged suites,
+external services, or dependencies that are not represented in Go imports and
+the input policy. It is local feedback only: `make test`, `make qa`, hooks,
+and GitHub checks retain their existing comprehensive scope. Full fallback
+runs default tests, not tagged or external-service certification targets.
+
+Measured on Windows/amd64 with Go 1.26.6 against `e969634c`, representative
+production edits selected these scopes:
+
+| Changed input | Selected default tests |
+| --- | --- |
+| CLI runner | `cmd/lipstd` only |
+| Isolated localstub connector command | One package in `connectors/localstub` |
+| Billing-store accounting cutover | 13 root packages, including runtime, host and architecture consumers |
+| Shared canonical API | Complete default tests in all 42 maintained modules |
+
+For the CLI example, a sequential comparison with warmed build caches and fresh
+tests (`-count=1`, `-p=4`, `-parallel=4`, `-timeout=10m`, `-mod=readonly`) took
+7.57 seconds for the compiled developer runner, including selection, versus
+123.54 seconds for `go test -json ./...` with those same flags. The selected
+package passed; the complete root run passed 360 packages and reported 27
+packages without tests. Windows Job Object accounting measured 12.66 versus
+690.55 CPU seconds, including descendant processes. Selection itself took
+about 3.1 seconds. This is one matched comparison of a CLI-only edit, not a
+guaranteed speedup for shared/core changes or a comparison against all nested
+module suites. Invoking through `make` also compiles/starts the runner via
+`go run`, using the normal Go build cache.
+
+The selector's deterministic policy, ownership and dependency tests run in the
+default suite. Its real Git/Go process-boundary fixtures use `//go:build integration`;
+run them locally with `go test -tags=integration ./tools/devcheck/...`. The existing
+full Linux race check and `make qa` already enable `precommit,integration`, so
+remote certification includes these fixtures without changing workflow scope.
+
+### Explicit local scope
 
 `PKGS` is required for test/build/lint. There is no silent fallback to the full
 repository. Patterns are relative to `MODULE`, which defaults to the root module.
@@ -22,7 +95,7 @@ time. Tests report passed/cached/failed/skipped package counts. Child-process or
 telemetry errors fail the command. `dev-lint` requires golangci-lint and does not
 substitute a weaker analyzer or silently skip missing tooling.
 
-These commands do not infer reverse dependencies, certify other modules, or run
+The explicit-scope commands do not infer reverse dependencies, certify other modules, or run
 tagged integration/architecture tiers. Include affected consumers while iterating
 on shared contracts. Before delivery, use the applicable `make test`, `make qa`,
 module-local, parity, persistence, race, and platform gates from `AGENTS.md`.

@@ -8,10 +8,16 @@ PKGS ?=
 MODULE ?= .
 DEV_JOBS ?= 4
 DEV_REPEAT ?= 1
+DEV_BASE ?=
+DEV_PLAN ?= 0
+DEV_FULL ?= 0
+DEV_FRESH ?= 0
 
-.PHONY: dev-test dev-build dev-lint dev-doctor
+.PHONY: dev-test dev-test-changed dev-build dev-lint dev-doctor
 dev-test:
 	$(GO) run -buildvcs=false ./tools/devcheck -task=test -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
+dev-test-changed:
+	$(GO) run -buildvcs=false ./tools/devcheck -task=test -scope=changed -module="$(MODULE)" -packages="$(PKGS)" -base="$(DEV_BASE)" -plan=$(DEV_PLAN) -full=$(DEV_FULL) -fresh=$(DEV_FRESH) -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
 dev-build:
 	$(GO) run -buildvcs=false ./tools/devcheck -task=build -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
 dev-lint:
@@ -52,6 +58,7 @@ endif
 help:
 	@echo "Targets:"
 	@echo "  make dev-test/dev-build/dev-lint PKGS='./path/...' [MODULE=connectors/name] [DEV_JOBS=4] [DEV_REPEAT=2] - scoped, measured iteration"
+	@echo "  make dev-test-changed [DEV_BASE=origin/main] [DEV_PLAN=1] [DEV_FULL=1] [DEV_FRESH=1] - local affected-package tests; CI remains comprehensive"
 	@echo "  make dev-doctor [MODULE=.] - effective toolchain/cache configuration and diagnostics"
 	@echo "  make quality-checks  - generate-feature-planes -check, gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest; mod verify in CI or with LIP_VERIFY_MODULE_CACHE=1"
 	@echo "  make profile-only-check [PROFILE_ONLY_BASE=<git-rev>] - fail-closed provider-profile change-surface ratchet"
