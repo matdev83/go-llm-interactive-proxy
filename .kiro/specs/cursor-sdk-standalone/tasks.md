@@ -16,7 +16,7 @@
   - _Boundary: Public module baseline_
   - _Validation: git diff --check and inventory schema validation_
 
-- [ ] 1.2 Establish independently resolvable root and ACP module baselines
+- [x] 1.2 Establish independently resolvable root and ACP module baselines
   - Publish/select a real downloadable root semver tag exposing existing public contracts without widening the API.
   - Publish `connector-support/acp` as nested-module tag `connector-support/acp/vX.Y.Z` pinned to that root tag, with sibling replacements removed in the tag content.
   - Verify from a temporary checkout with no adjacent host source that module resolution, download, verify, and build succeed.
