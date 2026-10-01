@@ -3,33 +3,38 @@ package billingstore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/uptrace/bun"
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 // The billing schema is built by a long chain of SQLite migrations. Running the
 // whole chain for every fixture is the dominant Windows test cost: a fresh
 // file-backed database costs hundreds of milliseconds because each migration
-// statement is flushed individually. Fixtures instead replay the captured
-// migration output once, which is schema-equivalent and far cheaper, while each
-// test still owns a private database (no shared mutable state). Production
+// statement is flushed individually. Fixtures restore the migrated database
+// image instead of reparsing its DDL, while each test still owns a private
+// database with its original connection/pooling policy. Production
 // construction still runs the real migration chain.
 //
-// The captured state is exactly what the migration chain left behind: the
-// sqlite_master DDL of every non-internal object plus the recorded
-// bun_billing_migrations history rows. Replaying it makes the subsequent
-// NewDurableStore migration a no-op, so fixtures exercise the same store
+// The immutable image contains the complete migration output. DDL and history
+// are also captured for fixtures that deliberately replay individual objects.
+// Restoring it makes the subsequent NewDurableStore migration a no-op, so
+// fixtures exercise the same store
 // construction path as production after migration.
 var (
 	testSchemaOnce sync.Once
 	testSchemaDDL  []string
 	testSchemaRows [][]any
 	testSchemaErr  error
+	testSchemaDir  string
+	testSchemaPath string
 )
 
 type testSchemaExecer interface {
@@ -103,6 +108,31 @@ func loadTestSchema() error {
 			testSchemaErr = fmt.Errorf("billingstore test schema: close history: %w", err)
 			return
 		}
+		conn, err := sqlDB.Conn(ctx)
+		if err != nil {
+			testSchemaErr = err
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		var image []byte
+		if err := conn.Raw(func(raw any) error {
+			serializer, ok := raw.(interface{ Serialize() ([]byte, error) })
+			if !ok {
+				return fmt.Errorf("sqlite fixture driver does not support serialization")
+			}
+			image, err = serializer.Serialize()
+			return err
+		}); err != nil {
+			testSchemaErr = err
+			return
+		}
+		testSchemaDir, err = os.MkdirTemp("", "lip-billing-schema-")
+		if err != nil {
+			testSchemaErr = err
+			return
+		}
+		testSchemaPath = filepath.Join(testSchemaDir, "schema.sqlite")
+		testSchemaErr = os.WriteFile(testSchemaPath, image, 0o600)
 	})
 	return testSchemaErr
 }
@@ -130,7 +160,7 @@ func applyTestSchema(ctx context.Context, ex testSchemaExecer) error {
 // same database or upgrade tests that pre-build a legacy schema still run the
 // real migrations. Each fixture owns its own database, so this never shares
 // mutable state across tests.
-func seedTestSchemaIfEmpty(t *testing.T, bunDB *bun.DB) {
+func seedTestSchemaIfEmpty(t testing.TB, bunDB *bun.DB) {
 	t.Helper()
 	ctx := context.Background()
 	var existing int
@@ -140,17 +170,46 @@ func seedTestSchemaIfEmpty(t *testing.T, bunDB *bun.DB) {
 	if existing != 0 {
 		return
 	}
-	tx, err := bunDB.BeginTx(ctx, nil)
+	if err := loadTestSchema(); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := bunDB.DB.Conn(ctx)
 	if err != nil {
-		t.Fatalf("billingstore test schema: begin: %v", err)
+		t.Fatal(err)
 	}
-	if err := applyTestSchema(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatalf("billingstore test schema: seed: %v", err)
+	defer func() { _ = conn.Close() }()
+	if err := conn.Raw(func(raw any) error {
+		restorer, ok := raw.(interface {
+			NewRestore(string) (*sqlite.Backup, error)
+		})
+		if !ok {
+			return fmt.Errorf("sqlite fixture driver does not support backup restoration")
+		}
+		backup, err := restorer.NewRestore("file:" + filepath.ToSlash(testSchemaPath) + "?mode=ro")
+		if err != nil {
+			return err
+		}
+		_, stepErr := backup.Step(-1)
+		return errors.Join(stepErr, backup.Finish())
+	}); err != nil {
+		t.Fatalf("billingstore test schema: clone: %v", err)
 	}
-	if err := tx.Commit(); err != nil {
-		t.Fatalf("billingstore test schema: commit: %v", err)
+}
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if testSchemaDir != "" {
+		// Only remove the exact task-owned directory created under the OS temp root.
+		tempRoot, err := filepath.Abs(os.TempDir())
+		if err != nil || filepath.Dir(testSchemaDir) != tempRoot {
+			os.Exit(1)
+		}
+		if err := os.RemoveAll(testSchemaDir); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			code = 1
+		}
 	}
+	os.Exit(code)
 }
 
 // TestLoadTestSchemaCapturesEveryMigration guards the template capture against a

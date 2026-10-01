@@ -16,6 +16,10 @@ function Get-TestParallel {
 }
 $testParallel = Get-TestParallel
 $goTestFlags = @("-parallel=$testParallel", "-timeout=10m")
+if ($env:LIP_TEST_PACKAGES) {
+    if ($env:LIP_TEST_PACKAGES -notmatch '^[1-9][0-9]*$') { throw "LIP_TEST_PACKAGES must be a positive integer" }
+    $goTestFlags += "-p=$($env:LIP_TEST_PACKAGES)"
+}
 $localGoEnv = if ($env:LIP_DISABLE_VCS_STAMPING -eq "1" -and -not $env:GOFLAGS) { @("GOFLAGS=-buildvcs=false") } else { @() }
 
 function Run-RootGoTest {

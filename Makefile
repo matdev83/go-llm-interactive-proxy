@@ -29,7 +29,14 @@ else
 LIP_TEST_PARALLEL ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 endif
 GO_TEST_FLAGS ?= -parallel=$(strip $(LIP_TEST_PARALLEL)) -timeout=10m
+# Package processes and parallel tests are separate budgets. Leave package
+# concurrency at Go's native default unless measurements justify an override.
+LIP_TEST_PACKAGES ?=
+ifneq ($(strip $(LIP_TEST_PACKAGES)),)
+GO_TEST_FLAGS += -p=$(strip $(LIP_TEST_PACKAGES))
+endif
 export GO_TEST_FLAGS
+export LIP_TEST_PACKAGES
 
 # The Windows test-cost ratchet is explicit and opt-in.  CI supplies the PR
 # base SHA; local callers can override these values when comparing a known
@@ -486,6 +493,9 @@ pgo-build:
 # release-ready evidence without re-running the huge tagged suites that qa-tests
 # already covers; the full `test-openresponses-compliance` script remains the
 # standalone Task 8.5 gate.
+# The comprehensive lint target below owns lint once; the preliminary quality
+# guards retain formatting, generation, module and repository-policy checks.
+qa: export LIP_SKIP_LINT=1
 qa: quality-checks-fast qa-tests lint vuln backend-plugin-release-gates-static test-openresponses-compliance-static
 
 qa-tests:

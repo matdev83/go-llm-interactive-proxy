@@ -28,6 +28,18 @@ on shared contracts. Before delivery, use the applicable `make test`, `make qa`,
 module-local, parity, persistence, race, and platform gates from `AGENTS.md`.
 `test-fast` retains its complete root-graph contract; it is not package selection.
 
+Local `lint-all-modules` changed/staged modes infer the changed packages and
+transitive production and test consumers within each module. Shared SDK, testkit,
+configuration, dependency and lint-policy changes force comprehensive module
+lint. Unscoped `make lint` and CI still lint complete modules. `make qa` runs
+that comprehensive lint once, after the preliminary policy checks.
+
+`LIP_TEST_PACKAGES` optionally sets Go package-process concurrency (`-p`),
+independently of `LIP_TEST_PARALLEL` (`-parallel`, within each test binary). Leave
+it unset for Go's native default; use measurements before lowering either limit.
+For example, `make test-unit LIP_TEST_PACKAGES=8 LIP_TEST_PARALLEL=8` selects an
+explicit budget on both platforms. See [the measured follow-up](development-gates-performance.md).
+
 Keep `GOCACHE`, `GOMODCACHE`, and the lint cache in stable, writable locations
 outside disposable worktrees. Do not clear them as routine troubleshooting. Do
 not routinely add `-a`, `-count=1`, race, coverage, or alternating build tags.

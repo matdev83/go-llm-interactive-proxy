@@ -1051,6 +1051,7 @@ func (s *refinement52AuthenticUsageStream) DrainEconomicObservations() []meterin
 
 func writeRefinement52MeteredConfig(t *testing.T, journalPath string) string {
 	t.Helper()
+	runtimebundle.PrepareMeteringSchemaForTest(t, journalPath)
 	basePath := writeBillingHostLoopConfig(t)
 	base, err := os.ReadFile(basePath)
 	if err != nil {
@@ -1253,6 +1254,7 @@ func refinement52RequireCompleteValuation(t *testing.T, store *billingstore.Dura
 
 func openRefinement52ConcurrentBillingStore(t *testing.T, path, storeID string) *billingstore.DurableStore {
 	t.Helper()
+	runtimebundle.PrepareBillingSchemaForTest(t, path)
 	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
