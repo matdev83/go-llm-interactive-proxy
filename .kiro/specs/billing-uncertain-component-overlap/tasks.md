@@ -103,7 +103,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Requirements: 2.3, 3.4, 5.2, 6.1, 6.2, 6.4, 6.5_
   - _Validation: make dev-test PKGS='./internal/core/billing/...'_
 
-- [ ] 5. Certify durable storage and existing operator retrieval
+- [x] 5. Certify durable storage and existing operator retrieval
 - [x] 5.1 Preserve canonical reports through existing append, query, and replay paths
   - Use the existing canonical payload transaction; test append/get/list/detail with complete, failing, clean-enabled, and incomplete-assessment results.
   - Verify clone/query consumers preserve optional fields and retrieve stored data without rerating; do not add a new table, sidecar worker, endpoint, or backfill.
@@ -113,7 +113,7 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 7.2, 7.3, 7.4, 7.5_
   - _Depends: 4.1, 4.2_
   - _Validation: make dev-test PKGS='./internal/infra/billingstore/...'_
-- [ ] 5.2 Prove advice cannot change settlement and run the shared dual-dialect contract
+- [x] 5.2 Prove advice cannot change settlement and run the shared dual-dialect contract
   - Extend the existing registered billingstore parity cases with report round-trip, idempotency, changed-report conflict, rollback, and existing query exposure.
   - Verify unknown and limited assessments settle complete customer money at the same debit as the equivalent historical tariff; known-conflict controls still refuse complete settlement.
   - Exercise the same contract through SQLite and direct PostgreSQL, using existing hermetic/tagged fixture conventions and avoiding a second expensive matrix.
@@ -146,14 +146,20 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
 - 1.1: Maintainer authorized prospective LOC reserves: 1500 core and 250 catalog lines; assessor paths `component_rater_advisory.go` and `component_rater_advisory_graph.go` allow 450 lines each plus existing headroom. Historical audit pins remain unchanged; SDK economics has no aggregate cap.
 - 1.2: Independent literal preimages/hash fixtures and historical diagnostic controls pass; scratch identity/error-tree mutations fail. Baseline billing exceeded the 10-minute runner deadline but passed unfiltered with a 30-minute invocation deadline. Repeated task-local hooks omit existing generated, schema-model sweep/order, metamorphic matrices, and the exhaustive support-agreement parent; its small acceptance/regression populations run separately. Final coherent certification must run all suites unfiltered without changing cost budgets.
 - Model-cost guidance: exact task-local exclusion is `^Test(GeneratedSchema(StructureSweep|CommercialSweep|OrderInvariance|TransformIsNotContainment|DirectionUnitIsolation)|SchemaModel(StructureSweep|CommercialSweep|OrderInvariance)|Metamorphic(PricingMetamorphism|StructuralVerdictAgreesWithModel)|SupportAgreementShadowPredicate)$`; retain `TestSupportAgreementShadowPredicate/(acceptance_vectors|regression_schemas)` with a separate unfiltered selector.
-- Baseline race repair: `0bdd97a2` synchronizes the existing seam-equivalence test's shared tallies; focused repeated race checks and the retained full-package race gate pass with all 28 cases and parallel execution preserved.
-- Baseline child-limit repair: `339b1e97` isolates the existing test's package-wide cap override by removing its contradictory parallel marker; repeated focused and retained full-package race checks pass.
+- Baseline race repair: `e776283a` synchronizes the existing seam-equivalence test's shared tallies; focused repeated race checks and the retained full-package race gate pass with all 28 cases and parallel execution preserved.
+- Baseline child-limit repair: `caa70439` isolates the existing test's package-wide cap override by removing its contradictory parallel marker; repeated focused and retained full-package race checks pass.
 
 - 2.2: Advisory ScopeKey uses a conservative 64 KiB opaque envelope because validated reduction keys embed escaped lineage JSON; canonical context tuples omit publication timestamps while clone preserves them.
 - 2.3: Identity mutation controls compare each source field against a valid enabled baseline; independent overlays flattening source fields and restoring pre-task behavior fail the corresponding tests.
 - 3.2: The shared relation guard now permits exactly one monetary overlap owner and the named bounded advisory consumer; an independent third-consumer mutation is rejected. The assessor remains unwired until 3.3.
 - 4.1: The 1027 bound counts pre-narrowing source groups; fixed scopes share a context and deduplicate. Proxy report-only changes may alter the composite result ID, but unchanged input-set/context identity still triggers the store's integrity conflict; pin this path in durable replay tests.
 
-- Baseline filesystem fixture repair: `aa955dc1` separates recovery-file creation from the original filesystem birth-time tick, retaining inode-reuse and in-place rewrite controls. Host `/tmp` exhausted; local verification uses transient `TMPDIR` and `GOTMPDIR` in a private root-filesystem directory without changing caches or persistent configuration.
+- Baseline filesystem fixture repair: `ade340bf` separates recovery-file creation from the original filesystem birth-time tick, retaining inode-reuse and in-place rewrite controls. Host `/tmp` exhausted; local verification uses transient `TMPDIR` and `GOTMPDIR` in a private root-filesystem directory without changing caches or persistent configuration.
 
 - 5.1: Existing canonical payload and query decoders preserve all advisory fields without production or SQL changes. Literal historical replay remains byte-exact; report divergence conflicts under both matching and distinct primary IDs sharing one input/context interpretation.
+
+- Main integration: Rebased onto `09f93c10`; the upstream fixed core ceiling of 216000 remains unchanged, with the approved feature path reserves and billing overlay of 59476 retained. Upstream moved exhaustive schema checks to `make test-billing-schema`; final certification must execute its full 12-test population without exclusions. Independent budget review and fresh SDK, metering, core billing, catalog, and store regression checks passed.
+
+- 5.2: One shared registered SQLite/direct PostgreSQL runner certifies stored reports, replay conflicts, rollback/retry, and real-rate settlement at identical 50 USD and 18 USD debits across legacy/v1 publications; known paid containment remains fenced with unchanged financial state. Both catalog gates and scoped lint passed. Fresh reviewer dispatch hit the service thread limit twice; the documented manual review fallback independently reproduced RED and both dialect gates before acceptance.
+
+- Baseline durable fixture repair: `e62588d4` gives the sink-failure restart test the same bounded 20-second test cleanup window as its adjacent real-store fixture; production deadlines remain unchanged. A scratch delayed append reproduced the original missing leg, passed after alignment, and repeated focused plus full runtime race and root hooks passed.
