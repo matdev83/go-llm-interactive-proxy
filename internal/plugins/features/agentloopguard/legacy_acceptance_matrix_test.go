@@ -234,25 +234,17 @@ func TestLegacyEnabledYAMLOmitsStrategyAndKeepsVerifierDefaults(t *testing.T) {
 	}
 }
 
-func TestLegacyEnabledYAMLRejectsStrategySelectorUntilConfigured(t *testing.T) {
+func TestLegacyEnabledYAMLAcceptsExplicitSemanticVerifierSelector(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name string
-		raw  string
-	}{
-		{name: "semantic_verifier selector", raw: "enabled: true\nstrategy: semantic_verifier\n"},
-		{name: "attempt_completion selector", raw: "enabled: true\nstrategy: attempt_completion\n"},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			_, err := decodeLegacyYAMLErr(t, tc.raw)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "unknown field")
-		})
-	}
+	cfg, err := decodeLegacyYAMLErr(t, "enabled: true\nstrategy: semantic_verifier\n")
+	require.NoError(t, err)
+	assert.Equal(t, StrategySemanticVerifier, cfg.Strategy)
+	assert.Equal(t, DefaultVerifierRole, cfg.VerifierRole)
+	assert.Equal(t, DefaultVerifierTimeoutSeconds, cfg.VerifierTimeoutSeconds)
+	assert.Equal(t, DefaultMaxSemanticContinuations, cfg.MaxSemanticContinuations)
+	assert.Equal(t, DefaultNoProgressLimit, cfg.NoProgressLimit)
+	assert.Equal(t, ExplicitCompletionPolicyTrust, cfg.ExplicitCompletionPolicy)
 }
 
 func TestLegacyAcceptanceMatrix(t *testing.T) {

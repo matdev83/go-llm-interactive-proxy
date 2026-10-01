@@ -124,9 +124,10 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Boundary: generic response/terminal drain path; no frontend-specific writes_
     - _Depends: 5.1_
     - _Validation: canonical event-sequence tests across streaming/non-streaming frontend fixtures; secure-recording/traffic/usage focused tests_
+    - _Blocked: debug attempted twice, still failing — a timed-out real Close leaves an armed interrupted memo uncaptured when the admitted Observe callback later returns an error; fresh independent review rejected final checkpoint remediation. Task 5.2 WIP is preserved and uncommitted._
 
 - [ ] 6. Add mutually exclusive ALG strategy configuration
-  - [ ] 6.1 Implement strategy-aware config decoding/normalization with RED tests
+  - [x] 6.1 Implement strategy-aware config decoding/normalization with RED tests
     - Add `attempt_completion|semantic_verifier` selector and bounded `max_protocol_reprompts` (default 1, V1 max 3).
     - Preserve enabled+omitted-strategy as semantic verifier.
     - Reject mixed strategy-specific fields using YAML key presence, not merely post-default values; apply equivalent validation for programmatic construction.
@@ -310,3 +311,6 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 4.3: attempt-local controlMu protects observation, one handoff and outcome storage against one-way disposal; provider/backend/terminal I/O stays unlocked. Existing capture transfers owned arguments without another copy. Real cancel/Close, loser disposal and public-stream failover tests, scoped race/lint, independent review and fresh parent lifecycle/370-copy AST checks pass. Task 5.2 must own a bounded result snapshot before attempt cleanup and publish only through accepted request-terminal ownership.
 
 - Task 5.1: trusted activation projects independent expectation; validated live proxy completion ORs with existing native completion. Disposal retains expectation and revokes proxy observation. Independent review, focused tests/race/lint, current AST guards and fresh parent evidence tests pass; task 5.2 owns result publication.
+- Task 5.2: final debug cycle 2 exhausted; fresh review proves timed-out Close plus late Observe error strands an armed interrupted memo request. Preserve uncommitted runtime work; independent task 6.1 depends only on completed 1.2 and may continue. Remaining publication integration is unaccepted.
+
+- Task 6.1: Strategy-aware YAML/programmatic normalization preserves legacy defaults and rejects inactive-field presence and malformed protocol caps with bounded errors. Independent review and fresh four-package tests pass. Preferred provider construction remains tasks 8.3/6.2; run 7.1/7.2 and 8.1/8.2/8.3 before composition so no placeholder provider is installed.
