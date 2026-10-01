@@ -39,7 +39,7 @@
   - _Validation: focused executor runtime tests_
 
 - [ ] 2. Implement the pure cross-platform path virtualization kernel (P)
-- [ ] 2.1 Implement host-independent path flavor parsing
+- [x] 2.1 Implement host-independent path flavor parsing
   - Add POSIX, Windows drive, UNC, extended drive, and extended UNC recognition.
   - Reject relative paths, malformed roots, and Windows device paths.
   - Do not use host `filepath.Clean/Rel` as authority for foreign path flavors.
@@ -345,3 +345,9 @@
 - Task 1.3: the backend-bound two-pass ordering (attempt transform -> candidate eligibility -> request-part hook -> conversation-view reassertion -> PTB -> `Backend.Open`) already holds in the current runtime, so the delivered `path_virtualization_two_pass_ordering_characterization_test.go` is an intentionally GREEN permanent regression guard, not a pending RED condition. A first review round rejected an earlier RED attempt whose failures came only from anchoring a conversation-view overlay on the very message the rewriter mutates.
 - Task 1.3: conversation-view anchor identity is content-derived (`conversationprojection.MessageIdentityOf` hashes message content), so once this feature virtualizes a path-bearing tool-call message, a client steering overlay anchored on that message's pre-virtualization identity can no longer resolve and the executor denies the turn pre-backend (`ErrAnchorMissing` -> `AnchorFailClosed` -> `CommandPreBackendDenial`). This is a real functional gap, but it belongs to conversation-view anchor semantics which `design.md` "Out of Boundary" excludes and no task in 1.1-12.2 owns. Raise it as a separate spec item (suggested as a Requirement 6 continuity sidecar of Task 5.2); do not work around it inside this spec.
 - Task 1.3: `EligibilityResolver.Check` is invoked twice per attempt (preliminary candidate evaluation, then `post_request_hooks` rederivation); only the preliminary invocation measures requirement 5.3 candidate sizing.
+- Task 2.1: the new package exposes `ClassifyPath`/`ParsedPath{Flavor, Root, Rest}` plus four bounded `SkipReason` codes instead of the design's `Mapping`/`DeriveMapping`, because `WorkspaceTag`/`VirtualRoot` belong to Task 2.2. Task 2.2 should define `Mapping` over `ClassifyPath` (reuse `Flavor` and `RealRoot = Root+Rest`, reuse the `SkipReason` type) rather than re-implementing lexical parsing.
+- Task 2.1: separator ownership is the main 2.2 hazard. For drive flavors the volume-boundary separator lives at the FRONT of `Rest` (`C:\Users` parses as `Root="C:"`, `Rest="\Users"`), which `Root+Rest == input` conceals. Task 2.2's `canonicalRootIdentity` must strip non-volume trailing separators from the concatenated form, never from `Root` alone.
+- Task 2.1: `PathFlavor` constant order matches `design.md` 118-123 exactly and must not be renumbered; the SHA-256 tag algorithm depends on `flavorID` being stable.
+- Task 2.1: `TestClassifyPathRejectionReasonsAreBounded` asserts `len(seen) == len(known)`; Task 2.3 must widen that `known` map when it adds `workspace_mismatch`/`malformed_reserved_alias`.
+- Task 2.1: forward-slash-spelled Windows volumes (`//?/C:/x`, `//server/share`) classify as `FlavorPOSIX` because the design defines POSIX as "leading `/`". Design-literal, but 2.2/2.3 should know forward-slash Windows volumes take the POSIX branch.
+- Task 2.1: `TestFlavorParsingHasNoHostAuthority` AST-scans the package's non-test sources and rejects `os`, `path`, `path/filepath`, `runtime`, `syscall`, and any repo-package import; keep it intact. Note `internal/plugins/features/...` is not exercised on the CI windows/macos runners today, so multi-OS evidence is host-independent constants plus `GOOS=windows`/`GOOS=darwin` compile+vet, not execution.
