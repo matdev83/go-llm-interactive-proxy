@@ -229,6 +229,7 @@ func TestStreamingLifecycle_CancellationAndWriterFailureCleanup(t *testing.T) {
 	t.Parallel()
 
 	t.Run("cancellation before terminal cleans reservation and closes stream", func(t *testing.T) {
+		var executions atomic.Int32
 		store := corecont.NewMemoryStore()
 		st := &lifecycleMockStream{
 			events: []lipapi.Event{
@@ -240,8 +241,11 @@ func TestStreamingLifecycle_CancellationAndWriterFailureCleanup(t *testing.T) {
 
 		handler := openresponses.NewHandler(openresponses.HandlerConfig{
 			AllowUnauthenticated: true,
-			Executor:             &lifecycleMockExecutor{executeFn: func(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) { return st, nil }},
-			ContinuationStore:    store,
+			Executor: &lifecycleMockExecutor{executeFn: func(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) {
+				executions.Add(1)
+				return st, nil
+			}},
+			ContinuationStore: store,
 		})
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -251,20 +255,24 @@ func TestStreamingLifecycle_CancellationAndWriterFailureCleanup(t *testing.T) {
 		req = req.WithContext(ctx)
 		rec := httptest.NewRecorder()
 
+		// This case asserts that an already canceled request never executes.
+		// Cancel before launching the handler so scheduling cannot change it.
+		cancel()
 		done := make(chan struct{})
 		go func() {
 			handler.ServeHTTP(rec, req)
 			close(done)
 		}()
 
-		// Cancel request while stream is blocked
-		cancel()
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
 			t.Fatal("ServeHTTP timed out on cancellation")
 		}
 
+		if got := executions.Load(); got != 0 {
+			t.Fatalf("already canceled request executed backend %d times", got)
+		}
 		if st.closed.Load() {
 			t.Fatalf("canceled request executed an unneeded backend stream; status=%d body=%s", rec.Code, rec.Body.String())
 		}
