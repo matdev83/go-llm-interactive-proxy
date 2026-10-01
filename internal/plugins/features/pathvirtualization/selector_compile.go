@@ -7,8 +7,10 @@ package pathvirtualization
 // published and no per-request path can reach an unvalidated location.
 //
 // The compiled shapes here carry only what selector resolution needs. Profile
-// precedence between operator and built-in profiles, and any profile-declared
-// opaque-result mode, are separate policy decisions and are deliberately absent.
+// precedence between operator and built-in profiles is a separate policy decision
+// and lives in profile_resolve.go; this file validates the parts a profile shares
+// with the built-in layer, and the mode-carrying declared shape lives in
+// profile.go.
 
 // ProfileInput is the raw, unvalidated form of one operator tool profile as it
 // arrives from feature configuration. Pointers are still the operator's text at
@@ -28,8 +30,9 @@ type ProfileInput struct {
 }
 
 // CompiledProfile is one validated profile: exact tool names plus immutable
-// selector sets for arguments and structured results. It holds no mutable state
-// and no reference to the configuration it came from.
+// selector sets for arguments and structured results, and the bounded opaque-result
+// mode it declared. It holds no mutable state and no reference to the configuration
+// it came from.
 type CompiledProfile struct {
 	// Names are the exact tool names this profile claims, byte-exact.
 	Names []string
@@ -38,6 +41,11 @@ type CompiledProfile struct {
 	// ResultJSONPointers are the validated structured-result selectors, in
 	// configured order.
 	ResultJSONPointers SelectorSet
+	// OpaqueResultMode is the bounded opaque-result policy this profile declared.
+	// The zero value is the disabled default, so the mode-free compile input used by
+	// operator profiles without a mode field resolves to a profile that rewrites no
+	// opaque result.
+	OpaqueResultMode OpaqueResultMode
 }
 
 // CompileProfiles validates one operator profile set and returns it as compiled,
@@ -48,6 +56,10 @@ type CompiledProfile struct {
 // bounded reason says which rule was broken, so no partially valid profile can be
 // published. The same exact name may not appear in two profiles, because which
 // selectors would win would then depend on ordering rather than configuration.
+//
+// Every compiled profile carries the disabled opaque mode. A caller that has a mode
+// to declare compiles the mode-carrying declared shape instead, which delegates
+// here and then attaches the validated mode.
 func CompileProfiles(inputs []ProfileInput) ([]CompiledProfile, SelectorReject) {
 	if len(inputs) > MaxProfiles {
 		return nil, SelectorRejectProfileCount

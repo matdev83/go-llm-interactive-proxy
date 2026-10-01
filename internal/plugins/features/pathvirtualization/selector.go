@@ -23,9 +23,9 @@ import (
 // be rewritten as if it were a filesystem locator (requirements 2.3, 3.1, 3.2,
 // 3.5).
 //
-// Schema-assisted inference and profile precedence are deliberately absent: this
-// file knows only about the selectors an operator spelled out, and it bounds the
-// path-key vocabulary those selectors' inference step will consume.
+// Schema-assisted inference and profile precedence are separate layers: this file
+// knows only about the selectors an operator spelled out, and it bounds the path-key
+// vocabulary the inference step consumes.
 
 // Selector bounds. They are fixed implementation contracts, not operator-tunable
 // values: a configuration beyond a bound is refused rather than truncated, so
@@ -118,6 +118,11 @@ const (
 	SelectorRejectEmptyPathKey
 	// SelectorRejectDuplicatePathKey marks one vocabulary key declared twice.
 	SelectorRejectDuplicatePathKey
+	// SelectorRejectOpaqueMode marks an opaque-result mode outside the closed set.
+	// It is refused rather than read as the disabled default, because defaulting an
+	// unrecognized mode to "off" would let a typo hide a mode an operator meant to
+	// enable, while treating it as "on" would let a typo widen rewriting.
+	SelectorRejectOpaqueMode
 )
 
 // String returns the fixed, low-cardinality label for a configuration rejection.
@@ -157,6 +162,8 @@ func (r SelectorReject) String() string {
 		return "empty_path_key"
 	case SelectorRejectDuplicatePathKey:
 		return "duplicate_path_key"
+	case SelectorRejectOpaqueMode:
+		return "opaque_mode"
 	default:
 		return "unknown"
 	}
