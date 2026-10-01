@@ -148,7 +148,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Validation: standard-plugin feature bundle tests; reload/no-provider/removal fixtures_
 
 - [ ] 7. Implement the concrete `attempt_completion` control provider
-  - [ ] 7.1 Pin the familiar tool schema and stable base instruction
+  - [x] 7.1 Pin the familiar tool schema and stable base instruction
     - RED-test exact tool name, one required `result` property, `additionalProperties:false`, absence of `command`, stable description, stable base instruction, and size bounds.
     - Keep name/schema/instruction non-configurable in V1.
     - _Requirements: 2.1-2.7,11.5_
@@ -314,3 +314,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 5.2: final debug cycle 2 exhausted; fresh review proves timed-out Close plus late Observe error strands an armed interrupted memo request. Preserve uncommitted runtime work; independent task 6.1 depends only on completed 1.2 and may continue. Remaining publication integration is unaccepted.
 
 - Task 6.1: Strategy-aware YAML/programmatic normalization preserves legacy defaults and rejects inactive-field presence and malformed protocol caps with bounded errors. Independent review and fresh four-package tests pass. Preferred provider construction remains tasks 8.3/6.2; run 7.1/7.2 and 8.1/8.2/8.3 before composition so no placeholder provider is installed.
+
+- Task 7.1: Frozen completion-tool schema and exact 688-byte LF instruction are independently pinned, bounded and copied per projection. Genuine assertion RED, independent review and fresh five-package tests pass. Task 7.2 must reuse completionToolSpec without changing its ABI.
