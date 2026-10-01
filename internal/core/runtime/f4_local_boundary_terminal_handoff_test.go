@@ -562,6 +562,9 @@ func TestF4TerminalHandoffRetainsFinalLocalMeasurementWhenDurableSinkFails(t *te
 	}
 	sink := &r5c2bFlakySink{delegate: realSink, available: true}
 	session, boundary := f4LocalBoundaryAttempt(sink)
+	// Real file-backed durability uses the same bounded test budget as the
+	// successful-restart fixture; production cleanup deadlines stay unchanged.
+	session.terminal.cleanupTimeout = 20 * time.Second
 	session.submissionID = "submission-f4"
 	session.appendBillingLegStrict = func(appendCtx context.Context, _ billing.BillingCallID, record billing.CallLegUsageRecord) error {
 		return billingFile.store.AppendCallLegUsage(appendCtx, record)
