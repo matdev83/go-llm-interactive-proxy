@@ -3,33 +3,181 @@
 package configsource
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
 )
 
-// TestStatxIdentity_BirthTimeDiscriminates proves the Linux identity is keyed
-// on inode birth time, not just the inode number: same device+inode with a
-// different birth time is a different physical file, while identical fields
-// collapse to one identity and carry the statx scheme tag.
-func TestStatxIdentity_BirthTimeDiscriminates(t *testing.T) {
+// TestStatxIdentity_LeaseIgnoresBirthTime proves the ext4 lease identity uses
+// device and inode while a live descriptor, rather than birth time, supplies
+// the inode-lifetime guarantee.
+func TestStatxIdentity_LeaseIgnoresBirthTime(t *testing.T) {
 	t.Parallel()
 	base := unix.Statx_t{Dev_major: 1, Dev_minor: 2, Ino: 100, Btime: unix.StatxTimestamp{Sec: 10, Nsec: 1}}
 	same := base
-	reusedInode := base
-	reusedInode.Btime = unix.StatxTimestamp{Sec: 10, Nsec: 2}
+	differentBirthTime := base
+	differentBirthTime.Btime = unix.StatxTimestamp{Sec: 10, Nsec: 2}
 
 	idBase := identityFromStatx(&base)
 	idSame := identityFromStatx(&same)
-	idReused := identityFromStatx(&reusedInode)
+	idDifferentBirth := identityFromStatx(&differentBirthTime)
 
 	if idBase != idSame {
 		t.Fatal("identical statx fields must produce identical identity")
 	}
-	if idBase == idReused {
-		t.Fatal("differing birth time must produce distinguishable identity")
+	if idBase != idDifferentBirth {
+		t.Fatal("birth time must not participate in the pinned ext4 identity")
 	}
-	if idBase.Scheme != identitySchemeStatxBirthTime {
-		t.Fatalf("statx identity scheme=%q want %q", idBase.Scheme, identitySchemeStatxBirthTime)
+	if idBase.Scheme != "linux-ext4-dev-ino-lease-v1" {
+		t.Fatalf("statx identity scheme=%q want linux-ext4-dev-ino-lease-v1", idBase.Scheme)
+	}
+}
+
+func TestDetectLinuxExt4LeaseRequiresConcordantHandleEvidence(t *testing.T) {
+	t.Parallel()
+	file, err := os.Create(filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = file.Close() }()
+
+	validMount := "43 1 8:1 / /tmp rw,relatime - ext4 /dev/loop0 rw\n"
+	base := linuxLeaseDetectionOps{
+		statx: func(_ *os.File, _ int, stx *unix.Statx_t) error {
+			*stx = unix.Statx_t{
+				Mask: unix.STATX_INO | unix.STATX_MNT_ID,
+				Ino:  7, Mnt_id: 43, Dev_major: 8, Dev_minor: 1,
+			}
+			return nil
+		},
+		fstatfs: func(_ *os.File, fs *unix.Statfs_t) error {
+			fs.Type = linuxExt4Magic
+			return nil
+		},
+		readMountInfo: func() ([]byte, error) { return []byte(validMount), nil },
+	}
+	if evidence, ok := detectLinuxExt4LeaseWithOps(file, base); !ok || evidence.identity.Scheme != identitySchemeLinuxExt4Lease {
+		t.Fatalf("valid ext4 handle evidence rejected: evidence=%+v ok=%v", evidence, ok)
+	}
+
+	cases := []struct {
+		name string
+		edit func(*linuxLeaseDetectionOps)
+	}{
+		{name: "nonnumeric parent", edit: func(ops *linuxLeaseDetectionOps) {
+			ops.readMountInfo = func() ([]byte, error) { return []byte("43 malformed 8:1 / /tmp rw - ext4 /dev/loop0 rw\n"), nil }
+		}},
+		{name: "missing parent", edit: func(ops *linuxLeaseDetectionOps) {
+			ops.readMountInfo = func() ([]byte, error) { return []byte("43 8:1 / /tmp rw - ext4 /dev/loop0 rw\n"), nil }
+		}},
+		{name: "relative root", edit: func(ops *linuxLeaseDetectionOps) {
+			ops.readMountInfo = func() ([]byte, error) { return []byte("43 1 8:1 root /tmp rw - ext4 /dev/loop0 rw\n"), nil }
+		}},
+		{name: "relative mountpoint", edit: func(ops *linuxLeaseDetectionOps) {
+			ops.readMountInfo = func() ([]byte, error) { return []byte("43 1 8:1 / tmp rw - ext4 /dev/loop0 rw\n"), nil }
+		}},
+		{name: "extra post separator field", edit: func(ops *linuxLeaseDetectionOps) {
+			ops.readMountInfo = func() ([]byte, error) { return []byte("43 1 8:1 / /tmp rw - ext4 /dev/loop0 rw extra\n"), nil }
+		}},
+		{name: "invalid path escape", edit: func(ops *linuxLeaseDetectionOps) {
+			ops.readMountInfo = func() ([]byte, error) { return []byte("43 1 8:1 / /tmp\\bad rw - ext4 /dev/loop0 rw\n"), nil }
+		}},
+		{
+			name: "wrong filesystem type",
+			edit: func(ops *linuxLeaseDetectionOps) {
+				ops.readMountInfo = func() ([]byte, error) {
+					return []byte(strings.Replace(validMount, "ext4", "xfs", 1)), nil
+				}
+			},
+		},
+		{
+			name: "wrong device",
+			edit: func(ops *linuxLeaseDetectionOps) {
+				ops.readMountInfo = func() ([]byte, error) {
+					return []byte(strings.Replace(validMount, "8:1", "8:2", 1)), nil
+				}
+			},
+		},
+		{
+			name: "duplicate match",
+			edit: func(ops *linuxLeaseDetectionOps) {
+				ops.readMountInfo = func() ([]byte, error) { return []byte(validMount + validMount), nil }
+			},
+		},
+		{
+			name: "wrong superblock magic",
+			edit: func(ops *linuxLeaseDetectionOps) {
+				ops.fstatfs = func(_ *os.File, fs *unix.Statfs_t) error {
+					fs.Type = 0x58465342
+					return nil
+				}
+			},
+		},
+		{
+			name: "missing mount id mask",
+			edit: func(ops *linuxLeaseDetectionOps) {
+				ops.statx = func(_ *os.File, _ int, stx *unix.Statx_t) error {
+					stx.Mask = unix.STATX_INO
+					stx.Ino, stx.Dev_major, stx.Dev_minor = 7, 8, 1
+					return nil
+				}
+			},
+		},
+		{
+			name: "mountinfo bound",
+			edit: func(ops *linuxLeaseDetectionOps) {
+				ops.readMountInfo = func() ([]byte, error) { return make([]byte, maxMountInfoBytes+1), nil }
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ops := base
+			tc.edit(&ops)
+			if _, ok := detectLinuxExt4LeaseWithOps(file, ops); ok {
+				t.Fatal("uncertain ext4 evidence must be unavailable")
+			}
+		})
+	}
+}
+
+func TestMountInfoRejectsIncompleteAndConflictingTargetRecords(t *testing.T) {
+	t.Parallel()
+	valid := "43 1 8:1 / /tmp rw,relatime - ext4 /dev/loop0 rw\n"
+	for _, tc := range []struct {
+		name string
+		data string
+	}{
+		{name: "unterminated final record", data: strings.TrimSuffix(valid, "\n")},
+		{name: "same mount id conflicting device", data: valid + "43 1 8:2 / /other rw - xfs /dev/other rw\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			matched, err := parseExt4MountInfo([]byte(tc.data), 43, 8, 1)
+			if err == nil && matched {
+				t.Fatalf("accepted incomplete or ambiguous mount evidence: %q", tc.data)
+			}
+		})
+	}
+}
+
+func TestSameLeaseDeviceRequiresMajorAndMinorMatch(t *testing.T) {
+	t.Parallel()
+	active := ActiveSourceVersion{devMajor: 8, devMinor: 1}
+	candidate := SourceSnapshot{devMajor: 8, devMinor: 1}
+	if !sameLeaseDevice(active, candidate) {
+		t.Fatal("same ext4 device should match")
+	}
+	candidate.devMinor = 2
+	if sameLeaseDevice(active, candidate) {
+		t.Fatal("different device minor must not satisfy the lease replacement contract")
+	}
+	candidate.devMajor, candidate.devMinor = 9, 1
+	if sameLeaseDevice(active, candidate) {
+		t.Fatal("different device major must not satisfy the lease replacement contract")
 	}
 }

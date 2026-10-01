@@ -2,6 +2,7 @@ package runtimehost
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
@@ -55,6 +56,12 @@ type attemptGate struct {
 	active               *attemptLease
 	nextToken            uint64
 	idleNotify           chan struct{} // closed while idle; open while busy
+	finalizer            func() error
+	finalizing           bool
+	finalizationStarted  bool
+	finalizationDone     chan struct{}
+	finalizationErr      error
+	shutdownWaiter       func(context.Context) error
 }
 
 type attemptLease struct {
@@ -68,7 +75,77 @@ type attemptLease struct {
 func newAttemptGate() *attemptGate {
 	ch := make(chan struct{})
 	close(ch)
-	return &attemptGate{idleNotify: ch}
+	done := make(chan struct{})
+	close(done)
+	return &attemptGate{idleNotify: ch, finalizationDone: done}
+}
+
+func (g *attemptGate) SetShutdownFinalizer(finalizer func() error) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.finalizer = finalizer
+	run := g.startFinalizationLocked()
+	g.mu.Unlock()
+	if run {
+		g.runFinalizer(finalizer)
+	}
+}
+
+func (g *attemptGate) SetShutdownWaiter(waiter func(context.Context) error) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.shutdownWaiter = waiter
+	g.mu.Unlock()
+}
+
+func (g *attemptGate) startFinalizationLocked() bool {
+	if !g.shutdown || g.active != nil || g.finalizationStarted {
+		return false
+	}
+	g.finalizationStarted, g.finalizing = true, true
+	g.finalizationDone = make(chan struct{})
+	if g.idleNotify == nil || isClosed(g.idleNotify) {
+		g.idleNotify = make(chan struct{})
+	}
+	return true
+}
+
+func (g *attemptGate) runFinalizer(finalizer func() error) {
+	var err error
+	func() {
+		defer func() {
+			if recover() != nil {
+				err = errors.New("runtimehost: source finalization failed")
+			}
+		}()
+		if finalizer != nil {
+			err = finalizer()
+		}
+	}()
+	g.mu.Lock()
+	g.finalizationErr = err
+	g.finalizing = false
+	close(g.finalizationDone)
+	if g.active == nil && g.idleNotify != nil && !isClosed(g.idleNotify) {
+		close(g.idleNotify)
+	}
+	g.mu.Unlock()
+}
+
+func isClosed(ch <-chan struct{}) bool {
+	if ch == nil {
+		return true
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }
 
 func shutdownAdmission() attemptAdmissionOutcome {
@@ -130,9 +207,14 @@ func (g *attemptGate) BeginShutdown() {
 	if g.active != nil {
 		cancel = g.active.cancel
 	}
+	run := g.startFinalizationLocked()
+	finalizer := g.finalizer
 	g.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if run {
+		g.runFinalizer(finalizer)
 	}
 }
 
@@ -146,10 +228,17 @@ func (g *attemptGate) WaitForIdle(ctx context.Context) error {
 	}
 	for {
 		g.mu.Lock()
-		idle, notify := g.active == nil, g.idleNotify
+		idle := g.active == nil && !g.finalizing && (!g.shutdown || (g.finalizationStarted && isClosed(g.finalizationDone)))
+		notify := g.idleNotify
+		finalErr := g.finalizationErr
+		waiter := g.shutdownWaiter
+		waitForShutdownSource := g.shutdown && g.finalizationStarted
 		g.mu.Unlock()
 		if idle {
-			return nil
+			if waitForShutdownSource && waiter != nil {
+				return errors.Join(finalErr, waiter(ctx))
+			}
+			return finalErr
 		}
 		select {
 		case <-ctx.Done():
@@ -165,7 +254,7 @@ func (g *attemptGate) Snapshot() attemptGateSnapshot {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return attemptGateSnapshot{Busy: g.active != nil, PendingSignal: g.pendingHUP, CoalescedSignals: g.coalesced}
+	return attemptGateSnapshot{Busy: g.active != nil || g.finalizing, PendingSignal: g.pendingHUP, CoalescedSignals: g.coalesced}
 }
 
 func (g *attemptGate) shuttingDown() bool {
@@ -184,12 +273,15 @@ func (l *attemptLease) Context() context.Context {
 	return l.ctx
 }
 
-func (g *attemptGate) releaseActiveIdleLocked(l *attemptLease) context.CancelFunc {
+func (g *attemptGate) releaseActiveIdleLocked(l *attemptLease) (context.CancelFunc, bool, func() error) {
 	l.finished = true
-	cancel, notify := l.cancel, g.idleNotify
+	cancel := l.cancel
 	g.active, g.pendingHUP, g.coalesced = nil, false, 0
-	close(notify)
-	return cancel
+	run := g.startFinalizationLocked()
+	if !run && !g.finalizing && g.idleNotify != nil && !isClosed(g.idleNotify) {
+		close(g.idleNotify)
+	}
+	return cancel, run, g.finalizer
 }
 
 func (l *attemptLease) invokeCancel(cancel context.CancelFunc) {
@@ -210,9 +302,12 @@ func (l *attemptLease) Complete() attemptFinishOutcome {
 		return attemptFinishOutcome{Kind: finishAlreadyCompleted}
 	}
 	if g.shutdown || !g.pendingHUP {
-		cancel := g.releaseActiveIdleLocked(l)
+		cancel, runFinalizer, finalizer := g.releaseActiveIdleLocked(l)
 		g.mu.Unlock()
 		l.invokeCancel(cancel)
+		if runFinalizer {
+			g.runFinalizer(finalizer)
+		}
 		return attemptFinishOutcome{Kind: finishReleasedIdle}
 	}
 	l.finished = true
@@ -236,7 +331,10 @@ func (l *attemptLease) Abandon() {
 		g.mu.Unlock()
 		return
 	}
-	cancel := g.releaseActiveIdleLocked(l)
+	cancel, runFinalizer, finalizer := g.releaseActiveIdleLocked(l)
 	g.mu.Unlock()
 	l.invokeCancel(cancel)
+	if runFinalizer {
+		g.runFinalizer(finalizer)
+	}
 }

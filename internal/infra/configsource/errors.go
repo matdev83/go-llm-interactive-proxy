@@ -12,6 +12,7 @@ import (
 type IntegrityError struct {
 	Category Category
 	Limit    int64 // set for oversize; otherwise 0
+	reason   string
 }
 
 func (e *IntegrityError) Error() string {
@@ -47,4 +48,28 @@ func integrityErr(cat Category) error {
 
 func oversizeErr(limit int64) error {
 	return &IntegrityError{Category: CategoryOversize, Limit: limit}
+}
+
+func leaseIntegrityErr(reason string) error {
+	switch reason {
+	case "lease_unavailable", "lease_closed", "lease_provenance", "lease_device":
+	default:
+		reason = "lease_unavailable"
+	}
+	return &IntegrityError{Category: CategoryNonAtomicUpdate, reason: reason}
+}
+
+// SafeReasonOf returns only the bounded private reason attached to source
+// lease integrity failures. It never returns operating-system error text.
+func SafeReasonOf(err error) string {
+	var ie *IntegrityError
+	if !errors.As(err, &ie) || ie == nil {
+		return ""
+	}
+	switch ie.reason {
+	case "lease_unavailable", "lease_closed", "lease_provenance", "lease_device":
+		return ie.reason
+	default:
+		return ""
+	}
 }

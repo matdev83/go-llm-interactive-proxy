@@ -166,7 +166,10 @@ func prepareInspect(ctx context.Context, in InspectInput, loadEffective bootstra
 	if path == "" {
 		return nil, nil, nil, fmt.Errorf("runtimebundle: empty config path")
 	}
-	effective, _, _, err := loadEffective(ctx, path, in.StreamRecoveryOverrides)
+	effective, _, ownerSlot, _, err := loadEffective(ctx, path, in.StreamRecoveryOverrides)
+	if ownerSlot != nil {
+		err = errors.Join(err, ownerSlot.Close(ctx))
+	}
 	if err != nil {
 		return nil, nil, nil, err
 	}

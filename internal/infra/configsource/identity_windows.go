@@ -40,3 +40,9 @@ func identityFromPath(path string) (FileIdentity, error) {
 	defer func() { _ = f.Close() }()
 	return identityFromFile(f)
 }
+
+func detectSourceLease(*os.File) (sourceLeaseEvidence, bool) { return sourceLeaseEvidence{}, false }
+
+func captureLeaseMetadata(*os.File) (sourceFileMetadata, error) {
+	return sourceFileMetadata{}, integrityErr(CategoryUnsupportedType)
+}

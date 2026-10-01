@@ -34,6 +34,20 @@ echo ""
 echo "Running complete root test suite with precommit tags (Go cache enabled)..."
 env LIP_TEST_PRECOMMIT=1 bash "$SCRIPT_DIR/test-staged.sh"
 
+if [[ "$(go env GOOS)" == "linux" ]]; then
+	echo ""
+	echo "Running mandatory ext4 source-lifetime certification..."
+	bash "$SCRIPT_DIR/configsource-certify.sh"
+	echo ""
+	echo "Running mandatory source-close fault lifecycle tests..."
+	fault_tests="$(go test -tags=configsource_faulttest -list '^TestHostCloseCachedSourceCloseFailure$' ./internal/infra/runtimebundle/...)"
+	if ! grep -qx 'TestHostCloseCachedSourceCloseFailure' <<< "$fault_tests"; then
+		echo "Required source-close fault lifecycle test was not discovered." >&2
+		exit 1
+	fi
+	go test -race -count=1 -tags=configsource_faulttest -run '^TestHostClose.*Source' ./internal/infra/runtimebundle/...
+fi
+
 echo ""
 echo "Running race detector scan..."
 bash "$SCRIPT_DIR/race-check.sh" --staged

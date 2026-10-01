@@ -129,7 +129,7 @@ func TestCompileGeneration_LifecycleStartFailureRollsBackOnce(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected lifecycle start failure")
 	}
-	if !strings.Contains(err.Error(), "lifecycle start boom") {
+	if !strings.Contains(err.Error(), "ledger start failed") || strings.Contains(err.Error(), "lifecycle start boom") {
 		t.Fatalf("err=%v", err)
 	}
 	if got := life.starts.Load(); got != 1 {

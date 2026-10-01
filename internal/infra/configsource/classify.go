@@ -77,6 +77,36 @@ const (
 )
 
 func ClassifyAtomicReplacement(active ActiveSourceVersion, candidate SourceSnapshot) (AtomicResult, Category, error) {
+	// Linux's ext4 dev+inode identity is safe only while the accepted source
+	// descriptor remains pinned. Validate and hold both leases for the complete
+	// comparison, including direct callers of this classifier.
+	if active.HandleIdentity.Platform == "linux" || candidate.HandleIdentity.Platform == "linux" {
+		if active.HandleIdentity.Platform != "linux" || candidate.HandleIdentity.Platform != "linux" ||
+			active.HandleIdentity.Scheme != identitySchemeLinuxExt4Lease ||
+			candidate.HandleIdentity.Scheme != identitySchemeLinuxExt4Lease ||
+			!active.leaseRequired || !candidate.leaseRequired || active.leaseUnavailable || candidate.leaseUnavailable {
+			return AtomicReject, CategoryNonAtomicUpdate, leaseIntegrityErr("lease_unavailable")
+		}
+		activeBorrow, err := active.Borrow()
+		if err != nil {
+			return AtomicReject, CategoryNonAtomicUpdate, err
+		}
+		defer activeBorrow.Release()
+		candidateBorrow, err := candidate.borrowCandidate()
+		if err != nil {
+			return AtomicReject, CategoryNonAtomicUpdate, err
+		}
+		defer candidateBorrow.Release()
+		if err := activeBorrow.validateProvenance(&active); err != nil {
+			return AtomicReject, CategoryNonAtomicUpdate, err
+		}
+		if err := candidateBorrow.validateSnapshot(&candidate); err != nil {
+			return AtomicReject, CategoryNonAtomicUpdate, err
+		}
+		if !sameLeaseDevice(active, candidate) {
+			return AtomicReject, CategoryNonAtomicUpdate, leaseIntegrityErr("lease_device")
+		}
+	}
 	// Identities from different platforms or provenance schemes are not
 	// comparable. A coarser identity cannot prove the candidate is a different
 	// physical file, so fail closed instead of treating it as a new identity.
@@ -94,4 +124,8 @@ func ClassifyAtomicReplacement(active ActiveSourceVersion, candidate SourceSnaps
 	default:
 		return AtomicEligible, CategoryOK, nil
 	}
+}
+
+func sameLeaseDevice(active ActiveSourceVersion, candidate SourceSnapshot) bool {
+	return active.devMajor == candidate.devMajor && active.devMinor == candidate.devMinor
 }

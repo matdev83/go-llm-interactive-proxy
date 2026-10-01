@@ -66,7 +66,7 @@ func TestRuntimeConfigReloadSoak(t *testing.T) {
 	src := &soakSource{
 		path:   "/fixed/startup/config.yaml",
 		atomic: configsource.AtomicEligible,
-		snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
+		snap:   soakSnapshot([]byte("x: 1")),
 	}
 	var digest byte = 1
 	loader := &soakLoader{eff: soakEffective("fp-boot", digest)}
@@ -134,7 +134,7 @@ func TestRuntimeConfigReloadSoak(t *testing.T) {
 		case 0: // valid publish via coordinator
 			digest++
 			loader.set(soakEffective(fmt.Sprintf("fp-%d", digest), digest), nil)
-			src.set(configsource.SourceSnapshot{Bytes: []byte("x: 1")}, configsource.AtomicEligible, nil)
+			src.set(soakSnapshot([]byte("x: 1")), configsource.AtomicEligible, nil)
 			res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 			categories[res.Category]++
 			if res.Category != sdkreload.ResultPublished && res.Category != sdkreload.ResultRetentionBlocked {
@@ -148,7 +148,7 @@ func TestRuntimeConfigReloadSoak(t *testing.T) {
 				t.Fatalf("round %d invalid must not publish", i)
 			}
 		case 2: // noop (AtomicNoop)
-			src.set(configsource.SourceSnapshot{Bytes: []byte("x: 1")}, configsource.AtomicNoop, nil)
+			src.set(soakSnapshot([]byte("x: 1")), configsource.AtomicNoop, nil)
 			res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 			categories[res.Category]++
 			if res.Category != sdkreload.ResultNoop {
@@ -163,7 +163,7 @@ func TestRuntimeConfigReloadSoak(t *testing.T) {
 				Auth:   config.AuthConfig{Handler: "none"},
 			}
 			loader.set(eff, nil)
-			src.set(configsource.SourceSnapshot{Bytes: []byte("x: 1")}, configsource.AtomicEligible, nil)
+			src.set(soakSnapshot([]byte("x: 1")), configsource.AtomicEligible, nil)
 			res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 			categories[res.Category]++
 			if res.Category != sdkreload.ResultRestartRequired {
@@ -173,7 +173,7 @@ func TestRuntimeConfigReloadSoak(t *testing.T) {
 			for try := 0; try < maxRetained+4; try++ {
 				digest++
 				loader.set(soakEffective(fmt.Sprintf("fp-ret-%d", digest), digest), nil)
-				src.set(configsource.SourceSnapshot{Bytes: []byte("x: 1")}, configsource.AtomicEligible, nil)
+				src.set(soakSnapshot([]byte("x: 1")), configsource.AtomicEligible, nil)
 				res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 				categories[res.Category]++
 				if res.Category == sdkreload.ResultRetentionBlocked {
@@ -245,6 +245,13 @@ type soakSource struct {
 	snap   configsource.SourceSnapshot
 	atomic configsource.AtomicResult
 	err    error
+}
+
+func soakSnapshot(bytes []byte) configsource.SourceSnapshot {
+	return configsource.SourceSnapshot{
+		Bytes:          bytes,
+		HandleIdentity: configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid", Opaque: [32]byte{1}},
+	}
 }
 
 func (s *soakSource) AbsolutePath() string { return s.path }

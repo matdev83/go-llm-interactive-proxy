@@ -177,8 +177,11 @@ func TestSignalReload_CoalesceThroughCoordinator(t *testing.T) {
 		return adapterEffective("fp-sig-"+string(rune('a'+n)), digest+byte(n)), nil
 	})
 	src := &adapterFixedSource{
-		path:   "/fixed/startup/config.yaml",
-		snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
+		path: "/fixed/startup/config.yaml",
+		snap: configsource.SourceSnapshot{
+			Bytes:          []byte("x: 1"),
+			HandleIdentity: configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid", Opaque: [32]byte{1}},
+		},
 		atomic: configsource.AtomicEligible,
 	}
 	coord := newAdapterTestCoordinator(t, src, loader, compile)
@@ -235,8 +238,11 @@ func TestSignalReload_PublishesValidCandidate(t *testing.T) {
 		return adapterEffective("fp-pub-"+string(rune('a'+n)), byte(50+n)), nil
 	})
 	src := &adapterFixedSource{
-		path:   "/fixed/startup/config.yaml",
-		snap:   configsource.SourceSnapshot{Bytes: []byte("y: 2")},
+		path: "/fixed/startup/config.yaml",
+		snap: configsource.SourceSnapshot{
+			Bytes:          []byte("y: 2"),
+			HandleIdentity: configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid", Opaque: [32]byte{1}},
+		},
 		atomic: configsource.AtomicEligible,
 	}
 	compile := &adapterCompileHold{kinds: map[string]int{"local-stub": 1}}

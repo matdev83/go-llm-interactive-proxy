@@ -235,6 +235,33 @@ jobs:
         # host security posture checks on administrative Windows runners.
         run: go test -timeout=8m ${{ matrix.packages }}
 
+      - name: Native source identity and reload tests
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest'
+        shell: bash
+        run: go test -count=1 ./internal/infra/configsource/... ./internal/infra/runtimehost/...
+
+      - name: Certify pinned source lifetime on ext4
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/configsource-ext4.img"
+          mountpoint="$RUNNER_TEMP/configsource-ext4-mount"
+          cleanup() {
+            sudo umount "$mountpoint" 2>/dev/null || true
+            rm -f "$image"
+            rmdir "$mountpoint" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          mkdir -p "$mountpoint"
+          mkdir -p "$RUNNER_TEMP/go-tmp-executable"
+          truncate -s 256M "$image"
+          mkfs.ext4 -F -q "$image"
+          sudo mount -o loop,noexec,nosuid,nodev "$image" "$mountpoint"
+          sudo chown "$(id -u):$(id -g)" "$mountpoint"
+          mkdir "$mountpoint/tmp"
+          TMPDIR="$mountpoint/tmp" GOTMPDIR="$RUNNER_TEMP/go-tmp-executable" bash scripts/configsource-certify.sh
+
       - name: Build release binary
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         run: go build -trimpath ./cmd/lipstd

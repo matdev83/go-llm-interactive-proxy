@@ -214,7 +214,7 @@ func (l *ResourceLedger) resolveInFlightErr(base error) error {
 	return base
 }
 
-func (l *ResourceLedger) execStartPhase(ctx context.Context, phase ClosePhase, done *bool, phaseErr *error, busy *bool, markPrepared bool) error {
+func (l *ResourceLedger) execStartPhase(ctx context.Context, phase ClosePhase, done *bool, phaseErr *error, busy *bool, markPrepared bool) (resultErr error) {
 	if l == nil {
 		return nil
 	}
@@ -232,16 +232,29 @@ func (l *ResourceLedger) execStartPhase(ctx context.Context, phase ClosePhase, d
 	}
 	*busy = true
 	l.mu.Unlock()
-	err := l.runStarts(ctx, phase)
+	finished := false
+	defer func() {
+		if recovered := recover(); recovered != nil && phase == PhasePublish {
+			resultErr = errors.New("runtimebundle: publish start failed")
+		}
+		if !finished && phase == PhasePublish {
+			l.mu.Lock()
+			*done, *phaseErr, *busy = true, resultErr, false
+			l.cond.Broadcast()
+			l.mu.Unlock()
+		}
+	}()
+	resultErr = l.runStarts(ctx, phase)
 	l.mu.Lock()
-	*done, *phaseErr = true, err
-	if err == nil && markPrepared {
+	*done, *phaseErr = true, resultErr
+	if resultErr == nil && markPrepared {
 		l.prepared.Store(true)
 	}
 	*busy = false
 	l.cond.Broadcast()
 	l.mu.Unlock()
-	return err
+	finished = true
+	return resultErr
 }
 
 // Prepare runs PhasePrepare start hooks in acquisition order (req). Failure does not auto-rollback.
@@ -288,12 +301,29 @@ func (l *ResourceLedger) runStarts(ctx context.Context, phase ClosePhase) error 
 			continue
 		}
 		e.startAttempted.Store(true)
-		if err := e.start(ctx); err != nil {
-			return fmt.Errorf("runtimebundle: ledger prepare %q: %w", e.name, err)
+		if err := safeLedgerStart(ctx, e); err != nil {
+			return safeLedgerStartError{cause: err}
 		}
 		e.started.Store(true)
 	}
 	return nil
+}
+
+type safeLedgerStartError struct{ cause error }
+
+func (safeLedgerStartError) Error() string   { return "runtimebundle: ledger start failed" }
+func (e safeLedgerStartError) Unwrap() error { return e.cause }
+
+func safeLedgerStart(ctx context.Context, e *ledgerEntry) (err error) {
+	if e == nil || e.start == nil {
+		return nil
+	}
+	defer func() {
+		if recover() != nil {
+			err = errors.New("runtimebundle: lifecycle start failed")
+		}
+	}()
+	return e.start(ctx)
 }
 
 // beginStopPhase locks, waits, and returns cached/in-flight/done outcomes. Caller holds l.mu on proceed.

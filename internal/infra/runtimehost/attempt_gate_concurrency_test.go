@@ -514,6 +514,107 @@ func TestAttemptGate_ShutdownCancelsIdleWaiters(t *testing.T) {
 	}
 }
 
+func TestAttemptGate_ShutdownFinalizerRunsFromInitiallyIdleState(t *testing.T) {
+	t.Parallel()
+	g := newAttemptGate()
+	entered, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	wantErr := errors.New("source close failed")
+	g.SetShutdownFinalizer(func() error {
+		calls.Add(1)
+		close(entered)
+		<-release
+		return wantErr
+	})
+	beginDone := make(chan struct{})
+	beginStarted := make(chan struct{})
+	go func() {
+		close(beginStarted)
+		g.BeginShutdown()
+		close(beginDone)
+	}()
+	<-beginStarted
+	guard, cancelGuard := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelGuard()
+	select {
+	case <-entered:
+	case <-guard.Done():
+		t.Fatal("initially-idle finalizer did not start")
+	}
+
+	bctx, reached := newWaitIdleSelectBarrierCtx(context.Background())
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- g.WaitForIdle(bctx) }()
+	awaitWaitIdleBarriers(t, reached)
+	select {
+	case err := <-waitDone:
+		t.Fatalf("WaitForIdle returned before source finalization: %v", err)
+	default:
+	}
+	close(release)
+	<-beginDone
+	if err := <-waitDone; !errors.Is(err, wantErr) {
+		t.Fatalf("WaitForIdle finalization error=%v want %v", err, wantErr)
+	}
+	g.BeginShutdown()
+	if err := g.WaitForIdle(context.Background()); !errors.Is(err, wantErr) {
+		t.Fatalf("cached finalization error=%v want %v", err, wantErr)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("finalizer calls=%d want once", calls.Load())
+	}
+}
+
+func TestAttemptGate_ShutdownFinalizerWaitsForAdmittedAttempt(t *testing.T) {
+	t.Parallel()
+	g := newAttemptGate()
+	entered, release := make(chan struct{}), make(chan struct{})
+	g.SetShutdownFinalizer(func() error {
+		close(entered)
+		<-release
+		return nil
+	})
+	admitted := g.TryStart(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if admitted.Lease == nil {
+		t.Fatal("setup admission")
+	}
+	bctx, reached := newWaitIdleSelectBarrierCtx(context.Background())
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- g.WaitForIdle(bctx) }()
+	awaitWaitIdleBarriers(t, reached)
+	g.BeginShutdown()
+	select {
+	case <-entered:
+		t.Fatal("source finalizer ran while an admitted attempt was active")
+	default:
+	}
+	completeDone := make(chan struct{})
+	completeStarted := make(chan struct{})
+	go func() {
+		close(completeStarted)
+		admitted.Lease.Complete()
+		close(completeDone)
+	}()
+	<-completeStarted
+	guard, cancelGuard := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelGuard()
+	select {
+	case <-entered:
+	case <-guard.Done():
+		t.Fatal("finalizer did not start after attempt completion")
+	}
+	select {
+	case err := <-waitDone:
+		t.Fatalf("WaitForIdle returned before finalization completed: %v", err)
+	default:
+	}
+	close(release)
+	<-completeDone
+	if err := <-waitDone; err != nil {
+		t.Fatalf("WaitForIdle: %v", err)
+	}
+}
+
 func TestAttemptGate_RepeatedConcurrentShutdown(t *testing.T) {
 	t.Parallel()
 	g := newAttemptGate()

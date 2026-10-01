@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -161,6 +162,20 @@ func TestResourceLedger_PrepareActivateFaultInjection(t *testing.T) {
 	}
 	if rolled.Load() != 1 {
 		t.Fatalf("rollback closes=%d", rolled.Load())
+	}
+}
+
+func TestResourceLedger_StartErrorKeepsSafeTextAndUnwrapsCause(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("credential-bearing prepare detail")
+	ledger := runtimebundle.NewResourceLedger()
+	ledger.AddAction("prepare", runtimebundle.PhasePrepare, func(context.Context) error { return sentinel }, nil)
+	err := ledger.Prepare(context.Background())
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Prepare error=%v must unwrap sentinel", err)
+	}
+	if strings.Contains(err.Error(), sentinel.Error()) || err.Error() != "runtimebundle: ledger start failed" {
+		t.Fatalf("start failure must keep bounded safe text, got %q", err)
 	}
 }
 
@@ -337,6 +352,38 @@ func TestResourceLedger_RollbackSkipsUnpublishedStarts(t *testing.T) {
 	}
 	if stopped.Load() != 0 {
 		t.Fatalf("unpublished PhasePublish stop ran: stopped=%d", stopped.Load())
+	}
+}
+
+func TestResourceLedger_PhasePublishPanicIsCachedAndCleanupRemainsUsable(t *testing.T) {
+	t.Parallel()
+	ledger := runtimebundle.NewResourceLedger()
+	var starts, stops atomic.Int32
+	ledger.AddAction("publish-worker", runtimebundle.PhasePublish,
+		func(context.Context) error {
+			starts.Add(1)
+			panic("private publish panic")
+		},
+		func(context.Context) error {
+			stops.Add(1)
+			return nil
+		})
+	first := ledger.Publish(context.Background())
+	if first == nil || !strings.Contains(first.Error(), "start failed") || strings.Contains(first.Error(), "private publish panic") {
+		t.Fatalf("publish panic must become a bounded cached error: %v", first)
+	}
+	second := ledger.Publish(context.Background())
+	if second == nil || second.Error() != first.Error() || starts.Load() != 1 {
+		t.Fatalf("PhasePublish retried or changed its cached outcome: first=%v second=%v starts=%d", first, second, starts.Load())
+	}
+	if err := ledger.Quiesce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if stops.Load() != 1 {
+		t.Fatalf("attempted publish resource cleanup calls=%d want 1", stops.Load())
 	}
 }
 

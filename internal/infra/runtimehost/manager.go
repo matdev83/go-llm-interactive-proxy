@@ -209,8 +209,21 @@ func (m *Manager) Acquire() (*Lease, bool) {
 // Retention rejection and host-shutdown rejection roll back the unpublished candidate
 // exactly once after releasing Manager.mu so closers may re-enter status paths (req 10.9).
 func (m *Manager) Publish(candidate *Generation) error {
+	postSwap, err := m.commitPublish(candidate, nil)
+	if err != nil {
+		return err
+	}
+	postSwap.run()
+	return nil
+}
+
+// commitPublish performs only the guarded generation swap. The caller must run
+// the returned post-swap work after installing any state committed with the
+// generation, so lifecycle observers cannot see a published generation paired
+// with the previous source baseline.
+func (m *Manager) commitPublish(candidate *Generation, committed *bool) (*publishPostSwap, error) {
 	if candidate == nil {
-		return ErrNotPrepared
+		return nil, ErrNotPrepared
 	}
 
 	m.mu.Lock()
@@ -224,13 +237,13 @@ func (m *Manager) Publish(candidate *Generation) error {
 			// ok
 		case GenPreparing:
 			m.mu.Unlock()
-			return ErrNotPrepared
+			return nil, ErrNotPrepared
 		case GenActive, GenRetiring, GenQuiescing, GenQuiesced, GenDrained, GenClosing, GenClosed:
 			m.mu.Unlock()
-			return ErrAlreadyPublished
+			return nil, ErrAlreadyPublished
 		default:
 			m.mu.Unlock()
-			return ErrNotPrepared
+			return nil, ErrNotPrepared
 		}
 
 		if len(m.retained) >= m.maxRetained && m.active.Load() != nil {
@@ -248,41 +261,73 @@ func (m *Manager) Publish(candidate *Generation) error {
 			}
 			if err := candidate.assignPublishWithInstance(id, prevID, m.instanceID, publishedAt); err != nil {
 				m.mu.Unlock()
-				return err
+				return nil, err
 			}
 
 			prior := m.active.Swap(candidate)
+			if committed != nil {
+				*committed = true
+			}
 			if prior != nil {
 				prior.markRetiring()
 				m.retained = append(m.retained, prior)
 			}
 			m.mu.Unlock()
-			if prior != nil {
-				go m.scheduleRetire(prior)
-			}
-			// After the active swap so compile/compose failures cannot start work.
-			startPublishedWork(candidate)
-			return nil
+			return &publishPostSwap{manager: m, prior: prior, candidate: candidate}, nil
 		}
 	}
 	m.mu.Unlock()
 
 	cleanupErr := candidate.Discard()
 	if cleanupErr != nil && !errors.Is(cleanupErr, ErrAlreadyClosed) {
-		return errors.Join(reject, cleanupErr)
+		return nil, errors.Join(reject, cleanupErr)
 	}
-	return reject
+	return nil, reject
 }
 
-func startPublishedWork(candidate *Generation) {
+type publishPostSwap struct {
+	once      sync.Once
+	manager   *Manager
+	prior     *Generation
+	candidate *Generation
+}
+
+func (p *publishPostSwap) run() {
+	if p == nil || p.manager == nil || p.candidate == nil {
+		return
+	}
+	p.once.Do(func() {
+		if p.prior != nil {
+			go p.manager.scheduleRetire(p.prior)
+		}
+		// After the active swap so compile/compose failures cannot start work.
+		_, observer := p.manager.retirementDeps()
+		startPublishedWork(p.candidate, observer)
+	})
+}
+
+func startPublishedWork(candidate *Generation, observer *ReloadObserver) {
 	if candidate == nil {
 		return
 	}
-	starter, ok := candidate.RequestPlane().(PublishedWorkStarter)
-	if !ok || starter == nil {
-		return
+	failed := false
+	func() {
+		defer func() {
+			if recover() != nil {
+				failed = true
+			}
+		}()
+		starter, ok := candidate.RequestPlane().(PublishedWorkStarter)
+		if !ok || starter == nil {
+			return
+		}
+		if starter.StartPublished(context.Background()) != nil {
+			failed = true
+		}
+	}()
+	if failed && observer != nil {
+		observer.ObserveLifecycle(context.Background(), "cleanup", string(LifecycleOutcomeCleanupFailed), 0)
 	}
-	_ = starter.StartPublished(context.Background())
 }
 
 // SweepClosed drops closed generations from the retained budget set.
