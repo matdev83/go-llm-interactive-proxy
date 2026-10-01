@@ -79,6 +79,12 @@ guaranteed speedup for shared/core changes or a comparison against all nested
 module suites. Invoking through `make` also compiles/starts the runner via
 `go run`, using the normal Go build cache.
 
+The selector's deterministic policy, ownership and dependency tests run in the
+default suite. Its real Git/Go process-boundary fixtures use `//go:build integration`;
+run them locally with `go test -tags=integration ./tools/devcheck/...`. The existing
+full Linux race check and `make qa` already enable `precommit,integration`, so
+remote certification includes these fixtures without changing workflow scope.
+
 ### Explicit local scope
 
 `PKGS` is required for test/build/lint. There is no silent fallback to the full
