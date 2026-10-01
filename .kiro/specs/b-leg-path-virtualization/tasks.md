@@ -76,7 +76,7 @@
   - _Validation: feature unit tests_
 
 - [ ] 3. Implement path-bearing selector/profile policy (P)
-- [ ] 3.1 Implement validated JSON Pointer selectors
+- [x] 3.1 Implement validated JSON Pointer selectors
   - Parse/canonicalize explicit argument and structured-result pointers at config compile time.
   - Support string and array-of-string leaves only.
   - Bound profile count, pointer count, pointer depth, and path-key count.
@@ -364,3 +364,9 @@
 - Task 2.3: PRE-EXISTING 2.2 quirk, fail-closed, tracked for later tasks. A real root spelled with a DOUBLE or TRIPLE trailing separator round-trips lossily: `VirtualizePath` then `ExpandPath` gains one boundary byte per round trip (design.md 152 mandates the real root's own spelling). A single trailing separator round-trips byte-exactly for all five flavors. A real path always reaches the client, never an alias.
 - Task 2.3: PRE-EXISTING 2.2 quirk, fail-closed, tracked for later tasks. `matchableRoot` trims a trailing `\` from a POSIX root even though POSIX treats `\` as an ordinary file-name byte (requirement 1.7), so `/home/.../proxy\` restores to `/home/.../proxy\sub/main.go`, which `stripRootPrefix` can no longer match. Consider trimming only `/` for POSIX in a later task.
 - Task 2.3: `ExpandPath`'s ordinary-matcher success branch is a defensive guard for a FUTURE alias spelling this build cannot recognize (verified unreachable for every V1 spelling). It is exercised by `TestExpandPathResolvesAnAliasSpellingThisBuildCannotRecognize`; do not read its coverage as proof that ordinary matching wins for any V1 alias.
+- Task 3.1: the accepted JSON Pointer dialect is the PLAIN RFC 6901 string form only. The URI-fragment form (`#/a/b`) is rejected deliberately: it would add a second spelling of every pointer plus a percent-decoding path over operator bytes. Whole-document (`""`) and empty-name members are also rejected because a path-bearing selector must name one field.
+- Task 3.1: RFC 6901 decoding was proven injective on accepted spellings by exhaustive enumeration (9331 strings up to length 5 over `{/,~,0,1,2,a}`, 618 accepted, 618 distinct token classes), so an accepted pointer IS its own canonical form and needs no normalization pass.
+- Task 3.1: shape enforcement is all-or-nothing. A mixed array refuses EVERY element rather than selecting the string subset; objects refuse descent; scalars and null yield no leaves. A zero-value `Selector` resolves to nothing so a refused pointer can never fall back to the document root.
+- Task 3.1: bounds chosen and frozen as `MaxProfiles=256`, `MaxPointersPerProfile=64` (spanning BOTH pointer lists, checked BEFORE any pointer is parsed), `MaxPointerDepth=16`, `MaxPathKeys=64`. All enforced by rejecting the WHOLE compilation, never by truncation.
+- Task 3.1: array indices are parsed with `strconv.ParseUint` and compared as `uint64` against the element count BEFORE narrowing to `int`, which is provably overflow-free on 32-bit and 64-bit. The naive digit-accumulation version crashed with a remotely-triggerable `index out of range` on a hostile operator pointer; `testdata/fuzz/FuzzSelectorResolutionIsBounded/corpus_array_index_overflow` is the regression seed. Keep `GOARCH=386` coverage for this path.
+- Task 3.1: `ProfileInput`/`CompiledProfile` deliberately OMIT the design's `OpaqueResultMode` and `ToolProfile` types (Task 3.3 owns precedence and opaque-result policy) and carry no decode path or struct tags. The no-namespace/version-knob reflection test for requirement 7.4 must be re-tightened (also assert `Field(i).NumTag() == 0`) once Task 9.1 builds the real config surface.
