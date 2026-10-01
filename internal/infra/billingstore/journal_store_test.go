@@ -349,9 +349,7 @@ INSERT INTO journal_transactions(
 		t.Fatalf("seed occupied id: %v", err)
 	}
 	input := journalInput("tx-occupied", "fresh-source", 3)
-	if _, err := store.postJournalTransaction(context.Background(), input); err == nil {
-		t.Fatal("expected primary-key failure")
-	}
+	assertJournalRollbackFailure(context.Background(), t, store, input)
 	var entryCount int
 	if err := store.db.NewRaw(`SELECT COUNT(1) FROM journal_entries WHERE transaction_id = ?`, "tx-occupied").Scan(context.Background(), &entryCount); err != nil {
 		t.Fatal(err)

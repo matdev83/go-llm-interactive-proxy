@@ -403,7 +403,20 @@ func TestWebSocketSession_RunShutdownWinsOverImmediateAge(t *testing.T) {
 		CheckOrigin:      func(*http.Request) bool { return true },
 	}
 	serverConn, clientConn := pipeWSPair(t, upgrader)
-	defer func() { _ = clientConn.Close() }()
+	peerResult := make(chan error, 1)
+	peerDone := make(chan struct{})
+	defer func() {
+		_ = clientConn.Close()
+		<-peerDone
+	}()
+	// A connected peer must read the close control frame; an unread net.Pipe
+	// otherwise makes shutdown wait for the production write deadline.
+	clientConn.SetCloseHandler(func(int, string) error { return nil })
+	go func() {
+		defer close(peerDone)
+		_, _, err := clientConn.ReadMessage()
+		peerResult <- err
+	}()
 
 	var frames [][]byte
 	session := newWSSession(serverConn, wsBounds{
@@ -430,6 +443,14 @@ func TestWebSocketSession_RunShutdownWinsOverImmediateAge(t *testing.T) {
 	}
 	if len(frames) != 0 {
 		t.Fatalf("shutdown emitted %d data frames, want no age envelope", len(frames))
+	}
+	select {
+	case err := <-peerResult:
+		if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+			t.Fatalf("peer shutdown = %v, want normal close frame", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("peer did not observe the normal shutdown close frame")
 	}
 }
 
