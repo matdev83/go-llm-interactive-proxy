@@ -35,7 +35,7 @@
   - _Validation: GOWORK=off go test ./... in an isolated checkout_
 
 - [ ] 2. Standalone connector with released dependencies
-- [ ] 2.1 (P) Relocate Go connector onto published contracts
+- [x] 2.1 (P) Relocate Go connector onto published contracts
   - Move command, provider adapter, lifecycle, diagnostics, protocol, fixtures, and Go tests while preserving structure beneath the old `connectors/cursorsdk` path.
   - Rewrite only module-relative imports and monorepo assumptions; retain `Service.Describe/Configure`, `ConfiguredInstance` behavior, opaque YAML config, authenticated secrets handling, and existing error mapping.
   - Forbid root `internal/` imports and copied generated ABI files.
@@ -44,7 +44,7 @@
   - _Boundary: Standalone connector Go_
   - _Validation: GOWORK=off go test ./... and public-only import audit_
 
-- [ ] 2.2 (P) Relocate SDK bridge with pinned toolchain baseline
+- [x] 2.2 (P) Relocate SDK bridge with pinned toolchain baseline
   - Move bridge source, production npm lock, SDK fixtures/tests, and bridge scripts with SDK 1.0.23 and Undici 6.28.1 unchanged.
   - Preserve model discovery, text/reasoning/tool/warning/usage semantics, credential redaction, bounded diagnostics, sandbox validation, and readiness/version reporting.
   - Keep all Node tooling inside the plugin repository.
@@ -167,6 +167,10 @@
 - **Root tag causes repo-wide MVS drift (task 1.2):** publishing the root tag made every module that path-replaces ACP select `v0.1.0-rc.1`. `scripts/check-all-modules.sh` asserts `go mod tidy -diff`, so any module whose committed require line still says `v0.0.0` fails CI (6 connectors here). After changing a nested module's published require, expect a repo-wide require bump in every dependent module in the same PR.
 - **Destination (task 1.3):** standalone repository is `https://github.com/aiproxer/aiproxer-cursor-sdk` (public, MIT), module `github.com/aiproxer/aiproxer-cursor-sdk`, scaffold head `1583c29b`. Keep it MIT; derived host-side code originates from an Apache-2.0 repository and PROVENANCE.md records that attribution.
 - **`internal/pinnedcontracts` is a scaffold guard:** it exists so `go build`/`go test`/`go mod tidy -diff` are meaningful in an otherwise empty module and it fails if a `replace` is introduced. Task 2.1 should delete it once real code imports the public contracts.
-- **Bridge lane is intentionally skipped:** `.github/workflows/verify.yml` `bridge-node` job is `if: false` and must be enabled in task 2.2 once `bridge-node/package-lock.json` exists.
+- **Relocation merges (tasks 2.1/2.2):** plugin PR #1 (Go connector) merged `70eba5b2`, plugin PR #2 (SDK bridge) merged `6c050fc0`. Fidelity: 120/125 Go files byte-identical after module-path substitution (5 = gofmt import re-sorts + 2 path-depth edits); 32/33 bridge files SHA256-identical (only `bridge-node/README.md` differs).
+- **Plugin CI pins:** use `npm exec --package=node@22.22.3 --package=npm@10.9.8 --call "npm ci && npm test && npm run typecheck"` in `bridge-node` to reproduce the Node lane locally; `npm exec` cannot `cd`, so pass the directory inside the command string.
+- **Stranded host scripts:** only `scripts/test-cursor-sdk-live-bridge.{sh,ps1}` moved in 2.1. `test-cursor-sdk-comparison-report.{sh,ps1}`, `test-cursor-sdk-live.{sh,ps1}`, and `test-cursor-sdk-platform.{sh,ps1}` are still host-only but design.md schedules removal of the whole `scripts/test-cursor-sdk-*.{sh,ps1}` glob later — assign them before the cutover tasks delete them.
+- **Minor doc drift (non-blocking):** `bridge-node/package.json` description still says "Project-owned" while `bridge-node/README.md` says "Plugin-owned"; align in a later docs pass.
 - **Pre-existing Windows flake (unrelated to this spec):** `connector-support/acp` `TestKillProcessTree_WindowsDescendants` fails intermittently with `Kill: exit status 255` under load; reproduced on the pre-change baseline, so it is not caused by module publication work. Hardening its `taskkill` assertion needs a separate authorized change.
-- **Cleanup pending (needs maintainer action):** the erroneous scaffold repo `matdev83/go-lip-cursorsdk` (Apache-2.0, 1 commit, no releases) could not be deleted — the `gh` token lacks the `delete_repo` scope. Delete with `gh auth refresh -h github.com -s delete_repo` then `gh repo delete matdev83/go-lip-cursorsdk --yes`.
+- **Cleanup done:** the erroneous scaffold repo `matdev83/go-lip-cursorsdk` was deleted by the maintainer after task 1.3. Only `aiproxer/aiproxer-cursor-sdk` exists.
+- **Bridge lane is live (task 2.2):** `.github/workflows/verify.yml` `bridge-node` job is enabled (no `if: false`), SHA-pinned checkout + setup-node 22.22.3, `cache-dependency-path: bridge-node/package-lock.json`, running `npm ci` → `npm test` → `npm run typecheck`. Dependabot gained an npm entry for `/bridge-node` with no `ignore` so SDK/Undici security updates still surface.
