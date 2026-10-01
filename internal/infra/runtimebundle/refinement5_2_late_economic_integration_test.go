@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -59,6 +60,10 @@ func refinement52VerificationContext(t *testing.T) (context.Context, context.Can
 // performed after rebuilding both durable stores and the stock host.
 func TestRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, testRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably)
+}
+
+func testRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	storeID := "refinement52-concurrent"
@@ -327,6 +332,10 @@ func TestRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably(t *t
 // would retain the incomplete head.
 func TestRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, testRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay)
+}
+
+func testRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	storeID := "refinement52-same-revision-superset"

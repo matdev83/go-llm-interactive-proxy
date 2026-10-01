@@ -45,7 +45,7 @@ func (s *DurableStore) economicClaimGateAllows(ctx context.Context, tx bun.IDB, 
 		return true, nil
 	}
 	authoritative := billing.OverlayAuthoritativeEconomicWork(normalized, true, state.PostingOwner)
-	marker, err := s.GetAccountingCutover(ctx)
+	marker, err := s.getAccountingCutover(ctx, tx)
 	if err != nil {
 		if errors.Is(err, billing.ErrAccountingCutoverNotFound) {
 			return true, nil
