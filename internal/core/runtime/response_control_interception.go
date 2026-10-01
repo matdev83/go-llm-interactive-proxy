@@ -237,6 +237,33 @@ func (a *attemptSession) closeControlCapture() {
 	}
 }
 
+// controlCompletionFacts reports the two bounded, ownership-derived completion
+// booleans the terminal owner may project as canonical evidence: whether this
+// attempt successfully activated a proxy-owned control protocol, and whether it
+// observed a valid completion of that protocol.
+//
+// expected is the immutable fact. It is exactly "this attempt had a successfully
+// active proxy control protocol", read from the frozen activation that survives
+// disposal on purpose, so it needs no lock and never re-reads a provider
+// identity, spec, capability, snapshot, or request extension.
+//
+// observed is the live fact. It is the one mutable read, so it happens under the
+// attempt control lock: that orders it against cleanup, and a disposed attempt —
+// whose cancellation, Close, loss, or replacement already decided the response —
+// answers false rather than contributing completion evidence into a logical
+// response it no longer owns. Only the boolean is copied out. The outcome, its
+// result text, and every argument byte stay private on the attempt, and no
+// provider, backend, or terminal work — and no other lock — is taken here.
+func (a *attemptSession) controlCompletionFacts() (expected, observed bool) {
+	if a == nil {
+		return false, false
+	}
+	expected = a.controlTool.active()
+	a.controlMu.Lock()
+	defer a.controlMu.Unlock()
+	return expected, !a.controlReleased && a.controlOutcome != nil && a.controlOutcome.Kind == controltool.OutcomeComplete
+}
+
 // clearControlOutcome drops the private pending outcome. A malformed, duplicate,
 // or multiple control sequence after a valid completion revokes that completion
 // without ever invoking the provider a second time.

@@ -22,15 +22,26 @@ type continuationIntentFacts struct {
 // projectTerminalDecisionEvidence copies the small canonical view that a
 // terminal-decision provider may inspect. It deliberately reads request and
 // response facts only; it has no policy, provider, or terminal ownership.
+//
+// The two completion flags are independent canonical facts. The expectation is
+// the attempt's frozen activation, so it survives disposal; the observation is
+// the attempt's live private outcome, so it disappears with lifecycle ownership.
+// The observation is the OR of the existing native completion fact and a valid
+// proxy-owned control completion, which is exactly what an ordinary
+// harness-owned completed execution already means. Neither flag is derived from
+// the other, and neither carries a control name, call identity, result text, or
+// argument byte.
 func projectTerminalDecisionEvidence(request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) terminaldecision.Evidence {
 	items := lipapi.NormalizedItems(request.call)
+	expectedCompletion, observedProxyCompletion := attempt.controlCompletionFacts()
 	evidence := terminaldecision.Evidence{
 		Objective:     boundedTerminalDecisionText(terminalDecisionObjective(items)),
 		RecentText:    boundedTerminalDecisionText(terminalDecisionRecentText(items)),
 		CandidateText: boundedTerminalDecisionText(terminalDecisionCandidateText(p)),
 		ExplicitCompletion: lipapi.HasExplicitCompletion(
 			terminalDecisionCompletionItems(items, p),
-		),
+		) || observedProxyCompletion,
+		ExplicitCompletionExpected: expectedCompletion,
 	}
 
 	trajectoryRef := strings.TrimSpace(request.continuationIntent.trajectoryRef)

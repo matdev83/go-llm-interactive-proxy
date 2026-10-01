@@ -107,7 +107,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Validation: focused retry/race/TTFT/cancel tests; race detector where supported_
 
 - [ ] 5. Project trusted completion evidence and publish pending result through the existing terminal owner
-  - [ ] 5.1 Extend terminal-decision evidence with completion expectation
+  - [x] 5.1 Extend terminal-decision evidence with completion expectation
     - Add additive `ExplicitCompletionExpected` (or repository-consistent equivalent) to generic evidence and validation/contract fixtures.
     - Set expectation only from a successful request-local control activation; set observed `ExplicitCompletion` from either existing native completion facts or a valid completed proxy control outcome.
     - Keep internal control calls out of ordinary client action/tool facts.
@@ -308,3 +308,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Dedicated configsource unblock (`c1e25970`): live recycled-inode fixture now compares full identities, asserting fail-closed rejection when birth timestamps coincide; distinct-identity eligibility and in-place rewrite rejection remain. Original reproduction 19/20 failures; fresh 30-run regression, independent review, complete root pre-commit tests, quality/lint and scoped race passed. No production identity-policy change.
 
 - Task 4.3: attempt-local controlMu protects observation, one handoff and outcome storage against one-way disposal; provider/backend/terminal I/O stays unlocked. Existing capture transfers owned arguments without another copy. Real cancel/Close, loser disposal and public-stream failover tests, scoped race/lint, independent review and fresh parent lifecycle/370-copy AST checks pass. Task 5.2 must own a bounded result snapshot before attempt cleanup and publish only through accepted request-terminal ownership.
+
+- Task 5.1: trusted activation projects independent expectation; validated live proxy completion ORs with existing native completion. Disposal retains expectation and revokes proxy observation. Independent review, focused tests/race/lint, current AST guards and fresh parent evidence tests pass; task 5.2 owns result publication.
