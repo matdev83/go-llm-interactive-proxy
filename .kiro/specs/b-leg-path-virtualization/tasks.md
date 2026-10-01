@@ -10,7 +10,7 @@
 - Suggested parallel work is marked `(P)` only when it can proceed after its stated dependencies.
 
 - [ ] 1. Characterize current tool-call assembly and request ordering
-- [ ] 1.1 Add RED characterization for mandatory finalizer bypass above 64 KiB
+- [x] 1.1 Add RED characterization for mandatory finalizer bypass above 64 KiB
   - Construct a completed tool call with arguments larger than the current default finalization cap and a test finalizer that declares expansion as required.
   - Prove current behavior would pass original fragments and therefore violate Requirement 4.5/4.6.
   - Do not change production behavior in this sub-task.
@@ -333,3 +333,9 @@
   - _Boundary: cross-artifact implementation review_
   - _Depends: 12.1_
   - _Validation: code review + targeted regression reruns_
+
+## Implementation Notes
+
+- Task 1.1: the RED test sizes its oversized fixture from the mutable assembler field `maxArgsBytes`; Task 7.2 should derive it from `defaultToolCallFinalizationMaxArgsBytes` so raising the effective mandatory bound cannot turn the fixture into a legitimate overflow-reject case.
+- Task 1.1: `golangci-lint` is unavailable in this environment, so `make dev-lint` / `make quality-checks` cannot run locally; `gofmt -l` and `go vet` are the available static signals.
+- Task 1.1: `internal/core/runtime/tool_call_mandatory_buffering_red_test.go` fails intentionally until Task 7.2 lands; coarse gates run before then will report this failure.
