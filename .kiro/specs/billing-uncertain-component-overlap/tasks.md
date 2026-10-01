@@ -133,7 +133,6 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
   - _Depends: 5.1, 5.2_
   - _Validation: go test ./internal/archtest ./internal/qa; make dev-test PKGS='./internal/core/billing/...'_
 - [ ] 6.2 Run final affected-consumer certification without relaxing budgets
-  - _Blocked: Two unoverridden Windows cost runs exceed per-package elapsed budgets; the retry reports runtime 82.882s/76.322s allowed, QA 15.082s/15s, and tagged connector release gates 35.129s/28.3626s. Same-runner isolated controls show no feature slowdown, but the full-run cause and ownership remain unestablished. Resolve the cost/runtime investigation before accepting certification._
   - Run quality, unit, catalog/external-host compatibility, both registered database parity gates, and targeted fuzzing for the new bounded JSON contract.
   - Run Windows make test-cost once on the coherent implementation; report any cost regression without increasing the budget to hide it.
   - Verify reader-first compatibility through current SDK/source consumers and explicitly check old material needs no publication/migration.
