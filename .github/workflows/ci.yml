@@ -404,7 +404,7 @@ jobs:
         run: echo "Billing schema certification bypassed; no billing, SDK, oracle or certification-policy changes."
 
   billing-advisory-windows-cost-once:
-    name: Billing advisory Windows cost (one-off)
+    name: Billing runtime Windows control (one-off)
     if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-test-cost')
     runs-on: windows-latest
     timeout-minutes: 90
@@ -428,27 +428,57 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Restore bounded cost Go cache
+      - name: Restore bounded unit Go cache
         uses: ./.github/actions/go-cache
         with:
-          lane: cost
+          lane: ci-unit
 
-      - name: Run unchanged Windows cost budgets once
-        timeout-minutes: 75
+      - name: Compare main and feature runtime tests
+        timeout-minutes: 30
         shell: pwsh
         env:
           GOFLAGS: -p=2
           TEST_COST_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           $outputRoot = Join-Path $env:RUNNER_TEMP 'billing-advisory-windows-cost'
-          & make test-cost "TEST_COST_BASE_SHA=$env:TEST_COST_BASE" "TEST_COST_OUTPUT_ROOT=$outputRoot" "TEST_COST_PARALLEL=2"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+          $mainRoot = Join-Path $env:RUNNER_TEMP 'billing-runtime-main-control'
+          $headRoot = $PWD.Path
+          & git worktree add --detach $mainRoot $env:TEST_COST_BASE
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot create main control worktree' }
+          try {
+            foreach ($tree in @($mainRoot, $headRoot)) {
+              Push-Location $tree
+              try {
+                & go test -run '^$' -parallel=2 -timeout=10m ./internal/core/runtime
+                if ($LASTEXITCODE -ne 0) { throw 'Runtime compile warmup failed' }
+              } finally { Pop-Location }
+            }
+            $results = @()
+            foreach ($round in 1..2) {
+              foreach ($tree in @(@{ Label = 'main'; Root = $mainRoot }, @{ Label = 'feature'; Root = $headRoot })) {
+                Push-Location $tree.Root
+                try {
+                  $log = Join-Path $outputRoot "$($tree.Label)-runtime-$round.jsonl"
+                  & go test -json -count=1 -parallel=2 -timeout=10m ./internal/core/runtime *> $log
+                  if ($LASTEXITCODE -ne 0) { throw "Runtime control failed: $log" }
+                  $package = Get-Content $log | Where-Object { $_ -match '"Action":"pass"' -and $_ -notmatch '"Test":' } | ForEach-Object { $_ | ConvertFrom-Json }
+                  $results += @{ tree = $tree.Label; round = $round; elapsed_seconds = $package.Elapsed }
+                  $results | ConvertTo-Json | Set-Content (Join-Path $outputRoot 'runtime-control.json')
+                  Write-Host "$($tree.Label) round $round runtime seconds: $($package.Elapsed)"
+                } finally { Pop-Location }
+              }
+            }
+          } finally {
+            & git worktree remove $mainRoot
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot clean main control worktree' }
+          }
 
       - name: Retain measurements and failures
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: billing-advisory-windows-cost-${{ github.event.pull_request.head.sha }}
+          name: billing-runtime-windows-control-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/billing-advisory-windows-cost
           if-no-files-found: warn
           retention-days: 30
