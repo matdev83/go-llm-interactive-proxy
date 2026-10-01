@@ -126,7 +126,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Validation: canonical event-sequence tests across streaming/non-streaming frontend fixtures; secure-recording/traffic/usage focused tests_
     - _Blocked: debug attempted twice, still failing — a timed-out real Close leaves an armed interrupted memo uncaptured when the admitted Observe callback later returns an error; fresh independent review rejected final checkpoint remediation. Task 5.2 WIP is preserved and uncommitted._
 
-- [ ] 6. Add mutually exclusive ALG strategy configuration
+- [x] 6. Add mutually exclusive ALG strategy configuration
   - [x] 6.1 Implement strategy-aware config decoding/normalization with RED tests
     - Add `attempt_completion|semantic_verifier` selector and bounded `max_protocol_reprompts` (default 1, V1 max 3).
     - Preserve enabled+omitted-strategy as semantic verifier.
@@ -137,7 +137,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 1.2_
     - _Validation: config table tests for old/new/disabled/mixed/unknown/bounds cases_
 
-  - [ ] 6.2 Compose exactly the planes required by the selected strategy
+  - [x] 6.2 Compose exactly the planes required by the selected strategy
     - Preferred mode contributes the ALG terminal provider plus one control-tool provider and does not require/build verifier auxiliary machinery.
     - Legacy mode contributes only the current terminal provider path and no control provider.
     - Disabled mode contributes neither.
@@ -147,7 +147,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 2.2,6.1_
     - _Validation: standard-plugin feature bundle tests; reload/no-provider/removal fixtures_
 
-- [ ] 7. Implement the concrete `attempt_completion` control provider
+- [x] 7. Implement the concrete `attempt_completion` control provider
   - [x] 7.1 Pin the familiar tool schema and stable base instruction
     - RED-test exact tool name, one required `result` property, `additionalProperties:false`, absence of `command`, stable description, stable base instruction, and size bounds.
     - Keep name/schema/instruction non-configurable in V1.
@@ -165,7 +165,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 7.1_
     - _Validation: parser/adversarial/fuzz tests; no raw result/args in error strings/labels_
 
-- [ ] 8. Implement preferred missing-signal policy and protocol state
+- [x] 8. Implement preferred missing-signal policy and protocol state
   - [x] 8.1 Add feature-local protocol state/fingerprint/token with independent prefix
     - Use a distinct bounded state token such as `alg-proto-v1`, never decode it as legacy `alg-state-v1` state.
     - Track total reprompts, stable evidence fingerprint, consecutive no-progress, and terminal state; exclude volatile IDs/timestamps.
@@ -324,3 +324,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 8.2: Pure missing-signal policy and bounded repair intent preserve raw lineage identities, strict reserved-state decoding, immutable total caps and conservative safety stops. Present B-leg mismatches cannot fall back to trajectory bootstrap. Independent re-review, both adversarial probe sets and fresh six-package tests pass.
 
 - Task 8.3: Strict NewConfiguredProvider selects separate preferred and unchanged legacy receivers; preferred stores only protocol limits and makes zero verifier/auxiliary calls. Original RED was compile-only; a subsequent temporary OFF/ON/removal checkpoint proves behavioral assertion sensitivity without rewriting chronology. Independent re-review and fresh ALG/standard-plugin tests pass.
+
+- Task 6.2: The existing feature factory uses strict selected-strategy construction; preferred contributes terminal and control providers, legacy only terminal, and disabled neither. Real registry/request-snapshot fixtures preserve pinned providers across replacement/removal and rejected candidates. Restored-harness unskipped canonical tests, independent review, fresh affected-package tests and scoped race/lint pass.
