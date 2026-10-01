@@ -402,3 +402,53 @@ jobs:
       - name: Report unrelated change bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.billing_schema != 'true'
         run: echo "Billing schema certification bypassed; no billing, SDK, oracle or certification-policy changes."
+
+  billing-advisory-windows-cost-once:
+    name: Billing advisory Windows cost (one-off)
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-test-cost')
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout measured feature head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        env:
+          GIT_CONFIG_COUNT: 2
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+          GIT_CONFIG_KEY_1: core.eol
+          GIT_CONFIG_VALUE_1: lf
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Restore bounded cost Go cache
+        uses: ./.github/actions/go-cache
+        with:
+          lane: cost
+
+      - name: Run unchanged Windows cost budgets once
+        timeout-minutes: 75
+        shell: pwsh
+        env:
+          GOFLAGS: -p=2
+          TEST_COST_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          $outputRoot = Join-Path $env:RUNNER_TEMP 'billing-advisory-windows-cost'
+          & make test-cost "TEST_COST_BASE_SHA=$env:TEST_COST_BASE" "TEST_COST_OUTPUT_ROOT=$outputRoot" "TEST_COST_PARALLEL=2"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Retain measurements and failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: billing-advisory-windows-cost-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/billing-advisory-windows-cost
+          if-no-files-found: warn
+          retention-days: 30
