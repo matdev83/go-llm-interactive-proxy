@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+func TestStatusPathsRemainNULDelimited(t *testing.T) {
+	t.Parallel()
+	got, err := statusPaths([]byte(" M a path.go\x00A  added.go\x00?? line\nbreak.go\x00D  removed.go\x00"))
+	want := []string{"a path.go", "added.go", "line\nbreak.go", "removed.go"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("status paths=%v err=%v", got, err)
+	}
+	if _, err := statusPaths([]byte("R  new.go\x00old.go\x00")); err == nil {
+		t.Fatal("accepted unexpected rename records")
+	}
+}
+
 func TestProductionClosureStopsAtTestEdges(t *testing.T) {
 	t.Parallel()
 	graph := []listedPackage{

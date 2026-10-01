@@ -2,6 +2,7 @@ package testscope
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,44 +72,51 @@ func TestPlanBranchAndAllWorkingChanges(t *testing.T) {
 	if !reflect.DeepEqual(plan.Modules[0].Packages, want) {
 		t.Fatalf("packages=%v want %v", plan.Modules[0].Packages, want)
 	}
+	writeFixture(t, root, "base/broken.go", "package base\nimport _ \"missing.invalid/package\"\n")
+	plan, err = Build(context.Background(), root, Options{})
+	if err != nil || !strings.Contains(plan.Fallback, "package discovery failed") || len(plan.Modules) != 2 {
+		t.Fatalf("invalid actual package graph plan=%+v err=%v", plan, err)
+	}
 }
 
 func TestPlanInputsAndFallbacks(t *testing.T) {
-	root := fixtureRepository(t)
+	t.Parallel()
+	root := t.TempDir()
+	graph := []listedPackage{
+		{ImportPath: "m/base", Dir: filepath.Join(root, "base")},
+		{ImportPath: "m/consumer", Dir: filepath.Join(root, "consumer"), Imports: []string{"m/base"}},
+		{ImportPath: "m/app", Dir: filepath.Join(root, "cmd", "app")},
+	}
 	for _, tc := range []struct {
-		name, path, body string
-		packages         []string
-		module           string
-		full             bool
+		name, path string
+		packages   []string
+		module     string
+		full       bool
 	}{
-		{"cli", "cmd/app/main.go", "package main\nfunc main() { println(2) }\n", []string{"./cmd/app"}, ".", false},
-		{"production", "base/base.go", "package base\nconst Value = 2\n", []string{"./base", "./consumer"}, ".", false},
-		{"fixture", "base/testdata/input.json", "{}\n", []string{"./base"}, ".", false},
-		{"docs", "docs/guide.md", "# Guide\n", nil, "", false},
-		{"connector", "connectors/one/one_test.go", "package one\n", []string{"."}, "connectors/one", false},
-		{"unknown", "assets/unknown.txt", "input\n", nil, "", true},
-		{"shared SDK", "pkg/lipapi/shared.go", "package lipapi\n", nil, "", true},
-		{"shared testkit", "internal/testkit/helper.go", "package testkit\n", nil, "", true},
-		{"policy", "Makefile", "all:\n", nil, "", true},
-		{"shared support", "connector-support/acp/helper.go", "package acp\n", nil, "", true},
-		{"dependency", "connectors/one/go.mod", "module example.com/one\n\ngo 1.26.1\n", nil, "", true},
-		{"broken graph", "base/broken.go", "package base\nimport _ \"missing.invalid/package\"\n", nil, "", true},
+		{"cli", "cmd/app/main.go", []string{"./cmd/app"}, ".", false},
+		{"production", "base/base.go", []string{"./base", "./consumer"}, ".", false},
+		{"fixture", "base/testdata/input.json", []string{"./base"}, ".", false},
+		{"docs", "docs/guide.md", nil, "", false},
+		{"connector", "connectors/one/one_test.go", []string{"."}, "connectors/one", false},
+		{"unknown", "assets/unknown.txt", nil, "", true},
+		{"shared SDK", "pkg/lipapi/shared.go", nil, "", true},
+		{"shared testkit", "internal/testkit/helper.go", nil, "", true},
+		{"policy", "Makefile", nil, "", true},
+		{"shared support", "connector-support/acp/helper.go", nil, "", true},
+		{"dependency", "connectors/one/go.mod", nil, "", true},
+		{"broken graph", "base/broken.go", nil, "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			file := filepath.Join(root, filepath.FromSlash(tc.path))
-			original, readErr := os.ReadFile(file)
-			t.Cleanup(func() {
-				if readErr == nil {
-					writeFixture(t, root, tc.path, string(original))
-				} else if err := os.Remove(file); err != nil {
-					t.Fatal(err)
+			list := func(_ context.Context, _, module string) ([]listedPackage, error) {
+				if tc.name == "broken graph" {
+					return nil, errors.New("invalid package metadata")
 				}
-			})
-			writeFixture(t, root, tc.path, tc.body)
-			plan, err := Build(context.Background(), root, Options{})
-			if err != nil {
-				t.Fatal(err)
+				if module == "connectors/one" {
+					return []listedPackage{{ImportPath: "m/one", Dir: filepath.Join(root, "connectors", "one")}}, nil
+				}
+				return graph, nil
 			}
+			plan := selectChanges(context.Background(), root, Plan{Changed: []string{tc.path}}, []string{".", "connectors/one"}, list)
 			if tc.full {
 				if plan.Fallback == "" || len(plan.Modules) != 2 || plan.Modules[0].Packages[0] != "./..." {
 					t.Fatalf("expected full root and connector fallback: %+v", plan)
@@ -131,11 +139,27 @@ func TestPlanInputsAndFallbacks(t *testing.T) {
 	}
 }
 
-func TestMissingBaseAndExplicitFull(t *testing.T) {
+func TestGitBoundaries(t *testing.T) {
 	root := fixtureRepository(t)
-	plan, err := Build(context.Background(), root, Options{Full: true})
+	plan, err := Build(context.Background(), root, Options{})
+	if err != nil || len(plan.Modules) != 0 || len(plan.Changed) != 0 {
+		t.Fatalf("clean plan=%+v err=%v", plan, err)
+	}
+	plan, err = Build(context.Background(), root, Options{Full: true})
 	if err != nil || plan.Fallback == "" || len(plan.Modules) != 2 {
 		t.Fatalf("full plan=%+v err=%v", plan, err)
+	}
+	gitFixture(t, root, "mv", "cmd/app/main.go", "cmd/app/entry.go")
+	plan, err = Build(context.Background(), root, Options{Base: "origin/main"})
+	if err != nil || plan.Fallback != "" || len(plan.Changed) != 2 || len(plan.Modules) != 1 || !reflect.DeepEqual(plan.Modules[0].Packages, []string{"./cmd/app"}) {
+		t.Fatalf("renamed package plan=%+v err=%v", plan, err)
+	}
+	if err := os.Remove(filepath.Join(root, "cmd/app/entry.go")); err != nil {
+		t.Fatal(err)
+	}
+	plan, err = Build(context.Background(), root, Options{})
+	if err != nil || plan.Fallback == "" || len(plan.Modules) != 2 {
+		t.Fatalf("deleted package plan=%+v err=%v", plan, err)
 	}
 	gitFixture(t, root, "update-ref", "-d", "refs/remotes/origin/main")
 	plan, err = Build(context.Background(), root, Options{})
@@ -144,29 +168,5 @@ func TestMissingBaseAndExplicitFull(t *testing.T) {
 	}
 	if _, err := Build(context.Background(), root, Options{Base: "missing-explicit-base"}); err == nil {
 		t.Fatal("accepted invalid explicit base")
-	}
-}
-
-func TestCleanAndDeletedPackage(t *testing.T) {
-	root := fixtureRepository(t)
-	plan, err := Build(context.Background(), root, Options{})
-	if err != nil || len(plan.Modules) != 0 || len(plan.Changed) != 0 {
-		t.Fatalf("clean plan=%+v err=%v", plan, err)
-	}
-	if err := os.Remove(filepath.Join(root, "cmd/app/main.go")); err != nil {
-		t.Fatal(err)
-	}
-	plan, err = Build(context.Background(), root, Options{})
-	if err != nil || plan.Fallback == "" || len(plan.Modules) != 2 {
-		t.Fatalf("deleted package plan=%+v err=%v", plan, err)
-	}
-}
-
-func TestRenameAndValidExplicitBase(t *testing.T) {
-	root := fixtureRepository(t)
-	gitFixture(t, root, "mv", "cmd/app/main.go", "cmd/app/entry.go")
-	plan, err := Build(context.Background(), root, Options{Base: "origin/main"})
-	if err != nil || plan.Fallback != "" || len(plan.Changed) != 2 || len(plan.Modules) != 1 || !reflect.DeepEqual(plan.Modules[0].Packages, []string{"./cmd/app"}) {
-		t.Fatalf("renamed package plan=%+v err=%v", plan, err)
 	}
 }

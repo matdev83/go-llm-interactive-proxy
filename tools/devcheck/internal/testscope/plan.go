@@ -57,13 +57,17 @@ func Build(ctx context.Context, root string, opts Options) (Plan, error) {
 		return fullPlan(plan, modules, err.Error()), nil
 	}
 	plan.Base, plan.Changed = comparison, paths
+	return selectChanges(ctx, root, plan, modules, listPackages), nil
+}
+
+func selectChanges(ctx context.Context, root string, plan Plan, modules []string, list func(context.Context, string, string) ([]listedPackage, error)) Plan {
 	byModule := make(map[string][]string)
-	for _, name := range paths {
+	for _, name := range plan.Changed {
 		if isDocumentation(name) {
 			continue
 		}
 		if requiresFullTests(name) {
-			return fullPlan(plan, modules, fmt.Sprintf("shared contract or test policy changed: %q", name)), nil
+			return fullPlan(plan, modules, fmt.Sprintf("shared contract or test policy changed: %q", name))
 		}
 		module := owningModule(name, modules)
 		byModule[module] = append(byModule[module], name)
@@ -73,17 +77,17 @@ func Build(ctx context.Context, root string, opts Options) (Plan, error) {
 		if len(names) == 0 {
 			continue
 		}
-		graph, err := listPackages(ctx, root, module)
+		graph, err := list(ctx, root, module)
 		if err != nil {
-			return fullPlan(plan, modules, fmt.Sprintf("package discovery failed for %q: %v", module, err)), nil
+			return fullPlan(plan, modules, fmt.Sprintf("package discovery failed for %q: %v", module, err))
 		}
 		selected, err := selectModule(root, module, names, graph)
 		if err != nil {
-			return fullPlan(plan, modules, err.Error()), nil
+			return fullPlan(plan, modules, err.Error())
 		}
 		plan.Modules = append(plan.Modules, selected)
 	}
-	return plan, nil
+	return plan
 }
 
 func selectModule(root, module string, names []string, graph []listedPackage) (Module, error) {

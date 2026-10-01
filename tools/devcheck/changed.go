@@ -31,14 +31,20 @@ func runTestPlan(root string, plan testscope.Plan, opts testPlanOptions, output,
 	if opts.dry || len(plan.Modules) == 0 {
 		return nil
 	}
-	for n := 1; n <= opts.repeat; n++ {
+	return repeatTestModules(plan.Modules, opts.repeat, diagnostics, func(module testscope.Module, iteration int) error {
+		return runTestModule(root, module, opts, iteration, output, diagnostics)
+	})
+}
+
+func repeatTestModules(modules []testscope.Module, repeat int, diagnostics io.Writer, runModule func(testscope.Module, int) error) error {
+	for n := 1; n <= repeat; n++ {
 		start := time.Now()
-		for _, module := range plan.Modules {
-			if err := runTestModule(root, module, opts, n, output, diagnostics); err != nil {
+		for _, module := range modules {
+			if err := runModule(module, n); err != nil {
 				return err
 			}
 		}
-		if _, err := fmt.Fprintf(diagnostics, "[%d/%d] execution_elapsed=%.3fs\n", n, opts.repeat, time.Since(start).Seconds()); err != nil {
+		if _, err := fmt.Fprintf(diagnostics, "[%d/%d] execution_elapsed=%.3fs\n", n, repeat, time.Since(start).Seconds()); err != nil {
 			return err
 		}
 	}

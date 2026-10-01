@@ -31,15 +31,21 @@ func changedPaths(ctx context.Context, root, base string) ([]string, string, err
 	comparison := strings.TrimSpace(string(out))
 	commands := [][]string{
 		{"diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD", comparison, "HEAD", "--"},
-		{"diff", "--cached", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD", "--"},
-		{"diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD", "--"},
-		{"ls-files", "--others", "--exclude-standard", "-z"},
+		{"status", "--porcelain=v1", "--no-renames", "-z", "--untracked-files=all"},
 	}
 	var paths []string
 	for _, args := range commands {
 		out, err := commandOutput(ctx, root, "git", args...)
 		if err != nil {
 			return nil, comparison, err
+		}
+		if args[0] == "status" {
+			working, err := statusPaths(out)
+			if err != nil {
+				return nil, comparison, err
+			}
+			paths = append(paths, working...)
+			continue
 		}
 		for _, name := range strings.Split(string(out), "\x00") {
 			if name != "" {
@@ -49,4 +55,18 @@ func changedPaths(ctx context.Context, root, base string) ([]string, string, err
 	}
 	slices.Sort(paths)
 	return slices.Compact(paths), comparison, nil
+}
+
+func statusPaths(out []byte) ([]string, error) {
+	var paths []string
+	for _, record := range strings.Split(string(out), "\x00") {
+		if record == "" {
+			continue
+		}
+		if len(record) < 4 || record[2] != ' ' || strings.ContainsAny(record[:2], "RC") {
+			return nil, fmt.Errorf("unexpected Git status record: %q", record)
+		}
+		paths = append(paths, record[3:])
+	}
+	return paths, nil
 }

@@ -1,9 +1,8 @@
 package main
 
 import (
+	"errors"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,29 +44,29 @@ func TestPlanOnlyDoesNotExecuteOrValidateTestModules(t *testing.T) {
 }
 
 func TestSelectedExecutionRepeatAndFailure(t *testing.T) {
+	t.Parallel()
 	for _, failure := range []bool{false, true} {
 		t.Run(map[bool]string{false: "repeat", true: "failure"}[failure], func(t *testing.T) {
-			root := t.TempDir()
-			if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/execution\n\ngo 1.26.0\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			body := "package execution\nimport \"testing\"\nfunc TestExecution(t *testing.T) { t.Log(\"ran selected test\") }\n"
-			if failure {
-				body = strings.ReplaceAll(body, "t.Log", "t.Fatal")
-			}
-			if err := os.WriteFile(filepath.Join(root, "execution_test.go"), []byte(body), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			plan := testscope.Plan{Modules: []testscope.Module{{Directory: ".", Packages: []string{"."}}}}
-			var output, diagnostics strings.Builder
-			err := runTestPlan(root, plan, testPlanOptions{jobs: 1, repeat: 2, fresh: true}, &output, &diagnostics)
+			modules := []testscope.Module{{Directory: ".", Packages: []string{"./one"}}}
+			var diagnostics strings.Builder
+			calls := 0
+			err := repeatTestModules(modules, 2, &diagnostics, func(module testscope.Module, iteration int) error {
+				calls++
+				if iteration != calls || module.Directory != "." || len(module.Packages) != 1 || module.Packages[0] != "./one" {
+					t.Fatalf("changed repeat scope: module=%+v iteration=%d", module, iteration)
+				}
+				if failure {
+					return errors.New("test process failed")
+				}
+				return nil
+			})
 			if (err != nil) != failure {
 				t.Fatalf("failure=%v err=%v", failure, err)
 			}
-			if !failure && strings.Count(diagnostics.String(), "passed=1") != 2 {
+			if !failure && (calls != 2 || strings.Count(diagnostics.String(), "execution_elapsed=") != 2) {
 				t.Fatalf("repeat did not execute the same plan: %s", diagnostics.String())
 			}
-			if failure && strings.Contains(diagnostics.String(), "[2/2]") {
+			if failure && calls != 1 {
 				t.Fatal("continued after failed tests")
 			}
 		})
