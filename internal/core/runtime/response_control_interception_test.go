@@ -16,6 +16,12 @@
 // traffic and ZERO claimed control traffic, while the operator BTP leg and the
 // provider accounting leg must still see the legitimate upstream control
 // traffic. Both directions failing is the defect.
+//
+// This file reads the attempt's private control state sequentially, from the same
+// goroutine that drives the response seam. The cases where lifecycle cleanup runs
+// concurrently with a response handoff read that state through the locked
+// snapshots in control_call_lifecycle_test.go instead, because those need an
+// observation that is ordered against cleanup rather than merely sequential.
 package runtime
 
 import (

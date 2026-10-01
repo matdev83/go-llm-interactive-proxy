@@ -84,10 +84,15 @@ type attemptSession struct {
 	billingMu          sync.Mutex
 	accountingMu       sync.Mutex
 	sidebandMu         sync.Mutex
-	economicMu         sync.Mutex
-	checkpointMu       sync.Mutex
-	checkpointFlushMu  sync.Mutex
-	checkpointLocalMu  sync.Mutex
+	// controlMu guards the private control-call state only: the capture, the
+	// pending outcome, the handoff bookkeeping, and the released marker. It is held
+	// for bounded field work and never across Provider.Handle, backend
+	// Recv/Cancel/Close, or a terminal effect.
+	controlMu         sync.Mutex
+	economicMu        sync.Mutex
+	checkpointMu      sync.Mutex
+	checkpointFlushMu sync.Mutex
+	checkpointLocalMu sync.Mutex
 
 	internalUsageKeys                     map[string]struct{}
 	accumulatedUsage                      []lipapi.Event
@@ -139,17 +144,28 @@ type attemptSession struct {
 	// controlCapture is the private, mutable response-side state machine for the
 	// one proxy-owned control call. It is derived from the immutable
 	// controlToolActivation above at session construction and never outlives this
-	// attempt. Like toolFinal it is single-owner on the backend Recv loop.
+	// attempt. The backend Recv loop is its only observation owner, and controlMu
+	// orders that observation against lifecycle cleanup. The object itself outlives
+	// cleanup so a released attempt stays visible to a late caller, which then fails
+	// closed instead of looking like an attempt that never had a control protocol.
 	controlCapture *controlCallCapture
 	// controlOutcome is the normalized, validated provider outcome awaiting the
-	// later terminal owner. It is private to this attempt: task 4.2 never
-	// publishes result text, synthesizes a client ToolCall/ToolResult, or asserts
-	// native completion.
+	// later terminal owner. It is private to this attempt: it never publishes
+	// result text, synthesizes a client ToolCall/ToolResult, or asserts native
+	// completion. Losing a race with cleanup means losing it permanently, so a
+	// handler that returns after release cannot restore it.
 	controlOutcome *controltool.Outcome
 	// controlHandled records that the one permitted completion handoff already
 	// happened, so a malformed or duplicate sequence can revoke an outcome without
-	// ever invoking the pinned provider twice.
+	// ever invoking the pinned provider twice. The claim is taken and read under
+	// controlMu, so exactly one handoff can be in flight per attempt.
 	controlHandled bool
+	// controlReleased marks the private control state as disposed. Lifecycle
+	// cleanup — cancellation, Close, attempt loss, replacement — sets it once and
+	// never clears it, so a late backend event or a provider result that arrives
+	// after cleanup cannot revive the capture, re-invoke the provider, or fall
+	// through to ordinary client tool execution.
+	controlReleased bool
 
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
@@ -264,6 +280,11 @@ func (a *attemptSession) promptCacheSideband() (promptcache.ObservationSource, p
 	return a.promptCacheSource, a.promptCacheController
 }
 
+// discardSidebandState is the attempt lifecycle cleanup chokepoint. It detaches
+// the ordinary sideband assemblers and releases the private control-call state
+// together, so every cancellation, Close, attempt loss, and replacement path
+// releases both. The two locks are taken and released separately: no provider,
+// backend, or terminal work runs while either is held.
 func (a *attemptSession) discardSidebandState() {
 	if a == nil {
 		return
@@ -273,6 +294,7 @@ func (a *attemptSession) discardSidebandState() {
 	a.promptCacheSource = nil
 	a.promptCacheController = nil
 	a.sidebandMu.Unlock()
+	a.discardControlState()
 }
 
 type attemptSessionInput struct {

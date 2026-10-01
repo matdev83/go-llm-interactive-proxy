@@ -79,7 +79,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 3.1_
     - _Validation: 3.1 tests GREEN; candidate race/failover capability tests; `go test` on touched runtime/extension packages_
 
-- [ ] 4. Add streaming-preserving private control-call interception
+- [x] 4. Add streaming-preserving private control-call interception
   - [x] 4.1 Build a bounded attempt-local control-call capture state machine
     - RED-test start/args/finish correlation, name-less fragments by call ID, strict maximum args, duplicate/multiple call handling, incomplete close, cancellation, and reset/discard on attempt loss.
     - Capture only the tool prepared by trusted activation; ordinary tool events must be a pass-through.
@@ -97,7 +97,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 4.1_
     - _Validation: event-order tests prove client tool policy/reactor fake sees zero claimed events and does see ordinary tools; streaming timing/order assertions_
 
-  - [ ] 4.3 Certify parallel/race/failover isolation and cleanup
+  - [x] 4.3 Certify parallel/race/failover isolation and cleanup
     - Prove losing attempts cannot publish completion evidence/result into the winning logical response.
     - Prove replacement attempts get independent activation/capture and no stale call ID or args buffer survives transition.
     - Prove cancellation/Close deterministically releases bounded state with no goroutine/global-map ownership.
@@ -306,3 +306,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 4.2: Interception runs after BTP/usage and before ordinary tool processing. The pinned generic handler validates frozen inputs/outcomes and normalizes provider failures without exposing provider text. Provider metadata is deep-owned; outcomes stay private and later invalidation revokes them. Behavioral RED, scoped tests/lint/race, independent review and a fresh real-Recv/PTC/fatal regression pass. Task 4.3 must synchronize cancellation/loss cleanup without holding state locks across provider or backend I/O.
 
 - Dedicated configsource unblock (`c1e25970`): live recycled-inode fixture now compares full identities, asserting fail-closed rejection when birth timestamps coincide; distinct-identity eligibility and in-place rewrite rejection remain. Original reproduction 19/20 failures; fresh 30-run regression, independent review, complete root pre-commit tests, quality/lint and scoped race passed. No production identity-policy change.
+
+- Task 4.3: attempt-local controlMu protects observation, one handoff and outcome storage against one-way disposal; provider/backend/terminal I/O stays unlocked. Existing capture transfers owned arguments without another copy. Real cancel/Close, loser disposal and public-stream failover tests, scoped race/lint, independent review and fresh parent lifecycle/370-copy AST checks pass. Task 5.2 must own a bounded result snapshot before attempt cleanup and publish only through accepted request-terminal ownership.
