@@ -260,7 +260,10 @@ func TestRetailSupportAdvisoryCompositionCanonicalPrefixAndPermutation(t *testin
 		if got := len(composite.SupportAdvisoryContexts); got != 3 {
 			t.Fatalf("order %v retained %d contexts, want all 3", order, got)
 		}
-		if composite.SupportAdvisory == nil || len(composite.SupportAdvisory.Pairs) != economics.MaxSupportAdvisoryPairs {
+		if composite.SupportAdvisory == nil {
+			t.Fatalf("order %v missing support advisory report", order)
+		}
+		if len(composite.SupportAdvisory.Pairs) != economics.MaxSupportAdvisoryPairs {
 			t.Fatalf("order %v pairs=%d, want %d", order, len(composite.SupportAdvisory.Pairs), economics.MaxSupportAdvisoryPairs)
 		}
 

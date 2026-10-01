@@ -572,7 +572,10 @@ func TestComponentRaterSupportAdvisoryPairLimit128And129(t *testing.T) {
 				advisoryOracleContext(), contributors, map[string]completeCoverVerdict{advisoryOracleScope: cover},
 				advisoryOracleLimits(economics.MaxSupportAdvisoryCandidateExaminations, economics.MaxSupportAdvisoryGraphVisits, economics.MaxSupportAdvisoryPairs),
 			)
-			if report == nil || len(report.Pairs) != economics.MaxSupportAdvisoryPairs {
+			if report == nil {
+				t.Fatal("missing support advisory report")
+			}
+			if len(report.Pairs) != economics.MaxSupportAdvisoryPairs {
 				t.Fatalf("report pairs=%d, want %d", len(report.Pairs), economics.MaxSupportAdvisoryPairs)
 			}
 			if pairCount == economics.MaxSupportAdvisoryPairs {

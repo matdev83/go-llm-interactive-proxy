@@ -21,13 +21,16 @@ func validateSupportAdvisoryVersion(version string) error {
 	return fmt.Errorf("%w: unsupported support advisory version %q", ErrInvalidTariffSnapshot, version)
 }
 
+// supportAdvisoryReasonsPerContext counts the distinct v1 incomplete reasons.
+const supportAdvisoryReasonsPerContext = 4
+
 // Public v1 bounds limit visibility without changing monetary rating.
 const (
 	MaxSupportAdvisoryPairs                 = 128
 	MaxSupportAdvisoryContexts              = MaxValuationRefs + 3
 	MaxSupportAdvisoryCandidateExaminations = 4096
 	MaxSupportAdvisoryGraphVisits           = 65536
-	MaxSupportAdvisoryIncompleteContexts    = MaxSupportAdvisoryContexts * 4
+	MaxSupportAdvisoryIncompleteContexts    = MaxSupportAdvisoryContexts * supportAdvisoryReasonsPerContext
 	// Scope keys embed subject JSON: nineteen bounded identity strings can
 	// expand sixfold under JSON escaping, plus outer fields and framing.
 	MaxSupportAdvisoryScopeKeyBytes = 64 * 1024
@@ -105,7 +108,7 @@ func (v Valuation) validateSupportAdvisory() error {
 		if len(v.SupportAdvisory.Pairs) > MaxSupportAdvisoryPairs {
 			return fmt.Errorf("%w: support advisory pairs exceed %d", ErrInvalidValuation, MaxSupportAdvisoryPairs)
 		}
-		if len(v.SupportAdvisory.IncompleteContexts) > len(v.SupportAdvisoryContexts)*4 {
+		if len(v.SupportAdvisory.IncompleteContexts) > len(v.SupportAdvisoryContexts)*supportAdvisoryReasonsPerContext {
 			return fmt.Errorf("%w: support advisory incomplete entries exceed context bound", ErrInvalidValuation)
 		}
 	}
