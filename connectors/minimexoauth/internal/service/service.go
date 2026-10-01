@@ -64,11 +64,12 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		Factories: []backendplugin.FactoryDescriptor{{
-			Kind:                     FactoryKind,
-			DisplayName:              DisplayName,
-			Description:              Description,
-			CredentialMode:           backendplugin.CredentialModeStatic,
-			AccessScope:              backendplugin.AccessScopeAny,
+			Kind:        FactoryKind,
+			DisplayName: DisplayName,
+			Description: Description,
+			// Effective credential is one human user's MiniMax subscription identity: either a portal access token/API key or the local PKCE/user-code OAuth session produced by StartLogin/LoginSession.Complete and persisted by oauthcred. Under the host principal model it must never be multiplexed to unrelated principals, so it is user-scoped OAuth and stays local-only under access.mode: multi_user.
+			CredentialMode:           backendplugin.CredentialModeOAuthUser,
+			AccessScope:              backendplugin.AccessScopeLocalOnly,
 			RoutePrefixes:            []string{FactoryKind},
 			SupportsDynamicInventory: true,
 			ProcessSharing:           backendplugin.ProcessSharingPerInstance,

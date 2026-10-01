@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
@@ -109,9 +110,17 @@ func TestBuild_strictAuthoritativeAccountingRequiresBackendBillingFinalizer(t *t
 	}
 }
 
+// buildWithProfiledBackend exercises credential-posture validation in the
+// production candidate-compilation seam. Multi-user credential checks only run for
+// backends the host approval registry permits (see multi_user_approval_policy_test.go
+// for the default-deny boundary), so multi-user cases register under a centrally
+// approved kind and single-user cases use a synthetic kind.
 func buildWithProfiledBackend(t *testing.T, address string, authMode config.AuthMode, mode pluginreg.BackendCredentialMode) error {
 	t.Helper()
 	factoryID := "profiled-" + strings.ReplaceAll(t.Name(), "/", "-")
+	if !config.IsExplicitLoopbackListenAddress(address) {
+		factoryID = approvedFixtureKind(t)
+	}
 	reg := pluginreg.NewRegistry()
 	registerBackendWithProfile(t, reg, factoryID, pluginreg.BackendSecurityProfile{CredentialMode: mode})
 	cfg := &config.Config{
@@ -130,6 +139,20 @@ func buildWithProfiledBackend(t *testing.T, address string, authMode config.Auth
 	}
 	_, _, err := processAndCandidateErr(t, cfg, opts)
 	return err
+}
+
+// approvedFixtureKind returns an essential backend kind that the host-owned
+// multi-user approval policy approves, so a test can isolate one posture check
+// without also exercising the approval registry.
+func approvedFixtureKind(t *testing.T) string {
+	t.Helper()
+	for _, kind := range standardplugins.EssentialBackendKinds() {
+		if standardplugins.HostMultiUserBackendPolicy().IsApproved(kind) {
+			return kind
+		}
+	}
+	t.Fatal("no approved essential backend kind available for fixture")
+	return ""
 }
 
 func TestBuild_oauthUserBackend_allowsOnSingleUserLoopback(t *testing.T) {
@@ -285,4 +308,196 @@ func TestBuild_unsupportedBackendCredentialMode_rejects(t *testing.T) {
 	if err == nil || !errors.Is(err, runtimebundle.ErrUnsupportedBackendCredentialMode) {
 		t.Fatalf("want %v, got %v", runtimebundle.ErrUnsupportedBackendCredentialMode, err)
 	}
+}
+
+// TestBuild_localOnlyBackend_allowsLoopbackVariantsAcceptedByAccessPolicy freezes
+// the access-mode predicate: every loopback spelling the access policy accepts must
+// still admit a local_only backend. This guards against accidentally substituting a
+// narrower predicate than EffectiveAccessMode + loopback validation.
+func TestBuild_localOnlyBackend_allowsLoopbackVariantsAcceptedByAccessPolicy(t *testing.T) {
+	t.Parallel()
+	for _, address := range []string{"127.0.0.1:8080", "localhost:8080", "[::1]:8080"} {
+		if !config.IsExplicitLoopbackListenAddress(address) {
+			t.Fatalf("precondition: %q must be an accepted explicit loopback address", address)
+		}
+		t.Run(address, func(t *testing.T) {
+			t.Parallel()
+			factoryID := "profiled-local-only-" + strings.NewReplacer(":", "-", "[", "", "]", "").Replace(address)
+			reg := pluginreg.NewRegistry()
+			registerBackendWithProfile(t, reg, factoryID, pluginreg.BackendSecurityProfile{
+				CredentialMode: pluginreg.CredentialStatic,
+				AccessScope:    pluginreg.BackendAccessLocalOnly,
+			})
+			cfg := &config.Config{
+				Server:     config.ServerConfig{Address: address},
+				Routing:    config.RoutingConfig{MaxAttempts: 3},
+				Continuity: config.ContinuityConfig{InMemory: true},
+				Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{
+					Kind: factoryID, ID: "be", Enabled: true,
+				}}},
+			}
+			mode, err := cfg.EffectiveAccessMode()
+			if err != nil || mode != accessmode.ModeSingleUser {
+				t.Fatalf("precondition: EffectiveAccessMode = %v, %v; want single_user", mode, err)
+			}
+			_, _ = mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
+		})
+	}
+}
+
+// TestBuild_singleUserLocalOnlyBroadBindStillFailsAccessPosture proves a broad or
+// non-loopback listener cannot masquerade as single-user. The access-posture gate in
+// internal/core/accessmode owns that invariant, so this asserts it directly: the
+// effective access mode still reads single_user (which is why backend eligibility
+// must never be the only defense) while access-posture validation rejects the bind.
+func TestBuild_singleUserLocalOnlyBroadBindStillFailsAccessPosture(t *testing.T) {
+	t.Parallel()
+	for _, address := range []string{"0.0.0.0:8080", "192.0.2.10:8080", "::"} {
+		t.Run(address, func(t *testing.T) {
+			t.Parallel()
+			if config.IsExplicitLoopbackListenAddress(address) {
+				t.Fatalf("precondition: %q must not classify as explicit loopback", address)
+			}
+			factoryID := "profiled-broad-bind-" + strings.NewReplacer(".", "-", ":", "-").Replace(address)
+			reg := pluginreg.NewRegistry()
+			registerBackendWithProfile(t, reg, factoryID, pluginreg.BackendSecurityProfile{
+				CredentialMode: pluginreg.CredentialStatic,
+				AccessScope:    pluginreg.BackendAccessLocalOnly,
+			})
+			cfg := &config.Config{
+				Access:     config.AccessConfig{Mode: "single_user"},
+				Server:     config.ServerConfig{Address: address, AuthMode: config.AuthModeExternal},
+				Auth:       config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"},
+				Routing:    config.RoutingConfig{MaxAttempts: 3},
+				Continuity: config.ContinuityConfig{InMemory: true},
+				Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{
+					Kind: factoryID, ID: "be", Enabled: true,
+				}}},
+			}
+			mode, err := cfg.EffectiveAccessMode()
+			if err != nil || mode != accessmode.ModeSingleUser {
+				t.Fatalf("precondition: EffectiveAccessMode = %v, %v; want single_user", mode, err)
+			}
+			if err := config.Validate(cfg); err == nil {
+				t.Fatalf("broad/non-loopback single_user bind %q must fail access-posture validation", address)
+			}
+		})
+	}
+}
+
+// TestBuild_multiUserBackendSecurityErrorPrecedence pins the typed-error ordering so
+// the operator always sees the most specific actionable reason:
+//
+//	local_only (access) -> oauth_user/unknown (credential) -> approval registry
+func TestBuild_multiUserBackendSecurityErrorPrecedence(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		factory  string
+		profile  pluginreg.BackendSecurityProfile
+		wantErrs []error
+	}{
+		{
+			name:    "local_only wins over oauth_user and approval",
+			factory: "prec-local-only-oauth",
+			profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialOAuthUser, AccessScope: pluginreg.BackendAccessLocalOnly},
+			wantErrs: []error{
+				runtimebundle.ErrLocalOnlyBackendDisallowedMultiUser,
+				runtimebundle.ErrOAuthUserDisallowedMultiUser,
+				runtimebundle.ErrBackendNotApprovedForMultiUser,
+			},
+		},
+		{
+			name:    "local_only wins over unknown credential and approval",
+			factory: "prec-local-only-unknown",
+			profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialUnknown, AccessScope: pluginreg.BackendAccessLocalOnly},
+			wantErrs: []error{
+				runtimebundle.ErrLocalOnlyBackendDisallowedMultiUser,
+				runtimebundle.ErrUnknownCredentialMultiUser,
+				runtimebundle.ErrBackendNotApprovedForMultiUser,
+			},
+		},
+		{
+			name:    "oauth_user wins over approval",
+			factory: "prec-oauth-any",
+			profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialOAuthUser, AccessScope: pluginreg.BackendAccessAny},
+			wantErrs: []error{
+				runtimebundle.ErrOAuthUserDisallowedMultiUser,
+				runtimebundle.ErrBackendNotApprovedForMultiUser,
+			},
+		},
+		{
+			name:    "unknown credential wins over approval",
+			factory: "prec-unknown-any",
+			profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialUnknown, AccessScope: pluginreg.BackendAccessAny},
+			wantErrs: []error{
+				runtimebundle.ErrUnknownCredentialMultiUser,
+				runtimebundle.ErrBackendNotApprovedForMultiUser,
+			},
+		},
+		{
+			name:    "approval is the only remaining rejection",
+			factory: "prec-approved-shape-unapproved-kind",
+			profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic, AccessScope: pluginreg.BackendAccessAny},
+			wantErrs: []error{
+				runtimebundle.ErrBackendNotApprovedForMultiUser,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			reg := pluginreg.NewRegistry()
+			registerBackendWithProfile(t, reg, tc.factory, tc.profile)
+			cfg := &config.Config{
+				Access:     config.AccessConfig{Mode: "multi_user"},
+				Server:     config.ServerConfig{Address: "0.0.0.0:8080", AuthMode: config.AuthModeExternal},
+				Auth:       config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"},
+				Routing:    config.RoutingConfig{MaxAttempts: 3},
+				Continuity: config.ContinuityConfig{InMemory: true},
+				Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{
+					Kind: tc.factory, ID: "be", Enabled: true,
+				}}},
+			}
+			_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
+				PluginRegistry: reg,
+				Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
+			})
+			if err == nil {
+				t.Fatal("want rejection in multi_user, got nil")
+			}
+			if !errors.Is(err, tc.wantErrs[0]) {
+				t.Fatalf("want highest-precedence error %v, got %v", tc.wantErrs[0], err)
+			}
+			for _, forbidden := range tc.wantErrs[1:] {
+				if errors.Is(err, forbidden) {
+					t.Fatalf("lower-precedence error %v must not be reported: %v", forbidden, err)
+				}
+			}
+		})
+	}
+}
+
+// TestBuild_singleUserIgnoresMultiUserApprovalRegistry proves absence from the
+// approval registry only denies shared operation: an unapproved factory still runs
+// in an otherwise valid single-user loopback deployment.
+func TestBuild_singleUserIgnoresMultiUserApprovalRegistry(t *testing.T) {
+	t.Parallel()
+	const factoryID = "unapproved-single-user-ok"
+	if standardplugins.HostMultiUserBackendPolicy().IsApproved(factoryID) {
+		t.Fatal("precondition: fixture factory must be unapproved")
+	}
+	reg := pluginreg.NewRegistry()
+	registerBackendWithProfile(t, reg, factoryID, pluginreg.BackendSecurityProfile{
+		CredentialMode: pluginreg.CredentialStatic,
+		AccessScope:    pluginreg.BackendAccessAny,
+	})
+	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: "127.0.0.1:8080"},
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{
+			Kind: factoryID, ID: "be", Enabled: true,
+		}}},
+	}
+	_, _ = mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 }
