@@ -6,7 +6,7 @@
 - `_Depends_` declares non-obvious cross-group dependencies.
 - `_Validation_` names the focused proof command for the task.
 
-- [ ] 1. Extraction baseline and publication prerequisites
+- [x] 1. Extraction baseline and publication prerequisites
 - [x] 1.1 Generate exact migration inventory and record baseline SHA
   - Enumerate every active Cursor reference from the implementation baseline, with source hash, destination mapping, category, and planned deletion batch.
   - Record extraction baseline commit, SDK 1.0.23 and Undici 6.28.1 pins, and confirm destination repository name, provisioning, and publication permissions before external writes.
@@ -25,7 +25,7 @@
   - _Boundary: Public module baseline_
   - _Validation: GOWORK=off go mod download, go mod verify, and go build ./..._
 
-- [ ] 1.3 Provision standalone plugin repository skeleton without moving behavior
+- [x] 1.3 Provision standalone plugin repository skeleton without moving behavior
   - Create the external repository layout, module path, license/provenance files, and independent Go plus Node verification workflows.
   - Pin only released dependencies; include no Cursor implementation source yet.
   - Verify clean-checkout module resolution without sibling checkouts or unpublished host packages.
@@ -160,3 +160,13 @@
   - _Boundary: Plugin certification_
   - _Depends: 6.2_
   - _Validation: migration/rollback rehearsal and final no-Node plus installed-plugin gates_
+
+## Implementation Notes
+
+- **Module baselines (task 1.2):** published `v0.1.0-rc.1` for both `github.com/matdev83/go-llm-interactive-proxy` and `github.com/matdev83/go-llm-interactive-proxy/connector-support/acp`. A final `vX.Y.Z` root tag still triggers `.github/workflows/release.yml` (`on.push.tags: v[0-9]+.[0-9]+.[0-9]+`) and publishes the first public `lipstd` release via GoReleaser; that needs separate maintainer authorization.
+- **Root tag causes repo-wide MVS drift (task 1.2):** publishing the root tag made every module that path-replaces ACP select `v0.1.0-rc.1`. `scripts/check-all-modules.sh` asserts `go mod tidy -diff`, so any module whose committed require line still says `v0.0.0` fails CI (6 connectors here). After changing a nested module's published require, expect a repo-wide require bump in every dependent module in the same PR.
+- **Destination (task 1.3):** standalone repository is `https://github.com/aiproxer/aiproxer-cursor-sdk` (public, MIT), module `github.com/aiproxer/aiproxer-cursor-sdk`, scaffold head `1583c29b`. Keep it MIT; derived host-side code originates from an Apache-2.0 repository and PROVENANCE.md records that attribution.
+- **`internal/pinnedcontracts` is a scaffold guard:** it exists so `go build`/`go test`/`go mod tidy -diff` are meaningful in an otherwise empty module and it fails if a `replace` is introduced. Task 2.1 should delete it once real code imports the public contracts.
+- **Bridge lane is intentionally skipped:** `.github/workflows/verify.yml` `bridge-node` job is `if: false` and must be enabled in task 2.2 once `bridge-node/package-lock.json` exists.
+- **Pre-existing Windows flake (unrelated to this spec):** `connector-support/acp` `TestKillProcessTree_WindowsDescendants` fails intermittently with `Kill: exit status 255` under load; reproduced on the pre-change baseline, so it is not caused by module publication work. Hardening its `taskkill` assertion needs a separate authorized change.
+- **Cleanup pending (needs maintainer action):** the erroneous scaffold repo `matdev83/go-lip-cursorsdk` (Apache-2.0, 1 commit, no releases) could not be deleted — the `gh` token lacks the `delete_repo` scope. Delete with `gh auth refresh -h github.com -s delete_repo` then `gh repo delete matdev83/go-lip-cursorsdk --yes`.
