@@ -40,7 +40,22 @@ server:
 # Omitted access.mode defaults to single_user. Omitted server.address defaults to explicit loopback (127.0.0.1:8080).
 # single_user allows only explicit loopback binds (127/8, ::1, or localhost). All-interfaces
 # (0.0.0.0, ::, or bare :port) requires access.mode: multi_user, strong auth, and `lipstd serve --multi-user`.
-# Multi-user disables local-only connectors: ACP/process-spawning backends (including experimental cursorsdk), OpenAI Codex, and Codex App Server.
+# single_user is about the LISTENER, not about auth: single_user + loopback + an external auth handler is valid.
+#
+# multi_user is a shared-service deployment (unrelated downstream principals multiplex through one
+# proxy). It therefore disables local-only connectors: ACP/process-spawning agent runtimes (including
+# experimental cursorsdk), OpenAI Codex, Codex App Server, and local inference servers. A backend is
+# multi-user eligible only when BOTH hold:
+#   - its packaged manifest declares access_scope: any, a non-user credential_mode
+#     (static/workload/none, never oauth_user or unknown), and execution_class: inference; and
+#   - it has an explicit entry in the host-owned multi-user approval registry
+#     (internal/standardplugins/multi_user_backend_policy.go, outside connectors/*).
+# Absence from that registry is DENIAL, so a brand-new connector fails closed in multi_user even if it
+# declares itself permissive. Rejection is a typed error with instance + factory, raised at startup /
+# check-config / reload before any connector Dial/Configure/child process. There is deliberately NO
+# allow_local_only_in_multi_user (or similar) escape hatch: run a single-user loopback deployment, or
+# use a credential intended for shared service operation (provider API key, workload identity, service
+# account) on an approved backend. See docs/backend-plugins/operator.md.
 #
 # (A) Default OSS single-user (effective when access/auth are omitted): loopback + local_noop + structured auth/session events.
 # access:

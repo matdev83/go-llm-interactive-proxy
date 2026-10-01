@@ -70,11 +70,12 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		Factories: []backendplugin.FactoryDescriptor{{
-			Kind:                     FactoryKind,
-			DisplayName:              DisplayName,
-			Description:              Description,
-			CredentialMode:           backendplugin.CredentialModeStatic,
-			AccessScope:              backendplugin.AccessScopeAny,
+			Kind:        FactoryKind,
+			DisplayName: DisplayName,
+			Description: Description,
+			// Effective credential is one human operator's personal identity: either a GitLab personal access token or a GitLab OAuth session loaded from oauth_token_file. GitLab Duo direct-access tokens are minted from that user identity, so this backend is never an operator-wide or workload credential and must stay local-only under access.mode: multi_user.
+			CredentialMode:           backendplugin.CredentialModeOAuthUser,
+			AccessScope:              backendplugin.AccessScopeLocalOnly,
 			RoutePrefixes:            []string{FactoryKind},
 			SupportsDynamicInventory: true,
 			ProcessSharing:           backendplugin.ProcessSharingPerInstance,

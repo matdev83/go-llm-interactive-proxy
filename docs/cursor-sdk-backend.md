@@ -8,7 +8,8 @@ Operator sample: [`config/examples/cursor-sdk-experimental.yaml`](../config/exam
 
 - Experimental and **non-default**. Not part of `lipsdk.StandardDistributionRequirements` or `EssentialBackendBundle`.
 - Delivered only as `connectors/cursorsdk` (closed manifest + digest-bound executable). Root-static registration is forbidden.
-- Local-only (`BackendAccessLocalOnly` / `access_scope: local_only`): single-user loopback only. Rejected under `access.mode: multi_user`.
+- Local-only (`BackendAccessLocalOnly` / `access_scope: local_only`): single-user loopback only. Rejected under `access.mode: multi_user`, and additionally not present in the host-owned multi-user approval registry, so absence of the approval is a second, independent denial.
+- **Why local-only is the current contract, not a permanent SDK law:** Cursor's SDK supports both user API keys and service-account API keys, and service accounts are intended for team automation. A deliberately designed, separately reviewed Cursor **service-account / cloud-agent** backend could therefore be multi-user-safe in future. Today's `cursorsdk` factory is `local_only` because its current security/runtime contract does not establish the shared-service isolation and credential binding such a mode requires. Do not obtain that capability by changing this factory's `access_scope`; it requires a distinct factory plus an explicit host approval-registry change.
 - Future default switch or ACP deprecation requires a separate reviewed migration; this feature retains both connectors.
 
 ## Install the bridge (manual)
@@ -142,7 +143,7 @@ Missing Node, old Node, or unpinned bridge → probe reports **blocked**, not a 
 | Node too old | Upgrade to Node ≥ 22.13 |
 | Missing API key | Set `api_key` or `CURSOR_API_KEY` (not CLI login) |
 | Sandbox unavailable | Prefer fixing sandbox; local-only explicit `sandbox_mode: off` on Windows when required |
-| Multi-user rejection | Expected for local-only `cursorsdk` |
+| Multi-user rejection | Expected for local-only `cursorsdk`; `access.mode: multi_user` also requires a host-owned approval-registry entry this factory does not have |
 | Model-only route ambiguity | Use `cursorsdk:…` or `cursorcliacp:…` explicitly |
 | Auth / capability / config errors | Non-recoverable; not treated as transient process faults |
 

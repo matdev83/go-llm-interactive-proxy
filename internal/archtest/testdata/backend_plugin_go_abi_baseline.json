@@ -3472,6 +3472,11 @@
   },
   {
     "category": "var",
+    "name": "ErrInconsistentSecurityPosture",
+    "detail": "ErrInconsistentSecurityPosture"
+  },
+  {
+    "category": "var",
     "name": "ErrInstanceBusy",
     "detail": "ErrInstanceBusy"
   },
