@@ -3,6 +3,7 @@ package agentloopguard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard/causepolicy"
@@ -36,7 +37,25 @@ var _ terminaldecision.Provider = provider{}
 // NewProvider constructs the conservative, stateless ALG provider with
 // default provider settings. Feature composition validates the raw config
 // before calling this constructor.
+//
+// An explicitly selected strategy or an explicit protocol-reprompt bound is new
+// input: it is delegated to NewConfiguredProvider so strategy selection and
+// mutual exclusion are enforced strictly. This signature has no error result, so
+// an invalid explicit configuration returns a nil interface rather than the
+// legacy default provider. Callers that select or configure a strategy must use
+// NewConfiguredProvider to receive the error and must not interpret this
+// compatibility nil as a disabled or generic no-provider outcome.
 func NewProvider(config ...Config) terminaldecision.Provider {
+	if len(config) > 0 {
+		requested := config[0]
+		if requested.Strategy != "" || requested.MaxProtocolReprompts != 0 {
+			provider, err := NewConfiguredProvider(requested)
+			if err != nil {
+				return nil
+			}
+			return provider
+		}
+	}
 	cfg, _ := (Config{
 		Enabled:                  true,
 		VerifierRole:             DefaultVerifierRole,
@@ -63,6 +82,36 @@ func NewProvider(config ...Config) terminaldecision.Provider {
 		}
 	}
 	return provider{cfg: cfg}
+}
+
+// NewConfiguredProvider is the single error-returning terminal-policy
+// constructor for a selected ALG strategy.
+//
+// It normalizes the raw programmatic configuration strictly once and switches
+// on the resolved strategy: the semantic verifier keeps the existing legacy
+// provider value, and the explicit-completion strategy gets the distinct
+// preferred receiver that owns only the protocol numeric limits. It never calls
+// NewProvider, and an unknown or incompatible configuration is refused instead
+// of falling back to another strategy.
+//
+// It has no enable/disable authority: Enabled stays the composition gate.
+func NewConfiguredProvider(cfg Config) (terminaldecision.Provider, error) {
+	normalized, err := NormalizeProgrammatic(cfg)
+	if err != nil {
+		return nil, err
+	}
+	switch normalized.Strategy {
+	case StrategySemanticVerifier:
+		return provider{cfg: normalized}, nil
+	case StrategyAttemptCompletion:
+		return preferredProvider{
+			maxProtocolReprompts: normalized.MaxProtocolReprompts,
+			noProgressLimit:      normalized.NoProgressLimit,
+		}, nil
+	default:
+		// Unreachable: NormalizeProgrammatic resolves every other selector.
+		return nil, fmt.Errorf("%s: strategy must be %s or %s", ID, StrategyAttemptCompletion, StrategySemanticVerifier)
+	}
 }
 
 func (provider) ID() string { return providerID }

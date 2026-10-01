@@ -184,7 +184,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 5.1,8.1_
     - _Validation: pure decision/intent tests for normal/post-output/user-input/no-progress/exhausted/inactive cases_
 
-  - [ ] 8.3 Add preferred strategy provider dispatch with zero verifier calls
+  - [x] 8.3 Add preferred strategy provider dispatch with zero verifier calls
     - Integrate canonical cause/safety classification, explicit completion, protocol expectation, protocol state, and intent builder in the feature provider.
     - Authoritative cancellation/refusal/filter, unsafe action state, pre-output recovery ownership, inactive protocol, and exhausted budgets stop conservatively.
     - Instrument tests so any auxiliary verifier construction/call in preferred mode fails the test.
@@ -322,3 +322,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 8.1: Independent bounded alg-proto-v1 codec, stable evidence fingerprint and pure observation/eligibility/proposed-state helpers preserve total reprompt usage across progress. Advance validates its proposed state before success. Independent re-review, fresh five-package tests and retained fuzz regression pass; observe before advancing in task 8.2.
 
 - Task 8.2: Pure missing-signal policy and bounded repair intent preserve raw lineage identities, strict reserved-state decoding, immutable total caps and conservative safety stops. Present B-leg mismatches cannot fall back to trajectory bootstrap. Independent re-review, both adversarial probe sets and fresh six-package tests pass.
+
+- Task 8.3: Strict NewConfiguredProvider selects separate preferred and unchanged legacy receivers; preferred stores only protocol limits and makes zero verifier/auxiliary calls. Original RED was compile-only; a subsequent temporary OFF/ON/removal checkpoint proves behavioral assertion sensitivity without rewriting chronology. Independent re-review and fresh ALG/standard-plugin tests pass.
