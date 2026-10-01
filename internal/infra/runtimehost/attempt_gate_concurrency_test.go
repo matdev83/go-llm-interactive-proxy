@@ -615,6 +615,137 @@ func TestAttemptGate_ShutdownFinalizerWaitsForAdmittedAttempt(t *testing.T) {
 	}
 }
 
+func TestAttemptGate_ShutdownFinalizerPanicWakesConcurrentWaitersOnce(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		admit bool
+	}{
+		{name: "initially idle"},
+		{name: "after admitted attempt", admit: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			g := newAttemptGate()
+			entered, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			releaseFinalizer := func() { releaseOnce.Do(func() { close(release) }) }
+			defer releaseFinalizer()
+			var finalizerCalls atomic.Int32
+			g.SetShutdownFinalizer(func() error {
+				finalizerCalls.Add(1)
+				close(entered)
+				<-release
+				panic("private callback failure")
+			})
+
+			var lease *attemptLease
+			if tc.admit {
+				admission := g.TryStart(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+				if admission.Lease == nil {
+					t.Fatal("setup admission")
+				}
+				lease = admission.Lease
+			}
+
+			const waiters = 6
+			barriers := make([]<-chan struct{}, waiters)
+			waitResults := make(chan error, waiters)
+			startWaiters := func() {
+				for i := range waiters {
+					ctx, reached := newWaitIdleSelectBarrierCtx(context.Background())
+					barriers[i] = reached
+					go func(ctx context.Context) { waitResults <- g.WaitForIdle(ctx) }(ctx)
+				}
+				awaitWaitIdleBarriers(t, barriers...)
+			}
+
+			var shutdownDone, completeDone chan struct{}
+			if tc.admit {
+				startWaiters()
+				g.BeginShutdown()
+				completeDone = make(chan struct{})
+				go func() {
+					lease.Complete()
+					close(completeDone)
+				}()
+			} else {
+				shutdownDone = make(chan struct{})
+				go func() {
+					g.BeginShutdown()
+					close(shutdownDone)
+				}()
+				guard, cancelGuard := context.WithTimeout(context.Background(), 5*time.Second)
+				select {
+				case <-entered:
+				case <-guard.Done():
+					cancelGuard()
+					t.Fatal("shutdown finalizer did not start")
+				}
+				cancelGuard()
+				startWaiters()
+			}
+			if tc.admit {
+				guard, cancelGuard := context.WithTimeout(context.Background(), 5*time.Second)
+				select {
+				case <-entered:
+				case <-guard.Done():
+					cancelGuard()
+					t.Fatal("shutdown finalizer did not start")
+				}
+				cancelGuard()
+			}
+
+			deadlineCtx := newGateDeadlineBarrierContext()
+			deadlineResult := make(chan error, 1)
+			go func() { deadlineResult <- g.WaitForIdle(deadlineCtx) }()
+			awaitWaitIdleBarriers(t, deadlineCtx.reached)
+			deadlineCtx.expire()
+			if err := <-deadlineResult; !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("WaitForIdle deadline while finalizing=%v want deadline exceeded", err)
+			}
+			for range waiters {
+				select {
+				case err := <-waitResults:
+					t.Fatalf("WaitForIdle returned before the panicking finalizer completed: %v", err)
+				default:
+				}
+			}
+
+			releaseFinalizer()
+			if shutdownDone != nil {
+				awaitAttemptGateCompletion(t, shutdownDone, "BeginShutdown")
+			}
+			if completeDone != nil {
+				awaitAttemptGateCompletion(t, completeDone, "attempt completion")
+			}
+			var cached error
+			for range waiters {
+				err := awaitAttemptGateWaitResult(t, waitResults)
+				if err == nil || err.Error() != "runtimehost: source finalization failed" {
+					t.Fatalf("waiter error=%v want bounded finalization failure", err)
+				}
+				if cached == nil {
+					cached = err
+				} else if err != cached {
+					t.Fatalf("waiters received different cached finalization errors: %p and %p", err, cached)
+				}
+			}
+
+			g.BeginShutdown()
+			if lease != nil {
+				lease.Complete()
+			}
+			if err := g.WaitForIdle(context.Background()); err != cached {
+				t.Fatalf("repeated shutdown returned %v; want cached error %v", err, cached)
+			}
+			if finalizerCalls.Load() != 1 {
+				t.Fatalf("finalizer calls=%d want once", finalizerCalls.Load())
+			}
+		})
+	}
+}
+
 func TestAttemptGate_RepeatedConcurrentShutdown(t *testing.T) {
 	t.Parallel()
 	g := newAttemptGate()
@@ -985,6 +1116,57 @@ type waitIdleSelectBarrierCtx struct {
 	reached chan struct{}
 	once    sync.Once
 	never   chan struct{}
+}
+
+type gateDeadlineBarrierContext struct {
+	reached chan struct{}
+	done    chan struct{}
+	once    sync.Once
+}
+
+func newGateDeadlineBarrierContext() *gateDeadlineBarrierContext {
+	return &gateDeadlineBarrierContext{reached: make(chan struct{}), done: make(chan struct{})}
+}
+
+func (c *gateDeadlineBarrierContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *gateDeadlineBarrierContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.reached) })
+	return c.done
+}
+
+func (c *gateDeadlineBarrierContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+func (*gateDeadlineBarrierContext) Value(any) any { return nil }
+func (c *gateDeadlineBarrierContext) expire()     { close(c.done) }
+
+func awaitAttemptGateCompletion(t *testing.T, done <-chan struct{}, label string) {
+	t.Helper()
+	guard, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	select {
+	case <-done:
+	case <-guard.Done():
+		t.Fatalf("%s did not complete after finalizer release", label)
+	}
+}
+
+func awaitAttemptGateWaitResult(t *testing.T, results <-chan error) error {
+	t.Helper()
+	guard, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	select {
+	case err := <-results:
+		return err
+	case <-guard.Done():
+		t.Fatal("WaitForIdle caller was not notified after finalization")
+		return nil
+	}
 }
 
 func newWaitIdleSelectBarrierCtx(parent context.Context) (*waitIdleSelectBarrierCtx, <-chan struct{}) {

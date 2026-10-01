@@ -10,12 +10,12 @@
   - _Validation: bash scripts/configsource-certify.sh; go test ./internal/infra/configsource/... ./internal/infra/runtimehost/... ./internal/infra/runtimebundle/..._
   - _Requirements: 1.1, 1.2, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 4.1, 4.2, 4.3, 5.1, 5.2, 5.3, 6.1, 6.2, 6.3, 7.1, 7.2, 7.3, 7.4, 8.1, 8.2, 8.3, 8.4, 9.1, 9.2, 9.3, 10.1, 10.2, 11.1, 11.2, 11.3_
 
-- [ ] 1.2 Add adversarial race and cleanup coverage — 2–3 hours.
+- [x] 1.2 Add adversarial race and cleanup coverage — 2–3 hours.
   - Use deterministic channel barriers to test initially-idle and active shutdown finalization, concurrent WaitForIdle, deadlines, callback panic, and final borrower release.
   - Inject ownership-transfer, close, StartPublished, PhasePublish, and post-adoption coordinator failures; assert one close, cached error, Published truth, a live matching source baseline, no start retry, cleared publishing state, and later quiesce/close without deadlock.
   - Cover only acceptance behavior already satisfied by T1 and keep every essential test non-optional; use no timing sleeps or mirror-only tests.
   - Observable completion: the focused race suite passes and demonstrates cleanup at each ownership boundary without changing the committed baseline.
-  - _Boundary: Adversarial tests across internal/infra/configsource, internal/infra/runtimehost, and internal/infra/runtimebundle_
+  - _Boundary: Adversarial tests across internal/infra/configsource, internal/infra/runtimehost, and internal/infra/runtimebundle; minimal mandatory tagged-fault discovery/execution wiring in scripts/configsource-fault-check.sh, scripts/quality-gate.sh, and the existing Ubuntu ext4 CI step_
   - _Depends: 1.1_
   - _Validation: go test -race -count=1 ./internal/infra/configsource/... ./internal/infra/runtimehost/... ./internal/infra/runtimebundle/..._
   - _Requirements: 5.2, 5.3, 7.1, 7.3, 7.4, 8.1, 8.2, 8.3, 8.4, 9.1, 9.2, 9.3, 10.2_

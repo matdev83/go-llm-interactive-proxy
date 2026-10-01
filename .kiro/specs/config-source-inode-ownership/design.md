@@ -69,6 +69,7 @@ graph LR
 
 | Action | File | Responsibility |
 |---|---|---|
+| Add | scripts/configsource-fault-check.sh | Require exact coordinator and Host.Close tagged-fault discovery, execution and pass without skips in the local Linux gate and existing Ubuntu ext4 fixture lane. |
 | Modify | internal/core/config/reload_strict_effective_contract_test.go | Mechanically migrate the existing source consumer fixture to TakeBaseline and explicit owner cleanup; preserve native reload assertions and core production behavior. |
 | Modify | internal/stdhttp/admin/configreload/self_defense_management_isolation_test.go | Mechanically migrate bootstrap source-owner returns, coordinator transfer and temporary loader cleanup while preserving management recovery assertions. |
 | Modify | cmd/lipstd/reload_signal_adapter_unix_test.go, internal/stdhttp/config_reload_soak_test.go | Mechanically provide valid synthetic native source identities while preserving signal reload and soak assertions. |

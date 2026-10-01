@@ -39,13 +39,8 @@ if [[ "$(go env GOOS)" == "linux" ]]; then
 	echo "Running mandatory ext4 source-lifetime certification..."
 	bash "$SCRIPT_DIR/configsource-certify.sh"
 	echo ""
-	echo "Running mandatory source-close fault lifecycle tests..."
-	fault_tests="$(go test -tags=configsource_faulttest -list '^TestHostCloseCachedSourceCloseFailure$' ./internal/infra/runtimebundle/...)"
-	if ! grep -qx 'TestHostCloseCachedSourceCloseFailure' <<< "$fault_tests"; then
-		echo "Required source-close fault lifecycle test was not discovered." >&2
-		exit 1
-	fi
-	go test -race -count=1 -tags=configsource_faulttest -run '^TestHostClose.*Source' ./internal/infra/runtimebundle/...
+	echo "Running mandatory source-ownership fault lifecycle tests..."
+	bash "$SCRIPT_DIR/configsource-fault-check.sh"
 fi
 
 echo ""

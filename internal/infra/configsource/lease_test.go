@@ -5,9 +5,51 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
+
+type leaseCloseWaitBarrierContext struct {
+	reached chan struct{}
+	done    chan struct{}
+	once    sync.Once
+}
+
+func newLeaseCloseWaitBarrierContext() *leaseCloseWaitBarrierContext {
+	return &leaseCloseWaitBarrierContext{reached: make(chan struct{}), done: make(chan struct{})}
+}
+
+func (c *leaseCloseWaitBarrierContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *leaseCloseWaitBarrierContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.reached) })
+	return c.done
+}
+func (*leaseCloseWaitBarrierContext) Err() error    { return nil }
+func (*leaseCloseWaitBarrierContext) Value(any) any { return nil }
+
+func awaitLeaseCloseWaitBarrier(t *testing.T, reached <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-reached:
+	case <-time.After(5 * time.Second): // deadlock guard only; the barrier provides synchronization.
+		t.Fatal("Close did not enter its completion wait")
+	}
+}
+
+func awaitLeaseCloseResult(t *testing.T, results <-chan error) error {
+	t.Helper()
+	guard, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	select {
+	case err := <-results:
+		return err
+	case <-guard.Done():
+		t.Fatal("Close waiter was not notified after final borrower release")
+		return nil
+	}
+}
 
 func TestSourceLeaseOwner_CloseWaitsForBorrowAndCachesFailure(t *testing.T) {
 	t.Parallel()
@@ -52,6 +94,78 @@ func TestSourceLeaseOwner_CloseWaitsForBorrowAndCachesFailure(t *testing.T) {
 	}
 	if got := closeCalls.Load(); got != 1 {
 		t.Fatalf("cached close calls=%d want 1", got)
+	}
+}
+
+func TestSourceLeaseOwner_ConcurrentCloseWaitersShareFinalBorrowFailure(t *testing.T) {
+	t.Parallel()
+	file, err := os.Create(filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := FileIdentity{Platform: "test", Scheme: "test"}
+	wantCloseErr := errors.New("injected concurrent close failure")
+	closeEntered, allowClose := make(chan struct{}), make(chan struct{})
+	var closeEnteredOnce, allowCloseOnce sync.Once
+	var closeCalls atomic.Int32
+	owner := newSourceLeaseOwnerWithCloser(file, id, func(f *os.File) error {
+		closeCalls.Add(1)
+		closeEnteredOnce.Do(func() { close(closeEntered) })
+		<-allowClose
+		return errors.Join(f.Close(), wantCloseErr)
+	})
+	borrow, err := owner.core.borrow(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer borrow.Release()
+	defer allowCloseOnce.Do(func() { close(allowClose) })
+
+	waiters := []*leaseCloseWaitBarrierContext{
+		newLeaseCloseWaitBarrierContext(),
+		newLeaseCloseWaitBarrierContext(),
+	}
+	closeResults := make(chan error, len(waiters))
+	for _, waiter := range waiters {
+		go func(ctx context.Context) { closeResults <- owner.Close(ctx) }(waiter)
+	}
+	for _, waiter := range waiters {
+		awaitLeaseCloseWaitBarrier(t, waiter.reached)
+	}
+
+	releaseDone := make(chan struct{})
+	go func() {
+		borrow.Release()
+		close(releaseDone)
+	}()
+	awaitLeaseCloseWaitBarrier(t, closeEntered)
+	if got := closeCalls.Load(); got != 1 {
+		t.Fatalf("physical close calls while final close is blocked=%d want 1", got)
+	}
+	for range waiters {
+		select {
+		case err := <-closeResults:
+			t.Fatalf("Close returned before the physical close completed: %v", err)
+		default:
+		}
+	}
+
+	allowCloseOnce.Do(func() { close(allowClose) })
+	<-releaseDone
+	var cached error
+	for range waiters {
+		got := awaitLeaseCloseResult(t, closeResults)
+		if !IsSourceCleanupError(got) || !errors.Is(got, wantCloseErr) {
+			t.Fatalf("concurrent Close lost the cached cleanup cause: %v", got)
+		}
+		if cached == nil {
+			cached = got
+		} else if got != cached {
+			t.Fatalf("Close waiters received different cached errors: %p and %p", got, cached)
+		}
+	}
+	if got := closeCalls.Load(); got != 1 {
+		t.Fatalf("physical close calls=%d want once", got)
 	}
 }
 
@@ -216,6 +330,10 @@ func TestSourceOwnerSlotRejectsInvalidCapabilityPairs(t *testing.T) {
 			if tc.edit != nil {
 				tc.edit(&v)
 			}
+			var sourceOwner *SourceLeaseOwner
+			if tc.slot != nil {
+				sourceOwner = tc.slot.owner.Load()
+			}
 			destination := NewSourceOwnerSlot(owner)
 			if tc.slot.ValidFor(&v) {
 				t.Fatal("invalid capability accepted")
@@ -225,6 +343,9 @@ func TestSourceOwnerSlotRejectsInvalidCapabilityPairs(t *testing.T) {
 			}
 			if destination.owner.Load() != owner {
 				t.Fatal("rejection displaced active owner")
+			}
+			if sourceOwner != nil && (tc.slot.owner.Load() != sourceOwner || !tc.slot.ValidFor(&valid)) {
+				t.Fatal("failed ownership transfer discarded the still-valid source owner")
 			}
 		})
 	}

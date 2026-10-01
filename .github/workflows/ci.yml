@@ -260,7 +260,10 @@ jobs:
           sudo mount -o loop,noexec,nosuid,nodev "$image" "$mountpoint"
           sudo chown "$(id -u):$(id -g)" "$mountpoint"
           mkdir "$mountpoint/tmp"
-          TMPDIR="$mountpoint/tmp" GOTMPDIR="$RUNNER_TEMP/go-tmp-executable" bash scripts/configsource-certify.sh
+          export TMPDIR="$mountpoint/tmp"
+          export GOTMPDIR="$RUNNER_TEMP/go-tmp-executable"
+          bash scripts/configsource-certify.sh
+          bash scripts/configsource-fault-check.sh
 
       - name: Build release binary
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
