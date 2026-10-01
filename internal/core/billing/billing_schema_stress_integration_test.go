@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -275,10 +276,14 @@ func TestSupportAgreementShadowPredicate(t *testing.T) {
 	t.Parallel()
 	started := time.Now()
 	populations := map[string]*supportTally{}
+	var populationsMu sync.Mutex
 	join := func(label string, run func(t *testing.T) *supportTally) {
 		t.Run(label, func(t *testing.T) {
 			t.Parallel()
-			populations[label] = run(t)
+			tally := run(t)
+			populationsMu.Lock()
+			populations[label] = tally
+			populationsMu.Unlock()
 		})
 	}
 	join("model_structure", func(t *testing.T) *supportTally {

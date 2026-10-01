@@ -16,7 +16,7 @@ case "$1 $2" in
 esac
 [[ " $* " == *' -c '* ]] && exit 0
 printf '%s\n' "$*" >> "$SCAN_CALLS"
-[[ -n "${FAIL_PACKAGE:-}" && " $* " == *" $FAIL_PACKAGE "* ]] && exit 17
+[[ -n "${FAIL_MATCH:-}" && " $* " == *"$FAIL_MATCH"* ]] && exit 17
 exit 0
 STUB
 chmod +x "$fixture/bin/go"
@@ -27,10 +27,13 @@ cd "$fixture"
 verify_coverage() {
   local calls
   calls="$(cat "$SCAN_CALLS")"
-  [[ "$(wc -l < "$SCAN_CALLS")" -eq 4 ]]
-  for package in example/pkg/lipapi ./internal/core/billing ./internal/core/runtime ./internal/archtest/...; do
+  [[ "$(wc -l < "$SCAN_CALLS")" -eq 5 ]]
+  for package in example/pkg/lipapi ./internal/core/runtime ./internal/archtest/...; do
     [[ "$(grep -F -- " $package" "$SCAN_CALLS" | wc -l)" -eq 1 ]]
   done
+  [[ "$(grep -F -- ' ./internal/core/billing' "$SCAN_CALLS" | wc -l)" -eq 2 ]]
+  [[ "$(grep -F -- ' -skip ^TestSupportAgreementShadowPredicate$' "$SCAN_CALLS" | wc -l)" -eq 1 ]]
+  [[ "$(grep -F -- ' -run ^TestSupportAgreementShadowPredicate$' "$SCAN_CALLS" | wc -l)" -eq 1 ]]
   while IFS= read -r call; do
     [[ " $call " == *' -race '* && " $call " == *' -tags=precommit,integration '* && " $call " == *' -count=1 '* ]]
     [[ " $call " == *' -p=4 '* && " $call " == *' -parallel=4 '* ]]
@@ -39,12 +42,29 @@ verify_coverage() {
 
 bash "$script_dir/race-check.sh" --strict > "$fixture/success.log" 2>&1
 verify_coverage
-for package in example/pkg/lipapi ./internal/core/billing ./internal/core/runtime ./internal/archtest/...; do
+cp "$SCAN_CALLS" "$fixture/all-calls"
+for match in ' example/pkg/lipapi ' ' -skip ^TestSupportAgreementShadowPredicate$ ' ' -run ^TestSupportAgreementShadowPredicate$ ' ' ./internal/core/runtime ' ' ./internal/archtest/... '; do
   : > "$SCAN_CALLS"
-  export FAIL_PACKAGE="$package"
+  export FAIL_MATCH="$match"
   status=0
   bash "$script_dir/race-check.sh" --strict > "$fixture/failure.log" 2>&1 || status=$?
   [[ "$status" -eq 17 ]]
   verify_coverage
 done
+unset FAIL_MATCH
+# Check the actual workflow matrix, so an omitted or duplicated job fails the
+# coverage comparison even if the standalone script still covers every test.
+mapfile -t workflow_lanes < <(sed -n 's/^[[:space:]]*lane: \[\(.*\)\]/\1/p' "$script_dir/../.github/workflows/race-fuzz-nightly.yml" | tr ',' '\n' | sed 's/^ *//;s/ *$//')
+for lane in "${workflow_lanes[@]}"; do
+  : > "$SCAN_CALLS"
+  bash "$script_dir/race-check.sh" --strict --lane "$lane" > "$fixture/lane.log" 2>&1
+  [[ "$(wc -l < "$SCAN_CALLS")" -eq 1 ]]
+  grep -Fx -- "$(cat "$SCAN_CALLS")" "$fixture/all-calls" >/dev/null
+  cat "$SCAN_CALLS" >> "$fixture/lane-calls"
+done
+diff <(sort "$fixture/all-calls") <(sort "$fixture/lane-calls")
+if bash "$script_dir/race-check.sh" --strict --lane invalid > "$fixture/invalid.log" 2>&1; then
+  echo 'Invalid lane unexpectedly succeeded' >&2
+  exit 1
+fi
 echo 'Race scan coverage and failure propagation passed.'
