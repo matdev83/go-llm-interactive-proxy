@@ -166,7 +166,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Validation: parser/adversarial/fuzz tests; no raw result/args in error strings/labels_
 
 - [ ] 8. Implement preferred missing-signal policy and protocol state
-  - [ ] 8.1 Add feature-local protocol state/fingerprint/token with independent prefix
+  - [x] 8.1 Add feature-local protocol state/fingerprint/token with independent prefix
     - Use a distinct bounded state token such as `alg-proto-v1`, never decode it as legacy `alg-state-v1` state.
     - Track total reprompts, stable evidence fingerprint, consecutive no-progress, and terminal state; exclude volatile IDs/timestamps.
     - Enforce immutable total cap even when progress occurs and intersect with platform continuation cap.
@@ -318,3 +318,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 7.1: Frozen completion-tool schema and exact 688-byte LF instruction are independently pinned, bounded and copied per projection. Genuine assertion RED, independent review and fresh five-package tests pass. Task 7.2 must reuse completionToolSpec without changing its ABI.
 
 - Task 7.2: Stateless NewCompletionToolProvider reuses the frozen Spec and strictly validates one result-only object with duplicate/UTF-8/size checks, bounded invalid outcomes and typed contract/context errors. Genuine assertion RED, independent review, fresh five-package tests and 30-second fuzz pass.
+
+- Task 8.1: Independent bounded alg-proto-v1 codec, stable evidence fingerprint and pure observation/eligibility/proposed-state helpers preserve total reprompt usage across progress. Advance validates its proposed state before success. Independent re-review, fresh five-package tests and retained fuzz regression pass; observe before advancing in task 8.2.
