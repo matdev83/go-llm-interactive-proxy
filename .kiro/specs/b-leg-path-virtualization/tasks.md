@@ -20,7 +20,7 @@
   - _Depends: none_
   - _Validation: `go test -count=1 ./internal/core/runtime/...` focused test_
 
-- [ ] 1.2 Add RED ordering characterization for path expansion before tool policy
+- [x] 1.2 Add RED ordering characterization for path expansion before tool policy
   - Use a test finalizer and tool policy/reactor observer to prove the desired observer path is real/expanded before policy evaluation.
   - Include streaming fragments split through the virtual alias and JSON tokens.
   - Observable completion: test captures current metadata/ordering gap without raw-delta rewriting.
@@ -339,3 +339,6 @@
 - Task 1.1: the RED test sizes its oversized fixture from the mutable assembler field `maxArgsBytes`; Task 7.2 should derive it from `defaultToolCallFinalizationMaxArgsBytes` so raising the effective mandatory bound cannot turn the fixture into a legitimate overflow-reject case.
 - Task 1.1: `golangci-lint` is unavailable in this environment, so `make dev-lint` / `make quality-checks` cannot run locally; `gofmt -l` and `go vet` are the available static signals.
 - Task 1.1: `internal/core/runtime/tool_call_mandatory_buffering_red_test.go` fails intentionally until Task 7.2 lands; coarse gates run before then will report this failure.
+- Task 1.2: `orderingFinalizerProjectRoot` reaches the authoritative root via a reflection probe on `toolcall.Meta` field names `Workspace`/`ProjectRoot`; Tasks 6.1/8.2 must replace it with direct `meta.Workspace.ProjectRoot` access rather than relaxing the assertions.
+- Task 1.2: the tool policy observer plane already receives the authoritative workspace view via `applyToolPolicies` (`response_pipeline_observations.go`); only the finalization metadata plane is blind, so no policy-plane change is needed for 5.1.
+- Task 1.2: the test-local stand-in finalizer pairs `ActionRewrite` with `ReasonValidPassThrough`; Task 8.1's real finalizer should use a semantically correct reason code.
