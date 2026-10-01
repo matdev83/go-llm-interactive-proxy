@@ -5,18 +5,30 @@ set -euo pipefail
 
 STAGED=false
 STRICT=false
+LANE=all
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 	--staged) STAGED=true; shift ;;
 	--strict) STRICT=true; shift ;;
+	--lane)
+		[[ $# -ge 2 ]] || { echo '--lane requires a value' >&2; exit 2; }
+		LANE="$2"; shift 2 ;;
 	*)
 		echo "Unknown argument: $1"
-		echo "Usage: $0 [--staged] [--strict]"
+		echo "Usage: $0 [--staged] [--strict] [--lane all|broad|billing|support|runtime|architecture]"
 		exit 2
 		;;
 	esac
 done
+case "$LANE" in
+all|broad|billing|support|runtime|architecture) ;;
+*) echo "Unknown race lane: $LANE" >&2; exit 2 ;;
+esac
+if [[ "$STAGED" == true && "$LANE" != all ]]; then
+	echo '--staged cannot be combined with a selected lane' >&2
+	exit 2
+fi
 
 if ! command -v go >/dev/null 2>&1; then
 	echo "ERROR: go not found in PATH"
@@ -85,7 +97,7 @@ if [[ "$STAGED" == true ]]; then
 		fi
 	done
 	mapfile -t PACKAGES < <(printf '%s\n' "${!PACKAGE_SET[@]}" | sort)
-else
+elif [[ "$LANE" == all || "$LANE" == broad ]]; then
 	# internal/archtest is by far the slowest package under -race: its parallel
 	# repo-wide AST scans take ~90s without the detector and blow past the 10m
 	# default per-package timeout on CI while competing for CPU with the other
@@ -98,7 +110,9 @@ else
 		echo "$packages_list" >&2
 		exit 1
 	}
-	mapfile -t PACKAGES < <(printf '%s\n' "$packages_list" | grep -vE '/internal/archtest(/|$)')
+	# Exhaustive billing sweeps and durable runtime tests must not compete with
+	# the broad scan for CPU. Every package still runs once with both tags.
+	mapfile -t PACKAGES < <(printf '%s\n' "$packages_list" | grep -vE '/internal/archtest(/|$)|/internal/core/(billing|runtime)$')
 	if [[ ${#PACKAGES[@]} -eq 0 ]]; then
 		echo "ERROR: race scan package set is empty; refusing to run go test with no package args" >&2
 		exit 1
@@ -106,7 +120,9 @@ else
 fi
 
 declare -a GO_ARGS
-GO_ARGS=("test" "-race" "-tags=precommit,integration" "-count=1")
+# Bound package and in-package parallelism independently: Go defaults allow
+# both layers to consume the full CPU count at the same time.
+GO_ARGS=("test" "-race" "-tags=precommit,integration" "-count=1" "-p=4" "-parallel=4")
 
 LOG_FILE=".tmp/race-check.log"
 : >"$LOG_FILE"
@@ -118,12 +134,28 @@ run_race_scan() {
 	[[ $scan_status -ne 0 ]] && STATUS=$scan_status
 }
 
-echo "Running race detector scan: go ${GO_ARGS[*]} ${PACKAGES[*]}"
 set +e
-run_race_scan "${PACKAGES[@]}"
+if [[ "$STAGED" == true || "$LANE" == all || "$LANE" == broad ]]; then
+	echo "Running race detector scan: go ${GO_ARGS[*]} ${PACKAGES[*]}"
+	run_race_scan "${PACKAGES[@]}"
+fi
 if [[ "$STAGED" != true ]]; then
-	echo "Running archtest race scan separately: go ${GO_ARGS[*]} -timeout=25m ./internal/archtest/..."
-	run_race_scan -timeout=25m ./internal/archtest/...
+	if [[ "$LANE" == all || "$LANE" == billing ]]; then
+		echo "Running billing race scan separately (60m package timeout)"
+		run_race_scan -timeout=60m -skip '^TestSupportAgreementShadowPredicate$' ./internal/core/billing
+	fi
+	if [[ "$LANE" == all || "$LANE" == support ]]; then
+		echo "Running exhaustive support-agreement race scan separately (25m package timeout)"
+		run_race_scan -timeout=25m -run '^TestSupportAgreementShadowPredicate$' ./internal/core/billing
+	fi
+	if [[ "$LANE" == all || "$LANE" == runtime ]]; then
+		echo "Running durable runtime race scan separately"
+		run_race_scan ./internal/core/runtime
+	fi
+	if [[ "$LANE" == all || "$LANE" == architecture ]]; then
+		echo "Running archtest race scan separately: go ${GO_ARGS[*]} -timeout=25m ./internal/archtest/..."
+		run_race_scan -timeout=25m ./internal/archtest/...
+	fi
 fi
 set -e
 
