@@ -150,7 +150,7 @@ flowchart LR
 - **Streaming-first preserved?** Yes. Provider request always streams; downstream non-stream is host collection.
 - **Provider SDK/wire leakage avoided?** Yes. OpenAI wire types remain inside the connector.
 - **No retry after visible output?** Yes. Existing first-output commitment remains authoritative.
-- **Secure-session/startup posture affected?** Yes. Local-only personal-auth policy and protected credentials must be revalidated.
+- **Secure-session/startup posture affected?** Yes. Local-only personal-auth policy and protected credentials must be revalidated. The posture is *declared* in the connector's manifest export (`access_scope: local_only`, `credential_mode: oauth_user`) and *enforced* once by the generic host backend security-profile gate plus the host-owned multi-user approval registry. The connector itself implements no single-user/server-mode check and is never given the deployment access mode.
 - **Extension seam used?** Existing backend-plugin ABI; no new core extension plane.
 
 ### Technology Stack
@@ -473,7 +473,12 @@ A dedicated opt-in probe may automate wire checks, but final migration still req
 
 ## Security Considerations
 
-- Local-only access scope remains mandatory for subscription credentials.
+- Local-only access scope remains mandatory for subscription credentials. Concretely, both new exports declare `access_scope: local_only` and `credential_mode: oauth_user`, because the effective backend credential is the selected user's SIWC OAuth profile (the app-server child is fed that same user token).
+- The invariant is credential **ownership under the current Go-LIP principal/credential model**, not a blanket provider-terms claim. OpenAI documents ChatGPT-plan usage for open-source and locally hosted applications, including a self-hosted-VM flow, so a same-user local deployment is legitimate. What is refused is a user-scoped ChatGPT-plan credential becoming an **operator-wide credential that unrelated downstream principals can multiplex through a shared proxy**.
+- Therefore there is no pooling, failover, or quota-sharing across different users' ChatGPT-plan registrations. Active-profile selection is a single local user's registration, never an availability mechanism.
+- Multi-user rejection is provided **once, by the host**, at the composition boundary: `access.mode: multi_user` rejects any enabled backend whose effective security profile is `local_only` or `oauth_user`, and additionally any factory absent from the host-owned multi-user approval registry (`internal/standardplugins/multi_user_backend_policy.go`, outside `connectors/*`). Both SIWC factories are absent from that registry, so absence is a second, independent denial.
+- Consequence for this design: **no connector-local `is_single_user_mode()` check**. The connector is never told the deployment access mode, declares no local eligibility authority, and cannot reach host internals (enforced by architecture guards). Adding such a check would create several independently removable gates and couple connector code to deployment policy.
+- No `allow_personal_auth_in_multi_user`-style knob. A future shared-service ChatGPT-plan backend would need a provider-supported service identity, explicit per-principal credential binding, no cross-user token pooling, and an explicit approval — a distinct reviewed factory, not a reclassified one.
 - Credential files use owner-only Unix permissions and strongest existing Windows protection model.
 - No credentials in URLs, logs, captures, metrics, examples or support errors.
 - Authorization URLs containing retained ID-token hints are redacted.

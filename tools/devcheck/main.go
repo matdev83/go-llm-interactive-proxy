@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -15,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/testscope"
 )
 
 type testStats struct {
@@ -38,6 +41,10 @@ func run() error {
 	jobs := flag.Int("jobs", min(4, runtime.GOMAXPROCS(0)), "Go package and analyzer concurrency")
 	fresh := flag.Bool("fresh", false, "disable test result reuse for a deliberate fresh execution")
 	repeat := flag.Int("repeat", 1, "repeat identical checks to distinguish warm reuse from execution cost")
+	scope := flag.String("scope", "explicit", "explicit or changed local test scope")
+	base := flag.String("base", "", "changed-scope comparison reference (default origin/main)")
+	planOnly := flag.Bool("plan", false, "print changed-scope plan without running tests")
+	full := flag.Bool("full", false, "run all maintained modules' default tests instead of selecting")
 	flag.Parse()
 	if flag.NArg() != 0 || *jobs < 1 || *repeat < 1 {
 		return errors.New("jobs/repeat must be positive; use named flags for scope")
@@ -45,6 +52,23 @@ func run() error {
 	root, err := os.Getwd()
 	if err != nil {
 		return err
+	}
+	if *scope == "changed" {
+		if err := validateChangedScope(*task, *module, *packages); err != nil {
+			return err
+		}
+		start := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		plan, err := testscope.Build(ctx, root, testscope.Options{Base: *base, Full: *full})
+		cancel()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "planning_elapsed=%.3fs\n", time.Since(start).Seconds())
+		return runTestPlan(root, plan, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly}, os.Stdout, os.Stderr)
+	}
+	if *scope != "explicit" || *base != "" || *planOnly || *full {
+		return errors.New("base/plan/full require -scope=changed; scope must be explicit or changed")
 	}
 	dir, err := moduleDirectory(root, *module)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -301,6 +302,61 @@ func TestDescriptorAndInvocationValidation(t *testing.T) {
 	inv := sampleInvocation(text)
 	if err := inv.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestDescriptorValidate_OAuthUserImpliesLocalOnly mirrors the packaged-manifest
+// rule on the runtime FactoryDescriptor, so a connector cannot serve a posture its
+// own manifest would be rejected for. Both fields stay mandatory declarations: the
+// check only proves they agree and never infers a value.
+func TestDescriptorValidate_OAuthUserImpliesLocalOnly(t *testing.T) {
+	t.Parallel()
+	base := func(cred backendplugin.CredentialMode, scope backendplugin.AccessScope) backendplugin.PluginDescriptor {
+		return backendplugin.PluginDescriptor{
+			ProtocolMajor: 1,
+			PluginID:      "io.golip.oauth",
+			Version:       "1.0.0",
+			Factories: []backendplugin.FactoryDescriptor{{
+				Kind:           "user-credential",
+				CredentialMode: cred,
+				AccessScope:    scope,
+				ProcessSharing: backendplugin.ProcessSharingPerInstance,
+			}},
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		cred  backendplugin.CredentialMode
+		scope backendplugin.AccessScope
+	}{
+		{"oauth_user local_only", backendplugin.CredentialModeOAuthUser, backendplugin.AccessScopeLocalOnly},
+		{"static any", backendplugin.CredentialModeStatic, backendplugin.AccessScopeAny},
+		{"workload any", backendplugin.CredentialModeWorkload, backendplugin.AccessScopeAny},
+		{"none any", backendplugin.CredentialModeNone, backendplugin.AccessScopeAny},
+		{"none local_only", backendplugin.CredentialModeNone, backendplugin.AccessScopeLocalOnly},
+		{"unknown any", backendplugin.CredentialModeUnknown, backendplugin.AccessScopeAny},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if err := base(tc.cred, tc.scope).Validate(); err != nil {
+				t.Fatalf("valid posture rejected: %v", err)
+			}
+		})
+	}
+
+	err := base(backendplugin.CredentialModeOAuthUser, backendplugin.AccessScopeAny).Validate()
+	if err == nil {
+		t.Fatal("oauth_user with access_scope any must be rejected")
+	}
+	if !errors.Is(err, backendplugin.ErrInconsistentSecurityPosture) {
+		t.Fatalf("want %v, got %v", backendplugin.ErrInconsistentSecurityPosture, err)
+	}
+	if !errors.Is(err, backendplugin.ErrInvalidDescriptor) {
+		t.Fatalf("inconsistent posture must stay classified as an invalid descriptor, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "user-credential") {
+		t.Fatalf("error must name the offending factory kind: %v", err)
 	}
 }
 

@@ -45,6 +45,15 @@ var (
 	ErrAcceptedRequired = errors.New("backendplugin: accepted frame required first")
 	// ErrInvalidDescriptor is returned for an invalid plugin descriptor.
 	ErrInvalidDescriptor = errors.New("backendplugin: invalid plugin descriptor")
+	// ErrInconsistentSecurityPosture is returned when a descriptor factory declares
+	// credential_mode: oauth_user with an access scope other than local_only. Under
+	// the host principal model a user-scoped OAuth credential is never valid in a
+	// shared deployment, so advertising broad eligibility is self-contradictory. The
+	// same rule is enforced on the packaged manifest
+	// (manifest.ErrInconsistentExportSecurityPosture); keeping it here means a
+	// connector cannot serve a runtime descriptor its own manifest would be rejected
+	// for.
+	ErrInconsistentSecurityPosture = errors.New("backendplugin: inconsistent factory security posture")
 	// ErrInvalidInvocation is returned for an invalid invocation or usage presence mismatch.
 	ErrInvalidInvocation = errors.New("backendplugin: invalid invocation")
 	// ErrInvalidFrame is returned when a frame payload shape does not match its kind.

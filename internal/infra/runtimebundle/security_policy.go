@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 )
 
 func validateBackendSecurityProfiles(cfg *config.Config, reg *pluginreg.Registry) error {
@@ -18,6 +19,7 @@ func validateBackendSecurityProfiles(cfg *config.Config, reg *pluginreg.Registry
 		return fmt.Errorf("runtimebundle: backend security profile validation: %w", err)
 	}
 	multiUser := accessMode == accessmode.ModeMultiUser
+	multiUserPolicy := standardplugins.HostMultiUserBackendPolicy()
 	for _, p := range cfg.Plugins.Backends {
 		if !p.Enabled {
 			continue
@@ -37,8 +39,30 @@ func validateBackendSecurityProfiles(cfg *config.Config, reg *pluginreg.Registry
 		if err := validateBackendCredentialMode(profile.CredentialMode, p.InstanceID(), factoryID, multiUser); err != nil {
 			return err
 		}
+		if err := validateBackendMultiUserApproval(multiUserPolicy, factoryID, p.InstanceID(), multiUser); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func validateBackendMultiUserApproval(
+	policy standardplugins.MultiUserBackendPolicy,
+	factoryID, instanceID string,
+	multiUser bool,
+) error {
+	if !multiUser {
+		return nil
+	}
+	if policy.IsApproved(factoryID) {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w (instance %q factory %q): the standard distribution has not approved this backend for shared multi-user use; run a single-user loopback deployment instead, or use a backend whose credential is an operator API key, workload identity, or service account, and add an explicit entry to the host-owned multi-user approval policy",
+		ErrBackendNotApprovedForMultiUser,
+		instanceID,
+		factoryID,
+	)
 }
 
 func validateBackendAccessScope(scope pluginreg.BackendAccessScope, instanceID, factoryID string, multiUser bool) error {
