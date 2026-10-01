@@ -63,7 +63,7 @@
   - _Depends: 2.1_
   - _Validation: feature unit + fuzz tests_
 
-- [ ] 2.3 Add reserved-namespace and stale-workspace handling
+- [x] 2.3 Add reserved-namespace and stale-workspace handling
   - Treat `.__lip_v1__` and its path-flavor forms as fixed V1 syntax, not operator configuration.
   - Parse a recognized reserved alias before ordinary prefix matching; validate the exact 20-character workspace tag plus flavor/drive form.
   - If a selected reserved alias tag does not equal the tag derived from the current authoritative root, return bounded `workspace_mismatch` and never expand it against the current root.
@@ -358,3 +358,9 @@
 - Task 2.2: an empty `VirtualRoot` with `SkipReasonNone` means "usable root whose alias is not beneficial". Tasks 4.3/9.3 must translate that state into a bounded reason for requirement 7.6 skip accounting; requirement 1.8's enumeration does not cover it.
 - Task 2.2: `ExpandPath` returns `ExpandResultNotApplicable` for an alias it did not derive. Task 2.3 must REPLACE that fallthrough with reserved-alias pre-parsing, not merely add result codes — otherwise a stale alias would be passed through to the client.
 - Task 2.2: reserved-namespace collision is still open and pinned by `TestReservedNamespaceCollisionStaysOwnedByTaskTwoThree`; Task 2.3 owns the detection.
+- Task 2.3: reserved-alias recognition must NOT depend on the marker being the first segment below the path's OWN classified flavor. A first review round found that `/C:/.__lip_v1__/w_<tag>/...`, `//?/C:/...`, `//?/UNC/...` and `/?/C:/...` all classify as `FlavorPOSIX` (a supported absolute form) and were returned to the caller unchanged, breaking the fail-closed guarantee of requirements 4.4/6.5 and design step 6. Recognition now scans complete Windows volume spellings (`C:`, `?\C:`, `?\UNC`) independently of the classified flavor.
+- Task 2.3: reserved recognition is deliberately separator-AGNOSTIC (a `\` splits segments on POSIX too), unlike ordinary prefix matching which keeps POSIX `/`-only semantics. Splitting on `/` only was measured to fail 74 tests. Requirement 1.7 is unaffected because ordinary matching is unchanged.
+- Task 2.3: a real POSIX root shaped exactly `/C:/.__lip_v1__/...` (first directory literally named `C:` with a direct child named `.__lip_v1__`) is REJECTED as a reserved namespace rather than expanded. This is the required fail-closed trade; one level deeper (`/C:/projects/.__lip_v1__/...`) derives normally.
+- Task 2.3: PRE-EXISTING 2.2 quirk, fail-closed, tracked for later tasks. A real root spelled with a DOUBLE or TRIPLE trailing separator round-trips lossily: `VirtualizePath` then `ExpandPath` gains one boundary byte per round trip (design.md 152 mandates the real root's own spelling). A single trailing separator round-trips byte-exactly for all five flavors. A real path always reaches the client, never an alias.
+- Task 2.3: PRE-EXISTING 2.2 quirk, fail-closed, tracked for later tasks. `matchableRoot` trims a trailing `\` from a POSIX root even though POSIX treats `\` as an ordinary file-name byte (requirement 1.7), so `/home/.../proxy\` restores to `/home/.../proxy\sub/main.go`, which `stripRootPrefix` can no longer match. Consider trimming only `/` for POSIX in a later task.
+- Task 2.3: `ExpandPath`'s ordinary-matcher success branch is a defensive guard for a FUTURE alias spelling this build cannot recognize (verified unreachable for every V1 spelling). It is exercised by `TestExpandPathResolvesAnAliasSpellingThisBuildCannotRecognize`; do not read its coverage as proof that ordinary matching wins for any V1 alias.

@@ -67,6 +67,12 @@ const (
 	// SkipReasonDeviceNamespace marks a Windows device or NT-namespace path such
 	// as `\\.\PIPE\...` or `\\?\GLOBALROOT\...`.
 	SkipReasonDeviceNamespace SkipReason = "device_namespace"
+	// SkipReasonReservedNamespaceCollision marks a supported project root spelled
+	// inside the fixed V1 reserved alias namespace. Rewriting is disabled for that
+	// mapping: such a root's own paths would be indistinguishable from the
+	// reserved namespace, so a client path could never be told apart from an
+	// alias again (requirement 1.8).
+	SkipReasonReservedNamespaceCollision SkipReason = "reserved_namespace_collision"
 )
 
 // ParsedPath is the canonical lexical result of classifying one absolute path.
@@ -92,6 +98,10 @@ const (
 	// extendedPrefix introduces the Windows `\\?\` extended namespace, spelled
 	// here as it appears after the leading `\\`.
 	extendedPrefix = `?\`
+	// extendedQuery is the leading `?` of extendedPrefix on its own, used to spot
+	// an extended volume whose anchor the client spelled with a different
+	// separator.
+	extendedQuery = '?'
 	// devicePrefix introduces the Windows `\\.\` device namespace, spelled here
 	// as it appears after the leading `\\`.
 	devicePrefix = `.\`

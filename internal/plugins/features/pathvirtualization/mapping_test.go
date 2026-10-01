@@ -683,7 +683,8 @@ func TestMappingInactivityIsDistinguishableFromRejection(t *testing.T) {
 
 // TestDeriveMappingRejectsUnsupportedRoots keeps requirement 1.8 honest: an
 // unusable root yields a bounded reason code and a zero mapping rather than a
-// guess. Reserved-namespace collision handling belongs to task 2.3.
+// guess. Reserved-namespace collision roots carry their own bounded reason and are
+// covered by reserved_test.go.
 func TestDeriveMappingRejectsUnsupportedRoots(t *testing.T) {
 	t.Parallel()
 
@@ -724,7 +725,7 @@ func TestDeriveMappingRejectsUnsupportedRoots(t *testing.T) {
 // TestVirtualRootKeepsTheRealRootFlavor proves the alias is usable as a path of
 // the same absolute form: every derived virtual root reclassifies into the same
 // flavor as the real root it replaces, which is what the reserved-alias flavor
-// comparison in task 2.3 will rely on.
+// comparison in reserved.go relies on.
 func TestVirtualRootKeepsTheRealRootFlavor(t *testing.T) {
 	t.Parallel()
 
@@ -737,8 +738,8 @@ func TestVirtualRootKeepsTheRealRootFlavor(t *testing.T) {
 				t.Fatalf("reason = %q", reason)
 			}
 			if got.VirtualRoot == "" {
-				// An inactive mapping derives no alias; task 2.3 owns the
-				// reserved-namespace collision checks.
+				// An inactive mapping derives no alias; a root colliding
+				// with the reserved namespace never gets this far.
 				if tc.wantVirtual != "" {
 					t.Fatalf("mapping for %q is inactive, want alias %q", tc.root, tc.wantVirtual)
 				}
@@ -1096,18 +1097,22 @@ func expandCases() []expandCase {
 			wantRes:  expanded,
 		},
 		{
-			name:     "posix_foreign_tag_is_not_expanded",
-			root:     `/home/dev/projects/go-llm-interactive-proxy`,
-			path:     `/.__lip_v1__/w_aaaaaaaaaaaaaaaaaaaa/src/main.go`,
-			wantPath: `/.__lip_v1__/w_aaaaaaaaaaaaaaaaaaaa/src/main.go`,
-			wantRes:  untouched,
+			// A reserved alias of another workspace is no longer passed through as
+			// an ordinary client path: it is rejected with a bounded reason.
+			name: "posix_foreign_tag_is_rejected_as_a_mismatch",
+			root: `/home/dev/projects/go-llm-interactive-proxy`,
+			path: `/.__lip_v1__/w_aaaaaaaaaaaaaaaaaaaa/src/main.go`,
+			// A rejection returns no path value at all, so an alias can never be
+			// released to the client even when the caller ignores the result.
+			wantPath: "",
+			wantRes:  pathvirtualization.ExpandResultWorkspaceMismatch,
 		},
 		{
-			name:     "posix_alias_mid_segment_is_not_expanded",
+			name:     "posix_alias_mid_segment_is_malformed",
 			root:     `/home/dev/projects/go-llm-interactive-proxy`,
 			path:     `/.__lip_v1__/w_ylfucd77chy74zh3qwmaX/src/main.go`,
-			wantPath: `/.__lip_v1__/w_ylfucd77chy74zh3qwmaX/src/main.go`,
-			wantRes:  untouched,
+			wantPath: "",
+			wantRes:  pathvirtualization.ExpandResultMalformedReservedAlias,
 		},
 		{
 			name:     "real_path_is_never_expanded",
@@ -1131,11 +1136,13 @@ func expandCases() []expandCase {
 			wantRes:  untouched,
 		},
 		{
-			name:     "inactive_posix_mapping_never_expands",
-			root:     `/a/b`,
-			path:     `/.__lip_v1__/w_v4vm5apmwzenoijignaq/src/main.go`,
-			wantPath: `/.__lip_v1__/w_v4vm5apmwzenoijignaq/src/main.go`,
-			wantRes:  untouched,
+			name: "inactive_posix_mapping_rejects_its_own_alias",
+			root: `/a/b`,
+			path: `/.__lip_v1__/w_v4vm5apmwzenoijignaq/src/main.go`,
+			// The root is usable, but its alias is not beneficial, so it never emits
+			// one: no alias of this workspace can be resolved against it.
+			wantPath: "",
+			wantRes:  pathvirtualization.ExpandResultWorkspaceMismatch,
 		},
 		{
 			name:     "drive_alias_is_expanded",
@@ -1152,11 +1159,11 @@ func expandCases() []expandCase {
 			wantRes:  expanded,
 		},
 		{
-			name:     "posix_alias_under_a_drive_mapping_is_untouched",
+			name:     "posix_alias_under_a_drive_mapping_is_a_mismatch",
 			root:     `C:\Users\dev\source\repos\go-llm-interactive-proxy`,
 			path:     `/.__lip_v1__/w_ylfucd77chy74zh3qwma/src/main.go`,
-			wantPath: `/.__lip_v1__/w_ylfucd77chy74zh3qwma/src/main.go`,
-			wantRes:  untouched,
+			wantPath: "",
+			wantRes:  pathvirtualization.ExpandResultWorkspaceMismatch,
 		},
 		{
 			name:     "unc_alias_is_expanded",
@@ -1180,19 +1187,20 @@ func expandCases() []expandCase {
 			wantRes:  expanded,
 		},
 		{
-			name:     "extended_alias_under_a_plain_drive_mapping_is_untouched",
+			name:     "extended_alias_under_a_plain_drive_mapping_is_a_mismatch",
 			root:     `C:\Users\dev\source\repos\go-llm-interactive-proxy`,
 			path:     `\\?\C:\.__lip_v1__\w_xlocyx2rtgrjkuj4cr3q\src\main.go`,
-			wantPath: `\\?\C:\.__lip_v1__\w_xlocyx2rtgrjkuj4cr3q\src\main.go`,
-			wantRes:  untouched,
+			wantPath: "",
+			wantRes:  pathvirtualization.ExpandResultWorkspaceMismatch,
 		},
 	}
 }
 
 // TestExpandPathInversePrefixMapping pins design.md 152: expansion reconstructs
-// the mapping's original RealRoot spelling plus the untouched suffix. Reserved
-// alias validation and stale-workspace rejection belong to task 2.3, so this
-// table only covers aliases whose tag already matches the mapping.
+// the mapping's original RealRoot spelling plus the untouched suffix. The rows
+// that carry a foreign or incompatible reserved alias assert the bounded rejection
+// outcomes of design.md 186-195 instead of a pass-through; reserved_test.go owns
+// the full recognition vocabulary.
 func TestExpandPathInversePrefixMapping(t *testing.T) {
 	t.Parallel()
 
@@ -1214,25 +1222,22 @@ func TestExpandPathInversePrefixMapping(t *testing.T) {
 			if result == pathvirtualization.ExpandResultNotApplicable && got != tc.path {
 				t.Errorf("ExpandPath(%q) reported no expansion but returned %q", tc.path, got)
 			}
+			if result != pathvirtualization.ExpandResultNotApplicable &&
+				result != pathvirtualization.ExpandResultExpanded && got != "" {
+				t.Errorf("ExpandPath(%q) rejected with %v but still returned %q", tc.path, result, got)
+			}
 		})
 	}
 }
 
-// TestExpandPathReservedAliasSeamIsOwnedByTaskTwoThree makes the task 2.3
-// handoff seam explicit and test-visible instead of an implicit landmine.
-//
-// Today a syntactically recognized V1 reserved alias that this mapping did not
-// derive falls through to ExpandResultNotApplicable, i.e. it is returned to the
-// caller unchanged. That is the correct behavior for task 2.2, which has no
-// reserved-alias vocabulary of its own. Task 2.3 must REPLACE this fallthrough,
-// not merely add result codes: per design.md 186-195, reserved-alias parsing runs
-// BEFORE ordinary real-root prefix matching, so a malformed alias must be
-// reported as a bounded reason and an alias of another workspace must be reported
-// as a workspace mismatch, never handed back as an ordinary client path.
-//
-// These rows pin the current seam. Task 2.3 rewrites them into the bounded
-// malformed/mismatch outcomes; the test name keeps that replacement visible.
-func TestExpandPathReservedAliasSeamIsOwnedByTaskTwoThree(t *testing.T) {
+// TestExpandPathReservedAliasSeamNowFailsClosed closes the task 2.2 handoff seam.
+// Task 2.2 had no reserved-alias vocabulary, so an alias it did not derive fell
+// through to ExpandResultNotApplicable and was handed back to the caller as an
+// ordinary client path. Task 2.3 REPLACED that fallthrough: per design.md 186-195,
+// reserved-alias parsing runs BEFORE ordinary prefix matching, so every row below
+// now ends in a bounded reason and never in a pass-through. The row names are kept
+// so the replacement stays greppable against the task 2.2 notes.
+func TestExpandPathReservedAliasSeamNowFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	const root = `/home/dev/projects/go-llm-interactive-proxy`
@@ -1246,72 +1251,60 @@ func TestExpandPathReservedAliasSeamIsOwnedByTaskTwoThree(t *testing.T) {
 	}
 
 	cases := []struct {
-		name string
-		path string
+		name    string
+		path    string
+		wantRes pathvirtualization.ExpandResult
 	}{
-		{name: "foreign_workspace_alias", path: `/.__lip_v1__/w_aaaaaaaaaaaaaaaaaaaa/src/main.go`},
-		{name: "malformed_short_tag", path: `/.__lip_v1__/w_tooshort/src/main.go`},
-		{name: "malformed_missing_tag", path: `/.__lip_v1__/src/main.go`},
-		{name: "alias_mid_segment", path: `/.__lip_v1__/w_ylfucd77chy74zh3qwmaX/src/main.go`},
-		{name: "drive_alias_under_a_posix_mapping", path: `C:\.__lip_v1__\w_ilcrzjze5qdqueaesaxa\src\main.go`},
+		{name: "foreign_workspace_alias", path: `/.__lip_v1__/w_aaaaaaaaaaaaaaaaaaaa/src/main.go`,
+			wantRes: pathvirtualization.ExpandResultWorkspaceMismatch},
+		{name: "malformed_short_tag", path: `/.__lip_v1__/w_tooshort/src/main.go`,
+			wantRes: pathvirtualization.ExpandResultMalformedReservedAlias},
+		{name: "malformed_missing_tag", path: `/.__lip_v1__/src/main.go`,
+			wantRes: pathvirtualization.ExpandResultMalformedReservedAlias},
+		{name: "alias_mid_segment", path: `/.__lip_v1__/w_ylfucd77chy74zh3qwmaX/src/main.go`,
+			wantRes: pathvirtualization.ExpandResultMalformedReservedAlias},
+		{name: "drive_alias_under_a_posix_mapping", path: `C:\.__lip_v1__\w_ilcrzjze5qdqueaesaxa\src\main.go`,
+			wantRes: pathvirtualization.ExpandResultWorkspaceMismatch},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			got, result := mapping.ExpandPath(tc.path)
-			if got != tc.path {
-				t.Errorf("ExpandPath(%q) = %q, want it returned unchanged", tc.path, got)
+			if result != tc.wantRes {
+				t.Errorf("ExpandPath(%q) result = %v, want %v", tc.path, result, tc.wantRes)
 			}
-			// Task 2.3 replaces this outcome with a bounded reason; until then a
-			// non-matching alias is simply not applicable.
-			if result != pathvirtualization.ExpandResultNotApplicable {
-				t.Errorf("ExpandPath(%q) result = %v, want %v until task 2.3 replaces the fallthrough",
-					tc.path, result, pathvirtualization.ExpandResultNotApplicable)
+			// A rejection releases no path value at all, so the reserved namespace
+			// can never reach the client through an ignored result code.
+			if got != "" {
+				t.Errorf("ExpandPath(%q) = %q, want no path value for %v", tc.path, got, tc.wantRes)
 			}
 		})
 	}
 }
 
-// TestReservedNamespaceCollisionStaysOwnedByTaskTwoThree records the one known
-// open collision: a project root spelled inside the reserved V1 namespace derives
-// an alias nested inside that namespace. Task 2.2 deliberately does not detect it
-// (requirements 1.8 and tasks.md 70 assign collision detection to task 2.3), so
-// this test pins the current behavior instead of asserting a fix that does not
-// belong here. What matters now is that the shape is handled self-consistently:
-// the mapping virtualizes and expands its own paths, so nothing is corrupted
-// before 2.3 rejects the root outright.
+// TestReservedNamespaceCollisionStaysOwnedByTaskTwoThree keeps the one collision
+// case the task 2.2 handoff left open visible here. Task 2.2 deliberately did not
+// detect it (requirements 1.8 and tasks.md 70 assign collision detection to task
+// 2.3), so this fixture used to derive an alias nested inside the reserved
+// namespace; task 2.3 rejects the root outright. reserved_test.go owns the full
+// collision table across every flavor.
 func TestReservedNamespaceCollisionStaysOwnedByTaskTwoThree(t *testing.T) {
 	t.Parallel()
 
 	const root = `C:\.__lip_v1__\w_abcdefghijklmnopqrstxx`
 	mapping, reason := pathvirtualization.DeriveMapping(root)
-	if reason != pathvirtualization.SkipReasonNone {
-		t.Fatalf("DeriveMapping(%q) reason = %q; task 2.2 does not reject a root for namespace collision", root, reason)
+	if reason != pathvirtualization.SkipReasonReservedNamespaceCollision {
+		t.Fatalf("DeriveMapping(%q) reason = %q, want the bounded collision reason", root, reason)
 	}
-	if mapping.RealRoot != root {
-		t.Fatalf("RealRoot = %q, want %q", mapping.RealRoot, root)
+	if mapping != (pathvirtualization.Mapping{}) {
+		t.Fatalf("colliding root %q returned %+v, want a zero Mapping", root, mapping)
 	}
-	// The alias is nested in the reserved namespace, which task 2.3 must reject.
-	if !strings.Contains(mapping.VirtualRoot, reservedNamespaceV1) {
-		t.Fatalf("virtual root = %q, want an alias inside the reserved namespace", mapping.VirtualRoot)
+	if mapping.VirtualRoot != "" || mapping.WorkspaceTag != "" {
+		t.Fatalf("colliding root %q derived %+v, want neither tag nor alias", root, mapping)
 	}
-	if mapping.VirtualRoot == "" {
-		t.Fatal("mapping for a reserved-namespace root is inactive; the shorter-than gate must not change this shape")
-	}
-	// The mapping must still round-trip its own paths, so the collision cannot
-	// corrupt a path before task 2.3 handles it.
-	real := root + `\src/main.go`
-	alias, changed := mapping.VirtualizePath(real)
-	if !changed {
-		t.Fatalf("VirtualizePath(%q) reported no change; the shape would be untestable", real)
-	}
-	back, result := mapping.ExpandPath(alias)
-	if result != pathvirtualization.ExpandResultExpanded {
-		t.Fatalf("ExpandPath(%q) result = %v", alias, result)
-	}
-	if back != real {
-		t.Errorf("ExpandPath(%q) = %q, want %q", alias, back, real)
+	if !strings.Contains(root, reservedNamespaceV1) {
+		t.Fatalf("fixture %q no longer collides with the reserved namespace", root)
 	}
 }
 
@@ -1519,6 +1512,93 @@ func TestExpandPathReversesVirtualizePath(t *testing.T) {
 	}
 }
 
+// TestExpandPathResolvesAnAliasSpellingThisBuildCannotRecognize covers the
+// ordinary-matcher guard in ExpandPath, and states exactly which inputs reach it:
+// a mapping whose VirtualRoot spells an alias this build does not recognize, which
+// no alias the V1 derivation emits today.
+//
+// Every spelling the current derivation emits, in its derived and in its separator-
+// and anchor-mangled forms, is recognized by reserved parsing first, which
+// TestNoSpellingOfTheOwnAliasReachesTheCaller pins. The guard therefore exists for
+// one direction only: a mapping carrying an unrecognized alias spelling must still
+// expand it against the real root, so an alias never reaches the client because
+// this build does not know its spelling. It resolves, it does not guess: the prefix
+// must match VirtualRoot exactly, under the flavor's own comparison rules and
+// ending on a segment boundary.
+func TestExpandPathResolvesAnAliasSpellingThisBuildCannotRecognize(t *testing.T) {
+	t.Parallel()
+
+	// A future namespace marker stands for an alias spelling this build cannot
+	// recognize: the fixed V1 marker is the only reserved one, so reserved parsing
+	// declines it and the ordinary matcher owns the path.
+	mapping := pathvirtualization.Mapping{
+		Flavor:       pathvirtualization.FlavorWindowsDrive,
+		RealRoot:     `C:\projects\workspace`,
+		WorkspaceTag: "ylfucd77chy74zh3qwma",
+		VirtualRoot:  `C:\.__lip_v2__\w_ylfucd77chy74zh3qwma\`,
+	}
+	for _, tc := range []struct {
+		name     string
+		path     string
+		wantPath string
+		wantRes  pathvirtualization.ExpandResult
+	}{
+		{
+			name:     "unrecognized_alias_expands_against_the_real_root",
+			path:     `C:\.__lip_v2__\w_ylfucd77chy74zh3qwma\src\main.go`,
+			wantPath: `C:\projects\workspace\src\main.go`,
+			wantRes:  pathvirtualization.ExpandResultExpanded,
+		},
+		{
+			// Requirement 1.6: Windows matching folds ASCII case and treats both
+			// separators as equivalent, so the guard matches the way the derivation
+			// spells its own alias.
+			name:     "unrecognized_alias_is_case_and_separator_tolerant",
+			path:     `c:/.__lip_v2__/W_YLFUCD77CHY74ZH3QWMA/src/main.go`,
+			wantPath: `C:\projects\workspace/src/main.go`,
+			wantRes:  pathvirtualization.ExpandResultExpanded,
+		},
+		{
+			// The match must end on a segment boundary, so a mid-segment hit is not
+			// an alias of this mapping.
+			name:     "mid_segment_hit_is_not_expanded",
+			path:     `C:\.__lip_v2__\w_ylfucd77chy74zh3qwmaX\src\main.go`,
+			wantPath: `C:\.__lip_v2__\w_ylfucd77chy74zh3qwmaX\src\main.go`,
+			wantRes:  pathvirtualization.ExpandResultNotApplicable,
+		},
+		{
+			name:     "unrelated_path_is_not_expanded",
+			path:     `C:\projects\workspace\src\main.go`,
+			wantPath: `C:\projects\workspace\src\main.go`,
+			wantRes:  pathvirtualization.ExpandResultNotApplicable,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, result := mapping.ExpandPath(tc.path)
+			if got != tc.wantPath {
+				t.Errorf("ExpandPath(%q) = %q, want %q", tc.path, got, tc.wantPath)
+			}
+			if result != tc.wantRes {
+				t.Errorf("ExpandPath(%q) result = %v, want %v", tc.path, result, tc.wantRes)
+			}
+		})
+	}
+
+	// A mapping with no alias at all has no ordinary prefix to match, so the guard
+	// cannot resurrect one.
+	inactive := pathvirtualization.Mapping{
+		Flavor:   pathvirtualization.FlavorWindowsDrive,
+		RealRoot: `C:\projects\workspace`,
+	}
+	const alias = `C:\.__lip_v2__\w_ylfucd77chy74zh3qwma\src\main.go`
+	if got, result := inactive.ExpandPath(alias); got != alias || result != pathvirtualization.ExpandResultNotApplicable {
+		t.Errorf("ExpandPath(%q) = %q/%v on a mapping with no alias, want it untouched",
+			alias, got, result)
+	}
+}
+
 // TestExpandPathIsIdempotentOnRealPaths proves a model-emitted real path that
 // never left the client namespace is handed back untouched.
 func TestExpandPathIsIdempotentOnRealPaths(t *testing.T) {
@@ -1685,6 +1765,17 @@ func TestWorkspaceTagIsNeverEmittedInBoundedDiagnostics(t *testing.T) {
 		}
 		if label := pathvirtualization.ExpandResultNotApplicable.String(); strings.Contains(label, mapping.WorkspaceTag) {
 			t.Errorf("expansion label %q leaks the workspace tag", label)
+		}
+		// The bounded reserved-alias rejections are diagnostics too, so they must
+		// stay as fixed as the pass-through labels.
+		for _, label := range []string{
+			pathvirtualization.ExpandResultMalformedReservedAlias.String(),
+			pathvirtualization.ExpandResultWorkspaceMismatch.String(),
+			string(pathvirtualization.SkipReasonReservedNamespaceCollision),
+		} {
+			if strings.Contains(label, mapping.WorkspaceTag) {
+				t.Errorf("reserved-alias reason %q leaks the workspace tag", label)
+			}
 		}
 		if label := mapping.Flavor.String(); strings.Contains(label, mapping.WorkspaceTag) {
 			t.Errorf("flavor label %q leaks the workspace tag", label)

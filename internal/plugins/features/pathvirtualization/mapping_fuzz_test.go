@@ -101,14 +101,24 @@ func FuzzMappingVirtualizeExpandRoundTrip(f *testing.F) {
 	f.Fuzz(func(t *testing.T, root, path string) {
 		mapping, reason := pathvirtualization.DeriveMapping(root)
 		if reason != pathvirtualization.SkipReasonNone {
-			// A rejected root must leave every path untouched.
+			// A rejected root must leave every path untouched, and a reserved alias
+			// must still fail closed: with no usable mapping, no alias resolves.
 			virtual, changed := mapping.VirtualizePath(path)
 			if changed || virtual != path {
 				t.Fatalf("rejected root %q rewrote %q to %q", root, path, virtual)
 			}
 			expanded, result := mapping.ExpandPath(path)
-			if result != pathvirtualization.ExpandResultNotApplicable || expanded != path {
+			switch result {
+			case pathvirtualization.ExpandResultExpanded:
 				t.Fatalf("rejected root %q expanded %q to %q", root, path, expanded)
+			case pathvirtualization.ExpandResultNotApplicable:
+				if expanded != path {
+					t.Fatalf("rejected root %q returned %q for an ordinary path", root, expanded)
+				}
+			default:
+				if expanded != "" {
+					t.Fatalf("rejected root %q returned %q for a rejected alias", root, expanded)
+				}
 			}
 			return
 		}
@@ -130,21 +140,53 @@ func FuzzMappingVirtualizeExpandRoundTrip(f *testing.F) {
 			// path spells the mapping's real root exactly, expansion must
 			// reproduce the path itself; the only lossy case is a real root that
 			// carries its own trailing separator, whose spelling wins instead.
+			exact := realRootSpelledExactly(mapping, path)
 			restored, result := mapping.ExpandPath(virtual)
 			if result != pathvirtualization.ExpandResultExpanded {
 				t.Fatalf("ExpandPath(%q) result = %v, want expanded", virtual, result)
 			}
-			if realRootSpelledExactly(mapping, path) && restored != path {
+			if exact && restored != path {
 				t.Fatalf("round trip is lossy: %q -> %q -> %q", path, virtual, restored)
 			}
-			revirtualized, changedAgain := mapping.VirtualizePath(restored)
-			if !changedAgain || revirtualized != virtual {
-				t.Fatalf("round trip is not reversible: %q -> %q -> %q -> %q",
-					path, virtual, restored, revirtualized)
+			// Re-virtualizing the restored path must return the same alias, so the
+			// namespace translation is an involution. That is a property of a
+			// byte-exact round trip only, under the same precondition the
+			// restoration check above uses. Outside it, expansion substituted the
+			// mapping's own real-root spelling (design.md 152), so the restored path
+			// carries different boundary bytes: a real root whose trailing separator
+			// is part of the root, or a path that spells the root with different case
+			// or separator style. Such a restored path need not be virtualizable again
+			// at all.
+			//
+			// The property that holds in both cases is checked below: expansion yields
+			// a real path that carries no alias, and virtualizing an alias is a no-op.
+			if exact {
+				revirtualized, changedAgain := mapping.VirtualizePath(restored)
+				if !changedAgain || revirtualized != virtual {
+					t.Fatalf("round trip is not reversible: %q -> %q -> %q -> %q",
+						path, virtual, restored, revirtualized)
+				}
 			}
 			// Expansion hands the client a real path, never an alias.
 			if strings.Contains(restored, reservedNamespaceV1) {
 				t.Fatalf("expanded path %q still carries the reserved namespace", restored)
+			}
+			// A lossy round trip must not drift: if the restored path can be
+			// virtualized again, the second alias still expands to a real-root path
+			// and still leaks no alias, so repeated translation stays inside the two
+			// namespaces no matter which spelling the client used.
+			if second, changedSecond := mapping.VirtualizePath(restored); changedSecond {
+				secondReal, secondResult := mapping.ExpandPath(second)
+				if secondResult != pathvirtualization.ExpandResultExpanded {
+					t.Fatalf("ExpandPath(%q) result = %v, want expanded", second, secondResult)
+				}
+				if !strings.HasPrefix(secondReal, mapping.RealRoot) {
+					t.Fatalf("second round trip expanded %q to %q, want a path under %q",
+						second, secondReal, mapping.RealRoot)
+				}
+				if strings.Contains(secondReal, reservedNamespaceV1) {
+					t.Fatalf("second round trip produced %q, which still carries the reserved namespace", secondReal)
+				}
 			}
 		}
 		// Reapplying virtualization to an already virtualized path is a no-op.
@@ -160,8 +202,18 @@ func FuzzMappingVirtualizeExpandRoundTrip(f *testing.F) {
 			if result == pathvirtualization.ExpandResultExpanded {
 				t.Fatalf("ExpandPath(%q) reported expansion but returned %q", path, expanded)
 			}
-			if expanded != path {
-				t.Fatalf("ExpandPath(%q) returned %q without reporting an expansion", path, expanded)
+			switch result {
+			case pathvirtualization.ExpandResultNotApplicable:
+				if expanded != path {
+					t.Fatalf("ExpandPath(%q) returned %q without reporting an expansion", path, expanded)
+				}
+			default:
+				// A rejected reserved alias releases no path value at all, so the
+				// namespace can never leak out through an ignored result code.
+				if expanded != "" {
+					t.Fatalf("ExpandPath(%q) rejected with %v but still returned %q",
+						path, result, expanded)
+				}
 			}
 		}
 	})

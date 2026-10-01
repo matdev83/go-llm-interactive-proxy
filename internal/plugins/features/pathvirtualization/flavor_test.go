@@ -10,8 +10,9 @@ import (
 //
 // Every expectation is a host-independent constant: the table below must pass
 // unchanged on Linux, macOS, and Windows, because a client path may name a
-// foreign operating system. Reserved-namespace alias parsing and stale-workspace
-// rules are owned by task 2.3 and are deliberately absent from this table.
+// foreign operating system. Reserved-namespace alias parsing and the
+// stale-workspace rules live in reserved_test.go and are deliberately absent from
+// this table, which covers one lexical concern only.
 type flavorCase struct {
 	name       string
 	path       string
@@ -127,29 +128,51 @@ func TestClassifyPathRejectionsAreDistinguishable(t *testing.T) {
 	}
 }
 
-// TestClassifyPathRejectionReasonsAreBounded pins the closed reason set so a
-// later task cannot invent an unbounded code.
+// TestClassifyPathRejectionReasonsAreBounded pins the closed reason vocabulary of
+// the package so a later task cannot invent an unbounded code.
+//
+// Two bounded enums feed the same observability dimension of design.md 408: the
+// SkipReason a project root is rejected with, and the ExpandResult an expansion is
+// classified as. seen is collected from every table that can produce a code, so a
+// code added without a table row, or a table row with an unlisted code, both fail
+// here.
 func TestClassifyPathRejectionReasonsAreBounded(t *testing.T) {
 	t.Parallel()
 
-	known := map[pathvirtualization.SkipReason]bool{
-		pathvirtualization.SkipReasonNone:                true,
-		pathvirtualization.SkipReasonEmptyRoot:           true,
-		pathvirtualization.SkipReasonRelativeRoot:        true,
-		pathvirtualization.SkipReasonMalformedVolumeRoot: true,
-		pathvirtualization.SkipReasonDeviceNamespace:     true,
+	known := map[string]bool{
+		// SkipReason codes: none, unusable roots, and reserved-namespace collision.
+		"": true,
+		string(pathvirtualization.SkipReasonEmptyRoot):                  true,
+		string(pathvirtualization.SkipReasonRelativeRoot):               true,
+		string(pathvirtualization.SkipReasonMalformedVolumeRoot):        true,
+		string(pathvirtualization.SkipReasonDeviceNamespace):            true,
+		string(pathvirtualization.SkipReasonReservedNamespaceCollision): true,
+		// ExpandResult codes: pass-through, expansion, and the two fail-closed
+		// reserved-alias rejections.
+		pathvirtualization.ExpandResultNotApplicable.String():          true,
+		pathvirtualization.ExpandResultExpanded.String():               true,
+		pathvirtualization.ExpandResultMalformedReservedAlias.String(): true,
+		pathvirtualization.ExpandResultWorkspaceMismatch.String():      true,
 	}
-	seen := map[pathvirtualization.SkipReason]bool{}
+	seen := map[string]bool{}
 	for _, tc := range flavorCases() {
-		seen[tc.wantReason] = true
+		seen[string(tc.wantReason)] = true
+	}
+	for _, tc := range reservedRootCases() {
+		if tc.wantCollision {
+			seen[string(pathvirtualization.SkipReasonReservedNamespaceCollision)] = true
+		}
+	}
+	for _, tc := range reservedAliasCases() {
+		seen[tc.wantRes.String()] = true
 	}
 	for reason := range seen {
 		if !known[reason] {
-			t.Errorf("table declares unknown reason code %q", reason)
+			t.Errorf("a table declares unknown reason code %q", reason)
 		}
 	}
 	if len(seen) != len(known) {
-		t.Errorf("table covers %d reason codes, want all %d bounded codes", len(seen), len(known))
+		t.Errorf("tables cover %d reason codes, want all %d bounded codes", len(seen), len(known))
 	}
 }
 

@@ -33,8 +33,6 @@ type Mapping struct {
 // ExpandResult is the bounded, path-content-free outcome of one reverse expansion
 // attempt. It is an enum because the value only ever reaches fixed-count
 // dimensions; it never carries path bytes, suffixes, or digests.
-//
-// Task 2.3 widens it with the reserved-alias rejection outcomes.
 type ExpandResult uint8
 
 const (
@@ -44,6 +42,17 @@ const (
 	// ExpandResultExpanded marks a path whose alias prefix was replaced by the
 	// mapping's RealRoot plus the untouched suffix.
 	ExpandResultExpanded
+	// ExpandResultMalformedReservedAlias marks a recognized V1 reserved alias whose
+	// workspace tag segment is not exactly the frozen `w_` plus 20 base32
+	// characters. Such a path is never expanded and never handed back as an
+	// ordinary client path.
+	ExpandResultMalformedReservedAlias
+	// ExpandResultWorkspaceMismatch marks a well-formed reserved alias that does
+	// not name the current mapping: another project root's tag, an incompatible
+	// alias flavor or drive, or a mapping with no active alias. It is the stale
+	// workspace outcome of requirement 6.5, and it is never expanded against the
+	// current root.
+	ExpandResultWorkspaceMismatch
 )
 
 // String returns the fixed, low-cardinality label for an expansion outcome. It is
@@ -54,6 +63,10 @@ func (r ExpandResult) String() string {
 		return "not_applicable"
 	case ExpandResultExpanded:
 		return "expanded"
+	case ExpandResultMalformedReservedAlias:
+		return "malformed_reserved_alias"
+	case ExpandResultWorkspaceMismatch:
+		return "workspace_mismatch"
 	default:
 		return "unknown"
 	}
@@ -69,6 +82,10 @@ const (
 	// workspaceTagBytes is the digest prefix length: 96 bits, which encodes as
 	// exactly 20 unpadded base32 characters.
 	workspaceTagBytes = 12
+	// workspaceTagChars is that encoded length. A reserved alias is recognized
+	// only when its tag segment is exactly this long, so the constant is the
+	// contract a malformed alias is rejected against.
+	workspaceTagChars = 20
 	// tagDomainV1 version-separates this derivation from any other SHA-256 use, so
 	// the V1 tag algorithm cannot drift silently.
 	tagDomainV1 = "lip:path-virtualization:v1"
@@ -87,7 +104,8 @@ var tagEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
 // root without filesystem I/O, host path semantics, or any stored dictionary.
 //
 // It returns a bounded reason code for a root that is not one of the five
-// supported absolute forms. A supported root always yields its RealRoot and its
+// supported absolute forms and for a supported root spelled inside the fixed V1
+// reserved alias namespace. A supported root always yields its RealRoot and its
 // WorkspaceTag; outbound virtualization additionally stays active only when the
 // complete virtual root is strictly shorter both than the real root and than the
 // prefix that prefix matching actually replaces.
@@ -95,6 +113,14 @@ func DeriveMapping(projectRoot string) (Mapping, SkipReason) {
 	parsed, reason := ClassifyPath(projectRoot)
 	if reason != SkipReasonNone {
 		return Mapping{}, reason
+	}
+	// Requirement 1.8: a root inside the reserved namespace is unusable rather than
+	// merely awkward. Its own alias would be nested in that namespace, and every
+	// path under the root would then be recognized as a reserved alias instead of
+	// a client path, so rewriting is disabled with a bounded reason instead of
+	// guessing which spelling the client meant.
+	if _, reserved := parseReservedAlias(projectRoot); reserved {
+		return Mapping{}, SkipReasonReservedNamespaceCollision
 	}
 	mapping := Mapping{
 		Flavor:       parsed.Flavor,
@@ -143,19 +169,22 @@ func (m Mapping) VirtualizePath(path string) (string, bool) {
 // ExpandPath replaces a leading VirtualRoot prefix with RealRoot plus the
 // untouched suffix, reconstructing the mapping's original real-root spelling.
 //
-// Reserved-namespace parsing and stale-workspace rejection are deliberately not
-// applied here: this task has no reserved-alias vocabulary, so an alias this
-// mapping did not derive simply does not match and is reported unchanged instead
-// of being reinterpreted as a client path.
+// Reserved-alias recognition runs BEFORE ordinary prefix matching (design.md
+// 186-195), so a path that spells the fixed V1 reserved namespace at an alias-root
+// position is never handled as an ordinary path: a malformed alias is reported as
+// ExpandResultMalformedReservedAlias, an alias that does not name this mapping is
+// reported as ExpandResultWorkspaceMismatch, and both rejections return no path
+// value at all, so a reserved alias can never be released to the client.
 //
-// Task 2.3 owns the replacement of that fallthrough. It must intercept every
-// syntactically recognized V1 reserved alias BEFORE ordinary prefix matching
-// (design.md 186-195) and report a bounded reason for a malformed alias or for a
-// workspace mismatch, rather than only adding result codes beside
-// ExpandResultNotApplicable, which would keep passing a stale alias through to
-// the client. Task 2.3 also owns reserved-namespace collision detection for a root
-// that is itself spelled inside the reserved namespace.
+// Recognition covers every alias root this build derives, in its derived spelling
+// and in the separator- and anchor-mangled spellings of it, so the ordinary
+// matcher is a guard rather than the normal path: it keeps expansion resolving
+// against the real root if a later version emits an alias spelling this build does
+// not recognize, instead of returning that alias unchanged.
 func (m Mapping) ExpandPath(path string) (string, ExpandResult) {
+	if alias, reserved := parseReservedAlias(path); reserved {
+		return m.expandReservedAlias(alias)
+	}
 	if m.VirtualRoot == "" {
 		return path, ExpandResultNotApplicable
 	}
