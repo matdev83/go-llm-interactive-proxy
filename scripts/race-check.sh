@@ -98,7 +98,9 @@ else
 		echo "$packages_list" >&2
 		exit 1
 	}
-	mapfile -t PACKAGES < <(printf '%s\n' "$packages_list" | grep -vE '/internal/archtest(/|$)')
+	# Exhaustive billing sweeps and durable runtime tests must not compete with
+	# the broad scan for CPU. Every package still runs once with both tags.
+	mapfile -t PACKAGES < <(printf '%s\n' "$packages_list" | grep -vE '/internal/archtest(/|$)|/internal/core/(billing|runtime)$')
 	if [[ ${#PACKAGES[@]} -eq 0 ]]; then
 		echo "ERROR: race scan package set is empty; refusing to run go test with no package args" >&2
 		exit 1
@@ -106,7 +108,9 @@ else
 fi
 
 declare -a GO_ARGS
-GO_ARGS=("test" "-race" "-tags=precommit,integration" "-count=1")
+# Bound package and in-package parallelism independently: Go defaults allow
+# both layers to consume the full CPU count at the same time.
+GO_ARGS=("test" "-race" "-tags=precommit,integration" "-count=1" "-p=4" "-parallel=4")
 
 LOG_FILE=".tmp/race-check.log"
 : >"$LOG_FILE"
@@ -122,6 +126,10 @@ echo "Running race detector scan: go ${GO_ARGS[*]} ${PACKAGES[*]}"
 set +e
 run_race_scan "${PACKAGES[@]}"
 if [[ "$STAGED" != true ]]; then
+	echo "Running exhaustive billing race scan separately (25m package timeout)"
+	run_race_scan -timeout=25m ./internal/core/billing
+	echo "Running durable runtime race scan separately"
+	run_race_scan ./internal/core/runtime
 	echo "Running archtest race scan separately: go ${GO_ARGS[*]} -timeout=25m ./internal/archtest/..."
 	run_race_scan -timeout=25m ./internal/archtest/...
 fi
