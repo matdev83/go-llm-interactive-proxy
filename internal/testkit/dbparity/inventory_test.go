@@ -33,8 +33,8 @@ func TestInventory_Completeness(t *testing.T) {
 	t.Parallel()
 
 	inv := dbparity.DefaultInventory()
-	if len(inv.Components) != 8 {
-		t.Fatalf("expected exactly 8 candidate components, got %d", len(inv.Components))
+	if len(inv.Components) != 9 {
+		t.Fatalf("expected exactly 9 candidate components, got %d", len(inv.Components))
 	}
 
 	expectedIDs := []string{
@@ -44,6 +44,7 @@ func TestInventory_Completeness(t *testing.T) {
 		"control-plane-ledger",
 		"metering-journal",
 		"secure-sessions",
+		"session-classification",
 		"terminal-work",
 		"usage-authority",
 	}

@@ -4,10 +4,16 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/agentfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 func openCodeAgentMatch(in compatInput) bool {
+	if matchesAgentFamily(in.agents, agentfacts.FamilyOpenCode) {
+		return true
+	}
+	// Preserve this bridge's historical broad substring match. The classifier
+	// uses only agentfacts' bounded token rules.
 	for _, candidate := range in.agents {
 		if strings.Contains(strings.ToLower(candidate), "opencode") {
 			return true
