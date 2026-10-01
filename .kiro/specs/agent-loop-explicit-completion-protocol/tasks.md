@@ -156,7 +156,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 2.1,6.1_
     - _Validation: exact snapshot/string/schema tests plus tool spec validation_
 
-  - [ ] 7.2 Implement strict completion-argument handling
+  - [x] 7.2 Implement strict completion-argument handling
     - Parse exactly one JSON object with exactly `result`; reject missing/empty/wrong-type/unknown/duplicate/trailing/non-UTF8/oversized values.
     - Return `OutcomeComplete` only for valid result; expected model mistakes return bounded `OutcomeInvalid`; internal errors remain typed errors.
     - No command execution, filesystem action, approval, or external tool call is allowed.
@@ -316,3 +316,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 6.1: Strategy-aware YAML/programmatic normalization preserves legacy defaults and rejects inactive-field presence and malformed protocol caps with bounded errors. Independent review and fresh four-package tests pass. Preferred provider construction remains tasks 8.3/6.2; run 7.1/7.2 and 8.1/8.2/8.3 before composition so no placeholder provider is installed.
 
 - Task 7.1: Frozen completion-tool schema and exact 688-byte LF instruction are independently pinned, bounded and copied per projection. Genuine assertion RED, independent review and fresh five-package tests pass. Task 7.2 must reuse completionToolSpec without changing its ABI.
+
+- Task 7.2: Stateless NewCompletionToolProvider reuses the frozen Spec and strictly validates one result-only object with duplicate/UTF-8/size checks, bounded invalid outcomes and typed contract/context errors. Genuine assertion RED, independent review, fresh five-package tests and 30-second fuzz pass.
