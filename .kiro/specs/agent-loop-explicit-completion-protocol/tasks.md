@@ -175,7 +175,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 6.1_
     - _Validation: encode/decode corruption/bounds + fingerprint/no-progress/cap tests_
 
-  - [ ] 8.2 Build the bounded missing-signal continuation intent
+  - [x] 8.2 Build the bounded missing-signal continuation intent
     - RED-test exact semantic clauses: no new user intent/approval, complete -> call tool, unfinished -> continue only existing work, user-input-needed -> ask normally and end, no invention/broadening.
     - Use existing objective/trajectory only; keep internal-control provenance and platform-owned placement/lifecycle.
     - Default first missing signal continues, second unmarked candidate stops when max reprompts is one.
@@ -320,3 +320,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 7.2: Stateless NewCompletionToolProvider reuses the frozen Spec and strictly validates one result-only object with duplicate/UTF-8/size checks, bounded invalid outcomes and typed contract/context errors. Genuine assertion RED, independent review, fresh five-package tests and 30-second fuzz pass.
 
 - Task 8.1: Independent bounded alg-proto-v1 codec, stable evidence fingerprint and pure observation/eligibility/proposed-state helpers preserve total reprompt usage across progress. Advance validates its proposed state before success. Independent re-review, fresh five-package tests and retained fuzz regression pass; observe before advancing in task 8.2.
+
+- Task 8.2: Pure missing-signal policy and bounded repair intent preserve raw lineage identities, strict reserved-state decoding, immutable total caps and conservative safety stops. Present B-leg mismatches cannot fall back to trajectory bootstrap. Independent re-review, both adversarial probe sets and fresh six-package tests pass.
