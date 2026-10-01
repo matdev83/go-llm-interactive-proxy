@@ -170,3 +170,12 @@ Parallel markers describe only the named disjoint boundaries. Tasks without `(P)
 - Final Windows certification: run `36851957989` measures clean integrated revision `784d4d473fe44073cd37fdca154b5e2d28414b94` against frozen anchor `bb1ef9620ee6e8d9199950161e46fc51914945f2`. All three original `make test-cost` reports pass with `overridden=false`, zero violations and zero warnings. Billing takes 6.055s, runtime 19.456s and QA 7.147s. Full measurements/logs are retained in artifact `11158940047`; earlier failed attempts are superseded by this complete passing certification.
 - Cost repairs preserve behavior and assertions: dependency closure uses direct imports with implicit cgo ownership; release selectors share one bounded JSON query; retail context keys are computed once per merge. Git scope fixtures retain all 74 test identities while reducing Git launches from 311 to 106. Cancellation is established before asserting zero execution. Pool cleanup observes actual released claims, then always unblocks/joins fixture workers; forced scheduling and retained-claim mutations verify the repair. Full affected race, lint, quality and root gates pass.
 - Final integration respects SDK/core/infrastructure boundaries, covers all 33 requirement clauses and leaves no blocked tasks. The maintainer-approved LOC reserves apply prospectively; historical audit pins and Windows budgets remain unchanged. The temporary cost job and owned trigger label are removed; recurring Windows cost remains disabled and outside default tests. The four pre-existing user spec edits remain byte-identical. PR delivery remains separate from merged-main verification and archival.
+
+## Completion Status
+
+- [x] All 14 implementation tasks are checked `[x]`; no task remains blocked.
+- [x] Implementation PR [#698](https://github.com/matdev83/go-llm-interactive-proxy/pull/698), head `ccec5e150c8fbc3f887f09f1fc43935a7265773a`, merged into `main` as `b583c7261680ad0244ac37237ec4583430a139e0` on 2026-10-01T13:45:49Z.
+- [x] All 38 final PR checks passed, including the unfiltered billing model suite and the one-off Windows cost certification with unchanged budgets and no overrides.
+- [x] Merged-main focused verification passed: `go test -count=1 ./pkg/lipsdk/economics ./internal/core/billing`.
+- [x] No successor-specific work is claimed; reader-first rollout and historical-material compatibility notes remain documented above.
+- [x] `spec.json` records `phase=completed`, `completed=true`, `ready_for_implementation=false`, and the merged implementation evidence.
