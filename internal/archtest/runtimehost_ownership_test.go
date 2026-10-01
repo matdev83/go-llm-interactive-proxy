@@ -31,74 +31,6 @@ type callerInvariant struct {
 	allow     func(site string) bool
 }
 
-func TestRuntimehostOwnership_ProductionCallerGraph(t *testing.T) {
-	t.Parallel()
-	for _, inv := range runtimehostOwnershipInvariants() {
-		t.Run(inv.name, func(t *testing.T) {
-			t.Parallel()
-			for _, bc := range archSupportedBuildContexts {
-				pkg := loadRuntimehostForContext(t, bc, nil)
-				if violations := checkCallerInvariant(t, pkg, inv); len(violations) > 0 {
-					t.Fatalf("%s/%s: %s", bc.GOOS, bc.GOARCH, strings.Join(violations, "\n"))
-				}
-			}
-		})
-	}
-	t.Run("coordinator_no_direct_reload_stage_execution", func(t *testing.T) {
-		t.Parallel()
-		for _, bc := range archSupportedBuildContexts {
-			pkg := loadRuntimehostForContext(t, bc, nil)
-			if got := scanCoordinatorForbiddenReloadStages(pkg); len(got) > 0 {
-				t.Fatalf("%s/%s: Coordinator must not directly execute reload stages:\n%s",
-					bc.GOOS, bc.GOARCH, strings.Join(got, "\n"))
-			}
-		}
-	})
-}
-
-func TestRuntimehostOwnership_RogueConstructorCallerDetected(t *testing.T) {
-	t.Parallel()
-	dir := runtimehostDir(t)
-	overlayPath := filepath.Join(dir, "rogue_gate_overlay.go")
-	overlay := map[string][]byte{
-		overlayPath: []byte(`package runtimehost
-
-func rogueExtraGateCaller() {
-	_ = newAttemptGate()
-}
-`),
-	}
-	var violations []string
-	for _, bc := range archSupportedBuildContexts {
-		pkg := loadRuntimehostForContext(t, bc, overlay)
-		violations = append(violations, checkCallerInvariant(t, pkg, callerInvariant{
-			name: "newAttemptGate sole construction site",
-			target: func(t *testing.T, pkg *packages.Package) types.Object {
-				t.Helper()
-				return lookupPkgFunc(pkg, "newAttemptGate")
-			},
-			wantSites: 1,
-			allow: func(site string) bool {
-				return site == "coordinator.go:NewCoordinator"
-			},
-		})...)
-	}
-	if len(violations) == 0 {
-		t.Fatal("rogue newAttemptGate caller overlay must be detected by ownership gate")
-	}
-	wantExtra := "rogue_gate_overlay.go:rogueExtraGateCaller"
-	found := false
-	for _, v := range violations {
-		if strings.Contains(v, wantExtra) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected overlay caller %q in violations; got %v", wantExtra, violations)
-	}
-}
-
 func runtimehostOwnershipInvariants() []callerInvariant {
 	return []callerInvariant{
 		{
@@ -447,4 +379,74 @@ func runtimehostDir(t *testing.T) string {
 		t.Fatalf("resolve runtimehost dir failed")
 	}
 	return runtimehostDirCached
+}
+
+func assertRuntimehostOwnershipForContexts(t *testing.T, contexts []archBuildContext) {
+	t.Helper()
+	t.Parallel()
+	for _, inv := range runtimehostOwnershipInvariants() {
+		t.Run(inv.name, func(t *testing.T) {
+			t.Parallel()
+			for _, bc := range contexts {
+				pkg := loadRuntimehostForContext(t, bc, nil)
+				if violations := checkCallerInvariant(t, pkg, inv); len(violations) > 0 {
+					t.Fatalf("%s/%s: %s", bc.GOOS, bc.GOARCH, strings.Join(violations, "\n"))
+				}
+			}
+		})
+	}
+	t.Run("coordinator_no_direct_reload_stage_execution", func(t *testing.T) {
+		t.Parallel()
+		for _, bc := range contexts {
+			pkg := loadRuntimehostForContext(t, bc, nil)
+			if got := scanCoordinatorForbiddenReloadStages(pkg); len(got) > 0 {
+				t.Fatalf("%s/%s: Coordinator must not directly execute reload stages:\n%s",
+					bc.GOOS, bc.GOARCH, strings.Join(got, "\n"))
+			}
+		}
+	})
+}
+
+func assertRuntimehostRogueConstructorForContexts(t *testing.T, contexts []archBuildContext) {
+	t.Helper()
+	t.Parallel()
+	dir := runtimehostDir(t)
+	overlayPath := filepath.Join(dir, "rogue_gate_overlay.go")
+	overlay := map[string][]byte{
+		overlayPath: []byte(`package runtimehost
+
+func rogueExtraGateCaller() {
+	_ = newAttemptGate()
+}
+`),
+	}
+	var violations []string
+	for _, bc := range contexts {
+		pkg := loadRuntimehostForContext(t, bc, overlay)
+		violations = append(violations, checkCallerInvariant(t, pkg, callerInvariant{
+			name: "newAttemptGate sole construction site",
+			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
+				return lookupPkgFunc(pkg, "newAttemptGate")
+			},
+			wantSites: 1,
+			allow: func(site string) bool {
+				return site == "coordinator.go:NewCoordinator"
+			},
+		})...)
+	}
+	if len(violations) == 0 {
+		t.Fatal("rogue newAttemptGate caller overlay must be detected by ownership gate")
+	}
+	wantExtra := "rogue_gate_overlay.go:rogueExtraGateCaller"
+	found := false
+	for _, v := range violations {
+		if strings.Contains(v, wantExtra) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected overlay caller %q in violations; got %v", wantExtra, violations)
+	}
 }
