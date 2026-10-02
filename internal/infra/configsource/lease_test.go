@@ -60,9 +60,9 @@ func TestSourceLeaseOwner_CloseWaitsForBorrowAndCachesFailure(t *testing.T) {
 	id := FileIdentity{Platform: "linux", Scheme: identitySchemeLinuxExt4Lease, Opaque: [32]byte{1}}
 	closeFailure := errors.New("injected close failure")
 	var closeCalls atomic.Int32
-	owner := newSourceLeaseOwnerWithCloser(file, id, func(*os.File) error {
+	owner := newSourceLeaseOwnerWithCloser(file, id, func(f *os.File) error {
 		closeCalls.Add(1)
-		return closeFailure
+		return errors.Join(f.Close(), closeFailure)
 	})
 	version := &ActiveSourceVersion{HandleIdentity: id, leaseCore: owner.core, leaseRequired: true}
 	borrow, err := version.Borrow()
@@ -86,6 +86,9 @@ func TestSourceLeaseOwner_CloseWaitsForBorrowAndCachesFailure(t *testing.T) {
 	borrow.Release()
 	if got := closeCalls.Load(); got != 1 {
 		t.Fatalf("final idempotent Release close calls=%d want 1", got)
+	}
+	if _, err := file.Stat(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("file handle remained open after final Release: Stat error=%v", err)
 	}
 	first := owner.Close(context.Background())
 	second := owner.Close(context.Background())
