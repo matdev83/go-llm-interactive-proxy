@@ -63,6 +63,7 @@ help:
 	@echo "  make quality-checks  - generate-feature-planes -check, gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest; mod verify in CI or with LIP_VERIFY_MODULE_CACHE=1"
 	@echo "  make profile-only-check [PROFILE_ONLY_BASE=<git-rev>] - fail-closed provider-profile change-surface ratchet"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
+	@echo "  make proto-check     - buf lint + breaking + generation freshness for api/backendplugin/v1"
 	@echo "  make test            - quality-checks, full unit tests, and conformance parity checks"
 	@echo "  make test-cost [TEST_COST_BASE_SHA=<git-rev>] [TEST_COST_OUTPUT_ROOT=<dir>] [TEST_COST_PARALLEL=<n>] - Windows-authoritative test-cost ratchet (opt-in; not part of make test)"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
@@ -138,6 +139,16 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/regex-hotpath-check.ps1
 else
 	@bash scripts/regex-hotpath-check.sh
+endif
+
+# Intentionally not listed in .PHONY: TestWindowsTaskReliability_TargetTableComplete
+# requires every .PHONY target to be classified in the frozen archived
+# windows-task-reliability design table (same precedent as lint-advisory).
+proto-check:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/proto-check.ps1
+else
+	@bash scripts/proto-check.sh
 endif
 
 quality-checks-fast: export LIP_SKIP_GO_COMPILE_CHECKS=1

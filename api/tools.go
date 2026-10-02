@@ -9,4 +9,7 @@
 //
 //	go install tool
 //	cd api && buf generate --template buf.gen.yaml
+//
+// Verify the contract gate (buf lint, breaking-change detection, generation
+// freshness) from the repository root with `make proto-check`.
 package ignore
