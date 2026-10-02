@@ -57,6 +57,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -704,16 +705,29 @@ func TestPreferredProtocolE2E_streamedTextThenCompletionDoesNotDuplicate(t *test
 	if finishObserved < 0 || textObserved >= finishObserved {
 		t.Fatalf("ordinary text must be observed before the backend terminal; text=%d finish=%d trace=%+v", textObserved, finishObserved, items)
 	}
-	clientSawText := tr.firstIndex(algTraceStageClient, "response.output_text.delta", algStreamedText)
-	if clientSawText < 0 {
-		t.Fatalf("client never observed the ordinary text delta; trace=%+v", items)
-	}
 	textHooked := tr.firstIndex(algTraceStageHook, string(lipapi.EventTextDelta), algStreamedText)
 	if textHooked < 0 || textHooked >= textObserved {
 		t.Fatalf("the response-part hook must run before the final-stream observation; hook=%d observe=%d trace=%+v", textHooked, textObserved, items)
 	}
-	if clientSawText >= finishObserved {
-		t.Fatalf("the client must observe the ordinary text delta before the response completion; client=%d finish=%d trace=%+v", clientSawText, finishObserved, items)
+	// The client-side ordering must be read from the wire frames themselves, not
+	// from the shared trace: the trace is appended by the response-pipeline
+	// goroutine AND the client-reader goroutine under one mutex, so a trace index
+	// on one side and an index on the other side have no happens-before edge
+	// between them. Wire order is the only sound client-side ordering source.
+	deltaAt := slices.IndexFunc(frames, func(f algWireFrame) bool {
+		return f.Type == "response.output_text.delta" && f.Delta == algStreamedText
+	})
+	completedAt := slices.IndexFunc(frames, func(f algWireFrame) bool {
+		return f.Type == "response.completed"
+	})
+	if deltaAt < 0 {
+		t.Fatalf("the client never received the ordinary text delta on the wire; frames=%+v", frames)
+	}
+	if completedAt < 0 {
+		t.Fatalf("the client never received the response completion frame; frames=%+v", frames)
+	}
+	if deltaAt >= completedAt {
+		t.Fatalf("the client must receive the ordinary text delta before the response completion frame; delta=%d completed=%d frames=%+v", deltaAt, completedAt, frames)
 	}
 	for _, it := range items {
 		if it.tool == algControlToolName {
