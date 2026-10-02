@@ -46,6 +46,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          # Full history: the release-gates tool runs the Kiro residual
+          # ownership inventory contract, which validates that the recorded
+          # implementation SHA is an existing commit that is an ancestor of
+          # HEAD. A shallow clone cannot resolve that ancestry and fails with
+          # "is not an existing commit object" even though the spec is valid.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Go
