@@ -21,7 +21,7 @@
     - _Validation: config decode + candidate generation tests_
 
 - [ ] 2. Build the private BetterLeaks generation adapter
-  - [ ] 2.1 Add the pinned v2 dependency and detection-only adapter boundary
+  - [x] 2.1 Add the pinned v2 dependency and detection-only adapter boundary
     - Pin BetterLeaks v2 to the exact reviewed version and import only the minimum detection/config surface.
     - Construct one reusable generation scanner with stdlib regex, explicit AIProxer worker count, confidence threshold, decode depth, precompile, and zero allow signatures.
     - Keep BetterLeaks logging disabled and expose only a feature-private scanner handle.
