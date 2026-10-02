@@ -1,0 +1,143 @@
+{
+  "version": 2,
+  "baseline_sha": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+  "sources": [
+    {
+      "id": "SRC01",
+      "kind": "inspected_repository_source",
+      "commit": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+      "path": "internal/standardplugins/standard_contributions.go",
+      "blob_sha": "03a8cf5cade354d6050db4948411fc0a444063cc",
+      "url": "https://github.com/matdev83/go-llm-interactive-proxy/blob/b560dbff3a06dc44a324aa15a0245ccaed5f76cb/internal/standardplugins/standard_contributions.go",
+      "finding": "Five frontend and ten builtin backend contributions. Bedrock and Alibaba are distinct entries; compatible profiles expand from EmbeddedCatalog."
+    },
+    {
+      "id": "SRC02",
+      "kind": "inspected_repository_source",
+      "commit": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+      "path": "internal/standardplugins/frontend_route_claims.go",
+      "blob_sha": "5e7324217e3753266dfb46d72e1676ad2be61483",
+      "url": "https://github.com/matdev83/go-llm-interactive-proxy/blob/b560dbff3a06dc44a324aa15a0245ccaed5f76cb/internal/standardplugins/frontend_route_claims.go",
+      "finding": "Actual route claims are config-derived; generic OpenResponses has optional WebSocket delivery."
+    },
+    {
+      "id": "SRC03",
+      "kind": "inspected_repository_source",
+      "commit": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+      "path": "pkg/lipapi/parts.go",
+      "blob_sha": "cd3ebbdd3035089920c7f3c27150652d73de7b4a",
+      "url": "https://github.com/matdev83/go-llm-interactive-proxy/blob/b560dbff3a06dc44a324aa15a0245ccaed5f76cb/pkg/lipapi/parts.go",
+      "finding": "Existing content kinds are text, image_ref, file_ref, tool_result, json and reasoning; generic files do not establish rich audio/video semantics."
+    },
+    {
+      "id": "SRC04",
+      "kind": "inspected_repository_source",
+      "commit": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+      "path": "pkg/lipapi/events.go",
+      "blob_sha": "32032e50dbf64036f3211f2080401cad8131ad12",
+      "url": "https://github.com/matdev83/go-llm-interactive-proxy/blob/b560dbff3a06dc44a324aa15a0245ccaed5f76cb/pkg/lipapi/events.go",
+      "finding": "Existing complete assistant media output carriers are image/file references; output-specific chunk metadata needs a precise additive contract."
+    },
+    {
+      "id": "SRC05",
+      "kind": "inspected_repository_source",
+      "commit": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+      "path": "internal/plugins/frontends/gemini/decode.go",
+      "blob_sha": "3dc799e0f133a8253043c06a4426ce4aafb6e208",
+      "url": "https://github.com/matdev83/go-llm-interactive-proxy/blob/b560dbff3a06dc44a324aa15a0245ccaed5f76cb/internal/plugins/frontends/gemini/decode.go",
+      "finding": "parsePart handles inlineData but not fileData; parseGenerationConfig reads temperature, topP and maxOutputTokens, not complete native output modality and candidate configuration."
+    },
+    {
+      "id": "SRC06",
+      "kind": "inspected_repository_source",
+      "commit": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+      "path": "internal/plugins/backends/openaiusage/component_schema.go",
+      "blob_sha": "a103bccb94f64870bbd1ebbd2fd250cbcc34ef4c",
+      "url": "https://github.com/matdev83/go-llm-interactive-proxy/blob/b560dbff3a06dc44a324aa15a0245ccaed5f76cb/internal/plugins/backends/openaiusage/component_schema.go",
+      "finding": "Native totals/details and subset relationships exist, but source comments leave prediction subsets undeclared; usage-unit representation is not proof of full carrier or pricing support."
+    },
+    {
+      "id": "SRC07",
+      "kind": "inspected_repository_source",
+      "commit": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+      "path": "pkg/lipapi/invocation.go",
+      "blob_sha": "e7414670790179fbb811c68ac4475f622cd5654a",
+      "url": "https://github.com/matdev83/go-llm-interactive-proxy/blob/b560dbff3a06dc44a324aa15a0245ccaed5f76cb/pkg/lipapi/invocation.go",
+      "finding": "Operation taxonomy includes the five inference operations and context.compaction."
+    },
+    {
+      "id": "SRC08",
+      "kind": "inspected_repository_source",
+      "commit": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+      "path": "pkg/lipapi/transport.go",
+      "blob_sha": "2949259152e4bf29d56f714841e8020066a58c3a",
+      "url": "https://github.com/matdev83/go-llm-interactive-proxy/blob/b560dbff3a06dc44a324aa15a0245ccaed5f76cb/pkg/lipapi/transport.go",
+      "finding": "Delivery and selected upstream transport are distinct values, but negotiation prefers matching modes; asymmetric combinations need explicit conformance."
+    },
+    {
+      "id": "SRC09",
+      "kind": "inspected_repository_source",
+      "commit": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+      "path": "internal/plugins/backends/bedrock/invoke.go",
+      "blob_sha": "2ce44f60630ce042847cb469dcc67fa14735dd0a",
+      "url": "https://github.com/matdev83/go-llm-interactive-proxy/blob/b560dbff3a06dc44a324aa15a0245ccaed5f76cb/internal/plugins/backends/bedrock/invoke.go",
+      "finding": "Bedrock prepares typed ConverseStreamInput with its own AWS client and codec. It is not covered merely by an OpenAI-compatible test."
+    },
+    {
+      "id": "SRC10",
+      "kind": "repository_tree_inventory_only",
+      "tree_sha": "3cb2f27dda5da20241820705929c9e7994b41d27",
+      "path": "connectors/",
+      "url": "https://github.com/matdev83/go-llm-interactive-proxy/tree/b560dbff3a06dc44a324aa15a0245ccaed5f76cb/connectors",
+      "finding": "Complete root connector directory inventory has34 modules. Individual module codecs were not all re-reviewed; their actual entrypoint certification is explicitly assigned, not represented as already proven."
+    },
+    {
+      "id": "EXT01",
+      "kind": "external_primary_documentation",
+      "retrieved_on": "2026-10-02",
+      "url": "https://ai.google.dev/api/generate-content",
+      "finding": "Gemini describes exact valid output modality combinations and candidate-scoped limits, plus aggregate and modality-specific usage. This motivates joint predicates and complete field mapping.",
+      "usage": "Source facts only; not a claim that the pinned proxy implements every external API feature."
+    },
+    {
+      "id": "EXT02",
+      "kind": "external_primary_documentation",
+      "retrieved_on": "2026-10-02",
+      "url": "https://platform.claude.com/docs/en/build-with-claude/token-counting",
+      "finding": "Anthropic describes token counts as estimates; a financial upper-bound proof must not equate provider origin with guaranteed exactness.",
+      "usage": "Source facts only; not a claim that the pinned proxy implements every external API feature."
+    },
+    {
+      "id": "EXT03",
+      "kind": "external_primary_documentation",
+      "retrieved_on": "2026-10-02",
+      "url": "https://platform.claude.com/docs/en/build-with-claude/pdf-support",
+      "finding": "PDF processing can include extracted text and page imagery, requiring provider-specific component semantics rather than filename or byte-count pricing.",
+      "usage": "Source facts only; not a claim that the pinned proxy implements every external API feature."
+    },
+    {
+      "id": "EXT04",
+      "kind": "external_primary_documentation",
+      "retrieved_on": "2026-10-02",
+      "url": "https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_TokenUsage.html",
+      "finding": "Bedrock exposes input/output totals and cache read/write and TTL details; native evidence needs its own qualified schema.",
+      "usage": "Source facts only; not a claim that the pinned proxy implements every external API feature."
+    },
+    {
+      "id": "EXT05",
+      "kind": "external_primary_documentation",
+      "retrieved_on": "2026-10-02",
+      "url": "https://developers.openai.com/api/docs/guides/token-counting",
+      "finding": "Final input and output quantities can include model processing beyond visible text; price/bound semantics must follow the concrete model contract.",
+      "usage": "Source facts only; not a claim that the pinned proxy implements every external API feature."
+    },
+    {
+      "id": "EXT06",
+      "kind": "external_primary_documentation",
+      "retrieved_on": "2026-10-02",
+      "url": "https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create",
+      "finding": "Chat API request and response shapes carry native input/output and usage options; unsupported fields cannot be silently ignored by a billing certificate.",
+      "usage": "Source facts only; not a claim that the pinned proxy implements every external API feature."
+    }
+  ]
+}

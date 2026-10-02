@@ -1,0 +1,116 @@
+{
+  "version": 2,
+  "spec_revision": 2,
+  "baseline_sha": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+  "input_output_mask_product": "complete",
+  "mask_count_each_direction": 64,
+  "require_empty_masks": true,
+  "require_dense_mixtures": true,
+  "filter_before_enumeration": false,
+  "pairwise_is_release_sufficient": false,
+  "required_transport_mode_pairs": [
+    [
+      "streaming",
+      "streaming"
+    ],
+    [
+      "streaming",
+      "non_streaming"
+    ],
+    [
+      "non_streaming",
+      "streaming"
+    ],
+    [
+      "non_streaming",
+      "non_streaming"
+    ]
+  ],
+  "dispositions": {
+    "REQUIRED_SUPPORTED": "Actual successful decode-to-ledger execution required.",
+    "NATIVE_UNREPRESENTABLE": "Versioned independent native predicate and zero payable sends required.",
+    "STRICT_UNBOUNDED": "Specific provider-enforced-bound limitation and zero payable sends; never current proxy implementation absence.",
+    "BILLING_IMPLEMENTATION_GAP": "Release blocker; safe runtime refusal does not complete the task.",
+    "RUNTIME_PREREQUISITE_UNAVAILABLE": "Release blocker; missing price, service, model evidence or test topology is not native incompatibility."
+  },
+  "native_support_oracle": "Independent locked native API/model fixtures and source-backed joint contracts, never production supports()/billing-ready flags.",
+  "required_positive_rules": [
+    {
+      "id": "P01",
+      "rule": "Every native text-capable backend/profile has successful text billing through every frontend with a natively representable text request/response.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P02",
+      "rule": "Every natively representable finite-priced input/output mask pair is positive-required, not only pairs already implemented by the proxy.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P03",
+      "rule": "Native image/document input pairs include mixed text+image+document positives, all relevant history/tool placements and inline/reference encodings.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P04",
+      "rule": "Native audio profiles include audio input, audio-only output and each valid text+audio joint output; chunking and transcript inclusion are tested.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P05",
+      "rule": "Gemini native mixed input and response modality sets receive positive fixtures, including candidate/thought/modality usage and fileData configuration preservation.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P06",
+      "rule": "Every native image-output profile includes image-only and each native-valid mixed output set, qualified count/resolution/quality and late final usage.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P07",
+      "rule": "Video, document and binary outputs/inputs have positive real-stack cases where the actual native operation supports them; canonical finite reference fixtures cover all six content atoms and dense mixtures independently.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P08",
+      "rule": "Each connector runs its actual entrypoint/module codec, not just generic host transport. Inherently unbounded agents retain explicit limitations and still pass finite synthetic ABI/evidence/fence tests.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P09",
+      "rule": "Every legal independent frontend-delivery/backend-transport and physical carrier combination expands every required-positive mask cell.",
+      "removable_by_executor": false
+    }
+  ],
+  "receipt_requirements": [
+    "actual_code_sha",
+    "universe_digest",
+    "native_contract_digest",
+    "expanded_coordinate_id",
+    "expected_disposition",
+    "actual_result",
+    "test_id",
+    "raw_log_sha256",
+    "provider_dispatch_count",
+    "funding_assertion",
+    "economic_oracle_assertion",
+    "journal_balance_assertion",
+    "native_limitation_reference_when_negative"
+  ],
+  "release_fails_on": [
+    "missing_coordinate",
+    "duplicate_coordinate",
+    "missing_profile_expansion",
+    "missing_transport_expansion",
+    "missing_connector",
+    "skipped_case",
+    "not_run_case",
+    "implementation_gap",
+    "prerequisite_unavailable",
+    "all_deny",
+    "stale_digest",
+    "native_negative_without_proof",
+    "positive_without_native_wire_execution"
+  ],
+  "finite_scope_note": "The mask product is exhaustive for this vocabulary. Arbitrary order/count/nesting and payloads need constructive properties; no certificate claims all possible bytes or future APIs.",
+  "implementation_verified": false
+}

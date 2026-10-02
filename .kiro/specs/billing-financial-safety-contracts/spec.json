@@ -1,0 +1,87 @@
+{
+  "feature_name": "billing-financial-safety-contracts",
+  "created_at": "2026-10-02T00:00:00Z",
+  "updated_at": "2026-10-02T12:08:16+00:00",
+  "language": "en",
+  "phase": "tasks-generated",
+  "spec_type": "brownfield_refinement",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "implementation_complete": false,
+  "completed": false,
+  "baseline": {
+    "repository": "matdev83/go-llm-interactive-proxy",
+    "commit": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+    "rechecked_main_date": "2026-10-02"
+  },
+  "related_issues": [
+    620,
+    694
+  ],
+  "related_pull_requests": [
+    659,
+    666,
+    692,
+    698
+  ],
+  "refines": [
+    "extensible-usage-economics-reconciliation",
+    "usage-economics-b-leg-multimodal-refinement",
+    "billing-uncertain-component-overlap"
+  ],
+  "financial_contract_id": "all-attributable-pessimistic/v1",
+  "scope_counts": {
+    "original_contracts": 11,
+    "review_findings": 14,
+    "requirement_groups": 24,
+    "acceptance_criteria": 147,
+    "implementation_tasks": 113,
+    "acceptance_scenarios": 112,
+    "frontend_contributions": 5,
+    "builtin_backend_contributions": 10,
+    "connector_modules": 34,
+    "baseline_interface_pairs": 220,
+    "baseline_modality_signature_obligations": 901120,
+    "round2_coverage_gaps": 12,
+    "synthetic_economic_fixtures": 20
+  },
+  "validation": {
+    "approval_mode": "author_review_continuous_workflow",
+    "brownfield_gap_analysis": "performed_requirements_repaired",
+    "design_validation": "author_validated_with_upstream_repairs",
+    "task_graph": "acyclic_with_explicit_bounded_packets",
+    "artifact_checks": "passed_round2_structure_traceability_packet_freshness_and_coverage",
+    "repository_kiro_checker": "not_run_no_checkout",
+    "implementation_tests": "not_run",
+    "production_release": "not_certified",
+    "specification_negative_controls": 15,
+    "coverage_negative_controls": 14,
+    "synthetic_test_event_controls": 6,
+    "lattice_enumeration": "901120_unique_base_coordinates_220_pairs_all_NOT_RUN"
+  },
+  "source_review_sha256": "f81632a8b2dec83025ce200a72e25c098a0dfff7166b78dc2df6aeb047e8ddca",
+  "spec_revision": 2,
+  "revision_focus": "All frontend/backend and input/output modality combinations, including mixtures and independent transports",
+  "packet_limits": {
+    "largest_utf8_bytes": 157722,
+    "largest_words": 20211,
+    "task_cap_go_files": 16,
+    "context_target_tokens": 250000,
+    "context_checkpoint_tokens": 400000,
+    "context_hard_stop_tokens": 600000,
+    "compaction_allowed": false
+  }
+}
