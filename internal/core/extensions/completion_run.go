@@ -19,6 +19,18 @@ import (
 type CompletionGateChainResult struct {
 	Events   []lipapi.Event
 	Replaced bool // true when OutcomeReplace was applied (not ignored after output commitment)
+	// EffectiveReplacement is the FINAL provenance of Events, not the historical
+	// fact that some gate once replaced the stream.
+	//
+	// Replaced stays true once any effective replacement happened, because
+	// existing consumers read it as historical evidence that replacement was
+	// requested. It cannot describe the effective output, though: a later
+	// ReplayOriginal restores the augmented original while Replaced stays true.
+	// EffectiveReplacement therefore tracks the last effective action: true after
+	// an applied Replace, false after a ReplayOriginal, and unchanged after
+	// PassOriginal. It is private provenance for the internal response owner; no
+	// public tag, event field, or wire projection depends on it.
+	EffectiveReplacement bool
 }
 
 // ApplyCompletionGateChain runs sorted gates over the buffered completion (design §6, §17).
@@ -34,6 +46,7 @@ func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta
 	originalCopy := slices.Clone(original)
 	current := slices.Clone(original)
 	replaced := false
+	effectiveReplacement := false
 	ev := DecisionEvidenceFromContext(ctx)
 	// completionGateFailureCfg carries outputCommitted (constant for the whole chain)
 	// into the shared timeout helper's evidence emitter. Failure handling stays inline
@@ -104,13 +117,17 @@ func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta
 		case completion.OutcomePassOriginal:
 			// unchanged
 		case completion.OutcomeReplayOriginal:
+			// Replay restores the augmented original, so the effective provenance is
+			// the original again even though Replaced stays historically true.
 			current = slices.Clone(originalCopy)
+			effectiveReplacement = false
 		case completion.OutcomeReplace:
 			if outputCommitted {
 				continue
 			}
 			current = slices.Clone(out.Events)
 			replaced = true
+			effectiveReplacement = true
 		case completion.OutcomeReject:
 			return CompletionGateChainResult{}, lipapi.NewPolicyDeniedError(feature.StageIDCompletionGating, g.ID(), ReasonCompletionReject, CategoryDenied, "completion rejected by policy", out.Err)
 		default:
@@ -119,7 +136,7 @@ func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta
 			}
 		}
 	}
-	return CompletionGateChainResult{Events: current, Replaced: replaced}, nil
+	return CompletionGateChainResult{Events: current, Replaced: replaced, EffectiveReplacement: effectiveReplacement}, nil
 }
 
 // emitCompletionGateEvidence projects one completion-gate outcome into shared

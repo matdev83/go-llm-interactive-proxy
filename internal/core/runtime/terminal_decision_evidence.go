@@ -78,7 +78,7 @@ func projectTerminalDecisionEvidence(request requestTerminalFacts, attempt *atte
 		Attempt:       attemptNumber,
 	}
 
-	actions := terminalDecisionActions(items, p)
+	actions := terminalDecisionActions(items, p, attempt)
 	evidence.ActionCount = uint8(len(actions))
 	copy(evidence.Actions[:], actions)
 	return evidence
@@ -146,17 +146,113 @@ func terminalDecisionCompletionItems(items []lipapi.Item, p *responsePipeline) [
 	return out
 }
 
-func terminalDecisionActions(items []lipapi.Item, p *responsePipeline) []terminaldecision.ActionFact {
-	actions := make([]terminaldecision.ActionFact, 0, terminaldecision.MaxEvidenceActions)
-	positions := make(map[string]int, terminaldecision.MaxEvidenceActions)
-	add := func(action terminaldecision.ActionFact, key string) {
+// terminalDecisionActions projects the bounded ordinary action history of this
+// logical response.
+//
+// When the accepted-terminal publication path is holding a private candidate, its
+// ordinary tool boundaries are not released yet and therefore are not in the
+// released event history. Those held facts are projected first, inside the same
+// fixed action capacity, so a current unresolved ordinary boundary is visible to
+// the deciding provider instead of being hidden behind older facts. Everything
+// else keeps its existing trusted sources and ordering.
+func terminalDecisionActions(items []lipapi.Item, p *responsePipeline, attempt *attemptSession) []terminaldecision.ActionFact {
+	held := p.pendingActionSupplement(attempt)
+	if len(held) > 0 {
+		return terminalDecisionMergeHeldActions(held, terminalDecisionReleasedActions(items, p))
+	}
+	return terminalDecisionReleasedActions(items, p)
+}
+
+// pendingActionSupplement returns the individually representable held ordinary
+// action facts of a private publication candidate owned by attempt.
+//
+// Individually representable facts stay projected even when a DIFFERENT held action
+// is orphaned, ambiguous, or over capacity: the first deciding provider must still
+// see the current ordinary boundary. Ambiguity and truncation fail closed on result
+// eligibility at the publication boundary instead, so this projection never invents
+// a fact it could not represent.
+func (p *responsePipeline) pendingActionSupplement(attempt *attemptSession) []terminaldecision.ActionFact {
+	prepared := p.pendingPreparedFor(attempt)
+	if prepared == nil {
+		return nil
+	}
+	return prepared.supplemental
+}
+
+// terminalDecisionMergeHeldActions puts the held ordinary facts first, then fills
+// the remaining existing capacity with the already-known history. Correlation is
+// preserved: a held boundary that restates an earlier identity keeps the trusted
+// name and current status; historical completion cannot resolve a current start.
+func terminalDecisionMergeHeldActions(held, known []terminaldecision.ActionFact) []terminaldecision.ActionFact {
+	out := make([]terminaldecision.ActionFact, 0, terminaldecision.MaxEvidenceActions)
+	index := make(map[string]int, terminaldecision.MaxEvidenceActions)
+	add := func(action terminaldecision.ActionFact) {
 		if action.ItemID == "" && action.CallID == "" {
 			return
 		}
 		if action.Kind != lipapi.ItemKindMessage && (action.CallID == "" || strings.TrimSpace(action.Name) == "") {
 			return
 		}
-		if index, ok := positions[key]; ok {
+		key := terminalDecisionActionKey(action)
+		if at, ok := index[key]; ok {
+			if terminalDecisionActionRank(action.Status) > terminalDecisionActionRank(out[at].Status) {
+				out[at].Status = action.Status
+			}
+			if out[at].Name == "" {
+				out[at].Name = action.Name
+			}
+			return
+		}
+		if len(out) >= terminaldecision.MaxEvidenceActions {
+			return
+		}
+		index[key] = len(out)
+		out = append(out, action)
+	}
+	for _, action := range held {
+		add(action)
+	}
+	for _, action := range known {
+		// Current held status takes precedence over earlier completed history.
+		if _, current := index[terminalDecisionActionKey(action)]; current {
+			continue
+		}
+		add(action)
+	}
+	return out
+}
+
+func terminalDecisionActionKey(action terminaldecision.ActionFact) string {
+	if action.Kind == lipapi.ItemKindMessage {
+		return "message:" + action.ItemID
+	}
+	if action.Kind == lipapi.ItemKindToolResult {
+		return "tool_result:" + action.CallID
+	}
+	return "tool_call:" + action.CallID
+}
+
+// terminalDecisionReleasedActions is the existing projection: normalized request
+// items first, then the already-released canonical events.
+func terminalDecisionReleasedActions(items []lipapi.Item, p *responsePipeline) []terminaldecision.ActionFact {
+	actions := make([]terminaldecision.ActionFact, 0, terminaldecision.MaxEvidenceActions)
+	positions := make(map[string]int, terminaldecision.MaxEvidenceActions)
+	add := func(action terminaldecision.ActionFact, key string) {
+		if action.ItemID == "" && action.CallID == "" {
+			return
+		}
+		index, known := positions[key]
+		// A nameless finished call is the ordinary provider shape: correlate it to
+		// the already-known named start or item first and keep that trusted name,
+		// then apply its canonical status. An orphan finish stays unprojected
+		// rather than inventing a name for it.
+		if known && action.Name == "" && action.Kind != lipapi.ItemKindMessage {
+			action.Name = actions[index].Name
+		}
+		if action.Kind != lipapi.ItemKindMessage && (action.CallID == "" || strings.TrimSpace(action.Name) == "") {
+			return
+		}
+		if known {
 			if terminalDecisionActionRank(action.Status) > terminalDecisionActionRank(actions[index].Status) {
 				actions[index].Status = action.Status
 			}

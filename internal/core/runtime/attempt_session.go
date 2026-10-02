@@ -1530,27 +1530,35 @@ const (
 )
 
 type attemptEvidence struct {
-	Command          sdkterminal.Command
-	ReleaseKind      authorityapp.ReleaseKind
-	LegOutcome       billing.LegOutcome
-	Usage            lipapi.Event
-	Err              error
-	ObsOutcome       response.StreamOutcome
-	TraceID          string
-	ALegID           string
-	Snapshot         *coreterm.AccumulatorSnapshot
-	RecordOutcome    lipapi.AttemptOutcome
-	RecordReason     string
-	BillingReason    string
-	StartedAt        time.Time
-	StreamFallback   lipapi.Event
-	BillingState     *billingCallState
-	BillingCallID    billing.BillingCallID
-	Committed        bool
-	BillingLegFn     func(ctx context.Context, started, finished time.Time, outcome billing.LegOutcome)
-	ObserveEvent     *lipapi.Event
-	AuthorityPrepare func(context.Context) (usageEv lipapi.Event, authorityEv lipapi.Event, ok bool, err error)
-	CancelCause      *lipapi.CancelCause
+	Command        sdkterminal.Command
+	ReleaseKind    authorityapp.ReleaseKind
+	LegOutcome     billing.LegOutcome
+	Usage          lipapi.Event
+	Err            error
+	ObsOutcome     response.StreamOutcome
+	TraceID        string
+	ALegID         string
+	Snapshot       *coreterm.AccumulatorSnapshot
+	RecordOutcome  lipapi.AttemptOutcome
+	RecordReason   string
+	BillingReason  string
+	StartedAt      time.Time
+	StreamFallback lipapi.Event
+	BillingState   *billingCallState
+	BillingCallID  billing.BillingCallID
+	Committed      bool
+	BillingLegFn   func(ctx context.Context, started, finished time.Time, outcome billing.LegOutcome)
+	ObserveEvent   *lipapi.Event
+	// DeferFinalStreamObservation hands the final-client observation of the
+	// prepared usage and the finish, plus the finalStreamObs Finish, to the
+	// accepted normal publication that is about to observe additional canonical
+	// events. Attempt accounting, usage authority, billing, and teardown ownership
+	// are unchanged; only the final-client observation is deferred. The observer
+	// stays attempt-owned, is never reopened, and is finished conservatively by
+	// the abandoning caller otherwise.
+	DeferFinalStreamObservation bool
+	AuthorityPrepare            func(context.Context) (usageEv lipapi.Event, authorityEv lipapi.Event, ok bool, err error)
+	CancelCause                 *lipapi.CancelCause
 }
 
 type attemptTerminalResult struct {
@@ -1747,7 +1755,9 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 		}
 
 		// 4. Finish final-stream observation (Finish) - observe before finish inside winner.
-		if a.finalStreamObs != nil {
+		// A deferred accepted normal publication owns this observation instead, so it
+		// can observe its own prepared result before the usage and the finish.
+		if a.finalStreamObs != nil && !evidence.DeferFinalStreamObservation {
 			obsOutcome := response.OutcomeFailed
 			if intent == IntentSuccess {
 				obsOutcome = response.OutcomeSuccessReleased

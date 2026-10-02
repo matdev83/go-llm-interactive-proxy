@@ -116,7 +116,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 4.2_
     - _Validation: terminaldecision contract + runtime evidence tests for active/inactive/native/proxy cases_
 
-  - [ ] 5.2 Add pending completion-result publication at accepted terminal
+  - [x] 5.2 Add pending completion-result publication at accepted terminal
     - RED-test completion-only response, prior visible text, invalid completion, continuation path, recording failure, and terminal sequencing.
     - For a valid proxy completion with no prior meaningful assistant text, release bounded `result` as canonical assistant text through existing response recording/traffic/usage ownership before accepted terminal publication.
     - When assistant text is already committed, do not duplicate the result; never emit result on invalid completion or an unaccepted terminal.
@@ -124,7 +124,6 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Boundary: generic response/terminal drain path; no frontend-specific writes_
     - _Depends: 5.1_
     - _Validation: canonical event-sequence tests across streaming/non-streaming frontend fixtures; secure-recording/traffic/usage focused tests_
-    - _Blocked: debug attempted twice, still failing — a timed-out real Close leaves an armed interrupted memo uncaptured when the admitted Observe callback later returns an error; fresh independent review rejected final checkpoint remediation. Task 5.2 WIP is preserved and uncommitted._
 
 - [x] 6. Add mutually exclusive ALG strategy configuration
   - [x] 6.1 Implement strategy-aware config decoding/normalization with RED tests
@@ -326,3 +325,6 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 8.3: Strict NewConfiguredProvider selects separate preferred and unchanged legacy receivers; preferred stores only protocol limits and makes zero verifier/auxiliary calls. Original RED was compile-only; a subsequent temporary OFF/ON/removal checkpoint proves behavioral assertion sensitivity without rewriting chronology. Independent re-review and fresh ALG/standard-plugin tests pass.
 
 - Task 6.2: The existing feature factory uses strict selected-strategy construction; preferred contributes terminal and control providers, legacy only terminal, and disabled neither. Real registry/request-snapshot fixtures preserve pinned providers across replacement/removal and rejected candidates. Restored-harness unskipped canonical tests, independent review, fresh affected-package tests and scoped race/lint pass.
+
+- Task 5.2: User authorized one additional native-worker memo repair after the earlier two debug rounds. The already-armed interrupted request is now finalized after a failed admitted Observe while preserving that original error. Independent checkpoint review and fresh regression evidence pass; the remaining publication matrix is still pending, and the task remains unchecked/uncommitted.
+- Task 5.2 (accepted): bounded owned result is drained through the real receive loop behind per-frame fences, so a candidate can be withdrawn by continued provider work, caller cancel, shared A-leg cancel, Close, deadline, or continuation before the actual B2 transaction. Customer usage is the only money-free plane; provider/operator/B-leg quantities stay separate. Public surface unchanged: no new SDK method, goroutine, timer, or concrete provider branch in core. Slice reviews 3A-3D plus the whole-task primary and ownership/concurrency reviews passed; frontend coverage drives the real `openairesponses.Handler` in both response modes over a test-only bridge that builds the pending stream from the decoded call. Accepted effects that already ran are not rolled back; task 9.1/9.2 own legacy isolation and parity.
