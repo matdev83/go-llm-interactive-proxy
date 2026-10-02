@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Repair and certify source inode ownership
+- [x] 1. Repair and certify source inode ownership
 - [x] 1.1 Complete the source ownership integration and essential regressions — 6–9 hours; one indivisible T1 integration unit.
   - Implement the source owner/borrow lifecycle, positive ext4-driver detection, stable candidate and reopened-target validation, and provenance-aware atomic classification while preserving unsupported-Linux startup plus existing Windows and non-Linux adapters.
   - Carry takeable owner slots through bootstrap rollback, one-shot effective loading and checks, coordinator construction, candidate outcomes, effective no-op, committed publication, Apply, and Host.Close; isolate post-swap Manager and PhasePublish failures and include finalization in the shutdown idle predicate.
@@ -20,7 +20,7 @@
   - _Validation: go test -race -count=1 ./internal/infra/configsource/... ./internal/infra/runtimehost/... ./internal/infra/runtimebundle/..._
   - _Requirements: 5.2, 5.3, 7.1, 7.3, 7.4, 8.1, 8.2, 8.3, 8.4, 9.1, 9.2, 9.3, 10.2_
 
-- [ ] 1.3 Complete platform and delivery certification — 1–3 hours.
+- [x] 1.3 Complete platform and delivery certification — 1–3 hours.
   - Require a passing native Windows identity/reload CI result for the source tree supplied by 1.1/1.2; run Windows/macOS package builds, portable tests, and the final tagged Linux certification and race suite. A draft prerequisite PR carrying the reviewed earlier commits provides the native executor before this task completes; cross-compilation alone does not complete it.
   - Confirm the local Linux gate requires explicit writable supported TMPDIR without host mount provisioning, and the Ubuntu test job alone creates and removes its RUNNER_TEMP ext4 loop fixture.
   - Document the ext4-driver/proc-visibility boundary and operator TMPDIR precondition; review bounded diagnostics and confirm normal precommit and source-change gates remain active.
