@@ -156,7 +156,8 @@ if ($env:LIP_SKIP_GO_COMPILE_CHECKS -eq "1") {
 Write-Host "[6-8/8] Running independent guardrails in parallel..." -ForegroundColor Yellow
 $guardJobs = @(
     @{ Label = "adhoc-goroutines"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/check-adhoc-goroutines.ps1") },
-    @{ Label = "regex-hotpath"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/regex-hotpath-check.ps1") }
+    @{ Label = "regex-hotpath"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/regex-hotpath-check.ps1") },
+    @{ Label = "protobuf"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/proto-check.ps1") }
 )
 if ($env:LIP_SKIP_LINT -ne "1") {
     $guardJobs += @{ Label = "lint"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/lint-all-modules.ps1", "-Changed") }

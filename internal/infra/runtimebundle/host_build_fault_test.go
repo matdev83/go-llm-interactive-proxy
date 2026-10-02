@@ -51,17 +51,17 @@ func (productionHostBuilder) BuildFaulting(ctx context.Context, in hostBuildInpu
 	ops := defaultHostBuildOps()
 
 	baseLoad := ops.load
-	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
-		eff, src, fixed, err := baseLoad(ctx, path, cli)
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error) {
+		eff, src, owner, fixed, err := baseLoad(ctx, path, cli)
 		if err != nil {
-			return nil, nil, fixed, err
+			return nil, nil, owner, fixed, err
 		}
 		journal.acquire("loader")
 		journal.Loads++
 		if faultAt == hostBuildStageLoader {
-			return nil, nil, fixed, fmt.Errorf("runtimebundle: host build fault: loader")
+			return nil, nil, owner, fixed, fmt.Errorf("runtimebundle: host build fault: loader")
 		}
-		return eff, src, fixed, nil
+		return eff, src, owner, fixed, nil
 	}
 
 	baseTracing := ops.tracing
@@ -136,6 +136,9 @@ func (productionHostBuilder) BuildFaulting(ctx context.Context, in hostBuildInpu
 
 	ops.afterBind = func() error {
 		journal.acquire("coordinator")
+		if faultAt == hostBuildStageCoordinatorPanic {
+			panic("injected afterBind panic")
+		}
 		if faultAt == hostBuildStageCoordinator {
 			return fmt.Errorf("runtimebundle: host build fault: coordinator")
 		}

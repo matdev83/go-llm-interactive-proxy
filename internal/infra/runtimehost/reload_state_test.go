@@ -6,6 +6,10 @@ package runtimehost
 // 7.1-7.8). Concurrency tests use barriers/channels, never wall-clock sleeps.
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -32,7 +36,7 @@ func stateEffective(fp string, digest byte) *config.EffectiveConfig {
 
 func stateActiveSource(opaque byte) *configsource.ActiveSourceVersion {
 	return &configsource.ActiveSourceVersion{
-		HandleIdentity: configsource.FileIdentity{Platform: "test", Opaque: [32]byte{opaque}},
+		HandleIdentity: configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid", Opaque: [32]byte{opaque}},
 		PrivateDigest:  [32]byte{opaque},
 	}
 }
@@ -227,6 +231,83 @@ func TestReloadState_ApplyEffectiveNoopUpdatesSourceOnly(t *testing.T) {
 	if st.SourceIntegrity != "ok" {
 		t.Fatalf("SourceIntegrity=%q want ok", st.SourceIntegrity)
 	}
+}
+
+func TestReloadState_EffectiveNoopReplayPreservesAdoptedOwner(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" {
+		t.Skip("retained source owners are Linux-only")
+	}
+	version, owner := loadLeaseTestBaseline(t, "accepted")
+	if version.HandleIdentity.Scheme != "linux-ext4-dev-ino-lease-v1" {
+		_ = owner.Close(context.Background())
+		t.Skip("test filesystem does not provide ext4 lease evidence")
+	}
+	state := newReloadState(reloadStateInitial{})
+	defer func() { _ = state.closeActiveSource(context.Background()) }()
+	outcome := attemptOutcome{
+		Result:       sdkreload.Result{Category: sdkreload.ResultNoop, AttemptID: 1},
+		SourceUpdate: version, SourceOwnerSlot: owner,
+	}
+	first := state.Apply(outcome, reloadTerminalMeta{})
+	second := state.Apply(outcome, reloadTerminalMeta{})
+	if first.Category != sdkreload.ResultNoop || second.Category != sdkreload.ResultNoop {
+		t.Fatalf("effective-noop results first=%q second=%q", first.Category, second.Category)
+	}
+	borrow, err := version.Borrow()
+	if err != nil {
+		t.Fatalf("replayed outcome closed adopted baseline: %v", err)
+	}
+	borrow.Release()
+}
+
+func TestReloadState_MismatchedSourceOwnerPairDoesNotMutateState(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" {
+		t.Skip("retained source owners are Linux-only")
+	}
+	versionA, ownerA := loadLeaseTestBaseline(t, "source-a")
+	versionB, ownerB := loadLeaseTestBaseline(t, "source-b")
+	if versionA.HandleIdentity.Scheme != "linux-ext4-dev-ino-lease-v1" || versionB.HandleIdentity.Scheme != "linux-ext4-dev-ino-lease-v1" {
+		_ = ownerA.Close(context.Background())
+		_ = ownerB.Close(context.Background())
+		t.Skip("test filesystem does not provide ext4 lease evidence")
+	}
+	defer func() {
+		_ = ownerA.Close(context.Background())
+		_ = ownerB.Close(context.Background())
+	}()
+	state := newReloadState(reloadStateInitial{})
+	res := state.Apply(attemptOutcome{
+		Result:       sdkreload.Result{Category: sdkreload.ResultNoop, AttemptID: 2},
+		SourceUpdate: versionB, SourceOwnerSlot: ownerA,
+	}, reloadTerminalMeta{})
+	if res.Category != sdkreload.ResultInternalFailed {
+		t.Fatalf("mismatched owner/source pair category=%q want internal-failed", res.Category)
+	}
+	if got := state.ActiveInput(sdkreload.Trigger{}, 3, 0).ActiveSource; got != nil {
+		t.Fatalf("invalid pair mutated active source: %+v", got)
+	}
+	if ownerA.IsEmpty() || ownerB.IsEmpty() {
+		t.Fatal("invalid pairing must leave both source owners unmoved")
+	}
+}
+
+func loadLeaseTestBaseline(t *testing.T, body string) (*configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := configsource.NewFixedSource(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _, err := source.ReadStable(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot.TakeBaseline()
 }
 
 // 5. Atomic no-op without source update.

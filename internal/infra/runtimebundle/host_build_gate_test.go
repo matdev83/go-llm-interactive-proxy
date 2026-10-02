@@ -111,13 +111,13 @@ func gateOpsRejectingAfterLoad(t *testing.T, acquired *[]string) hostBuildOps {
 	t.Helper()
 	ops := defaultHostBuildOps()
 	baseLoad := ops.load
-	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
-		eff, src, fixed, err := baseLoad(ctx, path, cli)
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error) {
+		eff, src, owner, fixed, err := baseLoad(ctx, path, cli)
 		if err != nil {
-			return nil, nil, fixed, err
+			return nil, nil, owner, fixed, err
 		}
 		*acquired = append(*acquired, "loader")
-		return eff, src, fixed, nil
+		return eff, src, owner, fixed, nil
 	}
 	ops.tracing = func(context.Context, *config.Config) (tracing.Result, error) {
 		t.Fatal("tracing must not run after CLI gate rejection")

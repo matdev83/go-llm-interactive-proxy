@@ -9,7 +9,7 @@ Pinned in the repository root `go.mod` via Go 1.26 `tool` directives:
 | Tool | Version |
 |---|---|
 | buf CLI | 1.66.0 |
-| protoc-gen-go | v1.36.11 |
+| protoc-gen-go | v1.36.12 |
 | protoc-gen-go-grpc | v1.5.1 |
 
 ## Generate
@@ -22,7 +22,12 @@ cd api
 buf generate --template buf.gen.yaml
 ```
 
-Confirm generated headers report `protoc-gen-go v1.36.11` and `protoc-gen-go-grpc v1.5.1`. Do not hand-edit `*.pb.go`.
+Confirm generated headers report `protoc-gen-go v1.36.12` and `protoc-gen-go-grpc v1.5.1`. Do not hand-edit `*.pb.go`.
+
+Verify the contract gate (buf lint, breaking-change detection, generation
+freshness) from repository root with `make proto-check` (POSIX:
+`bash scripts/proto-check.sh`, Windows:
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/proto-check.ps1`).
 
 `Invocation.proxy_owned_session_id` is field 20 and is additive. It is usable
 only after protocol minor 4 negotiation with the `proxy_owned_session_id`

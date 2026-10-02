@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -50,7 +51,6 @@ type Host struct {
 	effective                    *config.EffectiveConfig
 	config                       *config.Config
 	logger                       *slog.Logger
-	activeSource                 *configsource.ActiveSourceVersion
 	fixedStreamRecovery          config.StreamRecoveryOverrides
 	shutdownTracing              func(context.Context) error
 	dispatcher                   *runtimehost.GenerationDispatcher
@@ -73,6 +73,7 @@ type bindHostInput struct {
 	Config              *config.Config
 	Effective           *config.EffectiveConfig
 	ActiveSource        *configsource.ActiveSourceVersion
+	ActiveSourceOwner   *configsource.SourceOwnerSlot
 	FixedStreamRecovery config.StreamRecoveryOverrides
 	ShutdownTracing     func(context.Context) error
 }
@@ -114,7 +115,7 @@ func bindHost(configPath string, in bindHostInput) (*Host, error) {
 		Source: src, Loader: loader, Classify: configreload.ClassifyEffective,
 		Compile: candidateCompilerAdapter{inner: GenerationCompiler{Process: in.Process, Compose: in.Compose}},
 		Manager: in.Manager, Timeout: runtimehost.DefaultReloadTimeout,
-		ActiveEffective: in.Effective, ActiveSource: in.ActiveSource, Observer: observer,
+		ActiveEffective: in.Effective, ActiveSource: in.ActiveSource, ActiveSourceOwner: in.ActiveSourceOwner, Observer: observer,
 	})
 	if err != nil {
 		return nil, err
@@ -123,7 +124,7 @@ func bindHost(configPath string, in bindHostInput) (*Host, error) {
 		coordinator: coord, manager: in.Manager, process: in.Process,
 		executor: runtimehost.NewGenerationExecutor(in.Manager), dispatcher: runtimehost.NewGenerationDispatcher(in.Manager),
 		source: src, effective: in.Effective, config: in.Config, logger: in.Logger,
-		activeSource: in.ActiveSource, fixedStreamRecovery: in.FixedStreamRecovery, shutdownTracing: in.ShutdownTracing,
+		fixedStreamRecovery: in.FixedStreamRecovery, shutdownTracing: in.ShutdownTracing,
 	}, nil
 }
 
@@ -223,21 +224,29 @@ func (h *Host) FixedSourcePath() string {
 
 func (h *Host) runCloseAttempt(ctx context.Context) error {
 	h.BeginShutdown()
+	var cleanupErr error
 	if err := h.WaitForIdle(ctx); err != nil {
-		return err
+		if ctx.Err() != nil {
+			return err
+		}
+		cleanupErr = errors.Join(cleanupErr, err)
 	}
 	if h.manager != nil {
 		if err := h.manager.ShutdownDetached(ctx); err != nil {
-			return err
+			cleanupErr = errors.Join(cleanupErr, err)
+			if ctx.Err() != nil {
+				return cleanupErr
+			}
 		}
 		if h.manager.HasOpenGenerations() {
-			return fmt.Errorf("runtimebundle: generations remain open after shutdown")
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("runtimebundle: generations remain open after shutdown"))
+			return errors.Join(cleanupErr, h.shutdownTracingOnce(ctx))
 		}
 	}
 	if err := h.closeProcessOnce(); err != nil {
-		return err
+		return errors.Join(cleanupErr, err)
 	}
-	return h.shutdownTracingOnce(ctx)
+	return errors.Join(cleanupErr, h.shutdownTracingOnce(ctx))
 }
 
 func (h *Host) runCloseOnce(done *bool, skip bool, closeFn func() error, after func()) error {

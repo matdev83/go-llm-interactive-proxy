@@ -24,9 +24,12 @@ func TestEffectiveLoadContract_LoadEffectiveHelperMatchesBuildHost(t *testing.T)
 	// Example YAML expects a packaged discovery layout; tests stage connectors/localstub.
 	path := bpkit.WriteDogfoodLocalStubConfig(t)
 
-	eff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(ctx, path, config.StreamRecoveryOverrides{})
+	eff, _, owner, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(ctx, path, config.StreamRecoveryOverrides{})
 	if err != nil {
 		t.Fatalf("LoadBootstrapEffectiveWithSource: %v", err)
+	}
+	if err := owner.Close(ctx); err != nil {
+		t.Fatal(err)
 	}
 	if eff == nil || eff.Config == nil {
 		t.Fatal("expected effective config")
@@ -116,7 +119,7 @@ not_a_core_field: true
 				t.Fatal(err)
 			}
 
-			_, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
+			_, _, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
 			if err == nil {
 				t.Fatal("LoadBootstrapEffective must reject strict fixture")
 			}
@@ -138,7 +141,7 @@ func TestEffectiveLoadContract_MissingPath_SourceMissingCategory(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "does-not-exist.yaml")
 
-	_, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
+	_, _, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
 	if err == nil {
 		t.Fatal("expected missing source error")
 	}
@@ -166,11 +169,14 @@ func TestEffectiveLoadContract_FixedStreamRecoveryCLIWins(t *testing.T) {
 	cliOff := false
 	cliIdle := 12 * time.Second
 
-	eff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{
+	eff, _, owner, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{
 		CLIEnabled:     &cliOff,
 		CLIIdleTimeout: cliIdle,
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if eff.Config.StreamRecovery.AutoResume.Enabled == nil || *eff.Config.StreamRecovery.AutoResume.Enabled {
@@ -225,8 +231,11 @@ func TestEffectiveLoadContract_ExplicitToolCallRepairOptOutSurvivesEffectiveLoad
 		t.Fatal(err)
 	}
 
-	eff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
+	eff, _, owner, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	var matches int
@@ -325,8 +334,11 @@ plugins:
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	eff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
+	eff, _, owner, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !hasFeatureID(eff.Config, standardplugins.ToolCallRepairFeatureID) {

@@ -202,6 +202,7 @@ run_guard() {
 
 run_guard adhoc bash "$script_dir/check-adhoc-goroutines.sh"
 run_guard regex bash "$script_dir/regex-hotpath-check.sh"
+run_guard protobuf bash "$script_dir/proto-check.sh"
 if [ "${LIP_SKIP_LINT:-}" != "1" ]; then
 	run_guard lint bash "$script_dir/lint-all-modules.sh" --changed
 fi

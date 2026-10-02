@@ -34,6 +34,15 @@ echo ""
 echo "Running complete root test suite with precommit tags (Go cache enabled)..."
 env LIP_TEST_PRECOMMIT=1 bash "$SCRIPT_DIR/test-staged.sh"
 
+if [[ "$(go env GOOS)" == "linux" ]]; then
+	echo ""
+	echo "Running mandatory ext4 source-lifetime certification..."
+	bash "$SCRIPT_DIR/configsource-certify.sh"
+	echo ""
+	echo "Running mandatory source-ownership fault lifecycle tests..."
+	bash "$SCRIPT_DIR/configsource-fault-check.sh"
+fi
+
 echo ""
 echo "Running race detector scan..."
 bash "$SCRIPT_DIR/race-check.sh" --staged

@@ -31,14 +31,14 @@ func validateDistributionOutcome(ctx context.Context, in ValidateDistributionInp
 	}
 
 	baseLoad := ops.load
-	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error) {
 		journal.Loads++
-		eff, src, fixed, err := baseLoad(ctx, path, cli)
+		eff, src, owner, fixed, err := baseLoad(ctx, path, cli)
 		if err != nil {
-			return nil, nil, fixed, err
+			return nil, nil, owner, fixed, err
 		}
 		journal.acquire("loader")
-		return eff, src, fixed, nil
+		return eff, src, owner, fixed, nil
 	}
 
 	baseTracing := ops.tracing
@@ -104,13 +104,13 @@ func validateDistributionWithCleanupFaults(ctx context.Context, in ValidateDistr
 	ops := defaultValidateDistributionOps()
 
 	baseLoad := ops.load
-	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
-		eff, src, fixed, err := baseLoad(ctx, path, cli)
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error) {
+		eff, src, owner, fixed, err := baseLoad(ctx, path, cli)
 		if err != nil {
-			return nil, nil, fixed, err
+			return nil, nil, owner, fixed, err
 		}
 		journal.acquire("loader")
-		return eff, src, fixed, nil
+		return eff, src, owner, fixed, nil
 	}
 
 	baseTracing := ops.tracing

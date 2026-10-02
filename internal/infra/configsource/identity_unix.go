@@ -28,3 +28,9 @@ func identityFromPath(path string) (FileIdentity, error) {
 	}
 	return identityFromFileInfo(fi)
 }
+
+func detectSourceLease(*os.File) (sourceLeaseEvidence, bool) { return sourceLeaseEvidence{}, false }
+
+func captureLeaseMetadata(*os.File) (sourceFileMetadata, error) {
+	return sourceFileMetadata{}, integrityErr(CategoryUnsupportedType)
+}

@@ -16,3 +16,9 @@ func identityFromPath(path string) (FileIdentity, error) {
 	_ = path
 	return FileIdentity{}, fmt.Errorf("configsource: %s", CategoryUnsupportedType)
 }
+
+func detectSourceLease(*os.File) (sourceLeaseEvidence, bool) { return sourceLeaseEvidence{}, false }
+
+func captureLeaseMetadata(*os.File) (sourceFileMetadata, error) {
+	return sourceFileMetadata{}, fmt.Errorf("configsource: %s", CategoryUnsupportedType)
+}
