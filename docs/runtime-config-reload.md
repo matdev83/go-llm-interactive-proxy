@@ -22,7 +22,7 @@ Every reload re-reads the **absolute source path fixed at process startup** (`--
 - Decode: **strict** one-document YAML with known core fields (`StrictDecode`). Multi-doc, trailing content, unknown core fields, and malformed YAML fail without publication.
 - Changed content requires **atomic replacement** of the path target (new file identity). In-place rewrite of the same inode/handle with a different digest is rejected as `source_non_atomic_update`.
 - Same identity + same private digest → successful **no-op** (no new generation).
-- Platforms without trustworthy identity/atomic-replace may serve startup config but report runtime source reload unavailable.
+- On Linux, a valid startup load remains available when positive ext4 lease evidence is absent, but runtime comparison then fails closed with the existing source-integrity outcome. Windows retains its `win-fileid` reload behavior; macOS and other current adapters keep their existing behavior. See [Configuration source integrity](configuration-source-integrity.md) for the support boundary, lease lifetime, and certification setup.
 
 ### Atomic rename workflow
 
