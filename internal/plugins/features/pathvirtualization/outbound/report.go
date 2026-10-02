@@ -23,6 +23,17 @@ package outbound
 // (requirement 1.8's enumeration), so this file adds no new root code: it projects
 // that closed set as Report.RootReason rather than widening it.
 //
+// OutcomeWorkspaceUnresolved is the second such member, and it exists for the same
+// reason with a narrower reach. Only the late pass resolves the workspace view at all:
+// the early pass reads an already-pinned projection, so a resolution failure is a
+// condition the early pass cannot observe and the late pass must account for. Reporting
+// it as OutcomeProjectRootUnusable would be a false label - the root is not unusable,
+// the authority that would have supplied it failed - and reporting it as
+// OutcomeTransformationFailed would borrow a label the transformer's own doc binds to
+// the shared rewriter, which never ran. Requirement 8.2 asks for a bounded reason, and
+// the honest way to provide one is one more member of a still-closed vocabulary rather
+// than a mislabelled existing one.
+//
 // Nothing here is ever formatted from a payload. Every label is a compile-time
 // literal, and every counter comes from the shared rewriter, whose accounting is
 // bounded by the closed reason vocabulary and by canonical payload limits
@@ -62,6 +73,16 @@ const (
 	// reason is recorded here instead of being turned into an exclusion: an internal
 	// error in an optional optimization must never cost a client its request.
 	OutcomeTransformationFailed
+	// OutcomeWorkspaceUnresolved marks a pass that published nothing because the
+	// authoritative workspace view could not be resolved at all, so there was no
+	// project root to derive a mapping from.
+	//
+	// Only the late pass can reach it: the early pass reads an already-projected
+	// workspace view out of its attempt metadata, while this pass resolves the view
+	// itself at the request-part stage. Requirement 8.2 still applies - the real path
+	// is preserved and a bounded reason is recorded - but the reason is not a root
+	// shape refusal, so Report.RootReason stays at its no-refusal value here.
+	OutcomeWorkspaceUnresolved
 )
 
 // String returns the fixed, low-cardinality label of an outcome. It is safe for
@@ -75,6 +96,8 @@ func (o Outcome) String() string {
 		return "project_root_unusable"
 	case OutcomeTransformationFailed:
 		return "transform_failed"
+	case OutcomeWorkspaceUnresolved:
+		return "workspace_unresolved"
 	default:
 		return "unknown"
 	}
@@ -128,4 +151,28 @@ type Option func(*AttemptTransform)
 // observable mutable state (no init() registration, no globals).
 func WithReporter(reporter Reporter) Option {
 	return func(t *AttemptTransform) { t.report = reporter }
+}
+
+// HookOption configures the late request-part pass at construction.
+//
+// It is a separate type from Option rather than a second option for the same pass
+// because the two passes are separate types with separate fields: one option type per
+// pass is what keeps a reporter for one pass from being silently applied to the other,
+// and it leaves a future option for either pass additive.
+type HookOption func(*RequestPartHook)
+
+// WithHookReporter installs the sink that receives the late pass's bounded reports.
+//
+// It is the late pass's counterpart of [WithReporter] and the same argument applies:
+// the sink is an explicit construction parameter rather than package state, so one
+// instance is safe to share across every request of a generation.
+//
+// The two passes deliberately take SEPARATE reporters rather than sharing one. The
+// report type itself carries no pass identity - it is the same closed outcome
+// vocabulary and the same content-free statistics for both - so a deployment that
+// wants to account for the two passes separately does it by wiring two sinks, which is
+// the composition root's decision rather than a field this package would have to widen
+// later. A deployment that wants one combined sink installs the same function twice.
+func WithHookReporter(reporter Reporter) HookOption {
+	return func(h *RequestPartHook) { h.report = reporter }
 }

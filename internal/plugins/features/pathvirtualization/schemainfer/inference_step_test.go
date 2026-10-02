@@ -50,10 +50,10 @@ func bindResolver(t *testing.T, inference pathvirtualization.ArgumentInference) 
 func TestRealInferenceSatisfiesTheResolverPort(t *testing.T) {
 	t.Parallel()
 
+	// The assignment to the interface type is the whole assertion: it does not
+	// compile unless the schema-facing step implements the lexical core's port.
 	var inference pathvirtualization.ArgumentInference = compileInference(t)
-	if inference == nil {
-		t.Fatal("the real inference step did not satisfy the resolver port")
-	}
+	_ = inference
 }
 
 // TestRealInferenceResolvesThroughTheDesignOrder walks the whole order with the

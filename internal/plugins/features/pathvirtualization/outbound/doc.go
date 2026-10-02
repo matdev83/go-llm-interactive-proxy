@@ -1,41 +1,66 @@
-// Package outbound implements the first of the feature's two outbound passes: the
-// candidate attempt transform of design.md "Existing Architecture and Placement"
-// step 2, which virtualizes eligible path-bearing tool history on a backend-bound
-// candidate before candidate sizing, context eligibility, and token-accounting
-// preflight observe it (requirements.md 5.3).
+// Package outbound implements the feature's TWO outbound passes: the candidate attempt
+// transform of design.md "Existing Architecture and Placement" step 2, and the
+// idempotent request-part hook of step 4.
+//
+// The attempt transform virtualizes eligible path-bearing tool history before candidate
+// sizing, context eligibility, and token-accounting preflight observe it
+// (requirements.md 5.3). The request-part hook reapplies the same rewrite after the
+// later request shaping that sits between the candidate attempt stage and the
+// backend-bound request, so the final conversation-view reassertion and candidate
+// adaptation cannot hand PTB or Backend.Open a real path-bearing tool history
+// (requirements.md 5.2, 5.4).
 //
 // It exists as a subpackage of the lexical core for the same reason the rewriter and
 // the schema-inference step do. The core in internal/plugins/features/pathvirtualization
 // keeps no repository import at all, and its host-authority guard proves it; a
-// contribution that reads pkg/lipapi and pkg/lipsdk/request must therefore live
-// beside that core rather than inside it, or the guard has to be weakened.
+// contribution that reads pkg/lipapi and pkg/lipsdk must therefore live beside that
+// core rather than inside it, or the guard has to be weakened.
 //
-// The package is deliberately thin. It owns exactly three things and delegates
+// The package is deliberately thin. It owns exactly four things and delegates
 // everything else:
 //
 //   - it derives the workspace-bound mapping from the authoritative
-//     AttemptMeta.Workspace projection, using the core's existing pure
-//     DeriveMapping, and never from anything else the attempt metadata carries;
-//   - it hands that mapping to the ONE pure canonical outbound rewriter, in the
-//     rollout mode the generation was compiled with, so this pass and the later
-//     idempotent request-part hook run identical detection code;
-//   - it publishes the rewriter's result onto the canonical call and records a
-//     bounded, content-free report.
+//     Workspace.ProjectRoot, using the core's existing pure DeriveMapping, and never
+//     from anything else the stage carries;
+//   - it hands that mapping to the ONE pure canonical outbound rewriter, in the rollout
+//     mode the generation was compiled with, so both passes run identical detection
+//     code;
+//   - it publishes the rewriter's result onto the canonical call and records a bounded,
+//     content-free report;
+//   - it decides nothing else. Neither pass reads a route field, a candidate identity,
+//     or a backend identity.
 //
-// Three properties are load-bearing and each has a test:
+// The two passes differ in exactly one input and in one position, and both differences
+// are forced rather than chosen:
 //
-//   - the pass mutates ONLY the call it was handed. It reads no routing field, no
-//     candidate identity, and no backend identity, and it always answers
-//     request.AttemptContinue, so it cannot change route identity, model or backend
-//     selection, retry/failover authority, or billing authority
-//     (requirements.md 5.5, 5.6, 5.7);
-//   - an unexpected transformation failure FAILS OPEN to the real path with a
-//     bounded reason, because in the outbound direction no virtual alias is ever
-//     client-visible: aliases go to the BACKEND, and the real path is the value the
-//     backend must be able to reason about. The rewriter already returns the input
-//     call on failure, and the pass refuses to publish any value at all on that
-//     path, so a partially rewritten candidate cannot escape;
-//   - reapplication is a no-op, because the rewriter's publication is a
-//     byte splice that only fires on a segment-boundary real-root prefix
-//     (requirements.md 2.9). Task 5.2's request-part hook depends on this.
+//   - the attempt transform reads the workspace projection the runtime already pinned
+//     onto its attempt metadata, while the hook resolves the authoritative workspace
+//     view itself through an injected lipworkspace.Resolver. The hook has to resolve,
+//     because sdkhooks.PartMeta carries no workspace projection and the executor
+//     projects no workspace view onto any public SDK context seam a plugin may read.
+//     lipworkspace.Resolver is the SDK's own contract for that view, design.md "Allowed
+//     Dependencies" lists pkg/lipsdk/workspace for this purpose, and the composition
+//     root chains the same contributed resolvers into the runtime's request snapshot;
+//   - the hook sorts last inside the request-part chain, because design.md places step 4
+//     after later request shaping and a pass that ran earlier could not observe a real
+//     path an earlier participant had just restored.
+//
+// Four properties are load-bearing and each has a test:
+//
+//   - the passes mutate ONLY the call they were handed. They read no routing field, no
+//     candidate identity, and no backend identity, so they cannot change route
+//     identity, model or backend selection, retry/failover authority, or billing
+//     authority (requirements.md 5.5, 5.6, 5.7);
+//   - an unexpected transformation failure FAILS OPEN to the real path with a bounded
+//     reason, because in the outbound direction no virtual alias is ever client-visible:
+//     aliases go to the BACKEND, and the real path is the value the backend must be able
+//     to reason about. The rewriter already returns the input call on failure, and
+//     neither pass publishes any value at all on that path, so a partially rewritten
+//     request cannot escape;
+//   - reapplication is a no-op, because the rewriter's publication is a byte splice that
+//     only fires on a segment-boundary real-root prefix (requirements.md 2.9). That is
+//     what makes the second pass free on the common path, and what lets it be a genuine
+//     late pass rather than a second opinion;
+//   - the mapping is re-derived on every use and never cached, so there is no stored
+//     alias that could disagree with the authoritative view (requirements.md 5.6, 6.2).
 package outbound
