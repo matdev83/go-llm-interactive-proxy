@@ -18,13 +18,14 @@ import (
 type hostBuildStage string
 
 const (
-	hostBuildStageLoader      hostBuildStage = "loader"
-	hostBuildStageTracing     hostBuildStage = "tracing"
-	hostBuildStageProcess     hostBuildStage = "process"
-	hostBuildStageCompile     hostBuildStage = "compile"
-	hostBuildStagePublish     hostBuildStage = "publish"
-	hostBuildStageCoordinator hostBuildStage = "coordinator"
-	hostBuildStageSuccess     hostBuildStage = "success"
+	hostBuildStageLoader           hostBuildStage = "loader"
+	hostBuildStageTracing          hostBuildStage = "tracing"
+	hostBuildStageProcess          hostBuildStage = "process"
+	hostBuildStageCompile          hostBuildStage = "compile"
+	hostBuildStagePublish          hostBuildStage = "publish"
+	hostBuildStageCoordinator      hostBuildStage = "coordinator"
+	hostBuildStageCoordinatorPanic hostBuildStage = "coordinator_panic"
+	hostBuildStageSuccess          hostBuildStage = "success"
 )
 
 // hostBuilder is the Task 5.2 startup transaction seam used by RED matrices.

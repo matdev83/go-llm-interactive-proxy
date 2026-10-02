@@ -293,7 +293,7 @@ func TestShrinkage_MeasureDeterministicTotals(t *testing.T) {
 	for _, o := range m.PathOverlays {
 		overlayLines += o.Lines
 	}
-	overlayLines += m.Growth.Lines
+	overlayLines += m.Growth.Lines + m.SourceOwnership.Lines
 	if m.ConvergenceDelta != m.Delta-overlayLines {
 		t.Fatalf("convergence delta inconsistency: got %d want %d-%d", m.ConvergenceDelta, m.Delta, overlayLines)
 	}
@@ -301,7 +301,7 @@ func TestShrinkage_MeasureDeterministicTotals(t *testing.T) {
 	for _, o := range m.PathOverlays {
 		wantPass = wantPass && o.Pass
 	}
-	wantPass = wantPass && m.Growth.Pass
+	wantPass = wantPass && m.Growth.Pass && m.SourceOwnership.Pass
 	if m.Pass != wantPass {
 		t.Fatalf("pass flag inconsistency: pass=%v convergence=%+d", m.Pass, m.ConvergenceDelta)
 	}
@@ -327,6 +327,8 @@ func TestShrinkage_ReportSectionIncludesVerdict(t *testing.T) {
 		"Terminal decision feature extension overlay lines:",
 		"Large payload host composition overlay lines:",
 		"Usage economics overlay lines:",
+		"Config-source ownership overlay lines:",
+		"locked per-file baselines at `" + SourceOwnershipGrowthBaselineSHA + "`",
 		"Convergence delta (raw − overlays):",
 		"Required: convergence delta ≤ -800",
 	} {

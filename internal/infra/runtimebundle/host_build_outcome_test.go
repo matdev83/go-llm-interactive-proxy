@@ -32,7 +32,7 @@ func buildHostOutcome(ctx context.Context, in hostBuildInput, loadEffective boot
 	ops := defaultHostBuildOps()
 	if loadEffective != nil {
 		inner := loadEffective
-		ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+		ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error) {
 			loads++
 			return inner(ctx, path, cli)
 		}

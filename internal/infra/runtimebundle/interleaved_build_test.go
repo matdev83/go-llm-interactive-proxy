@@ -276,13 +276,19 @@ plugins:
 	}
 
 	// 1. Strict-load both through the REAL load path
-	oldEff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(ctx, oldPath, config.StreamRecoveryOverrides{})
+	oldEff, _, oldOwner, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(ctx, oldPath, config.StreamRecoveryOverrides{})
 	if err != nil {
 		t.Fatalf("LoadBootstrapEffectiveWithSource old: %v", err)
 	}
-	newEff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(ctx, newPath, config.StreamRecoveryOverrides{})
+	if err := oldOwner.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	newEff, _, newOwner, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(ctx, newPath, config.StreamRecoveryOverrides{})
 	if err != nil {
 		t.Fatalf("LoadBootstrapEffectiveWithSource new: %v", err)
+	}
+	if err := newOwner.Close(ctx); err != nil {
+		t.Fatal(err)
 	}
 
 	// 2. Assert legacy top-level interleaved node is consumed and not retained in core config
@@ -478,7 +484,7 @@ plugins:
 	if err := os.WriteFile(conflictPath, []byte(conflictContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, _, err = runtimebundle.LoadBootstrapEffectiveWithSource(ctx, conflictPath, config.StreamRecoveryOverrides{})
+	_, _, _, _, err = runtimebundle.LoadBootstrapEffectiveWithSource(ctx, conflictPath, config.StreamRecoveryOverrides{})
 	if err == nil {
 		t.Fatal("expected conflict error when both legacy interleaved and canonical feature exist")
 	}

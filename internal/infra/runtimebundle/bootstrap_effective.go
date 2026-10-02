@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ import (
 
 // bootstrapEffectiveLoader is the singular startup effective-load operation.
 // Callers pass it per invocation; there is no package-global loader hook.
-type bootstrapEffectiveLoader func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error)
+type bootstrapEffectiveLoader func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error)
 
 // LoadBootstrapEffectiveWithSource is the sole canonical startup effective-load
 // owner (req: single config-load owner). It loads the fixed startup path
@@ -29,42 +30,55 @@ type bootstrapEffectiveLoader func(ctx context.Context, path string, cliOverride
 // Order: stable source read → strict decode → defaults → fixed CLI/env
 // stream-recovery overrides → standard feature injection → core validation →
 // alias/prefix validation → private/public identity.
-func LoadBootstrapEffectiveWithSource(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+func LoadBootstrapEffectiveWithSource(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (effective *config.EffectiveConfig, active *configsource.ActiveSourceVersion, ownerSlot *configsource.SourceOwnerSlot, fixed config.StreamRecoveryOverrides, err error) {
 	if ctx == nil {
-		return nil, nil, config.StreamRecoveryOverrides{}, fmt.Errorf("runtimebundle: nil context")
+		return nil, nil, nil, config.StreamRecoveryOverrides{}, fmt.Errorf("runtimebundle: nil context")
 	}
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return nil, nil, config.StreamRecoveryOverrides{}, fmt.Errorf("runtimebundle: empty config path")
+		return nil, nil, nil, config.StreamRecoveryOverrides{}, fmt.Errorf("runtimebundle: empty config path")
 	}
 	envOverrides, err := config.StreamRecoveryOverridesFromEnv()
 	if err != nil {
-		return nil, nil, config.StreamRecoveryOverrides{}, err
+		return nil, nil, nil, config.StreamRecoveryOverrides{}, err
 	}
 	merged := mergeStreamRecoveryOverrides(envOverrides, cliOverrides)
 	src, err := configsource.NewFixedSource(path, 0)
 	if err != nil {
-		return nil, nil, config.StreamRecoveryOverrides{}, err
+		return nil, nil, nil, config.StreamRecoveryOverrides{}, err
 	}
 	snap, _, err := src.ReadStable(ctx, nil)
 	if err != nil {
-		return nil, nil, config.StreamRecoveryOverrides{}, err
+		return nil, nil, nil, config.StreamRecoveryOverrides{}, err
 	}
-	eff, err := config.LoadEffective(ctx, snap.Bytes, config.LoadEffectiveOptions{
+	snapshotOwned := true
+	transferred := false
+	defer func() {
+		if !transferred && ownerSlot != nil {
+			err = errors.Join(err, ownerSlot.Close(ctx))
+		}
+		if snapshotOwned {
+			err = errors.Join(err, snap.Close(ctx))
+		}
+		if err != nil {
+			effective, active, ownerSlot = nil, nil, nil
+		}
+	}()
+	eff, loadErr := config.LoadEffective(ctx, snap.Bytes, config.LoadEffectiveOptions{
 		ConfigDir:           filepath.Dir(src.AbsolutePath()),
 		FixedStreamRecovery: &merged,
 		NormalizeYAML:       legacyfeatureconfig.NormalizeYAML,
 		InjectFeatures:      injectStandardBootstrapFeatures,
 		ExtraValidate:       extraBootstrapValidate,
 	})
-	if err != nil {
-		return nil, nil, config.StreamRecoveryOverrides{}, err
+	if loadErr != nil {
+		return nil, nil, nil, config.StreamRecoveryOverrides{}, loadErr
 	}
-	active := &configsource.ActiveSourceVersion{
-		HandleIdentity: snap.HandleIdentity,
-		PrivateDigest:  snap.PrivateDigest,
-	}
-	return eff, active, merged, nil
+	active, ownerSlot = snap.TakeBaseline()
+	snapshotOwned = false
+	effective, fixed = eff, merged
+	transferred = true
+	return effective, active, ownerSlot, fixed, nil
 }
 
 func injectStandardBootstrapFeatures(cfg *config.Config) error {
