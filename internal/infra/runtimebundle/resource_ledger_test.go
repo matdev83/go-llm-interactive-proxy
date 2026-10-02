@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 )
@@ -161,6 +163,20 @@ func TestResourceLedger_PrepareActivateFaultInjection(t *testing.T) {
 	}
 	if rolled.Load() != 1 {
 		t.Fatalf("rollback closes=%d", rolled.Load())
+	}
+}
+
+func TestResourceLedger_StartErrorKeepsSafeTextAndUnwrapsCause(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("credential-bearing prepare detail")
+	ledger := runtimebundle.NewResourceLedger()
+	ledger.AddAction("prepare", runtimebundle.PhasePrepare, func(context.Context) error { return sentinel }, nil)
+	err := ledger.Prepare(context.Background())
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Prepare error=%v must unwrap sentinel", err)
+	}
+	if strings.Contains(err.Error(), sentinel.Error()) || err.Error() != "runtimebundle: ledger start failed" {
+		t.Fatalf("start failure must keep bounded safe text, got %q", err)
 	}
 }
 
@@ -337,6 +353,136 @@ func TestResourceLedger_RollbackSkipsUnpublishedStarts(t *testing.T) {
 	}
 	if stopped.Load() != 0 {
 		t.Fatalf("unpublished PhasePublish stop ran: stopped=%d", stopped.Load())
+	}
+}
+
+func TestResourceLedger_PhasePublishPanicIsCachedAndCleanupRemainsUsable(t *testing.T) {
+	t.Parallel()
+	ledger := runtimebundle.NewResourceLedger()
+	var starts, stops atomic.Int32
+	ledger.AddAction("publish-worker", runtimebundle.PhasePublish,
+		func(context.Context) error {
+			starts.Add(1)
+			panic("private publish panic")
+		},
+		func(context.Context) error {
+			stops.Add(1)
+			return nil
+		})
+	first := ledger.Publish(context.Background())
+	if first == nil || !strings.Contains(first.Error(), "start failed") || strings.Contains(first.Error(), "private publish panic") {
+		t.Fatalf("publish panic must become a bounded cached error: %v", first)
+	}
+	second := ledger.Publish(context.Background())
+	if second == nil || second.Error() != first.Error() || starts.Load() != 1 {
+		t.Fatalf("PhasePublish retried or changed its cached outcome: first=%v second=%v starts=%d", first, second, starts.Load())
+	}
+	if err := ledger.Quiesce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if stops.Load() != 1 {
+		t.Fatalf("attempted publish resource cleanup calls=%d want 1", stops.Load())
+	}
+}
+
+func TestResourceLedger_PhasePublishReturnedErrorIsSharedAndCleanupRemainsUsable(t *testing.T) {
+	t.Parallel()
+	ledger := runtimebundle.NewResourceLedger()
+	wantErr := errors.New("publish start rejected")
+	entered, release := make(chan struct{}), make(chan struct{})
+	var starts, stops atomic.Int32
+	var enteredOnce sync.Once
+	ledger.AddAction("publish-worker", runtimebundle.PhasePublish,
+		func(context.Context) error {
+			starts.Add(1)
+			enteredOnce.Do(func() { close(entered) })
+			<-release
+			return wantErr
+		},
+		func(context.Context) error {
+			stops.Add(1)
+			return nil
+		})
+
+	firstResult := make(chan error, 1)
+	go func() { firstResult <- ledger.Publish(context.Background()) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second): // deadlock guard only; the hook barrier provides synchronization.
+		t.Fatal("PhasePublish hook did not start")
+	}
+
+	const waiters = 5
+	ready := make(chan struct{}, waiters)
+	waitResults := make(chan error, waiters)
+	for range waiters {
+		go func() {
+			ready <- struct{}{}
+			waitResults <- ledger.Publish(context.Background())
+		}()
+	}
+	for range waiters {
+		<-ready
+	}
+	close(release)
+
+	checkPublishError := func(err error) {
+		t.Helper()
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("PhasePublish error=%v want wrapped cause %v", err, wantErr)
+		}
+	}
+	checkPublishError(awaitResourceLedgerPublishResult(t, firstResult))
+	for range waiters {
+		checkPublishError(awaitResourceLedgerPublishResult(t, waitResults))
+	}
+	if starts.Load() != 1 {
+		t.Fatalf("PhasePublish hook calls=%d want once", starts.Load())
+	}
+	type lifecycleResults struct {
+		publish, quiesce, close error
+	}
+	lifecycleDone := make(chan lifecycleResults, 1)
+	go func() {
+		result := lifecycleResults{publish: ledger.Publish(context.Background())}
+		result.quiesce = ledger.Quiesce(context.Background())
+		result.close = ledger.Close(context.Background())
+		lifecycleDone <- result
+	}()
+	guard, cancelGuard := context.WithTimeout(context.Background(), 5*time.Second)
+	var lifecycle lifecycleResults
+	select {
+	case lifecycle = <-lifecycleDone:
+		cancelGuard()
+	case <-guard.Done():
+		cancelGuard()
+		t.Fatal("PhasePublish completion did not release waiters for later Quiesce and Close")
+	}
+	checkPublishError(lifecycle.publish)
+	if lifecycle.quiesce != nil {
+		t.Fatalf("Quiesce after failed publication: %v", lifecycle.quiesce)
+	}
+	if lifecycle.close != nil {
+		t.Fatalf("Close after failed publication: %v", lifecycle.close)
+	}
+	if stops.Load() != 1 {
+		t.Fatalf("attempted publish resource cleanup calls=%d want once", stops.Load())
+	}
+}
+
+func awaitResourceLedgerPublishResult(t *testing.T, results <-chan error) error {
+	t.Helper()
+	guard, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	select {
+	case err := <-results:
+		return err
+	case <-guard.Done():
+		t.Fatal("PhasePublish caller was not released with the cached result")
+		return nil
 	}
 }
 

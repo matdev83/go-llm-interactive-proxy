@@ -112,7 +112,7 @@ type closeTestSource struct{}
 func (closeTestSource) AbsolutePath() string { return "/fixed/startup/config.yaml" }
 
 func (closeTestSource) ReadStable(context.Context, *configsource.ActiveSourceVersion) (configsource.SourceSnapshot, configsource.AtomicResult, error) {
-	snap := configsource.SourceSnapshot{Bytes: []byte("candidate: 1")}
+	snap := configsource.SourceSnapshot{Bytes: []byte("candidate: 1"), HandleIdentity: configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid"}}
 	snap.PrivateDigest[0] = 2
 	return snap, configsource.AtomicEligible, nil
 }

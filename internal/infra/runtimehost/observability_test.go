@@ -3,8 +3,10 @@ package runtimehost_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +27,49 @@ func (panicLogHandler) Enabled(context.Context, slog.Level) bool  { return true 
 func (panicLogHandler) Handle(context.Context, slog.Record) error { panic("telemetry sink failed") }
 func (panicLogHandler) WithAttrs([]slog.Attr) slog.Handler        { return panicLogHandler{} }
 func (panicLogHandler) WithGroup(string) slog.Handler             { return panicLogHandler{} }
+
+type cleanupLifecycleHandler struct {
+	mu                 sync.Mutex
+	cleanupFailedCount int
+	text               strings.Builder
+}
+
+func (*cleanupLifecycleHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *cleanupLifecycleHandler) Handle(_ context.Context, record slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.text.WriteString(record.Message)
+	record.Attrs(func(attr slog.Attr) bool {
+		h.text.WriteString(attr.Key)
+		h.text.WriteByte('=')
+		h.text.WriteString(attr.Value.String())
+		return true
+	})
+	if record.Message == "reload lifecycle stage" {
+		var stage, result string
+		record.Attrs(func(attr slog.Attr) bool {
+			if attr.Key == "stage" {
+				stage = attr.Value.String()
+			}
+			if attr.Key == "result" {
+				result = attr.Value.String()
+			}
+			return true
+		})
+		if stage == "cleanup" && result == "cleanup_failed" {
+			h.cleanupFailedCount++
+		}
+	}
+	return nil
+}
+func (h *cleanupLifecycleHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *cleanupLifecycleHandler) WithGroup(string) slog.Handler      { return h }
+
+func (h *cleanupLifecycleHandler) snapshot() (int, string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.cleanupFailedCount, h.text.String()
+}
 
 func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 	t.Parallel()
@@ -64,7 +109,7 @@ func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 		path: "/fixed/config.yaml",
 		snap: configsource.SourceSnapshot{
 			Bytes:          []byte("x: 1"),
-			HandleIdentity: configsource.FileIdentity{Platform: "test", Opaque: [32]byte{1}},
+			HandleIdentity: configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid", Opaque: [32]byte{1}},
 			Size:           4,
 			ModTime:        time.Unix(1, 0).UTC(),
 			PrivateDigest:  digest,
@@ -100,7 +145,7 @@ func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 			Identity: config.EffectiveIdentity{PrivateDigest: [32]byte{1}, PublicFingerprint: "fp-old"},
 		},
 		ActiveSource: &configsource.ActiveSourceVersion{
-			HandleIdentity: configsource.FileIdentity{Platform: "test", Opaque: [32]byte{0}},
+			HandleIdentity: configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid", Opaque: [32]byte{0}},
 			PrivateDigest:  [32]byte{1},
 		},
 		Classify: func(_, _ *config.EffectiveConfig) ([]configreload.SafeChange, error) {
@@ -246,5 +291,43 @@ func TestReloadObservability_FailedReloadDoesNotChangeActiveReadiness(t *testing
 	}
 	if !st.ControlDegraded {
 		t.Fatal("reload-control posture should be visible without flipping data-plane ready")
+	}
+}
+
+func TestAttemptRunner_FailedReadCleanupErrorEmitsOneBoundedLifecycleEvent(t *testing.T) {
+	t.Parallel()
+	markerCause := errors.New("raw private close detail")
+	handler := &cleanupLifecycleHandler{}
+	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{Logger: slog.New(handler)})
+	mgr := runtimehost.NewManager(2, nil)
+	initial := mgr.PrepareRequestPlane("boot", newFakePlane(nil))
+	if err := mgr.Publish(initial); err != nil {
+		t.Fatal(err)
+	}
+	sourceErr := errors.Join(
+		&configsource.IntegrityError{Category: configsource.CategoryNonAtomicUpdate},
+		configsource.MarkSourceCleanupFailure(markerCause),
+	)
+	coord, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
+		Source: &fakeSource{path: "/fixed/config.yaml", err: sourceErr},
+		Loader: runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
+			return &config.EffectiveConfig{Config: &config.Config{}}, nil
+		}),
+		Compile: &controllableCompiler{}, Manager: mgr, Observer: obs,
+		ActiveEffective: &config.EffectiveConfig{Config: &config.Config{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if res.Category != sdkreload.ResultSourceIntegrity {
+		t.Fatalf("failed read category=%q want source-integrity", res.Category)
+	}
+	count, logged := handler.snapshot()
+	if count != 1 {
+		t.Fatalf("cleanup_failed lifecycle observations=%d want exactly once", count)
+	}
+	if strings.Contains(logged, markerCause.Error()) {
+		t.Fatalf("cleanup error text leaked into telemetry: %q", logged)
 	}
 }

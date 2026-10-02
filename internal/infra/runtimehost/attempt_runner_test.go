@@ -26,13 +26,14 @@ import (
 // purpose: that file is package runtimehost_test and cannot be reused here) ---
 
 type runnerFakePlane struct {
-	closed     atomic.Bool
-	closeCalls atomic.Int32
-	kinds      map[string]int
-	closeCh    chan struct{}
-	handler    http.Handler
-	closePanic any
-	closeErr   error
+	closed         atomic.Bool
+	closeCalls     atomic.Int32
+	kinds          map[string]int
+	closeCh        chan struct{}
+	handler        http.Handler
+	closePanic     any
+	closeErr       error
+	startPublished func(context.Context) error
 }
 
 func newRunnerFakePlane(kinds map[string]int) *runnerFakePlane {
@@ -41,6 +42,13 @@ func newRunnerFakePlane(kinds map[string]int) *runnerFakePlane {
 
 func (p *runnerFakePlane) Handler() http.Handler         { return p.handler }
 func (p *runnerFakePlane) Quiesce(context.Context) error { return nil }
+func (p *runnerFakePlane) StartPublished(ctx context.Context) error {
+	if p.startPublished != nil {
+		return p.startPublished(ctx)
+	}
+	return nil
+}
+
 func (p *runnerFakePlane) Close() error {
 	p.closeCalls.Add(1)
 	if p.closePanic != nil {
@@ -128,7 +136,11 @@ func (s *runnerFakeSource) ReadStable(ctx context.Context, _ *configsource.Activ
 			return configsource.SourceSnapshot{}, "", err
 		}
 	}
-	return s.snap, s.atomic, s.err
+	snapshot := s.snap
+	if snapshot.HandleIdentity == (configsource.FileIdentity{}) {
+		snapshot.HandleIdentity = configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid"}
+	}
+	return snapshot, s.atomic, s.err
 }
 
 type runnerControllableCompiler struct {
@@ -209,6 +221,7 @@ func newTestRunner(t *testing.T, mgr *Manager, src StableConfigSource, loader Ef
 		Manager:  mgr,
 		Observer: obs,
 		Gate:     newAttemptGate(),
+		State:    newReloadState(reloadStateInitial{}),
 	})
 }
 
@@ -271,6 +284,7 @@ func TestAttemptRunner_ShutdownBeforePublish(t *testing.T) {
 		Compile: compile,
 		Manager: mgr,
 		Gate:    gate,
+		State:   newReloadState(reloadStateInitial{}),
 	})
 
 	out := r.Run(context.Background(), attemptInput{AttemptID: 1, ActiveGeneration: 1, ActiveEffective: runnerBaseEffective("fp-old", 1)})
@@ -381,7 +395,7 @@ func TestAttemptRunner_EffectiveLoadCancellation(t *testing.T) {
 func TestAttemptRunner_EffectiveIdentityNoopReturnsSourceBaselineOnly(t *testing.T) {
 	t.Parallel()
 	active := runnerBaseEffective("fp-same", 7)
-	wantHandle := configsource.FileIdentity{Platform: "test", Opaque: [32]byte{2}}
+	wantHandle := configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid", Opaque: [32]byte{2}}
 	src := &runnerFakeSource{
 		path:   "/x/config.yaml",
 		atomic: configsource.AtomicEligible,
@@ -635,7 +649,7 @@ func TestAttemptRunner_SuccessfulPublicationReturnsStateUpdates(t *testing.T) {
 	if err := mgr.Publish(g0); err != nil {
 		t.Fatal(err)
 	}
-	wantHandle := configsource.FileIdentity{Platform: "test", Opaque: [32]byte{7}}
+	wantHandle := configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid", Opaque: [32]byte{7}}
 	src := &runnerFakeSource{
 		path:   "/x/config.yaml",
 		atomic: configsource.AtomicEligible,
@@ -661,6 +675,53 @@ func TestAttemptRunner_SuccessfulPublicationReturnsStateUpdates(t *testing.T) {
 	}
 	if out.SourceUpdate == nil || out.SourceUpdate.HandleIdentity != wantHandle || out.SourceUpdate.PrivateDigest != ([32]byte{5}) {
 		t.Fatalf("SourceUpdate=%+v", out.SourceUpdate)
+	}
+}
+
+func TestAttemptRunner_AdoptsCommittedStateBeforePublishedWork(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager(8, nil)
+	g0 := mgr.PrepareRequestPlane("startup", newRunnerFakePlane(map[string]int{"local-stub": 1}))
+	if err := mgr.Publish(g0); err != nil {
+		t.Fatal(err)
+	}
+	wantHandle := configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid", Opaque: [32]byte{17}}
+	src := &runnerFakeSource{
+		path:   "/x/config.yaml",
+		atomic: configsource.AtomicEligible,
+		snap: configsource.SourceSnapshot{
+			Bytes: []byte("x: 1"), HandleIdentity: wantHandle, PrivateDigest: [32]byte{9},
+		},
+	}
+	newEff := runnerBaseEffective("fp-new", 9)
+	loader := FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) { return newEff, nil })
+	var callbackSawAdoption atomic.Bool
+	var r *attemptRunner
+	compile := &runnerControllableCompiler{
+		kinds: map[string]int{"local-stub": 1},
+		onPlane: func(p *runnerFakePlane) {
+			p.startPublished = func(context.Context) error {
+				r.state.mu.Lock()
+				defer r.state.mu.Unlock()
+				if r.state.activeEff == newEff && r.state.activeSource != nil &&
+					r.state.activeSource.HandleIdentity == wantHandle &&
+					r.state.activeSource.PrivateDigest == ([32]byte{9}) &&
+					r.state.last.Category == sdkreload.ResultPublished {
+					callbackSawAdoption.Store(true)
+				}
+				return nil
+			}
+		},
+	}
+	r = newTestRunner(t, mgr, src, loader, compile, nil)
+	out := r.Run(context.Background(), attemptInput{
+		AttemptID: 18, ActiveGeneration: 1, ActiveEffective: runnerBaseEffective("fp-old", 1),
+	})
+	if out.Result.Category != sdkreload.ResultPublished {
+		t.Fatalf("result=%+v want published", out.Result)
+	}
+	if !callbackSawAdoption.Load() {
+		t.Fatal("PublishedWork observed the manager swap before matching source/effective state adoption")
 	}
 }
 
@@ -805,6 +866,7 @@ func TestAttemptRunner_PrimaryPanicSurvivesCleanupPanic(t *testing.T) {
 		Compile: compile,
 		Manager: mgr,
 		Gate:    gate,
+		State:   newReloadState(reloadStateInitial{}),
 	})
 	out := r.Run(context.Background(), attemptInput{AttemptID: 1, ActiveGeneration: 1, ActiveEffective: runnerBaseEffective("fp-old", 1)})
 	if out.Result.Category != sdkreload.ResultInternalFailed || out.Result.ReasonCategory != configreload.StagePanic {
@@ -845,6 +907,7 @@ func TestAttemptRunner_CleanupPanicPostTransferDiscard(t *testing.T) {
 		Compile: compile,
 		Manager: mgr,
 		Gate:    gate,
+		State:   newReloadState(reloadStateInitial{}),
 	})
 	out := r.Run(context.Background(), attemptInput{AttemptID: 1, ActiveGeneration: 1, ActiveEffective: runnerBaseEffective("fp-old", 1)})
 	if out.Result.Category != sdkreload.ResultCanceled || out.Result.ReasonCategory != configreload.StageShutdown {
@@ -924,7 +987,7 @@ func TestAttemptRunner_DefensiveInputAndOutcomeCopies(t *testing.T) {
 	if err := mgr.Publish(g0); err != nil {
 		t.Fatal(err)
 	}
-	wantHandle := configsource.FileIdentity{Platform: "test", Opaque: [32]byte{1}}
+	wantHandle := configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid", Opaque: [32]byte{1}}
 	src := &runnerFakeSource{
 		path:   "/x/config.yaml",
 		atomic: configsource.AtomicEligible,

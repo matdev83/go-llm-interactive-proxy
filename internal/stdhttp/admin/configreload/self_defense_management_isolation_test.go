@@ -3,6 +3,7 @@ package configreload_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,10 +53,17 @@ func TestManagementRecoveryListenerStaysUsableAfterSelfDefenseCandidateFailures(
 
 	ctx := context.Background()
 	path := writeSelfDefenseManagementConfig(t, selfDefenseAdaptiveYAML("1m", 100000, ""))
-	eff, activeSource, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(ctx, path, config.StreamRecoveryOverrides{})
+	eff, activeSource, startupOwner, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(ctx, path, config.StreamRecoveryOverrides{})
 	if err != nil {
 		t.Fatalf("LoadBootstrapEffectiveWithSource: %v", err)
 	}
+	// Guard startup ownership before any process/generation construction; the
+	// coordinator consumes this slot only after successful construction.
+	t.Cleanup(func() {
+		if err := startupOwner.Close(context.Background()); err != nil {
+			t.Errorf("startup source cleanup: %v", err)
+		}
+	})
 	ps := newSelfDefenseManagementProcess(t, eff.Config)
 
 	boot, err := runtimebundle.CompileGeneration(ctx, runtimebundle.GenerationCompileInput{
@@ -77,7 +85,10 @@ func TestManagementRecoveryListenerStaysUsableAfterSelfDefenseCandidateFailures(
 	loader := runtimehost.FuncEffectiveLoader(func(loadCtx context.Context, _ []byte) (*config.EffectiveConfig, error) {
 		// The fixed source is the only accepted configuration input, so the
 		// effective load always re-reads the startup path the operator edited.
-		loaded, _, _, loadErr := runtimebundle.LoadBootstrapEffectiveWithSource(loadCtx, path, config.StreamRecoveryOverrides{})
+		loaded, _, oneShotOwner, _, loadErr := runtimebundle.LoadBootstrapEffectiveWithSource(loadCtx, path, config.StreamRecoveryOverrides{})
+		if oneShotOwner != nil {
+			loadErr = errors.Join(loadErr, oneShotOwner.Close(loadCtx))
+		}
 		return loaded, loadErr
 	})
 	compiler := runtimehost.FuncCompiler(func(compileCtx context.Context, candidate *config.Config, live map[string]int) (runtimehost.PublishedRequestPlane, error) {
@@ -91,7 +102,7 @@ func TestManagementRecoveryListenerStaysUsableAfterSelfDefenseCandidateFailures(
 	})
 	coord, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
 		Source: src, Loader: loader, Classify: configreload.ClassifyEffective, Compile: compiler,
-		Manager: mgr, Timeout: 30 * time.Second, ActiveEffective: eff, ActiveSource: activeSource,
+		Manager: mgr, Timeout: 30 * time.Second, ActiveEffective: eff, ActiveSource: activeSource, ActiveSourceOwner: startupOwner,
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator: %v", err)

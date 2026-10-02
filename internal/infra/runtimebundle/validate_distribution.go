@@ -57,7 +57,10 @@ func validateDistribution(
 		return fmt.Errorf("runtimebundle: ValidateDistribution requires HandlerComposer")
 	}
 
-	effective, _, _, err := ops.load(ctx, path, in.StreamRecoveryOverrides)
+	effective, _, ownerSlot, _, err := ops.load(ctx, path, in.StreamRecoveryOverrides)
+	if ownerSlot != nil {
+		err = errors.Join(err, ownerSlot.Close(ctx))
+	}
 	if err != nil {
 		return err
 	}

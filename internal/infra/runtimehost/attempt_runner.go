@@ -25,6 +25,8 @@ type attemptOutcome struct {
 	Result          sdkreload.Result
 	EffectiveUpdate *config.EffectiveConfig
 	SourceUpdate    *configsource.ActiveSourceVersion
+	SourceOwnerSlot *configsource.SourceOwnerSlot
+	AdoptionReceipt *sourceAdoptionReceipt
 }
 
 type attemptRunnerDeps struct {
@@ -35,6 +37,7 @@ type attemptRunnerDeps struct {
 	Manager  *Manager
 	Observer *ReloadObserver
 	Gate     *attemptGate
+	State    *ReloadState
 }
 
 // attemptRunner exclusively owns one admitted reload attempt transaction.
@@ -46,6 +49,7 @@ type attemptRunner struct {
 	mgr      *Manager
 	observer *ReloadObserver
 	gate     *attemptGate
+	state    *ReloadState
 }
 
 func newAttemptRunner(deps attemptRunnerDeps) *attemptRunner {
@@ -56,7 +60,7 @@ func newAttemptRunner(deps attemptRunnerDeps) *attemptRunner {
 	return &attemptRunner{
 		source: deps.Source, loader: deps.Loader, classify: classify,
 		compile: deps.Compile, mgr: deps.Manager, observer: deps.Observer,
-		gate: deps.Gate,
+		gate: deps.Gate, state: deps.State,
 	}
 }
 
@@ -125,15 +129,50 @@ func (r *attemptRunner) Run(ctx context.Context, in attemptInput) (out attemptOu
 
 	var plane PublishedRequestPlane
 	var gen *Generation
+	var candidateSnapshot *configsource.SourceSnapshot
+	var pendingSourceOwner *configsource.SourceOwnerSlot
+	var pendingSourceUpdate *configsource.ActiveSourceVersion
+	var pendingEffective *config.EffectiveConfig
+	var sourceBorrow *configsource.SourceBorrow
+	var sourceTransferred bool
+	var committed bool
+	var adoptionReceipt *sourceAdoptionReceipt
+	var publishedResult sdkreload.Result
+	var postPublish *publishPostSwap
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			closeOwnedPlane(&plane)
-			discardOwnedGeneration(&gen)
-			out = attemptOutcome{Result: sdkreload.Result{
-				Category: sdkreload.ResultInternalFailed, AttemptID: in.AttemptID,
-				ActiveGeneration: r.activeGenerationID(), ReasonCategory: configreload.StagePanic,
-			}}
-			_ = configreload.SanitizePanicValue(recovered)
+			if committed {
+				if publishedResult.ActiveGeneration == 0 {
+					publishedResult.ActiveGeneration = r.activeGenerationID()
+				}
+				if adoptionReceipt != nil && !adoptionReceipt.adopted && r.state != nil {
+					r.state.adoptPublishedSource(pendingEffective, pendingSourceUpdate, pendingSourceOwner, publishedResult, adoptionReceipt)
+				}
+				// A committed generation must never lose the owner prepared for it,
+				// even if recovery has to finish source adoption.
+				sourceTransferred = true
+				postPublish.run()
+				out = attemptOutcome{Result: publishedResult, EffectiveUpdate: pendingEffective, SourceUpdate: pendingSourceUpdate, AdoptionReceipt: adoptionReceipt}
+			} else {
+				closeOwnedPlane(&plane)
+				discardOwnedGeneration(&gen)
+				out = attemptOutcome{Result: sdkreload.Result{
+					Category: sdkreload.ResultInternalFailed, AttemptID: in.AttemptID,
+					ActiveGeneration: r.activeGenerationID(), ReasonCategory: configreload.StagePanic,
+				}}
+				_ = configreload.SanitizePanicValue(recovered)
+			}
+		}
+		if sourceBorrow != nil {
+			sourceBorrow.Release()
+		}
+		if !sourceTransferred {
+			if pendingSourceOwner != nil {
+				r.closeSourceOwner(pendingSourceOwner)
+			}
+			if candidateSnapshot != nil {
+				r.closeSourceSnapshot(candidateSnapshot)
+			}
 		}
 		if out.Result.AttemptID == 0 {
 			out.Result.AttemptID = in.AttemptID
@@ -156,6 +195,9 @@ func (r *attemptRunner) Run(ctx context.Context, in attemptInput) (out attemptOu
 	stageCtx, endStage := r.beginStage(ctx, configreload.StageRead)
 	snap, atomicRes, err := r.source.ReadStable(stageCtx, activeSrc)
 	if err != nil {
+		if configsource.IsSourceCleanupError(err) {
+			r.observeSourceCleanupFailure()
+		}
 		if r.canceled(err) {
 			out = cancelOut()
 		} else {
@@ -164,6 +206,8 @@ func (r *attemptRunner) Run(ctx context.Context, in attemptInput) (out attemptOu
 		endStage(string(out.Result.Category))
 		return out
 	}
+	candidateSnapshot = &snap
+	snap.SetCleanupObserver(r.sourceCleanupObserver())
 	endStage("ok")
 	if atomicRes == configsource.AtomicNoop {
 		out = failOutcome(&res, sdkreload.ResultNoop, configreload.StageNoop)
@@ -183,15 +227,33 @@ func (r *attemptRunner) Run(ctx context.Context, in attemptInput) (out attemptOu
 	}
 	endStage("ok")
 
-	srcUpdate := &configsource.ActiveSourceVersion{
-		HandleIdentity: snap.HandleIdentity, PrivateDigest: snap.PrivateDigest,
+	srcUpdate, sourceOwner := snap.TakeBaseline()
+	candidateSnapshot = nil
+	pendingSourceUpdate, pendingSourceOwner = srcUpdate, sourceOwner
+	pendingEffective = eff
+	if srcUpdate == nil || sourceOwner == nil || r.state == nil || !sourceOwner.ValidFor(srcUpdate) {
+		out = failOutcome(&res, sdkreload.ResultInternalFailed, configreload.StagePrepare)
+		return out
+	}
+	sourceBorrow, err = srcUpdate.Borrow()
+	if err != nil {
+		out = failFromLoadErr(&res, err)
+		return out
+	}
+	if srcUpdate.HandleIdentity.Platform == "linux" {
+		if err = sourceBorrow.ValidateBaseline(srcUpdate); err != nil {
+			out = failFromLoadErr(&res, err)
+			return out
+		}
 	}
 	activeEff := in.ActiveEffective
 	if activeEff != nil && activeEff.Identity.PrivateDigest == eff.Identity.PrivateDigest {
 		// Advance source baseline without publishing (req 2.9).
 		res.Category = sdkreload.ResultNoop
 		res.ReasonCategory = configreload.StageNoop
-		out = attemptOutcome{Result: res, SourceUpdate: srcUpdate}
+		out = attemptOutcome{Result: res, SourceUpdate: srcUpdate, SourceOwnerSlot: sourceOwner}
+		sourceTransferred = true
+		pendingSourceOwner = nil
 		return out
 	}
 
@@ -214,6 +276,10 @@ func (r *attemptRunner) Run(ctx context.Context, in attemptInput) (out attemptOu
 
 	if r.isShuttingDown() {
 		out = cancelOut()
+		return out
+	}
+	if r.state == nil {
+		out = failOutcome(&res, sdkreload.ResultInternalFailed, configreload.StagePrepare)
 		return out
 	}
 
@@ -271,10 +337,23 @@ func (r *attemptRunner) Run(ctx context.Context, in attemptInput) (out attemptOu
 	}
 
 	_, endStage = r.beginStage(ctx, configreload.StagePublish)
-	publishErr := r.mgr.Publish(gen)
+	res.Category = sdkreload.ResultPublished
+	res.PreviousGeneration = in.ActiveGeneration
+	res.ReasonCategory = configreload.StagePublish
+	publishedResult = res
+	adoptionReceipt = &sourceAdoptionReceipt{}
+	postPublish, publishErr := r.mgr.commitPublish(gen, &committed)
 	var publishedGenID int64
 	if publishErr == nil {
 		publishedGenID = gen.ID()
+		publishedResult.ActiveGeneration = publishedGenID
+		res = publishedResult
+		// State, result, metadata copy, receipt, and owner slot were validated
+		// before commit. Install them before Manager runs post-swap observers.
+		r.state.adoptPublishedSource(eff, srcUpdate, sourceOwner, publishedResult, adoptionReceipt)
+		sourceTransferred = true
+		pendingSourceOwner = nil
+		postPublish.run()
 	}
 	gen = nil // Manager owns cleanup either way
 	if publishErr != nil {
@@ -294,14 +373,38 @@ func (r *attemptRunner) Run(ctx context.Context, in attemptInput) (out attemptOu
 		out = attemptOutcome{Result: res}
 		return out
 	}
+	_ = adoptionReceipt.closeDisplaced(context.Background())
+	out = attemptOutcome{Result: res, EffectiveUpdate: eff, SourceUpdate: srcUpdate, AdoptionReceipt: adoptionReceipt}
 	endStage(string(sdkreload.ResultPublished))
-
-	res.Category = sdkreload.ResultPublished
-	res.PreviousGeneration = in.ActiveGeneration
-	res.ActiveGeneration = publishedGenID
-	res.ReasonCategory = configreload.StagePublish
-	out = attemptOutcome{Result: res, EffectiveUpdate: eff, SourceUpdate: srcUpdate}
 	return out
+}
+
+func (r *attemptRunner) closeSourceOwner(slot *configsource.SourceOwnerSlot) {
+	if slot != nil {
+		_ = slot.Close(context.Background())
+	}
+}
+
+func (r *attemptRunner) closeSourceSnapshot(snapshot *configsource.SourceSnapshot) {
+	if snapshot != nil {
+		_ = snapshot.Close(context.Background())
+	}
+}
+
+func (r *attemptRunner) sourceCleanupObserver() func(error) {
+	if r == nil || r.observer == nil {
+		return nil
+	}
+	return func(error) {
+		r.observer.ObserveLifecycle(context.Background(), "cleanup", string(LifecycleOutcomeCleanupFailed), 0)
+	}
+}
+
+func (r *attemptRunner) observeSourceCleanupFailure() {
+	if r == nil || r.observer == nil {
+		return
+	}
+	r.observer.ObserveLifecycle(context.Background(), "cleanup", string(LifecycleOutcomeCleanupFailed), 0)
 }
 
 func closeOwnedPlane(owned *PublishedRequestPlane) {
