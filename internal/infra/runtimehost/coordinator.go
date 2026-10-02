@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
@@ -27,6 +28,12 @@ type Coordinator struct {
 	attempts atomic.Int64
 }
 
+func closeUnusedSourceOwner(slot *configsource.SourceOwnerSlot) {
+	if slot != nil {
+		_ = slot.Close(context.Background())
+	}
+}
+
 // NewCoordinator constructs a production serialized reload coordinator.
 func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 	if deps.Source == nil {
@@ -41,6 +48,9 @@ func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 	if deps.Manager == nil {
 		return nil, fmt.Errorf("runtimehost: nil Manager")
 	}
+	if deps.ActiveSourceOwner != nil && !deps.ActiveSourceOwner.ValidFor(deps.ActiveSource) {
+		return nil, fmt.Errorf("runtimehost: mismatched active source owner")
+	}
 	timeout := deps.Timeout
 	if timeout <= 0 {
 		timeout = DefaultReloadTimeout
@@ -53,16 +63,6 @@ func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 		observer: deps.Observer,
 		gate:     gate,
 	}
-	c.runner = newAttemptRunner(attemptRunnerDeps{
-		Source:   deps.Source,
-		Loader:   deps.Loader,
-		Classify: deps.Classify,
-		Compile:  deps.Compile,
-		Manager:  deps.Manager,
-		Observer: deps.Observer,
-		Gate:     gate,
-	})
-
 	initial := reloadStateInitial{
 		ActiveEffective: deps.ActiveEffective,
 		ActiveSource:    deps.ActiveSource,
@@ -76,7 +76,29 @@ func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 			initial.ModelGeneration = meta.PublicFingerprint
 		}
 	}
+	stateOwner := configsource.NewSourceOwnerSlot(nil)
+	if deps.ActiveSourceOwner != nil {
+		deps.ActiveSourceOwner.MoveTo(stateOwner)
+	}
+	initial.ActiveSourceOwner = stateOwner
+	if deps.Observer != nil {
+		stateOwner.SetCleanupObserver(func(error) {
+			deps.Observer.ObserveLifecycle(context.Background(), "cleanup", string(LifecycleOutcomeCleanupFailed), 0)
+		})
+	}
 	c.state = newReloadState(initial)
+	c.runner = newAttemptRunner(attemptRunnerDeps{
+		Source:   deps.Source,
+		Loader:   deps.Loader,
+		Classify: deps.Classify,
+		Compile:  deps.Compile,
+		Manager:  deps.Manager,
+		Observer: deps.Observer,
+		Gate:     gate,
+		State:    c.state,
+	})
+	gate.SetShutdownFinalizer(c.state.requestCloseActiveSource)
+	gate.SetShutdownWaiter(c.state.waitForSourceClose)
 	return c, nil
 }
 
@@ -209,6 +231,7 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 		Duration:   time.Since(start),
 		RecordedAt: time.Now().UTC(),
 	})
+	closeUnusedSourceOwner(outcome.SourceOwnerSlot)
 	c.refreshGauges()
 
 	for {
@@ -243,6 +266,7 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 				Duration:   time.Since(followStart),
 				RecordedAt: time.Now().UTC(),
 			})
+			closeUnusedSourceOwner(followOutcome.SourceOwnerSlot)
 			c.refreshGauges()
 			// loop: another SIGHUP may have reserved pending during follow-up
 		default:

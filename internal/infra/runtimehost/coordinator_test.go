@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -103,7 +104,11 @@ func (s *fakeSource) ReadStable(ctx context.Context, _ *configsource.ActiveSourc
 			return configsource.SourceSnapshot{}, "", err
 		}
 	}
-	return s.snap, s.atomic, s.err
+	snapshot := s.snap
+	if snapshot.HandleIdentity == (configsource.FileIdentity{}) {
+		snapshot.HandleIdentity = configsource.FileIdentity{Platform: "windows", Scheme: "win-fileid"}
+	}
+	return snapshot, s.atomic, s.err
 }
 
 type controllableCompiler struct {
@@ -356,10 +361,7 @@ func TestCoordinator_EffectiveNoopAdvancesActiveSource_RejectsInPlaceEdit(t *tes
 	if err != nil || res != configsource.AtomicEligible {
 		t.Fatalf("startup read: res=%q err=%v", res, err)
 	}
-	activeSrc := &configsource.ActiveSourceVersion{
-		HandleIdentity: snap1.HandleIdentity,
-		PrivateDigest:  snap1.PrivateDigest,
-	}
+	activeSrc, activeOwner := snap1.TakeBaseline()
 	activeEff := baseEffective("fp-same", 7)
 	loader := runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
 		return baseEffective("fp-same", 7), nil
@@ -372,16 +374,28 @@ func TestCoordinator_EffectiveNoopAdvancesActiveSource_RejectsInPlaceEdit(t *tes
 		t.Fatalf("publish gen1: %v", err)
 	}
 	c, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
-		Source:          src,
-		Loader:          loader,
-		Compile:         compile,
-		Manager:         mgr,
-		Timeout:         time.Second,
-		ActiveEffective: activeEff,
-		ActiveSource:    activeSrc,
+		Source:            src,
+		Loader:            loader,
+		Compile:           compile,
+		Manager:           mgr,
+		Timeout:           time.Second,
+		ActiveEffective:   activeEff,
+		ActiveSource:      activeSrc,
+		ActiveSourceOwner: activeOwner,
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator: %v", err)
+	}
+	defer func() {
+		c.BeginShutdown()
+		_ = c.WaitForIdle(context.Background())
+	}()
+	if runtime.GOOS == "linux" && activeSrc.HandleIdentity.Scheme != "linux-ext4-dev-ino-lease-v1" {
+		res := c.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+		if res.Category != sdkreload.ResultSourceIntegrity {
+			t.Fatalf("unsupported Linux runtime comparison category=%q want source-integrity", res.Category)
+		}
+		return
 	}
 
 	bodyB := []byte("server:\n  address: \"127.0.0.1:0\"\n# reorder-noop\n")
@@ -895,6 +909,7 @@ func TestCoordinator_LastGood_AtomicRenameThenPublish(t *testing.T) {
 	if err != nil || res1 != configsource.AtomicEligible {
 		t.Fatalf("bootstrap read: res=%q err=%v", res1, err)
 	}
+	activeSrc, activeOwner := snap1.TakeBaseline()
 
 	mgr := runtimehost.NewManager(8, nil)
 	g0 := mgr.PrepareRequestPlane("startup", newFakePlane(map[string]int{"local-stub": 1}))
@@ -920,14 +935,16 @@ func TestCoordinator_LastGood_AtomicRenameThenPublish(t *testing.T) {
 				PublicFingerprint: "fp-startup",
 			},
 		},
-		ActiveSource: &configsource.ActiveSourceVersion{
-			HandleIdentity: snap1.HandleIdentity,
-			PrivateDigest:  snap1.PrivateDigest,
-		},
+		ActiveSource:      activeSrc,
+		ActiveSourceOwner: activeOwner,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		c.BeginShutdown()
+		_ = c.WaitForIdle(context.Background())
+	}()
 
 	// In-place rewrite must retain last-good.
 	if err := os.WriteFile(path, []byte("version: torn\n"), 0o600); err != nil {
@@ -939,6 +956,20 @@ func TestCoordinator_LastGood_AtomicRenameThenPublish(t *testing.T) {
 	}
 	if mgr.Active().ID() != 1 {
 		t.Fatalf("inplace mutated active=%d", mgr.Active().ID())
+	}
+	if runtime.GOOS == "linux" && activeSrc.HandleIdentity.Scheme != "linux-ext4-dev-ino-lease-v1" {
+		tmp := filepath.Join(dir, "config.yaml.tmp")
+		if err := os.WriteFile(tmp, []byte("version: two\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			t.Fatal(err)
+		}
+		unsupported := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+		if unsupported.Category != sdkreload.ResultSourceIntegrity {
+			t.Fatalf("unsupported Linux atomic replacement category=%q want source-integrity", unsupported.Category)
+		}
+		return
 	}
 
 	// Atomic rename replacement is eligible and publishes.
@@ -955,6 +986,67 @@ func TestCoordinator_LastGood_AtomicRenameThenPublish(t *testing.T) {
 	}
 	if mgr.Active().ID() != 2 {
 		t.Fatalf("active=%d want 2", mgr.Active().ID())
+	}
+}
+
+func TestCoordinatorShutdown_RequestCloseDoesNotWaitForBorrowAndWaitIsBounded(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" {
+		t.Skip("retained source leases are Linux-only")
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("version: accepted\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := configsource.NewFixedSource(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _, err := source.ReadStable(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, owner := snapshot.TakeBaseline()
+	if active.HandleIdentity.Scheme != "linux-ext4-dev-ino-lease-v1" {
+		_ = owner.Close(context.Background())
+		t.Skip("test filesystem does not provide supported ext4 lease evidence")
+	}
+	manager := runtimehost.NewManager(2, nil)
+	generation := manager.PrepareRequestPlane("startup", newFakePlane(nil))
+	if err := manager.Publish(generation); err != nil {
+		t.Fatal(err)
+	}
+	c, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
+		Source: source, Loader: runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
+			return baseEffective("unused", 1), nil
+		}),
+		Compile: &controllableCompiler{}, Manager: manager,
+		ActiveEffective: baseEffective("active", 1), ActiveSource: active, ActiveSourceOwner: owner,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	borrow, err := active.Borrow()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shutdownDone := make(chan struct{})
+	go func() { c.BeginShutdown(); close(shutdownDone) }()
+	select {
+	case <-shutdownDone:
+	case <-time.After(5 * time.Second):
+		borrow.Release()
+		t.Fatal("BeginShutdown waited for an unrelated source borrow")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := c.WaitForIdle(canceled); !errors.Is(err, context.Canceled) {
+		borrow.Release()
+		t.Fatalf("WaitForIdle with outstanding borrow=%v want context canceled", err)
+	}
+	borrow.Release()
+	if err := c.WaitForIdle(context.Background()); err != nil {
+		t.Fatalf("WaitForIdle after borrow release: %v", err)
 	}
 }
 

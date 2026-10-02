@@ -36,15 +36,20 @@ func TestTOCTOU_ServeGateAndBootstrapDisagreeAcrossControlledLoads(t *testing.T)
 	if snapA.active.HandleIdentity == snapB.active.HandleIdentity {
 		t.Fatal("controlled snapshots A/B must be distinguishable by source handle identity")
 	}
+	if snapA.active.HandleIdentity.Scheme == "linux-ext4-dev-ino-lease-v1" {
+		if !snapA.owner.Matches(snapA.active) || !snapB.owner.Matches(snapB.active) {
+			t.Fatal("supported ext4 fixtures must retain each accepted snapshot's own source owner")
+		}
+	}
 
 	var loads atomic.Int32
-	load := func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+	load := func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error) {
 		n := loads.Add(1)
 		switch n {
 		case 1:
-			return snapA.eff, snapA.active, snapA.fixed, nil
+			return snapA.eff, snapA.active, snapA.owner, snapA.fixed, nil
 		default:
-			return snapB.eff, snapB.active, snapB.fixed, nil
+			return snapB.eff, snapB.active, snapB.owner, snapB.fixed, nil
 		}
 	}
 
@@ -76,10 +81,6 @@ func TestTOCTOU_ServeGateAndBootstrapDisagreeAcrossControlledLoads(t *testing.T)
 	if out.Host.effective != nil {
 		reloadFP = out.Host.effective.Identity.PublicFingerprint
 	}
-	reloadHandle := configsource.FileIdentity{}
-	if out.Host.activeSource != nil {
-		reloadHandle = out.Host.activeSource.HandleIdentity
-	}
 
 	var problems []string
 	if gotLoads != 1 || out.Journal.Loads != 1 {
@@ -91,14 +92,29 @@ func TestTOCTOU_ServeGateAndBootstrapDisagreeAcrossControlledLoads(t *testing.T)
 	if wantFP != reloadFP {
 		problems = append(problems, "gate fingerprint="+wantFP+" reload Effective fingerprint="+reloadFP)
 	}
-	if snapA.active.HandleIdentity != reloadHandle {
-		problems = append(problems, "reload ActiveSource handle differs from accepted snapshot A handle")
-	}
 	if processAddr != snapA.eff.Config.Server.Address {
 		problems = append(problems, "process address="+processAddr+" want snapshot A address="+snapA.eff.Config.Server.Address)
 	}
 	if !hostIsComplete(out) {
 		problems = append(problems, "incomplete Host")
+	}
+	if snapA.active.HandleIdentity.Scheme == "linux-ext4-dev-ino-lease-v1" {
+		if !snapA.owner.IsEmpty() {
+			problems = append(problems, "accepted snapshot A owner was not transferred into Host reload state")
+		}
+		if snapB.owner.IsEmpty() {
+			problems = append(problems, "unused snapshot B owner was incorrectly transferred")
+		}
+		if borrow, err := snapA.active.Borrow(); err != nil {
+			problems = append(problems, "accepted snapshot A baseline is no longer borrowable: "+err.Error())
+		} else {
+			borrow.Release()
+		}
+		if borrow, err := snapB.active.Borrow(); err != nil {
+			problems = append(problems, "unused snapshot B owner was disposed: "+err.Error())
+		} else {
+			borrow.Release()
+		}
 	}
 	if len(problems) != 0 {
 		t.Fatalf("one-snapshot HostBuild invariant failed (%d):\n- %s", len(problems), strings.Join(problems, "\n- "))
@@ -116,11 +132,11 @@ func TestOneSnapshot_HostTransactionSharesAcceptedSnapshot(t *testing.T) {
 	snapB := mustLoadBootstrapSnapshot(ctx, t, pathB)
 
 	var loads atomic.Int32
-	load := func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+	load := func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error) {
 		if loads.Add(1) == 1 {
-			return snapA.eff, snapA.active, snapA.fixed, nil
+			return snapA.eff, snapA.active, snapA.owner, snapA.fixed, nil
 		}
-		return snapB.eff, snapB.active, snapB.fixed, nil
+		return snapB.eff, snapB.active, snapB.owner, snapB.fixed, nil
 	}
 
 	flagFalse := false
@@ -164,19 +180,25 @@ func TestOneSnapshot_HostTransactionSharesAcceptedSnapshot(t *testing.T) {
 type bootstrapSnapshot struct {
 	eff    *config.EffectiveConfig
 	active *configsource.ActiveSourceVersion
+	owner  *configsource.SourceOwnerSlot
 	fixed  config.StreamRecoveryOverrides
 }
 
 func mustLoadBootstrapSnapshot(ctx context.Context, t *testing.T, path string) bootstrapSnapshot {
 	t.Helper()
-	eff, active, fixed, err := LoadBootstrapEffectiveWithSource(ctx, path, config.StreamRecoveryOverrides{})
+	eff, active, owner, fixed, err := LoadBootstrapEffectiveWithSource(ctx, path, config.StreamRecoveryOverrides{})
 	if err != nil {
 		t.Fatalf("preload %s: %v", path, err)
 	}
 	if eff == nil || active == nil {
 		t.Fatal("preload returned nil effective/active")
 	}
-	return bootstrapSnapshot{eff: eff, active: active, fixed: fixed}
+	t.Cleanup(func() {
+		if closeErr := owner.Close(context.Background()); closeErr != nil {
+			t.Errorf("close bootstrap source owner: %v", closeErr)
+		}
+	})
+	return bootstrapSnapshot{eff: eff, active: active, owner: owner, fixed: fixed}
 }
 
 func writeOneSnapshotMarkerConfig(t *testing.T, address string, mode accessmode.Mode) string {

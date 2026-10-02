@@ -39,15 +39,16 @@ type BackendFactoryKindCounter interface {
 
 // CoordinatorDeps wires production or test seams for the serialized reload coordinator.
 type CoordinatorDeps struct {
-	Source          StableConfigSource
-	Loader          EffectiveLoader
-	Classify        func(active, candidate *config.EffectiveConfig) ([]configreload.SafeChange, error)
-	Compile         CandidateCompiler
-	Manager         *Manager
-	Timeout         time.Duration
-	ActiveEffective *config.EffectiveConfig
-	ActiveSource    *configsource.ActiveSourceVersion
-	Observer        *ReloadObserver
+	Source            StableConfigSource
+	Loader            EffectiveLoader
+	Classify          func(active, candidate *config.EffectiveConfig) ([]configreload.SafeChange, error)
+	Compile           CandidateCompiler
+	Manager           *Manager
+	Timeout           time.Duration
+	ActiveEffective   *config.EffectiveConfig
+	ActiveSource      *configsource.ActiveSourceVersion
+	ActiveSourceOwner *configsource.SourceOwnerSlot
+	Observer          *ReloadObserver
 }
 
 // FuncEffectiveLoader adapts a function to EffectiveLoader.

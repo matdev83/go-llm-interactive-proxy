@@ -2,6 +2,7 @@ package configsource
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -11,9 +12,12 @@ import (
 // LoadEffective reads one stable snapshot from s and runs the shared pure
 // effective-configuration pipeline. Filesystem ownership remains in this
 // driving adapter; core/config only sees bounded bytes and explicit options.
-func (s *FixedSource) LoadEffective(ctx context.Context, active *ActiveSourceVersion, opts config.LoadEffectiveOptions) (*config.EffectiveConfig, AtomicResult, error) {
+func (s *FixedSource) LoadEffective(ctx context.Context, active *ActiveSourceVersion, opts config.LoadEffectiveOptions) (effective *config.EffectiveConfig, result AtomicResult, err error) {
 	if s == nil {
 		return nil, "", fmt.Errorf("read config: nil fixed source")
+	}
+	if ctx == nil {
+		return nil, "", fmt.Errorf("read config: nil context")
 	}
 	if opts.ConfigDir == "" {
 		opts.ConfigDir = filepath.Dir(s.AbsolutePath())
@@ -22,7 +26,18 @@ func (s *FixedSource) LoadEffective(ctx context.Context, active *ActiveSourceVer
 	if err != nil {
 		return nil, result, fmt.Errorf("read config: %w", err)
 	}
-	effective, err := config.LoadEffective(ctx, snap.Bytes, opts)
+	defer func() {
+		cleanupErr := snap.Close(ctx)
+		if err == nil && cleanupErr != nil {
+			err = errors.Join(integrityErr(CategoryPartialUnreadable), cleanupErr)
+		} else {
+			err = errors.Join(err, cleanupErr)
+		}
+		if err != nil {
+			effective = nil
+		}
+	}()
+	effective, err = config.LoadEffective(ctx, snap.Bytes, opts)
 	if err != nil {
 		return nil, result, err
 	}

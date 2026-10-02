@@ -232,16 +232,47 @@ func (l *ResourceLedger) execStartPhase(ctx context.Context, phase ClosePhase, d
 	}
 	*busy = true
 	l.mu.Unlock()
-	err := l.runStarts(ctx, phase)
+	// An unexpected unwind never produced a normal result, so the phase flag must
+	// be released before it propagates. A stranded flag would block waitPhaseLocked
+	// for every later lifecycle call and hide the panic's outcome from callers.
+	completed := false
+	defer func() {
+		if completed {
+			return
+		}
+		l.mu.Lock()
+		*busy = false
+		l.cond.Broadcast()
+		l.mu.Unlock()
+	}()
+	resultErr := l.runStartsGuarded(ctx, phase)
 	l.mu.Lock()
-	*done, *phaseErr = true, err
-	if err == nil && markPrepared {
+	*done, *phaseErr = true, resultErr
+	if resultErr == nil && markPrepared {
 		l.prepared.Store(true)
 	}
 	*busy = false
 	l.cond.Broadcast()
 	l.mu.Unlock()
-	return err
+	completed = true
+	return resultErr
+}
+
+// runStartsGuarded converts an unexpected panic in this phase machinery into the
+// existing bounded publish-start error. Publish is the only post-commit phase:
+// its generation is already the active request plane, so an unexpected unwind
+// must not escape and must not retry already attempted starts. Precommit phases
+// keep propagating the original value, because fabricating success or a cached
+// result would hide a rollback-capable failure.
+func (l *ResourceLedger) runStartsGuarded(ctx context.Context, phase ClosePhase) (resultErr error) {
+	if phase == PhasePublish {
+		defer func() {
+			if recover() != nil {
+				resultErr = errors.New("runtimebundle: publish start failed")
+			}
+		}()
+	}
+	return l.runStarts(ctx, phase)
 }
 
 // Prepare runs PhasePrepare start hooks in acquisition order (req). Failure does not auto-rollback.
@@ -288,12 +319,29 @@ func (l *ResourceLedger) runStarts(ctx context.Context, phase ClosePhase) error 
 			continue
 		}
 		e.startAttempted.Store(true)
-		if err := e.start(ctx); err != nil {
-			return fmt.Errorf("runtimebundle: ledger prepare %q: %w", e.name, err)
+		if err := safeLedgerStart(ctx, e); err != nil {
+			return safeLedgerStartError{cause: err}
 		}
 		e.started.Store(true)
 	}
 	return nil
+}
+
+type safeLedgerStartError struct{ cause error }
+
+func (safeLedgerStartError) Error() string   { return "runtimebundle: ledger start failed" }
+func (e safeLedgerStartError) Unwrap() error { return e.cause }
+
+func safeLedgerStart(ctx context.Context, e *ledgerEntry) (err error) {
+	if e == nil || e.start == nil {
+		return nil
+	}
+	defer func() {
+		if recover() != nil {
+			err = errors.New("runtimebundle: lifecycle start failed")
+		}
+	}()
+	return e.start(ctx)
 }
 
 // beginStopPhase locks, waits, and returns cached/in-flight/done outcomes. Caller holds l.mu on proceed.
