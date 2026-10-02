@@ -29,14 +29,16 @@
   - _Depends: none_
   - _Validation: focused `internal/core/runtime` tests_
 
-- [x] 1.3 Add RED backend-bound ordering characterization
+- [ ] 1.3 Add RED backend-bound ordering and anchor-identity characterization
   - Prove attempt transforms precede request-part hooks and that PTB/`Backend.Open` occurs after request-part hooks and conversation-view reassertion.
   - Build a fixture where an early path rewrite would be detectable if lost later.
-  - Observable completion: stable test defines the two-pass invariant without coupling to private call-graph trivia beyond the semantic checkpoints.
-  - _Requirements: 5.2, 5.3, 5.4_
-  - _Boundary: tests / core runtime_
+  - Add an after-message steering fixture anchored to a legacy path-bearing `PartJSON` message: resolve the anchor during early projection, mutate only the selected path payload afterward, prove `MessageIdentityOf` changes, and prove the current final reassertion returns `ErrAnchorMissing` / fail-closed before the generic repair lands.
+  - Include a representative legacy `PartToolResult` identity-drift characterization if that surface is rewritable by the selected profile.
+  - Observable completion: stable RED tests define both the two-pass ordering invariant and the exact implementation-discovered anchor conflict without weakening conversation-view semantics.
+  - _Requirements: 5.2, 5.3, 5.4, 5.9, 5.10_
+  - _Boundary: tests / core runtime + conversationprojection characterization_
   - _Depends: none_
-  - _Validation: focused executor runtime tests_
+  - _Validation: focused conversationprojection/executor runtime tests_
 
 - [ ] 2. Implement the pure cross-platform path virtualization kernel (P)
 - [x] 2.1 Implement host-independent path flavor parsing
@@ -149,11 +151,24 @@
 - [ ] 5.2 Add idempotent request-part hook
   - Reapply the same rewriter at the existing late request-part stage.
   - Confirm already-virtual paths fast-skip.
-  - Add runtime regression proving final conversation-view reassertion and candidate adaptation preserve virtualized tool surfaces through PTB/`Backend.Open`.
   - _Requirements: 5.2, 5.4, 8.5_
-  - _Boundary: feature plugin + core runtime tests_
+  - _Boundary: feature plugin / late request shaping_
   - _Depends: 5.1, 1.3_
-  - _Validation: feature tests + focused executor PTB/backend tests_
+  - _Validation: feature + request-hook tests_
+
+- [ ] 5.3 Make final conversation-view reassertion transform-stable
+  - Extend the generic `conversationprojection.Reassert` path (or equivalent generic request-local seam) so an after-message placement already resolved by early A-leg projection survives a backend-only content rewrite when deterministic one-to-one trajectory lineage is proven from the frozen filtered baseline/provenance.
+  - Keep exact identity-based reassertion as the normal path. Do not change `MessageIdentityOf`, stored anchor identity/occurrence, conversation-view persistence, overlay lifecycle, or anchor-missing/fallback policy.
+  - Prove lineage structurally before carry-forward: canonical authority form, trajectory cardinality/order, instruction/message or item partition, roles/kinds, ordered part kinds, and stable canonical IDs/references/tool identities must remain compatible. The generic core helper must not import or identify `pathvirtualization`.
+  - Never treat a bare ordinal as authority when structure changed. Insert/delete/reorder/role/kind/stable-ID ambiguity must preserve the existing exact-resolution/fail-closed outcome.
+  - Keep `never_backend` filtering and projection-owned overlay removal authoritative; lineage carry-forward must not bypass either.
+  - Turn the Task 1.3 RED legacy `PartJSON` case green and add the representative `PartToolResult` case where applicable; prove the overlay remains immediately after the same logical message even though its content hash changed.
+  - Add negative regressions for insertion, deletion/reorder, and structural/stable-ID mismatch; assert no heuristic relocation and pre-backend denial where the frozen placement cannot be proven.
+  - Add runtime regression proving final reassertion and candidate adaptation preserve virtualized tool surfaces through PTB/`Backend.Open`.
+  - _Requirements: 5.2, 5.4, 5.9, 5.10, 8.5_
+  - _Boundary: generic conversationprojection/runtime reassertion seam + feature/runtime tests_
+  - _Depends: 1.3, 5.2_
+  - _Validation: focused conversationprojection tests + executor PTB/backend tests + feature integration tests_
 
 - [ ] 6. Enrich complete tool-call finalizer context
 - [ ] 6.1 Add read-only scope/session/workspace fields to `toolcall.Meta`
@@ -246,7 +261,7 @@
   - Update generated feature-plane/parity artifacts if applicable.
   - _Requirements: 5.8, 7.1, 8.1_
   - _Boundary: feature plugin + config/wiring_
-  - _Depends: 5.2, 8.1, 9.1_
+  - _Depends: 5.3, 8.1, 9.1_
   - _Validation: feature bundle + standard registry + architecture tests_
 
 - [ ] 9.3 Add content-free metrics/inventory projection
@@ -270,15 +285,18 @@
   - _Depends: 8.2, 9.2_
   - _Validation: focused continuation/reload tests_
 
-- [ ] 10.2 Add canonical-family compatibility tests
+- [ ] 10.2 Add canonical-family and conversation-view composition tests
   - Legacy chat history with tool call + tool result.
   - Item-authoritative/OpenResponses history.
+  - For legacy message authority, cover an active after-message overlay anchored before path virtualization and prove final backend history contains the virtualized path while the overlay remains at the frozen logical boundary after identity drift.
+  - Cover a structurally ambiguous lineage case and prove it remains fail-closed rather than relocating the overlay.
+  - Item-authoritative/OpenResponses coverage must prove no regression even though tool-call/tool-result items are not message-anchor identities.
   - One additional protocol-family sentinel if needed to prove adapters carry the canonical mutation unchanged.
   - Do not create frontend×backend Cartesian coverage.
-  - _Requirements: 2.8, 5.8, 8.6, 8.7_
-  - _Boundary: protocol/canonical tests_
-  - _Depends: 9.2_
-  - _Validation: relevant frontend/backend family tests + `make parity-checks` if touched_
+  - _Requirements: 2.8, 5.8, 5.9, 5.10, 8.6, 8.7_
+  - _Boundary: protocol/canonical + conversationprojection/runtime tests_
+  - _Depends: 5.3, 9.2_
+  - _Validation: focused conversation-view composition tests + relevant frontend/backend family tests + `make parity-checks` if touched_
 
 - [ ] 10.3 Add disabled/fail-open/fail-closed regression matrix
   - Disabled feature is byte/semantic neutral.
@@ -327,9 +345,10 @@
   - Confirm no primary mutable mapping store was introduced.
   - Confirm no selected virtual alias can reach client tool execution on overflow/error, and no old workspace tag can expand against a changed `ProjectRoot`.
   - Confirm PTB/backend history is virtualized after all late shaping.
+  - Confirm anchored conversation-view placement survives only provably trajectory-preserving B-leg identity drift, with persisted message identity/anchor policy unchanged and ambiguous lineage still fail-closed.
   - Confirm retry/failover/continuation alias stability.
   - Confirm all logs/metrics are path-content-free.
-  - _Requirements: 1.9, 2.3, 4.4, 4.5, 5.2, 5.6, 6.1, 7.7, 8.3_
+  - _Requirements: 1.9, 2.3, 4.4, 4.5, 5.2, 5.6, 5.9, 5.10, 6.1, 7.7, 8.3_
   - _Boundary: cross-artifact implementation review_
   - _Depends: 12.1_
   - _Validation: code review + targeted regression reruns_
