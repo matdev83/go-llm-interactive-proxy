@@ -1,6 +1,6 @@
 ---
 name: golang-performance-diagnostics
-description: Profile, optimize, observe, and troubleshoot Go applications: pprof analysis, execution tracing, memory/CPU optimization, structured logging (slog), metrics, and diagnosing leaks or deadlocks.
+description: "Profile, optimize, observe, and troubleshoot Go applications: pprof analysis, execution tracing, memory/CPU optimization, structured logging (slog), metrics, and diagnosing leaks or deadlocks."
 ---
 
 # Go Performance & Diagnostics Guide

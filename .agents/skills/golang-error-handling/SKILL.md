@@ -1,6 +1,6 @@
 ---
 name: golang-error-handling
-description: Handle, wrap, classify, and format Go errors idiomatically: errors.Is/As, %w wrapping, errors.Join, structured errors with samber/oops, domain-to-wire error mapping, and panic boundaries.
+description: "Handle, wrap, classify, and format Go errors idiomatically: errors.Is/As, %w wrapping, errors.Join, structured errors with samber/oops, domain-to-wire error mapping, and panic boundaries."
 ---
 
 # Go Error Handling Guide
