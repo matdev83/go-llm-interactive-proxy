@@ -74,6 +74,7 @@ package runtime_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,6 +82,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -518,6 +520,23 @@ type hookRegObservation struct {
 	steeringAfterAnchor  bool
 	localNoteFiltered    bool
 	anchorMessagePresent bool
+
+	// label is the scenario's bounded, content-free failure-message token.
+	label string
+	// anchorMissing reduces Execute's error to the single observable denial shape
+	// this spec cares about. The error TEXT is never read, because a denial reason can
+	// carry anchor identities and overlay IDs.
+	anchorMissing bool
+	// backendOpenCall and ptbBody are the two backend-bound surfaces, captured by the
+	// shared harness, so a scenario can measure its own selected payload at both.
+	backendOpenCall lipapi.Call
+	ptbBody         []byte
+	// snapshotReads, failureStages, anchorFailures, and fallbacks are the conversation-
+	// view diagnostics the runtime published for this run.
+	snapshotReads  int
+	failureStages  []string
+	anchorFailures int
+	fallbacks      int
 }
 
 // hookRegOrderOf renders this run's ordinals through Task 1.3's own renderer, so a
@@ -530,25 +549,98 @@ func hookRegOrderOf(got hookRegObservation) twoPassOrder {
 	return twoPassOrderOf(twoPassObservation{order: got.order, eligCalls: calls})
 }
 
-// hookRegRun executes the scenario: Task 1.3's fixture and frozen conversation view,
-// the real early outbound pass, one late request-shaping participant that reintroduces a
-// real-root tool call, and the real late outbound pass.
+// hookRegScenario selects the fixture shape ONE harness run uses.
 //
-// withLatePass selects only whether the late pass contributes. Both runs wire an
-// identical request-part chain and reach the same stages, so the two runs differ in one
-// thing: whether the feature's late pass publishes anything.
+// There is exactly one end-to-end PTB/Backend.Open harness in this file. Task 5.3
+// extends it rather than adding a second: the scenarios differ only in which message
+// the frozen overlay is anchored on, which compiled feature policy applies, and
+// whether a structural perturbation runs on the request-part plane before the feature
+// hook. Everything else - the frozen conversation-view reader, the workspace
+// resolver handed to BOTH real passes, the eligibility observer, the traffic
+// observer, the recording backend, the seeded RNG, and the pinned clock - is
+// identical across every scenario, so a difference in outcome is attributable to the
+// variable under test and nothing else.
+type hookRegScenario struct {
+	// label is a bounded, content-free failure-message token.
+	label string
+
+	// call builds the ingress call and snapshot builds the frozen per-turn view. Both
+	// are required; a scenario that cannot supply them is a fixture bug.
+	call     func() *lipapi.Call
+	snapshot func(*testing.T) conversationprojection.Snapshot
+
+	// resolver builds the compiled feature policy. Nil selects the shipped built-in
+	// layer, which is what a deployment with no operator configuration gets.
+	resolver func(*testing.T) *pathvirtualization.Resolver
+
+	// lateShaper installs the fixture's late request-shaping participant, the only
+	// thing in a standard run that puts a real path onto the history AFTER the early
+	// pass has run. It APPENDS a complete message, which is an insertion, so a
+	// scenario whose overlay is anchored on a message the early pass rewrites must
+	// leave it off: an inserted complete message legitimately breaks one-to-one
+	// trajectory lineage and requirements.md 5.10 requires that to fail closed.
+	lateShaper bool
+
+	// perturbation is an additional request-part participant that runs BEFORE the
+	// feature hook and structurally alters the trajectory. Nil installs none.
+	perturbation sdkhooks.RequestPartHook
+
+	// withLatePass selects whether the real late pass contributes. The control run
+	// keeps the marker wired and hands it a typed nil of the real pass type, so the
+	// request-part stage is reached and recorded identically and the run is exactly
+	// "the late pass contributed nothing" with no other variable changed.
+	withLatePass bool
+}
+
+// hookRegStandardScenario is Task 5.2's own fixture: the overlay is anchored on the
+// FIRST user message, which neither outbound pass mutates, and the late shaping
+// participant reintroduces one real-root tool call.
+func hookRegStandardScenario(t *testing.T, withLatePass bool) hookRegScenario {
+	return hookRegScenario{
+		label:        "standard_late_shaped_history",
+		call:         hookRegCall,
+		snapshot:     func(*testing.T) conversationprojection.Snapshot { return twoPassSnapshot(t) },
+		lateShaper:   true,
+		withLatePass: withLatePass,
+	}
+}
+
+// hookRegDriftScenario wires Task 1.3's anchor-drift fixture - one never_backend note
+// plus one ACTIVE after-message steering overlay anchored, under the strict fail-closed
+// policy, on the PRE-virtualization identity of a path-bearing message - into the same
+// harness. The anchored message is the one the real early pass rewrites, which is
+// exactly the shape requirements.md 5.9 and 5.10 are about.
+func hookRegDriftScenario(t *testing.T, label string, anchor lipapi.Message, resolver func(*testing.T) *pathvirtualization.Resolver, perturbation sdkhooks.RequestPartHook) hookRegScenario {
+	return hookRegScenario{
+		label:        label,
+		call:         func() *lipapi.Call { return driftIngressCall(anchor) },
+		snapshot:     func(*testing.T) conversationprojection.Snapshot { return driftSnapshot(t, anchor) },
+		resolver:     resolver,
+		perturbation: perturbation,
+		withLatePass: true,
+	}
+}
+
+// hookRegRun executes the scenario: the selected fixture and frozen conversation view,
+// the real early outbound pass, one late request-shaping participant that reintroduces a
+// real-root tool call, the optional structural perturbation, and the real late outbound
+// pass.
 //
 // Execute errors are reduced to a boolean because a denial reason can carry anchor
 // identities and overlay IDs, which must never reach a failure message.
-func hookRegRun(t *testing.T, withLatePass bool) hookRegObservation {
+func hookRegRun(t *testing.T, scenario hookRegScenario) hookRegObservation {
 	t.Helper()
 
 	rec := &twoPassRecorder{}
 	reports := &hookRegReports{}
 	ptb := &hookRegTraffic{rec: rec}
-	reader := &twoPassReader{snap: twoPassSnapshot(t)}
+	reader := &twoPassReader{snap: scenario.snapshot(t)}
 	alias := hookRegAliasOf(t)
 	elig := &hookRegEligibility{rec: rec, alias: alias}
+	resolver := hookRegResolver(t)
+	if scenario.resolver != nil {
+		resolver = scenario.resolver(t)
+	}
 
 	// The early pass reads the workspace projection the runtime already pinned onto its
 	// attempt metadata. The late pass has no such projection in sdkhooks.PartMeta and
@@ -563,15 +655,25 @@ func hookRegRun(t *testing.T, withLatePass bool) hookRegObservation {
 	// "the late pass contributed nothing" with no other variable changed: same chain,
 	// same stage ordinal, same reassertion, same adaptation, same backend.
 	late := (*outbound.RequestPartHook)(nil)
-	if withLatePass {
+	if scenario.withLatePass {
 		late = outbound.NewRequestPartHook(
 			rewrite.ModeRewrite,
-			hookRegResolver(t),
+			resolver,
 			authority,
 			outbound.WithHookReporter(reports.onPart),
 		)
 	}
-	partHooks := []sdkhooks.RequestPartHook{&hookRegShaping{}, &hookRegPartMarker{rec: rec, real: late}}
+	partHooks := make([]sdkhooks.RequestPartHook, 0, 3)
+	if scenario.lateShaper {
+		partHooks = append(partHooks, &hookRegShaping{})
+	}
+	if scenario.perturbation != nil {
+		// The perturbation sorts below every shipped request-part order and below the
+		// feature hook's fixed order, so the chain really runs
+		// shaper-then-perturbation-then-feature-hook.
+		partHooks = append(partHooks, scenario.perturbation)
+	}
+	partHooks = append(partHooks, &hookRegPartMarker{rec: rec, real: late})
 
 	bus := hooks.New(hooks.Config{RequestPartHooks: partHooks})
 	ex := runtime.TestExecutor()
@@ -583,7 +685,7 @@ func hookRegRun(t *testing.T, withLatePass bool) hookRegObservation {
 	ex.Bus = bus
 	early := outbound.NewAttemptTransform(
 		rewrite.ModeRewrite,
-		hookRegResolver(t),
+		resolver,
 		outbound.WithReporter(reports.onAttempt),
 	)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
@@ -593,8 +695,8 @@ func hookRegRun(t *testing.T, withLatePass bool) hookRegObservation {
 			AttemptTransforms: []request.AttemptTransform{&hookRegAttemptMarker{rec: rec, real: early}},
 		}),
 	})
+	ex.ConversationViewObserver = &hookRegViewObserver{driftViewObserver: &driftViewObserver{rec: rec, view: &twoPassViewObserver{rec: rec}}}
 	ex.ConversationViewReader = reader
-	ex.ConversationViewObserver = &twoPassViewObserver{rec: rec}
 	ex.EligibilityResolver = elig
 	ex.Backends = map[string]execbackend.Backend{"two-pass": twoPassBackend(rec)}
 	ex.Rand = routing.NewSeededRng(1)
@@ -607,7 +709,7 @@ func hookRegRun(t *testing.T, withLatePass bool) hookRegObservation {
 	// snapshot resolver the late pass is handed, and pins the result onto the attempt
 	// metadata the early pass reads - which is what makes one shared workspace
 	// resolver the right thing to wire for both.
-	stream, execErr := ex.Execute(context.Background(), hookRegCall())
+	stream, execErr := ex.Execute(context.Background(), scenario.call())
 	if execErr == nil {
 		_, execErr = lipapi.Collect(context.Background(), stream)
 		_ = stream.Close()
@@ -618,6 +720,7 @@ func hookRegRun(t *testing.T, withLatePass bool) hookRegObservation {
 	for _, call := range raw.eligCalls {
 		stages = append(stages, call.stage)
 	}
+	view := ex.ConversationViewObserver.(*hookRegViewObserver).driftViewObserver
 	return hookRegObservation{
 		order:      raw.order,
 		turnDone:   raw.turnResolved,
@@ -631,6 +734,15 @@ func hookRegRun(t *testing.T, withLatePass bool) hookRegObservation {
 		steeringAfterAnchor:  raw.steeringAfterAnchor,
 		localNoteFiltered:    raw.localNoteFiltered,
 		anchorMessagePresent: raw.anchorMessagePresent,
+
+		label:           scenario.label,
+		anchorMissing:   errors.Is(execErr, conversationprojection.ErrAnchorMissing),
+		backendOpenCall: raw.backendOpenCall,
+		ptbBody:         ptb.captured(),
+		snapshotReads:   reader.readCount(),
+		failureStages:   view.failureStages(),
+		anchorFailures:  len(view.anchorFailurePolicies()),
+		fallbacks:       len(view.fallbackPolicies()),
 	}
 }
 
@@ -665,8 +777,8 @@ func TestOutboundAttempt_RequestPartHookPreservesVirtualizedHistoryThroughBacken
 
 	// Control: identical fixture, identical real early pass, and an identical
 	// request-part chain in which the late pass is reached but contributes nothing.
-	control := hookRegRun(t, false)
-	got := hookRegRun(t, true)
+	control := hookRegRun(t, hookRegStandardScenario(t, false))
+	got := hookRegRun(t, hookRegStandardScenario(t, true))
 
 	// Scaffolding guards. Every assertion below reads these, so they run first.
 	order := hookRegOrderOf(got)
@@ -877,4 +989,434 @@ func TestOutboundAttempt_RequestPartHookPreservesVirtualizedHistoryThroughBacken
 				order, control.openScan.callBytes, got.openScan.callBytes)
 		}
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Task 5.3 extension: the same harness, driven with the anchor on a message the real
+// early pass rewrites.
+//
+// WHY THIS EXTENDS THIS FILE
+//
+// Task 1.3 deliberately anchored its overlay on the FIRST user message, which neither
+// outbound pass mutates, so its assertions stay about the runtime's own ordering. Task
+// 1.3's anchor-identity half then showed what happens when the anchor IS the message a
+// rewrite mutates: the frozen anchor stops resolving and the executor denies the turn
+// pre-backend. Design.md "4A" assigns the generic repair for that to Task 5.3, and the
+// Implementation Notes for 5.2 require this file - not a second harness - to carry it.
+//
+// WHY THE FIXTURE'S LATE SHAPER IS OFF HERE
+//
+// hookRegShaping APPENDS a complete message, which is an insertion. A one-to-one
+// trajectory lineage must refuse an insertion (requirements.md 5.10), so installing it
+// here would conflate "the late pass catches a restored real path" with "the trajectory
+// changed shape". The drift scenarios therefore install no late shaper, which is the one
+// variable they change relative to the standard scenario.
+//
+// NO WEAKENING, NO PATH LEAKAGE
+//
+// The standard scenario's fixture, resolver, shaper, assertions, and control run are
+// untouched. Every message below is requirement-numbered and path-content-free:
+// occurrence counts, byte totals, stage ordinals, and booleans. The alias and the real
+// root are compared, never formatted, and the workspace tag is derived in-test only.
+// ---------------------------------------------------------------------------
+
+// hookRegPerturbationOrder places the fixture's structural perturbation immediately
+// after its late shaper and far below the feature hook's fixed order, so the chain
+// really runs shaper-then-perturbation-then-feature-hook.
+const hookRegPerturbationOrder = hookRegShapingOrder + 1
+
+// hookRegPerturbation is the fixture's structural-perturbation participant. It is not
+// a rewriter and it is not a path hazard: its whole job is to make the trajectory
+// structurally ambiguous AFTER the early pass has already virtualized the anchored
+// message, so the final reassertion has to refuse to carry the placement forward.
+//
+// It also records the two guards the negative assertions depend on: that the anchored
+// message was locatable, and that its content-derived identity had ALREADY drifted by
+// the time the perturbation ran. Without the second guard a passing denial could be a
+// fixture artifact rather than a lineage refusal.
+type hookRegPerturbation struct {
+	label  string
+	loc    driftLocator
+	stored conversationprojection.MessageAnchor
+	apply  func(call *lipapi.Call)
+
+	mu             sync.Mutex
+	locatorFound   bool
+	identityDrift  bool
+	applied        bool
+	mutatedMessage int
+}
+
+// hookRegPerturbationFor builds the perturbation for one anchored surface.
+func hookRegPerturbationFor(t *testing.T, label string, anchor lipapi.Message, loc driftLocator, apply func(call *lipapi.Call)) *hookRegPerturbation {
+	t.Helper()
+	return &hookRegPerturbation{
+		label:  label,
+		loc:    loc,
+		stored: driftStoredAnchor(t, anchor),
+		apply:  apply,
+	}
+}
+
+func (p *hookRegPerturbation) ID() string {
+	return "path-virtualization-lineage-perturbation-" + p.label
+}
+func (p *hookRegPerturbation) Order() int                        { return hookRegPerturbationOrder }
+func (p *hookRegPerturbation) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+
+func (p *hookRegPerturbation) HandleRequestParts(_ context.Context, call *lipapi.Call, _ sdkhooks.PartMeta) error {
+	if call == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if msg, found := driftFindAnchor(*call, p.loc); found {
+		p.locatorFound = true
+		if id, err := conversationprojection.MessageIdentityOf(msg); err == nil {
+			p.identityDrift = id != p.stored.Identity
+		}
+	}
+	before := len(call.Messages)
+	p.apply(call)
+	p.applied = true
+	p.mutatedMessage = len(call.Messages) - before
+	return nil
+}
+
+func (p *hookRegPerturbation) observation() (locatorFound, identityDrift, applied bool, delta int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.locatorFound, p.identityDrift, p.applied, p.mutatedMessage
+}
+
+// hookRegViewObserver records the final conversation-view stage for BOTH outcomes.
+//
+// The shared Task 1.3 observer marks the reassertion checkpoint only on a SUCCESSFUL
+// final projection, which is right for a run that is supposed to succeed. A negative
+// regression has to observe the stage it denies AT, so this thin wrapper additionally
+// marks the checkpoint when the final stage fails. It delegates every other callback
+// to Task 1.3's observer, which is where the anchor-failure and fallback publications
+// are counted.
+type hookRegViewObserver struct {
+	*driftViewObserver
+}
+
+func (o *hookRegViewObserver) OnProjectionFailure(stage string) {
+	o.driftViewObserver.OnProjectionFailure(stage)
+	if stage == conversationprojection.StageFinal {
+		o.rec.mark(twoPassCheckpointViewReassert)
+	}
+}
+
+// hookRegSteeringAfterAnchor measures one backend-bound call's steering placement
+// relative to its anchored message, reusing Task 1.3's content-free locator.
+func hookRegSteeringAfterAnchor(call lipapi.Call, loc driftLocator) (copies int, immediatelyAfter bool) {
+	return driftSteeringPlacement(call, loc)
+}
+
+// The six structural perturbations. Each one changes the trajectory in exactly one
+// documented way. The equal-cardinality cases are the anti-ordinal oracle: they keep
+// every frozen ordinal slot occupied, so an implementation that relocated the overlay
+// by position would succeed and be caught here instead.
+var (
+	// An appended complete message grows the trajectory beyond the frozen baseline.
+	hookRegInsertMessage = func(call *lipapi.Call) {
+		call.Messages = append(call.Messages, lipapi.Message{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("lineage-perturbation-inserted")},
+		})
+	}
+
+	// Removing the leading path-free control message shrinks the trajectory.
+	hookRegDeleteMessage = func(call *lipapi.Call) {
+		call.Messages = call.Messages[1:]
+	}
+
+	// Prepending a system message while removing the leading control message keeps the
+	// trajectory length IDENTICAL while changing the role at the frozen leading slot, so
+	// the anchored message no longer occupies the ordinal its frozen anchor named.
+	hookRegRoleShift = func(call *lipapi.Call) {
+		rest := call.Messages[1:]
+		call.Messages = append([]lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("lineage-perturbation-system")},
+		}}, rest...)
+	}
+
+	// Swapping the anchored message with its predecessor keeps every ordinal occupied but
+	// changes the structure at both frozen slots.
+	hookRegReorder = func(call *lipapi.Call) {
+		call.Messages[0], call.Messages[1] = call.Messages[1], call.Messages[0]
+	}
+
+	// Changing the anchored message's ordered part kind is a structural change even
+	// though the trajectory length, the role, and the message count are untouched.
+	hookRegPartKindChange = func(call *lipapi.Call) {
+		for mi := range call.Messages {
+			for pi := range call.Messages[mi].Parts {
+				part := &call.Messages[mi].Parts[pi]
+				if part.Kind != lipapi.PartJSON {
+					continue
+				}
+				part.Kind = lipapi.PartText
+				part.Text = "lineage-perturbation-kind-changed"
+				part.Content = nil
+				return
+			}
+		}
+	}
+
+	// Renaming the anchored part's stable tool-call ID is a stable-identity change the
+	// lineage proof compares and identity alone cannot see, because a legacy PartJSON
+	// atom omits the tool-call ID's neighbours from the hashed content.
+	hookRegToolCallIDChange = func(call *lipapi.Call) {
+		for mi := range call.Messages {
+			for pi := range call.Messages[mi].Parts {
+				part := &call.Messages[mi].Parts[pi]
+				if part.Kind != lipapi.PartJSON {
+					continue
+				}
+				part.ToolCallID = "lineage-perturbation-renamed"
+				return
+			}
+		}
+	}
+)
+
+// hookRegCallFromBody rebuilds a canonical call from an already-serialized backend-bound
+// body so the per-turn buffer can be measured the same way as Backend.Open.
+func hookRegCallFromBody(body []byte) lipapi.Call {
+	var call lipapi.Call
+	if len(body) == 0 {
+		return call
+	}
+	if err := json.Unmarshal(body, &call); err != nil {
+		return lipapi.Call{}
+	}
+	return call
+}
+
+// TestOutboundAttempt_RequestPartHookPreservesVirtualizedAnchoredHistoryThroughBackendOpen
+// is requirements.md 5.2, 5.4, 5.9, and 8.5 with the frozen steering overlay anchored on
+// the very message the feature rewrites.
+//
+// For three legacy surfaces - the stock-reachable PartJSON argument, the operator-profile
+// PartToolResult opaque text, and the operator-profile PartToolResult structured Content -
+// it drives the real executor with both real outbound passes and asserts:
+//
+//   - the turn completes with no conversation-view failure, no anchor failure, and no
+//     fallback, so the final reassertion neither denied it nor downgraded the stored
+//     fail-closed policy;
+//   - the frozen conversation view is read exactly once, so carry-forward reused
+//     request-local evidence and did not re-read the store;
+//   - the anchored selected payload carries the derived alias and no real-root
+//     occurrence at BOTH the per-turn buffer and Backend.Open, with every non-path
+//     sibling intact, so final reassertion and candidate adaptation restored no real path;
+//   - the overlay is present exactly ONCE and IMMEDIATELY after the same logical message
+//     at Backend.Open even though that message's content hash changed, which is
+//     requirements.md 5.9's carried placement;
+//   - the never_backend-tagged message is still absent at the backend bound.
+func TestOutboundAttempt_RequestPartHookPreservesVirtualizedAnchoredHistoryThroughBackendOpen(t *testing.T) {
+	t.Parallel()
+
+	for _, scenario := range []struct {
+		label    string
+		anchor   lipapi.Message
+		loc      driftLocator
+		resolver func(*testing.T) *pathvirtualization.Resolver
+	}{
+		{
+			label:  driftSurfaceCallArgument,
+			anchor: driftCallAnchorMessage(),
+			loc:    driftCallLocator(),
+			// nil resolver: the shipped built-in layer alone already claims this exact
+			// tool name's argument member, so this surface needs no operator config.
+			resolver: nil,
+		},
+		{
+			label:    driftSurfaceResultOpaqueText,
+			anchor:   driftResultTextAnchorMessage(),
+			loc:      driftResultTextLocator(),
+			resolver: driftOpaqueResultResolver,
+		},
+		{
+			label:    driftSurfaceResultStructured,
+			anchor:   driftResultContentAnchorMessage(),
+			loc:      driftResultContentLocator(),
+			resolver: driftStructuredResultResolver,
+		},
+	} {
+		t.Run(scenario.label, func(t *testing.T) {
+			t.Parallel()
+
+			got := hookRegRun(t, hookRegDriftScenario(t, scenario.label, scenario.anchor, scenario.resolver, nil))
+			order := hookRegOrderOf(got)
+
+			// Scaffolding. Every assertion below reads these.
+			if !got.turnDone {
+				t.Fatalf("requirements.md 5.9 - a provably one-to-one structure-preserving rewrite must not deny the turn: scenario=%s turn_done=%t anchor_missing=%t projection_failure_stages=%d anchor_failures=%d anchor_fallbacks=%d reached_reassertion=%d reached_ptb=%d backend_open_stage=%d",
+					got.label, got.turnDone, got.anchorMissing, len(got.failureStages), got.anchorFailures,
+					got.fallbacks, got.order.reassert, got.order.ptb, got.order.open)
+			}
+			if got.anchorMissing || len(got.failureStages) != 0 || got.anchorFailures != 0 {
+				t.Fatalf("requirements.md 5.9 - the final reassertion must carry the resolved placement, not fail closed: scenario=%s anchor_missing=%t projection_failure_stages=%d anchor_failures=%d",
+					got.label, got.anchorMissing, len(got.failureStages), got.anchorFailures)
+			}
+			if got.fallbacks != 0 {
+				t.Fatalf("design.md \"4A\" constraint 1 - the stored fail-closed policy must never be downgraded to a stable-prefix fallback: scenario=%s anchor_fallbacks=%d",
+					got.label, got.fallbacks)
+			}
+			if got.order.reassert == 0 || got.order.ptb == 0 || got.order.open == 0 {
+				t.Fatalf("fixture: the reassertion, per-turn buffer, and Backend.Open stages must all be reached: scenario=%s", got.label)
+			}
+			if got.snapshotReads != 1 {
+				t.Fatalf("design.md \"4A\" constraint 3 - the final reassertion must reuse the FROZEN request-local snapshot and must not read the conversation-view store again: scenario=%s snapshot_reads=%d",
+					got.label, got.snapshotReads)
+			}
+			ptbCall := hookRegCallFromBody(got.ptbBody)
+			for _, stage := range []struct {
+				name string
+				call lipapi.Call
+			}{
+				{"per_turn_buffer", ptbCall},
+				{"Backend.Open", got.backendOpenCall},
+			} {
+				anchor, found := driftFindAnchor(stage.call, scenario.loc)
+				if !found {
+					t.Fatalf("fixture: the anchored message must survive both real passes and candidate adaptation: scenario=%s stage=%s",
+						got.label, stage.name)
+				}
+				part := driftInspectPart(anchor, scenario.loc, driftAliasOf(t))
+				if !part.found || !part.selectedCarriesAlias || part.selectedCarriesRealRoot {
+					t.Fatalf("requirements.md 5.2 and 5.4 - final reassertion and candidate adaptation must not restore a real root into path-bearing tool history: scenario=%s stage=%s selected_carries_alias=%t selected_carries_real_root=%t %s",
+						got.label, stage.name, part.selectedCarriesAlias, part.selectedCarriesRealRoot, order)
+				}
+				if part.nonPathSum != scenario.loc.expectedNonPath() {
+					t.Fatalf("requirements.md 2.8 - every non-selected member of the anchored payload must survive both real passes byte-for-byte: scenario=%s stage=%s non_path_sum=%d expected_non_path_sum=%d",
+						got.label, stage.name, part.nonPathSum, scenario.loc.expectedNonPath())
+				}
+				copies, immediatelyAfter := hookRegSteeringAfterAnchor(stage.call, scenario.loc)
+				if copies != 1 || !immediatelyAfter {
+					t.Fatalf("requirements.md 5.9 and design.md \"4A\" - the overlay must be restored exactly once at the SAME logical boundary even though that message's content hash changed: scenario=%s stage=%s steering_copies=%d steering_immediately_after_anchor=%t",
+						got.label, stage.name, copies, immediatelyAfter)
+				}
+				if _, present := driftFindTextMessage(stage.call, twoPassLocalText); present {
+					t.Fatalf("design.md \"4A\" constraint 6 - a never_backend-tagged message must stay out of the backend-bound request: scenario=%s stage=%s",
+						got.label, stage.name)
+				}
+			}
+
+			// design.md "Existing Architecture and Placement" step 6 before steps 9 and 10.
+			if got.order.reassert >= got.order.ptb || got.order.ptb >= got.order.open {
+				t.Fatalf("requirements.md 5.2/5.4 - the final reassertion must complete before the per-turn buffer, which must complete before Backend.Open: scenario=%s %s",
+					got.label, order)
+			}
+			// The real late pass contributes nothing here: the early pass already
+			// published the alias, so reapplying it is idempotent (requirements.md 2.9).
+			if late := got.reports.onePart(t); late.Stats.Rewritten != 0 {
+				t.Fatalf("requirements.md 2.9 - the idempotent late pass must contribute nothing once the early pass published the alias: scenario=%s late_rewritten=%d",
+					got.label, late.Stats.Rewritten)
+			}
+			if early := got.reports.oneAttempt(t); early.Stats.Rewritten != 1 {
+				t.Fatalf("fixture: the real early pass must virtualize exactly the one selected path payload: scenario=%s attempt_rewritten=%d",
+					got.label, early.Stats.Rewritten)
+			}
+		})
+	}
+}
+
+// TestOutboundAttempt_AmbiguousTrajectoryLineageDeniesTurnPreBackend is requirements.md
+// 5.10 sentence 2 at the runtime boundary.
+//
+// Each scenario installs a structural perturbation on the request-part plane AFTER the
+// real early pass has already virtualized the anchored message, so the frozen anchor
+// genuinely cannot resolve and only a proven one-to-one lineage could rescue the
+// placement. Three of the six keep the trajectory length identical, which is what makes
+// them the anti-ordinal oracle: a reassertion that relocated the overlay by position
+// would find a slot, succeed, and reach Backend.Open.
+//
+// The observable denial is the triple the executor actually publishes: the
+// ErrAnchorMissing-shaped failure from Execute, exactly one AnchorFailClosed publication
+// with zero fallbacks, and neither the per-turn buffer nor Backend.Open being reached.
+func TestOutboundAttempt_AmbiguousTrajectoryLineageDeniesTurnPreBackend(t *testing.T) {
+	t.Parallel()
+
+	locator := driftCallLocator()
+	for _, perturbation := range []struct {
+		label string
+		apply func(call *lipapi.Call)
+		// equalCardinality marks the anti-ordinal oracle cases: they keep the
+		// trajectory length unchanged, so a reassertion that relocated the overlay by
+		// position would also find a slot and succeed.
+		equalCardinality bool
+	}{
+		{label: "trajectory_cardinality_grew_by_insertion", apply: hookRegInsertMessage},
+		{label: "trajectory_cardinality_shrank_by_deletion", apply: hookRegDeleteMessage},
+		{label: "equal_cardinality_ordinal_shift_with_role_change", apply: hookRegRoleShift, equalCardinality: true},
+		{label: "equal_cardinality_reorder", apply: hookRegReorder, equalCardinality: true},
+		{label: "equal_cardinality_part_kind_change", apply: hookRegPartKindChange, equalCardinality: true},
+		{label: "equal_cardinality_stable_tool_call_id_change", apply: hookRegToolCallIDChange, equalCardinality: true},
+	} {
+		t.Run(perturbation.label, func(t *testing.T) {
+			t.Parallel()
+
+			anchor := driftCallAnchorMessage()
+			perturb := hookRegPerturbationFor(t, perturbation.label, anchor, locator, perturbation.apply)
+			got := hookRegRun(t, hookRegDriftScenario(t, perturbation.label, anchor, nil, perturb))
+			order := hookRegOrderOf(got)
+
+			locatorFound, identityDrift, applied, delta := perturb.observation()
+			if !locatorFound || !identityDrift {
+				t.Fatalf("fixture: the anchored message must be locatable AND already identity-drifted before the perturbation runs, otherwise the denial below proves nothing: scenario=%s locator_found=%t identity_drift=%t applied=%t message_delta=%d",
+					got.label, locatorFound, identityDrift, applied, delta)
+			}
+			if !applied {
+				t.Fatalf("fixture: the structural perturbation must reach the request-part stage: scenario=%s", got.label)
+			}
+			if perturbation.equalCardinality && delta != 0 {
+				t.Fatalf("fixture: an equal-cardinality perturbation must keep the trajectory length unchanged so a positional relocation would also succeed: scenario=%s message_delta=%d",
+					got.label, delta)
+			}
+			if !perturbation.equalCardinality && delta == 0 {
+				t.Fatalf("fixture: a trajectory-length perturbation must actually change the trajectory length: scenario=%s message_delta=%d",
+					got.label, delta)
+			}
+			if got.order.reassert == 0 {
+				t.Fatalf("fixture: the final reassertion stage must be reached: scenario=%s %s", got.label, order)
+			}
+			if got.order.part == 0 || got.order.reassert <= got.order.part {
+				t.Fatalf("fixture: the perturbation runs on the request-part plane, so the reassertion stage must come after it: scenario=%s message_delta=%d %s",
+					got.label, delta, order)
+			}
+
+			if got.turnDone {
+				t.Fatalf("requirements.md 5.10 - ambiguous lineage must not guess by position, so the turn must not reach Backend.Open: scenario=%s turn_done=%t ptb_stage=%d backend_open_stage=%d",
+					got.label, got.turnDone, got.order.ptb, got.order.open)
+			}
+			if !got.anchorMissing {
+				t.Fatalf("requirements.md 5.10 - the final reassertion must fail closed with the anchor-missing failure when lineage cannot be proven: scenario=%s anchor_missing=%t projection_failure_stages=%d anchor_failures=%d",
+					got.label, got.anchorMissing, len(got.failureStages), got.anchorFailures)
+			}
+			if got.anchorFailures != 1 {
+				t.Fatalf("design.md \"4A\" constraint 1 - the stored fail-closed policy must publish exactly one anchor failure: scenario=%s anchor_failures=%d",
+					got.label, got.anchorFailures)
+			}
+			if got.fallbacks != 0 {
+				t.Fatalf("design.md \"4A\" constraint 1 - the fail-closed policy must never be downgraded to a stable-prefix fallback: scenario=%s anchor_fallbacks=%d",
+					got.label, got.fallbacks)
+			}
+			if got.order.ptb != 0 {
+				t.Fatalf("requirements.md 5.10 - the denial must happen before the per-turn buffer: scenario=%s reached_ptb=%d",
+					got.label, got.order.ptb)
+			}
+			if got.order.open != 0 {
+				t.Fatalf("requirements.md 5.10 - no candidate may reach Backend.Open when the lineage proof fails: scenario=%s backend_open_stage=%d",
+					got.label, got.order.open)
+			}
+			if got.snapshotReads != 1 {
+				t.Fatalf("design.md \"4A\" constraint 3 - the refusal must reuse the frozen snapshot without a second store read: scenario=%s snapshot_reads=%d",
+					got.label, got.snapshotReads)
+			}
+		})
+	}
 }
