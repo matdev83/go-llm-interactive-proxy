@@ -35,11 +35,15 @@ const BuiltinProfileVersion = 1
 //
 // It is a closed set of exactly three values. The disabled value is the zero
 // value, so a profile that declares no mode rewrites no opaque result at all, and
-// the only way to reach the enabled modes is to name one explicitly. The two
-// enabled modes record WHICH bounded recognizer the result handler may apply; they
-// do not perform one. The recognizers themselves belong to the conservative result
-// handling step, and until it exists a resolved mode can only ever be recorded and
-// never used.
+// the only way to reach the enabled modes is to name one explicitly. Each enabled
+// mode names WHICH bounded recognizer the result handler applies; the recognizer
+// itself lives in the canonical rewriter's subpackage, because it is the one place
+// that can see an opaque payload, and it fails closed on anything its rule cannot
+// prove to be a location.
+//
+// The two enabled modes are policies, not a ladder, and the line-mode recognizer is
+// the strictly narrower of the two: it accepts a line holding exactly one location,
+// where the token-mode recognizer accepts a line holding one or more.
 //
 // The value is an enum because it only ever reaches fixed-count observability
 // dimensions: it never carries tool-name, pointer, or payload bytes.
@@ -52,14 +56,24 @@ const (
 	OpaqueResultModeNone OpaqueResultMode = iota
 	// OpaqueResultModePathTokens marks an opaque result whose path-bearing content
 	// is a bounded set of delimited path tokens: a list of locations, one or more
-	// per line. The recognizer may rewrite such a token where it is delimited by a
-	// non-path boundary, and must leave every token that is not unambiguously one
-	// unchanged (requirement 2.6).
+	// per line.
+	//
+	// The unit this mode's recognizer decides on is the whole line, not the token. A
+	// token is a maximal run of bytes that are neither whitespace nor a comma, so an
+	// equals sign, a colon, a quote, and a bracket are token bytes rather than
+	// boundaries; the recognizer re-spells a line's tokens only when EVERY one of
+	// them is a location this mapping accepts, and then replaces exactly those
+	// tokens. A single token that is not a location refuses its whole line, so a
+	// path beside any other content on its own line is left byte-for-byte unchanged:
+	// `level=debug path=<root>/a.go` is one token that is not a location and is
+	// refused whole, and so is `paths: <root>/a <root>/b` (requirement 2.6).
 	OpaqueResultModePathTokens
 	// OpaqueResultModePathLines marks an opaque result whose path-bearing content is
 	// whole lines that hold nothing but a location. The recognizer may rewrite such
 	// a line and must leave every line that carries any other content unchanged
-	// (requirement 2.6).
+	// (requirement 2.6). It is the token mode's own whole-line rule narrowed to
+	// exactly one location per line, so a line carrying two locations is a list and
+	// is left for the token mode.
 	OpaqueResultModePathLines
 )
 

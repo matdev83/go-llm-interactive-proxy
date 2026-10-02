@@ -116,7 +116,7 @@
   - _Depends: 2.2, 3.3_
   - _Validation: feature canonical rewrite tests_
 
-- [ ] 4.2 Implement conservative result handling
+- [x] 4.2 Implement conservative result handling
   - Structured JSON results may use explicit selectors.
   - Opaque result strings/text stay unchanged by default.
   - If a profile enables path-oriented opaque handling, implement only the specified bounded token/line recognizer and test source/content false positives.
@@ -390,3 +390,7 @@
 - Task 4.1: a SELECTED leaf carrying raw invalid UTF-8 is re-emitted as U+FFFD, because the splice re-marshals the literal. Requirement 2.8's "where canonical representation permits" clause covers this; non-selected bytes are unaffected. Document if it becomes user-visible.
 - Task 4.1: `BytesBefore`/`BytesAfter` are measured from the DECODED value length, not the raw literal bytes, so an escape-spelled path reports a different delta than the wire delta. Intentional for requirement 9.5 realized-savings accounting.
 - Task 4.1: the payload is parsed twice per surface (`UseNumber` for selector resolution plus a token walk for offsets), so cost is O(2n) with transient `any` amplification on the largest canonical surfaces (`PartJSON`/`ContentPartJSON`/`PartToolResult` up to 8 MiB). Acceptable for now — nothing is re-encoded and the pass runs at most twice per request — but Task 9.4 must measure it so the performance claim stays evidence-backed.
+- Task 4.2: the opaque recognizer is PER LINE, not per token. A line is re-spelled only when EVERY whitespace- or comma-delimited token on it is a location `Mapping.VirtualizePath` accepts; one non-location token refuses the whole line byte-for-byte. `=`, `:`, quotes and brackets are TOKEN BYTES, not boundaries, which makes `path=<root>/a.go`, `"path":"<root>/a.go"`, `grep -n hit <root>/a.go` and `curl -H "X: <root>/a.go"` structurally unreachable. This replaced an earlier, provably-false per-token contract in the operator-facing `OpaqueResultMode` godoc — since `OpaqueResultMode.String()` IS the configuration spelling (requirements 7.1/7.4/7.8), that godoc must stay truthful.
+- Task 4.2: the mode ladder is `path_lines` ⊊ `path_tokens` — `path_lines` is the STRICTER mode (exactly one location per line), matching the natural direction of the names and the shipped enum docs. Do not "fix" this into a ladder with line-introducer support: `File: `/`path=` are precisely the strace/journalctl/git/grep shapes the task forbids from being recognizable.
+- Task 4.2: the IRREDUCIBLE RESIDUAL is that a line holding nothing but one location is rewritten under a declared mode — including a tab-indented source line, an isolated diff context line, a `.gitignore`/`.dockerignore` bare path, and a commit-message body line. No rule can separate those from a path listing; the guard is the spec's own (no shipped built-in declares a mode, and inference cannot enable one), and `TestOpaqueResultBarePathLineIsTheIrreducibleResidual` pins it explicitly rather than hiding it.
+- Task 4.2: a partially accepted opaque payload records NO skip. The `Skip` unit is the SURFACE, not the line, so refused lines inside an accepted payload contribute nothing to `eligible`/`rewritten`/byte totals and leave no trace. Do not widen the closed 12-member `SkipReason` vocabulary for this.

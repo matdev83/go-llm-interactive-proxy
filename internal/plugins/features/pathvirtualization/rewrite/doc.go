@@ -45,12 +45,17 @@
 // canonical tool name is assistant content or reasoning, which this feature never
 // inspects.
 //
-// Opaque result text is left exactly as it arrived. ToolResultItem.Output, a
-// PartToolResult text payload, and a text content part stay byte-for-byte unchanged
-// and are reported under their own bounded reason, because rewriting them is a
-// decision an exact tool profile has to make explicitly (requirement 2.5). The
-// bounded recognizer such a profile would enable belongs to the conservative result
-// handling step, not here.
+// Opaque result text is left exactly as it arrived unless an exact tool profile
+// declared a bounded opaque-result mode. ToolResultItem.Output, a PartToolResult text
+// payload, and a text content part all reach the same conservative recognizers, and
+// each one either comes back unchanged or is re-spelled whole-line (requirement 2.5,
+// 2.6). The rule those recognizers apply is one line of the design: a line is
+// rewritten only when every whitespace- or comma-delimited token on it is a path
+// this mapping accepts, so source, diffs, shell command lines, logs, stack frames,
+// embedded JSON, and prose are all refused rather than searched. No shipped built-in
+// declares a mode at all, which is why opaque rewriting is reachable only through an
+// operator profile that has made that assertion about one exact tool name
+// (design.md 249-250).
 //
 // The rewriter is pure. It performs no I/O, holds no mutable state, and never
 // modifies the call it is given: it publishes a new call only when it changed

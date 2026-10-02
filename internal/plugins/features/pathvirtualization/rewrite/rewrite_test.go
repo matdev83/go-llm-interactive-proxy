@@ -468,8 +468,9 @@ func TestRewriteCallLeavesOpaqueResultUnchanged(t *testing.T) {
 
 // TestRewriteCallRecordsDeclaredOpaqueModeSeparately proves that an opaque result an
 // exact profile marked path-oriented is reported as such, and is still left
-// unchanged: this step does not recognize opaque text, and its accounting says which
-// of the two states it was in.
+// unchanged: the declared recognizer ran, found no line it could prove was a
+// location, and said so instead of guessing at a text rewrite. Its accounting keeps
+// the two states apart.
 func TestRewriteCallRecordsDeclaredOpaqueModeSeparately(t *testing.T) {
 	t.Parallel()
 

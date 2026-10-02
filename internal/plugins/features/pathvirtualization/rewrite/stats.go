@@ -75,10 +75,15 @@ const (
 	// PartToolResult text payload, and a text result content part.
 	SkipReasonOpaqueResultUnchanged
 	// SkipReasonOpaqueResultBounded marks an opaque result payload that an exact
-	// profile did mark path-oriented. Bounded opaque recognition is the
-	// conservative result-handling step's job, so this step reports the declared
-	// state and still leaves the payload unchanged instead of guessing at a text
-	// rewrite here (design.md 246-250).
+	// profile DID mark path-oriented and that the bounded recognizers still left
+	// byte-for-byte unchanged. That is the honest answer whenever nothing in the
+	// payload is unambiguously a location: the declared mode ran, found no line it
+	// could prove, and reported the refusal rather than guessing at a text rewrite
+	// (requirement 2.6, design.md 246-250). A payload the recognizers accepted
+	// records no skip at all, and that includes a payload accepted on some of its
+	// lines and refused on others: the surface, not the line, is this step's unit,
+	// and a refused line contributes no counters either, so a partially accepted
+	// payload is reported through its counts alone rather than as a refusal.
 	SkipReasonOpaqueResultBounded
 	// skipReasonCount is the size of the closed reason vocabulary. It is the bound
 	// on the accounting structure: a hostile payload can raise a recorded count but

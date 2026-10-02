@@ -15,6 +15,12 @@ package rewrite
 // optional inference step, so requirement 2.1's "safely inferred" half is reachable
 // here, while a result surface never does, because a result has no declared schema
 // and requirement 3.2 keeps result selectors explicit.
+//
+// A result's opaque text is the one place where the resolved policy can reach bytes
+// no selector names, and it stays exact in the same way: only the opaque mode an
+// exact profile declared can turn it on, and the recognizer that mode selects then
+// proves line by line which bytes are locations. Every other opaque surface, and
+// every opaque surface of every tool no profile claims, comes back unchanged.
 
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization"
@@ -190,9 +196,9 @@ func (w *callWalker) rewriteToolCall(toolName string, arguments []byte, assign f
 
 // rewriteToolResult handles the item-authoritative result surfaces.
 //
-// Its Output field and every text-bearing content part are opaque, so they are left
-// exactly as they arrived and reported under the reason that matches the tool's
-// declared mode. A JSON content part is the structured surface requirement 2.2 and
+// Its Output field and every text-bearing content part are opaque, so they reach only
+// the bounded recognizer of the tool's declared mode and are otherwise left exactly
+// as they arrived. A JSON content part is the structured surface requirement 2.2 and
 // 3.2 address, and it is rewritten only through an explicitly selected location.
 func (w *callWalker) rewriteToolResult(index int, result *lipapi.ToolResultItem) {
 	if w.err != nil {
@@ -201,9 +207,9 @@ func (w *callWalker) rewriteToolResult(index int, result *lipapi.ToolResultItem)
 	// A result has no declared schema, so nothing is offered to the inference step:
 	// requirement 3.2 keeps structured result selection explicit.
 	resolved := w.rewriter.resolver.Resolve(result.Name, nil)
-	opaque := opaqueReason(resolved)
 	if result.Output != "" {
-		w.acc.skip(opaque)
+		w.rewriteOpaque(result.Output, resolved.OpaqueResultMode,
+			func(raw string) { w.working().Items[index].ToolResult.Output = raw })
 	}
 	for j := range result.Parts {
 		part := result.Parts[j]
@@ -211,13 +217,15 @@ func (w *callWalker) rewriteToolResult(index int, result *lipapi.ToolResultItem)
 		case lipapi.ContentPartJSON:
 			w.rewritePayload([]byte(part.Text), resolved.ResultJSONPointers,
 				func(raw []byte) { w.working().Items[index].ToolResult.Parts[j].Text = string(raw) })
-		case lipapi.ContentPartToolResult:
+		case lipapi.ContentPartToolResult, lipapi.ContentPartText:
 			if part.Text != "" {
-				w.acc.skip(opaque)
+				w.rewriteOpaque(part.Text, resolved.OpaqueResultMode,
+					func(raw string) { w.working().Items[index].ToolResult.Parts[j].Text = raw })
 			}
 		default:
-			// A text, image, file, or extension part carries no structured result
-			// surface, and prose is never a path-bearing location.
+			// An image, file, or extension part carries no structured result
+			// surface and no text payload, so there is nothing to select or to
+			// recognize.
 		}
 	}
 }
@@ -232,13 +240,13 @@ func (w *callWalker) rewriteLegacyToolResult(message, part int, value lipapi.Par
 		return
 	}
 	resolved := w.rewriter.resolver.Resolve(value.ToolName, nil)
-	opaque := opaqueReason(resolved)
 	if !isAbsentOrNullPayload(value.Content) {
 		w.rewritePayload(value.Content, resolved.ResultJSONPointers,
 			func(raw []byte) { w.working().Messages[message].Parts[part].Content = raw })
 	}
 	if value.Text != "" {
-		w.acc.skip(opaque)
+		w.rewriteOpaque(value.Text, resolved.OpaqueResultMode,
+			func(raw string) { w.working().Messages[message].Parts[part].Text = raw })
 	}
 }
 
@@ -265,6 +273,23 @@ func (w *callWalker) rewritePayload(payload []byte, pointers pathvirtualization.
 	}
 }
 
+// rewriteOpaque applies the bounded recognizer of a declared opaque mode to one
+// opaque result payload and publishes the result.
+//
+// The mode is the whole authority: it comes from the exact profile that claimed this
+// tool, the disabled value rewrites nothing, and the recognizer itself decides which
+// lines it can prove. A payload with no unambiguous location records its bounded
+// reason inside the recognizer and is published unchanged.
+func (w *callWalker) rewriteOpaque(text string, mode pathvirtualization.OpaqueResultMode, assign func(string)) {
+	if w.err != nil {
+		return
+	}
+	rewritten, changed := w.rewriter.rewriteOpaqueText(text, mode, &w.acc)
+	if changed {
+		assign(rewritten)
+	}
+}
+
 // declaredSchema returns the declared argument schema of the exact-named tool, or
 // nil when the call declares no such tool.
 //
@@ -282,18 +307,4 @@ func (w *callWalker) declaredSchema(toolName string) []byte {
 		}
 	}
 	return nil
-}
-
-// opaqueReason returns the bounded reason for leaving one opaque result payload
-// unchanged.
-//
-// The two values separate the required default from a declared one, so an
-// accounting stage can tell "nothing marked this result path-oriented" apart from
-// "an exact profile marked it path-oriented and this step still does not touch it",
-// without either case having to look at the payload.
-func opaqueReason(resolved pathvirtualization.Resolved) SkipReason {
-	if resolved.OpaqueResultMode != pathvirtualization.OpaqueResultModeNone {
-		return SkipReasonOpaqueResultBounded
-	}
-	return SkipReasonOpaqueResultUnchanged
 }
