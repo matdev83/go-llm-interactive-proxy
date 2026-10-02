@@ -3,12 +3,13 @@
 ## Summary
 - **Feature**: B-Leg Path Virtualization
 - **Discovery Scope**: Brownfield / Complex Integration
-- **Baseline**: `main` at `96803666590d47a3ede11b93db286db290839f84` (2026-09-09)
+- **Baseline**: original discovery on `main` at `96803666590d47a3ede11b93db286db290839f84` (2026-09-09); implementation-gap revalidation on `b560dbff3a06dc44a324aa15a0245ccaed5f76cb` (2026-10-02)
 - **Key Findings**:
   - The proxy already has the canonical A-leg/B-leg split, canonical tool representations, workspace metadata, attempt/request shaping stages, and complete tool-call assembly needed for a reversible path namespace.
   - The initial idea of replacing absolute paths anywhere inside tool output is unsafe because opaque tool output can contain source/config data whose literal paths are semantically meaningful.
   - The existing complete-tool-call finalizer path is the correct direction for model→client expansion, but its metadata lacks workspace context and its shared default 64 KiB assembly behavior can bypass required expansion.
   - V1 should avoid a durable dynamic alias table: deterministic `Workspace.ProjectRoot` virtualization makes restart, reload, retries, and provider-side continuation reconstructable, but the alias must include a deterministic workspace-root identity tag so an old alias cannot be expanded against a changed workspace.
+  - Task 1.3 implementation characterization exposed a second P0 integration gap: legacy conversation-view anchors are content-hash identities, so path virtualization can change an anchored message's identity after early projection and make the current final reassertion fail closed despite unchanged trajectory structure.
 
 ## Brownfield Gap Analysis
 
@@ -42,6 +43,9 @@
 10. `WorkspaceView.ProjectRoot` already exists as the authoritative feature-facing workspace root.
 11. The default extension state store is process-memory state. Session-scoped state exists, but using it for the primary path mapping would make restart semantics weaker unless a durable feature-state design were added.
 12. Conversation-view final reassertion operates on message visibility/steering semantics; a final idempotent path rewrite is still required because late request shaping exists after initial attempt transforms.
+13. Early conversation-view projection happens before candidate attempt transforms and freezes `Snapshot`, `ProjectionEvidence/OverlayProvenance`, and a filtered A-leg baseline for later reassertion.
+14. `conversationprojection.MessageIdentityOf` hashes normalized role plus semantic content; legacy `PartJSON` and `PartToolResult` payload bytes therefore participate in the identity.
+15. Current `conversationprojection.Reassert` ultimately calls `Project(cleaned, snap)`; after a trajectory-preserving B-leg payload rewrite, an after-message anchor stored with the pre-rewrite content identity can no longer resolve and `AnchorFailClosed` denies the attempt before the backend.
 
 ### Gaps discovered
 
@@ -56,16 +60,18 @@
 | Fixed alias namespace was not bound to its originating workspace | P0 correctness/security | After `ProjectRoot` changes, an old model alias could expand against the new root and target the wrong workspace | Include a deterministic collision-resistant workspace tag in every alias and reject stale/mismatched tags before expansion |
 | No cross-OS path parser independent of host OS | P1 portability | Windows paths on Linux proxy or POSIX paths on Windows proxy mis-handle | Implement feature-owned lexical parser |
 | No measurements of actual savings | P1 product | Optimization value unknown | Add audit mode and content-free savings metrics |
+| Final conversation-view reassertion re-resolves frozen content-hash anchors after backend-only payload mutation | P0 correctness/composition | A valid anchored turn can become `ErrAnchorMissing` / pre-backend denial solely because path bytes were virtualized | Preserve early resolved placement through a generic frozen-baseline/provenance lineage proof; keep persisted identity and fail-closed policy unchanged |
 
 ### Requirements repair caused by gap analysis
 
-The initial product idea was amended in the requirements in five ways:
+The product idea/spec was amended in the requirements in six ways:
 
 1. **Blind tool-output replacement was removed.** Only structured/configured/safely inferred path-bearing surfaces may be rewritten.
 2. **Transparency was narrowed to tool-boundary transparency.** Ordinary assistant prose remains untouched in V1; a model may therefore mention a virtual alias in prose.
 3. **Primary mapping became deterministic workspace-root-only.** Dynamic discovered roots are explicitly deferred.
 4. **Reverse expansion became mandatory/fail-closed once aliases are model-visible.** The existing 64 KiB pass-through behavior is not acceptable for this feature.
 5. **Aliases became workspace-bound.** The first design used one fixed alias per path flavor; review exposed that a root change could redirect an old alias into the new workspace. V1 now embeds a deterministic collision-resistant workspace tag derived from the flavor-aware project-root identity and rejects stale/mismatched tags. The V1 alias namespace/version is fixed rather than operator-configurable so reload cannot make old aliases unrecognizable.
+6. **Final conversation-view reassertion became transform-stable.** Task 1.3 proved that path virtualization can change the content-derived identity of an anchored legacy message after early projection. The spec now requires a generic request-local lineage carry-forward from the frozen filtered baseline/provenance for provably trajectory-preserving B-leg rewrites, without changing persisted `MessageIdentityOf`, stored anchors, or fail-closed policy.
 
 The requirements gate was re-run after these changes and is internally consistent.
 
@@ -113,10 +119,15 @@ The requirements gate was re-run after these changes and is internally consisten
   - `docs/conversation-view.md`
 - **Findings**:
   - Candidate attempt transforms are followed by request-part hooks and final conversation-view reassertion.
+  - Early projection resolves stored message anchors before those transforms and freezes filtered baseline/provenance for final reassertion.
+  - Message identity includes normalized semantic content, including legacy JSON/tool-result payloads.
+  - Current final reassertion strips projection-owned copies and re-runs projection; a path-only payload mutation can therefore invalidate an otherwise unchanged after-message anchor.
   - Candidate adaptation and PTB capture happen still later.
 - **Implications**:
   - Use attempt transformation early enough to affect context/preflight, then reapply idempotently through the request-part hook.
-  - Add focused runtime tests proving PTB/backend ingress remains virtualized.
+  - Keep early A-leg anchor resolution authoritative and make final reassertion generically carry its resolved placement across identity-changing but structurally one-to-one B-leg rewrites.
+  - Never change persisted message identity or guess placement when structural lineage is ambiguous; retain fail-closed behavior.
+  - Add focused runtime tests proving both transform-stable anchor placement and PTB/backend ingress virtualization.
 
 ### State and continuity
 - **Context**: Decide where the translation table should live.
@@ -190,6 +201,12 @@ The requirements gate was re-run after these changes and is internally consisten
 - **Rationale**: incremental raw-delta rewriting is error-prone, while silent pass-through of aliases is unacceptable.
 - **Trade-offs**: requires small SDK/runtime-platform work beyond a pure feature package.
 
+### Decision: Preserve resolved conversation-view placement across proven backend-only content lineage
+- **Context**: Conversation-view anchors are content-derived identities resolved before candidate shaping. Path virtualization may rewrite selected bytes in a legacy anchored message without changing its logical trajectory.
+- **Selected Approach**: keep persisted identity/anchor semantics unchanged; at final reassertion, use frozen filtered baseline plus early projection provenance to prove a deterministic one-to-one structural lineage and carry the already-resolved placement to the corresponding backend-shaped message.
+- **Rationale**: preserves both early A-leg conversation authority and early virtualization needed for context/preflight savings.
+- **Trade-offs**: requires a small generic `conversationprojection.Reassert` enhancement and strict negative cases; ambiguous structural changes continue to fail closed.
+
 ### Decision: Keep ordinary assistant prose untouched
 - **Selected Approach**: no prose/reasoning scan in V1.
 - **Rationale**: honors narrow tool-surface scope and avoids broad completion mutation.
@@ -207,18 +224,20 @@ The requirements gate was re-run after these changes and is internally consisten
 - **Provider continuation after restart** — deterministic workspace-root alias, no ephemeral primary mapping.
 - **Performance overhead** — audit mode, benchmarks, no regex-heavy scanning, bounded selectors.
 - **Interaction with tool-call repair** — characterize order and make mandatory expansion independent of optional repair size policy.
+- **Conversation-view anchor identity drift** — do not redefine `MessageIdentityOf`; preserve the early resolved placement only across a proven one-to-one frozen-baseline→backend trajectory lineage, and fail closed on any ambiguous insert/delete/reorder/structural change.
 
 ## Design Validation Verdict
 
 **GO after repairs.**
 
-The draft design was revalidated against current `main` and external review. Three local design defects were repaired before task generation/final readiness:
+The draft design was revalidated against current `main` and external review. Three local design defects were repaired before task generation/final readiness, and Task 1.3 later exposed one implementation-time composition defect:
 
 1. The first draft assumed `AttemptTransform` was the final B-leg mutation boundary. Current runtime proves request-part hooks, conversation-view reassertion, accounting/admission, and candidate adaptation occur later. The design now specifies a second idempotent request-part pass and explicit PTB/backend-ingress invariants.
 2. The first draft reused the existing tool-call finalizer without addressing the 64 KiB shared assembler fallback. The design now requires a generic mandatory completeness/buffering contract and fail-closed overflow semantics for path expansion.
 3. The first workspace-root-only draft used one fixed alias per path flavor. CodeRabbit correctly identified that an old alias could then expand against a changed workspace root. The repaired design binds aliases to a deterministic 96-bit workspace-root tag, fixes the V1 namespace/version, and rejects mismatched stale aliases.
+4. Task 1.3 implementation characterization exposed the content-hash anchor/rewrite conflict in final conversation-view reassertion. Revalidation on `b560dbff3a06dc44a324aa15a0245ccaed5f76cb` confirms the failure path. The repaired design assigns a generic transform-stable reassertion path using frozen request-local lineage evidence while leaving persisted identity and fail-closed policy untouched.
 
-No unresolved architecture blocker remains.
+No unresolved architecture blocker remains after the implementation-discovered repair.
 
 ## References
 
@@ -238,5 +257,8 @@ Repository-local sources:
 - `pkg/lipsdk/toolcall/finalizer.go`
 - `internal/core/runtime/executor_open_attempt.go`
 - `internal/core/runtime/executor_attempt_transform.go`
+- `internal/core/conversationprojection/identity.go`
+- `internal/core/conversationprojection/projection.go`
+- `internal/core/conversationprojection/reassert.go`
 - `internal/core/runtime/tool_call_assembler.go`
 - `internal/core/runtime/response_pipeline_observations.go`
