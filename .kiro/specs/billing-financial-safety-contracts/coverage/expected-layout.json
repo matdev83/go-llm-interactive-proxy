@@ -1,0 +1,16 @@
+{
+  "spec_revision": 2,
+  "frontends": 5,
+  "builtin_backends": 10,
+  "connector_modules": 34,
+  "backend_entries": 44,
+  "pairs": 220,
+  "modality_atoms": 6,
+  "masks_per_direction": 64,
+  "base_signatures": 901120,
+  "required_transport_mode_pairs": 4,
+  "positive_rules": 9,
+  "economic_fixtures": 20,
+  "round2_gaps": 12,
+  "implementation_verified": false
+}

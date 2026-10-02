@@ -1,0 +1,2067 @@
+# Implementation Plan — revision 2
+
+113 bounded mandatory tasks. Follow [execution/order.md](execution/order.md), not numeric phase order. All tasks are NOT STARTED. The expanded native/multimodal work is required before final release, not optional post-release cleanup.
+> **Repository delivery note:** The PR keeps the canonical spec files readable and ships the approved `execution/` packet tree losslessly as `execution-packets.tar.xz`. Before executing any task, run `python .kiro/specs/billing-financial-safety-contracts/tools/materialize_execution.py`. The materializer verifies the archive hash, recreates `execution/` byte-for-byte, and the generated directory is git-ignored. Do not plan or implement from the packed archive directly.
+
+
+Use one fresh context per packet, the stated file scope and red/green evidence. No architecture planning or external research is assigned. Native impossibility is distinct from missing billing implementation; required positives cannot be replaced by blanket rejection. No default parallel work is authorized.
+
+## Workstream 1 — Baseline and financial contracts
+
+- [ ] 1.1 Install the bounded execution protocol and repair steering wording
+  - **Goal:** Establish a reproducible baseline and authorize only the exposure-boundary change needed by this specification.
+  - **Packet:** [T01](execution/T01.md).
+  - **Deliverables:** Narrow steering edits using the exact D01 replacement sentence; New focused architecture fixture for the refined pre-dispatch exposure boundary; Baseline receipt with branch, base SHA, dirty-path inventory and current relevant gate results
+  - **Step 1:** Reuse a dedicated non-main worktree or create one from the pinned base; preserve unrelated dirty files and run codegraph init only as required by AGENTS.md.
+  - **Step 2:** Compare the named sources to the pinned base mechanically; if monetary code drift changes a specified seam, emit BLOCKED with the exact diff and do not redesign.
+  - **Step 3:** Apply D01 wording only to the once-per-root restriction. Preserve no stream-time rating/journal writes, injection-only stock behavior, and no transparent post-output retries.
+  - **Step 4:** Change the two existing authority-isolation guard fixtures only to recognize funded pre-dispatch extensions; add negative receive-loop money and raw-open fixtures. Do not relax their forbidden imports.
+  - **Step 5:** Run the new named fixture and existing spec/QA checks; record actual baseline failures without claiming to repair unrelated work.
+  - **Acceptance:** The refined rule explicitly covers root and additional dispatch funding while the receive-loop negative fixture fails on money mutation.
+  - **Acceptance:** No production monetary behavior is enabled and no archived commercial contract is rewritten.
+  - **Scope:** At most 4 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.1, 1.3, 1.5, 6.4, 13.6, 14.1, 14.3, 14.4, 14.6, 15.1, 15.3, 15.4, 15.5_
+  - _Boundary: docs; architecture/QA guards_
+  - _Depends: None_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 1.1`; required scenarios S02, S58, S61 and affected existing tests._
+
+- [ ] 1.2 Implement financial value objects and conservation functions
+  - **Goal:** Provide pure, checked invariants used by every later store and runtime operation.
+  - **Packet:** [T02](execution/T02.md).
+  - **Deliverables:** New internal/core/billing/financial_contract.go; New internal/core/billing/financial_allocation.go; New internal/core/billing/financial_obligation.go; Literal arithmetic and identity regression tests
+  - **Step 1:** Add the D01 strict contract ID and the D03/D05 immutable value objects, separate dispatch/evidence/visibility enums, and validation of trusted IDs and positive generation caps.
+  - **Step 2:** Implement D02 Headroom, ReserveDelta, RecognizeAndCollect and exposure-entry balancing as pure functions using checked Money arithmetic; keep credit floor separate from debt.
+  - **Step 3:** Bind semantic fingerprints to operation, account, call, slot/dispatch, contract, material hashes and epoch; reject malformed or conflicting IDs.
+  - **Step 4:** Keep existing Account and legacy journal semantics readable. Add separate operational exposure-entry types instead of turning an authorization into a financial debit.
+  - **Step 5:** Add literal boundary/overflow and B10/A5/B5/actual 8 tests before integrating with SQL.
+  - **Acceptance:** S24 and S25 equations match literal nanounits; an overrun cannot collect sibling-backed funds.
+  - **Acceptance:** Unknown evidence is a distinct value and cannot validate as final known zero; no SQL/provider imports enter core.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.1, 3.1, 3.6, 3.7, 4.4, 5.1, 5.4, 5.5, 6.1, 8.1, 9.1, 9.2, 9.3, 9.4, 9.6, 9.7, 9.8, 16.3_
+  - _Boundary: billing domain policy_
+  - _Depends: 1.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 1.2`; required scenarios S11, S23, S24, S25, S44 and affected existing tests._
+
+- [ ] 1.3 Add strict SDK preparation, funding and fence contracts
+  - **Goal:** Expose a versioned external binding and immutable prepared-dispatch seam without widening ordinary Open for non-money hosts.
+  - **Packet:** [T03](execution/T03.md).
+  - **Deliverables:** New pkg/lipsdk/billing/strict_execution.go; New pkg/lipsdk/billing/strict_binding.go; Versioned prepared-request/funding/cancellation public contracts and additive ABI fixtures
+  - **Step 1:** Add BindingVersionV2 plus required strict execution, durable acceptance/recovery, account-fence read/subscription, and health capabilities as additive v2 fields; preserve readable v1 envelopes.
+  - **Step 2:** Add the PaidPreparer/PreparedPaidRequest/SendPrepared protocol specified in the design interface appendix; public types reference SDK values only.
+  - **Step 3:** Validate typed-nil ports, missing strict pieces, conflicting contract versions, foreign identities and expired/mismatched grants. Never interpret an absent optional interface as permission.
+  - **Step 4:** Keep the single monetary authority rule and v1 non-strict compatibility; an active strict host rejects v1 at composition rather than supplying fake strict adapters.
+  - **Step 5:** Add SDK contract tests for ownership, immutability, close/release and forged handle reuse. Keep connector ABI extensions version-negotiated.
+  - **Step 6:** Define the additive v2 binding so it can carry D18 media/output plans and D20 joint contract digests. Shared concrete media DTO work is owned by11.2/11.3/14.1; do not leave v2 semantically text-only.
+  - **Acceptance:** Every missing v2 dependency rejects before any provider call; v1 historical decoding and ordinary non-money Open remain available.
+  - **Acceptance:** A prepared request cannot be mutated through a returned slice/map or reused for another economic identity.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 3.7, 4.3, 4.4, 4.5, 6.4, 7.1, 12.1, 12.3, 12.5, 12.6, 15.6, 17.4, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 21.1, 21.4, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 24.4_
+  - _Boundary: SDK/public contract_
+  - _Depends: 1.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 1.3`; required scenarios S01, S14, S20, S53, S89, S105 and affected existing tests._
+
+- [ ] 1.4 Build the independent literal-money and recording-provider harness
+  - **Goal:** Create an oracle that cannot accidentally reproduce the production estimator bug.
+  - **Packet:** [T04](execution/T04.md).
+  - **Deliverables:** New internal/testkit/financialsafety/recording_provider.go; New internal/testkit/financialsafety/literal_fixtures.go; New internal/testkit/financialsafety/assertions.go; New test-only fault-point and subprocess receipt helpers
+  - **Step 1:** Copy the synthetic D03 prices and S08/S25 expected nanounits as literal test data, not computed by production quotation or rating.
+  - **Step 2:** Implement an httptest provider recording every received request, body/limit digest, accepted synthetic cost and stable request/charge ID independently of billingstore.
+  - **Step 3:** Add named deterministic barriers and injectable fake clocks for before/after dispatch, terminal append, journal commit and ACK; production defaults cannot activate fault injection.
+  - **Step 4:** Implement independent journal/exposure balance assertions and JSON event validation that rejects no tests, all skipped tests and unmatched names.
+  - **Step 5:** Keep ordinary harness tests hermetic. Subprocess/real database tests are tagged and invoked only by their later task gates.
+  - **Acceptance:** A deliberate wrong expected cost and a second hidden provider request both make the harness fail.
+  - **Acceptance:** The expected-money package has no import/call to production quote, rate, selector or settlement arithmetic.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.1, 3.2, 5.5, 6.1, 7.1, 7.4, 7.5, 9.1, 9.2, 9.3, 9.4, 9.6, 9.8, 10.3, 13.6, 15.1, 15.2, 15.3, 15.4, 15.5, 16.3, 16.4_
+  - _Boundary: test support only_
+  - _Depends: 1.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 1.4`; required scenarios S08, S25, S34, S44, S61 and affected existing tests._
+
+## Workstream 2 — Pessimistic funding primitives
+
+- [ ] 2.1 Implement catalog-first maximum and explicit fallback
+  - **Goal:** Reserve model maximum output under the exact policy the user requested.
+  - **Packet:** [T05](execution/T05.md).
+  - **Deliverables:** New internal/infra/billingadmission/output_bound.go; Catalog-source/version binding and explicit allow_client_max_fallback configuration; Literal output-bound tests
+  - **Step 1:** Resolve the existing catalog provider/model identity after aliases; copy positive limit.output and its revision/hash into the bound.
+  - **Step 2:** Keep reservation M at the catalog maximum even for smaller body/route cap. Resolve route cap precedence before choosing transmitted cap.
+  - **Step 3:** Reject explicit effective cap greater than M and invalid zero/negative generation limits. When M is absent, accept only the enabled positive enforceable fallback.
+  - **Step 4:** Remove use of static conservative ceilings for this strict profile; preserve only historical readers and unrelated old-policy replay.
+  - **Step 5:** Use pinned synthetic catalog fixtures, not live network, for S09/S10.
+  - **Acceptance:** Catalog 75000/client 100 reserves 75000 and transmits 100; missing catalog/fallback 100 follows S10 exactly.
+  - **Acceptance:** Every rejected case has zero provider requests; snapshot source is retained.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.5, 3.1, 3.3, 3.4, 3.6, 3.7, 11.4_
+  - _Boundary: model-catalog/admission adapter_
+  - _Depends: 1.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 2.1`; required scenarios S09, S10, S11, S12 and affected existing tests._
+
+- [ ] 2.2 Implement final-request input bounds and proof validation
+  - **Goal:** Prevent ordinary token estimates or later payload changes from masquerading as conservative input maxima.
+  - **Packet:** [T06](execution/T06.md).
+  - **Deliverables:** New internal/core/billing/input_bound.go; New internal/infra/billingadmission/request_bounds.go; Input proof and route-option precedence regression tests
+  - **Step 1:** Accept only D03 proof kinds; bind proof to backend/model/shape and all structural/tool-schema overhead. Resolve route options with the existing canonical merger. Unknown future input uses a certified full input/context ceiling. Reject URL length, body-bytes-only modality counts and heuristic estimates as proof. Add transformations and remote-image fixtures; do not introduce a paid count request without child funding.
+  - **Step 2:** A provider count endpoint result is not a hard bound merely because it is provider-origin. Apply D19 bounded-error or enforced full-input-cap fallback; no undocumented percentage factor.
+  - **Acceptance:** S63 has a finite future-memo bound; an unproved image URL or token approximation rejects before dispatch.
+  - **Acceptance:** Canonical/wire bounds share proof semantics, not necessarily identical byte representations.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.1, 3.5, 3.6, 3.7, 4.3, 12.1, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6_
+  - _Boundary: billing domain and request-bound adapter_
+  - _Depends: 1.3, 2.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 2.2`; required scenarios S11, S13, S14, S63, S77, S78 and affected existing tests._
+
+- [ ] 2.3 Implement conservative component tariff quotation and supplier dominance
+  - **Goal:** Produce a complete upper envelope including cache writes, conditional prices and provider cost coverage.
+  - **Packet:** [T07](execution/T07.md).
+  - **Deliverables:** New internal/core/billing/conservative_quote.go; Frozen component bound metadata using existing tariff schemas; Literal cache/fee/rule arithmetic tables
+  - **Step 1:** Implement D03 step 7 for existing supported unit, block, fixed, minimum, conditional and tier rules using a conservative monotone upper envelope. Unsupported rule forms reject, not guessed arithmetic.
+  - **Step 2:** Evaluate full input cache miss at highest permitted write TTL, distinguishing inclusive write prices from surcharges; no assumed cache hit.
+  - **Step 3:** Include finite output/thought/candidate/modal/tool/resource dimensions. Check customer envelope covers supplier bound with no implicit subsidy.
+  - **Step 4:** Use checked integer/rational operations and round reservation components upward. Keep actual rating and uncertain-overlap advisory semantics unchanged.
+  - **Step 5:** Assert literal S08 totals and negative unsupported/overflow cases; compare against bounded brute-force enumeration for small synthetic tariffs without using the production quote as expected output.
+  - **Step 6:** Implement scalar primitives now;11.6 extends them to full mixed-native vectors before strict publication. Scalar tests alone cannot certify multimodal coverage.
+  - **Acceptance:** 5m=1.00,1h=1.15,no-write=.95; all admissible small enumerated bills are <= bound.
+  - **Acceptance:** An underpriced supplier offer and unsupported unbounded dimension fail rather than relying on operator loss.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.6, 3.1, 3.2, 3.5, 3.6, 3.7, 12.1, 12.4, 18.1, 18.3, 18.4, 19.5, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3_
+  - _Boundary: pure billing quote policy_
+  - _Depends: 2.1, 2.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 2.3`; required scenarios S08, S11, S52, S64, S80, S82, S83, S84, S87 and affected existing tests._
+
+- [ ] 2.4 Build finite root envelopes and scoped fee allocations
+  - **Goal:** Fund all declared payable paths before any first dispatch.
+  - **Packet:** [T08](execution/T08.md).
+  - **Deliverables:** New internal/core/billing/execution_envelope.go; New internal/core/runtime/billing_envelope_plan.go; Finite slot/cardinality and fee-scope tests
+  - **Step 1:** Project the normalized route plan and the existing effective attempt budget into deterministic finite slot IDs, including weighted/parallel and planned thinker/executor work.
+  - **Step 2:** Sum all declared slots conservatively; do not use maximum-of-route when multiple payable attempts can occur. Bound unknown future memo input with task 2.2 proof.
+  - **Step 3:** Place submission fixed fees at root scope and per-attempt fees in their slots. Preserve trusted child lineage without duplicate submission fee reservation/collection.
+  - **Step 4:** Reject unbounded loops/cardinality and budget-reset attempts. Define newly requested extra semantic work as extension, not reuse of a consumed slot.
+  - **Step 5:** Add S15/S16/S17 exact funding fixtures and canonical serialization/replay order tests.
+  - **Acceptance:** Two Q1 slots require 2 before first send; B1.5 is denied.
+  - **Acceptance:** A parallel race cannot consume one slot twice and a continuation cannot reset the persisted budget.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.1, 2.5, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 5.1_
+  - _Boundary: billing envelope policy; runtime routing projection_
+  - _Depends: 2.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 2.4`; required scenarios S07, S15, S16, S17, S18, S63 and affected existing tests._
+
+- [ ] 2.5 Bind prepared payloads and grants to immutable economic identity
+  - **Goal:** Ensure that what is sent is exactly what was financially authorized.
+  - **Packet:** [T09](execution/T09.md).
+  - **Deliverables:** New internal/core/execbackend/paid_prepared.go; New internal/core/billing/dispatch_identity.go; Ownership/digest/epoch/slot replay tests
+  - **Step 1:** Implement owned immutable prepared handles for canonical and existing large-body sources, with length/digest and economic limit identity.
+  - **Step 2:** Validate backend instance/model/endpoint, account/call/slot/dispatch, quote hash, epoch and provider-cap bounds before any SendPrepared call.
+  - **Step 3:** Use a single consumable grant; forbid copied-handle/foreign-account use and re-running hooks after economic freeze.
+  - **Step 4:** Keep large payload hashing streaming/bounded; do not materialize a large body solely to authorize it. Release handles on denied/cancelled paths.
+  - **Step 5:** Add tamper tests for route max, TTL, model, payload content and owner.
+  - **Step 6:** Digest economic field receipts, ordered media occurrence identity, output plan, profile/model/API revision and per-unit bounds. Missing native fields invalidate the prepared identity.
+  - **Acceptance:** Every S14 mutation invalidates authorization; immutable-handle getters cannot mutate stored economic identity.
+  - **Acceptance:** No provider SDK type or wire-parser switch is imported into billing domain.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.7, 4.2, 4.3, 4.4, 4.5, 5.4, 9.7, 17.2, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 23.4, 23.5, 23.6_
+  - _Boundary: core managed backend boundary_
+  - _Depends: 1.3, 2.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 2.5`; required scenarios S13, S14, S16, S23, S77, S100, S106 and affected existing tests._
+
+- [ ] 2.6 Persist immutable quote materials and publish them atomically
+  - **Goal:** Keep admitted prices, model limits and evidence schemas replayable after process loss or reload.
+  - **Packet:** [T10](execution/T10.md).
+  - **Deliverables:** New internal/infra/billingstore/frozen_material_store.go; Atomic catalog snapshot publication and durable material resolution; Close/reopen content-hash compatibility tests
+  - **Step 1:** Persist canonical bodies by content hash and ref/version before making a strict quote reachable; enforce ref/content immutability.
+  - **Step 2:** Load exact admitted materials on restart rather than current defaults. Retain referenced materials until every related obligation is resolved.
+  - **Step 3:** Publish scalar/rich/schema/advisory representations atomically where coupled; preserve #698 reporting-version identity.
+  - **Step 4:** Ensure candidate generation failure does not mutate active material bindings. Add concurrent publication/read and old-version reopen tests.
+  - **Acceptance:** S12 old calls use A after restart while new calls use B; changed content at an old ref fails.
+  - **Acceptance:** S60 advisory/hash compatibility stays byte-stable for historical records.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.5, 3.7, 12.5, 14.1, 14.4, 14.5_
+  - _Boundary: billing snapshot persistence and catalog composition_
+  - _Depends: 2.3, 3.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 2.6`; required scenarios S12, S60 and affected existing tests._
+
+- [ ] 2.7 Implement exact affordability results and inverse bounds
+  - **Goal:** Calculate client guidance from the same immutable quote and atomic headroom without double subtraction.
+  - **Packet:** [T11](execution/T11.md).
+  - **Deliverables:** New internal/core/billing/affordability.go; Public bounded financial rejection detail value; Linear and nonlinear inverse-quote tests
+  - **Step 1:** Implement the exact D12 error fields; monetary values are integer nanounits internally and exact decimal strings externally.
+  - **Step 2:** Compute headroom before this new bound, then subtract input/fixed liability once to derive output affordability.
+  - **Step 3:** For monotone multi-slot quotes, binary-search the largest common output allowance that fits; state allowance scope and catalog-first policy explicitly.
+  - **Step 4:** Handle zero output price, input-only unaffordability, debt, credit floor, rounding and undefined scalar allowance without division errors.
+  - **Step 5:** Add S45/S46 literals and verify a counterfactual affordable cap never silently changes admission policy.
+  - **Step 6:** For a media-constrained denial expose the unit/monetary shortfall and omit a misleading completion-token workaround. Token inversion must quote the complete simultaneous media cost.
+  - **Acceptance:** S45 available 0.75/input 0.25/output 10.00 per million returns 50000 affordable tokens against catalog 75000; S46 returns common cap 2500 with Q2500=0.41 and Q2501=0.41002.
+  - **Acceptance:** A new total-max deficit is not subtracted a second time; no confidential account/provider details leak.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.3, 11.1, 11.2, 11.3, 11.4, 11.5, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 22.6, 24.5_
+  - _Boundary: billing domain and public financial error values_
+  - _Depends: 2.3, 2.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 2.7`; required scenarios S45, S46, S09, S98 and affected existing tests._
+
+## Workstream 3 — Durable transactional stores
+
+- [ ] 3.1 Add the additive financial obligation schema
+  - **Goal:** Create durable state for strict funding, recovery and projections without rewriting legacy records.
+  - **Packet:** [T12](execution/T12.md).
+  - **Deliverables:** New additive billingstore migration 20261002000000_financial_safety_v1.go; Schema models/constraints/indexes for D05 additions; SQLite/PostgreSQL parity registration and migration tests
+  - **Step 1:** Add only the tables/columns/unique keys and indexes in D05; preserve existing immutable Max, journal source keys, posting-owner pins and historical payload bytes.
+  - **Step 2:** Introduce a financial-contract floor distinct from accounting V1/V2 and nullable legacy-compatible fields for old rows.
+  - **Step 3:** Add CHECK constraints for amounts/statuses and unique economic identity/operation keys; initialize projections from audited legacy rows without silently zeroing unresolved liability.
+  - **Step 4:** Register the logical schema in existing dbparity support. Test empty install, populated legacy migration, repeated migration and rejection of destructive downgrade with outstanding strict work.
+  - **Step 5:** If the proposed migration filename already exists on the actual task base, stop with the collision; do not overwrite or renumber historical migrations.
+  - **Acceptance:** Existing historical rows/keys round-trip unchanged; new schema is logically equivalent on SQLite and PostgreSQL.
+  - **Acceptance:** Uniqueness and positive-amount constraints reject duplicate/negative operations at the database boundary.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.7, 4.4, 5.2, 5.4, 6.4, 7.1, 7.4, 7.5, 8.6, 9.1, 9.6, 9.7, 9.8, 10.3, 10.4, 14.1, 14.2, 14.3, 14.4, 14.6, 15.2, 15.5, 16.5_
+  - _Boundary: SQL/Bun driven adapter and migrations_
+  - _Depends: 1.2, 1.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 3.1`; required scenarios S23, S34, S44, S57, S58 and affected existing tests._
+
+- [ ] 3.2 Replace global exclusive cutover locking with the prescribed protocol
+  - **Goal:** Allow independent PostgreSQL accounts to progress without weakening activation fencing.
+  - **Packet:** [T13](execution/T13.md).
+  - **Deliverables:** Shared ordinary/exclusive activation marker helpers; Sorted account-lock order enforcement; Independent-account and activation-interleaving database tests
+  - **Step 1:** Use FOR SHARE for ordinary marker observation and FOR UPDATE for activation/migration; do not substitute FOR KEY SHARE.
+  - **Step 2:** Remove ordinary marker writes after initialization so the shared lock is not upgraded. Initialize missing marker in a separate bounded initialization path before serving strict traffic.
+  - **Step 3:** Keep account FOR UPDATE and the D13 total lock order. Never perform provider/network I/O inside these transactions.
+  - **Step 4:** Add barriers holding accountA while accountB commits; separately verify activation waits for ordinary work and stale owner/epoch fails.
+  - **Step 5:** Run the PostgreSQL gate with required DSN; absence is failure rather than skipped certification.
+  - **Acceptance:** AccountB commits while accountA is held; activation remains fenced under concurrent admissions/postings.
+  - **Acceptance:** No session-level lock or session-state dependence is introduced for transaction pooling.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 4.4, 5.1, 5.4, 6.4, 9.7, 13.1, 13.2, 13.6, 14.3, 14.4, 14.6, 15.5_
+  - _Boundary: PostgreSQL transaction mechanics_
+  - _Depends: 3.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 3.2`; required scenarios S54, S58, S23 and affected existing tests._
+
+- [ ] 3.3 Implement bounded SQLite writer and admission pressure behavior
+  - **Goal:** Preserve durable billing on a single-process SQLite host under a burst without pretending it is distributed.
+  - **Packet:** [T14](execution/T14.md).
+  - **Deliverables:** New bounded monetary write scheduler with completion/control priority; Single-process SQLite strict topology validation; File-backed burst/pressure durability tests
+  - **Step 1:** Use one owned bounded writer lane with distinct capacity for control/completion versus fresh admission; callers receive typed backpressure without creating unbounded goroutines.
+  - **Step 2:** Keep transactions short and apply appropriate WAL/synchronous durability for the promised production failure model; never borrow fast test PRAGMAs as production proof.
+  - **Step 3:** Gate new liabilities on capacity before provider dispatch; queued existing completion work remains durably owned.
+  - **Step 4:** Reject strict distributed operation backed by separate SQLite files. A non-money in-memory host remains unaffected.
+  - **Step 5:** Exercise lock contention, full queues, close/reopen and priority fairness with deterministic barriers and real file stores where durability is tested.
+  - **Acceptance:** S55 parity holds; unsupported distributed SQLite is a startup error.
+  - **Acceptance:** Under S56 overload, memory/queue count stays bounded and every accepted obligation eventually drains.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 5.1, 7.2, 10.2, 10.5, 13.3, 13.4, 13.5_
+  - _Boundary: SQLite/store scheduling adapter_
+  - _Depends: 3.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 3.3`; required scenarios S32, S55, S56 and affected existing tests._
+
+- [ ] 3.4 Implement atomic root admission and balanced exposure operations
+  - **Goal:** Enforce H>=new envelope using O(1) transactional account projections.
+  - **Packet:** [T15](execution/T15.md).
+  - **Deliverables:** Strict root admission method and balanced operational entries; Atomic R projection update with before/after snapshot; Concurrency/idempotency/rebuild tests
+  - **Step 1:** Under D13 locks read balance/floor/debt/R/state, validate strict material/envelope/capacity identity and evaluate D02 incremental funding.
+  - **Step 2:** In the same transaction persist root envelope, legacy-compatible exposure link, operational balanced reservation entries, ownership pin and updated R/version.
+  - **Step 3:** Return a typed rejection populated from this locked snapshot; do not reread a later balance to explain the denial.
+  - **Step 4:** Implement exact idempotent replay after commit-ACK loss. Foreign account or altered bound at the same key is conflict, never a fresh debit.
+  - **Step 5:** Remove full open-exposure decoding from this new admission hot path; use separate bounded reconciliation to verify R.
+  - **Acceptance:** Concurrent admissions cannot collectively exceed the literal funded amount; terminal-but-unsettled work still counts.
+  - **Acceptance:** The projection and balanced exposure journal commit atomically and reconstruct identically.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 4.1, 4.4, 5.1, 5.2, 5.3, 5.4, 9.1, 9.6, 9.7, 9.8, 13.2, 15.2_
+  - _Boundary: billingstore admission transaction_
+  - _Depends: 2.4, 2.6, 3.2, 3.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 3.4`; required scenarios S15, S21, S22, S23, S44 and affected existing tests._
+
+- [ ] 3.5 Persist slot allocation, funded extension and grant consumption
+  - **Goal:** Create a durable one-time financial authorization for each economic attempt.
+  - **Packet:** [T16](execution/T16.md).
+  - **Deliverables:** New internal/infra/billingstore/dispatch_obligation_store.go; Allocate/extend/consume transaction methods and read-by-operation recovery; Epoch and grant-race regression tests
+  - **Step 1:** Transfer an unused envelope slot into a dispatch allocation with balanced operational entries; slot transfer must not reduce account total R.
+  - **Step 2:** For new/grown work reserve only the incremental full liability under the current locked headroom. Required-extension money denial invokes the task 7.1 freeze transaction.
+  - **Step 3:** Persist account/call/B-leg/dispatch/slot/payload/material/epoch and recovery descriptor before grant consumption.
+  - **Step 4:** Consume once atomically with current epoch, owner incarnation and allocation checks; the durable state becomes authorized_unknown before external send.
+  - **Step 5:** On uncertain commit ACK do not send. Resolve by operation identity. Replays after process loss do not retransmit ambiguous provider requests.
+  - **Acceptance:** One slot cannot authorize two sends; stale-epoch and changed-payload grants reject.
+  - **Acceptance:** A failed required extension leaves a durable account freeze and all previous obligations intact.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 4.2, 4.4, 4.5, 4.6, 5.4, 6.1, 6.4, 7.1, 7.4, 7.5, 9.7, 10.3, 15.2_
+  - _Boundary: billingstore dispatch transaction_
+  - _Depends: 2.5, 3.4, 7.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 3.5`; required scenarios S16, S18, S23, S28, S34 and affected existing tests._
+
+- [ ] 3.6 Reserve durable spool capacity before dispatch and retain first-write failures
+  - **Goal:** Close the gap between provider liability and the first successful terminal enqueue.
+  - **Packet:** [T17](execution/T17.md).
+  - **Deliverables:** Durable reserved recovery descriptors and bounded payload capacity; Idempotent terminal acceptance with commit-before-ACK; Orphan-capacity and first-write crash regression tests
+  - **Step 1:** Add reserved descriptors and capacity claims before central root/dispatch authorization; include reserved, delivering and error rows in watermarks.
+  - **Step 2:** Persist terminal chunks/manifest idempotently, acknowledge only after durable commit, and retain a descriptor when exact evidence cannot be accepted.
+  - **Step 3:** Never drain the last volatile evidence copy before durable acceptance; a producer failure signals unresolved recovery instead of successful completion.
+  - **Step 4:** Reclaim local-only orphan capacity only after proof that central authorization never occurred; no time-only release of ambiguous dispatch capacity.
+  - **Step 5:** Inject first INSERT/commit/disk-capacity failures and process death. Verify recovery state predates the paid request and survives restart.
+  - **Acceptance:** S31 leaves a durable obligation even with no terminal payload row; S32 prevents new paid sends before capacity is available.
+  - **Acceptance:** No unused descriptor is silently treated as a completed zero bill.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.7, 10.3, 10.5, 15.2_
+  - _Boundary: durable terminal spool_
+  - _Depends: 3.1, 3.3, 3.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 3.6`; required scenarios S31, S32, S34, S35, S65 and affected existing tests._
+
+- [ ] 3.7 Remove retry exhaustion and add durable fair fenced claims
+  - **Goal:** Keep valid billing work live beyond any number of transient failures.
+  - **Packet:** [T18](execution/T18.md).
+  - **Deliverables:** Typed retry classification and infinite-lifetime rescheduling; Fenced lease completion and bounded fair selection; >20 failure, poison-row and stale-worker tests
+  - **Step 1:** Remove completeCallClaimMaxAttempts as a transient lifetime cap, including the outstanding legacy path. Preserve bounded retries inside each invocation.
+  - **Step 2:** Implement D11 durable due time, full jitter, saturation-safe diagnostics and 30-second fenced leases; stale workers cannot ACK a newer claim.
+  - **Step 3:** Semantic failures remain named reconciliation work with trigger/requeue criteria, not processed or abandoned. Unknown operational errors retain retry and alert.
+  - **Step 4:** Ensure an error late in a claimed batch does not discard earlier claims or starve later valid accounts; retry metadata write failure leaves a reclaimable stale lease.
+  - **Step 5:** Use fake clocks to fail 50 times and then recover; no real-hour sleeps in default tests.
+  - **Acceptance:** S41 posts after 50 failures without manual resurrection; no attempt count stops valid work.
+  - **Acceptance:** S42/S43 retain fairness and reject stale completion without duplicate journal effects.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 9.7, 10.1, 10.2, 10.3, 10.4, 10.6, 16.1, 16.2_
+  - _Boundary: economic queue and complete-call worker storage_
+  - _Depends: 3.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 3.7`; required scenarios S41, S42, S43 and affected existing tests._
+
+## Workstream 4 — Runtime dispatch and terminal integration
+
+- [ ] 4.1 Wire strict reference and external billing through one managed composition
+  - **Goal:** Prevent an apparently complete legacy or partial binding from bypassing the new safety path.
+  - **Packet:** [T19](execution/T19.md).
+  - **Deliverables:** Strict ComposeBilling wiring and lossless SDK v2 binding mapping; All-or-none publication checks and managed-only backend handles; Lifecycle/partial-binding tests
+  - **Step 1:** Wire the D14 typed ports into the existing single-authority composition. Do not create a second financial database or parallel monetary service.
+  - **Step 2:** Configure the conservative component quoter, persisted snapshots, root/dispatch funding, capacity/recovery and fence services explicitly; no scalar safe-ceiling escape for strict work.
+  - **Step 3:** Expose only managed backend handles to runtime strict execution; reject missing v2 port or proof at publication.
+  - **Step 4:** Preserve stock lipstd and ordinary Options non-money behavior and external lifecycle ownership; do not close borrowed resources.
+  - **Step 5:** Keep the strict commercial profile unpublished by default until final release activation evidence exists.
+  - **Acceptance:** All S01 omissions/typed-nils fail publication; S53 v1 strict binding fails.
+  - **Acceptance:** A complete test strict host owns exactly one worker/service set, and stock host starts without billing resources.
+  - **Scope:** At most 14 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 12.3, 12.5, 15.6, 16.1, 16.2_
+  - _Boundary: composition roots and external binding adapter_
+  - _Depends: 1.3, 2.6, 3.5, 3.6, 3.7, 7.2, 7.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 4.1`; required scenarios S01, S53, S62 and affected existing tests._
+
+- [ ] 4.2 Route canonical paid execution through immutable preparation and funding
+  - **Goal:** Apply the funded final-payload boundary to the primary canonical request path.
+  - **Packet:** [T20](execution/T20.md).
+  - **Deliverables:** Canonical prepared-request/funded-dispatch integration; No-send rollback and authorized-unknown transitions; Real Execute-to-httptest-provider tests
+  - **Step 1:** Keep identity and cheap-screen before expensive route expansion, then reserve the root envelope before paid activity.
+  - **Step 2:** Run final cost-affecting hooks/options/projection/adapter preparation before economic freeze; validate against the envelope slot and fund any prescribed extension.
+  - **Step 3:** Register active execution, consume its durable epoch-fenced grant, and only then invoke managed SendPrepared.
+  - **Step 4:** Treat TTFT after grant consumption/send as ambiguous liability. Only prove no-send when authorization and transport evidence permit it.
+  - **Step 5:** Preserve existing non-money Execute path and pre-output-only recovery; do not add money work in Recv.
+  - **Acceptance:** S04 cannot create NeverStarted after accepted timeout; every recorded provider request joins to a durable funded dispatch.
+  - **Acceptance:** S13/S14 altered effective requests cannot send under the old bound.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.2, 3.1, 3.7, 4.1, 4.2, 4.3, 4.4, 5.4, 7.1, 9.7_
+  - _Boundary: core/runtime execution_
+  - _Depends: 4.1, 2.5_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 4.2`; required scenarios S04, S13, S14, S23 and affected existing tests._
+
+- [ ] 4.3 Apply the same funding and capture contract to large-body wire execution
+  - **Goal:** Eliminate wire-path exceptions without forcing large requests into a canonical in-memory copy.
+  - **Packet:** [T21](execution/T21.md).
+  - **Deliverables:** Wire prepared-handle/digest funding integration; Bounded trusted economic facts and shared financial errors; Wire-path funding/capacity failure regressions
+  - **Step 1:** Replace raw BodyBytes-as-token-proof with the task 2.2 certified representation or conservative input ceiling.
+  - **Step 2:** Carry account/call/slot/quote/material/epoch in bounded trusted facts; client wire fields cannot forge them.
+  - **Step 3:** Use the same managed prepare/consume/send contract and durable capacity descriptor as canonical execution; preserve stream hashing and existing spool/body ownership.
+  - **Step 4:** Propagate typed financial errors before headers and retain billing after wire encoder/cancellation failures.
+  - **Step 5:** Run canonical and wire sentinel inputs through their real entrypoints and compare funding/economic results, not exact raw bytes.
+  - **Step 6:** Large-body fast path cannot infer economic input from body byte length. It must obtain complete bounded media/field receipts or fall back to canonical preparation, never bypass strict funding.
+  - **Acceptance:** Wire-path requests have no raw Open fallback; missing proof/funding gives zero provider sends.
+  - **Acceptance:** Large-body ownership and output memory stay bounded while S31 billing survives first terminal failure.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.1, 3.7, 4.3, 4.4, 7.1, 7.3, 7.4, 11.1, 11.5, 11.6, 12.2, 12.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.3, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: core/runtime large-body execution_
+  - _Depends: 4.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 4.3`; required scenarios S14, S31, S47, S63, S101 and affected existing tests._
+
+- [ ] 4.4 Fund retry and parallel attempts through the shared dispatch owner
+  - **Goal:** Prevent additional routing work from reusing an unrelated initial authorization.
+  - **Packet:** [T22](execution/T22.md).
+  - **Deliverables:** Shared funded slot consumption for replacement and parallel paths; One persisted attempt budget across replacements; Failover/parallel provider-counter tests
+  - **Step 1:** Route newReplacementOpener/openNext and parallel launch paths through the same managed dispatch implementation as4.2; remove retained raw backend reachability.
+  - **Step 2:** Consume one distinct slot per economic attempt; cancelled losers retain their unresolved bound and later charges.
+  - **Step 3:** Preserve the persisted effective attempt budget and explicit no-transparent-retry-after-output rule.
+  - **Step 4:** Disable any internal transport repeat not attributed by the managed attempt path; do not release previous liability merely to finance its replacement.
+  - **Step 5:** Use recording-provider barriers to count actual sends and compare each with its allocation.
+  - **Acceptance:** S15/S16 expected sends and final charges match; one-slot duplicate race sends at most once.
+  - **Acceptance:** S18 cannot reset budget and no post-output transparent replay is introduced.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.1, 4.1, 4.2, 4.4, 4.5, 4.6, 5.3_
+  - _Boundary: core recovery/parallel orchestration_
+  - _Depends: 4.2, 4.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 4.4`; required scenarios S15, S16, S18, S20 and affected existing tests._
+
+- [ ] 4.5 Repair thinker visibility and fund memo-expanded continuations
+  - **Goal:** Charge both thinker and executor safely without treating inner completion as external delivery.
+  - **Packet:** [T23](execution/T23.md).
+  - **Deliverables:** Trusted internal-only/external-delivery evidence; Funded thinker/executor and semantic continuation linkage; Hidden thinker and expanded-memo integration tests
+  - **Step 1:** Remove CommandNormalFinish as the authority for SurfacedYes; use actual outer frontend-delivery attribution and explicit thinker role.
+  - **Step 2:** Keep request closure deferred until the outer execution boundary; both economic attempts remain independently chargeable.
+  - **Step 3:** Use the pre-funded future-input ceiling for the executor, then validate its actual memo-expanded prepared request.
+  - **Step 4:** Any additional semantic continuation beyond the envelope must allocate/extend before Open; financial denial uses account freeze, ordinary semantic reject does not.
+  - **Step 5:** Exercise hidden thinker normal finish followed by executor normal finish with independent provider receipts and no winner-only ambiguity.
+  - **Step 6:** Thinker/executor continuations preserve mixed input history and separately bill hidden computation; media or tool output cannot be lost by text-only memo projection without explicit selected transformation.
+  - **Acceptance:** Both charges post under S17; thinker remains internal-only.
+  - **Acceptance:** Memo growth cannot send outside the funded bound and continuation budget cannot reset.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.1, 2.2, 4.1, 4.2, 4.3, 4.6, 8.3, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 24.1, 24.2_
+  - _Boundary: core interleaved/terminal orchestration_
+  - _Depends: 4.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 4.5`; required scenarios S17, S18, S63, S75, S88, S107 and affected existing tests._
+
+- [ ] 4.6 Bind auxiliary and detached jobs to fresh durable funding
+  - **Goal:** Keep parent attribution while preventing queued or detached work from escaping account controls.
+  - **Packet:** [T24](execution/T24.md).
+  - **Deliverables:** Trusted child-funding receipt before auxiliary queue admission; Durable root/submission/call/child lineage; Detached and synchronous child cancellation tests
+  - **Step 1:** Preserve the existing auxiliary client re-entry into Execute; do not invent a bypass replacement.
+  - **Step 2:** Resolve account/submission from trusted parent scope and reserve the full child bound before scheduling paid detached work; carry an idempotent funded child receipt through queue/start.
+  - **Step 3:** Do not double-reserve an already funded child when Execute starts it; identity equality and unconsumed grant are mandatory.
+  - **Step 4:** Include queued/detached children in the account registry/fence and prevent client-supplied parent/account IDs from granting authority.
+  - **Step 5:** For a required child extension money failure, invoke the same account freeze; after root cancellation, no detached child may use an obsolete epoch.
+  - **Acceptance:** S19 children have fresh funded IDs and remain attributed after root context ends.
+  - **Acceptance:** S07 submission fee is not duplicated and S27 cancels queued/detached work too.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.1, 2.5, 4.2, 5.1, 6.1, 6.3, 7.1_
+  - _Boundary: auxiliary client/runtime boundary_
+  - _Depends: 4.2, 7.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 4.6`; required scenarios S07, S19, S27 and affected existing tests._
+
+- [ ] 4.7 Separate financial terminal delivery from stream CAS and quota errors
+  - **Goal:** Guarantee a durable monetary completion obligation regardless of which stream terminal path wins.
+  - **Packet:** [T25](execution/T25.md).
+  - **Deliverables:** Independent idempotent financial completion/recovery scheduling; Removal of log-and-nil and ignored monetary handoff errors; First-append/non-money-failure/Close race tests
+  - **Step 1:** Keep at-most-once stream terminal effects unchanged; route financial work through the preexisting durable obligation rather than the success flag of that CAS.
+  - **Step 2:** Attempt monetary completion even when request authority/frontend egress/observer operations fail, and retain each independent failure state.
+  - **Step 3:** Do not drain sole evidence ownership until durable acceptance. Failed seal/validation records a repairable obligation and returns a truthful error, never nil success.
+  - **Step 4:** Build expected economic attempts from durable allocations and create owner-lost closure recovery for a crashed runtime; do not infer zero expected legs from lost memory.
+  - **Step 5:** Run every named terminal failure path with repeat Close, client cancellation and process restart; billing must converge without re-running stream effects.
+  - **Acceptance:** S33 monetary work persists despite quota/egress error; S31 survives first-write failure.
+  - **Acceptance:** S65 preserves one stream outcome and one final charge under repeated terminal delivery.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 7.1, 7.3, 7.4, 7.5, 7.6, 7.7, 8.3, 10.3, 15.2_
+  - _Boundary: terminal/runtime financial handoff_
+  - _Depends: 4.2, 3.6, 3.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 4.7`; required scenarios S31, S33, S34, S35, S65 and affected existing tests._
+
+## Workstream 5 — Native backend preparation and usage
+
+- [ ] 5.1 Implement OpenAI Chat native mixed-media preparation and economics
+  - **Goal:** Complete every natively representable finite-priced input/output mixture in the real OpenAI Chat backend, not just its text certificate.
+  - **Packet:** [T26](execution/T26.md).
+  - **Deliverables:** Chat PaidPreparer/SendPrepared implementation; Host-compiled request-specific Chat joint-modality and economic proof descriptor; Streaming/non-streaming native usage fixtures; Full request-specific joint-contract and economic-field receipt implementation; Native positive mixed-input/output fixture coverage and narrow source-supported native negative cases
+  - **Step 1:** Build the exact Chat wire request once, with model-supported max_completion_tokens or legacy max_tokens and no conflicting duplicate cap.
+  - **Step 2:** Preserve inclusive prompt/completion quantities; cached and reasoning details are subsets unless the certified model schema explicitly says otherwise.
+  - **Step 3:** Request streaming terminal usage where supported; missing terminal usage is evidence-pending. Keep provider IDs and native source revisions.
+  - **Step 4:** Disable hidden SDK retries/paid redirects in this strict handle. Certificate binds implementation/profile/schema and request-shape mask, not a user flag.
+  - **Step 5:** Add positive text, native audio and valid mixed-output TCK cases. Prediction and cached details follow the supplied native inclusion contract; reject only precise native-incompatible or unbounded shapes and unknown economic fields. Do not change global registration in this family-local task.
+  - **Step 6:** Do not edit shared SDK schemas, common registration files or another family in this packet. Use the frozen additive contracts; a missing contract is BLOCKED, not an unreviewed cross-family edit.
+  - **Step 7:** Apply D18-D21: preserve every economic option and occurrence in final encoded input, output modality joint sets and actual native unit evidence. Implement missing representable fields instead of satisfying this task with blanket media rejection.
+  - **Step 8:** Use native model-specific output/candidate/media limits and concrete profile schemas. For mixed rates with insufficient native allocation evidence retain unresolved liability; a conservative reserve is not the actual invoice.
+  - **Step 9:** Run the independent 11.10 native-wire fixtures for every supported mixture, including no-text output, sparse usage, cached intersections, candidate totals and incompatible exact output sets; integrate every real mode into task 15.1.
+  - **Step 10:** Chat: preserve native input_audio, output audio, modalities and supported file/image fields under the explicit profile. Request streamed usage. Treat reasoning, prediction and cached counters as their declared overlapping supports, not automatically independent fees.
+  - **Step 11:** Apply generic mixed scenarios to this concrete family using its locked native clauses. All native-valid finite cases are positive-required. For a natively absent modality, run the exact incompatibility case without inventing an API; the generic six-modality arithmetic is independently exercised by tasks 11.6, 11.7 and 15.2. Do not use such negative cases to replace the required family positives.
+  - **Acceptance:** S48 positive text produces funded correct charges; reasoning is not counted twice.
+  - **Acceptance:** Uncertified fields reject before send, missing usage retains liability, no hidden second request.
+  - **Acceptance:** Text-only success or deny-all multimodal behavior is insufficient; every required native-finite mixture must reach positive billing.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.5, 4.3, 4.5, 8.1, 8.2, 8.6, 12.1, 12.2, 12.3, 12.4, 12.6, 16.3, 17.1, 17.5, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 23.1, 23.2, 23.4, 23.5, 24.1, 24.2, 24.4_
+  - _Boundary: OpenAI Chat backend adapter_
+  - _Depends: 1.3, 2.5, 4.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.10_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 5.1`; required scenarios S20, S36, S48, S70, S73, S74, S80, S81, S83, S84, S86, S87, S89, S90, S93, S106, S108 and affected existing tests._
+
+- [ ] 5.2 Implement OpenAI Responses native mixed-media preparation and economics
+  - **Goal:** Complete every natively representable finite-priced input/output mixture in the real OpenAI Responses backend, not just its text certificate.
+  - **Packet:** [T27](execution/T27.md).
+  - **Deliverables:** OpenAI Responses prepared-send implementations; Family-local joint-modality certificates and lossless usage identity; Terminal/incomplete/retrieval fixture tests; Full request-specific joint-contract and economic-field receipt implementation; Native positive mixed-input/output fixture coverage and narrow source-supported native negative cases
+  - **Step 1:** Bind max_output_tokens and final encoded input/digest. Preserve response ID and native completed/incomplete/failed usage rather than replacing absence with zero.
+  - **Step 2:** Handle cached/reasoning counters as declared subsets of inclusive totals, retaining source identity and revision ordering.
+  - **Step 3:** Use a retrieval callback only for a configured provider that genuinely implements it. Ambiguous sends are not replayed to obtain usage.
+  - **Step 4:** Add positive native mixed-media and malformed/unsupported/missing-usage fixtures; leave global proof publication to 8.4.
+  - **Step 5:** Do not edit shared SDK schemas, common registration files or another family in this packet. Use the frozen additive contracts; a missing contract is BLOCKED, not an unreviewed cross-family edit.
+  - **Step 6:** Apply D18-D21: preserve every economic option and occurrence in final encoded input, output modality joint sets and actual native unit evidence. Implement missing representable fields instead of satisfying this task with blanket media rejection.
+  - **Step 7:** Use native model-specific output/candidate/media limits and concrete profile schemas. For mixed rates with insufficient native allocation evidence retain unresolved liability; a conservative reserve is not the actual invoice.
+  - **Step 8:** Run the independent 11.10 native-wire fixtures for every supported mixture, including no-text output, sparse usage, cached intersections, candidate totals and incompatible exact output sets; integrate every real mode into task 15.1.
+  - **Step 9:** Apply generic mixed scenarios to this concrete family using its locked native clauses. All native-valid finite cases are positive-required. For a natively absent modality, run the exact incompatibility case without inventing an API; the generic six-modality arithmetic is independently exercised by tasks 11.6, 11.7 and 15.2. Do not use such negative cases to replace the required family positives.
+  - **Acceptance:** S49 charges the OpenAI Responses positive case once; terminal errors do not erase observed usage.
+  - **Acceptance:** No invented retrieval API or automatic repeat of an ambiguous paid request.
+  - **Acceptance:** Text-only success or deny-all multimodal behavior is insufficient; every required native-finite mixture must reach positive billing.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.5, 4.3, 4.5, 8.1, 8.2, 8.6, 12.1, 12.2, 12.3, 12.4, 12.6, 16.3, 17.1, 17.5, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 23.1, 23.2, 23.4, 23.5, 24.1, 24.2, 24.4_
+  - _Boundary: OpenAI Responses backend adapter_
+  - _Depends: 1.3, 2.5, 4.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.10_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 5.2`; required scenarios S20, S36, S49, S70, S73, S74, S80, S81, S83, S84, S86, S87, S89, S90, S93, S106, S108 and affected existing tests._
+
+- [ ] 5.3 Implement Anthropic native mixed-media preparation and economics
+  - **Goal:** Complete every natively representable finite-priced input/output mixture in the real Anthropic backend, not just its text certificate.
+  - **Packet:** [T28](execution/T28.md).
+  - **Deliverables:** Anthropic immutable prepared request and family proof; TTL/category-aware native usage accumulator; Message-start/message-delta/cache-creation tests; Full request-specific joint-contract and economic-field receipt implementation; Native positive mixed-input/output fixture coverage and narrow source-supported native negative cases
+  - **Step 1:** Freeze max_tokens, thinking configuration and permitted cache TTL in the prepared request and prove every billed dimension is capped.
+  - **Step 2:** Normalize input, cache-read and cache-creation categories without adding creation totals and their TTL children twice.
+  - **Step 3:** Preserve fields omitted by message-delta updates and replace only explicitly supplied cumulative fields for the same source.
+  - **Step 4:** Retain final absence as pending; include full-input worst permitted write price in quote facts and disable hidden retries.
+  - **Step 5:** Add S50 sparse/TTL literal fixtures and unsupported thinking/cache resource shape rejects.
+  - **Step 6:** Do not edit shared SDK schemas, common registration files or another family in this packet. Use the frozen additive contracts; a missing contract is BLOCKED, not an unreviewed cross-family edit.
+  - **Step 7:** Apply D18-D21: preserve every economic option and occurrence in final encoded input, output modality joint sets and actual native unit evidence. Implement missing representable fields instead of satisfying this task with blanket media rejection.
+  - **Step 8:** Use native model-specific output/candidate/media limits and concrete profile schemas. For mixed rates with insufficient native allocation evidence retain unresolved liability; a conservative reserve is not the actual invoice.
+  - **Step 9:** Run the independent 11.10 native-wire fixtures for every supported mixture, including no-text output, sparse usage, cached intersections, candidate totals and incompatible exact output sets; integrate every real mode into task 15.1.
+  - **Step 10:** Anthropic: implement natively supported image/document plus text, tool and reasoning mixtures. Document processing may include extracted text and page images. Do not advertise audio or video generation on a model that cannot natively emit it.
+  - **Step 11:** Apply generic mixed scenarios to this concrete family using its locked native clauses. All native-valid finite cases are positive-required. For a natively absent modality, run the exact incompatibility case without inventing an API; the generic six-modality arithmetic is independently exercised by tasks 11.6, 11.7 and 15.2. Do not use such negative cases to replace the required family positives.
+  - **Acceptance:** S37/S50 retain start input/cache fields when later update contains only output.
+  - **Acceptance:** Actual category totals and S08 conservative write bounds do not double-count inclusive parents.
+  - **Acceptance:** Text-only success or deny-all multimodal behavior is insufficient; every required native-finite mixture must reach positive billing.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.1, 3.2, 3.5, 4.3, 8.2, 12.1, 12.2, 12.3, 12.4, 12.6, 17.1, 17.5, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 23.1, 23.2, 23.4, 23.5, 24.1, 24.2, 24.4_
+  - _Boundary: Anthropic backend adapter_
+  - _Depends: 1.3, 2.5, 4.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.10_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 5.3`; required scenarios S08, S37, S50, S70, S73, S74, S80, S81, S83, S84, S86, S87, S89, S90, S93, S106, S108 and affected existing tests._
+
+- [ ] 5.4 Implement Gemini native mixed-media preparation and economics
+  - **Goal:** Complete every natively representable finite-priced input/output mixture in the real Gemini backend, not just its text certificate.
+  - **Packet:** [T29](execution/T29.md).
+  - **Deliverables:** Gemini immutable prepared request and joint-modality proof; Candidate/thought/native usage dimensions; Multi-candidate and unsupported thought-cap tests; Full request-specific joint-contract and economic-field receipt implementation; Native positive mixed-input/output fixture coverage and narrow source-supported native negative cases
+  - **Step 1:** Bind candidateCount, maxOutputTokens and model-specific thinking cap before send; reject a shape with no provable thinking bound.
+  - **Step 2:** Preserve promptTokenCount inclusive cached detail, candidate output and thought quantities according to the frozen family schema; totalTokenCount is not another additive charge.
+  - **Step 3:** Quote candidate multiplicity and separately capped thought costs where applicable; do not multiply already-all-candidate totals a second time.
+  - **Step 4:** Retain sparse/missing usage states and disable hidden transport repeats.
+  - **Step 5:** Add S51 literal native response fixtures, finite-cap positive native mixed-media and unknown-thinking-cap negative cases.
+  - **Step 6:** Do not edit shared SDK schemas, common registration files or another family in this packet. Use the frozen additive contracts; a missing contract is BLOCKED, not an unreviewed cross-family edit.
+  - **Step 7:** Apply D18-D21: preserve every economic option and occurrence in final encoded input, output modality joint sets and actual native unit evidence. Implement missing representable fields instead of satisfying this task with blanket media rejection.
+  - **Step 8:** Use native model-specific output/candidate/media limits and concrete profile schemas. For mixed rates with insufficient native allocation evidence retain unresolved liability; a conservative reserve is not the actual invoice.
+  - **Step 9:** Run the independent 11.10 native-wire fixtures for every supported mixture, including no-text output, sparse usage, cached intersections, candidate totals and incompatible exact output sets; integrate every real mode into task 15.1.
+  - **Step 10:** Gemini: preserve responseModalities exact sets, candidateCount, mediaResolution and native-supported speech, image and thinking settings. Retain prompt, cache, candidate and tool-use modality details. Do not multiply an already aggregate candidate total or add totalTokenCount again.
+  - **Step 11:** Apply generic mixed scenarios to this concrete family using its locked native clauses. All native-valid finite cases are positive-required. For a natively absent modality, run the exact incompatibility case without inventing an API; the generic six-modality arithmetic is independently exercised by tasks 11.6, 11.7 and 15.2. Do not use such negative cases to replace the required family positives.
+  - **Acceptance:** The S51 receipt produces its literal expected bill with no total/candidate double count.
+  - **Acceptance:** Unknown thought enforcement fails before any provider send rather than falling back to maxOutputTokens alone.
+  - **Acceptance:** Text-only success or deny-all multimodal behavior is insufficient; every required native-finite mixture must reach positive billing.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.5, 4.3, 4.5, 8.2, 12.1, 12.2, 12.3, 12.4, 12.6, 17.1, 17.5, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 23.1, 23.2, 23.4, 23.5, 24.1, 24.2, 24.4_
+  - _Boundary: Gemini backend adapter_
+  - _Depends: 1.3, 2.5, 4.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.10_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 5.4`; required scenarios S20, S37, S51, S70, S73, S74, S80, S81, S83, S84, S86, S87, S89, S90, S93, S106, S108, S76 and affected existing tests._
+
+- [ ] 5.5 Enforce strict proof negotiation for custom profiles and executable connectors
+  - **Goal:** Ensure a newly added or unannotated backend cannot evade the paid dispatch boundary.
+  - **Packet:** [T30](execution/T30.md).
+  - **Deliverables:** Versioned strict preparation/capability ABI negotiation; Host proof validation for actual connector registrations; Unannotated connector and external v1 binding negative fixtures; Additive backend.proto capability/prepared-execution messages and regenerated converters
+  - **Step 1:** Bind a custom profile to a concrete family certificate plus immutable endpoint/model/shape restrictions; a provider name or safe=true flag is not proof.
+  - **Step 2:** Extend connector ABI negotiation additively so a strict host requires prepared execution, stable identities, finite bounds and hidden-retry semantics.
+  - **Step 3:** Put unmanaged/missing-capability connectors behind automatic pre-dispatch rejection, including connectors that omit every optional annotation.
+  - **Step 4:** Preserve non-money connector compatibility and module isolation. Do not add optional connector dependencies to the root module.
+  - **Step 5:** Use a recording fake executable connector and external binding to prove omission, foreign grant and unsupported version cannot reach the provider.
+  - **Step 6:** This shared negotiation packet is not proof for all connector modules;14.1 and each14.2-14.35 module-local packet must complete before full publication.
+  - **Acceptance:** S53 unannotated/new connector cannot send paid traffic; all required family semantics are negotiated.
+  - **Acceptance:** External binding wrapping preserves typed errors and cannot fabricate a strict v1 success.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.4, 4.5, 12.1, 12.3, 12.5, 12.6, 15.2, 15.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 21.1, 21.4, 22.2, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: profile/connector SDK and host adapter_
+  - _Depends: 1.3, 2.5, 4.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 5.5`; required scenarios S20, S53, S66, S68, S69, S89, S105 and affected existing tests._
+
+- [ ] 5.6 Integrate every required mixed-shape proof without denial-only completion
+  - **Goal:** Assemble concrete family-native multimodal economics and reject only genuine native/unbounded limits or runtime outages.
+  - **Packet:** [T31](execution/T31.md).
+  - **Deliverables:** Closed economic-field/request-shape classification table; Finite-bound proof validators for modalities/tools/prediction/resources; Unsupported-shape and advisory-preservation fixtures
+  - **Step 1:** Use D17-D23 and completed tasks 11.x, 5.1-5.4 and 13.x. Compile complete joint operation, input, output, options and carrier clauses, not a modality blacklist.
+  - **Step 2:** Require concrete unit bounds, tariff schema and finality for every REQUIRED_SUPPORTED shape. Missing implementation remains unfinished; blanket media rejection is not acceptance.
+  - **Step 3:** Keep prediction, paid tools and resources separately funded and bounded. Preserve issue #698 advisory semantics without using uncertainty to waive or fabricate money.
+  - **Step 4:** Verify all positive native mixed fixtures and precise negative predicates before completing integration. Tasks 14.x separately own each connector.
+  - **Acceptance:** Required native-finite mixtures produce correct positive charge; unknown/unbounded/native-impossible cases reject before payable work with the correct disposition.
+  - **Acceptance:** No text-only completion claim; full support publication depends on the explicit coverage matrix.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 3.1, 3.5, 3.6, 8.1, 8.2, 12.1, 12.2, 12.3, 12.4, 12.6, 14.1, 14.5, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.2, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.4_
+  - _Boundary: capability/schema contracts and family shape classifiers_
+  - _Depends: 2.3, 5.1, 5.2, 5.3, 5.4, 5.5, 11.6, 11.7, 13.1, 13.2, 13.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 5.6`; required scenarios S11, S52, S60, S69, S72, S73, S86, S103, S104, S105 and affected existing tests._
+
+## Workstream 6 — Recognition, settlement and recovery
+
+- [ ] 6.1 Repair chargeability and explicit missing-usage states
+  - **Goal:** Prevent outcome labels and scalar compatibility filters from hiding dispatched liabilities.
+  - **Packet:** [T32](execution/T32.md).
+  - **Deliverables:** All-attributable strict selector based on dispatch/economic identity; Legacy pending-evidence compatibility adapter; Outcome/missing-field regression tests
+  - **Step 1:** For new strict contracts select all attributable payable/ambiguous attempts independently of Surfaced and LegOutcome; never discard positive evidence because of NeverStarted.
+  - **Step 2:** Proven pre-dispatch rejection has a zero disposition; post-Open timeout carries unresolved liability.
+  - **Step 3:** Implement known-zero/positive/pending/disputed/not-applicable checks for every required dimension, including failed legacy outstanding calls.
+  - **Step 4:** Deduplicate only a scoped proven provider-charge identity, not equal amounts or caller-chosen IDs; preserve multiple attribution references.
+  - **Step 5:** Preserve historical winner-only policy for old records while repairing missing-evidence completion into pending rather than newly repricing history.
+  - **Acceptance:** S03 all four outcomes total.80; S04 billed timeout survives classification.
+  - **Acceptance:** S36 missing output never completes as zero; S06 provider-account charge scope prevents collisions.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 7.1, 8.1, 8.2, 8.6, 9.1, 9.5, 16.3_
+  - _Boundary: billing selection/evidence domain_
+  - _Depends: 1.2, 4.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 6.1`; required scenarios S03, S04, S05, S06, S36 and affected existing tests._
+
+- [ ] 6.2 Create per-charge revision work independent of root finality
+  - **Goal:** Post known valid liabilities without waiting for an unrelated missing sibling leg or duplicate call-scoped fee.
+  - **Packet:** [T33](execution/T33.md).
+  - **Deliverables:** Strict per-economic-charge/revision work kind in existing queue; Durable customer-obligation head/revision linkage; Partial known-charge and submission-fee tests
+  - **Step 1:** Build strict recognition work from validated immutable evidence and frozen contract/material IDs, keyed by account/economic charge/revision.
+  - **Step 2:** Do not run the legacy aggregate customer_call_settlement writer on strict calls; retain it only for historical/drain contracts.
+  - **Step 3:** Use existing component rating to compute validated known amount and carry unresolved residual separately; missing sibling data cannot suppress an independent valid charge.
+  - **Step 4:** Scope one submission fee claim to the durable root identity and keep per-attempt fees independent; atomic claim behavior stays with posting.
+  - **Step 5:** Handle revisions as delta from the last recognized source version; exact duplicate evidence yields no new work/effect.
+  - **Acceptance:** S38 known charge posts while unresolved sibling retains R; S07 submission fee occurs once.
+  - **Acceptance:** S39 second revision changes only the delta and does not duplicate full charge.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.4, 2.5, 5.2, 8.3, 8.4, 8.5, 9.1, 9.5_
+  - _Boundary: economic work builder and durable obligation adapter_
+  - _Depends: 3.7, 6.1, 2.6_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 6.2`; required scenarios S06, S07, S38, S39, S40 and affected existing tests._
+
+- [ ] 6.3 Implement balanced recognition, protected collection and debt posting
+  - **Goal:** Account for all known incurred costs while preserving every sibling reservation.
+  - **Packet:** [T34](execution/T34.md).
+  - **Deliverables:** New internal/infra/billingstore/strict_customer_settlement.go; Recognition/collection/exposure/debt atomic transaction; Overrun, frozen-account, correction and replay tests
+  - **Step 1:** Use D02 equations exactly: recognize Dr receivable/Cr revenue, collect only X not backed by other commitments, post Dr customer financial account/Cr receivable.
+  - **Step 2:** Update B,D,R, obligation revision, work fence, source fingerprint and ownership pin in the same transaction; successful ACK is after commit.
+  - **Step 3:** On overrun or unpaid remainder commit a breach/freeze/outbox in the same account transaction. Do not roll back truthful debt just because collection fails.
+  - **Step 4:** Allow safe incurred-work posting on frozen/reconcile-required accounts; new admission remains denied.
+  - **Step 5:** Apply negative revisions to unpaid debt first, then refund already collected cash, without touching sibling reservations or posting the original amount twice.
+  - **Acceptance:** S25 B10/A8/Q5 leavesB5,D3,R_B5; laterB5 posts while frozen.
+  - **Acceptance:** S44 balanced entries and rebuilt projections equal stored values at every crash/replay boundary.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 5.5, 5.6, 6.1, 6.7, 8.5, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 16.3_
+  - _Boundary: financial journal/settlement transaction_
+  - _Depends: 6.2, 3.4, 7.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 6.3`; required scenarios S24, S25, S39, S44, S59 and affected existing tests._
+
+- [ ] 6.4 Preserve all provider COGS and release only proven final residuals
+  - **Goal:** Keep supplier obligations independent and prevent premature cancellation-tail release.
+  - **Packet:** [T35](execution/T35.md).
+  - **Deliverables:** Provider charge/revision attribution and COGS/payable convergence; Per-dimension finality/residual-bound evaluator; Cancellation-tail and late-invoice regressions
+  - **Step 1:** Retain Dr cost_of_service/Cr provider_payable for all payable economic identities; customer collection success is not a provider-cost prerequisite.
+  - **Step 2:** Deduplicate within provider account and charge identity, append revision deltas and preserve original linkage.
+  - **Step 3:** Release only the residual whose required dimensions and fee tails are certified complete. Keep unknown/reconciling/provider-invoice-pending remainder funded.
+  - **Step 4:** Prohibit TTL, response EOF or closed socket as finality proof; unexpected beyond-bound corrections are explicit account breaches.
+  - **Step 5:** Add cancelled-but-cap-completing provider fixture and late positive/negative invoice corrections.
+  - **Acceptance:** S30 full permitted provider cost posts after cancellation with no earlyR release.
+  - **Acceptance:** S39/S40 finality and corrections change only authorized residual/delta; COGS survives customer debt.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.1, 2.2, 5.2, 6.6, 8.4, 8.5, 9.1, 9.5, 9.7_
+  - _Boundary: provider economic posting and finality domain_
+  - _Depends: 6.2, 6.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 6.4`; required scenarios S03, S30, S39, S40 and affected existing tests._
+
+- [ ] 6.5 Implement durable reconciliation and owner-lost recovery
+  - **Goal:** Recover incomplete financial lifecycles without blind provider resends or invented zero bills.
+  - **Packet:** [T36](execution/T36.md).
+  - **Deliverables:** New financial obligation recovery worker using existing lifecycle/queue; Bounded keyset inventory and named repair-case transitions; Crash/ambiguous dispatch/incomplete evidence tests
+  - **Step 1:** Scan D07 states in pages 128: reserved capacity without authorization, authorized-unknown dispatch, missing terminal evidence/closure, rated-unposted, committed-unacknowledged and stale claims.
+  - **Step 2:** Reconstruct owner-lost closure only from durable allocations, retaining unresolved attempts. Never resend a provider request solely because local ACK is absent.
+  - **Step 3:** Use configured actual retrieval/import callbacks to obtain receipts; otherwise retain a named evidence-pending case and bound.
+  - **Step 4:** Requeue automatically on evidence/material arrival. Conflicts keep immutable evidence, named owner and audited repair command, not a processed flag.
+  - **Step 5:** Exercise >20 failures, first-write failure and crashpoint recovery with exactly-once journal convergence.
+  - **Acceptance:** S35 expected attempts survive process-memory loss; S41 no manual resurrection for transient failures.
+  - **Acceptance:** S36 unrecoverable usage remains visible/funded, not guessed as zero or maximum actual.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 7.1, 7.3, 7.4, 7.5, 8.1, 8.6, 10.1, 10.3, 10.4, 10.6, 15.2, 16.1, 16.3, 16.5_
+  - _Boundary: process-owned recovery worker and query seam_
+  - _Depends: 3.5, 3.6, 3.7, 6.3, 6.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 6.5`; required scenarios S31, S34, S35, S36, S41, S42 and affected existing tests._
+
+- [ ] 6.6 Project financial reports and preserve advisory compatibility
+  - **Goal:** Expose charge, collection, debt, open liability and operator accounting without conflating them.
+  - **Packet:** [T37](execution/T37.md).
+  - **Deliverables:** Bounded account/A-leg/call financial report extensions; Independent ledger reconstruction report; Historical advisory/valuation round-trip tests
+  - **Step 1:** Report recognized spend, collected amount, debt, outstanding R, pending/disputed obligations and provider COGS/payables as distinct fields.
+  - **Step 2:** Use existing scoped query/report seams and bounded pagination; do not add account IDs to metric labels.
+  - **Step 3:** Rebuild all financial projections from posted entries and immutable obligation linkage; mismatch opens a repair/freeze, never an automatic invented balance.
+  - **Step 4:** Preserve #698 advisory structures and historical IDs; no advisory influences collection, funding or completeness by itself.
+  - **Step 5:** Add round-trip and cross-account isolation fixtures for old and strict records.
+  - **Acceptance:** S44 reconstruction equals stored B/D/R/revenue/payables and catches a deliberately corrupted projection.
+  - **Acceptance:** S60 legacy advisory-enabled payloads replay byte-identically; unresolved liabilities remain visible.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.2, 8.3, 9.1, 9.5, 9.6, 9.8, 14.1, 14.5, 16.1, 16.2, 16.5_
+  - _Boundary: read/query/report seams_
+  - _Depends: 6.3, 6.4, 6.5_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 6.6`; required scenarios S38, S44, S60, S62 and affected existing tests._
+
+## Workstream 7 — Account-wide financial cancellation
+
+- [ ] 7.1 Implement account freeze epoch and durable cancellation events
+  - **Goal:** Make running-work financial failure an atomic account-wide authorization fence.
+  - **Packet:** [T38](execution/T38.md).
+  - **Deliverables:** New internal/infra/billingstore/account_financial_fence.go; Idempotent epoch/event transaction helper; Root-denial vs running-extension-denial fixtures
+  - **Step 1:** Under the locked account record atomically freeze new financial authorization, advance epoch once per triggering operation, and append a durable outbox event.
+  - **Step 2:** Expose this helper to required-extension denial and overrun/debt posting without nested independent commits.
+  - **Step 3:** Distinguish new unadmitted root denial from active-work financial failure; root denial returns 402 without epoch change.
+  - **Step 4:** Persist event identity/cause/affected account and non-secret before/after projections; duplicate triggers converge.
+  - **Step 5:** Add freeze/grant interleavings and explicit resume precondition values; implementation of operational resume is7.4.
+  - **Acceptance:** S26 attackers cannot kill funded siblings with unfundable fresh roots.
+  - **Acceptance:** S27/28 all post-freeze financial authorizations fail on epoch/state while pre-fence liabilities remain recorded.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 4.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4, 6.7, 9.2, 9.3, 9.4, 16.3_
+  - _Boundary: billingstore account-control transaction_
+  - _Depends: 1.2, 3.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 7.1`; required scenarios S25, S26, S27, S28, S59 and affected existing tests._
+
+- [ ] 7.2 Implement local active-account cancellation ownership
+  - **Goal:** Cancel all same-account execution kinds immediately after local financial failure without cross-account leakage.
+  - **Packet:** [T39](execution/T39.md).
+  - **Deliverables:** New internal/core/runtime/account_financial_control.go; Owned account/epoch active-handle registration and cancellation callbacks; Registration/freeze/cleanup race tests
+  - **Step 1:** Register active A-leg/B-leg/queued-child handles before grant consumption, with trusted account, epoch and process incarnation.
+  - **Step 2:** On local freeze immediately initiate cancellation for every same-account handle; callback initiation target 50ms under the deterministic test scheduler.
+  - **Step 3:** Double-check state/epoch around registration and launch; after freeze do not admit a late register as active.
+  - **Step 4:** Unregister idempotently on terminal completion; do not close or release monetary commitments just because callbacks returned.
+  - **Step 5:** Use explicit owners and bounded callback scheduling, no long-lived request contexts and no per-token balance reads.
+  - **Acceptance:** S27 cancels allA kinds and leavesB running; S28 registration race cannot launch stale work.
+  - **Acceptance:** S62 shutdown/reload closes each resource once with no leaked registry handles.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.2, 2.2, 4.4, 5.2, 6.1, 6.3, 6.4, 6.6, 6.7, 16.1, 16.2_
+  - _Boundary: runtime cancellation owner_
+  - _Depends: 1.3, 7.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 7.2`; required scenarios S27, S28, S30, S62 and affected existing tests._
+
+- [ ] 7.3 Implement distributed financial fences and authority leases
+  - **Goal:** Propagate same-account freezes across processes and fail closed on stale control authority.
+  - **Packet:** [T40](execution/T40.md).
+  - **Deliverables:** Process-independent fence consumption with bounded polling/control pool; Monotonic authority-lease watchdog; Two-process lost-notification/partition tests
+  - **Step 1:** Use durable per-account epochs as authority; events are wakeups and each active process independently observes changes, never a work queue consumed by only one subscriber.
+  - **Step 2:** Implement 200ms polling and 200ms query deadline in a bounded dedicated control lane, with at most 1s monotonic local authority lease.
+  - **Step 3:** After observation initiate local cancellation within 100ms; expiry during DB partition cancels/denies local launches. Revalidate after suspension before a send.
+  - **Step 4:** Renew active-account observations in bounded batches and reject admission if the configured control-lane capacity cannot maintain the lease.
+  - **Step 5:** Run real PostgreSQL two-process tests with barriers and fake clock watchdog tests; report healthy propagation<=1s and distinguish physical provider tail.
+  - **Acceptance:** S29 lost wakeup does not lose cancellation; lease expiry never permits continued local authorization.
+  - **Acceptance:** No same event ACK by one process hides another process; no global store-row exclusive lock on normal control reads.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.2, 4.4, 6.4, 6.5, 6.6, 13.1, 13.2, 13.4, 13.5, 16.1, 16.2, 16.4_
+  - _Boundary: infrastructure control lane and runtime lease adapter_
+  - _Depends: 7.1, 7.2, 3.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 7.3`; required scenarios S28, S29, S54, S62 and affected existing tests._
+
+- [ ] 7.4 Protect account mutations and define audited resume
+  - **Goal:** Prevent withdrawals, credit edits and deposits from invalidating commitments or reviving cancelled work.
+  - **Packet:** [T41](execution/T41.md).
+  - **Deliverables:** Debt-aware deposit/collection/withdrawal/credit-floor transaction rules; Audited resume transition and operation identities; Frozen-account mutation tests
+  - **Step 1:** Apply D02 H and sibling protection to every account-mutating API, not only inference settlement.
+  - **Step 2:** Credit deposits atomically and collect outstanding recognized debt without creating another revenue credit; do not auto-clear freeze or resume old streams.
+  - **Step 3:** Reject withdrawals/credit-floor changes that take protected funding, unless an explicit frozen remediation operation records every resulting obligation.
+  - **Step 4:** Allow corrections/refunds/incurred settlement while frozen; require D08 debt/projection/case/authority conditions and a fresh epoch for explicit resume.
+  - **Step 5:** Use immutable operation keys and journals for each mutation and replay.
+  - **Acceptance:** S59 top-up clears debt through collection once but does not restart cancelled work.
+  - **Acceptance:** A withdrawal cannot consumeR; stale resume/duplicate collection never creates extra revenue.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 5.5, 5.6, 6.1, 6.7, 8.5, 9.2, 9.3, 9.4, 9.5, 9.7, 16.3_
+  - _Boundary: account provisioning and financial administration domain_
+  - _Depends: 6.3, 7.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 7.4`; required scenarios S25, S39, S59 and affected existing tests._
+
+## Workstream 8 — Frontend errors and strict host publication
+
+- [ ] 8.1 Preserve typed financial errors through adapters and classify them
+  - **Goal:** Ensure exposure denials and binding errors reach clients as financial outcomes rather than internal errors.
+  - **Packet:** [T42](execution/T42.md).
+  - **Deliverables:** Typed affordability error mapping and safe detail projection; Correct wrapped error chains for external bindings; Classifier table tests
+  - **Step 1:** Map strict insufficient-headroom/frozen to 402, availability/capacity to 503, unsupported financial shape to 422, invalid explicit limits to 400.
+  - **Step 2:** Preserve typed causes across external adapters using wrapping rather than text formatting that destroys errors.As/Is.
+  - **Step 3:** Populate details from the transaction result, not a fresh unaudited balance read.
+  - **Step 4:** Keep server diagnostics separate from wire-safe bounded messages; redact internal URLs, keys, prompts and other accounts.
+  - **Step 5:** Add raw ErrExposureInsufficient and multiply wrapped SDK-v2 rejection cases to the classifier tests.
+  - **Acceptance:** S47 no financial denial falls through to 500 or misleading 429.
+  - **Acceptance:** S45 message and exact details survive reference/external binding paths without secret leakage.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.4, 11.1, 11.2, 11.4, 11.5, 11.6, 12.3, 12.5, 12.6, 15.6_
+  - _Boundary: frontend error classifier and binding adapter_
+  - _Depends: 2.7, 3.4, 4.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 8.1`; required scenarios S45, S47, S53 and affected existing tests._
+
+- [ ] 8.2 Map financial errors through all five frontends and streaming modes
+  - **Goal:** Deliver useful affordable-token errors consistently on canonical and wire entrypoints.
+  - **Packet:** [T43](execution/T43.md).
+  - **Deliverables:** Protocol-legal financial error envelopes for all frontend families; Canonical/wire/streaming preheader and postheader fixtures; Shared bounded error detail helper only where protocol-neutral
+  - **Step 1:** Use the task 8.1 classifier for each frontend without new pairwise backend translators.
+  - **Step 2:** Before headers return proper status and family envelope with stable financial code, affordable output allowance/source and catalog-first explanation.
+  - **Step 3:** After headers send a legal terminal error event and end the stream; do not try to rewrite the HTTP status or discard the financial obligation.
+  - **Step 4:** Cover streaming, collected non-streaming, native error and large-body wire paths.
+  - **Step 5:** Use family tests against one canonical typed error plus bounded real-stack sentinels later in9.7.
+  - **Step 6:** Family12.x packets own full mixed decoder/encoder changes; this packet handles financial errors only and cannot be counted as full modality coverage.
+  - **Acceptance:** Every family/mode in S47 has a useful financial message rather than internal-error text.
+  - **Acceptance:** Catalog-first errors distinguish counterfactual affordable cap from actual unchanged admission policy.
+  - **Scope:** At most 15 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 12.2, 12.6, 17.1, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.3, 21.3, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 24.4, 24.5_
+  - _Boundary: frontend protocol adapters_
+  - _Depends: 8.1, 4.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 8.2`; required scenarios S45, S46, S47, S92, S93, S94, S101 and affected existing tests._
+
+- [ ] 8.3 Expose financial health and enforce bounded backpressure
+  - **Goal:** Make queue/recovery/control failures observable and prevent additional liabilities when durability is unhealthy.
+  - **Packet:** [T44](execution/T44.md).
+  - **Deliverables:** Mandatory strict financial readiness rows and capacity admission checks; Bounded worker error reporting and fair scheduling metrics; Lifecycle/backpressure/label-cardinality tests
+  - **Step 1:** Add D16 health rows for durable capacity including reserved/error states, pending/reconciliation age, snapshot availability, projection status and control lease.
+  - **Step 2:** Refuse new strict liabilities when durability/control prerequisites fail; preserve completion/recovery worker operation and independently bounded priority lanes.
+  - **Step 3:** Surface ProcessOnce failures with finite typed reason labels and authenticated diagnostics; never account IDs in metric label values.
+  - **Step 4:** Own all workers at Host lifecycle with drain/restart-safe stop semantics and borrowed-resource rules.
+  - **Step 5:** Run poison-account fairness and DB spike tests without flooding the transcript or dropping existing work.
+  - **Acceptance:** S42 later valid work progresses; S56 overload stays bounded and accepted obligations survive.
+  - **Acceptance:** S62 missing recovery/control readiness prevents paid admission, with no non-money host regression.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.2, 7.2, 10.2, 10.4, 10.5, 10.6, 13.3, 13.5, 16.1, 16.2, 16.4_
+  - _Boundary: health/readiness and worker lifecycle_
+  - _Depends: 3.7, 4.1, 6.5, 7.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 8.3`; required scenarios S32, S42, S56, S62 and affected existing tests._
+
+- [ ] 8.4 Publish strict family proofs and operator-facing reference composition
+  - **Goal:** Enable proved native text support through the complete reference composition, while retaining automatic refusal of unproved shapes.
+  - **Packet:** [T45](execution/T45.md).
+  - **Deliverables:** Host-compiled request-specific proof inventory and publication checks; Updated explicit strict billing composition example; Supported text/unsupported shape and operator error documentation
+  - **Step 1:** Compile the 5.x family-local certificates into the actual generation registry and validate material hashes/shape masks at startup.
+  - **Step 2:** Replace blanket UsesOpenAINativeUsageMapper rejection only for supported certified text requests; retain pre-dispatch rejection for every missing dimension/proof.
+  - **Step 3:** Wire the strict complete reference example without changing stock lipstd or Options into implicit billing; no auto-created user credit.
+  - **Step 4:** Document statuses, catalog-first fallback switch, account freeze/debt behavior and declared topology guarantees exactly as D01-D16.
+  - **Step 5:** Keep activation unpublished until 9.x/10.x gates complete; family unit tests do not themselves authorize financial cutover.
+  - **Step 6:** Publication includes all native-finite mixed shapes, not only text; full release remains blocked until15.1-15.5 and10.2 certify actual coverage. Expose honest native-limit versus implementation-gap status.
+  - **Acceptance:** Positive S48-S51 text paths work in a complete host and S52/S53 remain refused.
+  - **Acceptance:** Removing a certificate from actual registration makes strict publication/request admission fail, not silently downgrade.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 3.1, 3.2, 3.5, 8.2, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 14.1, 14.5, 15.6, 16.1, 16.2, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.4_
+  - _Boundary: composition/registration and operator documentation_
+  - _Depends: 4.1, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.6, 8.2, 8.3, 11.8, 11.9, 12.1, 12.2, 12.3, 12.4, 12.5, 13.1, 13.2, 13.3, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8, 14.9, 14.10, 14.11, 14.12, 14.13, 14.14, 14.15, 14.16, 14.17, 14.18, 14.19, 14.20, 14.21, 14.22, 14.23, 14.24, 14.25, 14.26, 14.27, 14.28, 14.29, 14.30, 14.31, 14.32, 14.33, 14.34, 14.35_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 8.4`; required scenarios S01, S48, S49, S50, S51, S52, S53, S60, S62, S67, S68, S72, S100, S110 and affected existing tests._
+
+## Workstream 9 — Historical repair and integration certification
+
+- [ ] 9.1 Implement a bounded read-only historical liability audit
+  - **Goal:** Identify every fixed brownfield repair class without changing accounts or repricing history.
+  - **Packet:** [T46](execution/T46.md).
+  - **Deliverables:** New bounded FinancialSafetyAudit query and exact disposition DTO; Exportable stable-key paginated audit result; Seeded historical defect fixtures
+  - **Step 1:** Implement the exact D15 inventory fields/disposition codes using keyset pages 128; report scanned count, cursor and incomplete scan state.
+  - **Step 2:** Identify evidence-bearing NeverStarted, multiple hidden/surfaced thinker records, missing closures/legs, missing-as-zero usage, exhausted retries, missing snapshots and projection differences.
+  - **Step 3:** Join only necessary indexed keys and preserve account/provider scope; never scan raw prompts or emit secrets.
+  - **Step 4:** Run against copied fixtures with a write-query detector and before/after table checksums.
+  - **Step 5:** Produce no automatic correction or charge from the audit itself.
+  - **Acceptance:** S57 each seeded class appears once with the prescribed disposition; no unmatched class is silently declared safe.
+  - **Acceptance:** Database contents are identical before and after the read-only audit.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 8.6, 9.1, 9.6, 9.8, 10.4, 14.1, 14.2, 16.2, 16.5_
+  - _Boundary: billing audit query seam_
+  - _Depends: 3.1, 6.6_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 9.1`; required scenarios S44, S57 and affected existing tests._
+
+- [ ] 9.2 Implement the prescribed audited historical repair transitions
+  - **Goal:** Restore stalled obligations and truthful evidence without retrospective policy changes.
+  - **Packet:** [T47](execution/T47.md).
+  - **Deliverables:** Fixed D15 repair commands with operation/evidence identity; Append-only evidence and linked financial correction support; Idempotent authorized-repair tests
+  - **Step 1:** Accept only D15 enumerated repair codes plus required evidence hashes, source IDs, authenticated authority and operation ID.
+  - **Step 2:** Requeue transient_retry_exhausted without changing charge key; append misclassification/visibility evidence correction; restore exact snapshot hashes.
+  - **Step 3:** Construct missing owner-lost closure from durable allocations only; retain evidence pending when it cannot be proven.
+  - **Step 4:** Never upgrade an old winner-only price policy or mutate sealed originals; historical undercharge is a report unless a separately authorized original-contract correction is provided.
+  - **Step 5:** Repeat every repair and conflicting repair to prove exactly-once effect; default export/dry-run performs no writes.
+  - **Acceptance:** S57 repaired transient work resumes; all immutable originals and historical policy IDs remain.
+  - **Acceptance:** Repeated repair creates no duplicate charge; unauthorized or contradictory evidence is rejected and retained for review.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.1, 1.5, 7.5, 8.5, 8.6, 9.5, 10.1, 10.4, 14.1, 14.2, 14.4, 16.5_
+  - _Boundary: authenticated repair app/domain and store_
+  - _Depends: 9.1, 6.5, 7.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 9.2`; required scenarios S02, S39, S41, S57 and affected existing tests._
+
+- [ ] 9.3 Implement strict activation, old-writer fencing and safe rollback
+  - **Goal:** Prevent mixed monetary versions from reopening the reviewed holes during deployment.
+  - **Packet:** [T48](execution/T48.md).
+  - **Deliverables:** Strict contract-floor/epoch activation command and executable preconditions; Legacy/new posting ownership fence tests; Quiescent rollout and rollback runbook
+  - **Step 1:** Require installed schema, quiesced incompatible writers, audited projections/materials, completed supported-family proof and exact-SHA gate receipt before activation.
+  - **Step 2:** Use exclusive cutover marker lock, validate all conditions in the appropriate durable transaction, and atomically advance strict floor/epoch.
+  - **Step 3:** Fence legacy new admissions and strict-unsupported writers; historical replays remain idempotent under original ownership.
+  - **Step 4:** After strict obligations exist, prohibit executable/schema downgrade. Stop new admission and retain strict recovery or roll forward.
+  - **Step 5:** Test activation failures and resume/drain on copied databases only; do not activate a live user deployment as part of this task.
+  - **Acceptance:** S58 old writer cannot create new strict work or bypass ownership after activation.
+  - **Acceptance:** Historical S02/S12 replay remains intact and a failed precondition produces no partial activation.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.1, 1.5, 3.7, 6.4, 13.6, 14.1, 14.2, 14.3, 14.4, 14.6, 15.5_
+  - _Boundary: cutover coordination and deployment contract_
+  - _Depends: 8.4, 9.2, 3.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 9.3`; required scenarios S02, S12, S58 and affected existing tests._
+
+- [ ] 9.4 Install mechanical bypass and nonempty-evidence release gates
+  - **Goal:** Make future unannotated code and vacuous test runs fail automatically.
+  - **Packet:** [T49](execution/T49.md).
+  - **Deliverables:** New tools/billing-safety gate runner; Production-registration/raw-dispatch/ignored-error architecture fixtures; Named scenario coverage and mutation guard integration
+  - **Step 1:** Enumerate actual backend factories/profile/connector contributions and execution send edges; reject new unannotated contributions automatically in strict mode.
+  - **Step 2:** Add negative mutations for bypassed grant, zero/static bound, once-only financial terminal owner, winner-only strict selection, finite retry abandonment and ignored financial errors.
+  - **Step 3:** Implement the gate runner contract in execution/gates.md: parse go-test JSON, require named scenarios and topology receipts, reject empty/all-skipped/incomplete runs.
+  - **Step 4:** Add focused Make targets for monetary gates without moving expensive external tests into default unit loops.
+  - **Step 5:** Preserve existing architecture/test-cost budgets; record any required budget increase as BLOCKED rather than modifying thresholds.
+  - **Acceptance:** S61 no-match/all-skip/missing-topology tests fail the gate.
+  - **Acceptance:** S66 every supplied bypass mutation is detected by an independent request/ledger assertion, not just a source string count.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 4.4, 4.5, 7.4, 10.1, 12.3, 12.4, 12.5, 13.6, 15.1, 15.2, 15.3, 15.4, 15.5, 15.6_
+  - _Boundary: architecture/QA and gate tooling_
+  - _Depends: 4.7, 8.4, 9.3, 1.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 9.4`; required scenarios S01, S53, S61, S66 and affected existing tests._
+
+- [ ] 9.5 Implement the real 1,000-request and account-isolation proofs
+  - **Goal:** Prove affordability under actual concurrent dispatch and shared-database execution.
+  - **Packet:** [T50](execution/T50.md).
+  - **Deliverables:** New tagged financial-safety concurrency integration tests; Two-process shared-PostgreSQL test launcher; Independent accepted/send/ledger reconciliation receipts
+  - **Step 1:** Use S08 Q1/B10, 1000 barrier-released roots and provider responses held until all admission decisions finish; configure ample test queue capacity to isolate financial denial.
+  - **Step 2:** Require exactly 10 admitted roots, at most 10 sends and 990 financial denials with R10. Repeat through two processes sharing PostgreSQL.
+  - **Step 3:** Run cross-account controls, ended-unsettled commitments and duplicate ACK operations; compare actual provider log with durable authorization identity.
+  - **Step 4:** Race freeze against registration/consume and test lost notifications/control partition according to D08 operational timing bounds.
+  - **Step 5:** Run single-process SQLite parity separately; reject unsupported distributed SQLite rather than report that topology passed.
+  - **Acceptance:** All S21 values are literal and checked outside production quote logic.
+  - **Acceptance:** No unfunded send, cross-account debit/cancel, or stale-epoch authorization is observed under the controlled schedules.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 4.4, 5.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3, 6.4, 6.5, 9.7, 13.1, 13.2, 13.3, 13.4, 13.5, 15.2, 16.4_
+  - _Boundary: integration test harness only_
+  - _Depends: 3.4, 4.4, 7.3, 8.4, 1.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 9.5`; required scenarios S21, S22, S23, S26, S27, S28, S29, S54, S55 and affected existing tests._
+
+- [ ] 9.6 Implement crash, first-write and long-outage financial recovery proofs
+  - **Goal:** Prove incurred liability survives failure at each non-atomic boundary.
+  - **Packet:** [T51](execution/T51.md).
+  - **Deliverables:** Named crashpoint subprocess tests; 50-failure and 30-second real outage recovery scenarios; Provider-log to final-ledger reconciliation output
+  - **Step 1:** Kill/restart at every S34 boundary using process-owned durable files and provider log outside the killed process.
+  - **Step 2:** Fail first terminal commit before any terminal payload row, then invoke repeated Close and restart; obligation must already exist before provider send.
+  - **Step 3:** Fail non-money egress/quota effects independently of monetary persistence; known valid charges still post.
+  - **Step 4:** Run 50 transient failures with fake clock and a separate 30-second real DB outage; recover without changing attempt-count/status manually.
+  - **Step 5:** For genuinely unavailable exact usage retain funded evidence-pending state; never fabricate maximum/zero actual to make the test green.
+  - **Acceptance:** Every accepted provider receipt eventually joins exactly one customer obligation and COGS record after recoverable faults.
+  - **Acceptance:** Unresolved evidence remains explicit with its bound; no blind provider resend or duplicate collection occurs.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 2.2, 5.2, 6.6, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 8.1, 8.6, 9.7, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 13.5, 15.2, 16.1, 16.3_
+  - _Boundary: fault-injection integration tests only_
+  - _Depends: 4.7, 6.5, 8.3, 9.4, 1.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 9.6`; required scenarios S04, S30, S31, S32, S33, S34, S35, S36, S41, S42, S43, S56, S65 and affected existing tests._
+
+- [ ] 9.7 Run family conformance plus exhaustive cross-interface coverage integration
+  - **Goal:** Integrate family tests with the full generated matrix rather than treating representative sentinels as complete coverage.
+  - **Packet:** [T52](execution/T52.md).
+  - **Deliverables:** Family TCK certification results for each native family; Five fixed cross-family sentinels from execution/gates.md; Positive/negative text-versus-extra-cost support receipts
+  - **Step 1:** Run every frontend against canonical financial outcomes and every backend family against native usage/prepared-send fixtures.
+  - **Step 2:** Run the five fixed cross-family real-stack pairs, streaming and collected non-streaming, adding wire-path sentinel where the frontend exposes it.
+  - **Step 3:** Include hidden thinker, sparse usage, missing-final usage, n/candidate reasoning, cache TTL and unsupported modalities/extras cases.
+  - **Step 4:** Validate readable 402 details and legal post-header errors while retaining billing.
+  - **Step 5:** Fail completion if blanket native text rejection remains or an uncertified shape sends paid traffic.
+  - **Step 6:** Representative sentinels remain fast feedback only. Mandatory release evidence is the complete expanded D23 matrix; do not label a pairwise subset exhaustive.
+  - **Acceptance:** All positive S48-S51 native text cases complete and bill correctly; S52/S53 negatives have zero sends.
+  - **Acceptance:** No frontend×backend-specific translation implementation or all-skipped gate is introduced.
+  - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.4, 3.1, 3.2, 3.5, 4.1, 8.2, 11.1, 11.5, 11.6, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 13.6, 14.1, 14.5, 15.2, 15.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 19.6, 21.1, 21.4, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: protocol TCK and real-stack sentinel tests_
+  - _Depends: 5.6, 8.2, 8.4, 9.4, 1.4, 15.1, 15.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 9.7`; required scenarios S17, S37, S47, S48, S49, S50, S51, S52, S53, S60, S70, S71, S72, S93, S105, S110, S112 and affected existing tests._
+
+## Workstream 10 — Final release and evidence seal
+
+- [ ] 10.1 Verify bounded DB work and measured load behavior
+  - **Goal:** Confirm the design removed structural contention without claiming unmeasured throughput.
+  - **Packet:** [T53](execution/T53.md).
+  - **Deliverables:** Query-count/lock-mode structural assertions; Repeated measured burst/outage benchmark receipt; Bounded resource/cancellation-lane regression gates
+  - **Step 1:** Verify new admission does O(1) account projection reads and indexed envelope/operation lookup, not a decode of every open exposure.
+  - **Step 2:** Hold PG accountA and showB commits; prove normal marker shared access while activation remains exclusive.
+  - **Step 3:** Measure accepted/denied sends, queue depths, goroutines, allocations, latency and drain progress across 1000 burst and 30s outage; retain environment/configuration with raw results.
+  - **Step 4:** Assert configured caps and independent control/completion progress, not an invented universal RPS threshold.
+  - **Step 5:** Run the Windows-authoritative test-cost ratchet when the changed test infrastructure affects its budget; no override or relaxed threshold.
+  - **Acceptance:** S54 structural independence and S56 boundedness hold; no admitted liability is lost during drain.
+  - **Acceptance:** Receipt contains actual measurements and explicit topology, not estimates from source review.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 10.2, 10.4, 10.5, 10.6, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 15.1, 15.3, 15.4, 15.5, 16.1, 16.4_
+  - _Boundary: performance tests and bounded query verification_
+  - _Depends: 9.5, 9.6, 8.3, 9.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 10.1`; required scenarios S42, S54, S55, S56, S61 and affected existing tests._
+
+- [ ] 10.2 Execute the complete independent financial release matrix
+  - **Goal:** Close every C01-C11/F01-F14 requirement with executed boundary evidence at one candidate SHA.
+  - **Packet:** [T54](execution/T54.md).
+  - **Deliverables:** Complete machine-readable per-scenario/per-topology result set; Mutation results for required failure mechanisms; Exact candidate SHA and comprehensive gate logs
+  - **Step 1:** Run tools/billing-safety using the supplied 66-scenario matrix; require every named scenario and all required positive/negative/topology assertions to execute.
+  - **Step 2:** Run make quality-checks, make test, make parity-checks, make test-db-parity and make qa once on the coherent candidate; include Linux focused race evidence and relevant pooled PostgreSQL gates.
+  - **Step 3:** Apply each prescribed test-only mutation in isolated copies and verify the appropriate independent oracle fails, then discard the mutated copies.
+  - **Step 4:** Reconcile provider send log with allocations/evidence/customer charges/collections/debt/COGS/journal keys, not only processed flags.
+  - **Step 5:** Any failed/unexecuted normal-path contract yields NO-GO with exact task owner; do not repair by changing expectations, skipping cases, enabling ceilings or removing guards.
+  - **Step 6:** Verify exact actual-universe/contract/receipt roots for full interface/profile/operation/carrier/mask coverage and the mixed-modality financial fault scenarios. Any required native implementation gap is NO-GO.
+  - **Acceptance:** Every S01-S66 case has actual non-skipped evidence and all originalC/F traces close.
+  - **Acceptance:** Injected overrun is labelled containment; missing external topology or unexpected normal debt remains NO-GO.
+  - **Scope:** At most 4 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 16.1, 16.2, 16.3, 16.4, 16.5, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: release verification; no new production scope_
+  - _Depends: 9.5, 9.6, 9.7, 10.1, 9.2, 9.3, 7.4, 6.6, 15.5_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 10.2`; required scenarios S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11, S12, S13, S14, S15, S16, S17, S18, S19, S20, S21, S22, S23, S24, S25, S26, S27, S28, S29, S30, S31, S32, S33, S34, S35, S36, S37, S38, S39, S40, S41, S42, S43, S44, S45, S46, S47, S48, S49, S50, S51, S52, S53, S54, S55, S56, S57, S58, S59, S60, S61, S62, S63, S64, S65, S66, S71, S72, S98, S99, S109, S110, S111, S112 and affected existing tests._
+
+- [ ] 10.3 Seal implementation evidence and activation readiness
+  - **Goal:** Produce a truthful final handoff that cannot confuse completed checkboxes with a safe deployed billing process.
+  - **Packet:** [T55](execution/T55.md).
+  - **Deliverables:** Exact-SHA final implementation receipt with scenario and topology coverage; Operator activation/drain/rollback checklist; Correct Kiro completion/archival metadata after actual completion
+  - **Step 1:** Require all predecessor receipts and 10.2 gate evidence for the exact merged candidate SHA; any monetary changes after that SHA invalidate affected evidence.
+  - **Step 2:** Attach actual feature/capability matrix, unresolved-case counts, ledger reconciliation and non-money regression outcomes.
+  - **Step 3:** Only mark implementation complete after all required checks pass; archive the spec under the repository rule then, not during specification delivery.
+  - **Step 4:** List live activation as a separately authorized operator action with D15 preconditions; do not access or mutate a live deployment automatically.
+  - **Step 5:** Explicitly state no financial guarantee is claimed for unsupported shapes, stale/partitioned authority beyond lease policy, destroyed durable replicas, or a provider violating its certified bound.
+  - **Step 6:** Publish finite signature counts and property/topology scope honestly; no universal all-byte/future-model proof. Preserve all actual native limitations and never present spec tooling output as proxy verification.
+  - **Acceptance:** The final evidence is reproducible at an exact SHA and no required case is merely claimed.
+  - **Acceptance:** Task statuses and CI summaries alone cannot authorize strict publication or retrospective customer repricing.
+  - **Scope:** At most 2 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 1.2, 6.4, 12.1, 12.6, 13.6, 14.3, 14.4, 14.6, 15.1, 15.3, 15.4, 15.5, 16.1, 16.2, 16.3, 16.4, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: documentation and release metadata_
+  - _Depends: 10.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 10.3`; required scenarios S58, S61, S62, S112 and affected existing tests._
+
+## Workstream 11 — Complete universe and multimodal shared contracts
+
+- [ ] 11.1 Lock the complete contribution and operation universe
+  - **Goal:** Make missing interface, profile, operation and transport coverage a build/release error.
+  - **Packet:** [T56](execution/T56.md).
+  - **Deliverables:** Versioned actual-universe export and immutable obligation digest.; Separate native limitation, runtime prerequisite and implementation-gap records.; Coverage closure and positive-obligation regression tests.
+  - **Step 1:** Use StandardContributions and DerivedViews in the test/tool composition to enumerate every registration before billing filtering. Include direct SDK, large-body, compaction and auxiliary driving surfaces as separate obligations.
+  - **Step 2:** Export registered route claims, operation/transport descriptors, every compatible profile and every connector manifest/module. Compare against coverage/universe.json; additions extend the universe rather than disappearing when a certificate is missing.
+  - **Step 3:** Implement the closed support dispositions from D17. Store native limitation references independently of billing implementation state. Unknown native semantics block certification.
+  - **Step 4:** Implement immutable positive obligations from the supplied native contracts and required-positive rules. A missing proxy mapping remains an implementation gap, not a native impossibility.
+  - **Step 5:** Add regressions that remove Bedrock, Alibaba, one connector, one operation or every positive case. Export the exact versioned universe for task 15.1.
+  - **Acceptance:** The actual contribution set includes every baseline frontend, builtin and connector and expands profiles and operations. Deleting an entry fails.
+  - **Acceptance:** An empty positive set or billing-ready-filtered inventory cannot certify release.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 19.3, 19.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.4, 24.6_
+  - _Boundary: test/composition inventory; no provider execution changes_
+  - _Depends: 1.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 11.1`; required scenarios S67, S68, S69, S71, S72, S110 and affected existing tests._
+
+- [ ] 11.2 Add lossless canonical input media descriptors
+  - **Goal:** Preserve ordered and nested multimodal content without duplicating Items and Messages projections.
+  - **Packet:** [T57](execution/T57.md).
+  - **Deliverables:** Additive canonical input media values and validation.; One ordered occurrence inventory respecting Items authority.; Deep-copy and nested-media conformance tests.
+  - **Step 1:** Add D18 media metadata, presence and provenance to the existing canonical owners. Preserve backward compatibility for image and file parts. Do not add a second canonical request model.
+  - **Step 2:** Resolve Items authority versus Messages once. Assign occurrence IDs from stable item/message and nested part paths, not content hashes.
+  - **Step 3:** Traverse declared tool-result media and historical input under existing depth and size limits. Do not interpret arbitrary JSON strings as media unless the native schema declares them.
+  - **Step 4:** Implement validation and immutable cloning in the named canonical owners and direct consumers. Stay within the packet change cap; shared connector conversion belongs to 14.1.
+  - **Step 5:** Write ordered, repeated, nested and unknown-kind fixtures with independent occurrence inventories.
+  - **Acceptance:** Every required native-supported case completes the real adapter path with correct recorded units and charges. A safe runtime denial alone does not satisfy that positive obligation.
+  - **Acceptance:** Preserve all eleven original financial invariants and the existing non-billing host behavior. No historical repricing or unbounded external work is authorized.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.3, 19.4, 19.5, 20.1, 20.2, 21.1, 21.4, 22.1, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: canonical input value objects_
+  - _Depends: 1.2, 11.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 11.2`; required scenarios S74, S75, S77, S78, S89, S101 and affected existing tests._
+
+- [ ] 11.3 Add joint output plans and typed media events
+  - **Goal:** Represent mixed requested outputs and media-only/chunked results before adapter implementation.
+  - **Packet:** [T58](execution/T58.md).
+  - **Deliverables:** Joint OutputPlan and typed media events.; Backward-compatible complete-image/file projections.; Validation, cloning and collector conformance tests.
+  - **Step 1:** Add D18 OutputPlan fields with explicit omission, empty and null semantics. Preserve joint output sets rather than reducing the plan to a single modality.
+  - **Step 2:** Add bounded generic media start/chunk/finish events. Treat old complete image/file events as equivalent one-item representations, not additional economic events.
+  - **Step 3:** Preserve candidate, item, part, sequence and MIME identity. Deep-copy retained data and validate declared limits.
+  - **Step 4:** Keep reasoning, JSON and tool semantics orthogonal. Media-only and no-visible-output completions cannot require a nonempty text delta.
+  - **Step 5:** Test legal chunk partitions and native-incompatible output sets using independent identities and expectations.
+  - **Acceptance:** Every required native-supported case completes the real adapter path with correct recorded units and charges. A safe runtime denial alone does not satisfy that positive obligation.
+  - **Acceptance:** Preserve all eleven original financial invariants and the existing non-billing host behavior. No historical repricing or unbounded external work is authorized.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 21.1, 21.3, 21.4, 21.5, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 24.1, 24.3, 24.4_
+  - _Boundary: canonical output contracts_
+  - _Depends: 11.2, 1.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 11.3`; required scenarios S73, S81, S84, S88, S89, S91 and affected existing tests._
+
+- [ ] 11.4 Freeze referenced resources and paid preparation work
+  - **Goal:** Close URL/file/version/metadata gaps before multimodal quotation.
+  - **Packet:** [T59](execution/T59.md).
+  - **Deliverables:** Immutable resource preparation receipts with trusted properties.; Funded preparation-child integration.; Reference integrity and resource-finality tests.
+  - **Step 1:** Implement the bounded resource preparation contract from D19 at adapter/infrastructure edges. Reuse existing fetch limits and SSRF protection; do not build an unrelated fetching framework.
+  - **Step 2:** Bind trusted content version, ownership and decoded properties. Opaque provider file IDs require an explicit finite processing ceiling when exact local properties are unavailable.
+  - **Step 3:** Invalidate preparation if asset content changes. An immutable uploaded copy may be created only as a funded child operation.
+  - **Step 4:** Classify paid counting, probing, uploads, OCR, transcription and storage as economic effects with funding before dispatch. Free local inspection is not supplier spend.
+  - **Step 5:** Test false metadata, changed references, expiration and failed cleanup. Count estimates without a guaranteed error bound use the prescribed finite-cap fallback.
+  - **Acceptance:** Every required native-supported case completes the real adapter path with correct recorded units and charges. A safe runtime denial alone does not satisfy that positive obligation.
+  - **Acceptance:** Preserve all eleven original financial invariants and the existing non-billing host behavior. No historical repricing or unbounded external work is authorized.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.6, 22.5_
+  - _Boundary: resource preparation ports/adapters_
+  - _Depends: 11.2, 2.6, 3.6_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 11.4`; required scenarios S77, S78, S79, S83, S96 and affected existing tests._
+
+- [ ] 11.5 Compile whole-request joint economic capability clauses
+  - **Goal:** Enforce full modality/operation/transport compatibility rather than independent booleans.
+  - **Packet:** [T60](execution/T60.md).
+  - **Deliverables:** Immutable JointEconomicContract compiler and validator.; Contract digest binding in preparation and grants.; Precise joint-capability and stale-proof errors.
+  - **Step 1:** Implement the D20 joint clauses over required, allowed and forbidden input masks, exact permitted output sets, operation, native options and transport.
+  - **Step 2:** Do not infer support by independent subset booleans. Implement the two non-downward-closed truth tables in S73.
+  - **Step 3:** Bind concrete implementation, endpoint/profile, model, API revision, canonical schema, units, tariffs, enforcement and finality into the contract digest.
+  - **Step 4:** Keep native capability decisions separate from billing readiness. Missing billing for a required native-finite shape remains a release blocker.
+  - **Step 5:** Use the compiled predicate at existing strict admission and final preparation. Reject unknown economic fields and stale contracts before payable dispatch.
+  - **Acceptance:** Every required native-supported case completes the real adapter path with correct recorded units and charges. A safe runtime denial alone does not satisfy that positive obligation.
+  - **Acceptance:** Preserve all eleven original financial invariants and the existing non-billing host behavior. No historical repricing or unbounded external work is authorized.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.3, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.4_
+  - _Boundary: capability compiler and admission_
+  - _Depends: 11.1, 11.2, 11.3, 1.3_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 11.5`; required scenarios S69, S72, S73, S100, S106 and affected existing tests._
+
+- [ ] 11.6 Extend conservative quotation to mixed native-unit vectors
+  - **Goal:** Fund all jointly possible modalities and resources under the existing exact tariff engine.
+  - **Packet:** [T61](execution/T61.md).
+  - **Deliverables:** Mixed native-unit upper-bound vectors.; Scope-aware conservative tariff quotation.; Independent literal-money quote regressions.
+  - **Step 1:** Extend existing D03 EconomicRequestBounds with native unit, direction, qualifier, candidate and resource coordinates from D19. Reuse the existing tariff engine.
+  - **Step 2:** Sum all independent simultaneous costs. Use maxima only for proved exclusive alternatives. Preserve catalog-first output reservation.
+  - **Step 3:** Apply input, request, candidate and resource fees at their declared scope. Include every generated candidate and chargeable hidden reasoning.
+  - **Step 4:** When an input estimate lacks a guaranteed error bound, use the finite provider input cap at the highest applicable qualified rate. Independently unbounded costs deny dispatch, but missing implementation does not complete a required support task.
+  - **Step 5:** Use coverage/economic-fixtures.json as literal independent expected values. Preserve exact rational arithmetic, declared rounding scopes and overflow checks.
+  - **Acceptance:** Every actual literal fixture charge is at most its reserved joint bound. Simultaneous output modalities are funded together.
+  - **Acceptance:** Shared input is not multiplied by candidate count. Missing bounds, invalid qualifiers and overflow cannot authorize spend.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 18.1, 18.3, 18.4, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 22.2, 22.6, 24.5_
+  - _Boundary: financial quote domain_
+  - _Depends: 11.3, 11.5, 2.3, 11.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 11.6`; required scenarios S78, S80, S81, S82, S83, S84, S85, S86, S87, S98 and affected existing tests._
+
+- [ ] 11.7 Preserve mixed usage supports and unresolved intersections
+  - **Goal:** Settle exact disjoint native work and retain ambiguity without free usage or double billing.
+  - **Packet:** [T62](execution/T62.md).
+  - **Deliverables:** Native economic-support and candidate identity validation.; Durable handling of unresolved intersections.; Sparse and revised native-usage settlement tests.
+  - **Step 1:** Apply the D21 support identity across dispatch, candidate, item, resource, direction and schema. Preserve immutable raw E/Q/P/R observations.
+  - **Step 2:** Select one proved partition or uniform-priced parent. Do not add the aggregate, included details and a local estimate for the same work.
+  - **Step 3:** When cached and modality marginals lack their intersection and rates differ, retain unresolved work until an authoritative breakdown arrives. Known independent charges still progress.
+  - **Step 4:** Apply explicit sparse, delta, cumulative and revision semantics with presence information. Charge hidden work and all candidates independently of visible text.
+  - **Step 5:** Keep issue #698 advisories non-monetary and preserve historical fingerprints. Add focused schema and overlap tests rather than replacing the rater.
+  - **Acceptance:** S86 recognizes 310 nano-units only after the authoritative breakdown. The 600-nano-unit reserve cannot become a fabricated invoice.
+  - **Acceptance:** Missing usage is not zero and duplicate cumulative observations do not multiply charges.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.4, 18.3, 19.3, 19.5, 20.3, 20.4, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.3, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: native accounting evidence domain_
+  - _Depends: 11.5, 6.1, 6.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 11.7`; required scenarios S86, S87, S88, S89, S90, S108, S111 and affected existing tests._
+
+- [ ] 11.8 Capture media economics before output framing and collection
+  - **Goal:** Keep economic evidence intact even when mixed output is dropped or cannot be delivered.
+  - **Packet:** [T63](execution/T63.md).
+  - **Deliverables:** Media-aware economic evidence capture and terminal handoff.; Media-only and partial-output regression tests.; Collector, encoder and persistence-failure tests.
+  - **Step 1:** Capture provider economic evidence before frontend-specific filtering or encoding. Do not reconstruct billed quantities only from released text.
+  - **Step 2:** Preserve candidate, item and media identity and usage presence. Final asset references do not create a second charge after their chunks.
+  - **Step 3:** Route media-only completion, filtered output and partial errors through the same durable financial terminal path.
+  - **Step 4:** Keep native usage available after asset expiration and media retention cleanup. Do not store unlimited media bytes in financial records.
+  - **Step 5:** Inject collector failure, encoder failure, first-enqueue failure and disconnect. Recover and settle mixed evidence independently of stream lifecycle.
+  - **Acceptance:** Every required native-supported case completes the real adapter path with correct recorded units and charges. A safe runtime denial alone does not satisfy that positive obligation.
+  - **Acceptance:** Preserve all eleven original financial invariants and the existing non-billing host behavior. No historical repricing or unbounded external work is authorized.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 18.3, 20.1, 20.2, 20.5, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: runtime evidence capture/collector_
+  - _Depends: 11.3, 4.7, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 11.8`; required scenarios S81, S88, S90, S91, S92, S96, S99, S107 and affected existing tests._
+
+- [ ] 11.9 Account for multi-result jobs and paid resource lifetimes
+  - **Goal:** Make candidate, async-job, compaction and resource cost scopes explicit.
+  - **Packet:** [T64](execution/T64.md).
+  - **Deliverables:** Payable-operation classifications and finite job/resource bindings.; Poll, replay, compaction and resource-finality tests.; Account cancellation coverage of asynchronous owners.
+  - **Step 1:** Use actual registered operations; do not introduce unmounted provider APIs. context.compaction is payable when it invokes paid remote work, not because of its name alone.
+  - **Step 2:** Bind shared input and candidate, asset and resource supports to one upstream operation with the correct scoped fees.
+  - **Step 3:** Retain the finite whole-job or resource liability and provider identity until proven final. Reading an existing result preserves the original inference identity.
+  - **Step 4:** Fund independently payable polling, upload, rendering and storage children. An unbounded remote lifetime has a specific strict-mode limitation.
+  - **Step 5:** Register every active job and resource owner with the account breaker. Socket closure and cancel acknowledgements alone cannot release financial tails.
+  - **Acceptance:** Every required native-supported case completes the real adapter path with correct recorded units and charges. A safe runtime denial alone does not satisfy that positive obligation.
+  - **Acceptance:** Preserve all eleven original financial invariants and the existing non-billing host behavior. No historical repricing or unbounded external work is authorized.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.2, 18.3, 18.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.3, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 24.5_
+  - _Boundary: multi-result/resource orchestration_
+  - _Depends: 11.6, 6.4, 4.6_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 11.9`; required scenarios S79, S87, S94, S95, S96, S97, S102 and affected existing tests._
+
+- [ ] 11.10 Build independent economic field and media fixture contracts
+  - **Goal:** Give adapter executors exact no-loss and literal-money tests before family implementation.
+  - **Packet:** [T65](execution/T65.md).
+  - **Deliverables:** Independent native field-path and media fixtures.; Literal-money recording-provider assertions.; Shared positive, negative and mutation TCK.
+  - **Step 1:** Build native wire fixtures separately from production decoders, encoders, raters and capability predicates.
+  - **Step 2:** Implement expected EconomicFieldReceipt paths: mapped canonical field, bounded native extension, or specific pre-dispatch native rejection. An unhandled cost field fails.
+  - **Step 3:** Load literal expected charges from coverage/economic-fixtures.json. Inspect actual upstream request content, occurrence lineage, units and final journals.
+  - **Step 4:** Provide helpers for order, nesting, repeated assets, media-only completion, mixed output, chunking and valid native option boundaries.
+  - **Step 5:** Register every S109 mutation with a named expected failure. Tests use local recording providers and synthetic prices, not public-provider credentials.
+  - **Acceptance:** Dropping the last media occurrence, responseModalities, fileData, candidate identity or unit direction fails an independent test.
+  - **Acceptance:** The expected-money oracle does not call the production estimator, rater or canonicalizer.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.3, 19.5, 20.1, 20.4, 21.1, 21.4, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: test-only shared fixture contracts_
+  - _Depends: 11.1, 11.2, 11.3, 1.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 11.10`; required scenarios S74, S75, S76, S89, S106, S109, S111 and affected existing tests._
+
+## Workstream 12 — All frontend media codecs
+
+- [ ] 12.1 Preserve full mixed economics through the OpenAI Chat frontend
+  - **Goal:** Implement native-representable mixed input/output and all economic fields in the real OpenAI Chat driving adapter.
+  - **Packet:** [T66](execution/T66.md).
+  - **Deliverables:** OpenAI Chat complete native field receipts and lossless media decode/encode.; OpenAI Chat positive and justified negative mixed-mode fixtures.
+  - **Step 1:** Use the 11.10 TCK and completed canonical contracts to handle these native field families: messages[].content text, image_url, input_audio, native audio settings and output modality selection; choices, audio payloads/transcripts and usage. Preserve explicit presence, order, nesting and output intent.
+  - **Step 2:** Implement missing natively representable media mappings. Reject only a precise native limitation before payable work; a missing proxy mapping remains an unfinished positive obligation.
+  - **Step 3:** Keep frontend delivery independent of backend transport. Encode and collect canonical mixed, media-only and multi-candidate results without dropping economic identity.
+  - **Step 4:** Map financial errors through the completed shared classifier. An encoder, collector or connection failure after provider computation cannot alter provider usage or suppress billing.
+  - **Step 5:** Run independent positive field-receipt and mixed-output fixtures plus narrow native negatives. Do not modify another frontend or shared canonical schema in this packet.
+  - **Step 6:** Instantiate generic scenarios only for this frontend and its locked native joint-contract clauses. A native-inexpressible output receives the precise negative case, not a fabricated extension. Do not implement Gemini-only fields or another frontend's WebSocket protocol here. The complete cross-frontend expansion belongs to task 15.1.
+  - **Acceptance:** Every required native field reaches the final prepared request with the same economic meaning. There are no unexpected field drops.
+  - **Acceptance:** Charges are independent of visible text and delivery mode. Unsupported native cases cause zero payable dispatches.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 21.1, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.4, 23.5, 24.1, 24.2, 24.3, 24.4, 24.5_
+  - _Boundary: OpenAI Chat frontend_
+  - _Depends: 11.2, 11.3, 11.5, 11.10, 8.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 12.1`; required scenarios S70, S73, S74, S75, S88, S89, S90, S91, S92, S93, S101, S106, S80, S81, S83, S84 and affected existing tests._
+
+- [ ] 12.2 Preserve full mixed economics through the OpenAI Responses frontend
+  - **Goal:** Implement native-representable mixed input/output and all economic fields in the real OpenAI Responses driving adapter.
+  - **Packet:** [T67](execution/T67.md).
+  - **Deliverables:** OpenAI Responses complete native field receipts and lossless media decode/encode.; OpenAI Responses positive and justified negative mixed-mode fixtures.
+  - **Step 1:** Use the 11.10 TCK and completed canonical contracts to handle these native field families: ordered input items, input_image/input_file, native output and hosted-tool configuration, response output items and IDs. Preserve explicit presence, order, nesting and output intent.
+  - **Step 2:** Implement missing natively representable media mappings. Reject only a precise native limitation before payable work; a missing proxy mapping remains an unfinished positive obligation.
+  - **Step 3:** Keep frontend delivery independent of backend transport. Encode and collect canonical mixed, media-only and multi-candidate results without dropping economic identity.
+  - **Step 4:** Map financial errors through the completed shared classifier. An encoder, collector or connection failure after provider computation cannot alter provider usage or suppress billing.
+  - **Step 5:** Run independent positive field-receipt and mixed-output fixtures plus narrow native negatives. Do not modify another frontend or shared canonical schema in this packet.
+  - **Step 6:** Instantiate generic scenarios only for this frontend and its locked native joint-contract clauses. A native-inexpressible output receives the precise negative case, not a fabricated extension. Do not implement Gemini-only fields or another frontend's WebSocket protocol here. The complete cross-frontend expansion belongs to task 15.1.
+  - **Acceptance:** Every required native field reaches the final prepared request with the same economic meaning. There are no unexpected field drops.
+  - **Acceptance:** Charges are independent of visible text and delivery mode. Unsupported native cases cause zero payable dispatches.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.4, 21.1, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.4, 23.5, 24.1, 24.2, 24.3, 24.4, 24.5_
+  - _Boundary: OpenAI Responses frontend_
+  - _Depends: 11.2, 11.3, 11.5, 11.10, 8.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 12.2`; required scenarios S70, S73, S74, S75, S88, S89, S90, S91, S92, S93, S101, S106, S83, S84 and affected existing tests._
+
+- [ ] 12.3 Preserve full mixed economics through the Anthropic Messages frontend
+  - **Goal:** Implement native-representable mixed input/output and all economic fields in the real Anthropic Messages driving adapter.
+  - **Packet:** [T68](execution/T68.md).
+  - **Deliverables:** Anthropic Messages complete native field receipts and lossless media decode/encode.; Anthropic Messages positive and justified negative mixed-mode fixtures.
+  - **Step 1:** Use the 11.10 TCK and completed canonical contracts to handle these native field families: system/messages image, document, tool_use, tool_result and thinking blocks; max_tokens, cache control and sparse output usage. Preserve explicit presence, order, nesting and output intent.
+  - **Step 2:** Implement missing natively representable media mappings. Reject only a precise native limitation before payable work; a missing proxy mapping remains an unfinished positive obligation.
+  - **Step 3:** Keep frontend delivery independent of backend transport. Encode and collect canonical mixed, media-only and multi-candidate results without dropping economic identity.
+  - **Step 4:** Map financial errors through the completed shared classifier. An encoder, collector or connection failure after provider computation cannot alter provider usage or suppress billing.
+  - **Step 5:** Run independent positive field-receipt and mixed-output fixtures plus narrow native negatives. Do not modify another frontend or shared canonical schema in this packet.
+  - **Step 6:** Instantiate generic scenarios only for this frontend and its locked native joint-contract clauses. A native-inexpressible output receives the precise negative case, not a fabricated extension. Do not implement Gemini-only fields or another frontend's WebSocket protocol here. The complete cross-frontend expansion belongs to task 15.1.
+  - **Acceptance:** Every required native field reaches the final prepared request with the same economic meaning. There are no unexpected field drops.
+  - **Acceptance:** Charges are independent of visible text and delivery mode. Unsupported native cases cause zero payable dispatches.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.4, 21.1, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.4, 23.5, 24.1, 24.2, 24.3, 24.4, 24.5_
+  - _Boundary: Anthropic Messages frontend_
+  - _Depends: 11.2, 11.3, 11.5, 11.10, 8.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 12.3`; required scenarios S70, S73, S74, S75, S88, S89, S90, S91, S92, S93, S101, S106, S83 and affected existing tests._
+
+- [ ] 12.4 Preserve full mixed economics through the Gemini frontend
+  - **Goal:** Implement native-representable mixed input/output and all economic fields in the real Gemini driving adapter.
+  - **Packet:** [T69](execution/T69.md).
+  - **Deliverables:** Gemini complete native field receipts and lossless media decode/encode.; Gemini positive and justified negative mixed-mode fixtures.
+  - **Step 1:** Use the 11.10 TCK and completed canonical contracts to handle these native field families: contents parts including inlineData/fileData and native generationConfig responseModalities, candidateCount, mediaResolution, speechConfig, imageConfig and thinkingConfig. Preserve explicit presence, order, nesting and output intent.
+  - **Step 2:** Implement missing natively representable media mappings. Reject only a precise native limitation before payable work; a missing proxy mapping remains an unfinished positive obligation.
+  - **Step 3:** Keep frontend delivery independent of backend transport. Encode and collect canonical mixed, media-only and multi-candidate results without dropping economic identity.
+  - **Step 4:** Map financial errors through the completed shared classifier. An encoder, collector or connection failure after provider computation cannot alter provider usage or suppress billing.
+  - **Step 5:** Run independent positive field-receipt and mixed-output fixtures plus narrow native negatives. Do not modify another frontend or shared canonical schema in this packet.
+  - **Step 6:** Instantiate generic scenarios only for this frontend and its locked native joint-contract clauses. A native-inexpressible output receives the precise negative case, not a fabricated extension. Do not implement Gemini-only fields or another frontend's WebSocket protocol here. The complete cross-frontend expansion belongs to task 15.1.
+  - **Acceptance:** Every required native field reaches the final prepared request with the same economic meaning. There are no unexpected field drops.
+  - **Acceptance:** Charges are independent of visible text and delivery mode. Unsupported native cases cause zero payable dispatches.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.4, 23.5, 24.1, 24.2, 24.3, 24.4, 24.5_
+  - _Boundary: Gemini frontend_
+  - _Depends: 11.2, 11.3, 11.5, 11.10, 8.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 12.4`; required scenarios S70, S73, S74, S75, S88, S89, S90, S91, S92, S93, S101, S106, S76, S80, S81, S82, S83, S84 and affected existing tests._
+
+- [ ] 12.5 Preserve full mixed economics through the OpenResponses frontend
+  - **Goal:** Implement native-representable mixed input/output and all economic fields in the real OpenResponses driving adapter.
+  - **Packet:** [T70](execution/T70.md).
+  - **Deliverables:** OpenResponses complete native field receipts and lossless media decode/encode.; OpenResponses positive and justified negative mixed-mode fixtures.
+  - **Step 1:** Use the 11.10 TCK and completed canonical contracts to handle these native field families: authoritative items, supported extensions and media carriers, response resource identity and optional WebSocket framing. Preserve explicit presence, order, nesting and output intent.
+  - **Step 2:** Implement missing natively representable media mappings. Reject only a precise native limitation before payable work; a missing proxy mapping remains an unfinished positive obligation.
+  - **Step 3:** Keep frontend delivery independent of backend transport. Encode and collect canonical mixed, media-only and multi-candidate results without dropping economic identity.
+  - **Step 4:** Map financial errors through the completed shared classifier. An encoder, collector or connection failure after provider computation cannot alter provider usage or suppress billing.
+  - **Step 5:** Run independent positive field-receipt and mixed-output fixtures plus narrow native negatives. Do not modify another frontend or shared canonical schema in this packet.
+  - **Step 6:** Instantiate generic scenarios only for this frontend and its locked native joint-contract clauses. A native-inexpressible output receives the precise negative case, not a fabricated extension. Do not implement Gemini-only fields or another frontend's WebSocket protocol here. The complete cross-frontend expansion belongs to task 15.1.
+  - **Acceptance:** Every required native field reaches the final prepared request with the same economic meaning. There are no unexpected field drops.
+  - **Acceptance:** Charges are independent of visible text and delivery mode. Unsupported native cases cause zero payable dispatches.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.4, 23.5, 24.1, 24.2, 24.3, 24.4, 24.5_
+  - _Boundary: OpenResponses frontend_
+  - _Depends: 11.2, 11.3, 11.5, 11.10, 8.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 12.5`; required scenarios S70, S73, S74, S75, S88, S89, S90, S91, S92, S93, S101, S106, S80, S81, S82, S83, S84, S94 and affected existing tests._
+
+## Workstream 13 — Omitted and generic native backend implementations
+
+- [ ] 13.1 Implement Bedrock prepared mixed-media financial contract
+  - **Goal:** Cover the omitted real AWS Converse/ConverseStream backend without borrowing another family’s semantics.
+  - **Packet:** [T71](execution/T71.md).
+  - **Deliverables:** Bedrock model/operation-bound prepared dispatch.; AWS event-stream media, cache, final usage and retry-fence tests.
+  - **Step 1:** Prepare through ConverseStreamInputForCall and the actual typed AWS content blocks. Preserve natively supported media and qualified inference limits.
+  - **Step 2:** Apply model-specific native fields and usage under the explicit Bedrock contract. Do not infer OpenAI counter semantics from similar names.
+  - **Step 3:** Disable automatic paid SDK retries unless every actual repeat consumes a fresh funded attempt. Test timeout after provider acceptance.
+  - **Step 4:** Retain final metadata, input/output usage, cache TTL details and native component presence with the real provider request identity.
+  - **Step 5:** Exercise every required supported joint shape and independent frontend delivery mode against the recording AWS transport. Native impossibility must be model-specific, not a whole-family media ban.
+  - **Step 6:** Apply generic mixed scenarios to this concrete family using its locked native clauses. All native-valid finite cases are positive-required. For a natively absent modality, run the exact incompatibility case without inventing an API; the generic six-modality arithmetic is independently exercised by tasks 11.6, 11.7 and 15.2. Do not use such negative cases to replace the required family positives.
+  - **Acceptance:** S103 includes actual text plus image/document preparation and exact contracted usage through the AWS decoder.
+  - **Acceptance:** No automatic AWS retry escapes funding and no unsupported native modality is falsely advertised.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.4, 23.5, 24.1, 24.4, 24.5_
+  - _Boundary: Bedrock backend_
+  - _Depends: 11.3, 11.4, 11.5, 11.6, 11.7, 11.10, 4.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 13.1`; required scenarios S73, S74, S78, S83, S87, S90, S93, S102, S103, S106 and affected existing tests._
+
+- [ ] 13.2 Implement Alibaba token-plan mixed-media financial contract
+  - **Goal:** Cover the omitted Alibaba adapter with explicit plan-unit and monetary semantics.
+  - **Packet:** [T72](execution/T72.md).
+  - **Deliverables:** Alibaba endpoint/profile-bound media and usage contract.; Independent plan-unit, customer-tariff and supplier-cost fixtures.
+  - **Step 1:** Drive the existing Alibaba wrapper and its actual concrete native-family adapter. Reuse a family contract only through explicit endpoint/model compatibility.
+  - **Step 2:** Preserve every native-representable mixed part, output option and usage support. A wrapper contribution cannot disappear from inventory because it looks compatible.
+  - **Step 3:** Keep plan tokens, requests and quota units separate from monetary charges. Do not infer currency amounts or zero marginal cost from a subscription label.
+  - **Step 4:** Bind profile and prepared limits to funding and disable unaccounted retries.
+  - **Step 5:** Run the real wrapper against a recording provider for both legal frontend modes and required mixed positive fixtures.
+  - **Step 6:** Apply generic mixed scenarios to this concrete family using its locked native clauses. All native-valid finite cases are positive-required. For a natively absent modality, run the exact incompatibility case without inventing an API; the generic six-modality arithmetic is independently exercised by tasks 11.6, 11.7 and 15.2. Do not use such negative cases to replace the required family positives.
+  - **Acceptance:** Independent plan consumption and monetary amounts remain correct in S104. Native component loss is a test failure.
+  - **Acceptance:** The subscription wrapper cannot bypass prepared funding or default customer billing to free.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.5, 23.4, 23.5, 24.1, 24.2, 24.4, 24.5_
+  - _Boundary: Alibaba backend_
+  - _Depends: 11.3, 11.5, 11.6, 11.7, 11.10, 4.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 13.2`; required scenarios S70, S74, S87, S90, S102, S104, S106 and affected existing tests._
+
+- [ ] 13.3 Implement generic OpenResponses backend mixed carriers
+  - **Goal:** Keep generic OpenResponses economically complete without assuming every compatible vendor is OpenAI.
+  - **Packet:** [T73](execution/T73.md).
+  - **Deliverables:** Generic OpenResponses media preparation and profile-scoped economic evidence.; Native extension, mixed-output and finality fixtures.
+  - **Step 1:** Own the generic OpenResponses backend changes separately from task 5.2, which now owns OpenAI Responses only. Consume the completed canonical media contracts.
+  - **Step 2:** Prepare the full Items-authoritative input and output plan. Preserve economic extensions only when an explicit field receipt handles them.
+  - **Step 3:** Use the concrete profile schema and tariffs. Do not inherit OpenAI cache, audio or prediction relationships without explicit compatibility.
+  - **Step 4:** Capture candidate, media chunk, asset and native revision evidence before frontend framing.
+  - **Step 5:** Exercise finite asynchronous retrieval and replay only where the configured native operation actually exposes them. Do not invent an upstream API to recover usage.
+  - **Step 6:** Apply generic mixed scenarios to this concrete family using its locked native clauses. All native-valid finite cases are positive-required. For a natively absent modality, run the exact incompatibility case without inventing an API; the generic six-modality arithmetic is independently exercised by tasks 11.6, 11.7 and 15.2. Do not use such negative cases to replace the required family positives.
+  - **Acceptance:** Every required native-supported case completes the real adapter path with correct recorded units and charges. A safe runtime denial alone does not satisfy that positive obligation.
+  - **Acceptance:** Preserve all eleven original financial invariants and the existing non-billing host behavior. No historical repricing or unbounded external work is authorized.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.4, 23.5, 24.1, 24.2, 24.4_
+  - _Boundary: OpenResponses backend_
+  - _Depends: 11.3, 11.4, 11.5, 11.6, 11.7, 11.10, 4.2_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 13.3`; required scenarios S70, S73, S74, S75, S81, S84, S89, S90, S93, S95, S106 and affected existing tests._
+
+## Workstream 14 — Connector ABI and every module-local certification
+
+- [ ] 14.1 Extend connector ABI and host TCK for mixed media economics
+  - **Goal:** Conserve canonical media, joint bounds, receipts and source evidence through executable connector boundaries.
+  - **Packet:** [T74](execution/T74.md).
+  - **Deliverables:** Versioned connector DTO/proto media and economic field conversion.; Real-entrypoint module TCK with local recording upstreams.; Complete module/profile test-target manifest.
+  - **Step 1:** Extend the existing connector ABI additively for D18 media and D20 joint economic contracts. An old peer cannot claim new strict-media proofs. Use the repository protobuf generation command rather than editing generated code.
+  - **Step 2:** Round-trip presence, native units, candidate identity, qualifiers, resource references and joint contract digests. New unknown fields and enums require an explicit disposition.
+  - **Step 3:** Implement the module TCK using each real manifest, entrypoint and recording upstream. Feeding already-normalized usage directly to the host does not test a module codec.
+  - **Step 4:** Apply the fixed module branch: a family delegate consumes completed family fixtures; a bespoke codec uses its existing native mappings; an inherently unbounded agent cannot claim paid support without remote finite enforcement and still runs finite synthetic ABI tests.
+  - **Step 5:** Export exact module-local test coordinates and fixture bindings for tasks 14.2 through 14.35. Missing proprietary facts are BLOCKED with the exact missing contract, never invented tariffs or a passed denial.
+  - **Acceptance:** All declared media and native units survive the actual subprocess and ABI path. Unsupported old peers fail safely.
+  - **Acceptance:** Removing a module or economic field invalidates coverage independently of task status.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector shared ABI/host TCK_
+  - _Depends: 11.2, 11.3, 11.5, 11.10, 5.5_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.1`; required scenarios S68, S69, S74, S89, S102, S105, S110 and affected existing tests._
+
+- [ ] 14.2 Certify the acp connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual acp module, not merely its host ABI.
+  - **Packet:** [T75](execution/T75.md).
+  - **Deliverables:** acp module-local joint contract and complete native field mappings.; acp real-entrypoint positive/negative TCK receipts.; acp profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual acp manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/acp working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/acp`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module acp_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.2`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.3 Certify the agycliacp connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual agycliacp module, not merely its host ABI.
+  - **Packet:** [T76](execution/T76.md).
+  - **Deliverables:** agycliacp module-local joint contract and complete native field mappings.; agycliacp real-entrypoint positive/negative TCK receipts.; agycliacp profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual agycliacp manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/agycliacp working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/agycliacp`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module agycliacp_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.3`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.4 Certify the azure connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual azure module, not merely its host ABI.
+  - **Packet:** [T77](execution/T77.md).
+  - **Deliverables:** azure module-local joint contract and complete native field mappings.; azure real-entrypoint positive/negative TCK receipts.; azure profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual azure manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/azure working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/azure`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module azure_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.4`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.5 Certify the cloudflare connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual cloudflare module, not merely its host ABI.
+  - **Packet:** [T78](execution/T78.md).
+  - **Deliverables:** cloudflare module-local joint contract and complete native field mappings.; cloudflare real-entrypoint positive/negative TCK receipts.; cloudflare profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual cloudflare manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/cloudflare working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/cloudflare`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module cloudflare_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.5`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.6 Certify the codex connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual codex module, not merely its host ABI.
+  - **Packet:** [T79](execution/T79.md).
+  - **Deliverables:** codex module-local joint contract and complete native field mappings.; codex real-entrypoint positive/negative TCK receipts.; codex profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual codex manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/codex working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/codex`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module codex_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.6`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.7 Certify the cohere connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual cohere module, not merely its host ABI.
+  - **Packet:** [T80](execution/T80.md).
+  - **Deliverables:** cohere module-local joint contract and complete native field mappings.; cohere real-entrypoint positive/negative TCK receipts.; cohere profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual cohere manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/cohere working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/cohere`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module cohere_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.7`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.8 Certify the commandcode-anthropic connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual commandcode-anthropic module, not merely its host ABI.
+  - **Packet:** [T81](execution/T81.md).
+  - **Deliverables:** commandcode-anthropic module-local joint contract and complete native field mappings.; commandcode-anthropic real-entrypoint positive/negative TCK receipts.; commandcode-anthropic profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual commandcode-anthropic manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/commandcode-anthropic working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/commandcode-anthropic`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module commandcode-anthropic_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.8`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.9 Certify the commandcode-openai connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual commandcode-openai module, not merely its host ABI.
+  - **Packet:** [T82](execution/T82.md).
+  - **Deliverables:** commandcode-openai module-local joint contract and complete native field mappings.; commandcode-openai real-entrypoint positive/negative TCK receipts.; commandcode-openai profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual commandcode-openai manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/commandcode-openai working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/commandcode-openai`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module commandcode-openai_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.9`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.10 Certify the cursorcliacp connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual cursorcliacp module, not merely its host ABI.
+  - **Packet:** [T83](execution/T83.md).
+  - **Deliverables:** cursorcliacp module-local joint contract and complete native field mappings.; cursorcliacp real-entrypoint positive/negative TCK receipts.; cursorcliacp profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual cursorcliacp manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/cursorcliacp working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/cursorcliacp`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module cursorcliacp_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.10`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.11 Certify the cursorsdk connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual cursorsdk module, not merely its host ABI.
+  - **Packet:** [T84](execution/T84.md).
+  - **Deliverables:** cursorsdk module-local joint contract and complete native field mappings.; cursorsdk real-entrypoint positive/negative TCK receipts.; cursorsdk profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual cursorsdk manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/cursorsdk working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/cursorsdk`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module cursorsdk_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.11`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.12 Certify the databricks connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual databricks module, not merely its host ABI.
+  - **Packet:** [T85](execution/T85.md).
+  - **Deliverables:** databricks module-local joint contract and complete native field mappings.; databricks real-entrypoint positive/negative TCK receipts.; databricks profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual databricks manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/databricks working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/databricks`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module databricks_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.12`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.13 Certify the geminicliacp connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual geminicliacp module, not merely its host ABI.
+  - **Packet:** [T86](execution/T86.md).
+  - **Deliverables:** geminicliacp module-local joint contract and complete native field mappings.; geminicliacp real-entrypoint positive/negative TCK receipts.; geminicliacp profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual geminicliacp manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/geminicliacp working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/geminicliacp`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module geminicliacp_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.13`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.14 Certify the gitlabduo connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual gitlabduo module, not merely its host ABI.
+  - **Packet:** [T87](execution/T87.md).
+  - **Deliverables:** gitlabduo module-local joint contract and complete native field mappings.; gitlabduo real-entrypoint positive/negative TCK receipts.; gitlabduo profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual gitlabduo manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/gitlabduo working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/gitlabduo`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module gitlabduo_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.14`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.15 Certify the huggingface connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual huggingface module, not merely its host ABI.
+  - **Packet:** [T88](execution/T88.md).
+  - **Deliverables:** huggingface module-local joint contract and complete native field mappings.; huggingface real-entrypoint positive/negative TCK receipts.; huggingface profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual huggingface manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/huggingface working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/huggingface`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module huggingface_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.15`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.16 Certify the infomaniak connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual infomaniak module, not merely its host ABI.
+  - **Packet:** [T89](execution/T89.md).
+  - **Deliverables:** infomaniak module-local joint contract and complete native field mappings.; infomaniak real-entrypoint positive/negative TCK receipts.; infomaniak profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual infomaniak manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/infomaniak working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/infomaniak`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module infomaniak_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.16`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.17 Certify the llamacpp connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual llamacpp module, not merely its host ABI.
+  - **Packet:** [T90](execution/T90.md).
+  - **Deliverables:** llamacpp module-local joint contract and complete native field mappings.; llamacpp real-entrypoint positive/negative TCK receipts.; llamacpp profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual llamacpp manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/llamacpp working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/llamacpp`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module llamacpp_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.17`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.18 Certify the lmstudio connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual lmstudio module, not merely its host ABI.
+  - **Packet:** [T91](execution/T91.md).
+  - **Deliverables:** lmstudio module-local joint contract and complete native field mappings.; lmstudio real-entrypoint positive/negative TCK receipts.; lmstudio profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual lmstudio manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/lmstudio working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/lmstudio`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module lmstudio_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.18`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.19 Certify the localstub connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual localstub module, not merely its host ABI.
+  - **Packet:** [T92](execution/T92.md).
+  - **Deliverables:** localstub module-local joint contract and complete native field mappings.; localstub real-entrypoint positive/negative TCK receipts.; localstub profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual localstub manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/localstub working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/localstub`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module localstub_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.19`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.20 Certify the minimexoauth connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual minimexoauth module, not merely its host ABI.
+  - **Packet:** [T93](execution/T93.md).
+  - **Deliverables:** minimexoauth module-local joint contract and complete native field mappings.; minimexoauth real-entrypoint positive/negative TCK receipts.; minimexoauth profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual minimexoauth manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/minimexoauth working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/minimexoauth`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module minimexoauth_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.20`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.21 Certify the nousportal connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual nousportal module, not merely its host ABI.
+  - **Packet:** [T94](execution/T94.md).
+  - **Deliverables:** nousportal module-local joint contract and complete native field mappings.; nousportal real-entrypoint positive/negative TCK receipts.; nousportal profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual nousportal manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/nousportal working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/nousportal`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module nousportal_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.21`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.22 Certify the nvidia connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual nvidia module, not merely its host ABI.
+  - **Packet:** [T95](execution/T95.md).
+  - **Deliverables:** nvidia module-local joint contract and complete native field mappings.; nvidia real-entrypoint positive/negative TCK receipts.; nvidia profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual nvidia manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/nvidia working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/nvidia`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module nvidia_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.22`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.23 Certify the oci connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual oci module, not merely its host ABI.
+  - **Packet:** [T96](execution/T96.md).
+  - **Deliverables:** oci module-local joint contract and complete native field mappings.; oci real-entrypoint positive/negative TCK receipts.; oci profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual oci manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/oci working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/oci`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module oci_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.23`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.24 Certify the ollama connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual ollama module, not merely its host ABI.
+  - **Packet:** [T97](execution/T97.md).
+  - **Deliverables:** ollama module-local joint contract and complete native field mappings.; ollama real-entrypoint positive/negative TCK receipts.; ollama profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual ollama manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/ollama working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/ollama`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module ollama_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.24`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.25 Certify the opencode connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual opencode module, not merely its host ABI.
+  - **Packet:** [T98](execution/T98.md).
+  - **Deliverables:** opencode module-local joint contract and complete native field mappings.; opencode real-entrypoint positive/negative TCK receipts.; opencode profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual opencode manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/opencode working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/opencode`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module opencode_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.25`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.26 Certify the openrouter connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual openrouter module, not merely its host ABI.
+  - **Packet:** [T99](execution/T99.md).
+  - **Deliverables:** openrouter module-local joint contract and complete native field mappings.; openrouter real-entrypoint positive/negative TCK receipts.; openrouter profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual openrouter manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/openrouter working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/openrouter`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module openrouter_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.26`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.27 Certify the qwenoauth connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual qwenoauth module, not merely its host ABI.
+  - **Packet:** [T100](execution/T100.md).
+  - **Deliverables:** qwenoauth module-local joint contract and complete native field mappings.; qwenoauth real-entrypoint positive/negative TCK receipts.; qwenoauth profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual qwenoauth manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/qwenoauth working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/qwenoauth`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module qwenoauth_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.27`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.28 Certify the replicate connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual replicate module, not merely its host ABI.
+  - **Packet:** [T101](execution/T101.md).
+  - **Deliverables:** replicate module-local joint contract and complete native field mappings.; replicate real-entrypoint positive/negative TCK receipts.; replicate profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual replicate manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/replicate working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/replicate`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module replicate_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.28`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.29 Certify the sagemaker connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual sagemaker module, not merely its host ABI.
+  - **Packet:** [T102](execution/T102.md).
+  - **Deliverables:** sagemaker module-local joint contract and complete native field mappings.; sagemaker real-entrypoint positive/negative TCK receipts.; sagemaker profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual sagemaker manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/sagemaker working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/sagemaker`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module sagemaker_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.29`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.30 Certify the sapaicore connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual sapaicore module, not merely its host ABI.
+  - **Packet:** [T103](execution/T103.md).
+  - **Deliverables:** sapaicore module-local joint contract and complete native field mappings.; sapaicore real-entrypoint positive/negative TCK receipts.; sapaicore profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual sapaicore manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/sapaicore working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/sapaicore`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module sapaicore_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.30`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.31 Certify the snowflake connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual snowflake module, not merely its host ABI.
+  - **Packet:** [T104](execution/T104.md).
+  - **Deliverables:** snowflake module-local joint contract and complete native field mappings.; snowflake real-entrypoint positive/negative TCK receipts.; snowflake profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual snowflake manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/snowflake working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/snowflake`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module snowflake_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.31`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.32 Certify the vertex connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual vertex module, not merely its host ABI.
+  - **Packet:** [T105](execution/T105.md).
+  - **Deliverables:** vertex module-local joint contract and complete native field mappings.; vertex real-entrypoint positive/negative TCK receipts.; vertex profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual vertex manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/vertex working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/vertex`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module vertex_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.32`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.33 Certify the vllm connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual vllm module, not merely its host ABI.
+  - **Packet:** [T106](execution/T106.md).
+  - **Deliverables:** vllm module-local joint contract and complete native field mappings.; vllm real-entrypoint positive/negative TCK receipts.; vllm profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual vllm manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/vllm working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/vllm`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module vllm_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.33`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.34 Certify the watsonx connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual watsonx module, not merely its host ABI.
+  - **Packet:** [T107](execution/T107.md).
+  - **Deliverables:** watsonx module-local joint contract and complete native field mappings.; watsonx real-entrypoint positive/negative TCK receipts.; watsonx profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual watsonx manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/watsonx working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/watsonx`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module watsonx_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.34`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+- [ ] 14.35 Certify the xaioauth connector end to end
+  - **Goal:** Close every native-finite mixed-media billing obligation for the actual xaioauth module, not merely its host ABI.
+  - **Packet:** [T108](execution/T108.md).
+  - **Deliverables:** xaioauth module-local joint contract and complete native field mappings.; xaioauth real-entrypoint positive/negative TCK receipts.; xaioauth profile, operation and carrier expansion for the complete coverage universe.
+  - **Step 1:** Run the 14.1 module TCK through the actual xaioauth manifest and entrypoint. Read only its entrypoint, direct upstream codec and declared helper bindings; no architecture or provider research is assigned.
+  - **Step 2:** Apply the fixed D24 integration branch. A delegate binds the completed family contract to its actual profile/version. A bespoke native codec maps its existing fields into the completed media and economic receipt contract.
+  - **Step 3:** Implement missing forwarding for every required native-finite input/output mixture in the supplied TCK. Missing billing code is not a valid native-unsupported disposition.
+  - **Step 4:** Keep genuine native or provider-enforcement limitations narrow and source-bound. A local timeout cannot certify unbounded agent work. Finite synthetic agent fixtures still verify the ABI, evidence and account fence without claiming the real unbounded operation is paid-safe.
+  - **Step 5:** Exercise every module profile, native operation and carrier in both legal frontend modes, including mixed input/history, cancellation, duplicated and late evidence. Disable unfunded internal retries and retain real provider operation/charge identity.
+  - **Step 6:** Run the task prefix from the connectors/xaioauth working directory. Save recording-provider and ledger receipts for task 15.1. Do not change shared contracts in this module packet; missing native facts produce a precise BLOCKED receipt rather than guessed behavior.
+  - **Acceptance:** Every required module coordinate has evidence through the real codec and managed dispatch boundary. No skipped or deny-all test suite certifies support.
+  - **Acceptance:** Account, dispatch, native units, presence and media identity survive to balanced billing. Every provider start is funded.
+  - **Acceptance:** Required billing gaps or missing positive fixtures prevent completion. Genuine native limitations have precise versioned predicates.
+  - **Scope:** At most 12 changed Go files; working directory `connectors/xaioauth`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: connector module xaioauth_
+  - _Depends: 14.1, 11.6, 11.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 14.35`; required scenarios S68, S69, S74, S75, S89, S90, S93, S95, S102, S105, S110, S111 and affected existing tests._
+
+## Workstream 15 — Exhaustive mixed-interface release evidence
+
+- [ ] 15.1 Implement exhaustive cross-interface modality matrix runner
+  - **Goal:** Execute every native-positive signature and justified negative across actual interfaces and transports.
+  - **Packet:** [T109](execution/T109.md).
+  - **Deliverables:** Lazy complete coordinate generator and deterministic shards.; Real decode-to-ledger positive path and justified negative runner.; Exact expansion counts, checksums and execution receipts.
+  - **Step 1:** Use the locked baseline and actual 11.1 export. Enumerate every base pair and mask before capability filtering, then expand all concrete profiles, operations, carriers and independent mode pairs.
+  - **Step 2:** For every required positive cell execute the real frontend decoder, canonical preparation, backend encoder, native recording transport, evidence capture and settlement. Connector cells include the actual module entrypoint.
+  - **Step 3:** For native-unrepresentable or inherently unbounded cells validate the independent native predicate and zero payable dispatches. Missing implementation or runtime prerequisites fail certification.
+  - **Step 4:** Reuse bounded hosts and fixture databases per pair shard, but allocate unique dispatch identities. Keep heavy exhaustive work in an explicit release lane, not the default unit loop.
+  - **Step 5:** Write actual-SHA, universe-digest, contract-digest, coordinate and test identities for every expansion. Retain provider-start and balanced-journal assertions. Missing expansions or shards fail.
+  - **Acceptance:** Every baseline pair and mask has completed evidence or a named blocker; no coordinate is omitted.
+  - **Acceptance:** Deny-all, filtered denominators and forced-equal delivery modes fail independent tests.
+  - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 21.1, 21.4, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.2, 24.4, 24.5, 24.6_
+  - _Boundary: test-only cross-interface matrix_
+  - _Depends: 11.1, 11.10, 11.8, 8.4, 9.4, 12.1, 12.2, 12.3, 12.4, 12.5, 13.1, 13.2, 13.3, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8, 14.9, 14.10, 14.11, 14.12, 14.13, 14.14, 14.15, 14.16, 14.17, 14.18, 14.19, 14.20, 14.21, 14.22, 14.23, 14.24, 14.25, 14.26, 14.27, 14.28, 14.29, 14.30, 14.31, 14.32, 14.33, 14.34, 14.35_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 15.1`; required scenarios S67, S68, S70, S71, S72, S73, S93, S100, S105, S110, S112 and affected existing tests._
+
+- [ ] 15.2 Implement independent mixed economics composition oracles
+  - **Goal:** Test arbitrary allowed media order/count/encoding and exact charge algebra beyond fixed masks.
+  - **Packet:** [T110](execution/T110.md).
+  - **Deliverables:** Independent literal/rational economics oracle.; Constructive media composition and rounding property tests.; Replayable seeds and mutation evidence.
+  - **Step 1:** Use coverage/economic-fixtures.json literal expected amounts in a test-only rational evaluator that does not call production Q or rating.
+  - **Step 2:** Generate allowed repetitions, nesting, order, equivalent encodings, chunk partitions and quantity boundaries with reproducible seeds. Invalid maximum-plus-one inputs deny before liability.
+  - **Step 3:** Assert that repeated paid attempts remain additive while transport replay and cumulative usage remain idempotent.
+  - **Step 4:** Generate unresolved cache-by-modality intersections and late exact breakdowns. Verify known charge progress and protected residual liabilities.
+  - **Step 5:** Record seeds, case counts and boundary coverage. Mutating production direction, units, rates or overlap rules must fail.
+  - **Acceptance:** Exact expected charges and upper bounds are verified without using production logic as the expected-result oracle.
+  - **Acceptance:** Property fixtures include valid three-or-more-modality input mixtures and multi-modality output, not only isolated content types.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.4, 18.1, 18.2, 18.3, 18.4, 18.6, 19.3, 19.5, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.2, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: test-only exact/property oracles_
+  - _Depends: 11.6, 11.7, 11.10, 15.1_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 15.2`; required scenarios S74, S75, S80, S81, S82, S83, S84, S85, S86, S87, S89, S90, S91, S108, S111 and affected existing tests._
+
+- [ ] 15.3 Certify mixed lifecycle and distributed financial failures
+  - **Goal:** Repeat original safety failures with mixed media, reusable sessions and async work.
+  - **Packet:** [T111](execution/T111.md).
+  - **Deliverables:** Mixed burst, cancellation, crash and long-outage receipts.; WebSocket, async result replay and no-visible-output lifecycle tests.
+  - **Step 1:** Reuse the real process barriers from 9.5 and 9.6 with heterogeneous mixed-media literal bounds instead of identical text requests.
+  - **Step 2:** Crash after provider acceptance and before first financial enqueue or acknowledgement. Inject more than 20 billing write failures and then restore the store.
+  - **Step 3:** Exercise concurrent WebSocket responses, child requests, async jobs and resources while freezing the account across processes. Verify that another account is unaffected.
+  - **Step 4:** Record actual provider starts, known charges, debt, residual exposure and balanced entries. Processed flags are not the expected oracle.
+  - **Step 5:** Run required SQLite, PostgreSQL and multiprocess gates. Missing services or skipped tests are failures, not release passes.
+  - **Acceptance:** All original financial contracts have mixed-work evidence in the mandatory topologies; failures block release.
+  - **Acceptance:** Disconnect, output loss and retry cannot erase charges or duplicate ambiguous provider execution.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.4, 17.6, 18.2, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: mixed real-topology certification_
+  - _Depends: 15.1, 11.9, 9.5, 9.6_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 15.3`; required scenarios S92, S94, S95, S96, S97, S98, S99, S102, S107, S112 and affected existing tests._
+
+- [ ] 15.4 Add schema-drift and modality-loss mutation gates
+  - **Goal:** Make incomplete coverage impossible to report as a passing release.
+  - **Packet:** [T112](execution/T112.md).
+  - **Deliverables:** Field, enum, protobuf and registration coverage closure checks.; Independent mutation catalog and named failing tests.; Release receipt validator rejecting gaps and vacuous success.
+  - **Step 1:** Implement each S109 mutation as a named isolated regression or mutation fixture. Every mutation must fail at least one independent test.
+  - **Step 2:** Validate the full universe and every profile, operation, carrier and mode expansion before accepting execution receipts. Do not filter the denominator using production readiness.
+  - **Step 3:** Require positive mixed native obligations and real pipeline evidence. Negative native claims require a versioned native predicate and zero payable starts.
+  - **Step 4:** Reject stale receipts after any schema, implementation or economic contract change. Not-run, missing-price and skipped cases are not native negatives.
+  - **Step 5:** Run validator negatives that remove a connector, mask, mode, positive execution or shard, and a deny-all implementation.
+  - **Acceptance:** Every specified malformed coverage fixture fails. A controlled complete synthetic fixture passes only validation, not a real proxy certificate.
+  - **Acceptance:** Optional support flags cannot remove a native-positive obligation from the release universe.
+  - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.4, 21.1, 21.4, 22.1, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: test/tool release gates_
+  - _Depends: 15.1, 15.2, 9.4_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 15.4`; required scenarios S69, S72, S76, S89, S100, S101, S106, S109, S110 and affected existing tests._
+
+- [ ] 15.5 Verify complete mixed-interface release evidence
+  - **Goal:** Close coverage only after every interface, modality and financial fault obligation has actual evidence.
+  - **Packet:** [T113](execution/T113.md).
+  - **Deliverables:** Complete actual-code and actual-universe coverage certificate.; Published supported and genuinely limited combinations without concealed implementation gaps.
+  - **Step 1:** Verify every mandatory task, module and adapter receipt, including all concrete profiles and expanded native operations, carriers and mode combinations. Check coordinate counts and completeness roots.
+  - **Step 2:** Combine the mixed financial failure evidence from 15.3 with the eleven original contracts. Empty, missing or skipped tests are failures.
+  - **Step 3:** Reject every required native billing gap and any native-unsupported claim based only on missing proxy code.
+  - **Step 4:** Publish measured support, precise native limitations and finite proof scope. Do not claim every future provider or every possible payload byte sequence has been proven.
+  - **Step 5:** Hand the actual certificate and hashes to 10.2. This packet does not authorize production activation or a completion claim without saved evidence.
+  - **Acceptance:** Every required coordinate and topology is evidenced. Missing obligations yield NO-GO with explicit IDs.
+  - **Acceptance:** Specification tooling results cannot be substituted for implementation execution evidence.
+  - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
+  - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
+  - _Boundary: release-evidence verification_
+  - _Depends: 15.1, 15.2, 15.3, 15.4, 9.7_
+  - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 15.5`; required scenarios S70, S71, S72, S93, S98, S99, S109, S110, S111, S112 and affected existing tests._

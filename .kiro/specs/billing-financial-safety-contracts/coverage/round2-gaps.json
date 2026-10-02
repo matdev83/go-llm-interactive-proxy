@@ -1,0 +1,254 @@
+{
+  "version": 2,
+  "status": "resolved_in_specification_not_implemented",
+  "gaps": [
+    {
+      "id": "R2-01",
+      "title": "Text-only completion scope",
+      "finding": "Original requirement 12.1, D10 and task 5.6 permit completing a text-focused certificate while broadly denying media.",
+      "requirement_groups": [
+        17,
+        19,
+        23
+      ],
+      "tasks": [
+        "11.1",
+        "11.5",
+        "5.6",
+        "15.5"
+      ],
+      "sources": [
+        "SRC03",
+        "SRC04"
+      ]
+    },
+    {
+      "id": "R2-02",
+      "title": "Omitted native backend owners",
+      "finding": "The original four-family packets omit the distinct Bedrock and Alibaba contributions.",
+      "requirement_groups": [
+        17,
+        21
+      ],
+      "tasks": [
+        "13.1",
+        "13.2"
+      ],
+      "sources": [
+        "SRC01",
+        "SRC09"
+      ]
+    },
+    {
+      "id": "R2-03",
+      "title": "Generic connector certification is insufficient",
+      "finding": "A common connector transport proof does not exercise each of 34 module-native encoders, usage mappings or economic limits.",
+      "requirement_groups": [
+        17,
+        23
+      ],
+      "tasks": [
+        "14.1",
+        "14.2",
+        "14.3",
+        "14.4",
+        "14.5",
+        "14.6",
+        "14.7",
+        "14.8",
+        "14.9",
+        "14.10",
+        "14.11",
+        "14.12",
+        "14.13",
+        "14.14",
+        "14.15",
+        "14.16",
+        "14.17",
+        "14.18",
+        "14.19",
+        "14.20",
+        "14.21",
+        "14.22",
+        "14.23",
+        "14.24",
+        "14.25",
+        "14.26",
+        "14.27",
+        "14.28",
+        "14.29",
+        "14.30",
+        "14.31",
+        "14.32",
+        "14.33",
+        "14.34",
+        "14.35"
+      ],
+      "sources": [
+        "SRC10"
+      ]
+    },
+    {
+      "id": "R2-04",
+      "title": "Input and output canonical media loss",
+      "finding": "Image/file references alone lack the joint output plan and candidate/media chunk identity needed for full mixed semantics.",
+      "requirement_groups": [
+        18,
+        22
+      ],
+      "tasks": [
+        "11.2",
+        "11.3",
+        "11.8"
+      ],
+      "sources": [
+        "SRC03",
+        "SRC04"
+      ]
+    },
+    {
+      "id": "R2-05",
+      "title": "Native economic options can be silently ignored",
+      "finding": "The Gemini decoder omits fileData and much native generation configuration in the inspected path.",
+      "requirement_groups": [
+        18,
+        19
+      ],
+      "tasks": [
+        "12.4",
+        "5.4",
+        "11.10"
+      ],
+      "sources": [
+        "SRC05",
+        "EXT01"
+      ]
+    },
+    {
+      "id": "R2-06",
+      "title": "Individual capabilities do not prove a mixture",
+      "finding": "An exact native output combination cannot be reconstructed from independent modality booleans.",
+      "requirement_groups": [
+        19,
+        23
+      ],
+      "tasks": [
+        "11.5",
+        "15.1"
+      ],
+      "sources": [
+        "EXT01"
+      ]
+    },
+    {
+      "id": "R2-07",
+      "title": "Reference size/count estimates are not hard bounds",
+      "finding": "Media resource processing, mutable references and estimated counts need explicit bounded input proofs.",
+      "requirement_groups": [
+        18,
+        19,
+        20
+      ],
+      "tasks": [
+        "11.4",
+        "11.6"
+      ],
+      "sources": [
+        "SRC03",
+        "EXT02",
+        "EXT03"
+      ]
+    },
+    {
+      "id": "R2-08",
+      "title": "Mixed native rates need disjoint support",
+      "finding": "Modality/cache/reasoning/prediction marginals, inclusive totals and multiple candidates require exact scopes, not additive field sums.",
+      "requirement_groups": [
+        20,
+        21
+      ],
+      "tasks": [
+        "11.6",
+        "11.7",
+        "15.2"
+      ],
+      "sources": [
+        "SRC06",
+        "EXT01",
+        "EXT04"
+      ]
+    },
+    {
+      "id": "R2-09",
+      "title": "Media-only and failed output can lose economics",
+      "finding": "The proof must separate actual provider work from text visibility, chunks, assets and output collection.",
+      "requirement_groups": [
+        21,
+        22
+      ],
+      "tasks": [
+        "11.8",
+        "15.3"
+      ],
+      "sources": [
+        "SRC04"
+      ]
+    },
+    {
+      "id": "R2-10",
+      "title": "Transport and reusable lifecycle axes are not closed",
+      "finding": "Independent upstream mode, WebSocket logical operations, compaction and async resource identity require separate obligations.",
+      "requirement_groups": [
+        17,
+        22
+      ],
+      "tasks": [
+        "11.9",
+        "12.5",
+        "15.3"
+      ],
+      "sources": [
+        "SRC02",
+        "SRC07",
+        "SRC08"
+      ]
+    },
+    {
+      "id": "R2-11",
+      "title": "Representative pair tests are not exhaustive",
+      "finding": "Original family-plus-sentinel gate cannot establish every pair and mixed signature; changing the denominator could hide failures.",
+      "requirement_groups": [
+        23,
+        24
+      ],
+      "tasks": [
+        "11.1",
+        "15.1",
+        "15.4",
+        "15.5"
+      ],
+      "sources": [
+        "SRC01",
+        "SRC10"
+      ]
+    },
+    {
+      "id": "R2-12",
+      "title": "Finite fixtures need compositional tests and truthful claims",
+      "finding": "Signature enumeration alone cannot prove arbitrary order/count/nesting, every future schema, or an unbounded external operation.",
+      "requirement_groups": [
+        24
+      ],
+      "tasks": [
+        "11.10",
+        "15.2",
+        "15.4",
+        "15.5"
+      ],
+      "sources": [
+        "SRC03",
+        "SRC04"
+      ]
+    }
+  ]
+}
