@@ -121,6 +121,12 @@ type Candidate struct {
 	OriginFail OriginFailMode
 	// ProviderOrigin injects an external reference-provider origin base URL.
 	ProviderOrigin string
+	// OriginHandler injects a custom reference-provider origin responder for this
+	// candidate, exactly as DeploymentSpec.OriginHandler does for the primary
+	// backend, while the observing proxy still counts, captures, and redacts every
+	// request. nil keeps the default family responder. It is what lets a failover
+	// or parallel-race cell script one candidate leg deterministically.
+	OriginHandler http.Handler
 }
 
 // DeploymentSpec is the generic cell selector: one spec resolves the entire
@@ -273,7 +279,7 @@ func Deploy(tb testing.TB, spec DeploymentSpec) *Deployment {
 		if !containsString(HarnessBackendIDs(), cand.Backend) || cand.Backend == BackendOpenRouter || cand.Backend == BackendNVIDIA {
 			tb.Fatalf("harness: invalid candidate %q", cand.Backend)
 		}
-		candOrigin := newHarnessOrigin(tb, cand.Backend, cand.OriginFail, spec.Clock, spec.ArtifactLimit, cand.ProviderOrigin, nil, nil)
+		candOrigin := newHarnessOrigin(tb, cand.Backend, cand.OriginFail, spec.Clock, spec.ArtifactLimit, cand.ProviderOrigin, nil, cand.OriginHandler)
 		candKey := candidateBackendKey(spec.Backend, i)
 		d.origins[candKey] = candOrigin
 		d.candidateOrigins = append(d.candidateOrigins, candOrigin)

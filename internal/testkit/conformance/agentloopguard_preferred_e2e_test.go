@@ -257,6 +257,10 @@ type algColumn struct {
 	Transport ClientTransport
 	// Origin is the real reference-provider origin handler the backend reaches.
 	Origin http.Handler
+	// Candidates appends additional real backend candidates, each with its own
+	// scripted origin, so a failover or parallel-race cell can script both sides of
+	// the race. Nil keeps the deployment's default single-backend route selector.
+	Candidates []Candidate
 }
 
 // algDeployColumn composes one deployment whose executor carries the real ALG
@@ -279,6 +283,7 @@ func algDeployColumn(t *testing.T, col algColumn) (*Deployment, *algTrace) {
 		ProfileID:              col.ProfileID,
 		Transport:              col.Transport,
 		OriginHandler:          col.Origin,
+		Candidates:             col.Candidates,
 		AgentLoopGuardStrategy: col.Strategy,
 	})
 	if d == nil {

@@ -218,7 +218,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 4.3,5.2,6.2,8.3,9.2_
     - _Validation: focused E2E/contract suites with explicit early-stream observation assertion_
 
-  - [ ] 10.2 Certify transport/cancellation/side-effect invariants
+  - [x] 10.2 Certify transport/cancellation/side-effect invariants
     - Test pre-output EOF/idle existing recovery, post-output interruption with active protocol, completed client tool/result retention, incomplete args, cancellation, refusal/filter, race losers, and continuation candidate reactivation.
     - Assert no replay/failover after client-visible commitment and no duplicate ordinary tool side effects.
     - _Requirements: 8.1-8.7,12.5_
@@ -342,3 +342,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 10.1 (adapters, user-decided): Anthropic and Gemini have no developer wire role, so a canonical developer-role steering message is coerced to a user-role turn. The loss is named at each mapping site and pinned by tests that assert the coerced wire role, the preserved trajectory position, and the absence of any hoist into the provider system instruction. Bedrock and the ACP, Cohere, Watsonx, OCI and Vertex connectors share the same unmapped-role gap and remain fail-closed.
 
 - Task 10.1: the conformance harness composes the real preferred-strategy generation, so the whole acceptance matrix runs end to end with no provider fakes. Two adapters encode a canonical developer-role steering message literally and two coerce it to the user role with the loss named and pinned. Client-side ordering is asserted from wire frames, because the shared trace has no happens-before edge between the pipeline and reader goroutines. An OpenResponses item-authority path cannot reopen a message item after ordinary text; that reproduces with no control generation and belongs to that frontend owner.
+
+- Task 10.2: transport, cancellation and side-effect invariants are certified end to end against the real seam, with no product-code change. Cancellation and refusal are protected by context propagation rather than a stack of gates, so no overlay probe can isolate them; that is a structural limit worth remembering when reading future probe evidence. Reload is certified only for newly admitted turns, because swapping the runtime snapshot under a live request is a harness race and the runtime snapshot is a plain field rather than a synchronized accessor. Refusal and content-filter causes exist only as terminal input, so no production path emits them. In-flight strategy pinning across reload is still unowned.
