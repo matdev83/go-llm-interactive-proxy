@@ -147,6 +147,158 @@ func TestStreamParamsForCall_toolsAndChoice(t *testing.T) {
 	}
 }
 
+// TestStreamParamsForCall_developerRoleCoercedToUserKeepingPosition pins the
+// modeled downgrade for the canonical developer role on the Gemini wire, whose
+// Content.role is a closed user|model enum with no developer value.
+//
+// lipapi.RoleDeveloper carries proxy-owned continuation steering text
+// (internal/core/runtime/terminal_decision_continuation.go places it at
+// AfterIngressTail). Because the enum has no room for it, the message is
+// deliberately coerced to a user turn rather than rejected: the loss is that the
+// provider reads proxy-owned instruction text as a client utterance, and the
+// canonical role survives only in the proxy's own record, never on the wire.
+//
+// The downgrade is bounded on purpose. The steering message is never hoisted into
+// systemInstruction: that is the top-level instruction slot, and hoisting a
+// mid-conversation message there would destroy the trajectory ordering the
+// generic runtime depends on. The message therefore keeps its ordered position
+// in Contents, which this test pins together with the exact coerced wire role.
+func TestStreamParamsForCall_developerRoleCoercedToUserKeepingPosition(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		ID: "dev-role",
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("stable instruction")},
+		}},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("U1")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("A1")}},
+			{Role: lipapi.RoleDeveloper, Parts: []lipapi.Part{lipapi.TextPart("STEER-NOW")}},
+		},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Backend: "gemini", Model: "gemini-2.0-flash"}}
+	sp, err := geminigenerate.StreamParamsForCall(&call, cand)
+	if err != nil {
+		t.Fatalf("canonical developer role must be encodable on the Gemini wire, got error: %v", err)
+	}
+
+	// The coerced wire role, pinned exactly: no developer role reaches the wire.
+	wantRoles := []string{"user", "model", "user"}
+	if len(sp.Contents) != len(wantRoles) {
+		t.Fatalf("wire contents len %d, want %d (steering must keep its own content)", len(sp.Contents), len(wantRoles))
+	}
+	for i, want := range wantRoles {
+		if got := string(sp.Contents[i].Role); got != want {
+			t.Fatalf("wire content %d role %q, want %q", i, got, want)
+		}
+	}
+
+	// Position preservation: the steering text is still the last trajectory turn.
+	last := sp.Contents[len(sp.Contents)-1]
+	if len(last.Parts) != 1 || last.Parts[0].Text != "STEER-NOW" {
+		t.Fatalf("steering text not preserved at its ordered position: %+v", last)
+	}
+
+	// Position preservation, negatively: steering text must not be hoisted into systemInstruction.
+	if sp.Config.SystemInstruction == nil {
+		t.Fatal("system instruction nil")
+	}
+	for i, part := range sp.Config.SystemInstruction.Parts {
+		if strings.Contains(part.Text, "STEER-NOW") {
+			t.Fatalf("systemInstruction part %d hoisted mid-conversation steering text: %q", i, part.Text)
+		}
+	}
+	if len(sp.Config.SystemInstruction.Parts) != 1 || sp.Config.SystemInstruction.Parts[0].Text != "stable instruction" {
+		t.Fatalf("systemInstruction must stay top-level instructions only, got %+v", sp.Config.SystemInstruction.Parts)
+	}
+}
+
+// TestStreamParamsForCall_everyCanonicalRoleMapsToItsWireRole pins the complete
+// canonical-role translation on this adapter's wire, one canonical message per
+// role, because the role vocabulary is Gemini's provider contract rather than a
+// canonical one. Every previously mapped role keeps its exact wire role, and the
+// default arm keeps rejecting what it rejected.
+func TestStreamParamsForCall_everyCanonicalRoleMapsToItsWireRole(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		role      lipapi.Role
+		parts     []lipapi.Part
+		wantRole  string
+		wantError string
+	}{
+		{
+			name:     "user",
+			role:     lipapi.RoleUser,
+			parts:    []lipapi.Part{lipapi.TextPart("U")},
+			wantRole: "user",
+		},
+		{
+			name:     "assistant",
+			role:     lipapi.RoleAssistant,
+			parts:    []lipapi.Part{lipapi.TextPart("A")},
+			wantRole: "model",
+		},
+		{
+			name:     "developer",
+			role:     lipapi.RoleDeveloper,
+			parts:    []lipapi.Part{lipapi.TextPart("D")},
+			wantRole: "user",
+		},
+		{
+			name: "tool",
+			role: lipapi.RoleTool,
+			parts: []lipapi.Part{{
+				Kind:       lipapi.PartToolResult,
+				ToolCallID: "call_role_map",
+				ToolName:   "get_weather",
+				Content:    json.RawMessage(`{"ok":true}`),
+			}},
+			wantRole: "user",
+		},
+		{
+			// The default arm is unchanged: a mid-conversation system message
+			// still fails explicitly instead of being lifted or coerced.
+			name:      "system mid-conversation still rejected",
+			role:      lipapi.RoleSystem,
+			parts:     []lipapi.Part{lipapi.TextPart("S")},
+			wantError: `gemini: unsupported message role "system"`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			call := lipapi.Call{
+				ID:       "role-map-" + tc.name,
+				Messages: []lipapi.Message{{Role: tc.role, Parts: tc.parts}},
+			}
+			cand := routing.AttemptCandidate{Primary: routing.Primary{Backend: "gemini", Model: "gemini-2.0-flash"}}
+			sp, err := geminigenerate.StreamParamsForCall(&call, cand)
+			if tc.wantError != "" {
+				if err == nil {
+					t.Fatalf("canonical role %q must still fail, got contents %+v", tc.role, sp.Contents)
+				}
+				if !strings.Contains(err.Error(), tc.wantError) {
+					t.Fatalf("canonical role %q error %q, want it to contain %q", tc.role, err.Error(), tc.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("canonical role %q must be encodable, got error: %v", tc.role, err)
+			}
+			if len(sp.Contents) != 1 {
+				t.Fatalf("canonical role %q produced %d wire contents, want 1", tc.role, len(sp.Contents))
+			}
+			if got := string(sp.Contents[0].Role); got != tc.wantRole {
+				t.Fatalf("canonical role %q mapped to wire role %q, want %q", tc.role, got, tc.wantRole)
+			}
+		})
+	}
+}
+
 func TestStreamParamsForCall_toolResultMessage(t *testing.T) {
 	t.Parallel()
 	call := lipapi.Call{
