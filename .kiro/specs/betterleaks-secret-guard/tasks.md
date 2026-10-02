@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Establish detector configuration and brownfield characterization
+- [x] 1. Establish detector configuration and brownfield characterization
   - [x] 1.1 Add failing configuration/default tests for detector selection
     - Characterize existing top-level feature activation, required action, single-user exact defaults, multi-user request-credential behavior, and reload failure semantics before changing implementation.
     - Add matrix tests for absent/true/false local auto-discovery across both access modes and absent/true/false BetterLeaks enablement.
@@ -10,7 +10,7 @@
     - _Depends: none_
     - _Validation: focused config/compose tests with panic environment_
 
-  - [ ] 1.2 Implement presence-aware detector policy resolution
+  - [x] 1.2 Implement presence-aware detector policy resolution
     - Add the local-auto-discovery and BetterLeaks configuration subtrees without changing the existing action/audit/redaction contracts.
     - Resolve access-mode-dependent defaults only at composition time and keep the effective runtime config immutable.
     - Validate confidence, decode depth, workers, mutually exclusive rule selectors, and canonicalized rule lists before candidate publication.

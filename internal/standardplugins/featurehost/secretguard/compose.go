@@ -85,6 +85,9 @@ func Compose(in Input) (*Output, error) {
 			return nil, err
 		}
 	}
+	if engineMode == engine.ModeMultiUser && runtimeCfg.LocalAutoDiscoveryEnabled {
+		return nil, fmt.Errorf("runtimebundle: secrets-guard config: auto_discovered_local_keys.enabled cannot be true in multi_user mode")
+	}
 
 	inputs := in.Inputs.SingleUser
 	if !inputs.MatcherConfigured && in.SingleUser.MatcherConfigured {
@@ -98,7 +101,13 @@ func Compose(in Input) (*Output, error) {
 	singleUser := composeSingleUser(runtimeCfg, inputs)
 
 	featureEnabled := runtimeCfg.Enabled
-	src, err := engine.ComposeSource(engineMode, featureEnabled, in.Environment, singleUser)
+	sourceEnv := in.Environment
+	if engineMode == engine.ModeSingleUser && featureEnabled && !runtimeCfg.LocalAutoDiscoveryEnabled {
+		// Keep the exact source path available while preventing the local
+		// environment port from being consulted when policy disables discovery.
+		sourceEnv = nil
+	}
+	src, err := engine.ComposeSource(engineMode, featureEnabled, sourceEnv, singleUser)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: secret guard source: %w", err)
 	}

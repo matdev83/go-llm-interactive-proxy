@@ -2,7 +2,9 @@ package secretguard
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
@@ -33,24 +35,50 @@ const FailureKindUnsupportedJSONToken = "unsupported_json_token"
 
 // Defaults applied by DecodeConfig.
 const (
-	DefaultScanMaxBytes    = 2 << 20
-	MaxScanMaxBytes        = 64 << 20
-	DefaultMinSecretBytes  = 8
-	DefaultMaskByte        = "*"
-	defaultIncludePopular  = true
-	defaultPreservePrefix  = true
-	defaultAuditFailPolicy = AuditFailClosed
+	DefaultScanMaxBytes           = 2 << 20
+	MaxScanMaxBytes               = 64 << 20
+	DefaultMinSecretBytes         = 8
+	DefaultMaskByte               = "*"
+	DefaultBetterLeaksConfidence  = "medium"
+	DefaultBetterLeaksDecodeDepth = 1
+	MaxBetterLeaksDecodeDepth     = 3
+	MaxBetterLeaksWorkers         = 64
+	DefaultBetterLeaksMaxFindings = 256
+	defaultIncludePopular         = true
+	defaultPreservePrefix         = true
+	defaultAuditFailPolicy        = AuditFailClosed
 )
 
 // Config is the secrets-guard feature plugin YAML configuration.
 type Config struct {
-	Order              *int             `yaml:"order"`
-	Action             string           `yaml:"action"`
-	AuditFailurePolicy string           `yaml:"audit_failure_policy"`
-	MinSecretBytes     int              `yaml:"min_secret_bytes"`
-	ScanMaxBytes       int              `yaml:"scan_max_bytes"`
-	SingleUser         SingleUserConfig `yaml:"single_user"`
-	Redaction          RedactionConfig  `yaml:"redaction"`
+	Order                   *int                 `yaml:"order"`
+	Action                  string               `yaml:"action"`
+	AuditFailurePolicy      string               `yaml:"audit_failure_policy"`
+	MinSecretBytes          int                  `yaml:"min_secret_bytes"`
+	ScanMaxBytes            int                  `yaml:"scan_max_bytes"`
+	SingleUser              SingleUserConfig     `yaml:"single_user"`
+	Redaction               RedactionConfig      `yaml:"redaction"`
+	AutoDiscoveredLocalKeys DetectorToggleConfig `yaml:"auto_discovered_local_keys"`
+	BetterLeaks             BetterLeaksConfig    `yaml:"betterleaks"`
+}
+
+// DetectorToggleConfig preserves whether the operator supplied enabled. A
+// pointer is required because omitted and explicit false have different
+// access-mode-dependent defaults.
+type DetectorToggleConfig struct {
+	Enabled *bool `yaml:"enabled"`
+}
+
+// BetterLeaksConfig is the feature-owned, safe BetterLeaks tuning surface.
+// Scanner construction and upstream rule-ID validation belong to later
+// composition stages; this type only carries validated local policy values.
+type BetterLeaksConfig struct {
+	Enabled           *bool    `yaml:"enabled"`
+	MinimumConfidence string   `yaml:"minimum_confidence"`
+	MaxDecodeDepth    *int     `yaml:"max_decode_depth"`
+	Workers           *int     `yaml:"workers"`
+	DisableRules      []string `yaml:"disable_rules"`
+	IsolateRules      []string `yaml:"isolate_rules"`
 }
 
 // SingleUserConfig configures single-user environment inventory hints (composition uses these later).
@@ -88,6 +116,9 @@ func DecodeConfig(n yaml.Node) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("%s: config must be a mapping or null", ID)
 	case yaml.MappingNode:
+		if err := validateDetectorMappings(root); err != nil {
+			return Config{}, err
+		}
 		var cfg Config
 		// Defaults that YAML false/empty should be able to override after decode.
 		cfg.SingleUser.IncludePopularEnv = defaultIncludePopular
@@ -99,6 +130,39 @@ func DecodeConfig(n yaml.Node) (Config, error) {
 	default:
 		return Config{}, fmt.Errorf("%s: config must be a mapping or null", ID)
 	}
+}
+
+func validateDetectorMappings(root yaml.Node) error {
+	for _, key := range []string{"auto_discovered_local_keys", "betterleaks"} {
+		node, ok := mappingValue(root, key)
+		if !ok || (node.Kind == yaml.ScalarNode && (node.Tag == "!!null" || strings.TrimSpace(node.Value) == "")) {
+			continue
+		}
+		if node.Kind != yaml.MappingNode {
+			return fmt.Errorf("%s: %s must be a mapping", ID, key)
+		}
+		if enabled, ok := mappingValue(node, "enabled"); ok && (enabled.Kind != yaml.ScalarNode || enabled.Tag == "!!null" || enabled.Tag != "!!bool") {
+			return fmt.Errorf("%s: %s.enabled must be a boolean", ID, key)
+		}
+		if key == "betterleaks" {
+			for _, field := range []string{"minimum_confidence", "max_decode_depth", "workers"} {
+				value, present := mappingValue(node, field)
+				if present && (value.Kind != yaml.ScalarNode || value.Tag == "!!null" || strings.TrimSpace(value.Value) == "") {
+					return fmt.Errorf("%s: betterleaks.%s must be explicitly configured when present", ID, field)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func mappingValue(node yaml.Node, key string) (yaml.Node, bool) {
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return *node.Content[i+1], true
+		}
+	}
+	return yaml.Node{}, false
 }
 
 func validateAndFill(cfg Config) (Config, error) {
@@ -144,10 +208,70 @@ func validateAndFill(cfg Config) (Config, error) {
 	}
 	cfg.Redaction.MaskByte = mask
 
+	var err error
+	cfg.BetterLeaks, err = normalizeBetterLeaksConfig(cfg.BetterLeaks)
+	if err != nil {
+		return Config{}, err
+	}
+
 	// Detect explicit false for include_popular_env / preserve_known_prefixes:
 	// yaml.Decode already applied values; zero-value bool is false when key absent
 	// but we pre-set defaults to true before Decode, so absent keys remain true.
 	return cfg, nil
+}
+
+func normalizeBetterLeaksConfig(cfg BetterLeaksConfig) (BetterLeaksConfig, error) {
+	cfg.MinimumConfidence = strings.TrimSpace(cfg.MinimumConfidence)
+	if cfg.MinimumConfidence != "" && cfg.MinimumConfidence != "low" && cfg.MinimumConfidence != "medium" && cfg.MinimumConfidence != "high" {
+		return BetterLeaksConfig{}, fmt.Errorf("%s: betterleaks.minimum_confidence must be low, medium, or high", ID)
+	}
+
+	if cfg.MaxDecodeDepth != nil && (*cfg.MaxDecodeDepth < 0 || *cfg.MaxDecodeDepth > MaxBetterLeaksDecodeDepth) {
+		return BetterLeaksConfig{}, fmt.Errorf("%s: betterleaks.max_decode_depth must be between 0 and %d", ID, MaxBetterLeaksDecodeDepth)
+	}
+	if cfg.Workers != nil && (*cfg.Workers < 0 || *cfg.Workers > MaxBetterLeaksWorkers) {
+		return BetterLeaksConfig{}, fmt.Errorf("%s: betterleaks.workers must be 0 or between 1 and %d", ID, MaxBetterLeaksWorkers)
+	}
+
+	var err error
+	cfg.DisableRules, err = normalizeRuleSelectors("disable_rules", cfg.DisableRules)
+	if err != nil {
+		return BetterLeaksConfig{}, err
+	}
+	cfg.IsolateRules, err = normalizeRuleSelectors("isolate_rules", cfg.IsolateRules)
+	if err != nil {
+		return BetterLeaksConfig{}, err
+	}
+	if len(cfg.DisableRules) > 0 && len(cfg.IsolateRules) > 0 {
+		return BetterLeaksConfig{}, fmt.Errorf("%s: betterleaks.disable_rules and betterleaks.isolate_rules are mutually exclusive", ID)
+	}
+	return cfg, nil
+}
+
+func normalizeRuleSelectors(field string, values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return nil, fmt.Errorf("%s: betterleaks.%s contains an empty rule ID", ID, field)
+		}
+		for _, r := range id {
+			if unicode.IsSpace(r) || unicode.IsControl(r) {
+				return nil, fmt.Errorf("%s: betterleaks.%s contains an invalid rule ID", ID, field)
+			}
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 func validateMaskByte(mask string) error {
@@ -182,7 +306,10 @@ func HasSingleUserKey(n yaml.Node) bool {
 
 // ValidateAccessMode rejects single_user config when the effective access mode
 // is multi-user. Composition calls this; DecodeConfig does not.
-func ValidateAccessMode(_ Config, multiUser bool, raw yaml.Node) error {
+func ValidateAccessMode(cfg Config, multiUser bool, raw yaml.Node) error {
+	if multiUser && cfg.AutoDiscoveredLocalKeys.Enabled != nil && *cfg.AutoDiscoveredLocalKeys.Enabled {
+		return fmt.Errorf("%s: auto_discovered_local_keys.enabled cannot be true in multi_user mode", ID)
+	}
 	if multiUser && HasSingleUserKey(raw) {
 		return fmt.Errorf("%s: single_user is invalid in multi_user mode", ID)
 	}
