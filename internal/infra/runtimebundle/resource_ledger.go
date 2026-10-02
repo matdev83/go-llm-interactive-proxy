@@ -214,7 +214,7 @@ func (l *ResourceLedger) resolveInFlightErr(base error) error {
 	return base
 }
 
-func (l *ResourceLedger) execStartPhase(ctx context.Context, phase ClosePhase, done *bool, phaseErr *error, busy *bool, markPrepared bool) (resultErr error) {
+func (l *ResourceLedger) execStartPhase(ctx context.Context, phase ClosePhase, done *bool, phaseErr *error, busy *bool, markPrepared bool) error {
 	if l == nil {
 		return nil
 	}
@@ -232,19 +232,20 @@ func (l *ResourceLedger) execStartPhase(ctx context.Context, phase ClosePhase, d
 	}
 	*busy = true
 	l.mu.Unlock()
-	finished := false
+	// An unexpected unwind never produced a normal result, so the phase flag must
+	// be released before it propagates. A stranded flag would block waitPhaseLocked
+	// for every later lifecycle call and hide the panic's outcome from callers.
+	completed := false
 	defer func() {
-		if recovered := recover(); recovered != nil && phase == PhasePublish {
-			resultErr = errors.New("runtimebundle: publish start failed")
+		if completed {
+			return
 		}
-		if !finished && phase == PhasePublish {
-			l.mu.Lock()
-			*done, *phaseErr, *busy = true, resultErr, false
-			l.cond.Broadcast()
-			l.mu.Unlock()
-		}
+		l.mu.Lock()
+		*busy = false
+		l.cond.Broadcast()
+		l.mu.Unlock()
 	}()
-	resultErr = l.runStarts(ctx, phase)
+	resultErr := l.runStartsGuarded(ctx, phase)
 	l.mu.Lock()
 	*done, *phaseErr = true, resultErr
 	if resultErr == nil && markPrepared {
@@ -253,8 +254,25 @@ func (l *ResourceLedger) execStartPhase(ctx context.Context, phase ClosePhase, d
 	*busy = false
 	l.cond.Broadcast()
 	l.mu.Unlock()
-	finished = true
+	completed = true
 	return resultErr
+}
+
+// runStartsGuarded converts an unexpected panic in this phase machinery into the
+// existing bounded publish-start error. Publish is the only post-commit phase:
+// its generation is already the active request plane, so an unexpected unwind
+// must not escape and must not retry already attempted starts. Precommit phases
+// keep propagating the original value, because fabricating success or a cached
+// result would hide a rollback-capable failure.
+func (l *ResourceLedger) runStartsGuarded(ctx context.Context, phase ClosePhase) (resultErr error) {
+	if phase == PhasePublish {
+		defer func() {
+			if recover() != nil {
+				resultErr = errors.New("runtimebundle: publish start failed")
+			}
+		}()
+	}
+	return l.runStarts(ctx, phase)
 }
 
 // Prepare runs PhasePrepare start hooks in acquisition order (req). Failure does not auto-rollback.

@@ -1,6 +1,6 @@
 # Draft proposal: pin the accepted Linux configuration inode
 
-**Status: architecture proposal for fresh review. No requirements, design, tasks, or implementation approval is recorded.** This is the only artifact; no `spec.json` is authorized. The archived owning spec remains archived.
+**Status: historical pre-spec proposal, subsequently formalized and completed.** This document predates the formal spec; requirements, design, tasks, and `spec.json` now exist in this archived prerequisite spec. The archived owning spec remains archived.
 
 ## Problem and evidence
 
@@ -12,7 +12,7 @@ The VFS drops the inode only after its final reference; ext4 makes an inode numb
 
 ## Contract and platform boundary
 
-This prerequisite refines [requirements 2.1 and 2.9](../archive/versioned-runtime-reloadable-proxy-configuration/requirements.md), [Stable read protocol / unsupported-filesystem posture](../archive/versioned-runtime-reloadable-proxy-configuration/design.md), and [tasks 1.2 and 2.1](../archive/versioned-runtime-reloadable-proxy-configuration/tasks.md). Changed bytes on the accepted physical file remain rejected; a different physical file is eligible; identical identity and digest remain a raw no-op. Runtime reads must receive an explicit baseline; `nil` is reserved for bootstrap, never a running-host recovery fallback.
+This prerequisite refines [requirements 2.1 and 2.9](../versioned-runtime-reloadable-proxy-configuration/requirements.md), [Stable read protocol / unsupported-filesystem posture](../versioned-runtime-reloadable-proxy-configuration/design.md), and [tasks 1.2 and 2.1](../versioned-runtime-reloadable-proxy-configuration/tasks.md). Changed bytes on the accepted physical file remain rejected; a different physical file is eligible; identical identity and digest remain a raw no-op. Runtime reads must receive an explicit baseline; `nil` is reserved for bootstrap, never a running-host recovery fallback.
 
 | Platform / handle capability | Startup | Runtime comparison |
 | --- | --- | --- |

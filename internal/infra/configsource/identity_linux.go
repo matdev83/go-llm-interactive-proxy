@@ -130,51 +130,70 @@ func parseExt4MountInfo(data []byte, mountID uint64, devMajor, devMinor uint32) 
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) < 10 {
+		if len(fields) == 0 {
 			return false, fmt.Errorf("configsource: malformed mountinfo")
 		}
-		separator := -1
-		for i := 6; i < len(fields); i++ {
-			if fields[i] == "-" {
-				if separator >= 0 {
-					return false, fmt.Errorf("configsource: ambiguous mountinfo separator")
-				}
-				separator = i
-			}
-		}
-		if separator < 6 || separator+4 != len(fields) {
-			return false, fmt.Errorf("configsource: malformed mountinfo fields")
-		}
+		// Identify the record before validating it. Unrelated namespace mounts
+		// legitimately encode a non-path root such as `net:[4026532637]`, which
+		// is not target evidence and must not invalidate the target record.
 		lineMountID, err := strconv.ParseUint(fields[0], 10, 64)
 		if err != nil {
 			return false, fmt.Errorf("configsource: malformed mount id")
 		}
-		if _, err := strconv.ParseUint(fields[1], 10, 64); err != nil {
-			return false, fmt.Errorf("configsource: malformed parent mount id")
+		if lineMountID != mountID {
+			continue
 		}
-		if !validMountPath(fields[3]) || !validMountPath(fields[4]) {
-			return false, fmt.Errorf("configsource: malformed mount path")
+		if targetSeen {
+			return false, fmt.Errorf("configsource: duplicate mount id")
+		}
+		targetSeen = true
+		fsType, err := parseMountInfoTarget(fields)
+		if err != nil {
+			return false, err
 		}
 		major, minor, err := parseMountDevice(fields[2])
 		if err != nil {
 			return false, err
 		}
-		if lineMountID == mountID {
-			if targetSeen {
-				return false, fmt.Errorf("configsource: duplicate mount id")
-			}
-			targetSeen = true
-			if major != devMajor || minor != devMinor {
-				return false, nil
-			}
-			matched++
-			matchedType = fields[separator+1]
+		if major != devMajor || minor != devMinor {
+			return false, nil
 		}
+		matched++
+		matchedType = fsType
 	}
 	if matched != 1 || matchedType != "ext4" {
 		return false, nil
 	}
 	return true, nil
+}
+
+// parseMountInfoTarget validates the full mountinfo structure of the record
+// whose mount ID equals the certified target and returns its filesystem type.
+// Structural, parent-ID, and root/mountpoint encoding rules apply only to target
+// evidence, so a single exact target record remains the whole contract.
+func parseMountInfoTarget(fields []string) (string, error) {
+	if len(fields) < 10 {
+		return "", fmt.Errorf("configsource: malformed mountinfo")
+	}
+	separator := -1
+	for i := 6; i < len(fields); i++ {
+		if fields[i] == "-" {
+			if separator >= 0 {
+				return "", fmt.Errorf("configsource: ambiguous mountinfo separator")
+			}
+			separator = i
+		}
+	}
+	if separator < 6 || separator+4 != len(fields) {
+		return "", fmt.Errorf("configsource: malformed mountinfo fields")
+	}
+	if _, err := strconv.ParseUint(fields[1], 10, 64); err != nil {
+		return "", fmt.Errorf("configsource: malformed parent mount id")
+	}
+	if !validMountPath(fields[3]) || !validMountPath(fields[4]) {
+		return "", fmt.Errorf("configsource: malformed mount path")
+	}
+	return fields[separator+1], nil
 }
 
 func validMountPath(path string) bool {

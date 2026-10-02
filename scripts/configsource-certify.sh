@@ -5,12 +5,21 @@ if [[ "$(go env GOOS)" != "linux" ]]; then
 	echo "configsource certification requires Linux" >&2
 	exit 1
 fi
-if [[ -z "${TMPDIR:-}" || ! -d "$TMPDIR" || ! -w "$TMPDIR" ]]; then
+if [[ -z "${TMPDIR:-}" || "$TMPDIR" != /* || ! -d "$TMPDIR" || ! -w "$TMPDIR" ]]; then
 	echo "configsource certification requires an explicit writable TMPDIR on ext4" >&2
 	exit 1
 fi
+if ! command -v findmnt >/dev/null 2>&1; then
+	echo "configsource certification requires findmnt to verify TMPDIR storage" >&2
+	exit 1
+fi
+tmpdir_fs="$(findmnt --noheadings --output FSTYPE --target "$TMPDIR" 2>/dev/null || true)"
+if [[ "$tmpdir_fs" != "ext4" ]]; then
+	echo "configsource certification requires TMPDIR on ext4 (found: ${tmpdir_fs:-unknown})" >&2
+	exit 1
+fi
 
-report="$TMPDIR/configsource-certify-$$.json"
+report="$(mktemp "$TMPDIR/configsource-certify.XXXXXX.json")"
 trap 'rm -f "$report"' EXIT
 # Surface the test output when execution fails. Without this guard a failing
 # `go test` aborts under `set -e` before the report is parsed, and the EXIT trap
