@@ -1,6 +1,6 @@
 ---
 name: golang-ecosystem-libraries
-description: Select, evaluate, manage, and utilize popular Go libraries and dependency management: standard library baseline, Go modules hygiene (MVS, govulncheck), and the samber functional toolkit (lo, mo, hot, do, ro, slog).
+description: "Select, evaluate, manage, and utilize popular Go libraries and dependency management: standard library baseline, Go modules hygiene (MVS, govulncheck), and the samber functional toolkit (lo, mo, hot, do, ro, slog)."
 ---
 
 # Go Ecosystem, Libraries & Dependency Management Guide
