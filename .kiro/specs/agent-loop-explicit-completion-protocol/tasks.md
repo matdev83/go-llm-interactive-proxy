@@ -201,7 +201,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 6.1,8.3_
     - _Validation: pre-task 1.2 characterization matrix remains GREEN_
 
-  - [ ] 9.2 Add explicit legacy-vs-old parity and strategy-isolation tests
+  - [x] 9.2 Add explicit legacy-vs-old parity and strategy-isolation tests
     - Compare old-style enabled configuration with explicit `semantic_verifier` across complete/incomplete/user-directed/optional/transport/limit/unsafe/cancel/verifier-failure/no-progress/budget fixtures.
     - Prove legacy bundle has no control provider and preferred bundle cannot reach verifier code.
     - _Requirements: 1.2-1.5,9.1-9.6,12.3_
@@ -330,3 +330,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 5.2 (accepted): bounded owned result is drained through the real receive loop behind per-frame fences, so a candidate can be withdrawn by continued provider work, caller cancel, shared A-leg cancel, Close, deadline, or continuation before the actual B2 transaction. Customer usage is the only money-free plane; provider/operator/B-leg quantities stay separate. Public surface unchanged: no new SDK method, goroutine, timer, or concrete provider branch in core. Slice reviews 3A-3D plus the whole-task primary and ownership/concurrency reviews passed; frontend coverage drives the real `openairesponses.Handler` in both response modes over a test-only bridge that builds the pending stream from the decoded call. Accepted effects that already ran are not rolled back; task 9.1/9.2 own legacy isolation and parity.
 
 - Task 9.1: no production change was needed; legacy causepolicy/progress/verifier stay byte-identical to merge base `1fc49fe2` and `provider.go` differs only by the narrow explicit-input guard plus `NewConfiguredProvider`. Isolation is certified behaviorally (old variadic API shapes, expectation independence, `alg-proto-v1` refusal, strategy-owned wording) and by import graph, not constructor identity. Task 9.2 still owns the full old-vs-explicit decision matrix, bundle-level control-provider absence and provider-removal fixtures; task 12.1 owns the architecture-level import-graph ratchets.
+
+- Task 9.2: legacy parity is certified by comparing three genuinely distinct configuration shapes (pre-spec YAML omission, historical programmatic literal reaching the old partial-default `NewProvider`, explicit selector), each first asserted against independent table expectations. Strategy isolation is proven through real composed standard-plugin bundles with a wired forbidden-auxiliary collector, not assigned provider fakes. Legacy pins `alg-state-v1.` and refuses foreign/unknown namespaces before any verifier call; task 12.1 still owns the architecture-level import-graph ratchets.
