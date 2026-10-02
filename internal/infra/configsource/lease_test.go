@@ -53,7 +53,8 @@ func awaitLeaseCloseResult(t *testing.T, results <-chan error) error {
 
 func TestSourceLeaseOwner_CloseWaitsForBorrowAndCachesFailure(t *testing.T) {
 	t.Parallel()
-	file, err := os.Create(filepath.Join(t.TempDir(), "config.yaml"))
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	file, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,8 +88,17 @@ func TestSourceLeaseOwner_CloseWaitsForBorrowAndCachesFailure(t *testing.T) {
 	if got := closeCalls.Load(); got != 1 {
 		t.Fatalf("final idempotent Release close calls=%d want 1", got)
 	}
-	if _, err := file.Stat(); !errors.Is(err, os.ErrClosed) {
-		t.Fatalf("file handle remained open after final Release: Stat error=%v", err)
+	// The final release must physically release the descriptor: the path is
+	// still present while Stat through the handle fails. The closed-handle
+	// error value is platform-defined (Unix reports os.ErrClosed, Windows
+	// reports an invalid-handle errno), so this asserts the portable property
+	// instead. A leaked handle is exactly what blocks temporary directory
+	// removal on Windows.
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("source path missing at the closed-handle check: %v", err)
+	}
+	if _, err := file.Stat(); err == nil {
+		t.Fatal("file handle remained open after final Release: Stat through the handle succeeded")
 	}
 	first := owner.Close(context.Background())
 	second := owner.Close(context.Background())
