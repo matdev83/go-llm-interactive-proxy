@@ -35,6 +35,10 @@ concurrency:
 
 jobs:
   release-gates:
+    # No pull_request gate. This gate runs the full-mode release aggregation,
+    # which is far too slow to run on every PR. The pull_request trigger above
+    # exists only so the job definition changes themselves are visible in the
+    # PR checks list; validation happens on push to main and the nightly cron.
     if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
