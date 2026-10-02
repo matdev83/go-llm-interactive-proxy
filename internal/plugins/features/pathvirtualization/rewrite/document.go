@@ -1,0 +1,398 @@
+package rewrite
+
+// This file implements the payload half of the rewriter: it applies one compiled
+// selector set to one canonical JSON payload and returns the replacement bytes.
+//
+// The engine is a byte splice, not a re-encode. A selected leaf is replaced in
+// place, inside the exact bytes of its own JSON string literal, and every other byte
+// of the payload is carried across untouched. That is what makes requirement 2.8
+// hold literally: member order, number spelling, string escapes, whitespace, and
+// empty-versus-null presence all survive, and a payload that was never selected is
+// returned as the same bytes rather than a normalized equivalent. It also makes
+// reapplication safe, because a payload that already carries the alias produces no
+// match at all and therefore no bytes.
+//
+// Selection authority stays where the spec put it. The compiled selector set is
+// resolved by the lexical core, which enforces the whole-document pointer refusal
+// and the all-or-nothing string, string-array, object, and mixed-array rules, and
+// this file never re-implements any of them. It only locates the leaves that core
+// published and asks the mapping what each value means as a path locator.
+
+import (
+	"bytes"
+	"cmp"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization"
+)
+
+// stringSpan is the exact byte range of one JSON string literal inside a payload,
+// together with its decoded value.
+type stringSpan struct {
+	// start is the offset of the literal's opening quote.
+	start int
+	// end is the offset just past the literal's closing quote.
+	end int
+	// value is the literal's decoded string.
+	value string
+}
+
+// rewriteDocument applies pointers to one canonical JSON payload.
+//
+// It returns the replacement bytes and true when at least one selected leaf changed,
+// or nil and false when the payload must stay exactly as it arrived. Every refusal
+// is a bounded reason recorded on acc, and the payload is left untouched in each of
+// them: a payload this step cannot prove path-bearing is never partially rewritten.
+//
+// The only error it returns is a disagreement between two decoders over bytes that
+// already decoded as one valid JSON value, which untrusted input cannot produce. It
+// is reported so a caller can fail open with real paths instead of publishing a
+// half-rewritten payload.
+func (r *Rewriter) rewriteDocument(raw []byte, pointers pathvirtualization.SelectorSet, acc *account) ([]byte, bool, error) {
+	if len(pointers) == 0 {
+		return nil, false, nil
+	}
+	if isAbsentOrNullPayload(raw) {
+		// A missing payload and a null payload are the same answer: no location
+		// exists to select, and neither spelling is materialized.
+		acc.skip(SkipReasonPayloadAbsent)
+		return nil, false, nil
+	}
+	document, err := decodePayload(raw)
+	if err != nil {
+		acc.skip(SkipReasonPayloadInvalid)
+		return nil, false, nil
+	}
+	if _, object := document.(map[string]any); !object {
+		// A JSON Pointer can only name a member of an object, so an array or scalar
+		// root has no selected location regardless of which pointers were compiled.
+		acc.skip(SkipReasonPayloadNotObject)
+		return nil, false, nil
+	}
+
+	// The canonical selector layer decides which leaves are eligible and refuses
+	// every location it cannot prove, so this step never guesses a shape.
+	selection := pointers.Resolve(document)
+	for _, skipped := range selection.Skipped {
+		acc.skip(selectorSkipReason(skipped.Reason))
+	}
+	if len(selection.Leaves) == 0 {
+		return nil, false, nil
+	}
+
+	spans, err := findSelectedStringSpans(raw, selectedLeafKeys(selection.Leaves))
+	if err != nil {
+		return nil, false, fmt.Errorf("locate selected leaves: %w", err)
+	}
+	return r.splice(raw, spans, acc)
+}
+
+// decodePayload decodes one complete JSON value, preserving number literals.
+//
+// Numbers are decoded as literals rather than as float64 so a payload that is
+// entirely valid JSON, including a magnitude beyond float64, is still a readable
+// document instead of an error. That matters because this step refuses a payload it
+// cannot read, and a value like 1e400 must not be refused for being out of range
+// when no selected leaf refers to it.
+func decodePayload(raw []byte) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var document any
+	if err := decoder.Decode(&document); err != nil {
+		return nil, err
+	}
+	// One complete value is the whole payload. A second value, or any trailing
+	// bytes, means the payload is not one argument document, and reading it whole
+	// would mean rewriting a fragment of something else.
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("payload holds more than one JSON value")
+		}
+		return nil, err
+	}
+	return document, nil
+}
+
+// isAbsentOrNullPayload reports whether a payload field carries no value at all,
+// which is either an empty field or the JSON null literal.
+//
+// The comparison is byte-exact and never trims, so a quoted "null", a padded null
+// literal, and an absent field stay three distinguishable states. The feature cannot
+// import internal/core/jsonpresence, which is where the runtime keeps this
+// predicate for canonical paths, so the rule is implemented here in the two bytes it
+// actually needs.
+func isAbsentOrNullPayload(raw []byte) bool {
+	return len(raw) == 0 || bytes.Equal(raw, []byte("null"))
+}
+
+// selectedLeafKeys returns the canonical pointer text of every published leaf.
+//
+// A leaf that resolved to one string is keyed by its pointer; a leaf inside an
+// array-of-string target is keyed by its own element pointer, so a location selected
+// twice through two configured pointers still contributes exactly one span and one
+// count.
+func selectedLeafKeys(leaves []pathvirtualization.Leaf) map[string]struct{} {
+	keys := make(map[string]struct{}, len(leaves))
+	for _, leaf := range leaves {
+		key := leaf.Selector.String()
+		if leaf.Index != pathvirtualization.LeafIndexSingle {
+			// strconv renders the canonical array index the same way the walk below
+			// does, so the two spellings always agree.
+			key += "/" + strconv.Itoa(leaf.Index)
+		}
+		keys[key] = struct{}{}
+	}
+	return keys
+}
+
+// spanFrame is one open container while the payload is walked.
+type spanFrame struct {
+	// path is the canonical pointer text of this container.
+	path string
+	// index is the next array element position, for an array container.
+	index int
+	// object reports whether members are named rather than positional.
+	object bool
+	// expectKey reports whether the next token is a member name.
+	expectKey bool
+	// pending is the member name whose value is the current token.
+	pending string
+}
+
+// findSelectedStringSpans returns the byte range of every string literal whose
+// canonical pointer text is one of keys.
+//
+// The walk reads the payload with the same token grammar that decoded it, so the
+// two passes cannot disagree about structure, and it reconstructs each value's
+// location from the token stream instead of from a re-encoded document. Offsets come
+// from the decoder itself, so a literal is located exactly, whatever whitespace,
+// member order, or escaping the client used.
+func findSelectedStringSpans(document []byte, keys map[string]struct{}) ([]stringSpan, error) {
+	decoder := json.NewDecoder(bytes.NewReader(document))
+	decoder.UseNumber()
+
+	var (
+		spans    []stringSpan
+		frames   []spanFrame
+		rootSeen bool
+	)
+	for {
+		previous := int(decoder.InputOffset())
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		// The decoder's offset advances past each token it returns, so the bytes
+		// between the previous token and this one are only separators and skipping
+		// them lands exactly on this token's first byte. Offsets are narrowed to int
+		// for byte indexing; the canonical size bounds keep every payload well inside
+		// the range of a platform's int, so the narrowing cannot wrap.
+		start := tokenStart(document, previous)
+		end := int(decoder.InputOffset())
+
+		if len(frames) == 0 {
+			if rootSeen {
+				// A second top-level value is not one payload, and the completeness
+				// check that guards against it lives in decodePayload.
+				return nil, errors.New("payload holds more than one JSON value")
+			}
+			rootSeen = true
+			if delim, isDelim := token.(json.Delim); isDelim {
+				if delim == '{' || delim == '[' {
+					frames = append(frames, newSpanFrame("", delim == '{'))
+				}
+			}
+			// A top-level scalar names the whole document, which no compiled pointer
+			// can address, so there is nothing to record.
+			continue
+		}
+
+		top := &frames[len(frames)-1]
+		if delim, isDelim := token.(json.Delim); isDelim && (delim == '}' || delim == ']') {
+			// Closing a container completes the value the parent already accounted
+			// for when it was opened, so the parent's position does not advance here.
+			frames = frames[:len(frames)-1]
+			continue
+		}
+		if top.expectKey {
+			name, isString := token.(string)
+			if !isString {
+				return nil, errors.New("object member name is not a string")
+			}
+			top.expectKey = false
+			top.pending = name
+			continue
+		}
+
+		child := top.path + "/" + childReference(top)
+		if top.object {
+			// This member's value is complete, so the container expects the next
+			// member name rather than another value.
+			top.expectKey = true
+		}
+		if delim, isDelim := token.(json.Delim); isDelim {
+			frames = append(frames, newSpanFrame(child, delim == '{'))
+			continue
+		}
+		if value, isString := token.(string); isString {
+			if _, selected := keys[child]; selected {
+				spans = append(spans, stringSpan{start: start, end: end, value: value})
+			}
+		}
+	}
+	if len(frames) != 0 {
+		return nil, errors.New("payload ends inside an open container")
+	}
+	return spans, nil
+}
+
+// newSpanFrame opens one container at a canonical pointer.
+func newSpanFrame(path string, object bool) spanFrame {
+	return spanFrame{path: path, object: object, expectKey: object}
+}
+
+// childReference returns the reference token of the value the innermost container
+// is about to read, advancing an array container past the position it just named.
+func childReference(frame *spanFrame) string {
+	if frame.object {
+		name := canonicalPointerText(frame.pending)
+		frame.pending = ""
+		return name
+	}
+	reference := strconv.Itoa(frame.index)
+	frame.index++
+	return reference
+}
+
+// tokenStart returns the offset of the first byte of the token that follows the one
+// ending at from, by stepping over the structural bytes that may separate them.
+//
+// Only whitespace and the two structural separators can appear there, and no value
+// token begins with one of those bytes, so the scan can never step past the token it
+// is looking for. The offset is clamped into the payload, which keeps the helper
+// total even if it is ever handed an offset from beyond the end.
+func tokenStart(document []byte, from int) int {
+	if from < 0 {
+		from = 0
+	}
+	if from > len(document) {
+		from = len(document)
+	}
+	for from < len(document) && isJSONSeparator(document[from]) {
+		from++
+	}
+	return from
+}
+
+// isJSONSeparator reports whether a byte can appear between two tokens of a payload.
+func isJSONSeparator(b byte) bool {
+	switch b {
+	case ' ', '\t', '\r', '\n', ':', ',':
+		return true
+	default:
+		return false
+	}
+}
+
+// pointerEscapeChars are the two characters RFC 6901 escapes inside a reference
+// token. A member name holding either is spelled escaped, which is what makes a
+// walked path and a compiled pointer the same key.
+const pointerEscapeChars = "~/"
+
+// canonicalPointerText encodes one member name as its RFC 6901 reference token.
+//
+// The encoding is the same one ParseSelector decodes, so a walked location and a
+// configured pointer are compared as identical canonical text and two different
+// member names can never collide on one key.
+func canonicalPointerText(name string) string {
+	if !strings.ContainsAny(name, pointerEscapeChars) {
+		return name
+	}
+	var encoded strings.Builder
+	encoded.Grow(len(name) + 4)
+	for i := range len(name) {
+		switch name[i] {
+		case '~':
+			encoded.WriteString("~0")
+		case '/':
+			encoded.WriteString("~1")
+		default:
+			encoded.WriteByte(name[i])
+		}
+	}
+	return encoded.String()
+}
+
+// splice replaces the literals the spans cover and returns the published payload.
+//
+// Spans are applied in ascending offset order, copying the untouched bytes between
+// them verbatim, so no replacement is written at an offset an earlier one moved and
+// no two replacements can overlap: they are distinct literals of one document. A span
+// the mapping does not accept is left in place, which is how a payload that merely
+// mentions the project root outside the project root keeps its bytes.
+func (r *Rewriter) splice(document []byte, spans []stringSpan, acc *account) ([]byte, bool, error) {
+	ordered := slices.Clone(spans)
+	slices.SortFunc(ordered, func(a, b stringSpan) int { return cmp.Compare(a.start, b.start) })
+
+	published := make([]byte, 0, len(document))
+	cursor := 0
+	changed := false
+	for _, span := range ordered {
+		if span.start < cursor || span.end > len(document) || span.start >= span.end {
+			// Overlapping or out-of-range spans cannot come from one decoded
+			// document, and writing them would corrupt the payload.
+			return nil, false, errors.New("selected leaves overlap in the payload")
+		}
+		virtualized, matched := r.mapping.VirtualizePath(span.value)
+		// A selected leaf the mapping does not accept keeps its own bytes, so a
+		// selected array can hold a mixture of aliased and untouched values without
+		// losing either.
+		replacement := document[span.start:span.end]
+		if matched {
+			// Eligibility is the mapping's answer, not this step's: a value is
+			// eligible only when it carried a real-root prefix ending on a segment
+			// boundary.
+			acc.eligible++
+			acc.bytesBefore += len(span.value)
+			acc.bytesAfter += len(virtualized)
+			literal, err := encodeSelectedValue(virtualized)
+			if err != nil {
+				return nil, false, fmt.Errorf("encode selected value: %w", err)
+			}
+			replacement = literal
+			if virtualized != span.value {
+				acc.rewritten++
+				changed = true
+			}
+		}
+		published = append(published, document[cursor:span.start]...)
+		published = append(published, replacement...)
+		cursor = span.end
+	}
+	if !changed {
+		return nil, false, nil
+	}
+	return append(published, document[cursor:]...), true, nil
+}
+
+// encodeSelectedValue renders one selected value as a JSON string literal.
+//
+// The value is the only thing this step ever re-spells, and it is re-spelled as one
+// complete literal, so the payload stays a single valid document whatever bytes the
+// client's path carried.
+func encodeSelectedValue(value string) ([]byte, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}

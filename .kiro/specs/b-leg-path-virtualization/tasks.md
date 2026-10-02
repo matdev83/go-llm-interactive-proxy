@@ -105,7 +105,7 @@
   - _Validation: feature profile precedence tests_
 
 - [ ] 4. Implement canonical outbound virtualization
-- [ ] 4.1 Build one pure call rewriter for both canonical authorities
+- [x] 4.1 Build one pure call rewriter for both canonical authorities
   - Handle item-authoritative `ToolCallItem.Arguments` / structured `ToolResultItem`.
   - Handle legacy tool-call `PartJSON` and `PartToolResult` representations.
   - Rewrite selected path values only; never recursively scan arbitrary strings.
@@ -383,3 +383,10 @@
 - Task 3.3: `ArgumentInference` takes declared schema BYTES (`[]byte`) rather than `lipapi.ToolDef`. This keeps the parent's zero-repo-import host-authority guard provable and structurally prevents tool name/description prose from reaching selector selection; `schemainfer` is the only package that constructs `lipapi.ToolDef`.
 - Task 3.3: both profile layers are re-validated at resolver BIND time, so a hand-assembled layer cannot bypass compile-time rules (empty/duplicate names, profile-count and pointer-count bounds, invalid mode).
 - Task 3.3: the shipped built-in table is deliberately conservative (8 canonical `lipapi.ClassifyToolName` alias names on `/file_path` or `/notebook_path`, zero result selectors, zero opaque modes). A built-in miss falls through to inference and a wrong pointer spelling only costs savings, never safety — but any edit to this table must be a deliberate, tested version bump.
+- Task 4.1: the rewriter lives in the SUBPACKAGE `pathvirtualization/rewrite/` because it needs `lipapi` types and the parent's host-authority AST guard rejects any repo import. Precedent: `schemainfer/`, `secretguard/engine`, `toolcallrepair/repair/jsonshape`.
+- Task 4.1: payload rewriting is a BYTE SPLICE, not a re-encode. A selected leaf is replaced inside its own JSON string literal, located via `json.Decoder` token offsets, so member order, duplicate keys, number spelling (`1e400`, `12345678901234567890`, `-0`, `0.0`), escapes, whitespace, and empty-vs-null presence all survive byte-for-byte. Preserve this property in later tasks; a re-encode would silently break requirement 2.8.
+- Task 4.1: authority discrimination is `Call.Items != nil` -> item authority, else part kind plus canonical `PartJSON.ToolName` -> legacy. Message role is deliberately NOT consulted because Anthropic delivers tool_result blocks in a user message and Gemini functionCall parts carry no call ID. `Call.Validate()` rejects a call carrying both authorities, so that branch is defensive only.
+- Task 4.1: known accounting gap for Task 4.3 — a `ContentPartText` part inside `ToolResultItem.Parts` currently records NO bounded skip, so requirement 7.6's skipped-occurrence counter under-counts for text-only tool results. `SkipReasonOpaqueResultUnchanged` / `SkipReasonOpaqueResultBounded` cover `ToolResultItem.Output`, `ContentPartToolResult`, and legacy `PartToolResult.Text`.
+- Task 4.1: a SELECTED leaf carrying raw invalid UTF-8 is re-emitted as U+FFFD, because the splice re-marshals the literal. Requirement 2.8's "where canonical representation permits" clause covers this; non-selected bytes are unaffected. Document if it becomes user-visible.
+- Task 4.1: `BytesBefore`/`BytesAfter` are measured from the DECODED value length, not the raw literal bytes, so an escape-spelled path reports a different delta than the wire delta. Intentional for requirement 9.5 realized-savings accounting.
+- Task 4.1: the payload is parsed twice per surface (`UseNumber` for selector resolution plus a token walk for offsets), so cost is O(2n) with transient `any` amplification on the largest canonical surfaces (`PartJSON`/`ContentPartJSON`/`PartToolResult` up to 8 MiB). Acceptable for now — nothing is re-encoded and the pass runs at most twice per request — but Task 9.4 must measure it so the performance claim stays evidence-backed.
