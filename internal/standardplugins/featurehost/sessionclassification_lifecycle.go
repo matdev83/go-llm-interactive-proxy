@@ -65,13 +65,27 @@ func (r *Runtime) sessionClassificationLifecycle(registrations []lipsdk.Registra
 	if r == nil || r.sessionClassification == nil {
 		return nil
 	}
+	if _, enabled := enabledSessionClassificationRegistration(registrations); !enabled {
+		return nil
+	}
+	return &sessionClassificationGenerationLifecycle{holder: r.sessionClassification}
+}
+
+// enabledSessionClassificationRegistration reports the canonical outer-enabled
+// session-classification feature registration. The outer Registration.Enabled
+// flag stays authoritative: an absent entry and an outer-disabled entry both
+// leave the feature absent, and the registry factory key is accepted alongside
+// the registration id so re-keyed distributions resolve identically.
+func enabledSessionClassificationRegistration(registrations []lipsdk.Registration) (lipsdk.Registration, bool) {
 	for _, registration := range registrations {
 		if registration.Kind != lipsdk.PluginKindFeature ||
-			(registration.ID != featureclassification.ID && registration.RegistryFactoryKey() != featureclassification.ID) ||
-			!registration.Enabled {
+			(registration.ID != featureclassification.ID && registration.RegistryFactoryKey() != featureclassification.ID) {
 			continue
 		}
-		return &sessionClassificationGenerationLifecycle{holder: r.sessionClassification}
+		if !registration.Enabled {
+			continue
+		}
+		return registration, true
 	}
-	return nil
+	return lipsdk.Registration{}, false
 }

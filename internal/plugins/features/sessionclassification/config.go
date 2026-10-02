@@ -99,28 +99,81 @@ func DecodeConfig(input yaml.Node) (Config, error) {
 			return Config{}, err
 		}
 	}
-	remoteNode, remotePresent := fields["remote"]
-	if remotePresent {
-		if cfg.Mode == ModeHeuristic {
-			return Config{}, configError("remote settings require jev or hybrid mode")
-		}
-		remote, decodeErr := decodeRemoteConfig(remoteNode)
+	if node, ok := fields["remote"]; ok {
+		remote, decodeErr := decodeRemoteConfig(node)
 		if decodeErr != nil {
 			return Config{}, decodeErr
 		}
 		cfg.Remote = &remote
 	}
-
-	switch cfg.Mode {
-	case ModeHeuristic:
-	case ModeJev, ModeHybrid:
-		if !remotePresent {
-			return Config{}, configError("jev and hybrid modes require explicit remote settings")
-		}
-	default:
-		return Config{}, configError("mode must be heuristic, jev, or hybrid")
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// Validate checks that a decoded or programmatically built policy is servable.
+// The omitted mode is the documented V1 default (deterministic heuristic), and
+// remote settings exist only for the modes that require a remote decision.
+func (c Config) Validate() error {
+	switch c.Mode {
+	case "", ModeHeuristic:
+		if c.Remote != nil {
+			return configError("remote settings require jev or hybrid mode")
+		}
+	case ModeJev, ModeHybrid:
+		if c.Remote == nil {
+			return configError("jev and hybrid modes require explicit remote settings")
+		}
+		if err := c.Remote.validate(); err != nil {
+			return err
+		}
+	default:
+		return configError("mode must be heuristic, jev, or hybrid")
+	}
+	return c.Heuristic.validate()
+}
+
+// validate bounds the operator-supplied literal exclusion list so a policy
+// built outside DecodeConfig cannot widen evaluation work.
+func (h HeuristicConfig) validate() error {
+	if len(h.IgnoredUserAgentPrefixes) > MaxIgnoredUserAgentPrefixes {
+		return configError("ignored_user_agent_prefixes exceeds its entry limit")
+	}
+	for _, prefix := range h.IgnoredUserAgentPrefixes {
+		if len(prefix) > MaxIgnoredUserAgentPrefixBytes || hasControlOrInvalidUTF8(prefix) {
+			return configError("ignored_user_agent_prefixes contains an invalid bounded string")
+		}
+	}
+	return nil
+}
+
+// validate enforces the finite operational bounds a remote decision needs. The
+// credential stays a referenced environment name; no credential value is ever
+// accepted or echoed here.
+func (r RemoteConfig) validate() error {
+	if r.Provider != "jev" {
+		return configError("remote provider must be jev")
+	}
+	if !validEnvironmentName(r.APIKeyEnv) {
+		return configError("api_key_env must name an environment variable")
+	}
+	if r.Timeout < MinRemoteTimeout || r.Timeout > MaxRemoteTimeout {
+		return configError("remote timeout is outside its finite bounds")
+	}
+	if r.MaxAttemptsPerSession < 1 || r.MaxAttemptsPerSession > MaxRemoteAttemptsPerSession {
+		return configError("max_attempts_per_session is outside its finite bounds")
+	}
+	if r.LeaseTTL > MaxRemoteLeaseTTL || r.LeaseTTL <= r.Timeout+RemoteLeaseSafetyMargin {
+		return configError("lease_ttl must exceed timeout plus the safety margin and remain finite")
+	}
+	if r.RetryBackoff < 0 || r.RetryBackoff > MaxRemoteRetryBackoff {
+		return configError("retry_backoff is outside its finite bounds")
+	}
+	if math.IsNaN(r.PositiveThreshold) || math.IsInf(r.PositiveThreshold, 0) || r.PositiveThreshold <= 0 || r.PositiveThreshold > 1 {
+		return configError("positive_threshold must be greater than zero and at most one")
+	}
+	return nil
 }
 
 func configRoot(node *yaml.Node) (*yaml.Node, bool, error) {
@@ -193,34 +246,34 @@ func decodeRemoteConfig(node *yaml.Node) (RemoteConfig, error) {
 	}
 
 	provider, ok := scalarString(fields["provider"], 32)
-	if !ok || provider != "jev" {
-		return RemoteConfig{}, configError("remote provider must be jev")
+	if !ok {
+		return RemoteConfig{}, configError("remote provider must be a bounded string")
 	}
 	apiKeyEnv, ok := scalarString(fields["api_key_env"], 128)
-	if !ok || !validEnvironmentName(apiKeyEnv) {
-		return RemoteConfig{}, configError("api_key_env must name an environment variable")
+	if !ok {
+		return RemoteConfig{}, configError("api_key_env must be a bounded environment name")
 	}
 	timeout, ok := durationString(fields["timeout"])
-	if !ok || timeout < MinRemoteTimeout || timeout > MaxRemoteTimeout {
-		return RemoteConfig{}, configError("remote timeout is outside its finite bounds")
+	if !ok {
+		return RemoteConfig{}, configError("remote timeout must be a bounded duration")
 	}
 	attempts, ok := integerScalar(fields["max_attempts_per_session"])
-	if !ok || attempts < 1 || attempts > MaxRemoteAttemptsPerSession {
-		return RemoteConfig{}, configError("max_attempts_per_session is outside its finite bounds")
+	if !ok {
+		return RemoteConfig{}, configError("max_attempts_per_session must be a bounded integer")
 	}
 	leaseTTL, ok := durationString(fields["lease_ttl"])
-	if !ok || leaseTTL > MaxRemoteLeaseTTL || leaseTTL <= timeout+RemoteLeaseSafetyMargin {
-		return RemoteConfig{}, configError("lease_ttl must exceed timeout plus the safety margin and remain finite")
+	if !ok {
+		return RemoteConfig{}, configError("lease_ttl must be a bounded duration")
 	}
 	retryBackoff, ok := durationString(fields["retry_backoff"])
-	if !ok || retryBackoff < 0 || retryBackoff > MaxRemoteRetryBackoff {
-		return RemoteConfig{}, configError("retry_backoff is outside its finite bounds")
+	if !ok {
+		return RemoteConfig{}, configError("retry_backoff must be a bounded duration")
 	}
 	threshold, ok := numberScalar(fields["positive_threshold"])
-	if !ok || math.IsNaN(threshold) || math.IsInf(threshold, 0) || threshold <= 0 || threshold > 1 {
-		return RemoteConfig{}, configError("positive_threshold must be greater than zero and at most one")
+	if !ok {
+		return RemoteConfig{}, configError("positive_threshold must be a bounded number")
 	}
-	return RemoteConfig{
+	remote := RemoteConfig{
 		Provider:              provider,
 		APIKeyEnv:             apiKeyEnv,
 		Timeout:               timeout,
@@ -228,7 +281,11 @@ func decodeRemoteConfig(node *yaml.Node) (RemoteConfig, error) {
 		LeaseTTL:              leaseTTL,
 		RetryBackoff:          retryBackoff,
 		PositiveThreshold:     threshold,
-	}, nil
+	}
+	if err := remote.validate(); err != nil {
+		return RemoteConfig{}, err
+	}
+	return remote, nil
 }
 
 func mappingFields(node *yaml.Node, section string, allowed ...string) (map[string]*yaml.Node, error) {

@@ -14,6 +14,7 @@ import (
 	featureclassification "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/uptrace/bun"
 	_ "modernc.org/sqlite"
@@ -48,9 +49,11 @@ func TestCandidateRollback_ClassificationLifecycleLeavesNoRowsAndKeepsBunBorrowe
 		_ = runtime.Close()
 		t.Fatalf("CompileGeneration: %v", err)
 	}
-	if !compiled.Planes.IsZero() {
+	// Task 5.2 publishes the generation-bound classifier plane for an enabled
+	// registration; publication alone must not initialize feature state.
+	if lipfeature.Get(compiled.Planes, lipfeature.PlaneSessionClassifier) == nil {
 		_ = runtime.Close()
-		t.Fatalf("task 5.1 unexpectedly published feature planes: %+v", compiled.Planes)
+		t.Fatal("enabled session-classification generation published no classifier plane")
 	}
 	if len(compiled.Lifecycles) != 1 {
 		_ = runtime.Close()
@@ -80,6 +83,10 @@ func TestCandidateRollback_ClassificationLifecycleLeavesNoRowsAndKeepsBunBorrowe
 	if err != nil || len(retry.Lifecycles) != 1 {
 		_ = runtime.Close()
 		t.Fatalf("later generation compile = (%d lifecycles, %v), want one reusable classification lifecycle", len(retry.Lifecycles), err)
+	}
+	if lipfeature.Get(retry.Planes, lipfeature.PlaneSessionClassifier) == nil {
+		_ = runtime.Close()
+		t.Fatal("later generation published no classifier plane")
 	}
 	if err := retry.Lifecycles[0].Start(ctx); err != nil {
 		_ = runtime.Close()

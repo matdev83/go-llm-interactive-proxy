@@ -1,0 +1,60 @@
+package featurehost
+
+import (
+	"fmt"
+	"time"
+
+	featureclassification "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/sessionclassification"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkclassification "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
+)
+
+// bindSessionClassifier publishes the concrete session-classification classifier
+// as a generation-bound value on the exclusive classifier plane.
+//
+// The binder owns three properties of the feature:
+//
+//   - configuration is decoded and validated while the candidate generation is
+//     compiled, so an unknown mode, an impossible threshold, contradictory
+//     local/remote settings, or unbounded matcher data reject the candidate
+//     before publication;
+//   - the classifier is bound to the process-owned state holder, never to a
+//     generation-local store, so reload keeps one monotonic shared state and
+//     composing a generation initializes no feature state;
+//   - the plane is exclusive, so a second effective classifier contributor
+//     rejects the candidate instead of silently replacing the single
+//     classification authority.
+//
+// An absent or outer-disabled registration contributes no plane at all.
+func (r *Runtime) bindSessionClassifier(outPlanes lipfeature.FrozenPlaneSet, in GenerationInput) (lipfeature.FrozenPlaneSet, error) {
+	if r == nil || r.sessionClassification == nil {
+		return outPlanes, nil
+	}
+	registration, enabled := enabledSessionClassificationRegistration(in.Registrations)
+	if !enabled {
+		return outPlanes, nil
+	}
+	cfg, err := featureclassification.DecodeConfig(registration.Config.Node)
+	if err != nil {
+		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("featurehost: %w", err)
+	}
+	classifier, err := featureclassification.NewClassifier(cfg, featureclassification.ClassifierDeps{
+		State: r.sessionClassification,
+		Now:   classificationNowFunc(in.NowFn),
+	})
+	if err != nil {
+		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("featurehost: session classification classifier: %w", err)
+	}
+	cs := outPlanes.ToContributions()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionClassifier, featureclassification.ID, sdkclassification.Classifier(classifier)); err != nil {
+		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("featurehost: session classification classifier plane: %w", err)
+	}
+	return cs.Freeze(), nil
+}
+
+func classificationNowFunc(now func() time.Time) func() time.Time {
+	if now != nil {
+		return now
+	}
+	return func() time.Time { return time.Now().UTC() }
+}

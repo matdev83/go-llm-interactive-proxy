@@ -14,6 +14,9 @@ var (
 	ErrStateHolderClosed = errors.New("session classification: process state holder is closed")
 	// ErrStateHolderConfig reports an invalid process state holder configuration.
 	ErrStateHolderConfig = errors.New("session classification: invalid process state holder configuration")
+	// ErrStateNotInitialized reports that no enabled generation has prepared the
+	// shared classification state yet. Resolving state never initializes it.
+	ErrStateNotInitialized = errors.New("session classification: process state is not initialized")
 )
 
 type schemaStore interface {
@@ -226,6 +229,22 @@ func (h *StateHolder) Coordinator() *Coordinator {
 		return nil
 	}
 	return h.coordinator
+}
+
+// ClassificationState resolves the shared process coordinator for a
+// generation-bound classifier. It satisfies the feature-owned state-authority
+// contract and is deliberately read-only: composing or calling a classifier
+// never initializes feature state, so a candidate generation that never reaches
+// candidate prepare leaves no schema or network dependency behind.
+func (h *StateHolder) ClassificationState() (featurestate.Store, error) {
+	if h == nil {
+		return nil, ErrStateHolderConfig
+	}
+	coordinator := h.Coordinator()
+	if coordinator == nil {
+		return nil, ErrStateNotInitialized
+	}
+	return coordinator, nil
 }
 
 // Close releases the holder's references exactly once. Stores and DB clients

@@ -225,6 +225,12 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	if kwLife != nil {
 		outLifecycles = append(outLifecycles, kwLife)
 	}
+	// 7. Session classification: the generation-bound classifier is published on
+	// the exclusive classifier plane only for an outer-enabled registration.
+	// Config is validated here, so an invalid candidate fails before publication.
+	if outPlanes, err = r.bindSessionClassifier(outPlanes, in); err != nil {
+		return GenerationOutput{}, err
+	}
 	if classificationLife := r.sessionClassificationLifecycle(in.Registrations); classificationLife != nil {
 		outLifecycles = append(outLifecycles, classificationLife)
 	}

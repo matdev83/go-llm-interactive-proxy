@@ -151,7 +151,7 @@
     - _Depends: 4.4_
     - _Validation: never-enabled no-schema/no-network test; lifecycle overlap/rollback/constructor-count/close ownership tests; memory-vs-Bun composition tests_
 
-  - [ ] 5.2 Bind one generation classifier from feature registration/config
+  - [x] 5.2 Bind one generation classifier from feature registration/config
     - Register the session-classification standard feature factory.
     - Decode/validate mode-specific config at candidate generation, build the concrete feature classifier with the process coordinator and optional remote adapter, and contribute it through PlaneSessionClassifier.
     - Prove absent/disabled feature publishes no classifier plane.
@@ -378,4 +378,5 @@
 
 - Task 4.4 coalesced waiters preserve their own cancellation, then consult an available valid positive before propagating an owner storage error. Owner cancellation is tracked separately because Bun adapters return bounded store errors for mid-I/O cancellation.
 
-- Task 5.1 initializes classification state only in enabled-generation lifecycle Start. The process owns two closers (terminal policy and the lightweight classification holder); generation Stop retains shared state. Initialization tracks owner cancellation separately so live waiters retry even when Bun returns a bounded schema error. Task 5.2 adds the classifier plane; evolve the lifecycle-only candidate assertions while preserving rollback and publication isolation.
+- Task 5.1 initializes classification state only in enabled-generation lifecycle Start.
+- Task 5.2 publishes the generation classifier through the exclusive PlaneSessionClassifier against the process-owned StateHolder; the remote decider is deliberately unwired so jev/hybrid fail open to unknown with zero egress until 8.3. TestClassifierHoldsNoNetworkCapableDependency pins the classifier to three fields and must be relaxed deliberately when 8.3 adds a decider. Add "sessionclassification" to archForbiddenFeatureTokens in 12.1 before any guarded aggregate gains an SDK-classifier field. The process owns two closers (terminal policy and the lightweight classification holder); generation Stop retains shared state. Initialization tracks owner cancellation separately so live waiters retry even when Bun returns a bounded schema error. Task 5.2 adds the classifier plane; evolve the lifecycle-only candidate assertions while preserving rollback and publication isolation.
