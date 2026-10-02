@@ -12,9 +12,16 @@ fi
 
 report="$TMPDIR/configsource-certify-$$.json"
 trap 'rm -f "$report"' EXIT
-go test -json -count=1 -tags=configsource_cert \
+# Surface the test output when execution fails. Without this guard a failing
+# `go test` aborts under `set -e` before the report is parsed, and the EXIT trap
+# then deletes the only record of the cause. Matches configsource-fault-check.sh.
+if ! go test -json -count=1 -tags=configsource_cert \
 	-run '^TestFixedSource_(PinnedAtomicRecovery|PinPreventsAcceptedInodeReuse)$' \
-	./internal/infra/configsource/... >"$report"
+	./internal/infra/configsource/... >"$report"; then
+	cat "$report" >&2
+	echo "tagged configsource certification test execution failed" >&2
+	exit 1
+fi
 
 python3 - "$report" <<'PY'
 import json
