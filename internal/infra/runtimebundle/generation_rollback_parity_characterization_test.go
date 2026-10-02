@@ -10,11 +10,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguardhost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,6 +78,24 @@ func newProcessWithRegistry(t *testing.T, reg *pluginreg.Registry) *runtimebundl
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 	return ps
+}
+
+// detectorSelectionRollbackPanicEnv covers startup, candidate validation,
+// request activity, and recovery without revealing any environment contents.
+type detectorSelectionRollbackPanicEnv struct{}
+
+func (detectorSelectionRollbackPanicEnv) Lookup(string) (string, bool) {
+	panic("generation validation must not look up environment secrets")
+}
+
+func (detectorSelectionRollbackPanicEnv) Snapshot() []string {
+	panic("generation validation must not enumerate environment secrets")
+}
+
+func detectorSelectionMultiUserConfig(cfg *config.Config) {
+	cfg.Access = config.AccessConfig{Mode: "multi_user"}
+	cfg.Auth = config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"}
+	cfg.Server.AuthMode = config.AuthModeExternal
 }
 
 // --- Acceptance Criteria 5: Generation Rollback Parity Characterization ---
@@ -190,6 +210,42 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 			wantErrSubstr: "secrets-guard: single_user is invalid in multi_user mode",
 		},
 		{
+			name:             "multi_user_local_discovery_true_betterleaks_absent",
+			mutateProcessCfg: detectorSelectionMultiUserConfig,
+			mutateCandCfg: func(t *testing.T, cand *config.Config) {
+				t.Helper()
+				detectorSelectionMultiUserConfig(cand)
+				cand.Plugins.Features = append(cand.Plugins.Features,
+					config.PluginConfig{ID: "sg-local-invalid", Kind: "secrets-guard", Enabled: true, Config: parseTestYAMLNode(t, "action: block\nauto_discovered_local_keys:\n  enabled: true\n")},
+				)
+			},
+			wantErrSubstr: "auto_discovered_local_keys",
+		},
+		{
+			name:             "multi_user_local_discovery_true_betterleaks_enabled",
+			mutateProcessCfg: detectorSelectionMultiUserConfig,
+			mutateCandCfg: func(t *testing.T, cand *config.Config) {
+				t.Helper()
+				detectorSelectionMultiUserConfig(cand)
+				cand.Plugins.Features = append(cand.Plugins.Features,
+					config.PluginConfig{ID: "sg-local-invalid", Kind: "secrets-guard", Enabled: true, Config: parseTestYAMLNode(t, "action: block\nauto_discovered_local_keys:\n  enabled: true\nbetterleaks:\n  enabled: true\n")},
+				)
+			},
+			wantErrSubstr: "auto_discovered_local_keys",
+		},
+		{
+			name:             "multi_user_local_discovery_true_betterleaks_disabled",
+			mutateProcessCfg: detectorSelectionMultiUserConfig,
+			mutateCandCfg: func(t *testing.T, cand *config.Config) {
+				t.Helper()
+				detectorSelectionMultiUserConfig(cand)
+				cand.Plugins.Features = append(cand.Plugins.Features,
+					config.PluginConfig{ID: "sg-local-invalid", Kind: "secrets-guard", Enabled: true, Config: parseTestYAMLNode(t, "action: block\nauto_discovered_local_keys:\n  enabled: true\nbetterleaks:\n  enabled: false\n")},
+				)
+			},
+			wantErrSubstr: "auto_discovered_local_keys",
+		},
+		{
 			name:          "candidate_fault_inject_handler",
 			fault:         runtimebundle.CandidateFaultInject{After: "handler"},
 			wantErrSubstr: "candidate fault injected: after handler",
@@ -226,6 +282,11 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 				Log: testkit.DiscardLogger(),
 				Opts: &runtimebundle.BuildOptions{
 					PluginRegistry: reg,
+					Production: runtimebundle.ProductionOptions{
+						FeatureHostRegistrations: []featurehost.Registration{
+							(&secretguardhost.Binding{Environment: detectorSelectionRollbackPanicEnv{}}).Registration(),
+						},
+					},
 					Auth: runtimebundle.AuthOptions{
 						RemoteDecider: &testkit.StubRemoteDecider{
 							Decision: sdkauth.Decision{
@@ -284,6 +345,9 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 				FaultInject:   tc.fault,
 			}
 			failedBundle, compileErr := runtimebundle.CompileGeneration(context.Background(), compileInput)
+			if failedBundle != nil {
+				t.Cleanup(func() { _ = failedBundle.Close() })
+			}
 			require.Error(t, compileErr)
 			assert.Nil(t, failedBundle)
 

@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. Establish detector configuration and brownfield characterization
-  - [ ] 1.1 Add failing configuration/default tests for detector selection
+  - [x] 1.1 Add failing configuration/default tests for detector selection
     - Characterize existing top-level feature activation, required action, single-user exact defaults, multi-user request-credential behavior, and reload failure semantics before changing implementation.
     - Add matrix tests for absent/true/false local auto-discovery across both access modes and absent/true/false BetterLeaks enablement.
     - Prove explicit local auto-discovery true in multi-user is rejected without any environment call.

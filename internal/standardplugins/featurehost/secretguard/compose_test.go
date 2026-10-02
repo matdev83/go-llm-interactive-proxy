@@ -135,6 +135,43 @@ func TestSecretGuardCompose_MultiUserZeroEnvironmentCalls(t *testing.T) {
 	}
 }
 
+// TestSecretGuardCompose_MultiUserExplicitLocalDiscoveryRejectedBeforeEnvironment
+// is the RED characterization for the access-mode-safe local discovery switch.
+// Validation must reject the explicit request before any environment source is
+// consulted, even though multi-user composition otherwise uses the request
+// credential matcher only.
+func TestSecretGuardCompose_MultiUserExplicitLocalDiscoveryRejectedBeforeEnvironment(t *testing.T) {
+	t.Parallel()
+	env := &panicEnv{}
+	regs := []lipsdk.Registration{{
+		Kind:        lipsdk.PluginKindFeature,
+		ID:          "detector-policy",
+		FactoryKind: "secrets-guard",
+		Enabled:     true,
+		Config: lipsdk.ConfigPayload{Node: mustYAMLNode(t, `
+action: block
+auto_discovered_local_keys:
+  enabled: true
+`)},
+	}}
+
+	out, err := sgcompose.Compose(sgcompose.Input{
+		AccessMode:    accessmode.ModeMultiUser,
+		Registrations: regs,
+		Environment:   env,
+		Logger:        discardLogger(),
+	})
+	if err == nil || out != nil {
+		t.Fatalf("expected explicit multi_user local discovery rejection, out=%#v err=%v", out, err)
+	}
+	if !strings.Contains(err.Error(), "auto_discovered_local_keys") {
+		t.Fatalf("rejection must identify the invalid detector switch: %v", err)
+	}
+	if env.calls != 0 {
+		t.Fatalf("invalid multi_user detector configuration read environment %d times", env.calls)
+	}
+}
+
 func TestSecretGuardCompose_DisabledZeroEnvironmentCalls(t *testing.T) {
 	t.Parallel()
 	env := &panicEnv{}
