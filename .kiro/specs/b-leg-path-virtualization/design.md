@@ -37,12 +37,13 @@ The feature remains provider-neutral and canonical. It does not rewrite arbitrar
 - Completed model-tool-call reverse expansion.
 - Feature config, audit mode, bounded metrics, and diagnostics.
 - Narrow generic SDK/runtime enhancements needed for safe complete-call expansion.
+- Generic final conversation-view reassertion compatibility for identity-changing but trajectory-preserving backend-only rewrites, using frozen request-local baseline/provenance rather than redefining persisted anchor identity.
 
 ### Out of Boundary
 - Routing/failover selection and B2BUA lifecycle ownership.
 - Output commitment/recovery rules.
 - Provider adapters/wire formats.
-- Conversation-view message visibility semantics.
+- Conversation-view store/persistence, `MessageIdentityOf` and persisted anchor derivation, placement policy, overlay lifecycle, and anchor-missing/fallback policy. This spec owns only the generic final-reassertion lineage carry-forward needed to preserve an already-resolved placement across a provably trajectory-preserving B-leg-only content rewrite.
 - Billing/rating authority.
 - Secure-session authority.
 - Filesystem sandbox enforcement itself.
@@ -52,6 +53,7 @@ The feature remains provider-neutral and canonical. It does not rewrite arbitrar
 - `pkg/lipapi` canonical calls/items/messages/tool definitions.
 - `pkg/lipsdk/workspace`, `session`, `scope`.
 - Existing candidate attempt-transform and request-part-hook planes.
+- Existing conversation-projection final reassertion seam and its frozen request-local filtered baseline/provenance, after the generic lineage enhancement below.
 - Existing tool-call finalizer/assembler path, after the generic enhancements below.
 - Standard feature configuration/registration/metrics conventions.
 
@@ -80,6 +82,8 @@ Current runtime ordering relevant to this feature is:
 Consequences:
 - one early `request.AttemptTransform` virtualizes eligible history so candidate sizing/context/preflight can observe savings;
 - one idempotent `hooks.RequestPartHook` reapplies the same pure rewrite after later request shaping;
+- early conversation-view projection remains the authority for persisted anchor resolution; because legacy message identity hashes semantic content, a B-leg path rewrite may change the message identity without changing its trajectory lineage;
+- final conversation-view reassertion therefore preserves an already-resolved after-message placement across a provably one-to-one, structure-preserving B-leg rewrite using the frozen filtered baseline/provenance, while ambiguous lineage remains fail-closed;
 - runtime tests must prove conversation-view reassertion/adaptation do not restore real path-bearing history before PTB/backend open;
 - model→client expansion uses completed tool-call finalization, not raw `ToolCallArgsDelta` mutation;
 - expansion completes before existing tool policy/reactors.
@@ -90,7 +94,7 @@ flowchart LR
     FE --> A[Canonical A-leg call]
     A --> AT[AttemptTransform: virtualize]
     AT --> RH[RequestPartHook: idempotent reapply]
-    RH --> CV[Conversation-view reassert]
+    RH --> CV[Conversation-view reassert: frozen lineage]
     CV --> AD[Candidate adaptation]
     AD --> B[Backend / virtual paths]
     B --> ASM[Complete tool-call assembler]
@@ -102,7 +106,7 @@ flowchart LR
 ### Ownership
 - Concrete path policy/configuration lives under `internal/plugins/features/pathvirtualization`.
 - `internal/core` must not import the concrete feature.
-- Generic SDK/runtime changes are limited to finalizer metadata and mandatory buffering/completeness semantics.
+- Generic SDK/runtime changes are limited to finalizer metadata, mandatory buffering/completeness semantics, and transform-stable final conversation-view reassertion using already-frozen request-local evidence.
 - No new canonical `Path` type is required; paths remain strings inside existing tool semantics.
 
 ## Component Design
@@ -250,6 +254,30 @@ For tool results:
 - V1 built-ins should not enable opaque rewriting unless the tool contract is clearly path-list-only.
 
 The rewriter returns content-free stats: eligible count, rewritten count, bytes before/after/saved, and bounded skip reasons.
+
+### 4A. Transform-Stable Conversation-View Reassertion
+
+Task 1.3 characterization exposes a brownfield composition hazard that the original SDD missed. Early conversation-view projection runs before candidate attempt transforms and resolves stored after-message anchors against A-leg/client truth. `conversationprojection.MessageIdentityOf` is a hash of normalized semantic message content, including legacy `PartJSON` and `PartToolResult` payloads. Path virtualization can therefore change the identity of an otherwise unchanged legacy message. The current final `Reassert` path removes projection-owned overlays and then calls `Project(cleaned, snap)`, which re-resolves the frozen pre-virtualization anchor against post-virtualization content and can produce `ErrAnchorMissing` / `AnchorFailClosed` before `Backend.Open`.
+
+That failure is not solved by weakening identity or anchor policy. Authority remains split as follows:
+
+1. Early conversation-view projection is the authority that resolves persisted anchors against A-leg/client truth and applies the configured anchor-missing/fallback policy.
+2. Backend-only shaping may change payload bytes after that projection while preserving the same complete-message trajectory.
+3. Final reassertion may carry an already-resolved placement through such a rewrite only when request-local evidence proves deterministic one-to-one lineage from the frozen filtered baseline to the cleaned backend-shaped trajectory.
+4. If that lineage cannot be proven, the runtime must not relocate by ordinal or moving-tail heuristics; existing exact-resolution/fail-closed behavior remains authoritative.
+
+The generic reassertion seam therefore gains these constraints:
+
+- Do **not** change `MessageIdentityOf`, stored `MessageAnchor{Identity, Occurrence}`, conversation-view persistence, overlay lifecycle, or anchor-missing policy.
+- Keep exact identity-based reassertion as the normal path.
+- Use the already-frozen `filteredBaseline` plus early `ProjectionEvidence/OverlayProvenance` (or an equivalent request-local generic evidence object) as the only basis for identity-drift carry-forward; do not read the conversation-view store again.
+- Before carrying placement forward, establish an unambiguous structural bijection between the frozen filtered trajectory and the cleaned current trajectory. At minimum the canonical authority form, trajectory cardinality/order, instruction/message or item partition, roles/kinds, ordered part kinds, and stable canonical IDs/references/tool identities must remain compatible. Payload text/JSON bytes may differ. The helper is generic and must not know about path virtualization.
+- Map the early resolved after-message anchor's frozen trajectory position to the corresponding current message only after that bijection succeeds, then re-inject the overlay at the same logical boundary.
+- Any insertion, deletion, reorder, role/kind change, stable-ID/reference mismatch, or other ambiguity invalidates lineage carry-forward. Never use a bare numeric position as authority when the structural proof fails.
+- Existing `never_backend` filtering and projection-owned-overlay removal remain mandatory and must not be bypassed by lineage carry-forward.
+- Stable-prefix overlays remain unaffected because they do not depend on message identity.
+
+This is a generic brownfield compatibility repair, not a path-specific exception in core. It also protects future trusted backend-only content transforms that preserve trajectory structure.
 
 ### 5. Completed Tool-Call Finalizer Metadata
 
@@ -437,6 +465,8 @@ Audit mode runs the same detector/mapping logic without canonical mutation so me
 ### Runtime/integration
 - Attempt transform makes preliminary sizing/preflight observe reduced history.
 - Request-part reapplication survives final conversation-view reassertion and candidate adaptation.
+- **Anchor identity-drift regression:** resolve an after-message steering overlay against a legacy path-bearing `PartJSON` (and representative `PartToolResult`) message, virtualize the selected payload after early projection, prove the content hash changes, and prove final reassertion preserves the frozen placement through verified structural lineage.
+- Negative lineage cases (insert/delete/reorder/role or stable-ID change) remain fail-closed and never relocate the overlay heuristically.
 - PTB/backend ingress receives virtualized eligible tool history.
 - Completed model call expands before tool policy observer.
 - Stale/unresolved alias and mandatory overflow never reach client events.
@@ -484,7 +514,7 @@ Validated invariants:
 - optional behavior remains feature-owned;
 - no provider/frontend branching or canonical path type is required;
 - current request ordering is explicitly accounted for;
-- final conversation-view reassertion/PTB behavior is covered by tests;
+- final conversation-view reassertion/PTB behavior is covered by tests, including content-identity drift on a trajectory-preserving B-leg rewrite;
 - reverse expansion occurs before tool policy/client release;
 - the existing shared 64 KiB finalizer bypass is explicitly repaired;
 - source/content corruption is prevented by selector-only mutation and opaque-result default-off;
@@ -499,9 +529,10 @@ Significant repaired defects discovered during brownfield/design review:
 4. added authoritative workspace metadata to complete finalization;
 5. added mandatory buffering/fail-closed semantics so required expansion cannot be bypassed at 64 KiB;
 6. narrowed transparency to tool surfaces;
-7. after CodeRabbit review, replaced fixed per-flavor aliases with deterministic 96-bit workspace-bound aliases and fixed the V1 namespace/version, closing stale-alias cross-workspace retargeting.
+7. after CodeRabbit review, replaced fixed per-flavor aliases with deterministic 96-bit workspace-bound aliases and fixed the V1 namespace/version, closing stale-alias cross-workspace retargeting;
+8. after Task 1.3 implementation characterization, repaired the content-hash anchor conflict by assigning a generic frozen-lineage carry-forward in final reassertion for provably trajectory-preserving B-leg rewrites, without changing persisted conversation-view identity or fail-closed policy.
 
-No unresolved architecture blocker remains.
+No unresolved architecture blocker remains after the implementation-discovered repair.
 
 ## Supporting References
 See `research.md` for the brownfield discovery record and inspected repository surfaces.
