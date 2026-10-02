@@ -36,10 +36,13 @@ package runtime
 import (
 	"context"
 	"errors"
+	"log/slog"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 // errControlHandlerUnavailable is the bounded failure for an attempt whose
@@ -54,6 +57,140 @@ var errControlHandlerUnavailable = errors.New("runtime: control tool handler una
 // rather than reopening the capture or executing the call as ordinary client
 // tool traffic.
 var errControlAttemptReleased = errors.New("runtime: control tool state released for this attempt")
+
+// Bounded, content-free control-call outcomes. Every value is a fixed
+// classification well inside the telemetry bound and never carries result text,
+// tool arguments, prompts, raw identifiers, or provider payload.
+//
+// This is the existing generic control-tool observability vocabulary. It is
+// deliberately generic: nothing here names a concrete feature, tool, or provider.
+const (
+	// controlOutcomeObserved reports that the private path claimed an event that
+	// carries no verdict of its own. It is the default classification of a claimed
+	// event, so it is recorded once per such claimed event.
+	controlOutcomeObserved = "observed"
+	// controlOutcomeValid reports a validated completion outcome.
+	controlOutcomeValid = "valid"
+	// controlOutcomeInvalid reports a bounded invalid outcome, either from the
+	// capture lifecycle or from the provider's own invalid classification.
+	controlOutcomeInvalid = "invalid"
+	// controlOutcomeArgsTooLarge reports arguments beyond the frozen budget.
+	controlOutcomeArgsTooLarge = "args_too_large"
+	// controlOutcomeMultipleCalls reports more than one control call in one
+	// response, which this protocol never admits.
+	controlOutcomeMultipleCalls = "multiple_calls"
+	// controlOutcomeHandlerError reports a provider-side handler failure, which
+	// the generic boundary already collapsed into one static sentinel.
+	controlOutcomeHandlerError = "handler_error"
+)
+
+// controlReasonObserved is the bounded reason for a claimed event that carries no
+// capture classification of its own.
+const controlReasonObserved = "control_call_observed"
+
+// controlReasonUnknown is the single static collapse bucket for any
+// classification this vocabulary does not recognise. It keeps the emitted reason
+// bounded even if a future capture classification is added without being added
+// here, which is what makes the dimension provably finite.
+const controlReasonUnknown = "control_call_reason_unknown"
+
+// controlReasonVocabulary is the closed set of bounded control-call reasons this
+// seam may report: the sticky capture classifications, the two validated provider
+// outcome reasons, the bare observed reason, and the single collapse bucket.
+var controlReasonVocabulary = map[string]bool{
+	controlReasonUnknown:         true,
+	controlReasonObserved:        true,
+	"completion_complete":        true,
+	"completion_invalid":         true,
+	controlReasonIDInvalid:       true,
+	controlReasonDuplicateStart:  true,
+	controlReasonDuplicateFinish: true,
+	controlReasonMultipleCalls:   true,
+	controlReasonNameConflict:    true,
+	controlReasonArgsAfterFinish: true,
+	controlReasonArgsOverflow:    true,
+	controlReasonArgsMalformed:   true,
+	controlReasonBeforeStart:     true,
+	controlReasonResultObserved:  true,
+	controlReasonMalformedItem:   true,
+	controlReasonUnterminated:    true,
+}
+
+// boundedControlReasonCode collapses any unrecognised classification into the one
+// static unknown bucket, so the reason dimension can never carry unbounded text.
+// An empty reason is not a classification: it is the shape of a claimed event that
+// carries no verdict of its own, so it collapses to the bare observed reason
+// rather than to the invalid bucket.
+func boundedControlReasonCode(reason string) string {
+	switch reason {
+	case "":
+		return controlReasonObserved
+	case controlReasonUnknown:
+		return controlReasonUnknown
+	}
+	if controlReasonVocabulary[reason] {
+		return reason
+	}
+	return controlReasonUnknown
+}
+
+// controlOutcomeForReason classifies one claimed event into the bounded outcome
+// and the bounded reason of the SAME record, in one decision over the raw
+// classification, so the two emitted dimensions can never contradict each other.
+//
+// The raw reason is examined before it is collapsed: a claimed event that carries
+// no classification of its own — the start, each buffered args delta — is the
+// design's default `observed`, which is also what makes an ordinary private-path
+// claim distinguishable from a malformed control call. Collapsing first would
+// report that same event as `invalid` with the unknown bucket and leave the
+// `observed` outcome unreachable.
+//
+// A classification this vocabulary does not recognise, and the released, fatal,
+// and handler-error paths that deliberately report the single collapse bucket,
+// are invalid control calls: the unknown bucket is therefore the invalid outcome's
+// reason, never the observed outcome's.
+func controlOutcomeForReason(reason string) (outcome, boundedReason string) {
+	switch reason {
+	case "":
+		return controlOutcomeObserved, controlReasonObserved
+	case controlReasonArgsOverflow:
+		return controlOutcomeArgsTooLarge, controlReasonArgsOverflow
+	case controlReasonMultipleCalls:
+		return controlOutcomeMultipleCalls, controlReasonMultipleCalls
+	default:
+		return controlOutcomeInvalid, boundedControlReasonCode(reason)
+	}
+}
+
+// logControlCallObservation records the bounded classification of ONE CLAIMED
+// EVENT of the private control path. This seam is per claimed event, not per
+// handled call: a start, each buffered args delta, and the completion verdict are
+// separate records, which is what makes the design's `observed` outcome
+// observable at all.
+//
+// The record volume is bounded per attempt rather than unbounded: a capture can
+// claim at most one call start, one args delta per buffered argument byte under
+// the frozen args budget, and one finish, and its correlation window is a fixed
+// number of call identities. Ordinary traffic pays nothing, because
+// divertControlCall returns before any logging when there is no capture or the
+// observation is unclaimed.
+//
+// Only the frozen provider identity and the bounded outcome/reason
+// classification are attached: no result text, tool arguments, prompt text, call
+// id, item id, or any other raw identifier can reach this record, because none of
+// them is ever passed in. The reason is bounded once more here at the sink, so a
+// caller that ever regressed to an unbounded classification still could not widen
+// the emitted dimension.
+func logControlCallObservation(ctx context.Context, log *slog.Logger, providerID, outcome, reason string) {
+	if log == nil {
+		return
+	}
+	diag.LogDecision(ctx, log, "control_tool_call", diag.AttrOpts{},
+		slog.String("provider_id", boundedTerminalDecisionString(providerID, terminaldecision.MaxProviderIDBytes)),
+		slog.String("outcome", outcome),
+		slog.String("reason_code", boundedControlReasonCode(reason)),
+	)
+}
 
 // divertControlCall runs the private control-call interception for one backend
 // event.
@@ -78,6 +215,7 @@ func (p *responsePipeline) divertControlCall(ctx context.Context, attempt *attem
 		// event that reaches this point cannot be classified, so it fails closed
 		// instead of reopening the capture or continuing as ordinary client
 		// tool traffic.
+		p.logControlCall(ctx, attempt, controlOutcomeInvalid, controlReasonUnknown)
 		return true, errControlAttemptReleased
 	}
 	if !obs.Claimed() {
@@ -85,15 +223,81 @@ func (p *responsePipeline) divertControlCall(ctx context.Context, attempt *attem
 	}
 	if obs.Fatal() != nil {
 		attempt.clearControlOutcome()
+		p.logControlCall(ctx, attempt, controlOutcomeInvalid, controlReasonUnknown)
 		return true, obs.Fatal()
 	}
 	if obs.Completed() {
-		return true, attempt.handleControlCall(ctx, obs.Call())
+		return true, p.handleAndLogControlCall(ctx, attempt, obs)
 	}
 	if obs.Invalid() {
 		attempt.clearControlOutcome()
 	}
+	outcome, reason := controlOutcomeForReason(obs.Reason())
+	p.logControlCall(ctx, attempt, outcome, reason)
 	return true, nil
+}
+
+// logControlCall emits the bounded classification of one claimed control event
+// for this attempt, attaching only the frozen provider identity the activation
+// already froze. outcome and reason are the pair one classification produced, so
+// a caller never passes them independently.
+func (p *responsePipeline) logControlCall(ctx context.Context, attempt *attemptSession, outcome, reason string) {
+	if p == nil || attempt == nil {
+		return
+	}
+	var providerID string
+	if attempt.controlTool != nil {
+		providerID = attempt.controlTool.providerID
+	}
+	logControlCallObservation(ctx, p.log, providerID, outcome, reason)
+}
+
+// handleAndLogControlCall runs the one bounded handler invocation for a completed
+// control call and records its bounded outcome. A provider error is reported as
+// the generic handler-error classification, never as provider text: the boundary
+// already collapsed the concrete cause into one static sentinel.
+func (p *responsePipeline) handleAndLogControlCall(ctx context.Context, attempt *attemptSession, obs controlCallObservation) error {
+	err := attempt.handleControlCall(ctx, obs.Call())
+	if err != nil {
+		p.logControlCall(ctx, attempt, controlOutcomeHandlerError, controlReasonUnknown)
+		return err
+	}
+	// The stored outcome is the only verdict the private path publishes. Reading it
+	// back under the attempt's own lock copies one bounded classification; the
+	// result text itself is never inspected here.
+	outcome, reason := controlCompletionClassification(attempt)
+	p.logControlCall(ctx, attempt, outcome, reason)
+	return nil
+}
+
+// controlCompletionClassification reads the one stored control outcome and
+// classifies it into the bounded outcome and reason of the same record inside a
+// SINGLE locked region.
+//
+// The pair can never be torn: a concurrent cancellation, Close, attempt loss, or
+// replacement that releases this attempt between two reads could otherwise report
+// a valid outcome beside the unknown collapse bucket, which would contradict
+// itself. Only the bounded classification leaves the lock; the outcome's result
+// text is never inspected.
+//
+// The provider's own bounded reason survives the classification: an outcome this
+// attempt no longer owns, or one it never received, is the invalid collapse bucket,
+// while an outcome the handler did return keeps the provider's own bounded verdict
+// — the valid completion reason, or the bounded invalid reason of a malformed one.
+func controlCompletionClassification(a *attemptSession) (outcome, reason string) {
+	if a == nil {
+		return controlOutcomeInvalid, controlReasonUnknown
+	}
+	a.controlMu.Lock()
+	defer a.controlMu.Unlock()
+	if a.controlOutcome == nil {
+		return controlOutcomeInvalid, controlReasonUnknown
+	}
+	reason = boundedControlReasonCode(a.controlOutcome.ReasonCode)
+	if a.controlOutcome.Kind != controltool.OutcomeComplete {
+		return controlOutcomeInvalid, reason
+	}
+	return controlOutcomeValid, reason
 }
 
 // observeControlCall runs the capture's per-event decision under the attempt's

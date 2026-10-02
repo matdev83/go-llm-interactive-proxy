@@ -226,7 +226,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Depends: 10.1_
     - _Validation: streamrecovery/runtime/terminal focused suites; race where supported_
 
-  - [ ] 10.3 Add bounded protocol observability and privacy tests
+  - [x] 10.3 Add bounded protocol observability and privacy tests
     - Emit strategy/activation/control/terminal reason telemetry through existing seams with bounded vocabularies.
     - Preserve upstream B-leg usage/cost and legacy auxiliary usage attribution; local control handling creates no fake provider usage.
     - Prove result/prompt/args/raw IDs never enter metric labels or bounded reason codes.
@@ -344,3 +344,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 10.1: the conformance harness composes the real preferred-strategy generation, so the whole acceptance matrix runs end to end with no provider fakes. Two adapters encode a canonical developer-role steering message literally and two coerce it to the user role with the loss named and pinned. Client-side ordering is asserted from wire frames, because the shared trace has no happens-before edge between the pipeline and reader goroutines. An OpenResponses item-authority path cannot reopen a message item after ordinary text; that reproduces with no control generation and belongs to that frontend owner.
 
 - Task 10.2: transport, cancellation and side-effect invariants are certified end to end against the real seam, with no product-code change. Cancellation and refusal are protected by context propagation rather than a stack of gates, so no overlay probe can isolate them; that is a structural limit worth remembering when reading future probe evidence. Reload is certified only for newly admitted turns, because swapping the runtime snapshot under a live request is a harness race and the runtime snapshot is a plain field rather than a synchronized accessor. Refusal and content-filter causes exist only as terminal input, so no production path emits them. In-flight strategy pinning across reload is still unowned.
+
+- Task 10.3: the control-call telemetry seam was genuinely absent, so one bounded `control_tool_call` record was added through the existing decision-diagnostic seam with no feature name in core. The first pass collapsed an empty capture reason into the unknown bucket and published every ordinary claim as invalid, so the outcome and reason were derived from one locked read of the raw classification. Content, prompt, arguments and raw identifiers are proven absent from reason codes and metric labels at real sinks, and upstream usage survives local control handling with no fabricated observation. Requirement 11.4 legacy auxiliary usage attribution is still vacuous: the billing auxiliary-role allowlist has no entry for the verifier role, so such a request fails closed before provider admission.
