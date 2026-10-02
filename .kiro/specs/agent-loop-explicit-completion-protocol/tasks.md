@@ -193,7 +193,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Validation: preferred provider acceptance matrix; auxiliary collector call count always zero_
 
 - [ ] 9. Preserve and certify legacy semantic-verifier behavior
-  - [ ] 9.1 Refactor provider construction/dispatch without changing legacy policy
+  - [x] 9.1 Refactor provider construction/dispatch without changing legacy policy
     - Isolate existing verifier path behind explicit/implicit legacy strategy while retaining current causepolicy, verifier, progress, and recovery behavior.
     - Avoid sharing new protocol state/wording into the legacy path except neutral helpers proven behavior-preserving.
     - _Requirements: 1.3,1.5,9.1-9.6_
@@ -328,3 +328,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 
 - Task 5.2: User authorized one additional native-worker memo repair after the earlier two debug rounds. The already-armed interrupted request is now finalized after a failed admitted Observe while preserving that original error. Independent checkpoint review and fresh regression evidence pass; the remaining publication matrix is still pending, and the task remains unchecked/uncommitted.
 - Task 5.2 (accepted): bounded owned result is drained through the real receive loop behind per-frame fences, so a candidate can be withdrawn by continued provider work, caller cancel, shared A-leg cancel, Close, deadline, or continuation before the actual B2 transaction. Customer usage is the only money-free plane; provider/operator/B-leg quantities stay separate. Public surface unchanged: no new SDK method, goroutine, timer, or concrete provider branch in core. Slice reviews 3A-3D plus the whole-task primary and ownership/concurrency reviews passed; frontend coverage drives the real `openairesponses.Handler` in both response modes over a test-only bridge that builds the pending stream from the decoded call. Accepted effects that already ran are not rolled back; task 9.1/9.2 own legacy isolation and parity.
+
+- Task 9.1: no production change was needed; legacy causepolicy/progress/verifier stay byte-identical to merge base `1fc49fe2` and `provider.go` differs only by the narrow explicit-input guard plus `NewConfiguredProvider`. Isolation is certified behaviorally (old variadic API shapes, expectation independence, `alg-proto-v1` refusal, strategy-owned wording) and by import graph, not constructor identity. Task 9.2 still owns the full old-vs-explicit decision matrix, bundle-level control-provider absence and provider-removal fixtures; task 12.1 owns the architecture-level import-graph ratchets.
