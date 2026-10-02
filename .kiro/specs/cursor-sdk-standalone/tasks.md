@@ -34,7 +34,7 @@
   - _Boundary: Standalone connector_
   - _Validation: GOWORK=off go test ./... in an isolated checkout_
 
-- [ ] 2. Standalone connector with released dependencies
+- [x] 2. Standalone connector with released dependencies
 - [x] 2.1 (P) Relocate Go connector onto published contracts
   - Move command, provider adapter, lifecycle, diagnostics, protocol, fixtures, and Go tests while preserving structure beneath the old `connectors/cursorsdk` path.
   - Rewrite only module-relative imports and monorepo assumptions; retain `Service.Describe/Configure`, `ConfiguredInstance` behavior, opaque YAML config, authenticated secrets handling, and existing error mapping.
@@ -53,7 +53,7 @@
   - _Boundary: Standalone connector bridge_
   - _Validation: npm ci, npm test, and npm run typecheck_
 
-- [ ] 2.3 Wire plugin-local private companion resolution
+- [x] 2.3 Wire plugin-local private companion resolution
   - Resolve the packaged default bridge through a direct plugin-local launcher path relative to the installed outer executable.
   - Preserve explicit `bridge_executable` overrides and existing direct-executable validation without shell, npm, global binary, or automatic download behavior.
   - Preserve user-supplied workspace and configuration semantics unchanged.
@@ -167,6 +167,8 @@
 - **Root tag causes repo-wide MVS drift (task 1.2):** publishing the root tag made every module that path-replaces ACP select `v0.1.0-rc.1`. `scripts/check-all-modules.sh` asserts `go mod tidy -diff`, so any module whose committed require line still says `v0.0.0` fails CI (6 connectors here). After changing a nested module's published require, expect a repo-wide require bump in every dependent module in the same PR.
 - **Destination (task 1.3):** standalone repository is `https://github.com/aiproxer/aiproxer-cursor-sdk` (public, MIT), module `github.com/aiproxer/aiproxer-cursor-sdk`, scaffold head `1583c29b`. Keep it MIT; derived host-side code originates from an Apache-2.0 repository and PROVENANCE.md records that attribution.
 - **`internal/pinnedcontracts` is a scaffold guard:** it exists so `go build`/`go test`/`go mod tidy -diff` are meaningful in an otherwise empty module and it fails if a `replace` is introduced. Task 2.1 should delete it once real code imports the public contracts.
+- **Companion resolution (task 2.3):** plugin PR #7 merged `edaa8c40`. Default resolution = `os.Executable()` dir + `../private/bridge/lip-cursor-sdk-bridge[.exe]`, never CWD/PATH/npm. Two things to remember: (a) the shell/npm-wrapper guard applies only to an OPERATOR-supplied `bridge_executable`, never to the derived companion path — otherwise an install root containing `$`/`&` produced a misleading operator-facing error; (b) `os.Executable()` is used without `EvalSymlinks`, so decide before task 3.2 freezes the archive layout if a symlinked/junctioned install root matters.
+- **Tasks 3.1/3.2 watch items:** the companion existence check is only `os.Stat` (a non-executable file is accepted at Configure and fails later at `fork/exec`); executability/checksum validation of private files belongs to 3.2.
 - **Relocation merges (tasks 2.1/2.2):** plugin PR #1 (Go connector) merged `70eba5b2`, plugin PR #2 (SDK bridge) merged `6c050fc0`. Fidelity: 120/125 Go files byte-identical after module-path substitution (5 = gofmt import re-sorts + 2 path-depth edits); 32/33 bridge files SHA256-identical (only `bridge-node/README.md` differs).
 - **Plugin CI pins:** use `npm exec --package=node@22.22.3 --package=npm@10.9.8 --call "npm ci && npm test && npm run typecheck"` in `bridge-node` to reproduce the Node lane locally; `npm exec` cannot `cd`, so pass the directory inside the command string.
 - **Stranded host scripts:** only `scripts/test-cursor-sdk-live-bridge.{sh,ps1}` moved in 2.1. `test-cursor-sdk-comparison-report.{sh,ps1}`, `test-cursor-sdk-live.{sh,ps1}`, and `test-cursor-sdk-platform.{sh,ps1}` are still host-only but design.md schedules removal of the whole `scripts/test-cursor-sdk-*.{sh,ps1}` glob later — assign them before the cutover tasks delete them.
