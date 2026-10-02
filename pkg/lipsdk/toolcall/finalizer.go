@@ -4,6 +4,9 @@ import (
 	"context"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 type Action int
@@ -40,11 +43,36 @@ type CompletedCall struct {
 	ArgsJSON   []byte
 }
 
+// Meta carries read-only execution context for one completed tool-call
+// finalization pass.
+//
+// Scope, Session, and Workspace are the authoritative request views, typed
+// exactly as in hooks.ToolMeta: the runtime populates them from the same
+// proxy-validated request-scoped snapshot it already hands tool policy and
+// tool reactor metadata, so every tool plane reads one and the same state
+// instead of a re-derived or client-supplied copy. No client-provided raw
+// metadata is ever promoted to authority through this struct.
+//
+// They are value views, not pointers or interfaces, so the zero value is a
+// valid "no authoritative view" state: a zero Scope, Session, and Workspace
+// preserve the pre-existing local/anonymous identity semantics of the four
+// trace fields, exactly as a zero hooks.ToolMeta does. The pre-existing trace
+// fields are unchanged and this extension is additive.
+//
+// Finalizers must treat all three views as read-only input. Scope roles, safe
+// claims and policy labels, Session labels, and Workspace labels and markers
+// are reference-typed, so the producer hands over a detached copy and a
+// finalizer that needs to retain a view past its call must copy it first;
+// [scope.PrincipalScopeView.Clone] is the SDK-provided deep copy for Scope.
 type Meta struct {
 	TraceID    string
 	ALegID     string
 	BLegID     string
 	AttemptSeq int
+
+	Scope     scope.PrincipalScopeView
+	Session   session.SessionView
+	Workspace workspace.WorkspaceView
 }
 
 type Result struct {
