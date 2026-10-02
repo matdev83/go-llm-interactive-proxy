@@ -95,7 +95,7 @@ The feature is brownfield. Existing stage ordering, `block`/`redact`/`log` actio
 
 4.5. **When** the canonical scanner encounters repeated logical fragments or repeated findings, AIProxer shall preserve deterministic location attribution and shall not multiply enforcement decisions merely because more than one detector reports the same concrete secret occurrence.
 
-4.6. **The** total content inspected by all secret detectors shall remain subject to the existing request-level `scan_max_bytes` limit and shall not create an unbounded secondary scan path.
+4.6. **The** request-level `scan_max_bytes` limit shall bound unique canonical request bytes admitted to secret detection, not cumulative bytes inspected across detectors. AIProxer shall charge each logical fragment occurrence once, using its original text or raw JSON byte length, before either detector inspects it; identical content in different request fields shall count separately. Exact matching and BetterLeaks shall share the same admitted content and budget, with no separate detector allowance. A fragment that would exceed the remaining budget shall not be scanned by either detector and shall trigger the existing scan-limit behavior.
 
 ### Requirement 5: Safe Finding Projection and Hybrid Merge
 

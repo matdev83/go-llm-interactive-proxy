@@ -209,7 +209,9 @@ sequenceDiagram
     Guard-->>Backend: Continue only if policy permits
 ```
 
-The exact scan and BetterLeaks scan share one request-level byte budget. The implementation may avoid duplicate byte accounting by making the budget owner track canonical fragment bytes once even though two detectors inspect the same bytes; the invariant is that enabling a second detector does not create another unbounded 2 MiB allowance.
+The exact scan and BetterLeaks scan share one request-level `scan_max_bytes` budget for unique canonical request bytes admitted to detection, not cumulative detector work (Requirement 4.6). The budget owner must reserve each logical fragment occurrence's original text or raw JSON byte length once, before either detector inspects it. Both traversals reuse that admission; scanning JSON scalar values derived from an admitted raw JSON fragment does not charge those bytes again. Identical content in distinct request fields counts separately, including text and JSON fields that share a canonical location. Neither detector may inspect additional request content outside the shared admission. If a whole fragment would exceed the remaining budget, neither detector scans it and the existing scan-limit behavior applies.
+
+For example, with a 2 MiB limit, both detectors may inspect the same admitted 2 MiB of request content (up to 4 MiB of aggregate detector input), but they cannot each admit a different 2 MiB. Internal rule passes and decoded representations do not consume another request-byte allowance; their work remains subject to the separate worker, decode-depth, finding, and cancellation bounds.
 
 ## Components and Interfaces
 
