@@ -42,6 +42,10 @@ type Rewriter struct {
 	// receiver is safe and publishes no selector, which is the answer for a tool no
 	// layer claims.
 	resolver *pathvirtualization.Resolver
+	// mode decides whether a detected replacement is published or only measured
+	// (requirement 7.2). It is read in exactly one place — the publication gate —
+	// so the two modes cannot drift apart in what they detect (requirement 7.3).
+	mode Mode
 }
 
 // New binds one mapping to one compiled profile policy.
@@ -50,8 +54,11 @@ type Rewriter struct {
 // alias is not shorter than its root simply leaves every surface unchanged, and a
 // nil resolver publishes no selector, so a caller that has no policy yet binds a
 // rewriter that is off rather than one that guesses.
+//
+// The rewriter it returns is in rewrite mode, so this is the measuring deployment's
+// one-line change to audit; NewWithMode is the same binding with the mode explicit.
 func New(mapping pathvirtualization.Mapping, resolver *pathvirtualization.Resolver) *Rewriter {
-	return &Rewriter{mapping: mapping, resolver: resolver}
+	return NewWithMode(mapping, resolver, ModeRewrite)
 }
 
 // RewriteCall returns the call with every selected path value replaced by its alias.
@@ -60,6 +67,11 @@ func New(mapping pathvirtualization.Mapping, resolver *pathvirtualization.Resolv
 // when something did; the input is never modified either way, and the published copy
 // shares no payload byte with it. A caller therefore owns whatever it gets back and
 // can keep using the call it passed in.
+//
+// In audit mode no replacement is ever published, so the returned call is always the
+// input call while the statistics still report what a rewrite would have done to it
+// (requirement 7.3). The measurement is the rewrite's own: this walk is identical in
+// both modes, so the two cannot disagree about the same input.
 //
 // On an unexpected transformation failure the returned call is the input, the
 // statistics are zero, and the error is non-nil. That is the fail-open contract the
@@ -268,7 +280,7 @@ func (w *callWalker) rewritePayload(payload []byte, pointers pathvirtualization.
 		w.err = err
 		return
 	}
-	if changed {
+	if changed && w.publishes() {
 		assign(rewritten)
 	}
 }
@@ -285,10 +297,23 @@ func (w *callWalker) rewriteOpaque(text string, mode pathvirtualization.OpaqueRe
 		return
 	}
 	rewritten, changed := w.rewriter.rewriteOpaqueText(text, mode, &w.acc)
-	if changed {
+	if changed && w.publishes() {
 		assign(rewritten)
 	}
 }
+
+// publishes reports whether a detected replacement reaches the published call.
+//
+// This is the only reader of the rollout mode in the package, and it is
+// deliberately the only difference between the two modes. Detection, selector
+// resolution, the mapping decision, and the opaque recognizers all run
+// unconditionally, so an audit walk and a rewrite walk over one input read the same
+// bytes and reach the same verdict (requirement 7.3).
+//
+// Failing closed on an undefined mode is the safe direction: a mode value this build
+// does not define measures rather than mutates, so a misconfigured generation can
+// never publish a request rewritten under an unstated policy.
+func (w *callWalker) publishes() bool { return w.rewriter.mode == ModeRewrite }
 
 // declaredSchema returns the declared argument schema of the exact-named tool, or
 // nil when the call declares no such tool.

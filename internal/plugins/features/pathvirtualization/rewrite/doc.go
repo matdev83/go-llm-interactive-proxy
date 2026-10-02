@@ -62,4 +62,17 @@
 // something, and even then every payload byte it did not select is carried across
 // unchanged, so member order, number spelling, escapes, and empty-versus-null
 // presence all survive exactly as the client sent them (requirement 2.8).
+//
+// The rewriter also runs in audit mode, the measurement mode of requirements 7.2
+// and 7.3. Audit is not a second implementation: it is this same pass with the
+// publication step switched off, so candidate detection, selector resolution, the
+// mapping decision, and the opaque recognizers all run unconditionally and reach
+// the same verdict in both modes. That is deliberate, because requirement 9.5 asks
+// for realized savings per request/turn, and a number is only a claim about a
+// rewrite if the measuring code and the mutating code are the same code. In audit
+// mode the caller's canonical request is returned exactly as it arrived and the
+// published statistics still report every eligible occurrence, every occurrence
+// that would be rewritten, and the byte totals before, after, and saved. Byte
+// totals are the decoded-value lengths in both modes, because that is the length
+// the model would otherwise see.
 package rewrite
