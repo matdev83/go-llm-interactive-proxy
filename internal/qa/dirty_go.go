@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 const maxDirtyGoFiles = 100
@@ -17,6 +19,10 @@ func dirtyGoLimitExceeded(count int) bool {
 func listDirtyGoFiles(root string) ([]string, error) {
 	cmd := exec.Command("git", "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	cmd.Dir = root
+	// root selects the repository to report on. Git exports GIT_DIR to every hook
+	// it runs, so an inherited GIT_DIR would report the ambient repository's
+	// status instead of the requested one.
+	cmd.Env = gitscope.Environ()
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {

@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 func writeFixture(t *testing.T, root, name, contents string) {
@@ -27,7 +29,10 @@ func gitFixture(t *testing.T, root string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+filepath.Join(root, "absent-gitconfig"))
+	// root is a throwaway fixture repository. Git exports GIT_DIR to every hook it
+	// runs, so an inherited GIT_DIR would initialise and commit inside the real
+	// repository instead of the fixture, destroying its index and refs.
+	cmd.Env = append(gitscope.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+filepath.Join(root, "absent-gitconfig"))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
 	}

@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 //nolint:paralleltest // Each subtest mutates the same temporary git checkout and must remain serial.
@@ -21,6 +23,7 @@ func TestCrossPlatformSelection(t *testing.T) {
 		t.Helper()
 		cmd := exec.Command("git", args...)
 		cmd.Dir = root
+		cmd.Env = gitscope.Environ()
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
 		}
@@ -73,6 +76,9 @@ func TestCrossPlatformSelection(t *testing.T) {
 
 			cmd := exec.Command("bash", script, base, head)
 			cmd.Dir = root
+			// The selector script resolves its repository from its own git
+			// calls, so it must not inherit an ambient GIT_DIR either.
+			cmd.Env = gitscope.Environ()
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("selector: %v\n%s", err, output)
@@ -99,6 +105,7 @@ func gitRevision(t *testing.T, root string) string {
 	t.Helper()
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = root
+	cmd.Env = gitscope.Environ()
 	output, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)

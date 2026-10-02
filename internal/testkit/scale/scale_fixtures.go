@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 // CreateDeterministicGitChange creates a temporary repository, commits before,
@@ -27,14 +28,10 @@ func CreateDeterministicGitChange(repoRoot, relativePath, before, after string) 
 	git := func(args ...string) ([]byte, error) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = repoRoot
-		// Native repository tests may inherit the parent worktree's GIT_DIR;
-		// isolate the deterministic fixture repository from that environment.
-		for _, env := range os.Environ() {
-			if strings.HasPrefix(env, "GIT_DIR=") || strings.HasPrefix(env, "GIT_WORK_TREE=") {
-				continue
-			}
-			cmd.Env = append(cmd.Env, env)
-		}
+		// repoRoot is a caller-supplied fixture repository. Git exports GIT_DIR to
+		// every hook it runs, so an inherited GIT_DIR initialises and commits inside
+		// the ambient repository instead of the fixture, destroying its index and refs.
+		cmd.Env = gitscope.Environ()
 		return cmd.CombinedOutput()
 	}
 	if out, err := git("init", "--quiet"); err != nil {

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 var requiredVocabulary = []string{
@@ -50,8 +52,14 @@ func checkResidualOwnershipInventory(t *testing.T, root string) {
 	}
 }
 
+// The git helpers below accept either the real repository root or a throwaway
+// fixture repository, so they clear git's repository-location variables instead
+// of relying on ambient state. Git exports GIT_DIR and friends to every hook it
+// runs, and an inherited GIT_DIR makes a fixture `git init`/`git commit` operate
+// inside the real repository, destroying its index and refs.
 func resolveGitSHA(root, rev string) (string, error) {
 	cmd := exec.Command("git", "-C", root, "rev-parse", rev)
+	cmd.Env = gitscope.Environ()
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("git rev-parse %s: %w", rev, err)
@@ -73,6 +81,7 @@ func resolveGitBaselineSHA(root string) (string, error) {
 
 func checkGitCommitObject(root, sha string) error {
 	cmd := exec.Command("git", "-C", root, "cat-file", "-e", sha+"^{commit}")
+	cmd.Env = gitscope.Environ()
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("Implementation SHA %q is not an existing commit object: %w", sha, err)
 	}
@@ -81,10 +90,19 @@ func checkGitCommitObject(root, sha string) error {
 
 func checkGitIsAncestor(root, ancestor, descendant string) error {
 	cmd := exec.Command("git", "-C", root, "merge-base", "--is-ancestor", ancestor, descendant)
+	cmd.Env = gitscope.Environ()
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("Implementation SHA %q is not an ancestor of git %s: %w", ancestor, descendant, err)
 	}
 	return nil
+}
+
+// gitOutputAt runs a git query rooted at root and returns its stdout. The
+// caller supplies the argument list that follows `-C root`.
+func gitOutputAt(root string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+	cmd.Env = gitscope.Environ()
+	return cmd.Output()
 }
 
 func validateSHAIdentity(root, content string) error {
@@ -1238,17 +1256,17 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 		t.Parallel()
 		// Implementation SHA must be an existing commit object AND ancestor of HEAD.
 		// A commit created on a disconnected branch/tree is not an ancestor of HEAD.
-		treeOutput, err := exec.Command("git", "-C", root, "rev-parse", "HEAD^{tree}").Output()
+		treeOutput, err := gitOutputAt(root, "rev-parse", "HEAD^{tree}")
 		if err != nil {
 			t.Fatalf("rev-parse tree: %v", err)
 		}
 		// Hermetic committer identity: commit-tree must not depend on ambient
 		// git user.name/user.email (bare CI workers have none configured).
-		commitOutput, err := exec.Command("git", "-C", root,
+		commitOutput, err := gitOutputAt(root,
 			"-c", "user.name=speccheck-test",
 			"-c", "user.email=speccheck@example.invalid",
 			"-c", "commit.gpgsign=false",
-			"commit-tree", "-m", "test-not-ancestor", strings.TrimSpace(string(treeOutput))).Output()
+			"commit-tree", "-m", "test-not-ancestor", strings.TrimSpace(string(treeOutput)))
 		if err != nil {
 			t.Fatalf("commit-tree: %v", err)
 		}
@@ -1284,7 +1302,7 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 		t.Parallel()
 		// Older ancestor commit (e.g. baseline or parent of HEAD) must be accepted,
 		// confirming no self-invalidation when commits advance.
-		parentOutput, err := exec.Command("git", "-C", root, "rev-parse", "HEAD~1").Output()
+		parentOutput, err := gitOutputAt(root, "rev-parse", "HEAD~1")
 		if err == nil {
 			parentSHA := strings.TrimSpace(string(parentOutput))
 			if len(parentSHA) == 40 {
@@ -1376,6 +1394,7 @@ func TestResidualOwnershipInventoryContract_RejectsDivergedBaseline(t *testing.T
 	runGit := func(args ...string) string {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = gitscope.Environ()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)

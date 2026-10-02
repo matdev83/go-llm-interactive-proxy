@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
@@ -32,6 +34,10 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 	gitFixture := func(fixtureT *testing.T, root string, args ...string) string {
 		fixtureT.Helper()
 		cmd := exec.CommandContext(fixtureT.Context(), "git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+		// root is a throwaway fixture repository. Git exports GIT_DIR to every hook
+		// it runs, so an inherited GIT_DIR would initialise and commit inside the
+		// real repository, destroying its index and refs.
+		cmd.Env = gitscope.Environ()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			fixtureT.Fatalf("git %v: %v\n%s", args, err, out)
@@ -138,7 +144,9 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 					output := filepath.Join(t.TempDir(), "outputs")
 					cmd := exec.CommandContext(t.Context(), "bash", "-c", step.Run)
 					cmd.Dir = root
-					cmd.Env = append(os.Environ(), "EVENT_NAME="+event, "BASE_SHA="+before, "HEAD_SHA=HEAD", "GITHUB_OUTPUT="+output)
+					// The classifiers run the scope scripts, whose self-test scenarios
+					// build throwaway repositories with `git -C "$tmp" init/commit`.
+					cmd.Env = append(gitscope.Environ(), "EVENT_NAME="+event, "BASE_SHA="+before, "HEAD_SHA=HEAD", "GITHUB_OUTPUT="+output)
 					out, err := cmd.CombinedOutput()
 					if scenario == "invalid" {
 						if err == nil {

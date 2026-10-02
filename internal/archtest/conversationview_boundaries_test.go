@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 // TestConversationViewCoreImportsExcludeProvidersAndFrontends enforces that internal/core/conversationprojection
@@ -347,6 +349,9 @@ func countChangedViaGit(root string) (int, error) {
 func runCmd(dir, name string, args ...string) ([]byte, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
+	// dir selects the repository to query. Git exports GIT_DIR to every hook it
+	// runs, so an inherited GIT_DIR would answer for the ambient repository.
+	cmd.Env = gitscope.Environ()
 	return cmd.Output()
 }
 

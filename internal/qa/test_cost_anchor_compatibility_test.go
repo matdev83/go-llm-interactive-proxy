@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 func TestQAFastPreflight_TestCostAnchorHasStableCompilerPath(t *testing.T) {
@@ -101,6 +103,10 @@ func TestQAFastPreflight_TestCostFrozenObservabilityCompatibility(t *testing.T) 
 			git := func(args ...string) string {
 				t.Helper()
 				cmd := exec.Command("git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+				// root is a throwaway fixture repository. Git exports GIT_DIR to every
+				// hook it runs, so an inherited GIT_DIR would initialise and commit
+				// inside the real repository, destroying its index and refs.
+				cmd.Env = gitscope.Environ()
 				out, err := cmd.CombinedOutput()
 				if err != nil {
 					t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -131,7 +137,9 @@ foreach ($name in $names) {
 }
 Apply-AnchorCompatibilityPatch -RepositoryRoot $env:LIP_TEST_ANCHOR_ROOT -AnchorRoot $env:LIP_TEST_ANCHOR_ROOT -AnchorCommit $env:LIP_TEST_ANCHOR_SHA -TempRoot $env:LIP_TEST_ANCHOR_ROOT`
 			cmd := exec.CommandContext(t.Context(), pwsh, "-NoLogo", "-NoProfile", "-Command", command)
-			cmd.Env = append(os.Environ(), "LIP_TEST_COST_SCRIPT="+repositoryFile(t, "scripts", "test-cost-ratchet.ps1"), "LIP_TEST_ANCHOR_ROOT="+root, "LIP_TEST_ANCHOR_SHA="+tc.anchor)
+			// The compatibility helper runs `git -C $AnchorRoot add/apply/commit`
+			// against the fixture anchor, so it must not inherit an ambient GIT_DIR.
+			cmd.Env = append(gitscope.Environ(), "LIP_TEST_COST_SCRIPT="+repositoryFile(t, "scripts", "test-cost-ratchet.ps1"), "LIP_TEST_ANCHOR_ROOT="+root, "LIP_TEST_ANCHOR_SHA="+tc.anchor)
 			out, err := cmd.CombinedOutput()
 			if tc.bad {
 				if err == nil || !strings.Contains(string(out), "expected five known cancellation guards") {

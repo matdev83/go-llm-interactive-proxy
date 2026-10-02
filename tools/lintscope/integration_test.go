@@ -7,7 +7,25 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
+
+// scopeGit runs a git command against a fixture repository rooted at root.
+//
+// The git repository-location variables are cleared on purpose: git exports
+// GIT_DIR to every hook it runs, so without this a fixture `git init` created
+// under the pre-commit hook initialises and commits inside the real repository
+// instead of the temporary fixture, destroying its refs and index.
+func scopeGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	cmd.Env = gitscope.Environ()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+}
 
 func scopeFixture(t *testing.T) string {
 	t.Helper()
@@ -24,11 +42,7 @@ func scopeFixture(t *testing.T) string {
 		writeScopeFile(t, root, name, body)
 	}
 	for _, args := range [][]string{{"init", "-q"}, {"add", "."}, {"-c", "user.name=Scope Test", "-c", "user.email=scope@example.invalid", "commit", "-qm", "fixture"}} {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = root
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
+		scopeGit(t, root, args...)
 	}
 	return root
 }
@@ -66,16 +80,8 @@ func TestLocalLintPlanUntrackedNestedModuleUsesModuleRelativeScope(t *testing.T)
 	if err != nil || !plan.Full {
 		t.Fatalf("untracked dependency change plan=%+v err=%v", plan, err)
 	}
-	cmd := exec.Command("git", "add", ".")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("add: %v %s", err, out)
-	}
-	cmd = exec.Command("git", "-c", "user.name=Scope Test", "-c", "user.email=scope@example.invalid", "commit", "-qm", "connector")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("commit: %v %s", err, out)
-	}
+	scopeGit(t, root, "add", ".")
+	scopeGit(t, root, "-c", "user.name=Scope Test", "-c", "user.email=scope@example.invalid", "commit", "-qm", "connector")
 	writeScopeFile(t, root, "connectors/test/backend/backend.go", "package backend\nconst Value = 2\n")
 	plan, err = buildLintPlan(context.Background(), root, "changed")
 	if err != nil {
@@ -117,11 +123,7 @@ func TestLocalLintPlanCleanCheckoutRetainsOnlyTheRootGate(t *testing.T) {
 func TestLocalLintPlanStagedScopeDoesNotIncludeUnstagedPackages(t *testing.T) {
 	root := scopeFixture(t)
 	writeScopeFile(t, root, "base/base.go", "package base\nconst Value = 2\n")
-	cmd := exec.Command("git", "add", "base/base.go")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("add: %v %s", err, out)
-	}
+	scopeGit(t, root, "add", "base/base.go")
 	writeScopeFile(t, root, "unrelated/new.go", "package unrelated\nconst New = 1\n")
 	plan, err := buildLintPlan(context.Background(), root, "staged")
 	want := []moduleScope{{Directory: ".", Packages: []string{"./base", "./consumer", "./testconsumer"}}}
