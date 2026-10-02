@@ -132,6 +132,15 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: go run ./tools/changesize --base "$BASE_SHA" --head HEAD
 
+      - name: Install buf
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        run: go install github.com/bufbuild/buf/cmd/buf@v1.66.0
+
+      - name: Protobuf contract gate
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        shell: bash
+        run: bash scripts/proto-check.sh
+
       - name: Check repository file manifest
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true'
         shell: bash
