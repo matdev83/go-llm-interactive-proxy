@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -59,6 +60,10 @@ func refinement52VerificationContext(t *testing.T) (context.Context, context.Can
 // performed after rebuilding both durable stores and the stock host.
 func TestRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, testRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably)
+}
+
+func testRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	storeID := "refinement52-concurrent"
@@ -327,6 +332,10 @@ func TestRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably(t *t
 // would retain the incomplete head.
 func TestRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, testRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay)
+}
+
+func testRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	storeID := "refinement52-same-revision-superset"
@@ -1051,6 +1060,7 @@ func (s *refinement52AuthenticUsageStream) DrainEconomicObservations() []meterin
 
 func writeRefinement52MeteredConfig(t *testing.T, journalPath string) string {
 	t.Helper()
+	runtimebundle.PrepareMeteringSchemaForTest(t, journalPath)
 	basePath := writeBillingHostLoopConfig(t)
 	base, err := os.ReadFile(basePath)
 	if err != nil {
@@ -1253,6 +1263,7 @@ func refinement52RequireCompleteValuation(t *testing.T, store *billingstore.Dura
 
 func openRefinement52ConcurrentBillingStore(t *testing.T, path, storeID string) *billingstore.DurableStore {
 	t.Helper()
+	runtimebundle.PrepareBillingSchemaForTest(t, path)
 	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {

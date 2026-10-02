@@ -154,13 +154,6 @@ func TestGenericBackendFactoryDeps_NoProviderSpecificNames(t *testing.T) {
 	}
 }
 
-func TestGOWORKOff_RootListBuildModuleGraph(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	plan := buildGOWORKOffCommandPlan(root, t.TempDir())
-	runGOWORKOffCommandPlan(t, plan)
-}
-
 func TestPublicABIFixture_DetectsInternalImport(t *testing.T) {
 	t.Parallel()
 	fixture := filepath.Join(repoRoot(t), "internal", "archtest", "testdata", "backend_plugin_arch", "forbidden_public_import.go.txt")

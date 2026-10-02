@@ -72,3 +72,19 @@ package archtest
 // the 57,351 cap and the re-audit to 57,400 are mid-round snapshots from before the
 // support file was credited, not this round's outcome: the committed pre-round audited
 // sum was 57,326, and 57,726 is the only cap this round ever committed.
+
+// billing-uncertain-component-overlap task 1.1: explicit maintainer authorization
+// grants PROSPECTIVE capacity, not a production re-audit. Measured baseline core
+// is 143700 against audited 143695 + 25; overlay is 57665 against audited 57701
+// + 25. Preserve those historical pins. The approved reserve is 1500 core lines:
+// two assessor files 450 each, rater/support/overlap/quantity solver 100 each,
+// retail integration 200; catalog integration adds 250, for 1750 overlay lines.
+// Core ceiling becomes 145220 and overlay ceiling 59476. The two new-file rows
+// carry zero audited credit and fork baseline zero/new; the manifest now has
+// 167 entries, still baseline sum 9593 and historical credit sum 57701. Only the
+// eight named paths receive additional per-file capacity; all others retain
+// audited + 25. Aggregate, per-file, fork provenance and unknown-path rejection
+// remain enforced. No placeholder production files are introduced. SDK economics
+// is outside this denominator and has no aggregate cap to increase; its current
+// component_rating/valuation/valuation_context physical counts are 792/1164/114.
+// SDK contract work remains subject to existing maintainability guardrails.

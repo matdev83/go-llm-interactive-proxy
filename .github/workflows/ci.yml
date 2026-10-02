@@ -132,6 +132,15 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: go run ./tools/changesize --base "$BASE_SHA" --head HEAD
 
+      - name: Install buf
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        run: go install github.com/bufbuild/buf/cmd/buf@v1.66.0
+
+      - name: Protobuf contract gate
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        shell: bash
+        run: bash scripts/proto-check.sh
+
       - name: Check repository file manifest
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true'
         shell: bash
@@ -234,6 +243,36 @@ jobs:
         # platform matrix covers portable public packages without invoking
         # host security posture checks on administrative Windows runners.
         run: go test -timeout=8m ${{ matrix.packages }}
+
+      - name: Native source identity and reload tests
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest'
+        shell: bash
+        run: go test -count=1 ./internal/infra/configsource/... ./internal/infra/runtimehost/...
+
+      - name: Certify pinned source lifetime on ext4
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/configsource-ext4.img"
+          mountpoint="$RUNNER_TEMP/configsource-ext4-mount"
+          cleanup() {
+            sudo umount "$mountpoint" 2>/dev/null || true
+            rm -f "$image"
+            rmdir "$mountpoint" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          mkdir -p "$mountpoint"
+          mkdir -p "$RUNNER_TEMP/go-tmp-executable"
+          truncate -s 256M "$image"
+          mkfs.ext4 -F -q "$image"
+          sudo mount -o loop,noexec,nosuid,nodev "$image" "$mountpoint"
+          sudo chown "$(id -u):$(id -g)" "$mountpoint"
+          mkdir "$mountpoint/tmp"
+          export TMPDIR="$mountpoint/tmp"
+          export GOTMPDIR="$RUNNER_TEMP/go-tmp-executable"
+          bash scripts/configsource-certify.sh
+          bash scripts/configsource-fault-check.sh
 
       - name: Build release binary
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'

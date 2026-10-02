@@ -8,10 +8,16 @@ PKGS ?=
 MODULE ?= .
 DEV_JOBS ?= 4
 DEV_REPEAT ?= 1
+DEV_BASE ?=
+DEV_PLAN ?= 0
+DEV_FULL ?= 0
+DEV_FRESH ?= 0
 
-.PHONY: dev-test dev-build dev-lint dev-doctor
+.PHONY: dev-test dev-test-changed dev-build dev-lint dev-doctor
 dev-test:
 	$(GO) run -buildvcs=false ./tools/devcheck -task=test -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
+dev-test-changed:
+	$(GO) run -buildvcs=false ./tools/devcheck -task=test -scope=changed -module="$(MODULE)" -packages="$(PKGS)" -base="$(DEV_BASE)" -plan=$(DEV_PLAN) -full=$(DEV_FULL) -fresh=$(DEV_FRESH) -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
 dev-build:
 	$(GO) run -buildvcs=false ./tools/devcheck -task=build -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
 dev-lint:
@@ -29,7 +35,14 @@ else
 LIP_TEST_PARALLEL ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 endif
 GO_TEST_FLAGS ?= -parallel=$(strip $(LIP_TEST_PARALLEL)) -timeout=10m
+# Package processes and parallel tests are separate budgets. Leave package
+# concurrency at Go's native default unless measurements justify an override.
+LIP_TEST_PACKAGES ?=
+ifneq ($(strip $(LIP_TEST_PACKAGES)),)
+GO_TEST_FLAGS += -p=$(strip $(LIP_TEST_PACKAGES))
+endif
 export GO_TEST_FLAGS
+export LIP_TEST_PACKAGES
 
 # The Windows test-cost ratchet is explicit and opt-in.  CI supplies the PR
 # base SHA; local callers can override these values when comparing a known
@@ -45,10 +58,12 @@ endif
 help:
 	@echo "Targets:"
 	@echo "  make dev-test/dev-build/dev-lint PKGS='./path/...' [MODULE=connectors/name] [DEV_JOBS=4] [DEV_REPEAT=2] - scoped, measured iteration"
+	@echo "  make dev-test-changed [DEV_BASE=origin/main] [DEV_PLAN=1] [DEV_FULL=1] [DEV_FRESH=1] - local affected-package tests; CI remains comprehensive"
 	@echo "  make dev-doctor [MODULE=.] - effective toolchain/cache configuration and diagnostics"
 	@echo "  make quality-checks  - generate-feature-planes -check, gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest; mod verify in CI or with LIP_VERIFY_MODULE_CACHE=1"
 	@echo "  make profile-only-check [PROFILE_ONLY_BASE=<git-rev>] - fail-closed provider-profile change-surface ratchet"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
+	@echo "  make proto-check     - buf lint + breaking + generation freshness for api/backendplugin/v1"
 	@echo "  make test            - quality-checks, full unit tests, and conformance parity checks"
 	@echo "  make test-cost [TEST_COST_BASE_SHA=<git-rev>] [TEST_COST_OUTPUT_ROOT=<dir>] [TEST_COST_PARALLEL=<n>] - Windows-authoritative test-cost ratchet (opt-in; not part of make test)"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
@@ -124,6 +139,16 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/regex-hotpath-check.ps1
 else
 	@bash scripts/regex-hotpath-check.sh
+endif
+
+# Intentionally not listed in .PHONY: TestWindowsTaskReliability_TargetTableComplete
+# requires every .PHONY target to be classified in the frozen archived
+# windows-task-reliability design table (same precedent as lint-advisory).
+proto-check:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/proto-check.ps1
+else
+	@bash scripts/proto-check.sh
 endif
 
 quality-checks-fast: export LIP_SKIP_GO_COMPILE_CHECKS=1
@@ -486,6 +511,9 @@ pgo-build:
 # release-ready evidence without re-running the huge tagged suites that qa-tests
 # already covers; the full `test-openresponses-compliance` script remains the
 # standalone Task 8.5 gate.
+# The comprehensive lint target below owns lint once; the preliminary quality
+# guards retain formatting, generation, module and repository-policy checks.
+qa: export LIP_SKIP_LINT=1
 qa: quality-checks-fast qa-tests lint vuln backend-plugin-release-gates-static test-openresponses-compliance-static
 
 qa-tests:

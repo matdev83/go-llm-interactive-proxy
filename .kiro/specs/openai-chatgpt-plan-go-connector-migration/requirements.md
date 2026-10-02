@@ -31,6 +31,9 @@ Migration is staged. A completely new official connector is built and empiricall
 5. The standard distribution shall discover the connector through existing trusted manifest/release metadata.
 6. While the new connector is under validation, `openai-codex` and `openai-codex-app-server` shall remain independently usable and shall not redirect internally to the new implementation.
 7. The direct factory shall advertise inference execution class, dynamic inventory, streaming/tool capabilities supported by SIWC, and local/personal-auth scope.
+8. The direct factory's packaged manifest export shall declare `access_scope: local_only` and `credential_mode: oauth_user`: the effective backend credential is the selected user's SIWC OAuth profile, so the generic `oauth_user => local_only` manifest rule applies.
+9. The connector shall not implement any connector-local single-user / server-mode check. Multi-user rejection is provided once by the generic host backend security-profile gate, which runs before backend construction, connector `Configure`, and any child-process launch.
+10. Absence from the host-owned multi-user approval registry shall keep the direct factory denied in `access.mode: multi_user`. The connector shall not attempt to appear in, or override, that registry.
 
 ### Requirement 2: Official SIWC Registration and Profile Lifecycle
 **Objective:** As a local operator, I want the connector to perform OpenAI's documented Sign in with ChatGPT flow, so that plan usage is authorized without impersonating Codex CLI.
@@ -140,6 +143,8 @@ Migration is staged. A completely new official connector is built and empiricall
 6. On access-token renewal, app-server shall restart with the new token and resume the saved thread only through documented RPC.
 7. `model/list` may serve app-server-local catalog UX; account-specific current availability shall use public `/v1/models`.
 8. This factory shall remain `agent_runtime` and preserve existing routing-composition safety restrictions.
+9. This factory's packaged manifest export shall declare `access_scope: local_only` and `credential_mode: oauth_user`, because the app-server child is fed the selected user's SIWC access token under Requirement 9.2. The first-party `agent_runtime => local_only` invariant and the generic `oauth_user => local_only` manifest rule therefore both apply.
+10. This factory shall not implement a connector-local single-user / server-mode check; multi-user rejection is provided by the generic host gate before backend construction and connector configuration.
 
 ### Requirement 10: Native Context, Reasoning and Compaction Migration
 **Objective:** As a maintainer, I want private Codex-native context retired or explicitly revalidated, so the official connector has no undocumented dependency.
@@ -194,6 +199,7 @@ Migration is staged. A completely new official connector is built and empiricall
 7. Dead tests, testkit assumptions, architecture exceptions, compatibility targeting, release metadata, examples and docs shall be removed/reconciled.
 8. Repository-wide searches for private Codex endpoint strings, legacy factory ids, CLI impersonation headers and obsolete extension names shall have no unexplained production hits.
 9. Root/connector dependency graphs shall be pruned of dependencies used only by the retired implementation.
+10. No pooling, failover, or quota-sharing across different users' ChatGPT-plan registrations shall be introduced at any point in the supported end state. Active-profile selection is a single local user's registration, never an availability or quota mechanism.
 
 ### Requirement 14: Verification, Security and Release Quality
 **Objective:** As a release maintainer, I want deterministic security and quality evidence before shipping this auth/transport migration.
@@ -209,3 +215,6 @@ Migration is staged. A completely new official connector is built and empiricall
 8. Focused tests, `make quality-checks`, `make test-unit`, `make parity-checks`, relevant connector release gates and appropriate wide QA shall pass before legacy removal merges.
 9. Documentation shall distinguish direct SIWC inference from SIWC-backed Codex app-server, including security, preview limits, supported deployment scope and profile management.
 10. Release notes shall explain the intentional route/config migration and private-Codex removal.
+11. The first-party connector census shall cover both new factories the moment they ship: `agent_runtime` and `oauth_user` exports must be `local_only`, and neither kind is present in the host-owned multi-user approval registry. Legacy `openai-codex` / `openai-codex-app-server` remain `local_only` and approved by nobody until removed.
+12. Manifest/descriptor parity tests shall prove each new export's packaged manifest posture equals its runtime `FactoryDescriptor` `AccessScope` / `CredentialMode`.
+13. No configuration knob shall be introduced that permits `local_only` or `oauth_user` backends in `access.mode: multi_user`. A future shared-service ChatGPT-plan backend is a separate security design with a distinct factory and an explicit host approval, not a reclassified one.

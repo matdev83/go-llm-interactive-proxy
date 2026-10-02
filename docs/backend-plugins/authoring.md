@@ -16,6 +16,21 @@ Each export must declare its `execution_class` honestly based on runtime executi
 
 Note that process isolation, local execution, or tool capabilities do not classify an export as `agent_runtime` — only whole-agent autonomous loop orchestration semantics do. Legacy manifests omitting `execution_class` normalize to effective `unknown`, which allows direct routing but disallows multi-backend composition under `safe` policy.
 
+## Access scope, credential posture, and multi-user eligibility
+
+Declare `access_scope` and `credential_mode` honestly; **your metadata is necessary but not sufficient** to authorize shared use.
+
+```text
+execution_class: agent_runtime  => access_scope: local_only   # enforced by first-party architecture guards
+credential_mode: oauth_user     => access_scope: local_only   # enforced by manifest validation and the host gate
+```
+
+- `credential_mode: oauth_user` combined with any `access_scope` other than `local_only` is **invalid at manifest-validation time**. Declare both fields explicitly; the host never infers one from the other.
+- `access_scope: local_only` is required for anything that spawns a local process, reads personal OAuth material from the local user context, or otherwise depends on one user's local trust boundary.
+- In `access.mode: multi_user`, an enabled factory must additionally be present in the **host-owned** multi-user approval registry (`internal/standardplugins/multi_user_backend_policy.go`). That registry is outside `connectors/*`; absence is denial. A new connector therefore runs in single-user deployments and **fails closed** in multi-user until an explicit, separately reviewed registry change is made — no configuration flag can grant it. See [`operator.md`](operator.md#multi-user-eligibility-connector-posture-and-a-host-owned-approval).
+
+Keep `Describe()`'s `AccessScope`, `CredentialMode`, and `ProcessSharing` identical to the packaged manifest export; a mismatch is a diagnostic failure, not a way to change eligibility. Do **not** read the deployment access mode or implement a local single-user check: architecture guards reject host-internal imports and locally declared multi-user authority inside the connector subtree.
+
 ## SDK server helper
 
 Implement `pkg/lipsdk/backendplugin.Service` and serve via `backendplugin.NewGRPCServer` over the host-provided secure channel (`LIP_PLUGIN_CHANNEL_PIPE` on Windows). Do not import root `internal/…`.

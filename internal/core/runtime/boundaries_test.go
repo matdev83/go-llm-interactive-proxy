@@ -12,11 +12,14 @@ import (
 )
 
 // listedPackage carries the `go list -json` fields the boundary rules need:
-// identity, standard-ness, and direct dependency edges for in-memory closure.
+// identity, standard-ness, and direct imports for in-memory closure.
+// Requesting Imports avoids serializing every package’s entire transitive Deps
+// closure; the traversal below still follows every production dependency.
 type listedPackage struct {
 	ImportPath string
 	Standard   bool
-	Deps       []string
+	Imports    []string
+	CgoFiles   []string
 }
 
 // depRule is a substring match against ImportPath with a dedicated failure line.
@@ -36,7 +39,7 @@ var repoDepGraph = sync.OnceValues(func() (map[string]listedPackage, error) {
 	if err != nil {
 		return nil, err
 	}
-	args := append([]string{"list", "-deps", "-test=false", "-json=ImportPath,Standard,Deps"}, depScanRoots...)
+	args := append([]string{"list", "-deps", "-test=false", "-json=ImportPath,Standard,Imports,CgoFiles"}, depScanRoots...)
 	cmd := exec.Command("go", args...)
 	cmd.Dir = root
 	output, err := cmd.Output()
@@ -49,6 +52,10 @@ var repoDepGraph = sync.OnceValues(func() (map[string]listedPackage, error) {
 		var pkg listedPackage
 		if err := decoder.Decode(&pkg); err != nil {
 			return nil, err
+		}
+		// Go adds runtime/cgo implicitly for cgo packages.
+		if len(pkg.CgoFiles) > 0 && pkg.ImportPath != "runtime/cgo" {
+			pkg.Imports = append(pkg.Imports, "runtime/cgo")
 		}
 		graph[pkg.ImportPath] = pkg
 	}
@@ -152,7 +159,7 @@ func assertDepsExcludeRules(t *testing.T, patterns []string, rules []depRule) {
 				}
 			}
 		}
-		stack = append(stack, pkg.Deps...)
+		stack = append(stack, pkg.Imports...)
 	}
 }
 

@@ -126,11 +126,12 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		Factories: []backendplugin.FactoryDescriptor{{
-			Kind:                     FactoryKind,
-			DisplayName:              DisplayName,
-			Description:              Description,
-			CredentialMode:           backendplugin.CredentialModeStatic,
-			AccessScope:              backendplugin.AccessScopeAny,
+			Kind:        FactoryKind,
+			DisplayName: DisplayName,
+			Description: Description,
+			// Effective credential is one human user's xAI subscription identity: either an xAI API key or the pre-provisioned OIDC session from oauth_token_file (LoginModePreProvisionedRefreshOnly). It is user-scoped, so it must stay local-only under access.mode: multi_user.
+			CredentialMode:           backendplugin.CredentialModeOAuthUser,
+			AccessScope:              backendplugin.AccessScopeLocalOnly,
 			RoutePrefixes:            []string{FactoryKind},
 			SupportsDynamicInventory: true,
 			ProcessSharing:           backendplugin.ProcessSharingPerInstance,

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,5 +124,85 @@ func TestListMatchingTests_CodexHasParity(t *testing.T) {
 func TestValidateSelectors_Root(t *testing.T) {
 	if err := validateSelectors(repoRoot(t)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+//nolint:paralleltest // mutates the package-level runCommand seam.
+func TestValidateSelectors_BatchesPackagesAndKeepsPackageIdentity(t *testing.T) {
+	original := runCommand
+	t.Cleanup(func() { runCommand = original })
+	calls := 0
+	runCommand = func(_ context.Context, req runner.Request) taskrunner.Result {
+		calls++
+		var patterns []string
+		for _, check := range selectorChecks() {
+			patterns = append(patterns, "("+check.pattern+")")
+		}
+		want := []string{"go", "test", "-json", "-list", strings.Join(patterns, "|")}
+		for _, check := range selectorChecks() {
+			want = append(want, check.pkg)
+		}
+		if !slices.Equal(req.Argv, want) {
+			t.Fatalf("argv = %v, want %v", req.Argv, want)
+		}
+		// A name matching every selector in an unrelated package must not
+		// satisfy any of the package-specific checks.
+		return taskrunner.Result{Kind: taskrunner.Success, Stdout: []byte(`{"Action":"output","Package":"unrelated","Output":"TestParseStrict_TestHundredTestPostOutput_TestLeak_TestDigestHandleTestMixed_\n"}` + "\n")}
+	}
+	if err := validateSelectors(t.TempDir()); err == nil {
+		t.Fatal("unrelated package unexpectedly satisfied selectors")
+	}
+	if calls != 1 {
+		t.Fatalf("command calls = %d, want 1", calls)
+	}
+}
+
+//nolint:paralleltest // mutates the package-level runCommand seam.
+func TestValidateSelectors_FailsClosedOnChildFailure(t *testing.T) {
+	original := runCommand
+	t.Cleanup(func() { runCommand = original })
+	runCommand = func(context.Context, runner.Request) taskrunner.Result {
+		return taskrunner.Result{Kind: taskrunner.ChildFailure, Stdout: []byte("TestHundred\n"), Err: errors.New("unique-batch-failure")}
+	}
+	if err := validateSelectors(t.TempDir()); err == nil || strings.Count(err.Error(), "unique-batch-failure") != 1 {
+		t.Fatalf("expected child failure exactly once, got %v", err)
+	}
+}
+
+//nolint:paralleltest // mutates the package-level runCommand seam.
+func TestValidateSelectors_RequiresEveryPackageAndCompleteOutput(t *testing.T) {
+	original := runCommand
+	t.Cleanup(func() { runCommand = original })
+	checks := selectorChecks()
+	names := []string{"TestParseStrict_X", "TestHundredX", "TestRecv_StressX", "TestPeer_X", "TestDigestHandleX", "TestMixed_X"}
+	var output strings.Builder
+	for i, check := range checks {
+		event := listEvent{Action: "output", Package: "example.org/lip/" + strings.Trim(check.pkg, "./"), Output: names[i] + "\n"}
+		data, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		output.Write(data)
+		output.WriteByte('\n')
+	}
+	for _, tc := range []struct {
+		name      string
+		output    string
+		truncated bool
+		wantError bool
+	}{
+		{"complete", output.String(), false, false},
+		{"missing_package", strings.SplitN(output.String(), "\n", 2)[1], false, true},
+		{"malformed", output.String() + "not-json\n", false, true},
+		{"truncated", output.String(), true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runCommand = func(context.Context, runner.Request) taskrunner.Result {
+				return taskrunner.Result{Kind: taskrunner.Success, Stdout: []byte(tc.output), StdoutTruncated: tc.truncated}
+			}
+			if err := validateSelectors(t.TempDir()); (err != nil) != tc.wantError {
+				t.Fatalf("error = %v, wantError %v", err, tc.wantError)
+			}
+		})
 	}
 }

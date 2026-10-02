@@ -42,7 +42,7 @@ func BuildHost(ctx context.Context, in BuildHostInput) (*Host, error) {
 
 type hostBuildInput = BuildHostInput
 
-func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, hostEnv featurehost.HostEnvironment) (*Host, error) {
+func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, hostEnv featurehost.HostEnvironment) (builtHost *Host, buildErr error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("runtimebundle: nil context")
 	}
@@ -61,7 +61,16 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, hostEnv
 		logOut = os.Stdout
 	}
 
-	effective, activeSource, fixedStreamRecovery, err := ops.load(ctx, path, in.StreamRecoveryOverrides)
+	effective, activeSource, sourceOwner, fixedStreamRecovery, err := ops.load(ctx, path, in.StreamRecoveryOverrides)
+	ownerTransferred := false
+	defer func() {
+		if !ownerTransferred && sourceOwner != nil {
+			buildErr = errors.Join(buildErr, sourceOwner.Close(ctx))
+			if buildErr != nil {
+				builtHost = nil
+			}
+		}
+	}()
 	if err != nil {
 		return nil, err
 	}
@@ -150,11 +159,20 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, hostEnv
 		Config:              cfg,
 		Effective:           effective,
 		ActiveSource:        activeSource,
+		ActiveSourceOwner:   sourceOwner,
 		FixedStreamRecovery: fixedStreamRecovery,
 		ShutdownTracing:     traceShutdown,
 	})
 	if err == nil && ops.afterBind != nil {
-		err = ops.afterBind()
+		func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					closeHostAfterBindPanic(context.WithoutCancel(ctx), host)
+					panic(recovered)
+				}
+			}()
+			err = ops.afterBind()
+		}()
 	}
 	if err != nil {
 		if host != nil {
@@ -167,7 +185,14 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, hostEnv
 			return mgr.ShutdownDetached(context.WithoutCancel(ctx))
 		}, closeProcess, shutTracing)
 	}
+	ownerTransferred = true
 	return host, nil
+}
+
+func closeHostAfterBindPanic(ctx context.Context, host *Host) {
+	if host != nil {
+		_ = host.Close(ctx)
+	}
 }
 
 func buildHostWithEnv(ctx context.Context, in hostBuildInput, loadEffective bootstrapEffectiveLoader, hostEnv featurehost.HostEnvironment, _ any) (*Host, error) {

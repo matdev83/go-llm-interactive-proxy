@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -196,6 +197,10 @@ func waitRefinement82LiveProviderCheckpoint(t *testing.T, parent context.Context
 // store APIs; store readers only inspect results.
 func TestRefinement82RuntimePreterminalCheckpointAdvancesProvider(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, testRefinement82RuntimePreterminalCheckpointAdvancesProvider)
+}
+
+func testRefinement82RuntimePreterminalCheckpointAdvancesProvider(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	storeID := "refinement82-preterminal"

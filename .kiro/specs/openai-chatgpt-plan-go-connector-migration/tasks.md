@@ -5,8 +5,10 @@
 - [ ] 1.1 Add the independently buildable `openai-chatgpt-plan` connector module
   - Create the connector module, plugin command, service skeleton, manifest template, release metadata and parity suite without importing `connectors/codex/internal` or root `internal` packages.
   - Export the direct inference factory `openai-chatgpt-plan`; reserve the app-server factory for Phase 7.
+  - The manifest export declares `execution_class: inference`, `access_scope: local_only` and `credential_mode: oauth_user`; the runtime `Describe()` descriptor must match, and the parity suite must assert that agreement against the packaged manifest template.
+  - No connector-local single-user/server-mode check: the factory simply declares its posture and stays absent from the host-owned multi-user approval registry, which is the default deny.
   - Observable completion: the backend-plugin host discovers/configures the new factory and `GOWORK=off` build/test succeeds without a root-module dependency on the connector.
-  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.7, 14.7_
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.7, 1.8, 1.9, 1.10, 14.7, 14.11, 14.12_
   - _Boundary: backend plugin / composition root_
   - _Depends: none_
   - _Validation: GOWORK=off go test ./... (new module) && make quality-checks_
@@ -174,16 +176,18 @@
 
 - [ ] 7.1 Add failing exact launch/provider tests first
   - Pin public base URL, token env key, Responses wire API, `requires_openai_auth=false`, `supports_websockets=false`, truthful clientInfo name/title/version and secret-safe environment.
+  - Also pin the manifest/descriptor posture: `execution_class: agent_runtime`, `access_scope: local_only`, `credential_mode: oauth_user`, matching the runtime descriptor.
   - Observable completion: tests define official SIWC app-server launch and fail against legacy assumptions.
-  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.8_
+  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.8, 9.9, 9.10, 14.11, 14.12_
   - _Boundary: backend plugin / tests_
   - _Depends: 2.5_
   - _Validation: go test ./internal/appserver/..._
 
 - [ ] 7.2 Implement `openai-chatgpt-plan-app-server`
   - Reuse selected SIWC token; launch Codex with documented public Responses provider; preserve agent-runtime execution class/workspace/process lifecycle.
-  - Observable completion: fake app-server receives exact provider config and factory descriptor remains `agent_runtime`.
-  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.8_
+  - Keep the factory `local_only` and `oauth_user`, and keep it out of the host-owned multi-user approval registry. Do not add a connector-local single-user check.
+  - Observable completion: fake app-server receives exact provider config and factory descriptor remains `agent_runtime` with the declared local-only/oauth-user posture.
+  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.8, 9.9, 9.10, 14.11, 14.12_
   - _Boundary: backend plugin / agent-runtime driven adapter_
   - _Depends: 7.1_
   - _Validation: go test ./internal/appserver/... ./internal/service/..._
@@ -317,8 +321,9 @@
 
 - [ ] 12.1 Make the new connector the documented ChatGPT-plan route
   - Update docs/examples/install/release guidance to `openai-chatgpt-plan`; distinguish direct inference vs app-server; document preview restrictions and OSS/local-hosted scope.
+  - Document the security boundary as credential ownership, not a provider-terms blanket: a same-user local/self-hosted ChatGPT-plan deployment is supported, while a shared `multi_user` deployment rejects the connector. State that the rejection comes from the generic host gate plus the host-owned approval registry and that no configuration override exists.
   - Observable completion: current operator docs no longer recommend `~/.codex/auth.json` or private `backend-api` for subscription inference.
-  - _Requirements: 13.1, 14.9, 14.10_
+  - _Requirements: 13.1, 14.9, 14.10, 14.13_
   - _Boundary: docs / config wiring_
   - _Depends: 11.5_
   - _Validation: docs/config tests + grep_
@@ -336,7 +341,7 @@
 - [ ] 13.1 Remove `openai-codex` private HTTP factory and transport
   - Delete factory/export/manifest/release/config paths plus private backend-api HTTP/WS, Codex CLI OAuth refresh, private headers, conversation/session transport affinity and default Codex identity instruction.
   - Observable completion: no production code can construct or route to the legacy direct factory.
-  - _Requirements: 13.1, 13.3, 13.8_
+  - _Requirements: 13.1, 13.3, 13.8, 13.10_
   - _Boundary: backend plugin_
   - _Depends: 11.5, 12.1_
   - _Validation: go test ./connectors/codex/... during deletion + repository grep_
@@ -369,7 +374,7 @@
 - [ ] 13.5 Remove or archive the old `connectors/codex` module
   - If no supported production factory remains, delete module/command/manifest/release metadata/replaces/packaging. Move any genuinely generic helper to the correct support module first rather than keeping a mostly dead connector.
   - Observable completion: package/release inventory contains only the new SIWC connector for ChatGPT-plan/Codex-plan integration.
-  - _Requirements: 13.1, 13.2, 13.5, 13.9_
+  - _Requirements: 13.1, 13.2, 13.5, 13.9, 13.10_
   - _Boundary: backend plugin / packaging_
   - _Depends: 13.2, 13.3, 13.4_
   - _Validation: connector release gates + GOWORK=off builds_
@@ -379,8 +384,9 @@
 - [ ] 14.1 Run residual-reference and architectural cleanup audit
   - Search production code/config/docs/tests for legacy ids, private Codex endpoints, `codex_cli_rs`, `chatgpt-account-id`, old Codex OAuth client id, obsolete `openai_codex.*` extensions, private compaction dialect and default Codex identity prompt.
   - Classify remaining hits as intentional archived/historical evidence or remove them.
-  - Observable completion: zero unexplained production references remain.
-  - _Requirements: 13.7, 13.8, 14.7_
+  - Also confirm no connector-local single-user/server-mode check was introduced: no import of host `internal` packages, no locally declared multi-user approval/eligibility authority, and no `allow_*_in_multi_user` configuration knob.
+  - Observable completion: zero unexplained production references remain and the connector subtree contains no local access-mode decision.
+  - _Requirements: 13.7, 13.8, 14.7, 14.13_
   - _Boundary: repository-wide verification_
   - _Depends: 13.5_
   - _Validation: scripted grep/architecture check_

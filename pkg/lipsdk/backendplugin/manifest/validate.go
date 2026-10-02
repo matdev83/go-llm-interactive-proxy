@@ -98,6 +98,9 @@ func (m Manifest) Validate() error {
 		if err := (lipsdk.BackendExecutionProfile{Class: e.ExecutionClass}).Validate(); err != nil {
 			return fmt.Errorf("%w: execution_class", ErrInvalidManifest)
 		}
+		if err := validateExportSecurityPosture(e); err != nil {
+			return err
+		}
 		if err := boundString("display_name", e.DisplayName, MaxStringBytes); err != nil {
 			return err
 		}
@@ -120,6 +123,34 @@ func (m Manifest) Validate() error {
 		return fmt.Errorf("%w", ErrUnsupportedExtension)
 	}
 	return fmt.Errorf("%w: %s", ErrUnsupportedExtension, ext.Name)
+}
+
+// validateExportSecurityPosture rejects an export whose declared credential mode
+// contradicts its declared access scope. It never infers a value: both fields stay
+// mandatory declarations and this check only proves they agree.
+//
+// credential_mode: oauth_user is a user-scoped credential. The host principal and
+// credential model never multiplexes such a credential across unrelated principals,
+// so an oauth_user export must declare access_scope: local_only. Advertising
+// access_scope: any there would be internally contradictory: the host already
+// refuses the backend in multi-user mode, while the manifest would claim broad
+// eligibility.
+func validateExportSecurityPosture(e Export) error {
+	if e.CredentialMode != backendplugin.CredentialModeOAuthUser {
+		return nil
+	}
+	if e.AccessScope == backendplugin.AccessScopeLocalOnly {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: %w: export %q declares credential_mode %q which requires access_scope %q, got %q",
+		ErrInvalidManifest,
+		ErrInconsistentExportSecurityPosture,
+		e.Kind,
+		backendplugin.CredentialModeOAuthUser,
+		backendplugin.AccessScopeLocalOnly,
+		e.AccessScope,
+	)
 }
 
 func boundString(field, v string, maxBytes int) error {

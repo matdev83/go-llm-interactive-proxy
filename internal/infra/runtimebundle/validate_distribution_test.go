@@ -70,21 +70,21 @@ func TestValidateDistribution_OneStrictLoad(t *testing.T) {
 
 	var loads atomic.Int32
 	ops := defaultValidateDistributionOps()
-	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error) {
 		if loads.Add(1) == 1 {
-			return snapA.eff, snapA.active, snapA.fixed, nil
+			return snapA.eff, snapA.active, snapA.owner, snapA.fixed, nil
 		}
-		return snapB.eff, snapB.active, snapB.fixed, nil
+		return snapB.eff, snapB.active, snapB.owner, snapB.fixed, nil
 	}
 	var acquired []string
 	baseLoad := ops.load
-	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
-		eff, src, fixed, err := baseLoad(ctx, path, cli)
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error) {
+		eff, src, owner, fixed, err := baseLoad(ctx, path, cli)
 		if err != nil {
-			return nil, nil, fixed, err
+			return nil, nil, owner, fixed, err
 		}
 		acquired = append(acquired, "loader")
-		return eff, src, fixed, nil
+		return eff, src, owner, fixed, nil
 	}
 	err := validateDistribution(ctx, validDistributionInput(pathA), nil, ops)
 	if err != nil {
@@ -425,7 +425,7 @@ func TestValidateDistribution_InvalidConfigCategoriesMatchStartupLoad(t *testing
 	if validateErr == nil {
 		t.Fatal("expected ValidateDistribution failure for malformed fixture")
 	}
-	_, _, _, loadErr := LoadBootstrapEffectiveWithSource(context.Background(), cfgPath, config.StreamRecoveryOverrides{})
+	_, _, _, _, loadErr := LoadBootstrapEffectiveWithSource(context.Background(), cfgPath, config.StreamRecoveryOverrides{})
 	if loadErr == nil {
 		t.Fatal("expected startup-loader failure for malformed fixture")
 	}

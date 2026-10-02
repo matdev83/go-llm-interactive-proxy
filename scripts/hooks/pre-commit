@@ -2,7 +2,10 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-"$repo_root/scripts/check-change-size.sh" --staged
-"$repo_root/scripts/check-staged-secrets.sh"
-"$repo_root/scripts/check-release-clean.sh" --staged
-"$repo_root/scripts/quality-gate.sh"
+# Invoke through `bash` rather than relying on the executable bit: several
+# helper scripts are tracked mode 100644, so direct execution fails with 126 on
+# a fresh clone. Matches the legacy .githooks/pre-commit.
+bash "$repo_root/scripts/check-change-size.sh" --staged
+bash "$repo_root/scripts/check-staged-secrets.sh"
+bash "$repo_root/scripts/check-release-clean.sh" --staged
+bash "$repo_root/scripts/quality-gate.sh"

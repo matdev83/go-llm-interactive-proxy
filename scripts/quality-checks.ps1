@@ -89,6 +89,11 @@ function Get-QualityPackages {
 }
 
 $qualityPackages = @(Get-QualityPackages)
+$testPackageFlags = @()
+if ($env:LIP_TEST_PACKAGES) {
+    if ($env:LIP_TEST_PACKAGES -notmatch '^[1-9][0-9]*$') { throw "LIP_TEST_PACKAGES must be a positive integer" }
+    $testPackageFlags += "-p=$($env:LIP_TEST_PACKAGES)"
+}
 
 Write-Host "=== Quality Checks ===" -ForegroundColor Cyan
 Write-Host ""
@@ -151,7 +156,8 @@ if ($env:LIP_SKIP_GO_COMPILE_CHECKS -eq "1") {
 Write-Host "[6-8/8] Running independent guardrails in parallel..." -ForegroundColor Yellow
 $guardJobs = @(
     @{ Label = "adhoc-goroutines"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/check-adhoc-goroutines.ps1") },
-    @{ Label = "regex-hotpath"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/regex-hotpath-check.ps1") }
+    @{ Label = "regex-hotpath"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/regex-hotpath-check.ps1") },
+    @{ Label = "protobuf"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/proto-check.ps1") }
 )
 if ($env:LIP_SKIP_LINT -ne "1") {
     $guardJobs += @{ Label = "lint"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/lint-all-modules.ps1", "-Changed") }
@@ -160,7 +166,7 @@ if ($env:LIP_SKIP_ARCHTEST -ne "1") {
     # Match the test-unit flags (make GO_TEST_FLAGS) so the standalone
     # quality-checks archtest run shares Go's build/test cache with
     # subsequent `make test`/`make qa` executions (see #291).
-    $guardJobs += @{ Label = "archtest"; Command = @("go", "test", "-parallel=$script:TestParallel", "-timeout=10m", "./internal/archtest/...") }
+    $guardJobs += @{ Label = "archtest"; Command = @("go", "test", "-parallel=$script:TestParallel", "-timeout=10m") + $testPackageFlags + @("./internal/archtest/...") }
 }
 $runnerBinary = Get-TaskRunnerBinary
 $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()

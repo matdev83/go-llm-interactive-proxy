@@ -105,6 +105,60 @@ Validated configs:
 - Secrets arrive only in authenticated configure payloads — not via unprotected process-environment bootstrap. Do not put provider API keys into plugin launch env.
 - **Local-only** connectors (`access_scope` / local-only posture) are rejected when `access.mode: multi_user`. Keep them on single-user loopback deployments.
 
+## Multi-user eligibility: connector posture **and** a host-owned approval
+
+`access.mode: multi_user` is a shared-service deployment: unrelated downstream principals multiplex through one proxy. Two independent things must both hold before any backend may run in that mode, and the **most restrictive** source wins.
+
+| Requirement | Declared by | Enforced |
+|---|---|---|
+| `access_scope: any` | connector manifest export | host, at composition |
+| `credential_mode` is not `oauth_user` and not `unknown` | connector manifest export | host, at composition |
+| `execution_class: inference` (agent runtimes are never shared) | connector manifest export | host, at composition |
+| Explicit entry in the **host-owned approval registry** | `internal/standardplugins/multi_user_backend_policy.go` | host, at composition |
+
+The registry lives in the **host/distribution tree, never in `connectors/<name>`**. Connector packaging cannot add itself to it, and no connector can read the effective access mode (architecture guards reject both an import of host internals and a locally declared multi-user authority).
+
+**Absence from the registry is denial.** A brand-new connector that declares `access_scope: any` + `credential_mode: static` + `execution_class: inference` — even a real agent runtime that misclassifies itself — is rejected in a multi-user deployment. Promoting a factory is an explicit, separately reviewed change to the registry file, which is a privilege grant and should be treated as such (`CODEOWNERS` / branch protection).
+
+The generic invariants behind this are:
+
+```text
+execution_class: agent_runtime  => access_scope: local_only   # documented product policy
+credential_mode: oauth_user     => access_scope: local_only   # personal/subscription credentials
+manifest validation rejects credential_mode: oauth_user with any access scope other than local_only
+```
+
+An approval can never *widen* a posture: a factory that is approved but whose packaged manifest says `local_only`, `agent_runtime`, `oauth_user`, or an undeclared credential is still denied in a multi-user deployment.
+
+The manifest, not the runtime descriptor, is the host's security-policy authority. Connector parity tests keep `FactoryDescriptor.AccessScope` / `CredentialMode` in agreement with the packaged manifest so a disagreement is a diagnostic failure, not a silent divergence. The access decision itself is **never** made inside `Describe()` or `Configure()`.
+
+### What "personal credential" means here
+
+Go-LIP's boundary is about **credential ownership under the current principal model**, not about a blanket provider-terms rule:
+
+- **User-scoped / personal / subscription credentials** — the credential belongs to one human's account or device. Every such factory is `access_scope: local_only`; `credential_mode` then records *how* it authenticates and is not the same for all of them:
+  - Agent runtimes and local-device backends are `local_only` with `credential_mode: static` or `none`, because they read the local user's own CLI login, device state, or agent process rather than an upstream OAuth profile. This covers the ACP family, Cursor SDK under its current contract, and both Codex exports (`openai-codex` is `static`/`inference`; `openai-codex-app-server` is `none`/`agent_runtime`).
+  - The subscription-OAuth connectors are `local_only` **and** `credential_mode: oauth_user`, because the effective credential is a user OAuth session: `gitlab-duo`, `minimax-oauth`, `nous-portal`, `qwen-oauth`, `xai-oauth`, plus a future ChatGPT-plan / SIWC profile.
+  - In both groups the *scope* is what denies shared use, and `local_only` alone already rejects a `multi_user` deployment. OpenAI explicitly supports ChatGPT-plan usage in a **same-user** self-hosted VM; what Go-LIP refuses is any of these credentials becoming an **operator-wide credential that unrelated downstream principals can multiplex**. There is no pooling or subscriber failover across different users' accounts.
+- **Legitimate shared-service identities** — provider API keys, workload identity from the runtime environment, and provider service accounts are ordinary multi-user-safe credentials. A backend that uses one of those, runs remote provider inference, and is explicitly registered may be approved.
+
+**There is no escape hatch.** No `allow_local_only_in_multi_user` (or equivalent) configuration exists, and none should be added. A future shared agent backend must be a distinct, reviewed factory with a provider-supported service identity, explicit per-principal credential binding, and an explicit exception — not a reclassified existing connector.
+
+### When multi-user rejects a backend
+
+The failure is a typed, actionable composition error carrying **instance** and **factory** context, raised at startup / `check-config` / reload candidate compilation **before** backend construction, connector `Dial`/`Configure`, or child-process launch. A configured-but-unapproved backend fails the whole candidate; it is never silently disabled or downgraded.
+
+Remediate by choosing one of:
+
+1. **Run a single-user loopback deployment** — `access.mode: single_user` on an explicit loopback listener (`127.0.0.1`, `::1`, `localhost`). Note that `single_user` is about the *listener*, not about auth: a single-user loopback deployment may still use an external auth handler.
+2. **Use a credential type intended for shared service operation** — a provider API key, workload identity, or service account on a backend that is explicitly approved for `multi_user`.
+
+Discover which kinds the current distribution approves:
+
+```bash
+go run ./cmd/lipstd inspect --config CONFIG
+```
+
 ## Inspect and doctor
 
 ```bash
@@ -395,6 +449,8 @@ Key characteristics:
 
 The GitLab Duo external backend connector (`kind: gitlab-duo`) integrates Go-LIP with GitLab Duo and the Duo Agent Platform (DAP) inference endpoints using GitLab's direct-access token exchange protocol.
 
+**Multi-user deployment:** ships `access_scope: local_only` and `credential_mode: oauth_user`, because its upstream credential is one human user's OAuth session rather than an operator, workload, or service-account credential. See [multi-user eligibility](#multi-user-eligibility-connector-posture-and-a-host-owned-approval).
+
 Key characteristics:
 - **Direct-access token exchange:** Requests exchange an authorized GitLab Personal Access Token (PAT) or OAuth session token with the GitLab instance (`POST /api/v4/ai/third_party_agents/direct_access`, accepting 201 Created or any 2xx response) with documented feature flags to obtain a short-lived JSON Web Token (JWT) and required routing headers for the AI Gateway. Entitlement denials (403) fail closed immediately without retry loops.
 - **AI Gateway inference targets:** Routes agentic chat inference to GitLab AI Gateway endpoints at `POST /ai/v1/proxy/anthropic/v1/messages` (with `anthropic-beta: context-1m-2025-08-07`) and `POST /ai/v1/proxy/openai/v1/chat/completions`. An optional `ai_gateway_url` override can be configured to point to an enterprise private AI gateway.
@@ -406,6 +462,8 @@ Key characteristics:
 ## Nous Portal REST Connector
 
 The Nous Portal external backend connector (`kind: nous-portal`) integrates Go-LIP with Nous Portal subscription gateway and Nous inference endpoints using scoped OAuth JSON Web Tokens (JWT).
+
+**Multi-user deployment:** ships `access_scope: local_only` and `credential_mode: oauth_user`, because its upstream credential is one human user's subscription session rather than an operator, workload, or service-account credential. See [multi-user eligibility](#multi-user-eligibility-connector-posture-and-a-host-owned-approval).
 
 Key characteristics:
 - **Scoped JWT subscription gateway:** Connects to Nous Portal (`https://portal.nousresearch.com`) and Nous Inference API (`https://inference-api.nousresearch.com/v1`). Mints and refreshes scoped `inference:invoke` JWTs from stored OAuth refresh tokens via `POST /api/oauth/token`. Legacy opaque session-keys or static API keys are supported when provided via secrets.
@@ -419,6 +477,8 @@ Key characteristics:
 
 The xAI Subscription OAuth external backend connector (`kind: xai-oauth`) integrates Go-LIP with xAI's subscription service using standard OAuth 2.0 / OIDC credentials and the xAI OpenAI-compatible Chat API.
 
+**Multi-user deployment:** ships `access_scope: local_only` and `credential_mode: oauth_user`, because its upstream credential is one human user's subscription session rather than an operator, workload, or service-account credential. Use the catalog-driven API-key `xai` profile for shared deployments. See [multi-user eligibility](#multi-user-eligibility-connector-posture-and-a-host-owned-approval).
+
 Key characteristics:
 - **Distinct from API-key xAI profile:** Operates as a distinct backend plugin (`kind: xai-oauth`, plugin ID `io.golip.backend.xaioauth`) separate from the catalog-driven API-key `xai` profile.
 - **OIDC discovery & subscription token refresh:** Performs standard OIDC discovery against `https://auth.x.ai/.well-known/openid-configuration` (or a configured issuer URL) to locate the token endpoint (`https://auth.x.ai/oauth2/token`), exchanging OAuth refresh tokens for short-lived access tokens via `grant_type=refresh_token`.
@@ -431,6 +491,8 @@ Key characteristics:
 ## Qwen Portal OAuth Connector
 
 The Qwen Portal OAuth external backend connector (`kind: qwen-oauth`) integrates Go-LIP with Alibaba's Qwen Portal subscription service using standard OAuth 2.0 PKCE / refresh tokens and OpenAI-compatible Chat completions at `https://portal.qwen.ai/v1`.
+
+**Multi-user deployment:** ships `access_scope: local_only` and `credential_mode: oauth_user`, because its upstream credential is one human user's subscription session rather than an operator, workload, or service-account credential. Use the catalog-driven `alibaba`/DashScope API-key profile for shared deployments. See [multi-user eligibility](#multi-user-eligibility-connector-posture-and-a-host-owned-approval).
 
 Key characteristics:
 - **Distinct from Alibaba/DashScope API-key profiles:** Operates as a distinct external backend plugin (`kind: qwen-oauth`, plugin ID `io.golip.backend.qwenoauth`) separate from catalog-driven `alibaba` and DashScope API-key profiles.
@@ -449,6 +511,8 @@ Key characteristics:
 ## MiniMax OAuth Connector
 
 The MiniMax OAuth external backend connector (`kind: minimax-oauth`) integrates Go-LIP with MiniMax's subscription service using standard OAuth 2.0 PKCE / refresh tokens and Anthropic Messages inference endpoints at `https://api.minimax.io/anthropic` (global) or `https://api.minimaxi.com/anthropic` (China).
+
+**Multi-user deployment:** ships `access_scope: local_only` and `credential_mode: oauth_user`, because its upstream credential is one human user's subscription session rather than an operator, workload, or service-account credential. Use the catalog-driven API-key `minimax` profile for shared deployments. See [multi-user eligibility](#multi-user-eligibility-connector-posture-and-a-host-owned-approval).
 
 Key characteristics:
 - **Distinct from API-key MiniMax profile:** Operates as a distinct external backend plugin (`kind: minimax-oauth`, plugin ID `io.golip.backend.minimexoauth`) separate from catalog-driven API-key `minimax` profiles. It strictly rejects `MINIMAX_API_KEY` configuration.
@@ -470,6 +534,9 @@ Key characteristics:
 | Peer/channel failure in doctor | IPC/ACL/profile mismatch | Fix install permissions/ACLs; do not disable peer checks |
 | Configured-missing fail-closed | Enabled backend kind not discovered | Install artifact or disable the row |
 | Local-only rejected | `access.mode: multi_user` | Single-user loopback or different connector |
+| User OAuth credential rejected | `credential_mode: oauth_user` in `access.mode: multi_user` | Single-user loopback, or a shared-service credential backend |
+| Backend not approved for multi-user | Factory absent from the host-owned approval registry (including a brand-new connector) | Single-user loopback, or request an explicit registry change; there is no config override |
+| Manifest `oauth_user` + `access_scope: any` rejected | Contradictory manifest semantics | Declare `access_scope: local_only` |
 | Development path ignored | `development_mode: false` with only loose paths | Set `development_mode: true` **only** for explicit lab paths |
 | Wanted “download plugin” | Unsupported | Package offline; copy artifacts — **no runtime download** |
 

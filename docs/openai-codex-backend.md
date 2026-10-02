@@ -19,6 +19,8 @@ plugins:
 
 This connector is single-user only. The standard distribution rejects it when `access.mode: multi_user` is enabled because its credentials are private user OAuth/ChatGPT material whether supplied through explicit tokens, `auth_json_path`, default Codex CLI discovery, or managed OAuth account files.
 
+The rejection happens at composition, before backend construction or connector configuration, and it is not waivable: the factory is absent from the host-owned multi-user approval registry (see [`backend-plugins/operator.md`](backend-plugins/operator.md#multi-user-eligibility-connector-posture-and-a-host-owned-approval)), so it is denied twice over — by `access_scope: local_only` and by the missing approval. The boundary is credential ownership, not a claim that every provider forbids subscription-backed integration: the same user's ChatGPT-plan credential in a **single-user** deployment is fine; what Go-LIP refuses is one user's credential becoming an operator-wide credential that unrelated downstream principals can multiplex. There is no configuration flag to allow local-only or user-OAuth backends in a multi-user deployment.
+
 - YAML: `access_token` (preferred) or `api_key`, plus optional `api_keys` / `credentials`.
 - Environment: `OPENAI_CODEX_ACCESS_TOKEN`, then numbered `_2`, `_3`, …; falls back to `OPENAI_CODEX_API_KEY` (+ `_N` variants) when access-token vars are unset.
 - When neither `access_token` nor `auth_json_path` is set, the connector reads `~/.codex/auth.json` if present (Codex CLI default).

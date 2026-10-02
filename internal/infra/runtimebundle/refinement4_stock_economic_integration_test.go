@@ -268,6 +268,7 @@ func TestRefinement4StockObservationToEconomicSettlement(t *testing.T) {
 
 func refinement4StockMeteringConfig(t *testing.T, journalPath string) string {
 	t.Helper()
+	runtimebundle.PrepareMeteringSchemaForTest(t, journalPath)
 	base := writeBillingHostLoopConfig(t)
 	contents, err := os.ReadFile(base)
 	require.NoError(t, err)

@@ -18,8 +18,9 @@ import (
 // counts toward the capped total.
 
 // TestBillingEconomicsGrowthManifestLocked pins the remediation-3C allowance table:
-// 165 entries, fork-baseline sum 9,593 (roots 8,209 + files 1,384 at c7fa4169),
-// audited-credit sum 57,701, cap 57,726. The per-entry re-audit history lives in
+// 167 entries (165 audited + two approved prospective), fork-baseline sum 9,593
+// (roots 8,209 + files 1,384 at c7fa4169), audited-credit sum 57,701, cap
+// 57,726 + approved prospective reserve 1,750. The per-entry re-audit history lives in
 // billing_convergence_growth_history.go; this test only locks the arithmetic. Schema,
 // order, uniqueness and attribution run through the shared table validator so
 // production and injected-negative tests enforce identical rules, and per-entry fork
@@ -29,11 +30,11 @@ import (
 
 func TestBillingEconomicsGrowthManifestLocked(t *testing.T) {
 	t.Parallel()
-	if len(economicsConvergenceGrowthManifest) != 165 {
-		t.Fatalf("growth manifest entries = %d, want 165", len(economicsConvergenceGrowthManifest))
+	if len(economicsConvergenceGrowthManifest) != 167 {
+		t.Fatalf("growth manifest entries = %d, want 167", len(economicsConvergenceGrowthManifest))
 	}
-	if EconomicsConvergenceGrowthOverlayMax != 57726 {
-		t.Fatalf("growth cap drift: %d, want 57726", EconomicsConvergenceGrowthOverlayMax)
+	if EconomicsConvergenceGrowthOverlayMax != 59476 {
+		t.Fatalf("growth cap drift: %d, want 59476", EconomicsConvergenceGrowthOverlayMax)
 	}
 	if msg := validateEconomicsConvergenceGrowthManifest(economicsConvergenceGrowthManifest); msg != "" {
 		t.Fatalf("growth manifest schema rejected: %s", msg)

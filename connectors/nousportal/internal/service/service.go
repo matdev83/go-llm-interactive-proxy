@@ -114,11 +114,12 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		Factories: []backendplugin.FactoryDescriptor{{
-			Kind:                     FactoryKind,
-			DisplayName:              DisplayName,
-			Description:              Description,
-			CredentialMode:           backendplugin.CredentialModeStatic,
-			AccessScope:              backendplugin.AccessScopeAny,
+			Kind:        FactoryKind,
+			DisplayName: DisplayName,
+			Description: Description,
+			// Effective credential is one human user's Nous Portal identity: either a portal API key or a scoped OAuth JWT session loaded from oauth_token_file and refreshed against the portal token endpoint. It is user-scoped, so it must stay local-only under access.mode: multi_user.
+			CredentialMode:           backendplugin.CredentialModeOAuthUser,
+			AccessScope:              backendplugin.AccessScopeLocalOnly,
 			RoutePrefixes:            []string{FactoryKind},
 			SupportsDynamicInventory: true,
 			ProcessSharing:           backendplugin.ProcessSharingPerInstance,

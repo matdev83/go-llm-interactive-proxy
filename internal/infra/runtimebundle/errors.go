@@ -12,6 +12,12 @@ var (
 	ErrLocalOnlyBackendDisallowedMultiUser = errors.New("runtimebundle: local-only backend is not allowed when access.mode is multi_user")
 	ErrOAuthUserDisallowedMultiUser        = errors.New("runtimebundle: oauth_user credentials are not allowed when access.mode is multi_user")
 	ErrUnknownCredentialMultiUser          = errors.New("runtimebundle: unknown credential mode is not allowed when access.mode is multi_user")
-	ErrUnsupportedBackendCredentialMode    = errors.New("runtimebundle: unsupported backend credential mode")
-	ErrUnsupportedBackendAccessScope       = errors.New("runtimebundle: unsupported backend access scope")
+	// ErrBackendNotApprovedForMultiUser fails closed when an enabled backend is
+	// connector-compatible with multi-user use but the host-owned approval registry
+	// (internal/standardplugins/multi_user_backend_policy.go) does not list it.
+	// Absence is denial, so a new or misclassified factory cannot grant itself
+	// shared-use eligibility.
+	ErrBackendNotApprovedForMultiUser   = errors.New("runtimebundle: backend is not approved for multi_user by the host-owned approval policy")
+	ErrUnsupportedBackendCredentialMode = errors.New("runtimebundle: unsupported backend credential mode")
+	ErrUnsupportedBackendAccessScope    = errors.New("runtimebundle: unsupported backend access scope")
 )

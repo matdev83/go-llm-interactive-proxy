@@ -6,6 +6,8 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 git config core.hooksPath scripts/hooks
-chmod +x scripts/check-release-clean.sh scripts/check-change-size.sh scripts/hooks/pre-commit scripts/hooks/pre-push
+# The hooks themselves must be executable, but they invoke the gate scripts
+# through `bash` rather than relying on those scripts' executable bits.
+chmod +x scripts/hooks/pre-commit scripts/hooks/pre-push
 
 echo "Installed pre-commit and pre-push hooks via core.hooksPath=scripts/hooks"

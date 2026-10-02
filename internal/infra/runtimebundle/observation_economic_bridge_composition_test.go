@@ -56,6 +56,7 @@ func TestStockCompositionObservationEconomicBridgeQueuesWithoutManualSeeding(t *
 	base, err := os.ReadFile(baseConfig)
 	require.NoError(t, err)
 	journalPath := filepath.Join(t.TempDir(), "metering.sqlite")
+	runtimebundle.PrepareMeteringSchemaForTest(t, journalPath)
 	configText := strings.Replace(string(base), "continuity:\n  in_memory: true\n  store: memory\n", "continuity:\n  in_memory: true\n  store: memory\nmetering:\n  enabled: true\n  journal:\n    store: sqlite\n    sqlite_path: \""+filepath.ToSlash(journalPath)+"\"\n", 1)
 	configPath := filepath.Join(t.TempDir(), "bridge-host.yaml")
 	require.NoError(t, os.WriteFile(configPath, []byte(configText), 0o600))
@@ -119,7 +120,9 @@ func TestStockCompositionObservationEconomicBridgeQueuesWithoutManualSeeding(t *
 
 func newCompositionBillingStore(t *testing.T, storeID string) *billingstore.DurableStore {
 	t.Helper()
-	dsn := "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "billing.sqlite")) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
+	path := filepath.Join(t.TempDir(), "billing.sqlite")
+	runtimebundle.PrepareBillingSchemaForTest(t, path)
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sqlDB.Close() })

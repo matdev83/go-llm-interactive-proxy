@@ -26,6 +26,11 @@ func TestDBParity_SQLite(t *testing.T) {
 		runReviewF356SettlementFence(t, newSQLiteTestStore)
 	})
 
+	t.Run("SupportAdvisory", func(t *testing.T) {
+		t.Parallel()
+		runSupportAdvisoryDurableParity(t, newSQLiteTestStore)
+	})
+
 	t.Run("CreateAndVerifySchema", func(t *testing.T) {
 		t.Parallel()
 		store := newSQLiteTestStore(t)

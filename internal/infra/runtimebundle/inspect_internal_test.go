@@ -20,7 +20,7 @@ func dogfoodInspectPath(t *testing.T) string {
 }
 
 func countingLoader(inner bootstrapEffectiveLoader, n *atomic.Int64) bootstrapEffectiveLoader {
-	return func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+	return func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, *configsource.SourceOwnerSlot, config.StreamRecoveryOverrides, error) {
 		n.Add(1)
 		return inner(ctx, path, cliOverrides)
 	}

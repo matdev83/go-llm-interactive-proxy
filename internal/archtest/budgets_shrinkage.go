@@ -76,6 +76,7 @@ type ShrinkageMeasurement struct {
 	Connector        OverlayMeasurement
 	PathOverlays     []OverlayMeasurement
 	Growth           OverlayMeasurement // usage-economics growth allowance (per-file growth above locked baselines)
+	SourceOwnership  OverlayMeasurement // config-source ownership growth above the pre-feature baselines
 	ConvergenceDelta int                // Delta - overlay lines (legacy Req 11.5 component)
 	RequiredMax      int
 	Pass             bool
@@ -196,6 +197,14 @@ func MeasureRuntimeConvergenceShrinkage(root string) (ShrinkageMeasurement, erro
 		return ShrinkageMeasurement{}, err
 	}
 	m.Growth = growth
+	for _, f := range growth.Files {
+		claimed[f] = struct{}{}
+	}
+	sourceOwnership, err := measureSourceOwnershipGrowthOverlay(root, claimed)
+	if err != nil {
+		return ShrinkageMeasurement{}, err
+	}
+	m.SourceOwnership = sourceOwnership
 	overlayLines := m.Connector.Lines
 	m.Pass = m.Connector.Pass
 	for _, o := range m.PathOverlays {
@@ -204,18 +213,20 @@ func MeasureRuntimeConvergenceShrinkage(root string) (ShrinkageMeasurement, erro
 	}
 	overlayLines += m.Growth.Lines
 	m.Pass = m.Pass && m.Growth.Pass
+	overlayLines += m.SourceOwnership.Lines
+	m.Pass = m.Pass && m.SourceOwnership.Pass
 	m.ConvergenceDelta = m.Delta - overlayLines
 	m.Pass = m.Pass && m.ConvergenceDelta <= m.RequiredMax
 	return m, nil
 }
 
 // overlays returns the connector overlay followed by the path-marker overlays in
-// table order and the usage-economics growth allowance, for uniform report formatting.
+// table order and the measured growth allowances, for uniform report formatting.
 func (m ShrinkageMeasurement) overlays() []OverlayMeasurement {
-	out := make([]OverlayMeasurement, 0, 2+len(m.PathOverlays))
+	out := make([]OverlayMeasurement, 0, 3+len(m.PathOverlays))
 	out = append(out, m.Connector)
 	out = append(out, m.PathOverlays...)
-	out = append(out, m.Growth)
+	out = append(out, m.Growth, m.SourceOwnership)
 	return out
 }
 
@@ -231,8 +242,9 @@ func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasuremen
 	fmt.Fprintf(&b, "Baseline SHA: `%s`\n\n", m.BaselineSHA)
 	fmt.Fprintln(&b, "Method: recursive `CountNonTestGoLines` (non-test `.go` physical lines, including build-tag alternates). Moving unchanged logic between packages is not shrinkage (Req 11.6).")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "ADR 0008 connector-architecture overlay: approved public host/discovery additions are measured structurally (import markers for discovery/catalog/trust/diagnostics/backendplugin ABI). Additional feature overlays select new production files by path. Each overlay and the legacy convergence component are ratcheted separately.")
+	fmt.Fprintln(&b, "ADR 0008 connector-architecture overlay: approved public host/discovery additions are measured structurally (import markers for discovery/catalog/trust/diagnostics/backendplugin ABI). Additional feature overlays select new production files by path or measure allowlisted growth above locked pre-feature baselines. Each overlay and the legacy convergence component are ratcheted separately.")
 	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Config-source ownership growth uses locked per-file baselines at `%s`; only positive growth in its bounded allowlist is credited.\n\n", SourceOwnershipGrowthBaselineSHA)
 	fmt.Fprintln(&b, "| Surface | Baseline | Current | Delta |")
 	fmt.Fprintln(&b, "| --- | ---: | ---: | ---: |")
 	for _, s := range m.Surfaces {

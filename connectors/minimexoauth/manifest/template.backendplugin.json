@@ -17,8 +17,8 @@
   "exports": [
     {
       "kind": "minimax-oauth",
-      "credential_mode": "static",
-      "access_scope": "any",
+      "credential_mode": "oauth_user",
+      "access_scope": "local_only",
       "process_sharing": "per_instance",
       "execution_class": "inference"
     }

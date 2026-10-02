@@ -1,97 +1,169 @@
-package configsource_test
+//go:build linux && configsource_cert
+
+package configsource
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 )
 
-// TestFixedSource_AtomicReplaceWithRecycledInodeIsEligible proves the atomicity
-// gate keys on file identity that survives inode-number reuse. A rejected
-// candidate is still an atomic rename, so it frees the previously accepted
-// file's inode; the following recovery rename can be handed that same inode
-// number by the filesystem. That is a different physical file, so it must be
-// eligible for publication rather than rejected as an in-place rewrite.
-func TestFixedSource_AtomicReplaceWithRecycledInodeIsEligible(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "cfg.yaml")
+const sourceCertCycles = 1000
 
-	atomicWrite := func(body string) {
-		t.Helper()
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
+func TestFixedSource_PinnedAtomicRecovery(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeAtomic(t, path, "accepted-0")
+	source, err := NewFixedSource(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, result, err := source.ReadStable(ctx, nil)
+	if err != nil || result != AtomicEligible || initial.HandleIdentity.Scheme != identitySchemeLinuxExt4Lease {
+		t.Fatalf("supported ext4 startup required: result=%q identity=%q err=%v", result, initial.HandleIdentity.Scheme, err)
+	}
+	active, activeOwner := initial.TakeBaseline()
+	certifyAcceptedPin(t, active, activeOwner)
+	defer func() {
+		if closeErr := activeOwner.Close(context.Background()); closeErr != nil {
+			t.Errorf("close final active owner: %v", closeErr)
 		}
-		if err := os.Rename(tmp, path); err != nil {
-			t.Fatal(err)
+	}()
+
+	for i := 0; i < sourceCertCycles; i++ {
+		certifyAcceptedPin(t, active, activeOwner)
+		writeAtomic(t, path, fmt.Sprintf("rejected-%d", i))
+		candidate, got, readErr := source.ReadStable(ctx, active)
+		if readErr != nil || got != AtomicEligible {
+			t.Fatalf("cycle %d rejected candidate read: result=%q err=%v", i, got, readErr)
+		}
+		if candidate.HandleIdentity == active.HandleIdentity {
+			t.Fatalf("cycle %d candidate reused pinned active identity", i)
+		}
+		candidateVersion, candidateOwner := candidate.TakeBaseline()
+		certifyAcceptedPin(t, candidateVersion, candidateOwner)
+		if closeErr := candidateOwner.Close(ctx); closeErr != nil {
+			t.Fatalf("cycle %d rejected candidate close: %v", i, closeErr)
+		}
+
+		writeAtomic(t, path, fmt.Sprintf("recovery-%d", i))
+		recovery, got, readErr := source.ReadStable(ctx, active)
+		if readErr != nil || got != AtomicEligible {
+			t.Fatalf("cycle %d recovery read: result=%q err=%v", i, got, readErr)
+		}
+		if recovery.HandleIdentity == active.HandleIdentity {
+			t.Fatalf("cycle %d recovery reused pinned active identity", i)
+		}
+		next, nextOwner := recovery.TakeBaseline()
+		certifyAcceptedPin(t, next, nextOwner)
+		oldOwner := activeOwner
+		active, activeOwner = next, nextOwner
+		if closeErr := oldOwner.Close(ctx); closeErr != nil {
+			t.Fatalf("cycle %d previous active owner close: %v", i, closeErr)
 		}
 	}
+}
 
-	atomicWrite("body-a")
-	info1, err := os.Stat(path)
+func TestFixedSource_PinPreventsAcceptedInodeReuse(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeAtomic(t, path, "accepted")
+	source, err := NewFixedSource(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	src, err := configsource.NewFixedSource(path, 0)
-	if err != nil {
+	accepted, result, err := source.ReadStable(ctx, nil)
+	if err != nil || result != AtomicEligible || accepted.HandleIdentity.Scheme != identitySchemeLinuxExt4Lease {
+		t.Fatalf("supported ext4 startup required: result=%q identity=%q err=%v", result, accepted.HandleIdentity.Scheme, err)
+	}
+	active, owner := accepted.TakeBaseline()
+	certifyAcceptedPin(t, active, owner)
+	defer func() {
+		if closeErr := owner.Close(context.Background()); closeErr != nil {
+			t.Errorf("close active owner: %v", closeErr)
+		}
+	}()
+
+	noop, got, err := source.ReadStable(ctx, active)
+	if err != nil || got != AtomicNoop {
+		t.Fatalf("unchanged accepted file: result=%q err=%v, want noop", got, err)
+	}
+	if noop.HandleIdentity != active.HandleIdentity {
+		t.Fatal("unchanged source no-op must retain the accepted physical identity")
+	}
+	noopVersion, noopOwner := noop.TakeBaseline()
+	certifyAcceptedPin(t, noopVersion, noopOwner)
+	if closeErr := noopOwner.Close(ctx); closeErr != nil {
+		t.Fatalf("close no-op snapshot owner: %v", closeErr)
+	}
+
+	if err := os.WriteFile(path, []byte("in-place mutation"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	snap1, res1, err := src.ReadStable(ctx, nil)
-	if err != nil || res1 != configsource.AtomicEligible {
-		t.Fatalf("startup read: res=%q err=%v", res1, err)
+	if _, got, err := source.ReadStable(ctx, active); got != AtomicReject || err == nil {
+		t.Fatalf("in-place edit: result=%q err=%v, want rejected update", got, err)
+	} else if category, ok := CategoryOf(err); !ok || category != CategoryNonAtomicUpdate {
+		t.Fatalf("in-place edit category=%q ok=%v err=%v, want non-atomic rejection", category, ok, err)
 	}
-	active := &configsource.ActiveSourceVersion{
-		HandleIdentity: snap1.HandleIdentity,
-		PrivateDigest:  snap1.PrivateDigest,
-	}
+	certifyPinnedIdentity(t, active, owner)
 
-	// A candidate that fails validation is still renamed atomically, freeing the
-	// original inode.
-	atomicWrite("::: not yaml :::{{")
-	if _, res, err := src.ReadStable(ctx, active); err != nil || res != configsource.AtomicEligible {
-		t.Fatalf("failed candidate read: res=%q err=%v", res, err)
+	for i := 0; i < sourceCertCycles; i++ {
+		certifyPinnedIdentity(t, active, owner)
+		writeAtomic(t, path, fmt.Sprintf("replacement-%d", i))
+		candidate, got, readErr := source.ReadStable(ctx, active)
+		if readErr != nil || got != AtomicEligible {
+			t.Fatalf("cycle %d replacement read: result=%q err=%v", i, got, readErr)
+		}
+		if candidate.HandleIdentity == active.HandleIdentity {
+			t.Fatalf("cycle %d replacement reused accepted identity", i)
+		}
+		candidateVersion, candidateOwner := candidate.TakeBaseline()
+		certifyAcceptedPin(t, candidateVersion, candidateOwner)
+		if closeErr := candidateOwner.Close(ctx); closeErr != nil {
+			t.Fatalf("cycle %d candidate close: %v", i, closeErr)
+		}
 	}
+}
 
-	// The recovery rename may be allocated the freed inode number.
-	atomicWrite("body-b")
-	info2, err := os.Stat(path)
+func certifyAcceptedPin(t *testing.T, version *ActiveSourceVersion, owner *SourceOwnerSlot) {
+	t.Helper()
+	if version == nil || owner == nil || !owner.Matches(version) {
+		t.Fatal("accepted snapshot owner must match its source version")
+	}
+	borrow, err := version.Borrow()
 	if err != nil {
+		t.Fatalf("borrow accepted source: %v", err)
+	}
+	defer borrow.Release()
+	if err := borrow.ValidateBaseline(version); err != nil {
+		t.Fatalf("fresh held-handle identity/metadata check: %v", err)
+	}
+}
+
+func certifyPinnedIdentity(t *testing.T, version *ActiveSourceVersion, owner *SourceOwnerSlot) {
+	t.Helper()
+	if version == nil || owner == nil || !owner.Matches(version) {
+		t.Fatal("accepted snapshot owner must match its source version")
+	}
+	borrow, err := version.Borrow()
+	if err != nil {
+		t.Fatalf("borrow accepted source: %v", err)
+	}
+	defer borrow.Release()
+	if err := borrow.ValidateProvenance(version); err != nil {
+		t.Fatalf("fresh held-handle identity check: %v", err)
+	}
+}
+
+func writeAtomic(t *testing.T, path, body string) {
+	t.Helper()
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Only exercise the recycled-inode path when the filesystem actually
-	// reallocated the freed inode number. Otherwise the test would pass
-	// without proving anything, which is worse than an explicit skip.
-	if !os.SameFile(info1, info2) {
-		t.Skipf("filesystem did not recycle the freed inode number; ABA condition not reproducible here")
-	}
-
-	snap2, res2, err := src.ReadStable(ctx, active)
-	if err != nil {
-		t.Fatalf("recycled-inode atomic replace rejected: %v", err)
-	}
-	if res2 != configsource.AtomicEligible {
-		t.Fatalf("recycled-inode atomic replace: res=%q want eligible", res2)
-	}
-	if string(snap2.Bytes) != "body-b" {
-		t.Fatalf("recycled-inode bytes=%q want body-b", snap2.Bytes)
-	}
-
-	// The security gate is preserved: an in-place rewrite of the accepted inode
-	// advances neither identity nor birth time and must stay rejected.
-	active2 := &configsource.ActiveSourceVersion{
-		HandleIdentity: snap2.HandleIdentity,
-		PrivateDigest:  snap2.PrivateDigest,
-	}
-	if err := os.WriteFile(path, []byte("body-c"), 0o600); err != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		t.Fatal(err)
-	}
-	if _, _, err := src.ReadStable(ctx, active2); err == nil {
-		t.Fatal("in-place rewrite must be rejected")
-	} else if cat, _ := configsource.CategoryOf(err); cat != configsource.CategoryNonAtomicUpdate {
-		t.Fatalf("in-place rewrite category=%v want %v", cat, configsource.CategoryNonAtomicUpdate)
 	}
 }

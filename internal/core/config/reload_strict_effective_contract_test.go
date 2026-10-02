@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -256,40 +257,58 @@ func TestStrictReloadSource_ReadStableIntegration_RED(t *testing.T) {
 		t.Fatal("expected digest and bytes")
 	}
 
-	active := &configsource.ActiveSourceVersion{
-		HandleIdentity: snap1.HandleIdentity,
-		PrivateDigest:  snap1.PrivateDigest,
-	}
-	_, res, err = src.ReadStable(ctx, active)
-	if err != nil || res != configsource.AtomicNoop {
-		t.Fatalf("noop re-read: res=%q err=%v", res, err)
-	}
+	active, activeOwner := snap1.TakeBaseline()
+	defer func() {
+		if closeErr := activeOwner.Close(ctx); closeErr != nil {
+			t.Errorf("close accepted source owner: %v", closeErr)
+		}
+	}()
+	if runtime.GOOS == "linux" && active.HandleIdentity.Scheme != "linux-ext4-dev-ino-lease-v1" {
+		_, res, err = src.ReadStable(ctx, active)
+		if res != configsource.AtomicReject || err == nil {
+			t.Fatalf("unsupported Linux active lease must fail closed: res=%q err=%v", res, err)
+		}
+		if category, ok := configsource.CategoryOf(err); !ok || category != configsource.CategoryNonAtomicUpdate || configsource.SafeReasonOf(err) != "lease_unavailable" {
+			t.Fatalf("unsupported Linux comparison must retain bounded non-atomic reason: category=%q ok=%v reason=%q err=%v", category, ok, configsource.SafeReasonOf(err), err)
+		}
+	} else {
+		noop, res, err := src.ReadStable(ctx, active)
+		if err != nil || res != configsource.AtomicNoop {
+			t.Fatalf("noop re-read: res=%q err=%v", res, err)
+		}
+		if closeErr := noop.Close(ctx); closeErr != nil {
+			t.Fatalf("close no-op snapshot: %v", closeErr)
+		}
 
-	changed := []byte("server:\n  address: \"127.0.0.1:9\"\n")
-	if err := os.WriteFile(path, changed, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, res, err = src.ReadStable(ctx, active)
-	if res != configsource.AtomicReject || err == nil {
-		t.Fatalf("in-place rewrite: res=%q err=%v", res, err)
-	}
-	if cat, ok := configsource.CategoryOf(err); !ok || cat != configsource.CategoryNonAtomicUpdate {
-		t.Fatalf("want non-atomic category, got cat=%q ok=%v err=%v", cat, ok, err)
-	}
+		changed := []byte("server:\n  address: \"127.0.0.1:9\"\n")
+		if err := os.WriteFile(path, changed, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, res, err = src.ReadStable(ctx, active)
+		if res != configsource.AtomicReject || err == nil {
+			t.Fatalf("in-place rewrite: res=%q err=%v", res, err)
+		}
+		if cat, ok := configsource.CategoryOf(err); !ok || cat != configsource.CategoryNonAtomicUpdate {
+			t.Fatalf("want non-atomic category, got cat=%q ok=%v err=%v", cat, ok, err)
+		}
 
-	tmp := filepath.Join(dir, "config.yaml.tmp")
-	if err := os.WriteFile(tmp, changed, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		t.Fatal(err)
-	}
-	snap2, res, err := src.ReadStable(ctx, active)
-	if err != nil || res != configsource.AtomicEligible {
-		t.Fatalf("atomic replace: res=%q err=%v", res, err)
-	}
-	if snap2.HandleIdentity == active.HandleIdentity {
-		t.Fatal("atomic replace must change handle identity")
+		tmp := filepath.Join(dir, "config.yaml.tmp")
+		if err := os.WriteFile(tmp, changed, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			t.Fatal(err)
+		}
+		snap2, res, err := src.ReadStable(ctx, active)
+		if err != nil || res != configsource.AtomicEligible {
+			t.Fatalf("atomic replace: res=%q err=%v", res, err)
+		}
+		if snap2.HandleIdentity == active.HandleIdentity {
+			t.Fatal("atomic replace must change handle identity")
+		}
+		if closeErr := snap2.Close(ctx); closeErr != nil {
+			t.Fatalf("close atomic replacement snapshot: %v", closeErr)
+		}
 	}
 
 	t.Run("missing", func(t *testing.T) {

@@ -502,12 +502,13 @@ func (r RatingRule) Clone() RatingRule {
 // content hash is over canonical tariff fields, excluding ContentRef itself.
 // ContentRef is a durable resolver key and can be supplied by a catalog.
 type TariffSnapshot struct {
-	Ref                 RatingSnapshotRef    `json:"ref"`
-	Currency            string               `json:"currency"`
-	CatalogVersion      string               `json:"catalog_version,omitempty"`
-	Rules               []RatingRule         `json:"rules"`
-	EffectiveQualifiers []metering.Dimension `json:"effective_qualifiers,omitempty"`
-	LegacySemantics     string               `json:"legacy_semantics,omitempty"`
+	Ref                    RatingSnapshotRef    `json:"ref"`
+	Currency               string               `json:"currency"`
+	CatalogVersion         string               `json:"catalog_version,omitempty"`
+	Rules                  []RatingRule         `json:"rules"`
+	EffectiveQualifiers    []metering.Dimension `json:"effective_qualifiers,omitempty"`
+	LegacySemantics        string               `json:"legacy_semantics,omitempty"`
+	SupportAdvisoryVersion string               `json:"support_advisory_version,omitempty"`
 	// Schemas carries optional frozen component-relationship material that a
 	// later post-usage evaluator may consult without re-querying a provider or
 	// re-deriving inclusion semantics. It is additive: nil/empty schemas
@@ -558,6 +559,9 @@ func cloneComponentSchemas(schemas []metering.ComponentSchema) []metering.Compon
 }
 
 func (s TariffSnapshot) Validate() error {
+	if err := validateSupportAdvisoryVersion(s.SupportAdvisoryVersion); err != nil {
+		return err
+	}
 	if err := validateVersionRef("tariff", s.Ref.VersionRef); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidTariffSnapshot, err)
 	}
@@ -625,14 +629,15 @@ func (s TariffSnapshot) contentHash() string {
 		RaterID:    canonical.Ref.RaterID,
 	}
 	body := struct {
-		Ref                 RatingSnapshotRef          `json:"ref"`
-		Currency            string                     `json:"currency"`
-		CatalogVersion      string                     `json:"catalog_version,omitempty"`
-		Rules               []RatingRule               `json:"rules"`
-		EffectiveQualifiers []metering.Dimension       `json:"effective_qualifiers,omitempty"`
-		LegacySemantics     string                     `json:"legacy_semantics,omitempty"`
-		Schemas             []metering.ComponentSchema `json:"schemas,omitempty"`
-	}{identity, canonical.Currency, canonical.CatalogVersion, canonical.Rules, canonical.EffectiveQualifiers, canonical.LegacySemantics, canonical.Schemas}
+		Ref                    RatingSnapshotRef          `json:"ref"`
+		Currency               string                     `json:"currency"`
+		CatalogVersion         string                     `json:"catalog_version,omitempty"`
+		Rules                  []RatingRule               `json:"rules"`
+		EffectiveQualifiers    []metering.Dimension       `json:"effective_qualifiers,omitempty"`
+		LegacySemantics        string                     `json:"legacy_semantics,omitempty"`
+		Schemas                []metering.ComponentSchema `json:"schemas,omitempty"`
+		SupportAdvisoryVersion string                     `json:"support_advisory_version,omitempty"`
+	}{identity, canonical.Currency, canonical.CatalogVersion, canonical.Rules, canonical.EffectiveQualifiers, canonical.LegacySemantics, canonical.Schemas, canonical.SupportAdvisoryVersion}
 	b, _ := json.Marshal(body)
 	hash := sha256.Sum256(b)
 	return hex.EncodeToString(hash[:])
@@ -747,6 +752,9 @@ func (v RatingCatalogView) Clone() RatingCatalogView {
 // Validate validates supplied generic catalog material without requiring a
 // snapshot identity; the source envelope supplies ID/version separately.
 func (v RatingCatalogView) Validate() error {
+	if err := validateSupportAdvisoryVersion(v.SupportAdvisoryVersion); err != nil {
+		return err
+	}
 	if v.Currency != "" {
 		if err := NormalizeCurrencyRequired(v.Currency); err != nil {
 			return err
@@ -784,7 +792,7 @@ func (v RatingCatalogView) Tariff(ref RatingSnapshotRef) (TariffSnapshot, error)
 	if err := v.Validate(); err != nil {
 		return TariffSnapshot{}, err
 	}
-	s := TariffSnapshot{Ref: ref, Currency: v.Currency, CatalogVersion: v.CatalogVersion, Rules: v.Rules, EffectiveQualifiers: v.EffectiveQualifiers, LegacySemantics: v.LegacySemantics, Schemas: cloneComponentSchemas(v.Schemas)}
+	s := TariffSnapshot{Ref: ref, Currency: v.Currency, CatalogVersion: v.CatalogVersion, Rules: v.Rules, EffectiveQualifiers: v.EffectiveQualifiers, LegacySemantics: v.LegacySemantics, SupportAdvisoryVersion: v.SupportAdvisoryVersion, Schemas: cloneComponentSchemas(v.Schemas)}
 	if err := s.Validate(); err != nil {
 		return TariffSnapshot{}, err
 	}
