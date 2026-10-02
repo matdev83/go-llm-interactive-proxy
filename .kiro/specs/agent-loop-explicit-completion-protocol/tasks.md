@@ -210,7 +210,7 @@ Implement the explicit-completion ALG strategy in strict RED -> minimal implemen
     - _Validation: focused parity suite, provider-removal tests_
 
 - [ ] 10. Run the cross-layer acceptance matrix and harden observability
-  - [ ] 10.1 Add end-to-end preferred-protocol fixtures across canonical authorities/frontends
+  - [x] 10.1 Add end-to-end preferred-protocol fixtures across canonical authorities/frontends
     - Cover completion-only, streamed-text+completion, ordinary client tool then completion, missing signal, one-reprompt user-input case, malformed/multiple control calls, native completion collision, unsupported backend tools, and ToolChoice matrix.
     - Include message-authority and item-authority calls plus representative OpenAI/Anthropic/Gemini protocol adapters through existing testkit boundaries; no live billable calls required.
     - _Requirements: 2.1-2.7,3.1-3.6,4.1-4.7,5.1-5.7,6.1-6.7,7.1-7.7,12.5_
@@ -340,3 +340,5 @@ This ordering minimizes shared-runtime churn while retaining real parallel work 
 - Task 10.1 (adapters): the OpenAI legacy Chat Completions adapter now encodes a canonical developer-role message literally, matching the OpenAI Responses adapter. Anthropic and Gemini have no equivalent wire role and continue to fail closed on such steering rather than re-labelling it; that gap is recorded for task 12.2 alongside the Bedrock and connector adapters.
 
 - Task 10.1 (adapters, user-decided): Anthropic and Gemini have no developer wire role, so a canonical developer-role steering message is coerced to a user-role turn. The loss is named at each mapping site and pinned by tests that assert the coerced wire role, the preserved trajectory position, and the absence of any hoist into the provider system instruction. Bedrock and the ACP, Cohere, Watsonx, OCI and Vertex connectors share the same unmapped-role gap and remain fail-closed.
+
+- Task 10.1: the conformance harness composes the real preferred-strategy generation, so the whole acceptance matrix runs end to end with no provider fakes. Two adapters encode a canonical developer-role steering message literally and two coerce it to the user role with the loss named and pinned. Client-side ordering is asserted from wire frames, because the shared trace has no happens-before edge between the pipeline and reader goroutines. An OpenResponses item-authority path cannot reopen a message item after ordinary text; that reproduces with no control generation and belongs to that frontend owner.
