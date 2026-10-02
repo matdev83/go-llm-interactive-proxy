@@ -10,10 +10,10 @@ The feature is a reversible namespace translation, not lossy compression. A-leg/
 
 - **In scope**: deterministic, workspace-bound virtualization of the authoritative workspace project root; POSIX, Windows drive, Windows UNC, and Windows extended absolute-path forms; canonical tool-call argument rewriting; conservative tool-result rewriting on explicitly path-bearing surfaces; reverse expansion of model-emitted path-bearing tool arguments; stateless stale-workspace alias rejection; audit mode; bounded metrics; retry/failover/continuation stability.
 - **Out of scope**: arbitrary semantic compression; relative-path rewriting; filesystem canonicalization/symlink resolution; URI rewriting; path discovery from ordinary chat/reasoning; arbitrary substring replacement inside source/file contents; dynamic discovery of additional roots; persistence of a general path dictionary; operator-configurable alias namespace/version in V1; rewriting ordinary assistant prose in V1.
-- **Adjacent expectations**: existing routing, B2BUA continuity, conversation-view projection, secure-session, capability negotiation, billing/accounting, and provider adapters retain their current ownership.
-- **Boundary ownership**: optional feature plugin plus narrowly additive SDK/runtime support required to make complete tool-call expansion safe.
-- **Optional hexagonal lens**: pure path-virtualization policy in the feature; runtime orchestration only exposes/reuses generic extension seams and complete-tool-call buffering metadata; adapters remain protocol translators.
-- **Revalidation triggers**: tool-call finalization/assembly semantics, request hook ordering, conversation-view final reassertion, canonical tool result representation, workspace metadata, provider-side continuation behavior, token-accounting preflight ordering.
+- **Adjacent expectations**: existing routing, B2BUA continuity, conversation-view store/persistence, persisted message-identity and anchor derivation, anchor-missing policy, secure-session, capability negotiation, billing/accounting, and provider adapters retain their current ownership.
+- **Boundary ownership**: optional feature plugin plus narrowly additive generic SDK/runtime support required to make complete tool-call expansion safe and to preserve an already-resolved conversation-view placement across provably trajectory-preserving B-leg-only content rewrites.
+- **Optional hexagonal lens**: pure path-virtualization policy in the feature; runtime orchestration only exposes/reuses generic extension seams, complete-tool-call buffering metadata, and request-local frozen conversation-projection evidence; adapters remain protocol translators.
+- **Revalidation triggers**: tool-call finalization/assembly semantics, request hook ordering, conversation-view message identity/provenance/final reassertion, canonical tool result representation, workspace metadata, provider-side continuation behavior, token-accounting preflight ordering.
 
 ## Requirements
 
@@ -86,6 +86,8 @@ The feature is a reversible namespace translation, not lossy compression. A-leg/
 6. Every retry, race participant, and failover candidate within one logical A-leg turn shall derive the same V1 workspace-root alias.
 7. No path mapping shall be keyed to a B-leg ID, provider ID, model ID, retry ordinal, or trace ID.
 8. Provider adapters shall remain unaware of path virtualization and continue to consume/produce canonical calls/events.
+9. Once the early conversation-view projection has resolved an after-message anchor from A-leg/client truth, virtualization of selected payload bytes inside that same complete message shall not by itself invalidate the frozen placement at final backend-bound reassertion; the runtime shall carry that resolved placement through the rewrite only when a deterministic one-to-one trajectory lineage from the frozen filtered baseline to the backend-shaped call is proven.
+10. This compatibility path shall not change persisted `MessageIdentityOf` semantics, stored anchor identity/occurrence, anchor-missing policy, overlay lifecycle, or fallback policy. If one-to-one lineage cannot be proven because messages/items were inserted, removed, reordered, structurally changed, or otherwise became ambiguous, final reassertion shall not guess by position and shall preserve the existing exact-resolution/fail-closed behavior.
 
 ### Requirement 6: Continuity, Replay, and Restart Safety
 **Objective:** As an operator, I want aliases to remain reconstructable across turns and process lifecycle events, so that continuation cannot strand a model-visible namespace.
