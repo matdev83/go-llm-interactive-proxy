@@ -225,6 +225,9 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	if kwLife != nil {
 		outLifecycles = append(outLifecycles, kwLife)
 	}
+	if classificationLife := r.sessionClassificationLifecycle(in.Registrations); classificationLife != nil {
+		outLifecycles = append(outLifecycles, classificationLife)
+	}
 	return GenerationOutput{
 		Bundle: lipfeature.FeatureBundle{
 			PlaneSet:   outPlanes,

@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
+	hostclassification "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	"github.com/uptrace/bun"
 )
@@ -116,6 +117,9 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 			}
 		}
 	}
+	classificationMetrics := hostclassification.NewPrometheusCollector()
+	r.sessionClassification = hostclassification.NewStateHolder(bunDB, classificationMetrics)
+	r.registerCloser(r.sessionClassification.Close)
 	if bunDB != nil {
 		if err := conversationview.EnsureSchema(ctx, bunDB); err != nil {
 			return rollback(fmt.Errorf("featurehost: conversationview ensure schema: %w", err))
@@ -169,6 +173,11 @@ func NewProcess(ctx context.Context, in ProcessInput) (*Runtime, error) {
 	policyStore := newSessionPolicyStore(sessionpolicy.Config{})
 	r.terminalPolicy = policyStore
 	r.registerCloser(policyStore.Close)
+	if in.MetricsRegistry != nil {
+		if err := in.MetricsRegistry.Register(classificationMetrics); err != nil {
+			return rollback(fmt.Errorf("featurehost: session classification metrics collector: %w", err))
+		}
+	}
 
 	return r, nil
 }

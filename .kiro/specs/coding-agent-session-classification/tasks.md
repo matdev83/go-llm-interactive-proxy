@@ -141,7 +141,7 @@
     - _Validation: fake-clock cache capacity/eviction + concurrent load/promotion/claim tests + race suite_
 
 - [ ] 5. Compose the standard feature across process and immutable generations
-  - [ ] 5.1 Wire the lightweight process holder and enabled-generation store lifecycle
+  - [x] 5.1 Wire the lightweight process holder and enabled-generation store lifecycle
     - Construct only a lightweight StateHolder/coordinator shell at process featurehost startup; do not ensure a classification table or contact a remote classifier while the feature has never been enabled.
     - For enabled generations, add an overlap-safe feature lifecycle whose Start initializes/ensures the memory or Bun store once through the shared holder before publication; Stop must not destroy shared state used by overlapping generations.
     - Ensure candidate failure publishes no plane/classification records and final process Close owns holder/cache disposal exactly once.
@@ -377,3 +377,5 @@
 - Task 4.3 uses one conservative precision rule across memory, SQLite, and PostgreSQL: lease and completion-based backoff deadlines round upward to the next microsecond, preserving aligned deadlines. Strict before/exact-deadline checks use the returned deadline; no adapter-specific tolerance or early expiry is permitted.
 
 - Task 4.4 coalesced waiters preserve their own cancellation, then consult an available valid positive before propagating an owner storage error. Owner cancellation is tracked separately because Bun adapters return bounded store errors for mid-I/O cancellation.
+
+- Task 5.1 initializes classification state only in enabled-generation lifecycle Start. The process owns two closers (terminal policy and the lightweight classification holder); generation Stop retains shared state. Initialization tracks owner cancellation separately so live waiters retry even when Bun returns a bounded schema error. Task 5.2 adds the classifier plane; evolve the lifecycle-only candidate assertions while preserving rollback and publication isolation.
