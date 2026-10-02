@@ -147,6 +147,7 @@ Initial preferred archive layout:
 plugin.backendplugin.json
 bin/lip-backend-cursorsdk[.exe]
 private/bridge/lip-cursor-sdk-bridge[.exe]
+private/bridge/bin/lip-cursor-sdk-bridge.js
 private/bridge/dist/
 private/bridge/node_modules/
 private/bridge/package.json
@@ -156,7 +157,11 @@ checksums.sha256
 LICENSES/
 ```
 
+`private/bridge/bin/lip-cursor-sdk-bridge.js` is the bridge package's own CLI shim and therefore the launcher's entrypoint: `--version` and `doctor` exist only there, so executing `dist/main.js` would break the connector's tool contract. The shim resolves `dist/`, `node_modules/`, and `package.json` relative to `private/bridge/`, so the rest of the layout is unchanged.
+
 The direct bridge launcher is a small plugin-local executable built from `cmd/lip-cursor-sdk-bridge/` (new path). It locates a fixed private Node executable and bridge entrypoint, forwards protocol stdin/stdout and exit status, and neither invokes a shell/npm nor downloads dependencies. On POSIX, prefer replacing the launcher process with the private runtime; on Windows explicitly forward termination and wait/reap the runtime descendant under the existing process-tree policy. Launcher/runtime creation failures establish cleanup before escape and release partially acquired handles. This extra launcher must be tested as part of the existing descendant supervision contract, not treated as an unowned worker.
+
+**Adopted supervision model (task 3.1).** The launcher supervises on both platforms instead of exec-replacing on POSIX: the spec's own required evidence (deterministic descendant termination, late settlement, repeated close, and Linux race coverage) is unobservable in-process under exec-replace, while the runtime stays inside the launcher's own process group so the connector's existing tree kill still reaches launcher, runtime, and runtime descendants. Two residual costs are accepted and must stay documented rather than silently assumed: a POSIX launcher-only graceful close escalates against the direct child, not a full runtime-forked tree (Windows `taskkill /T /F` does reach them); and on the connector's narrow process-identity-mismatch path — a deliberate PID-reuse-safety downgrade to a handle-only kill — supervision can strand the private runtime, which is exactly the failure exec-replace would have avoided.
 
 Archive assembly builds production JS, includes only production npm dependencies and metadata needed for SDK version resolution, and carries runtime license/provenance notices. Protected plugin installation ownership prevents untrusted companion mutation; checksums cover private files as well as the manifest and outer executable. Validate plugin-private content during packaging and startup with plugin-local logic. The host's executable digest remains the authority for the outer process; no claim is made that it authenticates every companion file.
 
