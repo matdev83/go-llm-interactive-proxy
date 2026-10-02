@@ -12,11 +12,14 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard"
 	frontanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
 	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
@@ -27,6 +30,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	testkitopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
 )
 
@@ -98,6 +102,14 @@ const (
 	TransportWebSocket ClientTransport = "websocket"
 )
 
+// Mutually exclusive Agent Loop Guard strategy selectors a deployment may
+// compose. They mirror the feature's own stable configuration vocabulary, so a
+// cell selects a strategy the production factory actually accepts.
+const (
+	AgentLoopGuardStrategyAttemptCompletion = "attempt_completion"
+	AgentLoopGuardStrategySemanticVerifier  = "semantic_verifier"
+)
+
 // Candidate is one additional real backend candidate in the deployment's
 // failover chain, with its own injectable contract-fake origin.
 type Candidate struct {
@@ -161,11 +173,21 @@ type DeploymentSpec struct {
 	// continuation max_chain_depth when greater than zero, so amplification
 	// proofs can exercise a short chain instead of the production default of 64.
 	ContinuationMaxChainDepth int
+	// AgentLoopGuardStrategy composes one real Agent Loop Guard feature
+	// generation for the selected mutually exclusive strategy and installs it on
+	// the deployment executor's request runtime snapshot, through the production
+	// feature registry, enabled-surface merge, and production snapshot builder.
+	// Empty (the default) composes no feature generation at all, so every existing
+	// cell keeps its current no-provider terminal behavior. Preferred-strategy
+	// cells get exactly the control provider and terminal provider the factory
+	// composed; no provider is hand-assigned here or by any caller.
+	AgentLoopGuardStrategy string
 }
 
 // Validate returns a non-nil error for cells the generic selector must not
-// deploy: unknown/empty identities, unknown transports, or provider-connector
-// backends that are not constructible in the base harness.
+// deploy: unknown/empty identities, unknown transports, an unknown Agent Loop
+// Guard strategy, or provider-connector backends that are not constructible in
+// the base harness.
 func (s DeploymentSpec) Validate() error {
 	switch s.Transport {
 	case "", TransportJSON, TransportSSE, TransportCompact, TransportWebSocket:
@@ -181,6 +203,11 @@ func (s DeploymentSpec) Validate() error {
 	switch s.Backend {
 	case BackendOpenRouter, BackendNVIDIA:
 		return fmt.Errorf("harness: backend %q is a provider-connector column not constructible in the base essential bundle (Phase 8.5)", s.Backend)
+	}
+	switch s.AgentLoopGuardStrategy {
+	case "", AgentLoopGuardStrategyAttemptCompletion, AgentLoopGuardStrategySemanticVerifier:
+	default:
+		return fmt.Errorf("harness: unknown agent loop guard strategy %q", s.AgentLoopGuardStrategy)
 	}
 	return nil
 }
@@ -256,6 +283,14 @@ func Deploy(tb testing.TB, spec DeploymentSpec) *Deployment {
 	d.RouteSelector = route.String()
 
 	d.Exec = harnessExecutor(tb, d.backends, spec.Backend)
+	if spec.AgentLoopGuardStrategy != "" {
+		planes, err := AgentLoopGuardFeaturePlanes(tb, spec.AgentLoopGuardStrategy)
+		if err != nil {
+			_ = d.Close()
+			tb.Fatalf("harness: compose agent loop guard generation %q: %v", spec.AgentLoopGuardStrategy, err)
+		}
+		d.Exec.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(d.Exec.Bus, extensions.SnapshotOptions{FeaturePlanes: planes})
+	}
 
 	d.Mux = http.NewServeMux()
 	genCtx, genCancel := context.WithCancel(context.Background())
@@ -518,6 +553,49 @@ func harnessExecutor(tb testing.TB, backends map[string]execbackend.Backend, def
 	ex.DefaultBackend = defaultBackend
 	testkit.WireConformanceExecutorSecureSession(tb, ex)
 	return ex
+}
+
+// AgentLoopGuardFeaturePlanes compiles one real Agent Loop Guard feature
+// generation for the selected mutually exclusive strategy and returns its frozen
+// plane set.
+//
+// The generation is produced by the production composition path — a standard
+// plugin registry, the enabled feature registrations, the enabled-surface merge,
+// and the generated plane merge — so the returned planes carry the providers the
+// factory actually composed. It never constructs a provider by hand and never
+// substitutes a fake: a cell that needs extra observation planes replays these
+// planes into its own contribution set instead.
+//
+// An unknown strategy or a rejected generation is reported as an error, because
+// both are seam defects rather than behavior any cell is testing; [Deploy] turns
+// that error into a test failure.
+func AgentLoopGuardFeaturePlanes(tb testing.TB, strategy string) (lipfeature.FrozenPlaneSet, error) {
+	tb.Helper()
+
+	switch strategy {
+	case AgentLoopGuardStrategyAttemptCompletion, AgentLoopGuardStrategySemanticVerifier:
+	default:
+		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("harness: unknown agent loop guard strategy %q", strategy)
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte("enabled: true\nstrategy: "+strategy+"\n"), &node); err != nil {
+		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("harness: agent loop guard config: %w", err)
+	}
+	registry := pluginreg.NewRegistry()
+	if err := standardplugins.InstallBundleOn(registry, standardplugins.StandardBundle()); err != nil {
+		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("harness: install standard bundle: %w", err)
+	}
+	registrations := []lipsdk.Registration{{
+		ID:      agentloopguard.ID,
+		Kind:    lipsdk.PluginKindFeature,
+		Enabled: true,
+		Config:  lipsdk.ConfigPayload{Node: node},
+	}}
+	merged, err := featurebundle.MergeFeatureSurfacesWithHost(registry, registrations, featurebundle.HostContributions{})
+	if err != nil {
+		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("harness: merge enabled feature surface: %w", err)
+	}
+	return merged.Frozen, nil
 }
 
 // mountHarnessFrontend mounts the real frontend handler for an authoritative
