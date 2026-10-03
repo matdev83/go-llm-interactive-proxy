@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,32 +30,49 @@ import (
 // Finalizer" (steps 1/4/7/11), and "Testing Strategy" ("Completed model call
 // expands before tool policy observer").
 //
-// This is a permanent characterization test of the CURRENT, still-incomplete
-// behavior, and it is deliberately RED today.
+// THIS IS NOW A PERMANENT GREEN REGRESSION TEST. It was delivered as a
+// deliberately RED characterization (the file used to be named
+// tool_call_path_expansion_ordering_red_test.go and the function carried a
+// TestRED_ prefix) because a completed tool-call finalizer had no authoritative
+// workspace view and could therefore neither derive the real project root nor
+// expand a model-emitted alias. Task 6.2 made the runtime populate
+// toolcall.Meta.Workspace from the same frozen authoritative request views the
+// tool policy and tool reactor planes already read, which closed that gap, and
+// the RED condition this file existed to characterize ended there. Every
+// assertion below is preserved in substance; only the reflection probe that
+// stood in for the not-yet-existing SDK contract was replaced by the direct
+// field access it stood in for (Task 8.2's obligation, tasks.md Implementation
+// Notes), and the RED labels were dropped from the three messages that carried
+// them. A file named *_red_test.go denotes a deliberately failing
+// characterization in this repository, so keeping that name for a permanently
+// passing guard would misreport its own status; the two-pass characterization
+// and the request-part-hook regression in this package are the precedent for
+// that naming.
+//
+// The composition claims here are about RUNTIME ordering and metadata delivery,
+// so the expansion pass stays a deliberately minimal test-local finalizer whose
+// whole behavior is visible in this file. The claims about the CONCRETE feature
+// - the real shipped expansion finalizer, the real outbound attempt transform and
+// request-part hook, and the client release - are proved in
+// path_virtualization_expansion_before_policy_test.go and
+// path_virtualization_expansion_fail_closed_test.go.
 //
 // The test drives one model-emitted tool call whose path-bearing argument
-// arrives as stream deltas cut through both the fixed V1 reserved alias and the
+// arrives as stream deltas cut through the fixed V1 reserved alias and the
 // surrounding JSON tokens, then observes two existing extension points only:
 // the tool-call finalization plane and the tool policy plane. No raw
-// ToolCallArgsDelta byte is ever rewritten here; the expansion stand-in works
+// ToolCallArgsDelta byte is ever rewritten here; the expansion pass works
 // exclusively on the completed argument document the assembler hands to a
 // finalizer, and the policy observer only joins the argument fragments it was
 // shown, because the alias exists only across fragment boundaries.
 //
-// The gap this pins: a finalizer has no authoritative workspace view, so it
-// cannot derive the real project root, cannot expand the model-emitted alias,
-// and the downstream tool policy observer is therefore still handed the
-// reserved alias. requirements.md 5.1 requires policy evaluation only after
-// expansion has produced the real filesystem path; 4.1 requires expansion before
-// the client-facing argument event is released; 4.2 requires expansion on
-// completed valid JSON rather than per-fragment.
-//
-// Task 6.1 (additive toolcall.Meta workspace metadata) plus the expansion
-// finalizer of Tasks 6.2/8.1/8.2 must turn this test green by delivering the
-// authoritative project root to the finalizer and expanding before policy
-// evaluation. Do not weaken these assertions to silence the failure; in
-// particular the metadata probe below must be replaced by direct
-// meta.Workspace.ProjectRoot access rather than deleted.
+// The gap this used to pin, and still pins: expansion must happen on completed
+// valid JSON inside finalization, and the downstream tool policy observer must
+// be handed the real path rather than the reserved alias. requirements.md 5.1
+// requires policy evaluation only after expansion has produced the real
+// filesystem path; 4.1 requires expansion before the client-facing argument
+// event is released; 4.2 requires expansion on completed valid JSON rather than
+// per-fragment.
 
 const (
 	// orderingRealRoot is the authoritative client-visible workspace project root
@@ -168,13 +184,16 @@ func (s *orderingStage) snapshot() (finishAt, policyAt, policySeen int) {
 	return s.finishAt, s.policyAt, s.policySeen
 }
 
-// orderingExpansionFinalizer stands in for the reverse path-expansion finalizer of
-// design.md "Path Expansion Finalizer". It expands the reserved V1 alias back to
-// the authoritative project root inside the COMPLETED argument document the
-// assembler supplies (never a raw stream delta), and it may only use the generic
-// tool-call finalization metadata as authority. With no authoritative project
-// root reachable from that metadata it cannot expand, which is the current
-// production gap.
+// orderingExpansionFinalizer is the minimal completed-call expansion pass this
+// file uses to keep its claims about the RUNTIME's ordering and metadata
+// delivery, independent of the concrete feature's selector and mapping policy.
+// It expands the reserved V1 alias back to the authoritative project root inside
+// the COMPLETED argument document the assembler supplies (never a raw stream
+// delta), and it may only use the generic tool-call finalization metadata as
+// authority. design.md "Path Expansion Finalizer" step 1 reads exactly this field.
+//
+// The REAL shipped pass, the one the composition claims are about, is driven
+// end to end in path_virtualization_expansion_before_policy_test.go.
 type orderingExpansionFinalizer struct {
 	stage *orderingStage
 
@@ -197,7 +216,19 @@ func (f *orderingExpansionFinalizer) Finalize(
 	meta toolcall.Meta,
 ) (toolcall.Result, error) {
 	f.stage.recordFinalizer()
-	root, rootPresent := orderingFinalizerProjectRoot(meta)
+
+	// Direct field access, replacing the reflection probe this file used to
+	// carry. The probe reached meta.Workspace.ProjectRoot through
+	// reflect.FieldByName so that the file compiled before Task 6.1 added the
+	// field, and it returned ("", false) for the whole period the runtime left
+	// the field unpopulated. Task 6.2 populates it, so the probe now reads the
+	// same value the reflection read, and the access is a compile-time-checked
+	// field selection instead of a by-name lookup that would silently report
+	// "absent" if the field were ever renamed or retyped. The two normalizations
+	// the probe performed are preserved exactly: the root is whitespace-trimmed,
+	// and a trimmed-empty root counts as absent.
+	root := strings.TrimSpace(meta.Workspace.ProjectRoot)
+	rootPresent := root != ""
 
 	f.mu.Lock()
 	f.calls++
@@ -226,27 +257,6 @@ func (f *orderingExpansionFinalizer) snapshot() (int, []byte, bool, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.calls, append([]byte(nil), f.completed...), f.rootPresent, f.identBound
-}
-
-// orderingFinalizerProjectRoot reads the authoritative workspace project root from
-// the generic tool-call finalization metadata. design.md "Completed Tool-Call
-// Finalizer Metadata" specifies an additive toolcall.Meta workspace view carrying
-// Workspace.ProjectRoot, populated by the runtime from the same authoritative
-// request views already used for tool policy/reactor metadata. The probe stands
-// in for that direct field access so this characterization compiles before the
-// SDK contract exists; Task 6.1 must make it succeed and must then let the
-// finalizer read meta.Workspace.ProjectRoot directly.
-func orderingFinalizerProjectRoot(meta toolcall.Meta) (string, bool) {
-	workspace := reflect.ValueOf(meta).FieldByName("Workspace")
-	if !workspace.IsValid() || workspace.Kind() != reflect.Struct {
-		return "", false
-	}
-	root := workspace.FieldByName("ProjectRoot")
-	if !root.IsValid() || root.Kind() != reflect.String {
-		return "", false
-	}
-	trimmed := strings.TrimSpace(root.String())
-	return trimmed, trimmed != ""
 }
 
 // orderingPathObserver is the existing tool policy extension point standing in for
@@ -292,14 +302,18 @@ func (o *orderingPathObserver) snapshot() (int, string, bool) {
 	return o.calls, o.joined, o.policyRoot
 }
 
-// TestRED_StreamToolCall_PathExpansionMustPrecedeToolPolicyEvaluation proves that
+// TestStreamToolCall_PathExpansionPrecedesToolPolicyEvaluation proves that
 // the completed tool-call finalization plane, not the raw stream deltas, is the
 // place where a model-emitted reserved alias can be expanded, and that the tool
 // policy plane observes the expanded real path afterwards.
 //
-// It is RED today: a finalizer receives no authoritative workspace view, so the
-// alias survives into policy evaluation and into the client-facing release.
-func TestRED_StreamToolCall_PathExpansionMustPrecedeToolPolicyEvaluation(t *testing.T) {
+// It was delivered RED: a finalizer received no authoritative workspace view, so
+// the alias survived into policy evaluation and into the client-facing release.
+// Task 6.2 populated that view, which is what turned it green. It is kept as a
+// permanent guard because both halves are still exactly the properties
+// requirements.md 4.1, 4.2, and 5.1 demand, and neither is observable from the
+// feature's own tests.
+func TestStreamToolCall_PathExpansionPrecedesToolPolicyEvaluation(t *testing.T) {
 	t.Parallel()
 
 	stage := &orderingStage{}
@@ -377,7 +391,7 @@ func TestRED_StreamToolCall_PathExpansionMustPrecedeToolPolicyEvaluation(t *test
 	t.Run("finalization_metadata_carries_authoritative_workspace", func(t *testing.T) {
 		t.Parallel()
 		if !finRootPresent {
-			t.Fatalf("RED: requirements.md 4.1/5.1 and design.md \"Completed Tool-Call Finalizer Metadata\" - tool-call finalization metadata must carry the authoritative workspace project root so a finalizer can expand a model-emitted reserved alias before policy evaluation; workspace_root_reachable=%t trace_identity_bound=%t",
+			t.Fatalf("requirements.md 4.1/5.1 and design.md \"Completed Tool-Call Finalizer Metadata\" - tool-call finalization metadata must carry the authoritative workspace project root so a finalizer can expand a model-emitted reserved alias before policy evaluation; workspace_root_reachable=%t trace_identity_bound=%t",
 				finRootPresent, finIdentBound)
 		}
 	})
@@ -407,7 +421,7 @@ func TestRED_StreamToolCall_PathExpansionMustPrecedeToolPolicyEvaluation(t *test
 		aliasSeen := strings.Contains(observerJoined, orderingVirtualRoot)
 		realSeen := strings.Contains(observerJoined, orderingRealRoot)
 		if aliasSeen || !realSeen {
-			t.Fatalf("RED: requirements.md 5.1/4.3 - tool policy evaluation must run only after required expansion has produced the real filesystem path; policy observed %d argument bytes with reserved_alias=%t real_root=%t valid_json=%t non_path_argument_preserved=%t",
+			t.Fatalf("requirements.md 5.1/4.3 - tool policy evaluation must run only after required expansion has produced the real filesystem path; policy observed %d argument bytes with reserved_alias=%t real_root=%t valid_json=%t non_path_argument_preserved=%t",
 				len(observerJoined), aliasSeen, realSeen, json.Valid([]byte(observerJoined)),
 				strings.Contains(observerJoined, `"limit":10`))
 		}
@@ -436,7 +450,7 @@ func TestRED_StreamToolCall_PathExpansionMustPrecedeToolPolicyEvaluation(t *test
 		aliasReleased := strings.Contains(releasedArgs, orderingVirtualRoot)
 		realReleased := strings.Contains(releasedArgs, orderingRealRoot)
 		if aliasReleased || !realReleased {
-			t.Fatalf("RED: requirements.md 4.1 - the reserved virtual alias must be expanded to the real project root before the client-facing tool-call argument event is released; released %d argument bytes with reserved_alias=%t real_root=%t valid_json=%t",
+			t.Fatalf("requirements.md 4.1 - the reserved virtual alias must be expanded to the real project root before the client-facing tool-call argument event is released; released %d argument bytes with reserved_alias=%t real_root=%t valid_json=%t",
 				len(releasedArgs), aliasReleased, realReleased, json.Valid([]byte(releasedArgs)))
 		}
 		if releasedArgs != orderingExpandedArgsDocument() {
