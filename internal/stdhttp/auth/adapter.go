@@ -125,10 +125,14 @@ func (p *PolicyProvider) Authenticate(ctx context.Context, w http.ResponseWriter
 		if bridged.lifecycle != nil {
 			s := bridged.lifecycle.Scope
 			return httpauth.AuthenticationResult{
-				Type: httpauth.TypePrincipal, Principal: bridged.lifecycle.Principal, Scope: &s, IngressAttribution: attr,
+				Type: httpauth.TypePrincipal, Principal: bridged.lifecycle.Principal, Scope: &s,
+				SatisfiedLevel: d.SatisfiedLevel, IngressAttribution: attr,
 			}, nil
 		}
-		return httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: d.Principal, IngressAttribution: attr}, nil
+		return httpauth.AuthenticationResult{
+			Type: httpauth.TypePrincipal, Principal: d.Principal,
+			SatisfiedLevel: d.SatisfiedLevel, IngressAttribution: attr,
+		}, nil
 	case auth.OutcomeChallenge, auth.OutcomeDeny:
 		st := defaultTerminalHTTPStatus(&d)
 		rend := p.callRenderer(ctx, frontendID, &meta, d, ev, st)
@@ -197,11 +201,43 @@ func (p *PolicyProvider) captureAuthSuccessMatcher(r *http.Request, res httpauth
 	if p == nil || r == nil || res.Type != httpauth.TypePrincipal {
 		return nil
 	}
+	if !acceptedRequestCredential(p, res) {
+		return nil
+	}
 	m := newExactCredentialMatcher(p.headers().APIKeyFrom(r.Header), res.IngressAttribution.KeyID)
 	if m == nil {
 		return nil // collapse typed-nil *exactCredentialMatcher to a true nil interface
 	}
 	return m
+}
+
+func acceptedRequestCredential(p *PolicyProvider, res httpauth.AuthenticationResult) bool {
+	switch res.SatisfiedLevel {
+	case auth.LevelAPIKey, auth.LevelAPIKeySSO:
+		return true
+	}
+	if strings.TrimSpace(res.IngressAttribution.KeyID) != "" {
+		return true
+	}
+	if res.Scope == nil {
+		// Preserve the legacy local API-key provider contract: older
+		// principal-only authenticators did not project SatisfiedLevel or a
+		// scope, but the local API-key handler itself was the acceptance
+		// boundary. Remote principal-only results are intentionally excluded;
+		// a remote principal can be established without accepting this header.
+		return res.Principal.ID != "" && p != nil && p.Policy.HandlerKind == auth.HandlerLocalAPIKey
+	}
+	if strings.TrimSpace(res.Scope.CredentialID.String()) != "" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(res.Scope.AuthMethod.String())) {
+	case "api_key", "api_key_sso", "local_api_key":
+		return true
+	}
+	// See the principal-only compatibility case above. BuildScope derives a
+	// known "none" auth method for old local API-key results, so retain that
+	// established local handler behavior after checking stronger evidence.
+	return res.Principal.ID != "" && p != nil && p.Policy.HandlerKind == auth.HandlerLocalAPIKey
 }
 
 func (p *PolicyProvider) callRenderer(ctx context.Context, frontendID string, meta *auth.InboundCallMeta, d auth.Decision, ev auth.AuthDecisionEvent, defaultStatus int) httpauth.AuthErrorRenderResult {

@@ -98,7 +98,7 @@
     - _Depends: 1.2, 4.2_
     - _Validation: existing catalog characterization + switch matrix_
 
-  - [ ] 5.2 (P) Preserve shared request-credential exact protection
+  - [x] 5.2 (P) Preserve shared request-credential exact protection
     - Keep the current accepted request credential private in ingress context and exactly detectable regardless of BetterLeaks state/rule coverage.
     - Prove no process environment is consulted in multi-user composition or request execution.
     - _Requirements: 1.4, 2.2, 2.4, 2.5, 10.2_
