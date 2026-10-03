@@ -246,6 +246,26 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 			wantErrSubstr: "auto_discovered_local_keys",
 		},
 		{
+			name: "betterleaks_unknown_selector",
+			mutateCandCfg: func(t *testing.T, cand *config.Config) {
+				t.Helper()
+				cand.Plugins.Features = append(cand.Plugins.Features,
+					config.PluginConfig{ID: "sg-selector-invalid", Kind: "secrets-guard", Enabled: true, Config: parseTestYAMLNode(t, "action: block\nauto_discovered_local_keys:\n  enabled: false\nbetterleaks:\n  disable_rules: [unknown-rule-for-reload-test]\n")},
+				)
+			},
+			wantErrSubstr: "unknown rule selector",
+		},
+		{
+			name: "betterleaks_required_component_selector",
+			mutateCandCfg: func(t *testing.T, cand *config.Config) {
+				t.Helper()
+				cand.Plugins.Features = append(cand.Plugins.Features,
+					config.PluginConfig{ID: "sg-selector-dependent", Kind: "secrets-guard", Enabled: true, Config: parseTestYAMLNode(t, "action: block\nauto_discovered_local_keys:\n  enabled: false\nbetterleaks:\n  disable_rules: [aws-secret-access-key]\n")},
+				)
+			},
+			wantErrSubstr: "cannot remove a required component",
+		},
+		{
 			name:          "candidate_fault_inject_handler",
 			fault:         runtimebundle.CandidateFaultInject{After: "handler"},
 			wantErrSubstr: "candidate fault injected: after handler",

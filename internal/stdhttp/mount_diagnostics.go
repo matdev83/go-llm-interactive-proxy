@@ -84,6 +84,15 @@ func mergeInventoryExtrasForDiagnostics(reg *pluginreg.Registry, registrations [
 	out.SecretGuardSourceCategories = append([]string(nil), secretGuard.SecretGuardSourceCategories...)
 	out.SecretGuardAccessMode = secretGuard.SecretGuardAccessMode
 	out.SecretGuardAction = secretGuard.SecretGuardAction
+	out.SecretGuardLocalAutoDiscovery = secretGuard.SecretGuardLocalAutoDiscovery
+	out.SecretGuardBetterLeaksEnabled = secretGuard.SecretGuardBetterLeaksEnabled
+	out.SecretGuardBetterLeaksVersion = secretGuard.SecretGuardBetterLeaksVersion
+	out.SecretGuardBetterLeaksConfigHash = secretGuard.SecretGuardBetterLeaksConfigHash
+	out.SecretGuardBetterLeaksRuleCount = secretGuard.SecretGuardBetterLeaksRuleCount
+	out.SecretGuardBetterLeaksConfidence = secretGuard.SecretGuardBetterLeaksConfidence
+	out.SecretGuardBetterLeaksDecodeDepth = secretGuard.SecretGuardBetterLeaksDecodeDepth
+	out.SecretGuardBetterLeaksWorkers = secretGuard.SecretGuardBetterLeaksWorkers
+	out.SecretGuardDiscoveryDetectorCount = secretGuard.SecretGuardDiscoveryDetectorCount
 	return out
 }
 

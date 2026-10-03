@@ -16,6 +16,19 @@ type ExecutionConfig struct {
 	CatalogEntryCount int
 	SourceCategories  []string
 	CatalogAction     string
+	// Capability carries a generation-frozen, feature-private service handle.
+	// Generic runtime passes it through without importing the concrete feature
+	// package or any upstream detector type.
+	Capability                any
+	LocalAutoDiscoveryEnabled bool
+	BetterLeaksEnabled        bool
+	BetterLeaksVersion        string
+	BetterLeaksConfigHash     string
+	BetterLeaksRuleCount      int
+	BetterLeaksConfidence     string
+	BetterLeaksDecodeDepth    int
+	BetterLeaksWorkers        int
+	DiscoveryDetectorCount    int
 }
 
 // CloneExecutionConfig deep-copies an execution configuration for frozen-set
@@ -42,5 +55,15 @@ func (c ExecutionConfig) IsZero() bool {
 		c.ConfigVersion == "" &&
 		c.CatalogEntryCount == 0 &&
 		len(c.SourceCategories) == 0 &&
-		c.CatalogAction == ""
+		c.CatalogAction == "" &&
+		c.Capability == nil &&
+		!c.LocalAutoDiscoveryEnabled &&
+		!c.BetterLeaksEnabled &&
+		c.BetterLeaksVersion == "" &&
+		c.BetterLeaksConfigHash == "" &&
+		c.BetterLeaksRuleCount == 0 &&
+		c.BetterLeaksConfidence == "" &&
+		c.BetterLeaksDecodeDepth == 0 &&
+		c.BetterLeaksWorkers == 0 &&
+		c.DiscoveryDetectorCount == 0
 }

@@ -99,6 +99,10 @@ type Meta struct {
 // Services are opaque capabilities available to a Guard. No raw secret accessor is provided.
 type Services struct {
 	MatcherResolver MatcherResolver
+	// Capability is an opaque generation-frozen feature service. Generic guards
+	// and runtime do not interpret its concrete value; the owning feature may
+	// type-assert it inside its private boundary.
+	Capability any
 }
 
 // MatcherResolver resolves the request-scoped opaque Matcher. Implementations own secret bytes privately.

@@ -89,7 +89,7 @@
     - _Depends: 4.1_
     - _Validation: overlapping/repeated/randomized-order fixtures_
 
-- [ ] 5. Preserve exact protection and wire hybrid composition by access mode
+- [x] 5. Preserve exact protection and wire hybrid composition by access mode
   - [x] 5.1 Restore/retain single-user exact local protection behind its new switch
     - Preserve existing include/exclude/popular environment inventory, minimum-secret-length, known-prefix, and mask behavior when enabled.
     - Ensure disabling local discovery performs no environment catalog enumeration and does not disable BetterLeaks.
@@ -106,7 +106,7 @@
     - _Depends: 1.2, 4.1_
     - _Validation: arbitrary opaque request-credential tests with panic environment_
 
-  - [ ] 5.3 Integrate hybrid detector services into the frozen generation plane
+  - [x] 5.3 Integrate hybrid detector services into the frozen generation plane
     - Compose exact and BetterLeaks detector capabilities without moving BetterLeaks imports into generic runtime or core.
     - Preserve disabled behavior, action/audit configuration, immutable generation semantics, and existing request stage ordering.
     - Expose bounded detector posture through the existing diagnostics inventory path.
@@ -203,6 +203,8 @@
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
 
 ## Implementation Notes
+
+- Enabled BetterLeaks zero decode depth and zero active rules must remain present in diagnostics; full architecture certification currently reports TestShrinkage_NetReductionMeetsRequirement115 convergence delta -746 versus required -800.
 
 - Hybrid occurrence mapping must follow the canonical UseNumber decoder, first-value consumption, duplicate-key handling, and depth rejection; raw JSON escape syntax is not an additional semantic occurrence.
 

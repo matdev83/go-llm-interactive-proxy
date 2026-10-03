@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	featuresecretguard "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	sgcompose "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -113,6 +114,13 @@ func TestDetectorSelection_CompositionMatrix(t *testing.T) {
 					facts := detectorSelectionFacts(t, reg, out)
 					assertDetectorSelectionBool(t, facts, "local_auto_discovery_enabled", wantLocal)
 					assertDetectorSelectionBool(t, facts, "betterleaks_enabled", wantBetterLeaks)
+					if wantBetterLeaks {
+						for _, key := range []string{"betterleaks_version", "betterleaks_config_hash", "betterleaks_active_rule_count", "betterleaks_minimum_confidence", "betterleaks_max_decode_depth", "betterleaks_workers"} {
+							if value, present := facts[key]; !present || value == "" || value == float64(0) {
+								t.Errorf("enabled BetterLeaks posture must expose bounded %s", key)
+							}
+						}
+					}
 					if !wantLocal && !wantBetterLeaks {
 						count, present := facts["discovery_detector_count"]
 						if !present || count != float64(0) {
@@ -124,6 +132,60 @@ func TestDetectorSelection_CompositionMatrix(t *testing.T) {
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestDetectorSelection_EnabledZeroFactsRemainPresentInInventory(t *testing.T) {
+	t.Parallel()
+
+	baseline, err := featuresecretguard.BuildGenerationServices(featuresecretguard.DetectorPolicy{
+		BetterLeaks: featuresecretguard.BetterLeaksPolicy{
+			Enabled:           true,
+			MinimumConfidence: featuresecretguard.DefaultBetterLeaksConfidence,
+			MaxDecodeDepth:    0,
+			Workers:           1,
+			MaxFindings:       featuresecretguard.DefaultBetterLeaksMaxFindings,
+		},
+	}, engine.NewDisabledSource())
+	if err != nil {
+		t.Fatalf("build baseline BetterLeaks policy: %v", err)
+	}
+	runtimeCfg := &featuresecretguard.RuntimeConfig{
+		Enabled: true,
+		Action:  "block",
+		BetterLeaks: featuresecretguard.BetterLeaksPolicy{
+			Enabled:           true,
+			MinimumConfidence: featuresecretguard.DefaultBetterLeaksConfidence,
+			MaxDecodeDepth:    0,
+			Workers:           1,
+			DisableRules:      append([]string(nil), baseline.DetectorFacts().RuleIDs...),
+			MaxFindings:       featuresecretguard.DefaultBetterLeaksMaxFindings,
+		},
+	}
+	out, err := sgcompose.Compose(sgcompose.Input{RuntimeConfig: runtimeCfg, Logger: discardLogger()})
+	if err != nil {
+		t.Fatalf("compose zero-fact BetterLeaks policy: %v", err)
+	}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Features: []config.PluginConfig{{
+		ID: "zero-facts", Kind: "secrets-guard", Enabled: true,
+	}}}}
+	snapshot, err := diag.InventorySnapshotForConfig(t.Context(), cfg, out.Inventory)
+	if err != nil {
+		t.Fatalf("project zero-fact inventory: %v", err)
+	}
+	raw, err := json.Marshal(snapshot.Extensions.Features[0].SecretGuard)
+	if err != nil {
+		t.Fatalf("serialize zero-fact inventory: %v", err)
+	}
+	var facts map[string]any
+	if err := json.Unmarshal(raw, &facts); err != nil {
+		t.Fatalf("decode zero-fact inventory: %v", err)
+	}
+	for _, key := range []string{"betterleaks_active_rule_count", "betterleaks_max_decode_depth"} {
+		value, present := facts[key]
+		if !present || value != float64(0) {
+			t.Errorf("enabled zero-valued %s must remain present as 0, got present=%t value=%v", key, present, value)
 		}
 	}
 }

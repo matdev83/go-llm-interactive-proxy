@@ -512,6 +512,39 @@ redaction:
 	})
 }
 
+func TestSecretGuardCompose_FeatureOffSkipsDetectorConstruction(t *testing.T) {
+	t.Parallel()
+
+	runtimeCfg := secretguard.RuntimeConfig{
+		Enabled: false,
+		BetterLeaks: secretguard.BetterLeaksPolicy{
+			Enabled: true,
+			Workers: 0,
+		},
+	}
+	out, err := sgcompose.Compose(sgcompose.Input{
+		RuntimeConfig: &runtimeCfg,
+		Environment:   &panicEnv{},
+		Logger:        discardLogger(),
+	})
+	if err != nil {
+		t.Fatalf("feature-off composition: %v", err)
+	}
+	if out == nil || out.Services == nil {
+		t.Fatal("feature-off composition must return the frozen service capability")
+	}
+	posture := out.Services.Posture()
+	if posture.LocalAutoDiscoveryEnabled || posture.BetterLeaksEnabled || posture.DiscoveryDetectorCount != 0 {
+		t.Fatalf("feature-off detector posture: %+v", posture)
+	}
+	if facts := out.Services.DetectorFacts(); facts.Version != "" || facts.ConfigHash != "" || facts.RuleInventoryHash != "" || facts.ActiveRuleCount != 0 || facts.MinimumConfidence != "" || facts.MaxDecodeDepth != 0 || facts.Workers != 0 || len(facts.RuleIDs) != 0 {
+		t.Fatalf("feature-off composition constructed detector facts: %+v", facts)
+	}
+	if out.Inventory != nil {
+		t.Fatal("feature-off composition must not publish detector inventory")
+	}
+}
+
 func TestSecretGuardCompose_MultiUserRejectsSingleUserKey(t *testing.T) {
 	t.Parallel()
 	raw := mustYAMLNode(t, "action: block\nsingle_user:\n  include_env: [FOO]")
