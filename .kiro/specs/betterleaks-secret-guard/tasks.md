@@ -162,7 +162,7 @@
     - _Depends: 4.1, 6.3_
     - _Validation: canary absence assertions across all observability sinks_
 
-- [ ] 8. Certify protocol parity, concurrency, fuzz safety, and performance
+- [x] 8. Certify protocol parity, concurrency, fuzz safety, and performance
   - [x] 8.1 Build the synthetic detector corpus and frontend parity matrix
     - Cover OpenAI, Anthropic, GitHub, Slack, Stripe, AWS multipart, generic API key/password/credential URI, private key, public/non-secret negatives, JSON key context, tool schemas/results, repeated overlaps, allow markers, and decoded forms.
     - Run equivalent canonical payload cases through every bundled frontend flavor that can represent them.
@@ -183,7 +183,7 @@
     - _Depends: 6.3_
     - _Validation: targeted race + fuzz smoke + adversarial unit tests_
 
-  - [ ] 8.3 Benchmark BetterLeaks-only and hybrid hot-path cost
+  - [x] 8.3 Benchmark BetterLeaks-only and hybrid hot-path cost
     - Benchmark 1 KiB/10 KiB/100 KiB/1 MiB/2 MiB no-hit and positive cases, JSON, generic-heavy adversarial input, and realistic concurrency.
     - Compare exact-only, BetterLeaks-only, and hybrid latency/allocations; record p50/p95/p99 where the benchmark harness supports it.
     - Record scanner build/precompile cost, goroutine behavior, binary size, and dependency-size delta.
@@ -205,6 +205,8 @@
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
 
 ## Implementation Notes
+
+- Benchmark measurements are complete; roughly 4.2 MB exact-only / 6.3 MB hybrid allocations per 2 MiB no-secret text scan and large positive-hit latency require profile-backed performance assessment before feature GO. Measurement approval does not accept that resource impact.
 
 - Targeted secretguard race certification passes in WSL Ubuntu with GCC and verified Go 1.26.6 at `$HOME/.local/share/lip-betterleaks-race-toolchain/go/bin/go`; full runtime race separately reported a billing durable-restart deadline failure requiring final certification assessment.
 
