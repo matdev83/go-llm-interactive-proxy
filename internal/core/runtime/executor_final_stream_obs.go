@@ -6,6 +6,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 )
 
@@ -54,6 +56,25 @@ func (p *responsePipeline) finishFinalStreamObservation(ctx context.Context, att
 	if attempt != nil && attempt.finalStreamObs != nil {
 		attempt.finalStreamObs.Finish(ctx, outcome)
 	}
+}
+
+// preflightFinalStreamObservation runs exactly one existing fail-closed
+// final-stream observation for an event that a private publication has already
+// recorded but not yet delivered.
+//
+// It is the preflight half only: it never marks the observer finished and never
+// runs again at delivery. The staged batch keeps its already-completed
+// observation, so physical delivery skips exactly this step and nothing else.
+func (p *responsePipeline) preflightFinalStreamObservation(
+	ctx context.Context,
+	attempt *attemptSession,
+	ev lipapi.Event,
+	committed bool,
+) error {
+	if p == nil || attempt == nil {
+		return nil
+	}
+	return extensions.RunFinalStreamObservationStage(ctx, p.log, p.extensionMetrics, attempt.finalStreamObs, ev, committed)
 }
 
 func (p *responsePipeline) cycleFinalStreamObservation(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, views execctx.Views, viewsOK bool, outcome response.StreamOutcome, committed bool) error {
