@@ -10,6 +10,7 @@ import (
 const (
 	decisionFailureKindScanLimit            = "scan_limit"
 	decisionFailureKindUnsupportedJSONToken = "unsupported_json_token"
+	decisionFailureKindDetectorFailure      = FailureKindDetectorFailure
 
 	decisionMaxTokenBytes     = 128
 	decisionMaxReasonBytes    = 256
@@ -48,7 +49,14 @@ func (d Decision) Validate() error {
 			if err := validateScanLimitMetadata(d.FailureKind, d.FailureReason); err != nil {
 				return err
 			}
-		} else if len(d.Findings) == 0 || d.FailureKind != "" || d.FailureReason != "" {
+		} else if d.FailureKind != "" {
+			if d.FailureKind != decisionFailureKindDetectorFailure {
+				return invalidDecisionField("log_shape")
+			}
+			if err := validateDetectorFailureMetadata(d.FailureReason); err != nil {
+				return err
+			}
+		} else if len(d.Findings) == 0 || d.FailureReason != "" {
 			return invalidDecisionField("log_shape")
 		}
 	case OutcomeRedacted:
@@ -89,6 +97,10 @@ func (d Decision) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validateDetectorFailureMetadata(reason string) error {
+	return validateSafeText("failure_reason", reason, decisionMaxReasonBytes, true)
 }
 
 // Validate reports whether the finding shape is safe for runner acceptance.

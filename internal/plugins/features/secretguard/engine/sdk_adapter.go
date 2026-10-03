@@ -46,6 +46,15 @@ func (a matcherAdapter) RedactString(ctx context.Context, input string) (string,
 	return out, findings, nil
 }
 
+// RedactionOptions is consumed by feature-private transient matchers so their
+// rewrites use the same configured mask byte as the exact matcher.
+func (a matcherAdapter) RedactionOptions() MatcherOptions {
+	if a.m == nil {
+		return MatcherOptions{}
+	}
+	return a.m.opts
+}
+
 type staticMatcherResolver struct {
 	m sdk.Matcher
 }

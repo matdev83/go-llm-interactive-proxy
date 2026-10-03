@@ -128,6 +128,7 @@ func (workspaceResolverForBetterLeaksRuntime) Resolve(context.Context) (lipworks
 
 func TestExecutor_BetterLeaksBlockPreDispatchQuarantinesComposedGeneration(t *testing.T) {
 	h := newBetterLeaksRuntimeHarness(t, featuresecretguard.ActionBlock)
+	h.call.ID = "betterleaks-synthetic-call-id"
 	before := lipapi.CloneCall(*h.call)
 	ctx := execview.WithPrincipal(t.Context(), execview.PrincipalView{ID: h.ownerID})
 

@@ -39,6 +39,14 @@ func TestDecisionValidateAcceptsLegalShapes(t *testing.T) {
 			},
 		},
 		{
+			name: "log_detector_failure_without_findings",
+			decision: Decision{
+				Outcome:       OutcomeLog,
+				FailureKind:   FailureKindDetectorFailure,
+				FailureReason: "detector scan failed",
+			},
+		},
+		{
 			name: "redacted",
 			decision: Decision{
 				Outcome:       OutcomeRedacted,
@@ -185,6 +193,23 @@ func TestDecisionValidateRejectsMalformedShapes(t *testing.T) {
 				FailureReason: "scan_max_bytes exceeded",
 			},
 			want: "log",
+		},
+		{
+			name: "log_detector_failure_without_reason",
+			decision: Decision{
+				Outcome:     OutcomeLog,
+				FailureKind: FailureKindDetectorFailure,
+			},
+			want: "failure_reason",
+		},
+		{
+			name: "log_unknown_failure_kind",
+			decision: Decision{
+				Outcome:       OutcomeLog,
+				FailureKind:   "scanner_failure",
+				FailureReason: "detector scan failed",
+			},
+			want: "log_shape",
 		},
 		{
 			name: "redacted_without_mutation",

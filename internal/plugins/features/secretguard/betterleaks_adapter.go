@@ -301,6 +301,7 @@ func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fiel
 		finding.Encodings,
 		admittedRaw,
 	); ok {
+		normalizeBetterLeaksLiteralOccurrence(admittedRaw, &occurrence)
 		projected.occurrences = append(projected.occurrences, occurrence)
 	} else if err != nil {
 		return betterLeaksFinding{}, err
@@ -331,6 +332,7 @@ func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fiel
 					component.Encodings,
 					admittedRaw,
 				); ok {
+					normalizeBetterLeaksLiteralOccurrence(admittedRaw, &occurrence)
 					projected.Components[index].occurrences = append(projected.Components[index].occurrences, occurrence)
 					projected.occurrences = append(projected.occurrences, occurrence)
 				} else if err != nil {
@@ -349,6 +351,7 @@ func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fiel
 				component.Encodings,
 				admittedRaw,
 			); ok {
+				normalizeBetterLeaksLiteralOccurrence(admittedRaw, &occurrence)
 				projected.Components[len(projected.Components)-1].occurrences = append(projected.Components[len(projected.Components)-1].occurrences, occurrence)
 				projected.occurrences = append(projected.occurrences, occurrence)
 			} else if err != nil {

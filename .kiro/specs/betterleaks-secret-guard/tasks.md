@@ -125,7 +125,7 @@
     - _Depends: 5.3_
     - _Validation: focused Guard/runtime no-dispatch tests_
 
-  - [ ] 6.2 Implement the transient exact rewrite bridge
+  - [x] 6.2 Implement the transient exact rewrite bridge
     - Extract only literal rewrite candidates that are provably present in the original fragment.
     - Feed those candidates into existing byte-length-preserving text and parsed-JSON mutation semantics.
     - Re-run canonical validation after mutation and retain existing unsupported-token fail-closed behavior.

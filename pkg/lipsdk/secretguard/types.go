@@ -37,6 +37,11 @@ const (
 const (
 	DetectorIDExact       = "exact"
 	DetectorIDBetterLeaks = "betterleaks"
+	// FailureKindDetectorFailure is a bounded decision classifier for a
+	// detector scan error or finding-cap exhaustion. It is valid on log
+	// decisions, which preserve the request while recording safe failure
+	// metadata.
+	FailureKindDetectorFailure = "detector_failure"
 )
 
 // Confidence values are the only confidence bands that may cross the SDK

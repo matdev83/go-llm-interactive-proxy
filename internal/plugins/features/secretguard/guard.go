@@ -35,31 +35,40 @@ func (g *guard) Evaluate(ctx context.Context, call *lipapi.Call, _ sdk.Meta, ser
 	if call == nil {
 		return sdk.Decision{Outcome: sdk.OutcomePass}, nil
 	}
+	var generation *GenerationServices
+	if services.Capability != nil {
+		generation, _ = services.Capability.(*GenerationServices)
+	}
+	var matcher sdk.Matcher
 	if services.MatcherResolver == nil {
-		return sdk.Decision{Outcome: sdk.OutcomePass}, nil
+		if generation == nil || !generation.betterLeaksEnabled {
+			return sdk.Decision{Outcome: sdk.OutcomePass}, nil
+		}
+	} else {
+		var err error
+		matcher, err = services.MatcherResolver.Resolve(ctx)
+		if err != nil {
+			return sdk.Decision{}, err
+		}
 	}
-	matcher, err := services.MatcherResolver.Resolve(ctx)
-	if err != nil {
-		return sdk.Decision{}, err
-	}
-	if matcher == nil {
+	if matcher == nil && (generation == nil || !generation.betterLeaksEnabled) {
 		return sdk.Decision{Outcome: sdk.OutcomePass}, nil
 	}
 
 	switch g.cfg.Action {
 	case ActionBlock:
-		return g.evalBlock(ctx, call, matcher)
+		return g.evalBlock(ctx, call, matcher, generation)
 	case ActionRedact:
-		return g.evalRedact(ctx, call, matcher)
+		return g.evalRedact(ctx, call, matcher, generation)
 	case ActionLog:
-		return g.evalLog(ctx, call, matcher)
+		return g.evalLog(ctx, call, matcher, generation)
 	default:
 		return sdk.Decision{}, fmt.Errorf("%s: unknown action %q", ID, g.cfg.Action)
 	}
 }
 
-func (g *guard) evalBlock(ctx context.Context, call *lipapi.Call, m sdk.Matcher) (sdk.Decision, error) {
-	out, err := scanCall(ctx, call, m, modeScan, g.cfg.ScanMaxBytes)
+func (g *guard) evalBlock(ctx context.Context, call *lipapi.Call, m sdk.Matcher, generation *GenerationServices) (sdk.Decision, error) {
+	out, err := scanCall(ctx, call, m, modeScan, g.cfg.ScanMaxBytes, generation)
 	if err != nil {
 		return sdk.Decision{}, err
 	}
@@ -75,12 +84,12 @@ func (g *guard) evalBlock(ctx context.Context, call *lipapi.Call, m sdk.Matcher)
 	return d, nil
 }
 
-func (g *guard) evalRedact(ctx context.Context, call *lipapi.Call, m sdk.Matcher) (sdk.Decision, error) {
+func (g *guard) evalRedact(ctx context.Context, call *lipapi.Call, m sdk.Matcher, generation *GenerationServices) (sdk.Decision, error) {
 	// One-pass canonical location traversal: redact on a working clone so findings,
 	// mutations, and scan-limit accounting share a single matcher walk. The live
 	// call is only replaced when MutationCount > 0 (no partial commit on failure/limit).
 	work := lipapi.CloneCall(*call)
-	out, err := scanCall(ctx, &work, m, modeRedact, g.cfg.ScanMaxBytes)
+	out, err := scanCall(ctx, &work, m, modeRedact, g.cfg.ScanMaxBytes, generation)
 	if err != nil {
 		var unsupported *unsupportedJSONTokenError
 		if errors.As(err, &unsupported) {
@@ -114,9 +123,18 @@ func (g *guard) evalRedact(ctx context.Context, call *lipapi.Call, m sdk.Matcher
 	return d, nil
 }
 
-func (g *guard) evalLog(ctx context.Context, call *lipapi.Call, m sdk.Matcher) (sdk.Decision, error) {
-	out, err := scanCall(ctx, call, m, modeScan, g.cfg.ScanMaxBytes)
+func (g *guard) evalLog(ctx context.Context, call *lipapi.Call, m sdk.Matcher, generation *GenerationServices) (sdk.Decision, error) {
+	out, err := scanCall(ctx, call, m, modeScan, g.cfg.ScanMaxBytes, generation)
 	if err != nil {
+		var betterLeaksErr *betterLeaksScanError
+		if errors.As(err, &betterLeaksErr) {
+			return sdk.Decision{
+				Outcome:       sdk.OutcomeLog,
+				Findings:      out.Findings,
+				FailureKind:   sdk.FailureKindDetectorFailure,
+				FailureReason: "betterleaks scan failed",
+			}, nil
+		}
 		return sdk.Decision{}, err
 	}
 	d := sdk.Decision{Findings: out.Findings}
