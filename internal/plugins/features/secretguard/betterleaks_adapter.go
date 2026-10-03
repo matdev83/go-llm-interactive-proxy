@@ -1,24 +1,151 @@
 package secretguard
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
 	blconfig "github.com/betterleaks/betterleaks/v2/config"
 	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
+	"github.com/betterleaks/betterleaks/v2/report"
 	blscan "github.com/betterleaks/betterleaks/v2/scan"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
+
+const (
+	betterLeaksScanErrorCanceled      = "canceled"
+	betterLeaksScanErrorDeadline      = "deadline exceeded"
+	betterLeaksScanErrorCap           = "finding cap exceeded"
+	betterLeaksScanErrorSource        = "source failure"
+	betterLeaksScanErrorUnavailable   = "scanner failure"
+	betterLeaksScanErrorProjection    = "projection failure"
+	maxBetterLeaksProjectedField      = 256
+	maxBetterLeaksProjectedComponents = 128
+	// The shared admission default bounds one logical fragment to 2 MiB. Keep
+	// the private occurrence identity complete within that bound; values above
+	// it fail projection instead of being silently truncated.
+	maxBetterLeaksOccurrenceBytes = DefaultScanMaxBytes
+	maxBetterLeaksOccurrences     = 256
+)
+
+var errBetterLeaksFindingCap = errors.New("betterleaks projected finding cap exceeded")
+var errBetterLeaksProjection = errors.New("betterleaks finding projection failed")
+
+// betterLeaksFinding is the bounded feature-private projection of one
+// upstream report. It intentionally omits all match, fingerprint, capture,
+// line, context, and source-content fields.
+type betterLeaksFinding struct {
+	RuleID          string
+	Confidence      string
+	Location        string
+	OccurrenceCount int
+	Components      []betterLeaksComponent
+
+	// occurrences are feature-private rewrite inputs. They are deliberately
+	// unexported so they cannot be serialized through a safe result or copied
+	// into public findings by accident.
+	occurrences []betterLeaksOccurrence
+}
+
+type betterLeaksComponent struct {
+	RuleID      string
+	Optional    bool
+	occurrences []betterLeaksOccurrence
+}
+
+type betterLeaksOccurrenceRole uint8
+
+const (
+	betterLeaksOccurrencePrimary betterLeaksOccurrenceRole = iota
+	betterLeaksOccurrenceComponent
+)
+
+type betterLeaksOccurrenceRepresentation uint8
+
+const (
+	betterLeaksOccurrenceLiteral betterLeaksOccurrenceRepresentation = iota
+	betterLeaksOccurrenceDecoded
+)
+
+type betterLeaksSpan struct {
+	StartLine   int
+	EndLine     int
+	StartColumn int
+	EndColumn   int
+}
+
+type betterLeaksOccurrence struct {
+	value          []byte
+	span           betterLeaksSpan
+	ruleID         string
+	role           betterLeaksOccurrenceRole
+	representation betterLeaksOccurrenceRepresentation
+}
+
+type betterLeaksScanResult struct {
+	Findings []betterLeaksFinding
+}
+
+// betterLeaksLogicalFragmentSource is deliberately a one-fragment source.
+// The upstream Reader splits large streams into independent chunks, which
+// would discard multipart context at a chunk boundary. Logical fragments are
+// admitted and bounded before this source is constructed, so yielding the
+// complete fragment preserves the feature's canonical context contract.
+type betterLeaksLogicalFragmentSource struct {
+	raw []byte
+}
+
+func (s betterLeaksLogicalFragmentSource) betterLeaksRaw() []byte {
+	return s.raw
+}
+
+func (s betterLeaksLogicalFragmentSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if yield == nil {
+		return errors.New("betterleaks fragment source requires a yield function")
+	}
+	if err := yield(sources.Fragment{Raw: string(s.raw)}, nil); err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+type betterLeaksScanError struct {
+	kind  string
+	cause error
+}
+
+func (e *betterLeaksScanError) Error() string {
+	if e == nil {
+		return "secretguard: betterleaks scan failed"
+	}
+	return "secretguard: betterleaks scan " + e.kind
+}
+
+// Is preserves cancellation and private source identity without exposing the
+// upstream error text (which may contain secret-bearing source details).
+func (e *betterLeaksScanError) Is(target error) bool {
+	return e != nil && e.cause != nil && errors.Is(e.cause, target)
+}
 
 // betterLeaksScanner is the feature-private generation handle for BetterLeaks.
 // The upstream scanner is immutable after construction and safe for concurrent
 // scans; keeping it behind this handle prevents BetterLeaks types from becoming
 // part of the feature, runtime, or SDK contracts.
 type betterLeaksScanner struct {
-	scanner *blscan.Scanner
-	facts   DetectorFacts
+	scanner     *blscan.Scanner
+	facts       DetectorFacts
+	maxFindings int
 }
 
 // DetectorFacts is the bounded, request-independent BetterLeaks policy
@@ -66,7 +193,283 @@ func newBetterLeaksScanner(policy BetterLeaksPolicy) (*betterLeaksScanner, error
 	if err != nil {
 		return nil, fmt.Errorf("secretguard: construct betterleaks scanner: %w", err)
 	}
-	return &betterLeaksScanner{scanner: scanner, facts: facts}, nil
+	maxFindings := policy.MaxFindings
+	if maxFindings <= 0 || maxFindings > DefaultBetterLeaksMaxFindings {
+		maxFindings = DefaultBetterLeaksMaxFindings
+	}
+	return &betterLeaksScanner{scanner: scanner, facts: facts, maxFindings: maxFindings}, nil
+}
+
+// scanFragments scans the already-admitted logical fragments using the one
+// immutable generation scanner. A source is constructed per fragment, while
+// the BetterLeaks scanner itself is never reconstructed on the request path.
+func (s *betterLeaksScanner) scanFragments(ctx context.Context, fragments []LogicalFragment) (betterLeaksScanResult, error) {
+	var result betterLeaksScanResult
+	if s == nil || s.scanner == nil {
+		return result, newBetterLeaksUnavailableError()
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return result, newBetterLeaksScanError(err)
+	}
+	for _, fragment := range fragments {
+		if len(fragment.Raw) == 0 {
+			continue
+		}
+		if err := s.scanSource(ctx, betterLeaksLogicalFragmentSource{raw: fragment.Raw}, fragment.Location, &result); err != nil {
+			return result, err
+		}
+	}
+	sortBetterLeaksFindings(result.Findings)
+	return result, nil
+}
+
+// scanSource is the private source boundary used by scanFragments and by
+// adapter tests. The source callback projects every report immediately and
+// stops before the request-wide projected finding cap can be exceeded.
+func (s *betterLeaksScanner) scanSource(ctx context.Context, source sources.Source, location string, result *betterLeaksScanResult) error {
+	if s == nil || s.scanner == nil || source == nil || result == nil {
+		return newBetterLeaksUnavailableError()
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return newBetterLeaksScanError(err)
+	}
+	var admittedRaw []byte
+	if rawSource, ok := source.(interface{ betterLeaksRaw() []byte }); ok {
+		admittedRaw = rawSource.betterLeaksRaw()
+	}
+	_, err := s.scanner.Scan(ctx, source, func(finding report.Finding) error {
+		if len(result.Findings) >= s.findingCap() {
+			return errBetterLeaksFindingCap
+		}
+		projected, err := projectBetterLeaksFinding(finding, location, admittedRaw)
+		if err != nil {
+			return err
+		}
+		result.Findings = append(result.Findings, projected)
+		return nil
+	})
+	if err != nil {
+		return newBetterLeaksScanError(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return newBetterLeaksScanError(err)
+	}
+	return nil
+}
+
+func (s *betterLeaksScanner) findingCap() int {
+	if s == nil || s.maxFindings <= 0 || s.maxFindings > DefaultBetterLeaksMaxFindings {
+		return DefaultBetterLeaksMaxFindings
+	}
+	return s.maxFindings
+}
+
+func projectBetterLeaksFinding(finding report.Finding, location string, admittedRaw []byte) (betterLeaksFinding, error) {
+	projected := betterLeaksFinding{
+		RuleID:          boundedBetterLeaksField(finding.RuleID),
+		Confidence:      boundedBetterLeaksConfidence(finding.Confidence),
+		Location:        boundedBetterLeaksField(location),
+		OccurrenceCount: 1,
+	}
+	if occurrence, ok, err := newBetterLeaksOccurrence(
+		betterLeaksOccurrencePrimary,
+		projected.RuleID,
+		finding.Match.Value,
+		finding.Location,
+		finding.DecodeDepth,
+		finding.Encodings,
+		admittedRaw,
+	); ok {
+		projected.occurrences = append(projected.occurrences, occurrence)
+	} else if err != nil {
+		return betterLeaksFinding{}, err
+	}
+	seen := make(map[string]int)
+	for _, set := range finding.ComponentSets {
+		for _, component := range set.Components {
+			if len(projected.Components) >= maxBetterLeaksProjectedComponents || len(projected.occurrences) >= maxBetterLeaksOccurrences {
+				break
+			}
+			ruleID := boundedBetterLeaksField(component.RuleID)
+			if ruleID == "" {
+				continue
+			}
+			if index, ok := seen[ruleID]; ok {
+				if !component.Optional {
+					projected.Components[index].Optional = false
+				}
+				if occurrence, ok, err := newBetterLeaksOccurrence(
+					betterLeaksOccurrenceComponent,
+					ruleID,
+					component.Match.Value,
+					component.Location,
+					component.DecodeDepth,
+					component.Encodings,
+					admittedRaw,
+				); ok {
+					projected.Components[index].occurrences = append(projected.Components[index].occurrences, occurrence)
+					projected.occurrences = append(projected.occurrences, occurrence)
+				} else if err != nil {
+					return betterLeaksFinding{}, err
+				}
+				continue
+			}
+			seen[ruleID] = len(projected.Components)
+			projected.Components = append(projected.Components, betterLeaksComponent{RuleID: ruleID, Optional: component.Optional})
+			if occurrence, ok, err := newBetterLeaksOccurrence(
+				betterLeaksOccurrenceComponent,
+				ruleID,
+				component.Match.Value,
+				component.Location,
+				component.DecodeDepth,
+				component.Encodings,
+				admittedRaw,
+			); ok {
+				projected.Components[len(projected.Components)-1].occurrences = append(projected.Components[len(projected.Components)-1].occurrences, occurrence)
+				projected.occurrences = append(projected.occurrences, occurrence)
+			} else if err != nil {
+				return betterLeaksFinding{}, err
+			}
+		}
+	}
+	sort.Slice(projected.Components, func(i, j int) bool {
+		if projected.Components[i].RuleID != projected.Components[j].RuleID {
+			return projected.Components[i].RuleID < projected.Components[j].RuleID
+		}
+		return !projected.Components[i].Optional && projected.Components[j].Optional
+	})
+	return projected, nil
+}
+
+func newBetterLeaksOccurrence(role betterLeaksOccurrenceRole, ruleID, value string, location report.Location, decodeDepth int, encodings []string, admittedRaw []byte) (betterLeaksOccurrence, bool, error) {
+	if value == "" {
+		return betterLeaksOccurrence{}, false, nil
+	}
+	if len(value) > maxBetterLeaksOccurrenceBytes {
+		return betterLeaksOccurrence{}, false, errBetterLeaksProjection
+	}
+	span, err := spanForBetterLeaksLocation(location, admittedRaw)
+	if err != nil {
+		return betterLeaksOccurrence{}, false, err
+	}
+	representation := betterLeaksOccurrenceLiteral
+	if decodeDepth > 0 || len(encodings) > 0 {
+		representation = betterLeaksOccurrenceDecoded
+	}
+	return betterLeaksOccurrence{
+		value:          []byte(value),
+		span:           span,
+		ruleID:         ruleID,
+		role:           role,
+		representation: representation,
+	}, true, nil
+}
+
+func spanForBetterLeaksLocation(location report.Location, admittedRaw []byte) (betterLeaksSpan, error) {
+	span := betterLeaksSpan{
+		StartLine:   location.StartLine,
+		EndLine:     location.EndLine,
+		StartColumn: location.StartColumn,
+		EndColumn:   location.EndColumn,
+	}
+	if location.StartLine < 0 || location.EndLine < 0 || location.StartColumn < 0 || location.EndColumn < 0 {
+		return betterLeaksSpan{}, errBetterLeaksProjection
+	}
+	if admittedRaw == nil {
+		return span, nil
+	}
+	if allBetterLeaksCoordinatesZero(location) {
+		return betterLeaksSpan{}, errBetterLeaksProjection
+	}
+	lines := bytes.Split(admittedRaw, []byte{'\n'})
+	if location.StartLine < 1 || location.EndLine < location.StartLine || location.StartLine > len(lines) || location.EndLine > len(lines) {
+		return betterLeaksSpan{}, errBetterLeaksProjection
+	}
+	startLineLength := len(lines[location.StartLine-1])
+	endLineLength := len(lines[location.EndLine-1])
+	if location.StartColumn < 1 || location.StartColumn > startLineLength || location.EndColumn > endLineLength {
+		return betterLeaksSpan{}, errBetterLeaksProjection
+	}
+	if location.StartLine == location.EndLine && location.EndColumn < location.StartColumn {
+		return betterLeaksSpan{}, errBetterLeaksProjection
+	}
+	return span, nil
+}
+
+func allBetterLeaksCoordinatesZero(location report.Location) bool {
+	return location.StartLine == 0 && location.EndLine == 0 && location.StartColumn == 0 && location.EndColumn == 0
+}
+
+func boundedBetterLeaksField(value string) string {
+	if len(value) <= maxBetterLeaksProjectedField {
+		return value
+	}
+	return value[:maxBetterLeaksProjectedField]
+}
+
+func boundedBetterLeaksConfidence(value string) string {
+	switch value {
+	case blscan.ConfidenceLow, blscan.ConfidenceMedium, blscan.ConfidenceHigh:
+		return value
+	default:
+		return ""
+	}
+}
+
+func sortBetterLeaksFindings(findings []betterLeaksFinding) {
+	sort.SliceStable(findings, func(i, j int) bool {
+		if findings[i].Location != findings[j].Location {
+			return findings[i].Location < findings[j].Location
+		}
+		if findings[i].RuleID != findings[j].RuleID {
+			return findings[i].RuleID < findings[j].RuleID
+		}
+		if findings[i].Confidence != findings[j].Confidence {
+			return findings[i].Confidence < findings[j].Confidence
+		}
+		if len(findings[i].Components) != len(findings[j].Components) {
+			return len(findings[i].Components) < len(findings[j].Components)
+		}
+		for componentIndex := range findings[i].Components {
+			left := findings[i].Components[componentIndex]
+			right := findings[j].Components[componentIndex]
+			if left.RuleID != right.RuleID {
+				return left.RuleID < right.RuleID
+			}
+			if left.Optional != right.Optional {
+				return !left.Optional && right.Optional
+			}
+		}
+		return findings[i].OccurrenceCount < findings[j].OccurrenceCount
+	})
+}
+
+func newBetterLeaksScanError(err error) error {
+	if err == nil {
+		return nil
+	}
+	kind := betterLeaksScanErrorSource
+	switch {
+	case errors.Is(err, errBetterLeaksFindingCap):
+		kind = betterLeaksScanErrorCap
+	case errors.Is(err, errBetterLeaksProjection):
+		kind = betterLeaksScanErrorProjection
+	case errors.Is(err, context.Canceled):
+		kind = betterLeaksScanErrorCanceled
+	case errors.Is(err, context.DeadlineExceeded):
+		kind = betterLeaksScanErrorDeadline
+	}
+	return &betterLeaksScanError{kind: kind, cause: err}
+}
+
+func newBetterLeaksUnavailableError() error {
+	return &betterLeaksScanError{kind: betterLeaksScanErrorUnavailable}
 }
 
 // policyFacts returns a defensive copy so diagnostics cannot mutate the

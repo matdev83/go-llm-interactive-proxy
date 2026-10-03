@@ -50,7 +50,7 @@
     - _Depends: 2.1_
     - _Validation: deterministic config hash/rule inventory goldens; required-only `aws-secret-access-key` disable rejection; component-plus-dependent `aws-secret-access-key` plus `aws-access-token` disable acceptance; shared component rejection while any required dependent remains; optional removal and isolation behavior; unchanged retained AWS multipart matching; failed candidate rejection retains the previously published generation_
 
-- [ ] 3. Add context-preserving logical-fragment discovery
+- [x] 3. Add context-preserving logical-fragment discovery
   - [x] 3.1 Define and RED-test the logical fragment traversal
     - Characterize current canonical locations and JSON raw representations used by secret guard.
     - Produce one bounded fragment per logical text/JSON unit without concatenating the complete request or exposing fragments outside the feature.
@@ -61,7 +61,7 @@
     - _Depends: 2.1_
     - _Validation: traversal tables + JSON context fixtures + scan-limit regression_
 
-  - [ ] 3.2 Implement error-returning BetterLeaks fragment scans
+  - [x] 3.2 Implement error-returning BetterLeaks fragment scans
     - Use the pinned SDK's error-returning scan path with request context/cancellation and a tiny in-memory fragment source where required.
     - Reuse the generation scanner concurrently; do not construct scanners per fragment/request.
     - Enforce the 256 projected-finding request cap and return bounded failure classification when exceeded.
