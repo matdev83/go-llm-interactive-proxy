@@ -311,11 +311,12 @@ Construction invariants:
 type LogicalFragment struct {
     Location string
     Kind     FragmentKind
+    Text     string
     Raw      []byte
 }
 ```
 
-`Location` is a bounded canonical locator already derivable from the request traversal. `Kind` is a closed enum such as text or JSON. `Raw` is request-owned/transient and must never appear in diagnostics.
+`Location` is a bounded canonical locator already derivable from the request traversal. `Kind` is a closed enum such as text or JSON. Text fragments retain the original immutable string; JSON fragments retain their original raw representation. These are alternative private representations, not duplicated payload buffers. Byte materialization is deferred until occurrence mapping or mutation needs it, without unsafe aliasing. Neither representation may appear in diagnostics.
 
 V1 emits whole logical units where BetterLeaks context is meaningful: text parts, raw JSON tool arguments/results/schemas, and bounded tool descriptions/names where those are already canonical content. It does not concatenate the complete request.
 

@@ -162,7 +162,7 @@
     - _Depends: 4.1, 6.3_
     - _Validation: canary absence assertions across all observability sinks_
 
-- [x] 8. Certify protocol parity, concurrency, fuzz safety, and performance
+- [ ] 8. Certify protocol parity, concurrency, fuzz safety, and performance
   - [x] 8.1 Build the synthetic detector corpus and frontend parity matrix
     - Cover OpenAI, Anthropic, GitHub, Slack, Stripe, AWS multipart, generic API key/password/credential URI, private key, public/non-secret negatives, JSON key context, tool schemas/results, repeated overlaps, allow markers, and decoded forms.
     - Run equivalent canonical payload cases through every bundled frontend flavor that can represent them.
@@ -193,6 +193,31 @@
     - _Depends: 8.1, 8.2_
     - _Validation: reproducible benchmark report attached to implementation PR_
 
+  - [ ] 8.4 Resolve branch-local quality findings
+    - Apply the four verified formatter, redundant assignment, and redundant type fixes without changing behavior.
+    - _Requirements: 10.1_
+    - _Boundary: BetterLeaks adapter; scan state declaration; race/fuzz test formatting; runtime observability canary test declaration_
+    - _Depends: 8.3_
+    - _Validation: focused feature/runtime tests; scoped lint; git diff --check_
+
+  - [ ] 8.5 Restore architecture convergence through genuine simplification
+    - Simplify feature-owned credential acceptance and diagnostic/composition duplication until the unchanged architecture ratchet passes. Main passes at -801; this feature adds 55 measured production lines and currently measures -746.
+    - Preserve accepted-credential attribution, request isolation, no-environment guarantees, frozen generation diagnostics, and zero-valued policy facts.
+    - Do not change budgets, broaden exclusions, compress formatting, or relocate unchanged logic to alter the measurement.
+    - _Requirements: 2.2, 2.4, 9.1, 10.1, 10.2; archived runtime-architecture-convergence-and-shrinkage 11.5, 11.6_
+    - _Boundary: feature-owned changes in standard HTTP auth adapter, diagnostics mount, runtimebundle secret-guard plane and their focused tests_
+    - _Depends: 8.4_
+    - _Validation: strict TDD; exact unchanged shrinkage ratchet; full architecture suite; affected auth/composition/diagnostics regressions_
+
+  - [ ] 8.6 Reduce measured feature-private fragment allocation costs
+    - Preserve immutable text as strings and reuse one admitted fragment representation; materialize byte buffers only when occurrence mapping or mutation needs them. Avoid unsafe string aliases.
+    - Preserve whole JSON context, distinct-field byte accounting, clone-only mutation, cancellation, deterministic merge, and decoded fail-closed behavior.
+    - Repeat comparable exact-only, BetterLeaks-only, and hybrid no-hit/hit benchmarks and allocation profiles. Record the performance assessment and remaining upstream matching cost without weakening detector defaults.
+    - _Requirements: 4.1, 4.2, 4.6, 8.2, 8.8, 10.1, 10.6_
+    - _Boundary: feature-private logical fragments, adapter source, scan/merge/rewrite consumers and their tests; benchmark evidence_
+    - _Depends: 8.5_
+    - _Validation: strict TDD; corpus/budget/redaction regressions; targeted race/fuzz; comparable benchmarks and profiles_
+
 - [ ] 9. Run final cross-boundary security certification
   - [ ] 9.1 Verify all architecture, config, security, and regression gates together
     - Re-run zero-env-read multi-user tests with BetterLeaks on/off, local-discovery invalid/absent, reload failures, and normal request traffic.
@@ -201,10 +226,12 @@
     - Confirm no implementation task changed routing/failover/B2BUA/billing/protocol semantics outside the specified secret-guard boundary.
     - _Requirements: 3.3, 3.4, 3.6, 6.7, 9.3, 9.5, 10.1, 10.2, 10.7, 10.8_
     - _Boundary: whole-feature certification_
-    - _Depends: 7.1, 7.2, 8.3_
+    - _Depends: 7.1, 7.2, 8.3, 8.4, 8.5, 8.6_
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
 
 ## Implementation Notes
+
+- Debug verification establishes the shrinkage failure as branch-local: current main passes at -801 and this feature adds 55 measured lines. Final Linux gates should use an isolated native clone through the existing UbuntuOld/ciuser runner, avoiding root execution and Windows worktree metadata.
 
 - Benchmark measurements are complete; roughly 4.2 MB exact-only / 6.3 MB hybrid allocations per 2 MiB no-secret text scan and large positive-hit latency require profile-backed performance assessment before feature GO. Measurement approval does not accept that resource impact.
 
