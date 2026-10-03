@@ -324,6 +324,22 @@ func algForbiddenImport(path string, suffixes []string) bool {
 	return false
 }
 
+// algFeaturePackageDir maps an ALG feature import path to its repo-relative
+// package directory, so a qualified call can be resolved against the indexed
+// declaration it names. It returns "" for any path outside the feature, which is
+// what keeps a hop into generic core or an SDK contract out of the feature's own
+// call graph.
+func algFeaturePackageDir(path string) string {
+	if path == algFeatureImport {
+		return algFeatureRootDir
+	}
+	sub := strings.TrimPrefix(path, algFeatureImport+"/")
+	if sub == path || sub == "" {
+		return ""
+	}
+	return algFeatureRootDir + "/" + sub
+}
+
 func algPathBase(path string) string {
 	base := path
 	if idx := strings.LastIndex(path, "/"); idx >= 0 {
@@ -425,9 +441,11 @@ func algSortedUnique(in []string) []string {
 }
 
 // appendUnique appends value to in unless in already carries it, so repeated
-// observations of one declaration do not inflate a census.
-func appendUnique(in []string, value string) []string {
-	if value == "" || slices.Contains(in, value) {
+// observations of one declaration do not inflate a census. It is generic because
+// the index is keyed by both strings (file paths) and declaration identities
+// (package plus name), and both need the same de-duplication.
+func appendUnique[T comparable](in []T, value T) []T {
+	if slices.Contains(in, value) {
 		return in
 	}
 	return append(in, value)

@@ -2590,3 +2590,311 @@ func TestPreferredProtocolE2E_legacyAndPreferredStrategiesDifferOnlyWhereSpecifi
 		}
 	}
 }
+
+// =============================================================================
+// Requirement 7.7 — platform rejection of the protocol-repair continuation
+// =============================================================================
+//
+// Every other cell in this file wires the continuation ports so the platform
+// ADMITS the bounded repair leg (algWireContinuationPorts), which leaves
+// requirement 7.7 unmeasured here. This section drives the one shape the
+// requirement actually names: a strategy asks the platform for a semantic
+// continuation and the PLATFORM refuses to do that continuation work.
+//
+// The refusal is planted on the narrowest seam that genuinely exists in the
+// production path and it is planted in production shape rather than by faking
+// any agent-loop-guard component. The real sdkadapter.Writer resolves the
+// after_ingress_tail anchor over the real trajectory and builds a well-formed
+// PutSteeringRequest; the conversation-view store behind it refuses to persist
+// the overlay. That is the placement stage of the real continuation transaction,
+// so the platform rejects the continuation exactly as it would on any other
+// rejected continuation work, and it is strictly pre-admission, so no second
+// B-leg can ever open behind it.
+//
+// One control keeps the rejection cell from being vacuous: the admitted cell
+// runs the identical deployment, through the identical real writer and the
+// identical store, with the store's refusal switched off, and proves the repair
+// really was requested and really would have opened a second upstream leg. Every
+// rejected assertion below is therefore measured against a deployment that is
+// proven to request that continuation, not one that merely happens to end
+// without a repair leg.
+//
+// No cross-strategy contrast is claimed here, because none is measurable in this
+// deployment: the legacy semantic_verifier strategy never requests a
+// continuation here (measured refusals=0), because its detached bounded verifier
+// request fails closed at request-authority admission — the same characterization
+// agentloopguard_preferred_telemetry_test.go gives that strategy's auxiliary
+// lineage — so it returns a stop decision before the generic platform
+// continuation transaction is ever entered. Its rejected-deployment outcome is
+// therefore the ordinary accepted turn, not a rejected continuation, and
+// comparing it against the preferred strategy's rejected outcome would compare
+// two different scenarios rather than isolate ALG's contribution.
+
+// algRefusingSteeringStore wraps a real conversation-view ReferenceStore and
+// refuses only PutSteering. DeactivateSteering still reaches the real store, so
+// the transaction's post-failure overlay deactivation is exercised for real
+// instead of being short-circuited by the same refusal.
+type algRefusingSteeringStore struct {
+	inner     conversationview.SteeringStore
+	refusals  int
+	refusePut bool
+}
+
+func (s *algRefusingSteeringStore) PutSteering(ctx context.Context, aLegID string, req conversationview.PutSteeringRequest) (conversationview.SteeringState, error) {
+	if s.refusePut {
+		s.refusals++
+		return conversationview.SteeringState{}, fmt.Errorf("conformance: conversation-view store refused steering overlay %q", req.OverlayID)
+	}
+	return s.inner.PutSteering(ctx, aLegID, req)
+}
+
+func (s *algRefusingSteeringStore) DeactivateSteering(ctx context.Context, aLegID, overlayID string) (conversationview.SteeringState, error) {
+	return s.inner.DeactivateSteering(ctx, aLegID, overlayID)
+}
+
+// algRejectedRun is one measured rejected-continuation deployment: the client
+// outcome the platform actually produced, plus the upstream legs and the refusal
+// count that prove which continuation stage rejected.
+type algRejectedRun struct {
+	strategy string
+	stream   bool
+	// wantText is the ONLY assistant text the client may observe: the text the
+	// model itself committed on its single upstream leg.
+	wantText string
+	status   int
+	frames   []algWireFrame
+	upstream *algUpstreamLog
+	refusals int
+	trace    *algTrace
+}
+
+// outcome renders the whole client-visible outcome as one comparable string:
+// the HTTP status plus the exact client wire body. Requirement 7.7 makes no claim
+// about WHICH conservative outcome the platform picks — that is generic platform
+// policy — so no assertion in this section pins a status the spec never states.
+// This rendering is diagnostic context on the measured run: the two delivery
+// modes legitimately publish different conservative outcomes after a rejection
+// (measured: the streaming client keeps its committed text, the collected client
+// receives an error body with none), and every obligation below is therefore
+// asserted against a property both of them share.
+func (r algRejectedRun) outcome() string {
+	return fmt.Sprintf("status=%d body=%s", r.status, algWireBody(r.frames))
+}
+
+// algSSEUnmarkedStopTurn is the streamed upstream wire of a turn that commits
+// ordinary assistant text and then cleanly stops with no completion signal. It is
+// the SSE counterpart of algUnmarkedStopTurn, so the requirement 7.7 cells can
+// measure the primary streaming path with the same planted evidence: no control
+// call, no completion signal, one committed ordinary answer.
+func algSSEUnmarkedStopTurn(t *testing.T, id, text string) algUpstreamTurn {
+	t.Helper()
+	frame := func(name string, payload map[string]any) string {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal sse frame %s: %v", name, err)
+		}
+		return "event: " + name + "\ndata: " + string(raw) + "\n\n"
+	}
+	var sse strings.Builder
+	seq := 0
+	next := func() int { seq++; return seq }
+	itemID := "msg_" + id
+	sse.WriteString(frame("response.created", map[string]any{
+		"type": "response.created", "sequence_number": next(),
+		"response": map[string]any{"id": id, "object": "response", "created_at": 1715620000, "status": "in_progress", "model": "gpt-4o-mini"},
+	}))
+	sse.WriteString(frame("response.output_item.added", map[string]any{
+		"type": "response.output_item.added", "sequence_number": next(), "output_index": 0,
+		"item": map[string]any{
+			"type": "message", "id": itemID, "status": "in_progress", "role": "assistant",
+			"content": []any{map[string]any{"type": "output_text", "text": ""}},
+		},
+	}))
+	sse.WriteString(frame("response.content_part.added", map[string]any{
+		"type": "response.content_part.added", "sequence_number": next(), "item_id": itemID,
+		"output_index": 0, "content_index": 0, "part": map[string]any{"type": "output_text", "text": ""},
+	}))
+	sse.WriteString(frame("response.output_text.delta", map[string]any{
+		"type": "response.output_text.delta", "sequence_number": next(), "item_id": itemID,
+		"output_index": 0, "content_index": 0, "delta": text,
+	}))
+	sse.WriteString(frame("response.output_text.done", map[string]any{
+		"type": "response.output_text.done", "sequence_number": next(), "item_id": itemID,
+		"output_index": 0, "content_index": 0, "text": text,
+	}))
+	sse.WriteString(frame("response.output_item.done", map[string]any{
+		"type": "response.output_item.done", "sequence_number": next(), "output_index": 0,
+		"item": map[string]any{
+			"type": "message", "id": itemID, "status": "completed", "role": "assistant",
+			"content": []any{map[string]any{"type": "output_text", "text": text}},
+		},
+	}))
+	sse.WriteString(frame("response.completed", map[string]any{
+		"type": "response.completed", "sequence_number": next(),
+		"response": map[string]any{
+			"id": id, "object": "response", "created_at": 1715620000, "status": "completed", "model": "gpt-4o-mini",
+			"usage": map[string]any{"input_tokens": 24, "output_tokens": 11, "total_tokens": 35},
+		},
+	}))
+	sse.WriteString("data: [DONE]\n\n")
+	return algUpstreamTurn{SSE: sse.String()}
+}
+
+// algRejectedContinuationRun drives one deployment for one strategy and one A-leg
+// delivery mode, and returns the measured outcome. refusePut is the only
+// difference between the admitted control and the rejected cell.
+func algRejectedContinuationRun(t *testing.T, strategy string, stream bool, refusePut bool) algRejectedRun {
+	t.Helper()
+	var origin http.Handler
+	var log *algUpstreamLog
+	if stream {
+		origin, log = algScriptedOrigin(t,
+			algSSEUnmarkedStopTurn(t, "resp_alg_rejected_stream", algUnmarkedText),
+			algSSEUnmarkedStopTurn(t, "resp_alg_rejected_stream_repair", algRepairText),
+		)
+	} else {
+		origin, log = algScriptedMissingSignalOrigin(t, algUnmarkedStopTurn(t, "resp_alg_rejected_repair"), "resp_alg_rejected_repair")
+	}
+	d, tr := algDeployColumn(t, algColumn{
+		Strategy:  strategy,
+		Frontend:  FrontendOpenAIResponses,
+		Backend:   BackendOpenAIResponses,
+		Transport: TransportJSON,
+		Origin:    origin,
+	})
+
+	// Identical environment to algWireContinuationPorts, with one difference: the
+	// store behind the real steering writer refuses the continuation overlay. The
+	// reader port and the writer-factory shape are unchanged, so the generation,
+	// the control provider, and the terminal provider under test remain exactly
+	// the ones the production feature registry and snapshot builder compose.
+	store := conversationview.NewReferenceStore()
+	d.Exec.ConversationViewReader = algAutoRegisteringReader{store: store}
+	steeringStore := &algRefusingSteeringStore{inner: store, refusePut: refusePut}
+	d.Exec.SteeringWriterFactory = func(_ context.Context, aLegID string, resolver runtime.SteeringWriterResolver) (steering.Writer, error) {
+		return sdkadapter.NewWriter(steeringStore, aLegID, sdkadapter.TrajectoryResolver(resolver))
+	}
+
+	body := algCreateBodyWith(t, "apply the schema, verify the backfill, then report the result", stream)
+	status, frames, err := algPostCreateBody(t.Context(), d, body, stream, tr)
+	if err != nil {
+		t.Fatalf("%s create: %v", strategy, err)
+	}
+	return algRejectedRun{
+		strategy: strategy,
+		stream:   stream,
+		wantText: algUnmarkedText,
+		status:   status,
+		frames:   frames,
+		upstream: log,
+		refusals: steeringStore.refusals,
+		trace:    tr,
+	}
+}
+
+// algLogicalResponseFrameType is the client wire frame that opens one logical
+// client response. Counting it pins "exactly one logical client response is
+// opened". A continuation is projected onto the *same* logical client response,
+// so this count does not itself detect a second continuation; that obligation
+// is proven by the upstream-leg assertions in
+// algAssertRejectedContinuationIsAccepted. The count is pinned per delivery
+// mode because the two client-facing encodings differ, and requirement 7.7
+// does not state which conservative outcome the platform publishes once the
+// continuation is rejected.
+func algLogicalResponseFrameType(stream bool) string {
+	if stream {
+		return "response.created"
+	}
+	return "json_resource"
+}
+
+// algAssertRejectedContinuationIsAccepted is requirement 7.7's obligation,
+// asserted once per strategy on a run whose rejection is proven to have happened.
+func algAssertRejectedContinuationIsAccepted(t *testing.T, run algRejectedRun) {
+	t.Helper()
+	if run.refusals == 0 {
+		t.Fatalf("strategy %q: the platform never refused the continuation overlay, so the rejection path was not exercised; outcome=%s", run.strategy, run.outcome())
+	}
+	t.Logf("strategy %q stream=%t rejected outcome: status=%d client_text=%q upstream_legs=%d refusals=%d",
+		run.strategy, run.stream, run.status, algWireText(run.frames), run.upstream.count(), run.refusals)
+
+	// (b) NO second continuation authority. The strategy did ask for one — the
+	// admitted control below opens a repair leg from the identical deployment — so
+	// an admitted continuation is observable as a second upstream leg. The
+	// rejected continuation must open none, and the fixed repair instruction must
+	// therefore never have reached any upstream request.
+	algAssertBoundedUpstreamCount(t, run.upstream, 1)
+	algAssertUpstreamLacks(t, run.upstream, algRepairInstructionMarker)
+
+	// (a) ALG accepts the platform's conservative final outcome: the client
+	// logical response is opened exactly once, and ALG adds nothing of its own to
+	// it. The response-opening count pins "exactly one logical client response";
+	// "no second continuation authority" is proven solely by the two upstream-leg
+	// assertions above — a second continuation opens a second upstream leg while
+	// the client response stays one — and it is deliberately the
+	// OPENING frame rather than the terminal frame, because requirement 7.7 does
+	// not state which conservative outcome the platform publishes after a rejection.
+	if got := algCountWireType(run.frames, algLogicalResponseFrameType(run.stream)); got != 1 {
+		t.Fatalf("strategy %q stream=%t: client logical responses opened = %d, want exactly one; outcome=%s", run.strategy, run.stream, got, run.outcome())
+	}
+
+	// (c) NO result is published. The turn produced no completion signal, the
+	// continuation that would have asked for one was refused, and the accepted
+	// conservative outcome must not manufacture the bounded result the client
+	// never received from the model. This is checked before the broader text
+	// equality below so a published result is reported as exactly that.
+	if strings.Contains(algWireBody(run.frames), algCompletionResult) {
+		t.Fatalf("strategy %q stream=%t: a completion result was published although the platform rejected the continuation:\n%s", run.strategy, run.stream, algWireBody(run.frames))
+	}
+
+	// ALG contributed no answer of its own. The client-boundary text is either the
+	// model's own committed answer or nothing at all, and never more: the platform
+	// chooses WHICH conservative outcome it publishes after a rejection (measured
+	// here: the streaming client keeps its committed text, the collected client
+	// receives an error body with none), and requirement 7.7 constrains ALG's
+	// acceptance of that outcome, not the platform's choice of it. A second
+	// continuation authority, a replay, or an invented repair answer would each
+	// add or duplicate text here and fail.
+	got := algWireText(run.frames)
+	if got != "" && got != run.wantText {
+		t.Fatalf("strategy %q stream=%t: client assistant text = %q, want either nothing or exactly the model's own committed text %q; ALG added text of its own. outcome=%s", run.strategy, run.stream, got, run.wantText, run.outcome())
+	}
+
+	algAssertNoPrivateControlStage(t, run.trace)
+	algAssertNoPrivateControlLeak(t, run.frames)
+}
+
+// TestPreferredProtocolE2E_platformRejectsProtocolRepairAndALGAcceptsIt is
+// requirement 7.7: "When the platform rejects continuation admission, placement,
+// authority, protocol legality, or lifecycle work, ALG shall accept the platform's
+// conservative final outcome and shall not create a second continuation
+// authority."
+func TestPreferredProtocolE2E_platformRejectsProtocolRepairAndALGAcceptsIt(t *testing.T) {
+	t.Run("admitted continuation is the control", func(t *testing.T) {
+		run := algRejectedContinuationRun(t, AgentLoopGuardStrategyAttemptCompletion, false, false)
+		if run.refusals != 0 {
+			t.Fatalf("control refusals = %d, want 0: the control must place the continuation overlay", run.refusals)
+		}
+		if run.status != http.StatusOK {
+			t.Fatalf("control status = %d, want 200; outcome=%s", run.status, run.outcome())
+		}
+		algAssertBoundedUpstreamCount(t, run.upstream, 2)
+		algAssertUpstreamCarries(t, run.upstream, 1, algRepairInstructionMarker)
+		if got, want := algWireText(run.frames), algUnmarkedText+algRepairText; got != want {
+			t.Fatalf("control client assistant text = %q, want the two committed model texts %q", got, want)
+		}
+	})
+
+	t.Run("rejected preferred continuation is accepted", func(t *testing.T) {
+		algAssertRejectedContinuationIsAccepted(t, algRejectedContinuationRun(t, AgentLoopGuardStrategyAttemptCompletion, false, true))
+	})
+
+	// Streaming is the primary A-leg path, and it is where a second continuation
+	// authority would be most visible: a second terminal frame plus a second body
+	// of deltas on the same logical response. The same three obligations are
+	// therefore asserted again on the streaming path rather than assumed to follow
+	// from the collected one.
+	t.Run("rejected preferred continuation is accepted while streaming", func(t *testing.T) {
+		algAssertRejectedContinuationIsAccepted(t, algRejectedContinuationRun(t, AgentLoopGuardStrategyAttemptCompletion, true, true))
+	})
+}

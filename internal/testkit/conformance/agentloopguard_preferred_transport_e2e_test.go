@@ -1426,7 +1426,9 @@ func algPublishStrategy(t *testing.T, d *Deployment, strategy string, bus *hooks
 // race (confirmed with -race) rather than a production reload. That half is owned
 // by the committed assembly-time pin in internal/core/runtime/executor_assemble_stream.go
 // and its existing test
-// internal/core/runtime/control_tool_projection_test.go:TestControlToolProjection_reloadPinsActivationToItsOwnGeneration.
+// internal/core/runtime/control_tool_activation_seams_test.go:TestControlToolProjection_reloadPinsActivationToItsOwnGeneration,
+// plus the in-flight pin cell
+// internal/core/runtime/control_tool_inflight_generation_pin_test.go:TestControlToolProjection_inFlightRequestKeepsAdmittedGenerationAcrossReload.
 func TestPreferredProtocolTransportE2E_reloadSwitchesStrategyForNewlyAdmittedTurns(t *testing.T) {
 	t.Parallel()
 

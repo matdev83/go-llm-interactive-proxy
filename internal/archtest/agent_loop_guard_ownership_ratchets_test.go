@@ -34,12 +34,14 @@ import (
 //	8  no control-tool provider reachable from legacy .. TestTask121OwnershipRatchetsHoldOnCurrentTree
 //
 // Ratchets 7 and 8 are enforced over CALLS plus the receiver's own file imports,
-// over a walk that follows plain same-package function hops and seeds the
-// receiver's methods wholesale. It deliberately does not follow a method reached
-// through a receiver variable, a method value, or any indirection the walk
-// cannot attribute without types. That approximation, and why failing closed on
-// it would misreport the approved live layout, is documented on
-// ScanAgentLoopGuardStrategyReachability and pinned by a fixture.
+// over a walk that seeds the receiver's methods wholesale and follows both plain
+// same-package function hops and qualified hops into the feature's own
+// subpackages, across the whole feature tree. It deliberately does not follow a
+// method reached through a receiver variable, a method value, a hop out of the
+// feature, or any indirection the walk cannot attribute without types. That
+// approximation, and why failing closed on it would misreport the approved live
+// layout, is documented on ScanAgentLoopGuardStrategyReachability and pinned by
+// a fixture.
 
 // algOwnershipRatchetRuleRules binds each rule name to the design ratchet it
 // enforces, so a finding can always be traced back to an approved commitment and
@@ -49,12 +51,12 @@ var algOwnershipRatchetRuleRules = map[string]string{
 	RuleALGControlToolSDKOwnership:    "design ratchet 2: the new controltool package contains no concrete feature IDs or names",
 	RuleALGExclusiveControlToolPlane:  "design ratchet 3: the control-tool plane is an exclusive, identity-bearing, nil-rejecting slot",
 	RuleALGControlToolPlaneExecution:  "requirement 3.5: the control-tool plane cannot be surfaced to the frontend execution path",
-	RuleALGClientCallAppend:           "design ratchet 4: no direct ALG append to client/A-leg Call.Messages/Call.Items",
+	RuleALGClientCallAppend:           "design ratchet 4: no direct ALG append to any canonical client/A-leg field (Call.Messages, Call.Items, Call.Instructions, Call.Tools)",
 	RuleALGSecondTerminalOwner:        "requirement 9.5: no second terminal owner or separate terminal publication path",
 	RuleALGHiddenGuardResurrection:    "design ratchet 5: no use of deprecated turnTerminal.guardHidden and no resurrection of it",
 	RuleALGPolicyStoreOwnership:       "design ratchet 6: no second policy endpoint/store owned by the feature",
-	RuleALGPreferredStrategyIsolation: "design ratchet 7: no verifier import in the preferred receiver's own files and no verifier CALL in its strategy case body, its methods, or the plain-function chain they reach",
-	RuleALGLegacyStrategyIsolation:    "design ratchet 8: no control-tool import in the legacy receiver's own files and no control-tool CALL (or feature-local entry point) in its strategy case body, its methods, or the plain-function chain they reach",
+	RuleALGPreferredStrategyIsolation: "design ratchet 7: no verifier import in the preferred receiver's own files and no verifier CALL in its strategy case body, its methods, any indexed feature package they reach, or the function chains they reach",
+	RuleALGLegacyStrategyIsolation:    "design ratchet 8: no control-tool import in the legacy receiver's own files and no control-tool CALL (or feature-local entry point) in its strategy case body, its methods, any indexed feature package they reach, or the function chains they reach",
 }
 
 // TestTask121OwnershipRatchetsHoldOnCurrentTree runs every ALG ownership

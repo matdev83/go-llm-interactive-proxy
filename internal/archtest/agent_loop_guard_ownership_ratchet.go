@@ -132,9 +132,24 @@ const algRetiredHiddenGuardIdent = "guardHidden"
 
 // algForbiddenClientAppendFields are the canonical client/A-leg call fields the
 // feature must never append to directly (Requirement 3.1).
+//
+// It is the feature that is bound, never the SDK contract that performs the
+// projection on the feature's behalf: pkg/lipsdk/controltool.Project is the
+// APPROVED generic owner and legitimately writes all four fields at once
+// (out.Items or out.Instructions, then out.Tools). The ratchet runs on the
+// feature tree only, so widening this set to the whole A-leg surface cannot
+// reach that owner.
+//
+// Messages and Items are the client-visible transcript in its two authority
+// shapes; Instructions is the instruction trajectory and Tools is the client
+// tool catalog. Requirement 3.1 covers all of A-leg truth, so a set that listed
+// only the transcript slices could not see a feature-side rewrite of either the
+// trajectory or the tool catalog.
 var algForbiddenClientAppendFields = map[string]bool{
-	"Messages": true,
-	"Items":    true,
+	"Messages":     true,
+	"Items":        true,
+	"Instructions": true,
+	"Tools":        true,
 }
 
 // algTerminalOwnerReceivers pins the approved terminal-owner receiver census.
@@ -263,7 +278,7 @@ func ScanAgentLoopGuardOwnershipViolations(repoRoot string) ([]RuleFinding, erro
 			return err
 		}
 		findings = append(findings, ScanFileAgentLoopGuardOwnership(rel, fset, f)...)
-		if algFeatureRootFile(rel) {
+		if algFeatureTreeFile(rel) {
 			featureFiles = append(featureFiles, algSourceFile{RelPath: rel, AST: f, FSet: fset})
 		}
 		return nil
@@ -275,14 +290,29 @@ func ScanAgentLoopGuardOwnershipViolations(repoRoot string) ([]RuleFinding, erro
 	return findings, nil
 }
 
-// algFeatureRootFile reports whether rel is a production file directly in the
-// ALG feature root package, excluding tests and excluding its subpackages.
-func algFeatureRootFile(rel string) bool {
+// algFeatureTreeFile reports whether rel is a production file of the ALG feature
+// at any depth: the root package or a subpackage.
+//
+// The multi-file ratchets judge the WHOLE feature, so the walk's index must
+// carry the whole feature. An index narrowed to the root package made every
+// subpackage invisible to all three of them at once: a Decide receiver in
+// protocolpolicy/ satisfied the same terminal-decision seam without appearing in
+// the terminal-owner census, and a verifier call inside a subpackage function the
+// preferred receiver calls was outside the reachability walk's horizon because
+// the walk stopped at a cross-package selector. The shipped layout puts the
+// preferred policy, the protocol state, the cause policy, the progress policy
+// and the verifier itself in subpackages, so a root-only index was blind to the
+// exact files these ratchets exist to police.
+//
+// algFeatureTreePackage is the shared predicate; the per-file dispatch in
+// ScanFileAgentLoopGuardOwnership already routed the whole tree to
+// scanAlgFeatureOwnership, so this only widens the multi-file index.
+func algFeatureTreeFile(rel string) bool {
 	rel = SlashPath(rel)
 	if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
 		return false
 	}
-	return PackageDirFromRel(rel) == algFeatureRootDir
+	return algFeatureTreePackage(PackageDirFromRel(rel))
 }
 
 // algFeatureTreePackage reports whether pkg is the ALG feature root package or

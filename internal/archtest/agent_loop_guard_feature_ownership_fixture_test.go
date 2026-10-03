@@ -83,6 +83,33 @@ func release(ctx context.Context, w Writer, msg lipapi.Item) error {
 			want:    `field "Messages"`,
 		},
 		{
+			// Requirement 3.1 forbids the feature from writing ANY canonical
+			// A-leg truth, not only the transcript slices: Instructions and
+			// Tools are the trajectory and the client tool catalog, and the
+			// approved generic owner (pkg/lipsdk/controltool.Project) mutates
+			// exactly those three fields. Without them in the field set, the
+			// ratchet could not see a feature-side rewrite of either.
+			name:    "appends to the client instruction trajectory",
+			relPath: algFeatureRootDir + "/completiontool.go",
+			src:     "package agentloopguard\n\nfunc inject(c lipapi.Call, msg lipapi.Message) lipapi.Call {\n\tc.Instructions = append(c.Instructions, msg)\n\treturn c\n}\n",
+			want:    `field "Instructions"`,
+		},
+		{
+			name:    "appends to the client tool catalog",
+			relPath: algFeatureRootDir + "/completiontool_handle.go",
+			src:     "package agentloopguard\n\nfunc inject(c lipapi.Call, tool lipapi.ToolDef) lipapi.Call {\n\tc.Tools = append(c.Tools, tool)\n\treturn c\n}\n",
+			want:    `field "Tools"`,
+		},
+		{
+			// The same mutation in the APPROVED generic owner stays legal: the
+			// ratchet binds the feature, not the SDK contract that exists to
+			// perform this projection on the feature's behalf.
+			name:    "the approved generic SDK owner performs this projection legally",
+			relPath: algControlToolSDK + "/projection.go",
+			src:     "package controltool\n\nfunc project(out lipapi.Call, instruction Instruction, tool lipapi.ToolDef) lipapi.Call {\n\tout.Items = prepend([]lipapi.Item{controlItem(instruction)}, out.Items)\n\tout.Instructions = prepend([]lipapi.Message{controlMessage(instruction)}, out.Instructions)\n\tout.Tools = append(out.Tools, tool)\n\treturn out\n}\n",
+			want:    "",
+		},
+		{
 			name:    "appends to an unrelated slice",
 			relPath: algFeatureRootDir + "/completiontool.go",
 			src:     "package agentloopguard\n\nfunc grow(lines []string) []string {\n\tlines = append(lines, \"note\")\n\treturn lines\n}\n",

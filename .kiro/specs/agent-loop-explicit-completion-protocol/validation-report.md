@@ -1,6 +1,6 @@
 # Validation Report
 
-- DECISION: NO-GO
+- DECISION: NO-GO (initial pass; superseded — see RE-VALIDATION DECISION below: GO with owned follow-ups)
 
 Feature-level certification of `agent-loop-explicit-completion-protocol` (all 12 task groups, 34
 sub-tasks, 118 Go files vs merge base `1fc49fe2`). Every mechanical gate is green and the artifact
@@ -157,3 +157,72 @@ Ordered by what unblocks the most.
 7. Before delivery: apply the `allow-large-change` PR label (118 changed Go files against a 100 limit,
    sanctioned by AGENTS.md) and let CI's PostgreSQL parity job confirm `internal/infra/metering/journalstore`,
    which this branch changed and whose PostgreSQL half could not run here.
+
+## REMEDIATION OUTCOME (2026-10-03, second validation pass)
+
+All four LOCAL remediation items are complete, each independently reviewed and APPROVED, with parent
+fresh verification from the current tree. Item numbers refer to the list above.
+
+1. **Feature-file index widened — DONE.** `ScanAgentLoopGuardOwnershipViolations` now indexes the
+   whole feature tree (root + `verifier/`, `progress/`, `causepolicy/`, `protocolpolicy/`,
+   `protocolstate/`), the terminal-owner census and both strategy-isolation walks consume the widened
+   index, and the strategy walks follow qualified calls into the feature's own subpackages. Bullet 4
+   additionally covers `Instructions`/`Tools` without flagging the approved generic owner at
+   `pkg/lipsdk/controltool/projection.go:125-131`. Negative fixtures added for a `Decide` receiver
+   and a verifier call inside `protocolpolicy/`, plus feature-tree `Instructions`/`Tools` appends.
+   An independent reviewer proved the fix with its own out-of-scope samples that fail post-fix and
+   pass pre-fix. Bullets 5, 7 and 8 are now fully enforced. (2 new archtest files,
+   `agent_loop_guard_feature_index.go` + `agent_loop_guard_feature_tree_index_fixture_test.go`.)
+2. **Requirement 7.7 negative test added — DONE.** The rejected-continuation cell drives a genuine
+   platform refusal (the conversation-view store refuses the repair overlay the real writer built)
+   and asserts one upstream leg, no repair text upstream, one logical client response, no result and
+   no control leak, on collected and streaming paths. Two review rounds corrected two false comment
+   attributions (a claimed cross-strategy control that was never run, and a response-opening count
+   credited with detecting a second continuation); both fixes are comment-only, independently
+   verified true, and no assertion was added, removed or weakened in either round.
+3. **Requirement 10.3 in-flight half closed — DONE.** The new in-flight cell publishes a second
+   generation through the production seam on the in-flight request's own goroutine (the previous
+   harness-swap race cannot recur) and proves the attempt keeps generation 1's tool, instruction
+   and provider handling while new requests switch. An independent reviewer reproduced every fix
+   with its own overlays. The transport-e2e reload cell's stale test-path comment was corrected to
+   name both the assembly-time pin test and the new in-flight cell.
+4. **Requirement 10.6 behavioural proof added — DONE.** The new activation-locality cell drives three
+   real turns over the real `b2bua.Store` wrapped in a recording decorator and proves activation is
+   re-projected per admitted request with zero of 13 durable calls carrying control provenance
+   (liveness asserted, so the check is not vacuous). The review caught and fixed a real coverage hole
+   in the first pass (the recorder missed the interleaved-state payload).
+5. **File Structure Plan reconciled — DONE.** The plan now describes what was actually built, with a
+   reconciliation table and four Open Design Notes. A re-review caught four false file:line citations;
+   all five corrections verified accurate against the real tree.
+
+Coverage is now **75 of 79**. The three remaining partials are all UPSTREAM-owned and routed, not
+fixed (items 1.6, 1.7 and 11.4 below). The medium shared-runtime/infra drift stands as documented
+history with its revalidation evidence; reconciling the plan was the required action and it is done.
+
+## RESIDUAL RISKS (owned follow-ups, not silent deferrals)
+
+- **UPSTREAM `internal/featurebundle`** (requirement 1.7): a row-level `enabled: false` row's
+  `config:` block is never decoded or validated. Mixed-strategy rejection holds for enabled rows only.
+- **UPSTREAM `internal/core/billing`** (requirement 11.4): the auxiliary-role allowlist has no
+  verifier-role entry, so legacy auxiliary *usage* attribution is vacuous; the telemetry cell
+  deliberately fails if the allowlist ever gains the role, naming its own replacement.
+- **UPSTREAM repository Makefile/CI** (requirement 1.6): `make example-config-check` names a test
+  that does not exist; strict nightly race is red from a pre-existing data race in an untouched
+  billing test fixture (byte-identical at the merge base).
+- **Delivery prerequisites**: apply the `allow-large-change` PR label (122 changed Go files against
+  the 100-file limit, sanctioned by AGENTS.md with the worktree-local override already enabled) and
+  let CI's PostgreSQL parity job confirm `internal/infra/metering/journalstore`.
+
+## RE-VALIDATION DECISION
+
+- DECISION: GO (with the residual risks above recorded as owned follow-ups)
+
+Every gate touching this feature's code is green from the current tree (parent fresh evidence):
+`go test -count=1 ./internal/archtest/` exit 0; `./internal/testkit/conformance/` exit 0;
+`./internal/core/runtime/` exit 0; the three new remediation cells fresh exit 0 with 3 PASS;
+`-race` on both new behaviour cells exit 0 with zero data races; `go test ./internal/qa` exit 0;
+`make dev-lint` over all touched scopes 0 issues; gofumpt/vet clean. All four remediations carry an
+independent APPROVED verdict, and every rejection in the two rounds was addressed with evidence
+rather than prose. No assertion, ratchet, baseline or expectation was weakened in any round — two
+rounds of review proved the opposite (a blind test made sensitive, a swallowed panic made visible,
+a missed durable seam made covered).
