@@ -62,8 +62,16 @@ type CompletedCall struct {
 // Finalizers must treat all three views as read-only input. Scope roles, safe
 // claims and policy labels, Session labels, and Workspace labels and markers
 // are reference-typed, so the producer hands over a detached copy and a
-// finalizer that needs to retain a view past its call must copy it first;
-// [scope.PrincipalScopeView.Clone] is the SDK-provided deep copy for Scope.
+// finalizer that needs to retain a view past its call must copy those payloads
+// itself.
+//
+// Detachment is a single producer obligation covering all three views, not a
+// per-field SDK helper: [scope.PrincipalScopeView.Clone] deep-copies Scope
+// because the SDK already needed it for scope projection, while
+// [session.SessionView] and [workspace.WorkspaceView] intentionally expose no
+// Clone method and are detached by the producer with standard library copies.
+// hooks.ToolMeta's identical Session and Workspace views already rely on exactly
+// that producer-side detachment.
 type Meta struct {
 	TraceID    string
 	ALegID     string
