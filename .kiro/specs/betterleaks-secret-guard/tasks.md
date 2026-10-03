@@ -145,7 +145,7 @@
     - _Validation: depth-1 encoded fixtures under all actions_
 
 - [ ] 7. Harden observability and failure privacy
-  - [ ] 7.1 Add bounded detector diagnostics and audit provenance
+  - [x] 7.1 Add bounded detector diagnostics and audit provenance
     - Project detector posture and BetterLeaks policy facts into existing secret-guard diagnostics.
     - Add detector/rule/confidence only where bounded audit consumers need explanation; keep metrics low-cardinality.
     - Sanitize scanner/construction errors before generic logging/client mapping.

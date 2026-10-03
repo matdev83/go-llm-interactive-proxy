@@ -126,6 +126,30 @@ type betterLeaksScanError struct {
 	cause error
 }
 
+// betterLeaksConstructionError is the private boundary for upstream config and
+// scanner construction failures. BetterLeaks may include source/config details
+// in its errors, so only the bounded classification crosses this package.
+// Is preserves private identity for generation failure handling without adding
+// an unwrap chain that could expose the upstream error text to generic callers.
+type betterLeaksConstructionError struct {
+	cause error
+}
+
+func (e *betterLeaksConstructionError) Error() string {
+	return "secretguard: betterleaks scanner construction failed"
+}
+
+func (e *betterLeaksConstructionError) Is(target error) bool {
+	return e != nil && e.cause != nil && errors.Is(e.cause, target)
+}
+
+func newBetterLeaksConstructionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &betterLeaksConstructionError{cause: err}
+}
+
 func (e *betterLeaksScanError) Error() string {
 	if e == nil {
 		return "secretguard: betterleaks scan failed"
@@ -176,7 +200,7 @@ func newBetterLeaksScanner(policy BetterLeaksPolicy) (*betterLeaksScanner, error
 
 	cfg, err := blconfig.Default()
 	if err != nil {
-		return nil, fmt.Errorf("secretguard: betterleaks default config: %w", err)
+		return nil, newBetterLeaksConstructionError(err)
 	}
 	selected, facts, err := resolveBetterLeaksConfig(cfg, policy)
 	if err != nil {
@@ -192,7 +216,7 @@ func newBetterLeaksScanner(policy BetterLeaksPolicy) (*betterLeaksScanner, error
 		blscan.WithAllowSignatures(),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("secretguard: construct betterleaks scanner: %w", err)
+		return nil, newBetterLeaksConstructionError(err)
 	}
 	maxFindings := policy.MaxFindings
 	if maxFindings <= 0 || maxFindings > DefaultBetterLeaksMaxFindings {
@@ -517,7 +541,7 @@ func resolveBetterLeaksConfig(cfg *blconfig.Config, policy BetterLeaksPolicy) (*
 		return nil, DetectorFacts{}, fmt.Errorf("secretguard: betterleaks configuration is required")
 	}
 	if err := cfg.Validate(); err != nil {
-		return nil, DetectorFacts{}, fmt.Errorf("secretguard: validate betterleaks default config: %w", err)
+		return nil, DetectorFacts{}, newBetterLeaksConstructionError(err)
 	}
 
 	disable, err := normalizeRuleSelectors("disable_rules", policy.DisableRules)

@@ -199,6 +199,29 @@ func TestBetterLeaksScanner_ScanSourceErrorIsSanitizedAndIdentifiable(t *testing
 	}
 }
 
+func TestBetterLeaksConstructionErrorIsSanitizedAndIdentifiable(t *testing.T) {
+	t.Parallel()
+
+	secret := "scanner-construction-secret-canary"
+	sourceErr := errors.New("upstream configuration contains " + secret)
+	err := newBetterLeaksConstructionError(sourceErr)
+	if err == nil {
+		t.Fatal("construction error sanitizer returned nil")
+	}
+	if !errors.Is(err, sourceErr) {
+		t.Fatal("sanitized construction error must preserve private error identity")
+	}
+	if errors.Unwrap(err) != nil {
+		t.Fatal("sanitized construction error must not expose an unwrap chain")
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "upstream configuration") {
+		t.Fatal("construction error exposed upstream detail")
+	}
+	if wrapped := fmt.Errorf("generation rejected: %w", err); strings.Contains(wrapped.Error(), secret) {
+		t.Fatal("generic wrapping exposed upstream detail")
+	}
+}
+
 func TestBetterLeaksScanner_FindingCapSpansSourceFragments(t *testing.T) {
 	detector := newTestBetterLeaksScanner(t)
 	result := betterLeaksScanResult{}
