@@ -6,4 +6,9 @@
 // Phase 5 adapter contract: when a repair engine / finalizer returns ActionPass (or an
 // engine OutcomePass) with nil ArgsJSON, core must replay the exact original buffered
 // argument bytes and lifecycle events. Nil means “unchanged originals”, never empty args.
+//
+// A finalizer that must receive the complete assembled arguments before the call may be
+// released declares that through the separate optional BufferingRequirement capability,
+// read with a type assertion. Finalizer itself is unchanged, and a finalizer that declares
+// nothing keeps its existing buffering behavior exactly.
 package toolcall
