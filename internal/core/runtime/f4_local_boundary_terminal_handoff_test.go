@@ -52,13 +52,20 @@ func f4LocalBoundaryAttempt(sink metering.ObservationSink) (*attemptSession, *co
 		terminal:        newStreamTerminal(sdkterminal.ScopeAttempt),
 		boundary:        boundary,
 		observationSink: sink,
-		bleg:            b2bua.BLegRecord{ALegID: "a-f4", BLegID: "b-f4", Seq: 1},
-		cand:            routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-f4", Model: "model-f4"}},
-		billingCallID:   f4CallID,
-		billingStoreID:  "store-f4",
-		requestID:       "request-f4",
-		now:             func() time.Time { return time.Unix(1_700_000_100, 0).UTC() },
-		billingEnabled:  func() bool { return true },
+		// This test reopens the durable stores and asserts the final local
+		// measurement survived, so the terminal flush must actually complete.
+		// A real file-backed SQLite store under -race on a loaded host exceeds the
+		// production 2s bound through no defect of this test, which would drop
+		// observations the test then verifies. Raise the budget for this attempt
+		// only; production requests keep economicCheckpointFlushTimeout unchanged.
+		terminalFlushBudget: 60 * time.Second,
+		bleg:                b2bua.BLegRecord{ALegID: "a-f4", BLegID: "b-f4", Seq: 1},
+		cand:                routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-f4", Model: "model-f4"}},
+		billingCallID:       f4CallID,
+		billingStoreID:      "store-f4",
+		requestID:           "request-f4",
+		now:                 func() time.Time { return time.Unix(1_700_000_100, 0).UTC() },
+		billingEnabled:      func() bool { return true },
 	}
 	return session, boundary
 }
@@ -469,7 +476,16 @@ func TestF4TerminalHandoffRetainsFinalLocalMeasurementAcrossDurableRestart(t *te
 	f4ObserveProviderOutput(boundary, 40)
 
 	record, terminalErr := f4Terminalize(t, session, IntentSuccess, sdkterminal.CommandNormalFinish, billing.LegOutcomeWinner)
+	// This test asserts durability across a simulated restart, so the flush must
+	// actually complete. Exceeding the bounded terminal budget is classified by
+	// ErrEconomicCheckpointFlushTimeout, but a timed-out flush drops the ordinary
+	// observations this test then reopens and verifies, so it is a real failure
+	// here rather than an acceptable outcome. Report the classification explicitly
+	// so the cause is not mistaken for a generic store fault.
 	if terminalErr != nil {
+		if errors.Is(terminalErr, ErrEconomicCheckpointFlushTimeout) {
+			t.Fatalf("terminal flush exceeded its bounded budget and dropped durable observations: %v", terminalErr)
+		}
 		t.Fatalf("terminal drain/flush unexpectedly failed: %v", terminalErr)
 	}
 
