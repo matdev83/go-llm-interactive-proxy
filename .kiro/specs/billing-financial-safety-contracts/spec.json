@@ -68,7 +68,7 @@
     "implementation_tests": "not_run",
     "production_release": "not_certified",
     "specification_negative_controls": 15,
-    "coverage_negative_controls": 14,
+    "coverage_negative_controls": 17,
     "synthetic_test_event_controls": 6,
     "lattice_enumeration": "901120_unique_base_coordinates_220_pairs_all_NOT_RUN",
     "architecture_simplification_review": "completed_revision3_no_financial_semantics_weakened",
