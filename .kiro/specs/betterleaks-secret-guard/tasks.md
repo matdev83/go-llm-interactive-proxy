@@ -174,7 +174,7 @@
     - _Depends: 6.3_
     - _Validation: parity matrix_
 
-  - [ ] 8.2 (P) Add race and fuzz/adversarial certification
+  - [x] 8.2 (P) Add race and fuzz/adversarial certification
     - Race one shared generation scanner under realistic concurrent request scans.
     - Fuzz logical fragment mapping, malformed JSON, exact/discovery overlaps, redaction invariants, high finding counts, cancellation, and observability sanitization.
     - Assert no per-request unbounded goroutine growth and stable deterministic finding ordering.
@@ -205,6 +205,8 @@
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
 
 ## Implementation Notes
+
+- Targeted secretguard race certification passes in WSL Ubuntu with GCC and verified Go 1.26.6 at `$HOME/.local/share/lip-betterleaks-race-toolchain/go/bin/go`; full runtime race separately reported a billing durable-restart deadline failure requiring final certification assessment.
 
 - Enabled BetterLeaks zero decode depth and zero active rules must remain present in diagnostics; full architecture certification currently reports TestShrinkage_NetReductionMeetsRequirement115 convergence delta -746 versus required -800.
 
