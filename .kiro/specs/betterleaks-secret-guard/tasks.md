@@ -90,7 +90,7 @@
     - _Validation: overlapping/repeated/randomized-order fixtures_
 
 - [ ] 5. Preserve exact protection and wire hybrid composition by access mode
-  - [ ] 5.1 Restore/retain single-user exact local protection behind its new switch
+  - [x] 5.1 Restore/retain single-user exact local protection behind its new switch
     - Preserve existing include/exclude/popular environment inventory, minimum-secret-length, known-prefix, and mask behavior when enabled.
     - Ensure disabling local discovery performs no environment catalog enumeration and does not disable BetterLeaks.
     - _Requirements: 1.3, 1.6, 2.1, 2.3_
