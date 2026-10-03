@@ -82,20 +82,6 @@ func pendingLifetimeOrigin(p *responsePipeline) *attemptSession {
 	return prepared.origin
 }
 
-// pendingLifetimeStageAndActivate is the narrow queue-only driver: it claims the
-// one publication, installs a batch, and activates it, so a case can assert on the
-// deliverable queue without a receive loop.
-func pendingLifetimeStageAndActivate(t *testing.T, p *responsePipeline, prepared *pendingCompletion, batch []lipapi.Event) {
-	t.Helper()
-	claimPublication(t, p, prepared)
-	reservation, ok := p.reservePendingPublication(prepared, false)
-	require.True(t, ok, "the claimed candidate must be reservable exactly once")
-	require.True(t, p.stageReservedPublication(reservation, prepared.origin, batch, lipapi.Event{}, pendingCustomerAbsent),
-		"the live reservation must install its own batch")
-	require.True(t, p.activateReservedPendingPublication(prepared, prepared.origin),
-		"an activated publication becomes deliverable")
-}
-
 // pendingLifetimeDirectQueue installs the private batch for the REAL pipeline and
 // attempt of a real receive stream, with no backend frame queued before it.
 //
@@ -1830,9 +1816,6 @@ type pendingLifetimeBlockingRecorder struct {
 	blockKind lipapi.EventKind
 	blockErr  error
 	once      sync.Once
-
-	mu    sync.Mutex
-	kinds []lipapi.EventKind
 }
 
 func newPendingLifetimeBlockingRecorder(blockKind lipapi.EventKind) *pendingLifetimeBlockingRecorder {
@@ -1864,28 +1847,7 @@ func (r *pendingLifetimeBlockingRecorder) RecordPostHookStreamEvent(_ context.Co
 			return r.blockErr
 		}
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.kinds = append(r.kinds, kind)
 	return nil
-}
-
-func (r *pendingLifetimeBlockingRecorder) recordedKinds() []lipapi.EventKind {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := make([]lipapi.EventKind, len(r.kinds))
-	copy(out, r.kinds)
-	return out
-}
-
-func (r *pendingLifetimeBlockingRecorder) countOf(kind lipapi.EventKind) int {
-	count := 0
-	for _, got := range r.recordedKinds() {
-		if got == kind {
-			count++
-		}
-	}
-	return count
 }
 
 // awaitEntry waits for the recorded preflight with the same bound these cases

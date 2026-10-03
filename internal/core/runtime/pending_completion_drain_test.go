@@ -138,16 +138,6 @@ func pendingDrainUsageCount(events []lipapi.Event) int {
 	return count
 }
 
-// pendingDrainOrdinaryOnly is the candidate a suppressed-result case observes:
-// the ordinary lifecycle frames plus the accepted finish, with no result.
-func pendingDrainOrdinaryOnly() []lipapi.Event {
-	return []lipapi.Event{
-		{Kind: lipapi.EventResponseStarted},
-		{Kind: lipapi.EventMessageStarted},
-		{Kind: lipapi.EventResponseFinished},
-	}
-}
-
 // pendingDrainGate records the candidate it observed and returns a scripted
 // outcome, so a case can prove the gate ran once over a candidate that already
 // carried the eligible result.

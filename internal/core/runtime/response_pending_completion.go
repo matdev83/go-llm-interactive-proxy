@@ -112,11 +112,6 @@ func (c *pendingCompletion) publishing() bool {
 	return c.holds() && !c.suppressed && strings.TrimSpace(c.text.result) != ""
 }
 
-// hasResult is the nil-safe form of publishing for the finish routes.
-func (c *pendingCompletion) hasResult() bool {
-	return c.publishing()
-}
-
 // --- attempt-owned snapshot ----------------------------------------------------
 
 // snapshotPendingCompletionText copies the one valid bounded result out of this
@@ -389,14 +384,6 @@ func (p *responsePipeline) pendingCompletionGateInput(ctx context.Context, facts
 		meta: meta, services: services, stageLog: p.log,
 		committed: committed, limits: completionBufferLimitsFor(p),
 	}
-}
-
-func (p *responsePipeline) pendingCompletionGateServices(ctx context.Context) completion.Services {
-	services := completion.Services{}
-	if snap := p.completionSnapshot(ctx); snap != nil {
-		services.State, services.Aux = snap.State(), snap.Aux()
-	}
-	return services
 }
 
 // --- held ordinary action evidence --------------------------------------------

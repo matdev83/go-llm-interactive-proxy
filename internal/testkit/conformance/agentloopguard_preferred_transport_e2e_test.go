@@ -117,11 +117,10 @@ type algLeg struct {
 // stays observable in the count instead of becoming an error the cell cannot
 // assert on.
 type algTransportOrigin struct {
-	mu      sync.Mutex
-	legs    []algLeg
-	served  int
-	bodies  []string
-	reached func() bool
+	mu     sync.Mutex
+	legs   []algLeg
+	served int
+	bodies []string
 }
 
 // algServeCount returns how many upstream requests this origin served.

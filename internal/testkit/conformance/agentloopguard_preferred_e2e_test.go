@@ -309,8 +309,46 @@ func algDeployColumn(t *testing.T, col algColumn) (*Deployment, *algTrace) {
 		t.Fatalf("Contribute stream observer factories: %v", err)
 	}
 	d.Exec.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{FeaturePlanes: cs.Freeze()})
+	algAssertNoCompletionGateInPreferredPath(t, col.Strategy, d.Exec.RuntimeSnapshot)
 	algWireContinuationPorts(t, d)
 	return d, tr
+}
+
+// algAssertNoCompletionGateInPreferredPath is the measured proof of requirement
+// 5.7 and design Repair 1 ("rejected whole-response completion gates because
+// they buffer normal streaming") for every preferred cell in this file.
+//
+// The strategy is proven by MEASUREMENT of the real composed generation, not by
+// reading a comment: the request-runtime snapshot the production builder just
+// published is asked directly how many whole-response completion gates it
+// carries. Zero means the preferred protocol's completion decision cannot come
+// from a whole-response gate, because no gate exists on its path at all; the
+// decision is made by mid-stream control-call capture and terminal evidence.
+//
+// The same measurement is taken for the legacy column so the contrast is recorded
+// rather than assumed, and the recorded contrast is worth stating precisely: the
+// legacy column ALSO measures zero gates, because the legacy strategy has never
+// buffered a whole response either. The two columns differ in exactly the plane
+// that matters — the legacy column has no control-tool provider at all — so a zero
+// gate count proves the preferred path is gate-free but does NOT by itself prove
+// which strategy is composed. That is why the provider assertion below is
+// mandatory rather than decorative.
+func algAssertNoCompletionGateInPreferredPath(t *testing.T, strategy string, snap *extensions.RequestRuntimeSnapshot) {
+	t.Helper()
+	if snap == nil {
+		t.Fatalf("alg: no request runtime snapshot for strategy %q", strategy)
+	}
+	gates := snap.CompletionGates()
+	if strategy == AgentLoopGuardStrategyAttemptCompletion {
+		if len(gates) != 0 {
+			t.Fatalf("preferred strategy must carry zero whole-response completion gates, measured %d", len(gates))
+		}
+		if snap.ControlToolProvider() == nil {
+			t.Fatalf("preferred strategy must carry the control-tool provider; a gate count of %d alone would not prove the preferred mechanism", len(gates))
+		}
+	}
+	t.Logf("alg: strategy=%q measured completion_gates=%d control_tool_provider_present=%v",
+		strategy, len(gates), snap.ControlToolProvider() != nil)
 }
 
 // algWireContinuationPorts composes the two real conversation-view ports the

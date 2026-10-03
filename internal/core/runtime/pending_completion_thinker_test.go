@@ -17,7 +17,6 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -36,36 +35,12 @@ import (
 // publishes. It is a low-entropy, obviously fake marker.
 const pendingThinkerResult = "thinker bounded answer"
 
-// errPendingThinkerTail ends the thinker B-leg with a transport error instead of a
-// clean EOF. These cases assert on what the accepted thinker publication released,
-// so a clean EOF would additionally open an executor continuation that this
-// fixture deliberately does not provide.
-var errPendingThinkerTail = errors.New("pending thinker tail")
-
-// pendingThinkerTailStream emits its events and then fails, so the wrapper ends
-// inside the thinker phase.
-type pendingThinkerTailStream struct {
-	events []lipapi.Event
-	idx    int
-}
-
-func (s *pendingThinkerTailStream) Recv(context.Context) (lipapi.Event, error) {
-	if s.idx < len(s.events) {
-		ev := s.events[s.idx]
-		s.idx++
-		return ev, nil
-	}
-	return lipapi.Event{}, errPendingThinkerTail
-}
-
-func (*pendingThinkerTailStream) Close() error { return nil }
-
-func (*pendingThinkerTailStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
-	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
-}
-
 // pendingThinkerFixture is one assembled interleaved thinker stream with a real
 // processor-owned turn and a real valid completion result on its attempt.
+//
+// The fixture deliberately has no executor stream, so each drain ends on a receive
+// error rather than a clean EOF. These cases assert on what did reach the outer
+// client, never on that error, so it is explicitly not inspected.
 type pendingThinkerFixture struct {
 	stream   *retryRecvStream
 	turn     InterleavedTurn
@@ -155,11 +130,6 @@ func (f *pendingThinkerFixture) recv(t *testing.T) []lipapi.Event {
 	}
 	return released
 }
-
-// The thinker fixture deliberately has no executor stream, so each drain ends on a
-// receive error rather than a clean EOF. These cases assert on what did reach the
-// outer client, never on that error, so it is explicitly not inspected.
-var _ = errors.Is
 
 func pendingThinkerAssistantText(events []lipapi.Event) string {
 	var b strings.Builder

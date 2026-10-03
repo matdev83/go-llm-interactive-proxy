@@ -25,13 +25,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
 
 // pendingRouteGuard bounds the drain assertions. It only turns a hang into a
@@ -225,22 +223,6 @@ func (b *pendingRouteCloseBarrier) fenceHits() int {
 	return b.fenceHit
 }
 
-func (b *pendingRouteCloseBarrier) close() {
-	b.mu.Lock()
-	b.closed = true
-	b.mu.Unlock()
-	close(b.release)
-}
-
-func (b *pendingRouteCloseBarrier) awaitEntry(t *testing.T) {
-	t.Helper()
-	select {
-	case <-b.entered:
-	case <-time.After(pendingRouteGuard):
-		t.Fatal("the publication fence was never reached")
-	}
-}
-
 // pendingRouteRetainedCandidate runs the REAL preparation seam so the response
 // genuinely RETAINS this candidate before the fence is consulted.
 //
@@ -304,7 +286,6 @@ func TestPendingRoute_closeWinnerBeforePublicationSuppressesTheResult(t *testing
 // fenced, so the fence must observe the cancellation the detached terminal cleanup
 // context would otherwise mask.
 type pendingRouteCancelBarrier struct {
-	mu      sync.Mutex
 	entered chan struct{}
 	release chan struct{}
 	cancel  context.CancelFunc
@@ -509,13 +490,6 @@ func TestPendingRoute_thinkerTerminalDoesNotSettleCustomerRequestAuthority(t *te
 		"the thinker must not complete the shared request terminal")
 }
 
-// pendingRouteUsageRig is a compact fixture for the customer/operator usage split.
-type pendingRouteUsageRig struct {
-	stream   *retryRecvStream
-	pipe     *responsePipeline
-	operator lipapi.Event
-}
-
 // TestPendingRoute_customerUsageCountsTheResultWhileOperatorUsageDoesNot pins the
 // plane split on the REAL receive loop: the accepted result is ordinary
 // customer-visible assistant content, so the customer projection counts it, while
@@ -581,18 +555,3 @@ func TestPendingRoute_customerUsageCountsTheResultWhileOperatorUsageDoesNot(t *t
 	assert.Equal(t, pendingRouteResult, released[textAt].Delta,
 		"the released result must be the bounded completion text")
 }
-
-// pendingRouteBLegIsPreserved keeps the frozen attempt identity reachable so a
-// future assertion can prove the published result belonged to the attempt that
-// actually won.
-func pendingRouteBLegIsPreserved(attempt *attemptSession) b2bua.BLegRecord { return attempt.bleg }
-
-// pendingRouteAssemblerIsEnabled keeps the ordinary assembler fixture reachable.
-func pendingRouteAssemblerIsEnabled() bool {
-	return newToolCallAssembler([]toolcall.Finalizer{pendingCatalogFinalizer{}}, 1024,
-		[]lipapi.ToolDef{{Name: "get_weather", Parameters: []byte(`{"type":"object"}`)}}) != nil
-}
-
-// errPendingRouteUnused keeps the error vocabulary of these cases explicit without
-// asserting on it: the receive drain always ends on a receive error.
-var _ = errors.Is

@@ -92,25 +92,6 @@ func (l *interceptOrderLog) snapshot() []string {
 	return out
 }
 
-func (l *interceptOrderLog) countPrefix(prefix string) int {
-	count := 0
-	for _, step := range l.snapshot() {
-		if strings.HasPrefix(step, prefix) {
-			count++
-		}
-	}
-	return count
-}
-
-func (l *interceptOrderLog) indexOf(prefix string) int {
-	for i, step := range l.snapshot() {
-		if strings.HasPrefix(step, prefix) {
-			return i
-		}
-	}
-	return -1
-}
-
 func interceptEventLabel(ev lipapi.Event) string {
 	if ev.ToolCallID != "" {
 		return string(ev.Kind) + ":" + ev.ToolCallID
@@ -226,9 +207,8 @@ func (f *interceptFinalizer) finalized() []string {
 type interceptReactor struct {
 	log *interceptOrderLog
 
-	mu    sync.Mutex
-	seen  []string
-	allow bool
+	mu   sync.Mutex
+	seen []string
 }
 
 func (r *interceptReactor) ID() string { return "intercept-reactor" }
@@ -255,9 +235,8 @@ func (r *interceptReactor) observed() []string {
 type interceptPolicy struct {
 	log *interceptOrderLog
 
-	mu    sync.Mutex
-	seen  []string
-	allow bool
+	mu   sync.Mutex
+	seen []string
 }
 
 func (p *interceptPolicy) ID() string                        { return "intercept-policy" }
