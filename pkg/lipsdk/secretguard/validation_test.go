@@ -71,6 +71,15 @@ func TestDecisionValidateAcceptsLegalShapes(t *testing.T) {
 			},
 		},
 		{
+			name: "block_unrewritable_detected_secret",
+			decision: Decision{
+				Outcome:       OutcomeBlock,
+				Findings:      []Finding{{DetectorID: DetectorIDBetterLeaks, RuleID: "rule", Location: "messages[0].parts[0]", OccurrenceCount: 1}},
+				FailureKind:   FailureKindUnrewritableDetectedSecret,
+				FailureReason: "detected secret cannot be safely rewritten",
+			},
+		},
+		{
 			name: "block_scan_limit",
 			decision: Decision{
 				Outcome:       OutcomeBlock,

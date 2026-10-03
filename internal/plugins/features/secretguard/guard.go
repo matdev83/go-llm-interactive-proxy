@@ -91,6 +91,15 @@ func (g *guard) evalRedact(ctx context.Context, call *lipapi.Call, m sdk.Matcher
 	work := lipapi.CloneCall(*call)
 	out, err := scanCall(ctx, &work, m, modeRedact, g.cfg.ScanMaxBytes, generation)
 	if err != nil {
+		if errors.Is(err, errBetterLeaksUnrewritable) {
+			return sdk.Decision{
+				Outcome:       sdk.OutcomeBlock,
+				Findings:      out.Findings,
+				MutationCount: 0,
+				FailureKind:   FailureKindUnrewritableDetectedSecret,
+				FailureReason: "detected secret cannot be safely rewritten",
+			}, nil
+		}
 		var unsupported *unsupportedJSONTokenError
 		if errors.As(err, &unsupported) {
 			return sdk.Decision{

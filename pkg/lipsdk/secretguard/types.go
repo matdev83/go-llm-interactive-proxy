@@ -42,6 +42,9 @@ const (
 	// decisions, which preserve the request while recording safe failure
 	// metadata.
 	FailureKindDetectorFailure = "detector_failure"
+	// FailureKindUnrewritableDetectedSecret is returned when redact discovers a
+	// secret whose original representation cannot be safely rewritten.
+	FailureKindUnrewritableDetectedSecret = "unrewritable_detected_secret"
 )
 
 // Confidence values are the only confidence bands that may cross the SDK

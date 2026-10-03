@@ -11,6 +11,7 @@ const (
 	decisionFailureKindScanLimit            = "scan_limit"
 	decisionFailureKindUnsupportedJSONToken = "unsupported_json_token"
 	decisionFailureKindDetectorFailure      = FailureKindDetectorFailure
+	decisionFailureKindUnrewritable         = FailureKindUnrewritableDetectedSecret
 
 	decisionMaxTokenBytes     = 128
 	decisionMaxReasonBytes    = 256
@@ -79,7 +80,7 @@ func (d Decision) Validate() error {
 			}
 		} else if d.FailureKind == "" {
 			// Plain block decisions remain legal with or without findings.
-		} else if d.FailureKind == decisionFailureKindUnsupportedJSONToken {
+		} else if d.FailureKind == decisionFailureKindUnsupportedJSONToken || d.FailureKind == decisionFailureKindUnrewritable {
 			if len(d.Findings) == 0 {
 				return invalidDecisionField("block_shape")
 			}

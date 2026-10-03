@@ -116,7 +116,7 @@
     - _Depends: 2.3, 5.1, 5.2_
     - _Validation: generation compose/reload/inventory tests_
 
-- [ ] 6. Route BetterLeaks discoveries through existing enforcement and redaction
+- [x] 6. Route BetterLeaks discoveries through existing enforcement and redaction
   - [x] 6.1 RED-test action semantics for BetterLeaks findings
     - Cover block before dispatch/quarantine, log without mutation, literal redact, decoded/unrewritable redact, scan error, finding-cap error, and existing scan-limit behavior.
     - Assert block/log never mutate input and failed redaction never partially commits the working clone.
@@ -135,7 +135,7 @@
     - _Depends: 6.1_
     - _Validation: text/JSON redaction differential tests_
 
-  - [ ] 6.3 Implement decoded/unrewritable fail-closed behavior
+  - [x] 6.3 Implement decoded/unrewritable fail-closed behavior
     - Map non-literal BetterLeaks positives to safe findings while withholding unsafe rewrite candidates.
     - Block under redact with bounded `unrewritable_detected_secret`; preserve normal block/log semantics.
     - Prove no encoded secret is reported as redacted unless its original representation was actually sanitized.

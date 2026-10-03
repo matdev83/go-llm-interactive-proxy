@@ -199,6 +199,9 @@ func TestGuard_BetterLeaksDecodedFindingActionMatrix(t *testing.T) {
 			if err != nil {
 				t.Fatal("decoded finding evaluation failed")
 			}
+			if err := decision.Validate(); err != nil {
+				t.Fatalf("decoded finding decision is not valid: %v", err)
+			}
 			assertBetterLeaksFinding(t, decision)
 			if decision.Outcome != tc.wantOutcome {
 				t.Fatalf("outcome = %q", decision.Outcome)
@@ -226,6 +229,9 @@ func TestGuard_BetterLeaksRedactMixedLiteralAndDecodedNeverCommitsPartialClone(t
 	decision, err := guard.Evaluate(context.Background(), &call, sdk.Meta{}, services)
 	if err != nil {
 		t.Fatal("mixed redaction should return bounded fail-closed decision")
+	}
+	if err := decision.Validate(); err != nil {
+		t.Fatalf("mixed redaction decision is not valid: %v", err)
 	}
 	assertBetterLeaksFinding(t, decision)
 	if decision.Outcome != sdk.OutcomeBlock || decision.FailureKind != "unrewritable_detected_secret" {

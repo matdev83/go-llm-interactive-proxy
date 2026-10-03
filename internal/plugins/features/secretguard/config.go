@@ -33,6 +33,10 @@ const FailureKindScanLimit = "scan_limit"
 // token matched during redact but cannot be mutated in place.
 const FailureKindUnsupportedJSONToken = "unsupported_json_token"
 
+// FailureKindUnrewritableDetectedSecret is set on Decision when BetterLeaks
+// finds a secret whose original representation cannot be safely rewritten.
+const FailureKindUnrewritableDetectedSecret = "unrewritable_detected_secret"
+
 // Defaults applied by DecodeConfig.
 const (
 	DefaultScanMaxBytes           = 2 << 20

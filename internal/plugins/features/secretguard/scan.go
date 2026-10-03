@@ -164,6 +164,12 @@ func scanCall(ctx context.Context, call *lipapi.Call, m sdk.Matcher, mode scanMo
 		}
 		if mode == modeRedact {
 			if err := validateBetterLeaksRedactionEligibility(fragments, out.discoveryFindings); err != nil {
+				if finalizeErr := finalizeHybridScanOutcome(&out); finalizeErr != nil {
+					return out, finalizeErr
+				}
+				if out.ScanLimitHit {
+					return out, nil
+				}
 				return out, err
 			}
 		}
