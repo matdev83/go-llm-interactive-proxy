@@ -205,7 +205,7 @@ func TestLoadTurnRecvASTFilesAtRef_Contract(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 
-	t.Run("head_matches_working_tree", func(t *testing.T) {
+	t.Run("head_matches_committed_snapshot", func(t *testing.T) {
 		t.Parallel()
 		headFiles, err := loadTurnRecvASTFilesAtRefContext(t.Context(), root, "HEAD")
 		if err != nil {
@@ -213,6 +213,22 @@ func TestLoadTurnRecvASTFilesAtRef_Contract(t *testing.T) {
 		}
 		if len(headFiles) == 0 {
 			t.Fatal("expected non-empty files from HEAD")
+		}
+
+		// This subtest asserts that the frozen analysis surface at HEAD still
+		// matches the tree being analyzed. That invariant is only meaningful
+		// when HEAD already contains the files under analysis. During a commit
+		// that adds or removes an internal/core/runtime file the two sets
+		// necessarily differ, and the pre-commit hook runs before HEAD moves,
+		// so asserting equality here would make the introducing commit
+		// permanently uncommittable. CI still runs this at full strength on the
+		// committed tree, where nothing is staged.
+		changed, err := hasRuntimePathSetChanges(t.Context(), root)
+		if err != nil {
+			t.Fatalf("detect staged runtime path changes: %v", err)
+		}
+		if changed {
+			t.Skip("internal/core/runtime differs between HEAD and the index; HEAD comparison runs in CI on the committed tree")
 		}
 
 		wtFiles, err := loadTurnRecvASTFilesContext(t.Context(), root)
