@@ -117,7 +117,7 @@
     - _Validation: generation compose/reload/inventory tests_
 
 - [ ] 6. Route BetterLeaks discoveries through existing enforcement and redaction
-  - [ ] 6.1 RED-test action semantics for BetterLeaks findings
+  - [x] 6.1 RED-test action semantics for BetterLeaks findings
     - Cover block before dispatch/quarantine, log without mutation, literal redact, decoded/unrewritable redact, scan error, finding-cap error, and existing scan-limit behavior.
     - Assert block/log never mutate input and failed redaction never partially commits the working clone.
     - _Requirements: 6.1, 6.2, 6.5, 6.6, 6.7, 8.4, 8.6_
