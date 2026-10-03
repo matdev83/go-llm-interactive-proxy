@@ -30,10 +30,22 @@ type toolCallAssembler struct {
 	maxArgsBytes int
 	catalog      []lipapi.ToolDef
 
+	// mandatory is the projection of every finalizer that publishes the
+	// optional toolcall.BufferingRequirement capability. It owns the effective
+	// assembly bound and the refusal policy; maxArgsBytes keeps its pre-existing
+	// meaning as the clamped legacy shared bound, which is the FLOOR of the
+	// effective assembly bound, not something any finalizer reads here.
+	mandatory mandatoryBuffering
+
 	active      map[string]*toolCallBuffer
 	passThrough map[string]struct{}
 	completed   map[string]struct{}
-	drain       []lipapi.Event
+	// refusing holds tool calls already refused closed past the effective
+	// assembly bound. Every later fragment is held and dropped so that no
+	// possibly alias-bearing argument is released, and only the finished event
+	// produces the typed refusal.
+	refusing map[string]struct{}
+	drain    []lipapi.Event
 }
 
 func newToolCallAssembler(finalizers []toolcall.Finalizer, maxArgsBytes int, catalog []lipapi.ToolDef) *toolCallAssembler {
@@ -46,9 +58,11 @@ func newToolCallAssembler(finalizers []toolcall.Finalizer, maxArgsBytes int, cat
 		finalizers:   fs,
 		maxArgsBytes: maxArgsBytes,
 		catalog:      cloneToolCatalog(catalog),
+		mandatory:    resolveMandatoryBuffering(fs, maxArgsBytes),
 		active:       make(map[string]*toolCallBuffer),
 		passThrough:  make(map[string]struct{}),
 		completed:    make(map[string]struct{}),
+		refusing:     make(map[string]struct{}),
 	}
 }
 
@@ -73,6 +87,7 @@ func (a *toolCallAssembler) clear() {
 	a.active = make(map[string]*toolCallBuffer)
 	a.passThrough = make(map[string]struct{})
 	a.completed = make(map[string]struct{})
+	a.refusing = make(map[string]struct{})
 	a.drain = nil
 }
 
@@ -118,6 +133,9 @@ func (a *toolCallAssembler) ingest(ctx context.Context, ev lipapi.Event, meta to
 	if _, ok := a.passThrough[id]; ok {
 		return false, nil
 	}
+	if _, ok := a.refusing[id]; ok {
+		return a.ingestRefused(ev, id)
+	}
 
 	switch ev.Kind {
 	case lipapi.EventToolCallStarted:
@@ -152,6 +170,19 @@ func (a *toolCallAssembler) ingestStarted(ev lipapi.Event, id string) bool {
 	return true
 }
 
+// ingestRefused keeps a tool call that is already refused closed entirely away
+// from the client: every further fragment is held and dropped, and only the
+// finished event yields the typed refusal. Nothing alias-bearing can therefore
+// be released on a call whose mandatory requirement was not honored.
+func (a *toolCallAssembler) ingestRefused(ev lipapi.Event, id string) (bool, error) {
+	if ev.Kind != lipapi.EventToolCallFinished {
+		return true, nil
+	}
+	delete(a.refusing, id)
+	a.completed[id] = struct{}{}
+	return true, a.refusal(id)
+}
+
 func (a *toolCallAssembler) ingestDelta(ev lipapi.Event, id string) bool {
 	buf, ok := a.active[id]
 	if !ok {
@@ -160,7 +191,18 @@ func (a *toolCallAssembler) ingestDelta(ev lipapi.Event, id string) bool {
 	}
 	delta := ev.Delta
 	// Overflow-safe: never add len(buf.args)+len(delta) (can wrap on extreme caps).
-	if len(buf.args) > a.maxArgsBytes || len(delta) > a.maxArgsBytes-len(buf.args) {
+	limit := a.mandatory.assemblyMaxArgsBytes
+	if len(buf.args) > limit || len(delta) > limit-len(buf.args) {
+		// A mandatory finalizer must never see the fragments replayed unchanged
+		// past its own bound, and an unusable declaration can never be honored at
+		// any bound. Refuse the call closed: the buffer is dropped without being
+		// released, and the typed refusal is deferred to the finished event so no
+		// alias-bearing argument reaches the client in the meantime.
+		if a.mandatory.failClosedPastBound() {
+			delete(a.active, id)
+			a.refusing[id] = struct{}{}
+			return true
+		}
 		buf.originals = append(buf.originals, ev)
 		a.enqueue(slices.Clone(buf.originals)...)
 		delete(a.active, id)
@@ -191,9 +233,27 @@ func (a *toolCallAssembler) ingestFinished(ctx context.Context, ev lipapi.Event,
 }
 
 func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffer, meta toolcall.Meta) ([]lipapi.Event, error) {
+	// A finalizer that published a present-but-unusable mandatory declaration
+	// cannot be honored at any bound, and treating it as "did not opt in" would
+	// downgrade a mandatory completeness requirement into optional pass-through
+	// handling. Refuse this call closed before any finalizer runs and before any
+	// original fragment is released.
+	if a.mandatory.invalidDeclaration {
+		return nil, a.refusal(buf.id)
+	}
+
 	name := buf.name
 	args := append([]byte(nil), buf.args...)
 	rewrote := false
+	// mandatoryPending records that a well-formed mandatory completeness
+	// requirement applies to this call and the finalizer that declared it has
+	// not been invoked yet. Requirement 4.6's failure clause: an unrelated
+	// finalizer that fails first must not silently skip it, because replaying the
+	// original fragments is exactly what releases possibly alias-bearing
+	// arguments no declaring finalizer ever decided on. The flag is cleared as
+	// soon as the declaring finalizer is invoked, so from that point its own
+	// error keeps the pre-existing replay semantics.
+	mandatoryPending := a.mandatory.mandatoryBoundDeclared
 
 	for _, fin := range a.finalizers {
 		if fin == nil {
@@ -207,12 +267,15 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 			ToolName:   name,
 			ArgsJSON:   append([]byte(nil), args...),
 		}
+		if mandatoryPending && declaresMandatoryBound(fin) {
+			mandatoryPending = false
+		}
 		op := "tool_call_finalizer:" + fin.ID()
 		res, err := safety.CallValue(safety.BoundaryExtension, op, func() (toolcall.Result, error) {
 			return fin.Finalize(ctx, call, tool, catalogCopy, meta)
 		})
 		if err != nil {
-			return slices.Clone(buf.originals), nil
+			return a.undecidedMandatoryReplay(buf, mandatoryPending)
 		}
 		switch res.Action {
 		case toolcall.ActionPass:
@@ -221,19 +284,34 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 			return nil, &toolcall.RejectError{ReasonCode: res.ReasonCode, ToolCallID: buf.id}
 		case toolcall.ActionRewrite:
 			if !rewriteEnvelopeValid(res) {
-				return slices.Clone(buf.originals), nil
+				return a.undecidedMandatoryReplay(buf, mandatoryPending)
 			}
 			name = strings.TrimSpace(res.ToolName)
 			args = append([]byte(nil), res.ArgsJSON...)
 			rewrote = true
 		default:
-			return slices.Clone(buf.originals), nil
+			return a.undecidedMandatoryReplay(buf, mandatoryPending)
 		}
 	}
 	if !rewrote {
 		return slices.Clone(buf.originals), nil
 	}
 	return synthesizeRewriteLifecycle(buf, name, args), nil
+}
+
+// undecidedMandatoryReplay is the assembler fallback for an ordinary finalizer
+// that failed or produced an unusable result: pre-existing behavior replays the
+// original fragments unchanged, but that silently skips path expansion whenever
+// a mandatory completeness requirement is still undecided (requirement 4.6), so
+// the call is refused closed instead.
+//
+// This does not reorder finalizers and does not change the fallback for any
+// finalizer without a declared requirement.
+func (a *toolCallAssembler) undecidedMandatoryReplay(buf *toolCallBuffer, mandatoryPending bool) ([]lipapi.Event, error) {
+	if mandatoryPending {
+		return nil, a.refusalIncomplete(buf.id)
+	}
+	return slices.Clone(buf.originals), nil
 }
 
 func cloneToolCatalog(catalog []lipapi.ToolDef) []lipapi.ToolDef {
