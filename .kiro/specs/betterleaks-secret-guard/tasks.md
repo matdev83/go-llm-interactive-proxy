@@ -31,7 +31,7 @@
     - _Depends: 1.2_
     - _Validation: adapter unit tests + dependency/import architecture checks_
 
-  - [ ] 2.2 (P) Add architecture ratchets for forbidden integration modes
+  - [x] 2.2 (P) Add architecture ratchets for forbidden integration modes
     - Reject BetterLeaks CLI/subprocess integration under the secret-guard feature tree.
     - Reject BetterLeaks analysis/pipeline/provider-validation/revocation and source-orchestration imports on the request path.
     - Reject BetterLeaks concrete types outside the private adapter and reject any allow-signature configuration surface.
