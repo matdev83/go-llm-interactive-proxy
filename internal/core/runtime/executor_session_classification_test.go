@@ -405,6 +405,16 @@ func TestSessionClassificationStageFileDoesNotTouchRequestContent(t *testing.T) 
 // TestSessionClassificationStagePreservesPriorPositive proves runtime/store/
 // remote failures never reject the request and never discard an already-positive
 // classification.
+//
+// SCOPE: because preSession.Classification is pre-set to a positive here, the
+// generic runner short-circuits at extensions.RunSessionClassificationStage and
+// the injected classify funcs are never invoked — this occurrence proves the
+// preservation property only, not that each failure class fires on this path.
+// The invocation-count half is covered by
+// TestSessionClassificationEstablishedPositiveSkipsClassifier, and the composed
+// version that genuinely runs every failure class against a persisted positive
+// is TestSessionClassificationFailurePreservesPersistedPositive. Both live in
+// executor_session_classification_failure_test.go (task 6.3).
 func TestSessionClassificationStagePreservesPriorPositive(t *testing.T) {
 	priorPositive := codingAgentSessionClassification("prior.persisted_state", 2)
 
