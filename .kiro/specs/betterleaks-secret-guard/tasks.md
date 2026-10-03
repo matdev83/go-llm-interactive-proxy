@@ -193,7 +193,7 @@
     - _Depends: 8.1, 8.2_
     - _Validation: reproducible benchmark report attached to implementation PR_
 
-  - [ ] 8.4 Resolve branch-local quality findings
+  - [x] 8.4 Resolve branch-local quality findings
     - Apply the four verified formatter, redundant assignment, and redundant type fixes without changing behavior.
     - _Requirements: 10.1_
     - _Boundary: BetterLeaks adapter; scan state declaration; race/fuzz test formatting; runtime observability canary test declaration_

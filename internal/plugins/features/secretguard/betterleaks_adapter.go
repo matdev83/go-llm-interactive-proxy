@@ -33,8 +33,10 @@ const (
 	maxBetterLeaksOccurrences     = 256
 )
 
-var errBetterLeaksFindingCap = errors.New("betterleaks projected finding cap exceeded")
-var errBetterLeaksProjection = errors.New("betterleaks finding projection failed")
+var (
+	errBetterLeaksFindingCap = errors.New("betterleaks projected finding cap exceeded")
+	errBetterLeaksProjection = errors.New("betterleaks finding projection failed")
+)
 
 // betterLeaksFinding is the bounded feature-private projection of one
 // upstream report. It intentionally omits all match, fingerprint, capture,
@@ -207,7 +209,8 @@ func newBetterLeaksScanner(policy BetterLeaksPolicy) (*betterLeaksScanner, error
 		return nil, err
 	}
 
-	scanner, err := blscan.New(selected,
+	scanner, err := blscan.New(
+		selected,
 		blscan.WithRegexEngine(blregexp.Stdlib{}),
 		blscan.WithWorkers(policy.Workers),
 		blscan.WithMinimumConfidence(policy.MinimumConfidence),

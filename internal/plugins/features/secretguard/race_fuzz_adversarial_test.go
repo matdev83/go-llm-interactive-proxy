@@ -18,8 +18,10 @@ import (
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
-const adversarialFuzzMaxBytes = 16 << 10
-const adversarialFragmentRawMax = (adversarialFuzzMaxBytes - len("authoritative text:")) / 2
+const (
+	adversarialFuzzMaxBytes   = 16 << 10
+	adversarialFragmentRawMax = (adversarialFuzzMaxBytes - len("authoritative text:")) / 2
+)
 
 func TestBetterLeaksScanner_SharedGenerationConcurrentScansHaveStableSafeOrdering(t *testing.T) {
 	detector := newTestBetterLeaksScanner(t)

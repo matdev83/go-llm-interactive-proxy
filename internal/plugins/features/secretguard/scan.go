@@ -41,7 +41,7 @@ func collectExactPrivateFindings(m sdk.Matcher, fragment LogicalFragment, findin
 	if !ok {
 		return privateExactFindingsWithoutSpans(fragment, findings)
 	}
-	private := make([]betterLeaksOccurrence, 0)
+	var private []betterLeaksOccurrence
 	if fragment.Kind == FragmentJSON {
 		// A successfully decoded JSON fragment is collected from the same
 		// semantic tokens as scanJSONPayload. Raw scanning is reserved for the

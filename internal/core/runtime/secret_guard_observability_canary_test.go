@@ -347,7 +347,7 @@ func newCanaryGuard(t *testing.T, action string, exact, better bool, secret stri
 
 func newCanaryGeneration(t *testing.T, exact, better bool, env observabilityCanaryEnv) (*featuresecretguard.GenerationServices, engine.Source) {
 	t.Helper()
-	var source engine.Source = engine.NewDisabledSource()
+	source := engine.NewDisabledSource()
 	if exact {
 		var err error
 		source, err = engine.NewSingleUserSource(env, engine.SingleUserOptions{})
