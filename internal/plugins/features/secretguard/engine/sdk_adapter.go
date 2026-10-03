@@ -28,6 +28,12 @@ func (a matcherAdapter) ScanString(ctx context.Context, input string) ([]sdk.Fin
 	return a.m.ScanString(input), nil
 }
 
+// ScanOccurrences is the feature-private positional extension. It accepts
+// only actual request content and returns spans plus safe attribution.
+func (a matcherAdapter) ScanOccurrences(input []byte) []Occurrence {
+	return a.m.ScanOccurrences(input)
+}
+
 func (a matcherAdapter) RedactBytes(ctx context.Context, input []byte) ([]byte, []sdk.Finding, error) {
 	_ = ctx
 	out, findings := a.m.RedactBytes(input)

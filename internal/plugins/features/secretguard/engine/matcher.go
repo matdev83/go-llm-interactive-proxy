@@ -23,6 +23,17 @@ type Matcher struct {
 	opts    MatcherOptions
 }
 
+// Occurrence is feature-private positional metadata for one exact match.
+// It contains only safe catalog attribution and the caller-provided span; it
+// never exposes catalog values or a catalog accessor.
+type Occurrence struct {
+	Start          int
+	End            int
+	SecretRefName  string
+	Aliases        []string
+	SourceCategory sdk.SourceCategory
+}
+
 // NewMatcher returns an immutable matcher bound to cat with default options
 // (full-length mask, no known-prefix preservation).
 // A nil or empty catalog yields a matcher that never matches.
@@ -71,6 +82,31 @@ func (m *Matcher) ScanString(input string) []sdk.Finding {
 		return nil
 	}
 	return m.ScanBytes([]byte(input))
+}
+
+// ScanOccurrences reports exact match spans for the supplied request content.
+// The method is deliberately concrete-engine-only; the public SDK Matcher
+// contract remains safe-finding based and unchanged.
+func (m *Matcher) ScanOccurrences(input []byte) []Occurrence {
+	if m == nil || len(m.entries) == 0 || len(input) == 0 {
+		return nil
+	}
+	hits := m.selectMatches(input)
+	if len(hits) == 0 {
+		return nil
+	}
+	out := make([]Occurrence, 0, len(hits))
+	for _, hit := range hits {
+		entry := m.entries[hit.entryIdx]
+		out = append(out, Occurrence{
+			Start:          hit.start,
+			End:            hit.start + hit.length,
+			SecretRefName:  entry.primaryName,
+			Aliases:        slices.Clone(entry.aliases),
+			SourceCategory: entry.sourceCategory,
+		})
+	}
+	return out
 }
 
 // RedactBytes returns a copy of input with matched spans masked.

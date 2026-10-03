@@ -82,6 +82,7 @@ type betterLeaksSpan struct {
 type betterLeaksOccurrence struct {
 	value          []byte
 	span           betterLeaksSpan
+	fieldID        string
 	ruleID         string
 	role           betterLeaksOccurrenceRole
 	representation betterLeaksOccurrenceRepresentation
@@ -218,7 +219,7 @@ func (s *betterLeaksScanner) scanFragments(ctx context.Context, fragments []Logi
 		if len(fragment.Raw) == 0 {
 			continue
 		}
-		if err := s.scanSource(ctx, betterLeaksLogicalFragmentSource{raw: fragment.Raw}, fragment.Location, &result); err != nil {
+		if err := s.scanSourceWithFieldID(ctx, betterLeaksLogicalFragmentSource{raw: fragment.Raw}, fragment.Location, fragment.privateID, &result); err != nil {
 			return result, err
 		}
 	}
@@ -230,6 +231,10 @@ func (s *betterLeaksScanner) scanFragments(ctx context.Context, fragments []Logi
 // adapter tests. The source callback projects every report immediately and
 // stops before the request-wide projected finding cap can be exceeded.
 func (s *betterLeaksScanner) scanSource(ctx context.Context, source sources.Source, location string, result *betterLeaksScanResult) error {
+	return s.scanSourceWithFieldID(ctx, source, location, "", result)
+}
+
+func (s *betterLeaksScanner) scanSourceWithFieldID(ctx context.Context, source sources.Source, location, fieldID string, result *betterLeaksScanResult) error {
 	if s == nil || s.scanner == nil || source == nil || result == nil {
 		return newBetterLeaksUnavailableError()
 	}
@@ -247,7 +252,7 @@ func (s *betterLeaksScanner) scanSource(ctx context.Context, source sources.Sour
 		if len(result.Findings) >= s.findingCap() {
 			return errBetterLeaksFindingCap
 		}
-		projected, err := projectBetterLeaksFinding(finding, location, admittedRaw)
+		projected, err := projectBetterLeaksFindingWithFieldID(finding, location, fieldID, admittedRaw)
 		if err != nil {
 			return err
 		}
@@ -271,6 +276,10 @@ func (s *betterLeaksScanner) findingCap() int {
 }
 
 func projectBetterLeaksFinding(finding report.Finding, location string, admittedRaw []byte) (betterLeaksFinding, error) {
+	return projectBetterLeaksFindingWithFieldID(finding, location, "", admittedRaw)
+}
+
+func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fieldID string, admittedRaw []byte) (betterLeaksFinding, error) {
 	if len(finding.RuleID) > maxBetterLeaksProjectedField || len(location) > maxBetterLeaksProjectedField {
 		return betterLeaksFinding{}, errBetterLeaksProjection
 	}
@@ -353,6 +362,14 @@ func projectBetterLeaksFinding(finding report.Finding, location string, admitted
 		}
 		return !projected.Components[i].Optional && projected.Components[j].Optional
 	})
+	for i := range projected.occurrences {
+		projected.occurrences[i].fieldID = fieldID
+	}
+	for componentIndex := range projected.Components {
+		for occurrenceIndex := range projected.Components[componentIndex].occurrences {
+			projected.Components[componentIndex].occurrences[occurrenceIndex].fieldID = fieldID
+		}
+	}
 	return projected, nil
 }
 

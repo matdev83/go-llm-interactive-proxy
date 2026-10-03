@@ -70,7 +70,7 @@
     - _Depends: 3.1_
     - _Validation: cancellation/error/cap/concurrency tests_
 
-- [ ] 4. Project findings safely and merge hybrid detector results
+- [x] 4. Project findings safely and merge hybrid detector results
   - [x] 4.1 Extend safe finding provenance without leaking BetterLeaks internals
     - Add only bounded detector/rule/confidence metadata needed by audit and diagnostics.
     - Keep raw matches, captures, components, context, fingerprints, and fragments private.
@@ -80,7 +80,7 @@
     - _Depends: 3.2_
     - _Validation: serialization/leak tests + existing SDK consumers_
 
-  - [ ] 4.2 Implement private deduplication and deterministic merge
+  - [x] 4.2 Implement private deduplication and deterministic merge
     - Deduplicate exact and BetterLeaks reports using private concrete occurrence/span/value identity before public projection.
     - Preserve meaningful exact source/reference attribution and attach BetterLeaks provenance without double-counting one occurrence.
     - Sort merged findings deterministically independent of worker scheduling.
@@ -203,5 +203,7 @@
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
 
 ## Implementation Notes
+
+- Hybrid occurrence mapping must follow the canonical UseNumber decoder, first-value consumption, duplicate-key handling, and depth rejection; raw JSON escape syntax is not an additional semantic occurrence.
 
 - BetterLeaks validates optional component references too; isolated rules prune unselected optional references and retain explicitly selected optional components with their pinned behavior. `disable_rules` removes only explicitly selected IDs and rejects removal of a required component while any rule requiring it remains. Dependency updates also require tidying the external-billing and enterprise fixture modules.

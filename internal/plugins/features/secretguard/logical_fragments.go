@@ -29,7 +29,11 @@ type LogicalFragment struct {
 	Kind     FragmentKind
 	Raw      []byte
 
-	replace func([]byte)
+	// privateID distinguishes canonical fields that intentionally share a
+	// public location (for example tool-result text and raw JSON content).
+	// It never crosses the feature-private merger boundary.
+	privateID string
+	replace   func([]byte)
 }
 
 func (f LogicalFragment) setRaw(raw []byte) {
@@ -81,10 +85,11 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 			return budget.limitHit
 		}
 		fragments = append(fragments, LogicalFragment{
-			Location: location,
-			Kind:     FragmentText,
-			Raw:      []byte(*value),
-			replace:  func(raw []byte) { *value = string(raw) },
+			Location:  location,
+			Kind:      FragmentText,
+			Raw:       []byte(*value),
+			privateID: fmt.Sprintf("fragment[%d]", len(fragments)),
+			replace:   func(raw []byte) { *value = string(raw) },
 		})
 		return false
 	}
@@ -93,10 +98,11 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 			return budget.limitHit
 		}
 		fragments = append(fragments, LogicalFragment{
-			Location: location,
-			Kind:     FragmentJSON,
-			Raw:      bytes.Clone(*value),
-			replace:  func(raw []byte) { *value = bytes.Clone(raw) },
+			Location:  location,
+			Kind:      FragmentJSON,
+			Raw:       bytes.Clone(*value),
+			privateID: fmt.Sprintf("fragment[%d]", len(fragments)),
+			replace:   func(raw []byte) { *value = bytes.Clone(raw) },
 		})
 		return false
 	}
