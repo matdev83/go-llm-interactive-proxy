@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	blconfig "github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/report"
 	blscan "github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -44,6 +45,19 @@ func TestNewBetterLeaksScanner_AllowMarkersDoNotSuppressFindings(t *testing.T) {
 				t.Fatalf("marker %q suppressed a detectable credential", marker)
 			}
 		})
+	}
+}
+
+func TestBetterLeaksScanner_FingerprintMatchesPinnedAlgorithm(t *testing.T) {
+	detector := newTestBetterLeaksScanner(t)
+	findings := scanBetterLeaksTestFragment(t, detector, "GITHUB_TOKEN="+adapterGitHubToken)
+	if len(findings) == 0 {
+		t.Fatal("fingerprint fixture produced no finding")
+	}
+	got := findings[0].Match.Fingerprint
+	want := fingerprint.Format(fingerprint.Sum([]byte(findings[0].Match.Value)))
+	if got == "" || got != want {
+		t.Fatal("fingerprint did not match the pinned BetterLeaks algorithm")
 	}
 }
 

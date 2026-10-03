@@ -144,7 +144,7 @@
     - _Depends: 6.2_
     - _Validation: depth-1 encoded fixtures under all actions_
 
-- [ ] 7. Harden observability and failure privacy
+- [x] 7. Harden observability and failure privacy
   - [x] 7.1 Add bounded detector diagnostics and audit provenance
     - Project detector posture and BetterLeaks policy facts into existing secret-guard diagnostics.
     - Add detector/rule/confidence only where bounded audit consumers need explanation; keep metrics low-cardinality.
@@ -154,7 +154,7 @@
     - _Depends: 4.1, 5.3_
     - _Validation: inventory and structured audit tests_
 
-  - [ ] 7.2 (P) Add end-to-end anti-secret observability canaries
+  - [x] 7.2 (P) Add end-to-end anti-secret observability canaries
     - Feed unique synthetic credentials through exact, BetterLeaks, overlapping, decoded, scanner-error, and redaction-failure paths.
     - Capture ordinary logs, structured audit, metrics text/labels, diagnostics, errors, and decision DTOs and assert the raw canary/fingerprint/context never appears.
     - _Requirements: 5.1, 5.2, 5.5, 9.4, 9.5_
