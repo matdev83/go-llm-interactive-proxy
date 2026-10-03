@@ -37,17 +37,23 @@ type StateAuthority interface {
 type ClassifierDeps struct {
 	// State resolves the shared process coordinator. Required.
 	State StateAuthority
+	// Observer receives bounded classification observations. Nil disables
+	// observation entirely, which is what keeps requirement 9.6 true for a
+	// generation that never publishes a classifier.
+	Observer Observer
 	// Now supplies promotion timestamps. Nil selects time.Now.
 	Now func() time.Time
 }
 
 // Classifier is the concrete standard-feature classifier bound to one immutable
-// generation. It holds only bounded policy and the shared state authority; it
-// never retains request content, raw identities, or per-session workers.
+// generation. It holds only bounded policy, the shared state authority, and a
+// bounded observation sink; it never retains request content, raw identities,
+// or per-session workers.
 type Classifier struct {
-	cfg   Config
-	state StateAuthority
-	now   func() time.Time
+	cfg      Config
+	state    StateAuthority
+	observer Observer
+	now      func() time.Time
 }
 
 var _ sdkclassification.Classifier = (*Classifier)(nil)
@@ -71,7 +77,7 @@ func NewClassifier(cfg Config, deps ClassifierDeps) (*Classifier, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Classifier{cfg: policy, state: deps.State, now: now}, nil
+	return &Classifier{cfg: policy, state: deps.State, observer: deps.Observer, now: now}, nil
 }
 
 // ID returns the stable identity of the standard session-classification feature.
@@ -95,30 +101,40 @@ func (c *Classifier) Classify(ctx context.Context, in sdkclassification.Input) (
 	// Requirement 1.4/6.5: an accepted positive classification is immutable for
 	// the whole logical session, so no state work is required for later turns.
 	if current.IsCodingAgent() {
+		c.observeEvaluation(EvaluationPreserved)
 		return current, nil
 	}
 	if err := ValidateStoreContext(ctx); err != nil {
+		// A nil or already-canceled context is a caller-side rejection, not a
+		// classification decision. It is still reported through the bounded
+		// fail-open outcome so no evaluation is silently unobserved.
+		c.observeEvaluation(EvaluationStateUnavailable)
 		return current, err
 	}
 	key, keyErr := ResolveKey(in.Session)
 	if keyErr != nil {
 		// Without proxy-owned authority there is nothing to scope state to, and
 		// a client-controlled hint is never state authority (requirements 2.2/2.3).
+		c.observeEvaluation(EvaluationNoAuthority)
 		return current, nil
 	}
 	store, err := c.state.ClassificationState()
 	if err != nil {
+		c.observeEvaluation(EvaluationStateUnavailable)
 		return current, fmt.Errorf("%w: %w", ErrStateUnavailable, err)
 	}
 	if store == nil {
+		c.observeEvaluation(EvaluationStateUnavailable)
 		return current, ErrStateUnavailable
 	}
 
 	record, found, err := store.Load(ctx, key)
 	if err != nil {
+		c.observeEvaluation(EvaluationStateUnavailable)
 		return current, fmt.Errorf("%w: %w", ErrStateUnavailable, err)
 	}
 	if found && record.Classification.IsCodingAgent() {
+		c.observeEvaluation(EvaluationRestored)
 		return record.Classification, nil
 	}
 
@@ -126,6 +142,7 @@ func (c *Classifier) Classify(ctx context.Context, in sdkclassification.Input) (
 	if !decision.Promotes {
 		// Unknown stays unknown. Absence of evidence is not a negative
 		// classification and creates no durable state.
+		c.observeEvaluation(c.noPromotionOutcome(decision, in.Evidence.ClientUserAgent))
 		return session.Classification{}, nil
 	}
 	proposal := session.Classification{
@@ -136,14 +153,98 @@ func (c *Classifier) Classify(ctx context.Context, in sdkclassification.Input) (
 		Revision:   1,
 	}
 	if err := ValidatePositiveProposal(proposal); err != nil {
+		c.observeEvaluation(EvaluationStateUnavailable)
 		return session.Classification{}, err
 	}
-	promoted, _, err := store.Promote(ctx, key, proposal, c.now())
+	promoted, didPromote, err := store.Promote(ctx, key, proposal, c.now())
 	if err != nil {
+		c.observeEvaluation(EvaluationStateUnavailable)
 		return session.Classification{}, fmt.Errorf("%w: %w", ErrStateUnavailable, err)
 	}
 	if !promoted.Classification.IsCodingAgent() {
+		// A store that neither accepted the proposal nor holds a positive leaves
+		// the session unknown; absence of evidence is not a negative
+		// classification.
+		c.observeEvaluation(EvaluationRestored)
 		return session.Classification{}, nil
 	}
+	// Requirement 9.1/2.5: the transition observation belongs to the caller that
+	// actually established the first positive. A store coalesces concurrent
+	// attempts for one authority key and returns the winner's positive record
+	// with promoted=false to a coalesced-flight waiter or a cached-positive
+	// short-circuit, so record positivity alone cannot identify the owner.
+	if !didPromote {
+		// A concurrent turn owns this session's first positive. Requirement 1.4
+		// still requires this turn to project the accepted positive, so only the
+		// observation is suppressed here.
+		c.observeEvaluation(EvaluationRestored)
+		return promoted.Classification, nil
+	}
+	c.observeTransition(promoted.Classification)
+	c.observeEvaluation(EvaluationPromoted)
 	return promoted.Classification, nil
+}
+
+// noPromotionOutcome maps a non-promoting evaluation to the closed diagnostic
+// vocabulary of requirement 9.2. It reads only bounded policy and the already
+// captured bounded evidence code, so it can never derive a label from the raw
+// User-Agent itself.
+func (c *Classifier) noPromotionOutcome(decision LocalDecision, clientUserAgent string) EvaluationOutcome {
+	// Requirement 3.7: an exclusion prevented a prospective local match. This is
+	// the most specific bounded fact available, so it is reported ahead of the
+	// generic remote-eligibility diagnostic and stays visible in every mode. It
+	// is reported without echoing the excluded value.
+	if ExcludedIdentity(c.cfg, clientUserAgent) {
+		return EvaluationExcluded
+	}
+	if c.remoteEligibleAfterLocal(decision) {
+		return EvaluationRemoteSkipped
+	}
+	return EvaluationUnknown
+}
+
+// remoteEligibleAfterLocal reports whether this generation's mode leaves the
+// still-unknown session eligible for a configured remote decision.
+//
+// Requirement 6.3 makes a jev-mode promotion depend entirely on the configured
+// remote decision, so every still-unknown jev turn is remote-eligible.
+// Requirement 6.4 makes a hybrid-mode turn remote-eligible exactly when local
+// evaluation found no decisive evidence, which is the only way a hybrid turn
+// reaches here because decisive local evidence promotes in hybrid mode. No remote
+// attempt is made yet, so the faithful bounded diagnostic is a skipped remote
+// decision rather than a bare unknown.
+func (c *Classifier) remoteEligibleAfterLocal(decision LocalDecision) bool {
+	switch c.cfg.Mode {
+	case ModeJev:
+		return true
+	case ModeHybrid:
+		return decision.EvidenceCode == ""
+	default:
+		return false
+	}
+}
+
+// observeEvaluation records one bounded outcome. The observation sink is
+// optional, so a deployment that never configures one performs no work beyond a
+// nil check (requirements 9.6, 10.8).
+func (c *Classifier) observeEvaluation(outcome EvaluationOutcome) {
+	if c == nil || c.observer == nil {
+		return
+	}
+	c.observer.ObserveEvaluation(EvaluationObservation{Mode: c.cfg.Mode, Outcome: outcome})
+}
+
+// observeTransition records the single first accepted positive transition for a
+// logical session, projecting only the bounded snapshot the store assigned
+// (requirements 9.1, 9.5).
+func (c *Classifier) observeTransition(classification session.Classification) {
+	if c == nil || c.observer == nil {
+		return
+	}
+	c.observer.ObserveTransition(TransitionObservation{
+		Source:     classification.Source,
+		Confidence: classification.Confidence,
+		Evidence:   classification.Evidence,
+		Revision:   classification.Revision,
+	})
 }

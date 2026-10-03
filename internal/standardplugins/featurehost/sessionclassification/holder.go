@@ -27,7 +27,7 @@ type schemaStore interface {
 type holderFactories struct {
 	newMemoryStore func() (featurestate.Store, error)
 	newBunStore    func(*bun.DB) (schemaStore, error)
-	newCoordinator func(featurestate.Store) (*Coordinator, error)
+	newCoordinator func(featurestate.Store, featurestate.Observer) (*Coordinator, error)
 }
 
 func defaultHolderFactories() holderFactories {
@@ -38,8 +38,8 @@ func defaultHolderFactories() holderFactories {
 		newBunStore: func(db *bun.DB) (schemaStore, error) {
 			return NewBunStore(db)
 		},
-		newCoordinator: func(store featurestate.Store) (*Coordinator, error) {
-			return NewCoordinator(store, CoordinatorConfig{})
+		newCoordinator: func(store featurestate.Store, observer featurestate.Observer) (*Coordinator, error) {
+			return NewCoordinator(store, CoordinatorConfig{Observer: observer})
 		},
 	}
 }
@@ -195,7 +195,7 @@ func (h *StateHolder) initialize(ctx context.Context) (featurestate.Store, *Coor
 	if store == nil || h.factories.newCoordinator == nil {
 		return nil, nil, ErrStateHolderConfig
 	}
-	coordinator, err := h.factories.newCoordinator(store)
+	coordinator, err := h.factories.newCoordinator(store, h.Observer())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -229,6 +229,18 @@ func (h *StateHolder) Coordinator() *Coordinator {
 		return nil
 	}
 	return h.coordinator
+}
+
+// Observer returns the process-owned bounded observation sink for classification.
+// It is the same collector the metrics registry registered, so a generation's
+// classifier and the process coordinator record into one bounded surface. The
+// sink performs no feature work and is safe to resolve before any enabled
+// generation has initialized state.
+func (h *StateHolder) Observer() featurestate.Observer {
+	if h == nil || h.collector == nil {
+		return nil
+	}
+	return h.collector
 }
 
 // ClassificationState resolves the shared process coordinator for a

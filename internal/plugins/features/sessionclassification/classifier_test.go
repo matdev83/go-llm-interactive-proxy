@@ -222,9 +222,10 @@ func TestClassifierHoldsNoNetworkCapableDependency(t *testing.T) {
 	// can be constructed or called until a future task deliberately binds one.
 	typ := reflect.TypeOf(sessionclassification.Classifier{})
 	allowed := map[string]reflect.Type{
-		"cfg":   reflect.TypeOf(sessionclassification.Config{}),
-		"state": reflect.TypeOf((*sessionclassification.StateAuthority)(nil)).Elem(),
-		"now":   reflect.TypeOf((func() time.Time)(nil)),
+		"cfg":      reflect.TypeOf(sessionclassification.Config{}),
+		"state":    reflect.TypeOf((*sessionclassification.StateAuthority)(nil)).Elem(),
+		"observer": reflect.TypeOf((*sessionclassification.Observer)(nil)).Elem(),
+		"now":      reflect.TypeOf((func() time.Time)(nil)),
 	}
 	if typ.NumField() != len(allowed) {
 		t.Fatalf("classifier has %d fields, want exactly %d bounded fields", typ.NumField(), len(allowed))

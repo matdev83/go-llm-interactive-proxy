@@ -40,7 +40,13 @@ func (r *Runtime) bindSessionClassifier(outPlanes lipfeature.FrozenPlaneSet, in 
 	}
 	classifier, err := featureclassification.NewClassifier(cfg, featureclassification.ClassifierDeps{
 		State: r.sessionClassification,
-		Now:   classificationNowFunc(in.NowFn),
+		// The bounded observation sink exists only on the process-owned collector,
+		// which this holder owns for the whole process. Because the sink is bound
+		// here, an absent or disabled registration contributes no observer at all
+		// and therefore no classification-specific observation (requirements 9.6,
+		// 10.8).
+		Observer: r.sessionClassification.Observer(),
+		Now:      classificationNowFunc(in.NowFn),
 	})
 	if err != nil {
 		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("featurehost: session classification classifier: %w", err)

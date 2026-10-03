@@ -160,7 +160,7 @@ func TestStateHolder_FailedInitializationCanRetryAndCountsSuccessfulWorkOnce(t *
 			return nil
 		}}, nil
 	}
-	factories.newCoordinator = func(store featurestate.Store) (*Coordinator, error) {
+	factories.newCoordinator = func(store featurestate.Store, _ featurestate.Observer) (*Coordinator, error) {
 		coordinatorConstructs.Add(1)
 		return NewCoordinator(store, CoordinatorConfig{})
 	}
@@ -227,7 +227,7 @@ func TestStateHolder_ConcurrentAcquireCoalescesInitialization(t *testing.T) {
 		}}, nil
 	}
 	var coordinatorCalls atomic.Int32
-	factories.newCoordinator = func(store featurestate.Store) (*Coordinator, error) {
+	factories.newCoordinator = func(store featurestate.Store, _ featurestate.Observer) (*Coordinator, error) {
 		coordinatorCalls.Add(1)
 		return NewCoordinator(store, CoordinatorConfig{})
 	}
@@ -333,7 +333,7 @@ func TestStateHolder_CanceledInitializerCannotPublish(t *testing.T) {
 	}
 	factories := defaultHolderFactories()
 	var coordinatorCalls atomic.Int32
-	factories.newCoordinator = func(store featurestate.Store) (*Coordinator, error) {
+	factories.newCoordinator = func(store featurestate.Store, _ featurestate.Observer) (*Coordinator, error) {
 		coordinator, err := NewCoordinator(store, CoordinatorConfig{})
 		if coordinatorCalls.Add(1) == 1 {
 			cancel()
